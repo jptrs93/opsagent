@@ -1,0 +1,31 @@
+[Unit]
+Description=Opsagent deployment management server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=opsagent
+Group=opsagent
+
+ExecStart=/var/lib/opsagent/bin/opsagent
+
+# Environment — override via /etc/opsagent/env or systemctl edit
+EnvironmentFile=-/etc/opsagent/env
+
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+# Allow writes to the data dir and the nix store (for spawner symlink resolution)
+ReadWritePaths=/var/lib/opsagent
+# Allow writes to ACME cert cache
+ReadWritePaths=/var/lib/opsagent/.certs
+# Allow binding to privileged ports (80/443)
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

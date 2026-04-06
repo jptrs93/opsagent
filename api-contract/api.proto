@@ -1,0 +1,357 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "options.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+service OpsagentHttpV1 {
+  // Static file serving
+  rpc Get(cp.Empty) returns (cp.Empty) {
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc GetV1Healthz(cp.Empty) returns (cp.Empty) {
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  // Auth: master password bootstrap
+  rpc PostV1AuthMaster(MasterPasswordRequest) returns (LoginResponse) {
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc GetV1AuthCurrentSession(cp.Empty) returns (LoginResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
+  }
+
+  // Auth: passkey registration (requires passkey:create or default scope)
+  rpc PostV1AuthPasskeyRegisterStart(EmptyRequest) returns (WebAuthNOptionsResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
+  }
+
+  rpc PostV1AuthPasskeyRegisterFinish(WebAuthNFinishRequest) returns (LoginResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
+  }
+
+  // Auth: passkey login
+  rpc PostV1AuthPasskeyLoginStart(EmptyRequest) returns (WebAuthNOptionsResponse) {
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc PostV1AuthPasskeyLoginFinish(WebAuthNFinishRequest) returns (LoginResponse) {
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  // Config management
+  rpc PutV1Config(PutConfigRequest) returns (UserConfigVersion) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc GetV1ConfigHistory(cp.Empty) returns (UserConfigHistory) {
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Deployment state stream
+  rpc PostV1StateStream(cp.Empty) returns (stream State) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Deployment updates (deploy, stop, etc.)
+  rpc PostV1DeploymentUpdate(DeploymentUpdateRequest) returns (DesiredState) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc GetV1DeploymentHistory(cp.Empty) returns (DeploymentHistory) {
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1PrepareOutput(cp.Empty) returns (cp.Empty) {
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1RunOutput(cp.Empty) returns (cp.Empty) {
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Preparer version discovery
+  rpc PostV1ListScopes(ListScopesRequest) returns (ListScopesResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1ListVersions(ListVersionsRequest) returns (ListVersionsResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+}
+
+// === Auth messages ===
+
+message EmptyRequest {}
+
+message MasterPasswordRequest {
+  string password = 1;
+  string username = 2;
+}
+
+message LoginResponse {
+  string token = 1;
+  int32 user_id = 2;
+  repeated string scopes = 3;
+  string name = 4;
+  int64 expiry = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+}
+
+message WebAuthNOptionsResponse {
+  string session_id = 1;
+  bytes options_json = 2;
+}
+
+message WebAuthNFinishRequest {
+  string session_id = 1;
+  bytes credential_json = 2;
+}
+
+// === Deployment config messages ===
+
+message NixBuildConfig {
+  string repo = 1;
+  string flake = 2; // path to flake.nix relative to repo root
+}
+
+message GithubReleaseConfig {
+  string repo = 1;
+  string asset = 2; // asset name (optional; falls back to first asset)
+  string tag = 3;   // optional explicit tag
+}
+
+message PrepareConfig {
+  NixBuildConfig nix_build = 1;
+  GithubReleaseConfig github_release = 2;
+}
+
+message OsProcessRunnerConfig {
+  string working_dir = 1;
+  string run_as = 2; // OS user to run the deployment process as (default: "ubuntu", ignored in local dev)
+}
+
+message SystemdRunnerConfig {
+  string name = 1;     // systemd unit name
+  string bin_path = 2; // where the artifact is installed on disk
+}
+
+message RunnerConfig {
+  OsProcessRunnerConfig os_process = 1;
+  SystemdRunnerConfig systemd = 2;
+}
+
+message PutConfigRequest {
+  string yaml_content = 1;
+}
+
+// UserConfigVersion is a compact snapshot used by the history view. Written
+// (and stamped with a monotonically-increasing version) whenever the user
+// posts new yaml via PutV1Config.
+message UserConfigVersion {
+  int32 version = 1;
+  int64 timestamp = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int32 updated_by = 3;
+  string yaml_content = 4;
+}
+
+message UserConfigHistory {
+  repeated UserConfigVersion versions = 1;
+}
+
+// === Deployment status messages ===
+
+enum RunningStatus {
+  DEPLOYMENT_STATUS_UNKNOWN = 0;
+  NO_DEPLOYMENT = 1;
+  RUNNING = 2;
+  STOPPED = 3;
+  STARTING = 4;
+  CRASHED = 5;
+}
+
+enum PreparationStatus {
+  PREPARATION_STATUS_UNKNOWN = 0;
+  PREPARING = 2;
+  DOWNLOADING = 3;
+  READY = 4;
+  FAILED = 5;
+}
+
+// State is the UI stream envelope. The primary emits an initial snapshot
+// (and user config) on subscribe, then emits updates as the store sees
+// changes, with periodic heartbeats to keep the HTTP connection alive.
+message State {
+  bool heartbeat = 1;
+  DeploymentWithStatusSnapshot deployments_snapshot = 2;
+  DeploymentWithStatus deployment_update = 3;
+  UserConfigVersion user_config_snapshot = 4;
+  UserConfigVersion user_config_update = 5;
+}
+
+message DeploymentWithStatusSnapshot {
+  repeated DeploymentWithStatus items = 1;
+}
+
+message DeploymentHistory {
+  repeated DeploymentConfig entries = 1;
+}
+
+// === Deployment update / version request messages ===
+
+message DeploymentUpdateRequest {
+  DeploymentIdentifier id = 1;
+  string target_version = 2;
+  bool stop = 3;
+  int32 seq_no = 4;
+}
+
+message PrepareOutputRequest {
+  DeploymentIdentifier id = 1;
+  int32 seq_no = 2;
+}
+
+message RunOutputRequest {
+  DeploymentIdentifier id = 1;
+  int32 seq_no = 2;
+}
+
+
+message DeploymentIdentifier {
+  string environment = 1;
+  string machine = 2;
+  string name = 3;
+}
+
+message DeploymentSpec {
+  PrepareConfig prepare = 1;
+  RunnerConfig runner = 2;
+}
+
+message DesiredState {
+  string version = 1;
+  bool running = 2;
+}
+
+message DeploymentConfig {
+  DeploymentIdentifier id = 1;
+  int32 seq_no = 2;  // per-deployment monotonically increasing cursor
+  int64 updated_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int32 updated_by = 4;
+  DeploymentSpec spec = 5;
+  DesiredState desired_state = 6;
+  bool deleted = 7;
+}
+
+
+message DeploymentWithStatus {
+  DeploymentConfig Config = 1;
+  DeploymentStatus status = 2;
+}
+
+message DeploymentStatus {
+  int32 status_seq_no = 1; // per-deployment status monotonically increasing cursor
+  int64 timestamp = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  DeploymentIdentifier deployment_id = 3;
+  PreparerStatus preparer = 4;
+  RunnerStatus runner = 5;
+}
+
+message PreparerStatus {
+  int32 deployment_seq_no = 1;
+  string artifact = 2;
+  PreparationStatus status = 3;
+}
+
+message RunnerStatus {
+  int32 deployment_seq_no = 1;
+  int32 running_pid = 2;
+  string running_artifact= 3;
+  RunningStatus status = 4;
+  int32 number_of_restarts = 6;
+  int64 last_restart_at = 7 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+}
+
+
+
+// Version is a preparer-neutral representation of a deployable version:
+// a nix build's commit hash or a github release's tag name.
+message Version {
+  string id = 1;      // commit hash or release tag
+  string label = 2;   // short human-readable label (commit subject or release name)
+  string author = 3;
+  int64 time = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+}
+
+message ListScopesRequest {
+  string environment = 1;
+  string deployment_name = 2;
+}
+
+message ListScopesResponse {
+  repeated string scopes = 1;
+}
+
+message ListVersionsRequest {
+  string environment = 1;
+  string deployment_name = 2;
+  string scope = 3; // optional; for nix this is the branch
+}
+
+message ListVersionsResponse {
+  repeated Version versions = 1;
+}
+
+// === Storage-only messages ===
+
+message User {
+  int32 id = 1;
+  string name = 2;
+}
+
+
+message WebAuthnCredential {
+  bytes id = 1;
+  bytes data = 2;
+}
+
+message InternalUser {
+  int32 id = 1;
+  bytes web_auth_n_id = 2;
+  string name = 3;
+  repeated WebAuthnCredential credentials = 4;
+}
+
+message PublicKeyRecord {
+  string kid = 1;
+  bytes key_bytes = 2;
+}
+
+// === Cluster protocol ===
+//
+// Primary and worker communicate over a length-prefixed TLS TCP stream.
+// Each frame is [4-byte big-endian length][protobuf payload].
+// Primary sends MsgToWorker; worker sends MsgToMaster.
+// Dispatch on whichever field is non-nil.
+
+message MsgToWorker {
+  DeploymentWithStatusSnapshot deployments_snapshot = 1;
+  DeploymentConfig deployment_update = 2;
+  PrepareOutputRequest prepare_log_request = 3;
+  RunOutputRequest run_log_request = 4;
+}
+
+message MsgToMaster {
+  DeploymentStatus status_write = 1;
+  bytes log_data = 2;
+  bool log_end = 3;
+}

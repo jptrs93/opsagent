@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package cp;
+
+import "google/protobuf/descriptor.proto";
+
+enum AccessPolicyType {
+  ACCESS_POLICY_TYPE_UNSPECIFIED = 0;
+  NO_AUTH = 1;
+  OPTIONAL_AUTH = 2;
+  ANY_OF = 3;
+}
+
+message AccessPolicy {
+  AccessPolicyType policy_type = 1;
+  repeated string scopes = 2;
+}
+
+message Empty {}
+
+message ApiErr {
+  int32 code = 1;
+  string display_err = 2;
+  string internal_err = 3 [(cp.go_encode) = false];
+}
+
+extend google.protobuf.FieldOptions {
+  string go_type = 50010;
+  bool go_encode = 50012;
+  bool go_ignore = 50014;
+
+  string js_type = 50011;
+  bool js_encode = 50013;
+  bool js_ignore = 50015;
+
+  string ts_type = 50016;
+  bool ts_encode = 50017;
+  bool ts_ignore = 50018;
+
+  bool json_ignore = 50019;
+  bool audit_ignore = 50020;
+}
+
+extend google.protobuf.MethodOptions {
+  bool go_custom = 50013;
+  string operation_id = 50031;
+  bool audit = 50032;
+  AccessPolicy policy = 50030;
+}
