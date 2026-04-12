@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 )
 
 // MaxFrameSize is the hard upper limit on a single frame payload. This
@@ -89,6 +90,11 @@ func (c *Conn) ReadFrame() ([]byte, error) {
 	}
 
 	return payload, nil
+}
+
+// SetReadDeadline sets a deadline on the next read. Pass a zero time to clear.
+func (c *Conn) SetReadDeadline(t time.Time) error {
+	return c.conn.SetReadDeadline(t)
 }
 
 // Close closes the underlying TLS connection.

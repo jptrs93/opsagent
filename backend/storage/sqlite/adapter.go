@@ -520,6 +520,80 @@ func (s *StorageAdapter) insertDefaultStatus(ctx context.Context, q *Queries, db
 	s.statusCache[*id] = st
 }
 
+// --- secondary (slave) store: write full config from primary ---
+
+// MustWriteDeploymentConfig persists a full DeploymentConfig received from the
+// primary node. It upserts the config row, creates a default status for new
+// deployments, and notifies subscribers so the local operator picks it up.
+func (s *StorageAdapter) MustWriteDeploymentConfig(ctx context.Context, cfg *apigen.DeploymentConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	bgCtx := context.Background()
+	tx, err := s.db.BeginTx(bgCtx, nil)
+	if err != nil {
+		panic(fmt.Sprintf("begin tx: %v", err))
+	}
+	defer tx.Rollback()
+
+	q := s.q.WithTx(tx)
+	id := cfg.ID
+	dbID := s.mustResolveDeploymentID(bgCtx, tx, id)
+	_, exists := s.configCache[*id]
+
+	var specBlob []byte
+	if cfg.Spec != nil {
+		specBlob = cfg.Spec.Encode()
+	}
+
+	desiredVersion := ""
+	desiredRunning := int64(0)
+	if cfg.DesiredState != nil {
+		desiredVersion = cfg.DesiredState.Version
+		desiredRunning = boolToInt(cfg.DesiredState.Running)
+	}
+
+	params := UpsertDeploymentConfigParams{
+		DeploymentID:   dbID,
+		SeqNo:          int64(cfg.SeqNo),
+		UpdatedAt:      cfg.UpdatedAt.UnixMilli(),
+		UpdatedBy:      int64(cfg.UpdatedBy),
+		SpecBlob:       specBlob,
+		DesiredVersion: desiredVersion,
+		DesiredRunning: desiredRunning,
+		Deleted:        boolToInt(cfg.Deleted),
+	}
+	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
+		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
+	}
+
+	if !exists {
+		now := time.Now().UnixMilli()
+		s.insertDefaultStatus(bgCtx, q, dbID, id, now)
+	}
+
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit: %v", err))
+	}
+
+	s.configCache[*id] = cfg
+	s.notifyFromCache(*id)
+}
+
+// SubscribeDeploymentUpdates returns a channel of deployment changes filtered
+// by machine, along with an unsubscribe function the caller must invoke when
+// done.
+func (s *StorageAdapter) SubscribeDeploymentUpdates(machine string) (chan apigen.DeploymentWithStatus, func()) {
+	var filter func(apigen.DeploymentWithStatus) bool
+	if machine != "" {
+		filter = func(dws apigen.DeploymentWithStatus) bool {
+			return dws.Config.ID.Machine == machine
+		}
+	}
+	sub, unsub := s.subs.Subscribe(filter)
+	return sub.Ch, unsub
+}
+
 // --- internal helpers ---
 
 func (s *StorageAdapter) lookupDeploymentID(ctx context.Context, id *apigen.DeploymentIdentifier) (int64, error) {

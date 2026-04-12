@@ -3,6 +3,7 @@ package slave
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -72,24 +73,37 @@ func runPrimaryConnLoop(ctx context.Context, cfg Config, store *sqlite.StorageAd
 		backoff = time.Second
 
 		slog.Info("slave connected to primary", "peer", conn.PeerName())
-		runSession(ctx, conn, store)
+		runSession(ctx, conn, store, cfg.MachineName)
 		conn.Close()
 	}
 }
 
-// runSession handles one connected cluster session: read the initial
-// snapshot, apply it, then process incoming config updates and log
-// requests. Returns when the connection drops or ctx is done.
-//
-// TODO: wire outgoing status-push. Needs a pushOut hook on mem.
-func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.StorageAdapter) {
+// runSession handles one connected cluster session: read messages from the
+// primary (snapshot, config updates, log requests), apply state to the local
+// store, and push local status changes back. Returns when the connection
+// drops or ctx is done.
+func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.StorageAdapter, machine string) {
+	sessCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Subscribe to local deployment updates to push status back to primary.
+	statusCh, unsub := store.SubscribeDeploymentUpdates(machine)
+	defer unsub()
+
+	go statusPushLoop(sessCtx, conn, statusCh)
+
+	// Read timeout: the primary sends heartbeats every 5s. If we don't
+	// receive any frame within 15s, assume the connection is dead.
+	const readTimeout = 15 * time.Second
+
 	for {
 		select {
-		case <-ctx.Done():
+		case <-sessCtx.Done():
 			return
 		default:
 		}
 
+		conn.SetReadDeadline(time.Now().Add(readTimeout))
 		payload, err := conn.ReadFrame()
 		if err != nil {
 			slog.Info("primary connection read error", "err", err)
@@ -103,17 +117,74 @@ func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.StorageAd
 
 		switch {
 		case msg.DeploymentsSnapshot != nil:
-			// TODO: apply snapshot to mem store.
-			slog.Info("received deployments snapshot", "count", len(msg.DeploymentsSnapshot.Items))
+			applySnapshot(sessCtx, store, msg.DeploymentsSnapshot)
 		case msg.DeploymentUpdate != nil:
-			// TODO: apply deployment update to mem store.
-			slog.Info("received deployment update", "seq_no", msg.DeploymentUpdate.SeqNo)
+			applyConfigUpdate(sessCtx, store, msg.DeploymentUpdate)
 		case msg.PrepareLogRequest != nil:
 			go streamPrepareLog(conn, msg.PrepareLogRequest)
 		case msg.RunLogRequest != nil:
 			go streamRunLog(conn, msg.RunLogRequest)
 		}
 	}
+}
+
+// statusPushLoop forwards local status changes to the primary. It tracks the
+// last StatusSeqNo sent per deployment to avoid echoing back statuses that
+// were just applied from a config write notification.
+func statusPushLoop(ctx context.Context, conn *cluster.Conn, ch <-chan apigen.DeploymentWithStatus) {
+	lastSeq := make(map[apigen.DeploymentIdentifier]int32)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case dws, ok := <-ch:
+			if !ok {
+				return
+			}
+			if dws.Status == nil || dws.Config == nil || dws.Config.ID == nil {
+				continue
+			}
+			id := *dws.Config.ID
+			if dws.Status.StatusSeqNo <= lastSeq[id] {
+				continue
+			}
+			lastSeq[id] = dws.Status.StatusSeqNo
+			msg := &apigen.MsgToMaster{StatusWrite: dws.Status}
+			if err := conn.WriteFrame(msg.Encode()); err != nil {
+				slog.Warn("failed sending status to primary", "err", err)
+				return
+			}
+		}
+	}
+}
+
+// applySnapshot writes each deployment config and status from the primary's
+// snapshot into the local store so the operator can reconcile them.
+func applySnapshot(ctx context.Context, store *sqlite.StorageAdapter, snap *apigen.DeploymentWithStatusSnapshot) {
+	slog.Info("applying deployments snapshot from primary", "count", len(snap.Items))
+	for _, item := range snap.Items {
+		if item.Config == nil || item.Config.ID == nil {
+			continue
+		}
+		store.MustWriteDeploymentConfig(ctx, item.Config)
+		if item.Status != nil {
+			store.MustWriteDeploymentStatus(ctx, *item.Config.ID, func(dst *apigen.DeploymentStatus) {
+				*dst = *item.Status
+			})
+		}
+	}
+}
+
+// applyConfigUpdate writes a single config update from the primary into the
+// local store.
+func applyConfigUpdate(ctx context.Context, store *sqlite.StorageAdapter, cfg *apigen.DeploymentConfig) {
+	if cfg == nil || cfg.ID == nil {
+		return
+	}
+	slog.Info("applying deployment config update from primary",
+		"id", fmt.Sprintf("%s:%s:%s", cfg.ID.Environment, cfg.ID.Machine, cfg.ID.Name),
+		"seqNo", cfg.SeqNo)
+	store.MustWriteDeploymentConfig(ctx, cfg)
 }
 
 // streamPrepareLog reads a prepare output file and sends it back to the primary

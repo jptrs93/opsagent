@@ -73,12 +73,12 @@ func (p *Primary) acceptLoop(ctx context.Context) {
 			p.OnSlaveConnect(machine)
 		}
 
-		go func() {
-			if err := sess.run(ctx); err != nil {
+		go func(s *Session) {
+			if err := s.run(ctx); err != nil {
 				slog.Info("worker session ended", "machine", machine, "err", err)
 			}
-			p.unregisterSession(machine)
-		}()
+			p.unregisterSession(machine, s)
+		}(sess)
 	}
 }
 
@@ -91,11 +91,11 @@ func (p *Primary) registerSession(machine string, sess *Session) {
 	p.sessions[machine] = sess
 }
 
-func (p *Primary) unregisterSession(machine string) {
+func (p *Primary) unregisterSession(machine string, expected *Session) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if sess, ok := p.sessions[machine]; ok {
-		sess.conn.Close()
+	if current, ok := p.sessions[machine]; ok && current == expected {
+		current.conn.Close()
 		delete(p.sessions, machine)
 	}
 }

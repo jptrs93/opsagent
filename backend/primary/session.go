@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/cluster"
@@ -48,7 +49,10 @@ func newSession(conn *cluster.Conn, machine string, store storage.PrimaryLocalSt
 // loop for incoming messages. Returns when the connection drops or the
 // context is cancelled.
 func (s *Session) run(ctx context.Context) error {
-	snapshot, updatesCh := s.store.MustFetchSnapshotAndSubscribe(ctx, s.machine)
+	sessCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	snapshot, updatesCh := s.store.MustFetchSnapshotAndSubscribe(sessCtx, s.machine)
 
 	items := make([]*apigen.DeploymentWithStatus, 0, len(snapshot))
 	for i := range snapshot {
@@ -64,9 +68,11 @@ func (s *Session) run(ctx context.Context) error {
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)
+		heartbeat := time.NewTicker(5 * time.Second)
+		defer heartbeat.Stop()
 		for {
 			select {
-			case <-ctx.Done():
+			case <-sessCtx.Done():
 				return
 			case dws, ok := <-updatesCh:
 				if !ok {
@@ -77,11 +83,17 @@ func (s *Session) run(ctx context.Context) error {
 					slog.Warn("forwarding deployment update to worker failed", "machine", s.machine, "err", err)
 					return
 				}
+			case <-heartbeat.C:
+				// Empty MsgToWorker as keepalive for slave read-deadline detection.
+				if err := s.conn.WriteFrame((&apigen.MsgToWorker{}).Encode()); err != nil {
+					return
+				}
 			}
 		}
 	}()
 
-	err := s.readLoop(ctx)
+	err := s.readLoop(sessCtx)
+	cancel() // stop writer immediately
 	<-writerDone
 	return err
 }
