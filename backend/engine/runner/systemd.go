@@ -53,13 +53,18 @@ func newSystemdRunner(parentCtx context.Context, store storage.OperatorStore, de
 	ctx, cancel := context.WithCancel(parentCtx)
 	sys := dep.Spec.Runner.Systemd
 
+	seqNo := dep.SeqNo
+	if prev != nil {
+		seqNo = prev.DeploymentSeqNo
+	}
+
 	r := &systemdRunner{
 		ctx:          ctx,
 		cancel:       cancel,
 		done:         make(chan struct{}),
 		store:        store,
 		id:           dep.ID,
-		seqNo:        dep.SeqNo,
+		seqNo:        seqNo,
 		unit:         normalizeUnit(sys.Name),
 		binPath:      sys.BinPath,
 		artifactPath: artifact,

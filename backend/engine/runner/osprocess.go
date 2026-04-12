@@ -58,13 +58,18 @@ func newOSProcessRunner(parentCtx context.Context, store storage.OperatorStore, 
 		workDir = ""
 	}
 
+	seqNo := dep.SeqNo
+	if prev != nil {
+		seqNo = prev.DeploymentSeqNo
+	}
+
 	r := &osProcessRunner{
 		ctx:        ctx,
 		cancel:     cancel,
 		done:       make(chan struct{}),
 		store:      store,
 		id:         dep.ID,
-		seqNo:      dep.SeqNo,
+		seqNo:      seqNo,
 		workDir:    workDir,
 		runAs:      resolveRunAs(osProcessRunAs(dep)),
 		outputPath: dep.RunOutputPath(),
