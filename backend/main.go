@@ -129,10 +129,11 @@ func runSlave() {
 
 	machineName := machineNameFromCert(cfg.ClusterCert)
 
-	slog.Info("starting in slave mode", "machine", machineName, "primary", cfg.PrimaryAddr)
+	slog.Info("starting in slave mode", "machine", machineName, "primary", cfg.PrimaryAddr, "primaryName", cfg.PrimaryName)
 	if err := slave.Run(context.Background(), slave.Config{
 		TLS:         tlsCfg,
 		PrimaryAddr: cfg.PrimaryAddr,
+		PrimaryName: cfg.PrimaryName,
 		MachineName: machineName,
 		DataDir:     cfg.DataDir,
 		GithubToken: cfg.GithubToken,

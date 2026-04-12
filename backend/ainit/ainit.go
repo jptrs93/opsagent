@@ -116,4 +116,5 @@ type Configuration struct {
 	ClusterKey    string `env:"OPSAGENT_CLUSTER_KEY,"`    // path to this node's private key
 	ClusterListen string `env:"OPSAGENT_CLUSTER_LISTEN,"` // mTLS listen address (e.g. ":9443")
 	PrimaryAddr   string `env:"OPSAGENT_PRIMARY_ADDR,"`   // slaves only: primary's mTLS address
+	PrimaryName   string `env:"OPSAGENT_PRIMARY_NAME,"`   // slaves only: primary's cert CN (for TLS verification when dialing by IP)
 }

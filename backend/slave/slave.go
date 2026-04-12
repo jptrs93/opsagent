@@ -22,6 +22,7 @@ import (
 type Config struct {
 	TLS         *tls.Config
 	PrimaryAddr string
+	PrimaryName string // cert CN of the primary (for TLS server name verification)
 	MachineName string
 	DataDir     string
 	GithubToken string
@@ -56,7 +57,7 @@ func runPrimaryConnLoop(ctx context.Context, cfg Config, store *sqlite.StorageAd
 			return
 		}
 
-		conn, err := cluster.Dial(cfg.PrimaryAddr, cfg.TLS)
+		conn, err := cluster.Dial(cfg.PrimaryAddr, cfg.TLS, cfg.PrimaryName)
 		if err != nil {
 			slog.Warn("primary dial failed; slave is disconnected",
 				"addr", cfg.PrimaryAddr,
