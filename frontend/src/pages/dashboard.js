@@ -4,6 +4,7 @@ import {navigate} from "../lib/router.js";
 import {sidebar} from "../components/sidebar.js";
 import {configPage} from "./config.js";
 import {statusPage} from "./status.js";
+import {clusterPage} from "./cluster.js";
 
 const { div, h1, span } = van.tags;
 
@@ -23,6 +24,7 @@ export function dashboard() {
             () => {
                 if (activePage.val === 'config') return configPage();
                 if (activePage.val === 'status') return statusPage();
+                if (activePage.val === 'cluster') return clusterPage();
                 return div({class: "p-6"}, "Unknown page");
             }
         )

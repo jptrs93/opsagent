@@ -80,6 +80,12 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  // Cluster
+  rpc GetV1ClusterStatus(cp.Empty) returns (ClusterStatusResponse) {
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   // Preparer version discovery
   rpc PostV1ListScopes(ListScopesRequest) returns (ListScopesResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
@@ -341,6 +347,19 @@ message InternalUser {
 message PublicKeyRecord {
   string kid = 1;
   bytes key_bytes = 2;
+}
+
+// === Cluster status ===
+
+message ClusterMachine {
+  string name = 1;
+  bool is_primary = 2;
+  bool connected = 3;
+  int64 connected_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+}
+
+message ClusterStatusResponse {
+  repeated ClusterMachine machines = 1;
 }
 
 // === Cluster protocol ===

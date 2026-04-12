@@ -47,6 +47,10 @@ export function sidebar(activePage) {
         div({class: "flex-1"}),
         div(
             {class: "p-3 border-t border-gray-800"},
+            item("Cluster", "cluster"),
+        ),
+        div(
+            {class: "p-3 border-t border-gray-800"},
             div({
                 class: "px-4 py-2 text-sm text-gray-400 hover:text-gray-200 cursor-pointer rounded hover:bg-surface-hover transition-colors",
                 onclick: () => {

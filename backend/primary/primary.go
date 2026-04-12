@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/cluster"
@@ -22,8 +23,9 @@ type Primary struct {
 	store  storage.PrimaryLocalStore
 	server *cluster.Server
 
-	mu       sync.RWMutex
-	sessions map[string]*Session // machine name → session
+	mu          sync.RWMutex
+	sessions    map[string]*Session   // machine name → session
+	connectedAt map[string]time.Time  // machine name → when session was accepted
 
 	// OnSlaveConnect is invoked (if set) after a slave session is accepted
 	// and registered.
@@ -37,9 +39,10 @@ func New(store storage.PrimaryLocalStore, tlsCfg *tls.Config, listenAddr string)
 		return nil, err
 	}
 	return &Primary{
-		store:    store,
-		server:   srv,
-		sessions: make(map[string]*Session),
+		store:       store,
+		server:      srv,
+		sessions:    make(map[string]*Session),
+		connectedAt: make(map[string]time.Time),
 	}, nil
 }
 
@@ -89,6 +92,7 @@ func (p *Primary) registerSession(machine string, sess *Session) {
 		old.conn.Close()
 	}
 	p.sessions[machine] = sess
+	p.connectedAt[machine] = time.Now()
 }
 
 func (p *Primary) unregisterSession(machine string, expected *Session) {
@@ -111,6 +115,18 @@ func (p *Primary) RequestLogs(machineName string, req *apigen.MsgToWorker) (io.R
 		return nil, &MachineNotConnectedError{Machine: machineName}
 	}
 	return sess.requestLogs(req)
+}
+
+// ConnectedMachines returns the set of currently connected slave machines
+// and when each connected.
+func (p *Primary) ConnectedMachines() map[string]time.Time {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	out := make(map[string]time.Time, len(p.sessions))
+	for name, _ := range p.sessions {
+		out[name] = p.connectedAt[name]
+	}
+	return out
 }
 
 // MachineNotConnectedError is returned when a log proxy request targets a

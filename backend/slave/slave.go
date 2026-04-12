@@ -58,7 +58,10 @@ func runPrimaryConnLoop(ctx context.Context, cfg Config, store *sqlite.StorageAd
 
 		conn, err := cluster.Dial(cfg.PrimaryAddr, cfg.TLS)
 		if err != nil {
-			slog.Warn("primary dial failed", "addr", cfg.PrimaryAddr, "err", err)
+			slog.Warn("primary dial failed; slave is disconnected",
+				"addr", cfg.PrimaryAddr,
+				"retry_in", backoff,
+				"err", err)
 			select {
 			case <-ctx.Done():
 				return
@@ -72,8 +75,18 @@ func runPrimaryConnLoop(ctx context.Context, cfg Config, store *sqlite.StorageAd
 		}
 		backoff = time.Second
 
-		slog.Info("slave connected to primary", "peer", conn.PeerName())
-		runSession(ctx, conn, store, cfg.MachineName)
+		connectedAt := time.Now()
+		slog.Info("slave connected to primary",
+			"addr", cfg.PrimaryAddr,
+			"peer", conn.PeerName())
+		err = runSession(ctx, conn, store, cfg.MachineName)
+		if err != nil && ctx.Err() == nil {
+			slog.Warn("slave disconnected from primary; reconnecting",
+				"addr", cfg.PrimaryAddr,
+				"peer", conn.PeerName(),
+				"connected_for", time.Since(connectedAt).Round(time.Second),
+				"err", err)
+		}
 		conn.Close()
 	}
 }
@@ -82,7 +95,7 @@ func runPrimaryConnLoop(ctx context.Context, cfg Config, store *sqlite.StorageAd
 // primary (snapshot, config updates, log requests), apply state to the local
 // store, and push local status changes back. Returns when the connection
 // drops or ctx is done.
-func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.StorageAdapter, machine string) {
+func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.StorageAdapter, machine string) error {
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -99,15 +112,14 @@ func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.StorageAd
 	for {
 		select {
 		case <-sessCtx.Done():
-			return
+			return sessCtx.Err()
 		default:
 		}
 
 		conn.SetReadDeadline(time.Now().Add(readTimeout))
 		payload, err := conn.ReadFrame()
 		if err != nil {
-			slog.Info("primary connection read error", "err", err)
-			return
+			return err
 		}
 		msg, err := apigen.DecodeMsgToWorker(payload)
 		if err != nil {

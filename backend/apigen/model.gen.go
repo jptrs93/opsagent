@@ -1889,6 +1889,98 @@ func DecodePublicKeyRecord(b []byte) (*PublicKeyRecord, error) {
 	return &m, nil
 }
 
+type ClusterMachine struct {
+	Name        string
+	IsPrimary   bool
+	Connected   bool
+	ConnectedAt time.Time
+}
+
+func (m *ClusterMachine) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendBoolField(b, m.IsPrimary, 2)
+	b = AppendBoolField(b, m.Connected, 3)
+	b = AppendInt64FromTime(b, m.ConnectedAt, 4)
+	return b
+}
+
+func DecodeClusterMachine(b []byte) (*ClusterMachine, error) {
+	var m ClusterMachine
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.IsPrimary, err = ConsumeBool(b, typ)
+		case 3:
+			b, m.Connected, err = ConsumeBool(b, typ)
+		case 4:
+			b, m.ConnectedAt, err = ConsumeTimeFromInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ClusterStatusResponse struct {
+	Machines []*ClusterMachine
+}
+
+func (m *ClusterStatusResponse) Encode() []byte {
+	var b []byte
+	for _, item := range m.Machines {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeClusterStatusResponse(b []byte) (*ClusterStatusResponse, error) {
+	var m ClusterStatusResponse
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterMachine
+				item, err = DecodeClusterMachine(msgBytes)
+				if err == nil {
+					m.Machines = append(m.Machines, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type MsgToWorker struct {
 	DeploymentsSnapshot *DeploymentWithStatusSnapshot
 	DeploymentUpdate    *DeploymentConfig

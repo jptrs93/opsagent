@@ -42,6 +42,7 @@ type ServerHandler interface {
 	GetV1DeploymentHistory(Context, *http.Request, http.ResponseWriter) error
 	PostV1PrepareOutput(Context, *http.Request, http.ResponseWriter) error
 	PostV1RunOutput(Context, *http.Request, http.ResponseWriter) error
+	GetV1ClusterStatus(Context, *http.Request, http.ResponseWriter) error
 	PostV1ListScopes(Context, *ListScopesRequest) (*ListScopesResponse, error)
 	PostV1ListVersions(Context, *ListVersionsRequest) (*ListVersionsResponse, error)
 }
@@ -274,6 +275,18 @@ func CreateMux(h ServerHandler, verifyAuth VerifyAuthFunc, options *MuxOptions, 
 			return
 		}
 		err = h.PostV1RunOutput(authCtx, r, w)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+	}, middlewares...))
+	m.HandleFunc("GET /v1/cluster/status", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
+		if err != nil {
+			HandleReqErr(ctx, err, r, w)
+			return
+		}
+		err = h.GetV1ClusterStatus(authCtx, r, w)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
