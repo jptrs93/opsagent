@@ -143,7 +143,7 @@ func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.StorageAd
 
 		switch {
 		case msg.DeploymentsSnapshot != nil:
-			applySnapshot(sessCtx, store, msg.DeploymentsSnapshot)
+			applySnapshot(sessCtx, conn, store, msg.DeploymentsSnapshot)
 		case msg.DeploymentUpdate != nil:
 			applyConfigUpdate(sessCtx, store, msg.DeploymentUpdate)
 		case msg.PrepareLogRequest != nil:
@@ -155,8 +155,7 @@ func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.StorageAd
 }
 
 // statusPushLoop forwards local status changes to the primary. It tracks the
-// last StatusSeqNo sent per deployment to avoid echoing back statuses that
-// were just applied from a config write notification.
+// last StatusSeqNo sent per deployment to avoid sending duplicate updates.
 func statusPushLoop(ctx context.Context, conn *cluster.Conn, ch <-chan apigen.DeploymentWithStatus) {
 	lastSeq := make(map[apigen.DeploymentIdentifier]int32)
 	for {
@@ -184,23 +183,64 @@ func statusPushLoop(ctx context.Context, conn *cluster.Conn, ch <-chan apigen.De
 	}
 }
 
-// applySnapshot writes each deployment config and status from the primary's
-// snapshot into the local store so the operator can reconcile them.
-func applySnapshot(ctx context.Context, store *sqlite.StorageAdapter, snap *apigen.DeploymentWithStatusSnapshot) {
+// applySnapshot writes deployment configs from the primary's snapshot into
+// the local store. Status is NOT applied — the secondary is the authority for
+// its own deployment status. If the primary's view of a deployment's status
+// differs from the local state, the local status is pushed back so the
+// primary's mirror is refreshed.
+func applySnapshot(ctx context.Context, conn *cluster.Conn, store *sqlite.StorageAdapter, snap *apigen.DeploymentWithStatusSnapshot) {
 	slog.Info("applying deployments snapshot from primary", "count", len(snap.Items))
 	for _, item := range snap.Items {
 		if item.Config == nil || item.Config.ID == nil {
 			continue
 		}
 		store.MustWriteDeploymentConfig(ctx, item.Config)
-		if item.Status != nil {
-			store.MustWriteDeploymentStatus(ctx, *item.Config.ID, func(dst *apigen.DeploymentStatus) {
-				seqNo := dst.StatusSeqNo + 1
-				*dst = *item.Status
-				dst.StatusSeqNo = seqNo
-			})
+
+		// Push local status back if the primary's copy is stale.
+		local := store.FetchDeploymentStatus(*item.Config.ID)
+		if local != nil && statusDiffers(local, item.Status) {
+			slog.Info("pushing stale local status to primary",
+				"id", fmt.Sprintf("%s:%s:%s", item.Config.ID.Environment, item.Config.ID.Machine, item.Config.ID.Name))
+			msg := &apigen.MsgToMaster{StatusWrite: local}
+			if err := conn.WriteFrame(msg.Encode()); err != nil {
+				slog.Warn("failed pushing stale status to primary", "err", err)
+				return
+			}
 		}
 	}
+}
+
+// statusDiffers returns true if the local status has meaningful differences
+// from the remote status that the primary should know about.
+func statusDiffers(local, remote *apigen.DeploymentStatus) bool {
+	if remote == nil {
+		// Primary has no status at all — push ours if we have anything.
+		return local.Preparer != nil || local.Runner != nil
+	}
+	// Compare preparer state.
+	if (local.Preparer == nil) != (remote.Preparer == nil) {
+		return true
+	}
+	if local.Preparer != nil && remote.Preparer != nil {
+		if local.Preparer.DeploymentSeqNo != remote.Preparer.DeploymentSeqNo ||
+			local.Preparer.Status != remote.Preparer.Status ||
+			local.Preparer.Artifact != remote.Preparer.Artifact {
+			return true
+		}
+	}
+	// Compare runner state.
+	if (local.Runner == nil) != (remote.Runner == nil) {
+		return true
+	}
+	if local.Runner != nil && remote.Runner != nil {
+		if local.Runner.DeploymentSeqNo != remote.Runner.DeploymentSeqNo ||
+			local.Runner.Status != remote.Runner.Status ||
+			local.Runner.RunningPid != remote.Runner.RunningPid ||
+			local.Runner.RunningArtifact != remote.Runner.RunningArtifact {
+			return true
+		}
+	}
+	return false
 }
 
 // applyConfigUpdate writes a single config update from the primary into the

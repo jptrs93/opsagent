@@ -77,17 +77,6 @@ func (op DeploymentOperator) Run(
 	sub, unsubFunc := subs.Subscribe(func(dws apigen.DeploymentWithStatus) bool {
 		return *dws.Config.ID == *id
 	})
-	//localStatus := op.Store.MustFetchLocalDeploymentStatus(op.ID)
-	//if localStatus.StatusSeqNo > status.StatusSeqNo {
-	//	// Secondary nodes keep a local copy of the status. In an edge case the primary node's view of the status may be
-	//	// out of date, in which case we re-send the correct status
-	//	slog.WarnContext(ctx, fmt.Sprintf("the local status seq number is ahead, sending updated status"))
-	//	op.Store.MustWriteDeploymentStatus(localStatus)
-	//	status = localStatus
-	//} else {
-	//	slog.InfoContext(ctx, fmt.Sprintf("local status in sync with primary node's view of status"))
-	//}
-
 	slog.InfoContext(ctx, "Run: reattaching preparer",
 		"preparerStatus", fmtPreparerStatus(status.Preparer),
 		"configSeqNo", config.SeqNo,
