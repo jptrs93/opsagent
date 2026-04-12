@@ -153,7 +153,7 @@ func (r *osProcessRunner) run() {
 
 		pid, err := spawnDaemon(r.binPath, r.workDir, r.outputPath, r.runAs)
 		if err != nil {
-			slog.ErrorContext(r.ctx, "spawning daemon failed", "err", err, "bin", r.binPath)
+			slog.ErrorContext(r.ctx, "spawning daemon failed", "err", err, "bin", r.binPath, "workDir", r.workDir, "runAs", r.runAs)
 			r.setCurrentPID(0)
 			r.writeStatus(apigen.RunningStatus_CRASHED, 0)
 			crashCount++
