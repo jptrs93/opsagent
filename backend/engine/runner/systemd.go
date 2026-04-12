@@ -279,7 +279,50 @@ func binMatchesArtifact(binPath, artifactPath string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return os.SameFile(binInfo, artInfo), nil
+	// Fast path: same inode (hardlink or same file).
+	if os.SameFile(binInfo, artInfo) {
+		return true, nil
+	}
+	// Different inodes — compare size then content. This handles the
+	// common case where atomicInstall copied the artifact to binPath
+	// (different inode, identical bytes).
+	if binInfo.Size() != artInfo.Size() {
+		return false, nil
+	}
+	return fileContentsEqual(binPath, artifactPath)
+}
+
+func fileContentsEqual(a, b string) (bool, error) {
+	fa, err := os.Open(a)
+	if err != nil {
+		return false, err
+	}
+	defer fa.Close()
+	fb, err := os.Open(b)
+	if err != nil {
+		return false, err
+	}
+	defer fb.Close()
+
+	const chunk = 32 * 1024
+	bufA := make([]byte, chunk)
+	bufB := make([]byte, chunk)
+	for {
+		nA, errA := io.ReadFull(fa, bufA)
+		nB, errB := io.ReadFull(fb, bufB)
+		if nA != nB || string(bufA[:nA]) != string(bufB[:nB]) {
+			return false, nil
+		}
+		if errA == io.EOF && errB == io.EOF {
+			return true, nil
+		}
+		if errA != nil && errA != io.ErrUnexpectedEOF {
+			return false, errA
+		}
+		if errB != nil && errB != io.ErrUnexpectedEOF {
+			return false, errB
+		}
+	}
 }
 
 // atomicInstall copies src to a sibling temp file next to dst and renames it
