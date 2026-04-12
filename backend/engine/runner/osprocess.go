@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/user"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -52,7 +53,8 @@ const (
 func newOSProcessRunner(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, artifact string, prev *apigen.RunnerStatus) *osProcessRunner {
 	ctx, cancel := context.WithCancel(parentCtx)
 
-	workDir, err := resolveWorkingDir(osProcessWorkingDir(dep))
+	runAs := resolveRunAs(osProcessRunAs(dep))
+	workDir, err := resolveWorkingDir(osProcessWorkingDir(dep), runAs)
 	if err != nil {
 		slog.ErrorContext(ctx, "resolving working dir", "err", err)
 		workDir = ""
@@ -71,7 +73,7 @@ func newOSProcessRunner(parentCtx context.Context, store storage.OperatorStore, 
 		id:         dep.ID,
 		seqNo:      seqNo,
 		workDir:    workDir,
-		runAs:      resolveRunAs(osProcessRunAs(dep)),
+		runAs:      runAs,
 		outputPath: dep.RunOutputPath(),
 		binPath:    artifact,
 	}
@@ -322,9 +324,16 @@ func (r *osProcessRunner) currentPID() int {
 
 // --- helpers ---
 
-func resolveWorkingDir(dir string) (string, error) {
+func resolveWorkingDir(dir, runAs string) (string, error) {
 	if dir != "" {
 		return dir, nil
+	}
+	if runAs != "" {
+		u, err := user.Lookup(runAs)
+		if err != nil {
+			return "", fmt.Errorf("looking up user %q: %v", runAs, err)
+		}
+		return u.HomeDir, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

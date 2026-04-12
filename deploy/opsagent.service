@@ -22,7 +22,7 @@ RestartSec=5
 # restart its own systemd unit via the sudoers rule installed by the
 # deploy script. This requires privilege escalation to succeed.
 ProtectSystem=strict
-ProtectHome=yes
+ProtectHome=no
 # Allow writes to the data dir and the nix store
 ReadWritePaths=/var/lib/opsagent
 ReadWritePaths=/nix
