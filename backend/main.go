@@ -154,6 +154,9 @@ func startPrimaryCluster(h *handler.Handler) {
 	}
 
 	h.ClusterPrimary = p
+	p.OnSlaveConnect = func(machine string) {
+		h.Store.EnsureSystemDeployment(machine)
+	}
 	p.Start(context.Background())
 	slog.Info("cluster primary started", "addr", cfg.ClusterListen)
 }

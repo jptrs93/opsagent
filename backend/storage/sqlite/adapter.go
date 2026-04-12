@@ -16,6 +16,11 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/logstore"
 )
 
+// SystemEnvironment is the reserved environment name for opsagent's own
+// self-management deployments. It is auto-created for each machine and
+// excluded from the user-config deletion sweep.
+const SystemEnvironment = "OPSAGENT_SYSTEM"
+
 type StorageAdapter struct {
 	db *sql.DB
 	q  *Queries
@@ -432,8 +437,12 @@ func (s *StorageAdapter) PutDeploymentUserConfig(ctx apigen.Context, yamlContent
 	}
 
 	// 2. Mark deleted: deployments in DB but not in yaml.
+	// Skip system-managed deployments — they are not part of the user config.
 	for key, row := range currentByKey {
 		if _, wanted := wantedByKey[key]; wanted {
+			continue
+		}
+		if row.Environment == SystemEnvironment {
 			continue
 		}
 		newSeqNo := row.SeqNo + 1
@@ -518,6 +527,80 @@ func (s *StorageAdapter) insertDefaultStatus(ctx context.Context, q *Queries, db
 		panic(fmt.Sprintf("InsertDeploymentStatus (default): %v", err))
 	}
 	s.statusCache[*id] = st
+}
+
+// EnsureSystemDeployment creates the OPSAGENT_SYSTEM opsagent deployment for
+// the given machine if it does not already exist. The deployment uses a GitHub
+// release preparer and a systemd runner pointed at the opsagent binary.
+func (s *StorageAdapter) EnsureSystemDeployment(machine string) {
+	id := apigen.DeploymentIdentifier{
+		Environment: SystemEnvironment,
+		Machine:     machine,
+		Name:        "opsagent",
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if existing, ok := s.configCache[id]; ok && !existing.Deleted {
+		return
+	}
+
+	spec := &apigen.DeploymentSpec{
+		Prepare: &apigen.PrepareConfig{
+			GithubRelease: &apigen.GithubReleaseConfig{
+				Repo: "github.com/jptrs93/opsagent",
+			},
+		},
+		Runner: &apigen.RunnerConfig{
+			Systemd: &apigen.SystemdRunnerConfig{
+				Name:    "opsagent",
+				BinPath: "/var/lib/opsagent/bin/opsagent",
+			},
+		},
+	}
+	specBlob := spec.Encode()
+
+	bgCtx := context.Background()
+	tx, err := s.db.BeginTx(bgCtx, nil)
+	if err != nil {
+		panic(fmt.Sprintf("begin tx: %v", err))
+	}
+	defer tx.Rollback()
+
+	q := s.q.WithTx(tx)
+	dbID := s.mustResolveDeploymentID(bgCtx, tx, &id)
+	now := time.Now().UnixMilli()
+
+	params := UpsertDeploymentConfigParams{
+		DeploymentID: dbID,
+		SeqNo:        1,
+		UpdatedAt:    now,
+		SpecBlob:     specBlob,
+		Deleted:      0,
+	}
+	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
+		panic(fmt.Sprintf("UpsertDeploymentConfig (system): %v", err))
+	}
+	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
+		DeploymentID: dbID,
+		SeqNo:        1,
+		UpdatedAt:    now,
+		SpecBlob:     specBlob,
+		Deleted:      0,
+	}); err != nil {
+		panic(fmt.Sprintf("InsertDeploymentConfigHistory (system): %v", err))
+	}
+
+	s.insertDefaultStatus(bgCtx, q, dbID, &id, now)
+
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit: %v", err))
+	}
+
+	s.configCache[id] = upsertParamsToProto(&id, params)
+	s.notifyFromCache(id)
+	slog.Info("created system deployment", "machine", machine)
 }
 
 // --- secondary (slave) store: write full config from primary ---

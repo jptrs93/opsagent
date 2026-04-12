@@ -104,6 +104,9 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 		return nil, err
 	}
 
+	// Ensure the system self-management deployment exists for the primary.
+	h.Store.EnsureSystemDeployment(machineName)
+
 	// Kick off the deployment operator for this machine. RunAll pulls the
 	// current snapshot from the store and spawns a per-deployment reconciler
 	// for each entry, plus a forwarder that fans store updates out to them.

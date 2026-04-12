@@ -209,9 +209,15 @@ export function statusPage() {
                 envMap[env].push(s);
             }
 
+            const envEntries = Object.entries(envMap).sort(([a], [b]) => {
+                const aSystem = a === 'OPSAGENT_SYSTEM' ? 1 : 0;
+                const bSystem = b === 'OPSAGENT_SYSTEM' ? 1 : 0;
+                return aSystem - bSystem || a.localeCompare(b);
+            });
+
             return div(
                 {class: "flex flex-col gap-6"},
-                ...Object.entries(envMap).map(([envName, deployments]) =>
+                ...envEntries.map(([envName, deployments]) =>
                     div(
                         {class: "card"},
                         h2({class: "text-lg font-semibold mb-4"}, envName),
