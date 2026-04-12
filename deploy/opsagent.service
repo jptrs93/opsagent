@@ -31,7 +31,7 @@ ReadWritePaths=/var/lib/opsagent/.certs
 # Allow sudo to create its timestamp directory (needed for systemctl restart)
 ReadWritePaths=/run/sudo
 # Allow binding to privileged ports (80/443)
-AmbientCapabilities=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_SETUID CAP_SETGID
 
 [Install]
 WantedBy=multi-user.target
