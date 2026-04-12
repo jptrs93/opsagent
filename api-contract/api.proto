@@ -196,14 +196,21 @@ message State {
   DeploymentWithStatus deployment_update = 3;
   UserConfigVersion user_config_snapshot = 4;
   UserConfigVersion user_config_update = 5;
+  repeated User users_snapshot = 6;
+  User user_update = 7;
 }
 
 message DeploymentWithStatusSnapshot {
   repeated DeploymentWithStatus items = 1;
 }
 
+message DeploymentHistoryEntry {
+  DeploymentConfig config = 1;
+  DeploymentStatus status = 2;
+}
+
 message DeploymentHistory {
-  repeated DeploymentConfig entries = 1;
+  repeated DeploymentHistoryEntry entries = 1;
 }
 
 // === Deployment update / version request messages ===

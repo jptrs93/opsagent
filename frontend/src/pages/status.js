@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {clusterConfigS, deploymentsS, deploymentsStreamS, desiredStatesS, usersS} from "../state/deployments.js";
+import {deploymentsS, deploymentsStreamS, deploymentKey} from "../state/deployments.js";
 import {statusCard} from "../components/statusCard.js";
 import {prepareOutput} from "../components/prepareOutput.js";
 import {runOutput} from "../components/runOutput.js";
@@ -14,80 +14,46 @@ const SIDEBAR_PREPARE = 'prepare';
 const SIDEBAR_RUN = 'run';
 const SIDEBAR_HISTORY = 'history';
 
-const splitDeploymentKey = (key) => {
-    const idx = key.indexOf(':');
-    if (idx === -1) {
-        return { machine: 'unknown', name: key || 'unknown' };
-    }
-    return {
-        machine: key.slice(0, idx) || 'unknown',
-        name: key.slice(idx + 1) || 'unknown',
-    };
-};
-
-// mergedEnvironments returns environments from both user and system
-// sections of the ClusterConfig. System entries are always appended so the
-// OPSAGENT env shows up alongside user-defined envs.
-const mergedEnvironments = (cc) => {
-    const out = [];
-    for (const env of (cc?.userConfig?.environments || [])) {
-        if (env) out.push(env);
-    }
-    for (const env of (cc?.systemConfig?.environments || [])) {
-        if (env) out.push(env);
-    }
-    return out;
-};
-
-const mapDeploymentsToView = (deployments, cc, desiredStates, users) => {
+// mapDeploymentsToView flattens DeploymentWithStatus[] into the shape
+// the status card component expects.
+const mapDeploymentsToView = (deployments) => {
     if (!Array.isArray(deployments)) return [];
 
-    // Key is <machine>:<name>. Config lookup needs environment info per
-    // deployment (for display grouping) so we index by that same key.
-    const configByKey = new Map();
-    const userById = new Map((users || []).map((user) => [user.id, user.name]));
-    for (const env of mergedEnvironments(cc)) {
-        for (const dep of (env.deployments || [])) {
-            if (!dep || !dep.machine || !dep.name) continue;
-            const depKey = `${dep.machine}:${dep.name}`;
-            let variant = '';
-            let repo = '';
-            if (dep.prepare?.nixBuild) {
-                variant = 'nixBuild';
-                repo = dep.prepare.nixBuild.repo || '';
-            } else if (dep.prepare?.githubRelease) {
-                variant = 'githubRelease';
-                repo = dep.prepare.githubRelease.repo || '';
-            }
-            configByKey.set(depKey, {variant, repo, environment: env.name, machine: dep.machine});
-        }
-    }
+    return deployments.filter(d => d.config && d.config.id && !d.config.deleted).map((d) => {
+        const id = d.config.id;
+        const key = deploymentKey(id);
+        const spec = d.config.spec || {};
+        const desired = d.config.desiredState || {};
+        const runner = d.status?.runner || {};
+        const prep = d.status?.preparer || {};
 
-    return deployments.map((d) => {
-        const { machine, name } = splitDeploymentKey(d.key || '');
-        const key = `${machine}:${name}`;
-        const running = d.runningStatus || {};
-        const desired = desiredStates[key] || {};
-        const prep = d.preparation || {};
-        const updatedBy = desired.updatedBy || 0;
-        const info = configByKey.get(key) || {variant: '', repo: '', environment: 'Unknown', machine};
+        let variant = '';
+        let repo = '';
+        if (spec.prepare?.nixBuild) {
+            variant = 'nixBuild';
+            repo = spec.prepare.nixBuild.repo || '';
+        } else if (spec.prepare?.githubRelease) {
+            variant = 'githubRelease';
+            repo = spec.prepare.githubRelease.repo || '';
+        }
+
         return {
             key,
-            name,
-            machine,
-            environment: info.environment,
-            variant: info.variant,
-            repo: info.repo,
-            existingStatus: running.status || 0,
-            existingVersion: running.version || '',
-            numberOfRestarts: running.numberOfRestarts || 0,
-            lastRestartAt: running.lastRestartAt,
-            deployedBy: userById.get(updatedBy) || (updatedBy ? `User ${updatedBy}` : ''),
-            deployedAt: desired.updatedAt,
+            name: id.name,
+            machine: id.machine,
+            environment: id.environment,
+            variant,
+            repo,
+            existingStatus: runner.status || 0,
+            existingVersion: runner.runningArtifact || '',
+            numberOfRestarts: runner.numberOfRestarts || 0,
+            lastRestartAt: runner.lastRestartAt,
+            deployedBy: d.config.updatedBy || 0,
+            deployedAt: d.config.updatedAt,
             deployedVersion: desired.version || '',
             prepareStatus: prep.status || 0,
             prepareVersion: desired.version || '',
-            currentSeqNo: desired.seqNo || 0,
+            currentSeqNo: d.config.seqNo || 0,
         };
     });
 };
@@ -100,7 +66,7 @@ export function statusPage() {
     const selectedScope = van.state({});
     const sidebarMode = van.state(SIDEBAR_NONE);
     const sidebarDeployment = van.state(null);
-    const sidebarVersion = van.state(null);
+    const sidebarSeqNo = van.state(0);
 
     const ensurePreparerDataLoaded = (currentStatuses) => {
         for (const s of currentStatuses || []) {
@@ -112,7 +78,6 @@ export function statusPage() {
     const loadScopesForDeployment = async (deployment) => {
         const depKey = deployment.key;
         if (scopesMap.val[depKey] !== undefined) {
-            // Already loaded; still make sure versions are fetched for the current scope.
             const scope = selectedScope.val[depKey] || '';
             loadVersionsForDeployment(deployment, scope);
             return;
@@ -133,7 +98,6 @@ export function statusPage() {
         } catch (e) {
             console.error(`Failed to load scopes for ${depKey}:`, e.message);
             scopesMap.val = {...scopesMap.val, [depKey]: []};
-            // Still attempt to fetch versions without a scope (e.g. github releases).
             loadVersionsForDeployment(deployment, '');
         }
     };
@@ -163,7 +127,7 @@ export function statusPage() {
     };
 
     van.derive(() => {
-        const currentStatuses = mapDeploymentsToView(deploymentsS.val, clusterConfigS.val, desiredStatesS.val, usersS.val);
+        const currentStatuses = mapDeploymentsToView(deploymentsS.val);
         statuses.val = currentStatuses;
         ensurePreparerDataLoaded(currentStatuses);
     });
@@ -171,32 +135,40 @@ export function statusPage() {
     const closeSidebar = () => {
         sidebarMode.val = SIDEBAR_NONE;
         sidebarDeployment.val = null;
-        sidebarVersion.val = null;
+        sidebarSeqNo.val = 0;
     };
 
-    const onDeploy = async (deploymentName, environment, version, seqNo, machine) => {
+    const onDeploy = async (deployment, version) => {
         try {
-            await capi.postV1DeploymentUpdate({deploymentName, environment, targetVersion: version, seqNo: seqNo + 1});
+            await capi.postV1DeploymentUpdate({
+                id: {environment: deployment.environment, machine: deployment.machine, name: deployment.name},
+                targetVersion: version,
+                seqNo: deployment.currentSeqNo + 1,
+            });
             sidebarMode.val = SIDEBAR_PREPARE;
-            sidebarDeployment.val = `${machine}:${deploymentName}`;
-            sidebarVersion.val = version;
+            sidebarDeployment.val = deployment.key;
+            sidebarSeqNo.val = deployment.currentSeqNo;
         } catch (e) {
             alert(`Deploy failed: ${e.message}`);
         }
     };
 
-    const onStop = async (deploymentName, environment, seqNo) => {
+    const onStop = async (deployment) => {
         try {
-            await capi.postV1DeploymentUpdate({deploymentName, environment, stop: true, seqNo: seqNo + 1});
+            await capi.postV1DeploymentUpdate({
+                id: {environment: deployment.environment, machine: deployment.machine, name: deployment.name},
+                stop: true,
+                seqNo: deployment.currentSeqNo + 1,
+            });
         } catch (e) {
             alert(`Stop failed: ${e.message}`);
         }
     };
 
-    const onShowRunOutput = (key, version) => {
+    const onShowRunOutput = (key, seqNo) => {
         sidebarMode.val = SIDEBAR_RUN;
         sidebarDeployment.val = key;
-        sidebarVersion.val = version;
+        sidebarSeqNo.val = seqNo;
     };
 
     const onShowHistory = (key) => {
@@ -204,50 +176,28 @@ export function statusPage() {
         sidebarDeployment.val = key;
     };
 
-    const onShowPrepareOutput = (key, version) => {
+    const onShowPrepareOutput = (key, seqNo) => {
         sidebarMode.val = SIDEBAR_PREPARE;
         sidebarDeployment.val = key;
-        sidebarVersion.val = version;
-    };
-
-    const configDeploymentKeys = () => {
-        const keys = new Set();
-        for (const env of mergedEnvironments(clusterConfigS.val)) {
-            for (const dep of (env.deployments || [])) {
-                if (dep?.machine && dep?.name) {
-                    keys.add(`${dep.machine}:${dep.name}`);
-                }
-            }
-        }
-        return keys;
+        sidebarSeqNo.val = seqNo;
     };
 
     const mainContent = div(
         {class: "flex-1 min-h-0 overflow-auto p-6 flex flex-col gap-6"},
         h1({class: "text-xl font-bold"}, "Deployments"),
         () => {
-            if (clusterConfigS.val === null && deploymentsStreamS.val.status !== 'connected') {
+            if (deploymentsStreamS.val.status !== 'connected' && statuses.val.length === 0) {
                 return p({class: "text-gray-400"}, deploymentsStreamS.val.sentence);
             }
 
-            const validKeys = configDeploymentKeys();
-            const filtered = statuses.val.filter(s => validKeys.has(s.key));
-
-            if (validKeys.size > 0 && filtered.length === 0 && deploymentsStreamS.val.status !== 'connected') {
-                return div(
-                    {class: "card"},
-                    p({class: "text-gray-400"}, deploymentsStreamS.val.sentence)
-                );
-            }
+            const filtered = statuses.val;
 
             if (filtered.length === 0) {
                 return div(
                     {class: "card"},
                     p(
                         {class: "text-gray-400"},
-                        validKeys.size === 0
-                            ? "No deployments configured. Create a deployment config first."
-                            : "No deployment status available yet."
+                        "No deployments configured. Create a deployment config first."
                     )
                 );
             }
@@ -296,10 +246,10 @@ export function statusPage() {
         mainContent,
         () => {
             if (sidebarMode.val === SIDEBAR_PREPARE && sidebarDeployment.val) {
-                return prepareOutput(sidebarDeployment.val, sidebarVersion.val, closeSidebar);
+                return prepareOutput(sidebarDeployment.val, sidebarSeqNo.val, closeSidebar);
             }
             if (sidebarMode.val === SIDEBAR_RUN && sidebarDeployment.val) {
-                return runOutput(sidebarDeployment.val, sidebarVersion.val, closeSidebar);
+                return runOutput(sidebarDeployment.val, sidebarSeqNo.val, closeSidebar);
             }
             if (sidebarMode.val === SIDEBAR_HISTORY && sidebarDeployment.val) {
                 return deploymentHistory(sidebarDeployment.val, closeSidebar);

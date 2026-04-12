@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -24,7 +25,8 @@ type StorageAdapter struct {
 	dbIDCache   map[apigen.DeploymentIdentifier]int64
 	configCache map[apigen.DeploymentIdentifier]*apigen.DeploymentConfig
 	statusCache map[apigen.DeploymentIdentifier]*apigen.DeploymentStatus
-	subs        *logstore.Subs[apigen.DeploymentWithStatus]
+	subs     *logstore.Subs[apigen.DeploymentWithStatus]
+	userSubs *logstore.Subs[apigen.User]
 }
 
 func NewStorageAdapter(dbPath string) *StorageAdapter {
@@ -41,7 +43,8 @@ func NewStorageAdapter(dbPath string) *StorageAdapter {
 		dbIDCache:   make(map[apigen.DeploymentIdentifier]int64),
 		configCache: make(map[apigen.DeploymentIdentifier]*apigen.DeploymentConfig),
 		statusCache: make(map[apigen.DeploymentIdentifier]*apigen.DeploymentStatus),
-		subs:        &logstore.Subs[apigen.DeploymentWithStatus]{},
+		subs:     &logstore.Subs[apigen.DeploymentWithStatus]{},
+		userSubs: &logstore.Subs[apigen.User]{},
 	}
 	s.loadCache()
 	return s
@@ -83,6 +86,24 @@ func (s *StorageAdapter) loadCache() {
 		}
 		s.statusCache[*id] = statusRowToProto(st.DeploymentID, id, st)
 	}
+
+	// Ensure every config has a status entry (invariant: status is never nil).
+	now := time.Now().UnixMilli()
+	for id, dbID := range s.dbIDCache {
+		if _, ok := s.statusCache[id]; ok {
+			continue
+		}
+		idCopy := id
+		st := &apigen.DeploymentStatus{
+			StatusSeqNo:  0,
+			Timestamp:    time.UnixMilli(now),
+			DeploymentID: &idCopy,
+		}
+		if err := s.q.InsertDeploymentStatus(ctx, statusProtoToParams(dbID, st)); err != nil {
+			panic(fmt.Sprintf("loadCache: InsertDeploymentStatus (default): %v", err))
+		}
+		s.statusCache[id] = st
+	}
 }
 
 func boolToInt(b bool) int64 {
@@ -99,19 +120,7 @@ func (s *StorageAdapter) resolveDeploymentID(ctx context.Context, tx *sql.Tx, id
 		return dbID, nil
 	}
 	q := s.q.WithTx(tx)
-	row, err := q.GetDeploymentIdentifier(ctx, GetDeploymentIdentifierParams{
-		Environment: id.Environment,
-		Machine:     id.Machine,
-		Name:        id.Name,
-	})
-	if err == nil {
-		s.dbIDCache[*id] = row.ID
-		return row.ID, nil
-	}
-	if err != sql.ErrNoRows {
-		return 0, err
-	}
-	created, err := q.InsertDeploymentIdentifier(ctx, InsertDeploymentIdentifierParams{
+	dbID, err := q.UpsertDeploymentID(ctx, UpsertDeploymentIDParams{
 		Environment: id.Environment,
 		Machine:     id.Machine,
 		Name:        id.Name,
@@ -120,8 +129,8 @@ func (s *StorageAdapter) resolveDeploymentID(ctx context.Context, tx *sql.Tx, id
 	if err != nil {
 		return 0, err
 	}
-	s.dbIDCache[*id] = created.ID
-	return created.ID, nil
+	s.dbIDCache[*id] = dbID
+	return dbID, nil
 }
 
 func (s *StorageAdapter) mustResolveDeploymentID(ctx context.Context, tx *sql.Tx, id *apigen.DeploymentIdentifier) int64 {
@@ -177,11 +186,10 @@ func (s *StorageAdapter) MustFetchSnapshotAndSubscribe(ctx context.Context, mach
 		if cfg.Deleted {
 			continue
 		}
-		dws := apigen.DeploymentWithStatus{Config: cfg}
-		if st, ok := s.statusCache[id]; ok {
-			dws.Status = st
-		}
-		snapshot = append(snapshot, dws)
+		snapshot = append(snapshot, apigen.DeploymentWithStatus{
+			Config: cfg,
+			Status: s.statusCache[id],
+		})
 	}
 
 	var filter func(apigen.DeploymentWithStatus) bool
@@ -417,6 +425,9 @@ func (s *StorageAdapter) PutDeploymentUserConfig(ctx apigen.Context, yamlContent
 		}
 
 		s.configCache[*wanted.id] = upsertParamsToProto(wanted.id, params)
+		if !exists {
+			s.insertDefaultStatus(bgCtx, q, dbID, wanted.id, now)
+		}
 		changed = append(changed, *wanted.id)
 	}
 
@@ -494,6 +505,21 @@ func (s *StorageAdapter) FetchDeploymentUserConfigHistory() []*apigen.UserConfig
 	return out
 }
 
+// insertDefaultStatus inserts a status_seq_no=0 row for a new deployment and
+// populates the statusCache. This ensures the invariant: every deployment in
+// configCache always has a corresponding entry in statusCache.
+func (s *StorageAdapter) insertDefaultStatus(ctx context.Context, q *Queries, dbID int64, id *apigen.DeploymentIdentifier, now int64) {
+	st := &apigen.DeploymentStatus{
+		StatusSeqNo:  0,
+		Timestamp:    time.UnixMilli(now),
+		DeploymentID: id,
+	}
+	if err := q.InsertDeploymentStatus(ctx, statusProtoToParams(dbID, st)); err != nil {
+		panic(fmt.Sprintf("InsertDeploymentStatus (default): %v", err))
+	}
+	s.statusCache[*id] = st
+}
+
 // --- internal helpers ---
 
 func (s *StorageAdapter) lookupDeploymentID(ctx context.Context, id *apigen.DeploymentIdentifier) (int64, error) {
@@ -512,16 +538,29 @@ func (s *StorageAdapter) lookupDeploymentID(ctx context.Context, id *apigen.Depl
 	return row.ID, nil
 }
 
+// FetchDeploymentStatus returns the cached status for a deployment, or nil.
+func (s *StorageAdapter) FetchDeploymentStatus(id apigen.DeploymentIdentifier) *apigen.DeploymentStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.statusCache[id]
+}
+
 func (s *StorageAdapter) notifyFromCache(id apigen.DeploymentIdentifier) {
 	cfg := s.configCache[id]
 	if cfg == nil {
 		return
 	}
-	dws := apigen.DeploymentWithStatus{Config: cfg}
-	if st, ok := s.statusCache[id]; ok {
-		dws.Status = st
-	}
-	s.subs.Notify(dws)
+	st := s.statusCache[id]
+	slog.Info("store: notifyFromCache",
+		"id", fmt.Sprintf("%s:%s:%s", id.Environment, id.Machine, id.Name),
+		"configSeqNo", cfg.SeqNo,
+		"hasPreparer", st != nil && st.Preparer != nil,
+		"hasRunner", st != nil && st.Runner != nil,
+	)
+	s.subs.Notify(apigen.DeploymentWithStatus{
+		Config: cfg,
+		Status: st,
+	})
 }
 
 // --- row <-> proto conversions ---
@@ -655,6 +694,23 @@ func (s *StorageAdapter) WriteUser(user *apigen.InternalUser) {
 	}); err != nil {
 		panic(fmt.Sprintf("UpsertUser: %v", err))
 	}
+	s.userSubs.Notify(apigen.User{ID: user.ID, Name: user.Name})
+}
+
+func (s *StorageAdapter) ListUsersPublic() []*apigen.User {
+	rows, err := s.q.ListUsers(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("ListUsersPublic: %v", err))
+	}
+	out := make([]*apigen.User, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, &apigen.User{ID: int32(row.ID), Name: row.Name})
+	}
+	return out
+}
+
+func (s *StorageAdapter) SubscribeUserUpdates() (*logstore.Sub[apigen.User], func()) {
+	return s.userSubs.Subscribe(nil)
 }
 
 func (s *StorageAdapter) FetchUserByID(id int32) (*apigen.InternalUser, error) {

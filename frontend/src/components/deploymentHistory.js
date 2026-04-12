@@ -1,54 +1,79 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {format} from "date-fns";
-import {decodeDeployments} from "../capi/model.js";
+import {decodeDeploymentHistory} from "../capi/model.js";
+import {usersMapS} from "../state/deployments.js";
 
 const { div, h2, span, button, p } = van.tags;
 
-const deploymentStatusLabel = {
-    0: 'Unknown', 1: 'No Deployment', 2: 'Running', 3: 'Stopped', 4: 'Starting', 5: 'Crashed',
+const preparerStatusLabels = {
+    0: 'unknown',
+    2: 'preparing',
+    3: 'downloading',
+    4: 'ready',
+    5: 'failed',
 };
 
-const preparationLabel = {
-    0: 'Unknown', 2: 'Preparing', 3: 'Downloading', 4: 'Ready', 5: 'Failed',
+const runnerStatusLabels = {
+    0: 'unknown',
+    1: 'no deployment',
+    2: 'running',
+    3: 'stopped',
+    4: 'starting',
+    5: 'crashed',
 };
 
-// Deployment records are now pure status event logs — no more DesiredState
-// embedded in them, so describeChange is purely about observed transitions.
-function describeChange(record, prevRecord) {
-    if (!prevRecord) {
-        return 'deployment created';
-    }
-
+function describeConfigEntry(config, prevConfig) {
     const parts = [];
-    const curr = { running: record.runningStatus || {}, prep: record.preparation || {} };
-    const prev = { running: prevRecord.runningStatus || {}, prep: prevRecord.preparation || {} };
+    const desired = config.desiredState || {};
 
-    if (curr.running.version !== prev.running.version && curr.running.version) {
-        parts.push(`running_version=${curr.running.version.substring(0, 7)}`);
-    }
-    if (curr.running.status !== prev.running.status) {
-        parts.push(`running_status=${deploymentStatusLabel[curr.running.status] || 'Unknown'}`);
-    }
-    if (curr.prep.status !== prev.prep.status) {
-        parts.push(`preparation=${preparationLabel[curr.prep.status] || 'Unknown'}`);
-    }
-    if (curr.prep.version !== prev.prep.version && curr.prep.version) {
-        parts.push(`prepare_version=${curr.prep.version.substring(0, 7)}`);
-    }
-    if (curr.running.pid !== prev.running.pid && curr.running.pid > 0) {
-        parts.push(`pid=${curr.running.pid}`);
+    if (!prevConfig) {
+        parts.push('created');
+    } else {
+        const prevDesired = prevConfig.desiredState || {};
+        if (desired.version !== prevDesired.version && desired.version) {
+            parts.push(`version=${desired.version.substring(0, 7)}`);
+        }
+        if (desired.running !== prevDesired.running) {
+            parts.push(desired.running ? 'running=true' : 'running=false');
+        }
+        if (config.deleted && !prevConfig.deleted) {
+            parts.push('deleted');
+        }
     }
 
-    return parts.length > 0 ? parts.join(', ') : '(no change)';
+    return parts.length > 0 ? parts.join(', ') : 'config update';
 }
 
-function splitKey(key) {
+function describeStatusEntry(status) {
+    const parts = [];
+    if (status.preparer) {
+        const label = preparerStatusLabels[status.preparer.status] || `preparer=${status.preparer.status}`;
+        parts.push(`prepare: ${label}`);
+    }
+    if (status.runner) {
+        const label = runnerStatusLabels[status.runner.status] || `runner=${status.runner.status}`;
+        parts.push(`run: ${label}`);
+    }
+    return parts.length > 0 ? parts.join(', ') : 'status update';
+}
+
+function resolveUserName(userId) {
+    if (!userId) return null;
+    return usersMapS.val.get(userId) || 'unknown';
+}
+
+function parseKey(key) {
+    const parts = key.split(':');
+    if (parts.length >= 3) {
+        return { environment: parts[0], machine: parts[1], deploymentName: parts.slice(2).join(':') };
+    }
     const idx = key.indexOf(':');
     if (idx === -1) {
-        return { machine: '', deploymentName: key };
+        return { environment: '', machine: '', deploymentName: key };
     }
     return {
+        environment: '',
         machine: key.slice(0, idx),
         deploymentName: key.slice(idx + 1),
     };
@@ -57,7 +82,7 @@ function splitKey(key) {
 export function deploymentHistory(key, onClose) {
     const entries = van.state(null);
     const error = van.state('');
-    const { machine, deploymentName } = splitKey(key);
+    const { environment, machine, deploymentName } = parseKey(key);
 
     const load = async () => {
         try {
@@ -67,14 +92,17 @@ export function deploymentHistory(key, onClose) {
             if (machine) {
                 url += `&machine=${encodeURIComponent(machine)}`;
             }
+            if (environment) {
+                url += `&environment=${encodeURIComponent(environment)}`;
+            }
 
             const response = await fetch(url, {
                 headers,
                 credentials: 'include',
             });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const decoded = decodeDeployments(await response.arrayBuffer());
-            entries.val = decoded?.deployments || [];
+            const decoded = decodeDeploymentHistory(await response.arrayBuffer());
+            entries.val = decoded?.entries || [];
         } catch (e) {
             console.error('Failed to load deployment history:', e);
             error.val = 'Connection error';
@@ -107,50 +135,57 @@ export function deploymentHistory(key, onClose) {
                 if (entries.val.length === 0) {
                     return p({class: "p-4 text-sm text-gray-500"}, "No history.");
                 }
-                // entries are newest-first from the API; reverse for prev-record logic
-                const chronological = [...entries.val].reverse();
-                const lines = chronological.map((e, i) => {
-                    const prev = i > 0 ? chronological[i - 1] : null;
-                    const next = i < chronological.length - 1 ? chronological[i + 1] : null;
-                    const ts = e.timestamp instanceof Date && e.timestamp.getTime() > 0
-                        ? format(e.timestamp, "MMM d HH:mm:ss")
-                        : '';
-                    const desc = describeChange(e, prev);
-                    if (i > 0 && desc === '(no change)') {
-                        return null;
-                    }
 
-                    const currStatus = (e.runningStatus || {}).status || 0;
-                    const prevStatus = prev ? ((prev.runningStatus || {}).status || 0) : -1;
-                    const becameRunning = currStatus === 2 && prevStatus !== 2;
-                    const becameCrashed = currStatus === 5 && prevStatus !== 5;
+                // Build a map of config entries by seqNo for diffing.
+                const configEntries = entries.val.filter(e => e.config);
+                const configBySeq = {};
+                // Walk oldest-first to map prev configs correctly.
+                const configsSorted = [...configEntries].sort((a, b) => a.config.seqNo - b.config.seqNo);
+                let prevConfig = null;
+                for (const e of configsSorted) {
+                    configBySeq[e.config.seqNo] = { config: e.config, prev: prevConfig };
+                    prevConfig = e.config;
+                }
 
-                    let color;
-                    if (becameCrashed) {
-                        color = "text-red-400";
-                    } else if (becameRunning) {
-                        const isHead = !next;
-                        const gapMs = next && next.timestamp instanceof Date && e.timestamp instanceof Date
-                            ? next.timestamp.getTime() - e.timestamp.getTime() : Infinity;
-                        color = (isHead || gapMs > 30000) ? "text-green-400" : "text-gray-500";
+                // entries are already time-desc from backend.
+                const lines = entries.val.map((e) => {
+                    const isConfig = !!e.config;
+                    const ts = isConfig
+                        ? (e.config.updatedAt instanceof Date && e.config.updatedAt.getTime() > 0
+                            ? format(e.config.updatedAt, "MMM d HH:mm:ss")
+                            : '')
+                        : (e.status.timestamp instanceof Date && e.status.timestamp.getTime() > 0
+                            ? format(e.status.timestamp, "MMM d HH:mm:ss")
+                            : '');
+
+                    if (isConfig) {
+                        const info = configBySeq[e.config.seqNo];
+                        const desc = describeConfigEntry(e.config, info?.prev);
+                        const userName = resolveUserName(e.config.updatedBy);
+                        const user = userName ? ` [${userName}]` : '';
+                        return div(
+                            {class: "px-3 py-0.5 text-xs font-mono text-orange-400"},
+                            span(ts),
+                            span("  "),
+                            span(`seq=${e.config.seqNo} `),
+                            span(desc),
+                            user ? span({class: "text-orange-300"}, user) : null,
+                        );
                     } else {
-                        color = "text-gray-500";
+                        const desc = describeStatusEntry(e.status);
+                        return div(
+                            {class: "px-3 py-0.5 text-xs font-mono text-gray-500"},
+                            span(ts),
+                            span("  "),
+                            span(desc),
+                        );
                     }
-
-                    return div(
-                        {class: `px-3 py-0.5 text-xs font-mono ${color}`},
-                        span(ts),
-                        span("  "),
-                        span(desc),
-                    );
                 }).filter(Boolean);
 
                 if (lines.length === 0) {
-                    return p({class: "p-4 text-sm text-gray-500"}, "No meaningful changes yet.");
+                    return p({class: "p-4 text-sm text-gray-500"}, "No history.");
                 }
 
-                // display newest first
-                lines.reverse();
                 return div({class: "flex flex-col"}, ...lines);
             }
         )

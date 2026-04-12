@@ -85,8 +85,8 @@ func (g *GitManagerImpl) ListBranches(repoURL string) ([]string, error) {
 	return branches, nil
 }
 
-// repoOwnerName extracts "owner/repo" from a URL like "github.com/owner/repo".
-func repoOwnerName(repoURL string) (string, error) {
+// RepoOwnerName extracts "owner/repo" from a URL like "github.com/owner/repo".
+func RepoOwnerName(repoURL string) (string, error) {
 	repoURL = strings.TrimPrefix(repoURL, "https://")
 	repoURL = strings.TrimPrefix(repoURL, "http://")
 	repoURL = strings.TrimSuffix(repoURL, ".git")
@@ -100,7 +100,7 @@ func repoOwnerName(repoURL string) (string, error) {
 
 // GetCommitLog fetches recent commits from the GitHub API.
 func (g *GitManagerImpl) GetCommitLog(repoURL string, branch string, limit int) ([]CommitInfo, error) {
-	ownerRepo, err := repoOwnerName(repoURL)
+	ownerRepo, err := RepoOwnerName(repoURL)
 	if err != nil {
 		return nil, err
 	}

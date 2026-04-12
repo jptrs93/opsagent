@@ -78,14 +78,21 @@
  * @property {DeploymentWithStatus} deploymentUpdate
  * @property {UserConfigVersion} userConfigSnapshot
  * @property {UserConfigVersion} userConfigUpdate
+ * @property {User[]} usersSnapshot
+ * @property {User} userUpdate
  */
 /**
  * @typedef {Object} DeploymentWithStatusSnapshot
  * @property {DeploymentWithStatus[]} items
  */
 /**
+ * @typedef {Object} DeploymentHistoryEntry
+ * @property {DeploymentConfig} config
+ * @property {DeploymentStatus} status
+ */
+/**
  * @typedef {Object} DeploymentHistory
- * @property {DeploymentConfig[]} entries
+ * @property {DeploymentHistoryEntry[]} entries
  */
 /**
  * @typedef {Object} DeploymentUpdateRequest
@@ -1181,6 +1188,18 @@ export function writeState(message, writer) {
         writeUserConfigVersion(message.userConfigUpdate, writer);
         writer.ldelim();
     }
+    if (message.usersSnapshot && message.usersSnapshot.length > 0) {
+        for (const item of message.usersSnapshot) {
+            writer.uint32(tag(6, WIRE.LDELIM)).fork();
+            writeUser(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.userUpdate !== undefined && message.userUpdate !== null) {
+        writer.uint32(tag(7, WIRE.LDELIM)).fork();
+        writeUser(message.userUpdate, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -1202,7 +1221,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, userConfigSnapshot: undefined, userConfigUpdate: undefined };
+    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, userConfigSnapshot: undefined, userConfigUpdate: undefined, usersSnapshot: [], userUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1224,6 +1243,14 @@ function decodeStateMessage(reader, length) {
             }
             case 5: {
                 message.userConfigUpdate = decodeUserConfigVersionMessage(reader, reader.uint32());
+                break;
+            }
+            case 6: {
+                message.usersSnapshot.push(decodeUserMessage(reader, reader.uint32()));
+                break;
+            }
+            case 7: {
+                message.userUpdate = decodeUserMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -1306,6 +1333,73 @@ export function decodeDeploymentWithStatusSnapshot(buffer) {
 
 
 /**
+ * @param {DeploymentHistoryEntry} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentHistoryEntry(message, writer) {
+    if (message.config !== undefined && message.config !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeDeploymentConfig(message.config, writer);
+        writer.ldelim();
+    }
+    if (message.status !== undefined && message.status !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeDeploymentStatus(message.status, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {DeploymentHistoryEntry} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentHistoryEntry(message) {
+    const writer = Writer.create();
+    writeDeploymentHistoryEntry(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentHistoryEntry}
+ */
+function decodeDeploymentHistoryEntryMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {config: undefined, status: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.config = decodeDeploymentConfigMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.status = decodeDeploymentStatusMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentHistoryEntry}
+ */
+export function decodeDeploymentHistoryEntry(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentHistoryEntryMessage(reader);
+}
+
+
+
+/**
  * @param {DeploymentHistory} message
  * @param {Writer} writer
  */
@@ -1313,7 +1407,7 @@ export function writeDeploymentHistory(message, writer) {
     if (message.entries && message.entries.length > 0) {
         for (const item of message.entries) {
             writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeDeploymentConfig(item, writer);
+            writeDeploymentHistoryEntry(item, writer);
             writer.ldelim();
         }
     }
@@ -1343,7 +1437,7 @@ function decodeDeploymentHistoryMessage(reader, length) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.entries.push(decodeDeploymentConfigMessage(reader, reader.uint32()));
+                message.entries.push(decodeDeploymentHistoryEntryMessage(reader, reader.uint32()));
                 break;
             }
             default:

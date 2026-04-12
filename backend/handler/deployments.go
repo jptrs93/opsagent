@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/engine/preparer"
+	"github.com/jptrs93/opsagent/backend/engine/versionprovider"
 )
 
 var NoPreparerErr = apigen.NewApiErr("Config has no preparer configured", "no_preparer", http.StatusBadRequest)
@@ -73,10 +73,10 @@ func (h *Handler) PostV1PrepareOutput(ctx apigen.Context, r *http.Request, w htt
 	}
 	defer f.Close()
 
-	// TODO: tail the prepare log until the preparer reaches a terminal
-	// state. Without a status-by-id read on the store we can't poll, so
-	// for now we stream the static snapshot of whatever is on disk.
-	return streamLogFile(ctx, w, f, func() bool { return false })
+	return streamLogFile(ctx, w, f, func() bool {
+		st := h.Store.FetchDeploymentStatus(*req.ID)
+		return st != nil && st.Preparer != nil && isPrepareInProgress(st.Preparer.Status)
+	})
 }
 
 func (h *Handler) PostV1RunOutput(ctx apigen.Context, r *http.Request, w http.ResponseWriter) error {
@@ -111,9 +111,10 @@ func (h *Handler) PostV1RunOutput(ctx apigen.Context, r *http.Request, w http.Re
 	}
 	defer f.Close()
 
-	// TODO: tail the run log while the runner is still active. Needs a
-	// per-id status read on the store.
-	return streamLogFile(ctx, w, f, func() bool { return false })
+	return streamLogFile(ctx, w, f, func() bool {
+		st := h.Store.FetchDeploymentStatus(*req.ID)
+		return st != nil && st.Runner != nil && isRunnerActive(st.Runner.Status)
+	})
 }
 
 // proxyRemoteLogs streams log data from a remote worker back to the HTTP
@@ -204,54 +205,40 @@ func streamLogFile(ctx apigen.Context, w http.ResponseWriter, f *os.File, keepTa
 }
 
 // PostV1ListScopes looks up the latest DeploymentConfig for the requested
-// environment+name, then dispatches to the correct preparer variant for
+// environment+name, then dispatches to the correct version provider for
 // scope discovery (branches for nix, nothing for github releases).
 func (h *Handler) PostV1ListScopes(ctx apigen.Context, req *apigen.ListScopesRequest) (*apigen.ListScopesResponse, error) {
 	dep, err := h.findLatestDeployment(req.Environment, req.DeploymentName)
 	if err != nil {
 		return nil, err
 	}
-	prepCfg := dep.Spec.Prepare
-	switch {
-	case prepCfg.NixBuild != nil:
-		scopes, err := preparer.Nix.ListScopes(ctx, prepCfg)
-		if err != nil {
-			return nil, fmt.Errorf("listing scopes: %w", err)
-		}
-		return &apigen.ListScopesResponse{Scopes: scopes}, nil
-	case prepCfg.GithubRelease != nil:
-		scopes, err := preparer.GHRel.ListScopes(ctx, prepCfg)
-		if err != nil {
-			return nil, fmt.Errorf("listing scopes: %w", err)
-		}
-		return &apigen.ListScopesResponse{Scopes: scopes}, nil
+	provider, err := versionprovider.ForConfig(dep.Spec.Prepare)
+	if err != nil {
+		return nil, NoPreparerErr
 	}
-	return nil, NoPreparerErr
+	scopes, err := provider.ListScopes(ctx, dep.Spec.Prepare)
+	if err != nil {
+		return nil, fmt.Errorf("listing scopes: %w", err)
+	}
+	return &apigen.ListScopesResponse{Scopes: scopes}, nil
 }
 
 // PostV1ListVersions returns the available versions for the requested
-// deployment's preparer variant under the given scope.
+// deployment's prepare config under the given scope.
 func (h *Handler) PostV1ListVersions(ctx apigen.Context, req *apigen.ListVersionsRequest) (*apigen.ListVersionsResponse, error) {
 	dep, err := h.findLatestDeployment(req.Environment, req.DeploymentName)
 	if err != nil {
 		return nil, err
 	}
-	prepCfg := dep.Spec.Prepare
-	switch {
-	case prepCfg.NixBuild != nil:
-		vs, err := preparer.Nix.ListVersions(ctx, prepCfg, req.Scope)
-		if err != nil {
-			return nil, fmt.Errorf("listing versions: %w", err)
-		}
-		return &apigen.ListVersionsResponse{Versions: vs}, nil
-	case prepCfg.GithubRelease != nil:
-		vs, err := preparer.GHRel.ListVersions(ctx, prepCfg, req.Scope)
-		if err != nil {
-			return nil, fmt.Errorf("listing versions: %w", err)
-		}
-		return &apigen.ListVersionsResponse{Versions: vs}, nil
+	provider, err := versionprovider.ForConfig(dep.Spec.Prepare)
+	if err != nil {
+		return nil, NoPreparerErr
 	}
-	return nil, NoPreparerErr
+	vs, err := provider.ListVersions(ctx, dep.Spec.Prepare, req.Scope)
+	if err != nil {
+		return nil, fmt.Errorf("listing versions: %w", err)
+	}
+	return &apigen.ListVersionsResponse{Versions: vs}, nil
 }
 
 // findLatestDeployment resolves (environment, name) to the most recent
@@ -281,4 +268,9 @@ func (h *Handler) findLatestDeployment(environment, name string) (*apigen.Deploy
 func isPrepareInProgress(status apigen.PreparationStatus) bool {
 	return status == apigen.PreparationStatus_PREPARING ||
 		status == apigen.PreparationStatus_DOWNLOADING
+}
+
+func isRunnerActive(status apigen.RunningStatus) bool {
+	return status == apigen.RunningStatus_RUNNING ||
+		status == apigen.RunningStatus_STARTING
 }

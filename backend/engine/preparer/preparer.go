@@ -6,6 +6,7 @@ package preparer
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -50,7 +51,16 @@ func StartPrepare(store storage.OperatorStore, dep *apigen.DeploymentConfig) Pre
 // start a fresh preparation.
 func ReAttach(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, prev *apigen.PreparerStatus) Preparer {
 	if prev != nil && prev.DeploymentSeqNo == dep.SeqNo && prev.Status == apigen.PreparationStatus_READY {
+		slog.InfoContext(ctx, "preparer.ReAttach: already READY, returning finished",
+			"seqNo", dep.SeqNo, "artifact", prev.Artifact)
 		return &finishedPreparer{seqNo: dep.SeqNo}
+	}
+	if prev == nil {
+		slog.InfoContext(ctx, "preparer.ReAttach: no previous preparer, starting fresh",
+			"seqNo", dep.SeqNo, "desiredVersion", desiredVersion(dep))
+	} else {
+		slog.InfoContext(ctx, "preparer.ReAttach: previous preparer not ready, restarting",
+			"seqNo", dep.SeqNo, "prevStatus", prev.Status, "prevSeqNo", prev.DeploymentSeqNo)
 	}
 	return startFor(ctx, store, dep)
 }
@@ -58,10 +68,13 @@ func ReAttach(ctx context.Context, store storage.OperatorStore, dep *apigen.Depl
 func startFor(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig) Preparer {
 	switch {
 	case hasNixBuild(dep):
+		slog.InfoContext(ctx, "preparer.startFor: dispatching nixBuild", "seqNo", dep.SeqNo)
 		return Nix.start(ctx, store, dep)
 	case hasGithubRelease(dep):
+		slog.InfoContext(ctx, "preparer.startFor: dispatching githubRelease", "seqNo", dep.SeqNo)
 		return GHRel.start(ctx, store, dep)
 	}
+	slog.WarnContext(ctx, "preparer.startFor: no prepare config found, marking FAILED", "seqNo", dep.SeqNo)
 	writePrepareStatus(context.Background(), store, dep, "", apigen.PreparationStatus_FAILED)
 	return &finishedPreparer{seqNo: dep.SeqNo}
 }
@@ -102,6 +115,7 @@ func (f *finishedPreparer) SeqNo() int32 { return f.seqNo }
 // and always uses a background context so terminal writes still land after
 // the worker's own ctx has been cancelled.
 func writePrepareStatus(_ context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, artifact string, status apigen.PreparationStatus) {
+	slog.Info("preparer.writePrepareStatus", "seqNo", dep.SeqNo, "status", status, "artifact", artifact)
 	store.MustWriteDeploymentStatus(context.Background(), *dep.ID, func(s *apigen.DeploymentStatus) {
 		if s.Preparer != nil && s.Preparer.DeploymentSeqNo > dep.SeqNo {
 			return

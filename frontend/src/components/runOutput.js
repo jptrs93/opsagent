@@ -5,7 +5,15 @@ import {encodeRunOutputRequest} from "../capi/model.js";
 
 const { div, h2, span, pre, button } = van.tags;
 
-export function runOutput(key, version, onClose) {
+const parseDeploymentKey = (key) => {
+    const parts = key.split(':');
+    if (parts.length >= 3) {
+        return { environment: parts[0], machine: parts[1], name: parts.slice(2).join(':') };
+    }
+    return { environment: '', machine: '', name: key };
+};
+
+export function runOutput(key, seqNo, onClose) {
     const outputText = van.state('');
     const done = van.state(false);
     const endLabel = van.state('Stream ended');
@@ -26,7 +34,7 @@ export function runOutput(key, version, onClose) {
 
     const unregisterLogout = onLogout(abortStream);
 
-    const startStream = async () => {
+    const startStream = async (attempt = 0) => {
         if (cancelled) return;
         abortController = new AbortController();
         const token = loginS.val?.token;
@@ -39,12 +47,16 @@ export function runOutput(key, version, onClose) {
             const response = await fetch('/v1/run/output', {
                 method: 'POST',
                 headers,
-                body: encodeRunOutputRequest({ key, version: version || '' }),
+                body: encodeRunOutputRequest({ id: parseDeploymentKey(key), seqNo: seqNo }),
                 credentials: 'include',
                 signal: abortController.signal,
             });
 
             if (!response.ok) {
+                if (response.status === 404 && attempt < 1) {
+                    await new Promise(r => setTimeout(r, 1000));
+                    return startStream(attempt + 1);
+                }
                 if (response.status === 404) {
                     endLabel.val = 'No log file found';
                     outputText.val = 'No log file found.';

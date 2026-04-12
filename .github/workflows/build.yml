@@ -27,7 +27,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            cc: gcc
+          - arch: arm64
+            cc: aarch64-linux-gnu-gcc
     steps:
       - uses: actions/checkout@v4
 
@@ -46,6 +50,11 @@ jobs:
           go-version: '1.25'
           cache-dependency-path: backend/go.sum
 
+      - name: Install C toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
       - name: Build frontend
         working-directory: frontend
         run: |
@@ -55,9 +64,10 @@ jobs:
       - name: Build backend
         working-directory: backend
         env:
-          CGO_ENABLED: 0
+          CGO_ENABLED: 1
           GOOS: linux
           GOARCH: ${{ matrix.arch }}
+          CC: ${{ matrix.cc }}
         run: |
           go build -trimpath -ldflags="-s -w" -o "opsagent-linux-${{ matrix.arch }}" .
 

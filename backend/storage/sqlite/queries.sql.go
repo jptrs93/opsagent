@@ -193,37 +193,6 @@ func (q *Queries) InsertDeploymentConfigHistory(ctx context.Context, arg InsertD
 	return err
 }
 
-const insertDeploymentIdentifier = `-- name: InsertDeploymentIdentifier :one
-INSERT INTO deployment_identifiers (environment, machine, name, created_at)
-VALUES (?, ?, ?, ?)
-RETURNING id, environment, machine, name, created_at
-`
-
-type InsertDeploymentIdentifierParams struct {
-	Environment string
-	Machine     string
-	Name        string
-	CreatedAt   int64
-}
-
-func (q *Queries) InsertDeploymentIdentifier(ctx context.Context, arg InsertDeploymentIdentifierParams) (DeploymentIdentifier, error) {
-	row := q.db.QueryRowContext(ctx, insertDeploymentIdentifier,
-		arg.Environment,
-		arg.Machine,
-		arg.Name,
-		arg.CreatedAt,
-	)
-	var i DeploymentIdentifier
-	err := row.Scan(
-		&i.ID,
-		&i.Environment,
-		&i.Machine,
-		&i.Name,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const insertDeploymentStatus = `-- name: InsertDeploymentStatus :exec
 INSERT INTO deployment_status_history (
     deployment_id, status_seq_no, timestamp,
@@ -693,6 +662,33 @@ func (q *Queries) UpsertDeploymentConfig(ctx context.Context, arg UpsertDeployme
 		arg.Deleted,
 	)
 	return err
+}
+
+const upsertDeploymentID = `-- name: UpsertDeploymentID :one
+INSERT INTO deployment_identifiers (environment, machine, name, created_at)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(environment, machine, name) DO UPDATE SET
+    created_at = deployment_identifiers.created_at
+RETURNING id
+`
+
+type UpsertDeploymentIDParams struct {
+	Environment string
+	Machine     string
+	Name        string
+	CreatedAt   int64
+}
+
+func (q *Queries) UpsertDeploymentID(ctx context.Context, arg UpsertDeploymentIDParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, upsertDeploymentID,
+		arg.Environment,
+		arg.Machine,
+		arg.Name,
+		arg.CreatedAt,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const upsertPublicKey = `-- name: UpsertPublicKey :exec

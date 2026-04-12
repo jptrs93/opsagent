@@ -39,44 +39,6 @@ func NewNixBuilder(dataDir string, githubToken string) *NixBuilder {
 	}
 }
 
-// ListScopes returns the branch names available on the configured repo.
-func (b *NixBuilder) ListScopes(ctx context.Context, cfg *apigen.PrepareConfig) ([]string, error) {
-	if cfg == nil || cfg.NixBuild == nil {
-		return nil, fmt.Errorf("nixBuild config missing")
-	}
-	return b.Git.ListBranches(cfg.NixBuild.Repo)
-}
-
-// ListVersions returns recent commits for the given branch (defaults to the
-// repo's default branch when scope is empty).
-func (b *NixBuilder) ListVersions(ctx context.Context, cfg *apigen.PrepareConfig, scope string) ([]*apigen.Version, error) {
-	if cfg == nil || cfg.NixBuild == nil {
-		return nil, fmt.Errorf("nixBuild config missing")
-	}
-	commits, err := b.Git.GetCommitLog(cfg.NixBuild.Repo, scope, 25)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]*apigen.Version, 0, len(commits))
-	for _, c := range commits {
-		out = append(out, &apigen.Version{
-			ID:     c.Hash,
-			Label:  commitSubject(c.Message),
-			Author: c.Author,
-			Time:   c.Time,
-		})
-	}
-	return out, nil
-}
-
-// commitSubject returns the first line of a commit message.
-func commitSubject(msg string) string {
-	if idx := strings.IndexByte(msg, '\n'); idx >= 0 {
-		return msg[:idx]
-	}
-	return msg
-}
-
 func (b *NixBuilder) start(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig) Preparer {
 	ctx, cancel := context.WithCancel(parentCtx)
 	p := &activePreparer{cancel: cancel, done: make(chan struct{}), seqNo: dep.SeqNo}

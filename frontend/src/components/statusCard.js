@@ -77,7 +77,7 @@ export function statusCard(deployment, versions, versionError, scopes, selectedS
     );
 
     const deployBtn = spinnerButton("Deploy", async () => {
-        await onDeploy(deployment.name, deployment.environment, selectedVersion.val, deployment.currentSeqNo, deployment.machine);
+        await onDeploy(deployment, selectedVersion.val);
     }, "btn-primary text-xs py-1 px-3", 'button', () => !selectedVersion.val);
 
     return div(
@@ -97,21 +97,21 @@ export function statusCard(deployment, versions, versionError, scopes, selectedS
                 isRunning
                     ? button({
                         class: "text-red-400 hover:text-red-300 transition-colors cursor-pointer",
-                        onclick: () => onStop(deployment.name, deployment.environment, deployment.currentSeqNo),
+                        onclick: () => onStop(deployment),
                         title: "Stop",
                     }, StopCircle({size: 14}))
                     : span(),
                 isStopped && hasExisting && hasExistingVersion
                     ? button({
                         class: "text-green-400 hover:text-green-300 transition-colors cursor-pointer",
-                        onclick: () => onDeploy(deployment.name, deployment.environment, deployment.existingVersion, deployment.currentSeqNo, deployment.machine),
+                        onclick: () => onDeploy(deployment, deployment.existingVersion),
                         title: "Start",
                     }, PlayCircle({size: 14}))
                     : span(),
                 hasExisting
                     ? span({
                         class: `px-2 py-0.5 rounded text-xs font-medium cursor-pointer hover:brightness-125 ${existingColors.bg} ${existingColors.text}`,
-                        onclick: () => onShowRunOutput(deployment.key, deployment.existingVersion),
+                        onclick: () => onShowRunOutput(deployment.key, deployment.currentSeqNo),
                         title: "View run output",
                     }, existingColors.label)
                     : span({class: `px-2 py-0.5 rounded text-xs font-medium ${existingColors.bg} ${existingColors.text}`}, existingColors.label),
@@ -174,7 +174,7 @@ export function statusCard(deployment, versions, versionError, scopes, selectedS
                     prepareCopy.prefix ? span({class: prepareCopy.class}, prepareCopy.prefix) : null,
                     a({
                         class: `underline hover:text-white cursor-pointer ${prepareCopy.class}`,
-                        onclick: () => onShowPrepareOutput(deployment.key, deployment.prepareVersion),
+                        onclick: () => onShowPrepareOutput(deployment.key, deployment.currentSeqNo),
                     }, "prepare"),
                     span({class: prepareCopy.class}, prepareCopy.text),
                 )

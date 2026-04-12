@@ -2,15 +2,13 @@ import van from "vanjs-core";
 import { capi } from "../capi/index.js";
 import { loginS } from "./login.js";
 
+// deploymentsS holds the current DeploymentWithStatus[] snapshot.
+// Each entry has {config: DeploymentConfig, status: DeploymentStatus}.
 export const deploymentsS = van.state([]);
-export const usersS = van.state([]);
-// clusterConfigS holds the ClusterConfig record (user + system config).
-// Null before the first snapshot arrives.
-export const clusterConfigS = van.state(null);
-// desiredStatesS is a plain object keyed by "<machine>:<name>" mapping to
-// DesiredState records. Lives in its own store on the backend so that
-// deploy clicks don't rewrite the full cluster config.
-export const desiredStatesS = van.state({});
+// userConfigS holds the latest UserConfigVersion or null.
+export const userConfigS = van.state(null);
+// usersMapS holds a Map<userId, userName> for resolving display names.
+export const usersMapS = van.state(new Map());
 export const deploymentsStreamS = van.state({
     status: 'offline',
     sentence: 'offline',
@@ -28,9 +26,8 @@ let streamInactivityTimer = null;
 
 const hasStateStreamAccess = () => loginS.val?.scopes?.includes('default') === true;
 
-export const setClusterConfig = (cc) => {
-    clusterConfigS.val = cc || null;
-};
+// deploymentKey builds a unique string key from a DeploymentIdentifier.
+export const deploymentKey = (id) => `${id.environment}:${id.machine}:${id.name}`;
 
 const setStreamState = (status, sentence, lastError = '') => {
     deploymentsStreamS.val = { status, sentence, lastError };
@@ -67,9 +64,8 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
     reconnectAttempt = 0;
     if (clearDeployments) {
         deploymentsS.val = [];
-        usersS.val = [];
-        clusterConfigS.val = null;
-        desiredStatesS.val = {};
+        userConfigS.val = null;
+        usersMapS.val = new Map();
     }
     setStreamState('offline', 'offline');
 };
@@ -78,43 +74,36 @@ const handleStateMessage = (message) => {
     if (!message) return;
 
     if (message.deploymentsSnapshot) {
-        deploymentsS.val = message.deploymentsSnapshot.deployments || [];
+        deploymentsS.val = message.deploymentsSnapshot.items || [];
     }
 
-    if (message.deploymentUpdate?.key) {
-        const next = new Map((deploymentsS.val || []).map((item) => [item.key, item]));
-        next.set(message.deploymentUpdate.key, message.deploymentUpdate);
+    if (message.deploymentUpdate?.config?.id) {
+        const updateKey = deploymentKey(message.deploymentUpdate.config.id);
+        const next = new Map((deploymentsS.val || []).map((item) => [deploymentKey(item.config.id), item]));
+        next.set(updateKey, message.deploymentUpdate);
         deploymentsS.val = Array.from(next.values());
     }
 
-    if (message.usersSnapshot) {
-        usersS.val = message.usersSnapshot.users || [];
+    if (message.userConfigSnapshot !== undefined) {
+        userConfigS.val = message.userConfigSnapshot || null;
+    }
+
+    if (message.userConfigUpdate !== undefined) {
+        userConfigS.val = message.userConfigUpdate || null;
+    }
+
+    if (message.usersSnapshot && message.usersSnapshot.length > 0) {
+        const next = new Map();
+        for (const u of message.usersSnapshot) {
+            next.set(u.id, u.name);
+        }
+        usersMapS.val = next;
     }
 
     if (message.userUpdate?.id) {
-        const next = new Map((usersS.val || []).map((item) => [item.id, item]));
-        next.set(message.userUpdate.id, message.userUpdate);
-        usersS.val = Array.from(next.values()).sort((a, b) => a.id - b.id);
-    }
-
-    if (message.clusterConfigSnapshot !== undefined) {
-        setClusterConfig(message.clusterConfigSnapshot);
-    }
-
-    if (message.clusterConfigUpdate !== undefined) {
-        setClusterConfig(message.clusterConfigUpdate);
-    }
-
-    if (message.desiredStatesSnapshot) {
-        const next = {};
-        for (const ds of (message.desiredStatesSnapshot.desiredStates || [])) {
-            if (ds?.key) next[ds.key] = ds;
-        }
-        desiredStatesS.val = next;
-    }
-
-    if (message.desiredStateUpdate?.key) {
-        desiredStatesS.val = {...desiredStatesS.val, [message.desiredStateUpdate.key]: message.desiredStateUpdate};
+        const next = new Map(usersMapS.val);
+        next.set(message.userUpdate.id, message.userUpdate.name);
+        usersMapS.val = next;
     }
 };
 

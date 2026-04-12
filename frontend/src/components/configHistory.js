@@ -1,7 +1,5 @@
 import van from "vanjs-core";
 import {format} from "date-fns";
-import {usersS} from "../state/deployments.js";
-
 const { div, h2, span } = van.tags;
 
 export function configHistory(versionsState, onRestore) {
@@ -18,11 +16,10 @@ export function configHistory(versionsState, onRestore) {
                 if (!versions || versions.length === 0) {
                     return div({class: "p-4 text-sm text-gray-500"}, "No versions yet.");
                 }
-                const userNameById = new Map((usersS.val || []).map((user) => [user.id, user.name]));
                 return div(
                     {class: "flex flex-col gap-1"},
                     ...versions.map((v, i) => {
-                        const author = v.updatedBy ? (userNameById.get(v.updatedBy) || `user ${v.updatedBy}`) : '';
+                        const author = v.updatedBy ? `user ${v.updatedBy}` : '';
                         return div({
                             class: "px-3 py-2 rounded text-sm cursor-pointer hover:bg-surface-hover transition-colors",
                             onclick: () => onRestore(v)

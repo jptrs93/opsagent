@@ -79,7 +79,7 @@ func (g *GithubReleaseDownloader) runDownload(ctx context.Context, store storage
 	}
 
 	gh := dep.Spec.Prepare.GithubRelease
-	ownerRepo, err := repoOwnerName(gh.Repo)
+	ownerRepo, err := RepoOwnerName(gh.Repo)
 	if err != nil {
 		writeLog("ERROR parsing repo: %v", err)
 		return "", apigen.PreparationStatus_FAILED
@@ -127,40 +127,6 @@ func (g *GithubReleaseDownloader) runDownload(ctx context.Context, store storage
 
 	writeLog("download complete, artifact: %s", dstPath)
 	return dstPath, apigen.PreparationStatus_READY
-}
-
-// ListScopes has no meaning for github releases (releases are flat).
-func (g *GithubReleaseDownloader) ListScopes(ctx context.Context, cfg *apigen.PrepareConfig) ([]string, error) {
-	return nil, nil
-}
-
-// ListVersions returns all release tags (newest first).
-func (g *GithubReleaseDownloader) ListVersions(ctx context.Context, cfg *apigen.PrepareConfig, scope string) ([]*apigen.Version, error) {
-	if cfg == nil || cfg.GithubRelease == nil {
-		return nil, fmt.Errorf("githubRelease config missing")
-	}
-	ownerRepo, err := repoOwnerName(cfg.GithubRelease.Repo)
-	if err != nil {
-		return nil, err
-	}
-	releases, err := g.fetchReleases(ctx, ownerRepo, 50)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]*apigen.Version, 0, len(releases))
-	for _, r := range releases {
-		label := r.Name
-		if label == "" {
-			label = r.TagName
-		}
-		out = append(out, &apigen.Version{
-			ID:     r.TagName,
-			Label:  label,
-			Author: r.Author.Login,
-			Time:   r.PublishedAt,
-		})
-	}
-	return out, nil
 }
 
 // --- github api helpers ---

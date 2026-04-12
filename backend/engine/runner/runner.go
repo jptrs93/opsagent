@@ -7,6 +7,7 @@ package runner
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -29,6 +30,7 @@ func Create(ctx context.Context, store storage.OperatorStore, dep *apigen.Deploy
 	if status != nil && status.Preparer != nil {
 		artifact = status.Preparer.Artifact
 	}
+	slog.InfoContext(ctx, "runner.Create", "artifact", artifact, "seqNo", dep.SeqNo, "systemd", useSystemd(dep))
 	if useSystemd(dep) {
 		return newSystemdRunner(ctx, store, dep, artifact, nil)
 	}
@@ -43,15 +45,27 @@ func Create(ctx context.Context, store storage.OperatorStore, dep *apigen.Deploy
 // short-circuits to monitor-only mode when the installed binary already
 // matches the prepared artifact.
 func ReAttach(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, prev *apigen.RunnerStatus) Runner {
-	artifact := ""
-	if prev != nil {
-		artifact = prev.RunningArtifact
+	if prev == nil {
+		slog.InfoContext(ctx, "runner.ReAttach: no previous runner, returning stopped")
+		return Stopped()
 	}
+	slog.InfoContext(ctx, "runner.ReAttach: reattaching",
+		"prevStatus", prev.Status, "prevPid", prev.RunningPid,
+		"prevArtifact", prev.RunningArtifact, "seqNo", dep.SeqNo)
+	artifact := prev.RunningArtifact
 	if useSystemd(dep) {
 		return newSystemdRunner(ctx, store, dep, artifact, prev)
 	}
 	return newOSProcessRunner(ctx, store, dep, artifact, prev)
 }
+
+// Stopped returns a no-op Runner sentinel used when no process is running.
+func Stopped() Runner { return stoppedRunner{} }
+
+type stoppedRunner struct{}
+
+func (stoppedRunner) Stop()        {}
+func (stoppedRunner) SeqNo() int32 { return -1 }
 
 func useSystemd(dep *apigen.DeploymentConfig) bool {
 	return dep.Spec != nil && dep.Spec.Runner != nil && dep.Spec.Runner.Systemd != nil

@@ -10,10 +10,12 @@ SELECT id, environment, machine, name, created_at
 FROM deployment_identifiers
 WHERE id = ?;
 
--- name: InsertDeploymentIdentifier :one
+-- name: UpsertDeploymentID :one
 INSERT INTO deployment_identifiers (environment, machine, name, created_at)
 VALUES (?, ?, ?, ?)
-RETURNING id, environment, machine, name, created_at;
+ON CONFLICT(environment, machine, name) DO UPDATE SET
+    created_at = deployment_identifiers.created_at
+RETURNING id;
 
 -- === deployment_configs ===
 

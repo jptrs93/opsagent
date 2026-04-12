@@ -14,6 +14,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine"
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
+	"github.com/jptrs93/opsagent/backend/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/primary"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
@@ -74,6 +75,9 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 
 	preparer.Nix = preparer.NewNixBuilder(ainit.Config.DataDir, ainit.Config.GithubToken)
 	preparer.GHRel = preparer.NewGithubReleaseDownloader(ainit.Config.DataDir, ainit.Config.GithubToken)
+
+	versionprovider.Git = versionprovider.NewGitVersionProvider(preparer.Nix.Git)
+	versionprovider.GHRel = versionprovider.NewGithubReleaseVersionProvider(ainit.Config.GithubToken)
 
 	h := &Handler{
 		staticFS:    staticFS,

@@ -629,6 +629,8 @@ type State struct {
 	DeploymentUpdate    *DeploymentWithStatus
 	UserConfigSnapshot  *UserConfigVersion
 	UserConfigUpdate    *UserConfigVersion
+	UsersSnapshot       []*User
+	UserUpdate          *User
 }
 
 func (m *State) Encode() []byte {
@@ -649,6 +651,17 @@ func (m *State) Encode() []byte {
 	if m.UserConfigUpdate != nil {
 		b = protowire.AppendTag(b, 5, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.UserConfigUpdate.Encode())
+	}
+	for _, item := range m.UsersSnapshot {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 6, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	if m.UserUpdate != nil {
+		b = protowire.AppendTag(b, 7, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.UserUpdate.Encode())
 	}
 	return b
 }
@@ -701,6 +714,24 @@ func DecodeState(b []byte) (*State, error) {
 				item, err = DecodeUserConfigVersion(msgBytes)
 				if err == nil {
 					m.UserConfigUpdate = item
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *User
+				item, err = DecodeUser(msgBytes)
+				if err == nil {
+					m.UsersSnapshot = append(m.UsersSnapshot, item)
+				}
+			}
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *User
+				item, err = DecodeUser(msgBytes)
+				if err == nil {
+					m.UserUpdate = item
 				}
 			}
 		default:
@@ -760,8 +791,66 @@ func DecodeDeploymentWithStatusSnapshot(b []byte) (*DeploymentWithStatusSnapshot
 	return &m, nil
 }
 
+type DeploymentHistoryEntry struct {
+	Config *DeploymentConfig
+	Status *DeploymentStatus
+}
+
+func (m *DeploymentHistoryEntry) Encode() []byte {
+	var b []byte
+	if m.Config != nil {
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.Config.Encode())
+	}
+	if m.Status != nil {
+		b = protowire.AppendTag(b, 2, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.Status.Encode())
+	}
+	return b
+}
+
+func DecodeDeploymentHistoryEntry(b []byte) (*DeploymentHistoryEntry, error) {
+	var m DeploymentHistoryEntry
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentConfig
+				item, err = DecodeDeploymentConfig(msgBytes)
+				if err == nil {
+					m.Config = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentStatus
+				item, err = DecodeDeploymentStatus(msgBytes)
+				if err == nil {
+					m.Status = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type DeploymentHistory struct {
-	Entries []*DeploymentConfig
+	Entries []*DeploymentHistoryEntry
 }
 
 func (m *DeploymentHistory) Encode() []byte {
@@ -791,8 +880,8 @@ func DecodeDeploymentHistory(b []byte) (*DeploymentHistory, error) {
 		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentConfig
-				item, err = DecodeDeploymentConfig(msgBytes)
+				var item *DeploymentHistoryEntry
+				item, err = DecodeDeploymentHistoryEntry(msgBytes)
 				if err == nil {
 					m.Entries = append(m.Entries, item)
 				}
