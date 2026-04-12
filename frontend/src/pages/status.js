@@ -54,6 +54,8 @@ const mapDeploymentsToView = (deployments) => {
             prepareStatus: prep.status || 0,
             prepareVersion: desired.version || '',
             currentSeqNo: d.config.seqNo || 0,
+            runnerSeqNo: runner.deploymentSeqNo || 0,
+            preparerSeqNo: prep.deploymentSeqNo || 0,
         };
     });
 };
