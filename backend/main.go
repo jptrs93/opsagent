@@ -52,7 +52,7 @@ var fsys embed.FS
 // See docs/engineering/engine.md for the rationale.
 
 func main() {
-	slog.Info("opsagent starting with:", "version", version)
+	fmt.Println(fmt.Sprintf("opsagent starting with version=%v", version))
 
 	// Slave mode: if OPSAGENT_PRIMARY_ADDR is set, this node is a worker.
 	// It connects to the primary, receives state, and runs operators — no
