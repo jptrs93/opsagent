@@ -127,6 +127,19 @@ func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.StorageAd
 			continue
 		}
 
+		msgType := "heartbeat"
+		switch {
+		case msg.DeploymentsSnapshot != nil:
+			msgType = "deployments_snapshot"
+		case msg.DeploymentUpdate != nil:
+			msgType = "deployment_update"
+		case msg.PrepareLogRequest != nil:
+			msgType = "prepare_log_request"
+		case msg.RunLogRequest != nil:
+			msgType = "run_log_request"
+		}
+		slog.Info("received message from primary", "type", msgType)
+
 		switch {
 		case msg.DeploymentsSnapshot != nil:
 			applySnapshot(sessCtx, store, msg.DeploymentsSnapshot)
