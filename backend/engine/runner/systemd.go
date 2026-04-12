@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
@@ -39,6 +40,7 @@ type systemdRunner struct {
 	unit         string
 	binPath      string
 	artifactPath string
+	outputPath   string
 
 	stopping atomic.Bool
 
@@ -61,6 +63,7 @@ func newSystemdRunner(parentCtx context.Context, store storage.OperatorStore, de
 		unit:         sys.Name,
 		binPath:      sys.BinPath,
 		artifactPath: artifact,
+		outputPath:   dep.RunOutputPath(),
 	}
 
 	if prev != nil {
@@ -80,10 +83,22 @@ func (r *systemdRunner) Stop() {
 		return
 	}
 	r.cancel()
-	if err := systemctl(context.Background(), "stop", r.unit); err != nil {
+	out, err := systemctl(context.Background(), "stop", r.unit)
+	if err != nil {
 		slog.WarnContext(r.ctx, "systemctl stop failed", "unit", r.unit, "err", err)
+		r.appendOutput("systemctl stop failed: %s\n%s\n", err, out)
+		// Query actual unit state instead of assuming stopped.
+		active, queryErr := systemctlIsActive(context.Background(), r.unit)
+		if queryErr != nil {
+			slog.WarnContext(r.ctx, "systemctl is-active query failed after stop", "unit", r.unit, "err", queryErr)
+			r.writeStatus(apigen.RunningStatus_CRASHED, 0)
+		} else {
+			pid, _ := systemctlMainPID(context.Background(), r.unit)
+			r.writeStatus(mapActiveState(active), pid)
+		}
+	} else {
+		r.writeStatus(apigen.RunningStatus_STOPPED, 0)
 	}
-	r.writeStatus(apigen.RunningStatus_STOPPED, 0)
 	<-r.done
 }
 
@@ -98,15 +113,31 @@ func (r *systemdRunner) run() {
 		r.writeInitialStarting()
 		if err := atomicInstall(r.artifactPath, r.binPath); err != nil {
 			slog.ErrorContext(r.ctx, "installing artifact failed", "err", err, "dst", r.binPath, "src", r.artifactPath)
+			r.appendOutput("install failed: %s\n", err)
 			r.writeStatus(apigen.RunningStatus_CRASHED, 0)
 			return
 		}
 		slog.InfoContext(r.ctx, "restarting systemd unit", "unit", r.unit)
-		if err := systemctl(r.ctx, "restart", r.unit); err != nil {
+		r.appendOutput("restarting unit %s\n", r.unit)
+
+		// Use systemd-run to schedule the restart from a transient unit.
+		// This avoids the self-restart problem where our own process gets
+		// killed mid-command when restarting our own service.
+		out, err := systemctlRestart(r.ctx, r.unit)
+		if err != nil {
 			slog.ErrorContext(r.ctx, "systemctl restart failed", "err", err, "unit", r.unit)
-			r.writeStatus(apigen.RunningStatus_CRASHED, 0)
+			r.appendOutput("restart failed: %s\n%s\n", err, out)
+			// Query actual state — the unit may still be running.
+			active, queryErr := systemctlIsActive(r.ctx, r.unit)
+			if queryErr != nil {
+				r.writeStatus(apigen.RunningStatus_CRASHED, 0)
+			} else {
+				pid, _ := systemctlMainPID(r.ctx, r.unit)
+				r.writeStatus(mapActiveState(active), pid)
+			}
 			return
 		}
+		r.appendOutput("restart issued successfully\n")
 	} else {
 		slog.InfoContext(r.ctx, "systemd bin already matches artifact; entering monitor mode", "unit", r.unit)
 	}
@@ -202,6 +233,25 @@ func (r *systemdRunner) writeStatus(status apigen.RunningStatus, pid int) {
 	})
 }
 
+// appendOutput appends a formatted message to the runner output file so that
+// systemctl failures are visible alongside normal runner output in the UI.
+func (r *systemdRunner) appendOutput(format string, args ...any) {
+	if r.outputPath == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(r.outputPath), 0o755); err != nil {
+		slog.WarnContext(r.ctx, "creating run output dir failed", "err", err)
+		return
+	}
+	f, err := os.OpenFile(r.outputPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		slog.WarnContext(r.ctx, "opening run output file failed", "err", err)
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, format, args...)
+}
+
 // --- systemctl helpers ---
 
 func binMatchesArtifact(binPath, artifactPath string) (bool, error) {
@@ -262,13 +312,42 @@ func atomicInstall(src, dst string) error {
 	return nil
 }
 
-func systemctl(ctx context.Context, args ...string) error {
-	cmd := exec.CommandContext(ctx, "systemctl", args...)
+// systemctlRestart restarts a systemd unit. In production it uses
+// `sudo -n systemctl` to match the sudoers rules installed by the
+// deploy script. The restart is issued via `systemd-run --no-block`
+// so that self-restarts (opsagent restarting its own unit) don't
+// get caught up in the cgroup teardown.
+func systemctlRestart(ctx context.Context, unit string) (string, error) {
+	if ainit.Config.IsLocalDev == "true" {
+		return systemctl(ctx, "restart", unit)
+	}
+	cmd := exec.CommandContext(ctx, "sudo", "-n",
+		"systemd-run", "--no-block",
+		"/usr/bin/systemctl", "restart", unit)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("systemctl %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		return strings.TrimSpace(string(out)),
+			fmt.Errorf("sudo systemd-run restart %s: %w: %s", unit, err, strings.TrimSpace(string(out)))
 	}
-	return nil
+	return strings.TrimSpace(string(out)), nil
+}
+
+// systemctl runs a plain systemctl command. In production it uses
+// `sudo -n` to gain the necessary privilege for unit control.
+func systemctl(ctx context.Context, args ...string) (string, error) {
+	var cmd *exec.Cmd
+	if ainit.Config.IsLocalDev == "true" {
+		cmd = exec.CommandContext(ctx, "systemctl", args...)
+	} else {
+		sudoArgs := append([]string{"-n", "/usr/bin/systemctl"}, args...)
+		cmd = exec.CommandContext(ctx, "sudo", sudoArgs...)
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return strings.TrimSpace(string(out)),
+			fmt.Errorf("systemctl %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 func systemctlIsActive(ctx context.Context, unit string) (string, error) {

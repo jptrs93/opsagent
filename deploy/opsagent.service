@@ -17,7 +17,9 @@ Restart=on-failure
 RestartSec=5
 
 # Hardening
-NoNewPrivileges=yes
+# NoNewPrivileges is intentionally not set: the runner uses sudo to
+# restart its own systemd unit via the sudoers rule installed by the
+# deploy script. This requires privilege escalation to succeed.
 ProtectSystem=strict
 ProtectHome=yes
 # Allow writes to the data dir and the nix store (for spawner symlink resolution)

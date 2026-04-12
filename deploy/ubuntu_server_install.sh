@@ -189,10 +189,13 @@ chmod 750 /etc/opsagent/tls
 
 # --- sudoers ---
 cat > "$SUDOERS_FILE.new" <<SUDOEOF
-# Allow the opsagent user to restart its own service without a password.
+# Allow the opsagent user to manage its own service without a password.
+# systemctl is used for stop/start; systemd-run is used for restart so
+# that self-restarts don't get caught in the cgroup teardown.
 opsagent ALL=(root) NOPASSWD: /usr/bin/systemctl restart $SERVICE_NAME
 opsagent ALL=(root) NOPASSWD: /usr/bin/systemctl stop $SERVICE_NAME
 opsagent ALL=(root) NOPASSWD: /usr/bin/systemctl start $SERVICE_NAME
+opsagent ALL=(root) NOPASSWD: /usr/bin/systemd-run --no-block /usr/bin/systemctl restart $SERVICE_NAME
 SUDOEOF
 chmod 440 "$SUDOERS_FILE.new"
 visudo -cf "$SUDOERS_FILE.new" >/dev/null

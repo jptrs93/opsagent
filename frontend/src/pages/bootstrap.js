@@ -5,7 +5,7 @@ import {capi} from "../capi/index.js";
 import {setLoginFromResponse} from "../state/login.js";
 import {browserSupportsPasskeys, credentialToJSONBytes, registrationOptionsFromJSONBytes} from "../util/webauthn.js";
 
-const { p, form, div, h1, h2, label, input } = van.tags;
+const { p, form, div, h1, h2, label, input, a } = van.tags;
 
 export function bootstrapPage() {
     const status = van.state('');
@@ -63,8 +63,18 @@ export function bootstrapPage() {
             setLoginFromResponse(response);
             navigate("/");
         } catch (e) {
+            if (e?.name === 'InvalidStateError') {
+                status.val = div({class: 'flex flex-col gap-2'},
+                    p({class: 'text-yellow-400 text-sm'}, 'A passkey already exists for this account.'),
+                    a({class: 'text-sm text-blue-400 hover:text-blue-300 cursor-pointer', onclick: () => navigate("/login")}, 'Go to login'),
+                );
+                return;
+            }
             if (e?.name === 'NotAllowedError') {
-                status.val = p({class: 'text-red-400 text-sm'}, 'Registration was cancelled.');
+                status.val = div({class: 'flex flex-col gap-2'},
+                    p({class: 'text-red-400 text-sm'}, 'Registration was cancelled. If a passkey already exists, try logging in instead.'),
+                    a({class: 'text-sm text-blue-400 hover:text-blue-300 cursor-pointer', onclick: () => navigate("/login")}, 'Go to login'),
+                );
                 return;
             }
             status.val = p({class: 'text-red-400 text-sm'}, `${e.message}`);

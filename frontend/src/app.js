@@ -3,7 +3,7 @@ import {loginPage} from "./pages/login.js";
 import {bootstrapPage} from "./pages/bootstrap.js";
 import {dashboard} from "./pages/dashboard.js";
 import "./state/deployments.js";
-import {initLoginState, loginS, setLoginFromResponse} from "./state/login.js";
+import {clearLoginState, initLoginState, loginS, setLoginFromResponse} from "./state/login.js";
 import {currentPath, navigate} from "./lib/router.js";
 import {capi} from "./capi/index.js";
 
@@ -22,7 +22,8 @@ if (!window.__opsagentAppInited) {
                 const response = await capi.getV1AuthCurrentSession();
                 setLoginFromResponse(response);
             } catch (e) {
-                console.log(`error loading current session: ${e}`);
+                console.log(`error validating session, clearing: ${e}`);
+                clearLoginState();
             }
         }
         if (window.location.pathname === "/" && !loginS.val) {
