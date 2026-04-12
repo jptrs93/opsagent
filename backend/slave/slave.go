@@ -195,7 +195,9 @@ func applySnapshot(ctx context.Context, store *sqlite.StorageAdapter, snap *apig
 		store.MustWriteDeploymentConfig(ctx, item.Config)
 		if item.Status != nil {
 			store.MustWriteDeploymentStatus(ctx, *item.Config.ID, func(dst *apigen.DeploymentStatus) {
+				seqNo := dst.StatusSeqNo + 1
 				*dst = *item.Status
+				dst.StatusSeqNo = seqNo
 			})
 		}
 	}
