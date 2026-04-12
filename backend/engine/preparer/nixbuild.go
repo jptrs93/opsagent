@@ -106,7 +106,7 @@ func (b *NixBuilder) runBuild(ctx context.Context, store storage.OperatorStore, 
 	nixDir := filepath.Join(repoDir, filepath.Dir(nix.Flake))
 
 	writeLog("running nix build in %s", nixDir)
-	stdoutLines, err := b.runCmdCapture(ctx, nixDir, logFile, "nix", "--extra-experimental-features", "nix-command flakes", "build", "--no-link", "--print-out-paths", "-L")
+	stdoutLines, err := b.runCmdCapture(ctx, nixDir, logFile, "nix", "build", "--no-link", "--print-out-paths", "-L")
 	if err != nil {
 		writeLog("ERROR nix build failed: %v", err)
 		return "", apigen.PreparationStatus_FAILED
