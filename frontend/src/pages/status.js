@@ -220,7 +220,9 @@ export function statusPage() {
                 ...envEntries.map(([envName, deployments]) =>
                     div(
                         {class: "card"},
-                        h2({class: "text-lg font-semibold mb-4"}, envName),
+                        h2({class: envName === 'OPSAGENT_SYSTEM'
+                            ? "text-xs text-gray-500 mb-4"
+                            : "text-lg font-semibold mb-4"}, envName),
                         div(
                             {class: "flex flex-wrap gap-3"},
                             ...deployments.map(s => {
