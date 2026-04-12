@@ -83,6 +83,10 @@ export function statusCard(deployment, versions, versionError, scopes, selectedS
     return div(
         {class: "bg-gray-800 rounded-lg p-3 border border-gray-700 flex flex-col gap-2 w-fit min-w-56"},
         div(
+            {class: "text-xs text-gray-500"},
+            deployment.machine,
+        ),
+        div(
             {class: "flex items-center justify-between gap-3"},
             div(
                 {class: "flex items-center gap-2"},
