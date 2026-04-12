@@ -117,8 +117,9 @@ func (r *systemdRunner) run() {
 			r.writeStatus(apigen.RunningStatus_CRASHED, 0)
 			return
 		}
+		r.appendOutput("copied bin %s to %s\n", r.artifactPath, r.binPath)
 		slog.InfoContext(r.ctx, "restarting systemd unit", "unit", r.unit)
-		r.appendOutput("restarting unit %s\n", r.unit)
+		r.appendOutput("restarting systemd %s service\n", r.unit)
 
 		// Use systemd-run to schedule the restart from a transient unit.
 		// This avoids the self-restart problem where our own process gets
