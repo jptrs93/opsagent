@@ -12,6 +12,7 @@ ExecStart=/var/lib/opsagent/bin/opsagent
 
 # Environment — override via /etc/opsagent/env or systemctl edit
 EnvironmentFile=-/etc/opsagent/env
+Environment=PATH=/nix/var/nix/profiles/default/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 Restart=on-failure
 RestartSec=5
@@ -22,8 +23,9 @@ RestartSec=5
 # deploy script. This requires privilege escalation to succeed.
 ProtectSystem=strict
 ProtectHome=yes
-# Allow writes to the data dir and the nix store (for spawner symlink resolution)
+# Allow writes to the data dir and the nix store
 ReadWritePaths=/var/lib/opsagent
+ReadWritePaths=/nix
 # Allow writes to ACME cert cache
 ReadWritePaths=/var/lib/opsagent/.certs
 # Allow sudo to create its timestamp directory (needed for systemctl restart)
