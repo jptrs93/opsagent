@@ -69,7 +69,8 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           CC: ${{ matrix.cc }}
         run: |
-          go build -trimpath -ldflags="-s -w" -o "opsagent-linux-${{ matrix.arch }}" .
+          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "opsagent-linux-${{ matrix.arch }}" .
 
       - uses: actions/upload-artifact@v4
         with:

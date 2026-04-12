@@ -25,6 +25,9 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 )
 
+// version is set at build time via -ldflags="-X main.version=...".
+var version = "dev"
+
 //go:generate sh -c "cd ../frontend && pnpm install && pnpm run build"
 //go:embed web/dist
 var fsys embed.FS
@@ -49,6 +52,8 @@ var fsys embed.FS
 // See docs/engineering/engine.md for the rationale.
 
 func main() {
+	slog.Info("opsagent starting", "version", version)
+
 	// Slave mode: if OPSAGENT_PRIMARY_ADDR is set, this node is a worker.
 	// It connects to the primary, receives state, and runs operators — no
 	// local storage, no HTTP server.
