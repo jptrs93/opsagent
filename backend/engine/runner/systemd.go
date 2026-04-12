@@ -323,7 +323,7 @@ func systemctlRestart(ctx context.Context, unit string) (string, error) {
 		return systemctl(ctx, "restart", unit)
 	}
 	cmd := exec.CommandContext(ctx, "sudo", "-n",
-		"systemd-run", "--no-block",
+		"/usr/bin/systemd-run", "--no-block",
 		"/usr/bin/systemctl", "restart", unit)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
