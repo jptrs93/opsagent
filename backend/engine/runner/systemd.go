@@ -60,7 +60,7 @@ func newSystemdRunner(parentCtx context.Context, store storage.OperatorStore, de
 		store:        store,
 		id:           dep.ID,
 		seqNo:        dep.SeqNo,
-		unit:         sys.Name,
+		unit:         normalizeUnit(sys.Name),
 		binPath:      sys.BinPath,
 		artifactPath: artifact,
 		outputPath:   dep.RunOutputPath(),
@@ -251,6 +251,15 @@ func (r *systemdRunner) appendOutput(format string, args ...any) {
 	}
 	defer f.Close()
 	fmt.Fprintf(f, format, args...)
+}
+
+// normalizeUnit ensures the unit name ends with .service so that sudoers
+// exact-match rules work regardless of whether the config includes the suffix.
+func normalizeUnit(name string) string {
+	if !strings.HasSuffix(name, ".service") {
+		return name + ".service"
+	}
+	return name
 }
 
 // --- systemctl helpers ---
