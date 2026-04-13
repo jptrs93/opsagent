@@ -99,6 +99,10 @@ func spawnDaemon(binPath, workDir, logPath, runAs string) (int, error) {
 		sysproc.Credential = cred
 		env = setEnv(env, "HOME", u.HomeDir)
 		env = setEnv(env, "USER", u.Username)
+		env = setEnv(env, "TMPDIR", "/tmp")
+		env = setEnv(env, "TMP", "/tmp")
+		env = setEnv(env, "TEMP", "/tmp")
+		env = setEnv(env, "TEMPDIR", "/tmp")
 	}
 
 	pid, err := syscall.ForkExec(binPath, []string{binPath}, &syscall.ProcAttr{
