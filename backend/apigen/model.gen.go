@@ -637,6 +637,7 @@ type State struct {
 	UserUpdate          *User
 	VersionsSnapshot    *VersionsSnapshot
 	VersionsUpdate      *DeploymentVersions
+	VersionsDelete      *VersionsDelete
 }
 
 func (m *State) Encode() []byte {
@@ -676,6 +677,10 @@ func (m *State) Encode() []byte {
 	if m.VersionsUpdate != nil {
 		b = protowire.AppendTag(b, 9, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.VersionsUpdate.Encode())
+	}
+	if m.VersionsDelete != nil {
+		b = protowire.AppendTag(b, 10, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.VersionsDelete.Encode())
 	}
 	return b
 }
@@ -764,6 +769,15 @@ func DecodeState(b []byte) (*State, error) {
 				item, err = DecodeDeploymentVersions(msgBytes)
 				if err == nil {
 					m.VersionsUpdate = item
+				}
+			}
+		case 10:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *VersionsDelete
+				item, err = DecodeVersionsDelete(msgBytes)
+				if err == nil {
+					m.VersionsDelete = item
 				}
 			}
 		default:
@@ -1773,6 +1787,46 @@ func DecodeVersionsSnapshot(b []byte) (*VersionsSnapshot, error) {
 					m.Items = append(m.Items, item)
 				}
 			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type VersionsDelete struct {
+	DeploymentID           int32
+	DeletedVersionsByScope map[string]*ScopedVersions
+}
+
+func (m *VersionsDelete) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DeploymentID, 1)
+	b = AppendMap(b, m.DeletedVersionsByScope, 2, AppendFieldDecorator(AppendStringField, 1), AppendMessageFieldDecorator[*ScopedVersions](2))
+	return b
+}
+
+func DecodeVersionsDelete(b []byte) (*VersionsDelete, error) {
+	var m VersionsDelete
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			if m.DeletedVersionsByScope == nil {
+				m.DeletedVersionsByScope = make(map[string]*ScopedVersions)
+			}
+			b, err = ConsumeMapEntry(b, typ, m.DeletedVersionsByScope, ConsumeString, ConsumeMessageDecorator(DecodeScopedVersions))
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

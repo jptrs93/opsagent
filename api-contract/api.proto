@@ -199,6 +199,7 @@ message State {
   User user_update = 7;
   VersionsSnapshot versions_snapshot = 8;
   DeploymentVersions versions_update = 9;
+  VersionsDelete versions_delete = 10;
 }
 
 message DeploymentWithStatusSnapshot {
@@ -324,6 +325,14 @@ message ScopedVersions {
 
 message VersionsSnapshot {
   repeated DeploymentVersions items = 1;
+}
+
+// VersionsDelete notifies the UI that versions were removed (e.g. force-push
+// replaced commits, or a branch was deleted). The FE should remove these
+// version IDs from the corresponding scopes and drop scopes that become empty.
+message VersionsDelete {
+  int32 deployment_id = 1;
+  map<string, ScopedVersions> deleted_versions_by_scope = 2; // scope -> removed versions
 }
 
 message VersionNudgeRequest {

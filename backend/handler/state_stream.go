@@ -56,11 +56,15 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 				if !yield(&apigen.State{UserUpdate: &u}, nil) {
 					return
 				}
-			case v, ok := <-versionSub.Ch:
+			case ev, ok := <-versionSub.Ch:
 				if !ok {
 					return
 				}
-				if !yield(&apigen.State{VersionsUpdate: v}, nil) {
+				msg := &apigen.State{VersionsUpdate: ev.Update}
+				if ev.Delete != nil {
+					msg.VersionsDelete = ev.Delete
+				}
+				if !yield(msg, nil) {
 					return
 				}
 			case <-heartbeatTicker.C:

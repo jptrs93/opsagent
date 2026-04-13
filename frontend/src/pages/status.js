@@ -13,6 +13,12 @@ const SIDEBAR_PREPARE = 'prepare';
 const SIDEBAR_RUN = 'run';
 const SIDEBAR_HISTORY = 'history';
 
+const formatDeploymentLabel = (deployment) => {
+    if (!deployment) return 'unknown deployment';
+    const parts = [deployment.environment, deployment.machine, deployment.name].filter(Boolean);
+    return parts.length > 0 ? parts.join(' / ') : `#${deployment.id}`;
+};
+
 // mapDeploymentsToView flattens DeploymentWithStatus[] into the shape
 // the status card component expects.
 const mapDeploymentsToView = (deployments) => {
@@ -65,6 +71,7 @@ export function statusPage() {
     const selectedScope = van.state({});
     const sidebarMode = van.state(SIDEBAR_NONE);
     const sidebarDeployment = van.state(null);
+    const sidebarConfigVersion = van.state(0);
 
     // Derive scopes and versions from the pushed versionsS state.
     const getScopesForDeployment = (depId) => {
@@ -141,6 +148,7 @@ export function statusPage() {
             });
             sidebarMode.val = SIDEBAR_PREPARE;
             sidebarDeployment.val = deployment.id;
+            sidebarConfigVersion.val = deployment.currentVersion + 1;
         } catch (e) {
             alert(`Deploy failed: ${e.message}`);
         }
@@ -161,6 +169,7 @@ export function statusPage() {
     const onShowRunOutput = (id) => {
         sidebarMode.val = SIDEBAR_RUN;
         sidebarDeployment.val = id;
+        sidebarConfigVersion.val = 0;
     };
 
     const onShowHistory = (id) => {
@@ -171,6 +180,7 @@ export function statusPage() {
     const onShowPrepareOutput = (id) => {
         sidebarMode.val = SIDEBAR_PREPARE;
         sidebarDeployment.val = id;
+        sidebarConfigVersion.val = 0;
     };
 
     const mainContent = div(
@@ -248,11 +258,13 @@ export function statusPage() {
         {class: "flex h-full min-h-0 overflow-hidden"},
         mainContent,
         () => {
+            const sidebarDeploymentView = statuses.val.find(s => s.id === sidebarDeployment.val) || null;
+            const sidebarDeploymentLabel = formatDeploymentLabel(sidebarDeploymentView);
             if (sidebarMode.val === SIDEBAR_PREPARE && sidebarDeployment.val) {
-                return deploymentLogs(sidebarDeployment.val, 'prepare', closeSidebar);
+                return deploymentLogs(sidebarDeployment.val, sidebarDeploymentLabel, 'prepare', sidebarConfigVersion.val, closeSidebar);
             }
             if (sidebarMode.val === SIDEBAR_RUN && sidebarDeployment.val) {
-                return deploymentLogs(sidebarDeployment.val, 'run', closeSidebar);
+                return deploymentLogs(sidebarDeployment.val, sidebarDeploymentLabel, 'run', sidebarConfigVersion.val, closeSidebar);
             }
             if (sidebarMode.val === SIDEBAR_HISTORY && sidebarDeployment.val) {
                 return deploymentHistory(sidebarDeployment.val, closeSidebar);

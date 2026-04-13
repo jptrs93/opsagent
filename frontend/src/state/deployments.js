@@ -121,6 +121,32 @@ const handleStateMessage = (message) => {
         next.set(message.versionsUpdate.deploymentId, message.versionsUpdate);
         versionsS.val = next;
     }
+
+    if (message.versionsDelete?.deploymentId) {
+        const depId = message.versionsDelete.deploymentId;
+        const entry = versionsS.val.get(depId);
+        if (entry) {
+            const deletedByScope = message.versionsDelete.deletedVersionsByScope || {};
+            const nextByScope = {...(entry.versionsByScope || {})};
+            for (const [scope, sv] of Object.entries(deletedByScope)) {
+                const removedIds = new Set((sv.versions || []).map(v => v.id));
+                const existing = nextByScope[scope];
+                if (existing) {
+                    const filtered = (existing.versions || []).filter(v => !removedIds.has(v.id));
+                    if (filtered.length > 0) {
+                        nextByScope[scope] = {...existing, versions: filtered};
+                    } else {
+                        delete nextByScope[scope];
+                    }
+                }
+            }
+            // Remove scopes that no longer have versions.
+            const nextScopes = (entry.scopes || []).filter(s => nextByScope[s]?.versions?.length > 0);
+            const next = new Map(versionsS.val);
+            next.set(depId, {...entry, scopes: nextScopes, versionsByScope: nextByScope});
+            versionsS.val = next;
+        }
+    }
 };
 
 const scheduleReconnect = (generation, lastError) => {

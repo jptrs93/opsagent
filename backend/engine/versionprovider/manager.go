@@ -21,6 +21,14 @@ type nudgeRequest struct {
 	scope        string
 }
 
+// VersionEvent is sent to subscribers after each poll. Update always carries
+// the full merged state for the deployment. Delete is non-nil only when
+// versions were removed (force-push, branch deletion).
+type VersionEvent struct {
+	Update *apigen.DeploymentVersions
+	Delete *apigen.VersionsDelete // nil when nothing was removed
+}
+
 // Manager keeps an in-memory cache of scopes + versions for every deployment
 // and periodically polls upstream (GitHub API, git ls-remote) for changes.
 // Consumers subscribe to updates which are pushed via the state stream.
@@ -30,7 +38,7 @@ type Manager struct {
 	mu    sync.Mutex
 	cache map[int32]*apigen.DeploymentVersions // deployment_id -> versions
 
-	subs    logstore.Subs[*apigen.DeploymentVersions]
+	subs    logstore.Subs[*VersionEvent]
 	nudgeCh chan nudgeRequest
 }
 
@@ -69,8 +77,9 @@ func (m *Manager) Snapshot() []*apigen.DeploymentVersions {
 	return out
 }
 
-// Subscribe returns a channel that receives per-deployment version updates.
-func (m *Manager) Subscribe() (*logstore.Sub[*apigen.DeploymentVersions], func()) {
+// Subscribe returns a channel that receives per-deployment version events
+// (updates and optional deletes).
+func (m *Manager) Subscribe() (*logstore.Sub[*VersionEvent], func()) {
 	return m.subs.Subscribe(nil)
 }
 
@@ -238,22 +247,49 @@ func (m *Manager) pollDeploymentScope(ctx context.Context, dep *apigen.Deploymen
 	})
 }
 
-// mergeAndNotify merges new scope/version data into the cache and notifies subscribers.
-// Previously cached scopes that aren't in newVersionsByScope are preserved.
+// mergeAndNotify merges new scope/version data into the cache, computes
+// the delta (added + deleted versions), and notifies subscribers.
+// Scopes that no longer appear in the upstream scopes list are removed.
 func (m *Manager) mergeAndNotify(depID int32, scopes []string, newVersionsByScope map[string]*apigen.ScopedVersions) {
 	m.mu.Lock()
 	existing := m.cache[depID]
 	merged := make(map[string]*apigen.ScopedVersions)
 
-	// Preserve previously cached scopes.
+	// Build a set of valid scopes from the upstream list.
+	scopeSet := make(map[string]bool, len(scopes))
+	for _, s := range scopes {
+		scopeSet[s] = true
+	}
+	// Providers with no scopes (github releases) use the empty-string key.
+	if len(scopes) == 0 {
+		scopeSet[""] = true
+	}
+
+	deletedByScope := make(map[string]*apigen.ScopedVersions)
+
+	// Carry forward previously cached scopes that are still valid.
 	if existing != nil {
 		for k, v := range existing.VersionsByScope {
-			merged[k] = v
+			if scopeSet[k] {
+				merged[k] = v
+			} else {
+				// Scope was deleted upstream — all its versions are removed.
+				if len(v.Versions) > 0 {
+					deletedByScope[k] = v
+				}
+			}
 		}
 	}
-	// Overlay new data.
-	for k, v := range newVersionsByScope {
-		merged[k] = v
+
+	// Overlay new data and compute per-scope deltas.
+	for k, newSV := range newVersionsByScope {
+		if oldSV, ok := merged[k]; ok {
+			removed := resolveDelta(oldSV.Versions, newSV.Versions)
+			if len(removed) > 0 {
+				deletedByScope[k] = &apigen.ScopedVersions{Versions: removed}
+			}
+		}
+		merged[k] = newSV
 	}
 
 	entry := &apigen.DeploymentVersions{
@@ -264,7 +300,29 @@ func (m *Manager) mergeAndNotify(depID int32, scopes []string, newVersionsByScop
 	m.cache[depID] = entry
 	m.mu.Unlock()
 
-	m.subs.Notify(entry)
+	event := &VersionEvent{Update: entry}
+	if len(deletedByScope) > 0 {
+		event.Delete = &apigen.VersionsDelete{
+			DeploymentID:           depID,
+			DeletedVersionsByScope: deletedByScope,
+		}
+	}
+	m.subs.Notify(event)
+}
+
+// resolveDelta returns versions present in oldVersions but absent from newVersions.
+func resolveDelta(oldVersions, newVersions []*apigen.Version) []*apigen.Version {
+	newSet := make(map[string]struct{}, len(newVersions))
+	for _, v := range newVersions {
+		newSet[v.ID] = struct{}{}
+	}
+	var removed []*apigen.Version
+	for _, v := range oldVersions {
+		if _, ok := newSet[v.ID]; !ok {
+			removed = append(removed, v)
+		}
+	}
+	return removed
 }
 
 func containsString(ss []string, s string) bool {

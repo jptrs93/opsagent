@@ -5,8 +5,8 @@ import {encodeDeploymentLogRequest} from "../capi/model.js";
 
 const { div, h2, span, pre, button } = van.tags;
 
-// type: 'run' or 'prepare'
-export function deploymentLogs(deploymentId, type, onClose) {
+// type: 'run' or 'prepare', configVersion: specific version or 0 for latest
+export function deploymentLogs(deploymentId, deploymentLabel, type, configVersion, onClose) {
     const outputText = van.state('');
     const done = van.state(false);
     const endLabel = van.state('Stream ended');
@@ -31,9 +31,10 @@ export function deploymentLogs(deploymentId, type, onClose) {
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
         };
 
+        const version = configVersion || 0;
         const body = type === 'run'
-            ? encodeDeploymentLogRequest({ runnerOutput: { deploymentId, version: 0 } })
-            : encodeDeploymentLogRequest({ preparerOutput: { deploymentId, version: 0 } });
+            ? encodeDeploymentLogRequest({ runnerOutput: { deploymentId, version } })
+            : encodeDeploymentLogRequest({ preparerOutput: { deploymentId, version } });
 
         try {
             const response = await fetch('/v1/deployment/logs', {
@@ -97,7 +98,7 @@ export function deploymentLogs(deploymentId, type, onClose) {
         {class: "w-1/2 min-h-0 overflow-hidden border-l border-gray-700 bg-gray-900 flex flex-col h-full"},
         div(
             {class: "flex items-center justify-between p-3 border-b border-gray-700"},
-            h2({class: "text-sm font-semibold text-gray-300"}, `${title}: #${deploymentId}`),
+            h2({class: "text-sm font-semibold text-gray-300"}, `${title}: ${deploymentLabel}`),
             div(
                 {class: "flex items-center gap-2"},
                 () => done.val

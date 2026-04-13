@@ -112,7 +112,7 @@ func (g *GithubReleaseDownloader) runDownload(ctx context.Context, store storage
 	}
 	dstPath := filepath.Join(dstDir, asset.Name)
 
-	if info, err := os.Stat(dstPath); err == nil && info.Size() == asset.Size {
+	if info, err := os.Stat(dstPath); err == nil && info.Size() == asset.Size && info.Mode().Perm()&0o111 != 0 {
 		writeLog("asset already present at %s, skipping download", dstPath)
 	} else {
 		writeLog("downloading asset to %s", dstPath)
@@ -120,10 +120,10 @@ func (g *GithubReleaseDownloader) runDownload(ctx context.Context, store storage
 			writeLog("ERROR download failed: %v", err)
 			return "", apigen.PreparationStatus_FAILED
 		}
-	}
-	if err := os.Chmod(dstPath, 0o755); err != nil {
-		writeLog("ERROR chmod failed: %v", err)
-		return "", apigen.PreparationStatus_FAILED
+		if err := os.Chmod(dstPath, 0o755); err != nil {
+			writeLog("ERROR chmod failed: %v", err)
+			return "", apigen.PreparationStatus_FAILED
+		}
 	}
 
 	writeLog("download complete, artifact: %s", dstPath)
