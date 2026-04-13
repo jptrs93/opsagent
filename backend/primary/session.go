@@ -180,9 +180,10 @@ drained:
 
 // logReader implements io.ReadCloser over the streamed log chunks.
 type logReader struct {
-	session *Session
-	buf     []byte
-	done    bool
+	session   *Session
+	buf       []byte
+	done      bool
+	closeOnce sync.Once
 }
 
 func (r *logReader) Read(p []byte) (int, error) {
@@ -216,7 +217,9 @@ func (r *logReader) Read(p []byte) (int, error) {
 }
 
 func (r *logReader) Close() error {
-	r.done = true
-	r.session.logMu.Unlock()
+	r.closeOnce.Do(func() {
+		r.done = true
+		r.session.logMu.Unlock()
+	})
 	return nil
 }

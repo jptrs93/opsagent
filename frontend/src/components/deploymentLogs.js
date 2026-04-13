@@ -6,25 +6,15 @@ import {encodeDeploymentLogRequest} from "../capi/model.js";
 const { div, h2, span, pre, button } = van.tags;
 
 // type: 'run' or 'prepare', configVersion: specific version or 0 for latest
-export function deploymentLogs(deploymentId, deploymentLabel, type, configVersion, onClose) {
+export function deploymentLogs(deploymentId, deploymentLabel, type, configVersion, abortController, onClose) {
     const outputText = van.state('');
     const done = van.state(false);
     const endLabel = van.state('Stream ended');
-    let abortController = null;
-    let cancelled = false;
 
-    const abortStream = () => {
-        cancelled = true;
-        if (abortController) {
-            abortController.abort();
-        }
-    };
-
-    const unregisterLogout = onLogout(abortStream);
+    const unregisterLogout = onLogout(() => abortController.abort());
 
     const startStream = async () => {
-        if (cancelled) return;
-        abortController = new AbortController();
+        if (abortController.signal.aborted) return;
         const token = loginS.val?.token;
         const headers = {
             "Content-Type": "application/x-protobuf",
@@ -76,7 +66,7 @@ export function deploymentLogs(deploymentId, deploymentLabel, type, configVersio
 
     const cleanup = () => {
         unregisterLogout();
-        abortStream();
+        abortController.abort();
         onClose();
     };
 

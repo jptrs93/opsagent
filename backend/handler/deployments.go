@@ -58,7 +58,7 @@ func (h *Handler) PostV1DeploymentLogs(ctx apigen.Context, r *http.Request, w ht
 	cfg := h.findConfigByID(deploymentID)
 	if cfg != nil && cfg.ConfigID != nil && cfg.ConfigID.Machine != "" && cfg.ConfigID.Machine != h.MachineName && h.ClusterPrimary != nil {
 		clusterReq := &apigen.MsgToWorker{DeploymentLogRequest: req}
-		return h.proxyRemoteLogs(w, cfg.ConfigID.Machine, clusterReq)
+		return h.proxyRemoteLogs(ctx, w, cfg.ConfigID.Machine, clusterReq)
 	}
 
 	// Resolve seqNo=0 to latest from local status.
@@ -137,13 +137,20 @@ func waitForFile(ctx apigen.Context, path string) (*os.File, error) {
 	}
 }
 
-func (h *Handler) proxyRemoteLogs(w http.ResponseWriter, machine string, req *apigen.MsgToWorker) error {
+func (h *Handler) proxyRemoteLogs(ctx apigen.Context, w http.ResponseWriter, machine string, req *apigen.MsgToWorker) error {
 	reader, err := h.ClusterPrimary.RequestLogs(machine, req)
 	if err != nil {
 		respondErr(w, apigen.NewApiErr("Worker not connected: "+machine, "worker_not_connected", 502))
 		return nil
 	}
 	defer reader.Close()
+
+	// Close the reader promptly when the client disconnects so logMu is
+	// released and the next log request can proceed.
+	go func() {
+		<-ctx.Done()
+		reader.Close()
+	}()
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")

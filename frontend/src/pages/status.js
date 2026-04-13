@@ -72,6 +72,7 @@ export function statusPage() {
     const sidebarMode = van.state(SIDEBAR_NONE);
     const sidebarDeployment = van.state(null);
     const sidebarConfigVersion = van.state(0);
+    let activeSidebarAbort = null;
 
     // Derive scopes and versions from the pushed versionsS state.
     const getScopesForDeployment = (depId) => {
@@ -134,7 +135,15 @@ export function statusPage() {
         }
     });
 
+    const abortActiveSidebar = () => {
+        if (activeSidebarAbort) {
+            activeSidebarAbort.abort();
+            activeSidebarAbort = null;
+        }
+    };
+
     const closeSidebar = () => {
+        abortActiveSidebar();
         sidebarMode.val = SIDEBAR_NONE;
         sidebarDeployment.val = null;
     };
@@ -261,10 +270,16 @@ export function statusPage() {
             const sidebarDeploymentView = statuses.val.find(s => s.id === sidebarDeployment.val) || null;
             const sidebarDeploymentLabel = formatDeploymentLabel(sidebarDeploymentView);
             if (sidebarMode.val === SIDEBAR_PREPARE && sidebarDeployment.val) {
-                return deploymentLogs(sidebarDeployment.val, sidebarDeploymentLabel, 'prepare', sidebarConfigVersion.val, closeSidebar);
+                abortActiveSidebar();
+                const ac = new AbortController();
+                activeSidebarAbort = ac;
+                return deploymentLogs(sidebarDeployment.val, sidebarDeploymentLabel, 'prepare', sidebarConfigVersion.val, ac, closeSidebar);
             }
             if (sidebarMode.val === SIDEBAR_RUN && sidebarDeployment.val) {
-                return deploymentLogs(sidebarDeployment.val, sidebarDeploymentLabel, 'run', sidebarConfigVersion.val, closeSidebar);
+                abortActiveSidebar();
+                const ac = new AbortController();
+                activeSidebarAbort = ac;
+                return deploymentLogs(sidebarDeployment.val, sidebarDeploymentLabel, 'run', sidebarConfigVersion.val, ac, closeSidebar);
             }
             if (sidebarMode.val === SIDEBAR_HISTORY && sidebarDeployment.val) {
                 return deploymentHistory(sidebarDeployment.val, closeSidebar);
