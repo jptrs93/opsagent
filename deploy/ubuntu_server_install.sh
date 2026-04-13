@@ -111,16 +111,15 @@ echo "Verifying checksum..."
 (cd "$TMP" && grep " $BIN_FILE\$" sha256sums.txt | sha256sum -c -)
 
 # ============================================================================
-# UPGRADE PATH — binary swap + restart only, nothing else.
+# UPGRADE PATH — download to releases dir, symlink, restart.
 # ============================================================================
 if [ "$MODE" = "upgrade" ]; then
-    if [ "$(id -u)" -eq 0 ]; then
-        install -o opsagent -g opsagent -m 755 "$TMP/$BIN_FILE" "$BIN_PATH.new"
-    else
-        install -m 755 "$TMP/$BIN_FILE" "$BIN_PATH.new"
-    fi
-    mv -f "$BIN_PATH.new" "$BIN_PATH"
-    echo "Swapped binary: $BIN_PATH"
+    RELEASE_DIR="$DATA_DIR/releases/$REPO/$VERSION"
+    mkdir -p "$RELEASE_DIR"
+    install -m 755 "$TMP/$BIN_FILE" "$RELEASE_DIR/$BIN_FILE"
+    ln -sfn "$RELEASE_DIR/$BIN_FILE" "$BIN_PATH"
+    echo "Installed $RELEASE_DIR/$BIN_FILE"
+    echo "Symlinked $BIN_PATH -> $(readlink "$BIN_PATH")"
 
     echo "Restarting $SERVICE_NAME"
     if [ "$(id -u)" -eq 0 ]; then
@@ -152,10 +151,14 @@ chmod 750 "$DATA_DIR"
 mkdir -p "$(dirname "$BIN_PATH")"
 chown opsagent:opsagent "$(dirname "$BIN_PATH")"
 
-# --- install binary (atomic swap) ---
-install -o opsagent -g opsagent -m 755 "$TMP/$BIN_FILE" "$BIN_PATH.new"
-mv -f "$BIN_PATH.new" "$BIN_PATH"
-echo "Installed binary: $BIN_PATH"
+# --- install binary (download to releases dir, symlink) ---
+RELEASE_DIR="$DATA_DIR/releases/$REPO/$VERSION"
+mkdir -p "$RELEASE_DIR"
+chown -R opsagent:opsagent "$DATA_DIR/releases"
+install -o opsagent -g opsagent -m 755 "$TMP/$BIN_FILE" "$RELEASE_DIR/$BIN_FILE"
+ln -sfn "$RELEASE_DIR/$BIN_FILE" "$BIN_PATH"
+echo "Installed $RELEASE_DIR/$BIN_FILE"
+echo "Symlinked $BIN_PATH -> $(readlink "$BIN_PATH")"
 
 # --- env file ---
 mkdir -p "$(dirname "$ENV_FILE")"

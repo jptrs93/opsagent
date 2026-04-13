@@ -91,13 +91,13 @@ func (r *systemdRunner) installAndMonitor() {
 
 	r.writeStatus(apigen.RunningStatus_STARTING, 0)
 
-	if err := atomicInstall(r.artifact, r.binPath); err != nil {
-		slog.ErrorContext(r.ctx, "installing artifact failed", "err", err)
-		r.appendOutput("install failed: %s\n", err)
+	if err := atomicSymlink(r.artifact, r.binPath); err != nil {
+		slog.ErrorContext(r.ctx, "symlinking artifact failed", "err", err)
+		r.appendOutput("symlink failed: %s\n", err)
 		r.writeStatus(apigen.RunningStatus_CRASHED, 0)
 		return
 	}
-	r.appendOutput("installed %s to %s\n", r.artifact, r.binPath)
+	r.appendOutput("symlinked %s -> %s\n", r.binPath, r.artifact)
 
 	out, err := systemctlRestart(r.ctx, r.unit)
 	if err != nil {
@@ -238,39 +238,18 @@ func fileContentsEqual(a, b string) (bool, error) {
 	}
 }
 
-func atomicInstall(src, dst string) error {
+func atomicSymlink(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return fmt.Errorf("creating bin dir: %w", err)
 	}
-	in, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("opening artifact: %w", err)
+	// Create a temp symlink, then atomically rename over dst.
+	tmpLink := dst + ".new"
+	_ = os.Remove(tmpLink)
+	if err := os.Symlink(src, tmpLink); err != nil {
+		return fmt.Errorf("creating symlink: %w", err)
 	}
-	defer in.Close()
-
-	tmp, err := os.CreateTemp(filepath.Dir(dst), filepath.Base(dst)+".new-*")
-	if err != nil {
-		return fmt.Errorf("creating temp: %w", err)
-	}
-	tmpPath := tmp.Name()
-	cleanup := func() { _ = os.Remove(tmpPath) }
-
-	if _, err := io.Copy(tmp, in); err != nil {
-		tmp.Close()
-		cleanup()
-		return fmt.Errorf("copying artifact: %w", err)
-	}
-	if err := tmp.Chmod(0o755); err != nil {
-		tmp.Close()
-		cleanup()
-		return fmt.Errorf("chmod: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return fmt.Errorf("closing temp: %w", err)
-	}
-	if err := os.Rename(tmpPath, dst); err != nil {
-		cleanup()
+	if err := os.Rename(tmpLink, dst); err != nil {
+		_ = os.Remove(tmpLink)
 		return fmt.Errorf("atomic rename: %w", err)
 	}
 	return nil
