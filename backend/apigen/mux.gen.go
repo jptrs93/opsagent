@@ -40,8 +40,7 @@ type ServerHandler interface {
 	PostV1StateStream(Context) iter.Seq2[*State, error]
 	PostV1DeploymentUpdate(Context, *DeploymentUpdateRequest) (*DesiredState, error)
 	GetV1DeploymentHistory(Context, *http.Request, http.ResponseWriter) error
-	PostV1PrepareOutput(Context, *http.Request, http.ResponseWriter) error
-	PostV1RunOutput(Context, *http.Request, http.ResponseWriter) error
+	PostV1DeploymentLogs(Context, *http.Request, http.ResponseWriter) error
 	GetV1ClusterStatus(Context, *http.Request, http.ResponseWriter) error
 	PostV1ListScopes(Context, *ListScopesRequest) (*ListScopesResponse, error)
 	PostV1ListVersions(Context, *ListVersionsRequest) (*ListVersionsResponse, error)
@@ -256,25 +255,13 @@ func CreateMux(h ServerHandler, verifyAuth VerifyAuthFunc, options *MuxOptions, 
 			return
 		}
 	}, middlewares...))
-	m.HandleFunc("POST /v1/prepare/output", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	m.HandleFunc("POST /v1/deployment/logs", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
 		if err != nil {
 			HandleReqErr(ctx, err, r, w)
 			return
 		}
-		err = h.PostV1PrepareOutput(authCtx, r, w)
-		if err != nil {
-			HandleReqErr(authCtx, err, r, w)
-			return
-		}
-	}, middlewares...))
-	m.HandleFunc("POST /v1/run/output", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		err = h.PostV1RunOutput(authCtx, r, w)
+		err = h.PostV1DeploymentLogs(authCtx, r, w)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return

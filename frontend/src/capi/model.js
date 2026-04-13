@@ -112,6 +112,11 @@
  * @property {number} seqNo
  */
 /**
+ * @typedef {Object} DeploymentLogRequest
+ * @property {RunOutputRequest} runnerOutput
+ * @property {PrepareOutputRequest} preparerOutput
+ */
+/**
  * @typedef {Object} DeploymentIdentifier
  * @property {string} environment
  * @property {string} machine
@@ -230,6 +235,7 @@
  * @property {DeploymentConfig} deploymentUpdate
  * @property {PrepareOutputRequest} prepareLogRequest
  * @property {RunOutputRequest} runLogRequest
+ * @property {DeploymentLogRequest} deploymentLogRequest
  */
 /**
  * @typedef {Object} MsgToMaster
@@ -1680,6 +1686,73 @@ export function decodeRunOutputRequest(buffer) {
 
 
 /**
+ * @param {DeploymentLogRequest} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentLogRequest(message, writer) {
+    if (message.runnerOutput !== undefined && message.runnerOutput !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeRunOutputRequest(message.runnerOutput, writer);
+        writer.ldelim();
+    }
+    if (message.preparerOutput !== undefined && message.preparerOutput !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writePrepareOutputRequest(message.preparerOutput, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {DeploymentLogRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentLogRequest(message) {
+    const writer = Writer.create();
+    writeDeploymentLogRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentLogRequest}
+ */
+function decodeDeploymentLogRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {runnerOutput: undefined, preparerOutput: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.runnerOutput = decodeRunOutputRequestMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.preparerOutput = decodePrepareOutputRequestMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentLogRequest}
+ */
+export function decodeDeploymentLogRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentLogRequestMessage(reader);
+}
+
+
+
+/**
  * @param {DeploymentIdentifier} message
  * @param {Writer} writer
  */
@@ -3061,6 +3134,11 @@ export function writeMsgToWorker(message, writer) {
         writeRunOutputRequest(message.runLogRequest, writer);
         writer.ldelim();
     }
+    if (message.deploymentLogRequest !== undefined && message.deploymentLogRequest !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeDeploymentLogRequest(message.deploymentLogRequest, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -3082,7 +3160,7 @@ export function encodeMsgToWorker(message) {
  */
 function decodeMsgToWorkerMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentsSnapshot: undefined, deploymentUpdate: undefined, prepareLogRequest: undefined, runLogRequest: undefined };
+    const message = {deploymentsSnapshot: undefined, deploymentUpdate: undefined, prepareLogRequest: undefined, runLogRequest: undefined, deploymentLogRequest: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3100,6 +3178,10 @@ function decodeMsgToWorkerMessage(reader, length) {
             }
             case 4: {
                 message.runLogRequest = decodeRunOutputRequestMessage(reader, reader.uint32());
+                break;
+            }
+            case 5: {
+                message.deploymentLogRequest = decodeDeploymentLogRequestMessage(reader, reader.uint32());
                 break;
             }
             default:

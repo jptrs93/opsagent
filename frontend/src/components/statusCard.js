@@ -115,7 +115,7 @@ export function statusCard(deployment, versions, versionError, scopes, selectedS
                 hasExisting
                     ? span({
                         class: `px-2 py-0.5 rounded text-xs font-medium cursor-pointer hover:brightness-125 ${existingColors.bg} ${existingColors.text}`,
-                        onclick: () => onShowRunOutput(deployment.key, deployment.runnerSeqNo),
+                        onclick: () => onShowRunOutput(deployment.key),
                         title: "View run output",
                     }, existingColors.label)
                     : span({class: `px-2 py-0.5 rounded text-xs font-medium ${existingColors.bg} ${existingColors.text}`}, existingColors.label),
@@ -178,7 +178,7 @@ export function statusCard(deployment, versions, versionError, scopes, selectedS
                     prepareCopy.prefix ? span({class: prepareCopy.class}, prepareCopy.prefix) : null,
                     a({
                         class: `underline hover:text-white cursor-pointer ${prepareCopy.class}`,
-                        onclick: () => onShowPrepareOutput(deployment.key, deployment.preparerSeqNo),
+                        onclick: () => onShowPrepareOutput(deployment.key),
                     }, "prepare"),
                     span({class: prepareCopy.class}, prepareCopy.text),
                 )

@@ -134,6 +134,8 @@ func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.StorageAd
 			msgType = "deployments_snapshot"
 		case msg.DeploymentUpdate != nil:
 			msgType = "deployment_update"
+		case msg.DeploymentLogRequest != nil:
+			msgType = "deployment_log_request"
 		case msg.PrepareLogRequest != nil:
 			msgType = "prepare_log_request"
 		case msg.RunLogRequest != nil:
@@ -146,6 +148,8 @@ func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.StorageAd
 			applySnapshot(sessCtx, conn, store, msg.DeploymentsSnapshot)
 		case msg.DeploymentUpdate != nil:
 			applyConfigUpdate(sessCtx, store, msg.DeploymentUpdate)
+		case msg.DeploymentLogRequest != nil:
+			go streamDeploymentLog(conn, store, msg.DeploymentLogRequest)
 		case msg.PrepareLogRequest != nil:
 			go streamPrepareLog(conn, msg.PrepareLogRequest)
 		case msg.RunLogRequest != nil:
@@ -253,6 +257,35 @@ func applyConfigUpdate(ctx context.Context, store *sqlite.StorageAdapter, cfg *a
 		"id", fmt.Sprintf("%s:%s:%s", cfg.ID.Environment, cfg.ID.Machine, cfg.ID.Name),
 		"seqNo", cfg.SeqNo)
 	store.MustWriteDeploymentConfig(ctx, cfg)
+}
+
+// streamDeploymentLog resolves seqNo=0 to latest from local status, then
+// streams the appropriate log file back to the primary.
+func streamDeploymentLog(conn *cluster.Conn, store *sqlite.StorageAdapter, req *apigen.DeploymentLogRequest) {
+	if req.RunnerOutput != nil {
+		r := req.RunnerOutput
+		if r.SeqNo == 0 && r.ID != nil {
+			st := store.FetchDeploymentStatus(*r.ID)
+			if st != nil && st.Runner != nil {
+				r.SeqNo = st.Runner.DeploymentSeqNo
+			}
+		}
+		streamFile(conn, r.OutputPath())
+		return
+	}
+	if req.PreparerOutput != nil {
+		p := req.PreparerOutput
+		if p.SeqNo == 0 && p.ID != nil {
+			st := store.FetchDeploymentStatus(*p.ID)
+			if st != nil && st.Preparer != nil {
+				p.SeqNo = st.Preparer.DeploymentSeqNo
+			}
+		}
+		streamFile(conn, p.OutputPath())
+		return
+	}
+	end := &apigen.MsgToMaster{LogEnd: true}
+	_ = conn.WriteFrame(end.Encode())
 }
 
 // streamPrepareLog reads a prepare output file and sends it back to the primary

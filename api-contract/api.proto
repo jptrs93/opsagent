@@ -70,12 +70,7 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1PrepareOutput(cp.Empty) returns (cp.Empty) {
-    option (cp.go_custom) = true;
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
-  }
-
-  rpc PostV1RunOutput(cp.Empty) returns (cp.Empty) {
+  rpc PostV1DeploymentLogs(cp.Empty) returns (cp.Empty) {
     option (cp.go_custom) = true;
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -238,6 +233,11 @@ message RunOutputRequest {
   int32 seq_no = 2;
 }
 
+message DeploymentLogRequest {
+  RunOutputRequest runner_output = 1;
+  PrepareOutputRequest preparer_output = 2;
+}
+
 
 message DeploymentIdentifier {
   string environment = 1;
@@ -374,6 +374,7 @@ message MsgToWorker {
   DeploymentConfig deployment_update = 2;
   PrepareOutputRequest prepare_log_request = 3;
   RunOutputRequest run_log_request = 4;
+  DeploymentLogRequest deployment_log_request = 5;
 }
 
 message MsgToMaster {

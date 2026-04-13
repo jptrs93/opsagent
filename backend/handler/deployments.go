@@ -41,80 +41,111 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 	return &desired, nil
 }
 
-func (h *Handler) PostV1PrepareOutput(ctx apigen.Context, r *http.Request, w http.ResponseWriter) error {
+func (h *Handler) PostV1DeploymentLogs(ctx apigen.Context, r *http.Request, w http.ResponseWriter) error {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		return fmt.Errorf("reading prepare output request body: %w", err)
+		return fmt.Errorf("reading deployment log request body: %w", err)
 	}
 
-	req, err := apigen.DecodePrepareOutputRequest(bodyBytes)
+	req, err := apigen.DecodeDeploymentLogRequest(bodyBytes)
 	if err != nil {
 		respondErr(w, InvalidRequestBodyErr)
 		return nil
 	}
-	if req.ID == nil || req.ID.Name == "" {
+
+	var id *apigen.DeploymentIdentifier
+	if req.RunnerOutput != nil {
+		id = req.RunnerOutput.ID
+	} else if req.PreparerOutput != nil {
+		id = req.PreparerOutput.ID
+	}
+	if id == nil || id.Name == "" {
 		respondErr(w, MissingKeyErr)
 		return nil
 	}
 
-	if req.ID.Machine != "" && req.ID.Machine != h.MachineName && h.ClusterPrimary != nil {
-		clusterReq := &apigen.MsgToWorker{PrepareLogRequest: req}
-		return h.proxyRemoteLogs(w, req.ID.Machine, clusterReq)
+	// Forward to remote worker without resolving — the worker resolves locally.
+	if id.Machine != "" && id.Machine != h.MachineName && h.ClusterPrimary != nil {
+		clusterReq := &apigen.MsgToWorker{DeploymentLogRequest: req}
+		return h.proxyRemoteLogs(w, id.Machine, clusterReq)
 	}
 
-	logPath := req.OutputPath()
-	f, err := os.Open(logPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			respondErr(w, NoPrepareLogErr)
-			return nil
+	// Resolve seqNo=0 to latest from local status.
+	if req.RunnerOutput != nil {
+		if req.RunnerOutput.SeqNo == 0 {
+			st := h.Store.FetchDeploymentStatus(*id)
+			if st != nil && st.Runner != nil {
+				req.RunnerOutput.SeqNo = st.Runner.DeploymentSeqNo
+			}
 		}
-		return fmt.Errorf("opening prepare log: %w", err)
+		return h.streamRunLog(ctx, w, req.RunnerOutput)
+	}
+	if req.PreparerOutput.SeqNo == 0 {
+		st := h.Store.FetchDeploymentStatus(*id)
+		if st != nil && st.Preparer != nil {
+			req.PreparerOutput.SeqNo = st.Preparer.DeploymentSeqNo
+		}
+	}
+	return h.streamPrepareLog(ctx, w, req.PreparerOutput)
+}
+
+func (h *Handler) streamRunLog(ctx apigen.Context, w http.ResponseWriter, req *apigen.RunOutputRequest) error {
+	logPath := req.OutputPath()
+	f, err := waitForFile(ctx, logPath)
+	if err != nil {
+		respondErr(w, NoRunOutputErr)
+		return nil
 	}
 	defer f.Close()
+	return streamLogFile(ctx, w, f, func() bool {
+		st := h.Store.FetchDeploymentStatus(*req.ID)
+		return st != nil && st.Runner != nil && isRunnerActive(st.Runner.Status)
+	})
+}
 
+func (h *Handler) streamPrepareLog(ctx apigen.Context, w http.ResponseWriter, req *apigen.PrepareOutputRequest) error {
+	logPath := req.OutputPath()
+	f, err := waitForFile(ctx, logPath)
+	if err != nil {
+		respondErr(w, NoPrepareLogErr)
+		return nil
+	}
+	defer f.Close()
 	return streamLogFile(ctx, w, f, func() bool {
 		st := h.Store.FetchDeploymentStatus(*req.ID)
 		return st != nil && st.Preparer != nil && isPrepareInProgress(st.Preparer.Status)
 	})
 }
 
-func (h *Handler) PostV1RunOutput(ctx apigen.Context, r *http.Request, w http.ResponseWriter) error {
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		return fmt.Errorf("reading run output request body: %w", err)
+// waitForFile tries to open a file, retrying for up to 5 seconds if it
+// doesn't exist yet (the runner/preparer may still be starting up).
+func waitForFile(ctx apigen.Context, path string) (*os.File, error) {
+	f, err := os.Open(path)
+	if err == nil {
+		return f, nil
 	}
-
-	req, err := apigen.DecodeRunOutputRequest(bodyBytes)
-	if err != nil {
-		respondErr(w, InvalidRequestBodyErr)
-		return nil
+	if !os.IsNotExist(err) {
+		return nil, err
 	}
-	if req.ID == nil || req.ID.Name == "" {
-		respondErr(w, MissingKeyErr)
-		return nil
-	}
-
-	if req.ID.Machine != "" && req.ID.Machine != h.MachineName && h.ClusterPrimary != nil {
-		clusterReq := &apigen.MsgToWorker{RunLogRequest: req}
-		return h.proxyRemoteLogs(w, req.ID.Machine, clusterReq)
-	}
-
-	logPath := req.OutputPath()
-	f, err := os.Open(logPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			respondErr(w, NoRunOutputErr)
-			return nil
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-deadline:
+			return nil, os.ErrNotExist
+		case <-ticker.C:
+			f, err = os.Open(path)
+			if err == nil {
+				return f, nil
+			}
+			if !os.IsNotExist(err) {
+				return nil, err
+			}
 		}
-		return fmt.Errorf("opening run output: %w", err)
 	}
-	defer f.Close()
-
-	return streamLogFile(ctx, w, f, func() bool {
-		st := h.Store.FetchDeploymentStatus(*req.ID)
-		return st != nil && st.Runner != nil && isRunnerActive(st.Runner.Status)
-	})
 }
 
 // proxyRemoteLogs streams log data from a remote worker back to the HTTP

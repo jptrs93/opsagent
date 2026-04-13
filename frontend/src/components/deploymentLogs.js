@@ -1,7 +1,7 @@
 import van from "vanjs-core";
 import {loginS} from "../state/login.js";
 import {onLogout} from "../state/login.js";
-import {encodePrepareOutputRequest} from "../capi/model.js";
+import {encodeDeploymentLogRequest} from "../capi/model.js";
 
 const { div, h2, span, pre, button } = van.tags;
 
@@ -13,20 +13,16 @@ const parseDeploymentKey = (key) => {
     return { environment: '', machine: '', name: key };
 };
 
-export function prepareOutput(key, seqNo, onClose) {
+// type: 'run' or 'prepare'
+export function deploymentLogs(key, type, onClose) {
     const outputText = van.state('');
     const done = van.state(false);
     const endLabel = van.state('Stream ended');
     let abortController = null;
-    let startTimer = null;
     let cancelled = false;
 
     const abortStream = () => {
         cancelled = true;
-        if (startTimer) {
-            clearTimeout(startTimer);
-            startTimer = null;
-        }
         if (abortController) {
             abortController.abort();
         }
@@ -34,7 +30,7 @@ export function prepareOutput(key, seqNo, onClose) {
 
     const unregisterLogout = onLogout(abortStream);
 
-    const startStream = async (attempt = 0) => {
+    const startStream = async () => {
         if (cancelled) return;
         abortController = new AbortController();
         const token = loginS.val?.token;
@@ -43,20 +39,21 @@ export function prepareOutput(key, seqNo, onClose) {
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
         };
 
+        const id = parseDeploymentKey(key);
+        const body = type === 'run'
+            ? encodeDeploymentLogRequest({ runnerOutput: { id, seqNo: 0 } })
+            : encodeDeploymentLogRequest({ preparerOutput: { id, seqNo: 0 } });
+
         try {
-            const response = await fetch('/v1/prepare/output', {
+            const response = await fetch('/v1/deployment/logs', {
                 method: 'POST',
                 headers,
-                body: encodePrepareOutputRequest({ id: parseDeploymentKey(key), seqNo: seqNo }),
+                body,
                 credentials: 'include',
                 signal: abortController.signal,
             });
 
             if (!response.ok) {
-                if (response.status === 404 && attempt < 1) {
-                    await new Promise(r => setTimeout(r, 1000));
-                    return startStream(attempt + 1);
-                }
                 if (response.status === 404) {
                     endLabel.val = 'No log file found';
                     outputText.val = 'No log file found.';
@@ -91,17 +88,15 @@ export function prepareOutput(key, seqNo, onClose) {
         onClose();
     };
 
-    startTimer = setTimeout(() => {
-        startTimer = null;
-        void startStream();
-    }, 0);
+    void startStream();
+
+    const title = type === 'run' ? 'Output' : 'Prepare';
 
     const outputPre = pre(
         {class: "flex-1 overflow-auto p-4 text-xs font-mono whitespace-pre-wrap break-all leading-5"},
         () => outputText.val || 'Waiting for output...',
     );
 
-    // Auto-scroll to bottom when new content arrives
     van.derive(() => {
         outputText.val;
         setTimeout(() => { outputPre.scrollTop = outputPre.scrollHeight; }, 0);
@@ -111,7 +106,7 @@ export function prepareOutput(key, seqNo, onClose) {
         {class: "w-1/2 min-h-0 border-l border-gray-700 bg-gray-900 flex flex-col h-full"},
         div(
             {class: "flex items-center justify-between p-3 border-b border-gray-700"},
-            h2({class: "text-sm font-semibold text-gray-300"}, `Prepare: ${key}`),
+            h2({class: "text-sm font-semibold text-gray-300"}, `${title}: ${key}`),
             div(
                 {class: "flex items-center gap-2"},
                 () => done.val

@@ -2,8 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {deploymentsS, deploymentsStreamS, deploymentKey} from "../state/deployments.js";
 import {statusCard} from "../components/statusCard.js";
-import {prepareOutput} from "../components/prepareOutput.js";
-import {runOutput} from "../components/runOutput.js";
+import {deploymentLogs} from "../components/deploymentLogs.js";
 import {deploymentHistory} from "../components/deploymentHistory.js";
 
 const { div, h1, h2, p } = van.tags;
@@ -54,8 +53,6 @@ const mapDeploymentsToView = (deployments) => {
             prepareStatus: prep.status || 0,
             prepareVersion: desired.version || '',
             currentSeqNo: d.config.seqNo || 0,
-            runnerSeqNo: runner.deploymentSeqNo || 0,
-            preparerSeqNo: prep.deploymentSeqNo || 0,
         };
     });
 };
@@ -68,7 +65,6 @@ export function statusPage() {
     const selectedScope = van.state({});
     const sidebarMode = van.state(SIDEBAR_NONE);
     const sidebarDeployment = van.state(null);
-    const sidebarSeqNo = van.state(0);
 
     const ensurePreparerDataLoaded = (currentStatuses) => {
         for (const s of currentStatuses || []) {
@@ -137,7 +133,6 @@ export function statusPage() {
     const closeSidebar = () => {
         sidebarMode.val = SIDEBAR_NONE;
         sidebarDeployment.val = null;
-        sidebarSeqNo.val = 0;
     };
 
     const onDeploy = async (deployment, version) => {
@@ -149,7 +144,6 @@ export function statusPage() {
             });
             sidebarMode.val = SIDEBAR_PREPARE;
             sidebarDeployment.val = deployment.key;
-            sidebarSeqNo.val = deployment.currentSeqNo;
         } catch (e) {
             alert(`Deploy failed: ${e.message}`);
         }
@@ -167,10 +161,9 @@ export function statusPage() {
         }
     };
 
-    const onShowRunOutput = (key, seqNo) => {
+    const onShowRunOutput = (key) => {
         sidebarMode.val = SIDEBAR_RUN;
         sidebarDeployment.val = key;
-        sidebarSeqNo.val = seqNo;
     };
 
     const onShowHistory = (key) => {
@@ -178,10 +171,9 @@ export function statusPage() {
         sidebarDeployment.val = key;
     };
 
-    const onShowPrepareOutput = (key, seqNo) => {
+    const onShowPrepareOutput = (key) => {
         sidebarMode.val = SIDEBAR_PREPARE;
         sidebarDeployment.val = key;
-        sidebarSeqNo.val = seqNo;
     };
 
     const mainContent = div(
@@ -256,10 +248,10 @@ export function statusPage() {
         mainContent,
         () => {
             if (sidebarMode.val === SIDEBAR_PREPARE && sidebarDeployment.val) {
-                return prepareOutput(sidebarDeployment.val, sidebarSeqNo.val, closeSidebar);
+                return deploymentLogs(sidebarDeployment.val, 'prepare', closeSidebar);
             }
             if (sidebarMode.val === SIDEBAR_RUN && sidebarDeployment.val) {
-                return runOutput(sidebarDeployment.val, sidebarSeqNo.val, closeSidebar);
+                return deploymentLogs(sidebarDeployment.val, 'run', closeSidebar);
             }
             if (sidebarMode.val === SIDEBAR_HISTORY && sidebarDeployment.val) {
                 return deploymentHistory(sidebarDeployment.val, closeSidebar);

@@ -1048,6 +1048,64 @@ func DecodeRunOutputRequest(b []byte) (*RunOutputRequest, error) {
 	return &m, nil
 }
 
+type DeploymentLogRequest struct {
+	RunnerOutput   *RunOutputRequest
+	PreparerOutput *PrepareOutputRequest
+}
+
+func (m *DeploymentLogRequest) Encode() []byte {
+	var b []byte
+	if m.RunnerOutput != nil {
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.RunnerOutput.Encode())
+	}
+	if m.PreparerOutput != nil {
+		b = protowire.AppendTag(b, 2, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.PreparerOutput.Encode())
+	}
+	return b
+}
+
+func DecodeDeploymentLogRequest(b []byte) (*DeploymentLogRequest, error) {
+	var m DeploymentLogRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *RunOutputRequest
+				item, err = DecodeRunOutputRequest(msgBytes)
+				if err == nil {
+					m.RunnerOutput = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *PrepareOutputRequest
+				item, err = DecodePrepareOutputRequest(msgBytes)
+				if err == nil {
+					m.PreparerOutput = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type DeploymentIdentifier struct {
 	Environment string
 	Machine     string
@@ -1982,10 +2040,11 @@ func DecodeClusterStatusResponse(b []byte) (*ClusterStatusResponse, error) {
 }
 
 type MsgToWorker struct {
-	DeploymentsSnapshot *DeploymentWithStatusSnapshot
-	DeploymentUpdate    *DeploymentConfig
-	PrepareLogRequest   *PrepareOutputRequest
-	RunLogRequest       *RunOutputRequest
+	DeploymentsSnapshot  *DeploymentWithStatusSnapshot
+	DeploymentUpdate     *DeploymentConfig
+	PrepareLogRequest    *PrepareOutputRequest
+	RunLogRequest        *RunOutputRequest
+	DeploymentLogRequest *DeploymentLogRequest
 }
 
 func (m *MsgToWorker) Encode() []byte {
@@ -2005,6 +2064,10 @@ func (m *MsgToWorker) Encode() []byte {
 	if m.RunLogRequest != nil {
 		b = protowire.AppendTag(b, 4, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.RunLogRequest.Encode())
+	}
+	if m.DeploymentLogRequest != nil {
+		b = protowire.AppendTag(b, 5, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.DeploymentLogRequest.Encode())
 	}
 	return b
 }
@@ -2055,6 +2118,15 @@ func DecodeMsgToWorker(b []byte) (*MsgToWorker, error) {
 				item, err = DecodeRunOutputRequest(msgBytes)
 				if err == nil {
 					m.RunLogRequest = item
+				}
+			}
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentLogRequest
+				item, err = DecodeDeploymentLogRequest(msgBytes)
+				if err == nil {
+					m.DeploymentLogRequest = item
 				}
 			}
 		default:

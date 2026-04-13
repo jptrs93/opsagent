@@ -242,19 +242,8 @@ export class Capi {
   /**
    * @returns {Promise<void>}
    */
-  async postV1PrepareOutput() {
-    const response = await this.#request('/v1/prepare/output', { method: 'POST' });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    await response.arrayBuffer();
-  }
-
-  /**
-   * @returns {Promise<void>}
-   */
-  async postV1RunOutput() {
-    const response = await this.#request('/v1/run/output', { method: 'POST' });
+  async postV1DeploymentLogs() {
+    const response = await this.#request('/v1/deployment/logs', { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
