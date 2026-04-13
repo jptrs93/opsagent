@@ -14,6 +14,11 @@ ExecStart=/var/lib/opsagent/bin/opsagent
 EnvironmentFile=-/etc/opsagent/env
 Environment=PATH=/nix/var/nix/profiles/default/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
+# Only signal the main opsagent process on stop/restart. Child processes
+# (osProcess runner deployments) are spawned with Setsid and must survive
+# opsagent restarts — opsagent reattaches to them on startup via PID polling.
+KillMode=process
+
 Restart=on-failure
 RestartSec=5
 
