@@ -41,10 +41,11 @@ func NewNixBuilder(dataDir string, githubToken string) *NixBuilder {
 
 func (b *NixBuilder) start(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig) Preparer {
 	ctx, cancel := context.WithCancel(parentCtx)
-	p := &activePreparer{cancel: cancel, done: make(chan struct{}), seqNo: dep.Version}
+	p := &activePreparer{cancel: cancel, done: make(chan struct{}), deploymentConfigVersion: dep.Version}
 
 	version := desiredVersion(dep)
 	if version == "" {
+		cancel()
 		writePrepareStatus(ctx, store, dep, "", apigen.PreparationStatus_FAILED)
 		close(p.done)
 		return p

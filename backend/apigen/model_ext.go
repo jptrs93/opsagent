@@ -23,14 +23,6 @@ func (d *DeploymentConfig) RunOutputPath() string {
 	return RunOutputFile(d.ID, d.Version)
 }
 
-func (d DeploymentStatus) PrepareOutputPath() string {
-	return prepareOutputFile(d.DeploymentID, d.Preparer.DeploymentConfigVersion)
-}
-
-func (d DeploymentStatus) RunOutputPath() string {
-	return RunOutputFile(d.DeploymentID, d.Runner.DeploymentConfigVersion)
-}
-
 func (r *PrepareOutputRequest) OutputPath() string {
 	return prepareOutputFile(r.DeploymentID, r.Version)
 }

@@ -128,6 +128,7 @@ func (op DeploymentOperator) Run(
 			}
 		case <-ctx.Done():
 			slog.InfoContext(ctx, "graceful exit on context end")
+			unsubFunc()
 			return
 		}
 	}

@@ -188,6 +188,8 @@ func (r *osProcessRunner) run() {
 func (r *osProcessRunner) monitorAdoptedProcess(pid int) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+	errCount := 0
+	const maxErrors = 15 // give up after ~30s of persistent errors
 	for {
 		if r.stopping.Load() {
 			return
@@ -198,9 +200,15 @@ func (r *osProcessRunner) monitorAdoptedProcess(pid int) {
 		case <-ticker.C:
 			exists, err := processExists(pid)
 			if err != nil {
-				slog.WarnContext(r.ctx, "failed checking adopted process liveness", "pid", pid, "err", err)
+				errCount++
+				slog.WarnContext(r.ctx, "failed checking adopted process liveness", "pid", pid, "err", err, "errCount", errCount)
+				if errCount >= maxErrors {
+					slog.ErrorContext(r.ctx, "giving up on adopted process after persistent errors", "pid", pid)
+					return
+				}
 				continue
 			}
+			errCount = 0
 			if !exists {
 				return
 			}
@@ -273,7 +281,7 @@ func (r *osProcessRunner) writeStatus() {
 
 func resolveWorkingDir(ctx context.Context, dir, runAs string) string {
 	if dir != "" {
-		return ""
+		return dir
 	}
 	if runAs != "" {
 		u, err := user.Lookup(runAs)

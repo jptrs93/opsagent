@@ -227,11 +227,13 @@ func systemctl(ctx context.Context, args ...string) (string, error) {
 func systemctlIsActive(ctx context.Context, unit string) (string, error) {
 	out, err := exec.CommandContext(ctx, "systemctl", "is-active", unit).Output()
 	state := strings.TrimSpace(string(out))
-	if state != "" {
-		return state, nil
-	}
 	if err != nil {
-		return "", err
+		// systemctl is-active returns exit code 3 for "inactive"/"failed" but
+		// still writes the state to stdout. Only return error when we got no
+		// usable output.
+		if state == "" {
+			return "", err
+		}
 	}
 	return state, nil
 }

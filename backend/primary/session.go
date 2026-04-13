@@ -196,17 +196,23 @@ func (r *logReader) Read(p []byte) (int, error) {
 		return n, nil
 	}
 
-	chunk, ok := <-r.session.logCh
-	if !ok || chunk.end {
+	// Timeout prevents permanent blocking if the worker never sends LogEnd
+	// (e.g. connection dropped mid-stream without LogEnd frame).
+	select {
+	case chunk, ok := <-r.session.logCh:
+		if !ok || chunk.end {
+			r.done = true
+			return 0, io.EOF
+		}
+		n := copy(p, chunk.data)
+		if n < len(chunk.data) {
+			r.buf = chunk.data[n:]
+		}
+		return n, nil
+	case <-time.After(30 * time.Second):
 		r.done = true
 		return 0, io.EOF
 	}
-
-	n := copy(p, chunk.data)
-	if n < len(chunk.data) {
-		r.buf = chunk.data[n:]
-	}
-	return n, nil
 }
 
 func (r *logReader) Close() error {

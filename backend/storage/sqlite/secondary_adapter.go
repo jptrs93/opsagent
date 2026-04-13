@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -114,7 +115,10 @@ func (s *SecondaryStorageAdapter) loadCache() {
 			panic(fmt.Sprintf("loadCache: scan config: %v", err))
 		}
 		id := int32(dbID)
-		spec, _ := apigen.DecodeDeploymentSpec(specBlob)
+		spec, decErr := apigen.DecodeDeploymentSpec(specBlob)
+		if decErr != nil {
+			slog.Error("failed decoding deployment spec", "deploymentID", id, "err", decErr)
+		}
 		s.configCache[id] = &apigen.DeploymentConfig{
 			ID: id,
 			ConfigID: &apigen.DeploymentIdentifier{

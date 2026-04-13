@@ -1,7 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {format} from "date-fns";
-import {encodeDeploymentHistoryRequest, decodeDeploymentHistory} from "../capi/model.js";
 import {usersMapS} from "../state/deployments.js";
 
 const { div, h2, span, button, p } = van.tags;
@@ -69,19 +68,7 @@ export function deploymentHistory(deploymentId, onClose) {
 
     const load = async () => {
         try {
-            const headers = capi.headerProvider() || {};
-            headers['Content-Type'] = 'application/x-protobuf';
-            headers['Accept'] = 'application/x-protobuf';
-            const body = encodeDeploymentHistoryRequest({ deploymentId });
-
-            const response = await fetch('/v1/deployment/history', {
-                method: 'POST',
-                headers,
-                body,
-                credentials: 'include',
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const decoded = decodeDeploymentHistory(await response.arrayBuffer());
+            const decoded = await capi.postV1DeploymentHistory({ deploymentId });
             entries.val = decoded?.entries || [];
         } catch (e) {
             console.error('Failed to load deployment history:', e);

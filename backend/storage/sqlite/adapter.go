@@ -711,7 +711,10 @@ func statusToHistory(s DeploymentStatus) DeploymentStatusHistory {
 }
 
 func configHistoryRowToProto(dbID int64, cid *apigen.DeploymentIdentifier, r DeploymentConfigHistory) *apigen.DeploymentConfig {
-	spec, _ := apigen.DecodeDeploymentSpec(r.SpecBlob)
+	spec, err := apigen.DecodeDeploymentSpec(r.SpecBlob)
+	if err != nil {
+		slog.Error("failed decoding deployment spec", "deploymentID", dbID, "version", r.Version, "err", err)
+	}
 	return &apigen.DeploymentConfig{
 		ID:       int32(dbID),
 		ConfigID: cid,
@@ -728,7 +731,10 @@ func configHistoryRowToProto(dbID int64, cid *apigen.DeploymentIdentifier, r Dep
 }
 
 func configRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
-	spec, _ := apigen.DecodeDeploymentSpec(r.SpecBlob)
+	spec, err := apigen.DecodeDeploymentSpec(r.SpecBlob)
+	if err != nil {
+		slog.Error("failed decoding deployment spec", "deploymentID", r.DeploymentID, "err", err)
+	}
 	return &apigen.DeploymentConfig{
 		ID: int32(r.DeploymentID),
 		ConfigID: &apigen.DeploymentIdentifier{
@@ -749,7 +755,10 @@ func configRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
 }
 
 func configDBRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
-	spec, _ := apigen.DecodeDeploymentSpec(r.SpecBlob)
+	spec, err := apigen.DecodeDeploymentSpec(r.SpecBlob)
+	if err != nil {
+		slog.Error("failed decoding deployment spec", "deploymentID", r.DeploymentID, "err", err)
+	}
 	return &apigen.DeploymentConfig{
 		ID: int32(r.DeploymentID),
 		ConfigID: &apigen.DeploymentIdentifier{
@@ -770,7 +779,10 @@ func configDBRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
 }
 
 func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfig {
-	spec, _ := apigen.DecodeDeploymentSpec(p.SpecBlob)
+	spec, err := apigen.DecodeDeploymentSpec(p.SpecBlob)
+	if err != nil {
+		slog.Error("failed decoding deployment spec", "deploymentID", p.DeploymentID, "err", err)
+	}
 	return &apigen.DeploymentConfig{
 		ID: int32(p.DeploymentID),
 		ConfigID: &apigen.DeploymentIdentifier{

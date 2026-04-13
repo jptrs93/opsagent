@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS deployment_config_history (
     deleted         INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (deployment_id, version)
 );
+CREATE INDEX IF NOT EXISTS idx_config_history_deployment ON deployment_config_history(deployment_id);
 
 -- Current deployment status. One mutable row per deployment.
 CREATE TABLE IF NOT EXISTS deployment_status (
@@ -70,6 +71,7 @@ CREATE TABLE IF NOT EXISTS deployment_status_history (
     runner_last_restart_at  INTEGER,  -- epoch ms
     PRIMARY KEY (deployment_id, status_seq_no)
 );
+CREATE INDEX IF NOT EXISTS idx_status_history_deployment ON deployment_status_history(deployment_id);
 
 -- Append-only log of user config yaml submissions.
 CREATE TABLE IF NOT EXISTS user_config_versions (

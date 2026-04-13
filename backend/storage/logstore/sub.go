@@ -1,6 +1,9 @@
 package logstore
 
-import "sync"
+import (
+	"log/slog"
+	"sync"
+)
 
 type Sub[T any] struct {
 	Filter func(T) bool
@@ -56,6 +59,7 @@ func (s *Subs[T]) Notify(value T) {
 		select {
 		case sub.Ch <- value:
 		default:
+			slog.Warn("subscription channel full, dropping notification")
 		}
 	}
 }

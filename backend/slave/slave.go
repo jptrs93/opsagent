@@ -148,11 +148,11 @@ func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.Secondary
 		case msg.DeploymentUpdate != nil:
 			applyConfigUpdate(sessCtx, store, msg.DeploymentUpdate)
 		case msg.DeploymentLogRequest != nil:
-			go streamDeploymentLog(conn, store, msg.DeploymentLogRequest)
+			go streamDeploymentLog(sessCtx, conn, store, msg.DeploymentLogRequest)
 		case msg.PrepareLogRequest != nil:
-			go streamPrepareLog(conn, msg.PrepareLogRequest)
+			go streamPrepareLog(sessCtx, conn, msg.PrepareLogRequest)
 		case msg.RunLogRequest != nil:
-			go streamRunLog(conn, msg.RunLogRequest)
+			go streamRunLog(sessCtx, conn, msg.RunLogRequest)
 		}
 	}
 }
@@ -257,7 +257,7 @@ func applyConfigUpdate(ctx context.Context, store *sqlite.SecondaryStorageAdapte
 
 // streamDeploymentLog resolves seqNo=0 to latest from local status, then
 // streams the appropriate log file back to the primary.
-func streamDeploymentLog(conn *cluster.Conn, store *sqlite.SecondaryStorageAdapter, req *apigen.DeploymentLogRequest) {
+func streamDeploymentLog(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorageAdapter, req *apigen.DeploymentLogRequest) {
 	if req.RunnerOutput != nil {
 		r := req.RunnerOutput
 		if r.Version == 0 && r.DeploymentID != 0 {
@@ -266,7 +266,7 @@ func streamDeploymentLog(conn *cluster.Conn, store *sqlite.SecondaryStorageAdapt
 				r.Version = st.Runner.DeploymentConfigVersion
 			}
 		}
-		streamFile(conn, r.OutputPath())
+		streamFile(ctx, conn, r.OutputPath())
 		return
 	}
 	if req.PreparerOutput != nil {
@@ -277,7 +277,7 @@ func streamDeploymentLog(conn *cluster.Conn, store *sqlite.SecondaryStorageAdapt
 				p.Version = st.Preparer.DeploymentConfigVersion
 			}
 		}
-		streamFile(conn, p.OutputPath())
+		streamFile(ctx, conn, p.OutputPath())
 		return
 	}
 	end := &apigen.MsgToMaster{LogEnd: true}
@@ -286,29 +286,37 @@ func streamDeploymentLog(conn *cluster.Conn, store *sqlite.SecondaryStorageAdapt
 
 // streamPrepareLog reads a prepare output file and sends it back to the primary
 // as a series of LogData frames followed by a LogEnd frame.
-func streamPrepareLog(conn *cluster.Conn, req *apigen.PrepareOutputRequest) {
-	streamFile(conn, req.OutputPath())
+func streamPrepareLog(ctx context.Context, conn *cluster.Conn, req *apigen.PrepareOutputRequest) {
+	streamFile(ctx, conn, req.OutputPath())
 }
 
 // streamRunLog reads a run output file and sends it back to the primary.
-func streamRunLog(conn *cluster.Conn, req *apigen.RunOutputRequest) {
-	streamFile(conn, req.OutputPath())
+func streamRunLog(ctx context.Context, conn *cluster.Conn, req *apigen.RunOutputRequest) {
+	streamFile(ctx, conn, req.OutputPath())
 }
 
 // streamFile reads a file and sends its contents as LogData frames, followed
-// by a LogEnd frame.
-func streamFile(conn *cluster.Conn, path string) {
+// by a LogEnd frame. Always sends LogEnd, even on write failure.
+func streamFile(ctx context.Context, conn *cluster.Conn, path string) {
+	defer func() {
+		end := &apigen.MsgToMaster{LogEnd: true}
+		_ = conn.WriteFrame(end.Encode())
+	}()
+
 	f, err := os.Open(path)
 	if err != nil {
 		slog.Error("failed opening log file for streaming", "path", path, "err", err)
-		end := &apigen.MsgToMaster{LogEnd: true}
-		_ = conn.WriteFrame(end.Encode())
 		return
 	}
 	defer f.Close()
 
 	buf := make([]byte, 32*1024)
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 		n, readErr := f.Read(buf)
 		if n > 0 {
 			chunk := make([]byte, n)
@@ -320,14 +328,11 @@ func streamFile(conn *cluster.Conn, path string) {
 			}
 		}
 		if readErr == io.EOF {
-			break
+			return
 		}
 		if readErr != nil {
 			slog.Error("failed reading log file", "path", path, "err", readErr)
-			break
+			return
 		}
 	}
-
-	end := &apigen.MsgToMaster{LogEnd: true}
-	_ = conn.WriteFrame(end.Encode())
 }
