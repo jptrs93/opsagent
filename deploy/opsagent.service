@@ -26,15 +26,9 @@ RestartSec=5
 # NoNewPrivileges is intentionally not set: the runner uses sudo to
 # restart its own systemd unit via the sudoers rule installed by the
 # deploy script. This requires privilege escalation to succeed.
-ProtectSystem=strict
-ProtectHome=no
-# Allow writes to the data dir and the nix store
-ReadWritePaths=/var/lib/opsagent
-ReadWritePaths=/nix
-# Allow writes to ACME cert cache
-ReadWritePaths=/var/lib/opsagent/.certs
-# Allow sudo to create its timestamp directory (needed for systemctl restart)
-ReadWritePaths=/run/sudo
+# ProtectSystem is intentionally not used: opsagent spawns arbitrary child
+# processes whose resource needs (tmp dirs, sockets, etc.) can't be predicted.
+# ReadWritePaths whack-a-mole is not sustainable for a process manager.
 # Allow binding to privileged ports (80/443)
 AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_SETUID CAP_SETGID CAP_KILL
 
