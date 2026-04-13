@@ -98,8 +98,8 @@ func (b *NixBuilder) runBuild(ctx context.Context, store storage.OperatorStore, 
 	writeLog("repo ready")
 
 	writeLog("checking out version %s", version)
-	if err := b.runCmd(ctx, repoDir, logFile, "git", "checkout", "--", "."); err != nil {
-		writeLog("ERROR git checkout -- . failed: %v", err)
+	if err := b.runCmd(ctx, repoDir, logFile, "git", "reset", "--hard"); err != nil {
+		writeLog("ERROR git reset --hard failed: %v", err)
 		return "", apigen.PreparationStatus_FAILED
 	}
 	if err := b.runCmd(ctx, repoDir, logFile, "git", "clean", "-fdx"); err != nil {
