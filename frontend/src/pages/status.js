@@ -70,7 +70,8 @@ export function statusPage() {
     const statuses = van.state([]);
     const selectedScope = van.state({});
     const sidebarMode = van.state(SIDEBAR_NONE);
-    const sidebarDeployment = van.state(null);
+    const sidebarDeploymentId = van.state(null);
+    const sidebarLabel = van.state('');
     let activeSidebarAbort = null;
 
     // Derive scopes and versions from the pushed versionsS state.
@@ -144,7 +145,8 @@ export function statusPage() {
     const closeSidebar = () => {
         abortActiveSidebar();
         sidebarMode.val = SIDEBAR_NONE;
-        sidebarDeployment.val = null;
+        sidebarDeploymentId.val = null;
+        sidebarLabel.val = '';
     };
 
     const onDeploy = async (deployment, version) => {
@@ -171,20 +173,15 @@ export function statusPage() {
         }
     };
 
-    const onShowRunOutput = (id) => {
-        sidebarMode.val = SIDEBAR_RUN;
-        sidebarDeployment.val = id;
+    const openSidebar = (deployment, mode) => {
+        sidebarMode.val = mode;
+        sidebarDeploymentId.val = deployment.id;
+        sidebarLabel.val = formatDeploymentLabel(deployment);
     };
 
-    const onShowHistory = (id) => {
-        sidebarMode.val = SIDEBAR_HISTORY;
-        sidebarDeployment.val = id;
-    };
-
-    const onShowPrepareOutput = (id) => {
-        sidebarMode.val = SIDEBAR_PREPARE;
-        sidebarDeployment.val = id;
-    };
+    const onShowRunOutput = (deployment) => openSidebar(deployment, SIDEBAR_RUN);
+    const onShowHistory = (deployment) => openSidebar(deployment, SIDEBAR_HISTORY);
+    const onShowPrepareOutput = (deployment) => openSidebar(deployment, SIDEBAR_PREPARE);
 
     const mainContent = div(
         {class: "flex-1 min-h-0 overflow-auto p-6 flex flex-col gap-6"},
@@ -261,24 +258,18 @@ export function statusPage() {
         {class: "flex h-full min-h-0 overflow-hidden"},
         mainContent,
         () => {
-            const sidebarDeploymentView = statuses.val.find(s => s.id === sidebarDeployment.val) || null;
-            const sidebarDeploymentLabel = formatDeploymentLabel(sidebarDeploymentView);
-            if (sidebarMode.val === SIDEBAR_PREPARE && sidebarDeployment.val) {
-                abortActiveSidebar();
-                const ac = new AbortController();
-                activeSidebarAbort = ac;
-                return deploymentLogs(sidebarDeployment.val, sidebarDeploymentLabel, 'prepare', ac, closeSidebar);
+            const mode = sidebarMode.val;
+            const depId = sidebarDeploymentId.val;
+            if (!mode || !depId) return div();
+
+            const label = sidebarLabel.val;
+            if (mode === SIDEBAR_HISTORY) {
+                return deploymentHistory(depId, closeSidebar);
             }
-            if (sidebarMode.val === SIDEBAR_RUN && sidebarDeployment.val) {
-                abortActiveSidebar();
-                const ac = new AbortController();
-                activeSidebarAbort = ac;
-                return deploymentLogs(sidebarDeployment.val, sidebarDeploymentLabel, 'run', ac, closeSidebar);
-            }
-            if (sidebarMode.val === SIDEBAR_HISTORY && sidebarDeployment.val) {
-                return deploymentHistory(sidebarDeployment.val, closeSidebar);
-            }
-            return div();
+            abortActiveSidebar();
+            const ac = new AbortController();
+            activeSidebarAbort = ac;
+            return deploymentLogs(depId, label, mode, ac, closeSidebar);
         },
     );
 }

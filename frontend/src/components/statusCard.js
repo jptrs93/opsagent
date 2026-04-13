@@ -98,7 +98,7 @@ export function statusCard(deployment, versions, versionError, scopes, selectedS
                 span({class: "font-medium text-sm"}, deployment.name),
                 a({
                     class: "text-xs text-gray-500 hover:text-gray-300 underline cursor-pointer",
-                    onclick: () => onShowHistory(deployment.id),
+                    onclick: () => onShowHistory(deployment),
                 }, "history"),
             ),
             div(
@@ -120,7 +120,7 @@ export function statusCard(deployment, versions, versionError, scopes, selectedS
                 hasExisting
                     ? span({
                         class: `px-2 py-0.5 rounded text-xs font-medium cursor-pointer hover:brightness-125 ${existingColors.bg} ${existingColors.text}`,
-                        onclick: () => onShowRunOutput(deployment.id),
+                        onclick: () => onShowRunOutput(deployment),
                         title: "View run output",
                     }, existingColors.label)
                     : span({class: `px-2 py-0.5 rounded text-xs font-medium ${existingColors.bg} ${existingColors.text}`}, existingColors.label),
@@ -183,7 +183,7 @@ export function statusCard(deployment, versions, versionError, scopes, selectedS
                     prepareCopy.prefix ? span({class: prepareCopy.class}, prepareCopy.prefix) : null,
                     a({
                         class: `underline hover:text-white cursor-pointer ${prepareCopy.class}`,
-                        onclick: () => onShowPrepareOutput(deployment.id),
+                        onclick: () => onShowPrepareOutput(deployment),
                     }, "prepare"),
                     span({class: prepareCopy.class}, prepareCopy.text),
                 )
