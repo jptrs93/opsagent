@@ -145,8 +145,8 @@ func (h *Handler) proxyRemoteLogs(ctx apigen.Context, w http.ResponseWriter, mac
 	}
 	defer reader.Close()
 
-	// Close the reader promptly when the client disconnects so logMu is
-	// released and the next log request can proceed.
+	// Close the reader when the client disconnects so the worker is told
+	// to stop tailing and the session's stream channel is cleaned up.
 	go func() {
 		<-ctx.Done()
 		reader.Close()

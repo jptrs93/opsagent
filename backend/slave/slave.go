@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	"path/filepath"
@@ -91,6 +92,42 @@ func runPrimaryConnLoop(ctx context.Context, cfg Config, store *sqlite.Secondary
 	}
 }
 
+// logStreamTracker manages cancellable log stream goroutines keyed by request ID.
+type logStreamTracker struct {
+	mu      sync.Mutex
+	streams map[string]context.CancelFunc
+}
+
+func newLogStreamTracker() *logStreamTracker {
+	return &logStreamTracker{streams: make(map[string]context.CancelFunc)}
+}
+
+func (t *logStreamTracker) start(parent context.Context, requestID string) context.Context {
+	ctx, cancel := context.WithCancel(parent)
+	t.mu.Lock()
+	t.streams[requestID] = cancel
+	t.mu.Unlock()
+	return ctx
+}
+
+func (t *logStreamTracker) stop(requestID string) {
+	t.mu.Lock()
+	cancel, ok := t.streams[requestID]
+	if ok {
+		delete(t.streams, requestID)
+	}
+	t.mu.Unlock()
+	if ok {
+		cancel()
+	}
+}
+
+func (t *logStreamTracker) remove(requestID string) {
+	t.mu.Lock()
+	delete(t.streams, requestID)
+	t.mu.Unlock()
+}
+
 // runSession handles one connected cluster session: read messages from the
 // primary (snapshot, config updates, log requests), apply state to the local
 // store, and push local status changes back. Returns when the connection
@@ -104,6 +141,8 @@ func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.Secondary
 	defer unsub()
 
 	go statusPushLoop(sessCtx, conn, statusCh)
+
+	tracker := newLogStreamTracker()
 
 	// Read timeout: the primary sends heartbeats every 5s. If we don't
 	// receive any frame within 15s, assume the connection is dead.
@@ -135,6 +174,8 @@ func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.Secondary
 			msgType = "deployment_update"
 		case msg.DeploymentLogRequest != nil:
 			msgType = "deployment_log_request"
+		case msg.StopLogRequestID != "":
+			msgType = "stop_log_request"
 		case msg.PrepareLogRequest != nil:
 			msgType = "prepare_log_request"
 		case msg.RunLogRequest != nil:
@@ -147,8 +188,15 @@ func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.Secondary
 			applySnapshot(sessCtx, conn, store, msg.DeploymentsSnapshot)
 		case msg.DeploymentUpdate != nil:
 			applyConfigUpdate(sessCtx, store, msg.DeploymentUpdate)
+		case msg.StopLogRequestID != "":
+			tracker.stop(msg.StopLogRequestID)
 		case msg.DeploymentLogRequest != nil:
-			go streamDeploymentLog(sessCtx, conn, store, msg.DeploymentLogRequest)
+			requestID := msg.DeploymentLogRequest.RequestID
+			streamCtx := tracker.start(sessCtx, requestID)
+			go func() {
+				defer tracker.remove(requestID)
+				streamDeploymentLog(streamCtx, conn, store, msg.DeploymentLogRequest)
+			}()
 		case msg.PrepareLogRequest != nil:
 			go streamPrepareLog(sessCtx, conn, msg.PrepareLogRequest)
 		case msg.RunLogRequest != nil:
@@ -256,8 +304,10 @@ func applyConfigUpdate(ctx context.Context, store *sqlite.SecondaryStorageAdapte
 }
 
 // streamDeploymentLog resolves seqNo=0 to latest from local status, then
-// streams the appropriate log file back to the primary.
+// streams the appropriate log file back to the primary. All chunks and the
+// final LogEnd are tagged with the request ID for multiplexing.
 func streamDeploymentLog(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorageAdapter, req *apigen.DeploymentLogRequest) {
+	requestID := req.RequestID
 	if req.RunnerOutput != nil {
 		r := req.RunnerOutput
 		if r.Version == 0 && r.DeploymentID != 0 {
@@ -266,7 +316,7 @@ func streamDeploymentLog(ctx context.Context, conn *cluster.Conn, store *sqlite.
 				r.Version = st.Runner.DeploymentConfigVersion
 			}
 		}
-		streamFile(ctx, conn, store, r.OutputPath(), func() bool {
+		streamFile(ctx, conn, store, r.OutputPath(), requestID, func() bool {
 			st := store.FetchDeploymentStatus(r.DeploymentID)
 			return st != nil && st.Runner != nil && isRunnerActive(st.Runner.Status)
 		})
@@ -280,34 +330,35 @@ func streamDeploymentLog(ctx context.Context, conn *cluster.Conn, store *sqlite.
 				p.Version = st.Preparer.DeploymentConfigVersion
 			}
 		}
-		streamFile(ctx, conn, store, p.OutputPath(), func() bool {
+		streamFile(ctx, conn, store, p.OutputPath(), requestID, func() bool {
 			st := store.FetchDeploymentStatus(p.DeploymentID)
 			return st != nil && st.Preparer != nil && isPrepareInProgress(st.Preparer.Status)
 		})
 		return
 	}
-	end := &apigen.MsgToMaster{LogEnd: true}
+	end := &apigen.MsgToMaster{LogEnd: true, LogRequestID: requestID}
 	_ = conn.WriteFrame(end.Encode())
 }
 
 // streamPrepareLog reads a prepare output file and sends it back to the primary
 // as a series of LogData frames followed by a LogEnd frame.
 func streamPrepareLog(ctx context.Context, conn *cluster.Conn, req *apigen.PrepareOutputRequest) {
-	streamFile(ctx, conn, nil, req.OutputPath(), nil)
+	streamFile(ctx, conn, nil, req.OutputPath(), "", nil)
 }
 
 // streamRunLog reads a run output file and sends it back to the primary.
 func streamRunLog(ctx context.Context, conn *cluster.Conn, req *apigen.RunOutputRequest) {
-	streamFile(ctx, conn, nil, req.OutputPath(), nil)
+	streamFile(ctx, conn, nil, req.OutputPath(), "", nil)
 }
 
 // streamFile reads a file and sends its contents as LogData frames, followed
 // by a LogEnd frame. When keepTailing is non-nil, it polls for new content
 // while the process is still active instead of ending at the first EOF.
+// All frames are tagged with requestID for multiplexing.
 // Always sends LogEnd, even on write failure.
-func streamFile(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorageAdapter, path string, keepTailing func() bool) {
+func streamFile(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorageAdapter, path string, requestID string, keepTailing func() bool) {
 	defer func() {
-		end := &apigen.MsgToMaster{LogEnd: true}
+		end := &apigen.MsgToMaster{LogEnd: true, LogRequestID: requestID}
 		_ = conn.WriteFrame(end.Encode())
 	}()
 
@@ -327,7 +378,7 @@ func streamFile(ctx context.Context, conn *cluster.Conn, store *sqlite.Secondary
 			if n > 0 {
 				chunk := make([]byte, n)
 				copy(chunk, buf[:n])
-				msg := &apigen.MsgToMaster{LogData: chunk}
+				msg := &apigen.MsgToMaster{LogData: chunk, LogRequestID: requestID}
 				if werr := conn.WriteFrame(msg.Encode()); werr != nil {
 					return werr
 				}

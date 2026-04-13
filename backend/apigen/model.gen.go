@@ -1101,6 +1101,7 @@ func DecodeRunOutputRequest(b []byte) (*RunOutputRequest, error) {
 type DeploymentLogRequest struct {
 	RunnerOutput   *RunOutputRequest
 	PreparerOutput *PrepareOutputRequest
+	RequestID      string
 }
 
 func (m *DeploymentLogRequest) Encode() []byte {
@@ -1113,6 +1114,7 @@ func (m *DeploymentLogRequest) Encode() []byte {
 		b = protowire.AppendTag(b, 2, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.PreparerOutput.Encode())
 	}
+	b = AppendStringField(b, m.RequestID, 3)
 	return b
 }
 
@@ -1146,6 +1148,8 @@ func DecodeDeploymentLogRequest(b []byte) (*DeploymentLogRequest, error) {
 					m.PreparerOutput = item
 				}
 			}
+		case 3:
+			b, m.RequestID, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -2146,6 +2150,7 @@ type MsgToWorker struct {
 	PrepareLogRequest    *PrepareOutputRequest
 	RunLogRequest        *RunOutputRequest
 	DeploymentLogRequest *DeploymentLogRequest
+	StopLogRequestID     string
 }
 
 func (m *MsgToWorker) Encode() []byte {
@@ -2170,6 +2175,7 @@ func (m *MsgToWorker) Encode() []byte {
 		b = protowire.AppendTag(b, 5, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.DeploymentLogRequest.Encode())
 	}
+	b = AppendStringField(b, m.StopLogRequestID, 6)
 	return b
 }
 
@@ -2230,6 +2236,8 @@ func DecodeMsgToWorker(b []byte) (*MsgToWorker, error) {
 					m.DeploymentLogRequest = item
 				}
 			}
+		case 6:
+			b, m.StopLogRequestID, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -2241,9 +2249,10 @@ func DecodeMsgToWorker(b []byte) (*MsgToWorker, error) {
 }
 
 type MsgToMaster struct {
-	StatusWrite *DeploymentStatus
-	LogData     []byte
-	LogEnd      bool
+	StatusWrite  *DeploymentStatus
+	LogData      []byte
+	LogEnd       bool
+	LogRequestID string
 }
 
 func (m *MsgToMaster) Encode() []byte {
@@ -2254,6 +2263,7 @@ func (m *MsgToMaster) Encode() []byte {
 	}
 	b = AppendBytesField(b, m.LogData, 2)
 	b = AppendBoolField(b, m.LogEnd, 3)
+	b = AppendStringField(b, m.LogRequestID, 4)
 	return b
 }
 
@@ -2282,6 +2292,8 @@ func DecodeMsgToMaster(b []byte) (*MsgToMaster, error) {
 			b, m.LogData, err = ConsumeBytesCopy(b, typ)
 		case 3:
 			b, m.LogEnd, err = ConsumeBool(b, typ)
+		case 4:
+			b, m.LogRequestID, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

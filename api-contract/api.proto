@@ -242,6 +242,7 @@ message RunOutputRequest {
 message DeploymentLogRequest {
   RunOutputRequest runner_output = 1;
   PrepareOutputRequest preparer_output = 2;
+  string request_id = 3;  // Unique ID for multiplexing parallel log streams over a single cluster session.
 }
 
 
@@ -392,10 +393,12 @@ message MsgToWorker {
   PrepareOutputRequest prepare_log_request = 3;
   RunOutputRequest run_log_request = 4;
   DeploymentLogRequest deployment_log_request = 5;
+  string stop_log_request_id = 6;  // Cancel an active log stream by its request_id.
 }
 
 message MsgToMaster {
   DeploymentStatus status_write = 1;
   bytes log_data = 2;
   bool log_end = 3;
+  string log_request_id = 4;  // Tags log_data/log_end with the originating request_id.
 }

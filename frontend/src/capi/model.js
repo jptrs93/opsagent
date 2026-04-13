@@ -124,6 +124,7 @@
  * @typedef {Object} DeploymentLogRequest
  * @property {RunOutputRequest} runnerOutput
  * @property {PrepareOutputRequest} preparerOutput
+ * @property {string} requestId
  */
 /**
  * @typedef {Object} DeploymentIdentifier
@@ -251,12 +252,14 @@
  * @property {PrepareOutputRequest} prepareLogRequest
  * @property {RunOutputRequest} runLogRequest
  * @property {DeploymentLogRequest} deploymentLogRequest
+ * @property {string} stopLogRequestId
  */
 /**
  * @typedef {Object} MsgToMaster
  * @property {DeploymentStatus} statusWrite
  * @property {Uint8Array} logData
  * @property {boolean} logEnd
+ * @property {string} logRequestId
  */
 /**
  * @typedef {Object} AccessPolicy
@@ -1806,6 +1809,9 @@ export function writeDeploymentLogRequest(message, writer) {
         writePrepareOutputRequest(message.preparerOutput, writer);
         writer.ldelim();
     }
+    if (message.requestId !== undefined && message.requestId !== null && message.requestId !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.requestId);
+    }
 }
 
 
@@ -1827,7 +1833,7 @@ export function encodeDeploymentLogRequest(message) {
  */
 function decodeDeploymentLogRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {runnerOutput: undefined, preparerOutput: undefined };
+    const message = {runnerOutput: undefined, preparerOutput: undefined, requestId: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1837,6 +1843,10 @@ function decodeDeploymentLogRequestMessage(reader, length) {
             }
             case 2: {
                 message.preparerOutput = decodePrepareOutputRequestMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.requestId = reader.string();
                 break;
             }
             default:
@@ -3371,6 +3381,9 @@ export function writeMsgToWorker(message, writer) {
         writeDeploymentLogRequest(message.deploymentLogRequest, writer);
         writer.ldelim();
     }
+    if (message.stopLogRequestId !== undefined && message.stopLogRequestId !== null && message.stopLogRequestId !== "") {
+        writer.uint32(tag(6, WIRE.LDELIM)).string(message.stopLogRequestId);
+    }
 }
 
 
@@ -3392,7 +3405,7 @@ export function encodeMsgToWorker(message) {
  */
 function decodeMsgToWorkerMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentsSnapshot: undefined, deploymentUpdate: undefined, prepareLogRequest: undefined, runLogRequest: undefined, deploymentLogRequest: undefined };
+    const message = {deploymentsSnapshot: undefined, deploymentUpdate: undefined, prepareLogRequest: undefined, runLogRequest: undefined, deploymentLogRequest: undefined, stopLogRequestId: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3414,6 +3427,10 @@ function decodeMsgToWorkerMessage(reader, length) {
             }
             case 5: {
                 message.deploymentLogRequest = decodeDeploymentLogRequestMessage(reader, reader.uint32());
+                break;
+            }
+            case 6: {
+                message.stopLogRequestId = reader.string();
                 break;
             }
             default:
@@ -3451,6 +3468,9 @@ export function writeMsgToMaster(message, writer) {
     if (message.logEnd === true) {
         writer.uint32(tag(3, WIRE.VARINT)).bool(message.logEnd);
     }
+    if (message.logRequestId !== undefined && message.logRequestId !== null && message.logRequestId !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.logRequestId);
+    }
 }
 
 
@@ -3472,7 +3492,7 @@ export function encodeMsgToMaster(message) {
  */
 function decodeMsgToMasterMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {statusWrite: undefined, logData: new Uint8Array(0), logEnd: false };
+    const message = {statusWrite: undefined, logData: new Uint8Array(0), logEnd: false, logRequestId: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3486,6 +3506,10 @@ function decodeMsgToMasterMessage(reader, length) {
             }
             case 3: {
                 message.logEnd = reader.bool();
+                break;
+            }
+            case 4: {
+                message.logRequestId = reader.string();
                 break;
             }
             default:
