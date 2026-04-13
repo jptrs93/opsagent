@@ -87,7 +87,7 @@ Flow:
 3. Clones or fetches the repo into `{dataDir}/repos/{repo}/`.
 4. `git checkout <version>`.
 5. Runs `nix build --no-link --print-out-paths -L` in the flake directory (`filepath.Dir(cfg.Spec.Prepare.NixBuild.Flake)`).
-6. Resolves the executable path from the Nix store output (single executable in `bin/` or the artifact itself).
+6. Resolves the executable path from the Nix store output (`prepare.nixBuild.outputExecutable` from `bin/` when set, otherwise a single executable in `bin/` or the artifact itself).
 7. On success: `PreparerStatus.Status = READY`, `artifact` set to the resolved executable.
 8. On failure: `PreparerStatus.Status = FAILED`.
 

@@ -231,14 +231,16 @@ func DecodeWebAuthNFinishRequest(b []byte) (*WebAuthNFinishRequest, error) {
 }
 
 type NixBuildConfig struct {
-	Repo  string
-	Flake string
+	Repo             string
+	Flake            string
+	OutputExecutable string
 }
 
 func (m *NixBuildConfig) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Repo, 1)
 	b = AppendStringField(b, m.Flake, 2)
+	b = AppendStringField(b, m.OutputExecutable, 3)
 	return b
 }
 
@@ -257,6 +259,8 @@ func DecodeNixBuildConfig(b []byte) (*NixBuildConfig, error) {
 			b, m.Repo, err = ConsumeString(b, typ)
 		case 2:
 			b, m.Flake, err = ConsumeString(b, typ)
+		case 3:
+			b, m.OutputExecutable, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

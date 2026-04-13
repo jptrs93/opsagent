@@ -135,7 +135,7 @@ func (b *NixBuilder) runBuild(ctx context.Context, store storage.OperatorStore, 
 		return "", apigen.PreparationStatus_FAILED
 	}
 
-	execPath, err := resolveExecPath(artifactPath)
+	execPath, err := resolveExecPath(artifactPath, nix.OutputExecutable)
 	if err != nil {
 		writeLog("ERROR resolving executable: %v", err)
 		return "", apigen.PreparationStatus_FAILED
@@ -167,7 +167,7 @@ func (b *NixBuilder) resolveCloneURL(repoURL string) string {
 	return fmt.Sprintf("https://%s.git", repoURL)
 }
 
-func resolveExecPath(artifactPath string) (string, error) {
+func resolveExecPath(artifactPath string, outputExecutable string) (string, error) {
 	artifactInfo, err := os.Stat(artifactPath)
 	if err != nil {
 		return "", fmt.Errorf("stat artifact path: %w", err)
@@ -187,6 +187,28 @@ func resolveExecPath(artifactPath string) (string, error) {
 			return "", fmt.Errorf("artifact path has no bin directory: %s", artifactPath)
 		}
 		return "", fmt.Errorf("reading bin dir: %w", err)
+	}
+
+	if outputExecutable != "" {
+		if filepath.Base(outputExecutable) != outputExecutable {
+			return "", fmt.Errorf("configured outputExecutable must be a file name: %q", outputExecutable)
+		}
+
+		candidate := filepath.Join(binDir, outputExecutable)
+		info, statErr := os.Stat(candidate)
+		if statErr != nil {
+			if errors.Is(statErr, os.ErrNotExist) {
+				return "", fmt.Errorf("configured executable %q not found in artifact bin dir: %s", outputExecutable, binDir)
+			}
+			return "", fmt.Errorf("stat configured executable %q: %w", outputExecutable, statErr)
+		}
+		if info.IsDir() {
+			return "", fmt.Errorf("configured executable %q is a directory in artifact bin dir: %s", outputExecutable, binDir)
+		}
+		if !isExecutableFile(info.Mode()) {
+			return "", fmt.Errorf("configured executable %q is not executable in artifact bin dir: %s", outputExecutable, binDir)
+		}
+		return candidate, nil
 	}
 
 	executables := make([]string, 0, len(binEntries))

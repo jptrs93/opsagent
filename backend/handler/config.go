@@ -35,8 +35,9 @@ type yamlPrepare struct {
 }
 
 type yamlNixBuild struct {
-	Repo  string `yaml:"repo"`
-	Flake string `yaml:"flake"`
+	Repo             string `yaml:"repo"`
+	Flake            string `yaml:"flake"`
+	OutputExecutable string `yaml:"outputExecutable,omitempty"`
 }
 
 type yamlGithubRelease struct {
@@ -167,8 +168,9 @@ func toPrepareConfig(yp *yamlPrepare, where string) (*apigen.PrepareConfig, erro
 			return nil, invalidConfigErrf("%s.prepare.nixBuild: flake is required", where)
 		}
 		out.NixBuild = &apigen.NixBuildConfig{
-			Repo:  yp.NixBuild.Repo,
-			Flake: yp.NixBuild.Flake,
+			Repo:             yp.NixBuild.Repo,
+			Flake:            yp.NixBuild.Flake,
+			OutputExecutable: yp.NixBuild.OutputExecutable,
 		}
 	}
 	if hasGH {

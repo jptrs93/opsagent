@@ -32,6 +32,7 @@ environments:
           nixBuild:
             repo: github.com/org/repo
             flake: nix/server/flake.nix
+            outputExecutable: coflip_server
         runner:
           osProcess:
             workingDir: /var/lib/coflip
@@ -51,7 +52,7 @@ environments:
 
 | Variant | Fields | Description |
 |---|---|---|
-| `nixBuild` | `repo`, `flake` | Clones the repo, checks out the desired version, runs `nix build`, resolves a single executable from the result. |
+| `nixBuild` | `repo`, `flake`, `outputExecutable` | Clones the repo, checks out the desired version, runs `nix build`, and resolves the executable from the result. If `outputExecutable` is set, it selects that binary from `bin/`; otherwise it requires exactly one executable output. |
 | `githubRelease` | `repo`, `asset`, `tag` | Fetches the given release from GitHub (using `OPSAGENT_GITHUB_TOKEN` for private repos) and downloads the named asset (or the first asset if unset) to `{dataDir}/releases/{owner}/{repo}/{tag}/{asset}`. |
 
 ### Runner variants

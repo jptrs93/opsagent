@@ -120,6 +120,7 @@ message WebAuthNFinishRequest {
 message NixBuildConfig {
   string repo = 1;
   string flake = 2; // path to flake.nix relative to repo root
+  string output_executable = 3; // optional exact executable name in the build output's bin/
 }
 
 message GithubReleaseConfig {

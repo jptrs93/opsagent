@@ -29,6 +29,7 @@
  * @typedef {Object} NixBuildConfig
  * @property {string} repo
  * @property {string} flake
+ * @property {string} outputExecutable
  */
 /**
  * @typedef {Object} GithubReleaseConfig
@@ -616,6 +617,9 @@ export function writeNixBuildConfig(message, writer) {
     if (message.flake !== undefined && message.flake !== null && message.flake !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.flake);
     }
+    if (message.outputExecutable !== undefined && message.outputExecutable !== null && message.outputExecutable !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.outputExecutable);
+    }
 }
 
 
@@ -637,7 +641,7 @@ export function encodeNixBuildConfig(message) {
  */
 function decodeNixBuildConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {repo: "", flake: "" };
+    const message = {repo: "", flake: "", outputExecutable: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -647,6 +651,10 @@ function decodeNixBuildConfigMessage(reader, length) {
             }
             case 2: {
                 message.flake = reader.string();
+                break;
+            }
+            case 3: {
+                message.outputExecutable = reader.string();
                 break;
             }
             default:
