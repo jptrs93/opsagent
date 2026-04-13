@@ -266,7 +266,10 @@ func streamDeploymentLog(ctx context.Context, conn *cluster.Conn, store *sqlite.
 				r.Version = st.Runner.DeploymentConfigVersion
 			}
 		}
-		streamFile(ctx, conn, r.OutputPath())
+		streamFile(ctx, conn, store, r.OutputPath(), func() bool {
+			st := store.FetchDeploymentStatus(r.DeploymentID)
+			return st != nil && st.Runner != nil && isRunnerActive(st.Runner.Status)
+		})
 		return
 	}
 	if req.PreparerOutput != nil {
@@ -277,7 +280,10 @@ func streamDeploymentLog(ctx context.Context, conn *cluster.Conn, store *sqlite.
 				p.Version = st.Preparer.DeploymentConfigVersion
 			}
 		}
-		streamFile(ctx, conn, p.OutputPath())
+		streamFile(ctx, conn, store, p.OutputPath(), func() bool {
+			st := store.FetchDeploymentStatus(p.DeploymentID)
+			return st != nil && st.Preparer != nil && isPrepareInProgress(st.Preparer.Status)
+		})
 		return
 	}
 	end := &apigen.MsgToMaster{LogEnd: true}
@@ -287,52 +293,125 @@ func streamDeploymentLog(ctx context.Context, conn *cluster.Conn, store *sqlite.
 // streamPrepareLog reads a prepare output file and sends it back to the primary
 // as a series of LogData frames followed by a LogEnd frame.
 func streamPrepareLog(ctx context.Context, conn *cluster.Conn, req *apigen.PrepareOutputRequest) {
-	streamFile(ctx, conn, req.OutputPath())
+	streamFile(ctx, conn, nil, req.OutputPath(), nil)
 }
 
 // streamRunLog reads a run output file and sends it back to the primary.
 func streamRunLog(ctx context.Context, conn *cluster.Conn, req *apigen.RunOutputRequest) {
-	streamFile(ctx, conn, req.OutputPath())
+	streamFile(ctx, conn, nil, req.OutputPath(), nil)
 }
 
 // streamFile reads a file and sends its contents as LogData frames, followed
-// by a LogEnd frame. Always sends LogEnd, even on write failure.
-func streamFile(ctx context.Context, conn *cluster.Conn, path string) {
+// by a LogEnd frame. When keepTailing is non-nil, it polls for new content
+// while the process is still active instead of ending at the first EOF.
+// Always sends LogEnd, even on write failure.
+func streamFile(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorageAdapter, path string, keepTailing func() bool) {
 	defer func() {
 		end := &apigen.MsgToMaster{LogEnd: true}
 		_ = conn.WriteFrame(end.Encode())
 	}()
 
-	f, err := os.Open(path)
+	f, err := waitForLogFile(ctx, path)
 	if err != nil {
-		slog.Error("failed opening log file for streaming", "path", path, "err", err)
+		slog.Error("log file not found for streaming", "path", path, "err", err)
 		return
 	}
 	defer f.Close()
 
 	buf := make([]byte, 32*1024)
+
+	// drain reads all currently available data and sends it as LogData frames.
+	drain := func() error {
+		for {
+			n, readErr := f.Read(buf)
+			if n > 0 {
+				chunk := make([]byte, n)
+				copy(chunk, buf[:n])
+				msg := &apigen.MsgToMaster{LogData: chunk}
+				if werr := conn.WriteFrame(msg.Encode()); werr != nil {
+					return werr
+				}
+			}
+			if readErr == io.EOF {
+				return nil
+			}
+			if readErr != nil {
+				return readErr
+			}
+		}
+	}
+
+	// Initial drain of existing content.
+	if err := drain(); err != nil {
+		slog.Error("failed streaming log file", "path", path, "err", err)
+		return
+	}
+
+	// If no tailing callback, just send what we have and finish.
+	if keepTailing == nil {
+		return
+	}
+
+	// Poll for new content while the process is active.
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-		}
-		n, readErr := f.Read(buf)
-		if n > 0 {
-			chunk := make([]byte, n)
-			copy(chunk, buf[:n])
-			msg := &apigen.MsgToMaster{LogData: chunk}
-			if werr := conn.WriteFrame(msg.Encode()); werr != nil {
-				slog.Error("failed writing log data to primary", "err", werr)
+		case <-ticker.C:
+			if err := drain(); err != nil {
+				slog.Error("failed streaming log file", "path", path, "err", err)
+				return
+			}
+			if !keepTailing() {
+				// Process finished — do a final drain to capture any
+				// remaining output written before the status changed.
+				_ = drain()
 				return
 			}
 		}
-		if readErr == io.EOF {
-			return
-		}
-		if readErr != nil {
-			slog.Error("failed reading log file", "path", path, "err", readErr)
-			return
+	}
+}
+
+// waitForLogFile polls for a log file to appear on disk, matching the
+// primary handler's waitForFile behavior.
+func waitForLogFile(ctx context.Context, path string) (*os.File, error) {
+	f, err := os.Open(path)
+	if err == nil {
+		return f, nil
+	}
+	if !os.IsNotExist(err) {
+		return nil, err
+	}
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-deadline:
+			return nil, os.ErrNotExist
+		case <-ticker.C:
+			f, err = os.Open(path)
+			if err == nil {
+				return f, nil
+			}
+			if !os.IsNotExist(err) {
+				return nil, err
+			}
 		}
 	}
+}
+
+func isPrepareInProgress(status apigen.PreparationStatus) bool {
+	return status == apigen.PreparationStatus_PREPARING ||
+		status == apigen.PreparationStatus_DOWNLOADING
+}
+
+func isRunnerActive(status apigen.RunningStatus) bool {
+	return status == apigen.RunningStatus_RUNNING ||
+		status == apigen.RunningStatus_STARTING
 }
