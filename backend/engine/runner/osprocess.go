@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"os/user"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -20,24 +19,18 @@ type osProcessRunner struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 
-	store storage.OperatorStore
-	id    *apigen.DeploymentIdentifier
-	seqNo int32
+	store        storage.OperatorStore
+	deploymentID int32
 
-	workDir    string
-	runAs      string
-	outputPath string
-	binPath    string
-	adoptPid   int // 0 unless this runner was created to adopt an existing PID
+	// these fields are not part of the runnerStatus they are derived from the version of the deploymentConfig
+	workDir       string // working directory where binary is executed from
+	runAs         string // the unix user the process is run as
+	outputPath    string // where stdout/stderr of process is streamed to
+	leavePrevious bool   // skip terminating old process on upgrade (app handles its own rollover)
+
+	status apigen.RunnerStatus
 
 	stopping atomic.Bool
-
-	pidMu sync.Mutex
-	pid   int
-
-	restartsMu  sync.Mutex
-	restarts    int32
-	lastRestart time.Time
 }
 
 const (
@@ -46,79 +39,85 @@ const (
 	osProcessStableRunWindow = 15 * time.Second
 )
 
-// newOSProcessRunner constructs and starts an OS-process runner for dep.
-// When prev is non-nil the runner adopts the previously-running PID; the
-// restart counters are carried over untouched and the initial STARTING
-// write is skipped because the process has not actually restarted.
-func newOSProcessRunner(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, artifact string, prev *apigen.RunnerStatus) *osProcessRunner {
+// reAttachOSProcessRunner attaches to existing process runner
+func reAttachOSProcessRunner(parentCtx context.Context, store storage.OperatorStore, deploymentConfig apigen.DeploymentConfig, runnerStatus apigen.RunnerStatus) *osProcessRunner {
 	ctx, cancel := context.WithCancel(parentCtx)
-
-	runAs := resolveRunAs(osProcessRunAs(dep))
-	workDir, err := resolveWorkingDir(osProcessWorkingDir(dep), runAs)
-	if err != nil {
-		slog.ErrorContext(ctx, "resolving working dir", "err", err)
-		workDir = ""
-	}
-
-	seqNo := dep.SeqNo
-	if prev != nil {
-		seqNo = prev.DeploymentSeqNo
-	}
-
+	// todo: potential gap if the deploymentConfig has changed then these resolutions could be different from the version actually still running
+	runAs := resolveRunAs(osProcessRunAs(&deploymentConfig))
+	workDir := resolveWorkingDir(ctx, osProcessWorkingDir(&deploymentConfig), runAs)
 	r := &osProcessRunner{
-		ctx:        ctx,
-		cancel:     cancel,
-		done:       make(chan struct{}),
-		store:      store,
-		id:         dep.ID,
-		seqNo:      seqNo,
-		workDir:    workDir,
-		runAs:      runAs,
-		outputPath: dep.RunOutputPath(),
-		binPath:    artifact,
+		ctx:           ctx,
+		cancel:        cancel,
+		done:          make(chan struct{}),
+		store:         store,
+		deploymentID:  deploymentConfig.ID,
+		workDir:       workDir,
+		runAs:         runAs,
+		outputPath:    apigen.RunOutputFile(deploymentConfig.ID, runnerStatus.DeploymentConfigVersion),
+		leavePrevious: osProcessStrategy(&deploymentConfig) == "leavePrevious",
+		status:        runnerStatus,
 	}
-
-	if prev != nil {
-		r.adoptPid = int(prev.RunningPid)
-		r.pid = r.adoptPid
-		r.restarts = prev.NumberOfRestarts
-		r.lastRestart = prev.LastRestartAt
-		// Don't rewrite RunnerStatus here; the monitor loop will pick up
-		// the current state and write transitions as they happen.
-	} else {
-		r.writeInitialStarting()
-	}
-
 	go r.run()
 	return r
 }
 
-func (r *osProcessRunner) SeqNo() int32 { return r.seqNo }
+// newOSProcessRunner upgrades the runner to the prepared config version and starts process runner
+func newOSProcessRunner(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *osProcessRunner {
+	ctx, cancel := context.WithCancel(parentCtx)
+
+	runAs := resolveRunAs(osProcessRunAs(dep))
+	workDir := resolveWorkingDir(ctx, osProcessWorkingDir(dep), runAs)
+
+	configVersion := dep.Version
+
+	r := &osProcessRunner{
+		ctx:           ctx,
+		cancel:        cancel,
+		done:          make(chan struct{}),
+		store:         store,
+		deploymentID:  dep.ID,
+		workDir:       workDir,
+		runAs:         runAs,
+		outputPath:    apigen.RunOutputFile(dep.ID, configVersion),
+		leavePrevious: osProcessStrategy(dep) == "leavePrevious",
+		status: apigen.RunnerStatus{
+			DeploymentConfigVersion: configVersion,
+			RunningPid:              0,
+			RunningArtifact:         preparerStatus.Artifact,
+			Status:                  apigen.RunningStatus_STARTING,
+			NumberOfRestarts:        0,
+			LastRestartAt:           time.Now(),
+		},
+	}
+	r.writeStatus()
+	go r.run()
+	return r
+}
+
+func (r *osProcessRunner) Version() int32 { return r.status.DeploymentConfigVersion }
 
 func (r *osProcessRunner) Stop() {
 	if !r.stopping.CompareAndSwap(false, true) {
 		<-r.done
 		return
 	}
-	// Wake the backoff sleep.
 	r.cancel()
 
-	pid := r.currentPID()
-	if pid > 0 {
+	pid := int(atomic.LoadInt32(&r.status.RunningPid))
+	if pid > 0 && !r.leavePrevious {
 		if err := signalDaemonTerminate(pid); err != nil && !isProcessGone(err) {
-			slog.WarnContext(r.ctx, "sending terminate signal failed", "pid", pid, "err", err)
+			slog.Warn("sending terminate signal failed", "pid", pid, "err", err)
 		}
-		// Grace period: 3s for SIGTERM, then SIGKILL.
 		select {
 		case <-r.done:
 			return
 		case <-time.After(3 * time.Second):
 		}
 		if err := signalDaemonKill(pid); err != nil && !isProcessGone(err) {
-			slog.WarnContext(r.ctx, "force killing process failed", "pid", pid, "err", err)
+			slog.Warn("force killing process failed", "pid", pid, "err", err)
 		}
+		<-r.done
 	}
-	<-r.done
 }
 
 func (r *osProcessRunner) run() {
@@ -126,53 +125,42 @@ func (r *osProcessRunner) run() {
 
 	crashCount := 0
 
-	// If we were constructed to adopt an existing PID, the first iteration
-	// polls that process rather than spawning a new one. On exit we drop
-	// through to the normal spawn loop.
-	if r.adoptPid > 0 {
-		slog.InfoContext(r.ctx, "adopting existing process", "pid", r.adoptPid, "log", r.outputPath)
-		r.monitorAdoptedProcess(r.adoptPid)
-		if r.stopping.Load() {
-			r.writeStatus(apigen.RunningStatus_STOPPED, 0)
-			return
-		}
-		r.bumpRestarts()
-		r.writeStatus(apigen.RunningStatus_CRASHED, r.adoptPid)
-		crashCount = 1
-		if !r.sleepBackoff(crashCount) {
-			r.writeStatus(apigen.RunningStatus_STOPPED, 0)
-			return
-		}
+	// If we were constructed to adopt an existing PID (via reAttachOSProcessRunner),
+	// the first iteration polls that process rather than spawning a new one.
+	// On exit we drop through to the normal spawn loop.
+	adoptPid := int(r.status.RunningPid)
+	if adoptPid > 0 {
+		slog.InfoContext(r.ctx, "adopting existing process", "pid", adoptPid, "log", r.outputPath)
+		r.monitorAdoptedProcess(adoptPid)
 	}
 
 	for {
 		if r.stopping.Load() {
-			r.writeStatus(apigen.RunningStatus_STOPPED, 0)
+			r.updateStatus(apigen.RunningStatus_STOPPED, 0)
 			return
 		}
 
-		pid, err := spawnDaemon(r.binPath, r.workDir, r.outputPath, r.runAs)
+		pid, err := spawnDaemon(r.status.RunningArtifact, r.workDir, r.outputPath, r.runAs)
 		if err != nil {
-			slog.ErrorContext(r.ctx, "spawning daemon failed", "err", err, "bin", r.binPath, "workDir", r.workDir, "runAs", r.runAs)
-			r.setCurrentPID(0)
-			r.writeStatus(apigen.RunningStatus_CRASHED, 0)
+			slog.ErrorContext(r.ctx, "spawning daemon failed", "err", err, "bin", r.status.RunningArtifact, "workDir", r.workDir, "runAs", r.runAs)
+			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 			crashCount++
 			if !r.sleepBackoff(crashCount) {
-				r.writeStatus(apigen.RunningStatus_STOPPED, 0)
+				r.updateStatus(apigen.RunningStatus_STOPPED, 0)
 				return
 			}
 			continue
 		}
 
-		r.setCurrentPID(pid)
-		slog.InfoContext(r.ctx, "daemon started", "pid", pid, "log", r.outputPath, "bin", r.binPath, "workDir", r.workDir)
-		r.writeStatus(apigen.RunningStatus_RUNNING, pid)
+		atomic.StoreInt32(&r.status.RunningPid, int32(pid))
+		slog.InfoContext(r.ctx, "daemon started", "pid", pid, "log", r.outputPath, "bin", r.status.RunningArtifact, "workDir", r.workDir)
+		r.updateStatus(apigen.RunningStatus_RUNNING, int32(pid))
 		startedAt := time.Now()
 
-		awaitProcessExit(pid)
+		r.awaitProcessOrCancel(pid)
 
 		if r.stopping.Load() {
-			r.writeStatus(apigen.RunningStatus_STOPPED, 0)
+			r.updateStatus(apigen.RunningStatus_STOPPED, 0)
 			return
 		}
 
@@ -183,13 +171,15 @@ func (r *osProcessRunner) run() {
 			crashCount = 0
 		}
 		crashCount++
-		r.bumpRestarts()
-		r.writeStatus(apigen.RunningStatus_CRASHED, pid)
+		r.updateStatus(apigen.RunningStatus_CRASHED, int32(pid))
 
 		if !r.sleepBackoff(crashCount) {
-			r.writeStatus(apigen.RunningStatus_STOPPED, 0)
+			r.updateStatus(apigen.RunningStatus_STOPPED, 0)
 			return
 		}
+
+		r.status.NumberOfRestarts++
+		r.status.LastRestartAt = time.Now()
 	}
 }
 
@@ -218,8 +208,23 @@ func (r *osProcessRunner) monitorAdoptedProcess(pid int) {
 	}
 }
 
+// awaitProcessOrCancel waits for the process to exit. If the context is
+// cancelled (Stop was called), it returns immediately — Stop handles
+// signalling the process when needed.
+func (r *osProcessRunner) awaitProcessOrCancel(pid int) {
+	exited := make(chan struct{})
+	go func() {
+		awaitProcessExit(pid)
+		close(exited)
+	}()
+	select {
+	case <-exited:
+	case <-r.ctx.Done():
+	}
+}
+
 func (r *osProcessRunner) sleepBackoff(crashCount int) bool {
-	delay := computeOSProcessBackoff(crashCount)
+	delay := computeOSProcessBackoff(int(crashCount))
 	slog.InfoContext(r.ctx, "backoff sleep before respawn", "delay", delay, "crashes", crashCount)
 	select {
 	case <-r.ctx.Done():
@@ -245,101 +250,45 @@ func computeOSProcessBackoff(crashCount int) time.Duration {
 
 // --- state writes ---
 
-// writeInitialStarting seeds the first RunnerStatus for a fresh run. If the
-// existing status is already on this dep.SeqNo (stop+start of the same
-// version), NumberOfRestarts is bumped; otherwise counters start at zero.
-func (r *osProcessRunner) writeInitialStarting() {
-	r.store.MustWriteDeploymentStatus(context.Background(), *r.id, func(s *apigen.DeploymentStatus) {
-		if s.Runner != nil && s.Runner.DeploymentSeqNo > r.seqNo {
-			return
-		}
-		var restarts int32
-		var lastRestart time.Time
-		if s.Runner != nil && s.Runner.DeploymentSeqNo == r.seqNo {
-			restarts = s.Runner.NumberOfRestarts + 1
-			lastRestart = time.Now()
-		}
-		r.restartsMu.Lock()
-		r.restarts = restarts
-		r.lastRestart = lastRestart
-		r.restartsMu.Unlock()
-
-		s.StatusSeqNo++
-		s.Timestamp = time.Now()
-		s.DeploymentID = r.id
-		s.Runner = &apigen.RunnerStatus{
-			DeploymentSeqNo:  r.seqNo,
-			Status:           apigen.RunningStatus_STARTING,
-			RunningArtifact:  r.binPath,
-			NumberOfRestarts: restarts,
-			LastRestartAt:    lastRestart,
-		}
-	})
+func (r *osProcessRunner) updateStatus(status apigen.RunningStatus, pid int32) {
+	r.status.Status = status
+	r.status.RunningPid = pid
+	r.writeStatus()
 }
 
-func (r *osProcessRunner) writeStatus(status apigen.RunningStatus, pid int) {
-	restarts, lastRestart := r.loadRestartState()
-	r.store.MustWriteDeploymentStatus(context.Background(), *r.id, func(s *apigen.DeploymentStatus) {
-		if s.Runner != nil && s.Runner.DeploymentSeqNo > r.seqNo {
+func (r *osProcessRunner) writeStatus() {
+	r.store.MustWriteDeploymentStatus(context.Background(), r.deploymentID, func(s *apigen.DeploymentStatus) {
+		if s.Runner != nil && s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion {
+			slog.InfoContext(r.ctx, "discarding status update from superseded runner")
 			return
 		}
 		s.StatusSeqNo++
 		s.Timestamp = time.Now()
-		s.DeploymentID = r.id
-		s.Runner = &apigen.RunnerStatus{
-			DeploymentSeqNo:  r.seqNo,
-			Status:           status,
-			RunningPid:       int32(pid),
-			RunningArtifact:  r.binPath,
-			NumberOfRestarts: restarts,
-			LastRestartAt:    lastRestart,
-		}
+		s.DeploymentID = r.deploymentID
+		s.Runner = &r.status
 	})
-}
-
-func (r *osProcessRunner) bumpRestarts() {
-	r.restartsMu.Lock()
-	r.restarts++
-	r.lastRestart = time.Now()
-	r.restartsMu.Unlock()
-}
-
-func (r *osProcessRunner) loadRestartState() (int32, time.Time) {
-	r.restartsMu.Lock()
-	defer r.restartsMu.Unlock()
-	return r.restarts, r.lastRestart
-}
-
-func (r *osProcessRunner) setCurrentPID(pid int) {
-	r.pidMu.Lock()
-	r.pid = pid
-	r.pidMu.Unlock()
-}
-
-func (r *osProcessRunner) currentPID() int {
-	r.pidMu.Lock()
-	defer r.pidMu.Unlock()
-	return r.pid
 }
 
 // --- helpers ---
 
-func resolveWorkingDir(dir, runAs string) (string, error) {
+func resolveWorkingDir(ctx context.Context, dir, runAs string) string {
 	if dir != "" {
-		return dir, nil
+		return ""
 	}
 	if runAs != "" {
 		u, err := user.Lookup(runAs)
 		if err != nil {
-			return "", fmt.Errorf("looking up user %q: %v", runAs, err)
+			slog.ErrorContext(ctx, fmt.Sprintf("resolving working dir: looking up user %v: %v", u, err))
+			return ""
 		}
-		return u.HomeDir, nil
+		return u.HomeDir
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("resolving home dir failed: %v", err)
+		slog.ErrorContext(ctx, "resolving home dir:", "err", err)
+		return ""
 	}
-	return home, nil
+	return home
 }
 
 // resolveRunAs returns the OS user to run the deployment process as. In
@@ -367,4 +316,11 @@ func osProcessRunAs(dep *apigen.DeploymentConfig) string {
 		return ""
 	}
 	return dep.Spec.Runner.OsProcess.RunAs
+}
+
+func osProcessStrategy(dep *apigen.DeploymentConfig) string {
+	if dep == nil || dep.Spec == nil || dep.Spec.Runner == nil || dep.Spec.Runner.OsProcess == nil {
+		return ""
+	}
+	return dep.Spec.Runner.OsProcess.Strategy
 }

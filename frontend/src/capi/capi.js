@@ -11,6 +11,7 @@ import {
   decodeUserConfigHistory,
   decodeUserConfigVersion,
   decodeWebAuthNOptionsResponse,
+  encodeDeploymentHistoryRequest,
   encodeDeploymentUpdateRequest,
   encodeEmptyRequest,
   encodeListScopesRequest,
@@ -229,10 +230,11 @@ export class Capi {
   }
 
   /**
+   * @param {DeploymentHistoryRequest} payload
    * @returns {Promise<DeploymentHistory>}
    */
-  async getV1DeploymentHistory() {
-    const response = await this.#request('/v1/deployment/history', { method: 'GET' });
+  async postV1DeploymentHistory(payload) {
+    const response = await this.#request('/v1/deployment/history', { method: 'POST', body: encodeDeploymentHistoryRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }

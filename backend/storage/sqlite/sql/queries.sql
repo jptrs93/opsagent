@@ -1,14 +1,5 @@
 -- === deployment_identifiers ===
-
--- name: GetDeploymentIdentifier :one
-SELECT id, environment, machine, name, created_at
-FROM deployment_identifiers
-WHERE environment = ? AND machine = ? AND name = ?;
-
--- name: GetDeploymentIdentifierByID :one
-SELECT id, environment, machine, name, created_at
-FROM deployment_identifiers
-WHERE id = ?;
+-- Only used at config-save time to map (env, machine, name) → integer id.
 
 -- name: UpsertDeploymentID :one
 INSERT INTO deployment_identifiers (environment, machine, name, created_at)
@@ -20,16 +11,19 @@ RETURNING id;
 -- === deployment_configs ===
 
 -- name: GetDeploymentConfig :one
-SELECT deployment_id, seq_no, updated_at, updated_by, spec_blob,
-       desired_version, desired_running, deleted
+SELECT deployment_id, environment, machine, name, version, updated_at, updated_by,
+       spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE deployment_id = ?;
 
 -- name: UpsertDeploymentConfig :exec
-INSERT INTO deployment_configs (deployment_id, seq_no, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_configs (deployment_id, environment, machine, name, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(deployment_id) DO UPDATE SET
-    seq_no = excluded.seq_no,
+    environment = excluded.environment,
+    machine = excluded.machine,
+    name = excluded.name,
+    version = excluded.version,
     updated_at = excluded.updated_at,
     updated_by = excluded.updated_by,
     spec_blob = excluded.spec_blob,
@@ -39,78 +33,81 @@ ON CONFLICT(deployment_id) DO UPDATE SET
 
 -- name: UpdateDesiredState :exec
 UPDATE deployment_configs
-SET desired_version = ?, desired_running = ?, seq_no = seq_no + 1, updated_at = ?, updated_by = ?
+SET desired_version = ?, desired_running = ?, version = version + 1, updated_at = ?, updated_by = ?
 WHERE deployment_id = ?;
 
 -- name: ListDeploymentConfigsByMachine :many
-SELECT dc.deployment_id, dc.seq_no, dc.updated_at, dc.updated_by, dc.spec_blob,
-       dc.desired_version, dc.desired_running, dc.deleted,
-       di.environment, di.machine, di.name
-FROM deployment_configs dc
-JOIN deployment_identifiers di ON di.id = dc.deployment_id
-WHERE di.machine = ? AND dc.deleted = 0;
+SELECT deployment_id, environment, machine, name, version, updated_at, updated_by,
+       spec_blob, desired_version, desired_running, deleted
+FROM deployment_configs
+WHERE machine = ? AND deleted = 0;
 
 -- name: ListAllDeploymentConfigs :many
-SELECT dc.deployment_id, dc.seq_no, dc.updated_at, dc.updated_by, dc.spec_blob,
-       dc.desired_version, dc.desired_running, dc.deleted,
-       di.environment, di.machine, di.name
-FROM deployment_configs dc
-JOIN deployment_identifiers di ON di.id = dc.deployment_id
-WHERE dc.deleted = 0;
+SELECT deployment_id, environment, machine, name, version, updated_at, updated_by,
+       spec_blob, desired_version, desired_running, deleted
+FROM deployment_configs
+WHERE deleted = 0;
 
 -- === deployment_config_history ===
 
 -- name: InsertDeploymentConfigHistory :exec
-INSERT INTO deployment_config_history (deployment_id, seq_no, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+INSERT INTO deployment_config_history (deployment_id, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListDeploymentConfigHistory :many
-SELECT deployment_id, seq_no, updated_at, updated_by, spec_blob,
+SELECT deployment_id, version, updated_at, updated_by, spec_blob,
        desired_version, desired_running, deleted
 FROM deployment_config_history
 WHERE deployment_id = ?
-ORDER BY seq_no ASC;
+ORDER BY version ASC;
+
+-- === deployment_status ===
+
+-- name: UpsertDeploymentStatus :exec
+INSERT INTO deployment_status (
+    deployment_id, status_seq_no, timestamp,
+    preparer_config_version, preparer_artifact, preparer_status,
+    runner_config_version, runner_pid, runner_artifact, runner_status,
+    runner_num_restarts, runner_last_restart_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(deployment_id) DO UPDATE SET
+    status_seq_no = excluded.status_seq_no,
+    timestamp = excluded.timestamp,
+    preparer_config_version = excluded.preparer_config_version,
+    preparer_artifact = excluded.preparer_artifact,
+    preparer_status = excluded.preparer_status,
+    runner_config_version = excluded.runner_config_version,
+    runner_pid = excluded.runner_pid,
+    runner_artifact = excluded.runner_artifact,
+    runner_status = excluded.runner_status,
+    runner_num_restarts = excluded.runner_num_restarts,
+    runner_last_restart_at = excluded.runner_last_restart_at;
+
+-- name: ListAllDeploymentStatuses :many
+SELECT deployment_id, status_seq_no, timestamp,
+       preparer_config_version, preparer_artifact, preparer_status,
+       runner_config_version, runner_pid, runner_artifact, runner_status,
+       runner_num_restarts, runner_last_restart_at
+FROM deployment_status;
 
 -- === deployment_status_history ===
 
--- name: GetLatestDeploymentStatus :one
-SELECT deployment_id, status_seq_no, timestamp,
-       preparer_seq_no, preparer_artifact, preparer_status,
-       runner_seq_no, runner_pid, runner_artifact, runner_status,
-       runner_num_restarts, runner_last_restart_at
-FROM deployment_status_history
-WHERE deployment_id = ?
-ORDER BY status_seq_no DESC
-LIMIT 1;
-
--- name: InsertDeploymentStatus :exec
+-- name: InsertDeploymentStatusHistory :exec
 INSERT INTO deployment_status_history (
     deployment_id, status_seq_no, timestamp,
-    preparer_seq_no, preparer_artifact, preparer_status,
-    runner_seq_no, runner_pid, runner_artifact, runner_status,
+    preparer_config_version, preparer_artifact, preparer_status,
+    runner_config_version, runner_pid, runner_artifact, runner_status,
     runner_num_restarts, runner_last_restart_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListDeploymentStatusHistory :many
 SELECT deployment_id, status_seq_no, timestamp,
-       preparer_seq_no, preparer_artifact, preparer_status,
-       runner_seq_no, runner_pid, runner_artifact, runner_status,
+       preparer_config_version, preparer_artifact, preparer_status,
+       runner_config_version, runner_pid, runner_artifact, runner_status,
        runner_num_restarts, runner_last_restart_at
 FROM deployment_status_history
 WHERE deployment_id = ?
 ORDER BY status_seq_no ASC;
-
--- name: ListLatestDeploymentStatuses :many
-SELECT dsh.deployment_id, dsh.status_seq_no, dsh.timestamp,
-       dsh.preparer_seq_no, dsh.preparer_artifact, dsh.preparer_status,
-       dsh.runner_seq_no, dsh.runner_pid, dsh.runner_artifact, dsh.runner_status,
-       dsh.runner_num_restarts, dsh.runner_last_restart_at
-FROM deployment_status_history dsh
-INNER JOIN (
-    SELECT deployment_id, MAX(status_seq_no) AS max_seq
-    FROM deployment_status_history
-    GROUP BY deployment_id
-) latest ON dsh.deployment_id = latest.deployment_id AND dsh.status_seq_no = latest.max_seq;
 
 -- === user_config_versions ===
 

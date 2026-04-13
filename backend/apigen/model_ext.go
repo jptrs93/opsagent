@@ -7,47 +7,36 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 )
 
-// prepareOutputFile is the canonical on-disk name for a preparation's log
-// file. Keyed by environment, deployment name, and the deployment SeqNo the
-// preparation was run for. Machine is not part of the name because each
-// slave has its own data dir.
-func prepareOutputFile(id *DeploymentIdentifier, seqNo int32) string {
-	return filepath.Join(ainit.Config.PrepareOutputDir, fmt.Sprintf("%v_%v_%v", id.Environment, id.Name, seqNo))
+func prepareOutputFile(deploymentID int32, version int32) string {
+	return filepath.Join(ainit.Config.PrepareOutputDir, fmt.Sprintf("%d_%d", deploymentID, version))
 }
 
-// runOutputFile is the canonical on-disk name for a runner's stdout/stderr
-// log file. Same keying scheme as prepareOutputFile.
-func runOutputFile(id *DeploymentIdentifier, seqNo int32) string {
-	return filepath.Join(ainit.Config.RunOutputDir, fmt.Sprintf("%v_%v_%v", id.Environment, id.Name, seqNo))
+func RunOutputFile(deploymentID int32, version int32) string {
+	return filepath.Join(ainit.Config.RunOutputDir, fmt.Sprintf("%d_%d", deploymentID, version))
 }
 
 func (d *DeploymentConfig) PrepareOutputPath() string {
-	return prepareOutputFile(d.ID, d.SeqNo)
+	return prepareOutputFile(d.ID, d.Version)
 }
 
 func (d *DeploymentConfig) RunOutputPath() string {
-	return runOutputFile(d.ID, d.SeqNo)
+	return RunOutputFile(d.ID, d.Version)
 }
 
 func (d DeploymentStatus) PrepareOutputPath() string {
-	return prepareOutputFile(d.DeploymentID, d.Preparer.DeploymentSeqNo)
+	return prepareOutputFile(d.DeploymentID, d.Preparer.DeploymentConfigVersion)
 }
 
 func (d DeploymentStatus) RunOutputPath() string {
-	return runOutputFile(d.DeploymentID, d.Runner.DeploymentSeqNo)
+	return RunOutputFile(d.DeploymentID, d.Runner.DeploymentConfigVersion)
 }
 
-// OutputPath returns the local prepare log file path for a log request.
-// PrepareOutputRequest carries a DeploymentIdentifier + SeqNo so the slave
-// can translate a request directly into a file path without touching its
-// store.
 func (r *PrepareOutputRequest) OutputPath() string {
-	return prepareOutputFile(r.ID, r.SeqNo)
+	return prepareOutputFile(r.DeploymentID, r.Version)
 }
 
-// OutputPath returns the local run log file path for a log request.
 func (r *RunOutputRequest) OutputPath() string {
-	return runOutputFile(r.ID, r.SeqNo)
+	return RunOutputFile(r.DeploymentID, r.Version)
 }
 
 // --- String methods for status enums ---

@@ -65,8 +65,7 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc GetV1DeploymentHistory(cp.Empty) returns (DeploymentHistory) {
-    option (cp.go_custom) = true;
+  rpc PostV1DeploymentHistory(DeploymentHistoryRequest) returns (DeploymentHistory) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -139,6 +138,7 @@ message PrepareConfig {
 message OsProcessRunnerConfig {
   string working_dir = 1;
   string run_as = 2; // OS user to run the deployment process as (default: "ubuntu", ignored in local dev)
+  string strategy = 3; // "leavePrevious": skip terminating the old process on upgrade (app handles its own rollover)
 }
 
 message SystemdRunnerConfig {
@@ -217,20 +217,24 @@ message DeploymentHistory {
 // === Deployment update / version request messages ===
 
 message DeploymentUpdateRequest {
-  DeploymentIdentifier id = 1;
+  int32 deployment_id = 5;
   string target_version = 2;
   bool stop = 3;
-  int32 seq_no = 4;
+  int32 version = 4;
+}
+
+message DeploymentHistoryRequest {
+  int32 deployment_id = 1;
 }
 
 message PrepareOutputRequest {
-  DeploymentIdentifier id = 1;
-  int32 seq_no = 2;
+  int32 deployment_id = 3;
+  int32 version = 2;  // config version whose log to stream (0 = latest)
 }
 
 message RunOutputRequest {
-  DeploymentIdentifier id = 1;
-  int32 seq_no = 2;
+  int32 deployment_id = 3;
+  int32 version = 2;  // config version whose log to stream (0 = latest)
 }
 
 message DeploymentLogRequest {
@@ -256,8 +260,9 @@ message DesiredState {
 }
 
 message DeploymentConfig {
-  DeploymentIdentifier id = 1;
-  int32 seq_no = 2;  // per-deployment monotonically increasing cursor
+  int32 id = 8;                          // primary key (integer deployment id)
+  DeploymentIdentifier config_id = 1;    // human-readable identity (display metadata)
+  int32 version = 2;                      // per-deployment monotonically increasing config version
   int64 updated_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int32 updated_by = 4;
   DeploymentSpec spec = 5;
@@ -272,21 +277,21 @@ message DeploymentWithStatus {
 }
 
 message DeploymentStatus {
-  int32 status_seq_no = 1; // per-deployment status monotonically increasing cursor
+  int32 status_seq_no = 1;
   int64 timestamp = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  DeploymentIdentifier deployment_id = 3;
+  int32 deployment_id = 6;  // integer deployment id
   PreparerStatus preparer = 4;
   RunnerStatus runner = 5;
 }
 
 message PreparerStatus {
-  int32 deployment_seq_no = 1;
+  int32 deployment_config_version = 1;
   string artifact = 2;
   PreparationStatus status = 3;
 }
 
 message RunnerStatus {
-  int32 deployment_seq_no = 1;
+  int32 deployment_config_version = 1;
   int32 running_pid = 2;
   string running_artifact= 3;
   RunningStatus status = 4;

@@ -18,23 +18,23 @@ import (
 // its terminal state to the store. Stop is idempotent.
 type Runner interface {
 	Stop()
-	SeqNo() int32
+	Version() int32
 }
 
 // Create picks the correct runner variant for the deployment and starts it.
 // The artifact to execute is taken from status.Preparer.Artifact — the
 // operator only calls Create once the preparer has reached READY for
-// dep.SeqNo.
+// dep.Version.
 func Create(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, status *apigen.DeploymentStatus) Runner {
-	artifact := ""
+	var preparer apigen.PreparerStatus
 	if status != nil && status.Preparer != nil {
-		artifact = status.Preparer.Artifact
+		preparer = *status.Preparer
 	}
-	slog.InfoContext(ctx, "runner.Create", "artifact", artifact, "seqNo", dep.SeqNo, "systemd", useSystemd(dep))
+	slog.InfoContext(ctx, "runner.Create", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion, "systemd", useSystemd(dep))
 	if useSystemd(dep) {
-		return newSystemdRunnerWithRestart(ctx, store, dep, artifact)
+		return newSystemdRunnerWithRestart(ctx, store, dep, preparer.Artifact, preparer.DeploymentConfigVersion)
 	}
-	return newOSProcessRunner(ctx, store, dep, artifact, nil)
+	return newOSProcessRunner(ctx, store, dep, preparer)
 }
 
 // ReAttach resumes supervision of a deployment that was already running
@@ -48,11 +48,11 @@ func ReAttach(ctx context.Context, store storage.OperatorStore, dep *apigen.Depl
 	}
 	slog.InfoContext(ctx, "runner.ReAttach: reattaching",
 		"prevStatus", prev.Status, "prevPid", prev.RunningPid,
-		"prevArtifact", prev.RunningArtifact, "prevSeqNo", prev.DeploymentSeqNo)
+		"prevArtifact", prev.RunningArtifact, "prevSeqNo", prev.DeploymentConfigVersion)
 	if useSystemd(dep) {
 		return newSystemdMonitor(ctx, store, dep, prev)
 	}
-	return newOSProcessRunner(ctx, store, dep, prev.RunningArtifact, prev)
+	return reAttachOSProcessRunner(ctx, store, *dep, *prev)
 }
 
 // Stopped returns a no-op Runner sentinel used when no process is running.
@@ -60,8 +60,8 @@ func Stopped() Runner { return stoppedRunner{} }
 
 type stoppedRunner struct{}
 
-func (stoppedRunner) Stop()        {}
-func (stoppedRunner) SeqNo() int32 { return -1 }
+func (stoppedRunner) Stop()          {}
+func (stoppedRunner) Version() int32 { return -1 }
 
 func useSystemd(dep *apigen.DeploymentConfig) bool {
 	return dep.Spec != nil && dep.Spec.Runner != nil && dep.Spec.Runner.Systemd != nil

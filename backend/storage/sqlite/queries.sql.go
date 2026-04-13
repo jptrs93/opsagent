@@ -11,11 +11,13 @@ import (
 )
 
 const getDeploymentConfig = `-- name: GetDeploymentConfig :one
+d;
 
-SELECT deployment_id, seq_no, updated_at, updated_by, spec_blob,
-       desired_version, desired_running, deleted
+
+SELECT deployment_id, environment, machine, name, version, updated_at, updated_by,
+       spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
-WHERE deployment_id = ?
+WHERE deployment_id =
 `
 
 // === deployment_configs ===
@@ -24,7 +26,10 @@ func (q *Queries) GetDeploymentConfig(ctx context.Context, deploymentID int64) (
 	var i DeploymentConfig
 	err := row.Scan(
 		&i.DeploymentID,
-		&i.SeqNo,
+		&i.Environment,
+		&i.Machine,
+		&i.Name,
+		&i.Version,
 		&i.UpdatedAt,
 		&i.UpdatedBy,
 		&i.SpecBlob,
@@ -35,91 +40,14 @@ func (q *Queries) GetDeploymentConfig(ctx context.Context, deploymentID int64) (
 	return i, err
 }
 
-const getDeploymentIdentifier = `-- name: GetDeploymentIdentifier :one
-
-SELECT id, environment, machine, name, created_at
-FROM deployment_identifiers
-WHERE environment = ? AND machine = ? AND name = ?
-`
-
-type GetDeploymentIdentifierParams struct {
-	Environment string
-	Machine     string
-	Name        string
-}
-
-// === deployment_identifiers ===
-func (q *Queries) GetDeploymentIdentifier(ctx context.Context, arg GetDeploymentIdentifierParams) (DeploymentIdentifier, error) {
-	row := q.db.QueryRowContext(ctx, getDeploymentIdentifier, arg.Environment, arg.Machine, arg.Name)
-	var i DeploymentIdentifier
-	err := row.Scan(
-		&i.ID,
-		&i.Environment,
-		&i.Machine,
-		&i.Name,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const getDeploymentIdentifierByID = `-- name: GetDeploymentIdentifierByID :one
-SELECT id, environment, machine, name, created_at
-FROM deployment_identifiers
-WHERE id = ?
-`
-
-func (q *Queries) GetDeploymentIdentifierByID(ctx context.Context, id int64) (DeploymentIdentifier, error) {
-	row := q.db.QueryRowContext(ctx, getDeploymentIdentifierByID, id)
-	var i DeploymentIdentifier
-	err := row.Scan(
-		&i.ID,
-		&i.Environment,
-		&i.Machine,
-		&i.Name,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const getLatestDeploymentStatus = `-- name: GetLatestDeploymentStatus :one
-
-SELECT deployment_id, status_seq_no, timestamp,
-       preparer_seq_no, preparer_artifact, preparer_status,
-       runner_seq_no, runner_pid, runner_artifact, runner_status,
-       runner_num_restarts, runner_last_restart_at
-FROM deployment_status_history
-WHERE deployment_id = ?
-ORDER BY status_seq_no DESC
-LIMIT 1
-`
-
-// === deployment_status_history ===
-func (q *Queries) GetLatestDeploymentStatus(ctx context.Context, deploymentID int64) (DeploymentStatusHistory, error) {
-	row := q.db.QueryRowContext(ctx, getLatestDeploymentStatus, deploymentID)
-	var i DeploymentStatusHistory
-	err := row.Scan(
-		&i.DeploymentID,
-		&i.StatusSeqNo,
-		&i.Timestamp,
-		&i.PreparerSeqNo,
-		&i.PreparerArtifact,
-		&i.PreparerStatus,
-		&i.RunnerSeqNo,
-		&i.RunnerPid,
-		&i.RunnerArtifact,
-		&i.RunnerStatus,
-		&i.RunnerNumRestarts,
-		&i.RunnerLastRestartAt,
-	)
-	return i, err
-}
-
 const getLatestUserConfigVersion = `-- name: GetLatestUserConfigVersion :one
+C;
+
 
 SELECT version, timestamp, updated_by, yaml_content
 FROM user_config_versions
 ORDER BY version DESC
-LIMIT 1
+LIMIT
 `
 
 // === user_config_versions ===
@@ -136,8 +64,10 @@ func (q *Queries) GetLatestUserConfigVersion(ctx context.Context) (UserConfigVer
 }
 
 const getPublicKey = `-- name: GetPublicKey :one
+d;
 
-SELECT kid, key_bytes FROM public_keys WHERE kid = ?
+
+SELECT kid, key_bytes FROM public_keys WHERE kid =
 `
 
 // === public_keys ===
@@ -149,8 +79,10 @@ func (q *Queries) GetPublicKey(ctx context.Context, kid string) (PublicKey, erro
 }
 
 const getUser = `-- name: GetUser :one
+C;
 
-SELECT id, name, data_blob FROM users WHERE id = ?
+
+SELECT id, name, data_blob FROM users WHERE id =
 `
 
 // === users ===
@@ -162,14 +94,16 @@ func (q *Queries) GetUser(ctx context.Context, id int64) (User, error) {
 }
 
 const insertDeploymentConfigHistory = `-- name: InsertDeploymentConfigHistory :exec
+0;
 
-INSERT INTO deployment_config_history (deployment_id, seq_no, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+
+INSERT INTO deployment_config_history (deployment_id, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?,
 `
 
 type InsertDeploymentConfigHistoryParams struct {
 	DeploymentID   int64
-	SeqNo          int64
+	Version        int64
 	UpdatedAt      int64
 	UpdatedBy      int64
 	SpecBlob       []byte
@@ -182,7 +116,7 @@ type InsertDeploymentConfigHistoryParams struct {
 func (q *Queries) InsertDeploymentConfigHistory(ctx context.Context, arg InsertDeploymentConfigHistoryParams) error {
 	_, err := q.db.ExecContext(ctx, insertDeploymentConfigHistory,
 		arg.DeploymentID,
-		arg.SeqNo,
+		arg.Version,
 		arg.UpdatedAt,
 		arg.UpdatedBy,
 		arg.SpecBlob,
@@ -193,39 +127,43 @@ func (q *Queries) InsertDeploymentConfigHistory(ctx context.Context, arg InsertD
 	return err
 }
 
-const insertDeploymentStatus = `-- name: InsertDeploymentStatus :exec
+const insertDeploymentStatusHistory = `-- name: InsertDeploymentStatusHistory :exec
+s;
+
+
 INSERT INTO deployment_status_history (
     deployment_id, status_seq_no, timestamp,
-    preparer_seq_no, preparer_artifact, preparer_status,
-    runner_seq_no, runner_pid, runner_artifact, runner_status,
+    preparer_config_version, preparer_artifact, preparer_status,
+    runner_config_version, runner_pid, runner_artifact, runner_status,
     runner_num_restarts, runner_last_restart_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 `
 
-type InsertDeploymentStatusParams struct {
-	DeploymentID        int64
-	StatusSeqNo         int64
-	Timestamp           int64
-	PreparerSeqNo       sql.NullInt64
-	PreparerArtifact    sql.NullString
-	PreparerStatus      sql.NullInt64
-	RunnerSeqNo         sql.NullInt64
-	RunnerPid           sql.NullInt64
-	RunnerArtifact      sql.NullString
-	RunnerStatus        sql.NullInt64
-	RunnerNumRestarts   sql.NullInt64
-	RunnerLastRestartAt sql.NullInt64
+type InsertDeploymentStatusHistoryParams struct {
+	DeploymentID          int64
+	StatusSeqNo           int64
+	Timestamp             int64
+	PreparerConfigVersion sql.NullInt64
+	PreparerArtifact      sql.NullString
+	PreparerStatus        sql.NullInt64
+	RunnerConfigVersion   sql.NullInt64
+	RunnerPid             sql.NullInt64
+	RunnerArtifact        sql.NullString
+	RunnerStatus          sql.NullInt64
+	RunnerNumRestarts     sql.NullInt64
+	RunnerLastRestartAt   sql.NullInt64
 }
 
-func (q *Queries) InsertDeploymentStatus(ctx context.Context, arg InsertDeploymentStatusParams) error {
-	_, err := q.db.ExecContext(ctx, insertDeploymentStatus,
+// === deployment_status_history ===
+func (q *Queries) InsertDeploymentStatusHistory(ctx context.Context, arg InsertDeploymentStatusHistoryParams) error {
+	_, err := q.db.ExecContext(ctx, insertDeploymentStatusHistory,
 		arg.DeploymentID,
 		arg.StatusSeqNo,
 		arg.Timestamp,
-		arg.PreparerSeqNo,
+		arg.PreparerConfigVersion,
 		arg.PreparerArtifact,
 		arg.PreparerStatus,
-		arg.RunnerSeqNo,
+		arg.RunnerConfigVersion,
 		arg.RunnerPid,
 		arg.RunnerArtifact,
 		arg.RunnerStatus,
@@ -236,12 +174,14 @@ func (q *Queries) InsertDeploymentStatus(ctx context.Context, arg InsertDeployme
 }
 
 const insertUserConfigVersion = `-- name: InsertUserConfigVersion :one
+1;
+
 INSERT INTO user_config_versions (version, timestamp, updated_by, yaml_content)
 VALUES (
     (SELECT COALESCE(MAX(version), 0) + 1 FROM user_config_versions),
     ?, ?, ?
 )
-RETURNING version, timestamp, updated_by, yaml_content
+RETURNING version, timestamp, updated_by, yaml_conte
 `
 
 type InsertUserConfigVersionParams struct {
@@ -263,49 +203,81 @@ func (q *Queries) InsertUserConfigVersion(ctx context.Context, arg InsertUserCon
 }
 
 const listAllDeploymentConfigs = `-- name: ListAllDeploymentConfigs :many
-SELECT dc.deployment_id, dc.seq_no, dc.updated_at, dc.updated_by, dc.spec_blob,
-       dc.desired_version, dc.desired_running, dc.deleted,
-       di.environment, di.machine, di.name
-FROM deployment_configs dc
-JOIN deployment_identifiers di ON di.id = dc.deployment_id
-WHERE dc.deleted = 0
+0;
+
+SELECT deployment_id, environment, machine, name, version, updated_at, updated_by,
+       spec_blob, desired_version, desired_running, deleted
+FROM deployment_configs
+WHERE deleted =
 `
 
-type ListAllDeploymentConfigsRow struct {
-	DeploymentID   int64
-	SeqNo          int64
-	UpdatedAt      int64
-	UpdatedBy      int64
-	SpecBlob       []byte
-	DesiredVersion string
-	DesiredRunning int64
-	Deleted        int64
-	Environment    string
-	Machine        string
-	Name           string
-}
-
-func (q *Queries) ListAllDeploymentConfigs(ctx context.Context) ([]ListAllDeploymentConfigsRow, error) {
+func (q *Queries) ListAllDeploymentConfigs(ctx context.Context) ([]DeploymentConfig, error) {
 	rows, err := q.db.QueryContext(ctx, listAllDeploymentConfigs)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListAllDeploymentConfigsRow
+	var items []DeploymentConfig
 	for rows.Next() {
-		var i ListAllDeploymentConfigsRow
+		var i DeploymentConfig
 		if err := rows.Scan(
 			&i.DeploymentID,
-			&i.SeqNo,
+			&i.Environment,
+			&i.Machine,
+			&i.Name,
+			&i.Version,
 			&i.UpdatedAt,
 			&i.UpdatedBy,
 			&i.SpecBlob,
 			&i.DesiredVersion,
 			&i.DesiredRunning,
 			&i.Deleted,
-			&i.Environment,
-			&i.Machine,
-			&i.Name,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllDeploymentStatuses = `-- name: ListAllDeploymentStatuses :many
+t;
+
+SELECT deployment_id, status_seq_no, timestamp,
+       preparer_config_version, preparer_artifact, preparer_status,
+       runner_config_version, runner_pid, runner_artifact, runner_status,
+       runner_num_restarts, runner_last_restart_at
+FROM deployment_stat
+`
+
+func (q *Queries) ListAllDeploymentStatuses(ctx context.Context) ([]DeploymentStatus, error) {
+	rows, err := q.db.QueryContext(ctx, listAllDeploymentStatuses)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeploymentStatus
+	for rows.Next() {
+		var i DeploymentStatus
+		if err := rows.Scan(
+			&i.DeploymentID,
+			&i.StatusSeqNo,
+			&i.Timestamp,
+			&i.PreparerConfigVersion,
+			&i.PreparerArtifact,
+			&i.PreparerStatus,
+			&i.RunnerConfigVersion,
+			&i.RunnerPid,
+			&i.RunnerArtifact,
+			&i.RunnerStatus,
+			&i.RunnerNumRestarts,
+			&i.RunnerLastRestartAt,
 		); err != nil {
 			return nil, err
 		}
@@ -321,11 +293,13 @@ func (q *Queries) ListAllDeploymentConfigs(ctx context.Context) ([]ListAllDeploy
 }
 
 const listDeploymentConfigHistory = `-- name: ListDeploymentConfigHistory :many
-SELECT deployment_id, seq_no, updated_at, updated_by, spec_blob,
+);
+
+SELECT deployment_id, version, updated_at, updated_by, spec_blob,
        desired_version, desired_running, deleted
 FROM deployment_config_history
 WHERE deployment_id = ?
-ORDER BY seq_no ASC
+ORDER BY version A
 `
 
 func (q *Queries) ListDeploymentConfigHistory(ctx context.Context, deploymentID int64) ([]DeploymentConfigHistory, error) {
@@ -339,7 +313,7 @@ func (q *Queries) ListDeploymentConfigHistory(ctx context.Context, deploymentID 
 		var i DeploymentConfigHistory
 		if err := rows.Scan(
 			&i.DeploymentID,
-			&i.SeqNo,
+			&i.Version,
 			&i.UpdatedAt,
 			&i.UpdatedBy,
 			&i.SpecBlob,
@@ -361,49 +335,35 @@ func (q *Queries) ListDeploymentConfigHistory(ctx context.Context, deploymentID 
 }
 
 const listDeploymentConfigsByMachine = `-- name: ListDeploymentConfigsByMachine :many
-SELECT dc.deployment_id, dc.seq_no, dc.updated_at, dc.updated_by, dc.spec_blob,
-       dc.desired_version, dc.desired_running, dc.deleted,
-       di.environment, di.machine, di.name
-FROM deployment_configs dc
-JOIN deployment_identifiers di ON di.id = dc.deployment_id
-WHERE di.machine = ? AND dc.deleted = 0
+?;
+
+SELECT deployment_id, environment, machine, name, version, updated_at, updated_by,
+       spec_blob, desired_version, desired_running, deleted
+FROM deployment_configs
+WHERE machine = ? AND deleted =
 `
 
-type ListDeploymentConfigsByMachineRow struct {
-	DeploymentID   int64
-	SeqNo          int64
-	UpdatedAt      int64
-	UpdatedBy      int64
-	SpecBlob       []byte
-	DesiredVersion string
-	DesiredRunning int64
-	Deleted        int64
-	Environment    string
-	Machine        string
-	Name           string
-}
-
-func (q *Queries) ListDeploymentConfigsByMachine(ctx context.Context, machine string) ([]ListDeploymentConfigsByMachineRow, error) {
+func (q *Queries) ListDeploymentConfigsByMachine(ctx context.Context, machine string) ([]DeploymentConfig, error) {
 	rows, err := q.db.QueryContext(ctx, listDeploymentConfigsByMachine, machine)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListDeploymentConfigsByMachineRow
+	var items []DeploymentConfig
 	for rows.Next() {
-		var i ListDeploymentConfigsByMachineRow
+		var i DeploymentConfig
 		if err := rows.Scan(
 			&i.DeploymentID,
-			&i.SeqNo,
+			&i.Environment,
+			&i.Machine,
+			&i.Name,
+			&i.Version,
 			&i.UpdatedAt,
 			&i.UpdatedBy,
 			&i.SpecBlob,
 			&i.DesiredVersion,
 			&i.DesiredRunning,
 			&i.Deleted,
-			&i.Environment,
-			&i.Machine,
-			&i.Name,
 		); err != nil {
 			return nil, err
 		}
@@ -419,13 +379,15 @@ func (q *Queries) ListDeploymentConfigsByMachine(ctx context.Context, machine st
 }
 
 const listDeploymentStatusHistory = `-- name: ListDeploymentStatusHistory :many
+);
+
 SELECT deployment_id, status_seq_no, timestamp,
-       preparer_seq_no, preparer_artifact, preparer_status,
-       runner_seq_no, runner_pid, runner_artifact, runner_status,
+       preparer_config_version, preparer_artifact, preparer_status,
+       runner_config_version, runner_pid, runner_artifact, runner_status,
        runner_num_restarts, runner_last_restart_at
 FROM deployment_status_history
 WHERE deployment_id = ?
-ORDER BY status_seq_no ASC
+ORDER BY status_seq_no A
 `
 
 func (q *Queries) ListDeploymentStatusHistory(ctx context.Context, deploymentID int64) ([]DeploymentStatusHistory, error) {
@@ -441,59 +403,10 @@ func (q *Queries) ListDeploymentStatusHistory(ctx context.Context, deploymentID 
 			&i.DeploymentID,
 			&i.StatusSeqNo,
 			&i.Timestamp,
-			&i.PreparerSeqNo,
+			&i.PreparerConfigVersion,
 			&i.PreparerArtifact,
 			&i.PreparerStatus,
-			&i.RunnerSeqNo,
-			&i.RunnerPid,
-			&i.RunnerArtifact,
-			&i.RunnerStatus,
-			&i.RunnerNumRestarts,
-			&i.RunnerLastRestartAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listLatestDeploymentStatuses = `-- name: ListLatestDeploymentStatuses :many
-SELECT dsh.deployment_id, dsh.status_seq_no, dsh.timestamp,
-       dsh.preparer_seq_no, dsh.preparer_artifact, dsh.preparer_status,
-       dsh.runner_seq_no, dsh.runner_pid, dsh.runner_artifact, dsh.runner_status,
-       dsh.runner_num_restarts, dsh.runner_last_restart_at
-FROM deployment_status_history dsh
-INNER JOIN (
-    SELECT deployment_id, MAX(status_seq_no) AS max_seq
-    FROM deployment_status_history
-    GROUP BY deployment_id
-) latest ON dsh.deployment_id = latest.deployment_id AND dsh.status_seq_no = latest.max_seq
-`
-
-func (q *Queries) ListLatestDeploymentStatuses(ctx context.Context) ([]DeploymentStatusHistory, error) {
-	rows, err := q.db.QueryContext(ctx, listLatestDeploymentStatuses)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []DeploymentStatusHistory
-	for rows.Next() {
-		var i DeploymentStatusHistory
-		if err := rows.Scan(
-			&i.DeploymentID,
-			&i.StatusSeqNo,
-			&i.Timestamp,
-			&i.PreparerSeqNo,
-			&i.PreparerArtifact,
-			&i.PreparerStatus,
-			&i.RunnerSeqNo,
+			&i.RunnerConfigVersion,
 			&i.RunnerPid,
 			&i.RunnerArtifact,
 			&i.RunnerStatus,
@@ -514,7 +427,9 @@ func (q *Queries) ListLatestDeploymentStatuses(ctx context.Context) ([]Deploymen
 }
 
 const listPublicKeys = `-- name: ListPublicKeys :many
-SELECT kid, key_bytes FROM public_keys ORDER BY kid
+s;
+
+SELECT kid, key_bytes FROM public_keys ORDER BY k
 `
 
 func (q *Queries) ListPublicKeys(ctx context.Context) ([]PublicKey, error) {
@@ -541,9 +456,11 @@ func (q *Queries) ListPublicKeys(ctx context.Context) ([]PublicKey, error) {
 }
 
 const listUserConfigVersions = `-- name: ListUserConfigVersions :many
+t;
+
 SELECT version, timestamp, updated_by, yaml_content
 FROM user_config_versions
-ORDER BY version DESC
+ORDER BY version DE
 `
 
 func (q *Queries) ListUserConfigVersions(ctx context.Context) ([]UserConfigVersion, error) {
@@ -575,7 +492,9 @@ func (q *Queries) ListUserConfigVersions(ctx context.Context) ([]UserConfigVersi
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, name, data_blob FROM users ORDER BY id
+b;
+
+SELECT id, name, data_blob FROM users ORDER BY
 `
 
 func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
@@ -602,9 +521,11 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 }
 
 const updateDesiredState = `-- name: UpdateDesiredState :exec
+d;
+
 UPDATE deployment_configs
-SET desired_version = ?, desired_running = ?, seq_no = seq_no + 1, updated_at = ?, updated_by = ?
-WHERE deployment_id = ?
+SET desired_version = ?, desired_running = ?, version = version + 1, updated_at = ?, updated_by = ?
+WHERE deployment_id =
 `
 
 type UpdateDesiredStateParams struct {
@@ -627,21 +548,29 @@ func (q *Queries) UpdateDesiredState(ctx context.Context, arg UpdateDesiredState
 }
 
 const upsertDeploymentConfig = `-- name: UpsertDeploymentConfig :exec
-INSERT INTO deployment_configs (deployment_id, seq_no, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+?;
+
+INSERT INTO deployment_configs (deployment_id, environment, machine, name, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(deployment_id) DO UPDATE SET
-    seq_no = excluded.seq_no,
+    environment = excluded.environment,
+    machine = excluded.machine,
+    name = excluded.name,
+    version = excluded.version,
     updated_at = excluded.updated_at,
     updated_by = excluded.updated_by,
     spec_blob = excluded.spec_blob,
     desired_version = excluded.desired_version,
     desired_running = excluded.desired_running,
-    deleted = excluded.deleted
+    deleted = excluded.delet
 `
 
 type UpsertDeploymentConfigParams struct {
 	DeploymentID   int64
-	SeqNo          int64
+	Environment    string
+	Machine        string
+	Name           string
+	Version        int64
 	UpdatedAt      int64
 	UpdatedBy      int64
 	SpecBlob       []byte
@@ -653,7 +582,10 @@ type UpsertDeploymentConfigParams struct {
 func (q *Queries) UpsertDeploymentConfig(ctx context.Context, arg UpsertDeploymentConfigParams) error {
 	_, err := q.db.ExecContext(ctx, upsertDeploymentConfig,
 		arg.DeploymentID,
-		arg.SeqNo,
+		arg.Environment,
+		arg.Machine,
+		arg.Name,
+		arg.Version,
 		arg.UpdatedAt,
 		arg.UpdatedBy,
 		arg.SpecBlob,
@@ -665,11 +597,12 @@ func (q *Queries) UpsertDeploymentConfig(ctx context.Context, arg UpsertDeployme
 }
 
 const upsertDeploymentID = `-- name: UpsertDeploymentID :one
+
 INSERT INTO deployment_identifiers (environment, machine, name, created_at)
 VALUES (?, ?, ?, ?)
 ON CONFLICT(environment, machine, name) DO UPDATE SET
     created_at = deployment_identifiers.created_at
-RETURNING id
+RETURNING
 `
 
 type UpsertDeploymentIDParams struct {
@@ -679,6 +612,8 @@ type UpsertDeploymentIDParams struct {
 	CreatedAt   int64
 }
 
+// === deployment_identifiers ===
+// Only used at config-save time to map (env, machine, name) → integer id.
 func (q *Queries) UpsertDeploymentID(ctx context.Context, arg UpsertDeploymentIDParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, upsertDeploymentID,
 		arg.Environment,
@@ -691,9 +626,69 @@ func (q *Queries) UpsertDeploymentID(ctx context.Context, arg UpsertDeploymentID
 	return id, err
 }
 
+const upsertDeploymentStatus = `-- name: UpsertDeploymentStatus :exec
+C;
+
+
+INSERT INTO deployment_status (
+    deployment_id, status_seq_no, timestamp,
+    preparer_config_version, preparer_artifact, preparer_status,
+    runner_config_version, runner_pid, runner_artifact, runner_status,
+    runner_num_restarts, runner_last_restart_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(deployment_id) DO UPDATE SET
+    status_seq_no = excluded.status_seq_no,
+    timestamp = excluded.timestamp,
+    preparer_config_version = excluded.preparer_config_version,
+    preparer_artifact = excluded.preparer_artifact,
+    preparer_status = excluded.preparer_status,
+    runner_config_version = excluded.runner_config_version,
+    runner_pid = excluded.runner_pid,
+    runner_artifact = excluded.runner_artifact,
+    runner_status = excluded.runner_status,
+    runner_num_restarts = excluded.runner_num_restarts,
+    runner_last_restart_at = excluded.runner_last_restart_
+`
+
+type UpsertDeploymentStatusParams struct {
+	DeploymentID          int64
+	StatusSeqNo           int64
+	Timestamp             int64
+	PreparerConfigVersion sql.NullInt64
+	PreparerArtifact      sql.NullString
+	PreparerStatus        sql.NullInt64
+	RunnerConfigVersion   sql.NullInt64
+	RunnerPid             sql.NullInt64
+	RunnerArtifact        sql.NullString
+	RunnerStatus          sql.NullInt64
+	RunnerNumRestarts     sql.NullInt64
+	RunnerLastRestartAt   sql.NullInt64
+}
+
+// === deployment_status ===
+func (q *Queries) UpsertDeploymentStatus(ctx context.Context, arg UpsertDeploymentStatusParams) error {
+	_, err := q.db.ExecContext(ctx, upsertDeploymentStatus,
+		arg.DeploymentID,
+		arg.StatusSeqNo,
+		arg.Timestamp,
+		arg.PreparerConfigVersion,
+		arg.PreparerArtifact,
+		arg.PreparerStatus,
+		arg.RunnerConfigVersion,
+		arg.RunnerPid,
+		arg.RunnerArtifact,
+		arg.RunnerStatus,
+		arg.RunnerNumRestarts,
+		arg.RunnerLastRestartAt,
+	)
+	return err
+}
+
 const upsertPublicKey = `-- name: UpsertPublicKey :exec
+?;
+
 INSERT INTO public_keys (kid, key_bytes) VALUES (?, ?)
-ON CONFLICT(kid) DO UPDATE SET key_bytes = excluded.key_bytes
+ON CONFLICT(kid) DO UPDATE SET key_bytes = excluded.key_byt
 `
 
 type UpsertPublicKeyParams struct {
@@ -707,8 +702,10 @@ func (q *Queries) UpsertPublicKey(ctx context.Context, arg UpsertPublicKeyParams
 }
 
 const upsertUser = `-- name: UpsertUser :exec
+?;
+
 INSERT INTO users (id, name, data_blob) VALUES (?, ?, ?)
-ON CONFLICT(id) DO UPDATE SET name = excluded.name, data_blob = excluded.data_blob
+ON CONFLICT(id) DO UPDATE SET name = excluded.name, data_blob = excluded.data_bl
 `
 
 type UpsertUserParams struct {

@@ -145,10 +145,10 @@ func (s *Session) readLoop(ctx context.Context) error {
 // The primary bumps its own StatusSeqNo rather than using the worker's value,
 // since the primary and worker maintain independent sequence counters.
 func (s *Session) handleStatusWrite(ctx context.Context, st *apigen.DeploymentStatus) {
-	if st == nil || st.DeploymentID == nil {
+	if st == nil || st.DeploymentID == 0 {
 		return
 	}
-	s.store.MustWriteDeploymentStatus(ctx, *st.DeploymentID, func(dst *apigen.DeploymentStatus) {
+	s.store.MustWriteDeploymentStatus(ctx, st.DeploymentID, func(dst *apigen.DeploymentStatus) {
 		seqNo := dst.StatusSeqNo + 1
 		*dst = *st
 		dst.StatusSeqNo = seqNo

@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {deploymentsS, deploymentsStreamS, deploymentKey} from "../state/deployments.js";
+import {deploymentsS, deploymentsStreamS} from "../state/deployments.js";
 import {statusCard} from "../components/statusCard.js";
 import {deploymentLogs} from "../components/deploymentLogs.js";
 import {deploymentHistory} from "../components/deploymentHistory.js";
@@ -19,8 +19,8 @@ const mapDeploymentsToView = (deployments) => {
     if (!Array.isArray(deployments)) return [];
 
     return deployments.filter(d => d.config && d.config.id && !d.config.deleted).map((d) => {
-        const id = d.config.id;
-        const key = deploymentKey(id);
+        const id = d.config.id; // integer
+        const cid = d.config.configId || {};
         const spec = d.config.spec || {};
         const desired = d.config.desiredState || {};
         const runner = d.status?.runner || {};
@@ -37,10 +37,10 @@ const mapDeploymentsToView = (deployments) => {
         }
 
         return {
-            key,
-            name: id.name,
-            machine: id.machine,
-            environment: id.environment,
+            id,
+            name: cid.name || '',
+            machine: cid.machine || '',
+            environment: cid.environment || '',
             variant,
             repo,
             existingStatus: runner.status || 0,
@@ -52,7 +52,7 @@ const mapDeploymentsToView = (deployments) => {
             deployedVersion: desired.version || '',
             prepareStatus: prep.status || 0,
             prepareVersion: desired.version || '',
-            currentSeqNo: d.config.seqNo || 0,
+            currentVersion: d.config.version || 0,
         };
     });
 };
@@ -74,7 +74,7 @@ export function statusPage() {
     };
 
     const loadScopesForDeployment = async (deployment) => {
-        const depKey = deployment.key;
+        const depKey = deployment.id;
         if (scopesMap.val[depKey] !== undefined) {
             const scope = selectedScope.val[depKey] || '';
             loadVersionsForDeployment(deployment, scope);
@@ -101,7 +101,7 @@ export function statusPage() {
     };
 
     const loadVersionsForDeployment = async (deployment, scope) => {
-        const depKey = deployment.key;
+        const depKey = deployment.id;
         const cacheKey = `${depKey}:${scope || ''}`;
         if (versionsMap.val[cacheKey]) return;
         try {
@@ -119,7 +119,7 @@ export function statusPage() {
     };
 
     const onScopeChange = (deployment, scope) => {
-        const depKey = deployment.key;
+        const depKey = deployment.id;
         selectedScope.val = {...selectedScope.val, [depKey]: scope};
         loadVersionsForDeployment(deployment, scope);
     };
@@ -138,12 +138,12 @@ export function statusPage() {
     const onDeploy = async (deployment, version) => {
         try {
             await capi.postV1DeploymentUpdate({
-                id: {environment: deployment.environment, machine: deployment.machine, name: deployment.name},
+                deploymentId: deployment.id,
                 targetVersion: version,
-                seqNo: deployment.currentSeqNo + 1,
+                version: deployment.currentVersion + 1,
             });
             sidebarMode.val = SIDEBAR_PREPARE;
-            sidebarDeployment.val = deployment.key;
+            sidebarDeployment.val = deployment.id;
         } catch (e) {
             alert(`Deploy failed: ${e.message}`);
         }
@@ -152,28 +152,28 @@ export function statusPage() {
     const onStop = async (deployment) => {
         try {
             await capi.postV1DeploymentUpdate({
-                id: {environment: deployment.environment, machine: deployment.machine, name: deployment.name},
+                deploymentId: deployment.id,
                 stop: true,
-                seqNo: deployment.currentSeqNo + 1,
+                version: deployment.currentVersion + 1,
             });
         } catch (e) {
             alert(`Stop failed: ${e.message}`);
         }
     };
 
-    const onShowRunOutput = (key) => {
+    const onShowRunOutput = (id) => {
         sidebarMode.val = SIDEBAR_RUN;
-        sidebarDeployment.val = key;
+        sidebarDeployment.val = id;
     };
 
-    const onShowHistory = (key) => {
+    const onShowHistory = (id) => {
         sidebarMode.val = SIDEBAR_HISTORY;
-        sidebarDeployment.val = key;
+        sidebarDeployment.val = id;
     };
 
-    const onShowPrepareOutput = (key) => {
+    const onShowPrepareOutput = (id) => {
         sidebarMode.val = SIDEBAR_PREPARE;
-        sidebarDeployment.val = key;
+        sidebarDeployment.val = id;
     };
 
     const mainContent = div(
@@ -220,13 +220,13 @@ export function statusPage() {
                         div(
                             {class: "flex flex-wrap gap-3"},
                             ...deployments.map(s => {
-                                const scope = selectedScope.val[s.key] || '';
-                                const versionKey = `${s.key}:${scope}`;
+                                const scope = selectedScope.val[s.id] || '';
+                                const versionKey = `${s.id}:${scope}`;
                                 return statusCard(
                                     s,
                                     versionsMap.val[versionKey] || [],
-                                    versionErrors.val[s.key] || null,
-                                    scopesMap.val[s.key] || [],
+                                    versionErrors.val[s.id] || null,
+                                    scopesMap.val[s.id] || [],
                                     scope,
                                     onScopeChange,
                                     onDeploy,

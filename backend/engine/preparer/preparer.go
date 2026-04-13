@@ -18,7 +18,7 @@ import (
 // superseded or removed.
 type Preparer interface {
 	Cancel()
-	SeqNo() int32
+	Version() int32
 }
 
 // Preparer2 is a transitional alias kept so the in-progress operator.go
@@ -50,17 +50,17 @@ func StartPrepare(store storage.OperatorStore, dep *apigen.DeploymentConfig) Pre
 // run reached READY for this SeqNo we return a no-op handle, otherwise we
 // start a fresh preparation.
 func ReAttach(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, prev *apigen.PreparerStatus) Preparer {
-	if prev != nil && prev.DeploymentSeqNo == dep.SeqNo && prev.Status == apigen.PreparationStatus_READY {
+	if prev != nil && prev.DeploymentConfigVersion == dep.Version && prev.Status == apigen.PreparationStatus_READY {
 		slog.InfoContext(ctx, "preparer.ReAttach: already READY, returning finished",
-			"seqNo", dep.SeqNo, "artifact", prev.Artifact)
-		return &finishedPreparer{seqNo: dep.SeqNo}
+			"seqNo", dep.Version, "artifact", prev.Artifact)
+		return &finishedPreparer{seqNo: dep.Version}
 	}
 	if prev == nil {
 		slog.InfoContext(ctx, "preparer.ReAttach: no previous preparer, starting fresh",
-			"seqNo", dep.SeqNo, "desiredVersion", desiredVersion(dep))
+			"seqNo", dep.Version, "desiredVersion", desiredVersion(dep))
 	} else {
 		slog.InfoContext(ctx, "preparer.ReAttach: previous preparer not ready, restarting",
-			"seqNo", dep.SeqNo, "prevStatus", prev.Status, "prevSeqNo", prev.DeploymentSeqNo)
+			"seqNo", dep.Version, "prevStatus", prev.Status, "prevSeqNo", prev.DeploymentConfigVersion)
 	}
 	return startFor(ctx, store, dep)
 }
@@ -68,15 +68,15 @@ func ReAttach(ctx context.Context, store storage.OperatorStore, dep *apigen.Depl
 func startFor(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig) Preparer {
 	switch {
 	case hasNixBuild(dep):
-		slog.InfoContext(ctx, "preparer.startFor: dispatching nixBuild", "seqNo", dep.SeqNo)
+		slog.InfoContext(ctx, "preparer.startFor: dispatching nixBuild", "seqNo", dep.Version)
 		return Nix.start(ctx, store, dep)
 	case hasGithubRelease(dep):
-		slog.InfoContext(ctx, "preparer.startFor: dispatching githubRelease", "seqNo", dep.SeqNo)
+		slog.InfoContext(ctx, "preparer.startFor: dispatching githubRelease", "seqNo", dep.Version)
 		return GHRel.start(ctx, store, dep)
 	}
-	slog.WarnContext(ctx, "preparer.startFor: no prepare config found, marking FAILED", "seqNo", dep.SeqNo)
+	slog.WarnContext(ctx, "preparer.startFor: no prepare config found, marking FAILED", "seqNo", dep.Version)
 	writePrepareStatus(context.Background(), store, dep, "", apigen.PreparationStatus_FAILED)
-	return &finishedPreparer{seqNo: dep.SeqNo}
+	return &finishedPreparer{seqNo: dep.Version}
 }
 
 func hasNixBuild(dep *apigen.DeploymentConfig) bool {
@@ -88,7 +88,7 @@ func hasGithubRelease(dep *apigen.DeploymentConfig) bool {
 }
 
 // activePreparer is the handle shared by the nix + github variants: ctx owns
-// the worker goroutine, done is closed on exit, seqNo is dep.SeqNo at the
+// the worker goroutine, done is closed on exit, seqNo is dep.Version at the
 // time of construction.
 type activePreparer struct {
 	cancel context.CancelFunc
@@ -101,30 +101,30 @@ func (p *activePreparer) Cancel() {
 	<-p.done
 }
 
-func (p *activePreparer) SeqNo() int32 { return p.seqNo }
+func (p *activePreparer) Version() int32 { return p.seqNo }
 
 // finishedPreparer satisfies Preparer for an already-terminal preparation
 // (READY at reattach, or a trivial FAILED dispatch).
 type finishedPreparer struct{ seqNo int32 }
 
 func (f *finishedPreparer) Cancel()      {}
-func (f *finishedPreparer) SeqNo() int32 { return f.seqNo }
+func (f *finishedPreparer) Version() int32 { return f.seqNo }
 
 // writePrepareStatus is the single entry point for preparer status writes.
 // It bumps StatusSeqNo, guards against stale writes from superseded runs,
 // and always uses a background context so terminal writes still land after
 // the worker's own ctx has been cancelled.
 func writePrepareStatus(_ context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, artifact string, status apigen.PreparationStatus) {
-	slog.Info("preparer.writePrepareStatus", "seqNo", dep.SeqNo, "status", status, "artifact", artifact)
-	store.MustWriteDeploymentStatus(context.Background(), *dep.ID, func(s *apigen.DeploymentStatus) {
-		if s.Preparer != nil && s.Preparer.DeploymentSeqNo > dep.SeqNo {
+	slog.Info("preparer.writePrepareStatus", "seqNo", dep.Version, "status", status, "artifact", artifact)
+	store.MustWriteDeploymentStatus(context.Background(), dep.ID, func(s *apigen.DeploymentStatus) {
+		if s.Preparer != nil && s.Preparer.DeploymentConfigVersion > dep.Version {
 			return
 		}
 		s.StatusSeqNo++
 		s.Timestamp = time.Now()
 		s.DeploymentID = dep.ID
 		s.Preparer = &apigen.PreparerStatus{
-			DeploymentSeqNo: dep.SeqNo,
+			DeploymentConfigVersion: dep.Version,
 			Artifact:        artifact,
 			Status:          status,
 		}

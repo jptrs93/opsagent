@@ -45,6 +45,7 @@
  * @typedef {Object} OsProcessRunnerConfig
  * @property {string} workingDir
  * @property {string} runAs
+ * @property {string} strategy
  */
 /**
  * @typedef {Object} SystemdRunnerConfig
@@ -96,20 +97,24 @@
  */
 /**
  * @typedef {Object} DeploymentUpdateRequest
- * @property {DeploymentIdentifier} id
+ * @property {number} deploymentId
  * @property {string} targetVersion
  * @property {boolean} stop
- * @property {number} seqNo
+ * @property {number} version
+ */
+/**
+ * @typedef {Object} DeploymentHistoryRequest
+ * @property {number} deploymentId
  */
 /**
  * @typedef {Object} PrepareOutputRequest
- * @property {DeploymentIdentifier} id
- * @property {number} seqNo
+ * @property {number} deploymentId
+ * @property {number} version
  */
 /**
  * @typedef {Object} RunOutputRequest
- * @property {DeploymentIdentifier} id
- * @property {number} seqNo
+ * @property {number} deploymentId
+ * @property {number} version
  */
 /**
  * @typedef {Object} DeploymentLogRequest
@@ -134,8 +139,9 @@
  */
 /**
  * @typedef {Object} DeploymentConfig
- * @property {DeploymentIdentifier} id
- * @property {number} seqNo
+ * @property {number} id
+ * @property {DeploymentIdentifier} configId
+ * @property {number} version
  * @property {Date} updatedAt
  * @property {number} updatedBy
  * @property {DeploymentSpec} spec
@@ -151,19 +157,19 @@
  * @typedef {Object} DeploymentStatus
  * @property {number} statusSeqNo
  * @property {Date} timestamp
- * @property {DeploymentIdentifier} deploymentId
+ * @property {number} deploymentId
  * @property {PreparerStatus} preparer
  * @property {RunnerStatus} runner
  */
 /**
  * @typedef {Object} PreparerStatus
- * @property {number} deploymentSeqNo
+ * @property {number} deploymentConfigVersion
  * @property {string} artifact
  * @property {number} status
  */
 /**
  * @typedef {Object} RunnerStatus
- * @property {number} deploymentSeqNo
+ * @property {number} deploymentConfigVersion
  * @property {number} runningPid
  * @property {string} runningArtifact
  * @property {number} status
@@ -802,6 +808,9 @@ export function writeOsProcessRunnerConfig(message, writer) {
     if (message.runAs !== undefined && message.runAs !== null && message.runAs !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.runAs);
     }
+    if (message.strategy !== undefined && message.strategy !== null && message.strategy !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.strategy);
+    }
 }
 
 
@@ -823,7 +832,7 @@ export function encodeOsProcessRunnerConfig(message) {
  */
 function decodeOsProcessRunnerConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {workingDir: "", runAs: "" };
+    const message = {workingDir: "", runAs: "", strategy: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -833,6 +842,10 @@ function decodeOsProcessRunnerConfigMessage(reader, length) {
             }
             case 2: {
                 message.runAs = reader.string();
+                break;
+            }
+            case 3: {
+                message.strategy = reader.string();
                 break;
             }
             default:
@@ -1481,10 +1494,8 @@ export function decodeDeploymentHistory(buffer) {
  * @param {Writer} writer
  */
 export function writeDeploymentUpdateRequest(message, writer) {
-    if (message.id !== undefined && message.id !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeDeploymentIdentifier(message.id, writer);
-        writer.ldelim();
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.deploymentId);
     }
     if (message.targetVersion !== undefined && message.targetVersion !== null && message.targetVersion !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.targetVersion);
@@ -1492,8 +1503,8 @@ export function writeDeploymentUpdateRequest(message, writer) {
     if (message.stop === true) {
         writer.uint32(tag(3, WIRE.VARINT)).bool(message.stop);
     }
-    if (message.seqNo !== undefined && message.seqNo !== null && message.seqNo !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.seqNo);
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.version);
     }
 }
 
@@ -1516,12 +1527,12 @@ export function encodeDeploymentUpdateRequest(message) {
  */
 function decodeDeploymentUpdateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: undefined, targetVersion: "", stop: false, seqNo: 0 };
+    const message = {deploymentId: 0, targetVersion: "", stop: false, version: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.id = decodeDeploymentIdentifierMessage(reader, reader.uint32());
+            case 5: {
+                message.deploymentId = reader.int32();
                 break;
             }
             case 2: {
@@ -1533,7 +1544,7 @@ function decodeDeploymentUpdateRequestMessage(reader, length) {
                 break;
             }
             case 4: {
-                message.seqNo = reader.int32();
+                message.version = reader.int32();
                 break;
             }
             default:
@@ -1556,17 +1567,71 @@ export function decodeDeploymentUpdateRequest(buffer) {
 
 
 /**
+ * @param {DeploymentHistoryRequest} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentHistoryRequest(message, writer) {
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
+    }
+}
+
+
+/**
+ * @param {DeploymentHistoryRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentHistoryRequest(message) {
+    const writer = Writer.create();
+    writeDeploymentHistoryRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentHistoryRequest}
+ */
+function decodeDeploymentHistoryRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {deploymentId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.deploymentId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentHistoryRequest}
+ */
+export function decodeDeploymentHistoryRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentHistoryRequestMessage(reader);
+}
+
+
+
+/**
  * @param {PrepareOutputRequest} message
  * @param {Writer} writer
  */
 export function writePrepareOutputRequest(message, writer) {
-    if (message.id !== undefined && message.id !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeDeploymentIdentifier(message.id, writer);
-        writer.ldelim();
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.deploymentId);
     }
-    if (message.seqNo !== undefined && message.seqNo !== null && message.seqNo !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.seqNo);
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
     }
 }
 
@@ -1589,16 +1654,16 @@ export function encodePrepareOutputRequest(message) {
  */
 function decodePrepareOutputRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: undefined, seqNo: 0 };
+    const message = {deploymentId: 0, version: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.id = decodeDeploymentIdentifierMessage(reader, reader.uint32());
+            case 3: {
+                message.deploymentId = reader.int32();
                 break;
             }
             case 2: {
-                message.seqNo = reader.int32();
+                message.version = reader.int32();
                 break;
             }
             default:
@@ -1625,13 +1690,11 @@ export function decodePrepareOutputRequest(buffer) {
  * @param {Writer} writer
  */
 export function writeRunOutputRequest(message, writer) {
-    if (message.id !== undefined && message.id !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeDeploymentIdentifier(message.id, writer);
-        writer.ldelim();
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.deploymentId);
     }
-    if (message.seqNo !== undefined && message.seqNo !== null && message.seqNo !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.seqNo);
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
     }
 }
 
@@ -1654,16 +1717,16 @@ export function encodeRunOutputRequest(message) {
  */
 function decodeRunOutputRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: undefined, seqNo: 0 };
+    const message = {deploymentId: 0, version: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.id = decodeDeploymentIdentifierMessage(reader, reader.uint32());
+            case 3: {
+                message.deploymentId = reader.int32();
                 break;
             }
             case 2: {
-                message.seqNo = reader.int32();
+                message.version = reader.int32();
                 break;
             }
             default:
@@ -1957,13 +2020,16 @@ export function decodeDesiredState(buffer) {
  * @param {Writer} writer
  */
 export function writeDeploymentConfig(message, writer) {
-    if (message.id !== undefined && message.id !== null) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.configId !== undefined && message.configId !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeDeploymentIdentifier(message.id, writer);
+        writeDeploymentIdentifier(message.configId, writer);
         writer.ldelim();
     }
-    if (message.seqNo !== undefined && message.seqNo !== null && message.seqNo !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.seqNo);
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
     }
     if (message.updatedAt instanceof Date && message.updatedAt.getTime() !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.updatedAt.getTime()));
@@ -2005,16 +2071,20 @@ export function encodeDeploymentConfig(message) {
  */
 function decodeDeploymentConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: undefined, seqNo: 0, updatedAt: new Date(0), updatedBy: 0, spec: undefined, desiredState: undefined, deleted: false };
+    const message = {id: 0, configId: undefined, version: 0, updatedAt: new Date(0), updatedBy: 0, spec: undefined, desiredState: undefined, deleted: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
+            case 8: {
+                message.id = reader.int32();
+                break;
+            }
             case 1: {
-                message.id = decodeDeploymentIdentifierMessage(reader, reader.uint32());
+                message.configId = decodeDeploymentIdentifierMessage(reader, reader.uint32());
                 break;
             }
             case 2: {
-                message.seqNo = reader.int32();
+                message.version = reader.int32();
                 break;
             }
             case 3: {
@@ -2134,10 +2204,8 @@ export function writeDeploymentStatus(message, writer) {
     if (message.timestamp instanceof Date && message.timestamp.getTime() !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.timestamp.getTime()));
     }
-    if (message.deploymentId !== undefined && message.deploymentId !== null) {
-        writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeDeploymentIdentifier(message.deploymentId, writer);
-        writer.ldelim();
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.deploymentId);
     }
     if (message.preparer !== undefined && message.preparer !== null) {
         writer.uint32(tag(4, WIRE.LDELIM)).fork();
@@ -2170,7 +2238,7 @@ export function encodeDeploymentStatus(message) {
  */
 function decodeDeploymentStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {statusSeqNo: 0, timestamp: new Date(0), deploymentId: undefined, preparer: undefined, runner: undefined };
+    const message = {statusSeqNo: 0, timestamp: new Date(0), deploymentId: 0, preparer: undefined, runner: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2182,8 +2250,8 @@ function decodeDeploymentStatusMessage(reader, length) {
                 message.timestamp = new Date(readInt64(reader, "int64"));
                 break;
             }
-            case 3: {
-                message.deploymentId = decodeDeploymentIdentifierMessage(reader, reader.uint32());
+            case 6: {
+                message.deploymentId = reader.int32();
                 break;
             }
             case 4: {
@@ -2218,8 +2286,8 @@ export function decodeDeploymentStatus(buffer) {
  * @param {Writer} writer
  */
 export function writePreparerStatus(message, writer) {
-    if (message.deploymentSeqNo !== undefined && message.deploymentSeqNo !== null && message.deploymentSeqNo !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentSeqNo);
+    if (message.deploymentConfigVersion !== undefined && message.deploymentConfigVersion !== null && message.deploymentConfigVersion !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentConfigVersion);
     }
     if (message.artifact !== undefined && message.artifact !== null && message.artifact !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.artifact);
@@ -2248,12 +2316,12 @@ export function encodePreparerStatus(message) {
  */
 function decodePreparerStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentSeqNo: 0, artifact: "", status: 0 };
+    const message = {deploymentConfigVersion: 0, artifact: "", status: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.deploymentSeqNo = reader.int32();
+                message.deploymentConfigVersion = reader.int32();
                 break;
             }
             case 2: {
@@ -2288,8 +2356,8 @@ export function decodePreparerStatus(buffer) {
  * @param {Writer} writer
  */
 export function writeRunnerStatus(message, writer) {
-    if (message.deploymentSeqNo !== undefined && message.deploymentSeqNo !== null && message.deploymentSeqNo !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentSeqNo);
+    if (message.deploymentConfigVersion !== undefined && message.deploymentConfigVersion !== null && message.deploymentConfigVersion !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentConfigVersion);
     }
     if (message.runningPid !== undefined && message.runningPid !== null && message.runningPid !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.runningPid);
@@ -2327,12 +2395,12 @@ export function encodeRunnerStatus(message) {
  */
 function decodeRunnerStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentSeqNo: 0, runningPid: 0, runningArtifact: "", status: 0, numberOfRestarts: 0, lastRestartAt: new Date(0) };
+    const message = {deploymentConfigVersion: 0, runningPid: 0, runningArtifact: "", status: 0, numberOfRestarts: 0, lastRestartAt: new Date(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.deploymentSeqNo = reader.int32();
+                message.deploymentConfigVersion = reader.int32();
                 break;
             }
             case 2: {

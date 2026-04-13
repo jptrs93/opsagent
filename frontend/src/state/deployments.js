@@ -26,9 +26,6 @@ let streamInactivityTimer = null;
 
 const hasStateStreamAccess = () => loginS.val?.scopes?.includes('default') === true;
 
-// deploymentKey builds a unique string key from a DeploymentIdentifier.
-export const deploymentKey = (id) => `${id.environment}:${id.machine}:${id.name}`;
-
 const setStreamState = (status, sentence, lastError = '') => {
     deploymentsStreamS.val = { status, sentence, lastError };
 };
@@ -78,9 +75,9 @@ const handleStateMessage = (message) => {
     }
 
     if (message.deploymentUpdate?.config?.id) {
-        const updateKey = deploymentKey(message.deploymentUpdate.config.id);
-        const next = new Map((deploymentsS.val || []).map((item) => [deploymentKey(item.config.id), item]));
-        next.set(updateKey, message.deploymentUpdate);
+        const updateId = message.deploymentUpdate.config.id;
+        const next = new Map((deploymentsS.val || []).map((item) => [item.config.id, item]));
+        next.set(updateId, message.deploymentUpdate);
         deploymentsS.val = Array.from(next.values());
     }
 

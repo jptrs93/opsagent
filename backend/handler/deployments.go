@@ -15,18 +15,11 @@ var NoPreparerErr = apigen.NewApiErr("Config has no preparer configured", "no_pr
 var DeploymentNotFoundErr = apigen.NewApiErr("Config not found", "deployment_not_found", http.StatusNotFound)
 var InvalidRequestBodyErr = apigen.NewApiErr("Invalid request body", "invalid_request_body", http.StatusBadRequest)
 var MissingKeyErr = apigen.NewApiErr("Missing deployment identifier", "missing_key", http.StatusBadRequest)
-var InvalidKeyErr = apigen.NewApiErr("Invalid deployment identifier", "invalid_key", http.StatusBadRequest)
 var NoPrepareLogErr = apigen.NewApiErr("No prepare log found", "prepare_log_not_found", http.StatusNotFound)
-var NoActivePrepareErr = apigen.NewApiErr("No active prepare found", "no_active_prepare", http.StatusNotFound)
 var NoRunOutputErr = apigen.NewApiErr("No run output found", "run_output_not_found", http.StatusNotFound)
-var StaleSeqNoErr = apigen.NewApiErr("Stale sequence number", "stale_seq_no", http.StatusConflict)
 
-// PostV1DeploymentUpdate forwards a user deploy / stop action to the store.
-// The store is responsible for merging the requested DesiredState into the
-// owning DeploymentConfig record and bumping its SeqNo; the operator picks up
-// the change via its subscription.
 func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequest) (*apigen.DesiredState, error) {
-	if req.ID == nil || req.ID.Name == "" || req.ID.Machine == "" {
+	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr
 	}
 
@@ -37,7 +30,7 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 		desired.Version = req.TargetVersion
 		desired.Running = true
 	}
-	h.Store.MustSetDeploymentDesiredState(ctx, *req.ID, desired)
+	h.Store.MustSetDeploymentDesiredState(ctx, req.DeploymentID, desired)
 	return &desired, nil
 }
 
@@ -53,37 +46,38 @@ func (h *Handler) PostV1DeploymentLogs(ctx apigen.Context, r *http.Request, w ht
 		return nil
 	}
 
-	var id *apigen.DeploymentIdentifier
+	var deploymentID int32
 	if req.RunnerOutput != nil {
-		id = req.RunnerOutput.ID
+		deploymentID = req.RunnerOutput.DeploymentID
 	} else if req.PreparerOutput != nil {
-		id = req.PreparerOutput.ID
+		deploymentID = req.PreparerOutput.DeploymentID
 	}
-	if id == nil || id.Name == "" {
+	if deploymentID == 0 {
 		respondErr(w, MissingKeyErr)
 		return nil
 	}
 
-	// Forward to remote worker without resolving — the worker resolves locally.
-	if id.Machine != "" && id.Machine != h.MachineName && h.ClusterPrimary != nil {
+	// Check if the deployment lives on a remote machine.
+	cfg := h.findConfigByID(deploymentID)
+	if cfg != nil && cfg.ConfigID != nil && cfg.ConfigID.Machine != "" && cfg.ConfigID.Machine != h.MachineName && h.ClusterPrimary != nil {
 		clusterReq := &apigen.MsgToWorker{DeploymentLogRequest: req}
-		return h.proxyRemoteLogs(w, id.Machine, clusterReq)
+		return h.proxyRemoteLogs(w, cfg.ConfigID.Machine, clusterReq)
 	}
 
 	// Resolve seqNo=0 to latest from local status.
 	if req.RunnerOutput != nil {
-		if req.RunnerOutput.SeqNo == 0 {
-			st := h.Store.FetchDeploymentStatus(*id)
+		if req.RunnerOutput.Version == 0 {
+			st := h.Store.FetchDeploymentStatus(deploymentID)
 			if st != nil && st.Runner != nil {
-				req.RunnerOutput.SeqNo = st.Runner.DeploymentSeqNo
+				req.RunnerOutput.Version = st.Runner.DeploymentConfigVersion
 			}
 		}
 		return h.streamRunLog(ctx, w, req.RunnerOutput)
 	}
-	if req.PreparerOutput.SeqNo == 0 {
-		st := h.Store.FetchDeploymentStatus(*id)
+	if req.PreparerOutput.Version == 0 {
+		st := h.Store.FetchDeploymentStatus(deploymentID)
 		if st != nil && st.Preparer != nil {
-			req.PreparerOutput.SeqNo = st.Preparer.DeploymentSeqNo
+			req.PreparerOutput.Version = st.Preparer.DeploymentConfigVersion
 		}
 	}
 	return h.streamPrepareLog(ctx, w, req.PreparerOutput)
@@ -98,7 +92,7 @@ func (h *Handler) streamRunLog(ctx apigen.Context, w http.ResponseWriter, req *a
 	}
 	defer f.Close()
 	return streamLogFile(ctx, w, f, func() bool {
-		st := h.Store.FetchDeploymentStatus(*req.ID)
+		st := h.Store.FetchDeploymentStatus(req.DeploymentID)
 		return st != nil && st.Runner != nil && isRunnerActive(st.Runner.Status)
 	})
 }
@@ -112,13 +106,11 @@ func (h *Handler) streamPrepareLog(ctx apigen.Context, w http.ResponseWriter, re
 	}
 	defer f.Close()
 	return streamLogFile(ctx, w, f, func() bool {
-		st := h.Store.FetchDeploymentStatus(*req.ID)
+		st := h.Store.FetchDeploymentStatus(req.DeploymentID)
 		return st != nil && st.Preparer != nil && isPrepareInProgress(st.Preparer.Status)
 	})
 }
 
-// waitForFile tries to open a file, retrying for up to 5 seconds if it
-// doesn't exist yet (the runner/preparer may still be starting up).
 func waitForFile(ctx apigen.Context, path string) (*os.File, error) {
 	f, err := os.Open(path)
 	if err == nil {
@@ -148,8 +140,6 @@ func waitForFile(ctx apigen.Context, path string) (*os.File, error) {
 	}
 }
 
-// proxyRemoteLogs streams log data from a remote worker back to the HTTP
-// response.
 func (h *Handler) proxyRemoteLogs(w http.ResponseWriter, machine string, req *apigen.MsgToWorker) error {
 	reader, err := h.ClusterPrimary.RequestLogs(machine, req)
 	if err != nil {
@@ -180,9 +170,6 @@ func (h *Handler) proxyRemoteLogs(w http.ResponseWriter, machine string, req *ap
 	}
 }
 
-// streamLogFile writes the current contents of f to w, then tails the file as
-// long as keepTailing returns true. It bails out if the client disconnects or
-// the underlying writer returns an error.
 func streamLogFile(ctx apigen.Context, w http.ResponseWriter, f *os.File, keepTailing func() bool) error {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -235,9 +222,36 @@ func streamLogFile(ctx apigen.Context, w http.ResponseWriter, f *os.File, keepTa
 	}
 }
 
-// PostV1ListScopes looks up the latest DeploymentConfig for the requested
-// environment+name, then dispatches to the correct version provider for
-// scope discovery (branches for nix, nothing for github releases).
+// findConfigByID looks up a deployment config from the store's snapshot by integer ID.
+func (h *Handler) findConfigByID(deploymentID int32) *apigen.DeploymentConfig {
+	snapshot, _ := h.Store.MustFetchSnapshotAndSubscribe(nil, "")
+	for _, dws := range snapshot {
+		if dws.Config.ID == deploymentID {
+			return dws.Config
+		}
+	}
+	return nil
+}
+
+// findLatestDeployment resolves (environment, name) to the most recent
+// DeploymentConfig by scanning the snapshot.
+func (h *Handler) findLatestDeployment(environment, name string) (*apigen.DeploymentConfig, error) {
+	snapshot, _ := h.Store.MustFetchSnapshotAndSubscribe(nil, "")
+	for _, dws := range snapshot {
+		c := dws.Config
+		if c.ConfigID == nil {
+			continue
+		}
+		if c.ConfigID.Environment == environment && c.ConfigID.Name == name {
+			if c.Spec == nil || c.Spec.Prepare == nil {
+				return nil, NoPreparerErr
+			}
+			return c, nil
+		}
+	}
+	return nil, DeploymentNotFoundErr
+}
+
 func (h *Handler) PostV1ListScopes(ctx apigen.Context, req *apigen.ListScopesRequest) (*apigen.ListScopesResponse, error) {
 	dep, err := h.findLatestDeployment(req.Environment, req.DeploymentName)
 	if err != nil {
@@ -254,8 +268,6 @@ func (h *Handler) PostV1ListScopes(ctx apigen.Context, req *apigen.ListScopesReq
 	return &apigen.ListScopesResponse{Scopes: scopes}, nil
 }
 
-// PostV1ListVersions returns the available versions for the requested
-// deployment's prepare config under the given scope.
 func (h *Handler) PostV1ListVersions(ctx apigen.Context, req *apigen.ListVersionsRequest) (*apigen.ListVersionsResponse, error) {
 	dep, err := h.findLatestDeployment(req.Environment, req.DeploymentName)
 	if err != nil {
@@ -270,30 +282,6 @@ func (h *Handler) PostV1ListVersions(ctx apigen.Context, req *apigen.ListVersion
 		return nil, fmt.Errorf("listing versions: %w", err)
 	}
 	return &apigen.ListVersionsResponse{Versions: vs}, nil
-}
-
-// findLatestDeployment resolves (environment, name) to the most recent
-// DeploymentConfig by scanning the snapshot returned from the store. It does
-// not filter by machine since list-scopes/list-versions can legitimately
-// be invoked for remote-machine deployments.
-//
-// TODO: the store will eventually expose a direct (env,name) lookup.
-// For now we scan the full snapshot, which is fine at current scale.
-func (h *Handler) findLatestDeployment(environment, name string) (*apigen.DeploymentConfig, error) {
-	snapshot, _ := h.Store.MustFetchSnapshotAndSubscribe(nil, "")
-	for _, dws := range snapshot {
-		c := dws.Config
-		if c == nil || c.ID == nil {
-			continue
-		}
-		if c.ID.Environment == environment && c.ID.Name == name {
-			if c.Spec == nil || c.Spec.Prepare == nil {
-				return nil, NoPreparerErr
-			}
-			return c, nil
-		}
-	}
-	return nil, DeploymentNotFoundErr
 }
 
 func isPrepareInProgress(status apigen.PreparationStatus) bool {

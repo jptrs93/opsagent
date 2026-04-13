@@ -1,7 +1,7 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {format} from "date-fns";
-import {decodeDeploymentHistory} from "../capi/model.js";
+import {encodeDeploymentHistoryRequest, decodeDeploymentHistory} from "../capi/model.js";
 import {usersMapS} from "../state/deployments.js";
 
 const { div, h2, span, button, p } = van.tags;
@@ -63,41 +63,21 @@ function resolveUserName(userId) {
     return usersMapS.val.get(userId) || 'unknown';
 }
 
-function parseKey(key) {
-    const parts = key.split(':');
-    if (parts.length >= 3) {
-        return { environment: parts[0], machine: parts[1], deploymentName: parts.slice(2).join(':') };
-    }
-    const idx = key.indexOf(':');
-    if (idx === -1) {
-        return { environment: '', machine: '', deploymentName: key };
-    }
-    return {
-        environment: '',
-        machine: key.slice(0, idx),
-        deploymentName: key.slice(idx + 1),
-    };
-}
-
-export function deploymentHistory(key, onClose) {
+export function deploymentHistory(deploymentId, onClose) {
     const entries = van.state(null);
     const error = van.state('');
-    const { environment, machine, deploymentName } = parseKey(key);
 
     const load = async () => {
         try {
             const headers = capi.headerProvider() || {};
+            headers['Content-Type'] = 'application/x-protobuf';
             headers['Accept'] = 'application/x-protobuf';
-            let url = `/v1/deployment/history?deployment=${encodeURIComponent(deploymentName)}`;
-            if (machine) {
-                url += `&machine=${encodeURIComponent(machine)}`;
-            }
-            if (environment) {
-                url += `&environment=${encodeURIComponent(environment)}`;
-            }
+            const body = encodeDeploymentHistoryRequest({ deploymentId });
 
-            const response = await fetch(url, {
+            const response = await fetch('/v1/deployment/history', {
+                method: 'POST',
                 headers,
+                body,
                 credentials: 'include',
             });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -116,7 +96,7 @@ export function deploymentHistory(key, onClose) {
         {class: "w-1/2 min-h-0 border-l border-gray-700 bg-gray-900 flex flex-col h-full"},
         div(
             {class: "flex items-center justify-between p-3 border-b border-gray-700"},
-            h2({class: "text-sm font-semibold text-gray-300"}, `History: ${deploymentName}`),
+            h2({class: "text-sm font-semibold text-gray-300"}, `History: #${deploymentId}`),
             div(
                 {class: "flex items-center gap-2"},
                 () => error.val ? span({class: "text-xs text-red-400"}, error.val) : span(),
@@ -138,16 +118,14 @@ export function deploymentHistory(key, onClose) {
 
                 // Build a map of config entries by seqNo for diffing.
                 const configEntries = entries.val.filter(e => e.config);
-                const configBySeq = {};
-                // Walk oldest-first to map prev configs correctly.
-                const configsSorted = [...configEntries].sort((a, b) => a.config.seqNo - b.config.seqNo);
+                const configByVersion = {};
+                const configsSorted = [...configEntries].sort((a, b) => a.config.version - b.config.version);
                 let prevConfig = null;
                 for (const e of configsSorted) {
-                    configBySeq[e.config.seqNo] = { config: e.config, prev: prevConfig };
+                    configByVersion[e.config.version] = { config: e.config, prev: prevConfig };
                     prevConfig = e.config;
                 }
 
-                // entries are already time-desc from backend.
                 const lines = entries.val.map((e) => {
                     const isConfig = !!e.config;
                     const ts = isConfig
@@ -159,7 +137,7 @@ export function deploymentHistory(key, onClose) {
                             : '');
 
                     if (isConfig) {
-                        const info = configBySeq[e.config.seqNo];
+                        const info = configByVersion[e.config.version];
                         const desc = describeConfigEntry(e.config, info?.prev);
                         const userName = resolveUserName(e.config.updatedBy);
                         const user = userName ? ` [${userName}]` : '';
@@ -167,7 +145,7 @@ export function deploymentHistory(key, onClose) {
                             {class: "px-3 py-0.5 text-xs font-mono text-orange-400"},
                             span(ts),
                             span("  "),
-                            span(`seq=${e.config.seqNo} `),
+                            span(`v${e.config.version} `),
                             span(desc),
                             user ? span({class: "text-orange-300"}, user) : null,
                         );

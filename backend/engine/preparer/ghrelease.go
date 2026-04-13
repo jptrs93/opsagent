@@ -35,7 +35,7 @@ func NewGithubReleaseDownloader(dataDir string, githubToken string) *GithubRelea
 
 func (g *GithubReleaseDownloader) start(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig) Preparer {
 	ctx, cancel := context.WithCancel(parentCtx)
-	p := &activePreparer{cancel: cancel, done: make(chan struct{}), seqNo: dep.SeqNo}
+	p := &activePreparer{cancel: cancel, done: make(chan struct{}), seqNo: dep.Version}
 
 	version := desiredVersion(dep)
 	if version == "" {

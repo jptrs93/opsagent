@@ -10,7 +10,10 @@ import (
 
 type DeploymentConfig struct {
 	DeploymentID   int64
-	SeqNo          int64
+	Environment    string
+	Machine        string
+	Name           string
+	Version        int64
 	UpdatedAt      int64
 	UpdatedBy      int64
 	SpecBlob       []byte
@@ -21,7 +24,7 @@ type DeploymentConfig struct {
 
 type DeploymentConfigHistory struct {
 	DeploymentID   int64
-	SeqNo          int64
+	Version        int64
 	UpdatedAt      int64
 	UpdatedBy      int64
 	SpecBlob       []byte
@@ -38,19 +41,34 @@ type DeploymentIdentifier struct {
 	CreatedAt   int64
 }
 
+type DeploymentStatus struct {
+	DeploymentID          int64
+	StatusSeqNo           int64
+	Timestamp             int64
+	PreparerConfigVersion sql.NullInt64
+	PreparerArtifact      sql.NullString
+	PreparerStatus        sql.NullInt64
+	RunnerConfigVersion   sql.NullInt64
+	RunnerPid             sql.NullInt64
+	RunnerArtifact        sql.NullString
+	RunnerStatus          sql.NullInt64
+	RunnerNumRestarts     sql.NullInt64
+	RunnerLastRestartAt   sql.NullInt64
+}
+
 type DeploymentStatusHistory struct {
-	DeploymentID        int64
-	StatusSeqNo         int64
-	Timestamp           int64
-	PreparerSeqNo       sql.NullInt64
-	PreparerArtifact    sql.NullString
-	PreparerStatus      sql.NullInt64
-	RunnerSeqNo         sql.NullInt64
-	RunnerPid           sql.NullInt64
-	RunnerArtifact      sql.NullString
-	RunnerStatus        sql.NullInt64
-	RunnerNumRestarts   sql.NullInt64
-	RunnerLastRestartAt sql.NullInt64
+	DeploymentID          int64
+	StatusSeqNo           int64
+	Timestamp             int64
+	PreparerConfigVersion sql.NullInt64
+	PreparerArtifact      sql.NullString
+	PreparerStatus        sql.NullInt64
+	RunnerConfigVersion   sql.NullInt64
+	RunnerPid             sql.NullInt64
+	RunnerArtifact        sql.NullString
+	RunnerStatus          sql.NullInt64
+	RunnerNumRestarts     sql.NullInt64
+	RunnerLastRestartAt   sql.NullInt64
 }
 
 type PublicKey struct {

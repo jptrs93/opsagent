@@ -5,16 +5,8 @@ import {encodeDeploymentLogRequest} from "../capi/model.js";
 
 const { div, h2, span, pre, button } = van.tags;
 
-const parseDeploymentKey = (key) => {
-    const parts = key.split(':');
-    if (parts.length >= 3) {
-        return { environment: parts[0], machine: parts[1], name: parts.slice(2).join(':') };
-    }
-    return { environment: '', machine: '', name: key };
-};
-
 // type: 'run' or 'prepare'
-export function deploymentLogs(key, type, onClose) {
+export function deploymentLogs(deploymentId, type, onClose) {
     const outputText = van.state('');
     const done = van.state(false);
     const endLabel = van.state('Stream ended');
@@ -39,10 +31,9 @@ export function deploymentLogs(key, type, onClose) {
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
         };
 
-        const id = parseDeploymentKey(key);
         const body = type === 'run'
-            ? encodeDeploymentLogRequest({ runnerOutput: { id, seqNo: 0 } })
-            : encodeDeploymentLogRequest({ preparerOutput: { id, seqNo: 0 } });
+            ? encodeDeploymentLogRequest({ runnerOutput: { deploymentId, version: 0 } })
+            : encodeDeploymentLogRequest({ preparerOutput: { deploymentId, version: 0 } });
 
         try {
             const response = await fetch('/v1/deployment/logs', {
@@ -106,7 +97,7 @@ export function deploymentLogs(key, type, onClose) {
         {class: "w-1/2 min-h-0 border-l border-gray-700 bg-gray-900 flex flex-col h-full"},
         div(
             {class: "flex items-center justify-between p-3 border-b border-gray-700"},
-            h2({class: "text-sm font-semibold text-gray-300"}, `${title}: ${key}`),
+            h2({class: "text-sm font-semibold text-gray-300"}, `${title}: #${deploymentId}`),
             div(
                 {class: "flex items-center gap-2"},
                 () => done.val

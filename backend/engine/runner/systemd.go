@@ -2,9 +2,7 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -17,39 +15,37 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
-// systemdRunner monitors a systemd unit by polling `systemctl is-active`.
-// It never restarts or installs anything — systemd owns process lifecycle.
-// The install+restart path is a one-shot in newSystemdRunnerWithRestart
-// before entering the same monitor loop.
+// systemdRunner monitors a systemd unitName by polling `systemctl is-active`.
 type systemdRunner struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	done   chan struct{}
 
-	store storage.OperatorStore
-	id    *apigen.DeploymentIdentifier
-	seqNo int32
+	store        storage.OperatorStore
+	deploymentID int32
+	runningSeqNo int32 // this is the seq_no of the config version being run.
 
-	unit       string
-	binPath    string
+	unitName    string
+	unitBinPath string
+
 	artifact   string
-	outputPath string
+	outputPath string // this is the output file for commands to switch over and restart the systemd service not for the service application logs
 }
 
 // newSystemdMonitor creates a monitor-only runner. Used by ReAttach.
-func newSystemdMonitor(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, prev *apigen.RunnerStatus) *systemdRunner {
+func newSystemdMonitor(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, runnerStatus *apigen.RunnerStatus) *systemdRunner {
 	ctx, cancel := context.WithCancel(parentCtx)
 	sys := dep.Spec.Runner.Systemd
 	r := &systemdRunner{
-		ctx:        ctx,
-		cancel:     cancel,
-		done:       make(chan struct{}),
-		store:      store,
-		id:         dep.ID,
-		seqNo:      prev.DeploymentSeqNo,
-		unit:       normalizeUnit(sys.Name),
-		artifact:   prev.RunningArtifact,
-		outputPath: dep.RunOutputPath(),
+		ctx:          ctx,
+		cancel:       cancel,
+		done:         make(chan struct{}),
+		store:        store,
+		deploymentID: dep.ID,
+		runningSeqNo: runnerStatus.DeploymentConfigVersion,
+		unitName:     normalizeUnit(sys.Name),
+		artifact:     runnerStatus.RunningArtifact,
+		outputPath:   dep.RunOutputPath(),
 	}
 	go r.monitor()
 	return r
@@ -59,28 +55,28 @@ func newSystemdMonitor(parentCtx context.Context, store storage.OperatorStore, d
 // systemd restart, writes the new status, then enters the monitor loop.
 // Called only from runner.Create when the operator has a new artifact ready.
 // No retries — if install or restart fails, it writes CRASHED and exits.
-func newSystemdRunnerWithRestart(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, artifact string) *systemdRunner {
+func newSystemdRunnerWithRestart(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, artifact string, configSeqNo int32) *systemdRunner {
 	ctx, cancel := context.WithCancel(parentCtx)
 	sys := dep.Spec.Runner.Systemd
 	r := &systemdRunner{
-		ctx:        ctx,
-		cancel:     cancel,
-		done:       make(chan struct{}),
-		store:      store,
-		id:         dep.ID,
-		seqNo:      dep.SeqNo,
-		unit:       normalizeUnit(sys.Name),
-		binPath:    sys.BinPath,
-		artifact:   artifact,
-		outputPath: dep.RunOutputPath(),
+		ctx:          ctx,
+		cancel:       cancel,
+		done:         make(chan struct{}),
+		store:        store,
+		deploymentID: dep.ID,
+		runningSeqNo: configSeqNo,
+		unitName:     normalizeUnit(sys.Name),
+		unitBinPath:  sys.BinPath,
+		artifact:     artifact,
+		outputPath:   dep.RunOutputPath(),
 	}
 	go r.installAndMonitor()
 	return r
 }
 
-func (r *systemdRunner) SeqNo() int32 { return r.seqNo }
+func (r *systemdRunner) Version() int32 { return r.runningSeqNo }
 
-// Stop cancels the monitor goroutine. It does NOT stop the systemd unit.
+// Stop cancels the monitor goroutine. It does NOT stop the systemd unitName.
 func (r *systemdRunner) Stop() {
 	r.cancel()
 	<-r.done
@@ -91,17 +87,17 @@ func (r *systemdRunner) installAndMonitor() {
 
 	r.writeStatus(apigen.RunningStatus_STARTING, 0)
 
-	if err := atomicSymlink(r.artifact, r.binPath); err != nil {
+	if err := atomicSymlink(r.artifact, r.unitBinPath); err != nil {
 		slog.ErrorContext(r.ctx, "symlinking artifact failed", "err", err)
 		r.appendOutput("symlink failed: %s\n", err)
 		r.writeStatus(apigen.RunningStatus_CRASHED, 0)
 		return
 	}
-	r.appendOutput("symlinked %s -> %s\n", r.binPath, r.artifact)
+	r.appendOutput("symlinked %s -> %s\n", r.unitBinPath, r.artifact)
 
-	out, err := systemctlRestart(r.ctx, r.unit)
+	out, err := systemctlRestart(r.ctx, r.unitName)
 	if err != nil {
-		slog.ErrorContext(r.ctx, "systemctl restart failed", "err", err, "unit", r.unit)
+		slog.ErrorContext(r.ctx, "systemctl restart failed", "err", err, "unitName", r.unitName)
 		r.appendOutput("restart failed: %s\n%s\n", err, out)
 		r.writeStatus(apigen.RunningStatus_CRASHED, 0)
 		return
@@ -126,9 +122,9 @@ func (r *systemdRunner) monitorLoop() {
 		case <-r.ctx.Done():
 			return
 		case <-ticker.C:
-			active, err := systemctlIsActive(r.ctx, r.unit)
+			active, err := systemctlIsActive(r.ctx, r.unitName)
 			if err != nil {
-				slog.WarnContext(r.ctx, "systemctl is-active failed", "unit", r.unit, "err", err)
+				slog.WarnContext(r.ctx, "systemctl is-active failed", "unitName", r.unitName, "err", err)
 				continue
 			}
 			status := mapActiveState(active)
@@ -136,22 +132,22 @@ func (r *systemdRunner) monitorLoop() {
 				continue
 			}
 			last = status
-			pid, _ := systemctlMainPID(r.ctx, r.unit)
+			pid, _ := systemctlMainPID(r.ctx, r.unitName)
 			r.writeStatus(status, pid)
 		}
 	}
 }
 
 func (r *systemdRunner) writeStatus(status apigen.RunningStatus, pid int) {
-	r.store.MustWriteDeploymentStatus(context.Background(), *r.id, func(s *apigen.DeploymentStatus) {
-		if s.Runner != nil && s.Runner.DeploymentSeqNo > r.seqNo {
+	r.store.MustWriteDeploymentStatus(context.Background(), r.deploymentID, func(s *apigen.DeploymentStatus) {
+		if s.Runner != nil && s.Runner.DeploymentConfigVersion > r.runningSeqNo {
 			return
 		}
 		s.StatusSeqNo++
 		s.Timestamp = time.Now()
-		s.DeploymentID = r.id
+		s.DeploymentID = r.deploymentID
 		s.Runner = &apigen.RunnerStatus{
-			DeploymentSeqNo: r.seqNo,
+			DeploymentConfigVersion: r.runningSeqNo,
 			Status:          status,
 			RunningPid:      int32(pid),
 			RunningArtifact: r.artifact,
@@ -173,69 +169,11 @@ func (r *systemdRunner) appendOutput(format string, args ...any) {
 }
 
 // --- helpers ---
-
 func normalizeUnit(name string) string {
 	if !strings.HasSuffix(name, ".service") {
 		return name + ".service"
 	}
 	return name
-}
-
-func binMatchesArtifact(binPath, artifactPath string) (bool, error) {
-	if binPath == "" || artifactPath == "" {
-		return false, nil
-	}
-	binInfo, err := os.Stat(binPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		return false, err
-	}
-	artInfo, err := os.Stat(artifactPath)
-	if err != nil {
-		return false, err
-	}
-	if os.SameFile(binInfo, artInfo) {
-		return true, nil
-	}
-	if binInfo.Size() != artInfo.Size() {
-		return false, nil
-	}
-	return fileContentsEqual(binPath, artifactPath)
-}
-
-func fileContentsEqual(a, b string) (bool, error) {
-	fa, err := os.Open(a)
-	if err != nil {
-		return false, err
-	}
-	defer fa.Close()
-	fb, err := os.Open(b)
-	if err != nil {
-		return false, err
-	}
-	defer fb.Close()
-
-	const chunk = 32 * 1024
-	bufA := make([]byte, chunk)
-	bufB := make([]byte, chunk)
-	for {
-		nA, errA := io.ReadFull(fa, bufA)
-		nB, errB := io.ReadFull(fb, bufB)
-		if nA != nB || string(bufA[:nA]) != string(bufB[:nB]) {
-			return false, nil
-		}
-		if errA == io.EOF && errB == io.EOF {
-			return true, nil
-		}
-		if errA != nil && errA != io.ErrUnexpectedEOF {
-			return false, errA
-		}
-		if errB != nil && errB != io.ErrUnexpectedEOF {
-			return false, errB
-		}
-	}
 }
 
 func atomicSymlink(src, dst string) error {

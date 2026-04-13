@@ -21,8 +21,15 @@ type DeploymentOperator struct {
 // for the given deployment seq number.
 func preparerReady(status *apigen.DeploymentStatus, seqNo int32) bool {
 	return status.Preparer != nil &&
-		status.Preparer.DeploymentSeqNo == seqNo &&
+		status.Preparer.DeploymentConfigVersion == seqNo &&
 		status.Preparer.Status == apigen.PreparationStatus_READY
+}
+
+func configName(cfg *apigen.DeploymentConfig) string {
+	if cfg.ConfigID != nil {
+		return fmt.Sprintf("%s:%s:%s", cfg.ConfigID.Environment, cfg.ConfigID.Machine, cfg.ConfigID.Name)
+	}
+	return fmt.Sprintf("id=%d", cfg.ID)
 }
 
 func (op DeploymentOperator) RunAll(ctx context.Context, machine string) {
@@ -31,12 +38,13 @@ func (op DeploymentOperator) RunAll(ctx context.Context, machine string) {
 
 	slog.InfoContext(ctx, "RunAll: snapshot loaded", "count", len(deps), "machine", machine)
 
-	running := map[apigen.DeploymentIdentifier]struct{}{}
+	running := map[int32]struct{}{}
 	for _, dep := range deps {
-		running[*dep.Config.ID] = struct{}{}
+		running[dep.Config.ID] = struct{}{}
 		slog.InfoContext(ctx, "RunAll: launching operator from snapshot",
-			"id", fmt.Sprintf("%s:%s:%s", dep.Config.ID.Environment, dep.Config.ID.Machine, dep.Config.ID.Name),
-			"seqNo", dep.Config.SeqNo,
+			"id", dep.Config.ID,
+			"name", configName(dep.Config),
+			"seqNo", dep.Config.Version,
 			"desiredRunning", dep.Config.DesiredState.Running,
 			"desiredVersion", dep.Config.DesiredState.Version,
 			"hasPreparer", dep.Status.Preparer != nil,
@@ -48,11 +56,12 @@ func (op DeploymentOperator) RunAll(ctx context.Context, machine string) {
 		for {
 			select {
 			case v := <-ch:
-				if _, ok := running[*v.Config.ID]; !ok {
-					running[*v.Config.ID] = struct{}{}
+				if _, ok := running[v.Config.ID]; !ok {
+					running[v.Config.ID] = struct{}{}
 					slog.InfoContext(ctx, "RunAll: launching operator for new deployment",
-						"id", fmt.Sprintf("%s:%s:%s", v.Config.ID.Environment, v.Config.ID.Machine, v.Config.ID.Name),
-						"seqNo", v.Config.SeqNo,
+						"id", v.Config.ID,
+						"name", configName(v.Config),
+						"seqNo", v.Config.Version,
 					)
 					go op.Run(ctx, subs, v.Config, v.Status)
 				}
@@ -71,20 +80,20 @@ func (op DeploymentOperator) Run(
 	config *apigen.DeploymentConfig,
 	status *apigen.DeploymentStatus) {
 	id := config.ID
-	ctx = logu.ExtendLogContext(ctx, "dep", fmt.Sprintf("%v:%v", id.Environment, id.Name))
+	ctx = logu.ExtendLogContext(ctx, "dep", configName(config))
 	slog.InfoContext(ctx, "deployment operator started")
 
 	sub, unsubFunc := subs.Subscribe(func(dws apigen.DeploymentWithStatus) bool {
-		return *dws.Config.ID == *id
+		return dws.Config.ID == id
 	})
 	slog.InfoContext(ctx, "Run: reattaching preparer",
 		"preparerStatus", fmtPreparerStatus(status.Preparer),
-		"configSeqNo", config.SeqNo,
+		"configSeqNo", config.Version,
 	)
 	var currentPreparer preparer.Preparer2 = preparer.ReAttach(ctx, op.Store, config, status.Preparer)
 	slog.InfoContext(ctx, "Run: reattaching runner",
 		"runnerStatus", fmtRunnerStatus(status.Runner),
-		"configSeqNo", config.SeqNo,
+		"configSeqNo", config.Version,
 	)
 	var currentRunner runner.Runner = runner.ReAttach(ctx, op.Store, config, status.Runner)
 
@@ -94,16 +103,6 @@ func (op DeploymentOperator) Run(
 		case update := <-sub.Ch:
 			config := update.Config
 			status := update.Status
-			//slog.InfoContext(ctx, "Run: received update",
-			//	"configSeqNo", config.SeqNo,
-			//	"deleted", config.Deleted,
-			//	"desiredRunning", config.DesiredState.Running,
-			//	"desiredVersion", config.DesiredState.Version,
-			//	"preparerStatus", fmtPreparerStatus(status.Preparer),
-			//	"runnerStatus", fmtRunnerStatus(status.Runner),
-			//	"currentPreparerSeqNo", currentPreparer.SeqNo(),
-			//	"currentRunnerSeqNo", currentRunner.SeqNo(),
-			//)
 			switch {
 			case config.Deleted:
 				slog.InfoContext(ctx, "Run: deployment deleted, shutting down")
@@ -114,14 +113,14 @@ func (op DeploymentOperator) Run(
 			case !config.DesiredState.Running:
 				slog.InfoContext(ctx, "Run: desired running=false, stopping runner")
 				currentRunner.Stop()
-			case config.SeqNo > currentPreparer.SeqNo() && config.DesiredState.Running:
+			case config.Version > currentPreparer.Version() && config.DesiredState.Running:
 				slog.InfoContext(ctx, "Run: config ahead of preparer, starting new prepare",
-					"configSeqNo", config.SeqNo, "preparerSeqNo", currentPreparer.SeqNo())
+					"configSeqNo", config.Version, "preparerSeqNo", currentPreparer.Version())
 				currentPreparer.Cancel()
 				currentPreparer = preparer.StartPrepare(op.Store, config)
-			case preparerReady(status, config.SeqNo) && config.SeqNo > currentRunner.SeqNo():
+			case preparerReady(status, config.Version) && config.Version > currentRunner.Version():
 				slog.InfoContext(ctx, "Run: preparer ready, creating runner",
-					"artifact", status.Preparer.Artifact, "configSeqNo", config.SeqNo)
+					"artifact", status.Preparer.Artifact, "configSeqNo", config.Version)
 				currentRunner.Stop()
 				currentRunner = runner.Create(ctx, op.Store, config, status)
 			default:
@@ -138,12 +137,12 @@ func fmtPreparerStatus(p *apigen.PreparerStatus) string {
 	if p == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("seqNo=%d status=%v artifact=%q", p.DeploymentSeqNo, p.Status, p.Artifact)
+	return fmt.Sprintf("seqNo=%d status=%v artifact=%q", p.DeploymentConfigVersion, p.Status, p.Artifact)
 }
 
 func fmtRunnerStatus(r *apigen.RunnerStatus) string {
 	if r == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("seqNo=%d status=%v pid=%d artifact=%q", r.DeploymentSeqNo, r.Status, r.RunningPid, r.RunningArtifact)
+	return fmt.Sprintf("seqNo=%d status=%v pid=%d artifact=%q", r.DeploymentConfigVersion, r.Status, r.RunningPid, r.RunningArtifact)
 }

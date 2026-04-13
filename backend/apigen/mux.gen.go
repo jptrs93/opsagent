@@ -39,7 +39,7 @@ type ServerHandler interface {
 	GetV1ConfigHistory(Context, *http.Request, http.ResponseWriter) error
 	PostV1StateStream(Context) iter.Seq2[*State, error]
 	PostV1DeploymentUpdate(Context, *DeploymentUpdateRequest) (*DesiredState, error)
-	GetV1DeploymentHistory(Context, *http.Request, http.ResponseWriter) error
+	PostV1DeploymentHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
 	PostV1DeploymentLogs(Context, *http.Request, http.ResponseWriter) error
 	GetV1ClusterStatus(Context, *http.Request, http.ResponseWriter) error
 	PostV1ListScopes(Context, *ListScopesRequest) (*ListScopesResponse, error)
@@ -243,17 +243,19 @@ func CreateMux(h ServerHandler, verifyAuth VerifyAuthFunc, options *MuxOptions, 
 		res, err := h.PostV1DeploymentUpdate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}, middlewares...))
-	m.HandleFunc("GET /v1/deployment/history", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	m.HandleFunc("POST /v1/deployment/history", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
 		if err != nil {
 			HandleReqErr(ctx, err, r, w)
 			return
 		}
-		err = h.GetV1DeploymentHistory(authCtx, r, w)
+		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeDeploymentHistoryRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		res, err := h.PostV1DeploymentHistory(authCtx, req)
+		Respond(authCtx, r, w, res, err)
 	}, middlewares...))
 	m.HandleFunc("POST /v1/deployment/logs", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})

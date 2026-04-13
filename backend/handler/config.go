@@ -53,6 +53,7 @@ type yamlRunner struct {
 type yamlOsProcess struct {
 	WorkingDir string `yaml:"workingDir,omitempty"`
 	RunAs      string `yaml:"runAs,omitempty"`
+	Strategy   string `yaml:"strategy,omitempty"`
 }
 
 type yamlSystemd struct {
@@ -125,7 +126,7 @@ func yamlToProto(yc *yamlConfig) ([]*apigen.DeploymentConfig, error) {
 			}
 
 			out = append(out, &apigen.DeploymentConfig{
-				ID: &apigen.DeploymentIdentifier{
+				ConfigID: &apigen.DeploymentIdentifier{
 					Environment: env.Name,
 					Machine:     dep.Machine,
 					Name:        dep.Name,
@@ -192,6 +193,7 @@ func toRunnerConfig(yr *yamlRunner, where string) (*apigen.RunnerConfig, error) 
 		out.OsProcess = &apigen.OsProcessRunnerConfig{
 			WorkingDir: yr.OsProcess.WorkingDir,
 			RunAs:      yr.OsProcess.RunAs,
+			Strategy:   yr.OsProcess.Strategy,
 		}
 	}
 	if hasSystemd {

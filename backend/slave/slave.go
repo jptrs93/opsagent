@@ -3,7 +3,6 @@ package slave
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -32,7 +31,7 @@ type Config struct {
 // deployment operator, and spawns a background goroutine that maintains a
 // persistent connection to the primary. It blocks until ctx is done.
 func Run(ctx context.Context, cfg Config) error {
-	store := sqlite.NewStorageAdapter(filepath.Join(cfg.DataDir, "secondary.db"))
+	store := sqlite.NewSecondaryStorageAdapter(filepath.Join(cfg.DataDir, "secondary.db"))
 
 	preparer.Nix = preparer.NewNixBuilder(cfg.DataDir, cfg.GithubToken)
 	preparer.GHRel = preparer.NewGithubReleaseDownloader(cfg.DataDir, cfg.GithubToken)
@@ -49,7 +48,7 @@ func Run(ctx context.Context, cfg Config) error {
 // connected and backing off on dial failures. The slave keeps operating
 // off local state while disconnected — this loop never returns until ctx
 // is done.
-func runPrimaryConnLoop(ctx context.Context, cfg Config, store *sqlite.StorageAdapter) {
+func runPrimaryConnLoop(ctx context.Context, cfg Config, store *sqlite.SecondaryStorageAdapter) {
 	backoff := time.Second
 	const maxBackoff = 30 * time.Second
 	for {
@@ -96,7 +95,7 @@ func runPrimaryConnLoop(ctx context.Context, cfg Config, store *sqlite.StorageAd
 // primary (snapshot, config updates, log requests), apply state to the local
 // store, and push local status changes back. Returns when the connection
 // drops or ctx is done.
-func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.StorageAdapter, machine string) error {
+func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorageAdapter, machine string) error {
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -161,7 +160,7 @@ func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.StorageAd
 // statusPushLoop forwards local status changes to the primary. It tracks the
 // last StatusSeqNo sent per deployment to avoid sending duplicate updates.
 func statusPushLoop(ctx context.Context, conn *cluster.Conn, ch <-chan apigen.DeploymentWithStatus) {
-	lastSeq := make(map[apigen.DeploymentIdentifier]int32)
+	lastSeq := make(map[int32]int32)
 	for {
 		select {
 		case <-ctx.Done():
@@ -170,10 +169,10 @@ func statusPushLoop(ctx context.Context, conn *cluster.Conn, ch <-chan apigen.De
 			if !ok {
 				return
 			}
-			if dws.Status == nil || dws.Config == nil || dws.Config.ID == nil {
+			if dws.Status == nil || dws.Config == nil || dws.Config.ID == 0 {
 				continue
 			}
-			id := *dws.Config.ID
+			id := dws.Config.ID
 			if dws.Status.StatusSeqNo <= lastSeq[id] {
 				continue
 			}
@@ -192,19 +191,18 @@ func statusPushLoop(ctx context.Context, conn *cluster.Conn, ch <-chan apigen.De
 // its own deployment status. If the primary's view of a deployment's status
 // differs from the local state, the local status is pushed back so the
 // primary's mirror is refreshed.
-func applySnapshot(ctx context.Context, conn *cluster.Conn, store *sqlite.StorageAdapter, snap *apigen.DeploymentWithStatusSnapshot) {
+func applySnapshot(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorageAdapter, snap *apigen.DeploymentWithStatusSnapshot) {
 	slog.Info("applying deployments snapshot from primary", "count", len(snap.Items))
 	for _, item := range snap.Items {
-		if item.Config == nil || item.Config.ID == nil {
+		if item.Config == nil || item.Config.ID == 0 {
 			continue
 		}
 		store.MustWriteDeploymentConfig(ctx, item.Config)
 
 		// Push local status back if the primary's copy is stale.
-		local := store.FetchDeploymentStatus(*item.Config.ID)
+		local := store.FetchDeploymentStatus(item.Config.ID)
 		if local != nil && statusDiffers(local, item.Status) {
-			slog.Info("pushing stale local status to primary",
-				"id", fmt.Sprintf("%s:%s:%s", item.Config.ID.Environment, item.Config.ID.Machine, item.Config.ID.Name))
+			slog.Info("pushing stale local status to primary", "id", item.Config.ID)
 			msg := &apigen.MsgToMaster{StatusWrite: local}
 			if err := conn.WriteFrame(msg.Encode()); err != nil {
 				slog.Warn("failed pushing stale status to primary", "err", err)
@@ -226,7 +224,7 @@ func statusDiffers(local, remote *apigen.DeploymentStatus) bool {
 		return true
 	}
 	if local.Preparer != nil && remote.Preparer != nil {
-		if local.Preparer.DeploymentSeqNo != remote.Preparer.DeploymentSeqNo ||
+		if local.Preparer.DeploymentConfigVersion != remote.Preparer.DeploymentConfigVersion ||
 			local.Preparer.Status != remote.Preparer.Status ||
 			local.Preparer.Artifact != remote.Preparer.Artifact {
 			return true
@@ -237,7 +235,7 @@ func statusDiffers(local, remote *apigen.DeploymentStatus) bool {
 		return true
 	}
 	if local.Runner != nil && remote.Runner != nil {
-		if local.Runner.DeploymentSeqNo != remote.Runner.DeploymentSeqNo ||
+		if local.Runner.DeploymentConfigVersion != remote.Runner.DeploymentConfigVersion ||
 			local.Runner.Status != remote.Runner.Status ||
 			local.Runner.RunningPid != remote.Runner.RunningPid ||
 			local.Runner.RunningArtifact != remote.Runner.RunningArtifact {
@@ -249,25 +247,23 @@ func statusDiffers(local, remote *apigen.DeploymentStatus) bool {
 
 // applyConfigUpdate writes a single config update from the primary into the
 // local store.
-func applyConfigUpdate(ctx context.Context, store *sqlite.StorageAdapter, cfg *apigen.DeploymentConfig) {
-	if cfg == nil || cfg.ID == nil {
+func applyConfigUpdate(ctx context.Context, store *sqlite.SecondaryStorageAdapter, cfg *apigen.DeploymentConfig) {
+	if cfg == nil || cfg.ID == 0 {
 		return
 	}
-	slog.Info("applying deployment config update from primary",
-		"id", fmt.Sprintf("%s:%s:%s", cfg.ID.Environment, cfg.ID.Machine, cfg.ID.Name),
-		"seqNo", cfg.SeqNo)
+	slog.Info("applying deployment config update from primary", "id", cfg.ID, "seqNo", cfg.Version)
 	store.MustWriteDeploymentConfig(ctx, cfg)
 }
 
 // streamDeploymentLog resolves seqNo=0 to latest from local status, then
 // streams the appropriate log file back to the primary.
-func streamDeploymentLog(conn *cluster.Conn, store *sqlite.StorageAdapter, req *apigen.DeploymentLogRequest) {
+func streamDeploymentLog(conn *cluster.Conn, store *sqlite.SecondaryStorageAdapter, req *apigen.DeploymentLogRequest) {
 	if req.RunnerOutput != nil {
 		r := req.RunnerOutput
-		if r.SeqNo == 0 && r.ID != nil {
-			st := store.FetchDeploymentStatus(*r.ID)
+		if r.Version == 0 && r.DeploymentID != 0 {
+			st := store.FetchDeploymentStatus(r.DeploymentID)
 			if st != nil && st.Runner != nil {
-				r.SeqNo = st.Runner.DeploymentSeqNo
+				r.Version = st.Runner.DeploymentConfigVersion
 			}
 		}
 		streamFile(conn, r.OutputPath())
@@ -275,10 +271,10 @@ func streamDeploymentLog(conn *cluster.Conn, store *sqlite.StorageAdapter, req *
 	}
 	if req.PreparerOutput != nil {
 		p := req.PreparerOutput
-		if p.SeqNo == 0 && p.ID != nil {
-			st := store.FetchDeploymentStatus(*p.ID)
+		if p.Version == 0 && p.DeploymentID != 0 {
+			st := store.FetchDeploymentStatus(p.DeploymentID)
 			if st != nil && st.Preparer != nil {
-				p.SeqNo = st.Preparer.DeploymentSeqNo
+				p.Version = st.Preparer.DeploymentConfigVersion
 			}
 		}
 		streamFile(conn, p.OutputPath())

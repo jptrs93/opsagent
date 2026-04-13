@@ -369,12 +369,14 @@ func DecodePrepareConfig(b []byte) (*PrepareConfig, error) {
 type OsProcessRunnerConfig struct {
 	WorkingDir string
 	RunAs      string
+	Strategy   string
 }
 
 func (m *OsProcessRunnerConfig) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.WorkingDir, 1)
 	b = AppendStringField(b, m.RunAs, 2)
+	b = AppendStringField(b, m.Strategy, 3)
 	return b
 }
 
@@ -393,6 +395,8 @@ func DecodeOsProcessRunnerConfig(b []byte) (*OsProcessRunnerConfig, error) {
 			b, m.WorkingDir, err = ConsumeString(b, typ)
 		case 2:
 			b, m.RunAs, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Strategy, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -897,21 +901,18 @@ func DecodeDeploymentHistory(b []byte) (*DeploymentHistory, error) {
 }
 
 type DeploymentUpdateRequest struct {
-	ID            *DeploymentIdentifier
+	DeploymentID  int32
 	TargetVersion string
 	Stop          bool
-	SeqNo         int32
+	Version       int32
 }
 
 func (m *DeploymentUpdateRequest) Encode() []byte {
 	var b []byte
-	if m.ID != nil {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.ID.Encode())
-	}
+	b = AppendInt32Field(b, m.DeploymentID, 5)
 	b = AppendStringField(b, m.TargetVersion, 2)
 	b = AppendBoolField(b, m.Stop, 3)
-	b = AppendInt32Field(b, m.SeqNo, 4)
+	b = AppendInt32Field(b, m.Version, 4)
 	return b
 }
 
@@ -920,7 +921,45 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 	var num protowire.Number
 	var typ protowire.Type
 	var err error
-	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 5:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.TargetVersion, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Stop, err = ConsumeBool(b, typ)
+		case 4:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type DeploymentHistoryRequest struct {
+	DeploymentID int32
+}
+
+func (m *DeploymentHistoryRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DeploymentID, 1)
+	return b
+}
+
+func DecodeDeploymentHistoryRequest(b []byte) (*DeploymentHistoryRequest, error) {
+	var m DeploymentHistoryRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -928,20 +967,7 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 		}
 		switch num {
 		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentIdentifier
-				item, err = DecodeDeploymentIdentifier(msgBytes)
-				if err == nil {
-					m.ID = item
-				}
-			}
-		case 2:
-			b, m.TargetVersion, err = ConsumeString(b, typ)
-		case 3:
-			b, m.Stop, err = ConsumeBool(b, typ)
-		case 4:
-			b, m.SeqNo, err = ConsumeVarInt32(b, typ)
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -953,17 +979,14 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 }
 
 type PrepareOutputRequest struct {
-	ID    *DeploymentIdentifier
-	SeqNo int32
+	DeploymentID int32
+	Version      int32
 }
 
 func (m *PrepareOutputRequest) Encode() []byte {
 	var b []byte
-	if m.ID != nil {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.ID.Encode())
-	}
-	b = AppendInt32Field(b, m.SeqNo, 2)
+	b = AppendInt32Field(b, m.DeploymentID, 3)
+	b = AppendInt32Field(b, m.Version, 2)
 	return b
 }
 
@@ -972,24 +995,16 @@ func DecodePrepareOutputRequest(b []byte) (*PrepareOutputRequest, error) {
 	var num protowire.Number
 	var typ protowire.Type
 	var err error
-	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentIdentifier
-				item, err = DecodeDeploymentIdentifier(msgBytes)
-				if err == nil {
-					m.ID = item
-				}
-			}
+		case 3:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, m.SeqNo, err = ConsumeVarInt32(b, typ)
+			b, m.Version, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1001,17 +1016,14 @@ func DecodePrepareOutputRequest(b []byte) (*PrepareOutputRequest, error) {
 }
 
 type RunOutputRequest struct {
-	ID    *DeploymentIdentifier
-	SeqNo int32
+	DeploymentID int32
+	Version      int32
 }
 
 func (m *RunOutputRequest) Encode() []byte {
 	var b []byte
-	if m.ID != nil {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.ID.Encode())
-	}
-	b = AppendInt32Field(b, m.SeqNo, 2)
+	b = AppendInt32Field(b, m.DeploymentID, 3)
+	b = AppendInt32Field(b, m.Version, 2)
 	return b
 }
 
@@ -1020,24 +1032,16 @@ func DecodeRunOutputRequest(b []byte) (*RunOutputRequest, error) {
 	var num protowire.Number
 	var typ protowire.Type
 	var err error
-	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentIdentifier
-				item, err = DecodeDeploymentIdentifier(msgBytes)
-				if err == nil {
-					m.ID = item
-				}
-			}
+		case 3:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, m.SeqNo, err = ConsumeVarInt32(b, typ)
+			b, m.Version, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1243,8 +1247,9 @@ func DecodeDesiredState(b []byte) (*DesiredState, error) {
 }
 
 type DeploymentConfig struct {
-	ID           *DeploymentIdentifier
-	SeqNo        int32
+	ID           int32
+	ConfigID     *DeploymentIdentifier
+	Version      int32
 	UpdatedAt    time.Time
 	UpdatedBy    int32
 	Spec         *DeploymentSpec
@@ -1254,11 +1259,12 @@ type DeploymentConfig struct {
 
 func (m *DeploymentConfig) Encode() []byte {
 	var b []byte
-	if m.ID != nil {
+	b = AppendInt32Field(b, m.ID, 8)
+	if m.ConfigID != nil {
 		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.ID.Encode())
+		b = protowire.AppendBytes(b, m.ConfigID.Encode())
 	}
-	b = AppendInt32Field(b, m.SeqNo, 2)
+	b = AppendInt32Field(b, m.Version, 2)
 	b = AppendInt64FromTime(b, m.UpdatedAt, 3)
 	b = AppendInt32Field(b, m.UpdatedBy, 4)
 	if m.Spec != nil {
@@ -1285,17 +1291,19 @@ func DecodeDeploymentConfig(b []byte) (*DeploymentConfig, error) {
 			return nil, err
 		}
 		switch num {
+		case 8:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *DeploymentIdentifier
 				item, err = DecodeDeploymentIdentifier(msgBytes)
 				if err == nil {
-					m.ID = item
+					m.ConfigID = item
 				}
 			}
 		case 2:
-			b, m.SeqNo, err = ConsumeVarInt32(b, typ)
+			b, m.Version, err = ConsumeVarInt32(b, typ)
 		case 3:
 			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 4:
@@ -1391,7 +1399,7 @@ func DecodeDeploymentWithStatus(b []byte) (*DeploymentWithStatus, error) {
 type DeploymentStatus struct {
 	StatusSeqNo  int32
 	Timestamp    time.Time
-	DeploymentID *DeploymentIdentifier
+	DeploymentID int32
 	Preparer     *PreparerStatus
 	Runner       *RunnerStatus
 }
@@ -1400,10 +1408,7 @@ func (m *DeploymentStatus) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.StatusSeqNo, 1)
 	b = AppendInt64FromTime(b, m.Timestamp, 2)
-	if m.DeploymentID != nil {
-		b = protowire.AppendTag(b, 3, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.DeploymentID.Encode())
-	}
+	b = AppendInt32Field(b, m.DeploymentID, 6)
 	if m.Preparer != nil {
 		b = protowire.AppendTag(b, 4, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.Preparer.Encode())
@@ -1431,15 +1436,8 @@ func DecodeDeploymentStatus(b []byte) (*DeploymentStatus, error) {
 			b, m.StatusSeqNo, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.Timestamp, err = ConsumeTimeFromInt64(b, typ)
-		case 3:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentIdentifier
-				item, err = DecodeDeploymentIdentifier(msgBytes)
-				if err == nil {
-					m.DeploymentID = item
-				}
-			}
+		case 6:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 4:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -1469,14 +1467,14 @@ func DecodeDeploymentStatus(b []byte) (*DeploymentStatus, error) {
 }
 
 type PreparerStatus struct {
-	DeploymentSeqNo int32
-	Artifact        string
-	Status          PreparationStatus
+	DeploymentConfigVersion int32
+	Artifact                string
+	Status                  PreparationStatus
 }
 
 func (m *PreparerStatus) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.DeploymentSeqNo, 1)
+	b = AppendInt32Field(b, m.DeploymentConfigVersion, 1)
 	b = AppendStringField(b, m.Artifact, 2)
 	b = AppendInt32Field(b, int32(m.Status), 3)
 	return b
@@ -1494,7 +1492,7 @@ func DecodePreparerStatus(b []byte) (*PreparerStatus, error) {
 		}
 		switch num {
 		case 1:
-			b, m.DeploymentSeqNo, err = ConsumeVarInt32(b, typ)
+			b, m.DeploymentConfigVersion, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.Artifact, err = ConsumeString(b, typ)
 		case 3:
@@ -1514,17 +1512,17 @@ func DecodePreparerStatus(b []byte) (*PreparerStatus, error) {
 }
 
 type RunnerStatus struct {
-	DeploymentSeqNo  int32
-	RunningPid       int32
-	RunningArtifact  string
-	Status           RunningStatus
-	NumberOfRestarts int32
-	LastRestartAt    time.Time
+	DeploymentConfigVersion int32
+	RunningPid              int32
+	RunningArtifact         string
+	Status                  RunningStatus
+	NumberOfRestarts        int32
+	LastRestartAt           time.Time
 }
 
 func (m *RunnerStatus) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.DeploymentSeqNo, 1)
+	b = AppendInt32Field(b, m.DeploymentConfigVersion, 1)
 	b = AppendInt32Field(b, m.RunningPid, 2)
 	b = AppendStringField(b, m.RunningArtifact, 3)
 	b = AppendInt32Field(b, int32(m.Status), 4)
@@ -1545,7 +1543,7 @@ func DecodeRunnerStatus(b []byte) (*RunnerStatus, error) {
 		}
 		switch num {
 		case 1:
-			b, m.DeploymentSeqNo, err = ConsumeVarInt32(b, typ)
+			b, m.DeploymentConfigVersion, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.RunningPid, err = ConsumeVarInt32(b, typ)
 		case 3:
