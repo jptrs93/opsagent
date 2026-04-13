@@ -111,14 +111,14 @@ const handleStateMessage = (message) => {
     if (message.versionsSnapshot?.items) {
         const next = new Map();
         for (const item of message.versionsSnapshot.items) {
-            next.set(item.deploymentID, item);
+            next.set(item.deploymentId, item);
         }
         versionsS.val = next;
     }
 
-    if (message.versionsUpdate?.deploymentID) {
+    if (message.versionsUpdate?.deploymentId) {
         const next = new Map(versionsS.val);
-        next.set(message.versionsUpdate.deploymentID, message.versionsUpdate);
+        next.set(message.versionsUpdate.deploymentId, message.versionsUpdate);
         versionsS.val = next;
     }
 };
