@@ -87,6 +87,12 @@ func spawnDaemon(binPath, workDir, logPath, runAs string) (int, error) {
 
 	sysproc := &syscall.SysProcAttr{Setsid: true}
 	env := scrubOpsagentEnv(os.Environ())
+	// Always normalise temp dirs — systemd's PrivateTmp gives opsagent a
+	// private /tmp that child processes (especially under runAs) cannot access.
+	env = setEnv(env, "TMPDIR", "/tmp")
+	env = setEnv(env, "TMP", "/tmp")
+	env = setEnv(env, "TEMP", "/tmp")
+	env = setEnv(env, "TEMPDIR", "/tmp")
 	if runAs != "" {
 		u, err := user.Lookup(runAs)
 		if err != nil {
@@ -99,11 +105,9 @@ func spawnDaemon(binPath, workDir, logPath, runAs string) (int, error) {
 		sysproc.Credential = cred
 		env = setEnv(env, "HOME", u.HomeDir)
 		env = setEnv(env, "USER", u.Username)
-		env = setEnv(env, "TMPDIR", "/tmp")
-		env = setEnv(env, "TMP", "/tmp")
-		env = setEnv(env, "TEMP", "/tmp")
-		env = setEnv(env, "TEMPDIR", "/tmp")
 	}
+
+	slog.Info("spawnDaemon child env", "env", env)
 
 	pid, err := syscall.ForkExec(binPath, []string{binPath}, &syscall.ProcAttr{
 		Dir: workDir,
