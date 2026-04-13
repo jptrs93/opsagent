@@ -12,6 +12,7 @@ export function deploymentLogs(deploymentId, deploymentLabel, type, abortControl
     const endLabel = van.state('Stream ended');
 
     const unregisterLogout = onLogout(() => abortController.abort());
+    abortController.signal.addEventListener('abort', () => unregisterLogout(), { once: true });
 
     const startStream = async () => {
         if (abortController.signal.aborted) return;
@@ -57,14 +58,11 @@ export function deploymentLogs(deploymentId, deploymentLabel, type, abortControl
             if (e.name !== 'AbortError') {
                 endLabel.val = 'Connection error';
             }
-        } finally {
-            unregisterLogout();
         }
         done.val = true;
     };
 
     const cleanup = () => {
-        unregisterLogout();
         abortController.abort();
         onClose();
     };
