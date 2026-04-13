@@ -1,7 +1,7 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {format} from "date-fns";
-import {usersMapS} from "../state/deployments.js";
+import {resolveUserDisplayName} from "../lib/users.js";
 
 const { div, h2, span, button, p } = van.tags;
 
@@ -55,11 +55,6 @@ function describeStatusEntry(status) {
         parts.push(`run: ${label}`);
     }
     return parts.length > 0 ? parts.join(', ') : 'status update';
-}
-
-function resolveUserName(userId) {
-    if (!userId) return null;
-    return usersMapS.val.get(userId) || 'unknown';
 }
 
 export function deploymentHistory(deploymentId, onClose) {
@@ -126,7 +121,7 @@ export function deploymentHistory(deploymentId, onClose) {
                     if (isConfig) {
                         const info = configByVersion[e.config.version];
                         const desc = describeConfigEntry(e.config, info?.prev);
-                        const userName = resolveUserName(e.config.updatedBy);
+                        const userName = resolveUserDisplayName(e.config.updatedBy);
                         const user = userName ? ` [${userName}]` : '';
                         return div(
                             {class: "px-3 py-0.5 text-xs font-mono text-orange-400"},

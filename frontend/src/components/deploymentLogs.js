@@ -94,7 +94,7 @@ export function deploymentLogs(deploymentId, type, onClose) {
     });
 
     return div(
-        {class: "w-1/2 min-h-0 border-l border-gray-700 bg-gray-900 flex flex-col h-full"},
+        {class: "w-1/2 min-h-0 overflow-hidden border-l border-gray-700 bg-gray-900 flex flex-col h-full"},
         div(
             {class: "flex items-center justify-between p-3 border-b border-gray-700"},
             h2({class: "text-sm font-semibold text-gray-300"}, `${title}: #${deploymentId}`),
@@ -109,6 +109,6 @@ export function deploymentLogs(deploymentId, type, onClose) {
                 }, "Close"),
             ),
         ),
-        div({class: "flex-1 min-h-0"}, outputPre),
+        div({class: "flex-1 min-h-0 overflow-hidden flex"}, outputPre),
     );
 }

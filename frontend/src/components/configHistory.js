@@ -1,5 +1,6 @@
 import van from "vanjs-core";
 import {format} from "date-fns";
+import {resolveUserDisplayName} from "../lib/users.js";
 const { div, h2, span } = van.tags;
 
 export function configHistory(versionsState, onRestore) {
@@ -19,7 +20,7 @@ export function configHistory(versionsState, onRestore) {
                 return div(
                     {class: "flex flex-col gap-1"},
                     ...versions.map((v, i) => {
-                        const author = v.updatedBy ? `user ${v.updatedBy}` : '';
+                        const author = resolveUserDisplayName(v.updatedBy);
                         return div({
                             class: "px-3 py-2 rounded text-sm cursor-pointer hover:bg-surface-hover transition-colors",
                             onclick: () => onRestore(v)
@@ -27,7 +28,7 @@ export function configHistory(versionsState, onRestore) {
                             div(
                                 {class: `${i === 0 ? "text-white" : "text-gray-500"} text-xs font-mono whitespace-nowrap overflow-hidden text-ellipsis`},
                                 v.timestamp ? format(new Date(v.timestamp), "MMM d, yyyy HH:mm") : "",
-                                author ? span(` ${author}`) : "",
+                                author ? span(` [${author}]`) : "",
                                 span(` v${v.version}`)
                             )
                         );

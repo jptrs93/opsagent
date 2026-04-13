@@ -2,6 +2,7 @@ import van from "vanjs-core";
 import {spinnerButton} from "./spinnerbutton.js";
 import {StopCircle, PlayCircle} from "vanjs-feather";
 import {format} from "date-fns";
+import {resolveUserDisplayName} from "../lib/users.js";
 
 const { div, span, select, option, button, a } = van.tags;
 
@@ -130,7 +131,7 @@ export function statusCard(deployment, versions, versionError, scopes, selectedS
             div(
                 {class: "flex-1 basis-0 grid grid-cols-[auto_1fr] gap-x-2 gap-y-1.5"},
                 span({class: "text-gray-400"}, "Deployed by:"),
-                span(deployment.deployedBy || 'unknown'),
+                span(() => resolveUserDisplayName(deployment.deployedBy) || 'unknown'),
                 span({class: "text-gray-400"}, "Deployed at:"),
                 span(
                     deployment.deployedAt instanceof Date && deployment.deployedAt.getTime() > 0
