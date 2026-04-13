@@ -3,6 +3,7 @@ package runner
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/user"
 	"strconv"
@@ -71,6 +72,7 @@ func awaitProcessExit(pid int) {
 // the process runs as that OS user (requires opsagent to have CAP_SETUID or
 // run as root). If runAs is empty, the process inherits opsagent's user.
 func spawnDaemon(binPath, workDir, logPath, runAs string) (int, error) {
+	slog.Info("spawnDaemon", "bin", binPath, "workDir", workDir, "logPath", logPath, "runAs", runAs)
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return 0, fmt.Errorf("opening log file %q: %w", logPath, err)
