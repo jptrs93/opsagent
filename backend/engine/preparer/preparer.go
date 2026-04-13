@@ -21,10 +21,6 @@ type Preparer interface {
 	Version() int32
 }
 
-// Preparer2 is a transitional alias kept so the in-progress operator.go
-// refactor can continue to reference the interface under its old name.
-type Preparer2 = Preparer
-
 // PrepareWrapper is a transitional placeholder kept solely so that the
 // in-progress operator.go still type-checks for the unused PrepareFunc type
 // declaration. The old wrapper's real fields are gone; nothing reads them.

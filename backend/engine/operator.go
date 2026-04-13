@@ -90,7 +90,7 @@ func (op DeploymentOperator) Run(
 		"preparerStatus", fmtPreparerStatus(status.Preparer),
 		"configSeqNo", config.Version,
 	)
-	var currentPreparer preparer.Preparer2 = preparer.ReAttach(ctx, op.Store, config, status.Preparer)
+	var currentPreparer preparer.Preparer = preparer.ReAttach(ctx, op.Store, config, status.Preparer)
 	slog.InfoContext(ctx, "Run: reattaching runner",
 		"runnerStatus", fmtRunnerStatus(status.Runner),
 		"configSeqNo", config.Version,

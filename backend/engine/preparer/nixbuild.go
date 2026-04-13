@@ -168,6 +168,7 @@ func (b *NixBuilder) resolveCloneURL(repoURL string) string {
 }
 
 func resolveExecPath(artifactPath string, outputExecutable string) (string, error) {
+	slog.Info(fmt.Sprintf("resolve executable in '%v', outputExecutable='%v'", artifactPath, outputExecutable))
 	artifactInfo, err := os.Stat(artifactPath)
 	if err != nil {
 		return "", fmt.Errorf("stat artifact path: %w", err)
