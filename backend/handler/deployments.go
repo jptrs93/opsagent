@@ -8,11 +8,8 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/engine/versionprovider"
 )
 
-var NoPreparerErr = apigen.NewApiErr("Config has no preparer configured", "no_preparer", http.StatusBadRequest)
-var DeploymentNotFoundErr = apigen.NewApiErr("Config not found", "deployment_not_found", http.StatusNotFound)
 var InvalidRequestBodyErr = apigen.NewApiErr("Invalid request body", "invalid_request_body", http.StatusBadRequest)
 var MissingKeyErr = apigen.NewApiErr("Missing deployment identifier", "missing_key", http.StatusBadRequest)
 var NoPrepareLogErr = apigen.NewApiErr("No prepare log found", "prepare_log_not_found", http.StatusNotFound)
@@ -233,59 +230,10 @@ func (h *Handler) findConfigByID(deploymentID int32) *apigen.DeploymentConfig {
 	return nil
 }
 
-// findLatestDeployment resolves (environment, name) to the most recent
-// DeploymentConfig by scanning the snapshot.
-func (h *Handler) findLatestDeployment(environment, name string) (*apigen.DeploymentConfig, error) {
-	snapshot, _ := h.Store.MustFetchSnapshotAndSubscribe(nil, "")
-	for _, dws := range snapshot {
-		c := dws.Config
-		if c.ConfigID == nil {
-			continue
-		}
-		if c.ConfigID.Environment == environment && c.ConfigID.Name == name {
-			if c.Spec == nil || c.Spec.Prepare == nil {
-				return nil, NoPreparerErr
-			}
-			return c, nil
-		}
-	}
-	return nil, DeploymentNotFoundErr
-}
 
-func (h *Handler) PostV1ListScopes(ctx apigen.Context, req *apigen.ListScopesRequest) (*apigen.ListScopesResponse, error) {
-	dep, err := h.findLatestDeployment(req.Environment, req.DeploymentName)
-	if err != nil {
-		return nil, err
-	}
-	provider, err := versionprovider.ForConfig(dep.Spec.Prepare)
-	if err != nil {
-		return nil, NoPreparerErr
-	}
-	scopes, err := provider.ListScopes(ctx, dep.Spec.Prepare)
-	if err != nil {
-		return nil, fmt.Errorf("listing scopes: %w", err)
-	}
-	return &apigen.ListScopesResponse{Scopes: scopes}, nil
-}
 
-func (h *Handler) PostV1ListVersions(ctx apigen.Context, req *apigen.ListVersionsRequest) (*apigen.ListVersionsResponse, error) {
-	dep, err := h.findLatestDeployment(req.Environment, req.DeploymentName)
-	if err != nil {
-		return nil, err
-	}
-	provider, err := versionprovider.ForConfig(dep.Spec.Prepare)
-	if err != nil {
-		return nil, NoPreparerErr
-	}
-	vs, err := provider.ListVersions(ctx, dep.Spec.Prepare, req.Scope)
-	if err != nil {
-		return nil, fmt.Errorf("listing versions: %w", err)
-	}
-	return &apigen.ListVersionsResponse{Versions: vs}, nil
-}
-
-func (h *Handler) PostV1VersionNudge(_ apigen.Context, _ *apigen.EmptyRequest) (*apigen.EmptyRequest, error) {
-	h.VersionManager.Nudge()
+func (h *Handler) PostV1VersionNudge(_ apigen.Context, req *apigen.VersionNudgeRequest) (*apigen.EmptyRequest, error) {
+	h.VersionManager.Nudge(req.DeploymentID, req.Scope)
 	return &apigen.EmptyRequest{}, nil
 }
 

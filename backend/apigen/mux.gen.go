@@ -42,9 +42,7 @@ type ServerHandler interface {
 	PostV1DeploymentHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
 	PostV1DeploymentLogs(Context, *http.Request, http.ResponseWriter) error
 	GetV1ClusterStatus(Context, *http.Request, http.ResponseWriter) error
-	PostV1ListScopes(Context, *ListScopesRequest) (*ListScopesResponse, error)
-	PostV1ListVersions(Context, *ListVersionsRequest) (*ListVersionsResponse, error)
-	PostV1VersionNudge(Context, *EmptyRequest) (*EmptyRequest, error)
+	PostV1VersionNudge(Context, *VersionNudgeRequest) (*EmptyRequest, error)
 }
 
 func CreateMux(h ServerHandler, verifyAuth VerifyAuthFunc, options *MuxOptions, middlewares ...MiddlewareFunc) *http.ServeMux {
@@ -282,41 +280,13 @@ func CreateMux(h ServerHandler, verifyAuth VerifyAuthFunc, options *MuxOptions, 
 			return
 		}
 	}, middlewares...))
-	m.HandleFunc("POST /v1/list/scopes", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeListScopesRequest)
-		if err != nil {
-			HandleReqErr(authCtx, err, r, w)
-			return
-		}
-		res, err := h.PostV1ListScopes(authCtx, req)
-		Respond(authCtx, r, w, res, err)
-	}, middlewares...))
-	m.HandleFunc("POST /v1/list/versions", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeListVersionsRequest)
-		if err != nil {
-			HandleReqErr(authCtx, err, r, w)
-			return
-		}
-		res, err := h.PostV1ListVersions(authCtx, req)
-		Respond(authCtx, r, w, res, err)
-	}, middlewares...))
 	m.HandleFunc("POST /v1/version/nudge", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
 		if err != nil {
 			HandleReqErr(ctx, err, r, w)
 			return
 		}
-		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeEmptyRequest)
+		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeVersionNudgeRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return

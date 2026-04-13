@@ -164,6 +164,8 @@ async function startDeploymentsStream(generation = sessionGeneration) {
                 connected = true;
                 reconnectAttempt = 0;
                 setStreamState('connected', 'Connection healthy');
+                // Nudge backend to poll all versions on connect so data is fresh.
+                capi.postV1VersionNudge({}).catch(() => {});
             }
             armInactivityTimer(generation);
             handleStateMessage(message);

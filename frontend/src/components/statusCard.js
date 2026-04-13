@@ -41,10 +41,14 @@ export function statusCard(deployment, versions, versionError, scopes, selectedS
     const hasExistingVersion = deployment.existingVersion && deployment.existingVersion !== '';
     const isRunning = deployment.existingStatus === STATUS_RUNNING;
     const isStopped = !hasExisting || deployment.existingStatus === STATUS_STOPPED;
+    const isSystemd = deployment.runnerType === 'systemd';
     const existingColors = hasExisting
         ? (existingStatusLabels[deployment.existingStatus] || existingStatusLabels[0])
         : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'};
-    const selectedVersion = van.state('');
+    // Default version selection to the currently deployed version if it's in the list.
+    const deployedId = deployment.deployedVersion || '';
+    const initialVersion = versions.some(v => v.id === deployedId) ? deployedId : '';
+    const selectedVersion = van.state(initialVersion);
     const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
 
     const scopeSelect = scopes.length > 0
@@ -72,8 +76,8 @@ export function statusCard(deployment, versions, versionError, scopes, selectedS
             class: "w-80 text-xs font-mono bg-gray-700 text-gray-200 border border-gray-600 rounded px-2 py-1 truncate focus:outline-none focus:ring-1 focus:ring-brand",
             onchange: (e) => { selectedVersion.val = e.target.value; }
         },
-        option({value: '', disabled: true, selected: true}, versions.length ? "Select a version..." : "No versions loaded"),
-        ...versions.map(v => option({value: v.id}, versionLabel(v)))
+        option({value: '', disabled: true, selected: !initialVersion}, versions.length ? "Select a version..." : "No versions loaded"),
+        ...versions.map(v => option({value: v.id, selected: v.id === initialVersion}, versionLabel(v)))
     );
 
     const deployBtn = spinnerButton("Deploy", async () => {
@@ -98,14 +102,14 @@ export function statusCard(deployment, versions, versionError, scopes, selectedS
             ),
             div(
                 {class: "flex gap-1.5 items-center"},
-                isRunning
+                isRunning && !isSystemd
                     ? button({
                         class: "text-red-400 hover:text-red-300 transition-colors cursor-pointer",
                         onclick: () => onStop(deployment),
                         title: "Stop",
                     }, StopCircle({size: 14}))
                     : span(),
-                isStopped && hasExisting && hasExistingVersion
+                isStopped && hasExisting && hasExistingVersion && !isSystemd
                     ? button({
                         class: "text-green-400 hover:text-green-300 transition-colors cursor-pointer",
                         onclick: () => onDeploy(deployment, deployment.existingVersion),

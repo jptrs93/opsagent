@@ -80,17 +80,10 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  // Preparer version discovery
-  rpc PostV1ListScopes(ListScopesRequest) returns (ListScopesResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
-  }
-
-  rpc PostV1ListVersions(ListVersionsRequest) returns (ListVersionsResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
-  }
-
-  // Nudge: trigger an immediate version poll for all deployments
-  rpc PostV1VersionNudge(EmptyRequest) returns (EmptyRequest) {
+  // Version discovery: nudge triggers an immediate version poll.
+  // Both fields optional: empty = poll all, deployment_id only = all scopes
+  // for that deployment, both = specific scope for specific deployment.
+  rpc PostV1VersionNudge(VersionNudgeRequest) returns (EmptyRequest) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 }
@@ -333,23 +326,9 @@ message VersionsSnapshot {
   repeated DeploymentVersions items = 1;
 }
 
-message ListScopesRequest {
-  string environment = 1;
-  string deployment_name = 2;
-}
-
-message ListScopesResponse {
-  repeated string scopes = 1;
-}
-
-message ListVersionsRequest {
-  string environment = 1;
-  string deployment_name = 2;
-  string scope = 3; // optional; for nix this is the branch
-}
-
-message ListVersionsResponse {
-  repeated Version versions = 1;
+message VersionNudgeRequest {
+  int32 deployment_id = 1; // 0 = poll all deployments
+  string scope = 2;        // empty = all scopes for the deployment
 }
 
 // === Storage-only messages ===

@@ -200,23 +200,9 @@
  * @property {DeploymentVersions[]} items
  */
 /**
- * @typedef {Object} ListScopesRequest
- * @property {string} environment
- * @property {string} deploymentName
- */
-/**
- * @typedef {Object} ListScopesResponse
- * @property {string[]} scopes
- */
-/**
- * @typedef {Object} ListVersionsRequest
- * @property {string} environment
- * @property {string} deploymentName
+ * @typedef {Object} VersionNudgeRequest
+ * @property {number} deploymentId
  * @property {string} scope
- */
-/**
- * @typedef {Object} ListVersionsResponse
- * @property {Version[]} versions
  */
 /**
  * @typedef {Object} User
@@ -2773,150 +2759,26 @@ export function decodeVersionsSnapshot(buffer) {
 
 
 /**
- * @param {ListScopesRequest} message
+ * @param {VersionNudgeRequest} message
  * @param {Writer} writer
  */
-export function writeListScopesRequest(message, writer) {
-    if (message.environment !== undefined && message.environment !== null && message.environment !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.environment);
-    }
-    if (message.deploymentName !== undefined && message.deploymentName !== null && message.deploymentName !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.deploymentName);
-    }
-}
-
-
-/**
- * @param {ListScopesRequest} message
- * @returns {Uint8Array}
- */
-export function encodeListScopesRequest(message) {
-    const writer = Writer.create();
-    writeListScopesRequest(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ListScopesRequest}
- */
-function decodeListScopesRequestMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {environment: "", deploymentName: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.environment = reader.string();
-                break;
-            }
-            case 2: {
-                message.deploymentName = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ListScopesRequest}
- */
-export function decodeListScopesRequest(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeListScopesRequestMessage(reader);
-}
-
-
-
-/**
- * @param {ListScopesResponse} message
- * @param {Writer} writer
- */
-export function writeListScopesResponse(message, writer) {
-    if (message.scopes && message.scopes.length > 0) {
-        for (const item of message.scopes) {
-            writer.uint32(tag(1, WIRE.LDELIM)).string(item);
-        }
-    }
-}
-
-
-/**
- * @param {ListScopesResponse} message
- * @returns {Uint8Array}
- */
-export function encodeListScopesResponse(message) {
-    const writer = Writer.create();
-    writeListScopesResponse(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ListScopesResponse}
- */
-function decodeListScopesResponseMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {scopes: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.scopes.push(reader.string());
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ListScopesResponse}
- */
-export function decodeListScopesResponse(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeListScopesResponseMessage(reader);
-}
-
-
-
-/**
- * @param {ListVersionsRequest} message
- * @param {Writer} writer
- */
-export function writeListVersionsRequest(message, writer) {
-    if (message.environment !== undefined && message.environment !== null && message.environment !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.environment);
-    }
-    if (message.deploymentName !== undefined && message.deploymentName !== null && message.deploymentName !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.deploymentName);
+export function writeVersionNudgeRequest(message, writer) {
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
     }
     if (message.scope !== undefined && message.scope !== null && message.scope !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.scope);
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.scope);
     }
 }
 
 
 /**
- * @param {ListVersionsRequest} message
+ * @param {VersionNudgeRequest} message
  * @returns {Uint8Array}
  */
-export function encodeListVersionsRequest(message) {
+export function encodeVersionNudgeRequest(message) {
     const writer = Writer.create();
-    writeListVersionsRequest(message, writer);
+    writeVersionNudgeRequest(message, writer);
     return writer.finish();
 }
 
@@ -2924,23 +2786,19 @@ export function encodeListVersionsRequest(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {ListVersionsRequest}
+ * @returns {VersionNudgeRequest}
  */
-function decodeListVersionsRequestMessage(reader, length) {
+function decodeVersionNudgeRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {environment: "", deploymentName: "", scope: "" };
+    const message = {deploymentId: 0, scope: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.environment = reader.string();
+                message.deploymentId = reader.int32();
                 break;
             }
             case 2: {
-                message.deploymentName = reader.string();
-                break;
-            }
-            case 3: {
                 message.scope = reader.string();
                 break;
             }
@@ -2954,71 +2812,11 @@ function decodeListVersionsRequestMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {ListVersionsRequest}
+ * @returns {VersionNudgeRequest}
  */
-export function decodeListVersionsRequest(buffer) {
+export function decodeVersionNudgeRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeListVersionsRequestMessage(reader);
-}
-
-
-
-/**
- * @param {ListVersionsResponse} message
- * @param {Writer} writer
- */
-export function writeListVersionsResponse(message, writer) {
-    if (message.versions && message.versions.length > 0) {
-        for (const item of message.versions) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeVersion(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {ListVersionsResponse} message
- * @returns {Uint8Array}
- */
-export function encodeListVersionsResponse(message) {
-    const writer = Writer.create();
-    writeListVersionsResponse(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ListVersionsResponse}
- */
-function decodeListVersionsResponseMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {versions: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.versions.push(decodeVersionMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ListVersionsResponse}
- */
-export function decodeListVersionsResponse(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeListVersionsResponseMessage(reader);
+    return decodeVersionNudgeRequestMessage(reader);
 }
 
 

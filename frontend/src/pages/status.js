@@ -36,6 +36,8 @@ const mapDeploymentsToView = (deployments) => {
             repo = spec.prepare.githubRelease.repo || '';
         }
 
+        const runnerType = spec.runner?.systemd ? 'systemd' : 'osProcess';
+
         return {
             id,
             name: cid.name || '',
@@ -43,6 +45,7 @@ const mapDeploymentsToView = (deployments) => {
             environment: cid.environment || '',
             variant,
             repo,
+            runnerType,
             existingStatus: runner.status || 0,
             existingVersion: runner.runningArtifact || '',
             numberOfRestarts: runner.numberOfRestarts || 0,
@@ -76,43 +79,18 @@ export function statusPage() {
         return scoped?.versions || [];
     };
 
-    const onScopeChange = async (deployment, scope) => {
+    const onScopeChange = (deployment, scope) => {
         const depKey = deployment.id;
         selectedScope.val = {...selectedScope.val, [depKey]: scope};
 
-        // If we don't have versions for this scope yet, fetch on-demand
-        // and nudge the manager to cache it for future polls.
+        // If we don't have versions for this scope yet, nudge the backend to poll it.
         const existing = getVersionsForDeployment(depKey, scope);
         if (existing.length === 0) {
-            try {
-                const result = await capi.postV1ListVersions({
-                    environment: deployment.environment,
-                    deploymentName: deployment.name,
-                    scope: scope || '',
-                });
-                // Merge into versionsS so the UI updates immediately.
-                const entry = versionsS.val.get(depKey);
-                if (entry) {
-                    const next = new Map(versionsS.val);
-                    const updated = {
-                        ...entry,
-                        versionsByScope: {
-                            ...entry.versionsByScope,
-                            [scope || '']: {versions: result?.versions || []},
-                        },
-                    };
-                    next.set(depKey, updated);
-                    versionsS.val = next;
-                }
-            } catch (e) {
-                console.error(`Failed to load versions for scope ${scope}:`, e.message);
-            }
-            // Nudge the backend to include this scope in future polls.
-            capi.postV1VersionNudge({}).catch(() => {});
+            capi.postV1VersionNudge({deploymentId: depKey, scope: scope || ''}).catch(() => {});
         }
     };
 
-    // Auto-select default scope when version data arrives.
+    // Auto-select scope based on currently deployed version when version data arrives.
     van.derive(() => {
         const versions = versionsS.val;
         const currentStatuses = mapDeploymentsToView(deploymentsS.val);
@@ -121,11 +99,30 @@ export function statusPage() {
         for (const s of currentStatuses) {
             if (!s.variant) continue;
             const depId = s.id;
+            // Only auto-select if not already set by the user.
             if (selectedScope.val[depId] !== undefined) continue;
-            const scopes = getScopesForDeployment(depId);
-            if (scopes.length > 0) {
-                const defaultScope = scopes.includes('main') ? 'main' : scopes[0];
-                selectedScope.val = {...selectedScope.val, [depId]: defaultScope};
+
+            const entry = versions.get(depId);
+            if (!entry) continue;
+            const scopes = entry.scopes || [];
+
+            // Try to find which scope contains the currently deployed version.
+            let bestScope = '';
+            if (s.deployedVersion && entry.versionsByScope) {
+                for (const [scope, sv] of Object.entries(entry.versionsByScope)) {
+                    if (sv?.versions?.some(v => v.id === s.deployedVersion)) {
+                        bestScope = scope;
+                        break;
+                    }
+                }
+            }
+            // Fall back to 'main' or first scope.
+            if (!bestScope && scopes.length > 0) {
+                bestScope = scopes.includes('main') ? 'main' : scopes[0];
+            }
+
+            if (bestScope || scopes.length === 0) {
+                selectedScope.val = {...selectedScope.val, [depId]: bestScope};
             }
         }
     });

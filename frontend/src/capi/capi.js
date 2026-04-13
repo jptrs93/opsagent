@@ -5,8 +5,6 @@ import {
   decodeDeploymentHistory,
   decodeDesiredState,
   decodeEmptyRequest,
-  decodeListScopesResponse,
-  decodeListVersionsResponse,
   decodeLoginResponse,
   decodeState,
   decodeUserConfigHistory,
@@ -15,10 +13,9 @@ import {
   encodeDeploymentHistoryRequest,
   encodeDeploymentUpdateRequest,
   encodeEmptyRequest,
-  encodeListScopesRequest,
-  encodeListVersionsRequest,
   encodeMasterPasswordRequest,
   encodePutConfigRequest,
+  encodeVersionNudgeRequest,
   encodeWebAuthNFinishRequest,
 } from './model.js';
 
@@ -265,35 +262,11 @@ export class Capi {
   }
 
   /**
-   * @param {ListScopesRequest} payload
-   * @returns {Promise<ListScopesResponse>}
-   */
-  async postV1ListScopes(payload) {
-    const response = await this.#request('/v1/list/scopes', { method: 'POST', body: encodeListScopesRequest(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeListScopesResponse(await response.arrayBuffer());
-  }
-
-  /**
-   * @param {ListVersionsRequest} payload
-   * @returns {Promise<ListVersionsResponse>}
-   */
-  async postV1ListVersions(payload) {
-    const response = await this.#request('/v1/list/versions', { method: 'POST', body: encodeListVersionsRequest(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeListVersionsResponse(await response.arrayBuffer());
-  }
-
-  /**
-   * @param {EmptyRequest} payload
+   * @param {VersionNudgeRequest} payload
    * @returns {Promise<EmptyRequest>}
    */
   async postV1VersionNudge(payload) {
-    const response = await this.#request('/v1/version/nudge', { method: 'POST', body: encodeEmptyRequest(payload) });
+    const response = await this.#request('/v1/version/nudge', { method: 'POST', body: encodeVersionNudgeRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }

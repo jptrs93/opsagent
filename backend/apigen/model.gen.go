@@ -1783,20 +1783,20 @@ func DecodeVersionsSnapshot(b []byte) (*VersionsSnapshot, error) {
 	return &m, nil
 }
 
-type ListScopesRequest struct {
-	Environment    string
-	DeploymentName string
+type VersionNudgeRequest struct {
+	DeploymentID int32
+	Scope        string
 }
 
-func (m *ListScopesRequest) Encode() []byte {
+func (m *VersionNudgeRequest) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.Environment, 1)
-	b = AppendStringField(b, m.DeploymentName, 2)
+	b = AppendInt32Field(b, m.DeploymentID, 1)
+	b = AppendStringField(b, m.Scope, 2)
 	return b
 }
 
-func DecodeListScopesRequest(b []byte) (*ListScopesRequest, error) {
-	var m ListScopesRequest
+func DecodeVersionNudgeRequest(b []byte) (*VersionNudgeRequest, error) {
+	var m VersionNudgeRequest
 	var num protowire.Number
 	var typ protowire.Type
 	var err error
@@ -1807,134 +1807,9 @@ func DecodeListScopesRequest(b []byte) (*ListScopesRequest, error) {
 		}
 		switch num {
 		case 1:
-			b, m.Environment, err = ConsumeString(b, typ)
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, m.DeploymentName, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-type ListScopesResponse struct {
-	Scopes []string
-}
-
-func (m *ListScopesResponse) Encode() []byte {
-	var b []byte
-	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 1))
-	return b
-}
-
-func DecodeListScopesResponse(b []byte) (*ListScopesResponse, error) {
-	var m ListScopesResponse
-	var num protowire.Number
-	var typ protowire.Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			var item string
-			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
-			if err == nil {
-				m.Scopes = append(m.Scopes, item)
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-type ListVersionsRequest struct {
-	Environment    string
-	DeploymentName string
-	Scope          string
-}
-
-func (m *ListVersionsRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Environment, 1)
-	b = AppendStringField(b, m.DeploymentName, 2)
-	b = AppendStringField(b, m.Scope, 3)
-	return b
-}
-
-func DecodeListVersionsRequest(b []byte) (*ListVersionsRequest, error) {
-	var m ListVersionsRequest
-	var num protowire.Number
-	var typ protowire.Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Environment, err = ConsumeString(b, typ)
-		case 2:
-			b, m.DeploymentName, err = ConsumeString(b, typ)
-		case 3:
 			b, m.Scope, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-type ListVersionsResponse struct {
-	Versions []*Version
-}
-
-func (m *ListVersionsResponse) Encode() []byte {
-	var b []byte
-	for _, item := range m.Versions {
-		if item == nil {
-			continue
-		}
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeListVersionsResponse(b []byte) (*ListVersionsResponse, error) {
-	var m ListVersionsResponse
-	var num protowire.Number
-	var typ protowire.Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *Version
-				item, err = DecodeVersion(msgBytes)
-				if err == nil {
-					m.Versions = append(m.Versions, item)
-				}
-			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
