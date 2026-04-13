@@ -32,8 +32,8 @@ type systemdRunner struct {
 	outputPath string // this is the output file for commands to switch over and restart the systemd service not for the service application logs
 }
 
-// newSystemdMonitor creates a monitor-only runner. Used by ReAttach.
-func newSystemdMonitor(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, runnerStatus *apigen.RunnerStatus) *systemdRunner {
+// reAttachSystemdRunner creates a monitor-only runner. Used by ReAttach.
+func reAttachSystemdRunner(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, runnerStatus *apigen.RunnerStatus) *systemdRunner {
 	ctx, cancel := context.WithCancel(parentCtx)
 	sys := dep.Spec.Runner.Systemd
 	r := &systemdRunner{
@@ -148,9 +148,9 @@ func (r *systemdRunner) writeStatus(status apigen.RunningStatus, pid int) {
 		s.DeploymentID = r.deploymentID
 		s.Runner = &apigen.RunnerStatus{
 			DeploymentConfigVersion: r.runningSeqNo,
-			Status:          status,
-			RunningPid:      int32(pid),
-			RunningArtifact: r.artifact,
+			Status:                  status,
+			RunningPid:              int32(pid),
+			RunningArtifact:         r.artifact,
 		}
 	})
 }

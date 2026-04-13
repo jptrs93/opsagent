@@ -50,7 +50,7 @@ func ReAttach(ctx context.Context, store storage.OperatorStore, dep *apigen.Depl
 		"prevStatus", prev.Status, "prevPid", prev.RunningPid,
 		"prevArtifact", prev.RunningArtifact, "prevSeqNo", prev.DeploymentConfigVersion)
 	if useSystemd(dep) {
-		return newSystemdMonitor(ctx, store, dep, prev)
+		return reAttachSystemdRunner(ctx, store, dep, prev)
 	}
 	return reAttachOSProcessRunner(ctx, store, *dep, *prev)
 }
