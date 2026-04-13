@@ -66,7 +66,12 @@ type yamlSystemd struct {
 // handler owns yaml parsing so the storage package does not need a
 // yaml.v3 dependency.
 func (h *Handler) PutV1Config(ctx apigen.Context, req *apigen.PutConfigRequest) (*apigen.UserConfigVersion, error) {
-	return h.Store.PutDeploymentUserConfig(ctx, req.YamlContent, parseConfig)
+	v, err := h.Store.PutDeploymentUserConfig(ctx, req.YamlContent, parseConfig)
+	if err != nil {
+		return nil, err
+	}
+	h.VersionManager.Nudge(0, "")
+	return v, nil
 }
 
 // GetV1ConfigHistory returns every persisted user config version, newest
