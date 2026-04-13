@@ -52,19 +52,23 @@ Key generated files:
 ### Config
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
-| PUT | `/v1/config` | `PutConfigRequest` | `ConfigVersion` | ANY_OF default |
-| GET | `/v1/config/history` | — | `ConfigHistory` | ANY_OF default |
+| PUT | `/v1/config` | `PutConfigRequest` | `UserConfigVersion` | ANY_OF default |
+| GET | `/v1/config/history` | — | `UserConfigHistory` | ANY_OF default |
 
 ### Deployments
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | POST | `/v1/state/stream` | — | stream `State` | ANY_OF default |
-| POST | `/v1/deployment/update` | `DeploymentUpdateRequest` | `Deployment` | ANY_OF default |
-| GET | `/v1/deployment/history?deployment=&environment=` | — | `Deployments` | ANY_OF default |
-| POST | `/v1/prepare/output` | `PrepareOutputRequest` | text stream | ANY_OF default |
-| POST | `/v1/run/output` | `RunOutputRequest` | text stream | ANY_OF default |
+| POST | `/v1/deployment/update` | `DeploymentUpdateRequest` | `DesiredState` | ANY_OF default |
+| POST | `/v1/deployment/history` | `DeploymentHistoryRequest` | `DeploymentHistory` | ANY_OF default |
+| POST | `/v1/deployment/logs` | `DeploymentLogRequest` | text stream | ANY_OF default |
 | POST | `/v1/list/scopes` | `ListScopesRequest` | `ListScopesResponse` | ANY_OF default |
 | POST | `/v1/list/versions` | `ListVersionsRequest` | `ListVersionsResponse` | ANY_OF default |
+
+### Cluster
+| Method | Path | Request | Response | Policy |
+|--------|------|---------|----------|--------|
+| GET | `/v1/cluster/status` | — | `ClusterStatusResponse` | ANY_OF default |
 
 ## Adding new endpoints
 
