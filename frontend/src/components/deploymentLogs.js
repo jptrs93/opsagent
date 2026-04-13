@@ -5,8 +5,8 @@ import {encodeDeploymentLogRequest} from "../capi/model.js";
 
 const { div, h2, span, pre, button } = van.tags;
 
-// type: 'run' or 'prepare', configVersion: specific version or 0 for latest
-export function deploymentLogs(deploymentId, deploymentLabel, type, configVersion, abortController, onClose) {
+// type: 'run' or 'prepare'
+export function deploymentLogs(deploymentId, deploymentLabel, type, abortController, onClose) {
     const outputText = van.state('');
     const done = van.state(false);
     const endLabel = van.state('Stream ended');
@@ -21,10 +21,9 @@ export function deploymentLogs(deploymentId, deploymentLabel, type, configVersio
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
         };
 
-        const version = configVersion || 0;
         const body = type === 'run'
-            ? encodeDeploymentLogRequest({ runnerOutput: { deploymentId, version } })
-            : encodeDeploymentLogRequest({ preparerOutput: { deploymentId, version } });
+            ? encodeDeploymentLogRequest({ runnerOutput: { deploymentId, version: 0 } })
+            : encodeDeploymentLogRequest({ preparerOutput: { deploymentId, version: 0 } });
 
         try {
             const response = await fetch('/v1/deployment/logs', {

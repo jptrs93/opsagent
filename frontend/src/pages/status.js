@@ -71,7 +71,6 @@ export function statusPage() {
     const selectedScope = van.state({});
     const sidebarMode = van.state(SIDEBAR_NONE);
     const sidebarDeployment = van.state(null);
-    const sidebarConfigVersion = van.state(0);
     let activeSidebarAbort = null;
 
     // Derive scopes and versions from the pushed versionsS state.
@@ -155,9 +154,6 @@ export function statusPage() {
                 targetVersion: version,
                 version: deployment.currentVersion + 1,
             });
-            sidebarMode.val = SIDEBAR_PREPARE;
-            sidebarDeployment.val = deployment.id;
-            sidebarConfigVersion.val = deployment.currentVersion + 1;
         } catch (e) {
             alert(`Deploy failed: ${e.message}`);
         }
@@ -178,7 +174,6 @@ export function statusPage() {
     const onShowRunOutput = (id) => {
         sidebarMode.val = SIDEBAR_RUN;
         sidebarDeployment.val = id;
-        sidebarConfigVersion.val = 0;
     };
 
     const onShowHistory = (id) => {
@@ -189,7 +184,6 @@ export function statusPage() {
     const onShowPrepareOutput = (id) => {
         sidebarMode.val = SIDEBAR_PREPARE;
         sidebarDeployment.val = id;
-        sidebarConfigVersion.val = 0;
     };
 
     const mainContent = div(
@@ -273,13 +267,13 @@ export function statusPage() {
                 abortActiveSidebar();
                 const ac = new AbortController();
                 activeSidebarAbort = ac;
-                return deploymentLogs(sidebarDeployment.val, sidebarDeploymentLabel, 'prepare', sidebarConfigVersion.val, ac, closeSidebar);
+                return deploymentLogs(sidebarDeployment.val, sidebarDeploymentLabel, 'prepare', ac, closeSidebar);
             }
             if (sidebarMode.val === SIDEBAR_RUN && sidebarDeployment.val) {
                 abortActiveSidebar();
                 const ac = new AbortController();
                 activeSidebarAbort = ac;
-                return deploymentLogs(sidebarDeployment.val, sidebarDeploymentLabel, 'run', sidebarConfigVersion.val, ac, closeSidebar);
+                return deploymentLogs(sidebarDeployment.val, sidebarDeploymentLabel, 'run', ac, closeSidebar);
             }
             if (sidebarMode.val === SIDEBAR_HISTORY && sidebarDeployment.val) {
                 return deploymentHistory(sidebarDeployment.val, closeSidebar);
