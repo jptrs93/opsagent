@@ -635,6 +635,8 @@ type State struct {
 	UserConfigUpdate    *UserConfigVersion
 	UsersSnapshot       []*User
 	UserUpdate          *User
+	VersionsSnapshot    *VersionsSnapshot
+	VersionsUpdate      *DeploymentVersions
 }
 
 func (m *State) Encode() []byte {
@@ -666,6 +668,14 @@ func (m *State) Encode() []byte {
 	if m.UserUpdate != nil {
 		b = protowire.AppendTag(b, 7, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.UserUpdate.Encode())
+	}
+	if m.VersionsSnapshot != nil {
+		b = protowire.AppendTag(b, 8, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.VersionsSnapshot.Encode())
+	}
+	if m.VersionsUpdate != nil {
+		b = protowire.AppendTag(b, 9, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.VersionsUpdate.Encode())
 	}
 	return b
 }
@@ -736,6 +746,24 @@ func DecodeState(b []byte) (*State, error) {
 				item, err = DecodeUser(msgBytes)
 				if err == nil {
 					m.UserUpdate = item
+				}
+			}
+		case 8:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *VersionsSnapshot
+				item, err = DecodeVersionsSnapshot(msgBytes)
+				if err == nil {
+					m.VersionsSnapshot = item
+				}
+			}
+		case 9:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentVersions
+				item, err = DecodeDeploymentVersions(msgBytes)
+				if err == nil {
+					m.VersionsUpdate = item
 				}
 			}
 		default:
@@ -1603,6 +1631,148 @@ func DecodeVersion(b []byte) (*Version, error) {
 			b, m.Author, err = ConsumeString(b, typ)
 		case 4:
 			b, m.Time, err = ConsumeTimeFromInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type DeploymentVersions struct {
+	DeploymentID    int32
+	Scopes          []string
+	VersionsByScope map[string]*ScopedVersions
+}
+
+func (m *DeploymentVersions) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DeploymentID, 1)
+	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 2))
+	b = AppendMap(b, m.VersionsByScope, 3, AppendFieldDecorator(AppendStringField, 1), AppendMessageFieldDecorator[*ScopedVersions](2))
+	return b
+}
+
+func DecodeDeploymentVersions(b []byte) (*DeploymentVersions, error) {
+	var m DeploymentVersions
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Scopes = append(m.Scopes, item)
+			}
+		case 3:
+			if m.VersionsByScope == nil {
+				m.VersionsByScope = make(map[string]*ScopedVersions)
+			}
+			b, err = ConsumeMapEntry(b, typ, m.VersionsByScope, ConsumeString, ConsumeMessageDecorator(DecodeScopedVersions))
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ScopedVersions struct {
+	Versions []*Version
+}
+
+func (m *ScopedVersions) Encode() []byte {
+	var b []byte
+	for _, item := range m.Versions {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeScopedVersions(b []byte) (*ScopedVersions, error) {
+	var m ScopedVersions
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Version
+				item, err = DecodeVersion(msgBytes)
+				if err == nil {
+					m.Versions = append(m.Versions, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type VersionsSnapshot struct {
+	Items []*DeploymentVersions
+}
+
+func (m *VersionsSnapshot) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeVersionsSnapshot(b []byte) (*VersionsSnapshot, error) {
+	var m VersionsSnapshot
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentVersions
+				item, err = DecodeDeploymentVersions(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

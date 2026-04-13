@@ -36,6 +36,10 @@ type Handler struct {
 	// handlers to proxy log requests to remote workers. Nil in standalone
 	// or slave mode.
 	ClusterPrimary *primary.Primary
+
+	// VersionManager keeps an in-memory cache of available versions for all
+	// deployments and polls upstream periodically.
+	VersionManager *versionprovider.Manager
 }
 
 func (h *Handler) Get(ctx apigen.Context, request *http.Request, writer http.ResponseWriter) error {
@@ -111,6 +115,10 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	// current snapshot from the store and spawns a per-deployment reconciler
 	// for each entry, plus a forwarder that fans store updates out to them.
 	go engine.DeploymentOperator{Store: h.Store}.RunAll(context.Background(), machineName)
+
+	// Start the version manager that polls upstream for available versions.
+	h.VersionManager = versionprovider.NewManager(h.Store)
+	h.VersionManager.Start(context.Background())
 
 	return h, nil
 }

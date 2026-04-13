@@ -4,6 +4,7 @@ import {
   decodeClusterStatusResponse,
   decodeDeploymentHistory,
   decodeDesiredState,
+  decodeEmptyRequest,
   decodeListScopesResponse,
   decodeListVersionsResponse,
   decodeLoginResponse,
@@ -285,6 +286,18 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeListVersionsResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {EmptyRequest} payload
+   * @returns {Promise<EmptyRequest>}
+   */
+  async postV1VersionNudge(payload) {
+    const response = await this.#request('/v1/version/nudge', { method: 'POST', body: encodeEmptyRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeEmptyRequest(await response.arrayBuffer());
   }
 
 }

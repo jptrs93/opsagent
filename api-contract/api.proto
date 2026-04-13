@@ -88,6 +88,11 @@ service OpsagentHttpV1 {
   rpc PostV1ListVersions(ListVersionsRequest) returns (ListVersionsResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
+
+  // Nudge: trigger an immediate version poll for all deployments
+  rpc PostV1VersionNudge(EmptyRequest) returns (EmptyRequest) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
 }
 
 // === Auth messages ===
@@ -199,6 +204,8 @@ message State {
   UserConfigVersion user_config_update = 5;
   repeated User users_snapshot = 6;
   User user_update = 7;
+  VersionsSnapshot versions_snapshot = 8;
+  DeploymentVersions versions_update = 9;
 }
 
 message DeploymentWithStatusSnapshot {
@@ -308,6 +315,22 @@ message Version {
   string label = 2;   // short human-readable label (commit subject or release name)
   string author = 3;
   int64 time = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+}
+
+// DeploymentVersions holds the scopes and per-scope versions for one deployment.
+// Sent as a snapshot on stream connect and as incremental updates when a poll completes.
+message DeploymentVersions {
+  int32 deployment_id = 1;
+  repeated string scopes = 2;                      // e.g. branches for nix; empty for github releases
+  map<string, ScopedVersions> versions_by_scope = 3; // scope -> versions
+}
+
+message ScopedVersions {
+  repeated Version versions = 1;
+}
+
+message VersionsSnapshot {
+  repeated DeploymentVersions items = 1;
 }
 
 message ListScopesRequest {

@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {deploymentsS, deploymentsStreamS} from "../state/deployments.js";
+import {deploymentsS, deploymentsStreamS, versionsS} from "../state/deployments.js";
 import {statusCard} from "../components/statusCard.js";
 import {deploymentLogs} from "../components/deploymentLogs.js";
 import {deploymentHistory} from "../components/deploymentHistory.js";
@@ -59,75 +59,75 @@ const mapDeploymentsToView = (deployments) => {
 
 export function statusPage() {
     const statuses = van.state([]);
-    const versionsMap = van.state({});
-    const versionErrors = van.state({});
-    const scopesMap = van.state({});
     const selectedScope = van.state({});
     const sidebarMode = van.state(SIDEBAR_NONE);
     const sidebarDeployment = van.state(null);
 
-    const ensurePreparerDataLoaded = (currentStatuses) => {
-        for (const s of currentStatuses || []) {
-            if (!s.variant) continue;
-            loadScopesForDeployment(s);
-        }
+    // Derive scopes and versions from the pushed versionsS state.
+    const getScopesForDeployment = (depId) => {
+        const entry = versionsS.val.get(depId);
+        return entry?.scopes || [];
     };
 
-    const loadScopesForDeployment = async (deployment) => {
-        const depKey = deployment.id;
-        if (scopesMap.val[depKey] !== undefined) {
-            const scope = selectedScope.val[depKey] || '';
-            loadVersionsForDeployment(deployment, scope);
-            return;
-        }
-        try {
-            const result = await capi.postV1ListScopes({
-                environment: deployment.environment,
-                deploymentName: deployment.name,
-            });
-            const scopes = result?.scopes || [];
-            scopesMap.val = {...scopesMap.val, [depKey]: scopes};
-            let defaultScope = selectedScope.val[depKey] || '';
-            if (!defaultScope && scopes.length > 0) {
-                defaultScope = scopes.includes('main') ? 'main' : scopes[0];
-                selectedScope.val = {...selectedScope.val, [depKey]: defaultScope};
-            }
-            loadVersionsForDeployment(deployment, defaultScope);
-        } catch (e) {
-            console.error(`Failed to load scopes for ${depKey}:`, e.message);
-            scopesMap.val = {...scopesMap.val, [depKey]: []};
-            loadVersionsForDeployment(deployment, '');
-        }
+    const getVersionsForDeployment = (depId, scope) => {
+        const entry = versionsS.val.get(depId);
+        if (!entry?.versionsByScope) return [];
+        const scoped = entry.versionsByScope[scope || ''];
+        return scoped?.versions || [];
     };
 
-    const loadVersionsForDeployment = async (deployment, scope) => {
-        const depKey = deployment.id;
-        const cacheKey = `${depKey}:${scope || ''}`;
-        if (versionsMap.val[cacheKey]) return;
-        try {
-            const result = await capi.postV1ListVersions({
-                environment: deployment.environment,
-                deploymentName: deployment.name,
-                scope: scope || '',
-            });
-            versionsMap.val = {...versionsMap.val, [cacheKey]: result?.versions || []};
-        } catch (e) {
-            console.error(`Failed to load versions for ${depKey}:`, e.message);
-            versionsMap.val = {...versionsMap.val, [cacheKey]: []};
-            versionErrors.val = {...versionErrors.val, [depKey]: 'Failed to fetch versions'};
-        }
-    };
-
-    const onScopeChange = (deployment, scope) => {
+    const onScopeChange = async (deployment, scope) => {
         const depKey = deployment.id;
         selectedScope.val = {...selectedScope.val, [depKey]: scope};
-        loadVersionsForDeployment(deployment, scope);
+
+        // If we don't have versions for this scope yet, fetch on-demand
+        // and nudge the manager to cache it for future polls.
+        const existing = getVersionsForDeployment(depKey, scope);
+        if (existing.length === 0) {
+            try {
+                const result = await capi.postV1ListVersions({
+                    environment: deployment.environment,
+                    deploymentName: deployment.name,
+                    scope: scope || '',
+                });
+                // Merge into versionsS so the UI updates immediately.
+                const entry = versionsS.val.get(depKey);
+                if (entry) {
+                    const next = new Map(versionsS.val);
+                    const updated = {
+                        ...entry,
+                        versionsByScope: {
+                            ...entry.versionsByScope,
+                            [scope || '']: {versions: result?.versions || []},
+                        },
+                    };
+                    next.set(depKey, updated);
+                    versionsS.val = next;
+                }
+            } catch (e) {
+                console.error(`Failed to load versions for scope ${scope}:`, e.message);
+            }
+            // Nudge the backend to include this scope in future polls.
+            capi.postV1VersionNudge({}).catch(() => {});
+        }
     };
 
+    // Auto-select default scope when version data arrives.
     van.derive(() => {
+        const versions = versionsS.val;
         const currentStatuses = mapDeploymentsToView(deploymentsS.val);
         statuses.val = currentStatuses;
-        ensurePreparerDataLoaded(currentStatuses);
+
+        for (const s of currentStatuses) {
+            if (!s.variant) continue;
+            const depId = s.id;
+            if (selectedScope.val[depId] !== undefined) continue;
+            const scopes = getScopesForDeployment(depId);
+            if (scopes.length > 0) {
+                const defaultScope = scopes.includes('main') ? 'main' : scopes[0];
+                selectedScope.val = {...selectedScope.val, [depId]: defaultScope};
+            }
+        }
     });
 
     const closeSidebar = () => {
@@ -196,6 +196,9 @@ export function statusPage() {
                 );
             }
 
+            // Re-read versionsS inside the closure so VanJS tracks the dependency.
+            const versions = versionsS.val;
+
             const envMap = {};
             for (const s of filtered) {
                 const env = s.environment || 'Unknown';
@@ -221,12 +224,13 @@ export function statusPage() {
                             {class: "flex flex-wrap gap-3"},
                             ...deployments.map(s => {
                                 const scope = selectedScope.val[s.id] || '';
-                                const versionKey = `${s.id}:${scope}`;
+                                const depVersions = getVersionsForDeployment(s.id, scope);
+                                const depScopes = getScopesForDeployment(s.id);
                                 return statusCard(
                                     s,
-                                    versionsMap.val[versionKey] || [],
-                                    versionErrors.val[s.id] || null,
-                                    scopesMap.val[s.id] || [],
+                                    depVersions,
+                                    null,
+                                    depScopes,
                                     scope,
                                     onScopeChange,
                                     onDeploy,

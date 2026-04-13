@@ -95,6 +95,19 @@ func (s *StorageAdapter) loadCache() {
 	}
 }
 
+// ListActiveDeploymentConfigs returns all non-deleted configs from the cache.
+func (s *StorageAdapter) ListActiveDeploymentConfigs() []*apigen.DeploymentConfig {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]*apigen.DeploymentConfig, 0, len(s.configCache))
+	for _, cfg := range s.configCache {
+		if !cfg.Deleted {
+			out = append(out, cfg)
+		}
+	}
+	return out
+}
+
 func boolToInt(b bool) int64 {
 	if b {
 		return 1

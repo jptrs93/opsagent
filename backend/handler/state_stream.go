@@ -8,17 +8,17 @@ import (
 )
 
 // PostV1StateStream delivers the current deployment snapshot + user config
-// to the UI, then forwards per-deployment updates as they happen. Passing
-// "" for the machine asks the store for all deployments across the cluster.
-//
-// TODO: user-config change notification. The store currently only exposes
-// a one-shot fetch, so a yaml save won't auto-refresh connected UIs until
-// they reconnect. Add a subscribe method in a later pass.
+// + version snapshot to the UI, then forwards per-deployment updates as they
+// happen. Passing "" for the machine asks the store for all deployments
+// across the cluster.
 func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State, error] {
 	return func(yield func(*apigen.State, error) bool) {
 		snapshot, updatesCh := h.Store.MustFetchSnapshotAndSubscribe(ctx, "")
 		userSub, userUnsub := h.Store.SubscribeUserUpdates()
 		defer userUnsub()
+
+		versionSub, versionUnsub := h.VersionManager.Subscribe()
+		defer versionUnsub()
 
 		items := make([]*apigen.DeploymentWithStatus, 0, len(snapshot))
 		for i := range snapshot {
@@ -28,6 +28,7 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 			DeploymentsSnapshot: &apigen.DeploymentWithStatusSnapshot{Items: items},
 			UserConfigSnapshot:  h.Store.MustFetchUserConfigVersion(),
 			UsersSnapshot:       h.Store.ListUsersPublic(),
+			VersionsSnapshot:    &apigen.VersionsSnapshot{Items: h.VersionManager.Snapshot()},
 		}
 		if !yield(initial, nil) {
 			return
@@ -53,6 +54,13 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 					return
 				}
 				if !yield(&apigen.State{UserUpdate: &u}, nil) {
+					return
+				}
+			case v, ok := <-versionSub.Ch:
+				if !ok {
+					return
+				}
+				if !yield(&apigen.State{VersionsUpdate: v}, nil) {
 					return
 				}
 			case <-heartbeatTicker.C:

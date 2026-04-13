@@ -284,6 +284,11 @@ func (h *Handler) PostV1ListVersions(ctx apigen.Context, req *apigen.ListVersion
 	return &apigen.ListVersionsResponse{Versions: vs}, nil
 }
 
+func (h *Handler) PostV1VersionNudge(_ apigen.Context, _ *apigen.EmptyRequest) (*apigen.EmptyRequest, error) {
+	h.VersionManager.Nudge()
+	return &apigen.EmptyRequest{}, nil
+}
+
 func isPrepareInProgress(status apigen.PreparationStatus) bool {
 	return status == apigen.PreparationStatus_PREPARING ||
 		status == apigen.PreparationStatus_DOWNLOADING

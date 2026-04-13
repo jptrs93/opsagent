@@ -9,6 +9,10 @@ export const deploymentsS = van.state([]);
 export const userConfigS = van.state(null);
 // usersMapS holds a Map<userId, userName> for resolving display names.
 export const usersMapS = van.state(new Map());
+// versionsS holds the version data pushed from the backend's version manager.
+// Map<deploymentId, DeploymentVersions> where DeploymentVersions has
+// { deploymentId, scopes, versionsByScope: { [scope]: { versions: [] } } }
+export const versionsS = van.state(new Map());
 export const deploymentsStreamS = van.state({
     status: 'offline',
     sentence: 'offline',
@@ -63,6 +67,7 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
         deploymentsS.val = [];
         userConfigS.val = null;
         usersMapS.val = new Map();
+        versionsS.val = new Map();
     }
     setStreamState('offline', 'offline');
 };
@@ -101,6 +106,20 @@ const handleStateMessage = (message) => {
         const next = new Map(usersMapS.val);
         next.set(message.userUpdate.id, message.userUpdate.name);
         usersMapS.val = next;
+    }
+
+    if (message.versionsSnapshot?.items) {
+        const next = new Map();
+        for (const item of message.versionsSnapshot.items) {
+            next.set(item.deploymentID, item);
+        }
+        versionsS.val = next;
+    }
+
+    if (message.versionsUpdate?.deploymentID) {
+        const next = new Map(versionsS.val);
+        next.set(message.versionsUpdate.deploymentID, message.versionsUpdate);
+        versionsS.val = next;
     }
 };
 
