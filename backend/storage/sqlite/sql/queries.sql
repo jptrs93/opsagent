@@ -1,5 +1,5 @@
 -- === deployment_identifiers ===
--- Only used at config-save time to map (env, machine, name) → integer id.
+-- Only used at config-save time to map (env, machine, name) to integer id.
 
 -- name: UpsertDeploymentID :one
 INSERT INTO deployment_identifiers (environment, machine, name, created_at)
