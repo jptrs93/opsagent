@@ -86,17 +86,24 @@ func spawnDaemon(binPath, workDir, logPath, runAs string) (int, error) {
 	defer devNull.Close()
 
 	sysproc := &syscall.SysProcAttr{Setsid: true}
+	env := scrubOpsagentEnv(os.Environ())
 	if runAs != "" {
-		cred, err := lookupCredential(runAs)
+		u, err := user.Lookup(runAs)
 		if err != nil {
 			return 0, fmt.Errorf("looking up user %q: %w", runAs, err)
 		}
+		cred, err := uidGidCredential(u)
+		if err != nil {
+			return 0, fmt.Errorf("parsing credential for %q: %w", runAs, err)
+		}
 		sysproc.Credential = cred
+		env = setEnv(env, "HOME", u.HomeDir)
+		env = setEnv(env, "USER", u.Username)
 	}
 
 	pid, err := syscall.ForkExec(binPath, []string{binPath}, &syscall.ProcAttr{
 		Dir: workDir,
-		Env: scrubOpsagentEnv(os.Environ()),
+		Env: env,
 		Files: []uintptr{
 			devNull.Fd(),
 			logFile.Fd(),
@@ -110,12 +117,8 @@ func spawnDaemon(binPath, workDir, logPath, runAs string) (int, error) {
 	return pid, nil
 }
 
-// lookupCredential resolves an OS username to a syscall.Credential.
-func lookupCredential(username string) (*syscall.Credential, error) {
-	u, err := user.Lookup(username)
-	if err != nil {
-		return nil, err
-	}
+// uidGidCredential converts a looked-up user to a syscall.Credential.
+func uidGidCredential(u *user.User) (*syscall.Credential, error) {
 	uid, err := strconv.ParseUint(u.Uid, 10, 32)
 	if err != nil {
 		return nil, fmt.Errorf("parsing uid %q: %w", u.Uid, err)
@@ -125,6 +128,18 @@ func lookupCredential(username string) (*syscall.Credential, error) {
 		return nil, fmt.Errorf("parsing gid %q: %w", u.Gid, err)
 	}
 	return &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}, nil
+}
+
+// setEnv replaces or appends a KEY=VALUE entry in an env slice.
+func setEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, kv := range env {
+		if strings.HasPrefix(kv, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
 }
 
 // scrubOpsagentEnv removes OPSAGENT_* environment variables so we don't leak

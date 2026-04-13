@@ -35,7 +35,7 @@ type osProcessRunner struct {
 
 const (
 	osProcessMinBackoff      = 1 * time.Second
-	osProcessMaxBackoff      = 30 * time.Second
+	osProcessMaxBackoff      = 60 * time.Second
 	osProcessStableRunWindow = 15 * time.Second
 )
 
