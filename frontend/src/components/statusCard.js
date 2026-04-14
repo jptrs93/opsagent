@@ -110,10 +110,10 @@ export function statusCard(deployment, versions, versionError, scopes, selectedS
                         title: "Stop",
                     }, StopCircle({size: 14}))
                     : span(),
-                isStopped && hasExisting && hasExistingVersion && !isSystemd
+                isStopped && hasExisting && deployment.deployedVersion && !isSystemd
                     ? button({
                         class: "text-green-400 hover:text-green-300 transition-colors cursor-pointer",
-                        onclick: () => onDeploy(deployment, deployment.existingVersion),
+                        onclick: () => onDeploy(deployment, deployment.deployedVersion),
                         title: "Start",
                     }, PlayCircle({size: 14}))
                     : span(),

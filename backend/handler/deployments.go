@@ -23,6 +23,10 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 	desired := apigen.DesiredState{}
 	if req.Stop {
 		desired.Running = false
+		// Preserve the existing version so a subsequent "start" can reuse it.
+		if cfg := h.findConfigByID(req.DeploymentID); cfg != nil && cfg.DesiredState != nil {
+			desired.Version = cfg.DesiredState.Version
+		}
 	} else if req.TargetVersion != "" {
 		desired.Version = req.TargetVersion
 		desired.Running = true

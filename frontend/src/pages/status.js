@@ -72,6 +72,7 @@ export function statusPage() {
     const sidebarMode = van.state(SIDEBAR_NONE);
     const sidebarDeploymentId = van.state(null);
     const sidebarLabel = van.state('');
+    const sidebarRevision = van.state(0);
     let activeSidebarAbort = null;
 
     // Derive scopes and versions from the pushed versionsS state.
@@ -177,6 +178,7 @@ export function statusPage() {
         sidebarMode.val = mode;
         sidebarDeploymentId.val = deployment.id;
         sidebarLabel.val = formatDeploymentLabel(deployment);
+        sidebarRevision.val++;
     };
 
     const onShowRunOutput = (deployment) => openSidebar(deployment, SIDEBAR_RUN);
@@ -260,6 +262,7 @@ export function statusPage() {
         () => {
             const mode = sidebarMode.val;
             const depId = sidebarDeploymentId.val;
+            const _rev = sidebarRevision.val;
             if (!mode || !depId) return div();
 
             const label = sidebarLabel.val;
