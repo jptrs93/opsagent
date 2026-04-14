@@ -27,7 +27,6 @@ type PrimaryLocalStore interface {
 	MustFetchDeploymentStatusHistory(id int32) []*apigen.DeploymentStatus
 	MustSetDeploymentDesiredState(ctx apigen.Context, deploymentID int32, desired apigen.DesiredState)
 
-	MustFetchUserConfigVersion() *apigen.UserConfigVersion
-	PutDeploymentUserConfig(ctx apigen.Context, yamlContent string, parseFunc func(string) ([]*apigen.DeploymentConfig, error)) (*apigen.UserConfigVersion, error)
-	FetchDeploymentUserConfigHistory() []*apigen.UserConfigVersion
+	MustUpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec)
+	ListActiveDeploymentConfigs() []*apigen.DeploymentConfig
 }

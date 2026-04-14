@@ -45,16 +45,6 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: NO_AUTH };
   }
 
-  // Config management
-  rpc PutV1Config(PutConfigRequest) returns (UserConfigVersion) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
-  }
-
-  rpc GetV1ConfigHistory(cp.Empty) returns (UserConfigHistory) {
-    option (cp.go_custom) = true;
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
-  }
-
   // Deployment state stream
   rpc PostV1StateStream(cp.Empty) returns (stream State) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
@@ -80,10 +70,8 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  // Version discovery: nudge triggers an immediate version poll.
-  // Both fields optional: empty = poll all, deployment_id only = all scopes
-  // for that deployment, both = specific scope for specific deployment.
-  rpc PostV1VersionNudge(VersionNudgeRequest) returns (EmptyRequest) {
+  // Version discovery: fetch available versions for a deployment on demand.
+  rpc PostV1DeploymentVersions(DeploymentVersionsRequest) returns (DeploymentVersions) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 }
@@ -150,23 +138,6 @@ message RunnerConfig {
   SystemdRunnerConfig systemd = 2;
 }
 
-message PutConfigRequest {
-  string yaml_content = 1;
-}
-
-// UserConfigVersion is a compact snapshot used by the history view. Written
-// (and stamped with a monotonically-increasing version) whenever the user
-// posts new yaml via PutV1Config.
-message UserConfigVersion {
-  int32 version = 1;
-  int64 timestamp = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int32 updated_by = 3;
-  string yaml_content = 4;
-}
-
-message UserConfigHistory {
-  repeated UserConfigVersion versions = 1;
-}
 
 // === Deployment status messages ===
 
@@ -194,13 +165,8 @@ message State {
   bool heartbeat = 1;
   DeploymentWithStatusSnapshot deployments_snapshot = 2;
   DeploymentWithStatus deployment_update = 3;
-  UserConfigVersion user_config_snapshot = 4;
-  UserConfigVersion user_config_update = 5;
   repeated User users_snapshot = 6;
   User user_update = 7;
-  VersionsSnapshot versions_snapshot = 8;
-  DeploymentVersions versions_update = 9;
-  VersionsDelete versions_delete = 10;
 }
 
 message DeploymentWithStatusSnapshot {
@@ -223,6 +189,7 @@ message DeploymentUpdateRequest {
   string target_version = 2;
   bool stop = 3;
   int32 version = 4;
+  string yaml_content = 6;  // optional: update deployment spec from per-deployment yaml
 }
 
 message DeploymentHistoryRequest {
@@ -325,21 +292,10 @@ message ScopedVersions {
   repeated Version versions = 1;
 }
 
-message VersionsSnapshot {
-  repeated DeploymentVersions items = 1;
-}
-
-// VersionsDelete notifies the UI that versions were removed (e.g. force-push
-// replaced commits, or a branch was deleted). The FE should remove these
-// version IDs from the corresponding scopes and drop scopes that become empty.
-message VersionsDelete {
+// DeploymentVersionsRequest fetches available versions for a deployment on demand.
+message DeploymentVersionsRequest {
   int32 deployment_id = 1;
-  map<string, ScopedVersions> deleted_versions_by_scope = 2; // scope -> removed versions
-}
-
-message VersionNudgeRequest {
-  int32 deployment_id = 1; // 0 = poll all deployments
-  string scope = 2;        // empty = all scopes for the deployment
+  string scope = 2;  // optional: specific branch/scope to list versions for
 }
 
 // === Storage-only messages ===

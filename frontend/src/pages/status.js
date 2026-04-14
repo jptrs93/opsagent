@@ -1,9 +1,10 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {deploymentsS, deploymentsStreamS, versionsS} from "../state/deployments.js";
+import {deploymentsS, deploymentsStreamS} from "../state/deployments.js";
 import {statusCard} from "../components/statusCard.js";
 import {deploymentLogs} from "../components/deploymentLogs.js";
 import {deploymentHistory} from "../components/deploymentHistory.js";
+import {deployOverlay} from "../components/deployOverlay.js";
 
 const { div, h1, p } = van.tags;
 
@@ -83,74 +84,31 @@ const mapDeploymentsToView = (deployments) => {
     });
 };
 
+// findRawConfig finds the raw DeploymentWithStatus from deploymentsS for a given deployment ID.
+const findRawConfig = (deploymentId) => {
+    const all = deploymentsS.val;
+    if (!Array.isArray(all)) return null;
+    for (const d of all) {
+        if (d.config && d.config.id === deploymentId) return d.config;
+    }
+    return null;
+};
+
 export function statusPage() {
     const statuses = van.state([]);
-    const selectedScope = van.state({});
     const sidebarMode = van.state(SIDEBAR_NONE);
     const sidebarDeploymentId = van.state(null);
     const sidebarLabel = van.state('');
     const sidebarRevision = van.state(0);
     let activeSidebarAbort = null;
 
-    // Derive scopes and versions from the pushed versionsS state.
-    const getScopesForDeployment = (depId) => {
-        const entry = versionsS.val.get(depId);
-        return entry?.scopes || [];
-    };
+    // Overlay state
+    const overlayDeployment = van.state(null);
+    const overlayRevision = van.state(0);
 
-    const getVersionsForDeployment = (depId, scope) => {
-        const entry = versionsS.val.get(depId);
-        if (!entry?.versionsByScope) return [];
-        const scoped = entry.versionsByScope[scope || ''];
-        return scoped?.versions || [];
-    };
-
-    const onScopeChange = (deployment, scope) => {
-        const depKey = deployment.id;
-        selectedScope.val = {...selectedScope.val, [depKey]: scope};
-
-        // If we don't have versions for this scope yet, nudge the backend to poll it.
-        const existing = getVersionsForDeployment(depKey, scope);
-        if (existing.length === 0) {
-            capi.postV1VersionNudge({deploymentId: depKey, scope: scope || ''}).catch(() => {});
-        }
-    };
-
-    // Auto-select scope based on currently deployed version when version data arrives.
+    // Track deployments
     van.derive(() => {
-        const versions = versionsS.val;
-        const currentStatuses = mapDeploymentsToView(deploymentsS.val);
-        statuses.val = currentStatuses;
-
-        for (const s of currentStatuses) {
-            if (!s.variant) continue;
-            const depId = s.id;
-            // Only auto-select if not already set by the user.
-            if (selectedScope.val[depId] !== undefined) continue;
-
-            const entry = versions.get(depId);
-            if (!entry) continue;
-            const scopes = entry.scopes || [];
-
-            // Try to find which scope contains the currently deployed version.
-            let bestScope = '';
-            if (s.deployedVersion && entry.versionsByScope) {
-                for (const [scope, sv] of Object.entries(entry.versionsByScope)) {
-                    if (sv?.versions?.some(v => v.id === s.deployedVersion)) {
-                        bestScope = scope;
-                        break;
-                    }
-                }
-            }
-            // Fall back to 'main' or first scope.
-            if (!bestScope && scopes.length > 0) {
-                bestScope = scopes.includes('main') ? 'main' : scopes[0];
-            }
-
-            if (bestScope || scopes.length === 0) {
-                selectedScope.val = {...selectedScope.val, [depId]: bestScope};
-            }
-        }
+        statuses.val = mapDeploymentsToView(deploymentsS.val);
     });
 
     const abortActiveSidebar = () => {
@@ -202,6 +160,15 @@ export function statusPage() {
     const onShowHistory = (deployment) => openSidebar(deployment, SIDEBAR_HISTORY);
     const onShowPrepareOutput = (deployment) => openSidebar(deployment, SIDEBAR_PREPARE);
 
+    const onUpdate = (deployment) => {
+        overlayDeployment.val = deployment;
+        overlayRevision.val++;
+    };
+
+    const closeOverlay = () => {
+        overlayDeployment.val = null;
+    };
+
     const mainContent = div(
         {class: "flex flex-col gap-6"},
         h1({class: "text-xl font-bold"}, "Deployments"),
@@ -222,9 +189,6 @@ export function statusPage() {
                 );
             }
 
-            // Re-read versionsS inside the closure so VanJS tracks the dependency.
-            const versions = versionsS.val;
-
             // Sort: OPSAGENT_SYSTEM last, then by environment, then by name.
             const sorted = [...filtered].sort((a, b) => {
                 const aSystem = a.environment === 'OPSAGENT_SYSTEM' ? 1 : 0;
@@ -237,21 +201,14 @@ export function statusPage() {
             return div(
                 {class: "flex flex-wrap gap-3"},
                 ...sorted.map(s => {
-                    const scope = selectedScope.val[s.id] || '';
-                    const depVersions = getVersionsForDeployment(s.id, scope);
-                    const depScopes = getScopesForDeployment(s.id);
                     return statusCard(
                         s,
-                        depVersions,
-                        null,
-                        depScopes,
-                        scope,
-                        onScopeChange,
                         onDeploy,
                         onStop,
                         onShowHistory,
                         onShowRunOutput,
                         onShowPrepareOutput,
+                        onUpdate,
                     );
                 })
             );
@@ -335,10 +292,27 @@ export function statusPage() {
         applySidebarLayout(true);
     });
 
+    // Overlay container — appended to body-level so it floats above everything.
+    const overlayContainer = div();
+
+    van.derive(() => {
+        const dep = overlayDeployment.val;
+        const _rev = overlayRevision.val;
+        overlayContainer.innerHTML = '';
+
+        if (!dep) return;
+
+        const rawConfig = findRawConfig(dep.id);
+        overlayContainer.appendChild(
+            deployOverlay(dep, rawConfig, closeOverlay)
+        );
+    });
+
     return div(
         {class: "flex h-full min-h-0 overflow-hidden"},
         mainPane,
         dividerEl,
         sidebarPane,
+        overlayContainer,
     );
 }

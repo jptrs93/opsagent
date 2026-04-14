@@ -7,18 +7,14 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-// PostV1StateStream delivers the current deployment snapshot + user config
-// + version snapshot to the UI, then forwards per-deployment updates as they
-// happen. Passing "" for the machine asks the store for all deployments
-// across the cluster.
+// PostV1StateStream delivers the current deployment snapshot to the UI,
+// then forwards per-deployment updates as they happen, with periodic
+// heartbeats to keep the HTTP connection alive.
 func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State, error] {
 	return func(yield func(*apigen.State, error) bool) {
 		snapshot, updatesCh := h.Store.MustFetchSnapshotAndSubscribe(ctx, "")
 		userSub, userUnsub := h.Store.SubscribeUserUpdates()
 		defer userUnsub()
-
-		versionSub, versionUnsub := h.VersionManager.Subscribe()
-		defer versionUnsub()
 
 		items := make([]*apigen.DeploymentWithStatus, 0, len(snapshot))
 		for i := range snapshot {
@@ -26,9 +22,7 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 		}
 		initial := &apigen.State{
 			DeploymentsSnapshot: &apigen.DeploymentWithStatusSnapshot{Items: items},
-			UserConfigSnapshot:  h.Store.MustFetchUserConfigVersion(),
 			UsersSnapshot:       h.Store.ListUsersPublic(),
-			VersionsSnapshot:    &apigen.VersionsSnapshot{Items: h.VersionManager.Snapshot()},
 		}
 		if !yield(initial, nil) {
 			return
@@ -54,17 +48,6 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 					return
 				}
 				if !yield(&apigen.State{UserUpdate: &u}, nil) {
-					return
-				}
-			case ev, ok := <-versionSub.Ch:
-				if !ok {
-					return
-				}
-				msg := &apigen.State{VersionsUpdate: ev.Update}
-				if ev.Delete != nil {
-					msg.VersionsDelete = ev.Delete
-				}
-				if !yield(msg, nil) {
 					return
 				}
 			case <-heartbeatTicker.C:

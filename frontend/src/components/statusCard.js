@@ -1,10 +1,9 @@
 import van from "vanjs-core";
-import {spinnerButton} from "./spinnerbutton.js";
 import {StopCircle, PlayCircle} from "vanjs-feather";
 import {format} from "date-fns";
 import {resolveUserDisplayName} from "../lib/users.js";
 
-const { div, span, select, option, button, a } = van.tags;
+const { div, span, button, a } = van.tags;
 
 // Deterministic dark background color per environment name.
 const envColorCache = {};
@@ -49,53 +48,15 @@ const prepareStatusCopy = (prepareStatus, prepareVersion) => {
     }
 };
 
-export function statusCard(deployment, versions, versionError, scopes, selectedScope, onScopeChange, onDeploy, onStop, onShowHistory, onShowRunOutput, onShowPrepareOutput) {
+export function statusCard(deployment, onDeploy, onStop, onShowHistory, onShowRunOutput, onShowPrepareOutput, onUpdate) {
     const hasExisting = deployment.existingStatus !== STATUS_NO_DEPLOYMENT;
-    const hasExistingVersion = deployment.existingVersion && deployment.existingVersion !== '';
     const isRunning = deployment.existingStatus === STATUS_RUNNING;
     const isStopped = !hasExisting || deployment.existingStatus === STATUS_STOPPED;
     const isSystemd = deployment.runnerType === 'systemd';
     const existingColors = hasExisting
         ? (existingStatusLabels[deployment.existingStatus] || existingStatusLabels[0])
         : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'};
-    // Default version selection to the currently deployed version if it's in the list.
-    const deployedId = deployment.deployedVersion || '';
-    const initialVersion = versions.some(v => v.id === deployedId) ? deployedId : '';
-    const selectedVersion = van.state(initialVersion);
     const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
-
-    const scopeSelect = scopes.length > 0
-        ? select(
-            {
-                class: "w-80 text-xs font-mono bg-gray-700 text-gray-200 border border-gray-600 rounded px-2 py-1 truncate focus:outline-none focus:ring-1 focus:ring-brand",
-                onchange: (e) => { onScopeChange(deployment, e.target.value); },
-            },
-            ...scopes.map(b => option({value: b, selected: b === selectedScope || (!selectedScope && b === 'main')}, b))
-        )
-        : null;
-
-    const versionLabel = (v) => {
-        const date = v.time instanceof Date && v.time.getTime() > 0
-            ? v.time.toISOString().substring(0, 10)
-            : '';
-        const shortId = v.id.length > 7 && /^[0-9a-f]+$/i.test(v.id) ? v.id.substring(0, 7) : v.id;
-        const label = (v.label || '').substring(0, 20);
-        const ellipsis = (v.label || '').length > 20 ? '...' : '';
-        return `${date}\t\t${shortId}\t\t${label}${ellipsis}`;
-    };
-
-    const versionSelect = select(
-        {
-            class: "w-80 text-xs font-mono bg-gray-700 text-gray-200 border border-gray-600 rounded px-2 py-1 truncate focus:outline-none focus:ring-1 focus:ring-brand",
-            onchange: (e) => { selectedVersion.val = e.target.value; }
-        },
-        option({value: '', disabled: true, selected: !initialVersion}, versions.length ? "Select a version..." : "No versions loaded"),
-        ...versions.map(v => option({value: v.id, selected: v.id === initialVersion}, versionLabel(v)))
-    );
-
-    const deployBtn = spinnerButton("Deploy", async () => {
-        await onDeploy(deployment, selectedVersion.val);
-    }, "btn-primary text-xs py-1 px-3", 'button', () => !selectedVersion.val);
 
     const bgColor = envColor(deployment.environment);
     return div(
@@ -205,19 +166,10 @@ export function statusCard(deployment, versions, versionError, scopes, selectedS
                     span({class: prepareCopy.class}, prepareCopy.text),
                 )
                 : null,
-            versionError
-                ? div({class: "text-xs text-red-400"}, versionError)
-                : null,
-            scopeSelect
-                ? div({class: "flex gap-2 items-center"},
-                    div({class: "flex-1"}, scopeSelect),
-                  )
-                : null,
-            div(
-                {class: "flex gap-2 items-center"},
-                div({class: "flex-1"}, versionSelect),
-                deployBtn,
-            ),
+            button({
+                class: "btn-secondary text-xs py-1.5 px-3 w-full cursor-pointer",
+                onclick: () => onUpdate(deployment),
+            }, "Update"),
         ),
     );
 }

@@ -5,14 +5,8 @@ import { loginS } from "./login.js";
 // deploymentsS holds the current DeploymentWithStatus[] snapshot.
 // Each entry has {config: DeploymentConfig, status: DeploymentStatus}.
 export const deploymentsS = van.state([]);
-// userConfigS holds the latest UserConfigVersion or null.
-export const userConfigS = van.state(null);
 // usersMapS holds a Map<userId, userName> for resolving display names.
 export const usersMapS = van.state(new Map());
-// versionsS holds the version data pushed from the backend's version manager.
-// Map<deploymentId, DeploymentVersions> where DeploymentVersions has
-// { deploymentId, scopes, versionsByScope: { [scope]: { versions: [] } } }
-export const versionsS = van.state(new Map());
 export const deploymentsStreamS = van.state({
     status: 'offline',
     sentence: 'offline',
@@ -65,9 +59,7 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
     reconnectAttempt = 0;
     if (clearDeployments) {
         deploymentsS.val = [];
-        userConfigS.val = null;
         usersMapS.val = new Map();
-        versionsS.val = new Map();
     }
     setStreamState('offline', 'offline');
 };
@@ -86,14 +78,6 @@ const handleStateMessage = (message) => {
         deploymentsS.val = Array.from(next.values());
     }
 
-    if (message.userConfigSnapshot !== undefined) {
-        userConfigS.val = message.userConfigSnapshot || null;
-    }
-
-    if (message.userConfigUpdate !== undefined) {
-        userConfigS.val = message.userConfigUpdate || null;
-    }
-
     if (message.usersSnapshot && message.usersSnapshot.length > 0) {
         const next = new Map();
         for (const u of message.usersSnapshot) {
@@ -106,46 +90,6 @@ const handleStateMessage = (message) => {
         const next = new Map(usersMapS.val);
         next.set(message.userUpdate.id, message.userUpdate.name);
         usersMapS.val = next;
-    }
-
-    if (message.versionsSnapshot?.items) {
-        const next = new Map();
-        for (const item of message.versionsSnapshot.items) {
-            next.set(item.deploymentId, item);
-        }
-        versionsS.val = next;
-    }
-
-    if (message.versionsUpdate?.deploymentId) {
-        const next = new Map(versionsS.val);
-        next.set(message.versionsUpdate.deploymentId, message.versionsUpdate);
-        versionsS.val = next;
-    }
-
-    if (message.versionsDelete?.deploymentId) {
-        const depId = message.versionsDelete.deploymentId;
-        const entry = versionsS.val.get(depId);
-        if (entry) {
-            const deletedByScope = message.versionsDelete.deletedVersionsByScope || {};
-            const nextByScope = {...(entry.versionsByScope || {})};
-            for (const [scope, sv] of Object.entries(deletedByScope)) {
-                const removedIds = new Set((sv.versions || []).map(v => v.id));
-                const existing = nextByScope[scope];
-                if (existing) {
-                    const filtered = (existing.versions || []).filter(v => !removedIds.has(v.id));
-                    if (filtered.length > 0) {
-                        nextByScope[scope] = {...existing, versions: filtered};
-                    } else {
-                        delete nextByScope[scope];
-                    }
-                }
-            }
-            // Remove scopes that no longer have versions.
-            const nextScopes = (entry.scopes || []).filter(s => nextByScope[s]?.versions?.length > 0);
-            const next = new Map(versionsS.val);
-            next.set(depId, {...entry, scopes: nextScopes, versionsByScope: nextByScope});
-            versionsS.val = next;
-        }
     }
 };
 
@@ -190,8 +134,6 @@ async function startDeploymentsStream(generation = sessionGeneration) {
                 connected = true;
                 reconnectAttempt = 0;
                 setStreamState('connected', 'Connection healthy');
-                // Nudge backend to poll all versions on connect so data is fresh.
-                capi.postV1VersionNudge({}).catch(() => {});
             }
             armInactivityTimer(generation);
             handleStateMessage(message);

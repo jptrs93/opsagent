@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	_ "embed"
@@ -280,219 +279,63 @@ func (s *StorageAdapter) MustSetDeploymentDesiredState(ctx apigen.Context, deplo
 	s.notifyFromCache(deploymentID)
 }
 
-// --- PrimaryLocalStore: user config ---
+// --- PrimaryLocalStore: deployment spec update ---
 
-func (s *StorageAdapter) MustFetchUserConfigVersion() *apigen.UserConfigVersion {
-	row, err := s.q.GetLatestUserConfigVersion(context.Background())
-	if err == sql.ErrNoRows {
-		return nil
-	}
-	if err != nil {
-		panic(fmt.Sprintf("GetLatestUserConfigVersion: %v", err))
-	}
-	return &apigen.UserConfigVersion{
-		Version:     int32(row.Version),
-		Timestamp:   time.UnixMilli(row.Timestamp),
-		UpdatedBy:   int32(row.UpdatedBy),
-		YamlContent: row.YamlContent,
-	}
-}
-
-func (s *StorageAdapter) PutDeploymentUserConfig(ctx apigen.Context, yamlContent string, parseFunc func(string) ([]*apigen.DeploymentConfig, error)) (*apigen.UserConfigVersion, error) {
-	parsed, err := parseFunc(yamlContent)
-	if err != nil {
-		return nil, err
-	}
-
+func (s *StorageAdapter) MustUpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	bgCtx := context.Background()
-	tx, err := s.db.BeginTx(bgCtx, nil)
-	if err != nil {
-		panic(fmt.Sprintf("begin tx: %v", err))
-	}
-	defer tx.Rollback()
-
-	q := s.q.WithTx(tx)
+	dbID := int64(deploymentID)
 	now := time.Now().UnixMilli()
+
 	userID := int64(0)
 	if ctx.User != nil {
 		userID = int64(ctx.User.ID)
 	}
 
-	configRow, err := q.InsertUserConfigVersion(bgCtx, InsertUserConfigVersionParams{
-		Timestamp:   now,
-		UpdatedBy:   userID,
-		YamlContent: yamlContent,
-	})
+	existing, err := s.q.GetDeploymentConfig(bgCtx, dbID)
 	if err != nil {
-		panic(fmt.Sprintf("InsertUserConfigVersion: %v", err))
+		panic(fmt.Sprintf("GetDeploymentConfig: %v", err))
 	}
 
-	// Index parsed deployments by identity key, encoding each spec blob once.
-	type wantedDep struct {
-		configID *apigen.DeploymentIdentifier
-		specBlob []byte
-	}
-	wantedByKey := make(map[string]wantedDep, len(parsed))
-	for _, dep := range parsed {
-		key := dep.ConfigID.Environment + ":" + dep.ConfigID.Machine + ":" + dep.ConfigID.Name
-		var specBlob []byte
-		if dep.Spec != nil {
-			specBlob = dep.Spec.Encode()
-		}
-		wantedByKey[key] = wantedDep{configID: dep.ConfigID, specBlob: specBlob}
+	var specBlob []byte
+	if spec != nil {
+		specBlob = spec.Encode()
 	}
 
-	// Load all current non-deleted deployments.
-	allCurrent, err := q.ListAllDeploymentConfigs(bgCtx)
-	if err != nil {
-		panic(fmt.Sprintf("ListAllDeploymentConfigs: %v", err))
+	newVersion := existing.Version + 1
+	params := UpsertDeploymentConfigParams{
+		DeploymentID:   dbID,
+		Environment:    existing.Environment,
+		Machine:        existing.Machine,
+		Name:           existing.Name,
+		Version:        newVersion,
+		UpdatedAt:      now,
+		UpdatedBy:      userID,
+		SpecBlob:       specBlob,
+		DesiredVersion: existing.DesiredVersion,
+		DesiredRunning: existing.DesiredRunning,
+		Deleted:        existing.Deleted,
 	}
-	currentByKey := make(map[string]DeploymentConfig, len(allCurrent))
-	for _, row := range allCurrent {
-		key := row.Environment + ":" + row.Machine + ":" + row.Name
-		currentByKey[key] = row
+	if err := s.q.UpsertDeploymentConfig(bgCtx, params); err != nil {
+		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
 	}
-
-	var changed []int32
-
-	// 1. New or changed deployments from yaml.
-	for key, wanted := range wantedByKey {
-		existing, exists := currentByKey[key]
-		if exists && bytes.Equal(existing.SpecBlob, wanted.specBlob) {
-			continue
-		}
-
-		dbID, err := s.resolveDeploymentID(bgCtx, tx, wanted.configID)
-		if err != nil {
-			panic(fmt.Sprintf("resolveDeploymentID: %v", err))
-		}
-
-		var newSeqNo int64
-		var desiredVersion string
-		var desiredRunning int64
-		if exists {
-			newSeqNo = existing.Version + 1
-			desiredVersion = existing.DesiredVersion
-			desiredRunning = existing.DesiredRunning
-		} else {
-			newSeqNo = 1
-		}
-
-		params := UpsertDeploymentConfigParams{
-			DeploymentID:   dbID,
-			Environment:    wanted.configID.Environment,
-			Machine:        wanted.configID.Machine,
-			Name:           wanted.configID.Name,
-			Version:          newSeqNo,
-			UpdatedAt:      now,
-			UpdatedBy:      userID,
-			SpecBlob:       wanted.specBlob,
-			DesiredVersion: desiredVersion,
-			DesiredRunning: desiredRunning,
-			Deleted:        0,
-		}
-		if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
-			panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
-		}
-		if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
-			DeploymentID:   dbID,
-			Version:          newSeqNo,
-			UpdatedAt:      now,
-			UpdatedBy:      userID,
-			SpecBlob:       wanted.specBlob,
-			DesiredVersion: desiredVersion,
-			DesiredRunning: desiredRunning,
-			Deleted:        0,
-		}); err != nil {
-			panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
-		}
-
-		id := int32(dbID)
-		s.configCache[id] = upsertParamsToProto(params)
-		if !exists {
-			s.insertDefaultStatus(bgCtx, q, dbID, now)
-		}
-		changed = append(changed, id)
+	if err := s.q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
+		DeploymentID:   dbID,
+		Version:        newVersion,
+		UpdatedAt:      now,
+		UpdatedBy:      userID,
+		SpecBlob:       specBlob,
+		DesiredVersion: existing.DesiredVersion,
+		DesiredRunning: existing.DesiredRunning,
+		Deleted:        existing.Deleted,
+	}); err != nil {
+		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
 	}
 
-	// 2. Mark deleted: deployments in DB but not in yaml.
-	// Skip system-managed deployments — they are not part of the user config.
-	for key, row := range currentByKey {
-		if _, wanted := wantedByKey[key]; wanted {
-			continue
-		}
-		if row.Environment == SystemEnvironment {
-			continue
-		}
-		newSeqNo := row.Version + 1
-		params := UpsertDeploymentConfigParams{
-			DeploymentID:   row.DeploymentID,
-			Environment:    row.Environment,
-			Machine:        row.Machine,
-			Name:           row.Name,
-			Version:          newSeqNo,
-			UpdatedAt:      now,
-			UpdatedBy:      userID,
-			SpecBlob:       row.SpecBlob,
-			DesiredVersion: row.DesiredVersion,
-			DesiredRunning: row.DesiredRunning,
-			Deleted:        1,
-		}
-		if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
-			panic(fmt.Sprintf("UpsertDeploymentConfig (delete): %v", err))
-		}
-		if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
-			DeploymentID:   row.DeploymentID,
-			Version:          newSeqNo,
-			UpdatedAt:      now,
-			UpdatedBy:      userID,
-			SpecBlob:       row.SpecBlob,
-			DesiredVersion: row.DesiredVersion,
-			DesiredRunning: row.DesiredRunning,
-			Deleted:        1,
-		}); err != nil {
-			panic(fmt.Sprintf("InsertDeploymentConfigHistory (delete): %v", err))
-		}
-
-		id := int32(row.DeploymentID)
-		s.configCache[id] = upsertParamsToProto(params)
-		changed = append(changed, id)
-	}
-
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit: %v", err))
-	}
-
-	for _, id := range changed {
-		s.notifyFromCache(id)
-	}
-
-	return &apigen.UserConfigVersion{
-		Version:     int32(configRow.Version),
-		Timestamp:   time.UnixMilli(configRow.Timestamp),
-		UpdatedBy:   int32(configRow.UpdatedBy),
-		YamlContent: configRow.YamlContent,
-	}, nil
-}
-
-func (s *StorageAdapter) FetchDeploymentUserConfigHistory() []*apigen.UserConfigVersion {
-	rows, err := s.q.ListUserConfigVersions(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("ListUserConfigVersions: %v", err))
-	}
-	out := make([]*apigen.UserConfigVersion, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, &apigen.UserConfigVersion{
-			Version:     int32(r.Version),
-			Timestamp:   time.UnixMilli(r.Timestamp),
-			UpdatedBy:   int32(r.UpdatedBy),
-			YamlContent: r.YamlContent,
-		})
-	}
-	return out
+	s.configCache[deploymentID] = upsertParamsToProto(params)
+	s.notifyFromCache(deploymentID)
 }
 
 func (s *StorageAdapter) insertDefaultStatus(ctx context.Context, q *Queries, dbID int64, now int64) {

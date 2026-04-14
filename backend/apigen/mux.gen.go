@@ -35,14 +35,12 @@ type ServerHandler interface {
 	PostV1AuthPasskeyRegisterFinish(Context, *WebAuthNFinishRequest) (*LoginResponse, error)
 	PostV1AuthPasskeyLoginStart(Context, *EmptyRequest) (*WebAuthNOptionsResponse, error)
 	PostV1AuthPasskeyLoginFinish(Context, *WebAuthNFinishRequest) (*LoginResponse, error)
-	PutV1Config(Context, *PutConfigRequest) (*UserConfigVersion, error)
-	GetV1ConfigHistory(Context, *http.Request, http.ResponseWriter) error
 	PostV1StateStream(Context) iter.Seq2[*State, error]
 	PostV1DeploymentUpdate(Context, *DeploymentUpdateRequest) (*DesiredState, error)
 	PostV1DeploymentHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
 	PostV1DeploymentLogs(Context, *http.Request, http.ResponseWriter) error
 	GetV1ClusterStatus(Context, *http.Request, http.ResponseWriter) error
-	PostV1VersionNudge(Context, *VersionNudgeRequest) (*EmptyRequest, error)
+	PostV1DeploymentVersions(Context, *DeploymentVersionsRequest) (*DeploymentVersions, error)
 }
 
 func CreateMux(h ServerHandler, verifyAuth VerifyAuthFunc, options *MuxOptions, middlewares ...MiddlewareFunc) *http.ServeMux {
@@ -162,32 +160,6 @@ func CreateMux(h ServerHandler, verifyAuth VerifyAuthFunc, options *MuxOptions, 
 		res, err := h.PostV1AuthPasskeyLoginFinish(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}, middlewares...))
-	m.HandleFunc("PUT /v1/config", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodePutConfigRequest)
-		if err != nil {
-			HandleReqErr(authCtx, err, r, w)
-			return
-		}
-		res, err := h.PutV1Config(authCtx, req)
-		Respond(authCtx, r, w, res, err)
-	}, middlewares...))
-	m.HandleFunc("GET /v1/config/history", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		err = h.GetV1ConfigHistory(authCtx, r, w)
-		if err != nil {
-			HandleReqErr(authCtx, err, r, w)
-			return
-		}
-	}, middlewares...))
 	m.HandleFunc("POST /v1/state/stream", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
 		if err != nil {
@@ -280,18 +252,18 @@ func CreateMux(h ServerHandler, verifyAuth VerifyAuthFunc, options *MuxOptions, 
 			return
 		}
 	}, middlewares...))
-	m.HandleFunc("POST /v1/version/nudge", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	m.HandleFunc("POST /v1/deployment/versions", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
 		if err != nil {
 			HandleReqErr(ctx, err, r, w)
 			return
 		}
-		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeVersionNudgeRequest)
+		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeDeploymentVersionsRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
-		res, err := h.PostV1VersionNudge(authCtx, req)
+		res, err := h.PostV1DeploymentVersions(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}, middlewares...))
 	return m

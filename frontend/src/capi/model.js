@@ -59,32 +59,12 @@
  * @property {SystemdRunnerConfig} systemd
  */
 /**
- * @typedef {Object} PutConfigRequest
- * @property {string} yamlContent
- */
-/**
- * @typedef {Object} UserConfigVersion
- * @property {number} version
- * @property {Date} timestamp
- * @property {number} updatedBy
- * @property {string} yamlContent
- */
-/**
- * @typedef {Object} UserConfigHistory
- * @property {UserConfigVersion[]} versions
- */
-/**
  * @typedef {Object} State
  * @property {boolean} heartbeat
  * @property {DeploymentWithStatusSnapshot} deploymentsSnapshot
  * @property {DeploymentWithStatus} deploymentUpdate
- * @property {UserConfigVersion} userConfigSnapshot
- * @property {UserConfigVersion} userConfigUpdate
  * @property {User[]} usersSnapshot
  * @property {User} userUpdate
- * @property {VersionsSnapshot} versionsSnapshot
- * @property {DeploymentVersions} versionsUpdate
- * @property {VersionsDelete} versionsDelete
  */
 /**
  * @typedef {Object} DeploymentWithStatusSnapshot
@@ -105,6 +85,7 @@
  * @property {string} targetVersion
  * @property {boolean} stop
  * @property {number} version
+ * @property {string} yamlContent
  */
 /**
  * @typedef {Object} DeploymentHistoryRequest
@@ -199,16 +180,7 @@
  * @property {Version[]} versions
  */
 /**
- * @typedef {Object} VersionsSnapshot
- * @property {DeploymentVersions[]} items
- */
-/**
- * @typedef {Object} VersionsDelete
- * @property {number} deploymentId
- * @property {Object.<string, ScopedVersions>} deletedVersionsByScope
- */
-/**
- * @typedef {Object} VersionNudgeRequest
+ * @typedef {Object} DeploymentVersionsRequest
  * @property {number} deploymentId
  * @property {string} scope
  */
@@ -1017,199 +989,6 @@ export function decodeRunnerConfig(buffer) {
 
 
 /**
- * @param {PutConfigRequest} message
- * @param {Writer} writer
- */
-export function writePutConfigRequest(message, writer) {
-    if (message.yamlContent !== undefined && message.yamlContent !== null && message.yamlContent !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.yamlContent);
-    }
-}
-
-
-/**
- * @param {PutConfigRequest} message
- * @returns {Uint8Array}
- */
-export function encodePutConfigRequest(message) {
-    const writer = Writer.create();
-    writePutConfigRequest(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {PutConfigRequest}
- */
-function decodePutConfigRequestMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {yamlContent: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.yamlContent = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {PutConfigRequest}
- */
-export function decodePutConfigRequest(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodePutConfigRequestMessage(reader);
-}
-
-
-
-/**
- * @param {UserConfigVersion} message
- * @param {Writer} writer
- */
-export function writeUserConfigVersion(message, writer) {
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.version);
-    }
-    if (message.timestamp instanceof Date && message.timestamp.getTime() !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.timestamp.getTime()));
-    }
-    if (message.updatedBy !== undefined && message.updatedBy !== null && message.updatedBy !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.updatedBy);
-    }
-    if (message.yamlContent !== undefined && message.yamlContent !== null && message.yamlContent !== "") {
-        writer.uint32(tag(4, WIRE.LDELIM)).string(message.yamlContent);
-    }
-}
-
-
-/**
- * @param {UserConfigVersion} message
- * @returns {Uint8Array}
- */
-export function encodeUserConfigVersion(message) {
-    const writer = Writer.create();
-    writeUserConfigVersion(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {UserConfigVersion}
- */
-function decodeUserConfigVersionMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {version: 0, timestamp: new Date(0), updatedBy: 0, yamlContent: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.version = reader.int32();
-                break;
-            }
-            case 2: {
-                message.timestamp = new Date(readInt64(reader, "int64"));
-                break;
-            }
-            case 3: {
-                message.updatedBy = reader.int32();
-                break;
-            }
-            case 4: {
-                message.yamlContent = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {UserConfigVersion}
- */
-export function decodeUserConfigVersion(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeUserConfigVersionMessage(reader);
-}
-
-
-
-/**
- * @param {UserConfigHistory} message
- * @param {Writer} writer
- */
-export function writeUserConfigHistory(message, writer) {
-    if (message.versions && message.versions.length > 0) {
-        for (const item of message.versions) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeUserConfigVersion(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {UserConfigHistory} message
- * @returns {Uint8Array}
- */
-export function encodeUserConfigHistory(message) {
-    const writer = Writer.create();
-    writeUserConfigHistory(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {UserConfigHistory}
- */
-function decodeUserConfigHistoryMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {versions: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.versions.push(decodeUserConfigVersionMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {UserConfigHistory}
- */
-export function decodeUserConfigHistory(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeUserConfigHistoryMessage(reader);
-}
-
-
-
-/**
  * @param {State} message
  * @param {Writer} writer
  */
@@ -1227,16 +1006,6 @@ export function writeState(message, writer) {
         writeDeploymentWithStatus(message.deploymentUpdate, writer);
         writer.ldelim();
     }
-    if (message.userConfigSnapshot !== undefined && message.userConfigSnapshot !== null) {
-        writer.uint32(tag(4, WIRE.LDELIM)).fork();
-        writeUserConfigVersion(message.userConfigSnapshot, writer);
-        writer.ldelim();
-    }
-    if (message.userConfigUpdate !== undefined && message.userConfigUpdate !== null) {
-        writer.uint32(tag(5, WIRE.LDELIM)).fork();
-        writeUserConfigVersion(message.userConfigUpdate, writer);
-        writer.ldelim();
-    }
     if (message.usersSnapshot && message.usersSnapshot.length > 0) {
         for (const item of message.usersSnapshot) {
             writer.uint32(tag(6, WIRE.LDELIM)).fork();
@@ -1247,21 +1016,6 @@ export function writeState(message, writer) {
     if (message.userUpdate !== undefined && message.userUpdate !== null) {
         writer.uint32(tag(7, WIRE.LDELIM)).fork();
         writeUser(message.userUpdate, writer);
-        writer.ldelim();
-    }
-    if (message.versionsSnapshot !== undefined && message.versionsSnapshot !== null) {
-        writer.uint32(tag(8, WIRE.LDELIM)).fork();
-        writeVersionsSnapshot(message.versionsSnapshot, writer);
-        writer.ldelim();
-    }
-    if (message.versionsUpdate !== undefined && message.versionsUpdate !== null) {
-        writer.uint32(tag(9, WIRE.LDELIM)).fork();
-        writeDeploymentVersions(message.versionsUpdate, writer);
-        writer.ldelim();
-    }
-    if (message.versionsDelete !== undefined && message.versionsDelete !== null) {
-        writer.uint32(tag(10, WIRE.LDELIM)).fork();
-        writeVersionsDelete(message.versionsDelete, writer);
         writer.ldelim();
     }
 }
@@ -1285,7 +1039,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, userConfigSnapshot: undefined, userConfigUpdate: undefined, usersSnapshot: [], userUpdate: undefined, versionsSnapshot: undefined, versionsUpdate: undefined, versionsDelete: undefined };
+    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1301,32 +1055,12 @@ function decodeStateMessage(reader, length) {
                 message.deploymentUpdate = decodeDeploymentWithStatusMessage(reader, reader.uint32());
                 break;
             }
-            case 4: {
-                message.userConfigSnapshot = decodeUserConfigVersionMessage(reader, reader.uint32());
-                break;
-            }
-            case 5: {
-                message.userConfigUpdate = decodeUserConfigVersionMessage(reader, reader.uint32());
-                break;
-            }
             case 6: {
                 message.usersSnapshot.push(decodeUserMessage(reader, reader.uint32()));
                 break;
             }
             case 7: {
                 message.userUpdate = decodeUserMessage(reader, reader.uint32());
-                break;
-            }
-            case 8: {
-                message.versionsSnapshot = decodeVersionsSnapshotMessage(reader, reader.uint32());
-                break;
-            }
-            case 9: {
-                message.versionsUpdate = decodeDeploymentVersionsMessage(reader, reader.uint32());
-                break;
-            }
-            case 10: {
-                message.versionsDelete = decodeVersionsDeleteMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -1552,6 +1286,9 @@ export function writeDeploymentUpdateRequest(message, writer) {
     if (message.version !== undefined && message.version !== null && message.version !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.version);
     }
+    if (message.yamlContent !== undefined && message.yamlContent !== null && message.yamlContent !== "") {
+        writer.uint32(tag(6, WIRE.LDELIM)).string(message.yamlContent);
+    }
 }
 
 
@@ -1573,7 +1310,7 @@ export function encodeDeploymentUpdateRequest(message) {
  */
 function decodeDeploymentUpdateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, targetVersion: "", stop: false, version: 0 };
+    const message = {deploymentId: 0, targetVersion: "", stop: false, version: 0, yamlContent: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1591,6 +1328,10 @@ function decodeDeploymentUpdateRequestMessage(reader, length) {
             }
             case 4: {
                 message.version = reader.int32();
+                break;
+            }
+            case 6: {
+                message.yamlContent = reader.string();
                 break;
             }
             default:
@@ -2732,160 +2473,10 @@ export function decodeScopedVersions(buffer) {
 
 
 /**
- * @param {VersionsSnapshot} message
+ * @param {DeploymentVersionsRequest} message
  * @param {Writer} writer
  */
-export function writeVersionsSnapshot(message, writer) {
-    if (message.items && message.items.length > 0) {
-        for (const item of message.items) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeDeploymentVersions(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {VersionsSnapshot} message
- * @returns {Uint8Array}
- */
-export function encodeVersionsSnapshot(message) {
-    const writer = Writer.create();
-    writeVersionsSnapshot(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {VersionsSnapshot}
- */
-function decodeVersionsSnapshotMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {items: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.items.push(decodeDeploymentVersionsMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {VersionsSnapshot}
- */
-export function decodeVersionsSnapshot(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeVersionsSnapshotMessage(reader);
-}
-
-
-
-/**
- * @param {VersionsDelete} message
- * @param {Writer} writer
- */
-export function writeVersionsDelete(message, writer) {
-    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
-    }
-    if (message.deletedVersionsByScope && Object.keys(message.deletedVersionsByScope).length > 0) {
-        for (const [rawKey, value] of Object.entries(message.deletedVersionsByScope)) {
-            const key = rawKey;
-            writer.uint32(tag(2, WIRE.LDELIM)).fork();
-            writer.uint32(tag(1, WIRE.LDELIM)).string(key);
-            if (value) {
-                writer.uint32(tag(2, WIRE.LDELIM)).fork();
-                writeScopedVersions(value, writer);
-                writer.ldelim();
-            }
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {VersionsDelete} message
- * @returns {Uint8Array}
- */
-export function encodeVersionsDelete(message) {
-    const writer = Writer.create();
-    writeVersionsDelete(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {VersionsDelete}
- */
-function decodeVersionsDeleteMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, deletedVersionsByScope: {} };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.deploymentId = reader.int32();
-                break;
-            }
-            case 2: {
-                const end2 = reader.uint32() + reader.pos;
-                let key = "";
-                let value = undefined;
-                while (reader.pos < end2) {
-                    const tag2 = reader.uint32();
-                    switch (tag2 >>> 3) {
-                        case 1:
-                            key = reader.string();
-                            break;
-                        case 2:
-                            value = decodeScopedVersionsMessage(reader, reader.uint32());
-                            break;
-                        default:
-                            reader.skipType(tag2 & 7);
-                    }
-                }
-                if (!message.deletedVersionsByScope) { message.deletedVersionsByScope = {}; }
-                message.deletedVersionsByScope[String(key)] = value;
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {VersionsDelete}
- */
-export function decodeVersionsDelete(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeVersionsDeleteMessage(reader);
-}
-
-
-
-/**
- * @param {VersionNudgeRequest} message
- * @param {Writer} writer
- */
-export function writeVersionNudgeRequest(message, writer) {
+export function writeDeploymentVersionsRequest(message, writer) {
     if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
     }
@@ -2896,12 +2487,12 @@ export function writeVersionNudgeRequest(message, writer) {
 
 
 /**
- * @param {VersionNudgeRequest} message
+ * @param {DeploymentVersionsRequest} message
  * @returns {Uint8Array}
  */
-export function encodeVersionNudgeRequest(message) {
+export function encodeDeploymentVersionsRequest(message) {
     const writer = Writer.create();
-    writeVersionNudgeRequest(message, writer);
+    writeDeploymentVersionsRequest(message, writer);
     return writer.finish();
 }
 
@@ -2909,9 +2500,9 @@ export function encodeVersionNudgeRequest(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {VersionNudgeRequest}
+ * @returns {DeploymentVersionsRequest}
  */
-function decodeVersionNudgeRequestMessage(reader, length) {
+function decodeDeploymentVersionsRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {deploymentId: 0, scope: "" };
     while (reader.pos < end) {
@@ -2935,11 +2526,11 @@ function decodeVersionNudgeRequestMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {VersionNudgeRequest}
+ * @returns {DeploymentVersionsRequest}
  */
-export function decodeVersionNudgeRequest(buffer) {
+export function decodeDeploymentVersionsRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeVersionNudgeRequestMessage(reader);
+    return decodeDeploymentVersionsRequestMessage(reader);
 }
 
 

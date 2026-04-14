@@ -506,142 +506,12 @@ func DecodeRunnerConfig(b []byte) (*RunnerConfig, error) {
 	return &m, nil
 }
 
-type PutConfigRequest struct {
-	YamlContent string
-}
-
-func (m *PutConfigRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.YamlContent, 1)
-	return b
-}
-
-func DecodePutConfigRequest(b []byte) (*PutConfigRequest, error) {
-	var m PutConfigRequest
-	var num protowire.Number
-	var typ protowire.Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.YamlContent, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-type UserConfigVersion struct {
-	Version     int32
-	Timestamp   time.Time
-	UpdatedBy   int32
-	YamlContent string
-}
-
-func (m *UserConfigVersion) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.Version, 1)
-	b = AppendInt64FromTime(b, m.Timestamp, 2)
-	b = AppendInt32Field(b, m.UpdatedBy, 3)
-	b = AppendStringField(b, m.YamlContent, 4)
-	return b
-}
-
-func DecodeUserConfigVersion(b []byte) (*UserConfigVersion, error) {
-	var m UserConfigVersion
-	var num protowire.Number
-	var typ protowire.Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.Timestamp, err = ConsumeTimeFromInt64(b, typ)
-		case 3:
-			b, m.UpdatedBy, err = ConsumeVarInt32(b, typ)
-		case 4:
-			b, m.YamlContent, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-type UserConfigHistory struct {
-	Versions []*UserConfigVersion
-}
-
-func (m *UserConfigHistory) Encode() []byte {
-	var b []byte
-	for _, item := range m.Versions {
-		if item == nil {
-			continue
-		}
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeUserConfigHistory(b []byte) (*UserConfigHistory, error) {
-	var m UserConfigHistory
-	var num protowire.Number
-	var typ protowire.Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *UserConfigVersion
-				item, err = DecodeUserConfigVersion(msgBytes)
-				if err == nil {
-					m.Versions = append(m.Versions, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 type State struct {
 	Heartbeat           bool
 	DeploymentsSnapshot *DeploymentWithStatusSnapshot
 	DeploymentUpdate    *DeploymentWithStatus
-	UserConfigSnapshot  *UserConfigVersion
-	UserConfigUpdate    *UserConfigVersion
 	UsersSnapshot       []*User
 	UserUpdate          *User
-	VersionsSnapshot    *VersionsSnapshot
-	VersionsUpdate      *DeploymentVersions
-	VersionsDelete      *VersionsDelete
 }
 
 func (m *State) Encode() []byte {
@@ -655,14 +525,6 @@ func (m *State) Encode() []byte {
 		b = protowire.AppendTag(b, 3, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.DeploymentUpdate.Encode())
 	}
-	if m.UserConfigSnapshot != nil {
-		b = protowire.AppendTag(b, 4, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.UserConfigSnapshot.Encode())
-	}
-	if m.UserConfigUpdate != nil {
-		b = protowire.AppendTag(b, 5, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.UserConfigUpdate.Encode())
-	}
 	for _, item := range m.UsersSnapshot {
 		if item == nil {
 			continue
@@ -673,18 +535,6 @@ func (m *State) Encode() []byte {
 	if m.UserUpdate != nil {
 		b = protowire.AppendTag(b, 7, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.UserUpdate.Encode())
-	}
-	if m.VersionsSnapshot != nil {
-		b = protowire.AppendTag(b, 8, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.VersionsSnapshot.Encode())
-	}
-	if m.VersionsUpdate != nil {
-		b = protowire.AppendTag(b, 9, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.VersionsUpdate.Encode())
-	}
-	if m.VersionsDelete != nil {
-		b = protowire.AppendTag(b, 10, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.VersionsDelete.Encode())
 	}
 	return b
 }
@@ -721,24 +571,6 @@ func DecodeState(b []byte) (*State, error) {
 					m.DeploymentUpdate = item
 				}
 			}
-		case 4:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *UserConfigVersion
-				item, err = DecodeUserConfigVersion(msgBytes)
-				if err == nil {
-					m.UserConfigSnapshot = item
-				}
-			}
-		case 5:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *UserConfigVersion
-				item, err = DecodeUserConfigVersion(msgBytes)
-				if err == nil {
-					m.UserConfigUpdate = item
-				}
-			}
 		case 6:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -755,33 +587,6 @@ func DecodeState(b []byte) (*State, error) {
 				item, err = DecodeUser(msgBytes)
 				if err == nil {
 					m.UserUpdate = item
-				}
-			}
-		case 8:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *VersionsSnapshot
-				item, err = DecodeVersionsSnapshot(msgBytes)
-				if err == nil {
-					m.VersionsSnapshot = item
-				}
-			}
-		case 9:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentVersions
-				item, err = DecodeDeploymentVersions(msgBytes)
-				if err == nil {
-					m.VersionsUpdate = item
-				}
-			}
-		case 10:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *VersionsDelete
-				item, err = DecodeVersionsDelete(msgBytes)
-				if err == nil {
-					m.VersionsDelete = item
 				}
 			}
 		default:
@@ -951,6 +756,7 @@ type DeploymentUpdateRequest struct {
 	TargetVersion string
 	Stop          bool
 	Version       int32
+	YamlContent   string
 }
 
 func (m *DeploymentUpdateRequest) Encode() []byte {
@@ -959,6 +765,7 @@ func (m *DeploymentUpdateRequest) Encode() []byte {
 	b = AppendStringField(b, m.TargetVersion, 2)
 	b = AppendBoolField(b, m.Stop, 3)
 	b = AppendInt32Field(b, m.Version, 4)
+	b = AppendStringField(b, m.YamlContent, 6)
 	return b
 }
 
@@ -981,6 +788,8 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 			b, m.Stop, err = ConsumeBool(b, typ)
 		case 4:
 			b, m.Version, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.YamlContent, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1758,107 +1567,20 @@ func DecodeScopedVersions(b []byte) (*ScopedVersions, error) {
 	return &m, nil
 }
 
-type VersionsSnapshot struct {
-	Items []*DeploymentVersions
-}
-
-func (m *VersionsSnapshot) Encode() []byte {
-	var b []byte
-	for _, item := range m.Items {
-		if item == nil {
-			continue
-		}
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeVersionsSnapshot(b []byte) (*VersionsSnapshot, error) {
-	var m VersionsSnapshot
-	var num protowire.Number
-	var typ protowire.Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentVersions
-				item, err = DecodeDeploymentVersions(msgBytes)
-				if err == nil {
-					m.Items = append(m.Items, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-type VersionsDelete struct {
-	DeploymentID           int32
-	DeletedVersionsByScope map[string]*ScopedVersions
-}
-
-func (m *VersionsDelete) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.DeploymentID, 1)
-	b = AppendMap(b, m.DeletedVersionsByScope, 2, AppendFieldDecorator(AppendStringField, 1), AppendMessageFieldDecorator[*ScopedVersions](2))
-	return b
-}
-
-func DecodeVersionsDelete(b []byte) (*VersionsDelete, error) {
-	var m VersionsDelete
-	var num protowire.Number
-	var typ protowire.Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			if m.DeletedVersionsByScope == nil {
-				m.DeletedVersionsByScope = make(map[string]*ScopedVersions)
-			}
-			b, err = ConsumeMapEntry(b, typ, m.DeletedVersionsByScope, ConsumeString, ConsumeMessageDecorator(DecodeScopedVersions))
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-type VersionNudgeRequest struct {
+type DeploymentVersionsRequest struct {
 	DeploymentID int32
 	Scope        string
 }
 
-func (m *VersionNudgeRequest) Encode() []byte {
+func (m *DeploymentVersionsRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentID, 1)
 	b = AppendStringField(b, m.Scope, 2)
 	return b
 }
 
-func DecodeVersionNudgeRequest(b []byte) (*VersionNudgeRequest, error) {
-	var m VersionNudgeRequest
+func DecodeDeploymentVersionsRequest(b []byte) (*DeploymentVersionsRequest, error) {
+	var m DeploymentVersionsRequest
 	var num protowire.Number
 	var typ protowire.Type
 	var err error

@@ -3,19 +3,16 @@
 import {
   decodeClusterStatusResponse,
   decodeDeploymentHistory,
+  decodeDeploymentVersions,
   decodeDesiredState,
-  decodeEmptyRequest,
   decodeLoginResponse,
   decodeState,
-  decodeUserConfigHistory,
-  decodeUserConfigVersion,
   decodeWebAuthNOptionsResponse,
   encodeDeploymentHistoryRequest,
   encodeDeploymentUpdateRequest,
+  encodeDeploymentVersionsRequest,
   encodeEmptyRequest,
   encodeMasterPasswordRequest,
-  encodePutConfigRequest,
-  encodeVersionNudgeRequest,
   encodeWebAuthNFinishRequest,
 } from './model.js';
 
@@ -176,29 +173,6 @@ export class Capi {
   }
 
   /**
-   * @param {PutConfigRequest} payload
-   * @returns {Promise<UserConfigVersion>}
-   */
-  async putV1Config(payload) {
-    const response = await this.#request('/v1/config', { method: 'PUT', body: encodePutConfigRequest(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeUserConfigVersion(await response.arrayBuffer());
-  }
-
-  /**
-   * @returns {Promise<UserConfigHistory>}
-   */
-  async getV1ConfigHistory() {
-    const response = await this.#request('/v1/config/history', { method: 'GET' });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeUserConfigHistory(await response.arrayBuffer());
-  }
-
-  /**
    * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {AsyncIterable<State>}
    */
@@ -262,15 +236,15 @@ export class Capi {
   }
 
   /**
-   * @param {VersionNudgeRequest} payload
-   * @returns {Promise<EmptyRequest>}
+   * @param {DeploymentVersionsRequest} payload
+   * @returns {Promise<DeploymentVersions>}
    */
-  async postV1VersionNudge(payload) {
-    const response = await this.#request('/v1/version/nudge', { method: 'POST', body: encodeVersionNudgeRequest(payload) });
+  async postV1DeploymentVersions(payload) {
+    const response = await this.#request('/v1/deployment/versions', { method: 'POST', body: encodeDeploymentVersionsRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeEmptyRequest(await response.arrayBuffer());
+    return decodeDeploymentVersions(await response.arrayBuffer());
   }
 
 }
