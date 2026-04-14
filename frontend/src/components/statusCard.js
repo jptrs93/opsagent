@@ -6,6 +6,18 @@ import {resolveUserDisplayName} from "../lib/users.js";
 
 const { div, span, select, option, button, a } = van.tags;
 
+// Deterministic dark background color per environment name.
+const envColorCache = {};
+function envColor(env) {
+    if (!env || env === 'OPSAGENT_SYSTEM') return null;
+    if (envColorCache[env]) return envColorCache[env];
+    let hash = 0;
+    for (let i = 0; i < env.length; i++) hash = ((hash << 5) - hash + env.charCodeAt(i)) | 0;
+    const hue = ((hash % 360) + 360) % 360;
+    envColorCache[env] = `hsl(${hue}, 30%, 14%)`;
+    return envColorCache[env];
+}
+
 const existingStatusLabels = {
     0: {bg: 'bg-gray-600', text: 'text-gray-300', label: 'Unknown'},
     1: {bg: 'bg-gray-600', text: 'text-gray-300', label: 'No Deployment'},
@@ -85,11 +97,16 @@ export function statusCard(deployment, versions, versionError, scopes, selectedS
         await onDeploy(deployment, selectedVersion.val);
     }, "btn-primary text-xs py-1 px-3", 'button', () => !selectedVersion.val);
 
+    const bgColor = envColor(deployment.environment);
     return div(
-        {class: "bg-gray-800 rounded-lg p-3 border border-gray-700 flex flex-col gap-2 w-fit min-w-56"},
+        {class: "rounded-lg p-3 border border-gray-700 flex flex-col gap-2 w-fit min-w-56",
+         style: bgColor ? `background-color: ${bgColor}` : 'background-color: rgb(31 41 55)'},
         div(
-            {class: "text-xs text-gray-500"},
-            deployment.machine,
+            {class: "flex items-center justify-between text-xs"},
+            span({class: "text-gray-500"}, deployment.machine),
+            deployment.environment && deployment.environment !== 'OPSAGENT_SYSTEM'
+                ? span({class: "text-white"}, deployment.environment)
+                : span(),
         ),
         div(
             {class: "flex items-center justify-between gap-3"},

@@ -5,7 +5,7 @@ import {statusCard} from "../components/statusCard.js";
 import {deploymentLogs} from "../components/deploymentLogs.js";
 import {deploymentHistory} from "../components/deploymentHistory.js";
 
-const { div, h1, h2, p } = van.tags;
+const { div, h1, p } = van.tags;
 
 // Sidebar modes
 const SIDEBAR_NONE = null;
@@ -208,50 +208,35 @@ export function statusPage() {
             // Re-read versionsS inside the closure so VanJS tracks the dependency.
             const versions = versionsS.val;
 
-            const envMap = {};
-            for (const s of filtered) {
-                const env = s.environment || 'Unknown';
-                if (!envMap[env]) envMap[env] = [];
-                envMap[env].push(s);
-            }
-
-            const envEntries = Object.entries(envMap).sort(([a], [b]) => {
-                const aSystem = a === 'OPSAGENT_SYSTEM' ? 1 : 0;
-                const bSystem = b === 'OPSAGENT_SYSTEM' ? 1 : 0;
-                return aSystem - bSystem || a.localeCompare(b);
+            // Sort: OPSAGENT_SYSTEM last, then by environment, then by name.
+            const sorted = [...filtered].sort((a, b) => {
+                const aSystem = a.environment === 'OPSAGENT_SYSTEM' ? 1 : 0;
+                const bSystem = b.environment === 'OPSAGENT_SYSTEM' ? 1 : 0;
+                return aSystem - bSystem
+                    || (a.environment || '').localeCompare(b.environment || '')
+                    || (a.name || '').localeCompare(b.name || '');
             });
 
             return div(
-                {class: "flex flex-col gap-6"},
-                ...envEntries.map(([envName, deployments]) =>
-                    div(
-                        {class: "card"},
-                        h2({class: envName === 'OPSAGENT_SYSTEM'
-                            ? "text-xs text-gray-500 mb-4"
-                            : "text-lg font-semibold mb-4"}, envName),
-                        div(
-                            {class: "flex flex-wrap gap-3"},
-                            ...deployments.map(s => {
-                                const scope = selectedScope.val[s.id] || '';
-                                const depVersions = getVersionsForDeployment(s.id, scope);
-                                const depScopes = getScopesForDeployment(s.id);
-                                return statusCard(
-                                    s,
-                                    depVersions,
-                                    null,
-                                    depScopes,
-                                    scope,
-                                    onScopeChange,
-                                    onDeploy,
-                                    onStop,
-                                    onShowHistory,
-                                    onShowRunOutput,
-                                    onShowPrepareOutput,
-                                );
-                            })
-                        )
-                    )
-                )
+                {class: "flex flex-wrap gap-3"},
+                ...sorted.map(s => {
+                    const scope = selectedScope.val[s.id] || '';
+                    const depVersions = getVersionsForDeployment(s.id, scope);
+                    const depScopes = getScopesForDeployment(s.id);
+                    return statusCard(
+                        s,
+                        depVersions,
+                        null,
+                        depScopes,
+                        scope,
+                        onScopeChange,
+                        onDeploy,
+                        onStop,
+                        onShowHistory,
+                        onShowRunOutput,
+                        onShowPrepareOutput,
+                    );
+                })
             );
         }
     );
