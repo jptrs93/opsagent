@@ -75,7 +75,7 @@ export function deploymentHistory(deploymentId, onClose) {
     setTimeout(load, 0);
 
     return div(
-        {class: "w-1/2 min-h-0 border-l border-gray-700 bg-gray-900 flex flex-col h-full"},
+        {class: "min-h-0 bg-gray-900 flex flex-col h-full"},
         div(
             {class: "flex items-center justify-between p-3 border-b border-gray-700"},
             h2({class: "text-sm font-semibold text-gray-300"}, `History: #${deploymentId}`),

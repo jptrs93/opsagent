@@ -7,6 +7,23 @@ import {deploymentHistory} from "../components/deploymentHistory.js";
 
 const { div, h1, p } = van.tags;
 
+const SIDEBAR_WIDTH_KEY = 'opsagent_sidebar_width';
+const DEFAULT_SIDEBAR_PCT = 50;
+const MIN_SIDEBAR_PCT = 20;
+const MAX_SIDEBAR_PCT = 80;
+
+function loadSidebarWidth() {
+    try {
+        const v = parseFloat(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+        if (v >= MIN_SIDEBAR_PCT && v <= MAX_SIDEBAR_PCT) return v;
+    } catch {}
+    return DEFAULT_SIDEBAR_PCT;
+}
+
+function saveSidebarWidth(pct) {
+    try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(pct)); } catch {}
+}
+
 // Sidebar modes
 const SIDEBAR_NONE = null;
 const SIDEBAR_PREPARE = 'prepare';
@@ -186,7 +203,7 @@ export function statusPage() {
     const onShowPrepareOutput = (deployment) => openSidebar(deployment, SIDEBAR_PREPARE);
 
     const mainContent = div(
-        {class: "flex-1 min-h-0 overflow-auto p-6 flex flex-col gap-6"},
+        {class: "flex flex-col gap-6"},
         h1({class: "text-xl font-bold"}, "Deployments"),
         () => {
             if (deploymentsStreamS.val.status !== 'connected' && statuses.val.length === 0) {
@@ -241,23 +258,87 @@ export function statusPage() {
         }
     );
 
-    return div(
-        {class: "flex h-full min-h-0 overflow-hidden"},
-        mainContent,
-        () => {
-            const mode = sidebarMode.val;
-            const depId = sidebarDeploymentId.val;
-            const _rev = sidebarRevision.val;
-            if (!mode || !depId) return div();
+    let currentWidthPct = loadSidebarWidth();
 
-            const label = sidebarLabel.val;
-            if (mode === SIDEBAR_HISTORY) {
-                return deploymentHistory(depId, closeSidebar);
-            }
+    // Persistent DOM nodes — widths are updated directly during drag
+    // so VanJS doesn't rebuild the sidebar on every mouse move.
+    const mainPane = div(
+        {class: "min-h-0 overflow-auto p-6 flex flex-col gap-6", style: "width:100%"},
+        mainContent,
+    );
+
+    const sidebarPane = div({class: "min-h-0 h-full", style: "display:none"});
+
+    const dividerEl = div({
+        class: "w-1 cursor-col-resize bg-gray-700 hover:bg-brand transition-colors flex-shrink-0",
+        style: "display:none",
+        onmousedown: (e) => {
+            e.preventDefault();
+            const container = dividerEl.parentElement;
+            const rect = container.getBoundingClientRect();
+            const onMove = (me) => {
+                const pct = ((rect.right - me.clientX) / rect.width) * 100;
+                currentWidthPct = Math.round(Math.min(MAX_SIDEBAR_PCT, Math.max(MIN_SIDEBAR_PCT, pct)));
+                mainPane.style.width = `${100 - currentWidthPct}%`;
+                sidebarPane.style.width = `${currentWidthPct}%`;
+            };
+            const onUp = () => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                saveSidebarWidth(currentWidthPct);
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        },
+    });
+
+    const applySidebarLayout = (open) => {
+        if (open) {
+            mainPane.style.width = `${100 - currentWidthPct}%`;
+            sidebarPane.style.width = `${currentWidthPct}%`;
+            sidebarPane.style.display = '';
+            dividerEl.style.display = '';
+        } else {
+            mainPane.style.width = '100%';
+            sidebarPane.style.display = 'none';
+            dividerEl.style.display = 'none';
+        }
+    };
+
+    // Reactive sidebar content — only rebuilds when mode/id/rev changes,
+    // not on width changes.
+    van.derive(() => {
+        const mode = sidebarMode.val;
+        const depId = sidebarDeploymentId.val;
+        const _rev = sidebarRevision.val;
+
+        // Clear previous sidebar content.
+        sidebarPane.innerHTML = '';
+
+        if (!mode || !depId) {
+            applySidebarLayout(false);
+            return;
+        }
+
+        const label = sidebarLabel.val;
+        let content;
+        if (mode === SIDEBAR_HISTORY) {
+            content = deploymentHistory(depId, closeSidebar);
+        } else {
             abortActiveSidebar();
             const ac = new AbortController();
             activeSidebarAbort = ac;
-            return deploymentLogs(depId, label, mode, ac, closeSidebar);
-        },
+            content = deploymentLogs(depId, label, mode, ac, closeSidebar);
+        }
+
+        sidebarPane.appendChild(content);
+        applySidebarLayout(true);
+    });
+
+    return div(
+        {class: "flex h-full min-h-0 overflow-hidden"},
+        mainPane,
+        dividerEl,
+        sidebarPane,
     );
 }
