@@ -20,6 +20,30 @@ var InvalidYAMLErr = apigen.NewApiErr("", "invalid_yaml", http.StatusBadRequest)
 var InvalidConfigErr = apigen.NewApiErr("", "invalid_config", http.StatusBadRequest)
 var DeploymentNotFoundErr = apigen.NewApiErr("Deployment not found", "deployment_not_found", http.StatusNotFound)
 
+var DuplicateDeploymentErr = apigen.NewApiErr("A deployment with this name, environment, and machine already exists", "duplicate_deployment", http.StatusConflict)
+
+func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentConfig, error) {
+	if req.YamlContent == "" {
+		return nil, InvalidYAMLErr
+	}
+
+	cid, spec, err := parseCreateDeploymentYaml(req.YamlContent)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for duplicate before creating.
+	snapshot, _ := h.Store.MustFetchSnapshotAndSubscribe(nil, "")
+	for _, dws := range snapshot {
+		if dws.Config.ConfigID != nil && *dws.Config.ConfigID == *cid && !dws.Config.Deleted {
+			return nil, DuplicateDeploymentErr
+		}
+	}
+
+	cfg := h.Store.MustCreateDeployment(ctx, cid, spec)
+	return cfg, nil
+}
+
 func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequest) (*apigen.DesiredState, error) {
 	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr
@@ -472,7 +496,9 @@ func toRunnerConfig(yr *yamlRunner) (*apigen.RunnerConfig, error) {
 
 func invalidConfigErrf(format string, args ...any) error {
 	e := InvalidConfigErr
-	e.InternalErr = fmt.Sprintf(format, args...)
+	msg := fmt.Sprintf(format, args...)
+	e.InternalErr = msg
+	e.DisplayErr = msg
 	return e
 }
 
@@ -524,4 +550,42 @@ func deploymentConfigToYaml(cfg *apigen.DeploymentConfig) string {
 		return ""
 	}
 	return string(out)
+}
+
+// parseCreateDeploymentYaml parses YAML into a DeploymentIdentifier and DeploymentSpec for creation.
+func parseCreateDeploymentYaml(yamlContent string) (*apigen.DeploymentIdentifier, *apigen.DeploymentSpec, error) {
+	var dep yamlDeployment
+	if err := yaml.Unmarshal([]byte(yamlContent), &dep); err != nil {
+		return nil, nil, InvalidYAMLErr
+	}
+
+	if dep.Name == "" {
+		return nil, nil, invalidConfigErrf("name is required")
+	}
+	if dep.Environment == "" {
+		return nil, nil, invalidConfigErrf("environment is required")
+	}
+	if dep.Machine == "" {
+		return nil, nil, invalidConfigErrf("machine is required")
+	}
+
+	prepare, err := toPrepareConfig(dep.Prepare)
+	if err != nil {
+		return nil, nil, err
+	}
+	runnerCfg, err := toRunnerConfig(dep.Runner)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	cid := &apigen.DeploymentIdentifier{
+		Name:        dep.Name,
+		Environment: dep.Environment,
+		Machine:     dep.Machine,
+	}
+	spec := &apigen.DeploymentSpec{
+		Prepare: prepare,
+		Runner:  runnerCfg,
+	}
+	return cid, spec, nil
 }

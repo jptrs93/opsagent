@@ -40,6 +40,7 @@ type ServerHandler interface {
 	PostV1DeploymentHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
 	PostV1DeploymentLogs(Context, *http.Request, http.ResponseWriter) error
 	GetV1ClusterStatus(Context, *http.Request, http.ResponseWriter) error
+	PostV1DeploymentCreate(Context, *DeploymentCreateRequest) (*DeploymentConfig, error)
 	PostV1DeploymentVersions(Context, *DeploymentVersionsRequest) (*DeploymentVersions, error)
 }
 
@@ -251,6 +252,20 @@ func CreateMux(h ServerHandler, verifyAuth VerifyAuthFunc, options *MuxOptions, 
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+	}, middlewares...))
+	m.HandleFunc("POST /v1/deployment/create", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
+		if err != nil {
+			HandleReqErr(ctx, err, r, w)
+			return
+		}
+		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeDeploymentCreateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1DeploymentCreate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
 	}, middlewares...))
 	m.HandleFunc("POST /v1/deployment/versions", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})

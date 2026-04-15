@@ -70,6 +70,11 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  // Create a new deployment from YAML.
+  rpc PostV1DeploymentCreate(DeploymentCreateRequest) returns (DeploymentConfig) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   // Version discovery: fetch available versions for a deployment on demand.
   rpc PostV1DeploymentVersions(DeploymentVersionsRequest) returns (DeploymentVersions) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
@@ -190,6 +195,10 @@ message DeploymentUpdateRequest {
   bool stop = 3;
   int32 version = 4;
   string yaml_content = 6;  // optional: update deployment spec from per-deployment yaml
+}
+
+message DeploymentCreateRequest {
+  string yaml_content = 1;
 }
 
 message DeploymentHistoryRequest {

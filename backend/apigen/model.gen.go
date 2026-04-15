@@ -800,6 +800,39 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 	return &m, nil
 }
 
+type DeploymentCreateRequest struct {
+	YamlContent string
+}
+
+func (m *DeploymentCreateRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.YamlContent, 1)
+	return b
+}
+
+func DecodeDeploymentCreateRequest(b []byte) (*DeploymentCreateRequest, error) {
+	var m DeploymentCreateRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.YamlContent, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type DeploymentHistoryRequest struct {
 	DeploymentID int32
 }

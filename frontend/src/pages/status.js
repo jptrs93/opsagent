@@ -5,8 +5,9 @@ import {statusCard} from "../components/statusCard.js";
 import {deploymentLogs} from "../components/deploymentLogs.js";
 import {deploymentHistory} from "../components/deploymentHistory.js";
 import {deployOverlay} from "../components/deployOverlay.js";
+import {createOverlay} from "../components/createOverlay.js";
 
-const { div, h1, p } = van.tags;
+const { div, h1, p, button } = van.tags;
 
 const SIDEBAR_WIDTH_KEY = 'opsagent_sidebar_width';
 const DEFAULT_SIDEBAR_PCT = 50;
@@ -105,6 +106,7 @@ export function statusPage() {
     // Overlay state
     const overlayDeployment = van.state(null);
     const overlayRevision = van.state(0);
+    const showCreateOverlay = van.state(false);
 
     // Track deployments
     van.derive(() => {
@@ -171,7 +173,14 @@ export function statusPage() {
 
     const mainContent = div(
         {class: "flex flex-col gap-6"},
-        h1({class: "text-xl font-bold"}, "Deployments"),
+        div(
+            {class: "flex items-center justify-between"},
+            h1({class: "text-xl font-bold"}, "Deployments"),
+            button({
+                class: "btn-primary text-sm py-1.5 px-4 cursor-pointer",
+                onclick: () => { showCreateOverlay.val = true; },
+            }, "Add deployment"),
+        ),
         () => {
             if (deploymentsStreamS.val.status !== 'connected' && statuses.val.length === 0) {
                 return p({class: "text-gray-400"}, deploymentsStreamS.val.sentence);
@@ -308,11 +317,28 @@ export function statusPage() {
         );
     });
 
+    // Create overlay container
+    const createOverlayContainer = div();
+
+    van.derive(() => {
+        const show = showCreateOverlay.val;
+        createOverlayContainer.innerHTML = '';
+
+        if (!show) return;
+
+        createOverlayContainer.appendChild(
+            createOverlay(
+                () => { showCreateOverlay.val = false; },
+            )
+        );
+    });
+
     return div(
         {class: "flex h-full min-h-0 overflow-hidden"},
         mainPane,
         dividerEl,
         sidebarPane,
         overlayContainer,
+        createOverlayContainer,
     );
 }

@@ -338,6 +338,80 @@ func (s *StorageAdapter) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 	s.notifyFromCache(deploymentID)
 }
 
+// MustCreateDeployment creates a brand-new deployment from a DeploymentIdentifier and spec.
+// It allocates a deployment ID, persists the config, inserts a default status,
+// and returns the resulting DeploymentConfig.
+func (s *StorageAdapter) MustCreateDeployment(ctx apigen.Context, cid *apigen.DeploymentIdentifier, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Reject if a non-deleted deployment with the same identifier already exists.
+	for _, cfg := range s.configCache {
+		if cfg.ConfigID != nil && *cfg.ConfigID == *cid && !cfg.Deleted {
+			panic(fmt.Sprintf("deployment %s/%s/%s already exists", cid.Environment, cid.Machine, cid.Name))
+		}
+	}
+
+	bgCtx := context.Background()
+	now := time.Now().UnixMilli()
+
+	userID := int64(0)
+	if ctx.User != nil {
+		userID = int64(ctx.User.ID)
+	}
+
+	tx, err := s.db.BeginTx(bgCtx, nil)
+	if err != nil {
+		panic(fmt.Sprintf("begin tx: %v", err))
+	}
+	defer tx.Rollback()
+
+	q := s.q.WithTx(tx)
+	dbID := s.mustResolveDeploymentID(bgCtx, tx, cid)
+
+	var specBlob []byte
+	if spec != nil {
+		specBlob = spec.Encode()
+	}
+
+	params := UpsertDeploymentConfigParams{
+		DeploymentID: dbID,
+		Environment:  cid.Environment,
+		Machine:      cid.Machine,
+		Name:         cid.Name,
+		Version:      1,
+		UpdatedAt:    now,
+		UpdatedBy:    userID,
+		SpecBlob:     specBlob,
+		Deleted:      0,
+	}
+	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
+		panic(fmt.Sprintf("UpsertDeploymentConfig (create): %v", err))
+	}
+	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
+		DeploymentID: dbID,
+		Version:      1,
+		UpdatedAt:    now,
+		UpdatedBy:    userID,
+		SpecBlob:     specBlob,
+		Deleted:      0,
+	}); err != nil {
+		panic(fmt.Sprintf("InsertDeploymentConfigHistory (create): %v", err))
+	}
+
+	s.insertDefaultStatus(bgCtx, q, dbID, now)
+
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit: %v", err))
+	}
+
+	cfg := upsertParamsToProto(params)
+	id := int32(dbID)
+	s.configCache[id] = cfg
+	s.notifyFromCache(id)
+	return cfg
+}
+
 func (s *StorageAdapter) insertDefaultStatus(ctx context.Context, q *Queries, dbID int64, now int64) {
 	id := int32(dbID)
 	st := &apigen.DeploymentStatus{

@@ -28,5 +28,6 @@ type PrimaryLocalStore interface {
 	MustSetDeploymentDesiredState(ctx apigen.Context, deploymentID int32, desired apigen.DesiredState)
 
 	MustUpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec)
+	MustCreateDeployment(ctx apigen.Context, cid *apigen.DeploymentIdentifier, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig
 	ListActiveDeploymentConfigs() []*apigen.DeploymentConfig
 }

@@ -88,6 +88,10 @@
  * @property {string} yamlContent
  */
 /**
+ * @typedef {Object} DeploymentCreateRequest
+ * @property {string} yamlContent
+ */
+/**
  * @typedef {Object} DeploymentHistoryRequest
  * @property {number} deploymentId
  */
@@ -1349,6 +1353,62 @@ function decodeDeploymentUpdateRequestMessage(reader, length) {
 export function decodeDeploymentUpdateRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeDeploymentUpdateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {DeploymentCreateRequest} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentCreateRequest(message, writer) {
+    if (message.yamlContent !== undefined && message.yamlContent !== null && message.yamlContent !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.yamlContent);
+    }
+}
+
+
+/**
+ * @param {DeploymentCreateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentCreateRequest(message) {
+    const writer = Writer.create();
+    writeDeploymentCreateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentCreateRequest}
+ */
+function decodeDeploymentCreateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {yamlContent: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.yamlContent = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentCreateRequest}
+ */
+export function decodeDeploymentCreateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentCreateRequestMessage(reader);
 }
 
 

@@ -173,10 +173,9 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                     {class: "flex items-center justify-between px-4 py-3 border-b border-gray-700"},
                     h3({class: "text-sm font-semibold text-gray-300"}, "Version"),
                     button({
-                        class: "p-1 rounded text-gray-500 hover:text-gray-300 transition-colors cursor-pointer",
+                        class: "flex items-center gap-1.5 px-2 py-1 rounded text-xs text-gray-500 hover:text-gray-300 transition-colors cursor-pointer",
                         onclick: onRefresh,
-                        title: "Refresh versions",
-                    }, RefreshCw({size: 14})),
+                    }, RefreshCw({size: 12}), "Refresh available versions"),
                 ),
                 div(
                     {class: "p-4 flex flex-col gap-3"},
