@@ -125,6 +125,12 @@ func (r *osProcessRunner) run() {
 
 	crashCount := 0
 
+	// hadProcess tracks whether a process has previously run (spawned or
+	// adopted). The next successful spawn after a prior process counts as a
+	// restart — this ensures adopted-process-death → respawn is counted and
+	// that the increment is persisted atomically with the RUNNING status.
+	hadProcess := false
+
 	// If we were constructed to adopt an existing PID (via reAttachOSProcessRunner),
 	// the first iteration polls that process rather than spawning a new one.
 	// On exit we drop through to the normal spawn loop.
@@ -132,6 +138,7 @@ func (r *osProcessRunner) run() {
 	if adoptPid > 0 {
 		slog.InfoContext(r.ctx, "adopting existing process", "pid", adoptPid, "log", r.outputPath)
 		r.monitorAdoptedProcess(adoptPid)
+		hadProcess = true
 	}
 
 	for {
@@ -140,6 +147,11 @@ func (r *osProcessRunner) run() {
 			return
 		}
 
+		if hadProcess {
+			r.status.NumberOfRestarts++
+		}
+		hadProcess = true
+		r.status.LastRestartAt = time.Now()
 		pid, err := spawnDaemon(r.status.RunningArtifact, r.workDir, r.outputPath, r.runAs)
 		if err != nil {
 			slog.ErrorContext(r.ctx, "spawning daemon failed", "err", err, "bin", r.status.RunningArtifact, "workDir", r.workDir, "runAs", r.runAs)
@@ -177,9 +189,6 @@ func (r *osProcessRunner) run() {
 			r.updateStatus(apigen.RunningStatus_STOPPED, 0)
 			return
 		}
-
-		r.status.NumberOfRestarts++
-		r.status.LastRestartAt = time.Now()
 	}
 }
 
