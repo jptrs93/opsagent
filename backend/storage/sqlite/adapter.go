@@ -121,9 +121,10 @@ func (s *StorageAdapter) loadCache() {
 		if err := s.q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
 			panic(fmt.Sprintf("loadCache: UpsertDeploymentStatus (default): %v", err))
 		}
-		if err := s.q.InsertDeploymentStatusHistory(ctx, params); err != nil {
-			panic(fmt.Sprintf("loadCache: InsertDeploymentStatusHistory (default): %v", err))
-		}
+		// No history row: the placeholder carries no preparer/runner data,
+		// so it would show up as a meaningless "status update" entry in the
+		// UI. The current-row upsert above is enough to maintain the
+		// status-never-nil invariant.
 		s.statusCache[id] = st
 	}
 }
@@ -513,9 +514,10 @@ func (s *StorageAdapter) insertDefaultStatus(ctx context.Context, q *Queries, db
 	if err := q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
 		panic(fmt.Sprintf("UpsertDeploymentStatus (default): %v", err))
 	}
-	if err := q.InsertDeploymentStatusHistory(ctx, params); err != nil {
-		panic(fmt.Sprintf("InsertDeploymentStatusHistory (default): %v", err))
-	}
+	// No history row: the placeholder carries no preparer/runner data,
+	// so it would show up as a meaningless "status update" entry in the
+	// UI. The current-row upsert above is enough to maintain the
+	// status-never-nil invariant.
 	s.statusCache[id] = st
 }
 

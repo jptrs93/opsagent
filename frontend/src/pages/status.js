@@ -289,7 +289,7 @@ export function statusPage() {
         const label = sidebarLabel.val;
         let content;
         if (mode === SIDEBAR_HISTORY) {
-            content = deploymentHistory(depId, closeSidebar);
+            content = deploymentHistory(depId, label, closeSidebar);
         } else {
             abortActiveSidebar();
             const ac = new AbortController();

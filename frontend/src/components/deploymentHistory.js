@@ -96,7 +96,7 @@ function describeStatusEntry(status, prev) {
     return parts.length > 0 ? parts.join(', ') : 'status update';
 }
 
-export function deploymentHistory(deploymentId, onClose) {
+export function deploymentHistory(deploymentId, label, onClose) {
     const entries = van.state(null);
     const error = van.state('');
 
@@ -117,7 +117,7 @@ export function deploymentHistory(deploymentId, onClose) {
         {class: "min-h-0 bg-gray-900 flex flex-col h-full"},
         div(
             {class: "flex items-center justify-between p-3 border-b border-gray-700"},
-            h2({class: "text-sm font-semibold text-gray-300"}, `History: #${deploymentId}`),
+            h2({class: "text-sm font-semibold text-gray-300"}, `History: ${label || `#${deploymentId}`}`),
             div(
                 {class: "flex items-center gap-2"},
                 () => error.val ? span({class: "text-xs text-red-400"}, error.val) : span(),
@@ -137,8 +137,14 @@ export function deploymentHistory(deploymentId, onClose) {
                     return p({class: "p-4 text-sm text-gray-500"}, "No history.");
                 }
 
+                // Drop seq_no=0 placeholder status rows inserted by older
+                // versions of the primary to satisfy the status-never-nil
+                // invariant — they carry no preparer/runner data and render
+                // as meaningless "status update" lines.
+                const visibleEntries = entries.val.filter(e => !e.status || e.status.statusSeqNo > 0);
+
                 // Build a map of config entries by seqNo for diffing.
-                const configEntries = entries.val.filter(e => e.config);
+                const configEntries = visibleEntries.filter(e => e.config);
                 const configByVersion = {};
                 const configsSorted = [...configEntries].sort((a, b) => a.config.version - b.config.version);
                 let prevConfig = null;
@@ -151,8 +157,8 @@ export function deploymentHistory(deploymentId, onClose) {
                 // record each status entry's prior status for diff rendering.
                 const prevStatusByEntry = new Map();
                 let lastStatus = null;
-                for (let i = entries.val.length - 1; i >= 0; i--) {
-                    const e = entries.val[i];
+                for (let i = visibleEntries.length - 1; i >= 0; i--) {
+                    const e = visibleEntries[i];
                     if (e.status) {
                         prevStatusByEntry.set(e, lastStatus);
                         lastStatus = e.status;
@@ -165,7 +171,7 @@ export function deploymentHistory(deploymentId, onClose) {
                 };
                 const stableWindowMs = 10 * 60 * 1000;
 
-                const lines = entries.val.map((e, i) => {
+                const lines = visibleEntries.map((e, i) => {
                     const isConfig = !!e.config;
                     const ts = isConfig
                         ? (e.config.updatedAt instanceof Date && e.config.updatedAt.getTime() > 0
@@ -193,7 +199,7 @@ export function deploymentHistory(deploymentId, onClose) {
                         const desc = describeStatusEntry(e.status, prev);
                         const transitionedToRunning = runnerChanged(e.status, prev)
                             && e.status.runner && e.status.runner.status === 2;
-                        const nextTs = i > 0 ? entryTime(entries.val[i - 1]) : 0;
+                        const nextTs = i > 0 ? entryTime(visibleEntries[i - 1]) : 0;
                         const curTs = entryTime(e);
                         const stable = i === 0 || (nextTs > 0 && curTs > 0 && nextTs - curTs > stableWindowMs);
                         const color = transitionedToRunning && stable ? "text-green-500" : "text-gray-500";

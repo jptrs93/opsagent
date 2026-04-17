@@ -175,7 +175,10 @@ func (s *SecondaryStorageAdapter) loadCache() {
 		dbID := int64(id)
 		params := statusProtoToInsertParams(dbID, st)
 		s.execUpsertStatus(ctx, statusInsertToUpsert(params))
-		s.execInsertStatusHistory(ctx, params)
+		// No history row: the placeholder carries no preparer/runner data,
+		// so it would show up as a meaningless "status update" entry in the
+		// UI. The current-row upsert above is enough to maintain the
+		// status-never-nil invariant.
 		s.statusCache[id] = st
 	}
 }
@@ -233,7 +236,10 @@ func (s *SecondaryStorageAdapter) MustWriteDeploymentConfig(ctx context.Context,
 		}
 		params := statusProtoToInsertParams(dbID, st)
 		s.execUpsertStatus(ctx, statusInsertToUpsert(params))
-		s.execInsertStatusHistory(ctx, params)
+		// No history row: the placeholder carries no preparer/runner data,
+		// so it would show up as a meaningless "status update" entry in the
+		// UI. The current-row upsert above is enough to maintain the
+		// status-never-nil invariant.
 		s.statusCache[id] = st
 	}
 
