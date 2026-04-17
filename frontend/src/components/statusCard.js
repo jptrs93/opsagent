@@ -112,6 +112,7 @@ export function statusCard(deployment, onDeploy, onStop, onShowHistory, onShowRu
                 span(() => resolveUserDisplayName(deployment.deployedBy) || 'unknown'),
                 span({class: "text-gray-400"}, "Deployed at:"),
                 span(
+                    {class: "whitespace-nowrap"},
                     deployment.deployedAt instanceof Date && deployment.deployedAt.getTime() > 0
                         ? format(deployment.deployedAt, "MMM d, HH:mm")
                         : 'unknown'
