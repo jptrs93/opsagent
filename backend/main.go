@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/jptrs93/goutil/ptru"
 	"github.com/jptrs93/opsagent/backend/ainit"
@@ -96,10 +97,11 @@ func main() {
 		}
 	} else {
 		certManager := &autocert.Manager{
-			Prompt:     autocert.AcceptTOS,
-			Cache:      autocert.DirCache(resolveCacheDir()),
-			HostPolicy: autocert.HostWhitelist(ainit.Config.AcmeHosts...),
-			Email:      ainit.Config.AcmeEmail,
+			Prompt:      autocert.AcceptTOS,
+			Cache:       autocert.DirCache(resolveCacheDir()),
+			HostPolicy:  autocert.HostWhitelist(ainit.Config.AcmeHosts...),
+			Email:       ainit.Config.AcmeEmail,
+			RenewBefore: 168 * time.Hour,
 		}
 
 		// TLS-ALPN-01 ACME challenge runs inside the port 443 listener —
