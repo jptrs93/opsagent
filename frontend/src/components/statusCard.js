@@ -107,12 +107,11 @@ export function statusCard(deployment, onDeploy, onStop, onShowHistory, onShowRu
         div(
             {class: "flex gap-4 text-xs text-gray-500 w-full py-2"},
             div(
-                {class: "flex-1 basis-0 grid grid-cols-[auto_auto] gap-x-2 gap-y-1.5"},
+                {class: "flex-1 basis-0 grid grid-cols-[auto_auto] gap-x-2 gap-y-1.5 whitespace-nowrap"},
                 span({class: "text-gray-400"}, "Deployed by:"),
                 span(() => resolveUserDisplayName(deployment.deployedBy) || 'unknown'),
                 span({class: "text-gray-400"}, "Deployed at:"),
                 span(
-                    {class: "whitespace-nowrap"},
                     deployment.deployedAt instanceof Date && deployment.deployedAt.getTime() > 0
                         ? format(deployment.deployedAt, "MMM d, HH:mm")
                         : 'unknown'
@@ -142,7 +141,7 @@ export function statusCard(deployment, onDeploy, onStop, onShowHistory, onShowRu
                 })(),
             ),
             div(
-                {class: "flex-1 basis-0 grid grid-cols-[auto_auto] gap-x-2 gap-y-1.5"},
+                {class: "flex-1 basis-0 grid grid-cols-[auto_auto] gap-x-2 gap-y-1.5 whitespace-nowrap"},
                 span({class: "text-gray-400"}, "Restarts:"),
                 span(String(deployment.numberOfRestarts)),
                 span({class: "text-gray-400"}, "Last restart:"),
