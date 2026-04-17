@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,7 +33,7 @@ type StorageAdapter struct {
 	userSubs    *logstore.Subs[apigen.User]
 }
 
-func NewStorageAdapter(dbPath string) *StorageAdapter {
+func NewStorageAdapter(dbPath string, machineName string) *StorageAdapter {
 	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
 		panic(fmt.Sprintf("open sqlite: %v", err))
@@ -40,6 +41,7 @@ func NewStorageAdapter(dbPath string) *StorageAdapter {
 	if _, err := db.Exec(schema); err != nil {
 		panic(fmt.Sprintf("exec schema: %v", err))
 	}
+	applyPrimaryMigrations(db, machineName)
 	s := &StorageAdapter{
 		db:          db,
 		q:           New(db),
@@ -50,6 +52,38 @@ func NewStorageAdapter(dbPath string) *StorageAdapter {
 	}
 	s.loadCache()
 	return s
+}
+
+// applyPrimaryMigrations runs the embedded primary-side migrations after the
+// schema has been applied. Statements are separated by `;`, comment-only
+// chunks are skipped, and every `?` placeholder in a statement is bound to
+// the primary's machine name. Statements must be idempotent — this runs on
+// every primary startup until the file is emptied.
+func applyPrimaryMigrations(db *sql.DB, machineName string) {
+	for _, stmt := range strings.Split(primaryMigrations, ";") {
+		if !hasExecutableSQL(stmt) {
+			continue
+		}
+		n := strings.Count(stmt, "?")
+		args := make([]any, n)
+		for i := range args {
+			args[i] = machineName
+		}
+		if _, err := db.Exec(stmt, args...); err != nil {
+			panic(fmt.Sprintf("primary migration failed: %v\nstmt: %s", err, stmt))
+		}
+	}
+}
+
+func hasExecutableSQL(s string) bool {
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "--") {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func (s *StorageAdapter) loadCache() {
@@ -168,6 +202,62 @@ func (s *StorageAdapter) MustWriteDeploymentStatus(ctx context.Context, deployme
 
 	s.statusCache[deploymentID] = current
 	s.notifyFromCache(deploymentID)
+}
+
+// MustWriteReplicatedDeploymentStatus persists a status pushed by a secondary,
+// treating the incoming StatusSeqNo as the authoritative identity. Duplicate
+// seq_nos upsert the existing history row, so reconnect-driven replays are
+// idempotent. The current-state row is only advanced when the incoming
+// seq_no is at least the cached max, so out-of-order backlog fills never
+// regress "latest".
+func (s *StorageAdapter) MustWriteReplicatedDeploymentStatus(ctx context.Context, st *apigen.DeploymentStatus) {
+	if st == nil || st.DeploymentID == 0 || st.StatusSeqNo <= 0 {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	dbID := int64(st.DeploymentID)
+	params := statusProtoToInsertParams(dbID, st)
+
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO deployment_status_history (
+		    deployment_id, status_seq_no, timestamp,
+		    preparer_config_version, preparer_artifact, preparer_status,
+		    runner_config_version, runner_pid, runner_artifact, runner_status,
+		    runner_num_restarts, runner_last_restart_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(deployment_id, status_seq_no) DO UPDATE SET
+		    timestamp = excluded.timestamp,
+		    preparer_config_version = excluded.preparer_config_version,
+		    preparer_artifact = excluded.preparer_artifact,
+		    preparer_status = excluded.preparer_status,
+		    runner_config_version = excluded.runner_config_version,
+		    runner_pid = excluded.runner_pid,
+		    runner_artifact = excluded.runner_artifact,
+		    runner_status = excluded.runner_status,
+		    runner_num_restarts = excluded.runner_num_restarts,
+		    runner_last_restart_at = excluded.runner_last_restart_at`,
+		params.DeploymentID, params.StatusSeqNo, params.Timestamp,
+		params.PreparerConfigVersion, params.PreparerArtifact, params.PreparerStatus,
+		params.RunnerConfigVersion, params.RunnerPid, params.RunnerArtifact, params.RunnerStatus,
+		params.RunnerNumRestarts, params.RunnerLastRestartAt,
+	); err != nil {
+		panic(fmt.Sprintf("UpsertDeploymentStatusHistory: %v", err))
+	}
+
+	cachedSeqNo := int32(0)
+	if cur := s.statusCache[st.DeploymentID]; cur != nil {
+		cachedSeqNo = cur.StatusSeqNo
+	}
+	if st.StatusSeqNo >= cachedSeqNo {
+		if err := s.q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
+			panic(fmt.Sprintf("UpsertDeploymentStatus: %v", err))
+		}
+		s.statusCache[st.DeploymentID] = st
+		s.notifyFromCache(st.DeploymentID)
+	}
 }
 
 func (s *StorageAdapter) MustFetchSnapshotAndSubscribe(ctx context.Context, machine string) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus) {
@@ -834,3 +924,6 @@ func (s *StorageAdapter) FetchPublicKey(kid string) (*apigen.PublicKeyRecord, er
 
 //go:embed sql/schema.sql
 var schema string
+
+//go:embed sql/primary-migrations/migrations.sql
+var primaryMigrations string

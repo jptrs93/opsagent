@@ -71,7 +71,7 @@ func (h *Handler) GetV1Healthz(ctx apigen.Context, request *http.Request, writer
 }
 
 func New(staticFS fs.FS, machineName string) (*Handler, error) {
-	store := sqlite.NewStorageAdapter(filepath.Join(ainit.Config.DataDir, "primary.db"))
+	store := sqlite.NewStorageAdapter(filepath.Join(ainit.Config.DataDir, "primary.db"), machineName)
 
 	preparer.Nix = preparer.NewNixBuilder(ainit.Config.DataDir, ainit.Config.GithubToken)
 	preparer.GHRel = preparer.NewGithubReleaseDownloader(ainit.Config.DataDir, ainit.Config.GithubToken)

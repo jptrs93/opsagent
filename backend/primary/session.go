@@ -172,20 +172,16 @@ func (s *Session) closeAllLogStreams() {
 	}
 }
 
-// handleStatusWrite persists a status transition reported by a worker. The
-// worker has already applied it locally; this write publishes it to the
-// primary store so other subscribers (UI, cluster broadcast) see it.
-// The primary bumps its own StatusSeqNo rather than using the worker's value,
-// since the primary and worker maintain independent sequence counters.
+// handleStatusWrite persists a status transition reported by a worker using
+// the worker's StatusSeqNo as the authoritative identity. Same seq_no →
+// idempotent upsert, so reconnect re-pushes do not create duplicate history
+// rows. If the primary has drifted above the worker's latest seq_no, the
+// extra rows are deleted so the primary converges to the worker's view.
 func (s *Session) handleStatusWrite(ctx context.Context, st *apigen.DeploymentStatus) {
 	if st == nil || st.DeploymentID == 0 {
 		return
 	}
-	s.store.MustWriteDeploymentStatus(ctx, st.DeploymentID, func(dst *apigen.DeploymentStatus) {
-		seqNo := dst.StatusSeqNo + 1
-		*dst = *st
-		dst.StatusSeqNo = seqNo
-	})
+	s.store.MustWriteReplicatedDeploymentStatus(ctx, st)
 }
 
 // requestLogs sends a log request to the worker and returns a reader that

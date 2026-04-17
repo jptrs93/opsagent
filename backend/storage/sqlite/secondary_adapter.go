@@ -261,6 +261,45 @@ func (s *SecondaryStorageAdapter) MustWriteDeploymentStatus(ctx context.Context,
 	s.notifyFromCache(deploymentID)
 }
 
+// FetchDeploymentStatusHistorySince returns history rows with
+// status_seq_no > sinceSeqNo, in ascending order. Used on reconnect to
+// replay any history the primary is missing.
+func (s *SecondaryStorageAdapter) FetchDeploymentStatusHistorySince(deploymentID int32, sinceSeqNo int32) []*apigen.DeploymentStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ctx := context.Background()
+	dbID := int64(deploymentID)
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT deployment_id, status_seq_no, timestamp,
+		        preparer_seq_no, preparer_artifact, preparer_status,
+		        runner_seq_no, runner_pid, runner_artifact, runner_status,
+		        runner_num_restarts, runner_last_restart_at
+		 FROM deployment_status_history
+		 WHERE deployment_id = ? AND status_seq_no > ?
+		 ORDER BY status_seq_no ASC`,
+		dbID, int64(sinceSeqNo))
+	if err != nil {
+		panic(fmt.Sprintf("FetchDeploymentStatusHistorySince: %v", err))
+	}
+	defer rows.Close()
+
+	var out []*apigen.DeploymentStatus
+	for rows.Next() {
+		var r DeploymentStatusHistory
+		if err := rows.Scan(
+			&r.DeploymentID, &r.StatusSeqNo, &r.Timestamp,
+			&r.PreparerConfigVersion, &r.PreparerArtifact, &r.PreparerStatus,
+			&r.RunnerConfigVersion, &r.RunnerPid, &r.RunnerArtifact, &r.RunnerStatus,
+			&r.RunnerNumRestarts, &r.RunnerLastRestartAt,
+		); err != nil {
+			panic(fmt.Sprintf("FetchDeploymentStatusHistorySince scan: %v", err))
+		}
+		out = append(out, statusRowToProto(r.DeploymentID, r))
+	}
+	return out
+}
+
 func (s *SecondaryStorageAdapter) MustFetchSnapshotAndSubscribe(ctx context.Context, machine string) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

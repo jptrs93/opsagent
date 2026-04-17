@@ -235,10 +235,11 @@ func statusPushLoop(ctx context.Context, conn *cluster.Conn, ch <-chan apigen.De
 }
 
 // applySnapshot writes deployment configs from the primary's snapshot into
-// the local store. Status is NOT applied — the secondary is the authority for
-// its own deployment status. If the primary's view of a deployment's status
-// differs from the local state, the local status is pushed back so the
-// primary's mirror is refreshed.
+// the local store and replays any status history the primary is missing.
+// Each snapshot item carries the primary's last-known StatusSeqNo for that
+// deployment; the secondary scans its local history for rows above that
+// value and streams them back as individual StatusWrites so the primary can
+// insert each one at its canonical seq_no.
 func applySnapshot(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorageAdapter, snap *apigen.DeploymentWithStatusSnapshot) {
 	slog.Info("applying deployments snapshot from primary", "count", len(snap.Items))
 	for _, item := range snap.Items {
@@ -247,50 +248,25 @@ func applySnapshot(ctx context.Context, conn *cluster.Conn, store *sqlite.Second
 		}
 		store.MustWriteDeploymentConfig(ctx, item.Config)
 
-		// Push local status back if the primary's copy is stale.
-		local := store.FetchDeploymentStatus(item.Config.ID)
-		if local != nil && statusDiffers(local, item.Status) {
-			slog.Info("pushing stale local status to primary", "id", item.Config.ID)
-			msg := &apigen.MsgToMaster{StatusWrite: local}
+		var primarySeqNo int32
+		if item.Status != nil {
+			primarySeqNo = item.Status.StatusSeqNo
+		}
+		backlog := store.FetchDeploymentStatusHistorySince(item.Config.ID, primarySeqNo)
+		if len(backlog) == 0 {
+			continue
+		}
+		slog.Info("replaying status history to primary",
+			"id", item.Config.ID, "from", primarySeqNo, "count", len(backlog))
+		for _, st := range backlog {
+			msg := &apigen.MsgToMaster{StatusWrite: st}
 			if err := conn.WriteFrame(msg.Encode()); err != nil {
-				slog.Warn("failed pushing stale status to primary", "err", err)
+				slog.Warn("failed replaying status history to primary",
+					"id", item.Config.ID, "seqNo", st.StatusSeqNo, "err", err)
 				return
 			}
 		}
 	}
-}
-
-// statusDiffers returns true if the local status has meaningful differences
-// from the remote status that the primary should know about.
-func statusDiffers(local, remote *apigen.DeploymentStatus) bool {
-	if remote == nil {
-		// Primary has no status at all — push ours if we have anything.
-		return local.Preparer != nil || local.Runner != nil
-	}
-	// Compare preparer state.
-	if (local.Preparer == nil) != (remote.Preparer == nil) {
-		return true
-	}
-	if local.Preparer != nil && remote.Preparer != nil {
-		if local.Preparer.DeploymentConfigVersion != remote.Preparer.DeploymentConfigVersion ||
-			local.Preparer.Status != remote.Preparer.Status ||
-			local.Preparer.Artifact != remote.Preparer.Artifact {
-			return true
-		}
-	}
-	// Compare runner state.
-	if (local.Runner == nil) != (remote.Runner == nil) {
-		return true
-	}
-	if local.Runner != nil && remote.Runner != nil {
-		if local.Runner.DeploymentConfigVersion != remote.Runner.DeploymentConfigVersion ||
-			local.Runner.Status != remote.Runner.Status ||
-			local.Runner.RunningPid != remote.Runner.RunningPid ||
-			local.Runner.RunningArtifact != remote.Runner.RunningArtifact {
-			return true
-		}
-	}
-	return false
 }
 
 // applyConfigUpdate writes a single config update from the primary into the
