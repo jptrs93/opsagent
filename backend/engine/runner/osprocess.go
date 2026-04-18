@@ -139,6 +139,9 @@ func (r *osProcessRunner) run() {
 		slog.InfoContext(r.ctx, "adopting existing process", "pid", adoptPid, "log", r.outputPath)
 		r.monitorAdoptedProcess(adoptPid)
 		hadProcess = true
+		if !r.stopping.Load() {
+			r.updateStatus(apigen.RunningStatus_CRASHED, int32(adoptPid))
+		}
 	}
 
 	for {
@@ -164,7 +167,6 @@ func (r *osProcessRunner) run() {
 			continue
 		}
 
-		atomic.StoreInt32(&r.status.RunningPid, int32(pid))
 		slog.InfoContext(r.ctx, "daemon started", "pid", pid, "log", r.outputPath, "bin", r.status.RunningArtifact, "workDir", r.workDir)
 		r.updateStatus(apigen.RunningStatus_RUNNING, int32(pid))
 		startedAt := time.Now()
@@ -212,6 +214,11 @@ func (r *osProcessRunner) monitorAdoptedProcess(pid int) {
 				errCount++
 				slog.WarnContext(r.ctx, "failed checking adopted process liveness", "pid", pid, "err", err, "errCount", errCount)
 				if errCount >= maxErrors {
+					// TODO: giving up here falls through to the respawn loop
+					// without a distinct status write — the transition looks
+					// like RUNNING(old pid) → RUNNING(new pid) in history,
+					// hiding the fact that adoption was abandoned. Consider
+					// writing CRASHED (or a dedicated state) before returning.
 					slog.ErrorContext(r.ctx, "giving up on adopted process after persistent errors", "pid", pid)
 					return
 				}
@@ -269,7 +276,9 @@ func computeOSProcessBackoff(crashCount int) time.Duration {
 
 func (r *osProcessRunner) updateStatus(status apigen.RunningStatus, pid int32) {
 	r.status.Status = status
-	r.status.RunningPid = pid
+	// RunningPid is read concurrently by Stop() via atomic.LoadInt32, so
+	// writes must go through atomic.StoreInt32 to avoid a data race.
+	atomic.StoreInt32(&r.status.RunningPid, pid)
 	r.writeStatus()
 }
 
