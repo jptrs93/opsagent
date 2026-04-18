@@ -36,8 +36,20 @@ func RespondWithStatus(ctx context.Context, w http.ResponseWriter, b []byte, cod
 }
 
 func HandleReqErr(ctx context.Context, err error, r *http.Request, w http.ResponseWriter) {
+	path := ""
+	if r != nil {
+		path = r.URL.Path
+	}
+	handleReqErr(ctx, err, path, w)
+}
+
+func handleReqErr(ctx context.Context, err error, path string, w http.ResponseWriter) {
 	if err != nil && len(err.Error()) > 0 {
-		slog.ErrorContext(ctx, fmt.Sprintf("%v err: %v", r.URL.Path, err.Error()))
+		if path != "" {
+			slog.ErrorContext(ctx, fmt.Sprintf("%v err: %v", path, err.Error()))
+		} else {
+			slog.ErrorContext(ctx, fmt.Sprintf("err: %v", err.Error()))
+		}
 	}
 	var httpErr ApiErr
 	if !errors.As(err, &httpErr) {
@@ -87,6 +99,54 @@ func WriteStreamFrame(w io.Writer, payload []byte) error {
 		}
 	}
 	return nil
+}
+
+// StreamWriter lazily commits a protobuf-stream response on the first frame.
+type StreamWriter struct {
+	w       http.ResponseWriter
+	control *http.ResponseController
+	started bool
+}
+
+func NewStreamWriter(w http.ResponseWriter) *StreamWriter {
+	return &StreamWriter{w: w, control: http.NewResponseController(w)}
+}
+
+func (s *StreamWriter) Write(payload []byte) error {
+	if !s.started {
+		s.started = true
+		SetStreamHeaders(s.w)
+	}
+	if err := WriteStreamFrame(s.w, payload); err != nil {
+		return err
+	}
+	return s.control.Flush()
+}
+
+func (s *StreamWriter) Finish(ctx context.Context, err error) {
+	if err != nil {
+		if !s.started {
+			handleReqErr(ctx, err, "", s.w)
+			return
+		}
+		AbortStream(ctx, err, nil)
+	}
+	if s.started {
+		return
+	}
+	SetStreamHeaders(s.w)
+	s.w.WriteHeader(http.StatusOK)
+}
+
+func AbortStream(ctx context.Context, err error, r *http.Request) {
+	if err != nil {
+		if r != nil {
+			slog.ErrorContext(ctx, fmt.Sprintf("%v stream err: %v", r.URL.Path, err.Error()))
+		} else {
+			slog.ErrorContext(ctx, fmt.Sprintf("stream err: %v", err.Error()))
+		}
+	}
+	panic(http.ErrAbortHandler)
 }
 
 // SetStreamHeaders sets the response headers for a server-streaming RPC.

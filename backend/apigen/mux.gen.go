@@ -4,6 +4,7 @@ package apigen
 
 import (
 	"context"
+	"fmt"
 	"iter"
 	"net/http"
 )
@@ -168,38 +169,19 @@ func CreateMux(h ServerHandler, verifyAuth VerifyAuthFunc, options *MuxOptions, 
 			return
 		}
 		seq := h.PostV1StateStream(authCtx)
-		flusher, _ := w.(http.Flusher)
+		stream := NewStreamWriter(w)
 		var streamErr error
-		firstHandled := false
-		seq(func(resp *State, yieldErr error) bool {
+		for resp, yieldErr := range seq {
 			if yieldErr != nil {
-				streamErr = yieldErr
-				return false
+				streamErr = fmt.Errorf("streaming err: %w", yieldErr)
+				break
 			}
-			if !firstHandled {
-				firstHandled = true
-				SetStreamHeaders(w)
+			if werr := stream.Write(resp.Encode()); werr != nil {
+				streamErr = fmt.Errorf("writing stream resp: %w", werr)
+				break
 			}
-			if werr := WriteStreamFrame(w, resp.Encode()); werr != nil {
-				streamErr = werr
-				return false
-			}
-			if flusher != nil {
-				flusher.Flush()
-			}
-			return true
-		})
-		if streamErr != nil {
-			if !firstHandled {
-				HandleReqErr(authCtx, streamErr, r, w)
-				return
-			}
-			panic(http.ErrAbortHandler)
 		}
-		if !firstHandled {
-			SetStreamHeaders(w)
-			w.WriteHeader(http.StatusOK)
-		}
+		stream.Finish(authCtx, streamErr)
 	}, middlewares...))
 	m.HandleFunc("POST /v1/deployment/update", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
