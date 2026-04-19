@@ -117,9 +117,9 @@ func (f *finishedPreparer) Version() int32 { return f.deploymentConfigVersion }
 // the worker's own ctx has been cancelled.
 func writePrepareStatus(_ context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, artifact string, status apigen.PreparationStatus) {
 	slog.Info("preparer.writePrepareStatus", "deploymentConfigVersion", dep.Version, "status", status, "artifact", artifact)
-	store.MustWriteDeploymentStatus(context.Background(), dep.ID, func(s *apigen.DeploymentStatus) {
+	store.MustWriteDeploymentStatus(context.Background(), dep.ID, func(s *apigen.DeploymentStatus) bool {
 		if s.Preparer != nil && s.Preparer.DeploymentConfigVersion > dep.Version {
-			return
+			return false
 		}
 		s.StatusSeqNo++
 		s.Timestamp = time.Now()
@@ -129,6 +129,7 @@ func writePrepareStatus(_ context.Context, store storage.OperatorStore, dep *api
 			Artifact:                artifact,
 			Status:                  status,
 		}
+		return true
 	})
 }
 

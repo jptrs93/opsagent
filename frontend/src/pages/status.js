@@ -198,13 +198,17 @@ export function statusPage() {
                 );
             }
 
-            // Sort: OPSAGENT_SYSTEM last, then by environment, then by name.
+            // Sort: OPSAGENT_SYSTEM last, then by environment, name, machine,
+            // and finally id so the order is fully deterministic across
+            // stream snapshots and reconnects.
             const sorted = [...filtered].sort((a, b) => {
                 const aSystem = a.environment === 'OPSAGENT_SYSTEM' ? 1 : 0;
                 const bSystem = b.environment === 'OPSAGENT_SYSTEM' ? 1 : 0;
                 return aSystem - bSystem
                     || (a.environment || '').localeCompare(b.environment || '')
-                    || (a.name || '').localeCompare(b.name || '');
+                    || (a.name || '').localeCompare(b.name || '')
+                    || (a.machine || '').localeCompare(b.machine || '')
+                    || (a.id - b.id);
             });
 
             return div(

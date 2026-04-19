@@ -247,7 +247,10 @@ func (s *SecondaryStorageAdapter) MustWriteDeploymentConfig(ctx context.Context,
 }
 
 // MustWriteDeploymentStatus applies a mutation to the current status and persists it.
-func (s *SecondaryStorageAdapter) MustWriteDeploymentStatus(ctx context.Context, deploymentID int32, f func(*apigen.DeploymentStatus)) {
+// If the callback returns false, no DB writes happen — callers use this to
+// skip stale/superseded writes that would otherwise collide on the
+// (deployment_id, status_seq_no) primary key of deployment_status_history.
+func (s *SecondaryStorageAdapter) MustWriteDeploymentStatus(ctx context.Context, deploymentID int32, f func(*apigen.DeploymentStatus) bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -256,7 +259,9 @@ func (s *SecondaryStorageAdapter) MustWriteDeploymentStatus(ctx context.Context,
 		current = &apigen.DeploymentStatus{DeploymentID: deploymentID}
 	}
 
-	f(current)
+	if !f(current) {
+		return
+	}
 
 	dbID := int64(deploymentID)
 	params := statusProtoToInsertParams(dbID, current)

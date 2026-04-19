@@ -68,7 +68,7 @@ func newOSProcessRunner(parentCtx context.Context, store storage.OperatorStore, 
 	runAs := resolveRunAs(osProcessRunAs(dep))
 	workDir := resolveWorkingDir(ctx, osProcessWorkingDir(dep), runAs)
 
-	configVersion := dep.Version
+	configVersion := preparerStatus.DeploymentConfigVersion
 
 	r := &osProcessRunner{
 		ctx:           ctx,
@@ -283,15 +283,16 @@ func (r *osProcessRunner) updateStatus(status apigen.RunningStatus, pid int32) {
 }
 
 func (r *osProcessRunner) writeStatus() {
-	r.store.MustWriteDeploymentStatus(context.Background(), r.deploymentID, func(s *apigen.DeploymentStatus) {
+	r.store.MustWriteDeploymentStatus(context.Background(), r.deploymentID, func(s *apigen.DeploymentStatus) bool {
 		if s.Runner != nil && s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion {
 			slog.InfoContext(r.ctx, "discarding status update from superseded runner")
-			return
+			return false
 		}
 		s.StatusSeqNo++
 		s.Timestamp = time.Now()
 		s.DeploymentID = r.deploymentID
 		s.Runner = &r.status
+		return true
 	})
 }
 

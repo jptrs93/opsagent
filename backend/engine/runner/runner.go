@@ -32,7 +32,7 @@ func Create(ctx context.Context, store storage.OperatorStore, dep *apigen.Deploy
 	}
 	slog.InfoContext(ctx, "runner.Create", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion, "systemd", useSystemd(dep))
 	if useSystemd(dep) {
-		return newSystemdRunnerWithRestart(ctx, store, dep, preparer.Artifact, preparer.DeploymentConfigVersion)
+		return newSystemdRunnerWithRestart(ctx, store, dep, preparer)
 	}
 	return newOSProcessRunner(ctx, store, dep, preparer)
 }

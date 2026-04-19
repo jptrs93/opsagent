@@ -181,7 +181,7 @@ func (s *StorageAdapter) mustResolveDeploymentID(ctx context.Context, tx *sql.Tx
 
 // --- PrimaryLocalStore: OperatorStore ---
 
-func (s *StorageAdapter) MustWriteDeploymentStatus(ctx context.Context, deploymentID int32, f func(*apigen.DeploymentStatus)) {
+func (s *StorageAdapter) MustWriteDeploymentStatus(ctx context.Context, deploymentID int32, f func(*apigen.DeploymentStatus) bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -190,7 +190,9 @@ func (s *StorageAdapter) MustWriteDeploymentStatus(ctx context.Context, deployme
 		current = &apigen.DeploymentStatus{DeploymentID: deploymentID}
 	}
 
-	f(current)
+	if !f(current) {
+		return
+	}
 
 	dbID := int64(deploymentID)
 	params := statusProtoToInsertParams(dbID, current)

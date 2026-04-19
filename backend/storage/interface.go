@@ -7,7 +7,12 @@ import (
 )
 
 type OperatorStore interface {
-	MustWriteDeploymentStatus(context.Context, int32, func(s *apigen.DeploymentStatus))
+	// MustWriteDeploymentStatus applies the mutator callback to the current
+	// DeploymentStatus. The callback returns true to persist the change
+	// (upsert + history insert) or false to skip it entirely — use false
+	// when a guard like a superseded-version check fires, so no DB writes
+	// are attempted with an unchanged StatusSeqNo.
+	MustWriteDeploymentStatus(context.Context, int32, func(s *apigen.DeploymentStatus) bool)
 	MustFetchSnapshotAndSubscribe(ctx context.Context, machine string) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus)
 }
 
