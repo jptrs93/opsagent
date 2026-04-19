@@ -140,9 +140,14 @@ crashes are written to the store but handled internally: `osProcessRunner`
 runs its own backoff/respawn loop; `systemdRunner` keeps polling so systemd's
 own `Restart=` directive can recover the unit.
 
-Stale-write guard: every state write checks
-`s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion` before
-mutating, discarding updates from superseded runners.
+Stale-write guard: both runners pass a `func(*DeploymentStatus) bool`
+callback to `MustWriteDeploymentStatus`. The callback inspects the
+current cached status and returns `false` when
+`s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion`
+(i.e. a newer runner has already written). On `false`, the adapter skips
+the upsert and history insert entirely — this prevents
+`UNIQUE(deployment_id, status_seq_no)` collisions that would otherwise
+panic the process.
 
 ### osProcessRunner
 
@@ -158,7 +163,7 @@ Flow:
 2. Write `RUNNING` with the PID.
 3. `awaitProcessOrCancel(pid)` — wraps blocking `Wait4` in a goroutine with `ctx.Done()` select.
 4. If `Stop()` was called: write `STOPPED` and exit.
-5. Otherwise: write `CRASHED`, sleep with exponential backoff (1s → 30s),
+5. Otherwise: write `CRASHED`, sleep with exponential backoff (1s → 60s),
    bump `NumberOfRestarts` and `LastRestartAt`, then respawn (goto 1).
 
 The stability reset still applies: if the process ran >= 15 seconds before
@@ -178,9 +183,11 @@ artifacts.
 `runner.ReAttach` constructs an `osProcessRunner` with the PID from the
 persisted `RunnerStatus`. The runner's first iteration polls that PID with
 `kill(pid, 0)` (Wait4 only works on our own children). If the polled process
-is still alive, the runner monitors it; if/when it exits, the runner falls
-through to its normal spawn loop and respawns from the same artifact path.
-An error count limit (15) prevents infinite polling on persistent errors.
+is still alive, the runner monitors it; if/when it exits, the runner writes
+`CRASHED` with the adopted PID (so the transition is visible in history),
+then falls through to its normal spawn loop and respawns from the same
+artifact path. An error count limit (15) prevents infinite polling on
+persistent errors.
 
 #### leavePrevious strategy
 
@@ -211,7 +218,7 @@ systemd owns process-level restart behavior.
 
 ## Backoff
 
-Exponential crash backoff (1s → 30s, doubling per consecutive crash, reset
+Exponential crash backoff (1s → 60s, doubling per consecutive crash, reset
 after a >= 15 s stable run) lives inside `osProcessRunner.run()`. It is not
 a separate package, not a decorator on the operator loop, and not applied to
 the systemd runner.

@@ -5,24 +5,32 @@
 The UI is a single-page app using VanJS (`vanjs-core`) and Vite. Rendering is done by composing DOM nodes with VanJS tag helpers. State is managed through VanJS reactive state. Styling uses Tailwind CSS with a dark theme.
 
 Key files:
-- `frontend/src/app.js` — bootstraps the app and registers routes.
+- `frontend/src/app.js` — bootstraps the app and dispatches routes.
+- `frontend/src/lib/router.js` — `currentPath` / `navigate` helpers over `popstate` + `history.pushState`.
 - `frontend/src/state/login.js` — authentication state management.
+- `frontend/src/state/deployments.js` — live state stream consumer (see `POST /v1/state/stream`).
 - `frontend/src/pages/` — page-level components.
 - `frontend/src/components/` — reusable UI pieces.
+- `frontend/src/capi/` — generated API client (`capi.js`, `model.js`) plus the stream decoder helper.
 
 ## Routing
 
-Routes are defined in `app.js` using `vanjs-routing`:
-- `/login` — passkey login page.
+Routing is handled by a small in-house module (`frontend/src/lib/router.js`)
+exposing `currentPath` (a `van.state`) and `navigate(path)`. The route
+table lives in `app.js`:
 - `/bootstrap` — first-time setup (master password then passkey registration).
-- `/` — dashboard (requires authentication, redirects to `/login` if not logged in).
+- `/` — dashboard (renders the login page when unauthenticated).
+- anything else — falls back to the login page.
 
-On app load, `initLoginState()` restores the JWT from `localStorage`. If no valid token exists and the user is at `/`, they are redirected to `/login`.
+On app load, `initLoginState()` restores the JWT from `localStorage` and
+validates it via `GET /v1/auth/current/session`; an invalid session is
+cleared, so the user lands on the login page on the next render.
 
 ## Layout
 
-The dashboard uses a sidebar + main content layout:
-- `components/sidebar.js` — left sidebar with navigation items under "Deployments": Config and Status.
+The dashboard uses a split-pane layout:
+- `components/sidebar.js` — left sidebar with top-level navigation (Status, Cluster).
+- The main pane is split horizontally with a draggable divider (width persisted to `localStorage`). The right-hand pane shows the deployment logs / history sidebar when a card action opens one.
 - The active page is tracked via a `van.state` value. Clicking a sidebar item swaps the main content.
 
 ## Pages
@@ -35,18 +43,17 @@ The dashboard uses a sidebar + main content layout:
 - Three-step flow: master password entry, passkey registration, completion.
 - Steps are tracked via a `van.state('password' | 'register' | 'done')`.
 
-### Config (`pages/config.js`)
-- CodeMirror YAML editor with `oneDark` theme.
-- Save button calls `PUT /v1/config` with raw YAML content.
-- Version history sidebar (`components/configHistory.js`) shows all saved versions. Clicking a version restores its YAML into the editor.
-
 ### Status (`pages/status.js`)
-- Consumes live deployment state from `POST /v1/state/stream`.
-- Groups deployments by environment and renders one card per deployment.
-- Loads scopes via `POST /v1/list/scopes` and versions via `POST /v1/list/versions`. Scopes are preparer-specific (git branches for nix, empty for github release); versions are commit hashes or release tags.
-- Each card (`components/statusCard.js`) shows status badge, deployment info (deployed by/at/version), runtime info (restarts/last restart), prepare status, scope selector, version dropdown, and deploy button.
-- Sidebar panels for prepare output (`components/prepareOutput.js`), run output (`components/runOutput.js`), and deployment history (`components/deploymentHistory.js`). All show "Connection error" in the header on network failure.
-- Deployment history (`components/deploymentHistory.js`) color-codes entries: green for stable running, red for crashes, orange for user actions.
+- Consumes live deployment state from `POST /v1/state/stream` (binary protobuf stream via `AsyncIterable<State>`).
+- Renders one card per deployment, sorted by OPSAGENT_SYSTEM-last, then environment, name, machine, and id (deterministic across stream reconnects).
+- "Add deployment" button opens `components/createOverlay.js` to POST a per-deployment YAML via `POST /v1/deployment/create`.
+- Each card (`components/statusCard.js`) shows status badge, deployment info (deployed by/at/version), runtime info (restarts/last restart), prepare status, and an Update button that opens `components/deployOverlay.js`. Running cards expose a stop icon; stopped cards with a known version expose a start icon.
+- The deploy overlay fetches available versions on demand via `POST /v1/deployment/versions`, lets the user edit the per-deployment YAML spec, and submits via `POST /v1/deployment/update`.
+- Sidebar content is reused by the same `components/deploymentLogs.js` for prepare output and run output (switched by a mode flag), and `components/deploymentHistory.js` for the history view. All three show "Connection error" in the header on network failure.
+- Deployment history (`components/deploymentHistory.js`) color-codes entries: green for stable running, grey for other status transitions, orange for config changes.
+
+### Cluster (`pages/cluster.js`)
+- Shows primary + worker machines and connection state via `GET /v1/cluster/status`.
 
 ## Rendering pattern
 

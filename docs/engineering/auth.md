@@ -6,14 +6,12 @@ Authentication is passkey-only. A master password is used once to bootstrap the 
 
 Key files:
 - `backend/handler/auth.go` — master password handler, JWT signing/verification, token generation.
-- `backend/handler/passkey.go` — passkey registration and login handlers.
-- `backend/handler/passkey_store.go` — credential persistence via dumbstore.
-- `backend/handler/passkey_user.go` — WebAuthn user adapter.
+- `backend/handler/passkey.go` — passkey registration and login handlers, credential persistence, and WebAuthn user adapter.
 - `backend/apigen/policy_ext.go` — access control policy enforcement.
 
 ## Single-user model
 
-Opsagent is a single-admin tool. The `User` proto has only an `id` field. The first user is created automatically when the master password is used for the first time.
+Opsagent is a single-admin tool. The `User` proto exposes `{id, name}` to the UI for audit display. The full `InternalUser` record (with WebAuthn ID and credentials) is stored in the SQLite `users` table keyed by integer id. The first user is created automatically when the master password is used for the first time.
 
 ## Master password bootstrap
 
@@ -40,7 +38,7 @@ Two token types exist:
 
 `GET /v1/auth/current/session` is an authenticated validation endpoint that echoes the caller's current bearer token without minting a new one. The frontend uses it on app startup to confirm persisted auth state and to force re-login on `401`.
 
-Public keys are persisted in dumbstore (`jwt_public_keys.bin`). Key rotation is handled by the `authu` package.
+Public keys are persisted in the SQLite `public_keys` table keyed by `kid`. Key rotation is handled by the `authu` package.
 
 ## WebAuthn passkeys
 
@@ -69,7 +67,7 @@ No authentication required (discoverable login).
 
 ### Credential storage
 
-Credentials are persisted in dumbstore (`passkey-credentials.bin`). The key is the base64url-encoded credential ID. Credentials can be listed by user ID.
+Credentials are persisted inside each user's `data_blob` column in the SQLite `users` table (protobuf-encoded `InternalUser` containing the full credential list). Lookup on login fetches all users and resolves the credential by its raw id.
 
 ## Access control
 

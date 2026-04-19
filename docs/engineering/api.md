@@ -39,6 +39,11 @@ Key generated files:
 
 ## Endpoints
 
+### Health
+| Method | Path | Request | Response | Policy |
+|--------|------|---------|----------|--------|
+| GET | `/v1/healthz` | — | — | NO_AUTH |
+
 ### Auth
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
@@ -49,21 +54,15 @@ Key generated files:
 | POST | `/v1/auth/passkey/login/start` | `EmptyRequest` | `WebAuthNOptionsResponse` | NO_AUTH |
 | POST | `/v1/auth/passkey/login/finish` | `WebAuthNFinishRequest` | `LoginResponse` | NO_AUTH |
 
-### Config
-| Method | Path | Request | Response | Policy |
-|--------|------|---------|----------|--------|
-| PUT | `/v1/config` | `PutConfigRequest` | `UserConfigVersion` | ANY_OF default |
-| GET | `/v1/config/history` | — | `UserConfigHistory` | ANY_OF default |
-
 ### Deployments
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | POST | `/v1/state/stream` | — | stream `State` | ANY_OF default |
+| POST | `/v1/deployment/create` | `DeploymentCreateRequest` | `DeploymentConfig` | ANY_OF default |
 | POST | `/v1/deployment/update` | `DeploymentUpdateRequest` | `DesiredState` | ANY_OF default |
 | POST | `/v1/deployment/history` | `DeploymentHistoryRequest` | `DeploymentHistory` | ANY_OF default |
-| POST | `/v1/deployment/logs` | `DeploymentLogRequest` | text stream | ANY_OF default |
-| POST | `/v1/list/scopes` | `ListScopesRequest` | `ListScopesResponse` | ANY_OF default |
-| POST | `/v1/list/versions` | `ListVersionsRequest` | `ListVersionsResponse` | ANY_OF default |
+| POST | `/v1/deployment/logs` | `DeploymentLogRequest` | length-prefixed log stream | ANY_OF default |
+| POST | `/v1/deployment/versions` | `DeploymentVersionsRequest` | `DeploymentVersions` | ANY_OF default |
 
 ### Cluster
 | Method | Path | Request | Response | Policy |
