@@ -562,9 +562,6 @@ func parseCreateDeploymentYaml(yamlContent string) (*apigen.DeploymentIdentifier
 	if dep.Name == "" {
 		return nil, nil, invalidConfigErrf("name is required")
 	}
-	if dep.Environment == "" {
-		return nil, nil, invalidConfigErrf("environment is required")
-	}
 	if dep.Machine == "" {
 		return nil, nil, invalidConfigErrf("machine is required")
 	}

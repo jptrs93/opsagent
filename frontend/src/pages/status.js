@@ -1,13 +1,13 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {deploymentsS, deploymentsStreamS} from "../state/deployments.js";
-import {statusCard} from "../components/statusCard.js";
+import {statusRow} from "../components/statusCard.js";
 import {deploymentLogs} from "../components/deploymentLogs.js";
 import {deploymentHistory} from "../components/deploymentHistory.js";
 import {deployOverlay} from "../components/deployOverlay.js";
 import {createOverlay} from "../components/createOverlay.js";
 
-const { div, h1, p, button } = van.tags;
+const { div, h1, p, button, table, thead, tbody, tr, th } = van.tags;
 
 const SIDEBAR_WIDTH_KEY = 'opsagent_sidebar_width';
 const DEFAULT_SIDEBAR_PCT = 50;
@@ -212,18 +212,36 @@ export function statusPage() {
             });
 
             return div(
-                {class: "flex flex-wrap gap-3"},
-                ...sorted.map(s => {
-                    return statusCard(
-                        s,
-                        onDeploy,
-                        onStop,
-                        onShowHistory,
-                        onShowRunOutput,
-                        onShowPrepareOutput,
-                        onUpdate,
-                    );
-                })
+                {class: "card overflow-x-auto p-0"},
+                table(
+                    {class: "w-full text-left text-sm"},
+                    thead(
+                        tr(
+                            {class: "border-b border-gray-700 text-xs uppercase tracking-wide text-gray-500"},
+                            th({class: "py-3 pl-4 pr-4 font-medium"}, "Deployment"),
+                            th({class: "py-3 px-4 font-medium"}, "Environment"),
+                            th({class: "py-3 px-4 font-medium"}, "Machine"),
+                            th({class: "py-3 px-4 font-medium"}, "Runner"),
+                            th({class: "py-3 px-4 font-medium"}, "Status"),
+                            th({class: "py-3 px-4 font-medium"}, "Version"),
+                            th({class: "py-3 px-4 font-medium"}, "Prepare"),
+                            th({class: "py-3 px-4 font-medium"}, "Restarts"),
+                            th({class: "py-3 px-4 font-medium"}, "Deployed"),
+                            th({class: "py-3 pl-4 pr-4 font-medium text-right"}, "Actions"),
+                        ),
+                    ),
+                    tbody(
+                        ...sorted.map(s => statusRow(
+                            s,
+                            onDeploy,
+                            onStop,
+                            onShowHistory,
+                            onShowRunOutput,
+                            onShowPrepareOutput,
+                            onUpdate,
+                        )),
+                    ),
+                ),
             );
         }
     );

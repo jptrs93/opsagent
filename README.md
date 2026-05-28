@@ -2,33 +2,6 @@
 
 # Setup notes
 
-- Configure ipv6 addresses
-
-```/etc/netplan/99-local.yaml
-network:
-  version: 2
-  ethernets:
-    enp66s0f0:
-      addresses:
-        - "2607:5300:203:a17e::/64"
-        - "2607:5300:203:a17e::10/128"
-        - "2607:5300:203:a17e::11/128"
-        - "2607:5300:203:a17e::12/128"
-      routes:
-        - to: "default"
-          via: "2607:5300:203:a1ff:ff:ff:ff:ff"
-          on-link: true
-```
-NOTE: specific addresses above must be adjusted based on machines assigned ipv6 block
-```bash
-sudo chmod 600 /etc/netplan/99-local.yaml
-sudo chown root:root /etc/netplan/99-local.yaml
-sudo netplan generate
-sudo netplan try
-```
-
-- Set AAAA DNS record to ops.d.flippingcopilot.com
-
 # Install
 
 Installs from GitHub releases on Ubuntu (amd64 or arm64). Idempotent — re-run to upgrade.
