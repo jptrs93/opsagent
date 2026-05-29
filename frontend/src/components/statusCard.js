@@ -4,17 +4,6 @@ import {resolveUserDisplayName} from "../lib/users.js";
 
 const { tr, td, div, span, button, a } = van.tags;
 
-const envColorCache = {};
-function envColor(env) {
-    if (!env || env === 'OPSAGENT_SYSTEM') return null;
-    if (envColorCache[env]) return envColorCache[env];
-    let hash = 0;
-    for (let i = 0; i < env.length; i++) hash = ((hash << 5) - hash + env.charCodeAt(i)) | 0;
-    const hue = ((hash % 360) + 360) % 360;
-    envColorCache[env] = `hsl(${hue}, 30%, 14%)`;
-    return envColorCache[env];
-}
-
 const existingStatusLabels = {
     0: {bg: 'bg-gray-600', text: 'text-gray-300', label: 'Unknown'},
     1: {bg: 'bg-gray-600', text: 'text-gray-300', label: 'No Deployment'},
@@ -51,13 +40,9 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
         ? (existingStatusLabels[deployment.existingStatus] || existingStatusLabels[0])
         : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'};
     const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
-    const bgColor = envColor(deployment.environment);
 
     return tr(
-        {
-            class: "border-b border-gray-800 last:border-0 hover:bg-gray-800/60 transition-colors",
-            style: bgColor ? `background-color: ${bgColor}` : '',
-        },
+        {class: "border-b border-gray-800 last:border-0 hover:bg-gray-800/60 transition-colors"},
         td(
             {class: "py-3 pl-4 pr-4 align-top min-w-48"},
             div({class: "font-medium text-sm text-white"}, deployment.name || `#${deployment.id}`),
