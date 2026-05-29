@@ -1,4 +1,5 @@
 import van from "vanjs-core";
+import {Info} from "vanjs-feather";
 import {deploymentsS, deploymentsStreamS} from "../state/deployments.js";
 import {statusRow} from "../components/statusCard.js";
 import {deploymentLogs} from "../components/deploymentLogs.js";
@@ -51,6 +52,18 @@ const groupDeploymentsByEnvironment = (deployments) => {
     return [...groups.entries()]
         .sort(([a], [b]) => environmentSortRank(a) - environmentSortRank(b) || a.localeCompare(b))
         .map(([environment, rows]) => ({environment, rows}));
+};
+
+const headerTips = {
+    deployment: 'Deployment name. Use history to inspect config and status changes.',
+    environment: 'Logical environment for grouping deployments.',
+    machine: 'Cluster machine where this deployment is reconciled.',
+    status: 'Current runner status. Click the badge to view run output.',
+    version: 'Desired deployed commit or GitHub release tag.',
+    prepare: 'Latest prepare/build/download result. Click to view prepare logs.',
+    restarts: 'Runner restart count and last restart time for the current deployment version.',
+    deployed: 'User and timestamp of the latest deployment config change.',
+    actions: 'Open the update overlay to deploy, start, or stop this deployment.',
 };
 
 const environmentSortRank = (environment) => {
@@ -182,15 +195,15 @@ export function statusPage() {
         thead(
             tr(
                 {class: "border-b border-gray-700 text-xs uppercase tracking-wide text-gray-500"},
-                th({class: "py-3 pl-4 pr-4 font-medium"}, "Deployment"),
-                showEnvironmentColumn ? th({class: "py-3 px-4 font-medium"}, "Environment") : null,
-                th({class: "py-3 px-4 font-medium"}, "Machine"),
-                th({class: "py-3 px-4 font-medium"}, "Status"),
-                th({class: "py-3 px-4 font-medium"}, "Version"),
-                th({class: "py-3 px-4 font-medium"}, "Prepare"),
-                th({class: "py-3 px-4 font-medium"}, "Restarts"),
-                th({class: "py-3 px-4 font-medium"}, "Deployed"),
-                th({class: "py-3 pl-4 pr-4 font-medium text-right"}, "Actions"),
+                tableHeader("Deployment", headerTips.deployment, "py-3 pl-4 pr-4 font-medium"),
+                showEnvironmentColumn ? tableHeader("Environment", headerTips.environment, "py-3 px-4 font-medium") : null,
+                tableHeader("Machine", headerTips.machine, "py-3 px-4 font-medium"),
+                tableHeader("Status", headerTips.status, "py-3 px-4 font-medium"),
+                tableHeader("Version", headerTips.version, "py-3 px-4 font-medium"),
+                tableHeader("Prepare", headerTips.prepare, "py-3 px-4 font-medium"),
+                tableHeader("Restarts", headerTips.restarts, "py-3 px-4 font-medium"),
+                tableHeader("Deployed", headerTips.deployed, "py-3 px-4 font-medium"),
+                tableHeader("Actions", headerTips.actions, "py-3 pl-4 pr-4 font-medium text-right", true),
             ),
         ),
         tbody(
@@ -202,6 +215,24 @@ export function statusPage() {
                 onUpdate,
                 {showEnvironment: showEnvironmentColumn},
             )),
+        ),
+    );
+
+    const tableHeader = (text, tip, classes, alignRight = false) => th(
+        {class: classes},
+        span(
+            {class: `inline-flex items-center gap-1.5 ${alignRight ? 'justify-end' : ''}`},
+            text,
+            infoTip(tip, alignRight),
+        ),
+    );
+
+    const infoTip = (text, alignRight = false) => span(
+        {class: "relative group inline-flex normal-case tracking-normal"},
+        Info({class: "icon hover:text-gray-300 text-gray-600 w-3.5 h-3.5 cursor-help"}),
+        span(
+            {class: `invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity absolute top-full mt-1 bg-gray-900 text-white text-xs px-2 py-1 rounded w-56 z-20 ${alignRight ? 'right-0' : 'left-0'}`},
+            text,
         ),
     );
 

@@ -106,17 +106,14 @@ export function deploymentForm(form, opts = {}) {
                 })),
             ),
         ),
-        sectionCard(
+        sectionCardWithAside(
             "Binary Source",
+            inlineSelect("Source type", form.sourceType, [
+                {value: SOURCE_GITHUB, label: "Github release"},
+                {value: SOURCE_NIX, label: "Build NIX store"},
+            ]),
             div(
                 {class: "flex flex-col gap-3"},
-                field("Source type", select({
-                    class: selectClass(),
-                    onchange: e => { form.sourceType.val = e.target.value; },
-                },
-                    option({value: SOURCE_GITHUB, selected: form.sourceType.val === SOURCE_GITHUB}, "Github release"),
-                    option({value: SOURCE_NIX, selected: form.sourceType.val === SOURCE_NIX}, "Build NIX store"),
-                )),
                 () => form.sourceType.val === SOURCE_GITHUB
                     ? div(
                         {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
@@ -131,17 +128,14 @@ export function deploymentForm(form, opts = {}) {
                     ),
             ),
         ),
-        sectionCard(
+        sectionCardWithAside(
             "Execution",
+            inlineSelect("Runner type", form.runnerType, [
+                {value: RUNNER_OS, label: "OpsAgent process"},
+                {value: RUNNER_SYSTEMD, label: "systemd service"},
+            ]),
             div(
                 {class: "flex flex-col gap-3"},
-                field("Runner type", select({
-                    class: selectClass(),
-                    onchange: e => { form.runnerType.val = e.target.value; },
-                },
-                    option({value: RUNNER_OS, selected: form.runnerType.val === RUNNER_OS}, "OpsAgent process"),
-                    option({value: RUNNER_SYSTEMD, selected: form.runnerType.val === RUNNER_SYSTEMD}, "systemd service"),
-                )),
                 () => form.runnerType.val === RUNNER_SYSTEMD
                     ? div(
                         {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
@@ -272,6 +266,19 @@ function field(text, control) {
         {class: "flex flex-col gap-1 text-xs text-gray-400"},
         span(text),
         control,
+    );
+}
+
+function inlineSelect(text, state, options) {
+    return label(
+        {class: "flex items-center justify-end gap-2 text-xs text-gray-400"},
+        span({class: "whitespace-nowrap"}, text),
+        select({
+            class: "h-8 w-48 rounded-lg bg-gray-800 text-gray-100 border border-gray-600 px-2 focus:outline-none focus:ring-1 focus:ring-brand",
+            onchange: e => { state.val = e.target.value; },
+        },
+            ...options.map(opt => option({value: opt.value, selected: state.val === opt.value}, opt.label)),
+        ),
     );
 }
 
