@@ -236,6 +236,12 @@ type NixBuildConfig struct {
 	OutputExecutable string
 }
 
+func (m NixBuildConfig) IsZero() bool {
+	return m.Repo == "" &&
+		m.Flake == "" &&
+		m.OutputExecutable == ""
+}
+
 func (m *NixBuildConfig) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Repo, 1)
@@ -277,6 +283,12 @@ type GithubReleaseConfig struct {
 	Tag   string
 }
 
+func (m GithubReleaseConfig) IsZero() bool {
+	return m.Repo == "" &&
+		m.Asset == "" &&
+		m.Tag == ""
+}
+
 func (m *GithubReleaseConfig) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Repo, 1)
@@ -313,17 +325,22 @@ func DecodeGithubReleaseConfig(b []byte) (*GithubReleaseConfig, error) {
 }
 
 type PrepareConfig struct {
-	NixBuild      *NixBuildConfig
-	GithubRelease *GithubReleaseConfig
+	NixBuild      NixBuildConfig
+	GithubRelease GithubReleaseConfig
+}
+
+func (m PrepareConfig) IsZero() bool {
+	return m.NixBuild.IsZero() &&
+		m.GithubRelease.IsZero()
 }
 
 func (m *PrepareConfig) Encode() []byte {
 	var b []byte
-	if m.NixBuild != nil {
+	if !m.NixBuild.IsZero() {
 		b = protowire.AppendTag(b, 1, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.NixBuild.Encode())
 	}
-	if m.GithubRelease != nil {
+	if !m.GithubRelease.IsZero() {
 		b = protowire.AppendTag(b, 2, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.GithubRelease.Encode())
 	}
@@ -348,7 +365,7 @@ func DecodePrepareConfig(b []byte) (*PrepareConfig, error) {
 				var item *NixBuildConfig
 				item, err = DecodeNixBuildConfig(msgBytes)
 				if err == nil {
-					m.NixBuild = item
+					m.NixBuild = *item
 				}
 			}
 		case 2:
@@ -357,7 +374,7 @@ func DecodePrepareConfig(b []byte) (*PrepareConfig, error) {
 				var item *GithubReleaseConfig
 				item, err = DecodeGithubReleaseConfig(msgBytes)
 				if err == nil {
-					m.GithubRelease = item
+					m.GithubRelease = *item
 				}
 			}
 		default:
@@ -374,6 +391,12 @@ type OsProcessRunnerConfig struct {
 	WorkingDir string
 	RunAs      string
 	Strategy   string
+}
+
+func (m OsProcessRunnerConfig) IsZero() bool {
+	return m.WorkingDir == "" &&
+		m.RunAs == "" &&
+		m.Strategy == ""
 }
 
 func (m *OsProcessRunnerConfig) Encode() []byte {
@@ -416,6 +439,11 @@ type SystemdRunnerConfig struct {
 	BinPath string
 }
 
+func (m SystemdRunnerConfig) IsZero() bool {
+	return m.Name == "" &&
+		m.BinPath == ""
+}
+
 func (m *SystemdRunnerConfig) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Name, 1)
@@ -449,17 +477,22 @@ func DecodeSystemdRunnerConfig(b []byte) (*SystemdRunnerConfig, error) {
 }
 
 type RunnerConfig struct {
-	OsProcess *OsProcessRunnerConfig
-	Systemd   *SystemdRunnerConfig
+	OsProcess OsProcessRunnerConfig
+	Systemd   SystemdRunnerConfig
+}
+
+func (m RunnerConfig) IsZero() bool {
+	return m.OsProcess.IsZero() &&
+		m.Systemd.IsZero()
 }
 
 func (m *RunnerConfig) Encode() []byte {
 	var b []byte
-	if m.OsProcess != nil {
+	if !m.OsProcess.IsZero() {
 		b = protowire.AppendTag(b, 1, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.OsProcess.Encode())
 	}
-	if m.Systemd != nil {
+	if !m.Systemd.IsZero() {
 		b = protowire.AppendTag(b, 2, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.Systemd.Encode())
 	}
@@ -484,7 +517,7 @@ func DecodeRunnerConfig(b []byte) (*RunnerConfig, error) {
 				var item *OsProcessRunnerConfig
 				item, err = DecodeOsProcessRunnerConfig(msgBytes)
 				if err == nil {
-					m.OsProcess = item
+					m.OsProcess = *item
 				}
 			}
 		case 2:
@@ -493,7 +526,7 @@ func DecodeRunnerConfig(b []byte) (*RunnerConfig, error) {
 				var item *SystemdRunnerConfig
 				item, err = DecodeSystemdRunnerConfig(msgBytes)
 				if err == nil {
-					m.Systemd = item
+					m.Systemd = *item
 				}
 			}
 		default:
@@ -1008,6 +1041,12 @@ type DeploymentIdentifier struct {
 	Name        string
 }
 
+func (m DeploymentIdentifier) IsZero() bool {
+	return m.Environment == "" &&
+		m.Machine == "" &&
+		m.Name == ""
+}
+
 func (m *DeploymentIdentifier) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Environment, 1)
@@ -1044,17 +1083,22 @@ func DecodeDeploymentIdentifier(b []byte) (*DeploymentIdentifier, error) {
 }
 
 type DeploymentSpec struct {
-	Prepare *PrepareConfig
-	Runner  *RunnerConfig
+	Prepare PrepareConfig
+	Runner  RunnerConfig
+}
+
+func (m DeploymentSpec) IsZero() bool {
+	return m.Prepare.IsZero() &&
+		m.Runner.IsZero()
 }
 
 func (m *DeploymentSpec) Encode() []byte {
 	var b []byte
-	if m.Prepare != nil {
+	if !m.Prepare.IsZero() {
 		b = protowire.AppendTag(b, 1, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.Prepare.Encode())
 	}
-	if m.Runner != nil {
+	if !m.Runner.IsZero() {
 		b = protowire.AppendTag(b, 2, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.Runner.Encode())
 	}
@@ -1079,7 +1123,7 @@ func DecodeDeploymentSpec(b []byte) (*DeploymentSpec, error) {
 				var item *PrepareConfig
 				item, err = DecodePrepareConfig(msgBytes)
 				if err == nil {
-					m.Prepare = item
+					m.Prepare = *item
 				}
 			}
 		case 2:
@@ -1088,7 +1132,7 @@ func DecodeDeploymentSpec(b []byte) (*DeploymentSpec, error) {
 				var item *RunnerConfig
 				item, err = DecodeRunnerConfig(msgBytes)
 				if err == nil {
-					m.Runner = item
+					m.Runner = *item
 				}
 			}
 		default:
@@ -1104,6 +1148,11 @@ func DecodeDeploymentSpec(b []byte) (*DeploymentSpec, error) {
 type DesiredState struct {
 	Version string
 	Running bool
+}
+
+func (m DesiredState) IsZero() bool {
+	return m.Version == "" &&
+		m.Running == false
 }
 
 func (m *DesiredState) Encode() []byte {
@@ -1140,30 +1189,41 @@ func DecodeDesiredState(b []byte) (*DesiredState, error) {
 
 type DeploymentConfig struct {
 	ID           int32
-	ConfigID     *DeploymentIdentifier
+	ConfigID     DeploymentIdentifier
 	Version      int32
 	UpdatedAt    time.Time
 	UpdatedBy    int32
-	Spec         *DeploymentSpec
-	DesiredState *DesiredState
+	Spec         DeploymentSpec
+	DesiredState DesiredState
 	Deleted      bool
+}
+
+func (m DeploymentConfig) IsZero() bool {
+	return m.ID == 0 &&
+		m.ConfigID.IsZero() &&
+		m.Version == 0 &&
+		m.UpdatedAt.IsZero() &&
+		m.UpdatedBy == 0 &&
+		m.Spec.IsZero() &&
+		m.DesiredState.IsZero() &&
+		m.Deleted == false
 }
 
 func (m *DeploymentConfig) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 8)
-	if m.ConfigID != nil {
+	if !m.ConfigID.IsZero() {
 		b = protowire.AppendTag(b, 1, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.ConfigID.Encode())
 	}
 	b = AppendInt32Field(b, m.Version, 2)
 	b = AppendInt64FromTime(b, m.UpdatedAt, 3)
 	b = AppendInt32Field(b, m.UpdatedBy, 4)
-	if m.Spec != nil {
+	if !m.Spec.IsZero() {
 		b = protowire.AppendTag(b, 5, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.Spec.Encode())
 	}
-	if m.DesiredState != nil {
+	if !m.DesiredState.IsZero() {
 		b = protowire.AppendTag(b, 6, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.DesiredState.Encode())
 	}
@@ -1191,7 +1251,7 @@ func DecodeDeploymentConfig(b []byte) (*DeploymentConfig, error) {
 				var item *DeploymentIdentifier
 				item, err = DecodeDeploymentIdentifier(msgBytes)
 				if err == nil {
-					m.ConfigID = item
+					m.ConfigID = *item
 				}
 			}
 		case 2:
@@ -1206,7 +1266,7 @@ func DecodeDeploymentConfig(b []byte) (*DeploymentConfig, error) {
 				var item *DeploymentSpec
 				item, err = DecodeDeploymentSpec(msgBytes)
 				if err == nil {
-					m.Spec = item
+					m.Spec = *item
 				}
 			}
 		case 6:
@@ -1215,7 +1275,7 @@ func DecodeDeploymentConfig(b []byte) (*DeploymentConfig, error) {
 				var item *DesiredState
 				item, err = DecodeDesiredState(msgBytes)
 				if err == nil {
-					m.DesiredState = item
+					m.DesiredState = *item
 				}
 			}
 		case 7:
@@ -1231,17 +1291,17 @@ func DecodeDeploymentConfig(b []byte) (*DeploymentConfig, error) {
 }
 
 type DeploymentWithStatus struct {
-	Config *DeploymentConfig
-	Status *DeploymentStatus
+	Config DeploymentConfig
+	Status DeploymentStatus
 }
 
 func (m *DeploymentWithStatus) Encode() []byte {
 	var b []byte
-	if m.Config != nil {
+	if !m.Config.IsZero() {
 		b = protowire.AppendTag(b, 1, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.Config.Encode())
 	}
-	if m.Status != nil {
+	if !m.Status.IsZero() {
 		b = protowire.AppendTag(b, 2, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.Status.Encode())
 	}
@@ -1266,7 +1326,7 @@ func DecodeDeploymentWithStatus(b []byte) (*DeploymentWithStatus, error) {
 				var item *DeploymentConfig
 				item, err = DecodeDeploymentConfig(msgBytes)
 				if err == nil {
-					m.Config = item
+					m.Config = *item
 				}
 			}
 		case 2:
@@ -1275,7 +1335,7 @@ func DecodeDeploymentWithStatus(b []byte) (*DeploymentWithStatus, error) {
 				var item *DeploymentStatus
 				item, err = DecodeDeploymentStatus(msgBytes)
 				if err == nil {
-					m.Status = item
+					m.Status = *item
 				}
 			}
 		default:
@@ -1291,8 +1351,15 @@ func DecodeDeploymentWithStatus(b []byte) (*DeploymentWithStatus, error) {
 type DeploymentStatus struct {
 	UpdatedAt    time.Time
 	DeploymentID int32
-	Preparer     *PreparerStatus
-	Runner       *RunnerStatus
+	Preparer     PreparerStatus
+	Runner       RunnerStatus
+}
+
+func (m DeploymentStatus) IsZero() bool {
+	return m.UpdatedAt.IsZero() &&
+		m.DeploymentID == 0 &&
+		m.Preparer.IsZero() &&
+		m.Runner.IsZero()
 }
 
 func (m *DeploymentStatus) Encode() []byte {
@@ -1301,11 +1368,11 @@ func (m *DeploymentStatus) Encode() []byte {
 		b = AppendBytesField(b, EncodeTimestamp(m.UpdatedAt), 7)
 	}
 	b = AppendInt32Field(b, m.DeploymentID, 6)
-	if m.Preparer != nil {
+	if !m.Preparer.IsZero() {
 		b = protowire.AppendTag(b, 4, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.Preparer.Encode())
 	}
-	if m.Runner != nil {
+	if !m.Runner.IsZero() {
 		b = protowire.AppendTag(b, 5, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.Runner.Encode())
 	}
@@ -1334,7 +1401,7 @@ func DecodeDeploymentStatus(b []byte) (*DeploymentStatus, error) {
 				var item *PreparerStatus
 				item, err = DecodePreparerStatus(msgBytes)
 				if err == nil {
-					m.Preparer = item
+					m.Preparer = *item
 				}
 			}
 		case 5:
@@ -1343,7 +1410,7 @@ func DecodeDeploymentStatus(b []byte) (*DeploymentStatus, error) {
 				var item *RunnerStatus
 				item, err = DecodeRunnerStatus(msgBytes)
 				if err == nil {
-					m.Runner = item
+					m.Runner = *item
 				}
 			}
 		default:
@@ -1360,6 +1427,12 @@ type PreparerStatus struct {
 	DeploymentConfigVersion int32
 	Artifact                string
 	Status                  PreparationStatus
+}
+
+func (m PreparerStatus) IsZero() bool {
+	return m.DeploymentConfigVersion == 0 &&
+		m.Artifact == "" &&
+		m.Status == 0
 }
 
 func (m *PreparerStatus) Encode() []byte {
@@ -1408,6 +1481,15 @@ type RunnerStatus struct {
 	Status                  RunningStatus
 	NumberOfRestarts        int32
 	LastRestartAt           time.Time
+}
+
+func (m RunnerStatus) IsZero() bool {
+	return m.DeploymentConfigVersion == 0 &&
+		m.RunningPid == 0 &&
+		m.RunningArtifact == "" &&
+		m.Status == 0 &&
+		m.NumberOfRestarts == 0 &&
+		m.LastRestartAt.IsZero()
 }
 
 func (m *RunnerStatus) Encode() []byte {

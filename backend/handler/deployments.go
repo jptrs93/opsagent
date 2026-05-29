@@ -33,9 +33,9 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 	}
 
 	// Check for duplicate before creating.
-	snapshot, _ := h.Store.MustFetchSnapshotAndSubscribe(nil, "")
+	snapshot := h.Store.FetchDeploymentSnapshot("")
 	for _, dws := range snapshot {
-		if dws.Config.ConfigID != nil && *dws.Config.ConfigID == *cid && !dws.Config.Deleted {
+		if dws.Config.ConfigID == *cid && !dws.Config.Deleted {
 			return nil, DuplicateDeploymentErr
 		}
 	}
@@ -62,7 +62,7 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 	if req.Stop {
 		desired.Running = false
 		// Preserve the existing version so a subsequent "start" can reuse it.
-		if cfg := h.findConfigByID(req.DeploymentID); cfg != nil && cfg.DesiredState != nil {
+		if cfg := h.findConfigByID(req.DeploymentID); cfg != nil {
 			desired.Version = cfg.DesiredState.Version
 		}
 	} else if req.TargetVersion != "" {
@@ -83,16 +83,16 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 	}
 
 	cfg := h.findConfigByID(req.DeploymentID)
-	if cfg == nil || cfg.Spec == nil || cfg.Spec.Prepare == nil {
+	if cfg == nil || cfg.Spec.Prepare.IsZero() {
 		return nil, DeploymentNotFoundErr
 	}
 
-	provider, err := versionprovider.ForConfig(cfg.Spec.Prepare)
+	provider, err := versionprovider.ForConfig(&cfg.Spec.Prepare)
 	if err != nil {
 		return nil, DeploymentNotFoundErr
 	}
 
-	scopes, err := provider.ListScopes(ctx, cfg.Spec.Prepare)
+	scopes, err := provider.ListScopes(ctx, &cfg.Spec.Prepare)
 	if err != nil {
 		return nil, fmt.Errorf("listing scopes: %w", err)
 	}
@@ -101,14 +101,14 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 
 	if req.Scope != "" {
 		// Fetch specific scope only.
-		vs, err := provider.ListVersions(ctx, cfg.Spec.Prepare, req.Scope)
+		vs, err := provider.ListVersions(ctx, &cfg.Spec.Prepare, req.Scope)
 		if err != nil {
 			return nil, fmt.Errorf("listing versions: %w", err)
 		}
 		versionsByScope[req.Scope] = &apigen.ScopedVersions{Versions: vs}
 	} else if len(scopes) == 0 {
 		// GitHub releases: no scopes, single version list.
-		vs, err := provider.ListVersions(ctx, cfg.Spec.Prepare, "")
+		vs, err := provider.ListVersions(ctx, &cfg.Spec.Prepare, "")
 		if err != nil {
 			return nil, fmt.Errorf("listing versions: %w", err)
 		}
@@ -119,7 +119,7 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 		if !containsString(scopes, "main") {
 			defaultScope = scopes[0]
 		}
-		vs, err := provider.ListVersions(ctx, cfg.Spec.Prepare, defaultScope)
+		vs, err := provider.ListVersions(ctx, &cfg.Spec.Prepare, defaultScope)
 		if err != nil {
 			return nil, fmt.Errorf("listing versions: %w", err)
 		}
@@ -158,7 +158,7 @@ func (h *Handler) PostV1DeploymentLogs(ctx apigen.Context, r *http.Request, w ht
 
 	// Check if the deployment lives on a remote machine.
 	cfg := h.findConfigByID(deploymentID)
-	if cfg != nil && cfg.ConfigID != nil && cfg.ConfigID.Machine != "" && cfg.ConfigID.Machine != h.MachineName && h.ClusterPrimary != nil {
+	if cfg != nil && cfg.ConfigID.Machine != "" && cfg.ConfigID.Machine != h.MachineName && h.ClusterPrimary != nil {
 		clusterReq := &apigen.MsgToWorker{DeploymentLogRequest: req}
 		return h.proxyRemoteLogs(ctx, w, cfg.ConfigID.Machine, clusterReq)
 	}
@@ -167,7 +167,7 @@ func (h *Handler) PostV1DeploymentLogs(ctx apigen.Context, r *http.Request, w ht
 	if req.RunnerOutput != nil {
 		if req.RunnerOutput.Version == 0 {
 			st := h.Store.FetchDeploymentStatus(deploymentID)
-			if st != nil && st.Runner != nil {
+			if st != nil && !st.Runner.IsZero() {
 				req.RunnerOutput.Version = st.Runner.DeploymentConfigVersion
 			}
 		}
@@ -175,7 +175,7 @@ func (h *Handler) PostV1DeploymentLogs(ctx apigen.Context, r *http.Request, w ht
 	}
 	if req.PreparerOutput.Version == 0 {
 		st := h.Store.FetchDeploymentStatus(deploymentID)
-		if st != nil && st.Preparer != nil {
+		if st != nil && !st.Preparer.IsZero() {
 			req.PreparerOutput.Version = st.Preparer.DeploymentConfigVersion
 		}
 	}
@@ -192,7 +192,7 @@ func (h *Handler) streamRunLog(ctx apigen.Context, w http.ResponseWriter, req *a
 	defer f.Close()
 	return streamLogFile(ctx, w, f, func() bool {
 		st := h.Store.FetchDeploymentStatus(req.DeploymentID)
-		return st != nil && st.Runner != nil && isRunnerActive(st.Runner.Status)
+		return st != nil && !st.Runner.IsZero() && isRunnerActive(st.Runner.Status)
 	})
 }
 
@@ -206,7 +206,7 @@ func (h *Handler) streamPrepareLog(ctx apigen.Context, w http.ResponseWriter, re
 	defer f.Close()
 	return streamLogFile(ctx, w, f, func() bool {
 		st := h.Store.FetchDeploymentStatus(req.DeploymentID)
-		return st != nil && st.Preparer != nil && isPrepareInProgress(st.Preparer.Status)
+		return st != nil && !st.Preparer.IsZero() && isPrepareInProgress(st.Preparer.Status)
 	})
 }
 
@@ -330,10 +330,11 @@ func streamLogFile(ctx apigen.Context, w http.ResponseWriter, f *os.File, keepTa
 
 // findConfigByID looks up a deployment config from the store's snapshot by integer ID.
 func (h *Handler) findConfigByID(deploymentID int32) *apigen.DeploymentConfig {
-	snapshot, _ := h.Store.MustFetchSnapshotAndSubscribe(nil, "")
+	snapshot := h.Store.FetchDeploymentSnapshot("")
 	for _, dws := range snapshot {
 		if dws.Config.ID == deploymentID {
-			return dws.Config
+			cfg := dws.Config
+			return &cfg
 		}
 	}
 	return nil
@@ -418,8 +419,8 @@ func parseDeploymentYaml(yamlContent string) (*apigen.DeploymentSpec, error) {
 	}
 
 	return &apigen.DeploymentSpec{
-		Prepare: prepare,
-		Runner:  runnerCfg,
+		Prepare: *prepare,
+		Runner:  runnerConfigValue(runnerCfg),
 	}, nil
 }
 
@@ -443,7 +444,7 @@ func toPrepareConfig(yp *yamlPrepare) (*apigen.PrepareConfig, error) {
 		if yp.NixBuild.Flake == "" {
 			return nil, invalidConfigErrf("prepare.nixBuild: flake is required")
 		}
-		out.NixBuild = &apigen.NixBuildConfig{
+		out.NixBuild = apigen.NixBuildConfig{
 			Repo:             yp.NixBuild.Repo,
 			Flake:            yp.NixBuild.Flake,
 			OutputExecutable: yp.NixBuild.OutputExecutable,
@@ -453,7 +454,7 @@ func toPrepareConfig(yp *yamlPrepare) (*apigen.PrepareConfig, error) {
 		if yp.GithubRelease.Repo == "" {
 			return nil, invalidConfigErrf("prepare.githubRelease: repo is required")
 		}
-		out.GithubRelease = &apigen.GithubReleaseConfig{
+		out.GithubRelease = apigen.GithubReleaseConfig{
 			Repo:  yp.GithubRelease.Repo,
 			Asset: yp.GithubRelease.Asset,
 			Tag:   yp.GithubRelease.Tag,
@@ -473,7 +474,7 @@ func toRunnerConfig(yr *yamlRunner) (*apigen.RunnerConfig, error) {
 	}
 	out := &apigen.RunnerConfig{}
 	if hasOS {
-		out.OsProcess = &apigen.OsProcessRunnerConfig{
+		out.OsProcess = apigen.OsProcessRunnerConfig{
 			WorkingDir: yr.OsProcess.WorkingDir,
 			RunAs:      yr.OsProcess.RunAs,
 			Strategy:   yr.OsProcess.Strategy,
@@ -486,12 +487,19 @@ func toRunnerConfig(yr *yamlRunner) (*apigen.RunnerConfig, error) {
 		if yr.Systemd.BinPath == "" {
 			return nil, invalidConfigErrf("runner.systemd: binPath is required")
 		}
-		out.Systemd = &apigen.SystemdRunnerConfig{
+		out.Systemd = apigen.SystemdRunnerConfig{
 			Name:    yr.Systemd.Name,
 			BinPath: yr.Systemd.BinPath,
 		}
 	}
 	return out, nil
+}
+
+func runnerConfigValue(cfg *apigen.RunnerConfig) apigen.RunnerConfig {
+	if cfg == nil {
+		return apigen.RunnerConfig{}
+	}
+	return *cfg
 }
 
 func invalidConfigErrf(format string, args ...any) error {
@@ -505,22 +513,22 @@ func invalidConfigErrf(format string, args ...any) error {
 // deploymentConfigToYaml converts a DeploymentConfig to per-deployment YAML.
 func deploymentConfigToYaml(cfg *apigen.DeploymentConfig) string {
 	dep := yamlDeployment{}
-	if cfg.ConfigID != nil {
+	if !cfg.ConfigID.IsZero() {
 		dep.Name = cfg.ConfigID.Name
 		dep.Environment = cfg.ConfigID.Environment
 		dep.Machine = cfg.ConfigID.Machine
 	}
-	if cfg.Spec != nil {
-		if cfg.Spec.Prepare != nil {
+	if !cfg.Spec.IsZero() {
+		if !cfg.Spec.Prepare.IsZero() {
 			dep.Prepare = &yamlPrepare{}
-			if cfg.Spec.Prepare.NixBuild != nil {
+			if !cfg.Spec.Prepare.NixBuild.IsZero() {
 				dep.Prepare.NixBuild = &yamlNixBuild{
 					Repo:             cfg.Spec.Prepare.NixBuild.Repo,
 					Flake:            cfg.Spec.Prepare.NixBuild.Flake,
 					OutputExecutable: cfg.Spec.Prepare.NixBuild.OutputExecutable,
 				}
 			}
-			if cfg.Spec.Prepare.GithubRelease != nil {
+			if !cfg.Spec.Prepare.GithubRelease.IsZero() {
 				dep.Prepare.GithubRelease = &yamlGithubRelease{
 					Repo:  cfg.Spec.Prepare.GithubRelease.Repo,
 					Asset: cfg.Spec.Prepare.GithubRelease.Asset,
@@ -528,16 +536,16 @@ func deploymentConfigToYaml(cfg *apigen.DeploymentConfig) string {
 				}
 			}
 		}
-		if cfg.Spec.Runner != nil {
+		if !cfg.Spec.Runner.IsZero() {
 			dep.Runner = &yamlRunner{}
-			if cfg.Spec.Runner.OsProcess != nil {
+			if !cfg.Spec.Runner.OsProcess.IsZero() {
 				dep.Runner.OsProcess = &yamlOsProcess{
 					WorkingDir: cfg.Spec.Runner.OsProcess.WorkingDir,
 					RunAs:      cfg.Spec.Runner.OsProcess.RunAs,
 					Strategy:   cfg.Spec.Runner.OsProcess.Strategy,
 				}
 			}
-			if cfg.Spec.Runner.Systemd != nil {
+			if !cfg.Spec.Runner.Systemd.IsZero() {
 				dep.Runner.Systemd = &yamlSystemd{
 					Name:    cfg.Spec.Runner.Systemd.Name,
 					BinPath: cfg.Spec.Runner.Systemd.BinPath,
@@ -581,8 +589,8 @@ func parseCreateDeploymentYaml(yamlContent string) (*apigen.DeploymentIdentifier
 		Machine:     dep.Machine,
 	}
 	spec := &apigen.DeploymentSpec{
-		Prepare: prepare,
-		Runner:  runnerCfg,
+		Prepare: *prepare,
+		Runner:  runnerConfigValue(runnerCfg),
 	}
 	return cid, spec, nil
 }

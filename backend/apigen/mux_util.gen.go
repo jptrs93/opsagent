@@ -3,6 +3,7 @@
 package apigen
 
 import (
+	"bufio"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -54,15 +55,25 @@ func handleReqErr(ctx context.Context, err error, path string, w http.ResponseWr
 	var httpErr ApiErr
 	if !errors.As(err, &httpErr) {
 		var httpErrPtr *ApiErr
-		if errors.As(err, &httpErrPtr) && httpErrPtr != nil {
+		var validationErr *ValidationError
+		switch {
+		case errors.As(err, &httpErrPtr) && httpErrPtr != nil:
 			httpErr = *httpErrPtr
-		} else {
+		case errors.As(err, &validationErr):
+			httpErr = ApiErr{DisplayErr: validationErr.Error(), Code: http.StatusBadRequest}
+		default:
 			httpErr = ApiErr{DisplayErr: "Unknown server error", Code: http.StatusInternalServerError}
 		}
 	}
 	w.Header().Set("Content-Type", "application/protobuf")
 	RespondWithStatus(ctx, w, httpErr.Encode(), int(httpErr.Code))
 }
+
+const (
+	compressionModeAuto int32 = iota
+	compressionModeAlways
+	compressionModeNever
+)
 
 func decodeBody[T any](r *http.Request, decode func([]byte) (*T, error)) (*T, error) {
 	b, err := io.ReadAll(r.Body)
@@ -72,11 +83,11 @@ func decodeBody[T any](r *http.Request, decode func([]byte) (*T, error)) (*T, er
 	return decode(b)
 }
 
-func decodeWithMaxBodySize[T any](r *http.Request, maxRequestBodySize *int, decode func([]byte) (*T, error)) (*T, error) {
-	if maxRequestBodySize == nil {
+func decodeWithMaxBodySize[T any](r *http.Request, maxRequestBodySize int, decode func([]byte) (*T, error)) (*T, error) {
+	if maxRequestBodySize <= 0 {
 		return decodeBody(r, decode)
 	}
-	limit := int64(*maxRequestBodySize)
+	limit := int64(maxRequestBodySize)
 	b, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
 	if err != nil {
 		return nil, err
@@ -85,6 +96,49 @@ func decodeWithMaxBodySize[T any](r *http.Request, maxRequestBodySize *int, deco
 		return nil, ApiErr{DisplayErr: "Request body too large", InternalErr: "request body exceeds max size", Code: http.StatusRequestEntityTooLarge}
 	}
 	return decode(b)
+}
+
+// StreamReader reads uvarint length-prefixed protobuf frames from r. It is used
+// by generated client-streaming handlers to lazily decode request frames.
+type StreamReader struct {
+	r            *bufio.Reader
+	maxFrameSize int
+}
+
+// NewStreamReader wraps r with a buffered reader for length-prefixed frames.
+// If maxFrameSize > 0, frames whose payload exceeds it are rejected with an
+// ApiErr carrying http.StatusRequestEntityTooLarge.
+func NewStreamReader(r io.Reader, maxFrameSize int) *StreamReader {
+	return &StreamReader{r: bufio.NewReader(r), maxFrameSize: maxFrameSize}
+}
+
+// Next returns the payload bytes of the next frame. At end-of-stream returns
+// (nil, false, nil). Framing or size errors return (nil, false, err).
+func (s *StreamReader) Next() ([]byte, bool, error) {
+	size, err := binary.ReadUvarint(s.r)
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, false, nil
+		}
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			return nil, false, fmt.Errorf("stream truncated mid-frame header: %w", err)
+		}
+		return nil, false, err
+	}
+	if s.maxFrameSize > 0 && size > uint64(s.maxFrameSize) {
+		return nil, false, ApiErr{DisplayErr: "Request frame too large", InternalErr: "request frame exceeds max size", Code: http.StatusRequestEntityTooLarge}
+	}
+	if size == 0 {
+		return nil, true, nil
+	}
+	payload := make([]byte, size)
+	if _, err := io.ReadFull(s.r, payload); err != nil {
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return nil, false, fmt.Errorf("stream truncated mid-frame body: %w", err)
+		}
+		return nil, false, err
+	}
+	return payload, true, nil
 }
 
 func WriteStreamFrame(w io.Writer, payload []byte) error {
@@ -129,24 +183,14 @@ func (s *StreamWriter) Finish(ctx context.Context, err error) {
 			handleReqErr(ctx, err, "", s.w)
 			return
 		}
-		AbortStream(ctx, err, nil)
+		slog.ErrorContext(ctx, fmt.Sprintf("stream err: %v", err.Error()))
+		return
 	}
 	if s.started {
 		return
 	}
 	SetStreamHeaders(s.w)
 	s.w.WriteHeader(http.StatusOK)
-}
-
-func AbortStream(ctx context.Context, err error, r *http.Request) {
-	if err != nil {
-		if r != nil {
-			slog.ErrorContext(ctx, fmt.Sprintf("%v stream err: %v", r.URL.Path, err.Error()))
-		} else {
-			slog.ErrorContext(ctx, fmt.Sprintf("stream err: %v", err.Error()))
-		}
-	}
-	panic(http.ErrAbortHandler)
 }
 
 // SetStreamHeaders sets the response headers for a server-streaming RPC.
@@ -170,4 +214,56 @@ func (e ApiErr) Error() string {
 		return e.InternalErr
 	}
 	return e.DisplayErr
+}
+
+// ValidationError represents a buf.validate constraint failure on a request payload.
+// The Path slice records the path to the offending field, joined with dots when
+// rendered (e.g. "user.email" or "items[3].name").
+type ValidationError struct {
+	Path   []string
+	Reason string
+}
+
+func (e *ValidationError) Error() string {
+	return joinValidationPath(e.Path) + ": " + e.Reason
+}
+
+func joinValidationPath(parts []string) string {
+	switch len(parts) {
+	case 0:
+		return ""
+	case 1:
+		return parts[0]
+	}
+	n := len(parts) - 1
+	for _, p := range parts {
+		n += len(p)
+	}
+	out := make([]byte, 0, n)
+	for i, p := range parts {
+		if i > 0 && len(p) > 0 && p[0] != '[' {
+			out = append(out, '.')
+		}
+		out = append(out, p...)
+	}
+	return string(out)
+}
+
+func newValidationError(path []string, reason string) *ValidationError {
+	return &ValidationError{Path: path, Reason: reason}
+}
+
+func wrapValidationError(err error, segment string) error {
+	if err == nil {
+		return nil
+	}
+	var ve *ValidationError
+	if errors.As(err, &ve) {
+		path := make([]string, 0, len(ve.Path)+1)
+		path = append(path, segment)
+		path = append(path, ve.Path...)
+		ve.Path = path
+		return ve
+	}
+	return err
 }

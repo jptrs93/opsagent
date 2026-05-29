@@ -17,9 +17,9 @@ type Provider interface {
 // ForConfig returns the Provider that matches the given prepare config.
 func ForConfig(cfg *apigen.PrepareConfig) (Provider, error) {
 	switch {
-	case cfg.NixBuild != nil:
+	case cfg != nil && !cfg.NixBuild.IsZero():
 		return Git, nil
-	case cfg.GithubRelease != nil:
+	case cfg != nil && !cfg.GithubRelease.IsZero():
 		return GHRel, nil
 	}
 	return nil, fmt.Errorf("no version provider for config")

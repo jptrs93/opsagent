@@ -27,8 +27,8 @@ type Runner interface {
 // dep.Version.
 func Create(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, status *apigen.DeploymentStatus) Runner {
 	var preparer apigen.PreparerStatus
-	if status != nil && status.Preparer != nil {
-		preparer = *status.Preparer
+	if status != nil {
+		preparer = status.Preparer
 	}
 	slog.InfoContext(ctx, "runner.Create", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion, "systemd", useSystemd(dep))
 	if useSystemd(dep) {
@@ -41,8 +41,8 @@ func Create(ctx context.Context, store storage.OperatorStore, dep *apigen.Deploy
 // before opsagent restarted. For os-process runners the adopted PID is
 // polled and falls through to the normal spawn-and-respawn loop on exit.
 // For systemd runners this starts a monitor-only loop — no install or restart.
-func ReAttach(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, prev *apigen.RunnerStatus) Runner {
-	if prev == nil {
+func ReAttach(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
+	if prev.IsZero() {
 		slog.InfoContext(ctx, "runner.ReAttach: no previous runner, returning stopped")
 		return Stopped()
 	}
@@ -52,7 +52,7 @@ func ReAttach(ctx context.Context, store storage.OperatorStore, dep *apigen.Depl
 	if useSystemd(dep) {
 		return reAttachSystemdRunner(ctx, store, dep, prev)
 	}
-	return reAttachOSProcessRunner(ctx, store, *dep, *prev)
+	return reAttachOSProcessRunner(ctx, store, *dep, prev)
 }
 
 // Stopped returns a no-op Runner sentinel used when no process is running.
@@ -64,5 +64,5 @@ func (stoppedRunner) Stop()          {}
 func (stoppedRunner) Version() int32 { return -1 }
 
 func useSystemd(dep *apigen.DeploymentConfig) bool {
-	return dep.Spec != nil && dep.Spec.Runner != nil && dep.Spec.Runner.Systemd != nil
+	return !dep.Spec.Runner.Systemd.IsZero()
 }

@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
@@ -15,28 +14,4 @@ type OperatorStore interface {
 	// are attempted with an unchanged UpdatedAt clock.
 	MustWriteDeploymentStatus(context.Context, int32, func(s *apigen.DeploymentStatus) bool)
 	MustFetchSnapshotAndSubscribe(ctx context.Context, machine string) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus)
-}
-
-type SecondaryStore interface {
-	OperatorStore
-	MustWriteDeploymentConfig(ctx context.Context, cfg *apigen.DeploymentConfig)
-	FetchDeploymentStatus(id int32) *apigen.DeploymentStatus
-	FetchDeploymentStatusHistorySince(deploymentID int32, since time.Time) []*apigen.DeploymentStatus
-	SubscribeDeploymentUpdates(machine string) (chan apigen.DeploymentWithStatus, func())
-}
-
-type PrimaryLocalStore interface {
-	OperatorStore
-
-	FetchDeploymentStatus(id int32) *apigen.DeploymentStatus
-
-	MustWriteReplicatedDeploymentStatus(ctx context.Context, status *apigen.DeploymentStatus)
-
-	MustFetchDeploymentHistory(id int32) []*apigen.DeploymentConfig
-	MustFetchDeploymentStatusHistory(id int32) []*apigen.DeploymentStatus
-	MustSetDeploymentDesiredState(ctx apigen.Context, deploymentID int32, desired apigen.DesiredState)
-
-	MustUpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec)
-	MustCreateDeployment(ctx apigen.Context, cid *apigen.DeploymentIdentifier, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig
-	ListActiveDeploymentConfigs() []*apigen.DeploymentConfig
 }

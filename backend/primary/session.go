@@ -11,7 +11,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/cluster"
-	"github.com/jptrs93/opsagent/backend/storage"
+	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
 // Session represents a connected worker. It owns both the write side (send
@@ -20,7 +20,7 @@ import (
 type Session struct {
 	conn    *cluster.Conn
 	machine string
-	store   storage.PrimaryLocalStore
+	store   *sqlite.StorageAdapter
 	primary *Primary
 
 	// Log streaming: multiple concurrent streams multiplexed by request ID.
@@ -35,7 +35,7 @@ type logChunk struct {
 	end  bool
 }
 
-func newSession(conn *cluster.Conn, machine string, store storage.PrimaryLocalStore, p *Primary) *Session {
+func newSession(conn *cluster.Conn, machine string, store *sqlite.StorageAdapter, p *Primary) *Session {
 	return &Session{
 		conn:       conn,
 		machine:    machine,
@@ -79,7 +79,8 @@ func (s *Session) run(ctx context.Context) error {
 				if !ok {
 					return
 				}
-				msg := &apigen.MsgToWorker{DeploymentUpdate: dws.Config}
+				cfg := dws.Config
+				msg := &apigen.MsgToWorker{DeploymentUpdate: &cfg}
 				if err := s.conn.WriteFrame(msg.Encode()); err != nil {
 					slog.Warn("forwarding deployment update to worker failed", "machine", s.machine, "err", err)
 					return

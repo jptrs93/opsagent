@@ -32,7 +32,7 @@ type systemdRunner struct {
 }
 
 // reAttachSystemdRunner creates a monitor-only runner. Used by ReAttach.
-func reAttachSystemdRunner(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, runnerStatus *apigen.RunnerStatus) *systemdRunner {
+func reAttachSystemdRunner(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, runnerStatus apigen.RunnerStatus) *systemdRunner {
 	ctx, cancel := context.WithCancel(parentCtx)
 	sys := dep.Spec.Runner.Systemd
 	r := &systemdRunner{
@@ -41,7 +41,7 @@ func reAttachSystemdRunner(parentCtx context.Context, store storage.OperatorStor
 		done:         make(chan struct{}),
 		store:        store,
 		deploymentID: dep.ID,
-		status:       *runnerStatus,
+		status:       runnerStatus,
 		unitName:     normalizeUnit(sys.Name),
 		outputPath:   dep.RunOutputPath(),
 	}
@@ -149,13 +149,13 @@ func (r *systemdRunner) updateStatus(status apigen.RunningStatus, pid int32) {
 
 func (r *systemdRunner) writeStatus() {
 	r.store.MustWriteDeploymentStatus(context.Background(), r.deploymentID, func(s *apigen.DeploymentStatus) bool {
-		if s.Runner != nil && s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion {
+		if !s.Runner.IsZero() && s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion {
 			slog.InfoContext(r.ctx, "discarding status update from superseded runner")
 			return false
 		}
 		s.BumpUpdatedAt()
 		s.DeploymentID = r.deploymentID
-		s.Runner = &r.status
+		s.Runner = r.status
 		return true
 	})
 }

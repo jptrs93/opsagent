@@ -124,8 +124,8 @@ message GithubReleaseConfig {
 }
 
 message PrepareConfig {
-  NixBuildConfig nix_build = 1;
-  GithubReleaseConfig github_release = 2;
+  NixBuildConfig nix_build = 1 [(cp.go_value) = true];
+  GithubReleaseConfig github_release = 2 [(cp.go_value) = true];
 }
 
 message OsProcessRunnerConfig {
@@ -140,8 +140,8 @@ message SystemdRunnerConfig {
 }
 
 message RunnerConfig {
-  OsProcessRunnerConfig os_process = 1;
-  SystemdRunnerConfig systemd = 2;
+  OsProcessRunnerConfig os_process = 1 [(cp.go_value) = true];
+  SystemdRunnerConfig systemd = 2 [(cp.go_value) = true];
 }
 
 
@@ -230,8 +230,8 @@ message DeploymentIdentifier {
 }
 
 message DeploymentSpec {
-  PrepareConfig prepare = 1;
-  RunnerConfig runner = 2;
+  PrepareConfig prepare = 1 [(cp.go_value) = true];
+  RunnerConfig runner = 2 [(cp.go_value) = true];
 }
 
 message DesiredState {
@@ -241,19 +241,19 @@ message DesiredState {
 
 message DeploymentConfig {
   int32 id = 8;                          // primary key (integer deployment id)
-  DeploymentIdentifier config_id = 1;    // human-readable identity (display metadata)
+  DeploymentIdentifier config_id = 1 [(cp.go_value) = true];    // human-readable identity (display metadata)
   int32 version = 2;                      // per-deployment monotonically increasing config version
   int64 updated_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int32 updated_by = 4;
-  DeploymentSpec spec = 5;
-  DesiredState desired_state = 6;
+  DeploymentSpec spec = 5 [(cp.go_value) = true];
+  DesiredState desired_state = 6 [(cp.go_value) = true];
   bool deleted = 7;
 }
 
 
 message DeploymentWithStatus {
-  DeploymentConfig Config = 1;
-  DeploymentStatus status = 2;
+  DeploymentConfig Config = 1 [(cp.go_value) = true];
+  DeploymentStatus status = 2 [(cp.go_value) = true];
 }
 
 message DeploymentStatus {
@@ -266,8 +266,8 @@ message DeploymentStatus {
   // during a rolling upgrade rather than mis-decoding the old int64 field.
   google.protobuf.Timestamp updated_at = 7;
   int32 deployment_id = 6;  // integer deployment id
-  PreparerStatus preparer = 4;
-  RunnerStatus runner = 5;
+  PreparerStatus preparer = 4 [(cp.go_value) = true];
+  RunnerStatus runner = 5 [(cp.go_value) = true];
 }
 
 message PreparerStatus {

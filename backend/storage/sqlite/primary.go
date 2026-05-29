@@ -3,10 +3,8 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	_ "embed"
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -21,67 +19,15 @@ import (
 const SystemEnvironment = "OPSAGENT_SYSTEM"
 
 type StorageAdapter struct {
-	db *sql.DB
-	q  *Queries
-
-	mu sync.Mutex
-
-	configCache map[int32]*apigen.DeploymentConfig
-	statusCache map[int32]*apigen.DeploymentStatus
-	subs        *logstore.Subs[apigen.DeploymentWithStatus]
-	userSubs    *logstore.Subs[apigen.User]
+	*deploymentStore
+	userSubs *logstore.Subs[apigen.User]
 }
 
 func NewStorageAdapter(dbPath string) *StorageAdapter {
 	db := mustInitPrimary(dbPath)
-	s := &StorageAdapter{
-		db:          db,
-		q:           New(db),
-		configCache: make(map[int32]*apigen.DeploymentConfig),
-		statusCache: make(map[int32]*apigen.DeploymentStatus),
-		subs:        &logstore.Subs[apigen.DeploymentWithStatus]{},
-		userSubs:    &logstore.Subs[apigen.User]{},
-	}
-	s.loadCache()
-	return s
-}
-
-func (s *StorageAdapter) loadCache() {
-	ctx := context.Background()
-	rows, err := s.q.ListAllDeploymentConfigs(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("loadCache: ListAllDeploymentConfigs: %v", err))
-	}
-	for _, row := range rows {
-		id := int32(row.DeploymentID)
-		s.configCache[id] = configRowToProto(row)
-	}
-
-	statuses, err := s.q.ListAllDeploymentStatuses(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("loadCache: ListAllDeploymentStatuses: %v", err))
-	}
-	for _, st := range statuses {
-		id := int32(st.DeploymentID)
-		s.statusCache[id] = statusRowToProto(st.DeploymentID, statusToHistory(st))
-	}
-
-	// Ensure every config has a status entry (invariant: status is never nil).
-	for id := range s.configCache {
-		if _, ok := s.statusCache[id]; ok {
-			continue
-		}
-		// Zero UpdatedAt marks a "no status yet" placeholder.
-		st := &apigen.DeploymentStatus{DeploymentID: id}
-		params := statusProtoToInsertParams(int64(id), st)
-		if err := s.q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
-			panic(fmt.Sprintf("loadCache: UpsertDeploymentStatus (default): %v", err))
-		}
-		// No history row: the placeholder carries no preparer/runner data,
-		// so it would show up as a meaningless "status update" entry in the
-		// UI. The current-row upsert above is enough to maintain the
-		// status-never-nil invariant.
-		s.statusCache[id] = st
+	return &StorageAdapter{
+		deploymentStore: newDeploymentStore(db),
+		userSubs:        &logstore.Subs[apigen.User]{},
 	}
 }
 
@@ -110,7 +56,7 @@ func boolToInt(b bool) int64 {
 func (s *StorageAdapter) resolveDeploymentID(ctx context.Context, tx *sql.Tx, cid *apigen.DeploymentIdentifier) (int64, error) {
 	// Check cache first.
 	for id, cfg := range s.configCache {
-		if cfg.ConfigID != nil && *cfg.ConfigID == *cid {
+		if cfg.ConfigID == *cid {
 			return int64(id), nil
 		}
 	}
@@ -133,34 +79,6 @@ func (s *StorageAdapter) mustResolveDeploymentID(ctx context.Context, tx *sql.Tx
 		panic(fmt.Sprintf("resolveDeploymentID: %v", err))
 	}
 	return dbID
-}
-
-// --- PrimaryLocalStore: OperatorStore ---
-
-func (s *StorageAdapter) MustWriteDeploymentStatus(ctx context.Context, deploymentID int32, f func(*apigen.DeploymentStatus) bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	current := s.statusCache[deploymentID]
-	if current == nil {
-		current = &apigen.DeploymentStatus{DeploymentID: deploymentID}
-	}
-
-	if !f(current) {
-		return
-	}
-
-	dbID := int64(deploymentID)
-	params := statusProtoToInsertParams(dbID, current)
-	if err := s.q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
-		panic(fmt.Sprintf("UpsertDeploymentStatus: %v", err))
-	}
-	if err := s.q.InsertDeploymentStatusHistory(ctx, params); err != nil {
-		panic(fmt.Sprintf("InsertDeploymentStatusHistory: %v", err))
-	}
-
-	s.statusCache[deploymentID] = current
-	s.notifyFromCache(deploymentID)
 }
 
 // MustWriteReplicatedDeploymentStatus persists a status pushed by a secondary,
@@ -218,35 +136,7 @@ func (s *StorageAdapter) MustWriteReplicatedDeploymentStatus(ctx context.Context
 	}
 }
 
-func (s *StorageAdapter) MustFetchSnapshotAndSubscribe(ctx context.Context, machine string) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var snapshot []apigen.DeploymentWithStatus
-	for id, cfg := range s.configCache {
-		if machine != "" && (cfg.ConfigID == nil || cfg.ConfigID.Machine != machine) {
-			continue
-		}
-		if cfg.Deleted {
-			continue
-		}
-		snapshot = append(snapshot, apigen.DeploymentWithStatus{
-			Config: cfg,
-			Status: s.statusCache[id],
-		})
-	}
-
-	var filter func(apigen.DeploymentWithStatus) bool
-	if machine != "" {
-		filter = func(dws apigen.DeploymentWithStatus) bool {
-			return dws.Config.ConfigID != nil && dws.Config.ConfigID.Machine == machine
-		}
-	}
-	sub, _ := s.subs.Subscribe(filter)
-	return snapshot, sub.Ch
-}
-
-// --- PrimaryLocalStore: deployment history ---
+// --- deployment history ---
 
 func (s *StorageAdapter) MustFetchDeploymentHistory(deploymentID int32) []*apigen.DeploymentConfig {
 	ctx := context.Background()
@@ -256,7 +146,7 @@ func (s *StorageAdapter) MustFetchDeploymentHistory(deploymentID int32) []*apige
 		panic(fmt.Sprintf("ListDeploymentConfigHistory: %v", err))
 	}
 	// Get the config_id from cache for display.
-	var cid *apigen.DeploymentIdentifier
+	var cid apigen.DeploymentIdentifier
 	if cfg, ok := s.configCache[deploymentID]; ok {
 		cid = cfg.ConfigID
 	}
@@ -281,7 +171,7 @@ func (s *StorageAdapter) MustFetchDeploymentStatusHistory(deploymentID int32) []
 	return out
 }
 
-// --- PrimaryLocalStore: desired state ---
+// --- desired state ---
 
 func (s *StorageAdapter) MustSetDeploymentDesiredState(ctx apigen.Context, deploymentID int32, desired apigen.DesiredState) {
 	s.mu.Lock()
@@ -323,11 +213,11 @@ func (s *StorageAdapter) MustSetDeploymentDesiredState(ctx apigen.Context, deplo
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
 	}
 
-	s.configCache[deploymentID] = configDBRowToProto(updated)
+	s.configCache[deploymentID] = configRowToProto(updated)
 	s.notifyFromCache(deploymentID)
 }
 
-// --- PrimaryLocalStore: deployment spec update ---
+// --- deployment spec update ---
 
 func (s *StorageAdapter) MustUpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec) {
 	s.mu.Lock()
@@ -395,7 +285,7 @@ func (s *StorageAdapter) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 
 	// Reject if a non-deleted deployment with the same identifier already exists.
 	for _, cfg := range s.configCache {
-		if cfg.ConfigID != nil && *cfg.ConfigID == *cid && !cfg.Deleted {
+		if cfg.ConfigID == *cid && !cfg.Deleted {
 			panic(fmt.Sprintf("deployment %s/%s/%s already exists", cid.Environment, cid.Machine, cid.Name))
 		}
 	}
@@ -460,21 +350,6 @@ func (s *StorageAdapter) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 	return cfg
 }
 
-func (s *StorageAdapter) insertDefaultStatus(ctx context.Context, q *Queries, dbID int64) {
-	id := int32(dbID)
-	// Zero UpdatedAt marks a "no status yet" placeholder.
-	st := &apigen.DeploymentStatus{DeploymentID: id}
-	params := statusProtoToInsertParams(dbID, st)
-	if err := q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
-		panic(fmt.Sprintf("UpsertDeploymentStatus (default): %v", err))
-	}
-	// No history row: the placeholder carries no preparer/runner data,
-	// so it would show up as a meaningless "status update" entry in the
-	// UI. The current-row upsert above is enough to maintain the
-	// status-never-nil invariant.
-	s.statusCache[id] = st
-}
-
 // EnsureSystemDeployment creates the OPSAGENT_SYSTEM opsagent deployment for
 // the given machine if it does not already exist.
 func (s *StorageAdapter) EnsureSystemDeployment(machine string) {
@@ -489,19 +364,19 @@ func (s *StorageAdapter) EnsureSystemDeployment(machine string) {
 
 	// Check if it already exists.
 	for _, cfg := range s.configCache {
-		if cfg.ConfigID != nil && *cfg.ConfigID == cid && !cfg.Deleted {
+		if cfg.ConfigID == cid && !cfg.Deleted {
 			return
 		}
 	}
 
 	spec := &apigen.DeploymentSpec{
-		Prepare: &apigen.PrepareConfig{
-			GithubRelease: &apigen.GithubReleaseConfig{
+		Prepare: apigen.PrepareConfig{
+			GithubRelease: apigen.GithubReleaseConfig{
 				Repo: "github.com/jptrs93/opsagent",
 			},
 		},
-		Runner: &apigen.RunnerConfig{
-			Systemd: &apigen.SystemdRunnerConfig{
+		Runner: apigen.RunnerConfig{
+			Systemd: apigen.SystemdRunnerConfig{
 				Name:    "opsagent",
 				BinPath: "/var/lib/opsagent/bin/opsagent",
 			},
@@ -555,49 +430,6 @@ func (s *StorageAdapter) EnsureSystemDeployment(machine string) {
 	slog.Info("created system deployment", "machine", machine)
 }
 
-// SubscribeDeploymentUpdates returns a channel of deployment changes filtered
-// by machine, along with an unsubscribe function.
-func (s *StorageAdapter) SubscribeDeploymentUpdates(machine string) (chan apigen.DeploymentWithStatus, func()) {
-	var filter func(apigen.DeploymentWithStatus) bool
-	if machine != "" {
-		filter = func(dws apigen.DeploymentWithStatus) bool {
-			return dws.Config.ConfigID != nil && dws.Config.ConfigID.Machine == machine
-		}
-	}
-	sub, unsub := s.subs.Subscribe(filter)
-	return sub.Ch, unsub
-}
-
-// FetchDeploymentStatus returns the cached status for a deployment, or nil.
-func (s *StorageAdapter) FetchDeploymentStatus(deploymentID int32) *apigen.DeploymentStatus {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.statusCache[deploymentID]
-}
-
-func (s *StorageAdapter) notifyFromCache(id int32) {
-	cfg := s.configCache[id]
-	if cfg == nil {
-		return
-	}
-	st := s.statusCache[id]
-	name := ""
-	if cfg.ConfigID != nil {
-		name = fmt.Sprintf("%s:%s:%s", cfg.ConfigID.Environment, cfg.ConfigID.Machine, cfg.ConfigID.Name)
-	}
-	slog.Info("store: notifyFromCache",
-		"id", id,
-		"name", name,
-		"configSeqNo", cfg.Version,
-		"hasPreparer", st != nil && st.Preparer != nil,
-		"hasRunner", st != nil && st.Runner != nil,
-	)
-	s.subs.Notify(apigen.DeploymentWithStatus{
-		Config: cfg,
-		Status: st,
-	})
-}
-
 // --- row <-> proto conversions ---
 
 // clockToNanos serializes a status HLC clock to its DB integer form (unix
@@ -623,14 +455,14 @@ func statusRowToProto(dbID int64, r DeploymentStatusHistory) *apigen.DeploymentS
 		DeploymentID: int32(dbID),
 	}
 	if r.PreparerStatus.Valid {
-		st.Preparer = &apigen.PreparerStatus{
+		st.Preparer = apigen.PreparerStatus{
 			DeploymentConfigVersion: int32(r.PreparerConfigVersion.Int64),
 			Artifact:                r.PreparerArtifact.String,
 			Status:                  apigen.PreparationStatus(r.PreparerStatus.Int64),
 		}
 	}
 	if r.RunnerStatus.Valid {
-		st.Runner = &apigen.RunnerStatus{
+		st.Runner = apigen.RunnerStatus{
 			DeploymentConfigVersion: int32(r.RunnerConfigVersion.Int64),
 			RunningPid:              int32(r.RunnerPid.Int64),
 			RunningArtifact:         r.RunnerArtifact.String,
@@ -649,12 +481,12 @@ func statusProtoToInsertParams(dbID int64, st *apigen.DeploymentStatus) InsertDe
 		DeploymentID: dbID,
 		UpdatedAt:    clockToNanos(st.UpdatedAt),
 	}
-	if st.Preparer != nil {
+	if !st.Preparer.IsZero() {
 		p.PreparerConfigVersion = sql.NullInt64{Int64: int64(st.Preparer.DeploymentConfigVersion), Valid: true}
 		p.PreparerArtifact = sql.NullString{String: st.Preparer.Artifact, Valid: true}
 		p.PreparerStatus = sql.NullInt64{Int64: int64(st.Preparer.Status), Valid: true}
 	}
-	if st.Runner != nil {
+	if !st.Runner.IsZero() {
 		p.RunnerConfigVersion = sql.NullInt64{Int64: int64(st.Runner.DeploymentConfigVersion), Valid: true}
 		p.RunnerPid = sql.NullInt64{Int64: int64(st.Runner.RunningPid), Valid: true}
 		p.RunnerArtifact = sql.NullString{String: st.Runner.RunningArtifact, Valid: true}
@@ -699,7 +531,7 @@ func statusToHistory(s DeploymentStatus) DeploymentStatusHistory {
 	}
 }
 
-func configHistoryRowToProto(dbID int64, cid *apigen.DeploymentIdentifier, r DeploymentConfigHistory) *apigen.DeploymentConfig {
+func configHistoryRowToProto(dbID int64, cid apigen.DeploymentIdentifier, r DeploymentConfigHistory) *apigen.DeploymentConfig {
 	spec, err := apigen.DecodeDeploymentSpec(r.SpecBlob)
 	if err != nil {
 		slog.Error("failed decoding deployment spec", "deploymentID", dbID, "version", r.Version, "err", err)
@@ -710,8 +542,8 @@ func configHistoryRowToProto(dbID int64, cid *apigen.DeploymentIdentifier, r Dep
 		Version:   int32(r.Version),
 		UpdatedAt: time.UnixMilli(r.UpdatedAt),
 		UpdatedBy: int32(r.UpdatedBy),
-		Spec:      spec,
-		DesiredState: &apigen.DesiredState{
+		Spec:      deploymentSpecValue(spec),
+		DesiredState: apigen.DesiredState{
 			Version: r.DesiredVersion,
 			Running: r.DesiredRunning != 0,
 		},
@@ -724,30 +556,20 @@ func configHistoryRowToProto(dbID int64, cid *apigen.DeploymentIdentifier, r Dep
 // (the integer ID is authoritative; no deployment_identifiers resolution).
 func configProtoToUpsertParams(cfg *apigen.DeploymentConfig) UpsertDeploymentConfigParams {
 	var specBlob []byte
-	if cfg.Spec != nil {
+	if !cfg.Spec.IsZero() {
 		specBlob = cfg.Spec.Encode()
-	}
-	var env, machine, name string
-	if cfg.ConfigID != nil {
-		env, machine, name = cfg.ConfigID.Environment, cfg.ConfigID.Machine, cfg.ConfigID.Name
-	}
-	var desiredVersion string
-	var desiredRunning int64
-	if cfg.DesiredState != nil {
-		desiredVersion = cfg.DesiredState.Version
-		desiredRunning = boolToInt(cfg.DesiredState.Running)
 	}
 	return UpsertDeploymentConfigParams{
 		DeploymentID:   int64(cfg.ID),
-		Environment:    env,
-		Machine:        machine,
-		Name:           name,
+		Environment:    cfg.ConfigID.Environment,
+		Machine:        cfg.ConfigID.Machine,
+		Name:           cfg.ConfigID.Name,
 		Version:        int64(cfg.Version),
 		UpdatedAt:      cfg.UpdatedAt.UnixMilli(),
 		UpdatedBy:      int64(cfg.UpdatedBy),
 		SpecBlob:       specBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
+		DesiredVersion: cfg.DesiredState.Version,
+		DesiredRunning: boolToInt(cfg.DesiredState.Running),
 		Deleted:        boolToInt(cfg.Deleted),
 	}
 }
@@ -759,7 +581,7 @@ func configRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
 	}
 	return &apigen.DeploymentConfig{
 		ID: int32(r.DeploymentID),
-		ConfigID: &apigen.DeploymentIdentifier{
+		ConfigID: apigen.DeploymentIdentifier{
 			Environment: r.Environment,
 			Machine:     r.Machine,
 			Name:        r.Name,
@@ -767,32 +589,8 @@ func configRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
 		Version:   int32(r.Version),
 		UpdatedAt: time.UnixMilli(r.UpdatedAt),
 		UpdatedBy: int32(r.UpdatedBy),
-		Spec:      spec,
-		DesiredState: &apigen.DesiredState{
-			Version: r.DesiredVersion,
-			Running: r.DesiredRunning != 0,
-		},
-		Deleted: r.Deleted != 0,
-	}
-}
-
-func configDBRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
-	spec, err := apigen.DecodeDeploymentSpec(r.SpecBlob)
-	if err != nil {
-		slog.Error("failed decoding deployment spec", "deploymentID", r.DeploymentID, "err", err)
-	}
-	return &apigen.DeploymentConfig{
-		ID: int32(r.DeploymentID),
-		ConfigID: &apigen.DeploymentIdentifier{
-			Environment: r.Environment,
-			Machine:     r.Machine,
-			Name:        r.Name,
-		},
-		Version:   int32(r.Version),
-		UpdatedAt: time.UnixMilli(r.UpdatedAt),
-		UpdatedBy: int32(r.UpdatedBy),
-		Spec:      spec,
-		DesiredState: &apigen.DesiredState{
+		Spec:      deploymentSpecValue(spec),
+		DesiredState: apigen.DesiredState{
 			Version: r.DesiredVersion,
 			Running: r.DesiredRunning != 0,
 		},
@@ -807,7 +605,7 @@ func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfi
 	}
 	return &apigen.DeploymentConfig{
 		ID: int32(p.DeploymentID),
-		ConfigID: &apigen.DeploymentIdentifier{
+		ConfigID: apigen.DeploymentIdentifier{
 			Environment: p.Environment,
 			Machine:     p.Machine,
 			Name:        p.Name,
@@ -815,13 +613,20 @@ func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfi
 		Version:   int32(p.Version),
 		UpdatedAt: time.UnixMilli(p.UpdatedAt),
 		UpdatedBy: int32(p.UpdatedBy),
-		Spec:      spec,
-		DesiredState: &apigen.DesiredState{
+		Spec:      deploymentSpecValue(spec),
+		DesiredState: apigen.DesiredState{
 			Version: p.DesiredVersion,
 			Running: p.DesiredRunning != 0,
 		},
 		Deleted: p.Deleted != 0,
 	}
+}
+
+func deploymentSpecValue(spec *apigen.DeploymentSpec) apigen.DeploymentSpec {
+	if spec == nil {
+		return apigen.DeploymentSpec{}
+	}
+	return *spec
 }
 
 // --- auth: users ---

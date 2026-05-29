@@ -83,7 +83,7 @@ func (h *Handler) GetV1AuthCurrentSession(ctx apigen.Context) (*apigen.LoginResp
 }
 
 // VerifyAuth is the package-level function expected by the generated mux.
-func (h *Handler) VerifyAuth(ctx context.Context, r *http.Request, policy apigen.AccessPolicy) (apigen.Context, error) {
+func (h *Handler) VerifyAuth(ctx context.Context, _ http.ResponseWriter, r *http.Request, policy apigen.AccessPolicy) (apigen.Context, error) {
 	res := apigen.Context{Ctx: ctx}
 	if policy.PolicyType == apigen.AccessPolicyType_NO_AUTH {
 		return res, nil

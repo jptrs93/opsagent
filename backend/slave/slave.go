@@ -49,7 +49,7 @@ func Run(ctx context.Context, cfg Config) error {
 // connected and backing off on dial failures. The slave keeps operating
 // off local state while disconnected — this loop never returns until ctx
 // is done.
-func runPrimaryConnLoop(ctx context.Context, cfg Config, store *sqlite.SecondaryStorageAdapter) {
+func runPrimaryConnLoop(ctx context.Context, cfg Config, store *sqlite.SecondaryStorage) {
 	backoff := time.Second
 	const maxBackoff = 30 * time.Second
 	for {
@@ -132,7 +132,7 @@ func (t *logStreamTracker) remove(requestID string) {
 // primary (snapshot, config updates, log requests), apply state to the local
 // store, and push local status changes back. Returns when the connection
 // drops or ctx is done.
-func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorageAdapter, machine string) error {
+func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorage, machine string) error {
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -217,7 +217,7 @@ func statusPushLoop(ctx context.Context, conn *cluster.Conn, ch <-chan apigen.De
 			if !ok {
 				return
 			}
-			if dws.Status == nil || dws.Config == nil || dws.Config.ID == 0 {
+			if dws.Status.IsZero() || dws.Config.ID == 0 {
 				continue
 			}
 			id := dws.Config.ID
@@ -225,7 +225,8 @@ func statusPushLoop(ctx context.Context, conn *cluster.Conn, ch <-chan apigen.De
 				continue
 			}
 			lastSent[id] = dws.Status.UpdatedAt
-			msg := &apigen.MsgToMaster{StatusWrite: dws.Status}
+			status := dws.Status
+			msg := &apigen.MsgToMaster{StatusWrite: &status}
 			if err := conn.WriteFrame(msg.Encode()); err != nil {
 				slog.Warn("failed sending status to primary", "err", err)
 				return
@@ -240,16 +241,17 @@ func statusPushLoop(ctx context.Context, conn *cluster.Conn, ch <-chan apigen.De
 // deployment; the secondary scans its local history for rows above that
 // value and streams them back as individual StatusWrites so the primary can
 // insert each one at its canonical clock.
-func applySnapshot(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorageAdapter, snap *apigen.DeploymentWithStatusSnapshot) {
+func applySnapshot(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorage, snap *apigen.DeploymentWithStatusSnapshot) {
 	slog.Info("applying deployments snapshot from primary", "count", len(snap.Items))
 	for _, item := range snap.Items {
-		if item.Config == nil || item.Config.ID == 0 {
+		if item == nil || item.Config.ID == 0 {
 			continue
 		}
-		store.MustWriteDeploymentConfig(ctx, item.Config)
+		cfg := item.Config
+		store.MustWriteDeploymentConfig(ctx, &cfg)
 
 		var primaryClock time.Time
-		if item.Status != nil {
+		if !item.Status.IsZero() {
 			primaryClock = item.Status.UpdatedAt
 		}
 		backlog := store.FetchDeploymentStatusHistorySince(item.Config.ID, primaryClock)
@@ -271,7 +273,7 @@ func applySnapshot(ctx context.Context, conn *cluster.Conn, store *sqlite.Second
 
 // applyConfigUpdate writes a single config update from the primary into the
 // local store.
-func applyConfigUpdate(ctx context.Context, store *sqlite.SecondaryStorageAdapter, cfg *apigen.DeploymentConfig) {
+func applyConfigUpdate(ctx context.Context, store *sqlite.SecondaryStorage, cfg *apigen.DeploymentConfig) {
 	if cfg == nil || cfg.ID == 0 {
 		return
 	}
@@ -282,19 +284,19 @@ func applyConfigUpdate(ctx context.Context, store *sqlite.SecondaryStorageAdapte
 // streamDeploymentLog resolves seqNo=0 to latest from local status, then
 // streams the appropriate log file back to the primary. All chunks and the
 // final LogEnd are tagged with the request ID for multiplexing.
-func streamDeploymentLog(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorageAdapter, req *apigen.DeploymentLogRequest) {
+func streamDeploymentLog(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorage, req *apigen.DeploymentLogRequest) {
 	requestID := req.RequestID
 	if req.RunnerOutput != nil {
 		r := req.RunnerOutput
 		if r.Version == 0 && r.DeploymentID != 0 {
 			st := store.FetchDeploymentStatus(r.DeploymentID)
-			if st != nil && st.Runner != nil {
+			if st != nil && !st.Runner.IsZero() {
 				r.Version = st.Runner.DeploymentConfigVersion
 			}
 		}
 		streamFile(ctx, conn, store, r.OutputPath(), requestID, func() bool {
 			st := store.FetchDeploymentStatus(r.DeploymentID)
-			return st != nil && st.Runner != nil && isRunnerActive(st.Runner.Status)
+			return st != nil && !st.Runner.IsZero() && isRunnerActive(st.Runner.Status)
 		})
 		return
 	}
@@ -302,13 +304,13 @@ func streamDeploymentLog(ctx context.Context, conn *cluster.Conn, store *sqlite.
 		p := req.PreparerOutput
 		if p.Version == 0 && p.DeploymentID != 0 {
 			st := store.FetchDeploymentStatus(p.DeploymentID)
-			if st != nil && st.Preparer != nil {
+			if st != nil && !st.Preparer.IsZero() {
 				p.Version = st.Preparer.DeploymentConfigVersion
 			}
 		}
 		streamFile(ctx, conn, store, p.OutputPath(), requestID, func() bool {
 			st := store.FetchDeploymentStatus(p.DeploymentID)
-			return st != nil && st.Preparer != nil && isPrepareInProgress(st.Preparer.Status)
+			return st != nil && !st.Preparer.IsZero() && isPrepareInProgress(st.Preparer.Status)
 		})
 		return
 	}
@@ -332,7 +334,7 @@ func streamRunLog(ctx context.Context, conn *cluster.Conn, req *apigen.RunOutput
 // while the process is still active instead of ending at the first EOF.
 // All frames are tagged with requestID for multiplexing.
 // Always sends LogEnd, even on write failure.
-func streamFile(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorageAdapter, path string, requestID string, keepTailing func() bool) {
+func streamFile(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorage, path string, requestID string, keepTailing func() bool) {
 	defer func() {
 		end := &apigen.MsgToMaster{LogEnd: true, LogRequestID: requestID}
 		_ = conn.WriteFrame(end.Encode())

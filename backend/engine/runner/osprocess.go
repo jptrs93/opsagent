@@ -284,13 +284,13 @@ func (r *osProcessRunner) updateStatus(status apigen.RunningStatus, pid int32) {
 
 func (r *osProcessRunner) writeStatus() {
 	r.store.MustWriteDeploymentStatus(context.Background(), r.deploymentID, func(s *apigen.DeploymentStatus) bool {
-		if s.Runner != nil && s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion {
+		if !s.Runner.IsZero() && s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion {
 			slog.InfoContext(r.ctx, "discarding status update from superseded runner")
 			return false
 		}
 		s.BumpUpdatedAt()
 		s.DeploymentID = r.deploymentID
-		s.Runner = &r.status
+		s.Runner = r.status
 		return true
 	})
 }
@@ -331,21 +331,21 @@ func resolveRunAs(configRunAs string) string {
 }
 
 func osProcessWorkingDir(dep *apigen.DeploymentConfig) string {
-	if dep == nil || dep.Spec == nil || dep.Spec.Runner == nil || dep.Spec.Runner.OsProcess == nil {
+	if dep == nil || dep.Spec.Runner.OsProcess.IsZero() {
 		return ""
 	}
 	return dep.Spec.Runner.OsProcess.WorkingDir
 }
 
 func osProcessRunAs(dep *apigen.DeploymentConfig) string {
-	if dep == nil || dep.Spec == nil || dep.Spec.Runner == nil || dep.Spec.Runner.OsProcess == nil {
+	if dep == nil || dep.Spec.Runner.OsProcess.IsZero() {
 		return ""
 	}
 	return dep.Spec.Runner.OsProcess.RunAs
 }
 
 func osProcessStrategy(dep *apigen.DeploymentConfig) string {
-	if dep == nil || dep.Spec == nil || dep.Spec.Runner == nil || dep.Spec.Runner.OsProcess == nil {
+	if dep == nil || dep.Spec.Runner.OsProcess.IsZero() {
 		return ""
 	}
 	return dep.Spec.Runner.OsProcess.Strategy

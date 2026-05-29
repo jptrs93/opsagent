@@ -14,18 +14,18 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/cluster"
-	"github.com/jptrs93/opsagent/backend/storage"
+	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
 // Primary manages worker connections and forwards state between the local
 // store and connected workers.
 type Primary struct {
-	store  storage.PrimaryLocalStore
+	store  *sqlite.StorageAdapter
 	server *cluster.Server
 
 	mu          sync.RWMutex
-	sessions    map[string]*Session   // machine name → session
-	connectedAt map[string]time.Time  // machine name → when session was accepted
+	sessions    map[string]*Session  // machine name → session
+	connectedAt map[string]time.Time // machine name → when session was accepted
 
 	// OnSlaveConnect is invoked (if set) after a slave session is accepted
 	// and registered.
@@ -33,7 +33,7 @@ type Primary struct {
 }
 
 // New creates a Primary and starts the mTLS listener.
-func New(store storage.PrimaryLocalStore, tlsCfg *tls.Config, listenAddr string) (*Primary, error) {
+func New(store *sqlite.StorageAdapter, tlsCfg *tls.Config, listenAddr string) (*Primary, error) {
 	srv, err := cluster.NewServer(listenAddr, tlsCfg)
 	if err != nil {
 		return nil, err

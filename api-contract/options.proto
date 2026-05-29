@@ -11,6 +11,27 @@ enum AccessPolicyType {
   ANY_OF = 3;
 }
 
+// CompressionMode controls per-RPC response compression behaviour in
+// generated Go server muxes. Apply it to an RPC via the `(cp.compression)`
+// method option (see below).
+enum CompressionMode {
+  // AUTO defers to the mux-level `CompressionOptions` (e.g. `MinSize`
+  // threshold for unary RPCs). For server-streaming RPCs, AUTO is
+  // equivalent to disabled compression. This is the default when the
+  // option is omitted.
+  COMPRESSION_MODE_AUTO = 0;
+  // ALWAYS forces gzip on the response whenever the client advertises
+  // `Accept-Encoding: gzip`, ignoring the mux `MinSize` threshold. This
+  // is the only mode that enables gzip on server-streaming RPCs.
+  COMPRESSION_MODE_ALWAYS = 1;
+  // NEVER disables response compression for this RPC regardless of mux
+  // configuration. Use this for endpoints where gzip would interfere
+  // with the transport: WebSocket upgrades, server-sent events, and
+  // raw byte streams whose chunked encoding must not be wrapped in a
+  // gzip envelope.
+  COMPRESSION_MODE_NEVER = 2;
+}
+
 message AccessPolicy {
   AccessPolicyType policy_type = 1;
   repeated string scopes = 2;
@@ -28,6 +49,8 @@ extend google.protobuf.FieldOptions {
   string go_type = 50010;
   bool go_encode = 50012;
   bool go_ignore = 50014;
+  bool go_slice_ptr = 50021;
+  bool go_value = 50022;
 
   string js_type = 50011;
   bool js_encode = 50013;
@@ -46,4 +69,13 @@ extend google.protobuf.MethodOptions {
   string operation_id = 50031;
   bool audit = 50032;
   AccessPolicy policy = 50030;
+  // compression overrides the mux-level response compression decision
+  // for this RPC. See the `CompressionMode` enum above for the meaning
+  // of each value. Example:
+  //
+  //   rpc StreamLogsV1(LogReq) returns (stream LogChunk) {
+  //     option (cp.compression) = COMPRESSION_MODE_NEVER;
+  //   }
+  CompressionMode compression = 50033;
+  string url = 50034;
 }

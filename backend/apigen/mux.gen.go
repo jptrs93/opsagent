@@ -12,10 +12,21 @@ import (
 type HandlerFunc = func(context.Context, http.ResponseWriter, *http.Request)
 type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 
-type VerifyAuthFunc func(context.Context, *http.Request, AccessPolicy) (Context, error)
+type VerifyAuthFunc func(context.Context, http.ResponseWriter, *http.Request, AccessPolicy) (Context, error)
 
-type MuxOptions struct {
-	MaxRequestBodySize *int
+type PostAuthHandlerFunc func(Context, http.ResponseWriter, *http.Request)
+type PostAuthMiddlewareFunc func(next PostAuthHandlerFunc) PostAuthHandlerFunc
+
+type AuditFunc func(Context, string, error, any, any)
+
+type MuxConfig struct {
+	VerifyAuth          VerifyAuthFunc
+	Audit               AuditFunc
+	MaxRequestBodySize  int
+	UnaryCompression    func(http.Handler) http.HandlerFunc
+	StreamCompression   func(http.Handler) http.HandlerFunc
+	Middlewares         []MiddlewareFunc
+	PostAuthMiddlewares []PostAuthMiddlewareFunc
 }
 
 func ApplyMiddlewares(h HandlerFunc, middlewares ...MiddlewareFunc) http.HandlerFunc {
@@ -25,6 +36,36 @@ func ApplyMiddlewares(h HandlerFunc, middlewares ...MiddlewareFunc) http.Handler
 	return func(w http.ResponseWriter, r *http.Request) {
 		h(r.Context(), w, r)
 	}
+}
+
+func ApplyPostAuthMiddlewares(h PostAuthHandlerFunc, middlewares ...PostAuthMiddlewareFunc) PostAuthHandlerFunc {
+	for _, m := range middlewares {
+		h = m(h)
+	}
+	return h
+}
+
+func buildHandlerFunc(config *MuxConfig, verifyAuth VerifyAuthFunc, policy AccessPolicy, postAuthHandler PostAuthHandlerFunc, compressionMode int32, streaming bool) http.HandlerFunc {
+	postAuthHandler = ApplyPostAuthMiddlewares(postAuthHandler, config.PostAuthMiddlewares...)
+	routeHandler := ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+		authCtx, err := verifyAuth(ctx, w, r, policy)
+		if err != nil {
+			HandleReqErr(ctx, err, r, w)
+			return
+		}
+		postAuthHandler(authCtx, w, r)
+	}, config.Middlewares...)
+	if compressionMode == compressionModeNever {
+		return routeHandler
+	}
+	compress := config.UnaryCompression
+	if streaming {
+		compress = config.StreamCompression
+	}
+	if compress == nil {
+		return routeHandler
+	}
+	return compress(routeHandler)
 }
 
 type ServerHandler interface {
@@ -45,129 +86,99 @@ type ServerHandler interface {
 	PostV1DeploymentVersions(Context, *DeploymentVersionsRequest) (*DeploymentVersions, error)
 }
 
-func CreateMux(h ServerHandler, verifyAuth VerifyAuthFunc, options *MuxOptions, middlewares ...MiddlewareFunc) *http.ServeMux {
+func CreateMux(h ServerHandler, config *MuxConfig) *http.ServeMux {
+	if config == nil {
+		config = &MuxConfig{}
+	}
+	verifyAuth := config.VerifyAuth
 	if verifyAuth == nil {
-		verifyAuth = func(ctx context.Context, _ *http.Request, _ AccessPolicy) (Context, error) {
+		verifyAuth = func(ctx context.Context, _ http.ResponseWriter, _ *http.Request, _ AccessPolicy) (Context, error) {
 			var authCtx Context
-			if v, ok := ctx.(Context); ok {
-				authCtx = v
-			}
 			return authCtx, nil
 		}
 	}
-	if options == nil {
-		options = &MuxOptions{}
-	}
 	m := http.NewServeMux()
-	m.HandleFunc("GET /", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		err = h.Get(authCtx, r, w)
+	getAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerGet := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		err := h.Get(authCtx, r, w)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
-	}, middlewares...))
-	m.HandleFunc("GET /v1/healthz", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		err = h.GetV1Healthz(authCtx, r, w)
+	}
+	m.HandleFunc("GET /", buildHandlerFunc(config, verifyAuth, getAccessPolicy, postAuthHandlerGet, compressionModeAuto, false))
+	getV1HealthzAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerGetV1Healthz := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		err := h.GetV1Healthz(authCtx, r, w)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
-	}, middlewares...))
-	m.HandleFunc("POST /v1/auth/master", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeMasterPasswordRequest)
+	}
+	m.HandleFunc("GET /v1/healthz", buildHandlerFunc(config, verifyAuth, getV1HealthzAccessPolicy, postAuthHandlerGetV1Healthz, compressionModeAuto, false))
+	postV1AuthMasterAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerPostV1AuthMaster := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeMasterPasswordRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
 		res, err := h.PostV1AuthMaster(authCtx, req)
 		Respond(authCtx, r, w, res, err)
-	}, middlewares...))
-	m.HandleFunc("GET /v1/auth/current/session", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"passkey:create", "default"}})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
+	}
+	m.HandleFunc("POST /v1/auth/master", buildHandlerFunc(config, verifyAuth, postV1AuthMasterAccessPolicy, postAuthHandlerPostV1AuthMaster, compressionModeAuto, false))
+	getV1AuthCurrentSessionAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"passkey:create", "default"}}
+	postAuthHandlerGetV1AuthCurrentSession := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		res, err := h.GetV1AuthCurrentSession(authCtx)
 		Respond(authCtx, r, w, res, err)
-	}, middlewares...))
-	m.HandleFunc("POST /v1/auth/passkey/register/start", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"passkey:create", "default"}})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeEmptyRequest)
+	}
+	m.HandleFunc("GET /v1/auth/current/session", buildHandlerFunc(config, verifyAuth, getV1AuthCurrentSessionAccessPolicy, postAuthHandlerGetV1AuthCurrentSession, compressionModeAuto, false))
+	postV1AuthPasskeyRegisterStartAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"passkey:create", "default"}}
+	postAuthHandlerPostV1AuthPasskeyRegisterStart := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
 		res, err := h.PostV1AuthPasskeyRegisterStart(authCtx, req)
 		Respond(authCtx, r, w, res, err)
-	}, middlewares...))
-	m.HandleFunc("POST /v1/auth/passkey/register/finish", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"passkey:create", "default"}})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeWebAuthNFinishRequest)
+	}
+	m.HandleFunc("POST /v1/auth/passkey/register/start", buildHandlerFunc(config, verifyAuth, postV1AuthPasskeyRegisterStartAccessPolicy, postAuthHandlerPostV1AuthPasskeyRegisterStart, compressionModeAuto, false))
+	postV1AuthPasskeyRegisterFinishAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"passkey:create", "default"}}
+	postAuthHandlerPostV1AuthPasskeyRegisterFinish := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeWebAuthNFinishRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
 		res, err := h.PostV1AuthPasskeyRegisterFinish(authCtx, req)
 		Respond(authCtx, r, w, res, err)
-	}, middlewares...))
-	m.HandleFunc("POST /v1/auth/passkey/login/start", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeEmptyRequest)
+	}
+	m.HandleFunc("POST /v1/auth/passkey/register/finish", buildHandlerFunc(config, verifyAuth, postV1AuthPasskeyRegisterFinishAccessPolicy, postAuthHandlerPostV1AuthPasskeyRegisterFinish, compressionModeAuto, false))
+	postV1AuthPasskeyLoginStartAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerPostV1AuthPasskeyLoginStart := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
 		res, err := h.PostV1AuthPasskeyLoginStart(authCtx, req)
 		Respond(authCtx, r, w, res, err)
-	}, middlewares...))
-	m.HandleFunc("POST /v1/auth/passkey/login/finish", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeWebAuthNFinishRequest)
+	}
+	m.HandleFunc("POST /v1/auth/passkey/login/start", buildHandlerFunc(config, verifyAuth, postV1AuthPasskeyLoginStartAccessPolicy, postAuthHandlerPostV1AuthPasskeyLoginStart, compressionModeAuto, false))
+	postV1AuthPasskeyLoginFinishAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerPostV1AuthPasskeyLoginFinish := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeWebAuthNFinishRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
 		res, err := h.PostV1AuthPasskeyLoginFinish(authCtx, req)
 		Respond(authCtx, r, w, res, err)
-	}, middlewares...))
-	m.HandleFunc("POST /v1/state/stream", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
+	}
+	m.HandleFunc("POST /v1/auth/passkey/login/finish", buildHandlerFunc(config, verifyAuth, postV1AuthPasskeyLoginFinishAccessPolicy, postAuthHandlerPostV1AuthPasskeyLoginFinish, compressionModeAuto, false))
+	postV1StateStreamAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1StateStream := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		seq := h.PostV1StateStream(authCtx)
 		stream := NewStreamWriter(w)
 		var streamErr error
@@ -182,86 +193,69 @@ func CreateMux(h ServerHandler, verifyAuth VerifyAuthFunc, options *MuxOptions, 
 			}
 		}
 		stream.Finish(authCtx, streamErr)
-	}, middlewares...))
-	m.HandleFunc("POST /v1/deployment/update", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeDeploymentUpdateRequest)
+	}
+	m.HandleFunc("POST /v1/state/stream", buildHandlerFunc(config, verifyAuth, postV1StateStreamAccessPolicy, postAuthHandlerPostV1StateStream, compressionModeAuto, true))
+	postV1DeploymentUpdateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1DeploymentUpdate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentUpdateRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
 		res, err := h.PostV1DeploymentUpdate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
-	}, middlewares...))
-	m.HandleFunc("POST /v1/deployment/history", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeDeploymentHistoryRequest)
+	}
+	m.HandleFunc("POST /v1/deployment/update", buildHandlerFunc(config, verifyAuth, postV1DeploymentUpdateAccessPolicy, postAuthHandlerPostV1DeploymentUpdate, compressionModeAuto, false))
+	postV1DeploymentHistoryAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1DeploymentHistory := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentHistoryRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
 		res, err := h.PostV1DeploymentHistory(authCtx, req)
 		Respond(authCtx, r, w, res, err)
-	}, middlewares...))
-	m.HandleFunc("POST /v1/deployment/logs", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		err = h.PostV1DeploymentLogs(authCtx, r, w)
+	}
+	m.HandleFunc("POST /v1/deployment/history", buildHandlerFunc(config, verifyAuth, postV1DeploymentHistoryAccessPolicy, postAuthHandlerPostV1DeploymentHistory, compressionModeAuto, false))
+	postV1DeploymentLogsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1DeploymentLogs := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		err := h.PostV1DeploymentLogs(authCtx, r, w)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
-	}, middlewares...))
-	m.HandleFunc("GET /v1/cluster/status", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		err = h.GetV1ClusterStatus(authCtx, r, w)
+	}
+	m.HandleFunc("POST /v1/deployment/logs", buildHandlerFunc(config, verifyAuth, postV1DeploymentLogsAccessPolicy, postAuthHandlerPostV1DeploymentLogs, compressionModeAuto, false))
+	getV1ClusterStatusAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerGetV1ClusterStatus := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		err := h.GetV1ClusterStatus(authCtx, r, w)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
-	}, middlewares...))
-	m.HandleFunc("POST /v1/deployment/create", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeDeploymentCreateRequest)
+	}
+	m.HandleFunc("GET /v1/cluster/status", buildHandlerFunc(config, verifyAuth, getV1ClusterStatusAccessPolicy, postAuthHandlerGetV1ClusterStatus, compressionModeAuto, false))
+	postV1DeploymentCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1DeploymentCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentCreateRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
 		res, err := h.PostV1DeploymentCreate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
-	}, middlewares...))
-	m.HandleFunc("POST /v1/deployment/versions", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeDeploymentVersionsRequest)
+	}
+	m.HandleFunc("POST /v1/deployment/create", buildHandlerFunc(config, verifyAuth, postV1DeploymentCreateAccessPolicy, postAuthHandlerPostV1DeploymentCreate, compressionModeAuto, false))
+	postV1DeploymentVersionsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1DeploymentVersions := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentVersionsRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
 		res, err := h.PostV1DeploymentVersions(authCtx, req)
 		Respond(authCtx, r, w, res, err)
-	}, middlewares...))
+	}
+	m.HandleFunc("POST /v1/deployment/versions", buildHandlerFunc(config, verifyAuth, postV1DeploymentVersionsAccessPolicy, postAuthHandlerPostV1DeploymentVersions, compressionModeAuto, false))
 	return m
 }

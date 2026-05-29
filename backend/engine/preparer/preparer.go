@@ -44,18 +44,18 @@ func StartPrepare(store storage.OperatorStore, dep *apigen.DeploymentConfig) Pre
 // opsagent last shut down. Preparations are not resumable: if the previous
 // run reached READY for this SeqNo we return a no-op handle, otherwise we
 // start a fresh preparation.
-func ReAttach(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, prev *apigen.PreparerStatus) Preparer {
-	if prev != nil && prev.DeploymentConfigVersion == dep.Version && prev.Status == apigen.PreparationStatus_READY {
+func ReAttach(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.PreparerStatus) Preparer {
+	if prev.DeploymentConfigVersion == dep.Version && prev.Status == apigen.PreparationStatus_READY {
 		slog.InfoContext(ctx, "preparer.ReAttach: already READY, returning finished",
 			"configVersion", dep.Version, "artifact", prev.Artifact)
 		return &finishedPreparer{deploymentConfigVersion: dep.Version}
 	}
-	if dep.DesiredState == nil || dep.DesiredState.Version == "" {
+	if dep.DesiredState.Version == "" {
 		slog.InfoContext(ctx, "preparer.ReAttach: no version to build, returning finished",
 			"deploymentConfigVersion", dep.Version)
 		return &finishedPreparer{deploymentConfigVersion: dep.Version}
 	}
-	if prev == nil {
+	if prev.IsZero() {
 		slog.InfoContext(ctx, "preparer.ReAttach: no previous preparer, starting fresh",
 			"deploymentConfigVersion", dep.Version, "desiredVersion", desiredVersion(dep))
 	} else {
@@ -80,11 +80,11 @@ func startFor(ctx context.Context, store storage.OperatorStore, dep *apigen.Depl
 }
 
 func hasNixBuild(dep *apigen.DeploymentConfig) bool {
-	return dep.Spec != nil && dep.Spec.Prepare != nil && dep.Spec.Prepare.NixBuild != nil
+	return !dep.Spec.Prepare.NixBuild.IsZero()
 }
 
 func hasGithubRelease(dep *apigen.DeploymentConfig) bool {
-	return dep.Spec != nil && dep.Spec.Prepare != nil && dep.Spec.Prepare.GithubRelease != nil
+	return !dep.Spec.Prepare.GithubRelease.IsZero()
 }
 
 // activePreparer is the handle shared by the nix + github variants: ctx owns
@@ -117,12 +117,12 @@ func (f *finishedPreparer) Version() int32 { return f.deploymentConfigVersion }
 func writePrepareStatus(_ context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, artifact string, status apigen.PreparationStatus) {
 	slog.Info("preparer.writePrepareStatus", "deploymentConfigVersion", dep.Version, "status", status, "artifact", artifact)
 	store.MustWriteDeploymentStatus(context.Background(), dep.ID, func(s *apigen.DeploymentStatus) bool {
-		if s.Preparer != nil && s.Preparer.DeploymentConfigVersion > dep.Version {
+		if !s.Preparer.IsZero() && s.Preparer.DeploymentConfigVersion > dep.Version {
 			return false
 		}
 		s.BumpUpdatedAt()
 		s.DeploymentID = dep.ID
-		s.Preparer = &apigen.PreparerStatus{
+		s.Preparer = apigen.PreparerStatus{
 			DeploymentConfigVersion: dep.Version,
 			Artifact:                artifact,
 			Status:                  status,
@@ -132,8 +132,5 @@ func writePrepareStatus(_ context.Context, store storage.OperatorStore, dep *api
 }
 
 func desiredVersion(dep *apigen.DeploymentConfig) string {
-	if dep.DesiredState == nil {
-		return ""
-	}
 	return dep.DesiredState.Version
 }

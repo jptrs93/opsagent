@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jptrs93/goutil/ptru"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/cluster"
@@ -56,8 +55,6 @@ func main() {
 	fmt.Println(fmt.Sprintf("opsagent starting version=%v", version))
 
 	// Slave mode: if OPSAGENT_PRIMARY_ADDR is set, this node is a worker.
-	// It connects to the primary, receives state, and runs operators — no
-	// local storage, no HTTP server.
 	if ainit.Config.PrimaryAddr != "" {
 		runSlave()
 		return
@@ -79,12 +76,9 @@ func main() {
 	if ainit.Config.ClusterCA != "" {
 		startPrimaryCluster(h)
 	}
-	opt := &apigen.MuxOptions{MaxRequestBodySize: ptru.To(20_000_000)}
-	m := apigen.CreateMux(h, h.VerifyAuth, opt, func(next apigen.HandlerFunc) apigen.HandlerFunc {
-		return func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-			slog.Info(fmt.Sprintf("req: %v %v", r.Method, r.URL.Path))
-			next(ctx, w, r)
-		}
+	m := apigen.CreateMux(h, &apigen.MuxConfig{
+		VerifyAuth:         h.VerifyAuth,
+		MaxRequestBodySize: 20_000_000,
 	})
 	if ainit.Config.IsLocalDev == "true" {
 		devServer := http.Server{

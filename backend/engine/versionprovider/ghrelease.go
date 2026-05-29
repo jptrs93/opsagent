@@ -26,7 +26,7 @@ func (p *GithubReleaseVersionProvider) ListScopes(_ context.Context, _ *apigen.P
 }
 
 func (p *GithubReleaseVersionProvider) ListVersions(ctx context.Context, cfg *apigen.PrepareConfig, _ string) ([]*apigen.Version, error) {
-	if cfg == nil || cfg.GithubRelease == nil {
+	if cfg == nil || cfg.GithubRelease.IsZero() {
 		return nil, fmt.Errorf("githubRelease config missing")
 	}
 	ownerRepo, err := preparer.RepoOwnerName(cfg.GithubRelease.Repo)
