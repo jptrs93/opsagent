@@ -256,7 +256,10 @@ message DeploymentWithStatus {
 }
 
 message DeploymentStatus {
-  int32 status_seq_no = 1;
+  // Hybrid logical clock value (max(unix_nanos, prev+1)) assigned by the node
+  // that owns the deployment. Monotonic per deployment; identifies status
+  // history rows and gates replication. Not a dense counter.
+  int64 status_seq_no = 1;
   int64 timestamp = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int32 deployment_id = 6;  // integer deployment id
   PreparerStatus preparer = 4;

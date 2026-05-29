@@ -2053,7 +2053,7 @@ export function decodeDeploymentWithStatus(buffer) {
  */
 export function writeDeploymentStatus(message, writer) {
     if (message.statusSeqNo !== undefined && message.statusSeqNo !== null && message.statusSeqNo !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.statusSeqNo);
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.statusSeqNo);
     }
     if (message.timestamp instanceof Date && message.timestamp.getTime() !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.timestamp.getTime()));
@@ -2097,7 +2097,7 @@ function decodeDeploymentStatusMessage(reader, length) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.statusSeqNo = reader.int32();
+                message.statusSeqNo = readInt64(reader, "int64");
                 break;
             }
             case 2: {

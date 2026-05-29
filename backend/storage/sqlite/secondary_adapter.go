@@ -20,9 +20,7 @@ import (
 const secondarySchema = `
 CREATE TABLE IF NOT EXISTS deployment_configs (
     deployment_id   INTEGER PRIMARY KEY,
-    environment     TEXT    NOT NULL DEFAULT '',
     machine         TEXT    NOT NULL DEFAULT '',
-    name            TEXT    NOT NULL DEFAULT '',
     seq_no          INTEGER NOT NULL DEFAULT 0,
     updated_at      INTEGER NOT NULL,
     updated_by      INTEGER NOT NULL DEFAULT 0,
@@ -96,7 +94,7 @@ func (s *SecondaryStorageAdapter) loadCache() {
 	ctx := context.Background()
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT deployment_id, environment, machine, name, seq_no, updated_at, updated_by,
+		`SELECT deployment_id, machine, seq_no, updated_at, updated_by,
 		        spec_blob, desired_version, desired_running, deleted
 		 FROM deployment_configs WHERE deleted = 0`)
 	if err != nil {
@@ -106,11 +104,11 @@ func (s *SecondaryStorageAdapter) loadCache() {
 
 	for rows.Next() {
 		var dbID int64
-		var env, machine, name string
+		var machine string
 		var seqNo, updatedAt, updatedBy, desiredRunning, deleted int64
 		var specBlob []byte
 		var desiredVersion string
-		if err := rows.Scan(&dbID, &env, &machine, &name, &seqNo, &updatedAt, &updatedBy,
+		if err := rows.Scan(&dbID, &machine, &seqNo, &updatedAt, &updatedBy,
 			&specBlob, &desiredVersion, &desiredRunning, &deleted); err != nil {
 			panic(fmt.Sprintf("loadCache: scan config: %v", err))
 		}
@@ -122,7 +120,7 @@ func (s *SecondaryStorageAdapter) loadCache() {
 		s.configCache[id] = &apigen.DeploymentConfig{
 			ID: id,
 			ConfigID: &apigen.DeploymentIdentifier{
-				Environment: env, Machine: machine, Name: name,
+				Machine: machine,
 			},
 			Version:  int32(seqNo),
 			UpdatedAt: time.UnixMilli(updatedAt),
@@ -203,22 +201,20 @@ func (s *SecondaryStorageAdapter) MustWriteDeploymentConfig(ctx context.Context,
 		desiredRunning = boolToInt(cfg.DesiredState.Running)
 	}
 
-	env, machine, name := "", "", ""
+	machine := ""
 	if cfg.ConfigID != nil {
-		env = cfg.ConfigID.Environment
 		machine = cfg.ConfigID.Machine
-		name = cfg.ConfigID.Name
 	}
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO deployment_configs (deployment_id, environment, machine, name, seq_no, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO deployment_configs (deployment_id, machine, seq_no, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(deployment_id) DO UPDATE SET
-		     environment = excluded.environment, machine = excluded.machine, name = excluded.name,
+		     machine = excluded.machine,
 		     seq_no = excluded.seq_no, updated_at = excluded.updated_at, updated_by = excluded.updated_by,
 		     spec_blob = excluded.spec_blob, desired_version = excluded.desired_version,
 		     desired_running = excluded.desired_running, deleted = excluded.deleted`,
-		dbID, env, machine, name,
+		dbID, machine,
 		int64(cfg.Version), cfg.UpdatedAt.UnixMilli(), int64(cfg.UpdatedBy),
 		specBlob, desiredVersion, desiredRunning, boolToInt(cfg.Deleted))
 	if err != nil {
@@ -275,7 +271,7 @@ func (s *SecondaryStorageAdapter) MustWriteDeploymentStatus(ctx context.Context,
 // FetchDeploymentStatusHistorySince returns history rows with
 // status_seq_no > sinceSeqNo, in ascending order. Used on reconnect to
 // replay any history the primary is missing.
-func (s *SecondaryStorageAdapter) FetchDeploymentStatusHistorySince(deploymentID int32, sinceSeqNo int32) []*apigen.DeploymentStatus {
+func (s *SecondaryStorageAdapter) FetchDeploymentStatusHistorySince(deploymentID int32, sinceSeqNo int64) []*apigen.DeploymentStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -289,7 +285,7 @@ func (s *SecondaryStorageAdapter) FetchDeploymentStatusHistorySince(deploymentID
 		 FROM deployment_status_history
 		 WHERE deployment_id = ? AND status_seq_no > ?
 		 ORDER BY status_seq_no ASC`,
-		dbID, int64(sinceSeqNo))
+		dbID, sinceSeqNo)
 	if err != nil {
 		panic(fmt.Sprintf("FetchDeploymentStatusHistorySince: %v", err))
 	}

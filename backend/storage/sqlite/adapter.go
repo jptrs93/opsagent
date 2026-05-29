@@ -6,7 +6,6 @@ import (
 	_ "embed"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
@@ -33,15 +32,8 @@ type StorageAdapter struct {
 	userSubs    *logstore.Subs[apigen.User]
 }
 
-func NewStorageAdapter(dbPath string, machineName string) *StorageAdapter {
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
-	if err != nil {
-		panic(fmt.Sprintf("open sqlite: %v", err))
-	}
-	if _, err := db.Exec(schema); err != nil {
-		panic(fmt.Sprintf("exec schema: %v", err))
-	}
-	applyPrimaryMigrations(db, machineName)
+func NewStorageAdapter(dbPath string) *StorageAdapter {
+	db := mustInit(dbPath)
 	s := &StorageAdapter{
 		db:          db,
 		q:           New(db),
@@ -52,38 +44,6 @@ func NewStorageAdapter(dbPath string, machineName string) *StorageAdapter {
 	}
 	s.loadCache()
 	return s
-}
-
-// applyPrimaryMigrations runs the embedded primary-side migrations after the
-// schema has been applied. Statements are separated by `;`, comment-only
-// chunks are skipped, and every `?` placeholder in a statement is bound to
-// the primary's machine name. Statements must be idempotent — this runs on
-// every primary startup until the file is emptied.
-func applyPrimaryMigrations(db *sql.DB, machineName string) {
-	for _, stmt := range strings.Split(primaryMigrations, ";") {
-		if !hasExecutableSQL(stmt) {
-			continue
-		}
-		n := strings.Count(stmt, "?")
-		args := make([]any, n)
-		for i := range args {
-			args[i] = machineName
-		}
-		if _, err := db.Exec(stmt, args...); err != nil {
-			panic(fmt.Sprintf("primary migration failed: %v\nstmt: %s", err, stmt))
-		}
-	}
-}
-
-func hasExecutableSQL(s string) bool {
-	for _, line := range strings.Split(s, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "--") {
-			continue
-		}
-		return true
-	}
-	return false
 }
 
 func (s *StorageAdapter) loadCache() {
@@ -250,7 +210,7 @@ func (s *StorageAdapter) MustWriteReplicatedDeploymentStatus(ctx context.Context
 		panic(fmt.Sprintf("UpsertDeploymentStatusHistory: %v", err))
 	}
 
-	cachedSeqNo := int32(0)
+	cachedSeqNo := int64(0)
 	if cur := s.statusCache[st.DeploymentID]; cur != nil {
 		cachedSeqNo = cur.StatusSeqNo
 	}
@@ -357,7 +317,7 @@ func (s *StorageAdapter) MustSetDeploymentDesiredState(ctx apigen.Context, deplo
 	}
 	if err := s.q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
-		Version:          updated.Version,
+		Version:        updated.Version,
 		UpdatedAt:      updated.UpdatedAt,
 		UpdatedBy:      updated.UpdatedBy,
 		SpecBlob:       updated.SpecBlob,
@@ -573,7 +533,7 @@ func (s *StorageAdapter) EnsureSystemDeployment(machine string) {
 		Environment:  cid.Environment,
 		Machine:      cid.Machine,
 		Name:         cid.Name,
-		Version:        1,
+		Version:      1,
 		UpdatedAt:    now,
 		SpecBlob:     specBlob,
 		Deleted:      0,
@@ -583,7 +543,7 @@ func (s *StorageAdapter) EnsureSystemDeployment(machine string) {
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID: dbID,
-		Version:        1,
+		Version:      1,
 		UpdatedAt:    now,
 		SpecBlob:     specBlob,
 		Deleted:      0,
@@ -650,24 +610,24 @@ func (s *StorageAdapter) notifyFromCache(id int32) {
 
 func statusRowToProto(dbID int64, r DeploymentStatusHistory) *apigen.DeploymentStatus {
 	st := &apigen.DeploymentStatus{
-		StatusSeqNo:  int32(r.StatusSeqNo),
+		StatusSeqNo:  r.StatusSeqNo,
 		Timestamp:    time.UnixMilli(r.Timestamp),
 		DeploymentID: int32(dbID),
 	}
 	if r.PreparerStatus.Valid {
 		st.Preparer = &apigen.PreparerStatus{
 			DeploymentConfigVersion: int32(r.PreparerConfigVersion.Int64),
-			Artifact:        r.PreparerArtifact.String,
-			Status:          apigen.PreparationStatus(r.PreparerStatus.Int64),
+			Artifact:                r.PreparerArtifact.String,
+			Status:                  apigen.PreparationStatus(r.PreparerStatus.Int64),
 		}
 	}
 	if r.RunnerStatus.Valid {
 		st.Runner = &apigen.RunnerStatus{
-			DeploymentConfigVersion:  int32(r.RunnerConfigVersion.Int64),
-			RunningPid:       int32(r.RunnerPid.Int64),
-			RunningArtifact:  r.RunnerArtifact.String,
-			Status:           apigen.RunningStatus(r.RunnerStatus.Int64),
-			NumberOfRestarts: int32(r.RunnerNumRestarts.Int64),
+			DeploymentConfigVersion: int32(r.RunnerConfigVersion.Int64),
+			RunningPid:              int32(r.RunnerPid.Int64),
+			RunningArtifact:         r.RunnerArtifact.String,
+			Status:                  apigen.RunningStatus(r.RunnerStatus.Int64),
+			NumberOfRestarts:        int32(r.RunnerNumRestarts.Int64),
 		}
 		if r.RunnerLastRestartAt.Valid {
 			st.Runner.LastRestartAt = time.UnixMilli(r.RunnerLastRestartAt.Int64)
@@ -679,7 +639,7 @@ func statusRowToProto(dbID int64, r DeploymentStatusHistory) *apigen.DeploymentS
 func statusProtoToInsertParams(dbID int64, st *apigen.DeploymentStatus) InsertDeploymentStatusHistoryParams {
 	p := InsertDeploymentStatusHistoryParams{
 		DeploymentID: dbID,
-		StatusSeqNo:  int64(st.StatusSeqNo),
+		StatusSeqNo:  st.StatusSeqNo,
 		Timestamp:    st.Timestamp.UnixMilli(),
 	}
 	if st.Preparer != nil {
@@ -702,35 +662,35 @@ func statusProtoToInsertParams(dbID int64, st *apigen.DeploymentStatus) InsertDe
 
 func statusInsertToUpsert(p InsertDeploymentStatusHistoryParams) UpsertDeploymentStatusParams {
 	return UpsertDeploymentStatusParams{
-		DeploymentID:        p.DeploymentID,
-		StatusSeqNo:         p.StatusSeqNo,
-		Timestamp:           p.Timestamp,
-		PreparerConfigVersion:       p.PreparerConfigVersion,
-		PreparerArtifact:    p.PreparerArtifact,
-		PreparerStatus:      p.PreparerStatus,
-		RunnerConfigVersion:         p.RunnerConfigVersion,
-		RunnerPid:           p.RunnerPid,
-		RunnerArtifact:      p.RunnerArtifact,
-		RunnerStatus:        p.RunnerStatus,
-		RunnerNumRestarts:   p.RunnerNumRestarts,
-		RunnerLastRestartAt: p.RunnerLastRestartAt,
+		DeploymentID:          p.DeploymentID,
+		StatusSeqNo:           p.StatusSeqNo,
+		Timestamp:             p.Timestamp,
+		PreparerConfigVersion: p.PreparerConfigVersion,
+		PreparerArtifact:      p.PreparerArtifact,
+		PreparerStatus:        p.PreparerStatus,
+		RunnerConfigVersion:   p.RunnerConfigVersion,
+		RunnerPid:             p.RunnerPid,
+		RunnerArtifact:        p.RunnerArtifact,
+		RunnerStatus:          p.RunnerStatus,
+		RunnerNumRestarts:     p.RunnerNumRestarts,
+		RunnerLastRestartAt:   p.RunnerLastRestartAt,
 	}
 }
 
 func statusToHistory(s DeploymentStatus) DeploymentStatusHistory {
 	return DeploymentStatusHistory{
-		DeploymentID:        s.DeploymentID,
-		StatusSeqNo:         s.StatusSeqNo,
-		Timestamp:           s.Timestamp,
-		PreparerConfigVersion:       s.PreparerConfigVersion,
-		PreparerArtifact:    s.PreparerArtifact,
-		PreparerStatus:      s.PreparerStatus,
-		RunnerConfigVersion:         s.RunnerConfigVersion,
-		RunnerPid:           s.RunnerPid,
-		RunnerArtifact:      s.RunnerArtifact,
-		RunnerStatus:        s.RunnerStatus,
-		RunnerNumRestarts:   s.RunnerNumRestarts,
-		RunnerLastRestartAt: s.RunnerLastRestartAt,
+		DeploymentID:          s.DeploymentID,
+		StatusSeqNo:           s.StatusSeqNo,
+		Timestamp:             s.Timestamp,
+		PreparerConfigVersion: s.PreparerConfigVersion,
+		PreparerArtifact:      s.PreparerArtifact,
+		PreparerStatus:        s.PreparerStatus,
+		RunnerConfigVersion:   s.RunnerConfigVersion,
+		RunnerPid:             s.RunnerPid,
+		RunnerArtifact:        s.RunnerArtifact,
+		RunnerStatus:          s.RunnerStatus,
+		RunnerNumRestarts:     s.RunnerNumRestarts,
+		RunnerLastRestartAt:   s.RunnerLastRestartAt,
 	}
 }
 
@@ -740,9 +700,9 @@ func configHistoryRowToProto(dbID int64, cid *apigen.DeploymentIdentifier, r Dep
 		slog.Error("failed decoding deployment spec", "deploymentID", dbID, "version", r.Version, "err", err)
 	}
 	return &apigen.DeploymentConfig{
-		ID:       int32(dbID),
-		ConfigID: cid,
-		Version:    int32(r.Version),
+		ID:        int32(dbID),
+		ConfigID:  cid,
+		Version:   int32(r.Version),
 		UpdatedAt: time.UnixMilli(r.UpdatedAt),
 		UpdatedBy: int32(r.UpdatedBy),
 		Spec:      spec,
@@ -766,10 +726,10 @@ func configRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
 			Machine:     r.Machine,
 			Name:        r.Name,
 		},
-		Version:     int32(r.Version),
-		UpdatedAt:  time.UnixMilli(r.UpdatedAt),
-		UpdatedBy:  int32(r.UpdatedBy),
-		Spec:       spec,
+		Version:   int32(r.Version),
+		UpdatedAt: time.UnixMilli(r.UpdatedAt),
+		UpdatedBy: int32(r.UpdatedBy),
+		Spec:      spec,
 		DesiredState: &apigen.DesiredState{
 			Version: r.DesiredVersion,
 			Running: r.DesiredRunning != 0,
@@ -790,10 +750,10 @@ func configDBRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
 			Machine:     r.Machine,
 			Name:        r.Name,
 		},
-		Version:     int32(r.Version),
-		UpdatedAt:  time.UnixMilli(r.UpdatedAt),
-		UpdatedBy:  int32(r.UpdatedBy),
-		Spec:       spec,
+		Version:   int32(r.Version),
+		UpdatedAt: time.UnixMilli(r.UpdatedAt),
+		UpdatedBy: int32(r.UpdatedBy),
+		Spec:      spec,
 		DesiredState: &apigen.DesiredState{
 			Version: r.DesiredVersion,
 			Running: r.DesiredRunning != 0,
@@ -814,10 +774,10 @@ func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfi
 			Machine:     p.Machine,
 			Name:        p.Name,
 		},
-		Version:     int32(p.Version),
-		UpdatedAt:  time.UnixMilli(p.UpdatedAt),
-		UpdatedBy:  int32(p.UpdatedBy),
-		Spec:       spec,
+		Version:   int32(p.Version),
+		UpdatedAt: time.UnixMilli(p.UpdatedAt),
+		UpdatedBy: int32(p.UpdatedBy),
+		Spec:      spec,
 		DesiredState: &apigen.DesiredState{
 			Version: p.DesiredVersion,
 			Running: p.DesiredRunning != 0,
@@ -925,9 +885,3 @@ func (s *StorageAdapter) FetchPublicKey(kid string) (*apigen.PublicKeyRecord, er
 	}
 	return &apigen.PublicKeyRecord{Kid: row.Kid, KeyBytes: row.KeyBytes}, nil
 }
-
-//go:embed sql/schema.sql
-var schema string
-
-//go:embed sql/primary-migrations/migrations.sql
-var primaryMigrations string

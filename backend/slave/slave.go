@@ -208,7 +208,7 @@ func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.Secondary
 // statusPushLoop forwards local status changes to the primary. It tracks the
 // last StatusSeqNo sent per deployment to avoid sending duplicate updates.
 func statusPushLoop(ctx context.Context, conn *cluster.Conn, ch <-chan apigen.DeploymentWithStatus) {
-	lastSeq := make(map[int32]int32)
+	lastSeq := make(map[int32]int64)
 	for {
 		select {
 		case <-ctx.Done():
@@ -248,7 +248,7 @@ func applySnapshot(ctx context.Context, conn *cluster.Conn, store *sqlite.Second
 		}
 		store.MustWriteDeploymentConfig(ctx, item.Config)
 
-		var primarySeqNo int32
+		var primarySeqNo int64
 		if item.Status != nil {
 			primarySeqNo = item.Status.StatusSeqNo
 		}

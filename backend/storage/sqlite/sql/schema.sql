@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS deployment_configs (
     updated_at      INTEGER NOT NULL,  -- epoch ms
     updated_by      INTEGER NOT NULL DEFAULT 0,
     spec_blob       BLOB    NOT NULL,
-    desired_version TEXT    NOT NULL DEFAULT '',
+    desired_version TEXT    NOT NULL DEFAULT '',  -- the desired version should uniquely identify that version and not be re-used over time
     desired_running INTEGER NOT NULL DEFAULT 0,
     deleted         INTEGER NOT NULL DEFAULT 0
 );
@@ -69,14 +69,6 @@ CREATE TABLE IF NOT EXISTS deployment_status_history (
     runner_num_restarts     INTEGER,
     runner_last_restart_at  INTEGER,  -- epoch ms
     PRIMARY KEY (deployment_id, status_seq_no)
-);
-
--- Append-only log of user config yaml submissions.
-CREATE TABLE IF NOT EXISTS user_config_versions (
-    version      INTEGER PRIMARY KEY,
-    timestamp    INTEGER NOT NULL,  -- epoch ms
-    updated_by   INTEGER NOT NULL DEFAULT 0,
-    yaml_content TEXT    NOT NULL
 );
 
 -- Auth: passkey users.

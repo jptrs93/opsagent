@@ -121,7 +121,7 @@ func writePrepareStatus(_ context.Context, store storage.OperatorStore, dep *api
 		if s.Preparer != nil && s.Preparer.DeploymentConfigVersion > dep.Version {
 			return false
 		}
-		s.StatusSeqNo++
+		s.BumpSeqNo()
 		s.Timestamp = time.Now()
 		s.DeploymentID = dep.ID
 		s.Preparer = &apigen.PreparerStatus{

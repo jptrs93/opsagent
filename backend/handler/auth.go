@@ -13,6 +13,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/util/jwtu"
 )
 
 var InvalidAuthTokenErr = apigen.NewApiErr("Unauthorized", "auth_invalid_token", http.StatusUnauthorized)
@@ -30,28 +31,6 @@ func newLoginResponse(user *apigen.InternalUser, token string, scopes []string, 
 	}
 }
 
-func scopesFromClaims(claims map[string]any) []string {
-	if direct, ok := claims["scopes"].([]string); ok {
-		return append([]string(nil), direct...)
-	}
-	scopesRaw, _ := claims["scopes"].([]any)
-	scopes := make([]string, 0, len(scopesRaw))
-	for _, s := range scopesRaw {
-		if str, ok := s.(string); ok {
-			scopes = append(scopes, str)
-		}
-	}
-	return scopes
-}
-
-func expiryFromClaims(claims map[string]any) (time.Time, error) {
-	exp, ok := claims["exp"].(float64)
-	if !ok {
-		return time.Time{}, fmt.Errorf("missing exp claim")
-	}
-	return time.Unix(int64(exp), 0), nil
-}
-
 func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswordRequest) (*apigen.LoginResponse, error) {
 	if ainit.Config.MasterPasswordHash == "" {
 		return nil, MasterPasswordNotConfiguredErr
@@ -66,10 +45,6 @@ func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswor
 	if strings.TrimSpace(req.Username) == "" {
 		return nil, UsernameRequiredErr
 	}
-
-	// Find or create user by name. The Fetch is an auth-helper read where
-	// ErrNotFound is a legitimate "first login" signal, so we keep the
-	// non-Must variant; the Write follows the global storage policy.
 	user, err := h.Store.FetchUserMatching(func(u *apigen.InternalUser) bool {
 		return u.Name == req.Username
 	})
@@ -100,11 +75,11 @@ func (h *Handler) GetV1AuthCurrentSession(ctx apigen.Context) (*apigen.LoginResp
 	if err != nil {
 		return nil, InvalidAuthTokenErr
 	}
-	expiry, err := expiryFromClaims(claims)
+	expiry, err := jwtu.ExpiryFromClaims(claims)
 	if err != nil {
 		return nil, err
 	}
-	return newLoginResponse(user, ctx.Token, scopesFromClaims(claims), expiry), nil
+	return newLoginResponse(user, ctx.Token, jwtu.ScopesFromClaims(claims), expiry), nil
 }
 
 // VerifyAuth is the package-level function expected by the generated mux.
@@ -123,7 +98,7 @@ func (h *Handler) VerifyAuth(ctx context.Context, r *http.Request, policy apigen
 	}
 	sub, _ := claims["sub"].(string)
 	res.Ctx = logu.ExtendLogContext(res.Ctx, "user", sub)
-	scopes := scopesFromClaims(claims)
+	scopes := jwtu.ScopesFromClaims(claims)
 	res.User = user
 	res.Token = tokenString
 	if err := policy.CanAccess(scopes); err != nil {

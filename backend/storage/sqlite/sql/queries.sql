@@ -109,27 +109,6 @@ FROM deployment_status_history
 WHERE deployment_id = ?
 ORDER BY status_seq_no ASC;
 
--- === user_config_versions ===
-
--- name: GetLatestUserConfigVersion :one
-SELECT version, timestamp, updated_by, yaml_content
-FROM user_config_versions
-ORDER BY version DESC
-LIMIT 1;
-
--- name: InsertUserConfigVersion :one
-INSERT INTO user_config_versions (version, timestamp, updated_by, yaml_content)
-VALUES (
-    (SELECT COALESCE(MAX(version), 0) + 1 FROM user_config_versions),
-    ?, ?, ?
-)
-RETURNING version, timestamp, updated_by, yaml_content;
-
--- name: ListUserConfigVersions :many
-SELECT version, timestamp, updated_by, yaml_content
-FROM user_config_versions
-ORDER BY version DESC;
-
 -- === users ===
 
 -- name: GetUser :one

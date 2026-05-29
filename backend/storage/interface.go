@@ -20,7 +20,7 @@ type SecondaryStore interface {
 	OperatorStore
 	MustWriteDeploymentConfig(ctx context.Context, cfg *apigen.DeploymentConfig)
 	FetchDeploymentStatus(id int32) *apigen.DeploymentStatus
-	FetchDeploymentStatusHistorySince(deploymentID int32, sinceSeqNo int32) []*apigen.DeploymentStatus
+	FetchDeploymentStatusHistorySince(deploymentID int32, sinceSeqNo int64) []*apigen.DeploymentStatus
 	SubscribeDeploymentUpdates(machine string) (chan apigen.DeploymentWithStatus, func())
 }
 

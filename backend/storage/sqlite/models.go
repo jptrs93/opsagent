@@ -81,10 +81,3 @@ type User struct {
 	Name     string
 	DataBlob []byte
 }
-
-type UserConfigVersion struct {
-	Version     int64
-	Timestamp   int64
-	UpdatedBy   int64
-	YamlContent string
-}

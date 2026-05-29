@@ -38,27 +38,6 @@ func (q *Queries) GetDeploymentConfig(ctx context.Context, deploymentID int64) (
 	return i, err
 }
 
-const getLatestUserConfigVersion = `-- name: GetLatestUserConfigVersion :one
-
-SELECT version, timestamp, updated_by, yaml_content
-FROM user_config_versions
-ORDER BY version DESC
-LIMIT 1
-`
-
-// === user_config_versions ===
-func (q *Queries) GetLatestUserConfigVersion(ctx context.Context) (UserConfigVersion, error) {
-	row := q.db.QueryRowContext(ctx, getLatestUserConfigVersion)
-	var i UserConfigVersion
-	err := row.Scan(
-		&i.Version,
-		&i.Timestamp,
-		&i.UpdatedBy,
-		&i.YamlContent,
-	)
-	return i, err
-}
-
 const getPublicKey = `-- name: GetPublicKey :one
 
 SELECT kid, key_bytes FROM public_keys WHERE kid = ?
@@ -159,33 +138,6 @@ func (q *Queries) InsertDeploymentStatusHistory(ctx context.Context, arg InsertD
 		arg.RunnerLastRestartAt,
 	)
 	return err
-}
-
-const insertUserConfigVersion = `-- name: InsertUserConfigVersion :one
-INSERT INTO user_config_versions (version, timestamp, updated_by, yaml_content)
-VALUES (
-    (SELECT COALESCE(MAX(version), 0) + 1 FROM user_config_versions),
-    ?, ?, ?
-)
-RETURNING version, timestamp, updated_by, yaml_content
-`
-
-type InsertUserConfigVersionParams struct {
-	Timestamp   int64
-	UpdatedBy   int64
-	YamlContent string
-}
-
-func (q *Queries) InsertUserConfigVersion(ctx context.Context, arg InsertUserConfigVersionParams) (UserConfigVersion, error) {
-	row := q.db.QueryRowContext(ctx, insertUserConfigVersion, arg.Timestamp, arg.UpdatedBy, arg.YamlContent)
-	var i UserConfigVersion
-	err := row.Scan(
-		&i.Version,
-		&i.Timestamp,
-		&i.UpdatedBy,
-		&i.YamlContent,
-	)
-	return i, err
 }
 
 const listAllDeploymentConfigs = `-- name: ListAllDeploymentConfigs :many
@@ -416,40 +368,6 @@ func (q *Queries) ListPublicKeys(ctx context.Context) ([]PublicKey, error) {
 	for rows.Next() {
 		var i PublicKey
 		if err := rows.Scan(&i.Kid, &i.KeyBytes); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listUserConfigVersions = `-- name: ListUserConfigVersions :many
-SELECT version, timestamp, updated_by, yaml_content
-FROM user_config_versions
-ORDER BY version DESC
-`
-
-func (q *Queries) ListUserConfigVersions(ctx context.Context) ([]UserConfigVersion, error) {
-	rows, err := q.db.QueryContext(ctx, listUserConfigVersions)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []UserConfigVersion
-	for rows.Next() {
-		var i UserConfigVersion
-		if err := rows.Scan(
-			&i.Version,
-			&i.Timestamp,
-			&i.UpdatedBy,
-			&i.YamlContent,
-		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

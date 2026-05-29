@@ -3,9 +3,24 @@ package apigen
 import (
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 )
+
+// BumpSeqNo advances StatusSeqNo as a hybrid logical clock: it takes the
+// current unix-nanos wall clock, but never returns a value <= the previous
+// one. This keeps the value monotonic per deployment across clock regressions
+// and same-tick writes, while tracking physical time closely enough that a
+// node which lost its local state (e.g. a freshly provisioned replacement)
+// resumes above any history the primary retained, with no reseed handshake.
+func (s *DeploymentStatus) BumpSeqNo() {
+	if now := time.Now().UnixNano(); now > s.StatusSeqNo {
+		s.StatusSeqNo = now
+	} else {
+		s.StatusSeqNo++
+	}
+}
 
 func prepareOutputFile(deploymentID int32, version int32) string {
 	return filepath.Join(ainit.Config.PrepareOutputDir, fmt.Sprintf("%d_%d", deploymentID, version))
