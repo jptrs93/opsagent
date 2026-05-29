@@ -3,7 +3,8 @@
 import {
   decodeClusterStatusResponse,
   decodeDeploymentConfig,
-  decodeDeploymentHistory,
+  decodeDeploymentConfigHistoryResponse,
+  decodeDeploymentStatusHistoryResponse,
   decodeDeploymentVersions,
   decodeDesiredState,
   decodeLoginResponse,
@@ -205,14 +206,26 @@ export class Capi {
 
   /**
    * @param {DeploymentHistoryRequest} payload
-   * @returns {Promise<DeploymentHistory>}
+   * @returns {Promise<DeploymentStatusHistoryResponse>}
    */
-  async postV1DeploymentHistory(payload) {
-    const response = await this.#request('/v1/deployment/history', { method: 'POST', body: encodeDeploymentHistoryRequest(payload) });
+  async postV1DeploymentStatusHistory(payload) {
+    const response = await this.#request('/v1/deployment/status/history', { method: 'POST', body: encodeDeploymentHistoryRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeDeploymentHistory(await response.arrayBuffer());
+    return decodeDeploymentStatusHistoryResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {DeploymentHistoryRequest} payload
+   * @returns {Promise<DeploymentConfigHistoryResponse>}
+   */
+  async postV1DeploymentConfigHistory(payload) {
+    const response = await this.#request('/v1/deployment/config/history', { method: 'POST', body: encodeDeploymentHistoryRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeDeploymentConfigHistoryResponse(await response.arrayBuffer());
   }
 
   /**

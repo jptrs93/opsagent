@@ -33,7 +33,7 @@ const prepareStatusCopy = (prepareStatus, prepareVersion) => {
     }
 };
 
-export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrepareOutput, onUpdate, opts = {}) {
+export function statusRow(deployment, onShowStatusHistory, onShowConfigHistory, onShowRunOutput, onShowPrepareOutput, onUpdate, opts = {}) {
     const showEnvironment = opts.showEnvironment !== false;
     const hasExisting = deployment.existingStatus !== STATUS_NO_DEPLOYMENT;
     const existingColors = hasExisting
@@ -48,7 +48,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
             div({class: "font-medium text-sm text-white"}, deployment.name || `#${deployment.id}`),
             button({
                 class: "text-xs text-gray-500 hover:text-gray-300 underline cursor-pointer p-0",
-                onclick: () => onShowHistory(deployment),
+                onclick: () => onShowStatusHistory(deployment),
                 type: "button",
             }, "history"),
         ),
@@ -58,7 +58,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
             {class: "py-3 px-4 align-top whitespace-nowrap"},
             statusBadge(hasExisting, existingColors, () => onShowRunOutput(deployment)),
         ),
-        td({class: "py-3 px-4 align-top text-sm whitespace-nowrap"}, versionLink(deployment)),
+        td({class: "py-3 px-4 align-top text-sm whitespace-nowrap"}, versionLink(deployment, onShowConfigHistory)),
         td(
             {class: "py-3 px-4 align-top text-sm whitespace-nowrap"},
             prepareCopy
@@ -100,25 +100,15 @@ function statusBadge(hasExisting, colors, onclick) {
     }, colors.label);
 }
 
-function versionLink(deployment) {
+function versionLink(deployment, onShowConfigHistory) {
     const v = deployment.deployedVersion || '';
     if (!v) return span({class: "text-gray-500"}, 'none');
-    const short = shortVersion(v);
-    if (deployment.variant === 'nixBuild' && deployment.repo) {
-        return a({
-            class: "font-mono text-gray-300 underline hover:text-white",
-            href: `https://${deployment.repo}/commit/${v}`,
-            target: "_blank",
-        }, short);
-    }
-    if (deployment.variant === 'githubRelease' && deployment.repo) {
-        return a({
-            class: "font-mono text-gray-300 underline hover:text-white",
-            href: `https://${deployment.repo}/releases/tag/${v}`,
-            target: "_blank",
-        }, short);
-    }
-    return span({class: "font-mono text-gray-300"}, short);
+    return button({
+        class: "font-mono text-gray-300 underline hover:text-white cursor-pointer p-0",
+        onclick: () => onShowConfigHistory(deployment),
+        type: "button",
+        title: "View config history",
+    }, shortVersion(v));
 }
 
 function shortVersion(v) {

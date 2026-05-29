@@ -1,42 +1,23 @@
 package handler
 
 import (
-	"sort"
-	"time"
-
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-func (h *Handler) PostV1DeploymentHistory(ctx apigen.Context, req *apigen.DeploymentHistoryRequest) (*apigen.DeploymentHistory, error) {
+func (h *Handler) PostV1DeploymentStatusHistory(ctx apigen.Context, req *apigen.DeploymentHistoryRequest) (*apigen.DeploymentStatusHistoryResponse, error) {
 	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr
 	}
-
-	configs := h.Store.MustFetchDeploymentHistory(req.DeploymentID)
-	statuses := h.Store.MustFetchDeploymentStatusHistory(req.DeploymentID)
-
-	entries := make([]*apigen.DeploymentHistoryEntry, 0, len(configs)+len(statuses))
-	for _, c := range configs {
-		entries = append(entries, &apigen.DeploymentHistoryEntry{Config: c})
-	}
-	for _, s := range statuses {
-		entries = append(entries, &apigen.DeploymentHistoryEntry{Status: s})
-	}
-
-	sort.SliceStable(entries, func(i, j int) bool {
-		ti, tj := entryTime(entries[i]), entryTime(entries[j])
-		if ti.Equal(tj) {
-			return entries[i].Config != nil && entries[j].Config == nil
-		}
-		return ti.After(tj)
-	})
-
-	return &apigen.DeploymentHistory{Entries: entries}, nil
+	return &apigen.DeploymentStatusHistoryResponse{
+		Statuses: h.Store.MustFetchDeploymentStatusHistory(req.DeploymentID),
+	}, nil
 }
 
-func entryTime(e *apigen.DeploymentHistoryEntry) time.Time {
-	if e.Config != nil {
-		return e.Config.UpdatedAt
+func (h *Handler) PostV1DeploymentConfigHistory(ctx apigen.Context, req *apigen.DeploymentHistoryRequest) (*apigen.DeploymentConfigHistoryResponse, error) {
+	if req.DeploymentID == 0 {
+		return nil, MissingKeyErr
 	}
-	return e.Status.Timestamp
+	return &apigen.DeploymentConfigHistoryResponse{
+		Configs: h.Store.MustFetchDeploymentHistory(req.DeploymentID),
+	}, nil
 }
