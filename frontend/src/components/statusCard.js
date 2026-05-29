@@ -1,5 +1,4 @@
 import van from "vanjs-core";
-import {StopCircle, PlayCircle} from "vanjs-feather";
 import {format} from "date-fns";
 import {resolveUserDisplayName} from "../lib/users.js";
 
@@ -25,8 +24,6 @@ const existingStatusLabels = {
     5: {bg: 'bg-red-600', text: 'text-red-300', label: 'Crashed'},
 };
 
-const STATUS_RUNNING = 2;
-const STATUS_STOPPED = 3;
 const STATUS_NO_DEPLOYMENT = 1;
 
 const prepareStatusCopy = (prepareStatus, prepareVersion) => {
@@ -47,11 +44,9 @@ const prepareStatusCopy = (prepareStatus, prepareVersion) => {
     }
 };
 
-export function statusRow(deployment, onDeploy, onStop, onShowHistory, onShowRunOutput, onShowPrepareOutput, onUpdate) {
+export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrepareOutput, onUpdate, opts = {}) {
+    const showEnvironment = opts.showEnvironment !== false;
     const hasExisting = deployment.existingStatus !== STATUS_NO_DEPLOYMENT;
-    const isRunning = deployment.existingStatus === STATUS_RUNNING;
-    const isStopped = !hasExisting || deployment.existingStatus === STATUS_STOPPED;
-    const isSystemd = deployment.runnerType === 'systemd';
     const existingColors = hasExisting
         ? (existingStatusLabels[deployment.existingStatus] || existingStatusLabels[0])
         : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'};
@@ -72,21 +67,11 @@ export function statusRow(deployment, onDeploy, onStop, onShowHistory, onShowRun
                 type: "button",
             }, "history"),
         ),
-        td({class: "py-3 px-4 align-top text-sm text-gray-300 whitespace-nowrap"}, deployment.environment || '-'),
+        showEnvironment ? td({class: "py-3 px-4 align-top text-sm text-gray-300 whitespace-nowrap"}, deployment.environment || '-') : null,
         td({class: "py-3 px-4 align-top text-sm text-gray-300 whitespace-nowrap"}, deployment.machine || '-'),
-        td({class: "py-3 px-4 align-top text-sm text-gray-300 whitespace-nowrap"}, runnerLabel(deployment)),
         td(
             {class: "py-3 px-4 align-top whitespace-nowrap"},
-            div(
-                {class: "flex items-center gap-2"},
-                !isSystemd && isRunning
-                    ? iconButton("Stop", "text-red-400 hover:text-red-300", () => onStop(deployment), StopCircle({size: 14}))
-                    : null,
-                !isSystemd && isStopped && hasExisting && deployment.deployedVersion
-                    ? iconButton("Start", "text-green-400 hover:text-green-300", () => onDeploy(deployment, deployment.deployedVersion), PlayCircle({size: 14}))
-                    : null,
-                statusBadge(hasExisting, existingColors, () => onShowRunOutput(deployment)),
-            ),
+            statusBadge(hasExisting, existingColors, () => onShowRunOutput(deployment)),
         ),
         td({class: "py-3 px-4 align-top text-sm whitespace-nowrap"}, versionLink(deployment)),
         td(
@@ -119,15 +104,6 @@ export function statusRow(deployment, onDeploy, onStop, onShowHistory, onShowRun
     );
 }
 
-function iconButton(title, classes, onclick, icon) {
-    return button({
-        class: `${classes} transition-colors cursor-pointer`,
-        onclick,
-        title,
-        type: "button",
-    }, icon);
-}
-
 function statusBadge(hasExisting, colors, onclick) {
     if (!hasExisting) {
         return span({class: `px-2 py-0.5 rounded text-xs font-medium ${colors.bg} ${colors.text}`}, colors.label);
@@ -158,10 +134,6 @@ function versionLink(deployment) {
         }, short);
     }
     return span({class: "font-mono text-gray-300"}, short);
-}
-
-function runnerLabel(deployment) {
-    return deployment.runnerType === 'systemd' ? 'systemd' : 'OpsAgent';
 }
 
 function shortVersion(v) {

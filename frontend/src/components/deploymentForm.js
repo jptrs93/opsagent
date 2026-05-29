@@ -73,6 +73,7 @@ export function deploymentForm(form, opts = {}) {
         {class: "flex flex-col gap-3"},
         sectionCard(
             "Deployment",
+            identityLocked ? span({class: "text-xs text-orange-300"}, "Deployment identity is fixed after creation.") : null,
             div(
                 {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
                 field("Name", input({
@@ -104,7 +105,6 @@ export function deploymentForm(form, opts = {}) {
                     machineOptionValues,
                 })),
             ),
-            identityLocked ? p({class: "text-xs text-gray-500 mt-2"}, "Deployment identity is fixed after creation.") : null,
         ),
         sectionCard(
             "Binary Source",
@@ -252,10 +252,14 @@ function makeFormState(values) {
     };
 }
 
-function sectionCard(title, ...children) {
+function sectionCard(title, aside, ...children) {
     return div(
         {class: "rounded-lg border border-gray-700 bg-gray-900/70 p-4"},
-        h3({class: "text-sm font-semibold text-gray-200 mb-3"}, title),
+        div(
+            {class: "flex items-center justify-between gap-3 mb-3"},
+            h3({class: "text-sm font-semibold text-gray-200"}, title),
+            aside,
+        ),
         ...children,
     );
 }

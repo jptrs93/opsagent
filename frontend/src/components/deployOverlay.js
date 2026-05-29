@@ -13,6 +13,8 @@ import {
 
 const { div, h3, span, select, option, button, p, label } = van.tags;
 
+const STATUS_RUNNING = 2;
+
 const versionLabel = (v) => {
     const date = v.time instanceof Date && v.time.getTime() > 0
         ? v.time.toISOString().substring(0, 10)
@@ -33,6 +35,9 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     const loadingVersions = van.state(false);
     const versionError = van.state('');
     const errorMsg = van.state('');
+    const isRunning = deployment.existingStatus === STATUS_RUNNING;
+    const canManageLifecycle = deployment.runnerType !== 'systemd';
+    const canStart = Boolean(deployment.deployedVersion);
 
     const environmentOptions = () => {
         const envs = new Set();
@@ -110,6 +115,42 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         onClose();
     };
 
+    const doStop = async () => {
+        errorMsg.val = '';
+        try {
+            await capi.postV1DeploymentUpdate({
+                deploymentId: deployment.id,
+                stop: true,
+                version: deployment.currentVersion + 1,
+            });
+        } catch (e) {
+            errorMsg.val = e.message || 'Stop failed';
+            throw e;
+        }
+        if (onDeployed) onDeployed();
+        onClose();
+    };
+
+    const doStart = async () => {
+        errorMsg.val = '';
+        if (!canStart) {
+            errorMsg.val = 'No previously selected version is available to start.';
+            throw new Error(errorMsg.val);
+        }
+        try {
+            await capi.postV1DeploymentUpdate({
+                deploymentId: deployment.id,
+                targetVersion: deployment.deployedVersion,
+                version: deployment.currentVersion + 1,
+            });
+        } catch (e) {
+            errorMsg.val = e.message || 'Start failed';
+            throw e;
+        }
+        if (onDeployed) onDeployed();
+        onClose();
+    };
+
     const backdrop = div({
         class: "fixed inset-0 bg-black/60 z-40",
         onclick: onClose,
@@ -132,6 +173,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                     selectedVersion,
                     loadingVersions,
                     versionError,
+                    sourceType: form.sourceType,
                     deployedVersion: deployment.deployedVersion || '',
                     onScopeChange,
                     onRefresh: () => loadVersions(selectedScope.val),
@@ -145,12 +187,22 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                 );
             },
             div(
-                {class: "flex items-center justify-end gap-3 px-4 py-3 border-t border-gray-700"},
+                {class: "flex items-center justify-between gap-3 px-4 py-3 border-t border-gray-700"},
                 button({
                     class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5",
                     onclick: onClose,
                 }, "Cancel"),
-                spinnerButton("Deploy", doDeploy, "btn-primary text-sm py-1.5 px-4", "button", () => !isFormValid(form)),
+                div(
+                    {class: "flex items-center gap-2"},
+                    lifecycleButton({
+                        canManageLifecycle,
+                        isRunning,
+                        canStart,
+                        doStop,
+                        doStart,
+                    }),
+                    spinnerButton("Update deployment", doDeploy, "btn-primary text-sm py-1.5 px-4", "button", () => !isFormValid(form)),
+                ),
             ),
         ),
     );
@@ -158,40 +210,58 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     return div(backdrop, dialog);
 }
 
+function lifecycleButton(args) {
+    if (!args.canManageLifecycle) return span();
+    if (args.isRunning) {
+        return spinnerButton(
+            "Stop deployment",
+            args.doStop,
+            "bg-red-900/70 text-red-200 border border-red-700 hover:bg-red-900 text-sm py-1.5 px-4",
+        );
+    }
+    return spinnerButton(
+        "Start deployment",
+        args.doStart,
+        "btn-secondary text-sm py-1.5 px-4",
+        "button",
+        () => !args.canStart,
+    );
+}
+
 function versionSection(args) {
     return div(
         {class: "rounded-lg border border-gray-700 bg-gray-900/70 p-4"},
         h3({class: "text-sm font-semibold text-gray-200 mb-3"}, "Version"),
         div(
-            {class: "flex flex-col gap-3"},
-            () => {
-                const s = args.scopes.val;
-                if (s.length === 0) return span();
-                return label(
-                    {class: "flex flex-col gap-1 text-xs text-gray-400"},
-                    span("Branch"),
-                    select(
-                        {
-                            class: selectClass(),
-                            onchange: args.onScopeChange,
-                        },
-                        ...s.map(b => option({value: b, selected: b === args.selectedScope.val}, b)),
-                    ),
-                );
-            },
-            () => {
-                if (args.loadingVersions.val) {
-                    return p({class: "text-xs text-gray-500"}, "Loading versions...");
-                }
-                if (args.versionError.val) {
-                    return p({class: "text-xs text-red-400"}, args.versionError.val);
-                }
-                const vs = args.versions.val;
-                return label(
-                    {class: "flex flex-col gap-1 text-xs text-gray-400"},
-                    span("Commit / release"),
-                    div(
-                        {class: "flex gap-2"},
+            {class: "flex items-center gap-3"},
+            div(
+                {class: "flex-1 flex flex-col gap-3"},
+                () => {
+                    const s = args.scopes.val;
+                    if (s.length === 0) return span();
+                    return label(
+                        {class: "grid grid-cols-[7rem_1fr] items-center gap-3 text-xs text-gray-400"},
+                        span("Branch"),
+                        select(
+                            {
+                                class: selectClass(),
+                                onchange: args.onScopeChange,
+                            },
+                            ...s.map(b => option({value: b, selected: b === args.selectedScope.val}, b)),
+                        ),
+                    );
+                },
+                () => {
+                    if (args.loadingVersions.val) {
+                        return p({class: "text-xs text-gray-500"}, "Loading versions...");
+                    }
+                    if (args.versionError.val) {
+                        return p({class: "text-xs text-red-400"}, args.versionError.val);
+                    }
+                    const vs = args.versions.val;
+                    return label(
+                        {class: "grid grid-cols-[7rem_1fr] items-center gap-3 text-xs text-gray-400"},
+                        span(() => args.sourceType.val === 'githubRelease' ? "Release" : "Commit"),
                         select(
                             {
                                 class: selectClass(),
@@ -200,15 +270,18 @@ function versionSection(args) {
                             option({value: '', disabled: true, selected: true}, vs.length ? "Select a version..." : "No versions loaded"),
                             ...vs.map(v => option({value: v.id, selected: v.id === args.deployedVersion}, versionLabel(v))),
                         ),
-                        button({
-                            class: "inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs text-gray-300 bg-gray-800 border border-gray-600 hover:bg-gray-700 transition-colors cursor-pointer",
-                            onclick: args.onRefresh,
-                            type: "button",
-                            title: "Refresh available versions",
-                        }, RefreshCw({size: 12}), "Refresh"),
-                    ),
-                );
-            },
+                    );
+                },
+            ),
+            div(
+                {class: "flex items-center self-stretch"},
+                button({
+                    class: "inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs text-gray-300 bg-gray-800 border border-gray-600 hover:bg-gray-700 transition-colors cursor-pointer",
+                    onclick: args.onRefresh,
+                    type: "button",
+                    title: "Refresh available versions",
+                }, RefreshCw({size: 12}), "Refresh"),
+            ),
         ),
     );
 }

@@ -1,5 +1,4 @@
 import van from "vanjs-core";
-import {capi} from "../capi/index.js";
 import {deploymentsS, deploymentsStreamS} from "../state/deployments.js";
 import {statusRow} from "../components/statusCard.js";
 import {deploymentLogs} from "../components/deploymentLogs.js";
@@ -7,7 +6,7 @@ import {deploymentHistory} from "../components/deploymentHistory.js";
 import {deployOverlay} from "../components/deployOverlay.js";
 import {createOverlay} from "../components/createOverlay.js";
 
-const { div, h1, p, button, table, thead, tbody, tr, th } = van.tags;
+const { div, h1, p, button, table, thead, tbody, tr, th, label, input, span } = van.tags;
 
 const SIDEBAR_WIDTH_KEY = 'opsagent_sidebar_width';
 const DEFAULT_SIDEBAR_PCT = 50;
@@ -36,6 +35,20 @@ const formatDeploymentLabel = (deployment) => {
     if (!deployment) return 'unknown deployment';
     const parts = [deployment.environment, deployment.machine, deployment.name].filter(Boolean);
     return parts.length > 0 ? parts.join(' / ') : `#${deployment.id}`;
+};
+
+const environmentLabel = (environment) => environment || 'No environment';
+
+const groupDeploymentsByEnvironment = (deployments) => {
+    const groups = new Map();
+    for (const deployment of deployments) {
+        const environment = deployment.environment || '';
+        if (!groups.has(environment)) {
+            groups.set(environment, []);
+        }
+        groups.get(environment).push(deployment);
+    }
+    return [...groups.entries()].map(([environment, rows]) => ({environment, rows}));
 };
 
 // mapDeploymentsToView flattens DeploymentWithStatus[] into the shape
@@ -107,6 +120,8 @@ export function statusPage() {
     const overlayDeployment = van.state(null);
     const overlayRevision = van.state(0);
     const showCreateOverlay = van.state(false);
+    const groupByEnvironment = van.state(true);
+    const collapsedEnvironmentGroups = van.state({});
 
     // Track deployments
     van.derive(() => {
@@ -125,30 +140,6 @@ export function statusPage() {
         sidebarMode.val = SIDEBAR_NONE;
         sidebarDeploymentId.val = null;
         sidebarLabel.val = '';
-    };
-
-    const onDeploy = async (deployment, version) => {
-        try {
-            await capi.postV1DeploymentUpdate({
-                deploymentId: deployment.id,
-                targetVersion: version,
-                version: deployment.currentVersion + 1,
-            });
-        } catch (e) {
-            alert(`Deploy failed: ${e.message}`);
-        }
-    };
-
-    const onStop = async (deployment) => {
-        try {
-            await capi.postV1DeploymentUpdate({
-                deploymentId: deployment.id,
-                stop: true,
-                version: deployment.currentVersion + 1,
-            });
-        } catch (e) {
-            alert(`Stop failed: ${e.message}`);
-        }
     };
 
     const openSidebar = (deployment, mode) => {
@@ -171,15 +162,69 @@ export function statusPage() {
         overlayDeployment.val = null;
     };
 
+    const toggleEnvironmentGroup = (environment) => {
+        collapsedEnvironmentGroups.val = {
+            ...collapsedEnvironmentGroups.val,
+            [environment]: !collapsedEnvironmentGroups.val[environment],
+        };
+    };
+
+    const deploymentTable = (rows, showEnvironmentColumn) => table(
+        {class: "w-full text-left text-sm"},
+        thead(
+            tr(
+                {class: "border-b border-gray-700 text-xs uppercase tracking-wide text-gray-500"},
+                th({class: "py-3 pl-4 pr-4 font-medium"}, "Deployment"),
+                showEnvironmentColumn ? th({class: "py-3 px-4 font-medium"}, "Environment") : null,
+                th({class: "py-3 px-4 font-medium"}, "Machine"),
+                th({class: "py-3 px-4 font-medium"}, "Status"),
+                th({class: "py-3 px-4 font-medium"}, "Version"),
+                th({class: "py-3 px-4 font-medium"}, "Prepare"),
+                th({class: "py-3 px-4 font-medium"}, "Restarts"),
+                th({class: "py-3 px-4 font-medium"}, "Deployed"),
+                th({class: "py-3 pl-4 pr-4 font-medium text-right"}, "Actions"),
+            ),
+        ),
+        tbody(
+            ...rows.map(s => statusRow(
+                s,
+                onShowHistory,
+                onShowRunOutput,
+                onShowPrepareOutput,
+                onUpdate,
+                {showEnvironment: showEnvironmentColumn},
+            )),
+        ),
+    );
+
+    const deploymentTableCard = (rows, showEnvironmentColumn, header = null) => div(
+        {class: "card overflow-x-auto p-0"},
+        header,
+        deploymentTable(rows, showEnvironmentColumn),
+    );
+
     const mainContent = div(
         {class: "flex flex-col gap-6"},
         div(
             {class: "flex items-center justify-between"},
             h1({class: "text-xl font-bold"}, "Deployments"),
-            button({
-                class: "btn-primary text-sm py-1.5 px-4 cursor-pointer",
-                onclick: () => { showCreateOverlay.val = true; },
-            }, "Add deployment"),
+            div(
+                {class: "flex items-center gap-4"},
+                label(
+                    {class: "flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none"},
+                    input({
+                        type: "checkbox",
+                        checked: groupByEnvironment.val,
+                        class: "accent-brand cursor-pointer",
+                        onchange: e => { groupByEnvironment.val = e.target.checked; },
+                    }),
+                    span("Group by environment"),
+                ),
+                button({
+                    class: "btn-primary text-sm py-1.5 px-4 cursor-pointer",
+                    onclick: () => { showCreateOverlay.val = true; },
+                }, "Add deployment"),
+            ),
         ),
         () => {
             if (deploymentsStreamS.val.status !== 'connected' && statuses.val.length === 0) {
@@ -211,37 +256,36 @@ export function statusPage() {
                     || (a.id - b.id);
             });
 
+            if (!groupByEnvironment.val) {
+                return deploymentTableCard(sorted, true);
+            }
+
+            const groups = groupDeploymentsByEnvironment(sorted);
+            const canCollapse = groups.length > 1;
             return div(
-                {class: "card overflow-x-auto p-0"},
-                table(
-                    {class: "w-full text-left text-sm"},
-                    thead(
-                        tr(
-                            {class: "border-b border-gray-700 text-xs uppercase tracking-wide text-gray-500"},
-                            th({class: "py-3 pl-4 pr-4 font-medium"}, "Deployment"),
-                            th({class: "py-3 px-4 font-medium"}, "Environment"),
-                            th({class: "py-3 px-4 font-medium"}, "Machine"),
-                            th({class: "py-3 px-4 font-medium"}, "Runner"),
-                            th({class: "py-3 px-4 font-medium"}, "Status"),
-                            th({class: "py-3 px-4 font-medium"}, "Version"),
-                            th({class: "py-3 px-4 font-medium"}, "Prepare"),
-                            th({class: "py-3 px-4 font-medium"}, "Restarts"),
-                            th({class: "py-3 px-4 font-medium"}, "Deployed"),
-                            th({class: "py-3 pl-4 pr-4 font-medium text-right"}, "Actions"),
+                {class: "flex flex-col gap-4"},
+                ...groups.map(group => {
+                    const collapsed = canCollapse && Boolean(collapsedEnvironmentGroups.val[group.environment]);
+                    const header = div(
+                        {class: "flex items-center justify-between px-4 py-3 border-b border-gray-700"},
+                        div(
+                            {class: "flex items-center gap-2"},
+                            canCollapse ? button({
+                                class: "text-xs text-gray-400 hover:text-gray-200 cursor-pointer w-5 text-left",
+                                onclick: () => toggleEnvironmentGroup(group.environment),
+                                type: "button",
+                                title: collapsed ? "Expand" : "Collapse",
+                            }, collapsed ? "+" : "-") : null,
+                            div({class: "text-sm font-semibold text-gray-200"}, environmentLabel(group.environment)),
+                            span({class: "text-xs text-gray-500"}, `${group.rows.length} deployment${group.rows.length === 1 ? '' : 's'}`),
                         ),
-                    ),
-                    tbody(
-                        ...sorted.map(s => statusRow(
-                            s,
-                            onDeploy,
-                            onStop,
-                            onShowHistory,
-                            onShowRunOutput,
-                            onShowPrepareOutput,
-                            onUpdate,
-                        )),
-                    ),
-                ),
+                    );
+                    return div(
+                        {class: "card overflow-x-auto p-0"},
+                        header,
+                        collapsed ? null : deploymentTable(group.rows, false),
+                    );
+                }),
             );
         }
     );

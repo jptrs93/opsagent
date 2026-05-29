@@ -11,12 +11,14 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   check-toolchain-sync:
     name: Check toolchain sync
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - run: ./scripts/check-toolchain-sync.sh
@@ -25,6 +27,8 @@ jobs:
     name: Build linux/${{ matrix.arch }}
     needs: check-toolchain-sync
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         include:
@@ -68,9 +72,13 @@ jobs:
           GOOS: linux
           GOARCH: ${{ matrix.arch }}
           CC: ${{ matrix.cc }}
+          VERSION: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
-          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "opsagent-linux-${{ matrix.arch }}" .
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "invalid version tag: $VERSION" >&2
+            exit 1
+          fi
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "opsagent-linux-${GOARCH}" .
 
       - uses: actions/upload-artifact@v4
         with:
@@ -82,6 +90,8 @@ jobs:
     name: Publish release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
