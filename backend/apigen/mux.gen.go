@@ -38,8 +38,7 @@ type ServerHandler interface {
 	PostV1AuthPasskeyLoginFinish(Context, *WebAuthNFinishRequest) (*LoginResponse, error)
 	PostV1StateStream(Context) iter.Seq2[*State, error]
 	PostV1DeploymentUpdate(Context, *DeploymentUpdateRequest) (*DesiredState, error)
-	PostV1DeploymentStatusHistory(Context, *DeploymentHistoryRequest) (*DeploymentStatusHistoryResponse, error)
-	PostV1DeploymentConfigHistory(Context, *DeploymentHistoryRequest) (*DeploymentConfigHistoryResponse, error)
+	PostV1DeploymentHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
 	PostV1DeploymentLogs(Context, *http.Request, http.ResponseWriter) error
 	GetV1ClusterStatus(Context, *http.Request, http.ResponseWriter) error
 	PostV1DeploymentCreate(Context, *DeploymentCreateRequest) (*DeploymentConfig, error)
@@ -198,7 +197,7 @@ func CreateMux(h ServerHandler, verifyAuth VerifyAuthFunc, options *MuxOptions, 
 		res, err := h.PostV1DeploymentUpdate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}, middlewares...))
-	m.HandleFunc("POST /v1/deployment/status/history", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	m.HandleFunc("POST /v1/deployment/history", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
 		if err != nil {
 			HandleReqErr(ctx, err, r, w)
@@ -209,21 +208,7 @@ func CreateMux(h ServerHandler, verifyAuth VerifyAuthFunc, options *MuxOptions, 
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
-		res, err := h.PostV1DeploymentStatusHistory(authCtx, req)
-		Respond(authCtx, r, w, res, err)
-	}, middlewares...))
-	m.HandleFunc("POST /v1/deployment/config/history", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		authCtx, err := verifyAuth(ctx, r, AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}})
-		if err != nil {
-			HandleReqErr(ctx, err, r, w)
-			return
-		}
-		req, err := decodeWithMaxBodySize(r, options.MaxRequestBodySize, DecodeDeploymentHistoryRequest)
-		if err != nil {
-			HandleReqErr(authCtx, err, r, w)
-			return
-		}
-		res, err := h.PostV1DeploymentConfigHistory(authCtx, req)
+		res, err := h.PostV1DeploymentHistory(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}, middlewares...))
 	m.HandleFunc("POST /v1/deployment/logs", ApplyMiddlewares(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {

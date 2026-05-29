@@ -71,12 +71,13 @@
  * @property {DeploymentWithStatus[]} items
  */
 /**
- * @typedef {Object} DeploymentStatusHistoryResponse
- * @property {DeploymentStatus[]} statuses
+ * @typedef {Object} DeploymentHistoryEntry
+ * @property {DeploymentConfig} config
+ * @property {DeploymentStatus} status
  */
 /**
- * @typedef {Object} DeploymentConfigHistoryResponse
- * @property {DeploymentConfig[]} configs
+ * @typedef {Object} DeploymentHistory
+ * @property {DeploymentHistoryEntry[]} entries
  */
 /**
  * @typedef {Object} DeploymentUpdateRequest
@@ -1145,27 +1146,30 @@ export function decodeDeploymentWithStatusSnapshot(buffer) {
 
 
 /**
- * @param {DeploymentStatusHistoryResponse} message
+ * @param {DeploymentHistoryEntry} message
  * @param {Writer} writer
  */
-export function writeDeploymentStatusHistoryResponse(message, writer) {
-    if (message.statuses && message.statuses.length > 0) {
-        for (const item of message.statuses) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeDeploymentStatus(item, writer);
-            writer.ldelim();
-        }
+export function writeDeploymentHistoryEntry(message, writer) {
+    if (message.config !== undefined && message.config !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeDeploymentConfig(message.config, writer);
+        writer.ldelim();
+    }
+    if (message.status !== undefined && message.status !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeDeploymentStatus(message.status, writer);
+        writer.ldelim();
     }
 }
 
 
 /**
- * @param {DeploymentStatusHistoryResponse} message
+ * @param {DeploymentHistoryEntry} message
  * @returns {Uint8Array}
  */
-export function encodeDeploymentStatusHistoryResponse(message) {
+export function encodeDeploymentHistoryEntry(message) {
     const writer = Writer.create();
-    writeDeploymentStatusHistoryResponse(message, writer);
+    writeDeploymentHistoryEntry(message, writer);
     return writer.finish();
 }
 
@@ -1173,16 +1177,20 @@ export function encodeDeploymentStatusHistoryResponse(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {DeploymentStatusHistoryResponse}
+ * @returns {DeploymentHistoryEntry}
  */
-function decodeDeploymentStatusHistoryResponseMessage(reader, length) {
+function decodeDeploymentHistoryEntryMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {statuses: [] };
+    const message = {config: undefined, status: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.statuses.push(decodeDeploymentStatusMessage(reader, reader.uint32()));
+                message.config = decodeDeploymentConfigMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.status = decodeDeploymentStatusMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -1195,24 +1203,24 @@ function decodeDeploymentStatusHistoryResponseMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {DeploymentStatusHistoryResponse}
+ * @returns {DeploymentHistoryEntry}
  */
-export function decodeDeploymentStatusHistoryResponse(buffer) {
+export function decodeDeploymentHistoryEntry(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentStatusHistoryResponseMessage(reader);
+    return decodeDeploymentHistoryEntryMessage(reader);
 }
 
 
 
 /**
- * @param {DeploymentConfigHistoryResponse} message
+ * @param {DeploymentHistory} message
  * @param {Writer} writer
  */
-export function writeDeploymentConfigHistoryResponse(message, writer) {
-    if (message.configs && message.configs.length > 0) {
-        for (const item of message.configs) {
+export function writeDeploymentHistory(message, writer) {
+    if (message.entries && message.entries.length > 0) {
+        for (const item of message.entries) {
             writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeDeploymentConfig(item, writer);
+            writeDeploymentHistoryEntry(item, writer);
             writer.ldelim();
         }
     }
@@ -1220,12 +1228,12 @@ export function writeDeploymentConfigHistoryResponse(message, writer) {
 
 
 /**
- * @param {DeploymentConfigHistoryResponse} message
+ * @param {DeploymentHistory} message
  * @returns {Uint8Array}
  */
-export function encodeDeploymentConfigHistoryResponse(message) {
+export function encodeDeploymentHistory(message) {
     const writer = Writer.create();
-    writeDeploymentConfigHistoryResponse(message, writer);
+    writeDeploymentHistory(message, writer);
     return writer.finish();
 }
 
@@ -1233,16 +1241,16 @@ export function encodeDeploymentConfigHistoryResponse(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {DeploymentConfigHistoryResponse}
+ * @returns {DeploymentHistory}
  */
-function decodeDeploymentConfigHistoryResponseMessage(reader, length) {
+function decodeDeploymentHistoryMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {configs: [] };
+    const message = {entries: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.configs.push(decodeDeploymentConfigMessage(reader, reader.uint32()));
+                message.entries.push(decodeDeploymentHistoryEntryMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -1255,11 +1263,11 @@ function decodeDeploymentConfigHistoryResponseMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {DeploymentConfigHistoryResponse}
+ * @returns {DeploymentHistory}
  */
-export function decodeDeploymentConfigHistoryResponse(buffer) {
+export function decodeDeploymentHistory(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentConfigHistoryResponseMessage(reader);
+    return decodeDeploymentHistoryMessage(reader);
 }
 
 

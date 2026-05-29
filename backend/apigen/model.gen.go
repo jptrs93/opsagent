@@ -646,71 +646,26 @@ func DecodeDeploymentWithStatusSnapshot(b []byte) (*DeploymentWithStatusSnapshot
 	return &m, nil
 }
 
-type DeploymentStatusHistoryResponse struct {
-	Statuses []*DeploymentStatus
+type DeploymentHistoryEntry struct {
+	Config *DeploymentConfig
+	Status *DeploymentStatus
 }
 
-func (m *DeploymentStatusHistoryResponse) Encode() []byte {
+func (m *DeploymentHistoryEntry) Encode() []byte {
 	var b []byte
-	for _, item := range m.Statuses {
-		if item == nil {
-			continue
-		}
+	if m.Config != nil {
 		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = protowire.AppendBytes(b, m.Config.Encode())
+	}
+	if m.Status != nil {
+		b = protowire.AppendTag(b, 2, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.Status.Encode())
 	}
 	return b
 }
 
-func DecodeDeploymentStatusHistoryResponse(b []byte) (*DeploymentStatusHistoryResponse, error) {
-	var m DeploymentStatusHistoryResponse
-	var num protowire.Number
-	var typ protowire.Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentStatus
-				item, err = DecodeDeploymentStatus(msgBytes)
-				if err == nil {
-					m.Statuses = append(m.Statuses, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-type DeploymentConfigHistoryResponse struct {
-	Configs []*DeploymentConfig
-}
-
-func (m *DeploymentConfigHistoryResponse) Encode() []byte {
-	var b []byte
-	for _, item := range m.Configs {
-		if item == nil {
-			continue
-		}
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeDeploymentConfigHistoryResponse(b []byte) (*DeploymentConfigHistoryResponse, error) {
-	var m DeploymentConfigHistoryResponse
+func DecodeDeploymentHistoryEntry(b []byte) (*DeploymentHistoryEntry, error) {
+	var m DeploymentHistoryEntry
 	var num protowire.Number
 	var typ protowire.Type
 	var err error
@@ -727,7 +682,63 @@ func DecodeDeploymentConfigHistoryResponse(b []byte) (*DeploymentConfigHistoryRe
 				var item *DeploymentConfig
 				item, err = DecodeDeploymentConfig(msgBytes)
 				if err == nil {
-					m.Configs = append(m.Configs, item)
+					m.Config = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentStatus
+				item, err = DecodeDeploymentStatus(msgBytes)
+				if err == nil {
+					m.Status = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type DeploymentHistory struct {
+	Entries []*DeploymentHistoryEntry
+}
+
+func (m *DeploymentHistory) Encode() []byte {
+	var b []byte
+	for _, item := range m.Entries {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeDeploymentHistory(b []byte) (*DeploymentHistory, error) {
+	var m DeploymentHistory
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentHistoryEntry
+				item, err = DecodeDeploymentHistoryEntry(msgBytes)
+				if err == nil {
+					m.Entries = append(m.Entries, item)
 				}
 			}
 		default:

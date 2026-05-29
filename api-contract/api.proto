@@ -56,11 +56,7 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1DeploymentStatusHistory(DeploymentHistoryRequest) returns (DeploymentStatusHistoryResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
-  }
-
-  rpc PostV1DeploymentConfigHistory(DeploymentHistoryRequest) returns (DeploymentConfigHistoryResponse) {
+  rpc PostV1DeploymentHistory(DeploymentHistoryRequest) returns (DeploymentHistory) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -183,12 +179,13 @@ message DeploymentWithStatusSnapshot {
   repeated DeploymentWithStatus items = 1;
 }
 
-message DeploymentStatusHistoryResponse {
-  repeated DeploymentStatus statuses = 1;
+message DeploymentHistoryEntry {
+  DeploymentConfig config = 1;
+  DeploymentStatus status = 2;
 }
 
-message DeploymentConfigHistoryResponse {
-  repeated DeploymentConfig configs = 1;
+message DeploymentHistory {
+  repeated DeploymentHistoryEntry entries = 1;
 }
 
 // === Deployment update / version request messages ===

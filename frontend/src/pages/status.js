@@ -3,8 +3,7 @@ import {Info} from "vanjs-feather";
 import {deploymentsS, deploymentsStreamS} from "../state/deployments.js";
 import {statusRow} from "../components/statusCard.js";
 import {deploymentLogs} from "../components/deploymentLogs.js";
-import {deploymentStatusHistory} from "../components/statusHistory.js";
-import {deploymentConfigHistory} from "../components/configHistory.js";
+import {deploymentHistory} from "../components/deploymentHistory.js";
 import {deployOverlay} from "../components/deployOverlay.js";
 import {createOverlay} from "../components/createOverlay.js";
 
@@ -31,8 +30,7 @@ function saveSidebarWidth(pct) {
 const SIDEBAR_NONE = null;
 const SIDEBAR_PREPARE = 'prepare';
 const SIDEBAR_RUN = 'run';
-const SIDEBAR_STATUS_HISTORY = 'status-history';
-const SIDEBAR_CONFIG_HISTORY = 'config-history';
+const SIDEBAR_HISTORY = 'history';
 
 const formatDeploymentLabel = (deployment) => {
     if (!deployment) return 'unknown deployment';
@@ -173,8 +171,7 @@ export function statusPage() {
     };
 
     const onShowRunOutput = (deployment) => openSidebar(deployment, SIDEBAR_RUN);
-    const onShowStatusHistory = (deployment) => openSidebar(deployment, SIDEBAR_STATUS_HISTORY);
-    const onShowConfigHistory = (deployment) => openSidebar(deployment, SIDEBAR_CONFIG_HISTORY);
+    const onShowHistory = (deployment) => openSidebar(deployment, SIDEBAR_HISTORY);
     const onShowPrepareOutput = (deployment) => openSidebar(deployment, SIDEBAR_PREPARE);
 
     const onUpdate = (deployment) => {
@@ -212,8 +209,7 @@ export function statusPage() {
         tbody(
             ...rows.map(s => statusRow(
                 s,
-                onShowStatusHistory,
-                onShowConfigHistory,
+                onShowHistory,
                 onShowRunOutput,
                 onShowPrepareOutput,
                 onUpdate,
@@ -398,10 +394,8 @@ export function statusPage() {
 
         const label = sidebarLabel.val;
         let content;
-        if (mode === SIDEBAR_STATUS_HISTORY) {
-            content = deploymentStatusHistory(depId, label, closeSidebar);
-        } else if (mode === SIDEBAR_CONFIG_HISTORY) {
-            content = deploymentConfigHistory(depId, label, closeSidebar);
+        if (mode === SIDEBAR_HISTORY) {
+            content = deploymentHistory(depId, label, closeSidebar);
         } else {
             abortActiveSidebar();
             const ac = new AbortController();
