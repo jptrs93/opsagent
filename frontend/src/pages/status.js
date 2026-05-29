@@ -48,7 +48,15 @@ const groupDeploymentsByEnvironment = (deployments) => {
         }
         groups.get(environment).push(deployment);
     }
-    return [...groups.entries()].map(([environment, rows]) => ({environment, rows}));
+    return [...groups.entries()]
+        .sort(([a], [b]) => environmentSortRank(a) - environmentSortRank(b) || a.localeCompare(b))
+        .map(([environment, rows]) => ({environment, rows}));
+};
+
+const environmentSortRank = (environment) => {
+    if (environment === 'PROD') return 0;
+    if (environment === 'STAGING') return 1;
+    return 2;
 };
 
 // mapDeploymentsToView flattens DeploymentWithStatus[] into the shape
@@ -198,7 +206,7 @@ export function statusPage() {
     );
 
     const deploymentTableCard = (rows, showEnvironmentColumn, header = null) => div(
-        {class: "card overflow-x-auto p-0"},
+        {class: "rounded-lg bg-surface border border-gray-700 overflow-x-auto p-2"},
         header,
         deploymentTable(rows, showEnvironmentColumn),
     );
@@ -282,7 +290,7 @@ export function statusPage() {
                         }, collapsed ? "Expand" : "Collapse") : span(),
                     );
                     return div(
-                        {class: "card overflow-x-auto p-0"},
+                        {class: "rounded-lg bg-surface border border-gray-700 overflow-x-auto p-2"},
                         header,
                         collapsed ? null : deploymentTable(group.rows, false),
                     );
