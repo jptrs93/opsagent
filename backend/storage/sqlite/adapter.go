@@ -33,7 +33,7 @@ type StorageAdapter struct {
 }
 
 func NewStorageAdapter(dbPath string) *StorageAdapter {
-	db := mustInit(dbPath)
+	db := mustInitPrimary(dbPath)
 	s := &StorageAdapter{
 		db:          db,
 		q:           New(db),
@@ -711,6 +711,39 @@ func configHistoryRowToProto(dbID int64, cid *apigen.DeploymentIdentifier, r Dep
 			Running: r.DesiredRunning != 0,
 		},
 		Deleted: r.Deleted != 0,
+	}
+}
+
+// configProtoToUpsertParams builds upsert params from a full DeploymentConfig.
+// Used by the secondary to persist configs pushed by the primary verbatim
+// (the integer ID is authoritative; no deployment_identifiers resolution).
+func configProtoToUpsertParams(cfg *apigen.DeploymentConfig) UpsertDeploymentConfigParams {
+	var specBlob []byte
+	if cfg.Spec != nil {
+		specBlob = cfg.Spec.Encode()
+	}
+	var env, machine, name string
+	if cfg.ConfigID != nil {
+		env, machine, name = cfg.ConfigID.Environment, cfg.ConfigID.Machine, cfg.ConfigID.Name
+	}
+	var desiredVersion string
+	var desiredRunning int64
+	if cfg.DesiredState != nil {
+		desiredVersion = cfg.DesiredState.Version
+		desiredRunning = boolToInt(cfg.DesiredState.Running)
+	}
+	return UpsertDeploymentConfigParams{
+		DeploymentID:   int64(cfg.ID),
+		Environment:    env,
+		Machine:        machine,
+		Name:           name,
+		Version:        int64(cfg.Version),
+		UpdatedAt:      cfg.UpdatedAt.UnixMilli(),
+		UpdatedBy:      int64(cfg.UpdatedBy),
+		SpecBlob:       specBlob,
+		DesiredVersion: desiredVersion,
+		DesiredRunning: desiredRunning,
+		Deleted:        boolToInt(cfg.Deleted),
 	}
 }
 

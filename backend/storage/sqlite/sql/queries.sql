@@ -109,6 +109,15 @@ FROM deployment_status_history
 WHERE deployment_id = ?
 ORDER BY status_seq_no ASC;
 
+-- name: ListDeploymentStatusHistorySince :many
+SELECT deployment_id, status_seq_no, timestamp,
+       preparer_config_version, preparer_artifact, preparer_status,
+       runner_config_version, runner_pid, runner_artifact, runner_status,
+       runner_num_restarts, runner_last_restart_at
+FROM deployment_status_history
+WHERE deployment_id = ? AND status_seq_no > ?
+ORDER BY status_seq_no ASC;
+
 -- === users ===
 
 -- name: GetUser :one

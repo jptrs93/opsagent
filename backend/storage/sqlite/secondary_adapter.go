@@ -4,66 +4,21 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
-
-	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/logstore"
 )
 
-// secondarySchema contains only the tables the secondary node needs.
-// These are identical to the primary's tables — no deployment_identifiers,
-// config_history, or auth tables.
-const secondarySchema = `
-CREATE TABLE IF NOT EXISTS deployment_configs (
-    deployment_id   INTEGER PRIMARY KEY,
-    machine         TEXT    NOT NULL DEFAULT '',
-    seq_no          INTEGER NOT NULL DEFAULT 0,
-    updated_at      INTEGER NOT NULL,
-    updated_by      INTEGER NOT NULL DEFAULT 0,
-    spec_blob       BLOB    NOT NULL,
-    desired_version TEXT    NOT NULL DEFAULT '',
-    desired_running INTEGER NOT NULL DEFAULT 0,
-    deleted         INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS deployment_status (
-    deployment_id           INTEGER PRIMARY KEY,
-    status_seq_no           INTEGER NOT NULL,
-    timestamp               INTEGER NOT NULL,
-    preparer_seq_no         INTEGER,
-    preparer_artifact       TEXT,
-    preparer_status         INTEGER,
-    runner_seq_no           INTEGER,
-    runner_pid              INTEGER,
-    runner_artifact         TEXT,
-    runner_status           INTEGER,
-    runner_num_restarts     INTEGER,
-    runner_last_restart_at  INTEGER
-);
-CREATE TABLE IF NOT EXISTS deployment_status_history (
-    deployment_id           INTEGER NOT NULL,
-    status_seq_no           INTEGER NOT NULL,
-    timestamp               INTEGER NOT NULL,
-    preparer_seq_no         INTEGER,
-    preparer_artifact       TEXT,
-    preparer_status         INTEGER,
-    runner_seq_no           INTEGER,
-    runner_pid              INTEGER,
-    runner_artifact         TEXT,
-    runner_status           INTEGER,
-    runner_num_restarts     INTEGER,
-    runner_last_restart_at  INTEGER,
-    PRIMARY KEY (deployment_id, status_seq_no)
-);
-`
-
 // SecondaryStorageAdapter is the storage layer for secondary (slave) nodes.
 // It uses the primary's integer ID directly and fully owns deployment status.
+// It shares the primary's schema (schema.sql) and generated queries; the
+// deployment_identifiers, deployment_config_history, users, and public_keys
+// tables exist but are never written to on a secondary.
 type SecondaryStorageAdapter struct {
 	db *sql.DB
+	q  *Queries
 
 	mu sync.Mutex
 
@@ -73,15 +28,10 @@ type SecondaryStorageAdapter struct {
 }
 
 func NewSecondaryStorageAdapter(dbPath string) *SecondaryStorageAdapter {
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
-	if err != nil {
-		panic(fmt.Sprintf("open sqlite: %v", err))
-	}
-	if _, err := db.Exec(secondarySchema); err != nil {
-		panic(fmt.Sprintf("exec schema: %v", err))
-	}
+	db := mustInitSecondary(dbPath)
 	s := &SecondaryStorageAdapter{
 		db:          db,
+		q:           New(db),
 		configCache: make(map[int32]*apigen.DeploymentConfig),
 		statusCache: make(map[int32]*apigen.DeploymentStatus),
 		subs:        &logstore.Subs[apigen.DeploymentWithStatus]{},
@@ -93,73 +43,25 @@ func NewSecondaryStorageAdapter(dbPath string) *SecondaryStorageAdapter {
 func (s *SecondaryStorageAdapter) loadCache() {
 	ctx := context.Background()
 
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT deployment_id, machine, seq_no, updated_at, updated_by,
-		        spec_blob, desired_version, desired_running, deleted
-		 FROM deployment_configs WHERE deleted = 0`)
+	rows, err := s.q.ListAllDeploymentConfigs(ctx)
 	if err != nil {
-		panic(fmt.Sprintf("loadCache: list configs: %v", err))
+		panic(fmt.Sprintf("loadCache: ListAllDeploymentConfigs: %v", err))
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var dbID int64
-		var machine string
-		var seqNo, updatedAt, updatedBy, desiredRunning, deleted int64
-		var specBlob []byte
-		var desiredVersion string
-		if err := rows.Scan(&dbID, &machine, &seqNo, &updatedAt, &updatedBy,
-			&specBlob, &desiredVersion, &desiredRunning, &deleted); err != nil {
-			panic(fmt.Sprintf("loadCache: scan config: %v", err))
-		}
-		id := int32(dbID)
-		spec, decErr := apigen.DecodeDeploymentSpec(specBlob)
-		if decErr != nil {
-			slog.Error("failed decoding deployment spec", "deploymentID", id, "err", decErr)
-		}
-		s.configCache[id] = &apigen.DeploymentConfig{
-			ID: id,
-			ConfigID: &apigen.DeploymentIdentifier{
-				Machine: machine,
-			},
-			Version:  int32(seqNo),
-			UpdatedAt: time.UnixMilli(updatedAt),
-			UpdatedBy: int32(updatedBy),
-			Spec:      spec,
-			DesiredState: &apigen.DesiredState{
-				Version: desiredVersion,
-				Running: desiredRunning != 0,
-			},
-			Deleted: deleted != 0,
-		}
+	for _, row := range rows {
+		id := int32(row.DeploymentID)
+		s.configCache[id] = configRowToProto(row)
 	}
 
-	statusRows, err := s.db.QueryContext(ctx,
-		`SELECT deployment_id, status_seq_no, timestamp,
-		        preparer_seq_no, preparer_artifact, preparer_status,
-		        runner_seq_no, runner_pid, runner_artifact, runner_status,
-		        runner_num_restarts, runner_last_restart_at
-		 FROM deployment_status`)
+	statuses, err := s.q.ListAllDeploymentStatuses(ctx)
 	if err != nil {
-		panic(fmt.Sprintf("loadCache: list statuses: %v", err))
+		panic(fmt.Sprintf("loadCache: ListAllDeploymentStatuses: %v", err))
 	}
-	defer statusRows.Close()
-
-	for statusRows.Next() {
-		var r DeploymentStatusHistory
-		if err := statusRows.Scan(
-			&r.DeploymentID, &r.StatusSeqNo, &r.Timestamp,
-			&r.PreparerConfigVersion, &r.PreparerArtifact, &r.PreparerStatus,
-			&r.RunnerConfigVersion, &r.RunnerPid, &r.RunnerArtifact, &r.RunnerStatus,
-			&r.RunnerNumRestarts, &r.RunnerLastRestartAt,
-		); err != nil {
-			panic(fmt.Sprintf("loadCache: scan status: %v", err))
-		}
-		id := int32(r.DeploymentID)
-		s.statusCache[id] = statusRowToProto(r.DeploymentID, r)
+	for _, st := range statuses {
+		id := int32(st.DeploymentID)
+		s.statusCache[id] = statusRowToProto(st.DeploymentID, statusToHistory(st))
 	}
 
-	// Ensure every config has a status entry.
+	// Ensure every config has a status entry (invariant: status is never nil).
 	now := time.Now().UnixMilli()
 	for id := range s.configCache {
 		if _, ok := s.statusCache[id]; ok {
@@ -170,9 +72,10 @@ func (s *SecondaryStorageAdapter) loadCache() {
 			Timestamp:    time.UnixMilli(now),
 			DeploymentID: id,
 		}
-		dbID := int64(id)
-		params := statusProtoToInsertParams(dbID, st)
-		s.execUpsertStatus(ctx, statusInsertToUpsert(params))
+		params := statusProtoToInsertParams(int64(id), st)
+		if err := s.q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
+			panic(fmt.Sprintf("loadCache: UpsertDeploymentStatus (default): %v", err))
+		}
 		// No history row: the placeholder carries no preparer/runner data,
 		// so it would show up as a meaningless "status update" entry in the
 		// UI. The current-row upsert above is enough to maintain the
@@ -190,34 +93,7 @@ func (s *SecondaryStorageAdapter) MustWriteDeploymentConfig(ctx context.Context,
 	dbID := int64(id)
 	_, exists := s.configCache[id]
 
-	var specBlob []byte
-	if cfg.Spec != nil {
-		specBlob = cfg.Spec.Encode()
-	}
-	desiredVersion := ""
-	desiredRunning := int64(0)
-	if cfg.DesiredState != nil {
-		desiredVersion = cfg.DesiredState.Version
-		desiredRunning = boolToInt(cfg.DesiredState.Running)
-	}
-
-	machine := ""
-	if cfg.ConfigID != nil {
-		machine = cfg.ConfigID.Machine
-	}
-
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO deployment_configs (deployment_id, machine, seq_no, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(deployment_id) DO UPDATE SET
-		     machine = excluded.machine,
-		     seq_no = excluded.seq_no, updated_at = excluded.updated_at, updated_by = excluded.updated_by,
-		     spec_blob = excluded.spec_blob, desired_version = excluded.desired_version,
-		     desired_running = excluded.desired_running, deleted = excluded.deleted`,
-		dbID, machine,
-		int64(cfg.Version), cfg.UpdatedAt.UnixMilli(), int64(cfg.UpdatedBy),
-		specBlob, desiredVersion, desiredRunning, boolToInt(cfg.Deleted))
-	if err != nil {
+	if err := s.q.UpsertDeploymentConfig(ctx, configProtoToUpsertParams(cfg)); err != nil {
 		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
 	}
 
@@ -231,7 +107,9 @@ func (s *SecondaryStorageAdapter) MustWriteDeploymentConfig(ctx context.Context,
 			DeploymentID: id,
 		}
 		params := statusProtoToInsertParams(dbID, st)
-		s.execUpsertStatus(ctx, statusInsertToUpsert(params))
+		if err := s.q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
+			panic(fmt.Sprintf("UpsertDeploymentStatus (default): %v", err))
+		}
 		// No history row: the placeholder carries no preparer/runner data,
 		// so it would show up as a meaningless "status update" entry in the
 		// UI. The current-row upsert above is enough to maintain the
@@ -259,10 +137,13 @@ func (s *SecondaryStorageAdapter) MustWriteDeploymentStatus(ctx context.Context,
 		return
 	}
 
-	dbID := int64(deploymentID)
-	params := statusProtoToInsertParams(dbID, current)
-	s.execUpsertStatus(ctx, statusInsertToUpsert(params))
-	s.execInsertStatusHistory(ctx, params)
+	params := statusProtoToInsertParams(int64(deploymentID), current)
+	if err := s.q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
+		panic(fmt.Sprintf("UpsertDeploymentStatus: %v", err))
+	}
+	if err := s.q.InsertDeploymentStatusHistory(ctx, params); err != nil {
+		panic(fmt.Sprintf("InsertDeploymentStatusHistory: %v", err))
+	}
 
 	s.statusCache[deploymentID] = current
 	s.notifyFromCache(deploymentID)
@@ -275,33 +156,16 @@ func (s *SecondaryStorageAdapter) FetchDeploymentStatusHistorySince(deploymentID
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	ctx := context.Background()
-	dbID := int64(deploymentID)
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT deployment_id, status_seq_no, timestamp,
-		        preparer_seq_no, preparer_artifact, preparer_status,
-		        runner_seq_no, runner_pid, runner_artifact, runner_status,
-		        runner_num_restarts, runner_last_restart_at
-		 FROM deployment_status_history
-		 WHERE deployment_id = ? AND status_seq_no > ?
-		 ORDER BY status_seq_no ASC`,
-		dbID, sinceSeqNo)
+	rows, err := s.q.ListDeploymentStatusHistorySince(context.Background(), ListDeploymentStatusHistorySinceParams{
+		DeploymentID: int64(deploymentID),
+		StatusSeqNo:  sinceSeqNo,
+	})
 	if err != nil {
 		panic(fmt.Sprintf("FetchDeploymentStatusHistorySince: %v", err))
 	}
-	defer rows.Close()
 
-	var out []*apigen.DeploymentStatus
-	for rows.Next() {
-		var r DeploymentStatusHistory
-		if err := rows.Scan(
-			&r.DeploymentID, &r.StatusSeqNo, &r.Timestamp,
-			&r.PreparerConfigVersion, &r.PreparerArtifact, &r.PreparerStatus,
-			&r.RunnerConfigVersion, &r.RunnerPid, &r.RunnerArtifact, &r.RunnerStatus,
-			&r.RunnerNumRestarts, &r.RunnerLastRestartAt,
-		); err != nil {
-			panic(fmt.Sprintf("FetchDeploymentStatusHistorySince scan: %v", err))
-		}
+	out := make([]*apigen.DeploymentStatus, 0, len(rows))
+	for _, r := range rows {
 		out = append(out, statusRowToProto(r.DeploymentID, r))
 	}
 	return out
@@ -361,43 +225,4 @@ func (s *SecondaryStorageAdapter) notifyFromCache(id int32) {
 	}
 	st := s.statusCache[id]
 	s.subs.Notify(apigen.DeploymentWithStatus{Config: cfg, Status: st})
-}
-
-func (s *SecondaryStorageAdapter) execUpsertStatus(ctx context.Context, p UpsertDeploymentStatusParams) {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO deployment_status (deployment_id, status_seq_no, timestamp,
-		     preparer_seq_no, preparer_artifact, preparer_status,
-		     runner_seq_no, runner_pid, runner_artifact, runner_status,
-		     runner_num_restarts, runner_last_restart_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(deployment_id) DO UPDATE SET
-		     status_seq_no=excluded.status_seq_no, timestamp=excluded.timestamp,
-		     preparer_seq_no=excluded.preparer_seq_no, preparer_artifact=excluded.preparer_artifact,
-		     preparer_status=excluded.preparer_status, runner_seq_no=excluded.runner_seq_no,
-		     runner_pid=excluded.runner_pid, runner_artifact=excluded.runner_artifact,
-		     runner_status=excluded.runner_status, runner_num_restarts=excluded.runner_num_restarts,
-		     runner_last_restart_at=excluded.runner_last_restart_at`,
-		p.DeploymentID, p.StatusSeqNo, p.Timestamp,
-		p.PreparerConfigVersion, p.PreparerArtifact, p.PreparerStatus,
-		p.RunnerConfigVersion, p.RunnerPid, p.RunnerArtifact, p.RunnerStatus,
-		p.RunnerNumRestarts, p.RunnerLastRestartAt)
-	if err != nil {
-		panic(fmt.Sprintf("UpsertDeploymentStatus: %v", err))
-	}
-}
-
-func (s *SecondaryStorageAdapter) execInsertStatusHistory(ctx context.Context, p InsertDeploymentStatusHistoryParams) {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO deployment_status_history (deployment_id, status_seq_no, timestamp,
-		     preparer_seq_no, preparer_artifact, preparer_status,
-		     runner_seq_no, runner_pid, runner_artifact, runner_status,
-		     runner_num_restarts, runner_last_restart_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.DeploymentID, p.StatusSeqNo, p.Timestamp,
-		p.PreparerConfigVersion, p.PreparerArtifact, p.PreparerStatus,
-		p.RunnerConfigVersion, p.RunnerPid, p.RunnerArtifact, p.RunnerStatus,
-		p.RunnerNumRestarts, p.RunnerLastRestartAt)
-	if err != nil {
-		panic(fmt.Sprintf("InsertDeploymentStatusHistory: %v", err))
-	}
 }

@@ -354,6 +354,57 @@ func (q *Queries) ListDeploymentStatusHistory(ctx context.Context, deploymentID 
 	return items, nil
 }
 
+const listDeploymentStatusHistorySince = `-- name: ListDeploymentStatusHistorySince :many
+SELECT deployment_id, status_seq_no, timestamp,
+       preparer_config_version, preparer_artifact, preparer_status,
+       runner_config_version, runner_pid, runner_artifact, runner_status,
+       runner_num_restarts, runner_last_restart_at
+FROM deployment_status_history
+WHERE deployment_id = ? AND status_seq_no > ?
+ORDER BY status_seq_no ASC
+`
+
+type ListDeploymentStatusHistorySinceParams struct {
+	DeploymentID int64
+	StatusSeqNo  int64
+}
+
+func (q *Queries) ListDeploymentStatusHistorySince(ctx context.Context, arg ListDeploymentStatusHistorySinceParams) ([]DeploymentStatusHistory, error) {
+	rows, err := q.db.QueryContext(ctx, listDeploymentStatusHistorySince, arg.DeploymentID, arg.StatusSeqNo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeploymentStatusHistory
+	for rows.Next() {
+		var i DeploymentStatusHistory
+		if err := rows.Scan(
+			&i.DeploymentID,
+			&i.StatusSeqNo,
+			&i.Timestamp,
+			&i.PreparerConfigVersion,
+			&i.PreparerArtifact,
+			&i.PreparerStatus,
+			&i.RunnerConfigVersion,
+			&i.RunnerPid,
+			&i.RunnerArtifact,
+			&i.RunnerStatus,
+			&i.RunnerNumRestarts,
+			&i.RunnerLastRestartAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPublicKeys = `-- name: ListPublicKeys :many
 SELECT kid, key_bytes FROM public_keys ORDER BY kid
 `
