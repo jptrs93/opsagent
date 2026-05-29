@@ -229,7 +229,7 @@ export function statusPage() {
 
     const infoTip = (text, alignRight = false) => span(
         {class: "relative group inline-flex normal-case tracking-normal"},
-        Info({class: "icon hover:text-gray-300 text-gray-600 w-3.5 h-3.5 cursor-help"}),
+        Info({class: "icon hover:text-gray-300 text-gray-600 w-3.5 h-3.5"}),
         span(
             {class: `invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity absolute top-full mt-1 bg-gray-900 text-white text-xs px-2 py-1 rounded w-56 z-20 ${alignRight ? 'right-0' : 'left-0'}`},
             text,
