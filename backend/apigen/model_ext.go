@@ -8,17 +8,19 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 )
 
-// BumpSeqNo advances StatusSeqNo as a hybrid logical clock: it takes the
-// current unix-nanos wall clock, but never returns a value <= the previous
-// one. This keeps the value monotonic per deployment across clock regressions
-// and same-tick writes, while tracking physical time closely enough that a
-// node which lost its local state (e.g. a freshly provisioned replacement)
-// resumes above any history the primary retained, with no reseed handshake.
-func (s *DeploymentStatus) BumpSeqNo() {
-	if now := time.Now().UnixNano(); now > s.StatusSeqNo {
-		s.StatusSeqNo = now
+// BumpUpdatedAt advances UpdatedAt as a hybrid logical clock: it takes the
+// current wall clock, but never returns a value <= the previous one (it adds
+// a nanosecond instead). This keeps the value monotonic per deployment across
+// clock regressions and same-tick writes, while tracking physical time closely
+// enough that a node which lost its local state (e.g. a freshly provisioned
+// replacement) resumes above any history the primary retained, with no reseed
+// handshake. UpdatedAt thus serves as both the status's wall-clock time and
+// its monotonic identity/ordering key.
+func (s *DeploymentStatus) BumpUpdatedAt() {
+	if now := time.Now(); now.After(s.UpdatedAt) {
+		s.UpdatedAt = now
 	} else {
-		s.StatusSeqNo++
+		s.UpdatedAt = s.UpdatedAt.Add(time.Nanosecond)
 	}
 }
 

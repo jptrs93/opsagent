@@ -62,16 +62,12 @@ func (s *SecondaryStorageAdapter) loadCache() {
 	}
 
 	// Ensure every config has a status entry (invariant: status is never nil).
-	now := time.Now().UnixMilli()
 	for id := range s.configCache {
 		if _, ok := s.statusCache[id]; ok {
 			continue
 		}
-		st := &apigen.DeploymentStatus{
-			StatusSeqNo:  0,
-			Timestamp:    time.UnixMilli(now),
-			DeploymentID: id,
-		}
+		// Zero UpdatedAt marks a "no status yet" placeholder.
+		st := &apigen.DeploymentStatus{DeploymentID: id}
 		params := statusProtoToInsertParams(int64(id), st)
 		if err := s.q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
 			panic(fmt.Sprintf("loadCache: UpsertDeploymentStatus (default): %v", err))
@@ -100,12 +96,8 @@ func (s *SecondaryStorageAdapter) MustWriteDeploymentConfig(ctx context.Context,
 	s.configCache[id] = cfg
 
 	if !exists {
-		now := time.Now().UnixMilli()
-		st := &apigen.DeploymentStatus{
-			StatusSeqNo:  0,
-			Timestamp:    time.UnixMilli(now),
-			DeploymentID: id,
-		}
+		// Zero UpdatedAt marks a "no status yet" placeholder.
+		st := &apigen.DeploymentStatus{DeploymentID: id}
 		params := statusProtoToInsertParams(dbID, st)
 		if err := s.q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
 			panic(fmt.Sprintf("UpsertDeploymentStatus (default): %v", err))
@@ -123,7 +115,7 @@ func (s *SecondaryStorageAdapter) MustWriteDeploymentConfig(ctx context.Context,
 // MustWriteDeploymentStatus applies a mutation to the current status and persists it.
 // If the callback returns false, no DB writes happen — callers use this to
 // skip stale/superseded writes that would otherwise collide on the
-// (deployment_id, status_seq_no) primary key of deployment_status_history.
+// (deployment_id, updated_at) primary key of deployment_status_history.
 func (s *SecondaryStorageAdapter) MustWriteDeploymentStatus(ctx context.Context, deploymentID int32, f func(*apigen.DeploymentStatus) bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -150,15 +142,15 @@ func (s *SecondaryStorageAdapter) MustWriteDeploymentStatus(ctx context.Context,
 }
 
 // FetchDeploymentStatusHistorySince returns history rows with
-// status_seq_no > sinceSeqNo, in ascending order. Used on reconnect to
+// updated_at > since, in ascending order. Used on reconnect to
 // replay any history the primary is missing.
-func (s *SecondaryStorageAdapter) FetchDeploymentStatusHistorySince(deploymentID int32, sinceSeqNo int64) []*apigen.DeploymentStatus {
+func (s *SecondaryStorageAdapter) FetchDeploymentStatusHistorySince(deploymentID int32, since time.Time) []*apigen.DeploymentStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	rows, err := s.q.ListDeploymentStatusHistorySince(context.Background(), ListDeploymentStatusHistorySinceParams{
 		DeploymentID: int64(deploymentID),
-		StatusSeqNo:  sinceSeqNo,
+		UpdatedAt:    clockToNanos(since),
 	})
 	if err != nil {
 		panic(fmt.Sprintf("FetchDeploymentStatusHistorySince: %v", err))

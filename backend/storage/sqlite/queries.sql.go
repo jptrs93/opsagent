@@ -99,17 +99,16 @@ func (q *Queries) InsertDeploymentConfigHistory(ctx context.Context, arg InsertD
 const insertDeploymentStatusHistory = `-- name: InsertDeploymentStatusHistory :exec
 
 INSERT INTO deployment_status_history (
-    deployment_id, status_seq_no, timestamp,
+    deployment_id, updated_at,
     preparer_config_version, preparer_artifact, preparer_status,
     runner_config_version, runner_pid, runner_artifact, runner_status,
     runner_num_restarts, runner_last_restart_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertDeploymentStatusHistoryParams struct {
 	DeploymentID          int64
-	StatusSeqNo           int64
-	Timestamp             int64
+	UpdatedAt             int64
 	PreparerConfigVersion sql.NullInt64
 	PreparerArtifact      sql.NullString
 	PreparerStatus        sql.NullInt64
@@ -125,8 +124,7 @@ type InsertDeploymentStatusHistoryParams struct {
 func (q *Queries) InsertDeploymentStatusHistory(ctx context.Context, arg InsertDeploymentStatusHistoryParams) error {
 	_, err := q.db.ExecContext(ctx, insertDeploymentStatusHistory,
 		arg.DeploymentID,
-		arg.StatusSeqNo,
-		arg.Timestamp,
+		arg.UpdatedAt,
 		arg.PreparerConfigVersion,
 		arg.PreparerArtifact,
 		arg.PreparerStatus,
@@ -183,7 +181,7 @@ func (q *Queries) ListAllDeploymentConfigs(ctx context.Context) ([]DeploymentCon
 }
 
 const listAllDeploymentStatuses = `-- name: ListAllDeploymentStatuses :many
-SELECT deployment_id, status_seq_no, timestamp,
+SELECT deployment_id, updated_at,
        preparer_config_version, preparer_artifact, preparer_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
        runner_num_restarts, runner_last_restart_at
@@ -201,8 +199,7 @@ func (q *Queries) ListAllDeploymentStatuses(ctx context.Context) ([]DeploymentSt
 		var i DeploymentStatus
 		if err := rows.Scan(
 			&i.DeploymentID,
-			&i.StatusSeqNo,
-			&i.Timestamp,
+			&i.UpdatedAt,
 			&i.PreparerConfigVersion,
 			&i.PreparerArtifact,
 			&i.PreparerStatus,
@@ -309,13 +306,13 @@ func (q *Queries) ListDeploymentConfigsByMachine(ctx context.Context, machine st
 }
 
 const listDeploymentStatusHistory = `-- name: ListDeploymentStatusHistory :many
-SELECT deployment_id, status_seq_no, timestamp,
+SELECT deployment_id, updated_at,
        preparer_config_version, preparer_artifact, preparer_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
        runner_num_restarts, runner_last_restart_at
 FROM deployment_status_history
 WHERE deployment_id = ?
-ORDER BY status_seq_no ASC
+ORDER BY updated_at ASC
 `
 
 func (q *Queries) ListDeploymentStatusHistory(ctx context.Context, deploymentID int64) ([]DeploymentStatusHistory, error) {
@@ -329,8 +326,7 @@ func (q *Queries) ListDeploymentStatusHistory(ctx context.Context, deploymentID 
 		var i DeploymentStatusHistory
 		if err := rows.Scan(
 			&i.DeploymentID,
-			&i.StatusSeqNo,
-			&i.Timestamp,
+			&i.UpdatedAt,
 			&i.PreparerConfigVersion,
 			&i.PreparerArtifact,
 			&i.PreparerStatus,
@@ -355,22 +351,22 @@ func (q *Queries) ListDeploymentStatusHistory(ctx context.Context, deploymentID 
 }
 
 const listDeploymentStatusHistorySince = `-- name: ListDeploymentStatusHistorySince :many
-SELECT deployment_id, status_seq_no, timestamp,
+SELECT deployment_id, updated_at,
        preparer_config_version, preparer_artifact, preparer_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
        runner_num_restarts, runner_last_restart_at
 FROM deployment_status_history
-WHERE deployment_id = ? AND status_seq_no > ?
-ORDER BY status_seq_no ASC
+WHERE deployment_id = ? AND updated_at > ?
+ORDER BY updated_at ASC
 `
 
 type ListDeploymentStatusHistorySinceParams struct {
 	DeploymentID int64
-	StatusSeqNo  int64
+	UpdatedAt    int64
 }
 
 func (q *Queries) ListDeploymentStatusHistorySince(ctx context.Context, arg ListDeploymentStatusHistorySinceParams) ([]DeploymentStatusHistory, error) {
-	rows, err := q.db.QueryContext(ctx, listDeploymentStatusHistorySince, arg.DeploymentID, arg.StatusSeqNo)
+	rows, err := q.db.QueryContext(ctx, listDeploymentStatusHistorySince, arg.DeploymentID, arg.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -380,8 +376,7 @@ func (q *Queries) ListDeploymentStatusHistorySince(ctx context.Context, arg List
 		var i DeploymentStatusHistory
 		if err := rows.Scan(
 			&i.DeploymentID,
-			&i.StatusSeqNo,
-			&i.Timestamp,
+			&i.UpdatedAt,
 			&i.PreparerConfigVersion,
 			&i.PreparerArtifact,
 			&i.PreparerStatus,
@@ -564,14 +559,13 @@ func (q *Queries) UpsertDeploymentID(ctx context.Context, arg UpsertDeploymentID
 const upsertDeploymentStatus = `-- name: UpsertDeploymentStatus :exec
 
 INSERT INTO deployment_status (
-    deployment_id, status_seq_no, timestamp,
+    deployment_id, updated_at,
     preparer_config_version, preparer_artifact, preparer_status,
     runner_config_version, runner_pid, runner_artifact, runner_status,
     runner_num_restarts, runner_last_restart_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(deployment_id) DO UPDATE SET
-    status_seq_no = excluded.status_seq_no,
-    timestamp = excluded.timestamp,
+    updated_at = excluded.updated_at,
     preparer_config_version = excluded.preparer_config_version,
     preparer_artifact = excluded.preparer_artifact,
     preparer_status = excluded.preparer_status,
@@ -585,8 +579,7 @@ ON CONFLICT(deployment_id) DO UPDATE SET
 
 type UpsertDeploymentStatusParams struct {
 	DeploymentID          int64
-	StatusSeqNo           int64
-	Timestamp             int64
+	UpdatedAt             int64
 	PreparerConfigVersion sql.NullInt64
 	PreparerArtifact      sql.NullString
 	PreparerStatus        sql.NullInt64
@@ -602,8 +595,7 @@ type UpsertDeploymentStatusParams struct {
 func (q *Queries) UpsertDeploymentStatus(ctx context.Context, arg UpsertDeploymentStatusParams) error {
 	_, err := q.db.ExecContext(ctx, upsertDeploymentStatus,
 		arg.DeploymentID,
-		arg.StatusSeqNo,
-		arg.Timestamp,
+		arg.UpdatedAt,
 		arg.PreparerConfigVersion,
 		arg.PreparerArtifact,
 		arg.PreparerStatus,

@@ -81,23 +81,25 @@ export class Capi {
 
   /**
    * @param {string} path
-   * @param {{ method?: string, body?: RequestBody, signal?: AbortSignal }} [options={}]
+   * @param {{ method?: string, body?: RequestBody, signal?: AbortSignal, contentType?: string, duplex?: 'half' }} [options={}]
    * @returns {Promise<Response>}
    */
-  async #request(path, { method = 'GET', body, signal } = {}) {
+  async #request(path, { method = 'GET', body, signal, contentType, duplex } = {}) {
     const headers = this.headerProvider() || {};
     headers['Accept'] = 'application/x-protobuf';
     if (body !== undefined) {
-      headers['Content-Type'] = 'application/x-protobuf';
+      headers['Content-Type'] = contentType || 'application/x-protobuf';
     }
-    return fetch(`${this.baseURL}${path}`, { method, headers, body, signal, credentials: 'include' });
+    const init = { method, headers, body, signal, credentials: 'include' };
+    if (duplex) { init.duplex = duplex; }
+    return fetch(`${this.baseURL}${path}`, init);
   }
 
   /**
    * @returns {Promise<void>}
    */
   async getV1Healthz() {
-    const response = await this.#request('/v1/healthz', { method: 'GET' });
+    const response = await this.#request("/v1/healthz", { method: 'GET' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -109,7 +111,7 @@ export class Capi {
    * @returns {Promise<LoginResponse>}
    */
   async postV1AuthMaster(payload) {
-    const response = await this.#request('/v1/auth/master', { method: 'POST', body: encodeMasterPasswordRequest(payload) });
+    const response = await this.#request("/v1/auth/master", { method: 'POST', body: encodeMasterPasswordRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -120,7 +122,7 @@ export class Capi {
    * @returns {Promise<LoginResponse>}
    */
   async getV1AuthCurrentSession() {
-    const response = await this.#request('/v1/auth/current/session', { method: 'GET' });
+    const response = await this.#request("/v1/auth/current/session", { method: 'GET' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -132,7 +134,7 @@ export class Capi {
    * @returns {Promise<WebAuthNOptionsResponse>}
    */
   async postV1AuthPasskeyRegisterStart(payload) {
-    const response = await this.#request('/v1/auth/passkey/register/start', { method: 'POST', body: encodeEmptyRequest(payload) });
+    const response = await this.#request("/v1/auth/passkey/register/start", { method: 'POST', body: encodeEmptyRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -144,7 +146,7 @@ export class Capi {
    * @returns {Promise<LoginResponse>}
    */
   async postV1AuthPasskeyRegisterFinish(payload) {
-    const response = await this.#request('/v1/auth/passkey/register/finish', { method: 'POST', body: encodeWebAuthNFinishRequest(payload) });
+    const response = await this.#request("/v1/auth/passkey/register/finish", { method: 'POST', body: encodeWebAuthNFinishRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -156,7 +158,7 @@ export class Capi {
    * @returns {Promise<WebAuthNOptionsResponse>}
    */
   async postV1AuthPasskeyLoginStart(payload) {
-    const response = await this.#request('/v1/auth/passkey/login/start', { method: 'POST', body: encodeEmptyRequest(payload) });
+    const response = await this.#request("/v1/auth/passkey/login/start", { method: 'POST', body: encodeEmptyRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -168,7 +170,7 @@ export class Capi {
    * @returns {Promise<LoginResponse>}
    */
   async postV1AuthPasskeyLoginFinish(payload) {
-    const response = await this.#request('/v1/auth/passkey/login/finish', { method: 'POST', body: encodeWebAuthNFinishRequest(payload) });
+    const response = await this.#request("/v1/auth/passkey/login/finish", { method: 'POST', body: encodeWebAuthNFinishRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -183,7 +185,7 @@ export class Capi {
     const self = this;
     return {
       [Symbol.asyncIterator]: async function* () {
-        const response = await self.#request('/v1/state/stream', { method: 'POST', signal: options.signal });
+        const response = await self.#request("/v1/state/stream", { method: 'POST', signal: options.signal });
         if (!response.ok) {
           return self.errorHandler(response);
         }
@@ -197,7 +199,7 @@ export class Capi {
    * @returns {Promise<DesiredState>}
    */
   async postV1DeploymentUpdate(payload) {
-    const response = await this.#request('/v1/deployment/update', { method: 'POST', body: encodeDeploymentUpdateRequest(payload) });
+    const response = await this.#request("/v1/deployment/update", { method: 'POST', body: encodeDeploymentUpdateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -209,7 +211,7 @@ export class Capi {
    * @returns {Promise<DeploymentStatusHistoryResponse>}
    */
   async postV1DeploymentStatusHistory(payload) {
-    const response = await this.#request('/v1/deployment/status/history', { method: 'POST', body: encodeDeploymentHistoryRequest(payload) });
+    const response = await this.#request("/v1/deployment/status/history", { method: 'POST', body: encodeDeploymentHistoryRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -221,7 +223,7 @@ export class Capi {
    * @returns {Promise<DeploymentConfigHistoryResponse>}
    */
   async postV1DeploymentConfigHistory(payload) {
-    const response = await this.#request('/v1/deployment/config/history', { method: 'POST', body: encodeDeploymentHistoryRequest(payload) });
+    const response = await this.#request("/v1/deployment/config/history", { method: 'POST', body: encodeDeploymentHistoryRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -232,7 +234,7 @@ export class Capi {
    * @returns {Promise<void>}
    */
   async postV1DeploymentLogs() {
-    const response = await this.#request('/v1/deployment/logs', { method: 'POST' });
+    const response = await this.#request("/v1/deployment/logs", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -243,7 +245,7 @@ export class Capi {
    * @returns {Promise<ClusterStatusResponse>}
    */
   async getV1ClusterStatus() {
-    const response = await this.#request('/v1/cluster/status', { method: 'GET' });
+    const response = await this.#request("/v1/cluster/status", { method: 'GET' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -255,7 +257,7 @@ export class Capi {
    * @returns {Promise<DeploymentConfig>}
    */
   async postV1DeploymentCreate(payload) {
-    const response = await this.#request('/v1/deployment/create', { method: 'POST', body: encodeDeploymentCreateRequest(payload) });
+    const response = await this.#request("/v1/deployment/create", { method: 'POST', body: encodeDeploymentCreateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -267,7 +269,7 @@ export class Capi {
    * @returns {Promise<DeploymentVersions>}
    */
   async postV1DeploymentVersions(payload) {
-    const response = await this.#request('/v1/deployment/versions', { method: 'POST', body: encodeDeploymentVersionsRequest(payload) });
+    const response = await this.#request("/v1/deployment/versions", { method: 'POST', body: encodeDeploymentVersionsRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }

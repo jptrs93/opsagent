@@ -144,8 +144,7 @@
  */
 /**
  * @typedef {Object} DeploymentStatus
- * @property {number} statusSeqNo
- * @property {Date} timestamp
+ * @property {Date} updatedAt
  * @property {number} deploymentId
  * @property {PreparerStatus} preparer
  * @property {RunnerStatus} runner
@@ -2044,11 +2043,10 @@ export function decodeDeploymentWithStatus(buffer) {
  * @param {Writer} writer
  */
 export function writeDeploymentStatus(message, writer) {
-    if (message.statusSeqNo !== undefined && message.statusSeqNo !== null && message.statusSeqNo !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int64(message.statusSeqNo);
-    }
-    if (message.timestamp instanceof Date && message.timestamp.getTime() !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.timestamp.getTime()));
+    if (message.updatedAt !== undefined && message.updatedAt !== null) {
+        writer.uint32(tag(7, WIRE.LDELIM)).fork();
+        writeTimestamp(message.updatedAt, writer);
+        writer.ldelim();
     }
     if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
         writer.uint32(tag(6, WIRE.VARINT)).int32(message.deploymentId);
@@ -2084,16 +2082,12 @@ export function encodeDeploymentStatus(message) {
  */
 function decodeDeploymentStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {statusSeqNo: 0, timestamp: new Date(0), deploymentId: 0, preparer: undefined, runner: undefined };
+    const message = {updatedAt: new Date(0), deploymentId: 0, preparer: undefined, runner: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.statusSeqNo = readInt64(reader, "int64");
-                break;
-            }
-            case 2: {
-                message.timestamp = new Date(readInt64(reader, "int64"));
+            case 7: {
+                message.updatedAt = decodeTimestampMessage(reader, reader.uint32());
                 break;
             }
             case 6: {
@@ -3315,4 +3309,38 @@ function readInt64(reader, method) {
         return value;
     }
     return value.toNumber();
+}
+function writeTimestamp(value, writer) {
+    if (!(value instanceof Date)) {
+        return;
+    }
+    const ms = value.getTime();
+    const seconds = Math.floor(ms / 1000);
+    const nanos = Math.floor((ms - (seconds * 1000)) * 1e6);
+    writer.uint32(tag(1, WIRE.VARINT)).int64(seconds);
+    if (nanos !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(nanos);
+    }
+}
+
+function decodeTimestampMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    let seconds = 0;
+    let nanos = 0;
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                seconds = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                nanos = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return new Date((seconds * 1000) + Math.floor(nanos / 1e6));
 }

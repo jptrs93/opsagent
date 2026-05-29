@@ -3,6 +3,7 @@ syntax = "proto3";
 package opsagent.v1;
 
 import "options.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
@@ -259,11 +260,14 @@ message DeploymentWithStatus {
 }
 
 message DeploymentStatus {
-  // Hybrid logical clock value (max(unix_nanos, prev+1)) assigned by the node
-  // that owns the deployment. Monotonic per deployment; identifies status
-  // history rows and gates replication. Not a dense counter.
-  int64 status_seq_no = 1;
-  int64 timestamp = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  // Hybrid logical clock assigned by the node that owns the deployment:
+  // max(wall_clock_now, prev+1ns). Monotonic per deployment, so it doubles as
+  // both the status's wall-clock time and its identity/ordering key (it backs
+  // the deployment_status_history primary key and gates replication). May run
+  // a few ns ahead of true wall-clock under same-tick writes or clock
+  // regressions. Tag 7 (not 1) so older cluster peers skip it gracefully
+  // during a rolling upgrade rather than mis-decoding the old int64 field.
+  google.protobuf.Timestamp updated_at = 7;
   int32 deployment_id = 6;  // integer deployment id
   PreparerStatus preparer = 4;
   RunnerStatus runner = 5;

@@ -65,14 +65,13 @@ ORDER BY version ASC;
 
 -- name: UpsertDeploymentStatus :exec
 INSERT INTO deployment_status (
-    deployment_id, status_seq_no, timestamp,
+    deployment_id, updated_at,
     preparer_config_version, preparer_artifact, preparer_status,
     runner_config_version, runner_pid, runner_artifact, runner_status,
     runner_num_restarts, runner_last_restart_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(deployment_id) DO UPDATE SET
-    status_seq_no = excluded.status_seq_no,
-    timestamp = excluded.timestamp,
+    updated_at = excluded.updated_at,
     preparer_config_version = excluded.preparer_config_version,
     preparer_artifact = excluded.preparer_artifact,
     preparer_status = excluded.preparer_status,
@@ -84,7 +83,7 @@ ON CONFLICT(deployment_id) DO UPDATE SET
     runner_last_restart_at = excluded.runner_last_restart_at;
 
 -- name: ListAllDeploymentStatuses :many
-SELECT deployment_id, status_seq_no, timestamp,
+SELECT deployment_id, updated_at,
        preparer_config_version, preparer_artifact, preparer_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
        runner_num_restarts, runner_last_restart_at
@@ -94,29 +93,29 @@ FROM deployment_status;
 
 -- name: InsertDeploymentStatusHistory :exec
 INSERT INTO deployment_status_history (
-    deployment_id, status_seq_no, timestamp,
+    deployment_id, updated_at,
     preparer_config_version, preparer_artifact, preparer_status,
     runner_config_version, runner_pid, runner_artifact, runner_status,
     runner_num_restarts, runner_last_restart_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListDeploymentStatusHistory :many
-SELECT deployment_id, status_seq_no, timestamp,
+SELECT deployment_id, updated_at,
        preparer_config_version, preparer_artifact, preparer_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
        runner_num_restarts, runner_last_restart_at
 FROM deployment_status_history
 WHERE deployment_id = ?
-ORDER BY status_seq_no ASC;
+ORDER BY updated_at ASC;
 
 -- name: ListDeploymentStatusHistorySince :many
-SELECT deployment_id, status_seq_no, timestamp,
+SELECT deployment_id, updated_at,
        preparer_config_version, preparer_artifact, preparer_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
        runner_num_restarts, runner_last_restart_at
 FROM deployment_status_history
-WHERE deployment_id = ? AND status_seq_no > ?
-ORDER BY status_seq_no ASC;
+WHERE deployment_id = ? AND updated_at > ?
+ORDER BY updated_at ASC;
 
 -- === users ===
 

@@ -12,3 +12,10 @@ ALTER TABLE deployment_status         RENAME COLUMN preparer_seq_no TO preparer_
 ALTER TABLE deployment_status         RENAME COLUMN runner_seq_no   TO runner_config_version;
 ALTER TABLE deployment_status_history RENAME COLUMN preparer_seq_no TO preparer_config_version;
 ALTER TABLE deployment_status_history RENAME COLUMN runner_seq_no   TO runner_config_version;
+
+-- Merge status_seq_no (HLC, unix nanoseconds) and the redundant epoch-ms
+-- timestamp into a single updated_at column (see primary-migrations).
+ALTER TABLE deployment_status         RENAME COLUMN status_seq_no TO updated_at;
+ALTER TABLE deployment_status         DROP COLUMN timestamp;
+ALTER TABLE deployment_status_history RENAME COLUMN status_seq_no TO updated_at;
+ALTER TABLE deployment_status_history DROP COLUMN timestamp;

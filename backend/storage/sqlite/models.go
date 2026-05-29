@@ -43,8 +43,7 @@ type DeploymentIdentifier struct {
 
 type DeploymentStatus struct {
 	DeploymentID          int64
-	StatusSeqNo           int64
-	Timestamp             int64
+	UpdatedAt             int64
 	PreparerConfigVersion sql.NullInt64
 	PreparerArtifact      sql.NullString
 	PreparerStatus        sql.NullInt64
@@ -58,8 +57,7 @@ type DeploymentStatus struct {
 
 type DeploymentStatusHistory struct {
 	DeploymentID          int64
-	StatusSeqNo           int64
-	Timestamp             int64
+	UpdatedAt             int64
 	PreparerConfigVersion sql.NullInt64
 	PreparerArtifact      sql.NullString
 	PreparerStatus        sql.NullInt64

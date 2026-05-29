@@ -7,7 +7,6 @@ package preparer
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -112,7 +111,7 @@ func (f *finishedPreparer) Cancel()        {}
 func (f *finishedPreparer) Version() int32 { return f.deploymentConfigVersion }
 
 // writePrepareStatus is the single entry point for preparer status writes.
-// It bumps StatusSeqNo, guards against stale writes from superseded runs,
+// It bumps UpdatedAt, guards against stale writes from superseded runs,
 // and always uses a background context so terminal writes still land after
 // the worker's own ctx has been cancelled.
 func writePrepareStatus(_ context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, artifact string, status apigen.PreparationStatus) {
@@ -121,8 +120,7 @@ func writePrepareStatus(_ context.Context, store storage.OperatorStore, dep *api
 		if s.Preparer != nil && s.Preparer.DeploymentConfigVersion > dep.Version {
 			return false
 		}
-		s.BumpSeqNo()
-		s.Timestamp = time.Now()
+		s.BumpUpdatedAt()
 		s.DeploymentID = dep.ID
 		s.Preparer = &apigen.PreparerStatus{
 			DeploymentConfigVersion: dep.Version,

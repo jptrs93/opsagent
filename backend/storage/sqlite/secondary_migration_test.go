@@ -72,8 +72,7 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 	}
 	store.MustWriteDeploymentConfig(context.Background(), cfg)
 	store.MustWriteDeploymentStatus(context.Background(), 7, func(s *apigen.DeploymentStatus) bool {
-		s.BumpSeqNo()
-		s.Timestamp = time.UnixMilli(2000)
+		s.BumpUpdatedAt()
 		s.DeploymentID = 7
 		s.Preparer = &apigen.PreparerStatus{DeploymentConfigVersion: 3, Artifact: "art", Status: apigen.PreparationStatus_READY}
 		return true
@@ -93,8 +92,8 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 	if rs.Preparer == nil || rs.Preparer.Status != apigen.PreparationStatus_READY || rs.Preparer.Artifact != "art" {
 		t.Fatalf("status not round-tripped: %+v", rs)
 	}
-	if rs.StatusSeqNo <= 0 {
-		t.Fatalf("expected positive HLC seq_no, got %d", rs.StatusSeqNo)
+	if rs.UpdatedAt.IsZero() {
+		t.Fatalf("expected non-zero HLC clock, got zero")
 	}
 }
 
@@ -124,8 +123,8 @@ func TestSecondaryLegacyUpgrade(t *testing.T) {
 	if st.Runner == nil || st.Runner.DeploymentConfigVersion != 5 || st.Runner.RunningPid != 42 {
 		t.Fatalf("runner status not preserved across rename: %+v", st.Runner)
 	}
-	if st.StatusSeqNo != 111 {
-		t.Fatalf("expected status_seq_no 111 preserved, got %d", st.StatusSeqNo)
+	if st.UpdatedAt.UnixNano() != 111 {
+		t.Fatalf("expected updated_at 111 preserved (renamed from status_seq_no), got %d", st.UpdatedAt.UnixNano())
 	}
 }
 

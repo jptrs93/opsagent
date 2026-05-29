@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
@@ -11,7 +12,7 @@ type OperatorStore interface {
 	// DeploymentStatus. The callback returns true to persist the change
 	// (upsert + history insert) or false to skip it entirely — use false
 	// when a guard like a superseded-version check fires, so no DB writes
-	// are attempted with an unchanged StatusSeqNo.
+	// are attempted with an unchanged UpdatedAt clock.
 	MustWriteDeploymentStatus(context.Context, int32, func(s *apigen.DeploymentStatus) bool)
 	MustFetchSnapshotAndSubscribe(ctx context.Context, machine string) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus)
 }
@@ -20,7 +21,7 @@ type SecondaryStore interface {
 	OperatorStore
 	MustWriteDeploymentConfig(ctx context.Context, cfg *apigen.DeploymentConfig)
 	FetchDeploymentStatus(id int32) *apigen.DeploymentStatus
-	FetchDeploymentStatusHistorySince(deploymentID int32, sinceSeqNo int64) []*apigen.DeploymentStatus
+	FetchDeploymentStatusHistorySince(deploymentID int32, since time.Time) []*apigen.DeploymentStatus
 	SubscribeDeploymentUpdates(machine string) (chan apigen.DeploymentWithStatus, func())
 }
 

@@ -206,9 +206,9 @@ func runSession(ctx context.Context, conn *cluster.Conn, store *sqlite.Secondary
 }
 
 // statusPushLoop forwards local status changes to the primary. It tracks the
-// last StatusSeqNo sent per deployment to avoid sending duplicate updates.
+// last UpdatedAt clock sent per deployment to avoid sending duplicate updates.
 func statusPushLoop(ctx context.Context, conn *cluster.Conn, ch <-chan apigen.DeploymentWithStatus) {
-	lastSeq := make(map[int32]int64)
+	lastSent := make(map[int32]time.Time)
 	for {
 		select {
 		case <-ctx.Done():
@@ -221,10 +221,10 @@ func statusPushLoop(ctx context.Context, conn *cluster.Conn, ch <-chan apigen.De
 				continue
 			}
 			id := dws.Config.ID
-			if dws.Status.StatusSeqNo <= lastSeq[id] {
+			if !dws.Status.UpdatedAt.After(lastSent[id]) {
 				continue
 			}
-			lastSeq[id] = dws.Status.StatusSeqNo
+			lastSent[id] = dws.Status.UpdatedAt
 			msg := &apigen.MsgToMaster{StatusWrite: dws.Status}
 			if err := conn.WriteFrame(msg.Encode()); err != nil {
 				slog.Warn("failed sending status to primary", "err", err)
@@ -236,10 +236,10 @@ func statusPushLoop(ctx context.Context, conn *cluster.Conn, ch <-chan apigen.De
 
 // applySnapshot writes deployment configs from the primary's snapshot into
 // the local store and replays any status history the primary is missing.
-// Each snapshot item carries the primary's last-known StatusSeqNo for that
+// Each snapshot item carries the primary's last-known UpdatedAt clock for that
 // deployment; the secondary scans its local history for rows above that
 // value and streams them back as individual StatusWrites so the primary can
-// insert each one at its canonical seq_no.
+// insert each one at its canonical clock.
 func applySnapshot(ctx context.Context, conn *cluster.Conn, store *sqlite.SecondaryStorageAdapter, snap *apigen.DeploymentWithStatusSnapshot) {
 	slog.Info("applying deployments snapshot from primary", "count", len(snap.Items))
 	for _, item := range snap.Items {
@@ -248,21 +248,21 @@ func applySnapshot(ctx context.Context, conn *cluster.Conn, store *sqlite.Second
 		}
 		store.MustWriteDeploymentConfig(ctx, item.Config)
 
-		var primarySeqNo int64
+		var primaryClock time.Time
 		if item.Status != nil {
-			primarySeqNo = item.Status.StatusSeqNo
+			primaryClock = item.Status.UpdatedAt
 		}
-		backlog := store.FetchDeploymentStatusHistorySince(item.Config.ID, primarySeqNo)
+		backlog := store.FetchDeploymentStatusHistorySince(item.Config.ID, primaryClock)
 		if len(backlog) == 0 {
 			continue
 		}
 		slog.Info("replaying status history to primary",
-			"id", item.Config.ID, "from", primarySeqNo, "count", len(backlog))
+			"id", item.Config.ID, "from", primaryClock, "count", len(backlog))
 		for _, st := range backlog {
 			msg := &apigen.MsgToMaster{StatusWrite: st}
 			if err := conn.WriteFrame(msg.Encode()); err != nil {
 				slog.Warn("failed replaying status history to primary",
-					"id", item.Config.ID, "seqNo", st.StatusSeqNo, "err", err)
+					"id", item.Config.ID, "updatedAt", st.UpdatedAt, "err", err)
 				return
 			}
 		}

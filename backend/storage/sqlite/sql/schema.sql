@@ -41,8 +41,7 @@ CREATE TABLE IF NOT EXISTS deployment_config_history (
 -- Current deployment status. One mutable row per deployment.
 CREATE TABLE IF NOT EXISTS deployment_status (
     deployment_id           INTEGER PRIMARY KEY,
-    status_seq_no           INTEGER NOT NULL,
-    timestamp               INTEGER NOT NULL,  -- epoch ms
+    updated_at              INTEGER NOT NULL,  -- HLC clock, unix nanoseconds (0 = no status yet)
     preparer_config_version INTEGER,
     preparer_artifact       TEXT,
     preparer_status         INTEGER,
@@ -57,8 +56,7 @@ CREATE TABLE IF NOT EXISTS deployment_status (
 -- Append-only log of status transitions reported by the operator.
 CREATE TABLE IF NOT EXISTS deployment_status_history (
     deployment_id           INTEGER NOT NULL,
-    status_seq_no           INTEGER NOT NULL,
-    timestamp               INTEGER NOT NULL,  -- epoch ms
+    updated_at              INTEGER NOT NULL,  -- HLC clock, unix nanoseconds
     preparer_config_version INTEGER,
     preparer_artifact       TEXT,
     preparer_status         INTEGER,
@@ -68,7 +66,7 @@ CREATE TABLE IF NOT EXISTS deployment_status_history (
     runner_status           INTEGER,
     runner_num_restarts     INTEGER,
     runner_last_restart_at  INTEGER,  -- epoch ms
-    PRIMARY KEY (deployment_id, status_seq_no)
+    PRIMARY KEY (deployment_id, updated_at)
 );
 
 -- Auth: passkey users.

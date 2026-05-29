@@ -67,16 +67,12 @@ func (s *StorageAdapter) loadCache() {
 	}
 
 	// Ensure every config has a status entry (invariant: status is never nil).
-	now := time.Now().UnixMilli()
 	for id := range s.configCache {
 		if _, ok := s.statusCache[id]; ok {
 			continue
 		}
-		st := &apigen.DeploymentStatus{
-			StatusSeqNo:  0,
-			Timestamp:    time.UnixMilli(now),
-			DeploymentID: id,
-		}
+		// Zero UpdatedAt marks a "no status yet" placeholder.
+		st := &apigen.DeploymentStatus{DeploymentID: id}
 		params := statusProtoToInsertParams(int64(id), st)
 		if err := s.q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
 			panic(fmt.Sprintf("loadCache: UpsertDeploymentStatus (default): %v", err))
@@ -168,13 +164,13 @@ func (s *StorageAdapter) MustWriteDeploymentStatus(ctx context.Context, deployme
 }
 
 // MustWriteReplicatedDeploymentStatus persists a status pushed by a secondary,
-// treating the incoming StatusSeqNo as the authoritative identity. Duplicate
-// seq_nos upsert the existing history row, so reconnect-driven replays are
-// idempotent. The current-state row is only advanced when the incoming
-// seq_no is at least the cached max, so out-of-order backlog fills never
-// regress "latest".
+// treating the incoming UpdatedAt clock as the authoritative identity. Duplicate
+// clocks upsert the existing history row, so reconnect-driven replays are
+// idempotent. The current-state row is only advanced when the incoming clock
+// is at least the cached max, so out-of-order backlog fills never regress
+// "latest".
 func (s *StorageAdapter) MustWriteReplicatedDeploymentStatus(ctx context.Context, st *apigen.DeploymentStatus) {
-	if st == nil || st.DeploymentID == 0 || st.StatusSeqNo <= 0 {
+	if st == nil || st.DeploymentID == 0 || st.UpdatedAt.IsZero() {
 		return
 	}
 
@@ -186,13 +182,12 @@ func (s *StorageAdapter) MustWriteReplicatedDeploymentStatus(ctx context.Context
 
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO deployment_status_history (
-		    deployment_id, status_seq_no, timestamp,
+		    deployment_id, updated_at,
 		    preparer_config_version, preparer_artifact, preparer_status,
 		    runner_config_version, runner_pid, runner_artifact, runner_status,
 		    runner_num_restarts, runner_last_restart_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(deployment_id, status_seq_no) DO UPDATE SET
-		    timestamp = excluded.timestamp,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(deployment_id, updated_at) DO UPDATE SET
 		    preparer_config_version = excluded.preparer_config_version,
 		    preparer_artifact = excluded.preparer_artifact,
 		    preparer_status = excluded.preparer_status,
@@ -202,7 +197,7 @@ func (s *StorageAdapter) MustWriteReplicatedDeploymentStatus(ctx context.Context
 		    runner_status = excluded.runner_status,
 		    runner_num_restarts = excluded.runner_num_restarts,
 		    runner_last_restart_at = excluded.runner_last_restart_at`,
-		params.DeploymentID, params.StatusSeqNo, params.Timestamp,
+		params.DeploymentID, params.UpdatedAt,
 		params.PreparerConfigVersion, params.PreparerArtifact, params.PreparerStatus,
 		params.RunnerConfigVersion, params.RunnerPid, params.RunnerArtifact, params.RunnerStatus,
 		params.RunnerNumRestarts, params.RunnerLastRestartAt,
@@ -210,11 +205,11 @@ func (s *StorageAdapter) MustWriteReplicatedDeploymentStatus(ctx context.Context
 		panic(fmt.Sprintf("UpsertDeploymentStatusHistory: %v", err))
 	}
 
-	cachedSeqNo := int64(0)
+	var cached time.Time
 	if cur := s.statusCache[st.DeploymentID]; cur != nil {
-		cachedSeqNo = cur.StatusSeqNo
+		cached = cur.UpdatedAt
 	}
-	if st.StatusSeqNo >= cachedSeqNo {
+	if !st.UpdatedAt.Before(cached) {
 		if err := s.q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
 			panic(fmt.Sprintf("UpsertDeploymentStatus: %v", err))
 		}
@@ -452,7 +447,7 @@ func (s *StorageAdapter) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory (create): %v", err))
 	}
 
-	s.insertDefaultStatus(bgCtx, q, dbID, now)
+	s.insertDefaultStatus(bgCtx, q, dbID)
 
 	if err := tx.Commit(); err != nil {
 		panic(fmt.Sprintf("commit: %v", err))
@@ -465,13 +460,10 @@ func (s *StorageAdapter) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 	return cfg
 }
 
-func (s *StorageAdapter) insertDefaultStatus(ctx context.Context, q *Queries, dbID int64, now int64) {
+func (s *StorageAdapter) insertDefaultStatus(ctx context.Context, q *Queries, dbID int64) {
 	id := int32(dbID)
-	st := &apigen.DeploymentStatus{
-		StatusSeqNo:  0,
-		Timestamp:    time.UnixMilli(now),
-		DeploymentID: id,
-	}
+	// Zero UpdatedAt marks a "no status yet" placeholder.
+	st := &apigen.DeploymentStatus{DeploymentID: id}
 	params := statusProtoToInsertParams(dbID, st)
 	if err := q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
 		panic(fmt.Sprintf("UpsertDeploymentStatus (default): %v", err))
@@ -551,7 +543,7 @@ func (s *StorageAdapter) EnsureSystemDeployment(machine string) {
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory (system): %v", err))
 	}
 
-	s.insertDefaultStatus(bgCtx, q, dbID, now)
+	s.insertDefaultStatus(bgCtx, q, dbID)
 
 	if err := tx.Commit(); err != nil {
 		panic(fmt.Sprintf("commit: %v", err))
@@ -608,10 +600,26 @@ func (s *StorageAdapter) notifyFromCache(id int32) {
 
 // --- row <-> proto conversions ---
 
+// clockToNanos serializes a status HLC clock to its DB integer form (unix
+// nanoseconds). Zero time maps to 0 — the "no status yet" placeholder sentinel.
+func clockToNanos(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixNano()
+}
+
+// nanosToClock is the inverse of clockToNanos.
+func nanosToClock(n int64) time.Time {
+	if n == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, n)
+}
+
 func statusRowToProto(dbID int64, r DeploymentStatusHistory) *apigen.DeploymentStatus {
 	st := &apigen.DeploymentStatus{
-		StatusSeqNo:  r.StatusSeqNo,
-		Timestamp:    time.UnixMilli(r.Timestamp),
+		UpdatedAt:    nanosToClock(r.UpdatedAt),
 		DeploymentID: int32(dbID),
 	}
 	if r.PreparerStatus.Valid {
@@ -639,8 +647,7 @@ func statusRowToProto(dbID int64, r DeploymentStatusHistory) *apigen.DeploymentS
 func statusProtoToInsertParams(dbID int64, st *apigen.DeploymentStatus) InsertDeploymentStatusHistoryParams {
 	p := InsertDeploymentStatusHistoryParams{
 		DeploymentID: dbID,
-		StatusSeqNo:  st.StatusSeqNo,
-		Timestamp:    st.Timestamp.UnixMilli(),
+		UpdatedAt:    clockToNanos(st.UpdatedAt),
 	}
 	if st.Preparer != nil {
 		p.PreparerConfigVersion = sql.NullInt64{Int64: int64(st.Preparer.DeploymentConfigVersion), Valid: true}
@@ -663,8 +670,7 @@ func statusProtoToInsertParams(dbID int64, st *apigen.DeploymentStatus) InsertDe
 func statusInsertToUpsert(p InsertDeploymentStatusHistoryParams) UpsertDeploymentStatusParams {
 	return UpsertDeploymentStatusParams{
 		DeploymentID:          p.DeploymentID,
-		StatusSeqNo:           p.StatusSeqNo,
-		Timestamp:             p.Timestamp,
+		UpdatedAt:             p.UpdatedAt,
 		PreparerConfigVersion: p.PreparerConfigVersion,
 		PreparerArtifact:      p.PreparerArtifact,
 		PreparerStatus:        p.PreparerStatus,
@@ -680,8 +686,7 @@ func statusInsertToUpsert(p InsertDeploymentStatusHistoryParams) UpsertDeploymen
 func statusToHistory(s DeploymentStatus) DeploymentStatusHistory {
 	return DeploymentStatusHistory{
 		DeploymentID:          s.DeploymentID,
-		StatusSeqNo:           s.StatusSeqNo,
-		Timestamp:             s.Timestamp,
+		UpdatedAt:             s.UpdatedAt,
 		PreparerConfigVersion: s.PreparerConfigVersion,
 		PreparerArtifact:      s.PreparerArtifact,
 		PreparerStatus:        s.PreparerStatus,

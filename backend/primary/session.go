@@ -173,9 +173,9 @@ func (s *Session) closeAllLogStreams() {
 }
 
 // handleStatusWrite persists a status transition reported by a worker using
-// the worker's StatusSeqNo as the authoritative identity. Same seq_no →
+// the worker's UpdatedAt clock as the authoritative identity. Same clock →
 // idempotent upsert, so reconnect re-pushes do not create duplicate history
-// rows. If the primary has drifted above the worker's latest seq_no, the
+// rows. If the primary has drifted above the worker's latest clock, the
 // extra rows are deleted so the primary converges to the worker's view.
 func (s *Session) handleStatusWrite(ctx context.Context, st *apigen.DeploymentStatus) {
 	if st == nil || st.DeploymentID == 0 {

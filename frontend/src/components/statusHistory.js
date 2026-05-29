@@ -115,10 +115,10 @@ export function deploymentStatusHistory(deploymentId, label, onClose) {
                     return p({class: "p-4 text-sm text-gray-500"}, "Loading...");
                 }
 
-                // Statuses arrive oldest-first. Drop seq_no=0 placeholder rows
-                // (inserted to satisfy the status-never-nil invariant — no
-                // preparer/runner data, would render as empty "status update").
-                const asc = statuses.val.filter(s => s.statusSeqNo > 0);
+                // Statuses arrive oldest-first. Drop placeholder rows with a
+                // zero clock (inserted to satisfy the status-never-nil invariant
+                // — no preparer/runner data, would render as empty "status update").
+                const asc = statuses.val.filter(s => tsMs(s.updatedAt) > 0);
                 if (asc.length === 0) {
                     return p({class: "p-4 text-sm text-gray-500"}, "No history.");
                 }
@@ -127,12 +127,12 @@ export function deploymentStatusHistory(deploymentId, label, onClose) {
                     const prev = i > 0 ? asc[i - 1] : null;
                     const next = i < asc.length - 1 ? asc[i + 1] : null;
                     const desc = describeStatusEntry(s, prev);
-                    const ts = tsMs(s.timestamp) > 0 ? format(s.timestamp, "MMM d HH:mm:ss") : '';
+                    const ts = tsMs(s.updatedAt) > 0 ? format(s.updatedAt, "MMM d HH:mm:ss") : '';
 
                     const transitionedToRunning = runnerChanged(s, prev)
                         && s.runner && s.runner.status === 2;
                     // Stable if it's the latest entry, or nothing changed for a while after it.
-                    const stable = !next || (tsMs(next.timestamp) - tsMs(s.timestamp) > STABLE_WINDOW_MS);
+                    const stable = !next || (tsMs(next.updatedAt) - tsMs(s.updatedAt) > STABLE_WINDOW_MS);
                     const color = transitionedToRunning && stable ? "text-green-500" : "text-gray-500";
 
                     return div(

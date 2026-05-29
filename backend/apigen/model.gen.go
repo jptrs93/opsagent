@@ -1278,8 +1278,7 @@ func DecodeDeploymentWithStatus(b []byte) (*DeploymentWithStatus, error) {
 }
 
 type DeploymentStatus struct {
-	StatusSeqNo  int64
-	Timestamp    time.Time
+	UpdatedAt    time.Time
 	DeploymentID int32
 	Preparer     *PreparerStatus
 	Runner       *RunnerStatus
@@ -1287,8 +1286,9 @@ type DeploymentStatus struct {
 
 func (m *DeploymentStatus) Encode() []byte {
 	var b []byte
-	b = AppendInt64Field(b, m.StatusSeqNo, 1)
-	b = AppendInt64FromTime(b, m.Timestamp, 2)
+	if !m.UpdatedAt.IsZero() {
+		b = AppendBytesField(b, EncodeTimestamp(m.UpdatedAt), 7)
+	}
 	b = AppendInt32Field(b, m.DeploymentID, 6)
 	if m.Preparer != nil {
 		b = protowire.AppendTag(b, 4, protowire.BytesType)
@@ -1313,10 +1313,8 @@ func DecodeDeploymentStatus(b []byte) (*DeploymentStatus, error) {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, m.StatusSeqNo, err = ConsumeVarInt64(b, typ)
-		case 2:
-			b, m.Timestamp, err = ConsumeTimeFromInt64(b, typ)
+		case 7:
+			b, m.UpdatedAt, err = ConsumeTimeFromTimestamp(b, typ)
 		case 6:
 			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 4:

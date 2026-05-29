@@ -288,8 +288,7 @@ func (r *osProcessRunner) writeStatus() {
 			slog.InfoContext(r.ctx, "discarding status update from superseded runner")
 			return false
 		}
-		s.BumpSeqNo()
-		s.Timestamp = time.Now()
+		s.BumpUpdatedAt()
 		s.DeploymentID = r.deploymentID
 		s.Runner = &r.status
 		return true
