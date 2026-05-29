@@ -6,7 +6,7 @@ import {deploymentHistory} from "../components/deploymentHistory.js";
 import {deployOverlay} from "../components/deployOverlay.js";
 import {createOverlay} from "../components/createOverlay.js";
 
-const { div, h1, p, button, table, thead, tbody, tr, th, label, input, span } = van.tags;
+const { div, h1, p, button, table, thead, tbody, tr, th, span } = van.tags;
 
 const SIDEBAR_WIDTH_KEY = 'opsagent_sidebar_width';
 const DEFAULT_SIDEBAR_PCT = 50;
@@ -210,14 +210,15 @@ export function statusPage() {
             h1({class: "text-xl font-bold"}, "Deployments"),
             div(
                 {class: "flex items-center gap-4"},
-                label(
-                    {class: "flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none"},
-                    input({
-                        type: "checkbox",
-                        checked: groupByEnvironment.val,
-                        class: "accent-brand cursor-pointer",
-                        onchange: e => { groupByEnvironment.val = e.target.checked; },
-                    }),
+                button({
+                    class: () => `flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors cursor-pointer ${groupByEnvironment.val ? 'border-brand bg-brand/20 text-blue-200' : 'border-gray-600 bg-gray-800 text-gray-400'}`,
+                    onclick: () => { groupByEnvironment.val = !groupByEnvironment.val; },
+                    type: "button",
+                    title: "Toggle environment grouping",
+                },
+                    span({class: () => `h-4 w-7 rounded-full relative transition-colors ${groupByEnvironment.val ? 'bg-brand' : 'bg-gray-600'}`},
+                        span({class: () => `absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${groupByEnvironment.val ? 'left-3.5' : 'left-0.5'}`}),
+                    ),
                     span("Group by environment"),
                 ),
                 button({
@@ -267,18 +268,18 @@ export function statusPage() {
                 ...groups.map(group => {
                     const collapsed = canCollapse && Boolean(collapsedEnvironmentGroups.val[group.environment]);
                     const header = div(
-                        {class: "flex items-center justify-between px-4 py-3 border-b border-gray-700"},
+                        {class: "flex items-center justify-between px-4 pt-2 pb-2 border-b border-gray-700"},
                         div(
                             {class: "flex items-center gap-2"},
-                            canCollapse ? button({
-                                class: "text-xs text-gray-400 hover:text-gray-200 cursor-pointer w-5 text-left",
-                                onclick: () => toggleEnvironmentGroup(group.environment),
-                                type: "button",
-                                title: collapsed ? "Expand" : "Collapse",
-                            }, collapsed ? "+" : "-") : null,
-                            div({class: "text-sm font-semibold text-gray-200"}, environmentLabel(group.environment)),
+                            div({class: "text-xs font-semibold text-gray-300"}, environmentLabel(group.environment)),
                             span({class: "text-xs text-gray-500"}, `${group.rows.length} deployment${group.rows.length === 1 ? '' : 's'}`),
                         ),
+                        canCollapse ? button({
+                            class: "text-xs text-gray-400 hover:text-gray-200 cursor-pointer px-2 py-1 rounded hover:bg-gray-800",
+                            onclick: () => toggleEnvironmentGroup(group.environment),
+                            type: "button",
+                            title: collapsed ? "Expand" : "Collapse",
+                        }, collapsed ? "Expand" : "Collapse") : span(),
                     );
                     return div(
                         {class: "card overflow-x-auto p-0"},

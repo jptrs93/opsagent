@@ -119,10 +119,9 @@ export function deploymentForm(form, opts = {}) {
                 )),
                 () => form.sourceType.val === SOURCE_GITHUB
                     ? div(
-                        {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
+                        {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
                         field("Repository", textInput(form.githubRepo, "github.com/org/repo")),
                         field("Asset", textInput(form.githubAsset, "server-linux-amd64")),
-                        field("Tag", textInput(form.githubTag, "v1.2.3")),
                     )
                     : div(
                         {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
