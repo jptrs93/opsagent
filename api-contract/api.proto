@@ -132,6 +132,12 @@ message OsProcessRunnerConfig {
   string working_dir = 1;
   string run_as = 2; // OS user to run the deployment process as (default: "ubuntu", ignored in local dev)
   string strategy = 3; // "leavePrevious": skip terminating the old process on upgrade (app handles its own rollover)
+  repeated EnvVar env = 4; // environment variables set on the spawned process
+}
+
+message EnvVar {
+  string key = 1;
+  string value = 2;
 }
 
 message SystemdRunnerConfig {

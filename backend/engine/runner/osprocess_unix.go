@@ -71,7 +71,7 @@ func awaitProcessExit(pid int) {
 // leader). Stdout and stderr are redirected to outputPath. If runAs is non-empty,
 // the process runs as that OS user (requires opsagent to have CAP_SETUID or
 // run as root). If runAs is empty, the process inherits opsagent's user.
-func spawnDaemon(binPath, workDir, logPath, runAs string) (int, error) {
+func spawnDaemon(binPath, workDir, logPath, runAs string, extraEnv []string) (int, error) {
 	slog.Info("spawnDaemon", "bin", binPath, "workDir", workDir, "logPath", logPath, "runAs", runAs)
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
@@ -106,8 +106,16 @@ func spawnDaemon(binPath, workDir, logPath, runAs string) (int, error) {
 		env = setEnv(env, "HOME", u.HomeDir)
 		env = setEnv(env, "USER", u.Username)
 	}
+	// Apply the deployment's configured env last so it takes precedence over the
+	// inherited/derived values above.
+	for _, kv := range extraEnv {
+		if key, _, ok := strings.Cut(kv, "="); ok {
+			env = setEnv(env, key, kv[len(key)+1:])
+		}
+	}
 
-	slog.Info("spawnDaemon child env", "env", env)
+	// Log only keys — values may contain secrets.
+	slog.Info("spawnDaemon child env", "keys", envKeys(env))
 
 	pid, err := syscall.ForkExec(binPath, []string{binPath}, &syscall.ProcAttr{
 		Dir: workDir,
@@ -148,6 +156,20 @@ func setEnv(env []string, key, value string) []string {
 		}
 	}
 	return append(env, prefix+value)
+}
+
+// envKeys returns the keys of a "KEY=VALUE" env slice, dropping the values so
+// they can be logged without leaking secrets.
+func envKeys(env []string) []string {
+	keys := make([]string, 0, len(env))
+	for _, kv := range env {
+		if key, _, ok := strings.Cut(kv, "="); ok {
+			keys = append(keys, key)
+		} else {
+			keys = append(keys, kv)
+		}
+	}
+	return keys
 }
 
 // scrubOpsagentEnv removes OPSAGENT_* environment variables so we don't leak

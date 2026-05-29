@@ -23,10 +23,11 @@ type osProcessRunner struct {
 	deploymentID int32
 
 	// these fields are not part of the runnerStatus they are derived from the version of the deploymentConfig
-	workDir       string // working directory where binary is executed from
-	runAs         string // the unix user the process is run as
-	outputPath    string // where stdout/stderr of process is streamed to
-	leavePrevious bool   // skip terminating old process on upgrade (app handles its own rollover)
+	workDir       string   // working directory where binary is executed from
+	runAs         string   // the unix user the process is run as
+	outputPath    string   // where stdout/stderr of process is streamed to
+	env           []string // extra "KEY=VALUE" environment entries set on the process
+	leavePrevious bool     // skip terminating old process on upgrade (app handles its own rollover)
 
 	status apigen.RunnerStatus
 
@@ -54,6 +55,7 @@ func reAttachOSProcessRunner(parentCtx context.Context, store storage.OperatorSt
 		workDir:       workDir,
 		runAs:         runAs,
 		outputPath:    apigen.RunOutputFile(deploymentConfig.ID, runnerStatus.DeploymentConfigVersion),
+		env:           osProcessEnv(&deploymentConfig),
 		leavePrevious: osProcessStrategy(&deploymentConfig) == "leavePrevious",
 		status:        runnerStatus,
 	}
@@ -79,6 +81,7 @@ func newOSProcessRunner(parentCtx context.Context, store storage.OperatorStore, 
 		workDir:       workDir,
 		runAs:         runAs,
 		outputPath:    apigen.RunOutputFile(dep.ID, configVersion),
+		env:           osProcessEnv(dep),
 		leavePrevious: osProcessStrategy(dep) == "leavePrevious",
 		status: apigen.RunnerStatus{
 			DeploymentConfigVersion: configVersion,
@@ -155,7 +158,7 @@ func (r *osProcessRunner) run() {
 		}
 		hadProcess = true
 		r.status.LastRestartAt = time.Now()
-		pid, err := spawnDaemon(r.status.RunningArtifact, r.workDir, r.outputPath, r.runAs)
+		pid, err := spawnDaemon(r.status.RunningArtifact, r.workDir, r.outputPath, r.runAs, r.env)
 		if err != nil {
 			slog.ErrorContext(r.ctx, "spawning daemon failed", "err", err, "bin", r.status.RunningArtifact, "workDir", r.workDir, "runAs", r.runAs)
 			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
@@ -349,4 +352,24 @@ func osProcessStrategy(dep *apigen.DeploymentConfig) string {
 		return ""
 	}
 	return dep.Spec.Runner.OsProcess.Strategy
+}
+
+// osProcessEnv flattens the configured env vars into "KEY=VALUE" entries to be
+// applied on the spawned process.
+func osProcessEnv(dep *apigen.DeploymentConfig) []string {
+	if dep == nil || dep.Spec.Runner.OsProcess.IsZero() {
+		return nil
+	}
+	cfg := dep.Spec.Runner.OsProcess.Env
+	if len(cfg) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(cfg))
+	for _, e := range cfg {
+		if e == nil {
+			continue
+		}
+		out = append(out, e.Key+"="+e.Value)
+	}
+	return out
 }

@@ -47,6 +47,12 @@
  * @property {string} workingDir
  * @property {string} runAs
  * @property {string} strategy
+ * @property {EnvVar[]} env
+ */
+/**
+ * @typedef {Object} EnvVar
+ * @property {string} key
+ * @property {string} value
  */
 /**
  * @typedef {Object} SystemdRunnerConfig
@@ -805,6 +811,13 @@ export function writeOsProcessRunnerConfig(message, writer) {
     if (message.strategy !== undefined && message.strategy !== null && message.strategy !== "") {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.strategy);
     }
+    if (message.env && message.env.length > 0) {
+        for (const item of message.env) {
+            writer.uint32(tag(4, WIRE.LDELIM)).fork();
+            writeEnvVar(item, writer);
+            writer.ldelim();
+        }
+    }
 }
 
 
@@ -826,7 +839,7 @@ export function encodeOsProcessRunnerConfig(message) {
  */
 function decodeOsProcessRunnerConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {workingDir: "", runAs: "", strategy: "" };
+    const message = {workingDir: "", runAs: "", strategy: "", env: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -840,6 +853,10 @@ function decodeOsProcessRunnerConfigMessage(reader, length) {
             }
             case 3: {
                 message.strategy = reader.string();
+                break;
+            }
+            case 4: {
+                message.env.push(decodeEnvVarMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -857,6 +874,69 @@ function decodeOsProcessRunnerConfigMessage(reader, length) {
 export function decodeOsProcessRunnerConfig(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeOsProcessRunnerConfigMessage(reader);
+}
+
+
+
+/**
+ * @param {EnvVar} message
+ * @param {Writer} writer
+ */
+export function writeEnvVar(message, writer) {
+    if (message.key !== undefined && message.key !== null && message.key !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
+    }
+    if (message.value !== undefined && message.value !== null && message.value !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.value);
+    }
+}
+
+
+/**
+ * @param {EnvVar} message
+ * @returns {Uint8Array}
+ */
+export function encodeEnvVar(message) {
+    const writer = Writer.create();
+    writeEnvVar(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {EnvVar}
+ */
+function decodeEnvVarMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {key: "", value: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.key = reader.string();
+                break;
+            }
+            case 2: {
+                message.value = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {EnvVar}
+ */
+export function decodeEnvVar(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeEnvVarMessage(reader);
 }
 
 

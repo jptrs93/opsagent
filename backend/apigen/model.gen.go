@@ -391,12 +391,14 @@ type OsProcessRunnerConfig struct {
 	WorkingDir string
 	RunAs      string
 	Strategy   string
+	Env        []*EnvVar
 }
 
 func (m OsProcessRunnerConfig) IsZero() bool {
 	return m.WorkingDir == "" &&
 		m.RunAs == "" &&
-		m.Strategy == ""
+		m.Strategy == "" &&
+		len(m.Env) == 0
 }
 
 func (m *OsProcessRunnerConfig) Encode() []byte {
@@ -404,6 +406,13 @@ func (m *OsProcessRunnerConfig) Encode() []byte {
 	b = AppendStringField(b, m.WorkingDir, 1)
 	b = AppendStringField(b, m.RunAs, 2)
 	b = AppendStringField(b, m.Strategy, 3)
+	for _, item := range m.Env {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 4, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
 	return b
 }
 
@@ -412,6 +421,7 @@ func DecodeOsProcessRunnerConfig(b []byte) (*OsProcessRunnerConfig, error) {
 	var num protowire.Number
 	var typ protowire.Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -424,6 +434,52 @@ func DecodeOsProcessRunnerConfig(b []byte) (*OsProcessRunnerConfig, error) {
 			b, m.RunAs, err = ConsumeString(b, typ)
 		case 3:
 			b, m.Strategy, err = ConsumeString(b, typ)
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *EnvVar
+				item, err = DecodeEnvVar(msgBytes)
+				if err == nil {
+					m.Env = append(m.Env, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type EnvVar struct {
+	Key   string
+	Value string
+}
+
+func (m *EnvVar) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	b = AppendStringField(b, m.Value, 2)
+	return b
+}
+
+func DecodeEnvVar(b []byte) (*EnvVar, error) {
+	var m EnvVar
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Value, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -392,9 +393,15 @@ type yamlRunner struct {
 }
 
 type yamlOsProcess struct {
-	WorkingDir string `yaml:"workingDir,omitempty"`
-	RunAs      string `yaml:"runAs,omitempty"`
-	Strategy   string `yaml:"strategy,omitempty"`
+	WorkingDir string       `yaml:"workingDir,omitempty"`
+	RunAs      string       `yaml:"runAs,omitempty"`
+	Strategy   string       `yaml:"strategy,omitempty"`
+	Env        []yamlEnvVar `yaml:"env,omitempty"`
+}
+
+type yamlEnvVar struct {
+	Key   string `yaml:"key"`
+	Value string `yaml:"value"`
 }
 
 type yamlSystemd struct {
@@ -474,10 +481,15 @@ func toRunnerConfig(yr *yamlRunner) (*apigen.RunnerConfig, error) {
 	}
 	out := &apigen.RunnerConfig{}
 	if hasOS {
+		env, err := toEnvVars(yr.OsProcess.Env)
+		if err != nil {
+			return nil, err
+		}
 		out.OsProcess = apigen.OsProcessRunnerConfig{
 			WorkingDir: yr.OsProcess.WorkingDir,
 			RunAs:      yr.OsProcess.RunAs,
 			Strategy:   yr.OsProcess.Strategy,
+			Env:        env,
 		}
 	}
 	if hasSystemd {
@@ -491,6 +503,29 @@ func toRunnerConfig(yr *yamlRunner) (*apigen.RunnerConfig, error) {
 			Name:    yr.Systemd.Name,
 			BinPath: yr.Systemd.BinPath,
 		}
+	}
+	return out, nil
+}
+
+// toEnvVars validates and converts YAML env entries. Keys are trimmed and
+// required; duplicate keys are rejected so the resulting process environment is
+// unambiguous.
+func toEnvVars(in []yamlEnvVar) ([]*apigen.EnvVar, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	out := make([]*apigen.EnvVar, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for _, e := range in {
+		key := strings.TrimSpace(e.Key)
+		if key == "" {
+			return nil, invalidConfigErrf("runner.osProcess.env: key is required")
+		}
+		if _, dup := seen[key]; dup {
+			return nil, invalidConfigErrf("runner.osProcess.env: duplicate key %q", key)
+		}
+		seen[key] = struct{}{}
+		out = append(out, &apigen.EnvVar{Key: key, Value: e.Value})
 	}
 	return out, nil
 }

@@ -58,6 +58,7 @@ export function deploymentConfigToForm(cfg) {
         osStrategy: os.strategy || '',
         systemdName: systemd.name || '',
         systemdBinPath: systemd.binPath || '',
+        envVars: (os.env || []).map(e => ({id: nextEnvID++, key: e.key || '', value: e.value || ''})),
     });
 }
 
@@ -198,6 +199,10 @@ export function formToYaml(form) {
             runAs: form.osRunAs.val.trim(),
             strategy: form.osStrategy.val,
         };
+        const env = form.envVars.val
+            .map(v => ({key: v.key.trim(), value: v.value}))
+            .filter(v => v.key);
+        if (env.length) obj.runner.osProcess.env = env;
     }
 
     return toYaml(obj);
@@ -241,7 +246,7 @@ function makeFormState(values) {
         osStrategy: van.state(values.osStrategy),
         systemdName: van.state(values.systemdName),
         systemdBinPath: van.state(values.systemdBinPath),
-        envVars: van.state([]),
+        envVars: van.state(values.envVars || []),
     };
 }
 
@@ -343,7 +348,7 @@ function environmentVarsEditor(form) {
             {class: "flex items-center justify-between mb-2"},
             div(
                 h3({class: "text-xs font-semibold text-gray-300"}, "Environment"),
-                p({class: "text-xs text-gray-500"}, "Stored in the form only for now; not sent to the runner yet."),
+                p({class: "text-xs text-gray-500"}, "Set on the process runner. Ignored for systemd deployments."),
             ),
             button({
                 class: "text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 cursor-pointer",
@@ -386,7 +391,24 @@ function toYaml(obj, indent = 0) {
     const pad = '  '.repeat(indent);
     for (const [key, val] of Object.entries(obj)) {
         if (val === undefined || val === null || val === '') continue;
-        if (typeof val === 'object' && !Array.isArray(val)) {
+        if (Array.isArray(val)) {
+            if (val.length === 0) continue;
+            lines.push(`${pad}${key}:`);
+            const itemPad = '  '.repeat(indent + 1);
+            for (const item of val) {
+                const entries = (item !== null && typeof item === 'object')
+                    ? Object.entries(item)
+                    : [[null, item]];
+                let first = true;
+                for (const [k, v] of entries) {
+                    if (v === undefined || v === null) continue;
+                    const scalar = typeof v === 'string' ? JSON.stringify(v) : String(v);
+                    const body = k === null ? scalar : `${k}: ${scalar}`;
+                    lines.push(`${itemPad}${first ? '- ' : '  '}${body}`);
+                    first = false;
+                }
+            }
+        } else if (typeof val === 'object') {
             lines.push(`${pad}${key}:`);
             const nested = toYaml(val, indent + 1);
             if (nested) lines.push(nested);
