@@ -268,7 +268,7 @@ export function statusPage() {
                 ...groups.map(group => {
                     const collapsed = canCollapse && Boolean(collapsedEnvironmentGroups.val[group.environment]);
                     const header = div(
-                        {class: "flex items-center justify-between px-4 pt-2 pb-2 border-b border-gray-700"},
+                        {class: "flex items-center justify-between px-4 pt-1 pb-2 border-b border-gray-700"},
                         div(
                             {class: "flex items-center gap-2"},
                             div({class: "text-xs font-semibold text-gray-300"}, environmentLabel(group.environment)),

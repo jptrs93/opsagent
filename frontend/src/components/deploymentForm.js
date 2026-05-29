@@ -71,7 +71,7 @@ export function deploymentForm(form, opts = {}) {
 
     return div(
         {class: "flex flex-col gap-3"},
-        sectionCard(
+        sectionCardWithAside(
             "Deployment",
             identityLocked ? span({class: "text-xs text-orange-300"}, "Deployment identity is fixed after creation.") : null,
             div(
@@ -251,7 +251,11 @@ function makeFormState(values) {
     };
 }
 
-function sectionCard(title, aside, ...children) {
+function sectionCard(title, ...children) {
+    return sectionCardWithAside(title, null, ...children);
+}
+
+function sectionCardWithAside(title, aside, ...children) {
     return div(
         {class: "rounded-lg border border-gray-700 bg-gray-900/70 p-4"},
         div(
