@@ -101,24 +101,30 @@ function statusBadge(hasExisting, colors, onclick) {
 }
 
 function versionLink(deployment) {
-    const v = deployment.deployedVersion || '';
-    if (!v) return span({class: "text-gray-500"}, 'none');
-    const short = shortVersion(v);
+    const running = deployment.existingVersion || '';
+    const desired = deployment.deployedVersion || '';
+    if (!running) return span({class: "text-gray-500"}, 'none');
+    const short = shortVersion(running);
+    const mismatched = Boolean(desired) && running !== desired;
+    const color = mismatched ? 'text-orange-400' : 'text-gray-300';
+    const title = mismatched ? `Running ${short}; desired ${shortVersion(desired)}` : undefined;
     if (deployment.variant === 'nixBuild' && deployment.repo) {
         return a({
-            class: "font-mono text-gray-300 underline hover:text-white",
-            href: `https://${deployment.repo}/commit/${v}`,
+            class: `font-mono ${color} underline hover:text-white`,
+            href: `https://${deployment.repo}/commit/${running}`,
             target: "_blank",
+            title,
         }, short);
     }
     if (deployment.variant === 'githubRelease' && deployment.repo) {
         return a({
-            class: "font-mono text-gray-300 underline hover:text-white",
-            href: `https://${deployment.repo}/releases/tag/${v}`,
+            class: `font-mono ${color} underline hover:text-white`,
+            href: `https://${deployment.repo}/releases/tag/${running}`,
             target: "_blank",
+            title,
         }, short);
     }
-    return span({class: "font-mono text-gray-300"}, short);
+    return span({class: `font-mono ${color}`, title}, short);
 }
 
 function shortVersion(v) {

@@ -41,11 +41,11 @@ const (
 )
 
 // reAttachOSProcessRunner attaches to existing process runner
-func reAttachOSProcessRunner(parentCtx context.Context, store storage.OperatorStore, deploymentConfig apigen.DeploymentConfig, runnerStatus apigen.RunnerStatus) *osProcessRunner {
-	ctx, cancel := context.WithCancel(parentCtx)
+func reAttachOSProcessRunner(store storage.OperatorStore, deploymentConfig apigen.DeploymentConfig, runnerStatus apigen.RunnerStatus) *osProcessRunner {
+	ctx, cancel := context.WithCancel(context.Background())
 	// todo: potential gap if the deploymentConfig has changed then these resolutions could be different from the version actually still running
 	runAs := resolveRunAs(osProcessRunAs(&deploymentConfig))
-	workDir := resolveWorkingDir(ctx, osProcessWorkingDir(&deploymentConfig), runAs)
+	workDir := resolveWorkingDir(osProcessWorkingDir(&deploymentConfig), runAs)
 	r := &osProcessRunner{
 		ctx:           ctx,
 		cancel:        cancel,
@@ -64,11 +64,11 @@ func reAttachOSProcessRunner(parentCtx context.Context, store storage.OperatorSt
 }
 
 // newOSProcessRunner upgrades the runner to the prepared config version and starts process runner
-func newOSProcessRunner(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *osProcessRunner {
-	ctx, cancel := context.WithCancel(parentCtx)
+func newOSProcessRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *osProcessRunner {
+	ctx, cancel := context.WithCancel(context.Background())
 
 	runAs := resolveRunAs(osProcessRunAs(dep))
-	workDir := resolveWorkingDir(ctx, osProcessWorkingDir(dep), runAs)
+	workDir := resolveWorkingDir(osProcessWorkingDir(dep), runAs)
 
 	configVersion := preparerStatus.DeploymentConfigVersion
 
@@ -286,7 +286,7 @@ func (r *osProcessRunner) updateStatus(status apigen.RunningStatus, pid int32) {
 }
 
 func (r *osProcessRunner) writeStatus() {
-	r.store.MustWriteDeploymentStatus(context.Background(), r.deploymentID, func(s *apigen.DeploymentStatus) bool {
+	r.store.MustWriteDeploymentStatus(r.deploymentID, func(s *apigen.DeploymentStatus) bool {
 		if !s.Runner.IsZero() && s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion {
 			slog.InfoContext(r.ctx, "discarding status update from superseded runner")
 			return false
@@ -300,21 +300,21 @@ func (r *osProcessRunner) writeStatus() {
 
 // --- helpers ---
 
-func resolveWorkingDir(ctx context.Context, dir, runAs string) string {
+func resolveWorkingDir(dir, runAs string) string {
 	if dir != "" {
 		return dir
 	}
 	if runAs != "" {
 		u, err := user.Lookup(runAs)
 		if err != nil {
-			slog.ErrorContext(ctx, fmt.Sprintf("resolving working dir: looking up user %v: %v", u, err))
+			slog.Error(fmt.Sprintf("resolving working dir: looking up user %v: %v", u, err))
 			return ""
 		}
 		return u.HomeDir
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		slog.ErrorContext(ctx, "resolving home dir:", "err", err)
+		slog.Error("resolving home dir:", "err", err)
 		return ""
 	}
 	return home

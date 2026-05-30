@@ -7,7 +7,7 @@ import {deploymentHistory} from "../components/deploymentHistory.js";
 import {deployOverlay} from "../components/deployOverlay.js";
 import {createOverlay} from "../components/createOverlay.js";
 
-const { div, h1, p, button, table, thead, tbody, tr, th, span } = van.tags;
+const { div, p, button, table, thead, tbody, tr, th, span } = van.tags;
 
 const SIDEBAR_WIDTH_KEY = 'opsagent_sidebar_width';
 const DEFAULT_SIDEBAR_PCT = 50;
@@ -59,7 +59,7 @@ const headerTips = {
     environment: 'Logical environment for grouping deployments.',
     machine: 'Cluster machine where this deployment is reconciled.',
     status: 'Current runner status. Click the badge to view run output.',
-    version: 'Desired deployed commit or GitHub release tag.',
+    version: 'Currently running commit or GitHub release tag. Orange when it differs from the desired version.',
     prepare: 'Latest prepare/build/download result. Click to view prepare logs.',
     restarts: 'Runner restart count and last restart time for the current deployment version.',
     deployed: 'User and timestamp of the latest deployment config change.',
@@ -199,7 +199,7 @@ export function statusPage() {
                 showEnvironmentColumn ? tableHeader("Environment", headerTips.environment, "py-3 px-4 font-medium") : null,
                 tableHeader("Machine", headerTips.machine, "py-3 px-4 font-medium"),
                 tableHeader("Status", headerTips.status, "py-3 px-4 font-medium"),
-                tableHeader("Version", headerTips.version, "py-3 px-4 font-medium"),
+                tableHeader("Running Version", headerTips.version, "py-3 px-4 font-medium"),
                 tableHeader("Prepare", headerTips.prepare, "py-3 px-4 font-medium"),
                 tableHeader("Restarts", headerTips.restarts, "py-3 px-4 font-medium"),
                 tableHeader("Deployed", headerTips.deployed, "py-3 px-4 font-medium"),
@@ -245,8 +245,7 @@ export function statusPage() {
     const mainContent = div(
         {class: "flex flex-col gap-6"},
         div(
-            {class: "flex items-center justify-between"},
-            h1({class: "text-xl font-bold"}, "Deployments"),
+            {class: "flex items-center justify-end"},
             div(
                 {class: "flex items-center gap-4"},
                 button({

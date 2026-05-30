@@ -3,10 +3,12 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/jptrs93/goutil/ptru"
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -51,24 +53,25 @@ func boolToInt(b bool) int64 {
 	return 0
 }
 
-// MustWriteReplicatedDeploymentStatus persists a status pushed by a secondary,
-// treating the incoming UpdatedAt clock as the authoritative identity. Duplicate
-// clocks upsert the existing history row, so reconnect-driven replays are
-// idempotent. The current-state row is only advanced when the incoming clock
-// is at least the cached max, so out-of-order backlog fills never regress
-// "latest".
-func (s *StorageAdapter) MustWriteReplicatedDeploymentStatus(ctx context.Context, st *apigen.DeploymentStatus) {
+func (s *StorageAdapter) MustWriteReplicatedDeploymentStatus(st *apigen.DeploymentStatus) {
 	if st == nil || st.DeploymentID == 0 || st.UpdatedAt.IsZero() {
 		return
 	}
+	ctx := context.Background()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	dbID := int64(st.DeploymentID)
 	params := statusProtoToInsertParams(dbID, st)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		panic(fmt.Sprintf("begin tx: %v", err))
+	}
+	defer tx.Rollback()
+	q := s.q.WithTx(tx)
 
-	if _, err := s.db.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO deployment_status_history (
 		    deployment_id, updated_at,
 		    preparer_config_version, preparer_artifact, preparer_status,
@@ -98,9 +101,15 @@ func (s *StorageAdapter) MustWriteReplicatedDeploymentStatus(ctx context.Context
 		cached = cur.UpdatedAt
 	}
 	if !st.UpdatedAt.Before(cached) {
-		if err := s.q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
+		if err := q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
 			panic(fmt.Sprintf("UpsertDeploymentStatus: %v", err))
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit: %v", err))
+	}
+
+	if !st.UpdatedAt.Before(cached) {
 		s.statusCache[st.DeploymentID] = st
 		s.notifyFromCache(st.DeploymentID)
 	}
@@ -152,13 +161,19 @@ func (s *StorageAdapter) MustSetDeploymentDesiredState(ctx apigen.Context, deplo
 	bgCtx := context.Background()
 	dbID := int64(deploymentID)
 	now := time.Now().UnixMilli()
+	tx, err := s.db.BeginTx(bgCtx, nil)
+	if err != nil {
+		panic(fmt.Sprintf("begin tx: %v", err))
+	}
+	defer tx.Rollback()
+	q := s.q.WithTx(tx)
 
 	userID := int64(0)
 	if ctx.User != nil {
 		userID = int64(ctx.User.ID)
 	}
 
-	if err := s.q.UpdateDesiredState(bgCtx, UpdateDesiredStateParams{
+	if err := q.UpdateDesiredState(bgCtx, UpdateDesiredStateParams{
 		DesiredVersion: desired.Version,
 		DesiredRunning: boolToInt(desired.Running),
 		UpdatedAt:      now,
@@ -168,11 +183,11 @@ func (s *StorageAdapter) MustSetDeploymentDesiredState(ctx apigen.Context, deplo
 		panic(fmt.Sprintf("UpdateDesiredState: %v", err))
 	}
 
-	updated, err := s.q.GetDeploymentConfig(bgCtx, dbID)
+	updated, err := q.GetDeploymentConfig(bgCtx, dbID)
 	if err != nil {
 		panic(fmt.Sprintf("GetDeploymentConfig after update: %v", err))
 	}
-	if err := s.q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
+	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
 		Version:        updated.Version,
 		UpdatedAt:      updated.UpdatedAt,
@@ -183,6 +198,9 @@ func (s *StorageAdapter) MustSetDeploymentDesiredState(ctx apigen.Context, deplo
 		Deleted:        updated.Deleted,
 	}); err != nil {
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
+	}
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit: %v", err))
 	}
 
 	s.configCache[deploymentID] = configRowToProto(updated)
@@ -198,13 +216,19 @@ func (s *StorageAdapter) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 	bgCtx := context.Background()
 	dbID := int64(deploymentID)
 	now := time.Now().UnixMilli()
+	tx, err := s.db.BeginTx(bgCtx, nil)
+	if err != nil {
+		panic(fmt.Sprintf("begin tx: %v", err))
+	}
+	defer tx.Rollback()
+	q := s.q.WithTx(tx)
 
 	userID := int64(0)
 	if ctx.User != nil {
 		userID = int64(ctx.User.ID)
 	}
 
-	existing, err := s.q.GetDeploymentConfig(bgCtx, dbID)
+	existing, err := q.GetDeploymentConfig(bgCtx, dbID)
 	if err != nil {
 		panic(fmt.Sprintf("GetDeploymentConfig: %v", err))
 	}
@@ -229,10 +253,10 @@ func (s *StorageAdapter) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 		DesiredRunning: existing.DesiredRunning,
 		Deleted:        existing.Deleted,
 	}
-	if err := s.q.UpsertDeploymentConfig(bgCtx, params); err != nil {
+	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
 		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
 	}
-	if err := s.q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
+	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
 		Version:        newVersion,
 		UpdatedAt:      now,
@@ -243,6 +267,9 @@ func (s *StorageAdapter) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 		Deleted:        existing.Deleted,
 	}); err != nil {
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
+	}
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit: %v", err))
 	}
 
 	s.configCache[deploymentID] = upsertParamsToProto(params)
@@ -311,7 +338,7 @@ func (s *StorageAdapter) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory (create): %v", err))
 	}
 
-	s.insertDefaultStatus(bgCtx, q, dbID)
+	s.insertDefaultStatus(q, dbID)
 
 	if err := tx.Commit(); err != nil {
 		panic(fmt.Sprintf("commit: %v", err))
@@ -404,7 +431,7 @@ func (s *StorageAdapter) EnsureSystemDeployment(machine string) {
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory (system): %v", err))
 	}
 
-	s.insertDefaultStatus(bgCtx, q, dbID)
+	s.insertDefaultStatus(q, dbID)
 
 	if err := tx.Commit(); err != nil {
 		panic(fmt.Sprintf("commit: %v", err))
@@ -556,7 +583,7 @@ func configHistoryRowToProto(dbID int64, cid apigen.DeploymentIdentifier, create
 		Version:   int32(r.Version),
 		UpdatedAt: time.UnixMilli(r.UpdatedAt),
 		UpdatedBy: int32(r.UpdatedBy),
-		Spec:      deploymentSpecValue(spec),
+		Spec:      ptru.SafeDref(spec),
 		DesiredState: apigen.DesiredState{
 			Version: r.DesiredVersion,
 			Running: r.DesiredRunning != 0,
@@ -605,7 +632,7 @@ func configRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
 		Version:   int32(r.Version),
 		UpdatedAt: time.UnixMilli(r.UpdatedAt),
 		UpdatedBy: int32(r.UpdatedBy),
-		Spec:      deploymentSpecValue(spec),
+		Spec:      ptru.SafeDref(spec),
 		DesiredState: apigen.DesiredState{
 			Version: r.DesiredVersion,
 			Running: r.DesiredRunning != 0,
@@ -630,20 +657,13 @@ func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfi
 		Version:   int32(p.Version),
 		UpdatedAt: time.UnixMilli(p.UpdatedAt),
 		UpdatedBy: int32(p.UpdatedBy),
-		Spec:      deploymentSpecValue(spec),
+		Spec:      ptru.SafeDref(spec),
 		DesiredState: apigen.DesiredState{
 			Version: p.DesiredVersion,
 			Running: p.DesiredRunning != 0,
 		},
 		Deleted: p.Deleted != 0,
 	}
-}
-
-func deploymentSpecValue(spec *apigen.DeploymentSpec) apigen.DeploymentSpec {
-	if spec == nil {
-		return apigen.DeploymentSpec{}
-	}
-	return *spec
 }
 
 // --- auth: users ---
@@ -680,7 +700,7 @@ func (s *StorageAdapter) SubscribeUserUpdates() (*logstore.Sub[apigen.User], fun
 
 func (s *StorageAdapter) FetchUserByID(id int32) (*apigen.InternalUser, error) {
 	row, err := s.q.GetUser(context.Background(), int64(id))
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
@@ -724,7 +744,6 @@ func (s *StorageAdapter) UserCount() int {
 }
 
 // --- auth: public keys ---
-
 func (s *StorageAdapter) WritePublicKey(rec *apigen.PublicKeyRecord) {
 	ctx := context.Background()
 	if err := s.q.UpsertPublicKey(ctx, UpsertPublicKeyParams{
@@ -737,7 +756,7 @@ func (s *StorageAdapter) WritePublicKey(rec *apigen.PublicKeyRecord) {
 
 func (s *StorageAdapter) FetchPublicKey(kid string) (*apigen.PublicKeyRecord, error) {
 	row, err := s.q.GetPublicKey(context.Background(), kid)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {

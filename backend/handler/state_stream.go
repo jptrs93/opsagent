@@ -12,7 +12,8 @@ import (
 // heartbeats to keep the HTTP connection alive.
 func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State, error] {
 	return func(yield func(*apigen.State, error) bool) {
-		snapshot, updatesCh := h.Store.MustFetchSnapshotAndSubscribe(ctx, "")
+		snapshot, updatesCh, updatesUnsub := h.Store.MustFetchSnapshotAndSubscribe("")
+		defer updatesUnsub()
 		userSub, userUnsub := h.Store.SubscribeUserUpdates()
 		defer userUnsub()
 

@@ -32,8 +32,8 @@ type systemdRunner struct {
 }
 
 // reAttachSystemdRunner creates a monitor-only runner. Used by ReAttach.
-func reAttachSystemdRunner(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, runnerStatus apigen.RunnerStatus) *systemdRunner {
-	ctx, cancel := context.WithCancel(parentCtx)
+func reAttachSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig, runnerStatus apigen.RunnerStatus) *systemdRunner {
+	ctx, cancel := context.WithCancel(context.Background())
 	sys := dep.Spec.Runner.Systemd
 	r := &systemdRunner{
 		ctx:          ctx,
@@ -53,8 +53,8 @@ func reAttachSystemdRunner(parentCtx context.Context, store storage.OperatorStor
 // systemd restart, writes the new status, then enters the monitor loop.
 // Called only from runner.Create when the operator has a new artifact ready.
 // No retries — if install or restart fails, it writes CRASHED and exits.
-func newSystemdRunnerWithRestart(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *systemdRunner {
-	ctx, cancel := context.WithCancel(parentCtx)
+func newSystemdRunnerWithRestart(store storage.OperatorStore, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *systemdRunner {
+	ctx, cancel := context.WithCancel(context.Background())
 	sys := dep.Spec.Runner.Systemd
 	r := &systemdRunner{
 		ctx:          ctx,
@@ -148,7 +148,7 @@ func (r *systemdRunner) updateStatus(status apigen.RunningStatus, pid int32) {
 }
 
 func (r *systemdRunner) writeStatus() {
-	r.store.MustWriteDeploymentStatus(context.Background(), r.deploymentID, func(s *apigen.DeploymentStatus) bool {
+	r.store.MustWriteDeploymentStatus(r.deploymentID, func(s *apigen.DeploymentStatus) bool {
 		if !s.Runner.IsZero() && s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion {
 			slog.InfoContext(r.ctx, "discarding status update from superseded runner")
 			return false

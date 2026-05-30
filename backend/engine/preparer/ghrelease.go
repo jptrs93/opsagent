@@ -33,14 +33,14 @@ func NewGithubReleaseDownloader(dataDir string, githubToken string) *GithubRelea
 	}
 }
 
-func (g *GithubReleaseDownloader) start(parentCtx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig) Preparer {
-	ctx, cancel := context.WithCancel(parentCtx)
+func (g *GithubReleaseDownloader) start(store storage.OperatorStore, dep *apigen.DeploymentConfig) Preparer {
+	ctx, cancel := context.WithCancel(context.Background())
 	p := &activePreparer{cancel: cancel, done: make(chan struct{}), deploymentConfigVersion: dep.Version}
 
 	version := desiredVersion(dep)
 	if version == "" {
 		cancel()
-		writePrepareStatus(ctx, store, dep, "", apigen.PreparationStatus_FAILED)
+		writePrepareStatus(store, dep, "", apigen.PreparationStatus_FAILED)
 		close(p.done)
 		return p
 	}
@@ -51,11 +51,11 @@ func (g *GithubReleaseDownloader) start(parentCtx context.Context, store storage
 		case g.sem <- struct{}{}:
 			defer func() { <-g.sem }()
 		case <-ctx.Done():
-			writePrepareStatus(ctx, store, dep, "", apigen.PreparationStatus_FAILED)
+			writePrepareStatus(store, dep, "", apigen.PreparationStatus_FAILED)
 			return
 		}
 		artifact, status := g.runDownload(ctx, store, dep, version)
-		writePrepareStatus(ctx, store, dep, artifact, status)
+		writePrepareStatus(store, dep, artifact, status)
 	}()
 
 	return p
@@ -64,7 +64,7 @@ func (g *GithubReleaseDownloader) start(parentCtx context.Context, store storage
 func (g *GithubReleaseDownloader) runDownload(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, version string) (string, apigen.PreparationStatus) {
 	logPath := dep.PrepareOutputPath()
 	slog.InfoContext(ctx, "github release download starting", "log_path", logPath)
-	writePrepareStatus(ctx, store, dep, "", apigen.PreparationStatus_DOWNLOADING)
+	writePrepareStatus(store, dep, "", apigen.PreparationStatus_DOWNLOADING)
 
 	logFile, err := os.Create(logPath)
 	if err != nil {

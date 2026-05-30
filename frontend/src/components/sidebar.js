@@ -40,8 +40,7 @@ export function sidebar(activePage) {
         ),
         div(
             {class: "p-3 flex flex-col gap-1"},
-            div({class: "text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-2"}, "Deployments"),
-            item("Status", "status"),
+            item("Deployments", "status"),
         ),
         div({class: "flex-1"}),
         div(

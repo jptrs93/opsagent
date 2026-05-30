@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"io/fs"
 	"mime"
@@ -110,7 +109,7 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	// Kick off the deployment operator for this machine. RunAll pulls the
 	// current snapshot from the store and spawns a per-deployment reconciler
 	// for each entry, plus a forwarder that fans store updates out to them.
-	go engine.DeploymentOperator{Store: h.Store}.RunAll(context.Background(), machineName)
+	go engine.DeploymentOperator{Store: h.Store}.RunAll(machineName)
 
 	return h, nil
 }

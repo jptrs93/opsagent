@@ -1,11 +1,9 @@
 package engine
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 
-	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
 	"github.com/jptrs93/opsagent/backend/engine/runner"
@@ -33,16 +31,16 @@ func configName(cfg *apigen.DeploymentConfig) string {
 	return fmt.Sprintf("id=%d", cfg.ID)
 }
 
-func (op DeploymentOperator) RunAll(ctx context.Context, machine string) {
-	deps, ch := op.Store.MustFetchSnapshotAndSubscribe(ctx, machine)
+func (op DeploymentOperator) RunAll(machine string) {
+	deps, ch, _ := op.Store.MustFetchSnapshotAndSubscribe(machine)
 	subs := &logstore.Subs[apigen.DeploymentWithStatus]{}
 
-	slog.InfoContext(ctx, "RunAll: snapshot loaded", "count", len(deps), "machine", machine)
+	slog.Info("RunAll: snapshot loaded", "count", len(deps), "machine", machine)
 
 	running := map[int32]struct{}{}
 	for _, dep := range deps {
 		running[dep.Config.ID] = struct{}{}
-		slog.InfoContext(ctx, "RunAll: launching operator from snapshot",
+		slog.Info("RunAll: launching operator from snapshot",
 			"id", dep.Config.ID,
 			"name", configName(&dep.Config),
 			"seqNo", dep.Config.Version,
@@ -53,88 +51,87 @@ func (op DeploymentOperator) RunAll(ctx context.Context, machine string) {
 		)
 		config := dep.Config
 		status := dep.Status
-		go op.Run(ctx, subs, &config, &status)
+		go op.Run(subs, &config, &status)
 	}
 	go func() {
 		for {
-			select {
-			case v := <-ch:
-				if _, ok := running[v.Config.ID]; !ok {
-					running[v.Config.ID] = struct{}{}
-					slog.InfoContext(ctx, "RunAll: launching operator for new deployment",
-						"id", v.Config.ID,
-						"name", configName(&v.Config),
-						"seqNo", v.Config.Version,
-					)
-					config := v.Config
-					status := v.Status
-					go op.Run(ctx, subs, &config, &status)
-				}
-				subs.Notify(v)
-			case <-ctx.Done():
+			v, ok := <-ch
+			if !ok {
 				return
 			}
+			if _, ok := running[v.Config.ID]; !ok {
+				running[v.Config.ID] = struct{}{}
+				slog.Info("RunAll: launching operator for new deployment",
+					"id", v.Config.ID,
+					"name", configName(&v.Config),
+					"seqNo", v.Config.Version,
+				)
+				config := v.Config
+				status := v.Status
+				go op.Run(subs, &config, &status)
+			}
+			subs.Notify(v)
 		}
 	}()
 
 }
 
 func (op DeploymentOperator) Run(
-	ctx context.Context,
 	subs *logstore.Subs[apigen.DeploymentWithStatus],
 	config *apigen.DeploymentConfig,
 	status *apigen.DeploymentStatus) {
 	id := config.ID
-	ctx = logu.ExtendLogContext(ctx, "dep", configName(config))
-	slog.InfoContext(ctx, "deployment operator started")
+	depName := configName(config)
+	slog.Info("deployment operator started", "dep", depName)
 
 	sub, unsubFunc := subs.Subscribe(func(dws apigen.DeploymentWithStatus) bool {
 		return dws.Config.ID == id
 	})
-	slog.InfoContext(ctx, "Run: reattaching preparer",
+	slog.Info("Run: reattaching preparer",
+		"dep", depName,
 		"preparerStatus", fmtPreparerStatus(status.Preparer),
 		"configSeqNo", config.Version,
 	)
-	var currentPreparer preparer.Preparer = preparer.ReAttach(ctx, op.Store, config, status.Preparer)
-	slog.InfoContext(ctx, "Run: reattaching runner",
+	var currentPreparer preparer.Preparer = preparer.ReAttach(op.Store, config, status.Preparer)
+	slog.Info("Run: reattaching runner",
+		"dep", depName,
 		"runnerStatus", fmtRunnerStatus(status.Runner),
 		"configSeqNo", config.Version,
 	)
-	var currentRunner runner.Runner = runner.ReAttach(ctx, op.Store, config, status.Runner)
+	var currentRunner runner.Runner = runner.ReAttach(op.Store, config, status.Runner)
 
 	// Reconciliation loop.
 	for {
-		select {
-		case update := <-sub.Ch:
-			config := update.Config
-			status := update.Status
-			switch {
-			case config.Deleted:
-				slog.InfoContext(ctx, "Run: deployment deleted, shutting down")
-				currentPreparer.Cancel()
-				currentRunner.Stop()
-				unsubFunc()
-				return
-			case !config.DesiredState.Running:
-				slog.InfoContext(ctx, "Run: desired running=false, stopping runner")
-				currentRunner.Stop()
-			case config.Version > currentPreparer.Version() && config.DesiredState.Running:
-				slog.InfoContext(ctx, "Run: config ahead of preparer, starting new prepare",
-					"configSeqNo", config.Version, "preparerSeqNo", currentPreparer.Version())
-				currentPreparer.Cancel()
-				currentPreparer = preparer.StartPrepare(op.Store, &config)
-			case preparerReady(&status, config.Version) && config.Version > currentRunner.Version():
-				slog.InfoContext(ctx, "Run: preparer ready, creating runner",
-					"artifact", status.Preparer.Artifact, "configSeqNo", config.Version)
-				currentRunner.Stop()
-				currentRunner = runner.Create(ctx, op.Store, &config, &status)
-			default:
-				slog.DebugContext(ctx, "Run: nothing to do on update")
-			}
-		case <-ctx.Done():
-			slog.InfoContext(ctx, "graceful exit on context end")
+		update, ok := <-sub.Ch
+		if !ok {
+			return
+		}
+		config := update.Config
+		status := update.Status
+		switch {
+		case config.Deleted:
+			slog.Info("Run: deployment deleted, shutting down", "dep", depName)
+			currentPreparer.Cancel()
+			currentRunner.Stop()
 			unsubFunc()
 			return
+		case !config.DesiredState.Running:
+			slog.Info("Run: desired running=false, stopping runner", "dep", depName)
+			currentRunner.Stop()
+		case config.Version > currentPreparer.Version() && config.DesiredState.Running:
+			slog.Info("Run: config ahead of preparer, starting new prepare",
+				"dep", depName,
+				"configSeqNo", config.Version, "preparerSeqNo", currentPreparer.Version())
+			currentPreparer.Cancel()
+			currentPreparer = preparer.StartPrepare(op.Store, &config)
+		case preparerReady(&status, config.Version) && config.Version > currentRunner.Version():
+			slog.Info("Run: preparer ready, creating runner",
+				"dep", depName,
+				"artifact", status.Preparer.Artifact, "configSeqNo", config.Version)
+			currentRunner.Stop()
+			currentRunner = runner.Create(op.Store, &config, &status)
+		default:
+			slog.Debug("Run: nothing to do on update", "dep", depName)
 		}
 	}
 }

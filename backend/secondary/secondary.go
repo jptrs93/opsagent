@@ -1,4 +1,4 @@
-package slave
+package secondary
 
 import (
 	"context"
@@ -7,10 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
-
-	"path/filepath"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine"
@@ -18,7 +17,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
-// Config holds the configuration for a slave node.
 type Config struct {
 	TLS         *tls.Config
 	PrimaryAddr string
@@ -27,11 +25,6 @@ type Config struct {
 	DataDir     string
 	GithubToken string
 }
-
-// outbox funnels every MsgToMaster a session produces — status writes from the
-// push loop and log chunks from the streamers — into the single request stream
-// of the bidirectional RPC. Send returns false once the session is tearing
-// down, so producers stop instead of blocking.
 type outbox struct {
 	ch  chan *apigen.MsgToMaster
 	ctx context.Context
@@ -46,21 +39,18 @@ func (o *outbox) Send(msg *apigen.MsgToMaster) bool {
 	}
 }
 
-// Run boots the local store, seeds the in-memory snapshot, starts the
-// deployment operator, and spawns a background goroutine that maintains a
-// persistent connection to the primary. It blocks until ctx is done.
-func Run(ctx context.Context, cfg Config) error {
-	store := sqlite.NewSecondaryStorageAdapter(filepath.Join(cfg.DataDir, "secondary.db"))
+// Run boots the local store, starts the deployment operator, and then maintains
+// a persistent connection to the primary. It intentionally runs forever; fatal
+// failures should panic and let the service manager restart the process.
+func Run(cfg Config) {
+	store := sqlite.NewSecondaryStorage(filepath.Join(cfg.DataDir, "secondary.db"))
 
 	preparer.Nix = preparer.NewNixBuilder(cfg.DataDir, cfg.GithubToken)
 	preparer.GHRel = preparer.NewGithubReleaseDownloader(cfg.DataDir, cfg.GithubToken)
 
-	go engine.DeploymentOperator{Store: store}.RunAll(ctx, cfg.MachineName)
+	go engine.DeploymentOperator{Store: store}.RunAll(cfg.MachineName)
 
-	go runPrimaryConnLoop(ctx, cfg, store)
-
-	<-ctx.Done()
-	return ctx.Err()
+	runPrimaryConnLoop(cfg, store)
 }
 
 // newPrimaryHTTPClient builds the HTTP/2-only client a worker uses to dial the
@@ -70,7 +60,7 @@ func Run(ctx context.Context, cfg Config) error {
 //
 // No http.Client.Timeout is set: it is a whole-request deadline and would abort
 // the long-lived cluster stream. Connection liveness is handled by the HTTP/2
-// PING-based health check; session lifetime is bounded by the request context.
+// PING-based health check.
 func newPrimaryHTTPClient(tlsConfig *tls.Config, serverName string) *http.Client {
 	cfg := tlsConfig.Clone()
 	if serverName != "" {
@@ -90,13 +80,7 @@ func newPrimaryHTTPClient(tlsConfig *tls.Config, serverName string) *http.Client
 	}
 }
 
-// runPrimaryConnLoop maintains a persistent connection to the primary in a
-// loop, running a session while connected and backing off on failures. The
-// slave keeps operating off local state while disconnected — this loop never
-// returns until ctx is done. The HTTP/2 client is built once and reused; its
-// PING-based health check tears down dead connections so a failed session
-// surfaces as an error from runSession.
-func runPrimaryConnLoop(ctx context.Context, cfg Config, store *sqlite.SecondaryStorage) {
+func runPrimaryConnLoop(cfg Config, store *sqlite.SecondaryStorage) {
 	capi := apigen.NewOpsagentClusterV1Capi(
 		"https://"+cfg.PrimaryAddr,
 		apigen.WithOpsagentClusterV1CapiHTTPClient(newPrimaryHTTPClient(cfg.TLS, cfg.PrimaryName)),
@@ -105,15 +89,8 @@ func runPrimaryConnLoop(ctx context.Context, cfg Config, store *sqlite.Secondary
 	backoff := time.Second
 	const maxBackoff = 30 * time.Second
 	for {
-		if ctx.Err() != nil {
-			return
-		}
-
 		connectedAt := time.Now()
-		err := runSession(ctx, capi, store, cfg.MachineName)
-		if ctx.Err() != nil {
-			return
-		}
+		err := runSession(capi, store, cfg.MachineName)
 		if time.Since(connectedAt) > maxBackoff {
 			// A long-lived session that just dropped: reset backoff so a
 			// transient blip reconnects promptly.
@@ -126,11 +103,7 @@ func runPrimaryConnLoop(ctx context.Context, cfg Config, store *sqlite.Secondary
 			"retry_in", backoff,
 			"err", err)
 
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(backoff):
-		}
+		time.Sleep(backoff)
 		backoff *= 2
 		if backoff > maxBackoff {
 			backoff = maxBackoff
@@ -178,9 +151,9 @@ func (t *logStreamTracker) remove(requestID string) {
 // status changes and requested log data out via the request stream, and reads
 // the primary's messages (snapshot, config updates, log requests) from the
 // response stream, applying them to the local store. Returns when the stream
-// ends (error or clean EOF) or ctx is done.
-func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *sqlite.SecondaryStorage, machine string) error {
-	sessCtx, cancel := context.WithCancel(ctx)
+// ends (error or clean EOF).
+func runSession(capi *apigen.OpsagentClusterV1Capi, store *sqlite.SecondaryStorage, machine string) error {
+	sessCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	out := &outbox{ch: make(chan *apigen.MsgToMaster, 64), ctx: sessCtx}
@@ -244,9 +217,9 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *sqlite.Seconda
 
 	switch {
 	case msg.DeploymentsSnapshot != nil:
-		applySnapshot(ctx, out, store, msg.DeploymentsSnapshot)
+		applySnapshot(out, store, msg.DeploymentsSnapshot)
 	case msg.DeploymentUpdate != nil:
-		applyConfigUpdate(ctx, store, msg.DeploymentUpdate)
+		applyConfigUpdate(store, msg.DeploymentUpdate)
 	case msg.StopLogRequestID != "":
 		tracker.stop(msg.StopLogRequestID)
 	case msg.DeploymentLogRequest != nil:
@@ -297,14 +270,14 @@ func statusPushLoop(ctx context.Context, out *outbox, ch <-chan apigen.Deploymen
 // deployment; the secondary scans its local history for rows above that value
 // and streams them back as individual StatusWrites so the primary can insert
 // each one at its canonical clock.
-func applySnapshot(ctx context.Context, out *outbox, store *sqlite.SecondaryStorage, snap *apigen.DeploymentWithStatusSnapshot) {
+func applySnapshot(out *outbox, store *sqlite.SecondaryStorage, snap *apigen.DeploymentWithStatusSnapshot) {
 	slog.Info("applying deployments snapshot from primary", "count", len(snap.Items))
 	for _, item := range snap.Items {
 		if item == nil || item.Config.ID == 0 {
 			continue
 		}
 		cfg := item.Config
-		store.MustWriteDeploymentConfig(ctx, &cfg)
+		store.MustWriteDeploymentConfig(&cfg)
 
 		var primaryClock time.Time
 		if !item.Status.IsZero() {
@@ -326,12 +299,12 @@ func applySnapshot(ctx context.Context, out *outbox, store *sqlite.SecondaryStor
 
 // applyConfigUpdate writes a single config update from the primary into the
 // local store.
-func applyConfigUpdate(ctx context.Context, store *sqlite.SecondaryStorage, cfg *apigen.DeploymentConfig) {
+func applyConfigUpdate(store *sqlite.SecondaryStorage, cfg *apigen.DeploymentConfig) {
 	if cfg == nil || cfg.ID == 0 {
 		return
 	}
 	slog.Info("applying deployment config update from primary", "id", cfg.ID, "seqNo", cfg.Version)
-	store.MustWriteDeploymentConfig(ctx, cfg)
+	store.MustWriteDeploymentConfig(cfg)
 }
 
 // streamDeploymentLog resolves seqNo=0 to latest from local status, then

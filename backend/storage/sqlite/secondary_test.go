@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,9 +10,11 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
+// TestSecondaryFreshBootAndRoundTrip initialises a secondary store from scratch,
+// writes a config + status, reopens it, and verifies everything reads back.
 func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "secondary.db")
-	store := NewSecondaryStorageAdapter(dbPath)
+	store := NewSecondaryStorage(dbPath)
 
 	cfg := &apigen.DeploymentConfig{
 		ID:           7,
@@ -23,8 +24,8 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 		Spec:         *nonEmptySpec(),
 		DesiredState: apigen.DesiredState{Version: "v3", Running: true},
 	}
-	store.MustWriteDeploymentConfig(context.Background(), cfg)
-	store.MustWriteDeploymentStatus(context.Background(), 7, func(s *apigen.DeploymentStatus) bool {
+	store.MustWriteDeploymentConfig(cfg)
+	store.MustWriteDeploymentStatus(7, func(s *apigen.DeploymentStatus) bool {
 		s.BumpUpdatedAt()
 		s.DeploymentID = 7
 		s.Preparer = apigen.PreparerStatus{DeploymentConfigVersion: 3, Artifact: "art", Status: apigen.PreparationStatus_READY}
@@ -32,8 +33,9 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 	})
 
 	// Reopen: loadCache must read everything back from disk.
-	store2 := NewSecondaryStorageAdapter(dbPath)
-	got, _ := store2.MustFetchSnapshotAndSubscribe(context.Background(), "m1")
+	store2 := NewSecondaryStorage(dbPath)
+	got, _, unsub := store2.MustFetchSnapshotAndSubscribe("m1")
+	defer unsub()
 	if len(got) != 1 {
 		t.Fatalf("expected 1 deployment for m1, got %d", len(got))
 	}

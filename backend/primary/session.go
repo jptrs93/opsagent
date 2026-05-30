@@ -80,7 +80,8 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 	defer s.cancel()
 	defer s.closeAllLogStreams()
 
-	snapshot, updatesCh := s.store.MustFetchSnapshotAndSubscribe(s.sessCtx, s.machine)
+	snapshot, updatesCh, unsubUpdates := s.store.MustFetchSnapshotAndSubscribe(s.machine)
+	defer unsubUpdates()
 	items := make([]*apigen.DeploymentWithStatus, 0, len(snapshot))
 	for i := range snapshot {
 		items = append(items, &snapshot[i])
@@ -98,7 +99,7 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 				slog.Info("worker stream read error", "machine", s.machine, "err", err)
 				return
 			}
-			s.handleIncoming(s.sessCtx, msg)
+			s.handleIncoming(msg)
 		}
 	}()
 
@@ -145,10 +146,10 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 }
 
 // handleIncoming dispatches one frame from the worker.
-func (s *Session) handleIncoming(ctx context.Context, msg *apigen.MsgToMaster) {
+func (s *Session) handleIncoming(msg *apigen.MsgToMaster) {
 	switch {
 	case msg.StatusWrite != nil:
-		s.handleStatusWrite(ctx, msg.StatusWrite)
+		s.handleStatusWrite(msg.StatusWrite)
 	case len(msg.LogData) > 0:
 		s.routeLogChunk(msg.LogRequestID, logChunk{data: msg.LogData})
 	case msg.LogEnd:
@@ -197,11 +198,11 @@ func (s *Session) closeAllLogStreams() {
 // idempotent upsert, so reconnect re-pushes do not create duplicate history
 // rows. If the primary has drifted above the worker's latest clock, the extra
 // rows are deleted so the primary converges to the worker's view.
-func (s *Session) handleStatusWrite(ctx context.Context, st *apigen.DeploymentStatus) {
+func (s *Session) handleStatusWrite(st *apigen.DeploymentStatus) {
 	if st == nil || st.DeploymentID == 0 {
 		return
 	}
-	s.store.MustWriteReplicatedDeploymentStatus(ctx, st)
+	s.store.MustWriteReplicatedDeploymentStatus(st)
 }
 
 // requestLogs sends a log request to the worker and returns a reader that yields

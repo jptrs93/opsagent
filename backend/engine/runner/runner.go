@@ -6,7 +6,6 @@
 package runner
 
 import (
-	"context"
 	"log/slog"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -25,34 +24,34 @@ type Runner interface {
 // The artifact to execute is taken from status.Preparer.Artifact — the
 // operator only calls Create once the preparer has reached READY for
 // dep.Version.
-func Create(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, status *apigen.DeploymentStatus) Runner {
+func Create(store storage.OperatorStore, dep *apigen.DeploymentConfig, status *apigen.DeploymentStatus) Runner {
 	var preparer apigen.PreparerStatus
 	if status != nil {
 		preparer = status.Preparer
 	}
-	slog.InfoContext(ctx, "runner.Create", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion, "systemd", useSystemd(dep))
+	slog.Info("runner.Create", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion, "systemd", useSystemd(dep))
 	if useSystemd(dep) {
-		return newSystemdRunnerWithRestart(ctx, store, dep, preparer)
+		return newSystemdRunnerWithRestart(store, dep, preparer)
 	}
-	return newOSProcessRunner(ctx, store, dep, preparer)
+	return newOSProcessRunner(store, dep, preparer)
 }
 
 // ReAttach resumes supervision of a deployment that was already running
 // before opsagent restarted. For os-process runners the adopted PID is
 // polled and falls through to the normal spawn-and-respawn loop on exit.
 // For systemd runners this starts a monitor-only loop — no install or restart.
-func ReAttach(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
+func ReAttach(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
 	if prev.IsZero() {
-		slog.InfoContext(ctx, "runner.ReAttach: no previous runner, returning stopped")
+		slog.Info("runner.ReAttach: no previous runner, returning stopped")
 		return Stopped()
 	}
-	slog.InfoContext(ctx, "runner.ReAttach: reattaching",
+	slog.Info("runner.ReAttach: reattaching",
 		"prevStatus", prev.Status, "prevPid", prev.RunningPid,
 		"prevArtifact", prev.RunningArtifact, "prevSeqNo", prev.DeploymentConfigVersion)
 	if useSystemd(dep) {
-		return reAttachSystemdRunner(ctx, store, dep, prev)
+		return reAttachSystemdRunner(store, dep, prev)
 	}
-	return reAttachOSProcessRunner(ctx, store, *dep, prev)
+	return reAttachOSProcessRunner(store, *dep, prev)
 }
 
 // Stopped returns a no-op Runner sentinel used when no process is running.

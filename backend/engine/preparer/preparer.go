@@ -37,45 +37,45 @@ var (
 // version. The returned Preparer owns its goroutine until Cancel or natural
 // completion.
 func StartPrepare(store storage.OperatorStore, dep *apigen.DeploymentConfig) Preparer {
-	return startFor(context.Background(), store, dep)
+	return startFor(store, dep)
 }
 
 // ReAttach resumes observation of a preparation that was in flight before
 // opsagent last shut down. Preparations are not resumable: if the previous
 // run reached READY for this SeqNo we return a no-op handle, otherwise we
 // start a fresh preparation.
-func ReAttach(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.PreparerStatus) Preparer {
+func ReAttach(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.PreparerStatus) Preparer {
 	if prev.DeploymentConfigVersion == dep.Version && prev.Status == apigen.PreparationStatus_READY {
-		slog.InfoContext(ctx, "preparer.ReAttach: already READY, returning finished",
+		slog.Info("preparer.ReAttach: already READY, returning finished",
 			"configVersion", dep.Version, "artifact", prev.Artifact)
 		return &finishedPreparer{deploymentConfigVersion: dep.Version}
 	}
 	if dep.DesiredState.Version == "" {
-		slog.InfoContext(ctx, "preparer.ReAttach: no version to build, returning finished",
+		slog.Info("preparer.ReAttach: no version to build, returning finished",
 			"deploymentConfigVersion", dep.Version)
 		return &finishedPreparer{deploymentConfigVersion: dep.Version}
 	}
 	if prev.IsZero() {
-		slog.InfoContext(ctx, "preparer.ReAttach: no previous preparer, starting fresh",
+		slog.Info("preparer.ReAttach: no previous preparer, starting fresh",
 			"deploymentConfigVersion", dep.Version, "desiredVersion", desiredVersion(dep))
 	} else {
-		slog.InfoContext(ctx, "preparer.ReAttach: previous preparer not ready, restarting",
+		slog.Info("preparer.ReAttach: previous preparer not ready, restarting",
 			"deploymentConfigVersion", dep.Version, "prevStatus", prev.Status, "prevconfigVersion", prev.DeploymentConfigVersion)
 	}
-	return startFor(ctx, store, dep)
+	return startFor(store, dep)
 }
 
-func startFor(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig) Preparer {
+func startFor(store storage.OperatorStore, dep *apigen.DeploymentConfig) Preparer {
 	switch {
 	case hasNixBuild(dep):
-		slog.InfoContext(ctx, "preparer.startFor: dispatching nixBuild", "deploymentConfigVersion", dep.Version)
-		return Nix.start(ctx, store, dep)
+		slog.Info("preparer.startFor: dispatching nixBuild", "deploymentConfigVersion", dep.Version)
+		return Nix.start(store, dep)
 	case hasGithubRelease(dep):
-		slog.InfoContext(ctx, "preparer.startFor: dispatching githubRelease", "deploymentConfigVersion", dep.Version)
-		return GHRel.start(ctx, store, dep)
+		slog.Info("preparer.startFor: dispatching githubRelease", "deploymentConfigVersion", dep.Version)
+		return GHRel.start(store, dep)
 	}
-	slog.WarnContext(ctx, "preparer.startFor: no prepare config found, marking FAILED", "deploymentConfigVersion", dep.Version)
-	writePrepareStatus(context.Background(), store, dep, "", apigen.PreparationStatus_FAILED)
+	slog.Warn("preparer.startFor: no prepare config found, marking FAILED", "deploymentConfigVersion", dep.Version)
+	writePrepareStatus(store, dep, "", apigen.PreparationStatus_FAILED)
 	return &finishedPreparer{deploymentConfigVersion: dep.Version}
 }
 
@@ -111,12 +111,10 @@ func (f *finishedPreparer) Cancel()        {}
 func (f *finishedPreparer) Version() int32 { return f.deploymentConfigVersion }
 
 // writePrepareStatus is the single entry point for preparer status writes.
-// It bumps UpdatedAt, guards against stale writes from superseded runs,
-// and always uses a background context so terminal writes still land after
-// the worker's own ctx has been cancelled.
-func writePrepareStatus(_ context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, artifact string, status apigen.PreparationStatus) {
+// It bumps UpdatedAt and guards against stale writes from superseded runs.
+func writePrepareStatus(store storage.OperatorStore, dep *apigen.DeploymentConfig, artifact string, status apigen.PreparationStatus) {
 	slog.Info("preparer.writePrepareStatus", "deploymentConfigVersion", dep.Version, "status", status, "artifact", artifact)
-	store.MustWriteDeploymentStatus(context.Background(), dep.ID, func(s *apigen.DeploymentStatus) bool {
+	store.MustWriteDeploymentStatus(dep.ID, func(s *apigen.DeploymentStatus) bool {
 		if !s.Preparer.IsZero() && s.Preparer.DeploymentConfigVersion > dep.Version {
 			return false
 		}

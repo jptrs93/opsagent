@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -11,7 +10,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/primary"
-	"github.com/jptrs93/opsagent/backend/slave"
+	"github.com/jptrs93/opsagent/backend/secondary"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 
 	"log/slog"
@@ -112,16 +111,14 @@ func runSlave() {
 	machineName := certu.MustCertLoadCommonName(cfg.ClusterCert)
 
 	slog.Info("starting in slave mode", "machine", machineName, "primary", cfg.PrimaryAddr, "primaryName", cfg.PrimaryName)
-	if err := slave.Run(context.Background(), slave.Config{
+	secondary.Run(secondary.Config{
 		TLS:         tlsCfg,
 		PrimaryAddr: cfg.PrimaryAddr,
 		PrimaryName: cfg.PrimaryName,
 		MachineName: machineName,
 		DataDir:     cfg.DataDir,
 		GithubToken: cfg.GithubToken,
-	}); err != nil {
-		panic(fmt.Sprintf("slave exited: %v", err))
-	}
+	})
 }
 
 func startPrimaryCluster(h *handler.Handler) {

@@ -58,7 +58,7 @@ func (s *deploymentStore) loadCache() {
 		if _, ok := s.statusCache[id]; ok {
 			continue
 		}
-		s.insertDefaultStatus(ctx, s.q, int64(id))
+		s.insertDefaultStatus(s.q, int64(id))
 	}
 }
 
@@ -68,24 +68,19 @@ func (s *deploymentStore) FetchDeploymentSnapshot(machine string) []apigen.Deplo
 	return s.snapshotLocked(machine)
 }
 
-func (s *deploymentStore) MustFetchSnapshotAndSubscribe(ctx context.Context, machine string) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus) {
+func (s *deploymentStore) MustFetchSnapshotAndSubscribe(machine string) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus, func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	snapshot := s.snapshotLocked(machine)
 	sub, unsub := s.subs.Subscribe(deploymentFilter(machine))
-	if ctx != nil && ctx.Done() != nil {
-		go func() {
-			<-ctx.Done()
-			unsub()
-		}()
-	}
-	return snapshot, sub.Ch
+	return snapshot, sub.Ch, unsub
 }
 
-func (s *deploymentStore) MustWriteDeploymentStatus(ctx context.Context, deploymentID int32, f func(*apigen.DeploymentStatus) bool) {
+func (s *deploymentStore) MustWriteDeploymentStatus(deploymentID int32, f func(*apigen.DeploymentStatus) bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	ctx := context.Background()
 
 	current := s.statusCache[deploymentID]
 	if current == nil {
@@ -97,11 +92,21 @@ func (s *deploymentStore) MustWriteDeploymentStatus(ctx context.Context, deploym
 	}
 
 	params := statusProtoToInsertParams(int64(deploymentID), current)
-	if err := s.q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		panic(fmt.Sprintf("begin tx: %v", err))
+	}
+	defer tx.Rollback()
+	q := s.q.WithTx(tx)
+
+	if err := q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
 		panic(fmt.Sprintf("UpsertDeploymentStatus: %v", err))
 	}
-	if err := s.q.InsertDeploymentStatusHistory(ctx, params); err != nil {
+	if err := q.InsertDeploymentStatusHistory(ctx, params); err != nil {
 		panic(fmt.Sprintf("InsertDeploymentStatusHistory: %v", err))
+	}
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit: %v", err))
 	}
 
 	s.statusCache[deploymentID] = current
@@ -119,11 +124,11 @@ func (s *deploymentStore) SubscribeDeploymentUpdates(machine string) (chan apige
 	return sub.Ch, unsub
 }
 
-func (s *deploymentStore) insertDefaultStatus(ctx context.Context, q *Queries, dbID int64) {
+func (s *deploymentStore) insertDefaultStatus(q *Queries, dbID int64) {
 	id := int32(dbID)
 	st := &apigen.DeploymentStatus{DeploymentID: id}
 	params := statusProtoToInsertParams(dbID, st)
-	if err := q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
+	if err := q.UpsertDeploymentStatus(context.Background(), statusInsertToUpsert(params)); err != nil {
 		panic(fmt.Sprintf("UpsertDeploymentStatus (default): %v", err))
 	}
 	s.statusCache[id] = st
