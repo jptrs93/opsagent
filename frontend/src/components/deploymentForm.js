@@ -79,15 +79,18 @@ export function deploymentForm(form, opts = {}) {
     const machineOptionsLoaded = opts.machineOptionsLoaded !== false;
 
     return div(
-        {class: "flex flex-col gap-3"},
-        sectionCardWithAside(
-            "Deployment",
-            identityLocked ? span({class: "text-xs text-orange-300"}, "Deployment identity is fixed after creation.") : null,
+        {class: "flex flex-col gap-5"},
+        // Identity — the first section carries no divider/title; it's the top of the form.
+        div(
+            {class: "flex flex-col gap-3"},
+            identityLocked
+                ? span({class: "text-xs text-orange-300 self-end"}, "Deployment identity is fixed after creation.")
+                : null,
             div(
                 {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
                 field("Name", input({
                     type: "text",
-                    value: form.name.val,
+                    value: form.name.rawVal,
                     disabled: identityLocked,
                     class: () => textInputClass(nameValid(form), identityLocked, nameValid(form)),
                     placeholder: "my-service",
@@ -97,7 +100,7 @@ export function deploymentForm(form, opts = {}) {
                     input({
                         type: "text",
                         list: environmentDatalistID,
-                        value: form.environment.val,
+                        value: form.environment.rawVal,
                         disabled: identityLocked,
                         class: textInputClass(false, identityLocked),
                         placeholder: "PROD",
@@ -115,29 +118,28 @@ export function deploymentForm(form, opts = {}) {
                 })),
             ),
         ),
-        sectionCardWithAside(
-            "Binary Source",
+        sectionDivider("Binary source"),
+        div(
+            {class: "flex flex-col gap-3"},
             inlineSelect("Source type", form.sourceType, [
                 {value: SOURCE_GITHUB, label: "Github release"},
                 {value: SOURCE_NIX, label: "Build NIX store"},
             ]),
-            div(
-                {class: "flex flex-col gap-3"},
-                () => form.sourceType.val === SOURCE_GITHUB
-                    ? div(
-                        {class: "grid grid-cols-1 gap-3"},
-                        repoField(form, SOURCE_GITHUB),
-                    )
-                    : div(
-                        {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
-                        repoField(form, SOURCE_NIX),
-                        field("Flake", textInput(form.nixFlake, "nix/app/flake.nix")),
-                    ),
-                optionsDisclosure(form.showSourceOpts, () => sourceOptions(form)),
-            ),
+            () => form.sourceType.val === SOURCE_GITHUB
+                ? div(
+                    {class: "grid grid-cols-1 gap-3"},
+                    repoField(form, SOURCE_GITHUB),
+                )
+                : div(
+                    {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
+                    repoField(form, SOURCE_NIX),
+                    field("Flake", textInput(form.nixFlake, "nix/app/flake.nix")),
+                ),
+            optionsDisclosure(form.showSourceOpts, () => sourceOptions(form)),
         ),
-        sectionCardWithAside(
-            "Execution",
+        sectionDivider("Execution"),
+        div(
+            {class: "flex flex-col gap-3"},
             inlineSelect("Runner type", form.runnerType, [
                 {value: RUNNER_OS, label: "OpsAgent process"},
                 {value: RUNNER_SYSTEMD, label: "systemd service"},
@@ -248,19 +250,14 @@ function makeFormState(values) {
     };
 }
 
-function sectionCard(title, ...children) {
-    return sectionCardWithAside(title, null, ...children);
-}
-
-function sectionCardWithAside(title, aside, ...children) {
+// sectionDivider renders a thin horizontal rule with the section title centered,
+// splitting the line: ──────── Title ────────
+function sectionDivider(title) {
     return div(
-        {class: "rounded-lg border border-gray-700 bg-gray-900/70 p-4"},
-        div(
-            {class: "flex items-center justify-between gap-3 mb-3"},
-            h3({class: "text-sm font-semibold text-gray-200"}, title),
-            aside,
-        ),
-        ...children,
+        {class: "flex items-center gap-3"},
+        div({class: "flex-1 border-t border-gray-700"}),
+        span({class: "text-xs font-semibold uppercase tracking-wide text-gray-400"}, title),
+        div({class: "flex-1 border-t border-gray-700"}),
     );
 }
 
@@ -311,7 +308,7 @@ function execOptions(form) {
             field("Run as", textInput(form.osRunAs, "ubuntu"), "OS user to run as. Defaults to the ubuntu user."),
             field("Working directory", input({
                 type: "text",
-                value: form.osWorkingDir.val,
+                value: form.osWorkingDir.rawVal,
                 class: textInputClass(),
                 placeholder: () => `/home/${form.osRunAs.val.trim() || 'ubuntu'}`,
                 oninput: e => { form.osWorkingDir.val = e.target.value; },
@@ -337,7 +334,7 @@ function repoField(form, sourceType) {
         span("Repository"),
         input({
             type: "text",
-            value: repoState.val,
+            value: repoState.rawVal,
             placeholder: "github.com/org/repo",
             class: () => repoInputClass(activeRepoCheck(form, sourceType, repoState).status),
             oninput: e => { repoState.val = e.target.value; },
@@ -411,7 +408,7 @@ function inlineSelect(text, state, options) {
             class: "h-8 w-48 rounded-lg bg-gray-800 text-gray-100 border border-gray-600 px-2 focus:outline-none focus:ring-1 focus:ring-brand",
             onchange: e => { state.val = e.target.value; },
         },
-            ...options.map(opt => option({value: opt.value, selected: state.val === opt.value}, opt.label)),
+            ...options.map(opt => option({value: opt.value, selected: state.rawVal === opt.value}, opt.label)),
         ),
     );
 }
@@ -419,7 +416,7 @@ function inlineSelect(text, state, options) {
 function textInput(state, placeholder = '') {
     return input({
         type: "text",
-        value: state.val,
+        value: state.rawVal,
         class: textInputClass(),
         placeholder,
         oninput: e => { state.val = e.target.value; },
@@ -437,16 +434,17 @@ function selectClass() {
 }
 
 function machineSelect(form, opts) {
-    const extraCurrent = form.machine.val && !opts.machineOptionValues.includes(form.machine.val)
-        ? [option({value: form.machine.val, selected: true}, form.machine.val)]
+    const current = form.machine.rawVal;
+    const extraCurrent = current && !opts.machineOptionValues.includes(current)
+        ? [option({value: current, selected: true}, current)]
         : [];
     return select({
         class: selectClass(),
         disabled: opts.identityLocked || !opts.machineOptionsLoaded || opts.machineOptionValues.length === 0,
         onchange: e => { form.machine.val = e.target.value; },
     },
-        option({value: '', disabled: true, selected: !form.machine.val}, machinePlaceholder(opts.machineOptionsLoaded, opts.machineOptionValues)),
-        ...opts.machineOptionValues.map(name => option({value: name, selected: name === form.machine.val}, name)),
+        option({value: '', disabled: true, selected: !current}, machinePlaceholder(opts.machineOptionsLoaded, opts.machineOptionValues)),
+        ...opts.machineOptionValues.map(name => option({value: name, selected: name === current}, name)),
         ...extraCurrent,
     );
 }
