@@ -31,12 +31,12 @@ var fsys embed.FS
 
 // Storage failure policy
 //
-// Opsagent treats any failure of the on-disk log stores as an unrecoverable
+// Opsagent treats any failure of the on-disk SQLite store as an unrecoverable
 // broken state. Outside the auth helpers (where ErrNotFound is a legitimate
 // "unknown user / unknown kid" signal), all DB calls go through the Must*
-// variants on logstore, which panic on error. We rely on the supervisor
-// (systemd / launchd / equivalent) to restart the process; the in-memory
-// state is rebuilt from the append-only log on startup.
+// variants on the storage adapter, which panic on error. We rely on the
+// supervisor (systemd / launchd / equivalent) to restart the process; the
+// in-memory state is rebuilt from the database on startup.
 //
 // Practical rules for new code:
 //   - Writes: always Must* — there is no sensible recovery from a write failure.

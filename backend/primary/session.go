@@ -14,10 +14,10 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
-// outboxSize bounds the buffer of pending MsgToWorker frames. It decouples the
-// producers (snapshot/update/heartbeat feeder, log requests) from the single
-// consumer that yields to the network; when full, producers block — the same
-// backpressure the old write-mutex'd TCP conn provided.
+// outboxSize bounds the buffer of pending MsgToWorker messages. It decouples
+// the producers (snapshot/update/heartbeat feeder, log requests) from the
+// single consumer that yields them onto the response stream; when full,
+// producers block, applying backpressure rather than growing unbounded.
 const outboxSize = 64
 
 // heartbeatInterval is how often the primary emits an empty MsgToWorker. With
