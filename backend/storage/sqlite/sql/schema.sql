@@ -1,21 +1,13 @@
--- Stable identity for a deployment. Created once, never mutated.
-CREATE TABLE IF NOT EXISTS deployment_identifiers (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    environment TEXT    NOT NULL,
-    machine     TEXT    NOT NULL,
-    name        TEXT    NOT NULL,
-    created_at  INTEGER NOT NULL,  -- epoch ms
-    UNIQUE(environment, machine, name)
-);
-
--- Current config + desired state for each deployment. One mutable row per deployment.
--- environment/machine/name are denormalized from deployment_identifiers so the
--- secondary can reuse this table without needing the identifiers table.
+-- Current config + desired state for each deployment. One row per deployment,
+-- keyed by an integer id auto-allocated on first insert. (environment, machine,
+-- name) is the human-readable identity and is unique; created_at is the
+-- immutable first-seen time of that identity.
 CREATE TABLE IF NOT EXISTS deployment_configs (
     deployment_id   INTEGER PRIMARY KEY,
     environment     TEXT    NOT NULL DEFAULT '',
     machine         TEXT    NOT NULL DEFAULT '',
     name            TEXT    NOT NULL DEFAULT '',
+    created_at      INTEGER NOT NULL DEFAULT 0,  -- epoch ms; first-seen time of this deployment identity
     version         INTEGER NOT NULL DEFAULT 0,
     updated_at      INTEGER NOT NULL,  -- epoch ms
     updated_by      INTEGER NOT NULL DEFAULT 0,
@@ -24,6 +16,9 @@ CREATE TABLE IF NOT EXISTS deployment_configs (
     desired_running INTEGER NOT NULL DEFAULT 0,
     deleted         INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deployment_configs_identity
+    ON deployment_configs(environment, machine, name);
 
 -- Append-only log of every config mutation.
 CREATE TABLE IF NOT EXISTS deployment_config_history (

@@ -1,28 +1,36 @@
--- === deployment_identifiers ===
--- Only used at config-save time to map (env, machine, name) to integer id.
-
--- name: UpsertDeploymentID :one
-INSERT INTO deployment_identifiers (environment, machine, name, created_at)
-VALUES (?, ?, ?, ?)
-ON CONFLICT(environment, machine, name) DO UPDATE SET
-    created_at = deployment_identifiers.created_at
-RETURNING id;
-
 -- === deployment_configs ===
 
+-- CreateDeploymentConfig inserts a brand-new deployment, auto-allocating the
+-- integer deployment_id. On (environment, machine, name) conflict it revives the
+-- existing row (e.g. a previously soft-deleted one) keeping its original
+-- deployment_id and created_at, and returns both.
+-- name: CreateDeploymentConfig :one
+INSERT INTO deployment_configs (environment, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(environment, machine, name) DO UPDATE SET
+    version = excluded.version,
+    updated_at = excluded.updated_at,
+    updated_by = excluded.updated_by,
+    spec_blob = excluded.spec_blob,
+    desired_version = excluded.desired_version,
+    desired_running = excluded.desired_running,
+    deleted = excluded.deleted
+RETURNING deployment_id, created_at;
+
 -- name: GetDeploymentConfig :one
-SELECT deployment_id, environment, machine, name, version, updated_at, updated_by,
+SELECT deployment_id, environment, machine, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE deployment_id = ?;
 
 -- name: UpsertDeploymentConfig :exec
-INSERT INTO deployment_configs (deployment_id, environment, machine, name, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_configs (deployment_id, environment, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(deployment_id) DO UPDATE SET
     environment = excluded.environment,
     machine = excluded.machine,
     name = excluded.name,
+    created_at = excluded.created_at,
     version = excluded.version,
     updated_at = excluded.updated_at,
     updated_by = excluded.updated_by,
@@ -37,13 +45,13 @@ SET desired_version = ?, desired_running = ?, version = version + 1, updated_at 
 WHERE deployment_id = ?;
 
 -- name: ListDeploymentConfigsByMachine :many
-SELECT deployment_id, environment, machine, name, version, updated_at, updated_by,
+SELECT deployment_id, environment, machine, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE machine = ? AND deleted = 0;
 
 -- name: ListAllDeploymentConfigs :many
-SELECT deployment_id, environment, machine, name, version, updated_at, updated_by,
+SELECT deployment_id, environment, machine, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE deleted = 0;

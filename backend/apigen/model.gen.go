@@ -1252,6 +1252,7 @@ type DeploymentConfig struct {
 	Spec         DeploymentSpec
 	DesiredState DesiredState
 	Deleted      bool
+	CreatedAt    time.Time
 }
 
 func (m DeploymentConfig) IsZero() bool {
@@ -1262,7 +1263,8 @@ func (m DeploymentConfig) IsZero() bool {
 		m.UpdatedBy == 0 &&
 		m.Spec.IsZero() &&
 		m.DesiredState.IsZero() &&
-		m.Deleted == false
+		m.Deleted == false &&
+		m.CreatedAt.IsZero()
 }
 
 func (m *DeploymentConfig) Encode() []byte {
@@ -1284,6 +1286,7 @@ func (m *DeploymentConfig) Encode() []byte {
 		b = protowire.AppendBytes(b, m.DesiredState.Encode())
 	}
 	b = AppendBoolField(b, m.Deleted, 7)
+	b = AppendInt64FromTime(b, m.CreatedAt, 9)
 	return b
 }
 
@@ -1336,6 +1339,8 @@ func DecodeDeploymentConfig(b []byte) (*DeploymentConfig, error) {
 			}
 		case 7:
 			b, m.Deleted, err = ConsumeBool(b, typ)
+		case 9:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

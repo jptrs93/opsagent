@@ -13,6 +13,7 @@ type DeploymentConfig struct {
 	Environment    string
 	Machine        string
 	Name           string
+	CreatedAt      int64
 	Version        int64
 	UpdatedAt      int64
 	UpdatedBy      int64
@@ -31,14 +32,6 @@ type DeploymentConfigHistory struct {
 	DesiredVersion string
 	DesiredRunning int64
 	Deleted        int64
-}
-
-type DeploymentIdentifier struct {
-	ID          int64
-	Environment string
-	Machine     string
-	Name        string
-	CreatedAt   int64
 }
 
 type DeploymentStatus struct {

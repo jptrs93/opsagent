@@ -270,6 +270,7 @@ message DeploymentConfig {
   DeploymentSpec spec = 5 [(cp.go_value) = true];
   DesiredState desired_state = 6 [(cp.go_value) = true];
   bool deleted = 7;
+  int64 created_at = 9 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];  // first-seen time of this deployment identity
 }
 
 

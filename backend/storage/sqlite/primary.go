@@ -51,36 +51,6 @@ func boolToInt(b bool) int64 {
 	return 0
 }
 
-// resolveDeploymentID looks up or creates a deployment_identifiers row,
-// returning the internal integer ID. Only used at config-save time.
-func (s *StorageAdapter) resolveDeploymentID(ctx context.Context, tx *sql.Tx, cid *apigen.DeploymentIdentifier) (int64, error) {
-	// Check cache first.
-	for id, cfg := range s.configCache {
-		if cfg.ConfigID == *cid {
-			return int64(id), nil
-		}
-	}
-	q := s.q.WithTx(tx)
-	dbID, err := q.UpsertDeploymentID(ctx, UpsertDeploymentIDParams{
-		Environment: cid.Environment,
-		Machine:     cid.Machine,
-		Name:        cid.Name,
-		CreatedAt:   time.Now().UnixMilli(),
-	})
-	if err != nil {
-		return 0, err
-	}
-	return dbID, nil
-}
-
-func (s *StorageAdapter) mustResolveDeploymentID(ctx context.Context, tx *sql.Tx, cid *apigen.DeploymentIdentifier) int64 {
-	dbID, err := s.resolveDeploymentID(ctx, tx, cid)
-	if err != nil {
-		panic(fmt.Sprintf("resolveDeploymentID: %v", err))
-	}
-	return dbID
-}
-
 // MustWriteReplicatedDeploymentStatus persists a status pushed by a secondary,
 // treating the incoming UpdatedAt clock as the authoritative identity. Duplicate
 // clocks upsert the existing history row, so reconnect-driven replays are
@@ -145,14 +115,16 @@ func (s *StorageAdapter) MustFetchDeploymentHistory(deploymentID int32) []*apige
 	if err != nil {
 		panic(fmt.Sprintf("ListDeploymentConfigHistory: %v", err))
 	}
-	// Get the config_id from cache for display.
+	// Get the config_id and created_at from cache for display.
 	var cid apigen.DeploymentIdentifier
+	var createdAt time.Time
 	if cfg, ok := s.configCache[deploymentID]; ok {
 		cid = cfg.ConfigID
+		createdAt = cfg.CreatedAt
 	}
 	out := make([]*apigen.DeploymentConfig, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, configHistoryRowToProto(dbID, cid, r))
+		out = append(out, configHistoryRowToProto(dbID, cid, createdAt, r))
 	}
 	return out
 }
@@ -248,6 +220,7 @@ func (s *StorageAdapter) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 		Environment:    existing.Environment,
 		Machine:        existing.Machine,
 		Name:           existing.Name,
+		CreatedAt:      existing.CreatedAt,
 		Version:        newVersion,
 		UpdatedAt:      now,
 		UpdatedBy:      userID,
@@ -305,27 +278,28 @@ func (s *StorageAdapter) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 	defer tx.Rollback()
 
 	q := s.q.WithTx(tx)
-	dbID := s.mustResolveDeploymentID(bgCtx, tx, cid)
 
 	var specBlob []byte
 	if spec != nil {
 		specBlob = spec.Encode()
 	}
 
-	params := UpsertDeploymentConfigParams{
-		DeploymentID: dbID,
-		Environment:  cid.Environment,
-		Machine:      cid.Machine,
-		Name:         cid.Name,
-		Version:      1,
-		UpdatedAt:    now,
-		UpdatedBy:    userID,
-		SpecBlob:     specBlob,
-		Deleted:      0,
+	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
+		Environment: cid.Environment,
+		Machine:     cid.Machine,
+		Name:        cid.Name,
+		CreatedAt:   now,
+		Version:     1,
+		UpdatedAt:   now,
+		UpdatedBy:   userID,
+		SpecBlob:    specBlob,
+		Deleted:     0,
+	})
+	if err != nil {
+		panic(fmt.Sprintf("CreateDeploymentConfig: %v", err))
 	}
-	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
-		panic(fmt.Sprintf("UpsertDeploymentConfig (create): %v", err))
-	}
+	dbID := row.DeploymentID
+
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID: dbID,
 		Version:      1,
@@ -343,7 +317,18 @@ func (s *StorageAdapter) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 		panic(fmt.Sprintf("commit: %v", err))
 	}
 
-	cfg := upsertParamsToProto(params)
+	cfg := upsertParamsToProto(UpsertDeploymentConfigParams{
+		DeploymentID: dbID,
+		Environment:  cid.Environment,
+		Machine:      cid.Machine,
+		Name:         cid.Name,
+		CreatedAt:    row.CreatedAt,
+		Version:      1,
+		UpdatedAt:    now,
+		UpdatedBy:    userID,
+		SpecBlob:     specBlob,
+		Deleted:      0,
+	})
 	id := int32(dbID)
 	s.configCache[id] = cfg
 	s.notifyFromCache(id)
@@ -392,22 +377,23 @@ func (s *StorageAdapter) EnsureSystemDeployment(machine string) {
 	defer tx.Rollback()
 
 	q := s.q.WithTx(tx)
-	dbID := s.mustResolveDeploymentID(bgCtx, tx, &cid)
 	now := time.Now().UnixMilli()
 
-	params := UpsertDeploymentConfigParams{
-		DeploymentID: dbID,
-		Environment:  cid.Environment,
-		Machine:      cid.Machine,
-		Name:         cid.Name,
-		Version:      1,
-		UpdatedAt:    now,
-		SpecBlob:     specBlob,
-		Deleted:      0,
+	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
+		Environment: cid.Environment,
+		Machine:     cid.Machine,
+		Name:        cid.Name,
+		CreatedAt:   now,
+		Version:     1,
+		UpdatedAt:   now,
+		SpecBlob:    specBlob,
+		Deleted:     0,
+	})
+	if err != nil {
+		panic(fmt.Sprintf("CreateDeploymentConfig (system): %v", err))
 	}
-	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
-		panic(fmt.Sprintf("UpsertDeploymentConfig (system): %v", err))
-	}
+	dbID := row.DeploymentID
+
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID: dbID,
 		Version:      1,
@@ -425,7 +411,17 @@ func (s *StorageAdapter) EnsureSystemDeployment(machine string) {
 	}
 
 	id := int32(dbID)
-	s.configCache[id] = upsertParamsToProto(params)
+	s.configCache[id] = upsertParamsToProto(UpsertDeploymentConfigParams{
+		DeploymentID: dbID,
+		Environment:  cid.Environment,
+		Machine:      cid.Machine,
+		Name:         cid.Name,
+		CreatedAt:    row.CreatedAt,
+		Version:      1,
+		UpdatedAt:    now,
+		SpecBlob:     specBlob,
+		Deleted:      0,
+	})
 	s.notifyFromCache(id)
 	slog.Info("created system deployment", "machine", machine)
 }
@@ -447,6 +443,23 @@ func nanosToClock(n int64) time.Time {
 		return time.Time{}
 	}
 	return time.Unix(0, n)
+}
+
+// timeToMillis / millisToTime convert a wall-clock time to/from the DB integer
+// form (epoch ms), mapping the zero time to the 0 sentinel both ways so an
+// unset created_at never surfaces as a 1970 timestamp.
+func timeToMillis(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixMilli()
+}
+
+func millisToTime(ms int64) time.Time {
+	if ms == 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(ms)
 }
 
 func statusRowToProto(dbID int64, r DeploymentStatusHistory) *apigen.DeploymentStatus {
@@ -531,7 +544,7 @@ func statusToHistory(s DeploymentStatus) DeploymentStatusHistory {
 	}
 }
 
-func configHistoryRowToProto(dbID int64, cid apigen.DeploymentIdentifier, r DeploymentConfigHistory) *apigen.DeploymentConfig {
+func configHistoryRowToProto(dbID int64, cid apigen.DeploymentIdentifier, createdAt time.Time, r DeploymentConfigHistory) *apigen.DeploymentConfig {
 	spec, err := apigen.DecodeDeploymentSpec(r.SpecBlob)
 	if err != nil {
 		slog.Error("failed decoding deployment spec", "deploymentID", dbID, "version", r.Version, "err", err)
@@ -539,6 +552,7 @@ func configHistoryRowToProto(dbID int64, cid apigen.DeploymentIdentifier, r Depl
 	return &apigen.DeploymentConfig{
 		ID:        int32(dbID),
 		ConfigID:  cid,
+		CreatedAt: createdAt,
 		Version:   int32(r.Version),
 		UpdatedAt: time.UnixMilli(r.UpdatedAt),
 		UpdatedBy: int32(r.UpdatedBy),
@@ -552,8 +566,8 @@ func configHistoryRowToProto(dbID int64, cid apigen.DeploymentIdentifier, r Depl
 }
 
 // configProtoToUpsertParams builds upsert params from a full DeploymentConfig.
-// Used by the secondary to persist configs pushed by the primary verbatim
-// (the integer ID is authoritative; no deployment_identifiers resolution).
+// Used by the secondary to persist configs pushed by the primary verbatim: the
+// primary's integer ID is authoritative and written directly.
 func configProtoToUpsertParams(cfg *apigen.DeploymentConfig) UpsertDeploymentConfigParams {
 	var specBlob []byte
 	if !cfg.Spec.IsZero() {
@@ -564,6 +578,7 @@ func configProtoToUpsertParams(cfg *apigen.DeploymentConfig) UpsertDeploymentCon
 		Environment:    cfg.ConfigID.Environment,
 		Machine:        cfg.ConfigID.Machine,
 		Name:           cfg.ConfigID.Name,
+		CreatedAt:      timeToMillis(cfg.CreatedAt),
 		Version:        int64(cfg.Version),
 		UpdatedAt:      cfg.UpdatedAt.UnixMilli(),
 		UpdatedBy:      int64(cfg.UpdatedBy),
@@ -586,6 +601,7 @@ func configRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
 			Machine:     r.Machine,
 			Name:        r.Name,
 		},
+		CreatedAt: millisToTime(r.CreatedAt),
 		Version:   int32(r.Version),
 		UpdatedAt: time.UnixMilli(r.UpdatedAt),
 		UpdatedBy: int32(r.UpdatedBy),
@@ -610,6 +626,7 @@ func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfi
 			Machine:     p.Machine,
 			Name:        p.Name,
 		},
+		CreatedAt: millisToTime(p.CreatedAt),
 		Version:   int32(p.Version),
 		UpdatedAt: time.UnixMilli(p.UpdatedAt),
 		UpdatedBy: int32(p.UpdatedBy),

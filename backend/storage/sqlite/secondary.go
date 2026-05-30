@@ -11,8 +11,8 @@ import (
 // SecondaryStorage is the storage layer for secondary (slave) nodes.
 // It uses the primary's integer ID directly and fully owns deployment status.
 // It shares the primary's schema (schema.sql) and generated queries; the
-// deployment_identifiers, deployment_config_history, users, and public_keys
-// tables exist but are never written to on a secondary.
+// deployment_config_history, users, and public_keys tables exist but are never
+// written to on a secondary.
 type SecondaryStorage struct {
 	*deploymentStore
 }

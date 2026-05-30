@@ -143,6 +143,7 @@
  * @property {DeploymentSpec} spec
  * @property {DesiredState} desiredState
  * @property {boolean} deleted
+ * @property {Date} createdAt
  */
 /**
  * @typedef {Object} DeploymentWithStatus
@@ -1983,6 +1984,9 @@ export function writeDeploymentConfig(message, writer) {
     if (message.deleted === true) {
         writer.uint32(tag(7, WIRE.VARINT)).bool(message.deleted);
     }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(9, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
 }
 
 
@@ -2004,7 +2008,7 @@ export function encodeDeploymentConfig(message) {
  */
 function decodeDeploymentConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, configId: undefined, version: 0, updatedAt: new Date(0), updatedBy: 0, spec: undefined, desiredState: undefined, deleted: false };
+    const message = {id: 0, configId: undefined, version: 0, updatedAt: new Date(0), updatedBy: 0, spec: undefined, desiredState: undefined, deleted: false, createdAt: new Date(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2038,6 +2042,10 @@ function decodeDeploymentConfigMessage(reader, length) {
             }
             case 7: {
                 message.deleted = reader.bool();
+                break;
+            }
+            case 9: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
                 break;
             }
             default:

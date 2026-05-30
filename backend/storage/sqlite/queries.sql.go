@@ -10,15 +10,71 @@ import (
 	"database/sql"
 )
 
-const getDeploymentConfig = `-- name: GetDeploymentConfig :one
+const createDeploymentConfig = `-- name: CreateDeploymentConfig :one
 
-SELECT deployment_id, environment, machine, name, version, updated_at, updated_by,
+INSERT INTO deployment_configs (environment, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(environment, machine, name) DO UPDATE SET
+    version = excluded.version,
+    updated_at = excluded.updated_at,
+    updated_by = excluded.updated_by,
+    spec_blob = excluded.spec_blob,
+    desired_version = excluded.desired_version,
+    desired_running = excluded.desired_running,
+    deleted = excluded.deleted
+RETURNING deployment_id, created_at
+`
+
+type CreateDeploymentConfigParams struct {
+	Environment    string
+	Machine        string
+	Name           string
+	CreatedAt      int64
+	Version        int64
+	UpdatedAt      int64
+	UpdatedBy      int64
+	SpecBlob       []byte
+	DesiredVersion string
+	DesiredRunning int64
+	Deleted        int64
+}
+
+type CreateDeploymentConfigRow struct {
+	DeploymentID int64
+	CreatedAt    int64
+}
+
+// === deployment_configs ===
+// CreateDeploymentConfig inserts a brand-new deployment, auto-allocating the
+// integer deployment_id. On (environment, machine, name) conflict it revives the
+// existing row (e.g. a previously soft-deleted one) keeping its original
+// deployment_id and created_at, and returns both.
+func (q *Queries) CreateDeploymentConfig(ctx context.Context, arg CreateDeploymentConfigParams) (CreateDeploymentConfigRow, error) {
+	row := q.db.QueryRowContext(ctx, createDeploymentConfig,
+		arg.Environment,
+		arg.Machine,
+		arg.Name,
+		arg.CreatedAt,
+		arg.Version,
+		arg.UpdatedAt,
+		arg.UpdatedBy,
+		arg.SpecBlob,
+		arg.DesiredVersion,
+		arg.DesiredRunning,
+		arg.Deleted,
+	)
+	var i CreateDeploymentConfigRow
+	err := row.Scan(&i.DeploymentID, &i.CreatedAt)
+	return i, err
+}
+
+const getDeploymentConfig = `-- name: GetDeploymentConfig :one
+SELECT deployment_id, environment, machine, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE deployment_id = ?
 `
 
-// === deployment_configs ===
 func (q *Queries) GetDeploymentConfig(ctx context.Context, deploymentID int64) (DeploymentConfig, error) {
 	row := q.db.QueryRowContext(ctx, getDeploymentConfig, deploymentID)
 	var i DeploymentConfig
@@ -27,6 +83,7 @@ func (q *Queries) GetDeploymentConfig(ctx context.Context, deploymentID int64) (
 		&i.Environment,
 		&i.Machine,
 		&i.Name,
+		&i.CreatedAt,
 		&i.Version,
 		&i.UpdatedAt,
 		&i.UpdatedBy,
@@ -139,7 +196,7 @@ func (q *Queries) InsertDeploymentStatusHistory(ctx context.Context, arg InsertD
 }
 
 const listAllDeploymentConfigs = `-- name: ListAllDeploymentConfigs :many
-SELECT deployment_id, environment, machine, name, version, updated_at, updated_by,
+SELECT deployment_id, environment, machine, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE deleted = 0
@@ -159,6 +216,7 @@ func (q *Queries) ListAllDeploymentConfigs(ctx context.Context) ([]DeploymentCon
 			&i.Environment,
 			&i.Machine,
 			&i.Name,
+			&i.CreatedAt,
 			&i.Version,
 			&i.UpdatedAt,
 			&i.UpdatedBy,
@@ -264,7 +322,7 @@ func (q *Queries) ListDeploymentConfigHistory(ctx context.Context, deploymentID 
 }
 
 const listDeploymentConfigsByMachine = `-- name: ListDeploymentConfigsByMachine :many
-SELECT deployment_id, environment, machine, name, version, updated_at, updated_by,
+SELECT deployment_id, environment, machine, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE machine = ? AND deleted = 0
@@ -284,6 +342,7 @@ func (q *Queries) ListDeploymentConfigsByMachine(ctx context.Context, machine st
 			&i.Environment,
 			&i.Machine,
 			&i.Name,
+			&i.CreatedAt,
 			&i.Version,
 			&i.UpdatedAt,
 			&i.UpdatedBy,
@@ -480,12 +539,13 @@ func (q *Queries) UpdateDesiredState(ctx context.Context, arg UpdateDesiredState
 }
 
 const upsertDeploymentConfig = `-- name: UpsertDeploymentConfig :exec
-INSERT INTO deployment_configs (deployment_id, environment, machine, name, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_configs (deployment_id, environment, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(deployment_id) DO UPDATE SET
     environment = excluded.environment,
     machine = excluded.machine,
     name = excluded.name,
+    created_at = excluded.created_at,
     version = excluded.version,
     updated_at = excluded.updated_at,
     updated_by = excluded.updated_by,
@@ -500,6 +560,7 @@ type UpsertDeploymentConfigParams struct {
 	Environment    string
 	Machine        string
 	Name           string
+	CreatedAt      int64
 	Version        int64
 	UpdatedAt      int64
 	UpdatedBy      int64
@@ -515,6 +576,7 @@ func (q *Queries) UpsertDeploymentConfig(ctx context.Context, arg UpsertDeployme
 		arg.Environment,
 		arg.Machine,
 		arg.Name,
+		arg.CreatedAt,
 		arg.Version,
 		arg.UpdatedAt,
 		arg.UpdatedBy,
@@ -524,36 +586,6 @@ func (q *Queries) UpsertDeploymentConfig(ctx context.Context, arg UpsertDeployme
 		arg.Deleted,
 	)
 	return err
-}
-
-const upsertDeploymentID = `-- name: UpsertDeploymentID :one
-
-INSERT INTO deployment_identifiers (environment, machine, name, created_at)
-VALUES (?, ?, ?, ?)
-ON CONFLICT(environment, machine, name) DO UPDATE SET
-    created_at = deployment_identifiers.created_at
-RETURNING id
-`
-
-type UpsertDeploymentIDParams struct {
-	Environment string
-	Machine     string
-	Name        string
-	CreatedAt   int64
-}
-
-// === deployment_identifiers ===
-// Only used at config-save time to map (env, machine, name) to integer id.
-func (q *Queries) UpsertDeploymentID(ctx context.Context, arg UpsertDeploymentIDParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertDeploymentID,
-		arg.Environment,
-		arg.Machine,
-		arg.Name,
-		arg.CreatedAt,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
 }
 
 const upsertDeploymentStatus = `-- name: UpsertDeploymentStatus :exec

@@ -43,10 +43,11 @@ func applyMigrations(db *sql.DB, migrations string) {
 			continue
 		}
 		if _, err := db.Exec(stmt); err != nil {
-			// ADD COLUMN / RENAME COLUMN have no IF [NOT] EXISTS in SQLite, so
-			// they error when already in the target state (e.g. on a freshly
-			// created DB that schema.sql already built correctly). Treat those
-			// two errors as "already applied" so migrations stay idempotent;
+			// Migrations re-run on every startup, so statements that already
+			// reached their target state must be tolerated. SQLite lacks
+			// IF [NOT] EXISTS on ADD/RENAME COLUMN, and a statement that reads a
+			// table a prior migration dropped fails at prepare time even when no
+			// rows would match. Treat those "already applied" errors as no-ops;
 			// anything else is a real failure.
 			if isAlreadyAppliedErr(err) {
 				slog.Debug("skipping already-applied migration", "err", err, "stmt", strings.TrimSpace(stmt))
@@ -57,13 +58,15 @@ func applyMigrations(db *sql.DB, migrations string) {
 	}
 }
 
-// isAlreadyAppliedErr reports whether a migration error indicates the change
-// is already in place: a RENAME of a column that no longer exists under the
-// old name, or an ADD of a column that already exists.
+// isAlreadyAppliedErr reports whether a migration error indicates the change is
+// already in place: a RENAME of a column that no longer exists under the old
+// name, an ADD of a column that already exists, or a reference to a table a
+// prior migration already dropped.
 func isAlreadyAppliedErr(err error) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "no such column") ||
-		strings.Contains(msg, "duplicate column name")
+		strings.Contains(msg, "duplicate column name") ||
+		strings.Contains(msg, "no such table")
 }
 
 func hasExecutableSQL(s string) bool {
