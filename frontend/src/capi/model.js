@@ -206,6 +206,11 @@
  * @property {string} message
  */
 /**
+ * @typedef {Object} GithubAssetValidateRequest
+ * @property {string} repo
+ * @property {string} asset
+ */
+/**
  * @typedef {Object} User
  * @property {number} id
  * @property {string} name
@@ -2817,6 +2822,69 @@ function decodeRepoValidateResponseMessage(reader, length) {
 export function decodeRepoValidateResponse(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeRepoValidateResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {GithubAssetValidateRequest} message
+ * @param {Writer} writer
+ */
+export function writeGithubAssetValidateRequest(message, writer) {
+    if (message.repo !== undefined && message.repo !== null && message.repo !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.repo);
+    }
+    if (message.asset !== undefined && message.asset !== null && message.asset !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.asset);
+    }
+}
+
+
+/**
+ * @param {GithubAssetValidateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeGithubAssetValidateRequest(message) {
+    const writer = Writer.create();
+    writeGithubAssetValidateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {GithubAssetValidateRequest}
+ */
+function decodeGithubAssetValidateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {repo: "", asset: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.repo = reader.string();
+                break;
+            }
+            case 2: {
+                message.asset = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {GithubAssetValidateRequest}
+ */
+export function decodeGithubAssetValidateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeGithubAssetValidateRequestMessage(reader);
 }
 
 

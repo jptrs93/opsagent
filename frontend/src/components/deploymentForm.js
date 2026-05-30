@@ -247,6 +247,9 @@ function makeFormState(values) {
         // Transient repo-accessibility check; tracks the repo/source it applies
         // to so a stale result is hidden once the inputs change.
         repoCheck: van.state({status: 'idle', message: '', repo: '', sourceType: ''}),
+        // Transient github-asset check; tracks the repo/asset it applies to so a
+        // stale result is hidden once either input changes.
+        assetCheck: van.state({status: 'idle', message: '', repo: '', asset: ''}),
     };
 }
 
@@ -296,8 +299,72 @@ function optionsDisclosure(open, content) {
 
 function sourceOptions(form) {
     return () => form.sourceType.val === SOURCE_GITHUB
-        ? field("Asset", textInput(form.githubAsset, "app-linux-amd64"), "Release asset to download. Defaults to the release's only asset.")
+        ? assetField(form)
         : field("Output executable", textInput(form.nixOutputExecutable, "app"), "Executable name in the build output's bin/. Defaults to the only executable.");
+}
+
+// assetField mirrors repoField: on blur it checks (when filled) that the named
+// release asset exists in at least one published release of the configured repo.
+function assetField(form) {
+    return label(
+        {class: "flex flex-col gap-1 text-xs text-gray-400"},
+        span("Asset"),
+        input({
+            type: "text",
+            value: form.githubAsset.rawVal,
+            placeholder: "app-linux-amd64",
+            class: () => repoInputClass(activeAssetCheck(form).status),
+            oninput: e => { form.githubAsset.val = e.target.value; },
+            onblur: () => validateAsset(form),
+        }),
+        () => {
+            const c = activeAssetCheck(form);
+            if (c.status === 'idle') {
+                return span({class: "text-[11px] text-gray-500"}, "Release asset to download. Defaults to the release's only asset.");
+            }
+            return p({class: repoMsgClass(c.status)}, c.message);
+        },
+    );
+}
+
+function activeAssetCheck(form) {
+    const c = form.assetCheck.val;
+    const repo = form.githubRepo.val.trim();
+    const asset = form.githubAsset.val.trim();
+    if (!asset || c.repo !== repo || c.asset !== asset) {
+        return {status: 'idle', message: ''};
+    }
+    return c;
+}
+
+async function validateAsset(form) {
+    const repo = form.githubRepo.val.trim();
+    const asset = form.githubAsset.val.trim();
+    if (!asset) {
+        form.assetCheck.val = {status: 'idle', message: '', repo, asset: ''};
+        return;
+    }
+    if (!repo) {
+        form.assetCheck.val = {status: 'error', message: 'Set the repository first.', repo: '', asset};
+        return;
+    }
+    const c = form.assetCheck.val;
+    // Don't re-check an asset/repo pair we already have a verdict for.
+    if (c.repo === repo && c.asset === asset && (c.status === 'ok' || c.status === 'error')) {
+        return;
+    }
+    form.assetCheck.val = {status: 'checking', message: 'Checking asset…', repo, asset};
+    try {
+        const res = await capi.postV1GithubAssetValidate({repo, asset});
+        form.assetCheck.val = {
+            status: res.ok ? 'ok' : 'error',
+            message: res.message || (res.ok ? 'Asset found.' : 'Asset not found.'),
+            repo,
+            asset,
+        };
+    } catch (e) {
+        form.assetCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, asset};
+    }
 }
 
 function execOptions(form) {
@@ -349,7 +416,7 @@ export function envVarsPane(form) {
     const text = van.state(envVarsToText(form.envVars.rawVal));
     return div(
         {class: () => form.envPaneOpen.val
-            ? "w-80 shrink-0 border-l border-gray-700 bg-gray-900/70 flex flex-col"
+            ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
             : "hidden"},
         div(
             {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},

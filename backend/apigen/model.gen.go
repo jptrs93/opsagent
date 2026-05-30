@@ -1857,6 +1857,43 @@ func DecodeRepoValidateResponse(b []byte) (*RepoValidateResponse, error) {
 	return &m, nil
 }
 
+type GithubAssetValidateRequest struct {
+	Repo  string
+	Asset string
+}
+
+func (m *GithubAssetValidateRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Repo, 1)
+	b = AppendStringField(b, m.Asset, 2)
+	return b
+}
+
+func DecodeGithubAssetValidateRequest(b []byte) (*GithubAssetValidateRequest, error) {
+	var m GithubAssetValidateRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Repo, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Asset, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type User struct {
 	ID   int32
 	Name string

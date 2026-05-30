@@ -53,6 +53,30 @@ func (p *GithubReleaseVersionProvider) ListVersions(ctx context.Context, cfg *ap
 	return out, nil
 }
 
+// AssetExists reports whether an asset with the given name is attached to any
+// of the repo's recent published releases.
+func (p *GithubReleaseVersionProvider) AssetExists(ctx context.Context, cfg *apigen.PrepareConfig, assetName string) (bool, error) {
+	if cfg == nil || cfg.GithubRelease.IsZero() {
+		return false, fmt.Errorf("githubRelease config missing")
+	}
+	ownerRepo, err := preparer.RepoOwnerName(cfg.GithubRelease.Repo)
+	if err != nil {
+		return false, err
+	}
+	releases, err := p.fetchReleases(ctx, ownerRepo, 50)
+	if err != nil {
+		return false, err
+	}
+	for _, r := range releases {
+		for _, a := range r.Assets {
+			if a.Name == assetName {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 type ghRelease struct {
 	TagName     string    `json:"tag_name"`
 	Name        string    `json:"name"`
@@ -60,6 +84,9 @@ type ghRelease struct {
 	Author      struct {
 		Login string `json:"login"`
 	} `json:"author"`
+	Assets []struct {
+		Name string `json:"name"`
+	} `json:"assets"`
 }
 
 func (p *GithubReleaseVersionProvider) fetchReleases(ctx context.Context, ownerRepo string, limit int) ([]ghRelease, error) {

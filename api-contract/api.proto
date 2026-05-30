@@ -86,6 +86,12 @@ service OpsagentHttpV1 {
   rpc PostV1RepoValidate(RepoValidateRequest) returns (RepoValidateResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
+
+  // Check whether a named release asset exists in any of a GitHub repo's
+  // published releases, before a deployment referencing it is created.
+  rpc PostV1GithubAssetValidate(GithubAssetValidateRequest) returns (RepoValidateResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
 }
 
 // OpsagentClusterV1 is the primary↔worker cluster transport. It is served on
@@ -357,6 +363,13 @@ message RepoValidateRequest {
 message RepoValidateResponse {
   bool ok = 1;
   string message = 2;  // human-readable result, safe to display to the user
+}
+
+// GithubAssetValidateRequest checks that a named release asset exists in a
+// GitHub repo's published releases.
+message GithubAssetValidateRequest {
+  string repo = 1;   // e.g. "github.com/owner/repo"
+  string asset = 2;  // release asset filename, e.g. "app-linux-amd64"
 }
 
 // === Storage-only messages ===

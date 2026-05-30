@@ -62,8 +62,8 @@ export function createOverlay(onClose, onCreated) {
     const dialog = div(
         {class: "fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 pointer-events-none"},
         div(
-            {class: "bg-gray-950 border border-gray-700 rounded-xl shadow-2xl flex flex-row overflow-hidden pointer-events-auto",
-             style: () => `width: ${form.envPaneOpen.val ? 1100 : 760}px; max-width: calc(100vw - 2rem); max-height: 88vh;`,
+            {class: "bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-row overflow-hidden pointer-events-auto",
+             style: () => `width: ${form.envPaneOpen.val ? 1240 : 760}px; max-width: calc(100vw - 2rem); max-height: 88vh;`,
              onclick: (e) => e.stopPropagation()},
             div(
                 {class: "flex-1 min-w-0 flex flex-col"},

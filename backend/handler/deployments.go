@@ -183,6 +183,38 @@ func (h *Handler) PostV1RepoValidate(ctx apigen.Context, req *apigen.RepoValidat
 	return &apigen.RepoValidateResponse{Ok: true, Message: "Repository is accessible."}, nil
 }
 
+// PostV1GithubAssetValidate checks that a named release asset exists in at least
+// one of the repo's published releases. As with repo validation, the message is
+// generic and underlying errors are logged server-side only.
+func (h *Handler) PostV1GithubAssetValidate(ctx apigen.Context, req *apigen.GithubAssetValidateRequest) (*apigen.RepoValidateResponse, error) {
+	repo := strings.TrimSpace(req.Repo)
+	asset := strings.TrimSpace(req.Asset)
+	if repo == "" {
+		return nil, RepoRequiredErr
+	}
+	// An empty asset means "use the release's only asset" — nothing to check.
+	if asset == "" {
+		return &apigen.RepoValidateResponse{Ok: true, Message: ""}, nil
+	}
+
+	prepare := &apigen.PrepareConfig{GithubRelease: apigen.GithubReleaseConfig{Repo: repo}}
+	found, err := versionprovider.GHRel.AssetExists(ctx, prepare, asset)
+	if err != nil {
+		slog.Warn("github asset validation failed", "repo", repo, "asset", asset, "err", err)
+		return &apigen.RepoValidateResponse{
+			Ok:      false,
+			Message: "Could not check releases. Verify the repository and that the configured GitHub token grants access.",
+		}, nil
+	}
+	if !found {
+		return &apigen.RepoValidateResponse{
+			Ok:      false,
+			Message: "No published release has an asset with this name.",
+		}, nil
+	}
+	return &apigen.RepoValidateResponse{Ok: true, Message: "Asset found in a published release."}, nil
+}
+
 func (h *Handler) PostV1DeploymentLogs(ctx apigen.Context, r *http.Request, w http.ResponseWriter) error {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
