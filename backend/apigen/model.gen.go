@@ -1542,6 +1542,7 @@ type RunnerStatus struct {
 	Status                  RunningStatus
 	NumberOfRestarts        int32
 	LastRestartAt           time.Time
+	RunningVersion          string
 }
 
 func (m RunnerStatus) IsZero() bool {
@@ -1550,7 +1551,8 @@ func (m RunnerStatus) IsZero() bool {
 		m.RunningArtifact == "" &&
 		m.Status == 0 &&
 		m.NumberOfRestarts == 0 &&
-		m.LastRestartAt.IsZero()
+		m.LastRestartAt.IsZero() &&
+		m.RunningVersion == ""
 }
 
 func (m *RunnerStatus) Encode() []byte {
@@ -1561,6 +1563,7 @@ func (m *RunnerStatus) Encode() []byte {
 	b = AppendInt32Field(b, int32(m.Status), 4)
 	b = AppendInt32Field(b, m.NumberOfRestarts, 6)
 	b = AppendInt64FromTime(b, m.LastRestartAt, 7)
+	b = AppendStringField(b, m.RunningVersion, 8)
 	return b
 }
 
@@ -1591,6 +1594,8 @@ func DecodeRunnerStatus(b []byte) (*RunnerStatus, error) {
 			b, m.NumberOfRestarts, err = ConsumeVarInt32(b, typ)
 		case 7:
 			b, m.LastRestartAt, err = ConsumeTimeFromInt64(b, typ)
+		case 8:
+			b, m.RunningVersion, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

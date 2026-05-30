@@ -69,6 +69,11 @@ FROM deployment_config_history
 WHERE deployment_id = ?
 ORDER BY version ASC;
 
+-- name: GetConfigHistoryDesiredVersion :one
+SELECT desired_version
+FROM deployment_config_history
+WHERE deployment_id = ? AND version = ?;
+
 -- === deployment_status ===
 
 -- name: UpsertDeploymentStatus :exec

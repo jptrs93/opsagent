@@ -106,7 +106,7 @@ const mapDeploymentsToView = (deployments) => {
             repo,
             runnerType,
             existingStatus: runner.status || 0,
-            existingVersion: runner.runningArtifact || '',
+            existingVersion: runner.runningVersion || '',
             numberOfRestarts: runner.numberOfRestarts || 0,
             lastRestartAt: runner.lastRestartAt,
             deployedBy: d.config.updatedBy || 0,

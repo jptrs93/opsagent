@@ -306,6 +306,10 @@ message RunnerStatus {
   RunningStatus status = 4;
   int32 number_of_restarts = 6;
   int64 last_restart_at = 7 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  // Version string (commit/tag) the running artifact was built from. Derived at
+  // read time by resolving deployment_config_version against the config history;
+  // not persisted on the status row.
+  string running_version = 8;
 }
 
 

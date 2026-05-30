@@ -68,6 +68,24 @@ func (q *Queries) CreateDeploymentConfig(ctx context.Context, arg CreateDeployme
 	return i, err
 }
 
+const getConfigHistoryDesiredVersion = `-- name: GetConfigHistoryDesiredVersion :one
+SELECT desired_version
+FROM deployment_config_history
+WHERE deployment_id = ? AND version = ?
+`
+
+type GetConfigHistoryDesiredVersionParams struct {
+	DeploymentID int64
+	Version      int64
+}
+
+func (q *Queries) GetConfigHistoryDesiredVersion(ctx context.Context, arg GetConfigHistoryDesiredVersionParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getConfigHistoryDesiredVersion, arg.DeploymentID, arg.Version)
+	var desired_version string
+	err := row.Scan(&desired_version)
+	return desired_version, err
+}
+
 const getDeploymentConfig = `-- name: GetDeploymentConfig :one
 SELECT deployment_id, environment, machine, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted

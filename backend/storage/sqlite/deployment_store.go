@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -142,7 +143,7 @@ func (s *deploymentStore) snapshotLocked(machine string) []apigen.DeploymentWith
 		}
 		out = append(out, apigen.DeploymentWithStatus{
 			Config: *cfg,
-			Status: statusValue(s.statusCache[id]),
+			Status: s.withRunningVersion(cfg, statusValue(s.statusCache[id])),
 		})
 	}
 	return out
@@ -165,7 +166,39 @@ func (s *deploymentStore) notifyFromCache(id int32) {
 		"hasPreparer", st != nil && !st.Preparer.IsZero(),
 		"hasRunner", st != nil && !st.Runner.IsZero(),
 	)
-	s.subs.Notify(apigen.DeploymentWithStatus{Config: *cfg, Status: statusValue(st)})
+	s.subs.Notify(apigen.DeploymentWithStatus{Config: *cfg, Status: s.withRunningVersion(cfg, statusValue(st))})
+}
+
+// withRunningVersion fills Status.Runner.RunningVersion — the version string
+// (commit/tag) the running artifact was built from — by resolving the runner's
+// config version against the config history. The current config (the common,
+// steady-state case) is served from the in-memory cache; an older version, seen
+// only while a rollout is in flight, falls back to a primary-key lookup in
+// deployment_config_history.
+func (s *deploymentStore) withRunningVersion(cfg *apigen.DeploymentConfig, st apigen.DeploymentStatus) apigen.DeploymentStatus {
+	if st.Runner.IsZero() {
+		return st
+	}
+	ver := st.Runner.DeploymentConfigVersion
+	if ver == 0 {
+		return st
+	}
+	if cfg != nil && ver == cfg.Version {
+		st.Runner.RunningVersion = cfg.DesiredState.Version
+		return st
+	}
+	dv, err := s.q.GetConfigHistoryDesiredVersion(context.Background(), GetConfigHistoryDesiredVersionParams{
+		DeploymentID: int64(st.DeploymentID),
+		Version:      int64(ver),
+	})
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			slog.Warn("store: resolve running version", "id", st.DeploymentID, "version", ver, "err", err)
+		}
+		return st
+	}
+	st.Runner.RunningVersion = dv
+	return st
 }
 
 func deploymentFilter(machine string) func(apigen.DeploymentWithStatus) bool {

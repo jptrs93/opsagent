@@ -171,6 +171,7 @@
  * @property {number} status
  * @property {number} numberOfRestarts
  * @property {Date} lastRestartAt
+ * @property {string} runningVersion
  */
 /**
  * @typedef {Object} Version
@@ -2310,6 +2311,9 @@ export function writeRunnerStatus(message, writer) {
     if (message.lastRestartAt instanceof Date && message.lastRestartAt.getTime() !== 0) {
         writer.uint32(tag(7, WIRE.VARINT)).int64(Math.trunc(message.lastRestartAt.getTime()));
     }
+    if (message.runningVersion !== undefined && message.runningVersion !== null && message.runningVersion !== "") {
+        writer.uint32(tag(8, WIRE.LDELIM)).string(message.runningVersion);
+    }
 }
 
 
@@ -2331,7 +2335,7 @@ export function encodeRunnerStatus(message) {
  */
 function decodeRunnerStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentConfigVersion: 0, runningPid: 0, runningArtifact: "", status: 0, numberOfRestarts: 0, lastRestartAt: new Date(0) };
+    const message = {deploymentConfigVersion: 0, runningPid: 0, runningArtifact: "", status: 0, numberOfRestarts: 0, lastRestartAt: new Date(0), runningVersion: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2357,6 +2361,10 @@ function decodeRunnerStatusMessage(reader, length) {
             }
             case 7: {
                 message.lastRestartAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 8: {
+                message.runningVersion = reader.string();
                 break;
             }
             default:
