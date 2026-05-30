@@ -44,23 +44,23 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
     return tr(
         {class: "border-b border-gray-800 last:border-0 hover:bg-gray-800/60 transition-colors"},
         td(
-            {class: "py-3 pl-4 pr-4 align-top min-w-48"},
-            div({class: "font-medium text-sm text-white"}, deployment.name || `#${deployment.id}`),
+            {class: "py-3 pl-4 pr-3 align-top min-w-32"},
+            div({class: "font-medium text-sm text-white break-words"}, deployment.name || `#${deployment.id}`),
             button({
                 class: "text-xs text-gray-500 hover:text-gray-300 underline cursor-pointer p-0",
                 onclick: () => onShowHistory(deployment),
                 type: "button",
             }, "history"),
         ),
-        showEnvironment ? td({class: "py-3 px-4 align-top text-sm text-gray-300 whitespace-nowrap"}, deployment.environment || '-') : null,
-        td({class: "py-3 px-4 align-top text-sm text-gray-300 whitespace-nowrap"}, deployment.machine || '-'),
+        showEnvironment ? td({class: "py-3 px-3 align-top text-sm text-gray-300 whitespace-nowrap"}, deployment.environment || '-') : null,
+        td({class: "py-3 px-3 align-top text-sm text-gray-300 break-words"}, deployment.machine || '-'),
         td(
-            {class: "py-3 px-4 align-top whitespace-nowrap"},
+            {class: "py-3 px-3 align-top whitespace-nowrap"},
             statusBadge(hasExisting, existingColors, () => onShowRunOutput(deployment)),
         ),
-        td({class: "py-3 px-4 align-top text-sm whitespace-nowrap"}, versionLink(deployment)),
+        td({class: "py-3 px-3 align-top text-sm whitespace-nowrap"}, versionLink(deployment)),
         td(
-            {class: "py-3 px-4 align-top text-sm whitespace-nowrap"},
+            {class: "py-3 px-3 align-top text-sm break-words"},
             prepareCopy
                 ? a({
                     class: `underline hover:text-white cursor-pointer ${prepareCopy.class}`,
@@ -69,17 +69,17 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
                 : span({class: "text-gray-500"}, '-'),
         ),
         td(
-            {class: "py-3 px-4 align-top text-sm text-gray-300 whitespace-nowrap"},
+            {class: "py-3 px-3 align-top text-sm text-gray-300 whitespace-nowrap"},
             div(deployment.numberOfRestarts),
             div({class: "text-xs text-gray-500"}, formatMaybeDate(deployment.lastRestartAt, 'n/a')),
         ),
         td(
-            {class: "py-3 px-4 align-top text-sm text-gray-300 whitespace-nowrap"},
-            div(() => resolveUserDisplayName(deployment.deployedBy) || 'unknown'),
-            div({class: "text-xs text-gray-500"}, formatMaybeDate(deployment.deployedAt, 'unknown')),
+            {class: "py-3 px-3 align-top text-sm text-gray-300"},
+            div({class: "break-words"}, () => resolveUserDisplayName(deployment.deployedBy) || 'unknown'),
+            div({class: "text-xs text-gray-500 whitespace-nowrap"}, formatMaybeDate(deployment.deployedAt, 'unknown')),
         ),
         td(
-            {class: "py-3 pl-4 pr-4 align-top text-right whitespace-nowrap"},
+            {class: "py-3 pl-3 pr-4 align-top text-right whitespace-nowrap"},
             button({
                 class: "btn-secondary text-xs py-1.5 px-3 cursor-pointer",
                 onclick: () => onUpdate(deployment),
