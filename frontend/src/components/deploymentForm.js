@@ -24,6 +24,7 @@ export function emptyDeploymentForm() {
         githubRepo: '',
         githubAsset: '',
         githubTag: '',
+        githubDownloadScript: '',
         runnerType: RUNNER_OS,
         osWorkingDir: '',
         osRunAs: '',
@@ -45,7 +46,7 @@ export function deploymentConfigToForm(cfg) {
 
     // Reveal a section's additional options up-front when the existing config
     // already sets one of them, so they aren't hidden on edit.
-    const showSourceOpts = Boolean(gh.asset || nix.outputExecutable);
+    const showSourceOpts = Boolean(gh.asset || gh.downloadScript || nix.outputExecutable);
     const showExecOpts = Boolean(os.workingDir || os.runAs || os.strategy || (os.env && os.env.length));
 
     return makeFormState({
@@ -59,6 +60,7 @@ export function deploymentConfigToForm(cfg) {
         githubRepo: gh.repo || '',
         githubAsset: gh.asset || '',
         githubTag: gh.tag || '',
+        githubDownloadScript: gh.downloadScript || '',
         runnerType: runner.systemd ? RUNNER_SYSTEMD : RUNNER_OS,
         osWorkingDir: os.workingDir || '',
         osRunAs: os.runAs || '',
@@ -172,6 +174,7 @@ export function formToYaml(form) {
             repo: form.githubRepo.val.trim(),
             asset: form.githubAsset.val.trim(),
             tag: form.githubTag.val.trim(),
+            downloadScript: form.githubDownloadScript.val.replace(/\s+$/, ''),
         };
     } else {
         obj.prepare.nixBuild = {
@@ -233,6 +236,7 @@ function makeFormState(values) {
         githubRepo: van.state(values.githubRepo),
         githubAsset: van.state(values.githubAsset),
         githubTag: van.state(values.githubTag),
+        githubDownloadScript: van.state(values.githubDownloadScript || ''),
         runnerType: van.state(values.runnerType),
         osWorkingDir: van.state(values.osWorkingDir),
         osRunAs: van.state(values.osRunAs),
@@ -299,8 +303,27 @@ function optionsDisclosure(open, content) {
 
 function sourceOptions(form) {
     return () => form.sourceType.val === SOURCE_GITHUB
-        ? assetField(form)
+        ? div({class: "flex flex-col gap-3"}, assetField(form), downloadScriptField(form))
         : field("Output executable", textInput(form.nixOutputExecutable, "app"), "Executable name in the build output's bin/. Defaults to the only executable.");
+}
+
+// downloadScriptField lets the operator supply a bash script that downloads the
+// artifact instead of pulling a release asset directly. The script runs in the
+// release download dir with the version tag as $1 and must leave the runnable
+// artifact there (named by Asset, or the only file it produces).
+function downloadScriptField(form) {
+    return label(
+        {class: "flex flex-col gap-1 text-xs text-gray-400"},
+        span("Custom download script"),
+        textarea({
+            class: "w-full h-32 resize-y rounded-lg bg-gray-800 text-gray-100 border border-gray-600 px-3 py-2 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand",
+            spellcheck: "false",
+            placeholder: "#!/usr/bin/env bash\nset -euo pipefail\nversion=\"$1\"\ncurl -fsSL -o app \"https://example.com/$version/app\"",
+            value: form.githubDownloadScript.rawVal,
+            oninput: e => { form.githubDownloadScript.val = e.target.value; },
+        }),
+        span({class: "text-[11px] text-gray-500"}, "Optional. Runs instead of downloading an asset. Receives the version tag as $1 and runs in the download directory; leave the built executable there. GITHUB_TOKEN is available in the environment."),
+    );
 }
 
 // assetField mirrors repoField: on blur it checks (when filled) that the named
@@ -319,10 +342,15 @@ function assetField(form) {
         }),
         () => {
             const c = activeAssetCheck(form);
-            if (c.status === 'idle') {
-                return span({class: "text-[11px] text-gray-500"}, "Release asset to download. Defaults to the release's only asset.");
+            if (c.status !== 'idle') {
+                return p({class: repoMsgClass(c.status)}, c.message);
             }
-            return p({class: repoMsgClass(c.status)}, c.message);
+            // With a custom download script the asset is no longer a release
+            // asset — it names the file the script leaves in the download dir.
+            const scripted = form.githubDownloadScript.val.trim() !== '';
+            return span({class: "text-[11px] text-gray-500"}, scripted
+                ? "Output file the script leaves in the download dir. Defaults to the only file it produces."
+                : "Release asset to download. Defaults to the release's only asset.");
         },
     );
 }
@@ -331,7 +359,9 @@ function activeAssetCheck(form) {
     const c = form.assetCheck.val;
     const repo = form.githubRepo.val.trim();
     const asset = form.githubAsset.val.trim();
-    if (!asset || c.repo !== repo || c.asset !== asset) {
+    // A custom download script means the asset isn't a release asset, so the
+    // GitHub asset check doesn't apply.
+    if (!asset || form.githubDownloadScript.val.trim() || c.repo !== repo || c.asset !== asset) {
         return {status: 'idle', message: ''};
     }
     return c;
@@ -340,6 +370,10 @@ function activeAssetCheck(form) {
 async function validateAsset(form) {
     const repo = form.githubRepo.val.trim();
     const asset = form.githubAsset.val.trim();
+    if (form.githubDownloadScript.val.trim()) {
+        form.assetCheck.val = {status: 'idle', message: '', repo: '', asset: ''};
+        return;
+    }
     if (!asset) {
         form.assetCheck.val = {status: 'idle', message: '', repo, asset: ''};
         return;
@@ -625,6 +659,14 @@ function toYaml(obj, indent = 0) {
             lines.push(`${pad}${key}:`);
             const nested = toYaml(val, indent + 1);
             if (nested) lines.push(nested);
+        } else if (typeof val === 'string' && val.includes('\n')) {
+            // Multi-line strings are emitted as a literal block scalar so
+            // newlines and shell syntax survive the round-trip intact.
+            lines.push(`${pad}${key}: |`);
+            const blockPad = '  '.repeat(indent + 1);
+            for (const line of val.replace(/\n+$/, '').split('\n')) {
+                lines.push(line === '' ? '' : `${blockPad}${line}`);
+            }
         } else {
             lines.push(`${pad}${key}: ${String(val)}`);
         }

@@ -278,15 +278,17 @@ func DecodeNixBuildConfig(b []byte) (*NixBuildConfig, error) {
 }
 
 type GithubReleaseConfig struct {
-	Repo  string
-	Asset string
-	Tag   string
+	Repo           string
+	Asset          string
+	Tag            string
+	DownloadScript string
 }
 
 func (m GithubReleaseConfig) IsZero() bool {
 	return m.Repo == "" &&
 		m.Asset == "" &&
-		m.Tag == ""
+		m.Tag == "" &&
+		m.DownloadScript == ""
 }
 
 func (m *GithubReleaseConfig) Encode() []byte {
@@ -294,6 +296,7 @@ func (m *GithubReleaseConfig) Encode() []byte {
 	b = AppendStringField(b, m.Repo, 1)
 	b = AppendStringField(b, m.Asset, 2)
 	b = AppendStringField(b, m.Tag, 3)
+	b = AppendStringField(b, m.DownloadScript, 4)
 	return b
 }
 
@@ -314,6 +317,8 @@ func DecodeGithubReleaseConfig(b []byte) (*GithubReleaseConfig, error) {
 			b, m.Asset, err = ConsumeString(b, typ)
 		case 3:
 			b, m.Tag, err = ConsumeString(b, typ)
+		case 4:
+			b, m.DownloadScript, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

@@ -36,6 +36,7 @@
  * @property {string} repo
  * @property {string} asset
  * @property {string} tag
+ * @property {string} downloadScript
  */
 /**
  * @typedef {Object} PrepareConfig
@@ -691,6 +692,9 @@ export function writeGithubReleaseConfig(message, writer) {
     if (message.tag !== undefined && message.tag !== null && message.tag !== "") {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.tag);
     }
+    if (message.downloadScript !== undefined && message.downloadScript !== null && message.downloadScript !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.downloadScript);
+    }
 }
 
 
@@ -712,7 +716,7 @@ export function encodeGithubReleaseConfig(message) {
  */
 function decodeGithubReleaseConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {repo: "", asset: "", tag: "" };
+    const message = {repo: "", asset: "", tag: "", downloadScript: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -726,6 +730,10 @@ function decodeGithubReleaseConfigMessage(reader, length) {
             }
             case 3: {
                 message.tag = reader.string();
+                break;
+            }
+            case 4: {
+                message.downloadScript = reader.string();
                 break;
             }
             default:

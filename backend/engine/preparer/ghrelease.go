@@ -9,7 +9,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -87,6 +89,11 @@ func (g *GithubReleaseDownloader) runDownload(ctx context.Context, store storage
 	}
 
 	tag := version
+
+	if script := strings.TrimSpace(gh.DownloadScript); script != "" {
+		return g.runDownloadScript(ctx, gh, ownerRepo, tag, script, logFile, writeLog)
+	}
+
 	writeLog("fetching release %s tag %s", ownerRepo, tag)
 	release, err := g.fetchReleaseByTag(ctx, ownerRepo, tag)
 	if err != nil {
@@ -128,6 +135,103 @@ func (g *GithubReleaseDownloader) runDownload(ctx context.Context, store storage
 
 	writeLog("download complete, artifact: %s", dstPath)
 	return dstPath, apigen.PreparationStatus_READY
+}
+
+// runDownloadScript runs a user-supplied bash script in place of downloading a
+// release asset. The script is executed with the target version tag as $1 and a
+// working directory of the release download dir; it is responsible for placing
+// the runnable artifact there. The configured GitHub token is exposed as
+// GITHUB_TOKEN so private downloads work; it is passed via the environment (not
+// command args) so it is never written to the prepare log.
+func (g *GithubReleaseDownloader) runDownloadScript(ctx context.Context, gh apigen.GithubReleaseConfig, ownerRepo, tag, script string, logFile *os.File, writeLog func(string, ...any)) (string, apigen.PreparationStatus) {
+	dstDir := filepath.Join(g.dataDir, "releases", ownerRepo, tag)
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		writeLog("ERROR creating release dir: %v", err)
+		return "", apigen.PreparationStatus_FAILED
+	}
+
+	scriptFile, err := os.CreateTemp("", "opsagent-download-*.sh")
+	if err != nil {
+		writeLog("ERROR creating script file: %v", err)
+		return "", apigen.PreparationStatus_FAILED
+	}
+	scriptPath := scriptFile.Name()
+	defer os.Remove(scriptPath)
+	if _, err := scriptFile.WriteString(script); err != nil {
+		scriptFile.Close()
+		writeLog("ERROR writing script file: %v", err)
+		return "", apigen.PreparationStatus_FAILED
+	}
+	if err := scriptFile.Close(); err != nil {
+		writeLog("ERROR closing script file: %v", err)
+		return "", apigen.PreparationStatus_FAILED
+	}
+
+	writeLog("running custom download script in %s with version %s", dstDir, tag)
+	cmd := exec.CommandContext(ctx, "bash", scriptPath, tag)
+	cmd.Dir = dstDir
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	cmd.Env = os.Environ()
+	if g.githubToken != "" {
+		cmd.Env = append(cmd.Env, "GITHUB_TOKEN="+g.githubToken)
+	}
+	if err := cmd.Run(); err != nil {
+		writeLog("ERROR download script failed: %v", err)
+		return "", apigen.PreparationStatus_FAILED
+	}
+
+	artifact, err := resolveScriptArtifact(dstDir, gh.Asset)
+	if err != nil {
+		writeLog("ERROR locating script output: %v", err)
+		return "", apigen.PreparationStatus_FAILED
+	}
+	if err := os.Chmod(artifact, 0o755); err != nil {
+		writeLog("ERROR chmod failed: %v", err)
+		return "", apigen.PreparationStatus_FAILED
+	}
+
+	writeLog("download script complete, artifact: %s", artifact)
+	return artifact, apigen.PreparationStatus_READY
+}
+
+// resolveScriptArtifact locates the executable a custom download script left in
+// dstDir. When asset is set it must name the produced file; otherwise the script
+// must leave exactly one regular file.
+func resolveScriptArtifact(dstDir, asset string) (string, error) {
+	if asset != "" {
+		if filepath.Base(asset) != asset {
+			return "", fmt.Errorf("asset must be a file name: %q", asset)
+		}
+		candidate := filepath.Join(dstDir, asset)
+		info, err := os.Stat(candidate)
+		if err != nil {
+			return "", fmt.Errorf("asset %q not found in download dir: %w", asset, err)
+		}
+		if info.IsDir() {
+			return "", fmt.Errorf("asset %q is a directory", asset)
+		}
+		return candidate, nil
+	}
+
+	entries, err := os.ReadDir(dstDir)
+	if err != nil {
+		return "", fmt.Errorf("reading download dir: %w", err)
+	}
+	files := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		files = append(files, filepath.Join(dstDir, e.Name()))
+	}
+	if len(files) == 0 {
+		return "", fmt.Errorf("download script produced no files in %s", dstDir)
+	}
+	if len(files) > 1 {
+		return "", fmt.Errorf("download script produced multiple files in %s; set asset to the output file name", dstDir)
+	}
+	return files[0], nil
 }
 
 // --- github api helpers ---

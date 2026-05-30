@@ -147,8 +147,9 @@ message NixBuildConfig {
 
 message GithubReleaseConfig {
   string repo = 1;
-  string asset = 2; // asset name (optional; falls back to first asset)
+  string asset = 2; // asset name (optional; falls back to first asset). With download_script, the output file the script leaves in the download dir.
   string tag = 3;   // optional explicit tag
+  string download_script = 4; // optional bash script run instead of downloading an asset; receives the version tag as $1, runs in the download dir
 }
 
 message PrepareConfig {

@@ -463,9 +463,10 @@ type yamlNixBuild struct {
 }
 
 type yamlGithubRelease struct {
-	Repo  string `yaml:"repo"`
-	Asset string `yaml:"asset,omitempty"`
-	Tag   string `yaml:"tag,omitempty"`
+	Repo           string `yaml:"repo"`
+	Asset          string `yaml:"asset,omitempty"`
+	Tag            string `yaml:"tag,omitempty"`
+	DownloadScript string `yaml:"downloadScript,omitempty"`
 }
 
 type yamlRunner struct {
@@ -543,9 +544,10 @@ func toPrepareConfig(yp *yamlPrepare) (*apigen.PrepareConfig, error) {
 			return nil, invalidConfigErrf("prepare.githubRelease: repo is required")
 		}
 		out.GithubRelease = apigen.GithubReleaseConfig{
-			Repo:  yp.GithubRelease.Repo,
-			Asset: yp.GithubRelease.Asset,
-			Tag:   yp.GithubRelease.Tag,
+			Repo:           yp.GithubRelease.Repo,
+			Asset:          yp.GithubRelease.Asset,
+			Tag:            yp.GithubRelease.Tag,
+			DownloadScript: yp.GithubRelease.DownloadScript,
 		}
 	}
 	return out, nil

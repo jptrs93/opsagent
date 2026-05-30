@@ -109,6 +109,8 @@ Flow:
 5. `chmod 0755` on the downloaded file.
 6. On success: `PreparerStatus.Status = READY`. On any failure: `FAILED`.
 
+**Custom download script.** If `cfg.Spec.Prepare.GithubRelease.DownloadScript` is set, steps 2–4 are skipped. Instead the script is written to a temp file and run as `bash <script> <tag>` with the working directory set to `{dataDir}/releases/{owner}/{repo}/{tag}` — so the version tag arrives as `$1` and the script downloads into the release dir. The configured GitHub token is exposed as `GITHUB_TOKEN` in the environment (passed via env, never via args, so it isn't written to the prepare log). The artifact is then resolved from that dir: `Asset` names the produced file if set, otherwise the script must leave exactly one regular file. The resolved file is `chmod 0755`'d and returned.
+
 `ListScopes` returns nil (releases are flat — no branch dimension).
 `ListVersions` calls `/repos/{owner}/{repo}/releases?per_page=50`, returning
 each release's `tag_name` as the version id, `name` as the label, and
