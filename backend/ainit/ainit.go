@@ -10,6 +10,7 @@ import (
 
 	"github.com/jptrs93/goutil/envu"
 	"github.com/jptrs93/goutil/logu"
+	"github.com/jptrs93/opsagent/backend/util/certu"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -111,10 +112,20 @@ type Configuration struct {
 	AcmeEmail          string   `env:"OPSAGENT_ACME_EMAIL,"`
 
 	// Cluster mTLS — if ClusterCA is empty, cluster mode is disabled.
-	ClusterCA     string `env:"OPSAGENT_CLUSTER_CA,"`     // path to CA cert
-	ClusterCert   string `env:"OPSAGENT_CLUSTER_CERT,"`   // path to this node's cert
-	ClusterKey    string `env:"OPSAGENT_CLUSTER_KEY,"`    // path to this node's private key
-	ClusterListen string `env:"OPSAGENT_CLUSTER_LISTEN,"` // mTLS listen address (e.g. ":9443")
-	PrimaryAddr   string `env:"OPSAGENT_PRIMARY_ADDR,"`   // slaves only: primary's mTLS address
+	ClusterCA     string `env:"OPSAGENT_CLUSTER_CA,"`          // path to CA cert
+	ClusterCert   string `env:"OPSAGENT_CLUSTER_CERT,"`        // path to this node's cert
+	ClusterKey    string `env:"OPSAGENT_CLUSTER_KEY,"`         // path to this node's private key
+	ClusterListen string `env:"OPSAGENT_CLUSTER_LISTEN,"`      // mTLS listen address (e.g. ":9443")
+	PrimaryAddr   string `env:"OPSAGENT_PRIMARY_ADDR,"`        // slaves only: primary's mTLS address
 	PrimaryName   string `env:"OPSAGENT_PRIMARY_NAME,primary"` // slaves only: primary's cert CN (for TLS verification when dialing by IP)
+}
+
+func ResolvePrimaryMachineName() string {
+	if Config.ClusterCert != "" {
+		return certu.MustCertLoadCommonName(Config.ClusterCert)
+	}
+	if Config.IsLocalDev == "true" {
+		return "localhost"
+	}
+	panic("OPSAGENT_CLUSTER_CERT must be set to identify this machine (or enable OPSAGENT_LOCAL_DEV for a localhost fallback)")
 }

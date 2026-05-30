@@ -1,8 +1,6 @@
 module github.com/jptrs93/opsagent/backend
 
-go 1.25.0
-
-toolchain go1.25.3
+go 1.26.3
 
 require (
 	github.com/go-webauthn/webauthn v0.16.3

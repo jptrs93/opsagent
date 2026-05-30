@@ -348,7 +348,6 @@ function environmentVarsEditor(form) {
             {class: "flex items-center justify-between mb-2"},
             div(
                 h3({class: "text-xs font-semibold text-gray-300"}, "Environment"),
-                p({class: "text-xs text-gray-500"}, "Set on the process runner. Ignored for systemd deployments."),
             ),
             button({
                 class: "text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 cursor-pointer",

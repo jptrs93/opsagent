@@ -68,7 +68,7 @@ func buildHandlerFunc(config *MuxConfig, verifyAuth VerifyAuthFunc, policy Acces
 	return compress(routeHandler)
 }
 
-type ServerHandler interface {
+type OpsagentHttpV1Handler interface {
 	Get(Context, *http.Request, http.ResponseWriter) error
 	GetV1Healthz(Context, *http.Request, http.ResponseWriter) error
 	PostV1AuthMaster(Context, *MasterPasswordRequest) (*LoginResponse, error)
@@ -86,7 +86,7 @@ type ServerHandler interface {
 	PostV1DeploymentVersions(Context, *DeploymentVersionsRequest) (*DeploymentVersions, error)
 }
 
-func CreateMux(h ServerHandler, config *MuxConfig) *http.ServeMux {
+func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.ServeMux {
 	if config == nil {
 		config = &MuxConfig{}
 	}
@@ -257,5 +257,63 @@ func CreateMux(h ServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/deployment/versions", buildHandlerFunc(config, verifyAuth, postV1DeploymentVersionsAccessPolicy, postAuthHandlerPostV1DeploymentVersions, compressionModeAuto, false))
+	return m
+}
+
+type OpsagentClusterV1Handler interface {
+	PostV1ClusterConnect(Context, iter.Seq2[*MsgToMaster, error]) iter.Seq2[*MsgToWorker, error]
+}
+
+func CreateOpsagentClusterV1Mux(h OpsagentClusterV1Handler, config *MuxConfig) *http.ServeMux {
+	if config == nil {
+		config = &MuxConfig{}
+	}
+	verifyAuth := config.VerifyAuth
+	if verifyAuth == nil {
+		verifyAuth = func(ctx context.Context, _ http.ResponseWriter, _ *http.Request, _ AccessPolicy) (Context, error) {
+			var authCtx Context
+			return authCtx, nil
+		}
+	}
+	m := http.NewServeMux()
+	postV1ClusterConnectAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerPostV1ClusterConnect := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		sr := NewStreamReader(r.Body, config.MaxRequestBodySize)
+		reqSeq := func(yield func(*MsgToMaster, error) bool) {
+			for {
+				payload, ok, err := sr.Next()
+				if err != nil {
+					yield(nil, err)
+					return
+				}
+				if !ok {
+					return
+				}
+				req, err := DecodeMsgToMaster(payload)
+				if err != nil {
+					yield(nil, err)
+					return
+				}
+				if !yield(req, nil) {
+					return
+				}
+			}
+		}
+		respSeq := h.PostV1ClusterConnect(authCtx, reqSeq)
+		stream := NewStreamWriter(w)
+		var streamErr error
+		for resp, yieldErr := range respSeq {
+			if yieldErr != nil {
+				streamErr = fmt.Errorf("streaming err: %w", yieldErr)
+				break
+			}
+			if werr := stream.Write(resp.Encode()); werr != nil {
+				streamErr = fmt.Errorf("writing stream resp: %w", werr)
+				break
+			}
+		}
+		stream.Finish(authCtx, streamErr)
+	}
+	m.HandleFunc("POST /v1/cluster/connect", buildHandlerFunc(config, verifyAuth, postV1ClusterConnectAccessPolicy, postAuthHandlerPostV1ClusterConnect, compressionModeAuto, true))
 	return m
 }

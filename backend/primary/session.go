@@ -4,27 +4,42 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"iter"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/cluster"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
-// Session represents a connected worker. It owns both the write side (send
-// snapshot + forward deployment config updates) and the read side (ingest
-// status writes + log chunks) of the cluster connection for one worker.
+// outboxSize bounds the buffer of pending MsgToWorker frames. It decouples the
+// producers (snapshot/update/heartbeat feeder, log requests) from the single
+// consumer that yields to the network; when full, producers block — the same
+// backpressure the old write-mutex'd TCP conn provided.
+const outboxSize = 64
+
+// heartbeatInterval is how often the primary emits an empty MsgToWorker. With
+// HTTP/2 PINGs covering the worker's dead-primary detection, this exists so the
+// primary's own writes fail fast against a dead worker.
+const heartbeatInterval = 5 * time.Second
+
+// Session represents one connected worker's bidirectional stream. It drains an
+// outbox of MsgToWorker frames to the response iterator (send side) and feeds
+// incoming MsgToMaster frames into status writes and log streams (receive
+// side). Log streams are multiplexed over the one stream by request ID.
 type Session struct {
-	conn    *cluster.Conn
+	sessCtx context.Context
+	cancel  context.CancelFunc
 	machine string
 	store   *sqlite.StorageAdapter
-	primary *Primary
+
+	// outbox carries frames destined for the worker. It is never closed;
+	// senders fall through on sessCtx.Done so they never block past teardown.
+	outbox chan *apigen.MsgToWorker
 
 	// Log streaming: multiple concurrent streams multiplexed by request ID.
-	// logStreams maps request IDs to their dedicated data channels.
 	logMu      sync.Mutex
 	logStreams map[string]chan logChunk
 	nextLogID  atomic.Uint64
@@ -35,26 +50,37 @@ type logChunk struct {
 	end  bool
 }
 
-func newSession(conn *cluster.Conn, machine string, store *sqlite.StorageAdapter, p *Primary) *Session {
+func newSession(sessCtx context.Context, cancel context.CancelFunc, machine string, store *sqlite.StorageAdapter) *Session {
 	return &Session{
-		conn:       conn,
+		sessCtx:    sessCtx,
+		cancel:     cancel,
 		machine:    machine,
 		store:      store,
-		primary:    p,
+		outbox:     make(chan *apigen.MsgToWorker, outboxSize),
 		logStreams: make(map[string]chan logChunk),
 	}
 }
 
-// run performs the full session lifecycle: send the initial snapshot, spawn
-// a writer that forwards config updates from the store, and run the read
-// loop for incoming messages. Returns when the connection drops or the
-// context is cancelled.
-func (s *Session) run(ctx context.Context) error {
-	sessCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+// send queues a frame for the worker. It returns false if the session is
+// tearing down, in which case the frame is dropped.
+func (s *Session) send(msg *apigen.MsgToWorker) bool {
+	select {
+	case s.outbox <- msg:
+		return true
+	case <-s.sessCtx.Done():
+		return false
+	}
+}
 
-	snapshot, updatesCh := s.store.MustFetchSnapshotAndSubscribe(sessCtx, s.machine)
+// run drives the session: it yields the initial snapshot, spawns a reader that
+// ingests incoming frames and a feeder that forwards store updates plus
+// keepalives, then drains the outbox to the response iterator until the worker
+// disconnects or the context is cancelled.
+func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*apigen.MsgToWorker, error) bool) {
+	defer s.cancel()
+	defer s.closeAllLogStreams()
 
+	snapshot, updatesCh := s.store.MustFetchSnapshotAndSubscribe(s.sessCtx, s.machine)
 	items := make([]*apigen.DeploymentWithStatus, 0, len(snapshot))
 	for i := range snapshot {
 		items = append(items, &snapshot[i])
@@ -62,78 +88,71 @@ func (s *Session) run(ctx context.Context) error {
 	initial := &apigen.MsgToWorker{
 		DeploymentsSnapshot: &apigen.DeploymentWithStatusSnapshot{Items: items},
 	}
-	if err := s.conn.WriteFrame(initial.Encode()); err != nil {
-		return fmt.Errorf("sending initial snapshot: %w", err)
-	}
 
-	writerDone := make(chan struct{})
+	// Reader: ingest incoming MsgToMaster frames. Cancelling on return ends the
+	// feeder and unblocks the response loop when the worker disconnects.
 	go func() {
-		defer close(writerDone)
-		heartbeat := time.NewTicker(5 * time.Second)
+		defer s.cancel()
+		for msg, err := range reqs {
+			if err != nil {
+				slog.Info("worker stream read error", "machine", s.machine, "err", err)
+				return
+			}
+			s.handleIncoming(s.sessCtx, msg)
+		}
+	}()
+
+	// Feeder: forward per-machine config updates and emit periodic keepalives.
+	go func() {
+		heartbeat := time.NewTicker(heartbeatInterval)
 		defer heartbeat.Stop()
 		for {
 			select {
-			case <-sessCtx.Done():
+			case <-s.sessCtx.Done():
 				return
 			case dws, ok := <-updatesCh:
 				if !ok {
 					return
 				}
 				cfg := dws.Config
-				msg := &apigen.MsgToWorker{DeploymentUpdate: &cfg}
-				if err := s.conn.WriteFrame(msg.Encode()); err != nil {
-					slog.Warn("forwarding deployment update to worker failed", "machine", s.machine, "err", err)
+				if !s.send(&apigen.MsgToWorker{DeploymentUpdate: &cfg}) {
 					return
 				}
 			case <-heartbeat.C:
-				// Empty MsgToWorker as keepalive for slave read-deadline detection.
-				if err := s.conn.WriteFrame((&apigen.MsgToWorker{}).Encode()); err != nil {
+				if !s.send(&apigen.MsgToWorker{}) {
 					return
 				}
 			}
 		}
 	}()
 
-	err := s.readLoop(sessCtx)
-	cancel() // stop writer immediately
-	<-writerDone
+	// Send the snapshot first so the worker's stream call returns promptly.
+	if !yield(initial, nil) {
+		return
+	}
 
-	// Close all open log streams so any blocked readers return immediately.
-	s.closeAllLogStreams()
-	return err
-}
-
-// readLoop processes incoming MsgToMaster frames until the connection drops
-// or the context is cancelled.
-func (s *Session) readLoop(ctx context.Context) error {
+	// Response loop: drain the outbox to the worker.
 	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
+		case <-s.sessCtx.Done():
+			return
+		case msg := <-s.outbox:
+			if !yield(msg, nil) {
+				return
+			}
 		}
+	}
+}
 
-		payload, err := s.conn.ReadFrame()
-		if err != nil {
-			return err
-		}
-
-		msg, err := apigen.DecodeMsgToMaster(payload)
-		if err != nil {
-			slog.Warn("failed decoding message from worker", "machine", s.machine, "err", err)
-			continue
-		}
-
-		switch {
-		case msg.StatusWrite != nil:
-			s.handleStatusWrite(ctx, msg.StatusWrite)
-
-		case len(msg.LogData) > 0:
-			s.routeLogChunk(msg.LogRequestID, logChunk{data: msg.LogData})
-
-		case msg.LogEnd:
-			s.routeLogChunk(msg.LogRequestID, logChunk{end: true})
-		}
+// handleIncoming dispatches one frame from the worker.
+func (s *Session) handleIncoming(ctx context.Context, msg *apigen.MsgToMaster) {
+	switch {
+	case msg.StatusWrite != nil:
+		s.handleStatusWrite(ctx, msg.StatusWrite)
+	case len(msg.LogData) > 0:
+		s.routeLogChunk(msg.LogRequestID, logChunk{data: msg.LogData})
+	case msg.LogEnd:
+		s.routeLogChunk(msg.LogRequestID, logChunk{end: true})
 	}
 }
 
@@ -163,7 +182,7 @@ func (s *Session) routeLogChunk(requestID string, chunk logChunk) {
 }
 
 // closeAllLogStreams closes every open log stream channel so blocked readers
-// wake up. Called when the session's connection drops.
+// wake up. Called when the session ends.
 func (s *Session) closeAllLogStreams() {
 	s.logMu.Lock()
 	defer s.logMu.Unlock()
@@ -173,11 +192,11 @@ func (s *Session) closeAllLogStreams() {
 	}
 }
 
-// handleStatusWrite persists a status transition reported by a worker using
-// the worker's UpdatedAt clock as the authoritative identity. Same clock →
+// handleStatusWrite persists a status transition reported by a worker using the
+// worker's UpdatedAt clock as the authoritative identity. Same clock →
 // idempotent upsert, so reconnect re-pushes do not create duplicate history
-// rows. If the primary has drifted above the worker's latest clock, the
-// extra rows are deleted so the primary converges to the worker's view.
+// rows. If the primary has drifted above the worker's latest clock, the extra
+// rows are deleted so the primary converges to the worker's view.
 func (s *Session) handleStatusWrite(ctx context.Context, st *apigen.DeploymentStatus) {
 	if st == nil || st.DeploymentID == 0 {
 		return
@@ -185,9 +204,9 @@ func (s *Session) handleStatusWrite(ctx context.Context, st *apigen.DeploymentSt
 	s.store.MustWriteReplicatedDeploymentStatus(ctx, st)
 }
 
-// requestLogs sends a log request to the worker and returns a reader that
-// yields the streamed data until LogEnd or Close. Multiple requests can be
-// in flight concurrently — each gets its own channel keyed by request ID.
+// requestLogs sends a log request to the worker and returns a reader that yields
+// the streamed data until LogEnd or Close. Multiple requests can be in flight
+// concurrently — each gets its own channel keyed by request ID.
 func (s *Session) requestLogs(req *apigen.MsgToWorker) (io.ReadCloser, error) {
 	// Assign a unique request ID.
 	id := fmt.Sprintf("%s-%d", s.machine, s.nextLogID.Add(1))
@@ -198,12 +217,12 @@ func (s *Session) requestLogs(req *apigen.MsgToWorker) (io.ReadCloser, error) {
 	s.logStreams[id] = ch
 	s.logMu.Unlock()
 
-	if err := s.conn.WriteFrame(req.Encode()); err != nil {
+	if !s.send(req) {
 		s.logMu.Lock()
 		delete(s.logStreams, id)
 		s.logMu.Unlock()
 		close(ch)
-		return nil, fmt.Errorf("sending log request to worker %s: %w", s.machine, err)
+		return nil, fmt.Errorf("worker %s is not connected", s.machine)
 	}
 
 	return &logReader{session: s, requestID: id, ch: ch, closeCh: make(chan struct{})}, nil
@@ -252,24 +271,24 @@ func (r *logReader) Read(p []byte) (int, error) {
 	}
 }
 
-// Close stops the log stream. It unregisters the channel so the read loop
-// stops routing chunks to it, signals the worker to stop tailing, and wakes
-// up any blocked Read call.
+// Close stops the log stream. It unregisters the channel so the reader stops
+// routing chunks to it, signals the worker to stop tailing, and wakes up any
+// blocked Read call.
 func (r *logReader) Close() error {
 	r.closeOnce.Do(func() {
 		r.done = true
 		close(r.closeCh)
 
-		// Unregister from the session so the read loop stops delivering chunks.
+		// Unregister from the session so the reader stops delivering chunks.
 		r.session.logMu.Lock()
 		delete(r.session.logStreams, r.requestID)
 		r.session.logMu.Unlock()
 
 		// Tell the worker to stop tailing this stream.
 		stop := &apigen.MsgToWorker{StopLogRequestID: r.requestID}
-		if err := r.session.conn.WriteFrame(stop.Encode()); err != nil {
-			slog.Warn("failed sending stop log request to worker",
-				"machine", r.session.machine, "requestID", r.requestID, "err", err)
+		if !r.session.send(stop) {
+			slog.Warn("failed sending stop log request to worker (session ended)",
+				"machine", r.session.machine, "requestID", r.requestID)
 		}
 	})
 	return nil

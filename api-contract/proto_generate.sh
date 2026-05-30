@@ -11,4 +11,5 @@ cleanproto \
   -go.out ./backend/apigen \
   -js.out ./frontend/src/capi \
   -go.ctxtype Context \
+  -go.client \
   ./api-contract/api.proto

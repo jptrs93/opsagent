@@ -17,7 +17,7 @@ for f in "$FLAKE" "$WF"; do
     fi
 done
 
-# --- flake.nix: attribute names like go_1_25, nodejs_22, pnpm_10 ---
+# --- flake.nix: attribute names like go_1_26, nodejs_22, pnpm_10 ---
 flake_go=$(grep -oE 'go_[0-9]+_[0-9]+' "$FLAKE" | head -n1 | sed -E 's/go_([0-9]+)_([0-9]+)/\1.\2/')
 flake_node=$(grep -oE 'nodejs_[0-9]+' "$FLAKE" | head -n1 | sed -E 's/nodejs_//')
 flake_pnpm=$(grep -oE 'pnpm_[0-9]+' "$FLAKE" | head -n1 | sed -E 's/pnpm_//')

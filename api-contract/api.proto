@@ -82,6 +82,22 @@ service OpsagentHttpV1 {
   }
 }
 
+// OpsagentClusterV1 is the primary↔worker cluster transport. It is served on
+// a separate mTLS listener (not the public front-end server), so it gets its
+// own generated mux (CreateOpsagentClusterV1Mux) and client
+// (OpsagentClusterV1Capi). Peer identity is the client cert CN; auth is mTLS,
+// hence NO_AUTH at the policy layer.
+service OpsagentClusterV1 {
+  // PostV1ClusterConnect is the long-lived bidirectional stream between a
+  // worker (client) and the primary (server). The worker sends MsgToMaster
+  // (status writes, log data); the primary sends MsgToWorker (deployment
+  // snapshot/updates, log requests, keepalive frames). Dispatch on whichever
+  // field of each message is non-nil.
+  rpc PostV1ClusterConnect(stream MsgToMaster) returns (stream MsgToWorker) {
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+}
+
 // === Auth messages ===
 
 message EmptyRequest {}

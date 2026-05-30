@@ -2,20 +2,17 @@ package main
 
 import (
 	"context"
-	"crypto/x509"
 	"embed"
-	"encoding/pem"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/cluster"
 	"github.com/jptrs93/opsagent/backend/primary"
 	"github.com/jptrs93/opsagent/backend/slave"
+	"github.com/jptrs93/opsagent/backend/util/certu"
 
 	"log/slog"
 	"net"
@@ -64,7 +61,7 @@ func main() {
 	if err != nil {
 		panic(fmt.Sprintf("creating embedded sub fs: %v", err))
 	}
-	machineName := resolvePrimaryMachineName()
+	machineName := ainit.ResolvePrimaryMachineName()
 	slog.Info("starting in primary mode", "machine", machineName)
 	h, err := handler.New(subFS, machineName)
 	if err != nil {
@@ -76,28 +73,23 @@ func main() {
 	if ainit.Config.ClusterCA != "" {
 		startPrimaryCluster(h)
 	}
-	m := apigen.CreateMux(h, &apigen.MuxConfig{
+	m := apigen.CreateOpsagentHttpV1Mux(h, &apigen.MuxConfig{
 		VerifyAuth:         h.VerifyAuth,
 		MaxRequestBodySize: 20_000_000,
 	})
 	if ainit.Config.IsLocalDev == "true" {
-		devServer := http.Server{
-			Handler: m,
-			Addr:    "0.0.0.0:5001",
-		}
-		slog.Info("starting dev http1.1/2 Server")
-		if err := devServer.ListenAndServe(); err != nil {
-			panic(fmt.Sprintf("serving dev server: %v", err))
-		}
+		devServer := http.Server{Handler: m, Addr: "localhost:8080"}
+		slog.Info("starting dev http Server")
+		err := devServer.ListenAndServe()
+		panic(fmt.Sprintf("dev server ended: %v", err))
 	} else {
 		certManager := &autocert.Manager{
 			Prompt:      autocert.AcceptTOS,
-			Cache:       autocert.DirCache(resolveCacheDir()),
+			Cache:       autocert.DirCache(filepath.Join(ainit.Config.DataDir, ".certs")),
 			HostPolicy:  autocert.HostWhitelist(ainit.Config.AcmeHosts...),
 			Email:       ainit.Config.AcmeEmail,
 			RenewBefore: 168 * time.Hour,
 		}
-
 		// TLS-ALPN-01 ACME challenge runs inside the port 443 listener —
 		// no port 80 is used. certManager.TLSConfig() wires GetCertificate
 		// and adds "acme-tls/1" to NextProtos so autocert can complete the
@@ -108,22 +100,16 @@ func main() {
 			Addr:      httpsAddr,
 			TLSConfig: certManager.TLSConfig(),
 		}
-
 		slog.Info("starting https server", "addr", httpsAddr)
-		if err := httpsServer.ListenAndServeTLS("", ""); err != nil {
-			panic(fmt.Sprintf("serving https server: %v", err))
-		}
+		err := httpsServer.ListenAndServeTLS("", "")
+		panic(fmt.Sprintf("https server ended: %v", err))
 	}
 }
 
 func runSlave() {
 	cfg := ainit.Config
-	tlsCfg, err := cluster.LoadTLSConfig(cfg.ClusterCA, cfg.ClusterCert, cfg.ClusterKey)
-	if err != nil {
-		panic(fmt.Sprintf("loading cluster TLS config: %v", err))
-	}
-
-	machineName := machineNameFromCert(cfg.ClusterCert)
+	tlsCfg := certu.MustLoadTLSConfig(cfg.ClusterCA, cfg.ClusterCert, cfg.ClusterKey)
+	machineName := certu.MustCertLoadCommonName(cfg.ClusterCert)
 
 	slog.Info("starting in slave mode", "machine", machineName, "primary", cfg.PrimaryAddr, "primaryName", cfg.PrimaryName)
 	if err := slave.Run(context.Background(), slave.Config{
@@ -140,66 +126,33 @@ func runSlave() {
 
 func startPrimaryCluster(h *handler.Handler) {
 	cfg := ainit.Config
-	tlsCfg, err := cluster.LoadTLSConfig(cfg.ClusterCA, cfg.ClusterCert, cfg.ClusterKey)
-	if err != nil {
-		panic(fmt.Sprintf("loading cluster TLS config: %v", err))
-	}
+	tlsCfg := certu.MustLoadTLSConfig(cfg.ClusterCA, cfg.ClusterCert, cfg.ClusterKey)
 
-	p, err := primary.New(h.Store, tlsCfg, cfg.ClusterListen)
-	if err != nil {
-		panic(fmt.Sprintf("creating cluster primary: %v", err))
-	}
-
+	p := primary.New(h.Store)
 	h.ClusterPrimary = p
-	p.OnSlaveConnect = func(machine string) {
-		h.Store.EnsureSystemDeployment(machine)
-	}
-	p.Start(context.Background())
-	slog.Info("cluster primary started", "addr", cfg.ClusterListen)
-}
 
-// resolvePrimaryMachineName derives the primary's machine name. If a
-// cluster cert is configured, it uses the cert CN (matching how slaves
-// and the cluster listener identify peers). In local dev with no cert
-// configured, it falls back to "localhost" so single-node setups work
-// without any TLS wiring.
-func resolvePrimaryMachineName() string {
-	if ainit.Config.ClusterCert != "" {
-		return machineNameFromCert(ainit.Config.ClusterCert)
+	// The cluster transport is a separate mTLS HTTP/2-only listener, distinct
+	// mux; peer identity comes from the client cert CN. The server emits its own
+	// health-check PINGs (HTTP2Config) so it detects a dead worker.
+	mux := apigen.CreateOpsagentClusterV1Mux(p, &apigen.MuxConfig{
+		VerifyAuth:         primary.VerifyClusterPeer,
+		MaxRequestBodySize: 16 * 1024 * 1024, // 16 MB cap on a single inbound stream frame
+	})
+	protocols := new(http.Protocols)
+	protocols.SetHTTP2(true)
+	srv := &http.Server{
+		Addr:      cfg.ClusterListen,
+		Handler:   mux,
+		TLSConfig: tlsCfg,
+		Protocols: protocols,
+		HTTP2: &http.HTTP2Config{
+			SendPingTimeout: 5 * time.Second,  // PING a silent worker after 5s idle
+			PingTimeout:     10 * time.Second, // tear down if no ACK within 10s (~15s total to detect a dead worker)
+		},
 	}
-	if ainit.Config.IsLocalDev == "true" {
-		return "localhost"
-	}
-	panic("OPSAGENT_CLUSTER_CERT must be set to identify this machine (or enable OPSAGENT_LOCAL_DEV for a localhost fallback)")
-}
-
-func machineNameFromCert(certPath string) string {
-	certBytes, err := os.ReadFile(certPath)
-	if err != nil {
-		panic(fmt.Sprintf("reading cluster cert %q: %v", certPath, err))
-	}
-	block, _ := pem.Decode(certBytes)
-	if block == nil {
-		panic(fmt.Sprintf("cluster cert %q contains no PEM data", certPath))
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		panic(fmt.Sprintf("parsing cluster cert %q: %v", certPath, err))
-	}
-	if cert.Subject.CommonName == "" {
-		panic(fmt.Sprintf("cluster cert %q has no CN", certPath))
-	}
-	return cert.Subject.CommonName
-}
-
-func resolveCacheDir() string {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		panic(fmt.Sprintf("resolving home dir: %v", err))
-	}
-	cacheDir := filepath.Join(homeDir, ".certs", "opsagent")
-	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
-		panic(fmt.Sprintf("creating acme cache dir: %v", err))
-	}
-	return cacheDir
+	slog.Info("starting primary cluster", "addr", cfg.ClusterListen)
+	go func() {
+		err := srv.ListenAndServeTLS("", "")
+		panic(fmt.Sprintf("cluster server ended: %v", err))
+	}()
 }

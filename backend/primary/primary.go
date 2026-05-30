@@ -1,87 +1,93 @@
-// Package primary implements the primary-side cluster listener. It accepts
-// mTLS connections from worker nodes, sends them the current per-machine
-// deployment snapshot, forwards ongoing deployment config updates, and
-// handles incoming status writes and log proxy requests from workers.
+// Package primary implements the primary-side cluster handler. It is the
+// server side of the generated OpsagentClusterV1 bidirectional stream: workers
+// connect over mTLS, the primary sends them the current per-machine deployment
+// snapshot, forwards ongoing config updates, and handles incoming status writes
+// and log proxy requests. Peer identity is the worker's client-cert CN, lifted
+// into the request context by VerifyClusterPeer.
 package primary
 
 import (
 	"context"
-	"crypto/tls"
+	"fmt"
 	"io"
-	"log/slog"
+	"iter"
+	"net/http"
 	"sync"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/cluster"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
-// Primary manages worker connections and forwards state between the local
-// store and connected workers.
+// machineCtxKey keys the worker's certificate CN in the request context.
+type machineCtxKey struct{}
+
+// VerifyClusterPeer is the MuxConfig.VerifyAuth hook for the cluster mux. The
+// worker is already authenticated by mTLS (the listener requires and verifies a
+// client cert); this lifts the verified CN into the auth context so the handler
+// can identify the machine. It rejects connections without a peer certificate.
+func VerifyClusterPeer(ctx context.Context, _ http.ResponseWriter, r *http.Request, _ apigen.AccessPolicy) (apigen.Context, error) {
+	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
+		return apigen.Context{}, fmt.Errorf("cluster peer presented no certificate")
+	}
+	machine := r.TLS.PeerCertificates[0].Subject.CommonName
+	if machine == "" {
+		return apigen.Context{}, fmt.Errorf("cluster peer certificate has no CN")
+	}
+	return apigen.Context{Ctx: context.WithValue(ctx, machineCtxKey{}, machine)}, nil
+}
+
+// machineFromContext returns the worker machine name stashed by VerifyClusterPeer.
+func machineFromContext(ctx context.Context) string {
+	name, _ := ctx.Value(machineCtxKey{}).(string)
+	return name
+}
+
+// Primary manages worker sessions and forwards state between the local store
+// and connected workers. It implements apigen.OpsagentClusterV1Handler; the
+// generated mux invokes PostV1ClusterConnect once per worker connection.
 type Primary struct {
-	store  *sqlite.StorageAdapter
-	server *cluster.Server
+	store *sqlite.StorageAdapter
 
 	mu          sync.RWMutex
 	sessions    map[string]*Session  // machine name → session
 	connectedAt map[string]time.Time // machine name → when session was accepted
-
-	// OnSlaveConnect is invoked (if set) after a slave session is accepted
-	// and registered.
-	OnSlaveConnect func(machine string)
 }
 
-// New creates a Primary and starts the mTLS listener.
-func New(store *sqlite.StorageAdapter, tlsCfg *tls.Config, listenAddr string) (*Primary, error) {
-	srv, err := cluster.NewServer(listenAddr, tlsCfg)
-	if err != nil {
-		return nil, err
-	}
+// New creates a Primary. The mTLS HTTP/2 listener that drives it is created by
+// the caller, which mounts CreateOpsagentClusterV1Mux(p, ...) on a server.
+func New(store *sqlite.StorageAdapter) *Primary {
 	return &Primary{
 		store:       store,
-		server:      srv,
 		sessions:    make(map[string]*Session),
 		connectedAt: make(map[string]time.Time),
-	}, nil
+	}
 }
 
-// Start begins the accept loop. Each accepted connection runs its own
-// session which both sends the initial snapshot + forwards per-machine
-// updates, and reads incoming status writes / log chunks.
-func (p *Primary) Start(ctx context.Context) {
-	go p.acceptLoop(ctx)
-}
-
-func (p *Primary) acceptLoop(ctx context.Context) {
-	slog.Info("cluster primary accepting connections", "addr", p.server.Addr())
-	for {
-		conn, err := p.server.Accept()
-		if err != nil {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-			slog.Error("cluster accept error", "err", err)
-			continue
+// PostV1ClusterConnect handles one worker's bidirectional stream for its full
+// lifetime: it registers the session, sends the initial snapshot, forwards
+// config updates plus keepalive frames, and ingests the worker's status writes
+// and log chunks. It returns (ending the stream) when the worker disconnects,
+// the request errors, or the context is cancelled.
+func (p *Primary) PostV1ClusterConnect(authCtx apigen.Context, reqs iter.Seq2[*apigen.MsgToMaster, error]) iter.Seq2[*apigen.MsgToWorker, error] {
+	return func(yield func(*apigen.MsgToWorker, error) bool) {
+		machine := machineFromContext(authCtx)
+		if machine == "" {
+			yield(nil, fmt.Errorf("cluster connection missing machine identity"))
+			return
 		}
 
-		machine := conn.PeerName()
-		slog.Info("worker connected", "machine", machine)
+		sessCtx, cancel := context.WithCancel(authCtx)
+		defer cancel()
 
-		sess := newSession(conn, machine, p.store, p)
+		sess := newSession(sessCtx, cancel, machine, p.store)
 		p.registerSession(machine, sess)
-		if p.OnSlaveConnect != nil {
-			p.OnSlaveConnect(machine)
-		}
+		defer p.unregisterSession(machine, sess)
+		// Ensure the worker has its OPSAGENT_SYSTEM deployment now that it has
+		// connected and been registered.
+		p.store.EnsureSystemDeployment(machine)
 
-		go func(s *Session) {
-			if err := s.run(ctx); err != nil {
-				slog.Info("worker session ended", "machine", machine, "err", err)
-			}
-			p.unregisterSession(machine, s)
-		}(sess)
+		sess.run(reqs, yield)
 	}
 }
 
@@ -89,7 +95,7 @@ func (p *Primary) registerSession(machine string, sess *Session) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if old, ok := p.sessions[machine]; ok {
-		old.conn.Close()
+		old.cancel() // kick the stale session so its handler returns
 	}
 	p.sessions[machine] = sess
 	p.connectedAt[machine] = time.Now()
@@ -99,14 +105,14 @@ func (p *Primary) unregisterSession(machine string, expected *Session) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if current, ok := p.sessions[machine]; ok && current == expected {
-		current.conn.Close()
 		delete(p.sessions, machine)
+		delete(p.connectedAt, machine)
 	}
 }
 
-// RequestLogs sends a log request to the named worker and returns a reader
-// that yields the streamed log data. The caller must read until EOF (or
-// close the reader to abort).
+// RequestLogs sends a log request to the named worker and returns a reader that
+// yields the streamed log data. The caller must read until EOF (or close the
+// reader to abort).
 func (p *Primary) RequestLogs(machineName string, req *apigen.MsgToWorker) (io.ReadCloser, error) {
 	p.mu.RLock()
 	sess, ok := p.sessions[machineName]
@@ -117,13 +123,13 @@ func (p *Primary) RequestLogs(machineName string, req *apigen.MsgToWorker) (io.R
 	return sess.requestLogs(req)
 }
 
-// ConnectedMachines returns the set of currently connected slave machines
-// and when each connected.
+// ConnectedMachines returns the set of currently connected worker machines and
+// when each connected.
 func (p *Primary) ConnectedMachines() map[string]time.Time {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	out := make(map[string]time.Time, len(p.sessions))
-	for name, _ := range p.sessions {
+	for name := range p.sessions {
 		out[name] = p.connectedAt[name]
 	}
 	return out

@@ -11,7 +11,7 @@
       let
         pkgs = import nixpkgs { inherit system; };
 
-        go = pkgs.go_1_25;
+        go = pkgs.go_1_26;
         nodejs = pkgs.nodejs_22;
         pnpm = pkgs.pnpm_10;
 

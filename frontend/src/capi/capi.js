@@ -7,6 +7,7 @@ import {
   decodeDeploymentVersions,
   decodeDesiredState,
   decodeLoginResponse,
+  decodeMsgToWorker,
   decodeState,
   decodeWebAuthNOptionsResponse,
   encodeDeploymentCreateRequest,
@@ -15,6 +16,7 @@ import {
   encodeDeploymentVersionsRequest,
   encodeEmptyRequest,
   encodeMasterPasswordRequest,
+  encodeMsgToMaster,
   encodeWebAuthNFinishRequest,
 } from './model.js';
 
@@ -64,6 +66,33 @@ async function* readLengthPrefixedFrames(body, decode) {
     yield decode(payload.buffer);
     buf = buf.slice(headerLen + len);
   }
+}
+
+function writeLengthPrefixedFrames(asyncIterable, encode) {
+  return new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const item of asyncIterable) {
+          const payload = encode(item);
+          const header = new Uint8Array(10);
+          let pos = 0;
+          let v = payload.length;
+          while (v > 0x7f) {
+            header[pos++] = (v & 0x7f) | 0x80;
+            v = Math.floor(v / 128);
+          }
+          header[pos++] = v & 0x7f;
+          const frame = new Uint8Array(pos + payload.length);
+          frame.set(header.subarray(0, pos), 0);
+          frame.set(payload, pos);
+          controller.enqueue(frame);
+        }
+        controller.close();
+      } catch (err) {
+        controller.error(err);
+      }
+    },
+  });
 }
 
 export class Capi {
@@ -261,6 +290,24 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeDeploymentVersions(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {AsyncIterable<MsgToMaster>} stream
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {AsyncIterable<MsgToWorker>}
+   */
+  postV1ClusterConnect(stream, options = {}) {
+    const self = this;
+    return {
+      [Symbol.asyncIterator]: async function* () {
+        const response = await self.#request('/v1/cluster/connect', { method: 'POST', body: writeLengthPrefixedFrames(stream, encodeMsgToMaster), signal: options.signal, contentType: 'application/protobuf-stream', duplex: 'half' });
+        if (!response.ok) {
+          return self.errorHandler(response);
+        }
+        yield* readLengthPrefixedFrames(response.body, decodeMsgToWorker);
+      },
+    };
   }
 
 }
