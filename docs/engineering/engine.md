@@ -105,11 +105,13 @@ Flow:
 1. Writes `PreparerStatus.Status = DOWNLOADING` with the `deployment_config_version` from `DeploymentConfig.Version`.
 2. Fetches `/repos/{owner}/{repo}/releases/tags/{tag}` from the GitHub API, using `OPSAGENT_GITHUB_TOKEN` for auth.
 3. Picks the asset by exact name from `cfg.Spec.Prepare.GithubRelease.Asset`; if unset, uses the first asset in the release.
-4. Downloads to `{dataDir}/releases/{owner}/{repo}/{tag}/{asset}` via atomic rename. Redirects from the GitHub asset API are followed manually so the Authorization header isn't forwarded to the CDN. Existing file with the correct size is skipped.
+4. Downloads to `{dataDir}-releases/{owner}/{repo}/{tag}/{asset}` via atomic rename. Redirects from the GitHub asset API are followed manually so the Authorization header isn't forwarded to the CDN. Existing file with the correct size is skipped.
 5. `chmod 0755` on the downloaded file.
 6. On success: `PreparerStatus.Status = READY`. On any failure: `FAILED`.
 
-**Custom download script.** If `cfg.Spec.Prepare.GithubRelease.DownloadScript` is set, steps 2–4 are skipped. Instead the script is written to a temp file and run as `bash <script> <tag>` with the working directory set to `{dataDir}/releases/{owner}/{repo}/{tag}` — so the version tag arrives as `$1` and the script downloads into the release dir. The configured GitHub token is exposed as `GITHUB_TOKEN` in the environment (passed via env, never via args, so it isn't written to the prepare log). The artifact is then resolved from that dir: `Asset` names the produced file if set, otherwise the script must leave exactly one regular file. The resolved file is `chmod 0755`'d and returned.
+**Artifact location.** Artifacts live in a sibling of the data dir (`{dataDir}-releases`, e.g. `/var/lib/opsagent-releases`), not under it. The data dir itself is kept `0700` (it holds the sqlite db, TLS keys, and prepare/run logs), but os-process deployments run the artifact as a different OS user (`runAs`) that must be able to traverse to and execute it. The release dir and every component down to the artifact are `chmod 0755` so that traversal works even under a restrictive process umask. This mirrors how nix artifacts live in the world-traversable `/nix/store` — which is why nix os-process runners already work under `runAs`.
+
+**Custom download script.** If `cfg.Spec.Prepare.GithubRelease.DownloadScript` is set, steps 2–4 are skipped. Instead the script is written to a temp file and run as `bash <script> <tag>` with the working directory set to the release dir (`{dataDir}-releases/{owner}/{repo}/{tag}`) — so the version tag arrives as `$1` and the script downloads into that dir. The configured GitHub token is exposed as `GITHUB_TOKEN` in the environment (passed via env, never via args, so it isn't written to the prepare log). The artifact is then resolved from that dir: `Asset` names the produced file if set, otherwise the script must leave exactly one regular file. The resolved file is `chmod 0755`'d and returned.
 
 `ListScopes` returns nil (releases are flat — no branch dimension).
 `ListVersions` calls `/repos/{owner}/{repo}/releases?per_page=50`, returning

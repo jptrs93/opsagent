@@ -112,8 +112,8 @@ func (g *GithubReleaseDownloader) runDownload(ctx context.Context, store storage
 	}
 	writeLog("selected asset %s (%d bytes)", asset.Name, asset.Size)
 
-	dstDir := filepath.Join(g.dataDir, "releases", ownerRepo, tag)
-	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+	dstDir, err := g.prepareReleaseDir(ownerRepo, tag)
+	if err != nil {
 		writeLog("ERROR creating release dir: %v", err)
 		return "", apigen.PreparationStatus_FAILED
 	}
@@ -144,8 +144,8 @@ func (g *GithubReleaseDownloader) runDownload(ctx context.Context, store storage
 // GITHUB_TOKEN so private downloads work; it is passed via the environment (not
 // command args) so it is never written to the prepare log.
 func (g *GithubReleaseDownloader) runDownloadScript(ctx context.Context, gh apigen.GithubReleaseConfig, ownerRepo, tag, script string, logFile *os.File, writeLog func(string, ...any)) (string, apigen.PreparationStatus) {
-	dstDir := filepath.Join(g.dataDir, "releases", ownerRepo, tag)
-	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+	dstDir, err := g.prepareReleaseDir(ownerRepo, tag)
+	if err != nil {
 		writeLog("ERROR creating release dir: %v", err)
 		return "", apigen.PreparationStatus_FAILED
 	}
@@ -232,6 +232,42 @@ func resolveScriptArtifact(dstDir, asset string) (string, error) {
 		return "", fmt.Errorf("download script produced multiple files in %s; set asset to the output file name", dstDir)
 	}
 	return files[0], nil
+}
+
+// releaseBaseDir is where downloaded release artifacts live. It is deliberately
+// a sibling of the private data dir (kept 0700 so opsagent's db, TLS keys and
+// logs stay private) rather than a subdir of it: os-process deployments run the
+// artifact as a different OS user (runAs) that must be able to traverse to and
+// execute it. This mirrors how nix artifacts live in the world-traversable
+// /nix/store, which is why nix os-process runners already work under runAs.
+func (g *GithubReleaseDownloader) releaseBaseDir() string {
+	return filepath.Join(filepath.Dir(g.dataDir), filepath.Base(g.dataDir)+"-releases")
+}
+
+// prepareReleaseDir creates the per-release download dir and makes the whole
+// chain world-traversable (0755) so a non-owner runAs user can reach the
+// artifact even when the process runs under a restrictive umask (systemd
+// services commonly set UMask=0077, which would otherwise leave dirs at 0700).
+func (g *GithubReleaseDownloader) prepareReleaseDir(ownerRepo, tag string) (string, error) {
+	base := g.releaseBaseDir()
+	dstDir := filepath.Join(base, ownerRepo, tag)
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return "", err
+	}
+	// chmod base and every component down to dstDir; MkdirAll's mode is masked
+	// by umask, so set it explicitly.
+	cur := base
+	_ = os.Chmod(cur, 0o755)
+	if rel, err := filepath.Rel(base, dstDir); err == nil {
+		for _, part := range strings.Split(rel, string(os.PathSeparator)) {
+			if part == "" || part == "." {
+				continue
+			}
+			cur = filepath.Join(cur, part)
+			_ = os.Chmod(cur, 0o755)
+		}
+	}
+	return dstDir, nil
 }
 
 // --- github api helpers ---
