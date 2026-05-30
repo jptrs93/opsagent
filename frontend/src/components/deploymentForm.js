@@ -1,7 +1,8 @@
 import van from "vanjs-core";
+import {X} from "vanjs-feather";
 import {capi} from "../capi/index.js";
 
-const { div, h3, label, input, select, option, button, p, span, datalist } = van.tags;
+const { div, h3, label, input, select, option, button, p, span, datalist, textarea } = van.tags;
 
 const SOURCE_GITHUB = 'githubRelease';
 const SOURCE_NIX = 'nixBuild';
@@ -80,7 +81,7 @@ export function deploymentForm(form, opts = {}) {
 
     return div(
         {class: "flex flex-col gap-5"},
-        // Identity — the first section carries no divider/title; it's the top of the form.
+        sectionDivider("Deployment identity"),
         div(
             {class: "flex flex-col gap-3"},
             identityLocked
@@ -121,26 +122,23 @@ export function deploymentForm(form, opts = {}) {
         sectionDivider("Binary source"),
         div(
             {class: "flex flex-col gap-3"},
-            inlineSelect("Source type", form.sourceType, [
-                {value: SOURCE_GITHUB, label: "Github release"},
-                {value: SOURCE_NIX, label: "Build NIX store"},
-            ]),
-            () => form.sourceType.val === SOURCE_GITHUB
-                ? div(
-                    {class: "grid grid-cols-1 gap-3"},
-                    repoField(form, SOURCE_GITHUB),
-                )
-                : div(
-                    {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
-                    repoField(form, SOURCE_NIX),
-                    field("Flake", textInput(form.nixFlake, "nix/app/flake.nix")),
-                ),
+            div(
+                {class: "flex items-start gap-4"},
+                selectField("Source type", form.sourceType, [
+                    {value: SOURCE_GITHUB, label: "Github release"},
+                    {value: SOURCE_NIX, label: "Build NIX store"},
+                ]),
+                () => repoField(form, form.sourceType.val),
+            ),
+            () => form.sourceType.val === SOURCE_NIX
+                ? field("Flake", textInput(form.nixFlake, "nix/app/flake.nix"))
+                : span(),
             optionsDisclosure(form.showSourceOpts, () => sourceOptions(form)),
         ),
         sectionDivider("Execution"),
         div(
             {class: "flex flex-col gap-3"},
-            inlineSelect("Runner type", form.runnerType, [
+            selectField("Runner type", form.runnerType, [
                 {value: RUNNER_OS, label: "OpsAgent process"},
                 {value: RUNNER_SYSTEMD, label: "systemd service"},
             ]),
@@ -244,6 +242,8 @@ function makeFormState(values) {
         envVars: van.state(values.envVars || []),
         showSourceOpts: van.state(Boolean(values.showSourceOpts)),
         showExecOpts: van.state(Boolean(values.showExecOpts)),
+        // Whether the environment-variables editor pane is open in the overlay.
+        envPaneOpen: van.state(false),
         // Transient repo-accessibility check; tracks the repo/source it applies
         // to so a stale result is hidden once the inputs change.
         repoCheck: van.state({status: 'idle', message: '', repo: '', sourceType: ''}),
@@ -252,7 +252,7 @@ function makeFormState(values) {
 
 // sectionDivider renders a thin horizontal rule with the section title centered,
 // splitting the line: ──────── Title ────────
-function sectionDivider(title) {
+export function sectionDivider(title) {
     return div(
         {class: "flex items-center gap-3"},
         div({class: "flex-1 border-t border-gray-700"}),
@@ -272,8 +272,8 @@ function field(text, control, hint) {
 
 // --- Additional (optional) options -----------------------------------------
 
-// optionsDisclosure renders a thin horizontal rule with an expand/collapse
-// toggle (no surrounding card) that reveals a section's optional fields.
+// optionsDisclosure renders an expand/collapse toggle (no surrounding card or
+// rule) that reveals a section's optional fields.
 //
 // The content node is always mounted and toggled via a CSS class rather than
 // conditionally returned: a child binding that returns null gets a null _dom,
@@ -281,7 +281,7 @@ function field(text, control, hint) {
 // disclosure unable to re-render.
 function optionsDisclosure(open, content) {
     return div(
-        {class: "border-t border-gray-700 pt-2"},
+        {class: "pt-1"},
         button({
             type: "button",
             class: "flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 cursor-pointer",
@@ -321,8 +321,83 @@ function execOptions(form) {
                 option({value: 'leavePrevious', selected: form.osStrategy.val === 'leavePrevious'}, "Leave previous running"),
             )),
         ),
-        environmentVarsEditor(form),
+        envSummary(form),
     );
+}
+
+// envSummary shows the configured env-var count and a link that opens the
+// editor pane (rendered at the overlay level via envVarsPane).
+function envSummary(form) {
+    return div(
+        {class: "flex items-center justify-between gap-3 border-t border-gray-700 pt-3"},
+        span({class: "text-xs text-gray-400"}, () => {
+            const n = envVarCount(form.envVars.val);
+            return n === 0 ? "No environment variables" : `${n} environment variable${n === 1 ? '' : 's'}`;
+        }),
+        button({
+            type: "button",
+            class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
+            onclick: () => { form.envPaneOpen.val = !form.envPaneOpen.val; },
+        }, () => form.envPaneOpen.val ? "Close" : "View / edit"),
+    );
+}
+
+// envVarsPane is the right-hand editor pane: a textarea of KEY=value lines that
+// stays in sync with form.envVars. It is always mounted and toggled via a CSS
+// class (a binding that returns null would be GC'd by VanJS and never re-open).
+export function envVarsPane(form) {
+    const text = van.state(envVarsToText(form.envVars.rawVal));
+    return div(
+        {class: () => form.envPaneOpen.val
+            ? "w-80 shrink-0 border-l border-gray-700 bg-gray-900/70 flex flex-col"
+            : "hidden"},
+        div(
+            {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
+            h3({class: "text-sm font-semibold text-gray-200"}, "Environment variables"),
+            button({
+                type: "button",
+                class: "text-gray-500 hover:text-gray-200 cursor-pointer",
+                title: "Close",
+                onclick: () => { form.envPaneOpen.val = false; },
+            }, X({size: 16})),
+        ),
+        div(
+            {class: "flex-1 min-h-0 flex flex-col gap-2 p-4"},
+            p({class: "text-[11px] text-gray-500"}, "One variable per line, as KEY=value."),
+            textarea({
+                class: "flex-1 min-h-0 w-full resize-none rounded-lg bg-gray-800 text-gray-100 border border-gray-600 px-3 py-2 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand",
+                spellcheck: "false",
+                placeholder: "DATABASE_URL=postgres://...\nLOG_LEVEL=info",
+                value: text.rawVal,
+                oninput: e => {
+                    text.val = e.target.value;
+                    form.envVars.val = textToEnvVars(e.target.value);
+                },
+            }),
+        ),
+    );
+}
+
+function envVarCount(arr) {
+    return (arr || []).filter(v => v && v.key && v.key.trim()).length;
+}
+
+function envVarsToText(arr) {
+    return (arr || [])
+        .filter(v => v && (v.key || v.value))
+        .map(v => `${v.key || ''}=${v.value || ''}`)
+        .join('\n');
+}
+
+function textToEnvVars(text) {
+    return text.split('\n').reduce((acc, line) => {
+        if (!line.trim()) return acc;
+        const idx = line.indexOf('=');
+        const key = (idx === -1 ? line : line.slice(0, idx)).trim();
+        const value = idx === -1 ? '' : line.slice(idx + 1);
+        if (key || value) acc.push({key, value});
+        return acc;
+    }, []);
 }
 
 // --- Repository field with on-blur accessibility validation ----------------
@@ -330,7 +405,7 @@ function execOptions(form) {
 function repoField(form, sourceType) {
     const repoState = sourceType === SOURCE_GITHUB ? form.githubRepo : form.nixRepo;
     return label(
-        {class: "flex flex-col gap-1 text-xs text-gray-400"},
+        {class: "flex-1 flex flex-col gap-1 text-xs text-gray-400"},
         span("Repository"),
         input({
             type: "text",
@@ -400,17 +475,16 @@ function repoMsgClass(status) {
     return 'text-xs text-gray-500';
 }
 
-function inlineSelect(text, state, options) {
-    return label(
-        {class: "flex items-center justify-end gap-2 text-xs text-gray-400"},
-        span({class: "whitespace-nowrap"}, text),
-        select({
-            class: "h-8 w-48 rounded-lg bg-gray-800 text-gray-100 border border-gray-600 px-2 focus:outline-none focus:ring-1 focus:ring-brand",
-            onchange: e => { state.val = e.target.value; },
-        },
-            ...options.map(opt => option({value: opt.value, selected: state.rawVal === opt.value}, opt.label)),
-        ),
-    );
+// selectField renders a label-above dropdown, consistent with the text fields.
+// widthClass constrains the select so source/runner type sit left-aligned
+// rather than stretching the full row.
+function selectField(text, state, options, widthClass = "w-56") {
+    return field(text, select({
+        class: `${widthClass} px-3 py-2 rounded-lg bg-gray-800 text-gray-100 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-brand`,
+        onchange: e => { state.val = e.target.value; },
+    },
+        ...options.map(opt => option({value: opt.value, selected: state.rawVal === opt.value}, opt.label)),
+    ));
 }
 
 function textInput(state, placeholder = '') {
@@ -456,60 +530,6 @@ function machinePlaceholder(loaded, options) {
 
 function nameValid(form) {
     return Boolean(form.name.val.trim());
-}
-
-function environmentVarsEditor(form) {
-    const addEnvVar = () => {
-        form.envVars.val = [...form.envVars.val, {id: nextEnvID++, key: '', value: ''}];
-    };
-    const updateEnvVar = (id, patch) => {
-        form.envVars.val = form.envVars.val.map(v => v.id === id ? {...v, ...patch} : v);
-    };
-    const removeEnvVar = (id) => {
-        form.envVars.val = form.envVars.val.filter(v => v.id !== id);
-    };
-
-    return div(
-        {class: "border-t border-gray-700 pt-3"},
-        div(
-            {class: "flex items-center justify-between mb-2"},
-            div(
-                h3({class: "text-xs font-semibold text-gray-300"}, "Environment variables"),
-            ),
-            button({
-                class: "text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 cursor-pointer",
-                onclick: addEnvVar,
-                type: "button",
-            }, "Add variable"),
-        ),
-        () => form.envVars.val.length === 0
-            ? p({class: "text-xs text-gray-500"}, "No environment variables added.")
-            : div(
-                {class: "flex flex-col gap-2"},
-                ...form.envVars.val.map(v => div(
-                    {class: "grid grid-cols-[1fr_1fr_auto] gap-2 items-center"},
-                    input({
-                        type: "text",
-                        value: v.key,
-                        class: textInputClass(),
-                        placeholder: "KEY",
-                        oninput: e => updateEnvVar(v.id, {key: e.target.value}),
-                    }),
-                    input({
-                        type: "text",
-                        value: v.value,
-                        class: textInputClass(),
-                        placeholder: "value",
-                        oninput: e => updateEnvVar(v.id, {value: e.target.value}),
-                    }),
-                    button({
-                        class: "text-xs text-gray-500 hover:text-red-400 cursor-pointer px-2",
-                        onclick: () => removeEnvVar(v.id),
-                        type: "button",
-                    }, "Remove"),
-                )),
-            ),
-    );
 }
 
 function toYaml(obj, indent = 0) {

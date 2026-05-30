@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {deploymentsS} from "../state/deployments.js";
 import {spinnerButton} from "./spinnerbutton.js";
-import {deploymentForm, emptyDeploymentForm, formToYaml, isFormValid} from "./deploymentForm.js";
+import {deploymentForm, emptyDeploymentForm, envVarsPane, formToYaml, isFormValid} from "./deploymentForm.js";
 
 const { div, span, button, p } = van.tags;
 
@@ -62,32 +62,36 @@ export function createOverlay(onClose, onCreated) {
     const dialog = div(
         {class: "fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 pointer-events-none"},
         div(
-            {class: "bg-gray-950 border border-gray-700 rounded-xl shadow-2xl flex flex-col pointer-events-auto",
-             style: "width: 760px; max-width: calc(100vw - 2rem); max-height: 88vh;",
+            {class: "bg-gray-950 border border-gray-700 rounded-xl shadow-2xl flex flex-row overflow-hidden pointer-events-auto",
+             style: () => `width: ${form.envPaneOpen.val ? 1100 : 760}px; max-width: calc(100vw - 2rem); max-height: 88vh;`,
              onclick: (e) => e.stopPropagation()},
             div(
-                {class: "flex-1 min-h-0 overflow-auto p-4"},
-                () => deploymentForm(form, {
-                    environmentOptions: environmentOptions(),
-                    machineOptions: machines.val,
-                    machineOptionsLoaded: machinesLoaded.val,
-                }),
+                {class: "flex-1 min-w-0 flex flex-col"},
+                div(
+                    {class: "flex-1 min-h-0 overflow-auto p-4"},
+                    () => deploymentForm(form, {
+                        environmentOptions: environmentOptions(),
+                        machineOptions: machines.val,
+                        machineOptionsLoaded: machinesLoaded.val,
+                    }),
+                ),
+                () => {
+                    if (!errorMsg.val) return span();
+                    return div(
+                        {class: "px-4 pb-2"},
+                        p({class: "text-xs text-red-400"}, errorMsg.val),
+                    );
+                },
+                div(
+                    {class: "flex items-center justify-end gap-3 px-4 py-3 border-t border-gray-700"},
+                    button({
+                        class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5",
+                        onclick: onClose,
+                    }, "Cancel"),
+                    spinnerButton("Create", doCreate, "btn-primary text-sm py-1.5 px-4", "button", () => !isFormValid(form, {machineOptions: machines.val})),
+                ),
             ),
-            () => {
-                if (!errorMsg.val) return span();
-                return div(
-                    {class: "px-4 pb-2"},
-                    p({class: "text-xs text-red-400"}, errorMsg.val),
-                );
-            },
-            div(
-                {class: "flex items-center justify-end gap-3 px-4 py-3 border-t border-gray-700"},
-                button({
-                    class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5",
-                    onclick: onClose,
-                }, "Cancel"),
-                spinnerButton("Create", doCreate, "btn-primary text-sm py-1.5 px-4", "button", () => !isFormValid(form, {machineOptions: machines.val})),
-            ),
+            envVarsPane(form),
         ),
     );
 

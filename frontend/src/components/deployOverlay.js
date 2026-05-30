@@ -7,11 +7,13 @@ import {
     configToYaml,
     deploymentConfigToForm,
     deploymentForm,
+    envVarsPane,
     formToYaml,
     isFormValid,
+    sectionDivider,
 } from "./deploymentForm.js";
 
-const { div, h3, span, select, option, button, p, label } = van.tags;
+const { div, span, select, option, button, p, label } = van.tags;
 
 const STATUS_RUNNING = 2;
 
@@ -160,50 +162,54 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     const dialog = div(
         {class: "fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 pointer-events-none"},
         div(
-            {class: "bg-gray-950 border border-gray-700 rounded-xl shadow-2xl flex flex-col pointer-events-auto",
-             style: "width: 760px; max-width: calc(100vw - 2rem); max-height: 88vh;",
+            {class: "bg-gray-950 border border-gray-700 rounded-xl shadow-2xl flex flex-row overflow-hidden pointer-events-auto",
+             style: () => `width: ${form.envPaneOpen.val ? 1100 : 760}px; max-width: calc(100vw - 2rem); max-height: 88vh;`,
              onclick: (e) => e.stopPropagation()},
             div(
-                {class: "flex-1 min-h-0 overflow-auto p-4 flex flex-col gap-3"},
-                deploymentForm(form, {identityLocked: true, environmentOptions: environmentOptions()}),
-                hasVersions ? versionSection({
-                    scopes,
-                    selectedScope,
-                    versions,
-                    selectedVersion,
-                    loadingVersions,
-                    versionError,
-                    sourceType: form.sourceType,
-                    deployedVersion: deployment.deployedVersion || '',
-                    onScopeChange,
-                    onRefresh: () => loadVersions(selectedScope.val),
-                }) : null,
-            ),
-            () => {
-                if (!errorMsg.val) return span();
-                return div(
-                    {class: "px-4 pb-2"},
-                    p({class: "text-xs text-red-400"}, errorMsg.val),
-                );
-            },
-            div(
-                {class: "flex items-center justify-between gap-3 px-4 py-3 border-t border-gray-700"},
-                button({
-                    class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5",
-                    onclick: onClose,
-                }, "Cancel"),
+                {class: "flex-1 min-w-0 flex flex-col"},
                 div(
-                    {class: "flex items-center gap-2"},
-                    lifecycleButton({
-                        canManageLifecycle,
-                        isRunning,
-                        canStart,
-                        doStop,
-                        doStart,
-                    }),
-                    spinnerButton("Update deployment", doDeploy, "btn-primary text-sm py-1.5 px-4", "button", () => !isFormValid(form)),
+                    {class: "flex-1 min-h-0 overflow-auto p-4 flex flex-col gap-5"},
+                    deploymentForm(form, {identityLocked: true, environmentOptions: environmentOptions()}),
+                    hasVersions ? versionSection({
+                        scopes,
+                        selectedScope,
+                        versions,
+                        selectedVersion,
+                        loadingVersions,
+                        versionError,
+                        sourceType: form.sourceType,
+                        deployedVersion: deployment.deployedVersion || '',
+                        onScopeChange,
+                        onRefresh: () => loadVersions(selectedScope.val),
+                    }) : null,
+                ),
+                () => {
+                    if (!errorMsg.val) return span();
+                    return div(
+                        {class: "px-4 pb-2"},
+                        p({class: "text-xs text-red-400"}, errorMsg.val),
+                    );
+                },
+                div(
+                    {class: "flex items-center justify-between gap-3 px-4 py-3 border-t border-gray-700"},
+                    button({
+                        class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5",
+                        onclick: onClose,
+                    }, "Cancel"),
+                    div(
+                        {class: "flex items-center gap-2"},
+                        lifecycleButton({
+                            canManageLifecycle,
+                            isRunning,
+                            canStart,
+                            doStop,
+                            doStart,
+                        }),
+                        spinnerButton("Update deployment", doDeploy, "btn-primary text-sm py-1.5 px-4", "button", () => !isFormValid(form)),
+                    ),
                 ),
             ),
+            envVarsPane(form),
         ),
     );
 
@@ -230,8 +236,8 @@ function lifecycleButton(args) {
 
 function versionSection(args) {
     return div(
-        {class: "rounded-lg border border-gray-700 bg-gray-900/70 p-4"},
-        h3({class: "text-sm font-semibold text-gray-200 mb-3"}, "Version"),
+        {class: "flex flex-col gap-3"},
+        sectionDivider("Version"),
         div(
             {class: "flex items-center gap-3"},
             div(
