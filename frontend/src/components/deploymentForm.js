@@ -1,4 +1,5 @@
 import van from "vanjs-core";
+import {capi} from "../capi/index.js";
 
 const { div, h3, label, input, select, option, button, p, span, datalist } = van.tags;
 
@@ -41,6 +42,15 @@ export function deploymentConfigToForm(cfg) {
     const os = runner.osProcess || {};
     const systemd = runner.systemd || {};
 
+    // Reveal the additional-options panel up-front when the existing config
+    // already sets any optional field, so it isn't hidden on edit.
+    const hasAdvanced = Boolean(
+        cid.environment ||
+        gh.asset || nix.outputExecutable ||
+        os.workingDir || os.runAs || os.strategy ||
+        (os.env && os.env.length)
+    );
+
     return makeFormState({
         name: cid.name || '',
         environment: cid.environment || '',
@@ -59,6 +69,7 @@ export function deploymentConfigToForm(cfg) {
         systemdName: systemd.name || '',
         systemdBinPath: systemd.binPath || '',
         envVars: (os.env || []).map(e => ({id: nextEnvID++, key: e.key || '', value: e.value || ''})),
+        showAdvanced: hasAdvanced,
     });
 }
 
@@ -76,30 +87,15 @@ export function deploymentForm(form, opts = {}) {
             "Deployment",
             identityLocked ? span({class: "text-xs text-orange-300"}, "Deployment identity is fixed after creation.") : null,
             div(
-                {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
+                {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
                 field("Name", input({
                     type: "text",
                     value: form.name.val,
                     disabled: identityLocked,
                     class: () => textInputClass(nameValid(form), identityLocked, nameValid(form)),
-                    placeholder: "coflip_server",
+                    placeholder: "my-service",
                     oninput: e => { form.name.val = e.target.value; },
                 })),
-                field("Environment (optional)", div(
-                    input({
-                        type: "text",
-                        list: environmentDatalistID,
-                        value: form.environment.val,
-                        disabled: identityLocked,
-                        class: textInputClass(false, identityLocked),
-                        placeholder: "PROD",
-                        oninput: e => { form.environment.val = e.target.value; },
-                    }),
-                    datalist(
-                        {id: environmentDatalistID},
-                        ...environmentOptions.map(env => option({value: env}, env)),
-                    ),
-                )),
                 field("Machine", machineSelect(form, {
                     identityLocked,
                     machineOptionsLoaded,
@@ -117,15 +113,13 @@ export function deploymentForm(form, opts = {}) {
                 {class: "flex flex-col gap-3"},
                 () => form.sourceType.val === SOURCE_GITHUB
                     ? div(
-                        {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
-                        field("Repository", textInput(form.githubRepo, "github.com/org/repo")),
-                        field("Asset", textInput(form.githubAsset, "server-linux-amd64")),
+                        {class: "grid grid-cols-1 gap-3"},
+                        repoField(form, SOURCE_GITHUB),
                     )
                     : div(
-                        {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
-                        field("Repository", textInput(form.nixRepo, "github.com/org/repo")),
-                        field("Flake", textInput(form.nixFlake, "nix/server/flake.nix")),
-                        field("Output executable", textInput(form.nixOutputExecutable, "server")),
+                        {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
+                        repoField(form, SOURCE_NIX),
+                        field("Flake", textInput(form.nixFlake, "nix/app/flake.nix")),
                     ),
             ),
         ),
@@ -135,32 +129,15 @@ export function deploymentForm(form, opts = {}) {
                 {value: RUNNER_OS, label: "OpsAgent process"},
                 {value: RUNNER_SYSTEMD, label: "systemd service"},
             ]),
-            div(
-                {class: "flex flex-col gap-3"},
-                () => form.runnerType.val === RUNNER_SYSTEMD
-                    ? div(
-                        {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
-                        field("Unit name", textInput(form.systemdName, "coflip.service")),
-                        field("Binary path", textInput(form.systemdBinPath, "/var/lib/coflip/bin/server")),
-                    )
-                    : div(
-                        {class: "flex flex-col gap-3"},
-                        div(
-                            {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
-                            field("Working directory", textInput(form.osWorkingDir, "/var/lib/coflip")),
-                            field("Run as", textInput(form.osRunAs, "coflip")),
-                            field("Strategy", select({
-                                class: selectClass(),
-                                onchange: e => { form.osStrategy.val = e.target.value; },
-                            },
-                                option({value: '', selected: form.osStrategy.val === ''}, "Terminate previous"),
-                                option({value: 'leavePrevious', selected: form.osStrategy.val === 'leavePrevious'}, "Leave previous running"),
-                            )),
-                        ),
-                        environmentVarsEditor(form),
-                    ),
-            ),
+            () => form.runnerType.val === RUNNER_SYSTEMD
+                ? div(
+                    {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
+                    field("Unit name", textInput(form.systemdName, "my-service.service")),
+                    field("Binary path", textInput(form.systemdBinPath, "/opt/my-service/bin/app")),
+                )
+                : p({class: "text-xs text-gray-500"}, "Runs with sensible defaults. Set the user, working directory, and environment under additional options."),
         ),
+        advancedSection(form, {identityLocked, environmentOptions, environmentDatalistID}),
     );
 }
 
@@ -247,6 +224,10 @@ function makeFormState(values) {
         systemdName: van.state(values.systemdName),
         systemdBinPath: van.state(values.systemdBinPath),
         envVars: van.state(values.envVars || []),
+        showAdvanced: van.state(Boolean(values.showAdvanced)),
+        // Transient repo-accessibility check; tracks the repo/source it applies
+        // to so a stale result is hidden once the inputs change.
+        repoCheck: van.state({status: 'idle', message: '', repo: '', sourceType: ''}),
     };
 }
 
@@ -266,12 +247,166 @@ function sectionCardWithAside(title, aside, ...children) {
     );
 }
 
-function field(text, control) {
+function field(text, control, hint) {
     return label(
         {class: "flex flex-col gap-1 text-xs text-gray-400"},
         span(text),
         control,
+        hint ? span({class: "text-[11px] text-gray-500"}, hint) : null,
     );
+}
+
+// --- Additional (optional) options -----------------------------------------
+
+function advancedSection(form, opts) {
+    return div(
+        {class: "rounded-lg border border-gray-700 bg-gray-900/70"},
+        button({
+            type: "button",
+            class: "w-full flex items-center justify-between gap-3 p-4 cursor-pointer text-left",
+            onclick: () => { form.showAdvanced.val = !form.showAdvanced.val; },
+        },
+            h3({class: "text-sm font-semibold text-gray-200"}, "Additional options"),
+            span({class: "text-xs text-gray-400"}, () => form.showAdvanced.val ? "Hide ▾" : "Show ▸"),
+        ),
+        () => form.showAdvanced.val
+            ? div(
+                {class: "px-4 pb-4 flex flex-col gap-4 border-t border-gray-700 pt-4"},
+                advancedIdentity(form, opts),
+                advancedSource(form),
+                advancedRunner(form),
+            )
+            : null,
+    );
+}
+
+function advancedIdentity(form, opts) {
+    return field("Environment", div(
+        input({
+            type: "text",
+            list: opts.environmentDatalistID,
+            value: form.environment.val,
+            disabled: opts.identityLocked,
+            class: textInputClass(false, opts.identityLocked),
+            placeholder: "PROD",
+            oninput: e => { form.environment.val = e.target.value; },
+        }),
+        datalist(
+            {id: opts.environmentDatalistID},
+            ...(opts.environmentOptions || []).map(env => option({value: env}, env)),
+        ),
+    ), "Optional label used only to group deployments in the UI.");
+}
+
+function advancedSource(form) {
+    return () => form.sourceType.val === SOURCE_GITHUB
+        ? field("Asset", textInput(form.githubAsset, "app-linux-amd64"), "Release asset to download. Defaults to the release's only asset.")
+        : field("Output executable", textInput(form.nixOutputExecutable, "app"), "Executable name in the build output's bin/. Defaults to the only executable.");
+}
+
+function advancedRunner(form) {
+    return () => {
+        if (form.runnerType.val === RUNNER_SYSTEMD) {
+            return p({class: "text-xs text-gray-500"}, "No additional options for systemd services.");
+        }
+        return div(
+            {class: "flex flex-col gap-3"},
+            div(
+                {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
+                field("Run as", textInput(form.osRunAs, "ubuntu"), "OS user to run as. Defaults to the ubuntu user."),
+                field("Working directory", input({
+                    type: "text",
+                    value: form.osWorkingDir.val,
+                    class: textInputClass(),
+                    placeholder: () => `/home/${form.osRunAs.val.trim() || 'ubuntu'}`,
+                    oninput: e => { form.osWorkingDir.val = e.target.value; },
+                }), "Defaults to the run-as user's home directory."),
+                field("Strategy", select({
+                    class: selectClass(),
+                    onchange: e => { form.osStrategy.val = e.target.value; },
+                },
+                    option({value: '', selected: form.osStrategy.val === ''}, "Terminate previous"),
+                    option({value: 'leavePrevious', selected: form.osStrategy.val === 'leavePrevious'}, "Leave previous running"),
+                )),
+            ),
+            environmentVarsEditor(form),
+        );
+    };
+}
+
+// --- Repository field with on-blur accessibility validation ----------------
+
+function repoField(form, sourceType) {
+    const repoState = sourceType === SOURCE_GITHUB ? form.githubRepo : form.nixRepo;
+    return label(
+        {class: "flex flex-col gap-1 text-xs text-gray-400"},
+        span("Repository"),
+        input({
+            type: "text",
+            value: repoState.val,
+            placeholder: "github.com/org/repo",
+            class: () => repoInputClass(activeRepoCheck(form, sourceType, repoState).status),
+            oninput: e => { repoState.val = e.target.value; },
+            onblur: () => validateRepo(form),
+        }),
+        () => {
+            const c = activeRepoCheck(form, sourceType, repoState);
+            if (c.status === 'idle') return span();
+            return p({class: repoMsgClass(c.status)}, c.message);
+        },
+    );
+}
+
+// activeRepoCheck returns the validation result only if it still matches the
+// repo and source currently in the field; otherwise it reads as idle so a stale
+// green/red state disappears the moment the user edits or switches source.
+function activeRepoCheck(form, sourceType, repoState) {
+    const c = form.repoCheck.val;
+    const repo = repoState.val.trim();
+    if (!repo || c.sourceType !== sourceType || c.repo !== repo) {
+        return {status: 'idle', message: ''};
+    }
+    return c;
+}
+
+async function validateRepo(form) {
+    const sourceType = form.sourceType.val;
+    const repoState = sourceType === SOURCE_GITHUB ? form.githubRepo : form.nixRepo;
+    const repo = repoState.val.trim();
+    if (!repo) {
+        form.repoCheck.val = {status: 'idle', message: '', repo: '', sourceType};
+        return;
+    }
+    const c = form.repoCheck.val;
+    // Don't re-check a repo we already have a verdict for.
+    if (c.repo === repo && c.sourceType === sourceType && (c.status === 'ok' || c.status === 'error')) {
+        return;
+    }
+    form.repoCheck.val = {status: 'checking', message: 'Checking repository access…', repo, sourceType};
+    try {
+        const res = await capi.postV1RepoValidate({repo, sourceType});
+        form.repoCheck.val = {
+            status: res.ok ? 'ok' : 'error',
+            message: res.message || (res.ok ? 'Repository is accessible.' : 'Repository not accessible.'),
+            repo,
+            sourceType,
+        };
+    } catch (e) {
+        form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType};
+    }
+}
+
+function repoInputClass(status) {
+    let border = 'border-gray-600 focus:ring-brand';
+    if (status === 'ok') border = 'border-green-500 focus:ring-green-500';
+    else if (status === 'error') border = 'border-red-500 focus:ring-red-500';
+    return `w-full px-3 py-2 rounded-lg bg-gray-800 text-gray-100 border ${border} focus:outline-none focus:ring-1`;
+}
+
+function repoMsgClass(status) {
+    if (status === 'ok') return 'text-xs text-green-400';
+    if (status === 'error') return 'text-xs text-red-400';
+    return 'text-xs text-gray-500';
 }
 
 function inlineSelect(text, state, options) {
@@ -347,7 +482,7 @@ function environmentVarsEditor(form) {
         div(
             {class: "flex items-center justify-between mb-2"},
             div(
-                h3({class: "text-xs font-semibold text-gray-300"}, "Environment"),
+                h3({class: "text-xs font-semibold text-gray-300"}, "Environment variables"),
             ),
             button({
                 class: "text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 cursor-pointer",

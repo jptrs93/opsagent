@@ -196,6 +196,16 @@
  * @property {string} scope
  */
 /**
+ * @typedef {Object} RepoValidateRequest
+ * @property {string} repo
+ * @property {string} sourceType
+ */
+/**
+ * @typedef {Object} RepoValidateResponse
+ * @property {boolean} ok
+ * @property {string} message
+ */
+/**
  * @typedef {Object} User
  * @property {number} id
  * @property {string} name
@@ -2681,6 +2691,132 @@ function decodeDeploymentVersionsRequestMessage(reader, length) {
 export function decodeDeploymentVersionsRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeDeploymentVersionsRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {RepoValidateRequest} message
+ * @param {Writer} writer
+ */
+export function writeRepoValidateRequest(message, writer) {
+    if (message.repo !== undefined && message.repo !== null && message.repo !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.repo);
+    }
+    if (message.sourceType !== undefined && message.sourceType !== null && message.sourceType !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.sourceType);
+    }
+}
+
+
+/**
+ * @param {RepoValidateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeRepoValidateRequest(message) {
+    const writer = Writer.create();
+    writeRepoValidateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {RepoValidateRequest}
+ */
+function decodeRepoValidateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {repo: "", sourceType: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.repo = reader.string();
+                break;
+            }
+            case 2: {
+                message.sourceType = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {RepoValidateRequest}
+ */
+export function decodeRepoValidateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeRepoValidateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {RepoValidateResponse} message
+ * @param {Writer} writer
+ */
+export function writeRepoValidateResponse(message, writer) {
+    if (message.ok === true) {
+        writer.uint32(tag(1, WIRE.VARINT)).bool(message.ok);
+    }
+    if (message.message !== undefined && message.message !== null && message.message !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.message);
+    }
+}
+
+
+/**
+ * @param {RepoValidateResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeRepoValidateResponse(message) {
+    const writer = Writer.create();
+    writeRepoValidateResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {RepoValidateResponse}
+ */
+function decodeRepoValidateResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {ok: false, message: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.ok = reader.bool();
+                break;
+            }
+            case 2: {
+                message.message = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {RepoValidateResponse}
+ */
+export function decodeRepoValidateResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeRepoValidateResponseMessage(reader);
 }
 
 

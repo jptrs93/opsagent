@@ -84,6 +84,7 @@ type OpsagentHttpV1Handler interface {
 	GetV1ClusterStatus(Context, *http.Request, http.ResponseWriter) error
 	PostV1DeploymentCreate(Context, *DeploymentCreateRequest) (*DeploymentConfig, error)
 	PostV1DeploymentVersions(Context, *DeploymentVersionsRequest) (*DeploymentVersions, error)
+	PostV1RepoValidate(Context, *RepoValidateRequest) (*RepoValidateResponse, error)
 }
 
 func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.ServeMux {
@@ -257,6 +258,17 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/deployment/versions", buildHandlerFunc(config, verifyAuth, postV1DeploymentVersionsAccessPolicy, postAuthHandlerPostV1DeploymentVersions, compressionModeAuto, false))
+	postV1RepoValidateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1RepoValidate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeRepoValidateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1RepoValidate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/repo/validate", buildHandlerFunc(config, verifyAuth, postV1RepoValidateAccessPolicy, postAuthHandlerPostV1RepoValidate, compressionModeAuto, false))
 	return m
 }
 

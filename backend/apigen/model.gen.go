@@ -1783,6 +1783,80 @@ func DecodeDeploymentVersionsRequest(b []byte) (*DeploymentVersionsRequest, erro
 	return &m, nil
 }
 
+type RepoValidateRequest struct {
+	Repo       string
+	SourceType string
+}
+
+func (m *RepoValidateRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Repo, 1)
+	b = AppendStringField(b, m.SourceType, 2)
+	return b
+}
+
+func DecodeRepoValidateRequest(b []byte) (*RepoValidateRequest, error) {
+	var m RepoValidateRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Repo, err = ConsumeString(b, typ)
+		case 2:
+			b, m.SourceType, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type RepoValidateResponse struct {
+	Ok      bool
+	Message string
+}
+
+func (m *RepoValidateResponse) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Ok, 1)
+	b = AppendStringField(b, m.Message, 2)
+	return b
+}
+
+func DecodeRepoValidateResponse(b []byte) (*RepoValidateResponse, error) {
+	var m RepoValidateResponse
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Ok, err = ConsumeBool(b, typ)
+		case 2:
+			b, m.Message, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type User struct {
 	ID   int32
 	Name string

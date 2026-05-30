@@ -227,17 +227,51 @@ export function statusPage() {
         ),
     );
 
-    const infoTip = (text, alignRight = false) => span(
-        {class: "relative group inline-flex normal-case tracking-normal"},
-        Info({class: "icon hover:text-gray-300 text-gray-600 w-3.5 h-3.5"}),
-        span(
-            {class: `invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity absolute top-full mt-1 bg-gray-900 text-white text-xs px-2 py-1 rounded w-56 z-20 ${alignRight ? 'right-0' : 'left-0'}`},
-            text,
-        ),
-    );
+    const infoTip = (text, alignRight = false) => {
+        // pinned keeps the tooltip open after a click until the next click
+        // anywhere else; hover still shows it transiently when not pinned.
+        const pinned = van.state(false);
+        let offHandler = null;
+
+        const unpin = () => {
+            pinned.val = false;
+            if (offHandler) {
+                document.removeEventListener('mousedown', offHandler);
+                offHandler = null;
+            }
+        };
+
+        const toggle = (e) => {
+            e.stopPropagation();
+            if (pinned.val) {
+                unpin();
+                return;
+            }
+            pinned.val = true;
+            offHandler = () => unpin();
+            // Attach on the next tick so the opening click doesn't close it.
+            setTimeout(() => document.addEventListener('mousedown', offHandler), 0);
+        };
+
+        return span(
+            {class: "relative group inline-flex normal-case tracking-normal"},
+            Info({
+                class: "icon hover:text-gray-300 text-gray-600 w-3.5 h-3.5 cursor-pointer",
+                onmousedown: toggle,
+            }),
+            span(
+                {
+                    // Clicks inside the pinned tooltip shouldn't dismiss it.
+                    onmousedown: (e) => { if (pinned.val) e.stopPropagation(); },
+                    class: () => `${pinned.val ? 'visible opacity-100' : 'invisible opacity-0 group-hover:visible group-hover:opacity-100'} transition-opacity absolute top-full mt-1 bg-gray-900 border border-gray-700 text-white text-xs px-3 py-2 rounded-lg w-56 z-20 ${alignRight ? 'right-0' : 'left-0'}`,
+                },
+                text,
+            ),
+        );
+    };
 
     const deploymentTableCard = (rows, showEnvironmentColumn, header = null) => div(
-        {class: "rounded-lg bg-surface border border-gray-700 overflow-x-auto p-2"},
+        {class: "rounded-lg bg-surface border border-gray-700 p-2"},
         header,
         deploymentTable(rows, showEnvironmentColumn),
     );
@@ -320,7 +354,7 @@ export function statusPage() {
                         }, collapsed ? "Expand" : "Collapse") : span(),
                     );
                     return div(
-                        {class: "rounded-lg bg-surface border border-gray-700 overflow-x-auto p-2"},
+                        {class: "rounded-lg bg-surface border border-gray-700 p-2"},
                         header,
                         collapsed ? null : deploymentTable(group.rows, false),
                     );

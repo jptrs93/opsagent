@@ -80,6 +80,12 @@ service OpsagentHttpV1 {
   rpc PostV1DeploymentVersions(DeploymentVersionsRequest) returns (DeploymentVersions) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
+
+  // Check whether a repo is reachable/authorized for the given source type,
+  // before a deployment referencing it is created.
+  rpc PostV1RepoValidate(RepoValidateRequest) returns (RepoValidateResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
 }
 
 // OpsagentClusterV1 is the primary↔worker cluster transport. It is served on
@@ -339,6 +345,18 @@ message ScopedVersions {
 message DeploymentVersionsRequest {
   int32 deployment_id = 1;
   string scope = 2;  // optional: specific branch/scope to list versions for
+}
+
+// RepoValidateRequest checks a repo's accessibility before a deployment using
+// it is created/updated.
+message RepoValidateRequest {
+  string repo = 1;         // e.g. "github.com/owner/repo"
+  string source_type = 2;  // "nixBuild" or "githubRelease"
+}
+
+message RepoValidateResponse {
+  bool ok = 1;
+  string message = 2;  // human-readable result, safe to display to the user
 }
 
 // === Storage-only messages ===

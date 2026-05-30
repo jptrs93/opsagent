@@ -27,7 +27,7 @@ export function sidebar(activePage) {
         {class: "w-56 bg-sidebar border-r border-gray-800 flex flex-col min-h-dvh"},
         div(
             {class: "p-4 border-b border-gray-800"},
-            h2({class: "text-lg font-bold text-white"}, "OpsAgent"),
+            h2({class: "text-lg font-bold text-white"}, "OpenDeploy"),
             div(
                 {class: "mt-1 flex items-center gap-2"},
                 span({

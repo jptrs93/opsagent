@@ -386,6 +386,25 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentVersions(ctx context.Context, req *
 	return DecodeDeploymentVersions(body)
 }
 
+func (c *OpsagentHttpV1Capi) PostV1RepoValidate(ctx context.Context, req *RepoValidateRequest) (*RepoValidateResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1RepoValidate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/repo/validate", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeRepoValidateResponse(body)
+}
+
 type OpsagentClusterV1Capi struct {
 	BaseURL        string
 	HTTPClient     *http.Client

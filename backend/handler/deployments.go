@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -132,6 +133,54 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 		Scopes:          scopes,
 		VersionsByScope: versionsByScope,
 	}, nil
+}
+
+var RepoRequiredErr = apigen.NewApiErr("Repository is required", "missing_repo", http.StatusBadRequest)
+var InvalidSourceTypeErr = apigen.NewApiErr("Invalid source type", "invalid_source_type", http.StatusBadRequest)
+
+// PostV1RepoValidate checks that a repo is reachable and authorized for the
+// given source type. It reuses the version providers (git ls-remote / GitHub
+// API), so a successful listing implies the configured credentials grant
+// access. The returned message is intentionally generic — underlying errors are
+// logged server-side rather than surfaced, since they can be noisy and the
+// clone URL embeds the GitHub token.
+func (h *Handler) PostV1RepoValidate(ctx apigen.Context, req *apigen.RepoValidateRequest) (*apigen.RepoValidateResponse, error) {
+	repo := strings.TrimSpace(req.Repo)
+	if repo == "" {
+		return nil, RepoRequiredErr
+	}
+
+	prepare := &apigen.PrepareConfig{}
+	switch req.SourceType {
+	case "githubRelease":
+		prepare.GithubRelease = apigen.GithubReleaseConfig{Repo: repo}
+	case "nixBuild":
+		prepare.NixBuild = apigen.NixBuildConfig{Repo: repo}
+	default:
+		return nil, InvalidSourceTypeErr
+	}
+
+	provider, err := versionprovider.ForConfig(prepare)
+	if err != nil {
+		return &apigen.RepoValidateResponse{Ok: false, Message: "Unsupported source type."}, nil
+	}
+
+	// For git/nix, listing branches hits the remote; for github releases the
+	// scope list is a no-op, so list versions to actually exercise the API.
+	if !prepare.GithubRelease.IsZero() {
+		_, err = provider.ListVersions(ctx, prepare, "")
+	} else {
+		_, err = provider.ListScopes(ctx, prepare)
+	}
+	if err != nil {
+		slog.Warn("repo validation failed", "repo", repo, "sourceType", req.SourceType, "err", err)
+		return &apigen.RepoValidateResponse{
+			Ok:      false,
+			Message: "Repository not found or not accessible. Check the URL and that the configured GitHub token grants access.",
+		}, nil
+	}
+
+	return &apigen.RepoValidateResponse{Ok: true, Message: "Repository is accessible."}, nil
 }
 
 func (h *Handler) PostV1DeploymentLogs(ctx apigen.Context, r *http.Request, w http.ResponseWriter) error {

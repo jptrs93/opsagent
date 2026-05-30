@@ -8,6 +8,7 @@ import {
   decodeDesiredState,
   decodeLoginResponse,
   decodeMsgToWorker,
+  decodeRepoValidateResponse,
   decodeState,
   decodeWebAuthNOptionsResponse,
   encodeDeploymentCreateRequest,
@@ -17,6 +18,7 @@ import {
   encodeEmptyRequest,
   encodeMasterPasswordRequest,
   encodeMsgToMaster,
+  encodeRepoValidateRequest,
   encodeWebAuthNFinishRequest,
 } from './model.js';
 
@@ -290,6 +292,18 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeDeploymentVersions(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {RepoValidateRequest} payload
+   * @returns {Promise<RepoValidateResponse>}
+   */
+  async postV1RepoValidate(payload) {
+    const response = await this.#request("/v1/repo/validate", { method: 'POST', body: encodeRepoValidateRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeRepoValidateResponse(await response.arrayBuffer());
   }
 
   /**
