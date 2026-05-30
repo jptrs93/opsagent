@@ -42,14 +42,10 @@ export function deploymentConfigToForm(cfg) {
     const os = runner.osProcess || {};
     const systemd = runner.systemd || {};
 
-    // Reveal the additional-options panel up-front when the existing config
-    // already sets any optional field, so it isn't hidden on edit.
-    const hasAdvanced = Boolean(
-        cid.environment ||
-        gh.asset || nix.outputExecutable ||
-        os.workingDir || os.runAs || os.strategy ||
-        (os.env && os.env.length)
-    );
+    // Reveal a section's additional options up-front when the existing config
+    // already sets one of them, so they aren't hidden on edit.
+    const showSourceOpts = Boolean(gh.asset || nix.outputExecutable);
+    const showExecOpts = Boolean(os.workingDir || os.runAs || os.strategy || (os.env && os.env.length));
 
     return makeFormState({
         name: cid.name || '',
@@ -69,7 +65,8 @@ export function deploymentConfigToForm(cfg) {
         systemdName: systemd.name || '',
         systemdBinPath: systemd.binPath || '',
         envVars: (os.env || []).map(e => ({id: nextEnvID++, key: e.key || '', value: e.value || ''})),
-        showAdvanced: hasAdvanced,
+        showSourceOpts,
+        showExecOpts,
     });
 }
 
@@ -87,7 +84,7 @@ export function deploymentForm(form, opts = {}) {
             "Deployment",
             identityLocked ? span({class: "text-xs text-orange-300"}, "Deployment identity is fixed after creation.") : null,
             div(
-                {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
+                {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
                 field("Name", input({
                     type: "text",
                     value: form.name.val,
@@ -96,6 +93,21 @@ export function deploymentForm(form, opts = {}) {
                     placeholder: "my-service",
                     oninput: e => { form.name.val = e.target.value; },
                 })),
+                field("Environment (optional)", div(
+                    input({
+                        type: "text",
+                        list: environmentDatalistID,
+                        value: form.environment.val,
+                        disabled: identityLocked,
+                        class: textInputClass(false, identityLocked),
+                        placeholder: "PROD",
+                        oninput: e => { form.environment.val = e.target.value; },
+                    }),
+                    datalist(
+                        {id: environmentDatalistID},
+                        ...environmentOptions.map(env => option({value: env}, env)),
+                    ),
+                )),
                 field("Machine", machineSelect(form, {
                     identityLocked,
                     machineOptionsLoaded,
@@ -121,6 +133,7 @@ export function deploymentForm(form, opts = {}) {
                         repoField(form, SOURCE_NIX),
                         field("Flake", textInput(form.nixFlake, "nix/app/flake.nix")),
                     ),
+                optionsDisclosure(form.showSourceOpts, () => sourceOptions(form)),
             ),
         ),
         sectionCardWithAside(
@@ -135,9 +148,12 @@ export function deploymentForm(form, opts = {}) {
                     field("Unit name", textInput(form.systemdName, "my-service.service")),
                     field("Binary path", textInput(form.systemdBinPath, "/opt/my-service/bin/app")),
                 )
-                : p({class: "text-xs text-gray-500"}, "Runs with sensible defaults. Set the user, working directory, and environment under additional options."),
+                : div(
+                    {class: "flex flex-col gap-3"},
+                    p({class: "text-xs text-gray-500"}, "Runs with sensible defaults."),
+                    optionsDisclosure(form.showExecOpts, () => execOptions(form)),
+                ),
         ),
-        advancedSection(form, {identityLocked, environmentOptions, environmentDatalistID}),
     );
 }
 
@@ -224,7 +240,8 @@ function makeFormState(values) {
         systemdName: van.state(values.systemdName),
         systemdBinPath: van.state(values.systemdBinPath),
         envVars: van.state(values.envVars || []),
-        showAdvanced: van.state(Boolean(values.showAdvanced)),
+        showSourceOpts: van.state(Boolean(values.showSourceOpts)),
+        showExecOpts: van.state(Boolean(values.showExecOpts)),
         // Transient repo-accessibility check; tracks the repo/source it applies
         // to so a stale result is hidden once the inputs change.
         repoCheck: van.state({status: 'idle', message: '', repo: '', sourceType: ''}),
@@ -258,80 +275,52 @@ function field(text, control, hint) {
 
 // --- Additional (optional) options -----------------------------------------
 
-function advancedSection(form, opts) {
+// optionsDisclosure renders a thin horizontal rule with an expand/collapse
+// toggle (no surrounding card) that reveals a section's optional fields.
+function optionsDisclosure(open, content) {
     return div(
-        {class: "rounded-lg border border-gray-700 bg-gray-900/70"},
+        {class: "border-t border-gray-700 pt-2"},
         button({
             type: "button",
-            class: "w-full flex items-center justify-between gap-3 p-4 cursor-pointer text-left",
-            onclick: () => { form.showAdvanced.val = !form.showAdvanced.val; },
+            class: "flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 cursor-pointer",
+            onclick: () => { open.val = !open.val; },
         },
-            h3({class: "text-sm font-semibold text-gray-200"}, "Additional options"),
-            span({class: "text-xs text-gray-400"}, () => form.showAdvanced.val ? "Hide ▾" : "Show ▸"),
+            span({class: "text-[10px] leading-none"}, () => open.val ? "▼" : "▶"),
+            span("Additional options"),
         ),
-        () => form.showAdvanced.val
-            ? div(
-                {class: "px-4 pb-4 flex flex-col gap-4 border-t border-gray-700 pt-4"},
-                advancedIdentity(form, opts),
-                advancedSource(form),
-                advancedRunner(form),
-            )
-            : null,
+        () => open.val ? div({class: "flex flex-col gap-3 mt-3"}, content()) : null,
     );
 }
 
-function advancedIdentity(form, opts) {
-    return field("Environment", div(
-        input({
-            type: "text",
-            list: opts.environmentDatalistID,
-            value: form.environment.val,
-            disabled: opts.identityLocked,
-            class: textInputClass(false, opts.identityLocked),
-            placeholder: "PROD",
-            oninput: e => { form.environment.val = e.target.value; },
-        }),
-        datalist(
-            {id: opts.environmentDatalistID},
-            ...(opts.environmentOptions || []).map(env => option({value: env}, env)),
-        ),
-    ), "Optional label used only to group deployments in the UI.");
-}
-
-function advancedSource(form) {
+function sourceOptions(form) {
     return () => form.sourceType.val === SOURCE_GITHUB
         ? field("Asset", textInput(form.githubAsset, "app-linux-amd64"), "Release asset to download. Defaults to the release's only asset.")
         : field("Output executable", textInput(form.nixOutputExecutable, "app"), "Executable name in the build output's bin/. Defaults to the only executable.");
 }
 
-function advancedRunner(form) {
-    return () => {
-        if (form.runnerType.val === RUNNER_SYSTEMD) {
-            return p({class: "text-xs text-gray-500"}, "No additional options for systemd services.");
-        }
-        return div(
-            {class: "flex flex-col gap-3"},
-            div(
-                {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
-                field("Run as", textInput(form.osRunAs, "ubuntu"), "OS user to run as. Defaults to the ubuntu user."),
-                field("Working directory", input({
-                    type: "text",
-                    value: form.osWorkingDir.val,
-                    class: textInputClass(),
-                    placeholder: () => `/home/${form.osRunAs.val.trim() || 'ubuntu'}`,
-                    oninput: e => { form.osWorkingDir.val = e.target.value; },
-                }), "Defaults to the run-as user's home directory."),
-                field("Strategy", select({
-                    class: selectClass(),
-                    onchange: e => { form.osStrategy.val = e.target.value; },
-                },
-                    option({value: '', selected: form.osStrategy.val === ''}, "Terminate previous"),
-                    option({value: 'leavePrevious', selected: form.osStrategy.val === 'leavePrevious'}, "Leave previous running"),
-                )),
-            ),
-            environmentVarsEditor(form),
-        );
-    };
+function execOptions(form) {
+    return div(
+        {class: "flex flex-col gap-3"},
+        div(
+            {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
+            field("Run as", textInput(form.osRunAs, "ubuntu"), "OS user to run as. Defaults to the ubuntu user."),
+            field("Working directory", input({
+                type: "text",
+                value: form.osWorkingDir.val,
+                class: textInputClass(),
+                placeholder: () => `/home/${form.osRunAs.val.trim() || 'ubuntu'}`,
+                oninput: e => { form.osWorkingDir.val = e.target.value; },
+            }), "Defaults to the run-as user's home directory."),
+            field("Strategy", select({
+                class: selectClass(),
+                onchange: e => { form.osStrategy.val = e.target.value; },
+            },
+                option({value: '', selected: form.osStrategy.val === ''}, "Terminate previous"),
+                option({value: 'leavePrevious', selected: form.osStrategy.val === 'leavePrevious'}, "Leave previous running"),
+            )),
+        ),
+        environmentVarsEditor(form),
+    );
 }
 
 // --- Repository field with on-blur accessibility validation ----------------
