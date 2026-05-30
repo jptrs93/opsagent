@@ -30,6 +30,12 @@ set -euo pipefail
 REPO="jptrs93/opsagent"
 BIN_PATH="/var/lib/opsagent/bin/opsagent"
 DATA_DIR="/var/lib/opsagent"
+# Deployment release artifacts are downloaded here, a sibling of the data dir.
+# It is world-traversable (0755) so os-process deployments running as a
+# different user (runAs) can reach and execute their binary, while the data dir
+# itself stays 0750 (db, TLS keys, logs private). Mirrors how nix artifacts in
+# /nix/store are reachable by runAs.
+RELEASES_DIR="/var/lib/opsagent-releases"
 ENV_FILE="/etc/opsagent/env"
 SERVICE_NAME="opsagent.service"
 SERVICE_UNIT_PATH="/etc/systemd/system/$SERVICE_NAME"
@@ -71,6 +77,16 @@ else
             exit 1
         fi
     fi
+fi
+
+# --- ensure the deployment releases dir exists (idempotent; needs root) ---
+# Provisioned here rather than under the data dir so it can be world-traversable
+# while the data dir stays 0750. Runs in both install and upgrade modes; on an
+# upgrade run as the unprivileged opsagent user we can't create it under
+# root-owned /var/lib, so it's skipped (opsagent emits an actionable error if a
+# githubRelease deployment then needs it).
+if [ "$(id -u)" -eq 0 ]; then
+    install -d -o opsagent -g opsagent -m 755 "$RELEASES_DIR"
 fi
 
 case "$(uname -m)" in

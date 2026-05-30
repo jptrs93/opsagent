@@ -21,6 +21,7 @@ set -euo pipefail
 
 BIN_PATH="/var/lib/opsagent/bin/opsagent"
 DATA_DIR="/var/lib/opsagent"
+RELEASES_DIR="/var/lib/opsagent-releases"
 CONFIG_DIR="/etc/opsagent"
 ENV_FILE="$CONFIG_DIR/env"
 TLS_DIR="$CONFIG_DIR/tls"
@@ -47,6 +48,7 @@ fi
 if [ "$PURGE" -eq 1 ] && [ "$ASSUME_YES" -ne 1 ]; then
     echo "WARNING: --purge will permanently delete:"
     echo "  - $DATA_DIR (all deployment state and logs)"
+    echo "  - $RELEASES_DIR (downloaded deployment release artifacts)"
     echo "  - $CONFIG_DIR (env file, TLS certs and keys)"
     echo "  - the opsagent system user"
     echo ""
@@ -105,6 +107,11 @@ fi
 if [ -d "$DATA_DIR" ]; then
     rm -rf "$DATA_DIR"
     echo "Removed $DATA_DIR"
+fi
+
+if [ -d "$RELEASES_DIR" ]; then
+    rm -rf "$RELEASES_DIR"
+    echo "Removed $RELEASES_DIR"
 fi
 
 if [ -d "$CONFIG_DIR" ]; then
