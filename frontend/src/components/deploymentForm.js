@@ -277,6 +277,11 @@ function field(text, control, hint) {
 
 // optionsDisclosure renders a thin horizontal rule with an expand/collapse
 // toggle (no surrounding card) that reveals a section's optional fields.
+//
+// The content node is always mounted and toggled via a CSS class rather than
+// conditionally returned: a child binding that returns null gets a null _dom,
+// which VanJS's keepConnected() GC drops on the next update cycle — leaving the
+// disclosure unable to re-render.
 function optionsDisclosure(open, content) {
     return div(
         {class: "border-t border-gray-700 pt-2"},
@@ -288,7 +293,7 @@ function optionsDisclosure(open, content) {
             span({class: "text-[10px] leading-none"}, () => open.val ? "▼" : "▶"),
             span("Additional options"),
         ),
-        () => open.val ? div({class: "flex flex-col gap-3 mt-3"}, content()) : null,
+        div({class: () => open.val ? "flex flex-col gap-3 mt-3" : "hidden"}, content()),
     );
 }
 

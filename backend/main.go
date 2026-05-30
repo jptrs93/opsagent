@@ -9,6 +9,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/backup"
 	"github.com/jptrs93/opsagent/backend/primary"
 	"github.com/jptrs93/opsagent/backend/secondary"
 	"github.com/jptrs93/opsagent/backend/util/certu"
@@ -55,6 +56,7 @@ func main() {
 		runSlave()
 		return
 	}
+	backup.MustRestoreAndStartReplicationIfEnabled()
 
 	subFS, err := fs.Sub(fsys, "web/dist")
 	if err != nil {

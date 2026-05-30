@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+
+	_ "modernc.org/sqlite"
 )
 
 //go:embed sql/schema.sql
@@ -26,7 +28,7 @@ func mustInitSecondary(dbPath string) *sql.DB {
 }
 
 func mustInit(dbPath, migrations string) *sql.DB {
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=journal_mode(wal)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		panic(fmt.Sprintf("open sqlite: %v", err))
 	}

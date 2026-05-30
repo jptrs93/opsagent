@@ -106,10 +106,16 @@ type Configuration struct {
 
 	BindAddr string `env:"OPSAGENT_BIND_ADDR,0.0.0.0"` // listen address (e.g. "0.0.0.0", "::", or a specific IP)
 
-	MasterPasswordHash string   `env:"OPSAGENT_MASTER_PASSWORD_HASH,secret"`
-	GithubToken        string   `env:"OPSAGENT_GITHUB_TOKEN,"`
-	AcmeHosts          []string `env:"OPSAGENT_ACME_HOSTS,opsagent.dev"`
-	AcmeEmail          string   `env:"OPSAGENT_ACME_EMAIL,"`
+	MasterPasswordHash      string   `env:"OPSAGENT_MASTER_PASSWORD_HASH,secret"`
+	GithubToken             string   `env:"OPSAGENT_GITHUB_TOKEN,"`
+	AcmeHosts               []string `env:"OPSAGENT_ACME_HOSTS,opsagent.dev"`
+	AcmeEmail               string   `env:"OPSAGENT_ACME_EMAIL,"`
+	BackupS3AccessKeyID     string   `env:"OPENDEPLOY_BACKUP_S3_ACCESS_KEY_ID,"`
+	BackupS3SecretAccessKey string   `env:"OPENDEPLOY_BACKUP_S3_SECRET_ACCESS_KEY,"`
+	BackupS3Bucket          string   `env:"OPENDEPLOY_BACKUP_S3_BUCKET,"`
+	BackupS3Path            string   `env:"OPENDEPLOY_BACKUP_S3_PATH,opsagent/primary"`
+	BackupS3Region          string   `env:"OPENDEPLOY_BACKUP_S3_REGION,us-east-1"`
+	BackupS3Endpoint        string   `env:"OPENDEPLOY_BACKUP_S3_ENDPOINT,"`
 
 	// Cluster mTLS — if ClusterCA is empty, cluster mode is disabled.
 	ClusterCA     string `env:"OPSAGENT_CLUSTER_CA,"`          // path to CA cert

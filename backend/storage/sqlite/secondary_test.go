@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
-
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 

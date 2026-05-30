@@ -53,7 +53,7 @@
 
           modRoot = "backend";
 
-          vendorHash = "sha256-JtTRswvxwbSXe9VMvFW1O6E4UDoiUiiYEs7DXRSMT0s=";
+          vendorHash = "sha256-7exvIo7CmgGLGmip9pejND3ud4w5BEzU7RpIxr4ehgI=";
 
           subPackages = [ "." ];
 

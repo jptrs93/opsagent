@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jptrs93/goutil/ptru"
-	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/logstore"
