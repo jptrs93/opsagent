@@ -2,34 +2,86 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 
-const { div, h1, h2, p, span, input, table, thead, tbody, tr, th, td, code, pre } = van.tags;
+const { div, h1, h2, p, span, input, button, table, thead, tbody, tr, th, td, code, pre } = van.tags;
+const { svg, path, circle, line } = van.tags("http://www.w3.org/2000/svg");
 
-const formatTime = (t) => {
-    if (!t) return '-';
-    const d = t instanceof Date ? t : new Date(t);
-    if (isNaN(d.getTime()) || d.getTime() === 0) return '-';
-    return d.toLocaleString();
+// --- icons ---
+
+const svgBase = {
+    viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
+    "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round",
+    class: "w-4 h-4",
 };
+const eyeOpenIcon = () => svg(svgBase,
+    path({d: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"}),
+    circle({cx: "12", cy: "12", r: "3"}));
+const eyeOffIcon = () => svg(svgBase,
+    path({d: "M9.9 4.24A9.1 9.1 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"}),
+    path({d: "M6.61 6.61A18.5 18.5 0 0 0 2 12s3 8 10 8a9.1 9.1 0 0 0 5.39-1.61"}),
+    line({x1: "2", y1: "2", x2: "22", y2: "22"}));
+const trashIcon = () => svg(svgBase,
+    path({d: "M3 6h18"}),
+    path({d: "M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"}),
+    path({d: "M10 11v6M14 11v6"}),
+    path({d: "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}));
+const plusIcon = () => svg(svgBase, line({x1: "12", y1: "5", x2: "12", y2: "19"}), line({x1: "5", y1: "12", x2: "19", y2: "12"}));
+
+const iconButton = (child, onclick, cls = "") => button({
+    type: "button",
+    class: `p-1.5 rounded text-gray-400 hover:text-gray-100 hover:bg-surface-hover transition-colors cursor-pointer ${cls}`,
+    onclick,
+}, child);
+
+const smallBtn = (text, onclick, cls, disabledWhen) => button({
+    type: "button",
+    disabled: disabledWhen,
+    class: () => `text-xs px-3 py-1 rounded-md font-medium transition-colors ${cls} ${
+        disabledWhen && disabledWhen() ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`,
+    onclick: async (e) => { if (disabledWhen && disabledWhen()) return; await onclick(e); },
+}, text);
 
 export function secretsPage() {
     const status = van.state(null);   // {unlocked, recoveryConfigured} | null
-    const secrets = van.state(null);  // [SecretMeta] | null
+    const rows = van.state(null);     // [rowModel] | null
     const error = van.state(null);
     const recoveryCode = van.state(null); // shown once after generation
 
-    const loadStatus = async () => {
-        status.val = await capi.postV1SecretsStatus({});
+    // A rowModel mirrors one secret as an editable row. `orig` holds the
+    // last-saved values for dirty detection; `orig.value` is meaningful only
+    // once `loaded` is true (we fetch the plaintext lazily, on reveal/save).
+    const makeRow = (meta) => {
+        const isNew = !meta;
+        return {
+            meta, isNew, _saved: false,
+            name: van.state(meta ? meta.name : ""),
+            group: van.state(meta ? meta.group : ""),
+            value: van.state(""),
+            revealed: van.state(false),  // show plaintext vs masked
+            loaded: van.state(isNew),    // `value` holds the real current plaintext
+            valueDirty: van.state(false),
+            orig: {name: meta ? meta.name : "", group: meta ? meta.group : "", value: ""},
+        };
     };
-    const loadSecrets = async () => {
-        if (!status.val || !status.val.unlocked) { secrets.val = []; return; }
+
+    const isDirty = (row) => row.isNew
+        || row.name.val !== row.orig.name
+        || row.group.val !== row.orig.group
+        || row.valueDirty.val;
+
+    const loadStatus = async () => { status.val = await capi.postV1SecretsStatus({}); };
+
+    const reloadRows = async () => {
+        if (!status.val || !status.val.unlocked) { rows.val = []; return; }
         const res = await capi.postV1SecretsList({});
-        secrets.val = res.items || [];
+        const pending = (rows.val || []).filter(r => r.isNew && !r._saved);
+        rows.val = [...(res.items || []).map(makeRow), ...pending];
     };
+
     const reload = async () => {
         try {
             error.val = null;
             await loadStatus();
-            await loadSecrets();
+            await reloadRows();
         } catch (e) {
             error.val = e.message;
         }
@@ -37,53 +89,71 @@ export function secretsPage() {
 
     reload();
 
-    // --- add/update form state ---
-    const fName = van.state("");
-    const fGroup = van.state("");
-    const fValue = van.state("");
+    const addRow = () => { rows.val = [...(rows.val || []), makeRow(null)]; };
+    const removeRow = (row) => { rows.val = rows.val.filter(r => r !== row); };
 
-    const saveSecret = async () => {
-        if (!fName.val.trim()) { error.val = "Secret name is required"; return; }
+    const toggleReveal = async (row) => {
+        if (row.revealed.val) { row.revealed.val = false; return; }
+        if (!row.loaded.val && !row.isNew) {
+            try {
+                error.val = null;
+                const res = await capi.postV1SecretsReveal({name: row.orig.name});
+                row.value.val = new TextDecoder().decode(res.value);
+                row.orig.value = row.value.val;
+                row.loaded.val = true;
+            } catch (e) { error.val = e.message; return; }
+        }
+        row.revealed.val = true;
+    };
+
+    const saveRow = async (row) => {
+        const name = row.name.val.trim();
+        if (!name) { error.val = "Secret name is required"; return; }
         try {
             error.val = null;
+            // Determine the value to persist. If the operator never touched or
+            // loaded the value of an existing secret, fetch it so a name/group
+            // edit doesn't clobber it.
+            let value;
+            if (row.loaded.val || row.valueDirty.val) {
+                value = row.value.val;
+            } else {
+                const res = await capi.postV1SecretsReveal({name: row.orig.name});
+                value = new TextDecoder().decode(res.value);
+            }
             await capi.postV1SecretsSet({
-                name: fName.val.trim(),
-                group: fGroup.val.trim(),
-                value: new TextEncoder().encode(fValue.val),
+                name,
+                group: row.group.val.trim(),
+                value: new TextEncoder().encode(value),
             });
-            fName.val = ""; fGroup.val = ""; fValue.val = "";
-            await loadSecrets();
+            // A rename of an existing secret is set-new + delete-old.
+            if (!row.isNew && row.orig.name !== name) {
+                await capi.postV1SecretsDelete({name: row.orig.name});
+            }
+            row._saved = true;
+            await reloadRows();
         } catch (e) {
             error.val = e.message;
         }
     };
 
-    const deleteSecret = async (name) => {
-        try {
-            error.val = null;
-            await capi.postV1SecretsDelete({name});
-            delete revealed.val[name];
-            revealed.val = {...revealed.val};
-            await loadSecrets();
-        } catch (e) {
-            error.val = e.message;
-        }
+    const discardRow = (row) => {
+        if (row.isNew) { removeRow(row); return; }
+        row.name.val = row.orig.name;
+        row.group.val = row.orig.group;
+        row.value.val = row.loaded.val ? row.orig.value : "";
+        row.valueDirty.val = false;
+        row.revealed.val = false;
     };
 
-    // name -> decoded plaintext, for secrets the operator has revealed.
-    const revealed = van.state({});
-    const revealSecret = async (name) => {
+    const deleteRow = async (row) => {
         try {
             error.val = null;
-            const res = await capi.postV1SecretsReveal({name});
-            revealed.val = {...revealed.val, [name]: new TextDecoder().decode(res.value)};
+            await capi.postV1SecretsDelete({name: row.orig.name});
+            await reloadRows();
         } catch (e) {
             error.val = e.message;
         }
-    };
-    const hideSecret = (name) => {
-        delete revealed.val[name];
-        revealed.val = {...revealed.val};
     };
 
     const unlockCode = van.state("");
@@ -158,73 +228,72 @@ export function secretsPage() {
         );
     };
 
-    const addForm = () => div(
-        {class: "card flex flex-col gap-3 max-w-xl"},
-        h2({class: "text-base font-semibold"}, "Add or update a secret"),
-        p({class: "text-sm text-gray-400"},
-            "Reference a secret from a deployment's env value as ",
-            code({class: "font-mono text-gray-300"}, "${name}"), "."),
-        div({class: "flex flex-col gap-1"},
-            span({class: "text-xs text-gray-400"}, "Name"),
-            input({
-                class: "text-input font-mono", type: "text",
-                placeholder: "staging.db.password",
-                value: fName, oninput: (e) => fName.val = e.target.value,
-            })),
-        div({class: "flex flex-col gap-1"},
-            span({class: "text-xs text-gray-400"}, "Group (optional)"),
-            input({
-                class: "text-input", type: "text",
-                placeholder: "staging",
-                value: fGroup, oninput: (e) => fGroup.val = e.target.value,
-            })),
-        div({class: "flex flex-col gap-1"},
-            span({class: "text-xs text-gray-400"}, "Value"),
-            input({
-                class: "text-input font-mono", type: "password",
-                placeholder: "secret value",
-                value: fValue, oninput: (e) => fValue.val = e.target.value,
-            })),
-        div(spinnerButton("Save secret", saveSecret, "btn-primary", "button",
-            () => !fName.val.trim())),
+    const cellInput = (state, placeholder, mono, extra = {}) => input({
+        class: `w-full bg-transparent px-2 py-1 rounded border border-transparent ` +
+            `hover:border-gray-700 focus:border-brand focus:outline-none ${mono ? "font-mono" : ""}`,
+        placeholder,
+        value: state,
+        oninput: (e) => state.val = e.target.value,
+        ...extra,
+    });
+
+    const rowEl = (row) => tr(
+        {class: "border-b border-gray-800 last:border-0 align-middle"},
+        td({class: "py-1 pr-3 w-1/4"}, cellInput(row.name, "name", true)),
+        td({class: "py-1 pr-3 w-1/6"}, cellInput(row.group, "group", false)),
+        td({class: "py-1 pr-3"},
+            div({class: "flex items-center gap-1"},
+                input({
+                    class: "flex-1 min-w-0 bg-transparent px-2 py-1 rounded border border-transparent " +
+                        "hover:border-gray-700 focus:border-brand focus:outline-none font-mono",
+                    type: () => row.revealed.val ? "text" : "password",
+                    placeholder: row.isNew ? "value" : "••••••••",
+                    value: row.value,
+                    oninput: (e) => { row.value.val = e.target.value; row.valueDirty.val = true; },
+                }),
+                iconButton(() => row.revealed.val ? eyeOffIcon() : eyeOpenIcon(),
+                    () => toggleReveal(row)),
+            )),
+        td({class: "py-1 pl-2 text-right whitespace-nowrap w-px"},
+            () => isDirty(row)
+                ? div({class: "flex items-center justify-end gap-2"},
+                    smallBtn("Save", () => saveRow(row), "bg-brand text-white hover:bg-blue-600",
+                        () => !row.name.val.trim()),
+                    smallBtn("Discard", () => discardRow(row), "bg-gray-700 text-gray-200 hover:bg-gray-600"))
+                : iconButton(trashIcon(), () => deleteRow(row), "hover:text-red-400")),
     );
 
-    const secretsTable = () => {
-        if (secrets.val === null) return p({class: "text-gray-400"}, "Loading...");
-        if (secrets.val.length === 0) return p({class: "text-gray-400"}, "No secrets yet.");
-        return div(
-            {class: "card"},
-            table(
+    const secretsTable = () => div(
+        {class: "card flex flex-col gap-3"},
+        div({class: "flex items-center justify-between"},
+            h2({class: "text-base font-semibold"}, "Secrets"),
+            button({
+                type: "button",
+                class: "flex items-center gap-1 text-sm px-3 py-1.5 rounded-lg bg-gray-700 " +
+                    "text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer",
+                onclick: addRow,
+            }, plusIcon(), "Add secret")),
+        p({class: "text-xs text-gray-400"},
+            "Reference a secret from a deployment's env value as ",
+            code({class: "font-mono text-gray-300"}, "${name}"), "."),
+        () => {
+            if (rows.val === null) return p({class: "text-gray-400 text-sm"}, "Loading...");
+            if (rows.val.length === 0) {
+                return p({class: "text-gray-400 text-sm"}, "No secrets yet. Click “Add secret”.");
+            }
+            return table(
                 {class: "w-full text-sm"},
                 thead(
                     tr({class: "text-left text-gray-400 border-b border-gray-700"},
-                        th({class: "pb-2 pr-6"}, "Name"),
-                        th({class: "pb-2 pr-6"}, "Group"),
-                        th({class: "pb-2 pr-6"}, "Value"),
-                        th({class: "pb-2 pr-6"}, "Updated"),
-                        th({class: "pb-2"}, ""),
-                    )
-                ),
-                tbody(
-                    ...secrets.val.map(s =>
-                        tr({class: "border-b border-gray-800 last:border-0"},
-                            td({class: "py-3 pr-6 text-white font-mono"}, s.name),
-                            td({class: "py-3 pr-6 text-gray-300"}, s.group || '-'),
-                            td({class: "py-3 pr-6"}, () => s.name in revealed.val
-                                ? span({class: "flex items-center gap-2"},
-                                    code({class: "font-mono text-brand break-all"}, revealed.val[s.name] || '(empty)'),
-                                    spinnerButton("Hide", () => hideSecret(s.name), "btn-secondary", "button"))
-                                : spinnerButton("Reveal", () => revealSecret(s.name), "btn-secondary", "button")),
-                            td({class: "py-3 pr-6 text-gray-400"}, formatTime(s.updatedAt)),
-                            td({class: "py-3 text-right"},
-                                spinnerButton("Delete", () => deleteSecret(s.name),
-                                    "btn-secondary text-red-300", "button")),
-                        )
-                    )
-                )
-            )
-        );
-    };
+                        th({class: "pb-2 pr-3 font-medium"}, "Name"),
+                        th({class: "pb-2 pr-3 font-medium"}, "Group"),
+                        th({class: "pb-2 pr-3 font-medium"}, "Value"),
+                        th({class: "pb-2 w-px"}, ""),
+                    )),
+                tbody(...rows.val.map(rowEl)),
+            );
+        },
+    );
 
     return div(
         {class: "flex-1 min-h-0 overflow-auto p-6 flex flex-col gap-6"},
@@ -235,7 +304,6 @@ export function secretsPage() {
             if (!status.val.unlocked) return lockedSection();
             return div(
                 {class: "flex flex-col gap-6"},
-                addForm(),
                 secretsTable(),
                 recoveryCard(),
             );
