@@ -191,7 +191,7 @@ export function statusPage() {
     };
 
     const deploymentTable = (rows, showEnvironmentColumn) => table(
-        {class: "w-full text-left text-sm"},
+        {class: "min-w-full w-max text-left text-sm whitespace-nowrap"},
         thead(
             tr(
                 {class: "border-b border-gray-700 text-xs uppercase tracking-wide text-gray-500"},
@@ -271,13 +271,13 @@ export function statusPage() {
     };
 
     const deploymentTableCard = (rows, showEnvironmentColumn, header = null) => div(
-        {class: "rounded-lg bg-surface border border-gray-700 p-2"},
+        {class: "w-max min-w-full rounded-lg bg-surface border border-gray-700 p-2"},
         header,
         deploymentTable(rows, showEnvironmentColumn),
     );
 
     const mainContent = div(
-        {class: "flex flex-col gap-6"},
+        {class: "flex flex-col gap-6 w-max min-w-full"},
         div(
             {class: "flex items-center justify-end"},
             div(
@@ -336,7 +336,7 @@ export function statusPage() {
             const groups = groupDeploymentsByEnvironment(sorted);
             const canCollapse = groups.length > 1;
             return div(
-                {class: "flex flex-col gap-4"},
+                {class: "flex flex-col gap-4 w-max min-w-full"},
                 ...groups.map(group => {
                     const collapsed = canCollapse && Boolean(collapsedEnvironmentGroups.val[group.environment]);
                     const header = div(
@@ -354,7 +354,7 @@ export function statusPage() {
                         }, collapsed ? "Expand" : "Collapse") : span(),
                     );
                     return div(
-                        {class: "rounded-lg bg-surface border border-gray-700 p-2"},
+                        {class: "w-max min-w-full rounded-lg bg-surface border border-gray-700 p-2"},
                         header,
                         collapsed ? null : deploymentTable(group.rows, false),
                     );

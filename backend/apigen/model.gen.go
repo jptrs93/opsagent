@@ -230,6 +230,345 @@ func DecodeWebAuthNFinishRequest(b []byte) (*WebAuthNFinishRequest, error) {
 	return &m, nil
 }
 
+type SecretMeta struct {
+	Name      string
+	Group     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	UpdatedBy int32
+}
+
+func (m *SecretMeta) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendStringField(b, m.Group, 2)
+	b = AppendInt64FromTime(b, m.CreatedAt, 3)
+	b = AppendInt64FromTime(b, m.UpdatedAt, 4)
+	b = AppendInt32Field(b, m.UpdatedBy, 5)
+	return b
+}
+
+func DecodeSecretMeta(b []byte) (*SecretMeta, error) {
+	var m SecretMeta
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Group, err = ConsumeString(b, typ)
+		case 3:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 4:
+			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 5:
+			b, m.UpdatedBy, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type SecretList struct {
+	Items []*SecretMeta
+}
+
+func (m *SecretList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeSecretList(b []byte) (*SecretList, error) {
+	var m SecretList
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretMeta
+				item, err = DecodeSecretMeta(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type SecretSetRequest struct {
+	Name  string
+	Group string
+	Value []byte
+}
+
+func (m *SecretSetRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendStringField(b, m.Group, 2)
+	b = AppendBytesField(b, m.Value, 3)
+	return b
+}
+
+func DecodeSecretSetRequest(b []byte) (*SecretSetRequest, error) {
+	var m SecretSetRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Group, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Value, err = ConsumeBytesCopy(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type SecretDeleteRequest struct {
+	Name string
+}
+
+func (m *SecretDeleteRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	return b
+}
+
+func DecodeSecretDeleteRequest(b []byte) (*SecretDeleteRequest, error) {
+	var m SecretDeleteRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type SecretRevealRequest struct {
+	Name string
+}
+
+func (m *SecretRevealRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	return b
+}
+
+func DecodeSecretRevealRequest(b []byte) (*SecretRevealRequest, error) {
+	var m SecretRevealRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type SecretRevealResponse struct {
+	Value []byte
+}
+
+func (m *SecretRevealResponse) Encode() []byte {
+	var b []byte
+	b = AppendBytesField(b, m.Value, 1)
+	return b
+}
+
+func DecodeSecretRevealResponse(b []byte) (*SecretRevealResponse, error) {
+	var m SecretRevealResponse
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Value, err = ConsumeBytesCopy(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type SecretsStatusResponse struct {
+	Unlocked           bool
+	RecoveryConfigured bool
+}
+
+func (m *SecretsStatusResponse) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Unlocked, 1)
+	b = AppendBoolField(b, m.RecoveryConfigured, 2)
+	return b
+}
+
+func DecodeSecretsStatusResponse(b []byte) (*SecretsStatusResponse, error) {
+	var m SecretsStatusResponse
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Unlocked, err = ConsumeBool(b, typ)
+		case 2:
+			b, m.RecoveryConfigured, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type SecretRecoveryCodeResponse struct {
+	Code string
+}
+
+func (m *SecretRecoveryCodeResponse) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Code, 1)
+	return b
+}
+
+func DecodeSecretRecoveryCodeResponse(b []byte) (*SecretRecoveryCodeResponse, error) {
+	var m SecretRecoveryCodeResponse
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Code, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type SecretUnlockRequest struct {
+	Code string
+}
+
+func (m *SecretUnlockRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Code, 1)
+	return b
+}
+
+func DecodeSecretUnlockRequest(b []byte) (*SecretUnlockRequest, error) {
+	var m SecretUnlockRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Code, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type NixBuildConfig struct {
 	Repo             string
 	Flake            string

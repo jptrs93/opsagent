@@ -9,6 +9,11 @@ import {
   decodeLoginResponse,
   decodeMsgToWorker,
   decodeRepoValidateResponse,
+  decodeSecretList,
+  decodeSecretMeta,
+  decodeSecretRecoveryCodeResponse,
+  decodeSecretRevealResponse,
+  decodeSecretsStatusResponse,
   decodeState,
   decodeWebAuthNOptionsResponse,
   encodeDeploymentCreateRequest,
@@ -20,6 +25,10 @@ import {
   encodeMasterPasswordRequest,
   encodeMsgToMaster,
   encodeRepoValidateRequest,
+  encodeSecretDeleteRequest,
+  encodeSecretRevealRequest,
+  encodeSecretSetRequest,
+  encodeSecretUnlockRequest,
   encodeWebAuthNFinishRequest,
 } from './model.js';
 
@@ -317,6 +326,90 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeRepoValidateResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {EmptyRequest} payload
+   * @returns {Promise<SecretList>}
+   */
+  async postV1SecretsList(payload) {
+    const response = await this.#request("/v1/secrets/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeSecretList(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {SecretSetRequest} payload
+   * @returns {Promise<SecretMeta>}
+   */
+  async postV1SecretsSet(payload) {
+    const response = await this.#request("/v1/secrets/set", { method: 'POST', body: encodeSecretSetRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeSecretMeta(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {SecretRevealRequest} payload
+   * @returns {Promise<SecretRevealResponse>}
+   */
+  async postV1SecretsReveal(payload) {
+    const response = await this.#request("/v1/secrets/reveal", { method: 'POST', body: encodeSecretRevealRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeSecretRevealResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {SecretDeleteRequest} payload
+   * @returns {Promise<void>}
+   */
+  async postV1SecretsDelete(payload) {
+    const response = await this.#request("/v1/secrets/delete", { method: 'POST', body: encodeSecretDeleteRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    await response.arrayBuffer();
+  }
+
+  /**
+   * @param {EmptyRequest} payload
+   * @returns {Promise<SecretsStatusResponse>}
+   */
+  async postV1SecretsStatus(payload) {
+    const response = await this.#request("/v1/secrets/status", { method: 'POST', body: encodeEmptyRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeSecretsStatusResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {EmptyRequest} payload
+   * @returns {Promise<SecretRecoveryCodeResponse>}
+   */
+  async postV1SecretsGenerateRecoveryCode(payload) {
+    const response = await this.#request("/v1/secrets/generate/recovery/code", { method: 'POST', body: encodeEmptyRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeSecretRecoveryCodeResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {SecretUnlockRequest} payload
+   * @returns {Promise<SecretsStatusResponse>}
+   */
+  async postV1SecretsUnlock(payload) {
+    const response = await this.#request("/v1/secrets/unlock", { method: 'POST', body: encodeSecretUnlockRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeSecretsStatusResponse(await response.arrayBuffer());
   }
 
   /**

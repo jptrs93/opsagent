@@ -18,6 +18,7 @@ docs/                Project documentation.
 - [docs/engineering/auth.md](docs/engineering/auth.md) — Authentication, passkeys, master password bootstrap, and access control.
 - [docs/engineering/frontend.md](docs/engineering/frontend.md) — Frontend architecture, rendering, state, and styling.
 - [docs/engineering/engine.md](docs/engineering/engine.md) — Deployment operator, preparers (nix build + github release), runners (os process + systemd).
+- [docs/engineering/secrets.md](docs/engineering/secrets.md) — Encrypted secrets store, key hierarchy, `${name}` env resolution, and the machine-key boundary (incl. Phase 2/3 plans).
 - [docs/product/deployments.md](docs/product/deployments.md) — Deployment config, lifecycle state, and deploy workflow.
 
 ## Commands

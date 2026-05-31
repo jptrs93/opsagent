@@ -41,6 +41,7 @@ export function sidebar(activePage) {
         div(
             {class: "p-3 flex flex-col gap-1"},
             item("Deployments", "status"),
+            item("Secrets", "secrets"),
         ),
         div({class: "flex-1"}),
         div(

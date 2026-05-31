@@ -13,8 +13,10 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine"
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
+	"github.com/jptrs93/opsagent/backend/engine/runner"
 	"github.com/jptrs93/opsagent/backend/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/primary"
+	"github.com/jptrs93/opsagent/backend/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
@@ -26,6 +28,10 @@ type Handler struct {
 	// Store is the primary-side storage adapter. Handles both deployment
 	// state and auth (users + JWT keys).
 	Store *sqlite.StorageAdapter
+
+	// Secrets is the primary-only encrypted secrets store. It resolves
+	// ${name} env placeholders at deployment spawn time.
+	Secrets *secrets.Manager
 
 	// MachineName identifies this node when deciding whether a log request
 	// is local or must be proxied to a remote worker.
@@ -78,9 +84,18 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	versionprovider.Git = versionprovider.NewGitVersionProvider(preparer.Nix.Git)
 	versionprovider.GHRel = versionprovider.NewGithubReleaseVersionProvider(ainit.Config.GithubToken)
 
+	// Open the primary-only secrets store and wire it as the runner's secret
+	// resolver so ${name} env placeholders resolve at spawn time.
+	secretsMgr, err := secrets.Open(ainit.Config.DataDir, store)
+	if err != nil {
+		return nil, err
+	}
+	runner.Secrets = secretsMgr
+
 	h := &Handler{
 		staticFS:    staticFS,
 		Store:       store,
+		Secrets:     secretsMgr,
 		MachineName: machineName,
 	}
 	h.jwtAuth = authu.NewJWTAuth[*apigen.InternalUser, int32](

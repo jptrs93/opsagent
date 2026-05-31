@@ -67,6 +67,26 @@ type PublicKey struct {
 	KeyBytes []byte
 }
 
+type Secret struct {
+	Name        string
+	SecretGroup string
+	SmkVersion  int64
+	Ciphertext  []byte
+	Nonce       []byte
+	CreatedAt   int64
+	UpdatedAt   int64
+	UpdatedBy   int64
+}
+
+type SecretKeyslot struct {
+	Slot       string
+	SmkVersion int64
+	WrappedSmk []byte
+	Nonce      []byte
+	KdfSalt    []byte
+	CreatedAt  int64
+}
+
 type User struct {
 	ID       int64
 	Name     string

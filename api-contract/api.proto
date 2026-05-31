@@ -92,6 +92,44 @@ service OpsagentHttpV1 {
   rpc PostV1GithubAssetValidate(GithubAssetValidateRequest) returns (RepoValidateResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
+
+  // Secrets management. List yields names + metadata only; the decrypted value
+  // is returned solely by the explicit Reveal call. Referenced from deployment
+  // env as ${name}.
+  rpc PostV1SecretsList(EmptyRequest) returns (SecretList) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1SecretsSet(SecretSetRequest) returns (SecretMeta) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Return the decrypted value of a single secret, on explicit operator
+  // request. This is the only endpoint that returns a plaintext value.
+  rpc PostV1SecretsReveal(SecretRevealRequest) returns (SecretRevealResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1SecretsDelete(SecretDeleteRequest) returns (cp.Empty) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Lock/recovery state of the secrets store (for the UI).
+  rpc PostV1SecretsStatus(EmptyRequest) returns (SecretsStatusResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Generate (or rotate) the break-glass recovery code. The code is returned
+  // exactly once in the response and is never stored in plaintext.
+  rpc PostV1SecretsGenerateRecoveryCode(EmptyRequest) returns (SecretRecoveryCodeResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Unlock a locked secrets store on a freshly recovered machine using the
+  // recovery code; re-establishes the local machine key.
+  rpc PostV1SecretsUnlock(SecretUnlockRequest) returns (SecretsStatusResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
 }
 
 // OpsagentClusterV1 is the primary↔worker cluster transport. It is served on
@@ -135,6 +173,53 @@ message WebAuthNOptionsResponse {
 message WebAuthNFinishRequest {
   string session_id = 1;
   bytes credential_json = 2;
+}
+
+// === Secrets messages ===
+
+// SecretMeta describes a stored secret WITHOUT its value. The encrypted value
+// never leaves the server.
+message SecretMeta {
+  string name = 1;
+  string group = 2;        // optional grouping label
+  int64 created_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int64 updated_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int32 updated_by = 5;
+}
+
+message SecretList {
+  repeated SecretMeta items = 1;
+}
+
+message SecretSetRequest {
+  string name = 1;
+  string group = 2;
+  bytes value = 3;         // plaintext secret value; encrypted at rest, never returned
+}
+
+message SecretDeleteRequest {
+  string name = 1;
+}
+
+message SecretRevealRequest {
+  string name = 1;
+}
+
+message SecretRevealResponse {
+  bytes value = 1;         // decrypted plaintext; returned only on explicit reveal
+}
+
+message SecretsStatusResponse {
+  bool unlocked = 1;            // SMK is loaded; secrets can be read/written
+  bool recovery_configured = 2; // a recovery code has been generated
+}
+
+message SecretRecoveryCodeResponse {
+  string code = 1;         // shown to the operator exactly once
+}
+
+message SecretUnlockRequest {
+  string code = 1;         // the recovery code
 }
 
 // === Deployment config messages ===

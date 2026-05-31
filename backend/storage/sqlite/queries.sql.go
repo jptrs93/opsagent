@@ -68,6 +68,15 @@ func (q *Queries) CreateDeploymentConfig(ctx context.Context, arg CreateDeployme
 	return i, err
 }
 
+const deleteSecret = `-- name: DeleteSecret :exec
+DELETE FROM secrets WHERE name = ?
+`
+
+func (q *Queries) DeleteSecret(ctx context.Context, name string) error {
+	_, err := q.db.ExecContext(ctx, deleteSecret, name)
+	return err
+}
+
 const getConfigHistoryDesiredVersion = `-- name: GetConfigHistoryDesiredVersion :one
 SELECT desired_version
 FROM deployment_config_history
@@ -504,6 +513,82 @@ func (q *Queries) ListPublicKeys(ctx context.Context) ([]PublicKey, error) {
 	return items, nil
 }
 
+const listSecretKeyslots = `-- name: ListSecretKeyslots :many
+
+SELECT slot, smk_version, wrapped_smk, nonce, kdf_salt, created_at
+FROM secret_keyslots ORDER BY slot
+`
+
+// === secret_keyslots ===
+func (q *Queries) ListSecretKeyslots(ctx context.Context) ([]SecretKeyslot, error) {
+	rows, err := q.db.QueryContext(ctx, listSecretKeyslots)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SecretKeyslot
+	for rows.Next() {
+		var i SecretKeyslot
+		if err := rows.Scan(
+			&i.Slot,
+			&i.SmkVersion,
+			&i.WrappedSmk,
+			&i.Nonce,
+			&i.KdfSalt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSecrets = `-- name: ListSecrets :many
+
+SELECT name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
+FROM secrets ORDER BY name
+`
+
+// === secrets ===
+func (q *Queries) ListSecrets(ctx context.Context) ([]Secret, error) {
+	rows, err := q.db.QueryContext(ctx, listSecrets)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Secret
+	for rows.Next() {
+		var i Secret
+		if err := rows.Scan(
+			&i.Name,
+			&i.SecretGroup,
+			&i.SmkVersion,
+			&i.Ciphertext,
+			&i.Nonce,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUsers = `-- name: ListUsers :many
 SELECT id, name, data_blob FROM users ORDER BY id
 `
@@ -671,6 +756,75 @@ type UpsertPublicKeyParams struct {
 
 func (q *Queries) UpsertPublicKey(ctx context.Context, arg UpsertPublicKeyParams) error {
 	_, err := q.db.ExecContext(ctx, upsertPublicKey, arg.Kid, arg.KeyBytes)
+	return err
+}
+
+const upsertSecret = `-- name: UpsertSecret :exec
+INSERT INTO secrets (name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(name) DO UPDATE SET
+    secret_group = excluded.secret_group,
+    smk_version = excluded.smk_version,
+    ciphertext = excluded.ciphertext,
+    nonce = excluded.nonce,
+    updated_at = excluded.updated_at,
+    updated_by = excluded.updated_by
+`
+
+type UpsertSecretParams struct {
+	Name        string
+	SecretGroup string
+	SmkVersion  int64
+	Ciphertext  []byte
+	Nonce       []byte
+	CreatedAt   int64
+	UpdatedAt   int64
+	UpdatedBy   int64
+}
+
+func (q *Queries) UpsertSecret(ctx context.Context, arg UpsertSecretParams) error {
+	_, err := q.db.ExecContext(ctx, upsertSecret,
+		arg.Name,
+		arg.SecretGroup,
+		arg.SmkVersion,
+		arg.Ciphertext,
+		arg.Nonce,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+		arg.UpdatedBy,
+	)
+	return err
+}
+
+const upsertSecretKeyslot = `-- name: UpsertSecretKeyslot :exec
+INSERT INTO secret_keyslots (slot, smk_version, wrapped_smk, nonce, kdf_salt, created_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(slot) DO UPDATE SET
+    smk_version = excluded.smk_version,
+    wrapped_smk = excluded.wrapped_smk,
+    nonce = excluded.nonce,
+    kdf_salt = excluded.kdf_salt,
+    created_at = excluded.created_at
+`
+
+type UpsertSecretKeyslotParams struct {
+	Slot       string
+	SmkVersion int64
+	WrappedSmk []byte
+	Nonce      []byte
+	KdfSalt    []byte
+	CreatedAt  int64
+}
+
+func (q *Queries) UpsertSecretKeyslot(ctx context.Context, arg UpsertSecretKeyslotParams) error {
+	_, err := q.db.ExecContext(ctx, upsertSecretKeyslot,
+		arg.Slot,
+		arg.SmkVersion,
+		arg.WrappedSmk,
+		arg.Nonce,
+		arg.KdfSalt,
+		arg.CreatedAt,
+	)
 	return err
 }
 

@@ -424,6 +424,135 @@ func (c *OpsagentHttpV1Capi) PostV1GithubAssetValidate(ctx context.Context, req 
 	return DecodeRepoValidateResponse(body)
 }
 
+func (c *OpsagentHttpV1Capi) PostV1SecretsList(ctx context.Context, req *EmptyRequest) (*SecretList, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1SecretsList request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/secrets/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeSecretList(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1SecretsSet(ctx context.Context, req *SecretSetRequest) (*SecretMeta, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1SecretsSet request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/secrets/set", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeSecretMeta(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1SecretsReveal(ctx context.Context, req *SecretRevealRequest) (*SecretRevealResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1SecretsReveal request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/secrets/reveal", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeSecretRevealResponse(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1SecretsDelete(ctx context.Context, req *SecretDeleteRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1SecretsDelete request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/secrets/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
+func (c *OpsagentHttpV1Capi) PostV1SecretsStatus(ctx context.Context, req *EmptyRequest) (*SecretsStatusResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1SecretsStatus request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/secrets/status", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeSecretsStatusResponse(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1SecretsGenerateRecoveryCode(ctx context.Context, req *EmptyRequest) (*SecretRecoveryCodeResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1SecretsGenerateRecoveryCode request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/secrets/generate/recovery/code", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeSecretRecoveryCodeResponse(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1SecretsUnlock(ctx context.Context, req *SecretUnlockRequest) (*SecretsStatusResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1SecretsUnlock request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/secrets/unlock", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeSecretsStatusResponse(body)
+}
+
 type OpsagentClusterV1Capi struct {
 	BaseURL        string
 	HTTPClient     *http.Client

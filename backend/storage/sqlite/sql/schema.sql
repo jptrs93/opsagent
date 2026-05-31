@@ -76,3 +76,36 @@ CREATE TABLE IF NOT EXISTS public_keys (
     kid       TEXT PRIMARY KEY,
     key_bytes BLOB NOT NULL
 );
+
+-- Secrets: envelope-encrypted key/value store. PRIMARY-ONLY — these two tables
+-- are never replicated to secondaries (the cluster feeder only sends deployment
+-- configs/status; see primary/session.go). They are created on every node by
+-- the shared schema but stay empty off the primary.
+
+-- Wrapped copies of the Secrets Master Key (SMK), one row per unlock method
+-- ("slot"). The SMK encrypts every secret value; each slot stores the SMK
+-- sealed under a different key-encryption key (the machine key, the recovery
+-- code, ...). Adding/rotating a slot never re-encrypts the secrets themselves.
+CREATE TABLE IF NOT EXISTS secret_keyslots (
+    slot        TEXT PRIMARY KEY,         -- 'machine' | 'recovery'
+    smk_version INTEGER NOT NULL,         -- which SMK generation this wraps
+    wrapped_smk BLOB    NOT NULL,         -- SMK sealed under this slot's KEK
+    nonce       BLOB    NOT NULL,         -- AEAD nonce for wrapped_smk
+    kdf_salt    BLOB,                     -- Argon2id salt (recovery slot only)
+    created_at  INTEGER NOT NULL          -- epoch ms
+);
+
+-- Encrypted secret values, keyed by a plaintext name (e.g. 'staging.db.password').
+-- The value is AEAD-sealed under the SMK with the name bound as associated data
+-- so a row cannot be moved to a different name. secret_group is optional and
+-- reserved for grouping secrets in the UI later; it carries no security meaning.
+CREATE TABLE IF NOT EXISTS secrets (
+    name         TEXT PRIMARY KEY,
+    secret_group TEXT    NOT NULL DEFAULT '',
+    smk_version  INTEGER NOT NULL,
+    ciphertext   BLOB    NOT NULL,
+    nonce        BLOB    NOT NULL,
+    created_at   INTEGER NOT NULL,  -- epoch ms
+    updated_at   INTEGER NOT NULL,  -- epoch ms
+    updated_by   INTEGER NOT NULL DEFAULT 0
+);

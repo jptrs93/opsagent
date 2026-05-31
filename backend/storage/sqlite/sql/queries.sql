@@ -153,3 +153,39 @@ ON CONFLICT(kid) DO UPDATE SET key_bytes = excluded.key_bytes;
 
 -- name: ListPublicKeys :many
 SELECT kid, key_bytes FROM public_keys ORDER BY kid;
+
+-- === secret_keyslots ===
+
+-- name: ListSecretKeyslots :many
+SELECT slot, smk_version, wrapped_smk, nonce, kdf_salt, created_at
+FROM secret_keyslots ORDER BY slot;
+
+-- name: UpsertSecretKeyslot :exec
+INSERT INTO secret_keyslots (slot, smk_version, wrapped_smk, nonce, kdf_salt, created_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(slot) DO UPDATE SET
+    smk_version = excluded.smk_version,
+    wrapped_smk = excluded.wrapped_smk,
+    nonce = excluded.nonce,
+    kdf_salt = excluded.kdf_salt,
+    created_at = excluded.created_at;
+
+-- === secrets ===
+
+-- name: ListSecrets :many
+SELECT name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
+FROM secrets ORDER BY name;
+
+-- name: UpsertSecret :exec
+INSERT INTO secrets (name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(name) DO UPDATE SET
+    secret_group = excluded.secret_group,
+    smk_version = excluded.smk_version,
+    ciphertext = excluded.ciphertext,
+    nonce = excluded.nonce,
+    updated_at = excluded.updated_at,
+    updated_by = excluded.updated_by;
+
+-- name: DeleteSecret :exec
+DELETE FROM secrets WHERE name = ?;

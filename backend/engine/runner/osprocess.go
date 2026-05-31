@@ -158,9 +158,25 @@ func (r *osProcessRunner) run() {
 		}
 		hadProcess = true
 		r.status.LastRestartAt = time.Now()
-		pid, err := spawnDaemon(r.status.RunningArtifact, r.workDir, r.outputPath, r.runAs, r.env)
+		// Resolve ${name} secret references at spawn time so values are never
+		// persisted/logged and rotated secrets are picked up on respawn. A
+		// failure (unknown secret, locked store) fails the spawn closed.
+		env, err := resolveEnv(r.env)
+		if err != nil {
+			slog.ErrorContext(r.ctx, "resolving env secrets failed", "err", err)
+			writeSpawnError(r.outputPath, err)
+			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+			crashCount++
+			if !r.sleepBackoff(crashCount) {
+				r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+				return
+			}
+			continue
+		}
+		pid, err := spawnDaemon(r.status.RunningArtifact, r.workDir, r.outputPath, r.runAs, env)
 		if err != nil {
 			slog.ErrorContext(r.ctx, "spawning daemon failed", "err", err, "bin", r.status.RunningArtifact, "workDir", r.workDir, "runAs", r.runAs)
+			writeSpawnError(r.outputPath, err)
 			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 			crashCount++
 			if !r.sleepBackoff(crashCount) {
@@ -194,6 +210,23 @@ func (r *osProcessRunner) run() {
 			r.updateStatus(apigen.RunningStatus_STOPPED, 0)
 			return
 		}
+	}
+}
+
+// writeSpawnError records a failed spawn in the deployment's output file so the
+// reason (e.g. "permission denied") is visible in the run logs, not just the
+// server log. spawnDaemon truncates the output file on each attempt, so on
+// failure it is empty and this line stands alone. Best effort: a failure to
+// write is itself only logged.
+func writeSpawnError(outputPath string, spawnErr error) {
+	f, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		slog.Error("writing spawn error to output file failed", "path", outputPath, "err", err)
+		return
+	}
+	defer f.Close()
+	if _, err := fmt.Fprintf(f, "Error spawning process: %v\n", spawnErr); err != nil {
+		slog.Error("writing spawn error to output file failed", "path", outputPath, "err", err)
 	}
 }
 

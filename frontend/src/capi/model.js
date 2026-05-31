@@ -26,6 +26,49 @@
  * @property {Uint8Array} credentialJson
  */
 /**
+ * @typedef {Object} SecretMeta
+ * @property {string} name
+ * @property {string} group
+ * @property {Date} createdAt
+ * @property {Date} updatedAt
+ * @property {number} updatedBy
+ */
+/**
+ * @typedef {Object} SecretList
+ * @property {SecretMeta[]} items
+ */
+/**
+ * @typedef {Object} SecretSetRequest
+ * @property {string} name
+ * @property {string} group
+ * @property {Uint8Array} value
+ */
+/**
+ * @typedef {Object} SecretDeleteRequest
+ * @property {string} name
+ */
+/**
+ * @typedef {Object} SecretRevealRequest
+ * @property {string} name
+ */
+/**
+ * @typedef {Object} SecretRevealResponse
+ * @property {Uint8Array} value
+ */
+/**
+ * @typedef {Object} SecretsStatusResponse
+ * @property {boolean} unlocked
+ * @property {boolean} recoveryConfigured
+ */
+/**
+ * @typedef {Object} SecretRecoveryCodeResponse
+ * @property {string} code
+ */
+/**
+ * @typedef {Object} SecretUnlockRequest
+ * @property {string} code
+ */
+/**
  * @typedef {Object} NixBuildConfig
  * @property {string} repo
  * @property {string} flake
@@ -604,6 +647,563 @@ function decodeWebAuthNFinishRequestMessage(reader, length) {
 export function decodeWebAuthNFinishRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeWebAuthNFinishRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretMeta} message
+ * @param {Writer} writer
+ */
+export function writeSecretMeta(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.group !== undefined && message.group !== null && message.group !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.group);
+    }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.updatedAt instanceof Date && message.updatedAt.getTime() !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.updatedAt.getTime()));
+    }
+    if (message.updatedBy !== undefined && message.updatedBy !== null && message.updatedBy !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.updatedBy);
+    }
+}
+
+
+/**
+ * @param {SecretMeta} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretMeta(message) {
+    const writer = Writer.create();
+    writeSecretMeta(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretMeta}
+ */
+function decodeSecretMetaMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "", group: "", createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 2: {
+                message.group = reader.string();
+                break;
+            }
+            case 3: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 4: {
+                message.updatedAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 5: {
+                message.updatedBy = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretMeta}
+ */
+export function decodeSecretMeta(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretMetaMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretList} message
+ * @param {Writer} writer
+ */
+export function writeSecretList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeSecretMeta(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {SecretList} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretList(message) {
+    const writer = Writer.create();
+    writeSecretList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretList}
+ */
+function decodeSecretListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeSecretMetaMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretList}
+ */
+export function decodeSecretList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretListMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretSetRequest} message
+ * @param {Writer} writer
+ */
+export function writeSecretSetRequest(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.group !== undefined && message.group !== null && message.group !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.group);
+    }
+    if (message.value && message.value.length > 0) {
+        writer.uint32(tag(3, WIRE.LDELIM)).bytes(message.value);
+    }
+}
+
+
+/**
+ * @param {SecretSetRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretSetRequest(message) {
+    const writer = Writer.create();
+    writeSecretSetRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretSetRequest}
+ */
+function decodeSecretSetRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "", group: "", value: new Uint8Array(0) };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 2: {
+                message.group = reader.string();
+                break;
+            }
+            case 3: {
+                message.value = reader.bytes();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretSetRequest}
+ */
+export function decodeSecretSetRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretSetRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretDeleteRequest} message
+ * @param {Writer} writer
+ */
+export function writeSecretDeleteRequest(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+}
+
+
+/**
+ * @param {SecretDeleteRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretDeleteRequest(message) {
+    const writer = Writer.create();
+    writeSecretDeleteRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretDeleteRequest}
+ */
+function decodeSecretDeleteRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretDeleteRequest}
+ */
+export function decodeSecretDeleteRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretDeleteRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretRevealRequest} message
+ * @param {Writer} writer
+ */
+export function writeSecretRevealRequest(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+}
+
+
+/**
+ * @param {SecretRevealRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretRevealRequest(message) {
+    const writer = Writer.create();
+    writeSecretRevealRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretRevealRequest}
+ */
+function decodeSecretRevealRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretRevealRequest}
+ */
+export function decodeSecretRevealRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretRevealRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretRevealResponse} message
+ * @param {Writer} writer
+ */
+export function writeSecretRevealResponse(message, writer) {
+    if (message.value && message.value.length > 0) {
+        writer.uint32(tag(1, WIRE.LDELIM)).bytes(message.value);
+    }
+}
+
+
+/**
+ * @param {SecretRevealResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretRevealResponse(message) {
+    const writer = Writer.create();
+    writeSecretRevealResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretRevealResponse}
+ */
+function decodeSecretRevealResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {value: new Uint8Array(0) };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.value = reader.bytes();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretRevealResponse}
+ */
+export function decodeSecretRevealResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretRevealResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretsStatusResponse} message
+ * @param {Writer} writer
+ */
+export function writeSecretsStatusResponse(message, writer) {
+    if (message.unlocked === true) {
+        writer.uint32(tag(1, WIRE.VARINT)).bool(message.unlocked);
+    }
+    if (message.recoveryConfigured === true) {
+        writer.uint32(tag(2, WIRE.VARINT)).bool(message.recoveryConfigured);
+    }
+}
+
+
+/**
+ * @param {SecretsStatusResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretsStatusResponse(message) {
+    const writer = Writer.create();
+    writeSecretsStatusResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretsStatusResponse}
+ */
+function decodeSecretsStatusResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {unlocked: false, recoveryConfigured: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.unlocked = reader.bool();
+                break;
+            }
+            case 2: {
+                message.recoveryConfigured = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretsStatusResponse}
+ */
+export function decodeSecretsStatusResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretsStatusResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretRecoveryCodeResponse} message
+ * @param {Writer} writer
+ */
+export function writeSecretRecoveryCodeResponse(message, writer) {
+    if (message.code !== undefined && message.code !== null && message.code !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.code);
+    }
+}
+
+
+/**
+ * @param {SecretRecoveryCodeResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretRecoveryCodeResponse(message) {
+    const writer = Writer.create();
+    writeSecretRecoveryCodeResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretRecoveryCodeResponse}
+ */
+function decodeSecretRecoveryCodeResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {code: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.code = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretRecoveryCodeResponse}
+ */
+export function decodeSecretRecoveryCodeResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretRecoveryCodeResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretUnlockRequest} message
+ * @param {Writer} writer
+ */
+export function writeSecretUnlockRequest(message, writer) {
+    if (message.code !== undefined && message.code !== null && message.code !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.code);
+    }
+}
+
+
+/**
+ * @param {SecretUnlockRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretUnlockRequest(message) {
+    const writer = Writer.create();
+    writeSecretUnlockRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretUnlockRequest}
+ */
+function decodeSecretUnlockRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {code: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.code = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretUnlockRequest}
+ */
+export function decodeSecretUnlockRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretUnlockRequestMessage(reader);
 }
 
 
