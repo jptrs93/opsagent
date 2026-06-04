@@ -3,7 +3,7 @@ import {navigate} from "../lib/router.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {capi} from "../capi/index.js";
 import {setLoginFromResponse} from "../state/login.js";
-import {browserSupportsPasskeys, credentialToJSONBytes, loginOptionsFromJSONBytes} from "../util/webauthn.js";
+import {browserSupportsPasskeys, credentialToJSONBytes, loginOptionsFromJSONBytes, passkeyNotAllowedMessage} from "../util/webauthn.js";
 
 const { p, div, h1, a } = van.tags;
 
@@ -27,7 +27,7 @@ export function loginPage() {
             navigate("/");
         } catch (e) {
             if (e?.name === 'NotAllowedError') {
-                loginErr.val = p({class: 'text-red-400 text-sm'}, 'Passkey sign-in was cancelled.');
+                loginErr.val = p({class: 'text-red-400 text-sm'}, passkeyNotAllowedMessage('Passkey sign-in', e));
                 return;
             }
             loginErr.val = p({class: 'text-red-400 text-sm'}, `${e.message}`);

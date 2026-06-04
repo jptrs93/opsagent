@@ -3,7 +3,7 @@ import {navigate} from "../lib/router.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {capi} from "../capi/index.js";
 import {setLoginFromResponse} from "../state/login.js";
-import {browserSupportsPasskeys, credentialToJSONBytes, registrationOptionsFromJSONBytes} from "../util/webauthn.js";
+import {browserSupportsPasskeys, credentialToJSONBytes, registrationOptionsFromJSONBytes, passkeyNotAllowedMessage} from "../util/webauthn.js";
 
 const { p, form, div, h1, h2, label, input, a } = van.tags;
 
@@ -72,7 +72,7 @@ export function bootstrapPage() {
             }
             if (e?.name === 'NotAllowedError') {
                 status.val = div({class: 'flex flex-col gap-2'},
-                    p({class: 'text-red-400 text-sm'}, 'Registration was cancelled. If a passkey already exists, try logging in instead.'),
+                    p({class: 'text-red-400 text-sm'}, passkeyNotAllowedMessage('Passkey registration', e)),
                     a({class: 'text-sm text-blue-400 hover:text-blue-300 cursor-pointer', onclick: () => navigate("/login")}, 'Go to login'),
                 );
                 return;

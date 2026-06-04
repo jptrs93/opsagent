@@ -34,6 +34,12 @@ export function browserSupportsPasskeys() {
     return typeof window !== "undefined" && !!window.PublicKeyCredential && !!navigator.credentials;
 }
 
+export function passkeyNotAllowedMessage(action, e) {
+    const detail = e?.message?.trim();
+    const base = `${action} could not be completed. The browser may have blocked the passkey prompt, no usable passkey may be available in this browser profile, another passkey prompt may already be open, or the request timed out.`;
+    return detail ? `${base} Browser detail: ${detail}` : base;
+}
+
 function publicKeyCredentialToJSON(value) {
     if (value instanceof ArrayBuffer) {
         return bufferToBase64Url(value);
