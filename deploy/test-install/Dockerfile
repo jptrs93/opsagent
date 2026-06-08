@@ -7,7 +7,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
 		systemd systemd-sysv \
 		sudo \
-		socat \
 		ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     # don't let getty/udev etc. spin in a container

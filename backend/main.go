@@ -131,7 +131,8 @@ func runPrimary() {
 		MaxRequestBodySize: 20_000_000,
 	})
 	if ainit.Config.HTTPOnly {
-		httpServer := http.Server{Handler: m, Addr: "localhost:8080"}
+		httpAddr := net.JoinHostPort(ainit.Config.BindAddr, "8080")
+		httpServer := http.Server{Handler: m, Addr: httpAddr}
 		slog.Info("starting http-only server", "addr", httpServer.Addr)
 		err := httpServer.ListenAndServe()
 		panic(fmt.Sprintf("http-only server ended: %v", err))

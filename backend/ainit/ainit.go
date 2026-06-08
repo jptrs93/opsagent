@@ -89,8 +89,8 @@ type Configuration struct {
 	ContainerdAddress   string `env:"OPENDEPLOY_CONTAINERD_ADDRESS,/run/opendeploy/containerd.sock"`
 	ContainerdNamespace string `env:"OPENDEPLOY_CONTAINERD_NAMESPACE,opendeploy"`
 
-	BindAddr string `env:"OPENDEPLOY_BIND_ADDR,0.0.0.0"` // listen address (e.g. "0.0.0.0", "::", or a specific IP)
-	HTTPOnly bool   `env:"OPENDEPLOY_HTTP_ONLY,false"`   // serve the primary API over plain HTTP on localhost:8080 instead of ACME TLS
+	BindAddr string `env:"OPENDEPLOY_BIND_ADDR,0.0.0.0"` // listen host (e.g. "0.0.0.0", "::", or a specific IP)
+	HTTPOnly bool   `env:"OPENDEPLOY_HTTP_ONLY,false"`   // serve the primary API over plain HTTP on port 8080 instead of ACME TLS on port 443
 
 	MasterPasswordHash      string   `env:"OPENDEPLOY_MASTER_PASSWORD_HASH,secret"`
 	GithubToken             string   `env:"OPENDEPLOY_GITHUB_TOKEN,"`

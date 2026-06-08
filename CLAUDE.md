@@ -23,7 +23,7 @@ docs/                Project documentation.
 
 ## Commands
 
-- Backend HTTP-only server (HTTP/1.1 on localhost:8080): `OPENDEPLOY_HTTP_ONLY=true OPENDEPLOY_MASTER_PASSWORD_HASH=<argon2id-hash> go run . primary` in `backend/`.
+- Backend HTTP-only server (HTTP/1.1 on `0.0.0.0:8080` by default): `OPENDEPLOY_HTTP_ONLY=true OPENDEPLOY_MASTER_PASSWORD_HASH=<argon2id-hash> go run . primary` in `backend/`.
 - Frontend dev server: `pnpm install` then `pnpm run dev` in `frontend/`.
 - Frontend build (embedded by Go): `go generate ./...` in `backend/`, or `pnpm run build` in `frontend/`.
 - Proto codegen: `bash api-contract/proto_generate.sh` (requires `cleanproto`).

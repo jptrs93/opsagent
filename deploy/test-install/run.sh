@@ -41,7 +41,7 @@ if ! docker container inspect "$NAME" >/dev/null 2>&1; then
 		--cgroupns=host \
 		--tmpfs /run --tmpfs /run/lock \
 		-v opendeploy-test-containerd:/var/lib/opendeploy-containerd \
-		-p 8080:18080 \
+		-p 8080:8080 \
 		"$IMG" >/dev/null
 
     echo "==> Waiting for systemd to boot"
@@ -65,22 +65,8 @@ configure_http_only() {
 		else
 			printf "\nOPENDEPLOY_HTTP_ONLY=true\n" >> /etc/opendeploy/env
 		fi
-		cat >/etc/systemd/system/opendeploy-http-forward.service <<"EOF"
-[Unit]
-Description=Forward published Docker port to OpenDeploy HTTP-only loopback listener
-After=network.target opendeploy.service
-
-[Service]
-ExecStart=/usr/bin/socat TCP-LISTEN:18080,fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:8080
-Restart=always
-RestartSec=1
-
-[Install]
-WantedBy=multi-user.target
-EOF
 		systemctl daemon-reload
 		systemctl restart opendeploy.service
-		systemctl enable --now opendeploy-http-forward.service
 	'
 }
 
@@ -103,7 +89,6 @@ case "${1:-}" in
 		echo "==> Post-install state"
 		docker exec "$NAME" systemctl status opendeploy-containerd --no-pager || true
 		docker exec "$NAME" systemctl status opendeploy --no-pager || true
-		docker exec "$NAME" systemctl status opendeploy-http-forward --no-pager || true
 		echo "==> OpenDeploy HTTP-only API: http://localhost:8080"
 		;;
 esac
