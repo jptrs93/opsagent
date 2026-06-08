@@ -14,6 +14,7 @@ var SecretsLockedErr = apigen.NewApiErr("Secrets store is locked; unlock with th
 var InvalidRecoveryCodeErr = apigen.NewApiErr("Invalid recovery code", "secret_invalid_recovery_code", http.StatusBadRequest)
 var NoRecoveryCodeErr = apigen.NewApiErr("No recovery code configured", "secret_no_recovery_code", http.StatusBadRequest)
 var SecretNotFoundErr = apigen.NewApiErr("Secret not found", "secret_not_found", http.StatusNotFound)
+var SecretReservedNameErr = apigen.NewApiErr("Secret name is reserved for OpenDeploy internal use", "secret_reserved_name", http.StatusBadRequest)
 
 func secretMetaToProto(m secrets.Meta) *apigen.SecretMeta {
 	return &apigen.SecretMeta{
@@ -47,6 +48,9 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 		if errors.Is(err, secrets.ErrLocked) {
 			return nil, SecretsLockedErr
 		}
+		if errors.Is(err, secrets.ErrReservedName) {
+			return nil, SecretReservedNameErr
+		}
 		return nil, err
 	}
 	return secretMetaToProto(meta), nil
@@ -63,6 +67,8 @@ func (h *Handler) PostV1SecretsReveal(ctx apigen.Context, req *apigen.SecretReve
 			return nil, SecretsLockedErr
 		case errors.Is(err, secrets.ErrNotFound):
 			return nil, SecretNotFoundErr
+		case errors.Is(err, secrets.ErrInternalSecret):
+			return nil, SecretNotFoundErr
 		default:
 			return nil, err
 		}
@@ -74,7 +80,12 @@ func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDele
 	if strings.TrimSpace(req.Name) == "" {
 		return SecretNameRequiredErr
 	}
-	h.Secrets.Delete(req.Name)
+	if err := h.Secrets.Delete(req.Name); err != nil {
+		if errors.Is(err, secrets.ErrReservedName) || errors.Is(err, secrets.ErrInternalSecret) {
+			return SecretReservedNameErr
+		}
+		return err
+	}
 	return nil
 }
 

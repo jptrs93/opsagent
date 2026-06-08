@@ -50,7 +50,7 @@ func processExists(pid int) (bool, error) {
 }
 
 // awaitProcessExit blocks until a child process exits and reaps it via Wait4.
-// This must only be used for processes that opsagent spawned (i.e. direct
+// This must only be used for processes that opendeploy spawned (i.e. direct
 // children from ForkExec). For reattached processes, use poll-based monitoring.
 func awaitProcessExit(pid int) {
 	var ws syscall.WaitStatus
@@ -69,8 +69,8 @@ func awaitProcessExit(pid int) {
 
 // spawnDaemon fork/execs the binary as a fully detached daemon (new session
 // leader). Stdout and stderr are redirected to outputPath. If runAs is non-empty,
-// the process runs as that OS user (requires opsagent to have CAP_SETUID or
-// run as root). If runAs is empty, the process inherits opsagent's user.
+// the process runs as that OS user (requires opendeploy to have CAP_SETUID or
+// run as root). If runAs is empty, the process inherits opendeploy's user.
 func spawnDaemon(binPath, workDir, logPath, runAs string, extraEnv []string) (int, error) {
 	slog.Info("spawnDaemon", "bin", binPath, "workDir", workDir, "logPath", logPath, "runAs", runAs)
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
@@ -86,8 +86,8 @@ func spawnDaemon(binPath, workDir, logPath, runAs string, extraEnv []string) (in
 	defer devNull.Close()
 
 	sysproc := &syscall.SysProcAttr{Setsid: true}
-	env := scrubOpsagentEnv(os.Environ())
-	// Always normalise temp dirs — systemd's PrivateTmp gives opsagent a
+	env := scrubOpenDeployEnv(os.Environ())
+	// Always normalise temp dirs — systemd's PrivateTmp gives opendeploy a
 	// private /tmp that child processes (especially under runAs) cannot access.
 	env = setEnv(env, "TMPDIR", "/tmp")
 	env = setEnv(env, "TMP", "/tmp")
@@ -172,12 +172,12 @@ func envKeys(env []string) []string {
 	return keys
 }
 
-// scrubOpsagentEnv removes OPSAGENT_* environment variables so we don't leak
+// scrubOpenDeployEnv removes OPENDEPLOY_* environment variables so we don't leak
 // the master password hash, GitHub token, etc. into the deployed artifact.
-func scrubOpsagentEnv(env []string) []string {
+func scrubOpenDeployEnv(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
-		if strings.HasPrefix(kv, "OPSAGENT_") {
+		if strings.HasPrefix(kv, "OPENDEPLOY_") {
 			continue
 		}
 		out = append(out, kv)

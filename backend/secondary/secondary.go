@@ -11,9 +11,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine"
+	"github.com/jptrs93/opsagent/backend/engine/ctrd"
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
+	"github.com/jptrs93/opsagent/backend/engine/runner"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
@@ -47,6 +50,10 @@ func Run(cfg Config) {
 
 	preparer.Nix = preparer.NewNixBuilder(cfg.DataDir, cfg.GithubToken)
 	preparer.GHRel = preparer.NewGithubReleaseDownloader(cfg.DataDir, cfg.GithubToken)
+
+	ctrdClient := ctrd.Connect(ainit.Config.ContainerdAddress, ainit.Config.ContainerdNamespace)
+	preparer.ContainerImg = preparer.NewContainerImagePuller(ctrdClient)
+	runner.Containerd = ctrdClient
 
 	go engine.DeploymentOperator{Store: store}.RunAll(cfg.MachineName)
 

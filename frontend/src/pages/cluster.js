@@ -27,7 +27,7 @@ export function clusterPage() {
 
     return div(
         {class: "flex-1 min-h-0 overflow-auto p-6 flex flex-col gap-6"},
-        h1({class: "text-xl font-bold"}, "Cluster"),
+        h1({class: "text-xl font-bold"}, "Machines"),
         () => {
             if (error.val) {
                 return p({class: "text-red-400"}, `Error: ${error.val}`);

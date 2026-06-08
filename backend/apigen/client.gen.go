@@ -553,6 +553,25 @@ func (c *OpsagentHttpV1Capi) PostV1SecretsUnlock(ctx context.Context, req *Secre
 	return DecodeSecretsStatusResponse(body)
 }
 
+func (c *OpsagentHttpV1Capi) PostV1EnrollmentAccept(ctx context.Context, req *EnrollmentAcceptRequest) (*EnrollmentRequestStatus, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1EnrollmentAccept request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/enrollment/accept", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeEnrollmentRequestStatus(body)
+}
+
 type OpsagentClusterV1Capi struct {
 	BaseURL        string
 	HTTPClient     *http.Client
@@ -645,6 +664,109 @@ func (c *OpsagentClusterV1Capi) PostV1ClusterConnect(ctx context.Context, reqs i
 				return
 			}
 			item, err := DecodeMsgToWorker(payload)
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			if !yield(item, nil) {
+				return
+			}
+		}
+	}
+}
+
+type EnrollmentV1Capi struct {
+	BaseURL        string
+	HTTPClient     *http.Client
+	HeaderProvider func(context.Context) http.Header
+	ErrorHandler   func(context.Context, *http.Response) error
+}
+
+type EnrollmentV1CapiOption func(*EnrollmentV1Capi)
+
+func NewEnrollmentV1Capi(baseURL string, opts ...EnrollmentV1CapiOption) *EnrollmentV1Capi {
+	c := &EnrollmentV1Capi{
+		BaseURL:      strings.TrimRight(baseURL, "/"),
+		HTTPClient:   http.DefaultClient,
+		ErrorHandler: defaultGoCapiErrorHandler,
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
+
+func WithEnrollmentV1CapiHTTPClient(httpClient *http.Client) EnrollmentV1CapiOption {
+	return func(c *EnrollmentV1Capi) {
+		if httpClient != nil {
+			c.HTTPClient = httpClient
+		}
+	}
+}
+
+func WithEnrollmentV1CapiHeaderProvider(provider func(context.Context) http.Header) EnrollmentV1CapiOption {
+	return func(c *EnrollmentV1Capi) {
+		c.HeaderProvider = provider
+	}
+}
+
+func WithEnrollmentV1CapiErrorHandler(handler func(context.Context, *http.Response) error) EnrollmentV1CapiOption {
+	return func(c *EnrollmentV1Capi) {
+		if handler != nil {
+			c.ErrorHandler = handler
+		}
+	}
+}
+
+func (c *EnrollmentV1Capi) do(ctx context.Context, method string, path string, body io.Reader, contentType string, accept string) (*http.Response, error) {
+	httpClient := c.HTTPClient
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	if accept == "" {
+		accept = "application/protobuf"
+	}
+	req.Header.Set("Accept", accept)
+	if body != nil {
+		req.Header.Set("Content-Type", contentType)
+	}
+	if c.HeaderProvider != nil {
+		for key, values := range c.HeaderProvider(ctx) {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
+	}
+	return httpClient.Do(req)
+}
+
+func (c *EnrollmentV1Capi) PostV1EnrollmentRequest(ctx context.Context, reqs iter.Seq2[*EnrollmentWorkerMsg, error]) iter.Seq2[*EnrollmentPrimaryMsg, error] {
+	return func(yield func(*EnrollmentPrimaryMsg, error) bool) {
+		resp, err := c.do(ctx, "POST", "/v1/enrollment/request", writeGoCapiClientStream(reqs), "application/protobuf-stream", "application/protobuf-stream")
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			yield(nil, c.ErrorHandler(ctx, resp))
+			return
+		}
+		reader := NewStreamReader(resp.Body, 0)
+		for {
+			payload, ok, err := reader.Next()
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			if !ok {
+				return
+			}
+			item, err := DecodeEnrollmentPrimaryMsg(payload)
 			if err != nil {
 				yield(nil, err)
 				return

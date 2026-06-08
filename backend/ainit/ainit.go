@@ -5,55 +5,65 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
-	"runtime"
+	"path"
+	"strings"
 
 	"github.com/jptrs93/goutil/envu"
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/logu"
-	"github.com/jptrs93/opsagent/backend/util/certu"
-	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var Config Configuration
 
+const productionDataDir = "/var/lib/opendeploy"
+
 func init() {
-	Config = envu.MustLoadConfig[Configuration]("")
-	if Config.DataDir == "" {
-		Config.DataDir = resolveDefaultDataDir()
+	if isInstallerInvocation() {
+		return
 	}
-
-	mustCreateAppDirs()
-
-	logLevel := getLogLevel()
-	fmt.Println(fmt.Sprintf("log level is: '%v'", logLevel))
-	fmt.Println(fmt.Sprintf("data dir is: '%v'", Config.DataDir))
-
-	var l *slog.Logger
-	if Config.IsLocalDev != "true" {
-		logFileName := logu.MustResolveLogDir("opsagent") + "/server.log"
-		logFile := &lumberjack.Logger{
-			Filename:   logFileName,
-			MaxSize:    100,
-			MaxBackups: 50,
-			MaxAge:     28,
-			Compress:   true,
-		}
-		fmt.Println(fmt.Sprintf("log file is: '%v'", logFileName))
-		l = slog.New(&logu.PlainLogHandler{Writer: logFile, Level: logLevel})
+	Config = envu.MustParse[Configuration](os.LookupEnv)
+	if isTestInvocation() {
+		Config.DataDir = path.Join(erru.Must(os.UserConfigDir()), "opendeploy")
 	} else {
-		l = slog.New(&logu.PlainLogHandler{Writer: os.Stdout, Level: logLevel})
+		Config.DataDir = productionDataDir
 	}
+	Config.VolumesDir = Config.DataDir + "-volumes"
+	Config.ReleasesDir = Config.DataDir + "-releases"
+	Config.LogDir = path.Join(Config.DataDir, "log")
+	Config.PrepareOutputDir = path.Join(Config.DataDir, "prepare")
+	Config.RunOutputDir = path.Join(Config.DataDir, "runs")
+	mustCreateDir(Config.DataDir, 0o750)
+	mustCreateDir(Config.LogDir, 0o750)
+	mustCreateDir(Config.PrepareOutputDir, 0o750)
+	mustCreateDir(Config.RunOutputDir, 0o750)
+	mustCreateDir(Config.VolumesDir, 0o755)
+	mustCreateDir(Config.ReleasesDir, 0o755)
+	logLevel := getLogLevel()
+	l := slog.New(&logu.PlainLogHandler{Writer: os.Stdout, Level: logLevel})
 	slog.SetDefault(l)
 }
 
-func mustCreateAppDirs() {
-	Config.PrepareOutputDir = filepath.Join(Config.DataDir, "prepare")
-	if err := os.MkdirAll(Config.PrepareOutputDir, 0o755); err != nil {
-		panic(fmt.Sprintf("creating prepare dir: %v", err))
+func isInstallerInvocation() bool {
+	if len(os.Args) < 2 {
+		return false
 	}
-	Config.RunOutputDir = filepath.Join(Config.DataDir, "runs")
-	if err := os.MkdirAll(Config.RunOutputDir, 0o755); err != nil {
-		panic(fmt.Sprintf("creating runs dir: %v", err))
+	switch os.Args[1] {
+	case "install", "uninstall":
+		return true
+	}
+	return false
+}
+
+func isTestInvocation() bool {
+	return strings.HasSuffix(os.Args[0], ".test")
+}
+
+func mustCreateDir(p string, mode os.FileMode) {
+	if err := os.MkdirAll(p, mode); err != nil {
+		panic(fmt.Sprintf("creating dir %q: %v", p, err))
+	}
+	if err := os.Chmod(p, mode); err != nil {
+		panic(fmt.Sprintf("chmod dir %q: %v", p, err))
 	}
 }
 
@@ -68,70 +78,37 @@ func getLogLevel() slog.Level {
 	return slog.LevelInfo
 }
 
-func resolveDefaultDataDir() string {
-	const appName = "opsagent"
-	var baseDir string
-	switch runtime.GOOS {
-	case "darwin":
-		home, err := os.UserHomeDir()
-		if err != nil {
-			panic(fmt.Sprintf("resolving home dir: %v", err))
-		}
-		baseDir = filepath.Join(home, "Library", "Application Support")
-	case "linux":
-		if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
-			baseDir = xdg
-		} else {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				panic(fmt.Sprintf("resolving home dir: %v", err))
-			}
-			baseDir = filepath.Join(home, ".local", "share")
-		}
-	default:
-		panic(fmt.Sprintf("unsupported OS for default data dir: %s", runtime.GOOS))
-	}
-	dir := filepath.Join(baseDir, appName)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		panic(fmt.Sprintf("creating data dir %s: %v", dir, err))
-	}
-	return dir
-}
-
 type Configuration struct {
-	IsLocalDev       string `env:"OPSAGENT_LOCAL_DEV,false"`
-	DataDir          string `env:"OPSAGENT_DATA_DIR,"`
+	DataDir          string
 	RunOutputDir     string
 	PrepareOutputDir string
+	VolumesDir       string
+	ReleasesDir      string
+	LogDir           string
 
-	BindAddr string `env:"OPSAGENT_BIND_ADDR,0.0.0.0"` // listen address (e.g. "0.0.0.0", "::", or a specific IP)
+	ContainerdAddress   string `env:"OPENDEPLOY_CONTAINERD_ADDRESS,/run/opendeploy/containerd.sock"`
+	ContainerdNamespace string `env:"OPENDEPLOY_CONTAINERD_NAMESPACE,opendeploy"`
 
-	MasterPasswordHash      string   `env:"OPSAGENT_MASTER_PASSWORD_HASH,secret"`
-	GithubToken             string   `env:"OPSAGENT_GITHUB_TOKEN,"`
-	AcmeHosts               []string `env:"OPSAGENT_ACME_HOSTS,opsagent.dev"`
-	AcmeEmail               string   `env:"OPSAGENT_ACME_EMAIL,"`
+	BindAddr string `env:"OPENDEPLOY_BIND_ADDR,0.0.0.0"` // listen address (e.g. "0.0.0.0", "::", or a specific IP)
+	HTTPOnly bool   `env:"OPENDEPLOY_HTTP_ONLY,false"`   // serve the primary API over plain HTTP on localhost:8080 instead of ACME TLS
+
+	MasterPasswordHash      string   `env:"OPENDEPLOY_MASTER_PASSWORD_HASH,secret"`
+	GithubToken             string   `env:"OPENDEPLOY_GITHUB_TOKEN,"`
+	AcmeHosts               []string `env:"OPENDEPLOY_ACME_HOSTS,opendeploy.dev"`
+	AcmeEmail               string   `env:"OPENDEPLOY_ACME_EMAIL,"`
 	BackupS3AccessKeyID     string   `env:"OPENDEPLOY_BACKUP_S3_ACCESS_KEY_ID,"`
 	BackupS3SecretAccessKey string   `env:"OPENDEPLOY_BACKUP_S3_SECRET_ACCESS_KEY,"`
 	BackupS3Bucket          string   `env:"OPENDEPLOY_BACKUP_S3_BUCKET,"`
-	BackupS3Path            string   `env:"OPENDEPLOY_BACKUP_S3_PATH,opsagent/primary"`
+	BackupS3Path            string   `env:"OPENDEPLOY_BACKUP_S3_PATH,opendeploy/primary"`
 	BackupS3Region          string   `env:"OPENDEPLOY_BACKUP_S3_REGION,us-east-1"`
 	BackupS3Endpoint        string   `env:"OPENDEPLOY_BACKUP_S3_ENDPOINT,"`
 
-	// Cluster mTLS — if ClusterCA is empty, cluster mode is disabled.
-	ClusterCA     string `env:"OPSAGENT_CLUSTER_CA,"`          // path to CA cert
-	ClusterCert   string `env:"OPSAGENT_CLUSTER_CERT,"`        // path to this node's cert
-	ClusterKey    string `env:"OPSAGENT_CLUSTER_KEY,"`         // path to this node's private key
-	ClusterListen string `env:"OPSAGENT_CLUSTER_LISTEN,"`      // mTLS listen address (e.g. ":9443")
-	PrimaryAddr   string `env:"OPSAGENT_PRIMARY_ADDR,"`        // slaves only: primary's mTLS address
-	PrimaryName   string `env:"OPSAGENT_PRIMARY_NAME,primary"` // slaves only: primary's cert CN (for TLS verification when dialing by IP)
+	ClusterListen    string `env:"OPENDEPLOY_CLUSTER_LISTEN,:9443"`    // mTLS listen address
+	EnrollmentListen string `env:"OPENDEPLOY_ENROLLMENT_LISTEN,:9444"` // unauthenticated worker enrollment listen address
+	PrimaryAddr      string `env:"OPENDEPLOY_PRIMARY_ADDR,"`           // secondaries only: primary's mTLS/enrollment address
+	PrimaryName      string `env:"OPENDEPLOY_PRIMARY_NAME,primary"`    // primary cert DNS name; secondaries use it for TLS verification when dialing by IP
 }
 
 func ResolvePrimaryMachineName() string {
-	if Config.ClusterCert != "" {
-		return certu.MustCertLoadCommonName(Config.ClusterCert)
-	}
-	if Config.IsLocalDev == "true" {
-		return "localhost"
-	}
-	panic("OPSAGENT_CLUSTER_CERT must be set to identify this machine (or enable OPSAGENT_LOCAL_DEV for a localhost fallback)")
+	return Config.PrimaryName
 }

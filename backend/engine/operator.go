@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/jptrs93/goutil/pubsubu"
+
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
 	"github.com/jptrs93/opsagent/backend/engine/runner"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/logstore"
 )
 
 type DeploymentOperator struct {
@@ -33,7 +34,7 @@ func configName(cfg *apigen.DeploymentConfig) string {
 
 func (op DeploymentOperator) RunAll(machine string) {
 	deps, ch, _ := op.Store.MustFetchSnapshotAndSubscribe(machine)
-	subs := &logstore.Subs[apigen.DeploymentWithStatus]{}
+	subs := &pubsubu.PubSub[apigen.DeploymentWithStatus]{}
 
 	slog.Info("RunAll: snapshot loaded", "count", len(deps), "machine", machine)
 
@@ -77,14 +78,14 @@ func (op DeploymentOperator) RunAll(machine string) {
 }
 
 func (op DeploymentOperator) Run(
-	subs *logstore.Subs[apigen.DeploymentWithStatus],
+	subs *pubsubu.PubSub[apigen.DeploymentWithStatus],
 	config *apigen.DeploymentConfig,
 	status *apigen.DeploymentStatus) {
 	id := config.ID
 	depName := configName(config)
 	slog.Info("deployment operator started", "dep", depName)
 
-	sub, unsubFunc := subs.Subscribe(func(dws apigen.DeploymentWithStatus) bool {
+	sub := subs.Subscribe(func(dws apigen.DeploymentWithStatus) bool {
 		return dws.Config.ID == id
 	})
 	slog.Info("Run: reattaching preparer",
@@ -113,7 +114,7 @@ func (op DeploymentOperator) Run(
 			slog.Info("Run: deployment deleted, shutting down", "dep", depName)
 			currentPreparer.Cancel()
 			currentRunner.Stop()
-			unsubFunc()
+			sub.UnsubscribeFunc()
 			return
 		case !config.DesiredState.Running:
 			slog.Info("Run: desired running=false, stopping runner", "dep", depName)

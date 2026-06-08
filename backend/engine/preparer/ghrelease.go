@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
@@ -150,7 +151,7 @@ func (g *GithubReleaseDownloader) runDownloadScript(ctx context.Context, gh apig
 		return "", apigen.PreparationStatus_FAILED
 	}
 
-	scriptFile, err := os.CreateTemp("", "opsagent-download-*.sh")
+	scriptFile, err := os.CreateTemp("", "opendeploy-download-*.sh")
 	if err != nil {
 		writeLog("ERROR creating script file: %v", err)
 		return "", apigen.PreparationStatus_FAILED
@@ -234,37 +235,20 @@ func resolveScriptArtifact(dstDir, asset string) (string, error) {
 	return files[0], nil
 }
 
-// releaseBaseDir is where downloaded release artifacts live. It is deliberately
-// a sibling of the private data dir (kept 0700 so opsagent's db, TLS keys and
-// logs stay private) rather than a subdir of it: os-process deployments run the
-// artifact as a different OS user (runAs) that must be able to traverse to and
-// execute it. This mirrors how nix artifacts live in the world-traversable
-// /nix/store, which is why nix os-process runners already work under runAs.
-func (g *GithubReleaseDownloader) releaseBaseDir() string {
-	return filepath.Join(filepath.Dir(g.dataDir), filepath.Base(g.dataDir)+"-releases")
-}
-
-// prepareReleaseDir creates the per-release download dir and makes the whole
-// chain world-traversable (0755) so a non-owner runAs user can reach the
-// artifact even when the process runs under a restrictive umask (systemd
-// services commonly set UMask=0077, which would otherwise leave dirs at 0700).
+// prepareReleaseDir creates the per-release download dir and keeps every new
+// component traversable so non-owner runAs users can execute the artifact.
 func (g *GithubReleaseDownloader) prepareReleaseDir(ownerRepo, tag string) (string, error) {
-	base := g.releaseBaseDir()
+	base := ainit.Config.ReleasesDir
 	dstDir := filepath.Join(base, ownerRepo, tag)
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return "", err
 	}
-	// chmod base and every component down to dstDir; MkdirAll's mode is masked
-	// by umask, so set it explicitly.
-	cur := base
-	_ = os.Chmod(cur, 0o755)
-	if rel, err := filepath.Rel(base, dstDir); err == nil {
-		for _, part := range strings.Split(rel, string(os.PathSeparator)) {
-			if part == "" || part == "." {
-				continue
-			}
-			cur = filepath.Join(cur, part)
-			_ = os.Chmod(cur, 0o755)
+	for dir := dstDir; ; dir = filepath.Dir(dir) {
+		if err := os.Chmod(dir, 0o755); err != nil {
+			return "", err
+		}
+		if dir == base {
+			break
 		}
 	}
 	return dstDir, nil

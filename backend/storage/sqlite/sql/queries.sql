@@ -173,14 +173,15 @@ ON CONFLICT(slot) DO UPDATE SET
 -- === secrets ===
 
 -- name: ListSecrets :many
-SELECT name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
+SELECT name, secret_group, internal, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
 FROM secrets ORDER BY name;
 
 -- name: UpsertSecret :exec
-INSERT INTO secrets (name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO secrets (name, secret_group, internal, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(name) DO UPDATE SET
     secret_group = excluded.secret_group,
+    internal = excluded.internal,
     smk_version = excluded.smk_version,
     ciphertext = excluded.ciphertext,
     nonce = excluded.nonce,

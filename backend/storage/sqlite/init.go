@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -35,8 +36,68 @@ func mustInit(dbPath, migrations string) *sql.DB {
 	if _, err := db.Exec(schema); err != nil {
 		panic(fmt.Sprintf("exec schema: %v", err))
 	}
+	applyCodeMigrations(db)
 	applyMigrations(db, migrations)
 	return db
+}
+
+func applyCodeMigrations(db *sql.DB) {
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS opendeploy_migrations (
+			name TEXT PRIMARY KEY,
+			applied_at INTEGER NOT NULL
+		)`); err != nil {
+		panic(fmt.Sprintf("create migrations table: %v", err))
+	}
+	applyOneShotMigration(db, "reset_secrets_for_opendeploy_aad", func(tx *sql.Tx) error {
+		if _, err := tx.Exec("DELETE FROM secrets"); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("DELETE FROM secret_keyslots"); err != nil {
+			return err
+		}
+		return nil
+	})
+	applyOneShotMigration(db, "add_internal_secret_flag", func(tx *sql.Tx) error {
+		if _, err := tx.Exec("ALTER TABLE secrets ADD COLUMN internal INTEGER NOT NULL DEFAULT 0"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return err
+		}
+		return nil
+	})
+	applyOneShotMigration(db, "reset_secrets_for_internal_aad", func(tx *sql.Tx) error {
+		if _, err := tx.Exec("DELETE FROM secrets"); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("DELETE FROM secret_keyslots"); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func applyOneShotMigration(db *sql.DB, name string, fn func(*sql.Tx) error) {
+	tx, err := db.Begin()
+	if err != nil {
+		panic(fmt.Sprintf("begin migration %s: %v", name, err))
+	}
+	defer tx.Rollback()
+
+	var exists int
+	if err := tx.QueryRow("SELECT 1 FROM opendeploy_migrations WHERE name = ?", name).Scan(&exists); err == nil {
+		return
+	} else if err != sql.ErrNoRows {
+		panic(fmt.Sprintf("check migration %s: %v", name, err))
+	}
+
+	if err := fn(tx); err != nil {
+		panic(fmt.Sprintf("apply migration %s: %v", name, err))
+	}
+	if _, err := tx.Exec("INSERT INTO opendeploy_migrations (name, applied_at) VALUES (?, ?)", name, time.Now().UnixMilli()); err != nil {
+		panic(fmt.Sprintf("record migration %s: %v", name, err))
+	}
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit migration %s: %v", name, err))
+	}
 }
 
 func applyMigrations(db *sql.DB, migrations string) {

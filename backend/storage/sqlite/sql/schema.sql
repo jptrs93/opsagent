@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS secret_keyslots (
 CREATE TABLE IF NOT EXISTS secrets (
     name         TEXT PRIMARY KEY,
     secret_group TEXT    NOT NULL DEFAULT '',
+    internal     INTEGER NOT NULL DEFAULT 0,
     smk_version  INTEGER NOT NULL,
     ciphertext   BLOB    NOT NULL,
     nonce        BLOB    NOT NULL,
@@ -109,3 +110,17 @@ CREATE TABLE IF NOT EXISTS secrets (
     updated_at   INTEGER NOT NULL,  -- epoch ms
     updated_by   INTEGER NOT NULL DEFAULT 0
 );
+
+-- Worker enrollment requests. A reconnecting unenrolled worker is identified by
+-- requesting_machine_id and updates its existing row back to waiting.
+CREATE TABLE IF NOT EXISTS enrollment_requests (
+    id                       INTEGER PRIMARY KEY,
+    created_at               INTEGER NOT NULL,  -- epoch ms
+    updated_at               INTEGER NOT NULL,  -- epoch ms
+    requesting_ip_address    TEXT    NOT NULL DEFAULT '',
+    requesting_machine_id    TEXT    NOT NULL,
+    status                   TEXT    NOT NULL DEFAULT 'waiting'
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_enrollment_requests_machine_id
+    ON enrollment_requests(requesting_machine_id);

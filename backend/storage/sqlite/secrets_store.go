@@ -57,6 +57,7 @@ func (s *StorageAdapter) ListSecrets() []secrets.Record {
 		out = append(out, secrets.Record{
 			Name:       r.Name,
 			Group:      r.SecretGroup,
+			Internal:   r.Internal != 0,
 			SMKVersion: int32(r.SmkVersion),
 			Ciphertext: r.Ciphertext,
 			Nonce:      r.Nonce,
@@ -72,6 +73,7 @@ func (s *StorageAdapter) UpsertSecret(r secrets.Record) {
 	if err := s.q.UpsertSecret(context.Background(), UpsertSecretParams{
 		Name:        r.Name,
 		SecretGroup: r.Group,
+		Internal:    boolToInt64(r.Internal),
 		SmkVersion:  int64(r.SMKVersion),
 		Ciphertext:  r.Ciphertext,
 		Nonce:       r.Nonce,
@@ -87,4 +89,11 @@ func (s *StorageAdapter) DeleteSecret(name string) {
 	if err := s.q.DeleteSecret(context.Background(), name); err != nil {
 		panic(fmt.Sprintf("DeleteSecret: %v", err))
 	}
+}
+
+func boolToInt64(v bool) int64 {
+	if v {
+		return 1
+	}
+	return 0
 }

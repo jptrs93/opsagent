@@ -21,6 +21,10 @@ func ForConfig(cfg *apigen.PrepareConfig) (Provider, error) {
 		return Git, nil
 	case cfg != nil && !cfg.GithubRelease.IsZero():
 		return GHRel, nil
+	case cfg != nil && !cfg.ContainerImage.IsZero():
+		// Phase 1: no registry tag enumeration (needs registry API + creds).
+		// The user types the desired tag/digest directly in the deploy overlay.
+		return ContainerImageVersionProvider{}, nil
 	}
 	return nil, fmt.Errorf("no version provider for config")
 }

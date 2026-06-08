@@ -9,26 +9,26 @@ import (
 	"time"
 
 	"github.com/jptrs93/goutil/ptru"
+	"github.com/jptrs93/goutil/pubsubu"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/logstore"
 )
 
-// SystemEnvironment is the reserved environment name for opsagent's own
+// SystemEnvironment is the reserved environment name for OpenDeploy's own
 // self-management deployments. It is auto-created for each machine and
 // excluded from the user-config deletion sweep.
-const SystemEnvironment = "OPSAGENT_SYSTEM"
+const SystemEnvironment = "OPENDEPLOY_SYSTEM"
 
 type StorageAdapter struct {
 	*deploymentStore
-	userSubs *logstore.Subs[apigen.User]
+	userSubs *pubsubu.PubSub[apigen.User]
 }
 
 func NewStorageAdapter(dbPath string) *StorageAdapter {
 	db := mustInitPrimary(dbPath)
 	return &StorageAdapter{
 		deploymentStore: newDeploymentStore(db),
-		userSubs:        &logstore.Subs[apigen.User]{},
+		userSubs:        &pubsubu.PubSub[apigen.User]{},
 	}
 }
 
@@ -361,13 +361,13 @@ func (s *StorageAdapter) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 	return cfg
 }
 
-// EnsureSystemDeployment creates the OPSAGENT_SYSTEM opsagent deployment for
+// EnsureSystemDeployment creates the OPENDEPLOY_SYSTEM opendeploy deployment for
 // the given machine if it does not already exist.
 func (s *StorageAdapter) EnsureSystemDeployment(machine string) {
 	cid := apigen.DeploymentIdentifier{
 		Environment: SystemEnvironment,
 		Machine:     machine,
-		Name:        "opsagent",
+		Name:        "opendeploy",
 	}
 
 	s.mu.Lock()
@@ -388,8 +388,8 @@ func (s *StorageAdapter) EnsureSystemDeployment(machine string) {
 		},
 		Runner: apigen.RunnerConfig{
 			Systemd: apigen.SystemdRunnerConfig{
-				Name:    "opsagent",
-				BinPath: "/var/lib/opsagent/bin/opsagent",
+				Name:    "opendeploy",
+				BinPath: "/var/lib/opendeploy/bin/opendeploy",
 			},
 		},
 	}
@@ -693,8 +693,9 @@ func (s *StorageAdapter) ListUsersPublic() []*apigen.User {
 	return out
 }
 
-func (s *StorageAdapter) SubscribeUserUpdates() (*logstore.Sub[apigen.User], func()) {
-	return s.userSubs.Subscribe(nil)
+func (s *StorageAdapter) SubscribeUserUpdates() (*pubsubu.Sub[apigen.User], func()) {
+	sub := s.userSubs.Subscribe(nil)
+	return sub, sub.UnsubscribeFunc
 }
 
 func (s *StorageAdapter) FetchUserByID(id int32) (*apigen.InternalUser, error) {

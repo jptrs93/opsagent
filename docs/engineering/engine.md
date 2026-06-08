@@ -9,11 +9,14 @@ Key files:
 - `backend/engine/preparer/preparer.go` — `Preparer` interface, `StartPrepare`/`ReAttach` dispatchers.
 - `backend/engine/preparer/nixbuild.go` — `NixBuilder` for cloning, checking out, and running `nix build`.
 - `backend/engine/preparer/ghrelease.go` — `GithubReleaseDownloader` for fetching prebuilt release assets.
+- `backend/engine/preparer/containerimage.go` — `ContainerImagePuller` for pulling a container image into containerd.
+- `backend/engine/ctrd/` — containerd client wrapper isolating all containerd imports behind linux build tags (`client_linux.go` real, `client_other.go` stub). Used by both the container preparer and runner.
 - `backend/engine/preparer/gitmanager.go` — `GitManagerImpl` for fetching repo info and commit history (used by `NixBuilder`).
 - `backend/engine/runner/runner.go` — `Runner` interface, `Create`/`ReAttach` factories.
 - `backend/engine/runner/osprocess.go` — `osProcessRunner` with its internal spawn/respawn/backoff loop.
 - `backend/engine/runner/osprocess_unix.go` — Unix-specific process spawning (`ForkExec`) and signal handling.
 - `backend/engine/runner/systemd.go` — `systemdRunner` for systemd-managed deployments.
+- `backend/engine/runner/container.go` — `containerRunner` for containerd-managed deployments.
 
 ## Deployment data model
 
@@ -53,7 +56,7 @@ the runner has fully stopped and written its terminal state.
 
 ## Git manager
 
-`GitManagerImpl` interacts with remote Git repositories via the GitHub API. It uses the GitHub token from `OPSAGENT_GITHUB_TOKEN` for private repo access.
+`GitManagerImpl` interacts with remote Git repositories via the GitHub API. It uses the GitHub token from `OPENDEPLOY_GITHUB_TOKEN` for private repo access.
 
 Methods:
 - `ListBranches(repoURL)` — lists remote branches via the GitHub API.
@@ -103,13 +106,13 @@ fetches the most recent 25 commits from the given branch via the GitHub API
 Flow:
 
 1. Writes `PreparerStatus.Status = DOWNLOADING` with the `deployment_config_version` from `DeploymentConfig.Version`.
-2. Fetches `/repos/{owner}/{repo}/releases/tags/{tag}` from the GitHub API, using `OPSAGENT_GITHUB_TOKEN` for auth.
+2. Fetches `/repos/{owner}/{repo}/releases/tags/{tag}` from the GitHub API, using `OPENDEPLOY_GITHUB_TOKEN` for auth.
 3. Picks the asset by exact name from `cfg.Spec.Prepare.GithubRelease.Asset`; if unset, uses the first asset in the release.
 4. Downloads to `{dataDir}-releases/{owner}/{repo}/{tag}/{asset}` via atomic rename. Redirects from the GitHub asset API are followed manually so the Authorization header isn't forwarded to the CDN. Existing file with the correct size is skipped.
 5. `chmod 0755` on the downloaded file.
 6. On success: `PreparerStatus.Status = READY`. On any failure: `FAILED`.
 
-**Artifact location.** Artifacts live in a sibling of the data dir (`{dataDir}-releases`, e.g. `/var/lib/opsagent-releases`), not under it. The data dir itself is kept `0700` (it holds the sqlite db, TLS keys, and prepare/run logs), but os-process deployments run the artifact as a different OS user (`runAs`) that must be able to traverse to and execute it. The release dir and every component down to the artifact are `chmod 0755` so that traversal works even under a restrictive process umask. This mirrors how nix artifacts live in the world-traversable `/nix/store` — which is why nix os-process runners already work under `runAs`.
+**Artifact location.** Artifacts live in a sibling of the data dir (`{dataDir}-releases`, e.g. `/var/lib/opendeploy-releases`), not under it. The data dir itself is kept `0750` (it holds the sqlite db, TLS keys, and prepare/run logs), but os-process deployments run the artifact as a different OS user (`runAs`) that must be able to traverse to and execute it. The release dir and every component down to the artifact are `chmod 0755` so that traversal works even under a restrictive process umask. This mirrors how nix artifacts live in the world-traversable `/nix/store` — which is why nix os-process runners already work under `runAs`.
 
 **Custom download script.** If `cfg.Spec.Prepare.GithubRelease.DownloadScript` is set, steps 2–4 are skipped. Instead the script is written to a temp file and run as `bash <script> <tag>` with the working directory set to the release dir (`{dataDir}-releases/{owner}/{repo}/{tag}`) — so the version tag arrives as `$1` and the script downloads into that dir. The configured GitHub token is exposed as `GITHUB_TOKEN` in the environment (passed via env, never via args, so it isn't written to the prepare log). The artifact is then resolved from that dir: `Asset` names the produced file if set, otherwise the script must leave exactly one regular file. The resolved file is `chmod 0755`'d and returned.
 
@@ -117,6 +120,19 @@ Flow:
 `ListVersions` calls `/repos/{owner}/{repo}/releases?per_page=50`, returning
 each release's `tag_name` as the version id, `name` as the label, and
 `published_at` as the time.
+
+### ContainerImagePuller
+
+`ContainerImagePuller` pulls an image into containerd's content store and
+unpacks it into the snapshotter, via the shared `ctrd.Client`. The target
+version (`DesiredState.Version`) is the image tag or digest; the puller joins it
+to the configured `image` repo (`:tag`, or `@sha256:...` for a digest). On
+success it writes `PreparerStatus.Status = READY` with the resolved image ref as
+the artifact (the same ref the runner looks up). Status flow: `PULLING` → `READY`
+/ `FAILED`. A semaphore bounds concurrency to one pull at a time. Phase 1 pulls
+anonymously — no registry credentials. Version listing is a no-op
+(`ContainerImageVersionProvider` returns nothing): the user types the tag/digest
+directly in the deploy overlay.
 
 ## Runners (`backend/engine/runner/`)
 
@@ -128,7 +144,7 @@ entry points:
   version. Dispatches to the correct variant based on `dep.Spec.Runner`;
   missing `Runner` or missing sub-variants default to `osProcess`.
 - `runner.ReAttach(ctx, store, dep, prev)` — resume supervision
-  of a deployment that was already running before opsagent restarted.
+  of a deployment that was already running before opendeploy restarted.
 
 `Runner` is a minimal interface:
 
@@ -178,7 +194,7 @@ stuck at the max backoff after the occasional crash.
 `leavePrevious` strategy is set, `Stop()` skips signals entirely — the app
 handles its own rollover.
 
-`OPSAGENT_*` environment variables are scrubbed from the spawned process so
+`OPENDEPLOY_*` environment variables are scrubbed from the spawned process so
 secrets (master password hash, GitHub token) don't leak into deployed
 artifacts.
 
@@ -220,12 +236,62 @@ maps the result: `active`/`reloading` → `RUNNING`, `activating` → `STARTING`
 Unlike `osProcessRunner`, `systemdRunner` does not implement its own backoff —
 systemd owns process-level restart behavior.
 
+### containerRunner
+
+`containerRunner` mirrors `osProcessRunner` but drives containerd (via
+`ctrd.Client`) instead of fork/exec. One container per deployment, keyed by a
+  deterministic id (`opendeploy-{deploymentID}`) so reattach can find it. It owns the
+same create/monitor/respawn/backoff loop: `RunTask` (create container + task,
+host networking, start), then `task.Wait()` replaces `Wait4` and the container
+exit replaces process exit. The full crash/backoff machinery
+(`computeOSProcessBackoff`, 15s stability reset) is reused.
+
+- **Dispatch** keys off the *prepare* side (`!Prepare.ContainerImage.IsZero()`),
+  not the runner config, because a valid `container` runner block may be
+  all-defaults and therefore `IsZero`.
+- **Default data volume**: a per-deployment host dir under `{dataDir}-volumes/`
+  is created + chowned to the in-container user at each spawn and bind-mounted at
+  `/data` (root) or `/home/<user>/data` (non-root), overridable via
+  `dataMountPath`, disableable via `disableDataVolume`. chown needs `CAP_CHOWN`
+  (granted in the unit); it is best-effort and only fully resolvable when `user`
+  is a numeric uid or a name that also exists on the host.
+- **`user`** maps to OCI `process.user`; with no user namespace the in-container
+  uid equals the host uid, so volume file ownership matches `runAs` semantics.
+- **Secrets/env**: `${name}` placeholders resolve at start via the same
+  `resolveEnv` resolver as `osProcess`, then into the container's env.
+- **Reattach**: `ctrd.LoadTask` reconnects to a still-running container by id and
+  re-establishes `Wait()`; if the task is gone it spawns fresh (RunTask first
+  removes any stale container with the same id).
+- **Stop**: SIGTERM the task, wait up to 3s for exit, SIGKILL, then delete the
+  container + snapshot.
+- **Logging**: phase 1 discards container stdout/stderr (`cio.NullIO`). Draining
+  the FIFOs into the run log is the immediate follow-up change.
+- **Platform**: Linux only. The `ctrd` package stubs out on non-linux so the
+  backend still builds on macOS/dev; container deployments there fail at prepare
+  with a clear "containers require linux" error.
+
+opendeploy runs its own dedicated, bundled+pinned containerd provisioned by the
+installer as the `opendeploy-containerd.service` unit. The bundled runtime
+binaries and config live under `/var/lib/opendeploy/runtime/`, containerd's root
+state lives under `/var/lib/opendeploy-containerd/`, transient state lives under
+`/run/opendeploy-containerd/`, and the socket is
+`/run/opendeploy/containerd.sock`. This containerd is not embedded in opendeploy
+and does not share a distro/Docker containerd. Provisioning is done by the
+`opendeploy install` subcommand (`backend/internal/installer`), which embeds the
+unit files and the pinned containerd/runc versions + checksums.
+
+Primary cluster mTLS material is not read from env-configured files. On first
+primary startup, opendeploy generates the cluster CA and primary server
+certificate/key, then stores that PEM material as internal encrypted secrets in
+the primary secrets store. Worker nodes receive their local TLS files through
+`EnrollmentV1` and cache them under `/var/lib/opendeploy/tls/`.
+
 ## Backoff
 
 Exponential crash backoff (1s → 60s, doubling per consecutive crash, reset
-after a >= 15 s stable run) lives inside `osProcessRunner.run()`. It is not
-a separate package, not a decorator on the operator loop, and not applied to
-the systemd runner.
+after a >= 15 s stable run) lives inside `osProcessRunner.run()` and is reused by
+`containerRunner`. It is not a separate package, not a decorator on the operator
+loop, and not applied to the systemd runner.
 
 ## Storage failure policy
 

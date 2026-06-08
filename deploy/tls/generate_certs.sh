@@ -65,7 +65,7 @@ rm -f ca.srl
 
 echo ""
 echo "Done. Deploy to each node:"
-echo "  - ca.crt          → all nodes (OPSAGENT_CLUSTER_CA)"
-echo "  - <name>.crt/key  → that node (OPSAGENT_CLUSTER_CERT / OPSAGENT_CLUSTER_KEY)"
+echo "  - ca.crt          → all nodes (OPENDEPLOY_CLUSTER_CA)"
+echo "  - <name>.crt/key  → that node (OPENDEPLOY_CLUSTER_CERT / OPENDEPLOY_CLUSTER_KEY)"
 echo ""
 echo "Keep ca.key offline — it's only needed to issue new node certs."

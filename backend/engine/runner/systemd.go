@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
@@ -199,9 +198,6 @@ func atomicSymlink(src, dst string) error {
 }
 
 func systemctlRestart(ctx context.Context, unit string) (string, error) {
-	if ainit.Config.IsLocalDev == "true" {
-		return systemctl(ctx, "restart", unit)
-	}
 	cmd := exec.CommandContext(ctx, "sudo", "-n",
 		"/usr/bin/systemd-run", "--no-block",
 		"/usr/bin/systemctl", "restart", unit)
@@ -214,13 +210,8 @@ func systemctlRestart(ctx context.Context, unit string) (string, error) {
 }
 
 func systemctl(ctx context.Context, args ...string) (string, error) {
-	var cmd *exec.Cmd
-	if ainit.Config.IsLocalDev == "true" {
-		cmd = exec.CommandContext(ctx, "systemctl", args...)
-	} else {
-		sudoArgs := append([]string{"-n", "/usr/bin/systemctl"}, args...)
-		cmd = exec.CommandContext(ctx, "sudo", sudoArgs...)
-	}
+	sudoArgs := append([]string{"-n", "/usr/bin/systemctl"}, args...)
+	cmd := exec.CommandContext(ctx, "sudo", sudoArgs...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return strings.TrimSpace(string(out)),

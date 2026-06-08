@@ -69,6 +69,14 @@ Key generated files:
 |--------|------|---------|----------|--------|
 | GET | `/v1/cluster/status` | — | `ClusterStatusResponse` | ANY_OF default |
 
+### Enrollment
+| Method | Path | Request | Response | Policy |
+|--------|------|---------|----------|--------|
+| POST | `/v1/enrollment/request` | stream `EnrollmentWorkerMsg` | stream `EnrollmentPrimaryMsg` | NO_AUTH |
+| POST | `/v1/enrollment/accept` | `EnrollmentAcceptRequest` | `EnrollmentRequestStatus` | ANY_OF default |
+
+Workers use `EnrollmentV1` only when local cluster CA/cert/key material is missing. They send a stable generated `requesting_machine_id`, then keep the stream open until an operator accepts the request. Acceptance signs a worker certificate with the primary's internally stored cluster CA key and returns the CA certificate, worker certificate, and worker private key. By default the worker writes them to `/var/lib/opendeploy/tls/ca.crt`, `/var/lib/opendeploy/tls/node.crt`, and `/var/lib/opendeploy/tls/node.key`, then reconnects to `OpsagentClusterV1` over mTLS. The cert files are written `0644`; the private key is written `0600`.
+
 ## Adding new endpoints
 
 1. Add the RPC and any new message types to `api-contract/api.proto`.

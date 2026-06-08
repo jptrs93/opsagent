@@ -1,4 +1,4 @@
-// Package secrets implements opsagent's primary-only secrets store.
+// Package secrets implements opendeploy's primary-only secrets store.
 //
 // Design: envelope encryption with a small key hierarchy.
 //
@@ -69,6 +69,14 @@ var ErrInvalidRecoveryCode = errors.New("invalid recovery code")
 // ErrNotFound is returned by Reveal when no secret exists for the given name.
 var ErrNotFound = errors.New("secret not found")
 
+// ErrReservedName is returned when user-facing APIs try to mutate OpenDeploy's
+// reserved internal secret namespace.
+var ErrReservedName = errors.New("secret name is reserved for internal use")
+
+// ErrInternalSecret is returned when user-facing APIs try to reveal/delete an
+// internal secret directly.
+var ErrInternalSecret = errors.New("secret is internal")
+
 // Keyslot is a wrapped copy of the SMK as persisted in secret_keyslots.
 type Keyslot struct {
 	Slot       string
@@ -83,6 +91,7 @@ type Keyslot struct {
 type Record struct {
 	Name       string
 	Group      string
+	Internal   bool
 	SMKVersion int32
 	Ciphertext []byte
 	Nonce      []byte
@@ -95,13 +104,14 @@ type Record struct {
 type Meta struct {
 	Name      string
 	Group     string
+	Internal  bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	UpdatedBy int32
 }
 
 // Store is the persistence the Manager needs. The sqlite StorageAdapter
-// implements it. Writes follow opsagent's panic-on-failure convention.
+// implements it. Writes follow opendeploy's panic-on-failure convention.
 type Store interface {
 	ListSecretKeyslots() []Keyslot
 	UpsertSecretKeyslot(Keyslot)
@@ -190,10 +200,10 @@ func (m *Manager) Resolve(name string) (string, bool) {
 		return "", false
 	}
 	rec, ok := m.cache[name]
-	if !ok {
+	if !ok || rec.Internal {
 		return "", false
 	}
-	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD(name))
+	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD(name, rec.Internal))
 	if err != nil {
 		slog.Error("decrypting secret failed", "name", name, "err", err)
 		return "", false
@@ -215,7 +225,10 @@ func (m *Manager) Reveal(name string) ([]byte, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
-	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD(name))
+	if rec.Internal {
+		return nil, ErrInternalSecret
+	}
+	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD(name, rec.Internal))
 	if err != nil {
 		return nil, fmt.Errorf("decrypting secret %q: %w", name, err)
 	}
@@ -229,12 +242,30 @@ func (m *Manager) Set(name, group string, value []byte, updatedBy int32) (Meta, 
 	if name == "" {
 		return Meta{}, errors.New("secret name is required")
 	}
+	if isReservedInternalName(name) {
+		return Meta{}, ErrReservedName
+	}
+	return m.set(name, group, false, value, updatedBy)
+}
+
+// SetInternal creates or updates an OpenDeploy-managed internal secret. Internal
+// secrets are encrypted by the same SMK but are hidden from user-facing CRUD.
+func (m *Manager) SetInternal(name string, value []byte) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("secret name is required")
+	}
+	_, err := m.set(name, "opendeploy", true, value, 0)
+	return err
+}
+
+func (m *Manager) set(name, group string, internal bool, value []byte, updatedBy int32) (Meta, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.smk == nil {
 		return Meta{}, ErrLocked
 	}
-	ct, nonce, err := aeadSeal(m.smk, value, secretAAD(name))
+	ct, nonce, err := aeadSeal(m.smk, value, secretAAD(name, internal))
 	if err != nil {
 		return Meta{}, err
 	}
@@ -246,6 +277,7 @@ func (m *Manager) Set(name, group string, value []byte, updatedBy int32) (Meta, 
 	rec := Record{
 		Name:       name,
 		Group:      strings.TrimSpace(group),
+		Internal:   internal,
 		SMKVersion: m.version,
 		Ciphertext: ct,
 		Nonce:      nonce,
@@ -258,12 +290,38 @@ func (m *Manager) Set(name, group string, value []byte, updatedBy int32) (Meta, 
 	return rec.meta(), nil
 }
 
-// Delete removes a secret. Safe to call while locked (no decryption needed).
-func (m *Manager) Delete(name string) {
+// RevealInternal decrypts an OpenDeploy-managed internal secret. It bypasses the
+// user-facing internal-secret guard but still requires the store to be unlocked.
+func (m *Manager) RevealInternal(name string) ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.smk == nil {
+		return nil, ErrLocked
+	}
+	rec, ok := m.cache[name]
+	if !ok || !rec.Internal {
+		return nil, ErrNotFound
+	}
+	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD(name, rec.Internal))
+	if err != nil {
+		return nil, fmt.Errorf("decrypting internal secret %q: %w", name, err)
+	}
+	return pt, nil
+}
+
+// Delete removes a user secret. Safe to call while locked (no decryption needed).
+func (m *Manager) Delete(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if isReservedInternalName(name) {
+		return ErrReservedName
+	}
+	if rec, ok := m.cache[name]; ok && rec.Internal {
+		return ErrInternalSecret
+	}
 	m.store.DeleteSecret(name)
 	delete(m.cache, name)
+	return nil
 }
 
 // List returns metadata for all secrets, sorted by name. Never returns values.
@@ -272,6 +330,9 @@ func (m *Manager) List() []Meta {
 	defer m.mu.RUnlock()
 	out := make([]Meta, 0, len(m.cache))
 	for _, rec := range m.cache {
+		if rec.Internal {
+			continue
+		}
 		out = append(out, rec.meta())
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -421,8 +482,19 @@ func aeadOpen(key, ciphertext, nonce, aad []byte) ([]byte, error) {
 	return aead.Open(nil, nonce, ciphertext, aad)
 }
 
-func slotAAD(slot string) []byte   { return []byte("opsagent-keyslot:" + slot) }
-func secretAAD(name string) []byte { return []byte("opsagent-secret:" + name) }
+func slotAAD(slot string) []byte { return []byte("opendeploy-keyslot:" + slot) }
+
+func secretAAD(name string, internal bool) []byte {
+	class := "user"
+	if internal {
+		class = "internal"
+	}
+	return []byte("opendeploy-secret:" + class + ":" + name)
+}
+
+func isReservedInternalName(name string) bool {
+	return strings.HasPrefix(strings.TrimSpace(name), "opendeploy.")
+}
 
 // fileMachineKey is the default machineKeyProvider: it stores the machine KEK
 // as a 0600 file in the data dir (outside the DB and outside backups, so a
@@ -493,6 +565,7 @@ func (r Record) meta() Meta {
 	return Meta{
 		Name:      r.Name,
 		Group:     r.Group,
+		Internal:  r.Internal,
 		CreatedAt: time.UnixMilli(r.CreatedAt),
 		UpdatedAt: time.UnixMilli(r.UpdatedAt),
 		UpdatedBy: r.UpdatedBy,

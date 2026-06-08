@@ -29,15 +29,18 @@ func Create(store storage.OperatorStore, dep *apigen.DeploymentConfig, status *a
 	if status != nil {
 		preparer = status.Preparer
 	}
-	slog.Info("runner.Create", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion, "systemd", useSystemd(dep))
-	if useSystemd(dep) {
+	slog.Info("runner.Create", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion, "systemd", useSystemd(dep), "container", useContainer(dep))
+	switch {
+	case useSystemd(dep):
 		return newSystemdRunnerWithRestart(store, dep, preparer)
+	case useContainer(dep):
+		return newContainerRunner(store, dep, preparer)
 	}
 	return newOSProcessRunner(store, dep, preparer)
 }
 
 // ReAttach resumes supervision of a deployment that was already running
-// before opsagent restarted. For os-process runners the adopted PID is
+// before opendeploy restarted. For os-process runners the adopted PID is
 // polled and falls through to the normal spawn-and-respawn loop on exit.
 // For systemd runners this starts a monitor-only loop — no install or restart.
 func ReAttach(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
@@ -48,8 +51,11 @@ func ReAttach(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev ap
 	slog.Info("runner.ReAttach: reattaching",
 		"prevStatus", prev.Status, "prevPid", prev.RunningPid,
 		"prevArtifact", prev.RunningArtifact, "prevSeqNo", prev.DeploymentConfigVersion)
-	if useSystemd(dep) {
+	switch {
+	case useSystemd(dep):
 		return reAttachSystemdRunner(store, dep, prev)
+	case useContainer(dep):
+		return reAttachContainerRunner(store, dep, prev)
 	}
 	return reAttachOSProcessRunner(store, *dep, prev)
 }
@@ -64,4 +70,11 @@ func (stoppedRunner) Version() int32 { return -1 }
 
 func useSystemd(dep *apigen.DeploymentConfig) bool {
 	return !dep.Spec.Runner.Systemd.IsZero()
+}
+
+// useContainer keys off the prepare side (the container image, whose image
+// field is required and so never zero) rather than the runner config, because a
+// valid container runner block may be all-defaults and therefore IsZero.
+func useContainer(dep *apigen.DeploymentConfig) bool {
+	return !dep.Spec.Prepare.ContainerImage.IsZero()
 }

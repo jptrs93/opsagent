@@ -452,8 +452,13 @@ type yamlDeployment struct {
 }
 
 type yamlPrepare struct {
-	NixBuild      *yamlNixBuild      `yaml:"nixBuild,omitempty"`
-	GithubRelease *yamlGithubRelease `yaml:"githubRelease,omitempty"`
+	NixBuild       *yamlNixBuild       `yaml:"nixBuild,omitempty"`
+	GithubRelease  *yamlGithubRelease  `yaml:"githubRelease,omitempty"`
+	ContainerImage *yamlContainerImage `yaml:"containerImage,omitempty"`
+}
+
+type yamlContainerImage struct {
+	Image string `yaml:"image"`
 }
 
 type yamlNixBuild struct {
@@ -472,6 +477,23 @@ type yamlGithubRelease struct {
 type yamlRunner struct {
 	OsProcess *yamlOsProcess `yaml:"osProcess,omitempty"`
 	Systemd   *yamlSystemd   `yaml:"systemd,omitempty"`
+	Container *yamlContainer `yaml:"container,omitempty"`
+}
+
+type yamlContainer struct {
+	User              string               `yaml:"user,omitempty"`
+	Env               []yamlEnvVar         `yaml:"env,omitempty"`
+	Command           []string             `yaml:"command,omitempty"`
+	WorkingDir        string               `yaml:"workingDir,omitempty"`
+	DataMountPath     string               `yaml:"dataMountPath,omitempty"`
+	DisableDataVolume bool                 `yaml:"disableDataVolume,omitempty"`
+	Mounts            []yamlContainerMount `yaml:"mounts,omitempty"`
+}
+
+type yamlContainerMount struct {
+	Host      string `yaml:"host"`
+	Container string `yaml:"container"`
+	Readonly  bool   `yaml:"readonly,omitempty"`
 }
 
 type yamlOsProcess struct {
@@ -506,6 +528,9 @@ func parseDeploymentYaml(yamlContent string) (*apigen.DeploymentSpec, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateContainerPairing(dep.Prepare, dep.Runner); err != nil {
+		return nil, err
+	}
 
 	return &apigen.DeploymentSpec{
 		Prepare: *prepare,
@@ -519,11 +544,18 @@ func toPrepareConfig(yp *yamlPrepare) (*apigen.PrepareConfig, error) {
 	}
 	hasNix := yp.NixBuild != nil
 	hasGH := yp.GithubRelease != nil
-	if !hasNix && !hasGH {
-		return nil, invalidConfigErrf("prepare: one of nixBuild or githubRelease must be set")
+	hasContainer := yp.ContainerImage != nil
+	set := 0
+	for _, b := range []bool{hasNix, hasGH, hasContainer} {
+		if b {
+			set++
+		}
 	}
-	if hasNix && hasGH {
-		return nil, invalidConfigErrf("prepare: only one of nixBuild or githubRelease may be set")
+	if set == 0 {
+		return nil, invalidConfigErrf("prepare: one of nixBuild, githubRelease or containerImage must be set")
+	}
+	if set > 1 {
+		return nil, invalidConfigErrf("prepare: only one of nixBuild, githubRelease or containerImage may be set")
 	}
 	out := &apigen.PrepareConfig{}
 	if hasNix {
@@ -550,7 +582,29 @@ func toPrepareConfig(yp *yamlPrepare) (*apigen.PrepareConfig, error) {
 			DownloadScript: yp.GithubRelease.DownloadScript,
 		}
 	}
+	if hasContainer {
+		if yp.ContainerImage.Image == "" {
+			return nil, invalidConfigErrf("prepare.containerImage: image is required")
+		}
+		out.ContainerImage = apigen.ContainerImageConfig{Image: yp.ContainerImage.Image}
+	}
 	return out, nil
+}
+
+// validateContainerPairing enforces that the container image prepare and the
+// container runner are used together — an image can only be run as a container,
+// and the container runner can only run an image.
+func validateContainerPairing(yp *yamlPrepare, yr *yamlRunner) error {
+	prepareIsContainer := yp != nil && yp.ContainerImage != nil
+	runnerIsContainer := yr != nil && yr.Container != nil
+	runnerIsOther := yr != nil && (yr.OsProcess != nil || yr.Systemd != nil)
+	if prepareIsContainer && runnerIsOther {
+		return invalidConfigErrf("prepare.containerImage requires the container runner (or no runner block)")
+	}
+	if runnerIsContainer && !prepareIsContainer {
+		return invalidConfigErrf("runner.container requires prepare.containerImage")
+	}
+	return nil
 }
 
 func toRunnerConfig(yr *yamlRunner) (*apigen.RunnerConfig, error) {
@@ -559,8 +613,15 @@ func toRunnerConfig(yr *yamlRunner) (*apigen.RunnerConfig, error) {
 	}
 	hasOS := yr.OsProcess != nil
 	hasSystemd := yr.Systemd != nil
-	if hasOS && hasSystemd {
-		return nil, invalidConfigErrf("runner: only one of osProcess or systemd may be set")
+	hasContainer := yr.Container != nil
+	set := 0
+	for _, b := range []bool{hasOS, hasSystemd, hasContainer} {
+		if b {
+			set++
+		}
+	}
+	if set > 1 {
+		return nil, invalidConfigErrf("runner: only one of osProcess, systemd or container may be set")
 	}
 	out := &apigen.RunnerConfig{}
 	if hasOS {
@@ -585,6 +646,32 @@ func toRunnerConfig(yr *yamlRunner) (*apigen.RunnerConfig, error) {
 		out.Systemd = apigen.SystemdRunnerConfig{
 			Name:    yr.Systemd.Name,
 			BinPath: yr.Systemd.BinPath,
+		}
+	}
+	if hasContainer {
+		env, err := toEnvVars(yr.Container.Env)
+		if err != nil {
+			return nil, err
+		}
+		var mounts []*apigen.ContainerMount
+		for _, m := range yr.Container.Mounts {
+			if m.Host == "" || m.Container == "" {
+				return nil, invalidConfigErrf("runner.container.mounts: host and container are both required")
+			}
+			mounts = append(mounts, &apigen.ContainerMount{
+				Host:      m.Host,
+				Container: m.Container,
+				Readonly:  m.Readonly,
+			})
+		}
+		out.Container = apigen.ContainerRunnerConfig{
+			User:              yr.Container.User,
+			Env:               env,
+			Command:           yr.Container.Command,
+			WorkingDir:        yr.Container.WorkingDir,
+			DataMountPath:     yr.Container.DataMountPath,
+			DisableDataVolume: yr.Container.DisableDataVolume,
+			Mounts:            mounts,
 		}
 	}
 	return out, nil

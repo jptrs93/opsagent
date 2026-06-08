@@ -1,4 +1,10 @@
-# Worker enrollment (future)
+# Worker enrollment (historical design note)
+
+This document predates the implemented `EnrollmentV1` flow. It is retained as a
+design-history note, not as current operator or API documentation. Current worker
+enrollment uses `/v1/enrollment/request` and `/v1/enrollment/accept`; accepted
+workers write `ca.crt`, `node.crt`, and `node.key` under
+`/var/lib/opendeploy/tls/`.
 
 Design for simplifying worker node onboarding so a new secondary can join the
 cluster with only two pieces of information: the primary's address and the
@@ -6,14 +12,14 @@ primary's TLS cert fingerprint.
 
 ## Motivation
 
-Current worker setup requires:
+At the time this proposal was written, worker setup required:
 
 1. Running `deploy/tls/generate_certs.sh` on the primary to produce `ca.crt`
    and a dedicated `<machine>.crt` / `<machine>.key` pair.
-2. Copying all three files to the worker's `/etc/opsagent/tls/` out-of-band
+2. Copying all three files to the worker's `/var/lib/opendeploy/tls/` out-of-band
    (scp, config management, etc.).
-3. Editing `/etc/opsagent/env` on the worker to set the cert paths and
-   `OPSAGENT_PRIMARY_ADDR`.
+3. Editing `/etc/opendeploy/env` on the worker to set the cert paths and
+   `OPENDEPLOY_PRIMARY_ADDR`.
 
 That's three files and one env edit per worker, all manual. For a small
 cluster this is tolerable; for anything more it's friction and a source of
@@ -42,29 +48,22 @@ a human approves the machine in the primary's web UI.
 - The primary's web UI exposes the primary's cert SHA-256 fingerprint so the
   operator can copy it into the worker installer.
 
-The signing key lives in `/var/lib/opsagent/ca/` on the primary, owned by the
-`opsagent` user, mode 600. At this scale we don't encrypt-at-rest behind the
-master password; that's a future tightening if needed.
+The signing key is stored as internal encrypted secret material on the primary.
 
 ## Enrollment protocol
 
-The cluster mTLS listener (currently `OPSAGENT_CLUSTER_LISTEN`, default
-`:9443`) gains an enrollment branch. We do **not** run a second port — the
-same TLS listener accepts both authenticated (mTLS) cluster traffic and
-unauthenticated enrollment requests. The handler branches on whether the
-client presented a valid client cert:
+The cluster mTLS listener (`OPENDEPLOY_CLUSTER_LISTEN`, default `:9443`) and
+the unauthenticated enrollment listener (`OPENDEPLOY_ENROLLMENT_LISTEN`,
+default `:9444`) start for every primary. Enrollment is intentionally separate
+from the mTLS cluster listener because new workers do not yet have client certs:
 
-- No client cert → only `/enroll/*` endpoints are reachable.
-- Valid client cert → full cluster protocol.
-
-This keeps the firewall surface to a single port and matches how kubeadm's
-kube-apiserver handles bootstrap tokens on the same port as authenticated
-API traffic.
+- Enrollment listener → only enrollment endpoints are reachable.
+- Cluster listener → requires a valid worker client cert for cluster protocol.
 
 ### Worker-side first contact
 
 1. Worker reads `--primary-addr` and `--primary-fingerprint` from its env.
-2. If `/var/lib/opsagent/tls/node.crt` already exists, skip enrollment and
+2. If `/var/lib/opendeploy/tls/node.crt` already exists, skip enrollment and
    connect directly on the mTLS channel. (Idempotent — reruns are safe.)
 3. Otherwise, dial `--primary-addr` with TLS `InsecureSkipVerify: true` plus
    a custom `VerifyConnection` callback that computes the SHA-256 of the
@@ -84,7 +83,7 @@ API traffic.
    - the cluster CA cert (`ca.crt`)
    - any bootstrap secrets the worker needs (GitHub token, etc.)
 7. Worker writes `ca.crt`, `node.crt`, and its private key to
-   `/var/lib/opsagent/tls/`, mode 600, then connects on the mTLS channel.
+   `/var/lib/opendeploy/tls/`, then connects on the mTLS channel.
    From that point on, step 2 short-circuits future reconnects.
 
 ### Primary-side approval
@@ -150,12 +149,12 @@ Workers hold secrets in memory only; no on-disk copy. Restart → reconnect
 
 ## Installer changes
 
-- `ubuntu_server_install.sh` stays the primary installer, unchanged.
-- New `ubuntu_worker_install.sh` (thin variant):
-  - required flags: `--primary-addr`, `--primary-fingerprint`
-  - creates the `opsagent` user, data dir, sudoers, unit file (same as primary)
-  - writes `/etc/opsagent/env` with `OPSAGENT_PRIMARY_ADDR` and
-    `OPSAGENT_PRIMARY_FINGERPRINT` set, everything else blank
+- `opendeploy install` stays the primary installer, unchanged.
+- Worker install: `opendeploy install` grows a worker mode via flags
+  (`--primary-addr`, `--primary-fingerprint`):
+  - creates the `opendeploy` user, data dir, sudoers, unit file (same as primary)
+  - writes `/etc/opendeploy/env` with `OPENDEPLOY_PRIMARY_ADDR` and
+    `OPENDEPLOY_PRIMARY_FINGERPRINT` set, everything else blank
   - starts the service immediately — no manual config step, since first-contact
     enrollment blocks in-process until the operator approves
 
@@ -171,12 +170,12 @@ Rough inventory of what this implies in `backend/`:
 - `handler/`: machines API (list pending / list active / approve / deny /
   rename).
 - `frontend/`: Machines tab with pending + active sections and approve flow.
-- `ainit/`: new env vars `OPSAGENT_PRIMARY_FINGERPRINT`, signing-key path.
+- `ainit/`: new env vars `OPENDEPLOY_PRIMARY_FINGERPRINT`, signing-key path.
 
 ## Open questions
 
 - **Signing key at rest.** Plaintext file vs. encrypted behind the master
-  password. Starting plaintext (mode 600 under the `opsagent` user) is fine
+  password. Starting plaintext (mode 600 under the `opendeploy` user) is fine
   for v1; revisit if we add a threat model where disk compromise matters.
 - **Multi-primary / HA.** Current design assumes a single primary holds the
   CA. If we ever need HA, the CA becomes a coordination problem. Out of

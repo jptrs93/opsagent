@@ -130,6 +130,12 @@ service OpsagentHttpV1 {
   rpc PostV1SecretsUnlock(SecretUnlockRequest) returns (SecretsStatusResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
+
+  // Accept a connected worker's pending enrollment request and issue its
+  // cluster client certificate using the operator-chosen machine name.
+  rpc PostV1EnrollmentAccept(EnrollmentAcceptRequest) returns (EnrollmentRequestStatus) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
 }
 
 // OpsagentClusterV1 is the primary↔worker cluster transport. It is served on
@@ -146,6 +152,52 @@ service OpsagentClusterV1 {
   rpc PostV1ClusterConnect(stream MsgToMaster) returns (stream MsgToWorker) {
     option (cp.policy) = { policy_type: NO_AUTH };
   }
+}
+
+// EnrollmentV1 is the unauthenticated bootstrap surface for machines that do
+// not yet have a cluster client certificate. A worker opens a stream here and
+// waits until the primary operator enrolls it into the mTLS cluster.
+service EnrollmentV1 {
+  rpc PostV1EnrollmentRequest(stream EnrollmentWorkerMsg) returns (stream EnrollmentPrimaryMsg) {
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+}
+
+// === Enrollment messages ===
+
+message EnrollmentWorkerMsg {
+  EnrollmentHello hello = 1;
+}
+
+message EnrollmentHello {
+  string requesting_machine_id = 1;        // stable worker-generated ID; not the operator-chosen worker name
+}
+
+message EnrollmentPrimaryMsg {
+  EnrollmentRequestStatus request_status = 1;
+  EnrollmentAccepted accepted = 2;
+}
+
+message EnrollmentRequestStatus {
+  int32 id = 1;
+  int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int64 updated_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  string requesting_ip_address = 4;
+  string requesting_machine_id = 5;
+  string status = 6; // waiting | disconnected | accepted
+}
+
+message EnrollmentAcceptRequest {
+  int32 id = 1;
+  string worker_name = 2;
+}
+
+message EnrollmentAccepted {
+  int32 id = 1;
+  string worker_name = 2;
+  bytes ca_certificate = 3;
+  bytes worker_certificate = 4;
+  bytes worker_private_key = 5;
 }
 
 // === Auth messages ===
@@ -237,14 +289,20 @@ message GithubReleaseConfig {
   string download_script = 4; // optional bash script run instead of downloading an asset; receives the version tag as $1, runs in the download dir
 }
 
+message ContainerImageConfig {
+  string image = 1; // image repository ref, e.g. "docker.io/library/nginx". The
+                    // version tag/digest comes from DesiredState.Version.
+}
+
 message PrepareConfig {
   NixBuildConfig nix_build = 1 [(cp.go_value) = true];
   GithubReleaseConfig github_release = 2 [(cp.go_value) = true];
+  ContainerImageConfig container_image = 3 [(cp.go_value) = true];
 }
 
 message OsProcessRunnerConfig {
   string working_dir = 1;
-  string run_as = 2; // OS user to run the deployment process as (default: "ubuntu", ignored in local dev)
+  string run_as = 2; // OS user to run the deployment process as (default: "ubuntu")
   string strategy = 3; // "leavePrevious": skip terminating the old process on upgrade (app handles its own rollover)
   repeated EnvVar env = 4; // environment variables set on the spawned process
 }
@@ -259,9 +317,26 @@ message SystemdRunnerConfig {
   string bin_path = 2; // where the artifact is installed on disk
 }
 
+message ContainerMount {
+  string host = 1;      // host path (must already exist; opsagent does not create these)
+  string container = 2; // destination path inside the container
+  bool readonly = 3;
+}
+
+message ContainerRunnerConfig {
+  string user = 1;             // OCI process.user (uid, uid:gid, or name); empty = image default
+  repeated EnvVar env = 2;     // env vars; ${name} secrets resolved at start
+  repeated string command = 3; // optional argv override (entrypoint+cmd); empty = image default
+  string working_dir = 4;      // optional OCI process.cwd; empty = image default
+  string data_mount_path = 5;  // override the default data-volume mount point inside the container
+  bool disable_data_volume = 6;// opt out of the default per-deployment data volume
+  repeated ContainerMount mounts = 7; // additional host bind mounts
+}
+
 message RunnerConfig {
   OsProcessRunnerConfig os_process = 1 [(cp.go_value) = true];
   SystemdRunnerConfig systemd = 2 [(cp.go_value) = true];
+  ContainerRunnerConfig container = 3 [(cp.go_value) = true];
 }
 
 
@@ -282,6 +357,7 @@ enum PreparationStatus {
   DOWNLOADING = 3;
   READY = 4;
   FAILED = 5;
+  PULLING = 6; // pulling a container image into the content store
 }
 
 // State is the UI stream envelope. The primary emits an initial snapshot

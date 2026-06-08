@@ -93,6 +93,7 @@ type OpsagentHttpV1Handler interface {
 	PostV1SecretsStatus(Context, *EmptyRequest) (*SecretsStatusResponse, error)
 	PostV1SecretsGenerateRecoveryCode(Context, *EmptyRequest) (*SecretRecoveryCodeResponse, error)
 	PostV1SecretsUnlock(Context, *SecretUnlockRequest) (*SecretsStatusResponse, error)
+	PostV1EnrollmentAccept(Context, *EnrollmentAcceptRequest) (*EnrollmentRequestStatus, error)
 }
 
 func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.ServeMux {
@@ -369,6 +370,17 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/secrets/unlock", buildHandlerFunc(config, verifyAuth, postV1SecretsUnlockAccessPolicy, postAuthHandlerPostV1SecretsUnlock, compressionModeAuto, false))
+	postV1EnrollmentAcceptAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1EnrollmentAccept := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEnrollmentAcceptRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1EnrollmentAccept(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/enrollment/accept", buildHandlerFunc(config, verifyAuth, postV1EnrollmentAcceptAccessPolicy, postAuthHandlerPostV1EnrollmentAccept, compressionModeAuto, false))
 	return m
 }
 
@@ -427,5 +439,63 @@ func CreateOpsagentClusterV1Mux(h OpsagentClusterV1Handler, config *MuxConfig) *
 		stream.Finish(authCtx, streamErr)
 	}
 	m.HandleFunc("POST /v1/cluster/connect", buildHandlerFunc(config, verifyAuth, postV1ClusterConnectAccessPolicy, postAuthHandlerPostV1ClusterConnect, compressionModeAuto, true))
+	return m
+}
+
+type EnrollmentV1Handler interface {
+	PostV1EnrollmentRequest(Context, iter.Seq2[*EnrollmentWorkerMsg, error]) iter.Seq2[*EnrollmentPrimaryMsg, error]
+}
+
+func CreateEnrollmentV1Mux(h EnrollmentV1Handler, config *MuxConfig) *http.ServeMux {
+	if config == nil {
+		config = &MuxConfig{}
+	}
+	verifyAuth := config.VerifyAuth
+	if verifyAuth == nil {
+		verifyAuth = func(ctx context.Context, _ http.ResponseWriter, _ *http.Request, _ AccessPolicy) (Context, error) {
+			var authCtx Context
+			return authCtx, nil
+		}
+	}
+	m := http.NewServeMux()
+	postV1EnrollmentRequestAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerPostV1EnrollmentRequest := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		sr := NewStreamReader(r.Body, config.MaxRequestBodySize)
+		reqSeq := func(yield func(*EnrollmentWorkerMsg, error) bool) {
+			for {
+				payload, ok, err := sr.Next()
+				if err != nil {
+					yield(nil, err)
+					return
+				}
+				if !ok {
+					return
+				}
+				req, err := DecodeEnrollmentWorkerMsg(payload)
+				if err != nil {
+					yield(nil, err)
+					return
+				}
+				if !yield(req, nil) {
+					return
+				}
+			}
+		}
+		respSeq := h.PostV1EnrollmentRequest(authCtx, reqSeq)
+		stream := NewStreamWriter(w)
+		var streamErr error
+		for resp, yieldErr := range respSeq {
+			if yieldErr != nil {
+				streamErr = fmt.Errorf("streaming err: %w", yieldErr)
+				break
+			}
+			if werr := stream.Write(resp.Encode()); werr != nil {
+				streamErr = fmt.Errorf("writing stream resp: %w", werr)
+				break
+			}
+		}
+		stream.Finish(authCtx, streamErr)
+	}
+	m.HandleFunc("POST /v1/enrollment/request", buildHandlerFunc(config, verifyAuth, postV1EnrollmentRequestAccessPolicy, postAuthHandlerPostV1EnrollmentRequest, compressionModeAuto, true))
 	return m
 }

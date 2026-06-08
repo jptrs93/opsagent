@@ -552,7 +552,7 @@ func (q *Queries) ListSecretKeyslots(ctx context.Context) ([]SecretKeyslot, erro
 
 const listSecrets = `-- name: ListSecrets :many
 
-SELECT name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
+SELECT name, secret_group, internal, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
 FROM secrets ORDER BY name
 `
 
@@ -569,6 +569,7 @@ func (q *Queries) ListSecrets(ctx context.Context) ([]Secret, error) {
 		if err := rows.Scan(
 			&i.Name,
 			&i.SecretGroup,
+			&i.Internal,
 			&i.SmkVersion,
 			&i.Ciphertext,
 			&i.Nonce,
@@ -760,10 +761,11 @@ func (q *Queries) UpsertPublicKey(ctx context.Context, arg UpsertPublicKeyParams
 }
 
 const upsertSecret = `-- name: UpsertSecret :exec
-INSERT INTO secrets (name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO secrets (name, secret_group, internal, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(name) DO UPDATE SET
     secret_group = excluded.secret_group,
+    internal = excluded.internal,
     smk_version = excluded.smk_version,
     ciphertext = excluded.ciphertext,
     nonce = excluded.nonce,
@@ -774,6 +776,7 @@ ON CONFLICT(name) DO UPDATE SET
 type UpsertSecretParams struct {
 	Name        string
 	SecretGroup string
+	Internal    int64
 	SmkVersion  int64
 	Ciphertext  []byte
 	Nonce       []byte
@@ -786,6 +789,7 @@ func (q *Queries) UpsertSecret(ctx context.Context, arg UpsertSecretParams) erro
 	_, err := q.db.ExecContext(ctx, upsertSecret,
 		arg.Name,
 		arg.SecretGroup,
+		arg.Internal,
 		arg.SmkVersion,
 		arg.Ciphertext,
 		arg.Nonce,

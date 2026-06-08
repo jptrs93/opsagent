@@ -11,14 +11,14 @@ Key files:
 
 ## Single-user model
 
-Opsagent is a single-admin tool. The `User` proto exposes `{id, name}` to the UI for audit display. The full `InternalUser` record (with WebAuthn ID and credentials) is stored in the SQLite `users` table keyed by integer id. The first user is created automatically when the master password is used for the first time.
+OpenDeploy is a single-admin tool. The `User` proto exposes `{id, name}` to the UI for audit display. The full `InternalUser` record (with WebAuthn ID and credentials) is stored in the SQLite `users` table keyed by integer id. The first user is created automatically when the master password is used for the first time.
 
 ## Master password bootstrap
 
-The master password is provisioned via the `OPSAGENT_MASTER_PASSWORD_HASH` environment variable, which holds an argon2id hash produced by `authu.HashPassword`. It is used only to obtain a short-lived token for passkey registration.
+The master password is provisioned via the `OPENDEPLOY_MASTER_PASSWORD_HASH` environment variable, which holds an argon2id hash produced by `authu.HashPassword`. It is used only to obtain a short-lived token for passkey registration.
 
 ### Flow (`POST /v1/auth/master`)
-1. Verify the request password against `OPSAGENT_MASTER_PASSWORD_HASH` using `authu.VerifyPassword` (constant-time comparison).
+1. Verify the request password against `OPENDEPLOY_MASTER_PASSWORD_HASH` using `authu.VerifyPassword` (constant-time comparison).
 2. If no user exists, create one with a new UUID v7.
 3. Return a JWT with `scopes: ["passkey:create"]` and 10-minute expiry.
 
@@ -46,8 +46,8 @@ Passkeys use the FIDO2/WebAuthn standard via `github.com/go-webauthn/webauthn`. 
 
 ### Relying party configuration
 
-- Local dev (`OPSAGENT_LOCAL_DEV=true`): RPID is `localhost`, origin is `http://localhost:5173`.
-- Production: RPID is the first value from `OPSAGENT_ACME_HOSTS` (default `opsagent.dev`), origins are HTTPS versions of all configured hosts.
+- `OPENDEPLOY_HTTP_ONLY=true`: RPID is `localhost`, origin is `http://localhost:5173`.
+- Otherwise, RPID is the first value from `OPENDEPLOY_ACME_HOSTS` (default `opendeploy.dev`), origins are HTTPS versions of all configured hosts.
 
 ### Registration flow
 

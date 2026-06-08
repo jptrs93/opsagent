@@ -29,8 +29,9 @@ type PrepareWrapper struct{}
 // starts. StartPrepare dispatches through them so the operator does not need
 // to hold references to the variant instances.
 var (
-	Nix   *NixBuilder
-	GHRel *GithubReleaseDownloader
+	Nix          *NixBuilder
+	GHRel        *GithubReleaseDownloader
+	ContainerImg *ContainerImagePuller
 )
 
 // StartPrepare kicks off a fresh preparation for dep's current desired
@@ -41,7 +42,7 @@ func StartPrepare(store storage.OperatorStore, dep *apigen.DeploymentConfig) Pre
 }
 
 // ReAttach resumes observation of a preparation that was in flight before
-// opsagent last shut down. Preparations are not resumable: if the previous
+// opendeploy last shut down. Preparations are not resumable: if the previous
 // run reached READY for this SeqNo we return a no-op handle, otherwise we
 // start a fresh preparation.
 func ReAttach(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.PreparerStatus) Preparer {
@@ -73,6 +74,9 @@ func startFor(store storage.OperatorStore, dep *apigen.DeploymentConfig) Prepare
 	case hasGithubRelease(dep):
 		slog.Info("preparer.startFor: dispatching githubRelease", "deploymentConfigVersion", dep.Version)
 		return GHRel.start(store, dep)
+	case hasContainerImage(dep):
+		slog.Info("preparer.startFor: dispatching containerImage", "deploymentConfigVersion", dep.Version)
+		return ContainerImg.start(store, dep)
 	}
 	slog.Warn("preparer.startFor: no prepare config found, marking FAILED", "deploymentConfigVersion", dep.Version)
 	writePrepareStatus(store, dep, "", apigen.PreparationStatus_FAILED)
@@ -85,6 +89,10 @@ func hasNixBuild(dep *apigen.DeploymentConfig) bool {
 
 func hasGithubRelease(dep *apigen.DeploymentConfig) bool {
 	return !dep.Spec.Prepare.GithubRelease.IsZero()
+}
+
+func hasContainerImage(dep *apigen.DeploymentConfig) bool {
+	return !dep.Spec.Prepare.ContainerImage.IsZero()
 }
 
 // activePreparer is the handle shared by the nix + github variants: ctx owns

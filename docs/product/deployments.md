@@ -2,7 +2,7 @@
 
 ## Overview
 
-Opsagent manages deployment configurations and deployment lifecycles. Users
+OpenDeploy manages deployment configurations and deployment lifecycles. Users
 create each deployment individually with a per-deployment YAML spec. The
 system fetches available versions (git commits for nix builds, tag names
 for github releases) on demand, prepares artifacts (builds or downloads),
@@ -43,7 +43,8 @@ cannot be changed through this path.
 | Variant | Fields | Description |
 |---|---|---|
 | `nixBuild` | `repo`, `flake`, `outputExecutable` | Clones the repo, checks out the desired version, runs `nix build`, and resolves the executable from the result. If `outputExecutable` is set, it selects that binary from `bin/`; otherwise it requires exactly one executable output. |
-| `githubRelease` | `repo`, `asset`, `tag` | Fetches the given release from GitHub (using `OPSAGENT_GITHUB_TOKEN` for private repos) and downloads the named asset (or the first asset if unset) to `{dataDir}/releases/{owner}/{repo}/{tag}/{asset}`. |
+| `githubRelease` | `repo`, `asset`, `tag` | Fetches the given release from GitHub (using `OPENDEPLOY_GITHUB_TOKEN` for private repos) and downloads the named asset (or the first asset if unset) to `{dataDir}-releases/{owner}/{repo}/{tag}/{asset}`. |
+| `containerImage` | `image` | Pulls `image:version` (version is the desired tag/digest) into containerd's content store and unpacks it. Phase 1 pulls anonymously — no registry credentials. Must be paired with the `container` runner. |
 
 ### Runner variants
 
@@ -51,6 +52,7 @@ cannot be changed through this path.
 |---|---|---|
 | `osProcess` *(default)* | `workingDir`, `runAs`, `strategy` | Spawns the artifact as a detached daemon via `fork/exec` with `setsid`. The runner monitors the process directly and restarts it on crashes with exponential backoff. Used when no `runner` block is set. `strategy: "leavePrevious"` skips terminating the old process on upgrade for apps with built-in rollover. |
 | `systemd` | `name`, `binPath` | Installs the artifact into `binPath` via atomic symlink and runs `systemctl restart <name>`. Polls `systemctl is-active` for lifecycle state. Systemd owns process-level restarts. |
+| `container` | `user`, `env`, `command`, `workingDir`, `dataMountPath`, `disableDataVolume`, `mounts` | Runs the pulled image as a container via containerd (host networking, opendeploy-supervised with the same crash/backoff loop as `osProcess`). Every container gets a default per-deployment host data volume bind-mounted at `/data` (or `/home/<user>/data` when `user` is set; override with `dataMountPath`, opt out with `disableDataVolume`). `user` maps to the in-container OS user. Requires the `containerImage` prepare. Linux only. |
 
 ### Config versioning
 
@@ -87,7 +89,7 @@ Each deployment has an integer `id` (primary key) assigned when the deployment i
 ## Deployment status display
 
 The status page shows one card per deployment, sorted with
-OPSAGENT_SYSTEM last, then by environment, name, machine, and id. Each
+OPENDEPLOY_SYSTEM last, then by environment, name, machine, and id. Each
 card carries a per-environment tinted background and displays:
 
 - Deployment name with history link
@@ -124,7 +126,7 @@ resets on new deployments. If the process runs stably for 15+ seconds before
 crashing, the local crash counter is reset — preventing permanent escalation
 from occasional crashes.
 
-The `systemd` runner leaves crash recovery to systemd itself. Opsagent just
+The `systemd` runner leaves crash recovery to systemd itself. OpenDeploy just
 polls `systemctl is-active` and writes the observed state.
 
 ## Deployment history

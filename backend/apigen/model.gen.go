@@ -26,6 +26,7 @@ const (
 	PreparationStatus_DOWNLOADING                PreparationStatus = 3
 	PreparationStatus_READY                      PreparationStatus = 4
 	PreparationStatus_FAILED                     PreparationStatus = 5
+	PreparationStatus_PULLING                    PreparationStatus = 6
 )
 
 type AccessPolicyType int32
@@ -36,6 +37,280 @@ const (
 	AccessPolicyType_OPTIONAL_AUTH                  AccessPolicyType = 2
 	AccessPolicyType_ANY_OF                         AccessPolicyType = 3
 )
+
+type EnrollmentWorkerMsg struct {
+	Hello *EnrollmentHello
+}
+
+func (m *EnrollmentWorkerMsg) Encode() []byte {
+	var b []byte
+	if m.Hello != nil {
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.Hello.Encode())
+	}
+	return b
+}
+
+func DecodeEnrollmentWorkerMsg(b []byte) (*EnrollmentWorkerMsg, error) {
+	var m EnrollmentWorkerMsg
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *EnrollmentHello
+				item, err = DecodeEnrollmentHello(msgBytes)
+				if err == nil {
+					m.Hello = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type EnrollmentHello struct {
+	RequestingMachineID string
+}
+
+func (m *EnrollmentHello) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.RequestingMachineID, 1)
+	return b
+}
+
+func DecodeEnrollmentHello(b []byte) (*EnrollmentHello, error) {
+	var m EnrollmentHello
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.RequestingMachineID, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type EnrollmentPrimaryMsg struct {
+	RequestStatus *EnrollmentRequestStatus
+	Accepted      *EnrollmentAccepted
+}
+
+func (m *EnrollmentPrimaryMsg) Encode() []byte {
+	var b []byte
+	if m.RequestStatus != nil {
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.RequestStatus.Encode())
+	}
+	if m.Accepted != nil {
+		b = protowire.AppendTag(b, 2, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.Accepted.Encode())
+	}
+	return b
+}
+
+func DecodeEnrollmentPrimaryMsg(b []byte) (*EnrollmentPrimaryMsg, error) {
+	var m EnrollmentPrimaryMsg
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *EnrollmentRequestStatus
+				item, err = DecodeEnrollmentRequestStatus(msgBytes)
+				if err == nil {
+					m.RequestStatus = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *EnrollmentAccepted
+				item, err = DecodeEnrollmentAccepted(msgBytes)
+				if err == nil {
+					m.Accepted = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type EnrollmentRequestStatus struct {
+	ID                  int32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	RequestingIpAddress string
+	RequestingMachineID string
+	Status              string
+}
+
+func (m *EnrollmentRequestStatus) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt64FromTime(b, m.CreatedAt, 2)
+	b = AppendInt64FromTime(b, m.UpdatedAt, 3)
+	b = AppendStringField(b, m.RequestingIpAddress, 4)
+	b = AppendStringField(b, m.RequestingMachineID, 5)
+	b = AppendStringField(b, m.Status, 6)
+	return b
+}
+
+func DecodeEnrollmentRequestStatus(b []byte) (*EnrollmentRequestStatus, error) {
+	var m EnrollmentRequestStatus
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 4:
+			b, m.RequestingIpAddress, err = ConsumeString(b, typ)
+		case 5:
+			b, m.RequestingMachineID, err = ConsumeString(b, typ)
+		case 6:
+			b, m.Status, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type EnrollmentAcceptRequest struct {
+	ID         int32
+	WorkerName string
+}
+
+func (m *EnrollmentAcceptRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendStringField(b, m.WorkerName, 2)
+	return b
+}
+
+func DecodeEnrollmentAcceptRequest(b []byte) (*EnrollmentAcceptRequest, error) {
+	var m EnrollmentAcceptRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.WorkerName, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type EnrollmentAccepted struct {
+	ID                int32
+	WorkerName        string
+	CaCertificate     []byte
+	WorkerCertificate []byte
+	WorkerPrivateKey  []byte
+}
+
+func (m *EnrollmentAccepted) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendStringField(b, m.WorkerName, 2)
+	b = AppendBytesField(b, m.CaCertificate, 3)
+	b = AppendBytesField(b, m.WorkerCertificate, 4)
+	b = AppendBytesField(b, m.WorkerPrivateKey, 5)
+	return b
+}
+
+func DecodeEnrollmentAccepted(b []byte) (*EnrollmentAccepted, error) {
+	var m EnrollmentAccepted
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.WorkerName, err = ConsumeString(b, typ)
+		case 3:
+			b, m.CaCertificate, err = ConsumeBytesCopy(b, typ)
+		case 4:
+			b, m.WorkerCertificate, err = ConsumeBytesCopy(b, typ)
+		case 5:
+			b, m.WorkerPrivateKey, err = ConsumeBytesCopy(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
 
 type EmptyRequest struct {
 }
@@ -668,14 +943,53 @@ func DecodeGithubReleaseConfig(b []byte) (*GithubReleaseConfig, error) {
 	return &m, nil
 }
 
+type ContainerImageConfig struct {
+	Image string
+}
+
+func (m ContainerImageConfig) IsZero() bool {
+	return m.Image == ""
+}
+
+func (m *ContainerImageConfig) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Image, 1)
+	return b
+}
+
+func DecodeContainerImageConfig(b []byte) (*ContainerImageConfig, error) {
+	var m ContainerImageConfig
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Image, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type PrepareConfig struct {
-	NixBuild      NixBuildConfig
-	GithubRelease GithubReleaseConfig
+	NixBuild       NixBuildConfig
+	GithubRelease  GithubReleaseConfig
+	ContainerImage ContainerImageConfig
 }
 
 func (m PrepareConfig) IsZero() bool {
 	return m.NixBuild.IsZero() &&
-		m.GithubRelease.IsZero()
+		m.GithubRelease.IsZero() &&
+		m.ContainerImage.IsZero()
 }
 
 func (m *PrepareConfig) Encode() []byte {
@@ -687,6 +1001,10 @@ func (m *PrepareConfig) Encode() []byte {
 	if !m.GithubRelease.IsZero() {
 		b = protowire.AppendTag(b, 2, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.GithubRelease.Encode())
+	}
+	if !m.ContainerImage.IsZero() {
+		b = protowire.AppendTag(b, 3, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.ContainerImage.Encode())
 	}
 	return b
 }
@@ -719,6 +1037,15 @@ func DecodePrepareConfig(b []byte) (*PrepareConfig, error) {
 				item, err = DecodeGithubReleaseConfig(msgBytes)
 				if err == nil {
 					m.GithubRelease = *item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ContainerImageConfig
+				item, err = DecodeContainerImageConfig(msgBytes)
+				if err == nil {
+					m.ContainerImage = *item
 				}
 			}
 		default:
@@ -876,14 +1203,155 @@ func DecodeSystemdRunnerConfig(b []byte) (*SystemdRunnerConfig, error) {
 	return &m, nil
 }
 
+type ContainerMount struct {
+	Host      string
+	Container string
+	Readonly  bool
+}
+
+func (m *ContainerMount) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Host, 1)
+	b = AppendStringField(b, m.Container, 2)
+	b = AppendBoolField(b, m.Readonly, 3)
+	return b
+}
+
+func DecodeContainerMount(b []byte) (*ContainerMount, error) {
+	var m ContainerMount
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Host, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Container, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Readonly, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ContainerRunnerConfig struct {
+	User              string
+	Env               []*EnvVar
+	Command           []string
+	WorkingDir        string
+	DataMountPath     string
+	DisableDataVolume bool
+	Mounts            []*ContainerMount
+}
+
+func (m ContainerRunnerConfig) IsZero() bool {
+	return m.User == "" &&
+		len(m.Env) == 0 &&
+		len(m.Command) == 0 &&
+		m.WorkingDir == "" &&
+		m.DataMountPath == "" &&
+		m.DisableDataVolume == false &&
+		len(m.Mounts) == 0
+}
+
+func (m *ContainerRunnerConfig) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.User, 1)
+	for _, item := range m.Env {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 2, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	b = AppendRepeated(b, m.Command, AppendFieldDecorator(AppendStringField, 3))
+	b = AppendStringField(b, m.WorkingDir, 4)
+	b = AppendStringField(b, m.DataMountPath, 5)
+	b = AppendBoolField(b, m.DisableDataVolume, 6)
+	for _, item := range m.Mounts {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 7, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeContainerRunnerConfig(b []byte) (*ContainerRunnerConfig, error) {
+	var m ContainerRunnerConfig
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.User, err = ConsumeString(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *EnvVar
+				item, err = DecodeEnvVar(msgBytes)
+				if err == nil {
+					m.Env = append(m.Env, item)
+				}
+			}
+		case 3:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Command = append(m.Command, item)
+			}
+		case 4:
+			b, m.WorkingDir, err = ConsumeString(b, typ)
+		case 5:
+			b, m.DataMountPath, err = ConsumeString(b, typ)
+		case 6:
+			b, m.DisableDataVolume, err = ConsumeBool(b, typ)
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ContainerMount
+				item, err = DecodeContainerMount(msgBytes)
+				if err == nil {
+					m.Mounts = append(m.Mounts, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type RunnerConfig struct {
 	OsProcess OsProcessRunnerConfig
 	Systemd   SystemdRunnerConfig
+	Container ContainerRunnerConfig
 }
 
 func (m RunnerConfig) IsZero() bool {
 	return m.OsProcess.IsZero() &&
-		m.Systemd.IsZero()
+		m.Systemd.IsZero() &&
+		m.Container.IsZero()
 }
 
 func (m *RunnerConfig) Encode() []byte {
@@ -895,6 +1363,10 @@ func (m *RunnerConfig) Encode() []byte {
 	if !m.Systemd.IsZero() {
 		b = protowire.AppendTag(b, 2, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.Systemd.Encode())
+	}
+	if !m.Container.IsZero() {
+		b = protowire.AppendTag(b, 3, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.Container.Encode())
 	}
 	return b
 }
@@ -927,6 +1399,15 @@ func DecodeRunnerConfig(b []byte) (*RunnerConfig, error) {
 				item, err = DecodeSystemdRunnerConfig(msgBytes)
 				if err == nil {
 					m.Systemd = *item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ContainerRunnerConfig
+				item, err = DecodeContainerRunnerConfig(msgBytes)
+				if err == nil {
+					m.Container = *item
 				}
 			}
 		default:

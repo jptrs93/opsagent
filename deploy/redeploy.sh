@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 #
-# Redeploy opsagent by symlinking a new nix build output into the service's
+# Redeploy opendeploy by symlinking a new nix build output into the service's
 # binary path and restarting the systemd service.
 #
-# Usage: ./redeploy.sh /nix/store/...-opsagent/bin/opsagent
+# Usage: ./redeploy.sh /nix/store/...-opendeploy/bin/opendeploy
 #
-# This script is designed to be run by the opsagent user (which has sudoers
+# This script is designed to be run by the opendeploy user (which has sudoers
 # permission to restart its own service). It can also be run as root.
 #
 set -euo pipefail
 
-BIN_PATH="/var/lib/opsagent/bin/opsagent"
-SERVICE_NAME="opsagent.service"
+BIN_PATH="/var/lib/opendeploy/bin/opendeploy"
+SERVICE_NAME="opendeploy.service"
 
 if [ $# -lt 1 ]; then
     echo "Usage: $0 <path-to-new-binary>" >&2

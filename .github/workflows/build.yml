@@ -78,12 +78,12 @@ jobs:
             echo "invalid version tag: $VERSION" >&2
             exit 1
           fi
-          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "opsagent-linux-${GOARCH}" .
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "opendeploy-linux-${GOARCH}" .
 
       - uses: actions/upload-artifact@v4
         with:
-          name: opsagent-linux-${{ matrix.arch }}
-          path: backend/opsagent-linux-${{ matrix.arch }}
+          name: opendeploy-linux-${{ matrix.arch }}
+          path: backend/opendeploy-linux-${{ matrix.arch }}
           if-no-files-found: error
 
   release:
@@ -100,14 +100,14 @@ jobs:
 
       - name: Generate checksums
         working-directory: dist
-        run: sha256sum opsagent-linux-* > sha256sums.txt
+        run: sha256sum opendeploy-linux-* > sha256sums.txt
 
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: |
-            dist/opsagent-linux-amd64
-            dist/opsagent-linux-arm64
+            dist/opendeploy-linux-amd64
+            dist/opendeploy-linux-arm64
             dist/sha256sums.txt
           fail_on_unmatched_files: true
           generate_release_notes: true

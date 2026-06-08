@@ -70,17 +70,17 @@ func (h *Handler) initPasskeyService() error {
 }
 
 func passkeyRPID() string {
-	if ainit.Config.IsLocalDev == "true" {
+	if ainit.Config.HTTPOnly {
 		return "localhost"
 	}
 	if len(ainit.Config.AcmeHosts) == 0 || strings.TrimSpace(ainit.Config.AcmeHosts[0]) == "" {
-		return "opsagent.dev"
+		return "opendeploy.dev"
 	}
 	return strings.TrimSpace(ainit.Config.AcmeHosts[0])
 }
 
 func passkeyOrigins() []string {
-	if ainit.Config.IsLocalDev == "true" {
+	if ainit.Config.HTTPOnly {
 		return []string{"http://localhost:5173"}
 	}
 	origins := make([]string, 0, len(ainit.Config.AcmeHosts))
@@ -92,7 +92,7 @@ func passkeyOrigins() []string {
 		origins = append(origins, "https://"+host)
 	}
 	if len(origins) == 0 {
-		return []string{"https://opsagent.dev"}
+		return []string{"https://opendeploy.dev"}
 	}
 	return origins
 }

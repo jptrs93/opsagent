@@ -6,6 +6,8 @@ import {
   decodeDeploymentHistory,
   decodeDeploymentVersions,
   decodeDesiredState,
+  decodeEnrollmentPrimaryMsg,
+  decodeEnrollmentRequestStatus,
   decodeLoginResponse,
   decodeMsgToWorker,
   decodeRepoValidateResponse,
@@ -21,6 +23,8 @@ import {
   encodeDeploymentUpdateRequest,
   encodeDeploymentVersionsRequest,
   encodeEmptyRequest,
+  encodeEnrollmentAcceptRequest,
+  encodeEnrollmentWorkerMsg,
   encodeGithubAssetValidateRequest,
   encodeMasterPasswordRequest,
   encodeMsgToMaster,
@@ -413,6 +417,18 @@ export class Capi {
   }
 
   /**
+   * @param {EnrollmentAcceptRequest} payload
+   * @returns {Promise<EnrollmentRequestStatus>}
+   */
+  async postV1EnrollmentAccept(payload) {
+    const response = await this.#request("/v1/enrollment/accept", { method: 'POST', body: encodeEnrollmentAcceptRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeEnrollmentRequestStatus(await response.arrayBuffer());
+  }
+
+  /**
    * @param {AsyncIterable<MsgToMaster>} stream
    * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {AsyncIterable<MsgToWorker>}
@@ -426,6 +442,24 @@ export class Capi {
           return self.errorHandler(response);
         }
         yield* readLengthPrefixedFrames(response.body, decodeMsgToWorker);
+      },
+    };
+  }
+
+  /**
+   * @param {AsyncIterable<EnrollmentWorkerMsg>} stream
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {AsyncIterable<EnrollmentPrimaryMsg>}
+   */
+  postV1EnrollmentRequest(stream, options = {}) {
+    const self = this;
+    return {
+      [Symbol.asyncIterator]: async function* () {
+        const response = await self.#request('/v1/enrollment/request', { method: 'POST', body: writeLengthPrefixedFrames(stream, encodeEnrollmentWorkerMsg), signal: options.signal, contentType: 'application/protobuf-stream', duplex: 'half' });
+        if (!response.ok) {
+          return self.errorHandler(response);
+        }
+        yield* readLengthPrefixedFrames(response.body, decodeEnrollmentPrimaryMsg);
       },
     };
   }

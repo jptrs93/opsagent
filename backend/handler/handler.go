@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine"
+	"github.com/jptrs93/opsagent/backend/engine/ctrd"
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
 	"github.com/jptrs93/opsagent/backend/engine/runner"
 	"github.com/jptrs93/opsagent/backend/engine/versionprovider"
@@ -41,6 +43,9 @@ type Handler struct {
 	// handlers to proxy log requests to remote workers. Nil in standalone
 	// or slave mode.
 	ClusterPrimary *primary.Primary
+
+	enrollmentMu       sync.Mutex
+	enrollmentSessions map[int32]*enrollmentSession
 }
 
 func (h *Handler) Get(ctx apigen.Context, request *http.Request, writer http.ResponseWriter) error {
@@ -81,6 +86,12 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	preparer.Nix = preparer.NewNixBuilder(ainit.Config.DataDir, ainit.Config.GithubToken)
 	preparer.GHRel = preparer.NewGithubReleaseDownloader(ainit.Config.DataDir, ainit.Config.GithubToken)
 
+	// Shared containerd client for the container image preparer and runner. It
+	// connects lazily, so opendeploy still starts on hosts without containerd.
+	ctrdClient := ctrd.Connect(ainit.Config.ContainerdAddress, ainit.Config.ContainerdNamespace)
+	preparer.ContainerImg = preparer.NewContainerImagePuller(ctrdClient)
+	runner.Containerd = ctrdClient
+
 	versionprovider.Git = versionprovider.NewGitVersionProvider(preparer.Nix.Git)
 	versionprovider.GHRel = versionprovider.NewGithubReleaseVersionProvider(ainit.Config.GithubToken)
 
@@ -93,10 +104,11 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	runner.Secrets = secretsMgr
 
 	h := &Handler{
-		staticFS:    staticFS,
-		Store:       store,
-		Secrets:     secretsMgr,
-		MachineName: machineName,
+		staticFS:           staticFS,
+		Store:              store,
+		Secrets:            secretsMgr,
+		MachineName:        machineName,
+		enrollmentSessions: make(map[int32]*enrollmentSession),
 	}
 	h.jwtAuth = authu.NewJWTAuth[*apigen.InternalUser, int32](
 		func(kid string, key []byte) error {

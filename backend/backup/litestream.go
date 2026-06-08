@@ -68,7 +68,7 @@ func configured() bool {
 		cfg.BackupS3SecretAccessKey != "" ||
 		cfg.BackupS3Bucket != "" ||
 		cfg.BackupS3Endpoint != "" ||
-		cfg.BackupS3Path != "" && cfg.BackupS3Path != "opsagent/primary"
+		cfg.BackupS3Path != "" && cfg.BackupS3Path != "opendeploy/primary"
 }
 
 func validateConfig() error {

@@ -8,8 +8,9 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/jptrs93/goutil/pubsubu"
+
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/logstore"
 )
 
 type deploymentStore struct {
@@ -20,7 +21,7 @@ type deploymentStore struct {
 
 	configCache map[int32]*apigen.DeploymentConfig
 	statusCache map[int32]*apigen.DeploymentStatus
-	subs        *logstore.Subs[apigen.DeploymentWithStatus]
+	subs        *pubsubu.PubSub[apigen.DeploymentWithStatus]
 }
 
 func newDeploymentStore(db *sql.DB) *deploymentStore {
@@ -29,7 +30,7 @@ func newDeploymentStore(db *sql.DB) *deploymentStore {
 		q:           New(db),
 		configCache: make(map[int32]*apigen.DeploymentConfig),
 		statusCache: make(map[int32]*apigen.DeploymentStatus),
-		subs:        &logstore.Subs[apigen.DeploymentWithStatus]{},
+		subs:        &pubsubu.PubSub[apigen.DeploymentWithStatus]{},
 	}
 	s.loadCache()
 	return s
@@ -74,8 +75,8 @@ func (s *deploymentStore) MustFetchSnapshotAndSubscribe(machine string) ([]apige
 	defer s.mu.Unlock()
 
 	snapshot := s.snapshotLocked(machine)
-	sub, unsub := s.subs.Subscribe(deploymentFilter(machine))
-	return snapshot, sub.Ch, unsub
+	sub := s.subs.Subscribe(deploymentFilter(machine))
+	return snapshot, sub.Ch, sub.UnsubscribeFunc
 }
 
 func (s *deploymentStore) MustWriteDeploymentStatus(deploymentID int32, f func(*apigen.DeploymentStatus) bool) {
@@ -121,8 +122,8 @@ func (s *deploymentStore) FetchDeploymentStatus(deploymentID int32) *apigen.Depl
 }
 
 func (s *deploymentStore) SubscribeDeploymentUpdates(machine string) (chan apigen.DeploymentWithStatus, func()) {
-	sub, unsub := s.subs.Subscribe(deploymentFilter(machine))
-	return sub.Ch, unsub
+	sub := s.subs.Subscribe(deploymentFilter(machine))
+	return sub.Ch, sub.UnsubscribeFunc
 }
 
 func (s *deploymentStore) insertDefaultStatus(q *Queries, dbID int64) {

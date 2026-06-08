@@ -70,6 +70,7 @@ type PublicKey struct {
 type Secret struct {
 	Name        string
 	SecretGroup string
+	Internal    int64
 	SmkVersion  int64
 	Ciphertext  []byte
 	Nonce       []byte

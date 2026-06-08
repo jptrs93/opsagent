@@ -18,14 +18,26 @@ func MustLoadTLSConfig(caPath, certPath, keyPath string) *tls.Config {
 	if err != nil {
 		panic(fmt.Sprintf("reading CA cert %q: %v", caPath, err))
 	}
+	certPEM, err := os.ReadFile(certPath)
+	if err != nil {
+		panic(fmt.Sprintf("reading cluster cert %q: %v", certPath, err))
+	}
+	keyPEM, err := os.ReadFile(keyPath)
+	if err != nil {
+		panic(fmt.Sprintf("reading cluster key %q: %v", keyPath, err))
+	}
+	return MustLoadTLSConfigFromPEM(caCert, certPEM, keyPEM)
+}
+
+func MustLoadTLSConfigFromPEM(caCertPEM, certPEM, keyPEM []byte) *tls.Config {
 	caPool := x509.NewCertPool()
-	if !caPool.AppendCertsFromPEM(caCert) {
-		panic(fmt.Sprintf("CA cert %q contains no valid certificates", caPath))
+	if !caPool.AppendCertsFromPEM(caCertPEM) {
+		panic("CA cert contains no valid certificates")
 	}
 
-	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
-		panic(fmt.Sprintf("loading cert/key (%q, %q): %v", certPath, keyPath, err))
+		panic(fmt.Sprintf("loading cert/key: %v", err))
 	}
 
 	return &tls.Config{
@@ -42,16 +54,20 @@ func MustCertLoadCommonName(certPath string) string {
 	if err != nil {
 		panic(fmt.Sprintf("reading cluster cert %q: %v", certPath, err))
 	}
+	return MustCertCommonNameFromPEM(certBytes)
+}
+
+func MustCertCommonNameFromPEM(certBytes []byte) string {
 	block, _ := pem.Decode(certBytes)
 	if block == nil {
-		panic(fmt.Sprintf("cluster cert %q contains no PEM data", certPath))
+		panic("cluster cert contains no PEM data")
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		panic(fmt.Sprintf("parsing cluster cert %q: %v", certPath, err))
+		panic(fmt.Sprintf("parsing cluster cert: %v", err))
 	}
 	if cert.Subject.CommonName == "" {
-		panic(fmt.Sprintf("cluster cert %q has no CN", certPath))
+		panic("cluster cert has no CN")
 	}
 	return cert.Subject.CommonName
 }

@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
@@ -353,13 +352,9 @@ func resolveWorkingDir(dir, runAs string) string {
 	return home
 }
 
-// resolveRunAs returns the OS user to run the deployment process as. In
-// local dev mode, returns "" (inherit opsagent's user). Otherwise, defaults
-// to "ubuntu".
+// resolveRunAs returns the OS user to run the deployment process as. It
+// defaults to "ubuntu" when the deployment does not specify a user.
 func resolveRunAs(configRunAs string) string {
-	if ainit.Config.IsLocalDev == "true" {
-		return ""
-	}
 	if configRunAs != "" {
 		return configRunAs
 	}

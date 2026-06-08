@@ -1,0 +1,35 @@
+[Unit]
+Description=OpenDeploy-managed containerd
+Documentation=https://containerd.io
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# A dedicated containerd instance for opendeploy, using bundled+pinned binaries and
+# its own root/state/socket so it never collides with a distro/Docker containerd.
+ExecStartPre=-/sbin/modprobe overlay
+ExecStart=/var/lib/opendeploy/runtime/bin/containerd --config /var/lib/opendeploy/runtime/config.toml
+
+# The bundled bin dir must be on PATH: containerd execs containerd-shim-runc-v2
+# by PATH, and the shim execs runc by PATH.
+Environment=PATH=/var/lib/opendeploy/runtime/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# systemd creates /run/opendeploy (0755) for the gRPC socket configured in config.toml.
+RuntimeDirectory=opendeploy
+RuntimeDirectoryMode=0755
+
+Type=notify
+Delegate=yes
+# Shims are reparented to init; restarting containerd must not kill containers.
+KillMode=process
+Restart=always
+RestartSec=5
+
+LimitNPROC=infinity
+LimitCORE=infinity
+LimitNOFILE=1048576
+TasksMax=infinity
+OOMScoreAdjust=-999
+
+[Install]
+WantedBy=multi-user.target
