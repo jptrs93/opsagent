@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Spin up a systemd container and run the locally-built `opendeploy install`
-# inside it. The installer still exercises its normal release download path, then
-# this test swaps the active service symlink to the local build so the running
-# container uses the current workspace code.
+# inside it. The local binary supplies the *installer* logic; the agent binary
+# it installs to /var/lib/opendeploy is downloaded from the pinned GitHub release
+# (that's how the installer works — it always fetches a verified release).
 #
 # Usage:
 #   ./run.sh            # build, start container, run `opendeploy install`
@@ -60,8 +60,6 @@ fi
 configure_http_only() {
 	docker exec "$NAME" bash -lc '
 		set -euo pipefail
-		install -m 0755 /usr/local/bin/opendeploy /var/lib/opendeploy/bin/opendeploy-local
-		ln -sfn /var/lib/opendeploy/bin/opendeploy-local /var/lib/opendeploy/bin/opendeploy
 		if grep -q "^OPENDEPLOY_HTTP_ONLY=" /etc/opendeploy/env; then
 			sed -i "s/^OPENDEPLOY_HTTP_ONLY=.*/OPENDEPLOY_HTTP_ONLY=true/" /etc/opendeploy/env
 		else
