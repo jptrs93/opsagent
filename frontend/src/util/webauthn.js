@@ -40,6 +40,17 @@ export function passkeyNotAllowedMessage(action, e) {
     return detail ? `${base} Browser detail: ${detail}` : base;
 }
 
+export function passkeyServerErrorMessage(action, e) {
+    const internal = e?.apiErr?.internalErr ?? '';
+    if (internal.includes('Error validating origin')) {
+        return `${action} was rejected because this page's origin is not allowed by the server. In HTTP-only mode, use http://localhost:8080 or the frontend dev server at http://localhost:5173, then try again.`;
+    }
+    if (e?.message === 'bad credentials') {
+        return `${action} was rejected by the server. Refresh the page and try again; if the problem continues, remove any partially-created passkey and register again.`;
+    }
+    return e?.message ?? `${action} failed.`;
+}
+
 function publicKeyCredentialToJSON(value) {
     if (value instanceof ArrayBuffer) {
         return bufferToBase64Url(value);

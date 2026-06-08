@@ -6,10 +6,11 @@ import {clearLoginState, loginS} from "../state/login.js";
 export async function handleErr(response) {
     if (!response.ok) {
         let msg = `Unknown server error: ${response.status}`
+        let apiErr = null;
         try {
-            const serverErr = decodeApiErr(await response.arrayBuffer())
-            if(serverErr.displayErr.length > 0) {
-                msg = serverErr.displayErr
+            apiErr = decodeApiErr(await response.arrayBuffer())
+            if(apiErr.displayErr.length > 0) {
+                msg = apiErr.displayErr
             }
         } catch (e) {}
         if (response.status === 401 && loginS.val) {
@@ -19,6 +20,9 @@ export async function handleErr(response) {
                 msg = 'Session expired. Please sign in again.';
             }
         }
-        throw new Error(msg);
+        const err = new Error(msg);
+        err.status = response.status;
+        err.apiErr = apiErr;
+        throw err;
     }
 }

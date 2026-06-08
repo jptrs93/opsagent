@@ -3,7 +3,7 @@ import {navigate} from "../lib/router.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {capi} from "../capi/index.js";
 import {setLoginFromResponse} from "../state/login.js";
-import {browserSupportsPasskeys, credentialToJSONBytes, registrationOptionsFromJSONBytes, passkeyNotAllowedMessage} from "../util/webauthn.js";
+import {browserSupportsPasskeys, credentialToJSONBytes, registrationOptionsFromJSONBytes, passkeyNotAllowedMessage, passkeyServerErrorMessage} from "../util/webauthn.js";
 
 const { p, form, div, h1, h2, label, input, a } = van.tags;
 
@@ -77,7 +77,7 @@ export function bootstrapPage() {
                 );
                 return;
             }
-            status.val = p({class: 'text-red-400 text-sm'}, `${e.message}`);
+            status.val = p({class: 'text-red-400 text-sm'}, passkeyServerErrorMessage('Passkey registration', e));
         }
     }, "btn-primary w-full", 'button');
 

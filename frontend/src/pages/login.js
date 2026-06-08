@@ -3,9 +3,9 @@ import {navigate} from "../lib/router.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {capi} from "../capi/index.js";
 import {setLoginFromResponse} from "../state/login.js";
-import {browserSupportsPasskeys, credentialToJSONBytes, loginOptionsFromJSONBytes, passkeyNotAllowedMessage} from "../util/webauthn.js";
+import {browserSupportsPasskeys, credentialToJSONBytes, loginOptionsFromJSONBytes, passkeyNotAllowedMessage, passkeyServerErrorMessage} from "../util/webauthn.js";
 
-const { p, div, h1, a } = van.tags;
+const { p, div, a } = van.tags;
 
 export function loginPage() {
     const loginErr = van.state('');
@@ -30,7 +30,7 @@ export function loginPage() {
                 loginErr.val = p({class: 'text-red-400 text-sm'}, passkeyNotAllowedMessage('Passkey sign-in', e));
                 return;
             }
-            loginErr.val = p({class: 'text-red-400 text-sm'}, `${e.message}`);
+            loginErr.val = p({class: 'text-red-400 text-sm'}, passkeyServerErrorMessage('Passkey sign-in', e));
         }
     }, "btn-primary w-full text-lg py-3", 'button');
 
@@ -38,7 +38,6 @@ export function loginPage() {
         {class: "min-h-dvh w-dvw flex"},
         div(
             {class: "card flex flex-col gap-4 p-8 min-w-[min(420px,90%)] mx-auto my-auto"},
-            h1({class: "text-2xl font-bold text-center"}, "OpsAgent"),
             passkeySupported
                 ? passkeyButton
                 : p({class: "text-red-400 text-sm text-center"}, "This browser does not support passkeys."),

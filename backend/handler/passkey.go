@@ -81,7 +81,7 @@ func passkeyRPID() string {
 
 func passkeyOrigins() []string {
 	if ainit.Config.HTTPOnly {
-		return []string{"http://localhost:5173"}
+		return []string{"http://localhost:8080", "http://localhost:5173"}
 	}
 	origins := make([]string, 0, len(ainit.Config.AcmeHosts))
 	for _, host := range ainit.Config.AcmeHosts {
