@@ -32,10 +32,14 @@ func newLoginResponse(user *apigen.InternalUser, token string, scopes []string, 
 }
 
 func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswordRequest) (*apigen.LoginResponse, error) {
-	if ainit.Config.MasterPasswordHash == "" {
+	masterPasswordHash, err := h.masterPasswordHash()
+	if err != nil {
+		return nil, err
+	}
+	if masterPasswordHash == "" {
 		return nil, MasterPasswordNotConfiguredErr
 	}
-	ok, err := authu.VerifyPassword(req.Password, ainit.Config.MasterPasswordHash)
+	ok, err := authu.VerifyPassword(req.Password, masterPasswordHash)
 	if err != nil {
 		return nil, fmt.Errorf("verifying master password: %w", err)
 	}
@@ -68,6 +72,17 @@ func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswor
 		return nil, err
 	}
 	return newLoginResponse(user, token, []string{"passkey:create"}, time.Now().Add(10*time.Minute)), nil
+}
+
+func (h *Handler) masterPasswordHash() (string, error) {
+	hash, dbConfigured, err := h.Store.FetchMasterPasswordHash()
+	if err != nil {
+		return "", fmt.Errorf("fetching master password hash: %w", err)
+	}
+	if dbConfigured {
+		return hash, nil
+	}
+	return ainit.Config.InitialMasterPasswordHash, nil
 }
 
 func (h *Handler) GetV1AuthCurrentSession(ctx apigen.Context) (*apigen.LoginResponse, error) {

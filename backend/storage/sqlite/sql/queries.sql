@@ -154,6 +154,15 @@ ON CONFLICT(kid) DO UPDATE SET key_bytes = excluded.key_bytes;
 -- name: ListPublicKeys :many
 SELECT kid, key_bytes FROM public_keys ORDER BY kid;
 
+-- === auth_settings ===
+
+-- name: GetAuthSettings :one
+SELECT id, master_password_hash FROM auth_settings WHERE id = 1;
+
+-- name: UpsertAuthSettings :exec
+INSERT INTO auth_settings (id, master_password_hash) VALUES (1, ?)
+ON CONFLICT(id) DO UPDATE SET master_password_hash = excluded.master_password_hash;
+
 -- === secret_keyslots ===
 
 -- name: ListSecretKeyslots :many

@@ -195,7 +195,7 @@ stuck at the max backoff after the occasional crash.
 handles its own rollover.
 
 `OPENDEPLOY_*` environment variables are scrubbed from the spawned process so
-secrets (master password hash, GitHub token) don't leak into deployed
+secrets (initial master password hash, GitHub token) don't leak into deployed
 artifacts.
 
 #### Reattach

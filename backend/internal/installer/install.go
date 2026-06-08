@@ -330,8 +330,9 @@ func printNextSteps() {
 Install complete. opendeploy.service is enabled but not started.
 Next steps:
   1. Edit /etc/opendeploy/env:
-       - On the primary: set OPENDEPLOY_MASTER_PASSWORD_HASH
-         (generate with: cd backend && go run ./cmd/genhash)
+       - On the primary: use the initial setup password "opendeploy-setup"
+         to register the first passkey, or replace
+         OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH with your own hash.
        - On a worker: set OPENDEPLOY_PRIMARY_ADDR to the primary's host:port
   2. Start: sudo systemctl start opendeploy.service
 `)

@@ -15,14 +15,17 @@ OpenDeploy is a single-admin tool. The `User` proto exposes `{id, name}` to the 
 
 ## Master password bootstrap
 
-The master password is provisioned via the `OPENDEPLOY_MASTER_PASSWORD_HASH` environment variable, which holds an argon2id hash produced by `authu.HashPassword`. It is used only to obtain a short-lived token for passkey registration.
+The initial master password is provisioned via the `OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH` environment variable, which holds an argon2id hash produced by `authu.HashPassword`. Fresh installs default this hash to the password `opendeploy-setup`. It is used only to obtain a short-lived token for passkey registration.
+
+If `auth_settings.master_password_hash` exists in SQLite, that DB value is authoritative and the initial env hash is ignored. This lets a future password-change flow persist the changed hash without keeping install-time bootstrap config active forever.
 
 ### Flow (`POST /v1/auth/master`)
-1. Verify the request password against `OPENDEPLOY_MASTER_PASSWORD_HASH` using `authu.VerifyPassword` (constant-time comparison).
-2. If no user exists, create one with a new UUID v7.
-3. Return a JWT with `scopes: ["passkey:create"]` and 10-minute expiry.
+1. Resolve the configured master password hash from SQLite `auth_settings.master_password_hash`; if no row exists, fall back to `OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH`.
+2. Verify the request password against the resolved hash using `authu.VerifyPassword` (constant-time comparison).
+3. If no user exists, create one with a new UUID v7.
+4. Return a JWT with `scopes: ["passkey:create"]` and 10-minute expiry.
 
-After registering a passkey, the master password is no longer needed. It can be removed from the environment.
+After registering a passkey, the initial master password is no longer needed. It can be removed from the environment.
 
 ## JWT tokens
 

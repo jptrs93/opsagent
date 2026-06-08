@@ -95,6 +95,17 @@ func (q *Queries) GetConfigHistoryDesiredVersion(ctx context.Context, arg GetCon
 	return desired_version, err
 }
 
+const getAuthSettings = `-- name: GetAuthSettings :one
+SELECT id, master_password_hash FROM auth_settings WHERE id = 1
+`
+
+func (q *Queries) GetAuthSettings(ctx context.Context) (AuthSetting, error) {
+	row := q.db.QueryRowContext(ctx, getAuthSettings)
+	var i AuthSetting
+	err := row.Scan(&i.ID, &i.MasterPasswordHash)
+	return i, err
+}
+
 const getDeploymentConfig = `-- name: GetDeploymentConfig :one
 SELECT deployment_id, environment, machine, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
@@ -757,6 +768,16 @@ type UpsertPublicKeyParams struct {
 
 func (q *Queries) UpsertPublicKey(ctx context.Context, arg UpsertPublicKeyParams) error {
 	_, err := q.db.ExecContext(ctx, upsertPublicKey, arg.Kid, arg.KeyBytes)
+	return err
+}
+
+const upsertAuthSettings = `-- name: UpsertAuthSettings :exec
+INSERT INTO auth_settings (id, master_password_hash) VALUES (1, ?)
+ON CONFLICT(id) DO UPDATE SET master_password_hash = excluded.master_password_hash
+`
+
+func (q *Queries) UpsertAuthSettings(ctx context.Context, masterPasswordHash string) error {
+	_, err := q.db.ExecContext(ctx, upsertAuthSettings, masterPasswordHash)
 	return err
 }
 

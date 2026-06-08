@@ -92,16 +92,16 @@ type Configuration struct {
 	BindAddr string `env:"OPENDEPLOY_BIND_ADDR,0.0.0.0"` // listen host (e.g. "0.0.0.0", "::", or a specific IP)
 	HTTPOnly bool   `env:"OPENDEPLOY_HTTP_ONLY,false"`   // serve the primary API over plain HTTP on port 8080 instead of ACME TLS on port 443
 
-	MasterPasswordHash      string   `env:"OPENDEPLOY_MASTER_PASSWORD_HASH,secret"`
-	GithubToken             string   `env:"OPENDEPLOY_GITHUB_TOKEN,"`
-	AcmeHosts               []string `env:"OPENDEPLOY_ACME_HOSTS,opendeploy.dev"`
-	AcmeEmail               string   `env:"OPENDEPLOY_ACME_EMAIL,"`
-	BackupS3AccessKeyID     string   `env:"OPENDEPLOY_BACKUP_S3_ACCESS_KEY_ID,"`
-	BackupS3SecretAccessKey string   `env:"OPENDEPLOY_BACKUP_S3_SECRET_ACCESS_KEY,"`
-	BackupS3Bucket          string   `env:"OPENDEPLOY_BACKUP_S3_BUCKET,"`
-	BackupS3Path            string   `env:"OPENDEPLOY_BACKUP_S3_PATH,opendeploy/primary"`
-	BackupS3Region          string   `env:"OPENDEPLOY_BACKUP_S3_REGION,us-east-1"`
-	BackupS3Endpoint        string   `env:"OPENDEPLOY_BACKUP_S3_ENDPOINT,"`
+	InitialMasterPasswordHash string   `env:"OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH,"`
+	GithubToken               string   `env:"OPENDEPLOY_GITHUB_TOKEN,"`
+	AcmeHosts                 []string `env:"OPENDEPLOY_ACME_HOSTS,opendeploy.dev"`
+	AcmeEmail                 string   `env:"OPENDEPLOY_ACME_EMAIL,"`
+	BackupS3AccessKeyID       string   `env:"OPENDEPLOY_BACKUP_S3_ACCESS_KEY_ID,"`
+	BackupS3SecretAccessKey   string   `env:"OPENDEPLOY_BACKUP_S3_SECRET_ACCESS_KEY,"`
+	BackupS3Bucket            string   `env:"OPENDEPLOY_BACKUP_S3_BUCKET,"`
+	BackupS3Path              string   `env:"OPENDEPLOY_BACKUP_S3_PATH,opendeploy/primary"`
+	BackupS3Region            string   `env:"OPENDEPLOY_BACKUP_S3_REGION,us-east-1"`
+	BackupS3Endpoint          string   `env:"OPENDEPLOY_BACKUP_S3_ENDPOINT,"`
 
 	ClusterListen    string `env:"OPENDEPLOY_CLUSTER_LISTEN,:9443"`    // mTLS listen address
 	EnrollmentListen string `env:"OPENDEPLOY_ENROLLMENT_LISTEN,:9444"` // unauthenticated worker enrollment listen address

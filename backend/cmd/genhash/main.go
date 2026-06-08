@@ -1,5 +1,5 @@
-// genhash generates a random master password and prints it alongside its
-// argon2id hash (suitable for OPENDEPLOY_MASTER_PASSWORD_HASH).
+// genhash generates a random initial master password and prints it alongside
+// its argon2id hash (suitable for OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH).
 //
 // Usage: go run ./cmd/genhash
 package main

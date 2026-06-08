@@ -67,6 +67,11 @@ type PublicKey struct {
 	KeyBytes []byte
 }
 
+type AuthSetting struct {
+	ID                 int64
+	MasterPasswordHash string
+}
+
 type Secret struct {
 	Name        string
 	SecretGroup string

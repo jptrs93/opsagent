@@ -173,7 +173,7 @@ func envKeys(env []string) []string {
 }
 
 // scrubOpenDeployEnv removes OPENDEPLOY_* environment variables so we don't leak
-// the master password hash, GitHub token, etc. into the deployed artifact.
+// the initial master password hash, GitHub token, etc. into the deployed artifact.
 func scrubOpenDeployEnv(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, kv := range env {

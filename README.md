@@ -39,7 +39,7 @@ To remove: `sudo ./opendeploy uninstall` (keeps data) or `sudo ./opendeploy unin
 
 After the first install, edit `/etc/opendeploy/env`:
 
-1. **`OPENDEPLOY_MASTER_PASSWORD_HASH`** — generate with `cd backend && go run ./cmd/genhash` (requires Go; run on any machine, copy the hash over).
+1. **Initial setup password** — the installer writes `OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH` for the default password `opendeploy-setup`. Use it only to register the first passkey.
 2. **Primary vs. worker node** — the installed systemd unit runs `opendeploy primary`. Worker nodes should run `opendeploy secondary` instead and set `OPENDEPLOY_PRIMARY_ADDR=host:9443`.
 3. **Cluster mTLS** — primary cluster (`:9443`) and enrollment (`:9444`) listeners start by default. Primary CA/server key material is generated automatically and stored encrypted in the primary secrets store. Workers run `opendeploy secondary`, set `OPENDEPLOY_PRIMARY_ADDR`, enroll with the primary, and then cache their received `ca.crt`, `node.crt`, and `node.key` under `/var/lib/opendeploy/tls/`.
 4. **ACME / TLS** — set `OPENDEPLOY_ACME_HOSTS` and `OPENDEPLOY_ACME_EMAIL` to your public hostname and contact email.

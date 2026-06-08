@@ -743,6 +743,21 @@ func (s *StorageAdapter) UserCount() int {
 	return len(rows)
 }
 
+func (s *StorageAdapter) FetchMasterPasswordHash() (hash string, dbConfigured bool, err error) {
+	row, err := s.q.GetAuthSettings(context.Background())
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return row.MasterPasswordHash, true, nil
+}
+
+func (s *StorageAdapter) SetMasterPasswordHash(hash string) error {
+	return s.q.UpsertAuthSettings(context.Background(), hash)
+}
+
 // --- auth: public keys ---
 func (s *StorageAdapter) WritePublicKey(rec *apigen.PublicKeyRecord) {
 	ctx := context.Background()
