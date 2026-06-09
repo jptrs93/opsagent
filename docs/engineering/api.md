@@ -48,6 +48,8 @@ Key generated files:
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | POST | `/v1/auth/master` | `MasterPasswordRequest` | `LoginResponse` | NO_AUTH |
+| POST | `/v1/auth/master/password/save` | `MasterPasswordSaveRequest` | — | ANY_OF default |
+| POST | `/v1/auth/master/password/verify` | `MasterPasswordVerifyRequest` | — | ANY_OF default |
 | GET | `/v1/auth/current/session` | — | `LoginResponse` | ANY_OF passkey:create, default |
 | POST | `/v1/auth/passkey/register/start` | `EmptyRequest` | `WebAuthNOptionsResponse` | ANY_OF passkey:create, default |
 | POST | `/v1/auth/passkey/register/finish` | `WebAuthNFinishRequest` | `LoginResponse` | ANY_OF passkey:create, default |

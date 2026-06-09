@@ -2,211 +2,462 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 
-const { div, h1, p, span, table, thead, tbody, tr, th, td, button, code, input, select, option } = van.tags;
+const { div, h2, p, pre, span, table, tbody, tr, td, button, code, input, label: labelEl } = van.tags;
+const { svg, path, circle, line } = van.tags("http://www.w3.org/2000/svg");
 
 const boolValue = (value) => value ? "true" : "false";
 const listValue = (value) => value && value.length ? value.join(", ") : "";
 
-const configRows = (cfg) => [
-    textRow("Web UI server listen", "WEB_LISTEN", cfg.webListen, true),
-    boolRow("Web UI disable HTTPS", "WEB_HTTP_ONLY", cfg.webHttpOnly, true),
-    textRow("Cluster listen", "CLUSTER_LISTEN", cfg.clusterListen, true),
-    textRow("Enrollment listen", "ENROLLMENT_LISTEN", cfg.enrollmentListen, true),
-    textRow("Web UI ACME hosts", "ACME_HOSTS", listValue(cfg.acmeHosts), true),
-    textRow("Web UI email", "ACME_EMAIL", cfg.acmeEmail, true),
-    secretRow("GitHub token", "GITHUB_TOKEN", cfg.githubToken),
-    textRow("Backup S3 access key ID", "BACKUP_S3_ACCESS_KEY_ID", cfg.backupS3AccessKeyId),
-    secretRow("Backup S3 secret access key", "BACKUP_S3_SECRET_ACCESS_KEY", cfg.backupS3SecretAccessKey),
-    textRow("Backup S3 bucket", "BACKUP_S3_BUCKET", cfg.backupS3Bucket),
-    textRow("Backup S3 path", "BACKUP_S3_PATH", cfg.backupS3Path),
-    textRow("Backup S3 region", "BACKUP_S3_REGION", cfg.backupS3Region),
-    textRow("Backup S3 endpoint", "BACKUP_S3_ENDPOINT", cfg.backupS3Endpoint),
+const settings = [
+    {label: "Web UI server listen", key: "WEB_LISTEN", type: "text", value: (cfg) => cfg.webListen},
+    {label: "Web UI disable HTTPS", key: "WEB_HTTP_ONLY", type: "bool", value: (cfg) => boolValue(cfg.webHttpOnly)},
+    {label: "Web UI ACME hosts", key: "ACME_HOSTS", type: "text", value: (cfg) => listValue(cfg.acmeHosts)},
+    {label: "Web UI email", key: "ACME_EMAIL", type: "text", value: (cfg) => cfg.acmeEmail},
+    {label: "Cluster listen", key: "CLUSTER_LISTEN", type: "text", value: (cfg) => cfg.clusterListen},
+    {label: "Cluster enrollment listen", key: "ENROLLMENT_LISTEN", type: "text", value: (cfg) => cfg.enrollmentListen},
+    {label: "GitHub token", key: "GITHUB_TOKEN", type: "secret", secret: (cfg) => cfg.githubToken},
+    {label: "Backup S3 access key ID", key: "BACKUP_S3_ACCESS_KEY_ID", type: "text", value: (cfg) => cfg.backupS3AccessKeyId},
+    {label: "Backup S3 secret access key", key: "BACKUP_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.backupS3SecretAccessKey},
+    {label: "Backup S3 bucket", key: "BACKUP_S3_BUCKET", type: "text", value: (cfg) => cfg.backupS3Bucket},
+    {label: "Backup S3 path", key: "BACKUP_S3_PATH", type: "text", value: (cfg) => cfg.backupS3Path},
+    {label: "Backup S3 region", key: "BACKUP_S3_REGION", type: "text", value: (cfg) => cfg.backupS3Region},
+    {label: "Backup S3 endpoint", key: "BACKUP_S3_ENDPOINT", type: "text", value: (cfg) => cfg.backupS3Endpoint},
 ];
 
-function textRow(label, key, value, restartRequired = false) {
-    const original = value || "";
-    return {
-        label,
-        key,
-        type: "text",
-        restartRequired,
-        value: van.state(original),
-        original,
-    };
-}
-
-function boolRow(label, key, value, restartRequired = false) {
-    const original = boolValue(value);
-    return {
-        label,
-        key,
-        type: "bool",
-        restartRequired,
-        value: van.state(original),
-        original,
-    };
-}
-
-function secretRow(label, key, secret) {
-    return {
-        label,
-        key,
-        type: "secret",
-        secret,
-        value: van.state(""),
-        revealed: van.state(null),
-        cleared: van.state(false),
-    };
-}
-
-const isRowDirty = (row) => {
-    if (row.type === "secret") {
-        return row.value.val !== "" || row.cleared.val;
+const draftValue = (setting, cfg) => {
+    if (setting.type === "secret") {
+        return {
+            value: "",
+            secret: setting.secret(cfg),
+            cleared: false,
+            revealed: false,
+            revealedValue: "",
+            draftRevealed: false,
+        };
     }
-    return row.value.val !== row.original;
+    const original = setting.value(cfg) || "";
+    return {value: original, original};
 };
 
-const revealSecret = async (row, error) => {
-    if (!row.secret?.key) return;
-    if (row.revealed.val !== null) { row.revealed.val = null; return; }
-    try {
-        error.val = null;
-        const res = await capi.postV1SecretValueReveal({key: row.secret.key});
-        row.revealed.val = new TextDecoder().decode(res.value);
-    } catch (e) {
-        error.val = e.message;
-    }
-};
+const configDraft = (cfg) => Object.fromEntries(settings.map((setting) => [setting.key, draftValue(setting, cfg)]));
+
+const isDirty = (setting, item) => setting.type === "secret"
+    ? item.value !== "" || item.cleared
+    : item.value !== item.original;
+
+const dirtySettingsFor = (draft) => settings
+    .map((setting) => ({setting, item: draft?.[setting.key]}))
+    .filter(({setting, item}) => item && isDirty(setting, item));
 
 const inputClass = "w-full min-w-64 bg-transparent px-2 py-1 rounded border border-gray-700 " +
     "hover:border-gray-600 focus:border-brand focus:outline-none";
+const compactButtonClass = "h-8 px-3 py-1 rounded-md text-sm leading-none";
 
-function valueInput(row, error) {
-    if (row.type === "bool") {
-        return select({
-            class: inputClass,
-            value: row.value,
-            onchange: (e) => row.value.val = e.target.value,
-        },
-            option({value: "true"}, "true"),
-            option({value: "false"}, "false"),
+const iconBase = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": "2",
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+    class: "w-4 h-4",
+};
+
+const eyeIcon = () => svg(iconBase,
+    path({d: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"}),
+    circle({cx: "12", cy: "12", r: "3"}),
+);
+
+const eyeOffIcon = () => svg(iconBase,
+    path({d: "M9.9 4.24A9.1 9.1 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"}),
+    path({d: "M6.61 6.61A18.5 18.5 0 0 0 2 12s3 8 10 8a9.1 9.1 0 0 0 5.39-1.61"}),
+    line({x1: "2", y1: "2", x2: "22", y2: "22"}),
+);
+
+function valueInput(setting, draft, error, patchDraft, saving) {
+    const item = () => draft.val?.[setting.key];
+    const patch = (next) => patchDraft(setting.key, next);
+
+    if (setting.type === "bool") {
+        return labelEl(
+            {class: "inline-flex items-center gap-3 cursor-pointer select-none"},
+            input({
+                class: "sr-only peer",
+                type: "checkbox",
+                disabled: () => saving.val,
+                checked: () => item()?.value === "true",
+                onchange: (e) => patch({value: e.target.checked ? "true" : "false"}),
+            }),
+            span({
+                class: () => `relative h-6 w-11 rounded-full transition-colors ${
+                    item()?.value === "true" ? "bg-brand" : "bg-gray-700"
+                } before:absolute before:left-1 before:top-1 before:h-4 before:w-4 before:rounded-full ` +
+                    `before:bg-white before:transition-transform ${item()?.value === "true" ? "before:translate-x-5" : ""}`,
+            }),
+            span({class: "text-sm text-gray-300"}, () => item()?.value === "true" ? "true" : "false"),
         );
     }
-    if (row.type === "secret") {
+    if (setting.type === "secret") {
+        const revealSecret = async () => {
+            const current = item();
+            if (!current?.secret?.key) return;
+            if (current.revealed) { patch({revealed: false, revealedValue: ""}); return; }
+            try {
+                error.val = null;
+                const res = await capi.postV1SecretValueReveal({key: current.secret.key});
+                patch({revealed: true, revealedValue: new TextDecoder().decode(res.value)});
+            } catch (e) {
+                error.val = e.message;
+            }
+        };
+
         return div(
             {class: "flex flex-col gap-2"},
             div({class: "flex flex-wrap items-center gap-2"},
-                row.secret?.key
-                    ? code({class: "text-xs text-blue-300 bg-gray-900 px-2 py-1 rounded"}, row.secret.key)
-                    : span({class: "text-gray-500 text-sm"}, "not configured"),
-                () => row.cleared.val
+                () => item()?.secret?.key
+                    ? code({class: "text-xs text-blue-300 bg-gray-900 px-2 py-1 rounded"}, item().secret.key)
+                    : "",
+                () => item()?.cleared
                     ? span({class: "text-xs text-amber-300"}, "will be cleared")
-                    : null,
-                row.secret?.key ? button({
+                    : "",
+                () => item()?.secret?.key ? button({
                     type: "button",
-                    class: "text-xs px-3 py-1 rounded-md font-medium text-gray-200 bg-gray-700 hover:bg-gray-600 cursor-pointer",
-                    onclick: () => revealSecret(row, error),
-                }, () => row.revealed.val === null ? "Reveal" : "Hide") : null,
-                row.secret?.key ? button({
+                    title: () => item().revealed ? "Hide saved secret" : "Reveal saved secret",
+                    "aria-label": () => item().revealed ? "Hide saved secret" : "Reveal saved secret",
+                    disabled: () => saving.val,
+                    class: "p-1.5 rounded text-gray-300 bg-gray-700 hover:bg-gray-600 cursor-pointer",
+                    onclick: revealSecret,
+                }, () => item().revealed ? eyeOffIcon() : eyeIcon()) : "",
+                () => item()?.secret?.key ? button({
                     type: "button",
+                    disabled: () => saving.val,
                     class: "text-xs px-3 py-1 rounded-md font-medium text-gray-200 bg-gray-700 hover:bg-gray-600 cursor-pointer",
-                    onclick: () => { row.value.val = ""; row.cleared.val = true; },
-                }, "Clear") : null,
+                    onclick: () => patch({value: "", cleared: true}),
+                }, "Clear") : "",
             ),
-            () => row.revealed.val === null ? null : code({
+            () => item()?.revealed ? code({
                 class: "text-xs text-amber-200 bg-amber-950/40 px-2 py-1 rounded break-all",
-            }, row.revealed.val),
-            input({
-                class: `${inputClass} font-mono`,
-                type: "password",
-                placeholder: row.secret?.key ? "new value leaves existing secret unchanged" : "new value",
-                value: row.value,
-                oninput: (e) => { row.value.val = e.target.value; row.cleared.val = false; },
-            }),
+            }, item().revealedValue) : "",
+            div({class: "relative"},
+                input({
+                    class: `${inputClass} pr-10 font-mono`,
+                    type: () => item()?.draftRevealed ? "text" : "password",
+                    disabled: () => saving.val,
+                    placeholder: () => item()?.secret?.key ? "new value leaves existing secret unchanged" : "new value",
+                    value: () => item()?.value || "",
+                    oninput: (e) => patch({value: e.target.value, cleared: false, draftRevealed: item()?.draftRevealed && e.target.value !== ""}),
+                }),
+                button({
+                    type: "button",
+                    title: () => item()?.draftRevealed ? "Hide unsaved secret" : "Reveal unsaved secret",
+                    "aria-label": () => item()?.draftRevealed ? "Hide unsaved secret" : "Reveal unsaved secret",
+                    disabled: () => saving.val || !item()?.value,
+                    class: () => `absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded text-gray-300 ` +
+                        `hover:bg-gray-700 cursor-pointer ${item()?.value ? "" : "invisible"}`,
+                    onclick: () => patch({draftRevealed: !item()?.draftRevealed}),
+                }, () => item()?.draftRevealed ? eyeOffIcon() : eyeIcon()),
+            ),
         );
     }
     return input({
         class: inputClass,
-        value: row.value,
-        oninput: (e) => row.value.val = e.target.value,
+        disabled: () => saving.val,
+        value: () => item()?.value || "",
+        oninput: (e) => patch({value: e.target.value}),
     });
 }
 
 export function settingsPage() {
     const config = van.state(null);
-    const rows = van.state(null);
+    const draft = van.state(null);
+    const dirtyCount = van.state(0);
+    const loaded = van.state(false);
     const error = van.state(null);
+    const saving = van.state(false);
+    const recoveryStatus = van.state(null);
+    const recoveryCode = van.state("");
+    const masterPasswordVerifyValue = van.state("");
+    const masterPasswordVerifyResult = van.state("");
+    const masterPasswordOverlay = van.state(false);
+    const newMasterPassword = van.state("");
+    const newMasterPasswordRevealed = van.state(false);
+
+    const setDraft = (next) => {
+        draft.val = next;
+        dirtyCount.val = dirtySettingsFor(next).length;
+    };
+
+    const patchDraft = (key, next) => {
+        const current = draft.val;
+        if (!current?.[key]) return;
+        setDraft({...current, [key]: {...current[key], ...next}});
+    };
 
     const load = async () => {
         try {
             error.val = null;
-            config.val = await capi.getV1Config();
-            rows.val = configRows(config.val);
+            const [cfg, secretsStatus] = await Promise.all([
+                capi.getV1Config(),
+                capi.postV1SecretsStatus({}),
+            ]);
+            config.val = cfg;
+            recoveryStatus.val = secretsStatus;
+            setDraft(configDraft(config.val));
+            loaded.val = true;
         } catch (e) {
             error.val = e.message;
         }
     };
     load();
 
-    const dirtyRows = () => (rows.val || []).filter(isRowDirty);
+    const dirtySettings = () => dirtySettingsFor(draft.val);
+
+    const resetChanges = () => {
+        if (!config.val) return;
+        setDraft(configDraft(config.val));
+    };
 
     const saveChanges = async () => {
+        if (saving.val) return;
         try {
+            saving.val = true;
             error.val = null;
             const res = await capi.postV1ConfigUpdate({
-                values: dirtyRows().map((row) => ({key: row.key, value: row.value.val})),
+                values: dirtySettings().map(({setting, item}) => ({key: setting.key, value: item.value})),
             });
             config.val = res;
-            rows.val = configRows(res);
+            setDraft(configDraft(res));
+        } catch (e) {
+            error.val = e.message;
+        } finally {
+            saving.val = false;
+        }
+    };
+
+    const generateRecovery = async () => {
+        try {
+            error.val = null;
+            const res = await capi.postV1SecretsGenerateRecoveryCode({});
+            recoveryCode.val = res.code;
+            recoveryStatus.val = await capi.postV1SecretsStatus({});
         } catch (e) {
             error.val = e.message;
         }
     };
 
-    const rowEl = (row) => tr(
-        {class: "border-b border-gray-800 last:border-0 align-top"},
-        td({class: "py-3 pr-6 whitespace-nowrap"},
-            span({class: "text-gray-200"}, row.label),
-            row.restartRequired ? span({class: "ml-2 text-xs text-amber-300"}, "restart required") : null,
+    const generateMasterPassword = () => {
+        const bytes = new Uint8Array(48);
+        globalThis.crypto.getRandomValues(bytes);
+        let binary = "";
+        for (const b of bytes) binary += String.fromCharCode(b);
+        newMasterPassword.val = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+        newMasterPasswordRevealed.val = true;
+    };
+
+    const saveNewMasterPassword = async () => {
+        try {
+            error.val = null;
+            masterPasswordVerifyResult.val = "";
+            await capi.postV1AuthMasterPasswordSave({password: newMasterPassword.val});
+            masterPasswordOverlay.val = false;
+            newMasterPassword.val = "";
+            newMasterPasswordRevealed.val = false;
+            masterPasswordVerifyValue.val = "";
+            masterPasswordVerifyResult.val = "Master password updated.";
+        } catch (e) {
+            error.val = e.message;
+        }
+    };
+
+    const verifyMasterPassword = async () => {
+        try {
+            error.val = null;
+            masterPasswordVerifyResult.val = "";
+            await capi.postV1AuthMasterPasswordVerify({password: masterPasswordVerifyValue.val});
+            masterPasswordVerifyResult.val = "Master password verified.";
+        } catch (e) {
+            masterPasswordVerifyResult.val = "Master password did not match.";
+        }
+    };
+
+    const masterPasswordCard = () => {
+        return div(
+            {class: "card w-full flex flex-col gap-2"},
+            div({class: "flex items-center justify-between gap-4"},
+                div({class: "flex flex-col gap-1"},
+                    h2({class: "text-base font-semibold"}, "Master password"),
+                    () => masterPasswordVerifyResult.val
+                        ? p({class: "text-xs text-green-400"}, masterPasswordVerifyResult.val)
+                        : p({class: "text-xs text-gray-400"},
+                            "Verify the current master password or generate a new one-time visible password."),
+                ),
+                div({class: "flex items-center gap-2"},
+                    input({
+                        class: `${inputClass} min-w-72 font-mono`,
+                        type: "password",
+                        placeholder: "current master password",
+                        value: masterPasswordVerifyValue,
+                        oninput: (e) => { masterPasswordVerifyValue.val = e.target.value; masterPasswordVerifyResult.val = ""; },
+                    }),
+                    spinnerButton("Verify master password", verifyMasterPassword,
+                        `${compactButtonClass} whitespace-nowrap bg-gray-700 text-gray-200 hover:bg-gray-600`,
+                        "button", () => !masterPasswordVerifyValue.val.trim()),
+                    button({
+                        type: "button",
+                        class: `${compactButtonClass} whitespace-nowrap bg-gray-700 text-gray-200 hover:bg-gray-600`,
+                        onclick: () => { masterPasswordOverlay.val = true; newMasterPassword.val = ""; newMasterPasswordRevealed.val = false; },
+                    }, "Update master password"),
+                ),
+            ),
+        );
+    };
+
+    const masterPasswordUpdateOverlay = () => masterPasswordOverlay.val ? div(
+        {class: "fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6"},
+        div({class: "card w-full max-w-xl flex flex-col gap-3 border-gray-600"},
+            div({class: "flex items-center justify-between gap-4"},
+                h2({class: "text-base font-semibold"}, "Update master password"),
+                button({
+                    type: "button",
+                    class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer",
+                    onclick: () => { masterPasswordOverlay.val = false; newMasterPassword.val = ""; newMasterPasswordRevealed.val = false; },
+                }, "Close"),
+            ),
+            p({class: "text-xs text-gray-400"},
+                "Enter a new master password or generate one here. Save it before submitting; it will not be shown again."),
+            div({class: "relative"},
+                input({
+                    class: `${inputClass} pr-10 font-mono`,
+                    type: () => newMasterPasswordRevealed.val ? "text" : "password",
+                    placeholder: "new master password",
+                    value: newMasterPassword,
+                    oninput: (e) => { newMasterPassword.val = e.target.value; },
+                }),
+                button({
+                    type: "button",
+                    title: () => newMasterPasswordRevealed.val ? "Hide new master password" : "Reveal new master password",
+                    "aria-label": () => newMasterPasswordRevealed.val ? "Hide new master password" : "Reveal new master password",
+                    disabled: () => !newMasterPassword.val,
+                    class: () => `absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded text-gray-300 ` +
+                        `hover:bg-gray-700 cursor-pointer ${newMasterPassword.val ? "" : "invisible"}`,
+                    onclick: () => { newMasterPasswordRevealed.val = !newMasterPasswordRevealed.val; },
+                }, () => newMasterPasswordRevealed.val ? eyeOffIcon() : eyeIcon()),
+            ),
+            div({class: "flex items-center justify-between gap-2"},
+                button({
+                    type: "button",
+                    class: `${compactButtonClass} bg-gray-700 text-gray-200 hover:bg-gray-600 cursor-pointer`,
+                    onclick: generateMasterPassword,
+                }, "Generate password"),
+                div({class: "flex items-center gap-2"},
+                    button({
+                        type: "button",
+                        class: `${compactButtonClass} bg-gray-700 text-gray-200 hover:bg-gray-600 cursor-pointer`,
+                        onclick: () => { masterPasswordOverlay.val = false; newMasterPassword.val = ""; newMasterPasswordRevealed.val = false; },
+                    }, "Cancel"),
+                    spinnerButton("Save new master password", saveNewMasterPassword,
+                        `${compactButtonClass} bg-brand text-white hover:bg-blue-600 whitespace-nowrap`,
+                        "button", () => !newMasterPassword.val),
+                ),
+            ),
         ),
-        td({class: "py-2 text-white"}, valueInput(row, error)),
-        td({class: "py-3 pl-4 text-right w-px whitespace-nowrap"},
-            () => isRowDirty(row) ? span({class: "text-xs text-blue-300"}, "changed") : null,
+    ) : "";
+
+    const recoveryCard = () => {
+        if (!recoveryStatus.val) {
+            return div({class: "card w-full flex flex-col gap-2"},
+                p({class: "text-gray-400 text-sm"}, "Loading recovery code status..."),
+            );
+        }
+        if (!recoveryStatus.val.unlocked) {
+            return div(
+                {class: "card w-full flex flex-col gap-2"},
+                h2({class: "text-base font-semibold"}, "Recovery code"),
+                p({class: "text-xs text-amber-400"},
+                    "Unlock the secrets store on the Secrets page before managing the recovery code."),
+            );
+        }
+        if (recoveryCode.val) {
+            return div(
+                {class: "card w-full flex flex-col gap-2 border-amber-600"},
+                h2({class: "text-base font-semibold text-amber-400"}, "Save your recovery code"),
+                p({class: "text-xs text-gray-400"},
+                    "This is shown only once and is not stored anywhere. Keep it somewhere safe. " +
+                    "It is the only way to recover secrets if this machine is lost."),
+                pre({class: "bg-gray-900 rounded-lg p-2 text-brand font-mono text-xs whitespace-pre-wrap break-all"},
+                    recoveryCode.val),
+                div(spinnerButton("I've saved it", async () => { recoveryCode.val = ""; },
+                    `${compactButtonClass} bg-gray-700 text-gray-200 hover:bg-gray-600`)),
+            );
+        }
+        const configured = recoveryStatus.val.recoveryConfigured;
+        return div(
+            {class: "card w-full flex flex-col gap-2"},
+            div({class: "flex items-center justify-between gap-4"},
+                div({class: "flex flex-col gap-1"},
+                    h2({class: "text-base font-semibold"}, "Recovery code"),
+                    configured
+                        ? p({class: "text-xs text-green-400"}, "A recovery code is configured.")
+                        : p({class: "text-xs text-amber-400"},
+                            "No recovery code configured. Generate one so secrets can be recovered if this machine is lost."),
+                ),
+                spinnerButton(
+                    configured ? "Regenerate recovery code" : "Generate recovery code",
+                    generateRecovery,
+                    `${compactButtonClass} whitespace-nowrap ${configured
+                        ? "bg-gray-700 text-gray-200 hover:bg-gray-600"
+                        : "bg-brand text-white hover:bg-blue-600"}`),
+            ),
+        );
+    };
+
+    const rowEl = (setting) => tr(
+        {class: "border-b border-gray-800 last:border-0 align-top"},
+        td({class: "py-3 pr-3 whitespace-nowrap"},
+            span({class: "text-gray-200"}, setting.label),
+        ),
+        td({class: "py-2 text-white"}, valueInput(setting, draft, error, patchDraft, saving)),
+        td({class: "py-2 pl-4 text-right w-20 whitespace-nowrap align-middle"},
+            () => {
+                const item = draft.val?.[setting.key];
+                return span({class: () => `inline-block w-16 text-xs ${item && isDirty(setting, item) ? "text-blue-300" : "invisible"}`}, "changed");
+            },
         ),
     );
 
     return div(
-        {class: "settings-scroll h-full min-h-0 overflow-y-scroll p-6 flex flex-col gap-6"},
-        div({class: "flex items-start justify-between gap-4"},
-            div(
-                h1({class: "text-xl font-bold"}, "Configuration"),
-                p({class: "text-sm text-gray-400 mt-1"},
-                    "Edit runtime configuration. Changes are staged locally and applied together."),
-            ),
-            () => dirtyRows().length
-                ? spinnerButton("Save changes", saveChanges, "btn-primary whitespace-nowrap")
-                : null,
-        ),
-        () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : null,
+        {class: "settings-scroll h-full min-h-0 overflow-y-auto p-6 flex flex-col gap-3"},
+        () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : "",
         () => {
-            if (rows.val === null) return p({class: "text-gray-400"}, "Loading...");
+            if (!loaded.val) return p({class: "text-gray-400"}, "Loading...");
             return div(
-                {class: "card overflow-hidden"},
+                {class: "card flex flex-col gap-3"},
+                div({class: "flex items-center justify-between gap-3 pb-2 border-b border-gray-700"},
+                    h2({class: "text-base font-semibold"}, "General settings"),
+                    () => dirtyCount.val ? div({class: "flex items-center gap-2"},
+                        span({class: "text-sm font-medium text-amber-300"}, "Unsaved changes"),
+                        button({
+                            type: "button",
+                            disabled: () => saving.val,
+                            class: `${compactButtonClass} bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer whitespace-nowrap`,
+                            onclick: resetChanges,
+                        }, "Reset changes"),
+                        spinnerButton("Save changes", saveChanges,
+                            `${compactButtonClass} bg-brand text-white hover:bg-blue-600 whitespace-nowrap`,
+                            "button", () => saving.val),
+                    ) : "",
+                ),
                 div(
-                    {class: "overflow-x-auto"},
+                    {class: "settings-scroll overflow-x-auto"},
                     table(
                         {class: "w-full text-sm"},
-                        thead(
-                            tr({class: "text-left text-gray-400 border-b border-gray-700"},
-                                th({class: "pb-2 pr-6 font-medium"}, "Setting"),
-                                th({class: "pb-2 font-medium"}, "Value"),
-                                th({class: "pb-2 w-px"}, ""),
-                            )
-                        ),
-                        tbody(...rows.val.map(rowEl)),
+                        tbody(...settings.map(rowEl)),
                     ),
                 ),
             );
         },
+        masterPasswordCard,
+        recoveryCard,
+        masterPasswordUpdateOverlay,
     );
 }

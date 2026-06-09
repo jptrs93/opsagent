@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 
-const { div, h1, h2, p, span, input, button, table, thead, tbody, tr, th, td, code, pre } = van.tags;
+const { div, h1, h2, p, span, input, button, table, thead, tbody, tr, th, td, code } = van.tags;
 const { svg, path, circle, line } = van.tags("http://www.w3.org/2000/svg");
 
 // --- icons ---
@@ -44,7 +44,6 @@ export function secretsPage() {
     const status = van.state(null);   // {unlocked, recoveryConfigured} | null
     const rows = van.state(null);     // [rowModel] | null
     const error = van.state(null);
-    const recoveryCode = van.state(null); // shown once after generation
 
     // A rowModel mirrors one secret as an editable row. `orig` holds the
     // last-saved values for dirty detection; `orig.value` is meaningful only
@@ -168,17 +167,6 @@ export function secretsPage() {
         }
     };
 
-    const generateRecovery = async () => {
-        try {
-            error.val = null;
-            const res = await capi.postV1SecretsGenerateRecoveryCode({});
-            recoveryCode.val = res.code;
-            await loadStatus();
-        } catch (e) {
-            error.val = e.message;
-        }
-    };
-
     // --- sections ---
 
     const lockedSection = () => div(
@@ -199,34 +187,6 @@ export function secretsPage() {
             spinnerButton("Unlock", unlock, "btn-primary", "button",
                 () => !unlockCode.val.trim())),
     );
-
-    const recoveryCard = () => {
-        if (recoveryCode.val) {
-            return div(
-                {class: "card flex flex-col gap-3 max-w-xl border-amber-600"},
-                h2({class: "text-base font-semibold text-amber-400"}, "Save your recovery code"),
-                p({class: "text-sm text-gray-400"},
-                    "This is shown only once and is not stored anywhere. Keep it somewhere safe — " +
-                    "it is the only way to recover secrets if this machine is lost."),
-                pre({class: "bg-gray-900 rounded-lg p-3 text-brand font-mono text-sm whitespace-pre-wrap break-all"},
-                    recoveryCode.val),
-                div(spinnerButton("I've saved it", async () => { recoveryCode.val = null; }, "btn-secondary")),
-            );
-        }
-        const configured = status.val && status.val.recoveryConfigured;
-        return div(
-            {class: "card flex flex-col gap-3 max-w-xl"},
-            h2({class: "text-base font-semibold"}, "Recovery code"),
-            configured
-                ? p({class: "text-sm text-green-400"}, "A recovery code is configured.")
-                : p({class: "text-sm text-amber-400"},
-                    "No recovery code configured. Generate one so secrets can be recovered if this machine is lost."),
-            div(spinnerButton(
-                configured ? "Regenerate recovery code" : "Generate recovery code",
-                generateRecovery,
-                configured ? "btn-secondary" : "btn-primary")),
-        );
-    };
 
     const cellInput = (state, placeholder, mono, extra = {}) => input({
         class: `w-full bg-transparent px-2 py-1 rounded border border-transparent ` +
@@ -305,7 +265,6 @@ export function secretsPage() {
             return div(
                 {class: "flex flex-col gap-6"},
                 secretsTable(),
-                recoveryCard(),
             );
         },
     );

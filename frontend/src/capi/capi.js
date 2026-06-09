@@ -30,6 +30,8 @@ import {
   encodeEnrollmentWorkerMsg,
   encodeGithubAssetValidateRequest,
   encodeMasterPasswordRequest,
+  encodeMasterPasswordSaveRequest,
+  encodeMasterPasswordVerifyRequest,
   encodeMsgToMaster,
   encodeRepoValidateRequest,
   encodeSecretDeleteRequest,
@@ -164,6 +166,30 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeLoginResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {MasterPasswordSaveRequest} payload
+   * @returns {Promise<void>}
+   */
+  async postV1AuthMasterPasswordSave(payload) {
+    const response = await this.#request("/v1/auth/master/password/save", { method: 'POST', body: encodeMasterPasswordSaveRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    await response.arrayBuffer();
+  }
+
+  /**
+   * @param {MasterPasswordVerifyRequest} payload
+   * @returns {Promise<void>}
+   */
+  async postV1AuthMasterPasswordVerify(payload) {
+    const response = await this.#request("/v1/auth/master/password/verify", { method: 'POST', body: encodeMasterPasswordVerifyRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    await response.arrayBuffer();
   }
 
   /**

@@ -76,6 +76,14 @@
  * @property {string} username
  */
 /**
+ * @typedef {Object} MasterPasswordVerifyRequest
+ * @property {string} password
+ */
+/**
+ * @typedef {Object} MasterPasswordSaveRequest
+ * @property {string} password
+ */
+/**
  * @typedef {Object} LoginResponse
  * @property {string} token
  * @property {number} userId
@@ -1325,6 +1333,118 @@ function decodeMasterPasswordRequestMessage(reader, length) {
 export function decodeMasterPasswordRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeMasterPasswordRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {MasterPasswordVerifyRequest} message
+ * @param {Writer} writer
+ */
+export function writeMasterPasswordVerifyRequest(message, writer) {
+    if (message.password !== undefined && message.password !== null && message.password !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.password);
+    }
+}
+
+
+/**
+ * @param {MasterPasswordVerifyRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeMasterPasswordVerifyRequest(message) {
+    const writer = Writer.create();
+    writeMasterPasswordVerifyRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {MasterPasswordVerifyRequest}
+ */
+function decodeMasterPasswordVerifyRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {password: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.password = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {MasterPasswordVerifyRequest}
+ */
+export function decodeMasterPasswordVerifyRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeMasterPasswordVerifyRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {MasterPasswordSaveRequest} message
+ * @param {Writer} writer
+ */
+export function writeMasterPasswordSaveRequest(message, writer) {
+    if (message.password !== undefined && message.password !== null && message.password !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.password);
+    }
+}
+
+
+/**
+ * @param {MasterPasswordSaveRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeMasterPasswordSaveRequest(message) {
+    const writer = Writer.create();
+    writeMasterPasswordSaveRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {MasterPasswordSaveRequest}
+ */
+function decodeMasterPasswordSaveRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {password: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.password = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {MasterPasswordSaveRequest}
+ */
+export function decodeMasterPasswordSaveRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeMasterPasswordSaveRequestMessage(reader);
 }
 
 

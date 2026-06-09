@@ -23,6 +23,7 @@ const (
 	EnrollmentListen        ConfigKey = "ENROLLMENT_LISTEN"
 	AcmeHosts               ConfigKey = "ACME_HOSTS"
 	AcmeEmail               ConfigKey = "ACME_EMAIL"
+	MasterPasswordHash      ConfigKey = "MASTER_PASSWORD_HASH"
 	GithubToken             ConfigKey = "GITHUB_TOKEN"
 	BackupS3AccessKeyID     ConfigKey = "BACKUP_S3_ACCESS_KEY_ID"
 	BackupS3SecretAccessKey ConfigKey = "BACKUP_S3_SECRET_ACCESS_KEY"
@@ -69,6 +70,24 @@ func (s *Service) Snapshot() ainit.DynamicConfiguration {
 
 func (s *Service) UpdateValue(key ConfigKey, value string) error {
 	return s.UpdateValues([]Update{{Key: key, Value: value}})
+}
+
+func (s *Service) GetMasterPasswordHash() (string, error) {
+	value, configured, err := s.Storage.FetchConfigValue(string(MasterPasswordHash))
+	if err != nil {
+		return "", fmt.Errorf("FetchConfigValue %s: %w", MasterPasswordHash, err)
+	}
+	if configured {
+		return value, nil
+	}
+	return ainit.StaticConfig.InitialMasterPasswordHash, nil
+}
+
+func (s *Service) SetMasterPasswordHash(hash string) error {
+	if err := s.Storage.SetConfigValue(string(MasterPasswordHash), hash); err != nil {
+		return fmt.Errorf("SetConfigValue %s: %w", MasterPasswordHash, err)
+	}
+	return nil
 }
 
 func (s *Service) UpdateValues(updates []Update) error {

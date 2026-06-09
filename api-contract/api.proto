@@ -24,6 +24,14 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: NO_AUTH };
   }
 
+  rpc PostV1AuthMasterPasswordSave(MasterPasswordSaveRequest) returns (cp.Empty) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AuthMasterPasswordVerify(MasterPasswordVerifyRequest) returns (cp.Empty) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   rpc GetV1AuthCurrentSession(cp.Empty) returns (LoginResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
   }
@@ -263,6 +271,14 @@ message EmptyRequest {}
 message MasterPasswordRequest {
   string password = 1;
   string username = 2;
+}
+
+message MasterPasswordVerifyRequest {
+  string password = 1;
+}
+
+message MasterPasswordSaveRequest {
+  string password = 1;
 }
 
 message LoginResponse {

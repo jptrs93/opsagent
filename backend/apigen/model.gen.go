@@ -634,6 +634,72 @@ func DecodeMasterPasswordRequest(b []byte) (*MasterPasswordRequest, error) {
 	return &m, nil
 }
 
+type MasterPasswordVerifyRequest struct {
+	Password string
+}
+
+func (m *MasterPasswordVerifyRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Password, 1)
+	return b
+}
+
+func DecodeMasterPasswordVerifyRequest(b []byte) (*MasterPasswordVerifyRequest, error) {
+	var m MasterPasswordVerifyRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Password, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type MasterPasswordSaveRequest struct {
+	Password string
+}
+
+func (m *MasterPasswordSaveRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Password, 1)
+	return b
+}
+
+func DecodeMasterPasswordSaveRequest(b []byte) (*MasterPasswordSaveRequest, error) {
+	var m MasterPasswordSaveRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Password, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type LoginResponse struct {
 	Token  string
 	UserID int32

@@ -10,7 +10,6 @@ import (
 
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/goutil/logu"
-	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 	"github.com/jptrs93/opsagent/backend/util/jwtu"
@@ -19,6 +18,7 @@ import (
 var InvalidAuthTokenErr = apigen.NewApiErr("Unauthorized", "auth_invalid_token", http.StatusUnauthorized)
 var InvalidMasterPasswordErr = apigen.NewApiErr("", "invalid_master_password", http.StatusUnauthorized)
 var MasterPasswordNotConfiguredErr = apigen.NewApiErr("", "master_password_not_configured", http.StatusServiceUnavailable)
+var MasterPasswordRequiredErr = apigen.NewApiErr("Master password is required", "master_password_required", http.StatusBadRequest)
 var UsernameRequiredErr = apigen.NewApiErr("Username is required", "username_required", http.StatusBadRequest)
 
 func newLoginResponse(user *apigen.InternalUser, token string, scopes []string, expiry time.Time) *apigen.LoginResponse {
@@ -32,19 +32,8 @@ func newLoginResponse(user *apigen.InternalUser, token string, scopes []string, 
 }
 
 func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswordRequest) (*apigen.LoginResponse, error) {
-	masterPasswordHash, err := h.masterPasswordHash()
-	if err != nil {
+	if err := h.verifyMasterPassword(req.Password); err != nil {
 		return nil, err
-	}
-	if masterPasswordHash == "" {
-		return nil, MasterPasswordNotConfiguredErr
-	}
-	ok, err := authu.VerifyPassword(req.Password, masterPasswordHash)
-	if err != nil {
-		return nil, fmt.Errorf("verifying master password: %w", err)
-	}
-	if !ok {
-		return nil, InvalidMasterPasswordErr
 	}
 	if strings.TrimSpace(req.Username) == "" {
 		return nil, UsernameRequiredErr
@@ -74,15 +63,41 @@ func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswor
 	return newLoginResponse(user, token, []string{"passkey:create"}, time.Now().Add(10*time.Minute)), nil
 }
 
-func (h *Handler) masterPasswordHash() (string, error) {
-	hash, dbConfigured, err := h.Store.FetchMasterPasswordHash()
+func (h *Handler) verifyMasterPassword(password string) error {
+	masterPasswordHash, err := h.ConfigService.GetMasterPasswordHash()
 	if err != nil {
-		return "", fmt.Errorf("fetching master password hash: %w", err)
+		return err
 	}
-	if dbConfigured {
-		return hash, nil
+	if masterPasswordHash == "" {
+		return MasterPasswordNotConfiguredErr
 	}
-	return ainit.StaticConfig.InitialMasterPasswordHash, nil
+	ok, err := authu.VerifyPassword(password, masterPasswordHash)
+	if err != nil {
+		return fmt.Errorf("verifying master password: %w", err)
+	}
+	if !ok {
+		return InvalidMasterPasswordErr
+	}
+	return nil
+}
+
+func (h *Handler) PostV1AuthMasterPasswordSave(ctx apigen.Context, req *apigen.MasterPasswordSaveRequest) error {
+	if req.Password == "" {
+		return MasterPasswordRequiredErr
+	}
+	password := req.Password
+	hash, err := authu.HashPassword(password)
+	if err != nil {
+		return fmt.Errorf("hashing master password: %w", err)
+	}
+	if err := h.ConfigService.SetMasterPasswordHash(hash); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (h *Handler) PostV1AuthMasterPasswordVerify(ctx apigen.Context, req *apigen.MasterPasswordVerifyRequest) error {
+	return h.verifyMasterPassword(req.Password)
 }
 
 func (h *Handler) GetV1AuthCurrentSession(ctx apigen.Context) (*apigen.LoginResponse, error) {

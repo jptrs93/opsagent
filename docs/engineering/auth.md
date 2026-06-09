@@ -17,13 +17,19 @@ OpenDeploy is a single-admin tool. The `User` proto exposes `{id, name}` to the 
 
 The initial master password is provisioned via the `OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH` environment variable, which holds an argon2id hash produced by `authu.HashPassword`. Fresh installs default this hash to the password `opendeploy-setup`. It is used only to obtain a short-lived token for passkey registration.
 
-If `auth_settings.master_password_hash` exists in SQLite, that DB value is authoritative and the initial env hash is ignored. This lets a future password-change flow persist the changed hash without keeping install-time bootstrap config active forever.
+If `system_config.MASTER_PASSWORD_HASH` exists in SQLite, that config value is authoritative and the initial env hash is ignored. It is owned by the config service but is not editable through the general config update endpoint.
 
 ### Flow (`POST /v1/auth/master`)
-1. Resolve the configured master password hash from SQLite `auth_settings.master_password_hash`; if no row exists, fall back to `OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH`.
+1. Resolve the configured master password hash from SQLite `system_config` key `MASTER_PASSWORD_HASH`; if no row exists, fall back to `OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH`.
 2. Verify the request password against the resolved hash using `authu.VerifyPassword` (constant-time comparison).
 3. If no user exists, create one with a new UUID v7.
 4. Return a JWT with `scopes: ["passkey:create"]` and 10-minute expiry.
+
+### Rotation (`POST /v1/auth/master/password/save`)
+
+An authenticated default-session user can save a replacement master password. The frontend may generate a random password locally, but the endpoint only accepts a supplied password, hashes it with `authu.HashPassword`, and stores the hash in `system_config.MASTER_PASSWORD_HASH`.
+
+`POST /v1/auth/master/password/verify` checks a supplied password against the current configured hash without issuing a bootstrap token.
 
 After registering a passkey, the initial master password is no longer needed. It can be removed from the environment.
 

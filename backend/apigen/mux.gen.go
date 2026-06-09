@@ -72,6 +72,8 @@ type OpsagentHttpV1Handler interface {
 	Get(Context, *http.Request, http.ResponseWriter) error
 	GetV1Healthz(Context, *http.Request, http.ResponseWriter) error
 	PostV1AuthMaster(Context, *MasterPasswordRequest) (*LoginResponse, error)
+	PostV1AuthMasterPasswordSave(Context, *MasterPasswordSaveRequest) error
+	PostV1AuthMasterPasswordVerify(Context, *MasterPasswordVerifyRequest) error
 	GetV1AuthCurrentSession(Context) (*LoginResponse, error)
 	PostV1AuthPasskeyRegisterStart(Context, *EmptyRequest) (*WebAuthNOptionsResponse, error)
 	PostV1AuthPasskeyRegisterFinish(Context, *WebAuthNFinishRequest) (*LoginResponse, error)
@@ -140,6 +142,36 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/auth/master", buildHandlerFunc(config, verifyAuth, postV1AuthMasterAccessPolicy, postAuthHandlerPostV1AuthMaster, compressionModeAuto, false))
+	postV1AuthMasterPasswordSaveAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AuthMasterPasswordSave := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeMasterPasswordSaveRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1AuthMasterPasswordSave(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/auth/master/password/save", buildHandlerFunc(config, verifyAuth, postV1AuthMasterPasswordSaveAccessPolicy, postAuthHandlerPostV1AuthMasterPasswordSave, compressionModeAuto, false))
+	postV1AuthMasterPasswordVerifyAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AuthMasterPasswordVerify := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeMasterPasswordVerifyRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1AuthMasterPasswordVerify(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/auth/master/password/verify", buildHandlerFunc(config, verifyAuth, postV1AuthMasterPasswordVerifyAccessPolicy, postAuthHandlerPostV1AuthMasterPasswordVerify, compressionModeAuto, false))
 	getV1AuthCurrentSessionAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"passkey:create", "default"}}
 	postAuthHandlerGetV1AuthCurrentSession := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		res, err := h.GetV1AuthCurrentSession(authCtx)

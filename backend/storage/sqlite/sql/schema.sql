@@ -77,14 +77,6 @@ CREATE TABLE IF NOT EXISTS public_keys (
     key_bytes BLOB NOT NULL
 );
 
--- Auth: singleton settings. Absence of this row means the runtime may still use
--- the install-time OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH fallback. Once this
--- row exists, it is authoritative and the env fallback is ignored.
-CREATE TABLE IF NOT EXISTS auth_settings (
-    id                   INTEGER PRIMARY KEY CHECK (id = 1),
-    master_password_hash TEXT    NOT NULL DEFAULT ''
-);
-
 -- Runtime system configuration values. Absence of a row means the corresponding
 -- OPENDEPLOY_INITIAL_* or install-time default is still in effect.
 CREATE TABLE IF NOT EXISTS system_config (

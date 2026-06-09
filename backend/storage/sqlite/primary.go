@@ -743,21 +743,6 @@ func (s *PrimaryStorage) UserCount() int {
 	return len(rows)
 }
 
-func (s *PrimaryStorage) FetchMasterPasswordHash() (hash string, dbConfigured bool, err error) {
-	row, err := s.q.GetAuthSettings(context.Background())
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, err
-	}
-	return row.MasterPasswordHash, true, nil
-}
-
-func (s *PrimaryStorage) SetMasterPasswordHash(hash string) error {
-	return s.q.UpsertAuthSettings(context.Background(), hash)
-}
-
 func (s *PrimaryStorage) FetchConfigValue(key string) (value string, configured bool, err error) {
 	row, err := s.q.GetConfigValue(context.Background(), key)
 	if errors.Is(err, sql.ErrNoRows) {

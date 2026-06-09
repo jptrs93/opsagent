@@ -62,20 +62,18 @@ type DeploymentStatusHistory struct {
 	RunnerLastRestartAt   sql.NullInt64
 }
 
+type EnrollmentRequest struct {
+	ID                  int64
+	CreatedAt           int64
+	UpdatedAt           int64
+	RequestingIpAddress string
+	RequestingMachineID string
+	Status              string
+}
+
 type PublicKey struct {
 	Kid      string
 	KeyBytes []byte
-}
-
-type AuthSetting struct {
-	ID                 int64
-	MasterPasswordHash string
-}
-
-type ConfigValue struct {
-	Key       string
-	Value     string
-	UpdatedAt int64
 }
 
 type Secret struct {
@@ -89,15 +87,6 @@ type Secret struct {
 	UpdatedBy   int64
 }
 
-type SystemSecret struct {
-	Name       string
-	SmkVersion int64
-	Ciphertext []byte
-	Nonce      []byte
-	CreatedAt  int64
-	UpdatedAt  int64
-}
-
 type SecretKeyslot struct {
 	Slot       string
 	SmkVersion int64
@@ -105,6 +94,21 @@ type SecretKeyslot struct {
 	Nonce      []byte
 	KdfSalt    []byte
 	CreatedAt  int64
+}
+
+type SystemConfig struct {
+	Key       string
+	Value     string
+	UpdatedAt int64
+}
+
+type SystemSecret struct {
+	Name       string
+	SmkVersion int64
+	Ciphertext []byte
+	Nonce      []byte
+	CreatedAt  int64
+	UpdatedAt  int64
 }
 
 type User struct {

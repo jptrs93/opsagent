@@ -156,6 +156,36 @@ func (c *OpsagentHttpV1Capi) PostV1AuthMaster(ctx context.Context, req *MasterPa
 	return DecodeLoginResponse(body)
 }
 
+func (c *OpsagentHttpV1Capi) PostV1AuthMasterPasswordSave(ctx context.Context, req *MasterPasswordSaveRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1AuthMasterPasswordSave request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/auth/master/password/save", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
+func (c *OpsagentHttpV1Capi) PostV1AuthMasterPasswordVerify(ctx context.Context, req *MasterPasswordVerifyRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1AuthMasterPasswordVerify request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/auth/master/password/verify", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
 func (c *OpsagentHttpV1Capi) GetV1AuthCurrentSession(ctx context.Context) (*LoginResponse, error) {
 	resp, err := c.do(ctx, "GET", "/v1/auth/current/session", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
