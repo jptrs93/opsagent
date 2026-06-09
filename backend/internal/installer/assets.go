@@ -39,6 +39,14 @@ func renderEnvTemplate(opts installOptions) []byte {
 	return applyEnvOverrides(envTemplate, opts)
 }
 
+func renderOpenDeployUnit(opts installOptions) []byte {
+	role := strings.TrimSpace(opts.role)
+	if role == "" {
+		role = "primary"
+	}
+	return []byte(strings.ReplaceAll(string(unitOpenDeploy), "ExecStart=/var/lib/opendeploy/bin/opendeploy primary", "ExecStart=/var/lib/opendeploy/bin/opendeploy "+role))
+}
+
 func updateEnvFile(opts installOptions, own owner) error {
 	content := envTemplate
 	if existing, err := os.ReadFile(envFile); err == nil {
@@ -64,6 +72,12 @@ func applyEnvOverrides(content []byte, opts installOptions) []byte {
 	if opts.acmeHosts != nil {
 		values["OPENDEPLOY_INITIAL_ACME_HOSTS"] = *opts.acmeHosts
 	}
+	if opts.primaryAddr != nil {
+		values["OPENDEPLOY_PRIMARY_ADDR"] = *opts.primaryAddr
+	}
+	if opts.primaryName != nil {
+		values["OPENDEPLOY_PRIMARY_NAME"] = *opts.primaryName
+	}
 	if len(values) == 0 {
 		return content
 	}
@@ -82,7 +96,7 @@ func applyEnvOverrides(content []byte, opts installOptions) []byte {
 		lines[i] = key + "=" + value
 		seen[key] = true
 	}
-	for _, key := range []string{"OPENDEPLOY_INITIAL_ACME_HOSTS", "OPENDEPLOY_INITIAL_WEB_HTTP_ONLY", "OPENDEPLOY_INITIAL_WEB_LISTEN"} {
+	for _, key := range []string{"OPENDEPLOY_INITIAL_ACME_HOSTS", "OPENDEPLOY_INITIAL_WEB_HTTP_ONLY", "OPENDEPLOY_INITIAL_WEB_LISTEN", "OPENDEPLOY_PRIMARY_ADDR", "OPENDEPLOY_PRIMARY_NAME"} {
 		if value, ok := values[key]; ok && !seen[key] {
 			lines = append(lines, key+"="+value)
 		}

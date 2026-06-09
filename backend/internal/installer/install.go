@@ -25,13 +25,16 @@ type staged struct {
 // A network or checksum failure in phase 1 aborts with the host untouched,
 // rather than leaving a half-provisioned machine.
 type installOptions struct {
-	httpOnly  *bool
-	webListen *string
-	acmeHosts *string
+	role        string
+	httpOnly    *bool
+	webListen   *string
+	acmeHosts   *string
+	primaryAddr *string
+	primaryName *string
 }
 
 func (o installOptions) hasEnvOverrides() bool {
-	return o.httpOnly != nil || o.webListen != nil || o.acmeHosts != nil
+	return o.httpOnly != nil || o.webListen != nil || o.acmeHosts != nil || o.primaryAddr != nil || o.primaryName != nil
 }
 
 func doInstall(version string, opts installOptions) error {
@@ -193,6 +196,10 @@ func runUpgrade(version, arch string, st *staged, opts installOptions) error {
 			return err
 		}
 	}
+	step("Updating systemd unit")
+	if err := updateServiceUnitForUpgrade(opts); err != nil {
+		return err
+	}
 
 	step("Restarting %s", serviceName)
 	if isRoot() || dryRun {
@@ -284,7 +291,7 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 
 	// systemd unit (embedded)
 	step("Installing systemd unit")
-	if _, err := writeFile(serviceUnitPath, unitOpenDeploy, 0o644, noChown, false); err != nil {
+	if _, err := writeFile(serviceUnitPath, renderOpenDeployUnit(opts), 0o644, noChown, false); err != nil {
 		return err
 	}
 	if err := daemonReload(); err != nil {
@@ -299,7 +306,7 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 		return err
 	}
 
-	printNextSteps()
+	printNextSteps(opts)
 	return nil
 }
 
@@ -347,7 +354,32 @@ func isWritableDir(dir string) bool {
 	return true
 }
 
-func printNextSteps() {
+func updateServiceUnitForUpgrade(opts installOptions) error {
+	if isRoot() || dryRun {
+		if _, err := writeFile(serviceUnitPath, renderOpenDeployUnit(opts), 0o644, noChown, false); err != nil {
+			return err
+		}
+		return daemonReload()
+	}
+	content, err := os.ReadFile(serviceUnitPath)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(content), "ExecStart=/var/lib/opendeploy/bin/opendeploy "+opts.role) {
+		return fmt.Errorf("changing opendeploy.service role to %s requires root", opts.role)
+	}
+	info("kept existing %s", serviceUnitPath)
+	return nil
+}
+
+func printNextSteps(opts installOptions) {
+	if opts.role == "secondary" {
+		fmt.Print(`
+Install complete. opendeploy.service is enabled but not started.
+Next step: sudo systemctl start opendeploy.service
+`)
+		return
+	}
 	fmt.Print(`
 Install complete. opendeploy.service is enabled but not started.
 Next steps:
@@ -355,7 +387,6 @@ Next steps:
        - On the primary: use the initial setup password "opendeploy-setup"
          to register the first passkey, or replace
          OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH with your own hash.
-       - On a worker: set OPENDEPLOY_PRIMARY_ADDR to the primary's host:port
   2. Start: sudo systemctl start opendeploy.service
 `)
 }

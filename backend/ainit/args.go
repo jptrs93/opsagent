@@ -67,7 +67,8 @@ func usage(w io.Writer, prog string) {
 Usage:
   %[1]s primary
   %[1]s secondary
-  %[1]s install [--version vX.Y.Z] [--http-only true] [--web-listen :8080] [--acme-hosts host1,host2] [--dry-run]
+  %[1]s install primary [--version vX.Y.Z] [--http-only true] [--web-listen :8080] [--acme-hosts host1,host2] [--primary-name primary] [--dry-run]
+  %[1]s install secondary --primary-addr host:9444 [--version vX.Y.Z] [--primary-name primary] [--dry-run]
   %[1]s uninstall [--purge] [--yes] [--dry-run]
 
 Commands:

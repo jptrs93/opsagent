@@ -3,7 +3,8 @@
 # Install
 
 Installs from GitHub releases on Ubuntu (amd64 or arm64). The `opendeploy` binary
-is its own installer — download it and run `opendeploy install`. Idempotent —
+is its own installer — download it and run `opendeploy install primary` or
+`opendeploy install secondary`. Idempotent —
 re-run to upgrade.
 
 ```bash
@@ -11,16 +12,16 @@ re-run to upgrade.
 ARCH=$(uname -m); case "$ARCH" in x86_64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; esac
 curl -fsSL "https://github.com/jptrs93/opsagent/releases/latest/download/opendeploy-linux-$ARCH" -o opendeploy
 chmod +x opendeploy
-sudo ./opendeploy install
+sudo ./opendeploy install primary
 ```
 
 To pin a specific version (the installer fetches that release itself):
 
 ```bash
-sudo ./opendeploy install --version v0.0.1
+sudo ./opendeploy install primary --version v0.0.1
 ```
 
-Preview every action without touching the host with `sudo ./opendeploy install --dry-run`.
+Preview every action without touching the host with `sudo ./opendeploy install primary --dry-run`.
 
 The installer:
 
@@ -37,11 +38,11 @@ To remove: `sudo ./opendeploy uninstall` (keeps data) or `sudo ./opendeploy unin
 
 ## First-run configuration
 
-After the first install, edit `/etc/opendeploy/env`:
+After the first primary install, edit `/etc/opendeploy/env`:
 
 1. **Initial setup password** — the installer writes `OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH` for the default password `opendeploy-setup`. Use it only to register the first passkey.
-2. **Primary vs. worker node** — the installed systemd unit runs `opendeploy primary`. Worker nodes should run `opendeploy secondary` instead and set `OPENDEPLOY_PRIMARY_ADDR=host:9443`.
-3. **Cluster mTLS** — primary cluster (`:9443`) and enrollment (`:9444`) listeners start by default. Primary CA/server key material is generated automatically and stored encrypted in the primary secrets store. Workers run `opendeploy secondary`, set `OPENDEPLOY_PRIMARY_ADDR`, enroll with the primary, and then cache their received `ca.crt`, `node.crt`, and `node.key` under `/var/lib/opendeploy/tls/`.
+2. **Primary vs. worker node** — install primaries with `opendeploy install primary`; install workers with `opendeploy install secondary --primary-addr host:9444`.
+3. **Cluster mTLS** — primary cluster (`:9443`) and enrollment (`:9444`) listeners start by default. Primary CA/server key material is generated automatically and stored encrypted in the primary secrets store. Workers use `OPENDEPLOY_PRIMARY_ADDR`, enroll with the primary, and then cache their received `ca.crt`, `node.crt`, and `node.key` under `/var/lib/opendeploy/tls/`.
 4. **ACME / TLS** — set `OPENDEPLOY_INITIAL_ACME_HOSTS` and `OPENDEPLOY_INITIAL_ACME_EMAIL` to your public hostname and contact email.
 
 Then start the service:

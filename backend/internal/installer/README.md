@@ -27,14 +27,15 @@ This package is deliberately self-contained:
 ```sh
 # Fresh install (needs root) or in-place upgrade — auto-detected by whether
 # /etc/systemd/system/opendeploy.service already exists.
-sudo opendeploy install                 # latest release
-sudo opendeploy install --version v0.1.0
+sudo opendeploy install primary                 # latest release
+sudo opendeploy install primary --version v0.1.0
+sudo opendeploy install secondary --primary-addr primary.example.com:9444
 
 # Upgrade can run as the opendeploy user (passwordless systemctl-restart sudoers).
-sudo -u opendeploy opendeploy install --version v0.1.0
+sudo -u opendeploy opendeploy install primary --version v0.1.0
 
 # Preview every action without touching the host.
-sudo opendeploy install --dry-run
+sudo opendeploy install primary --dry-run
 
 # Remove (keeps user data) / wipe everything.
 sudo opendeploy uninstall
