@@ -3,8 +3,8 @@
 ## Overview
 
 The secrets store lets operators save encrypted key/value pairs and reference
-them from a deployment's environment as `${name}` (e.g.
-`DB_PASS=${staging.db.password}`). Values are decrypted at process spawn time,
+them from a deployment's environment as `${s:name}` (e.g.
+`DB_PASS=${s:staging.db.password}`). Values are decrypted at process spawn time,
 on the node that runs the deployment, and never appear in stored config, the UI
 state stream, the cluster replication feed, or logs.
 
@@ -24,7 +24,7 @@ Key files:
 - `backend/storage/sqlite/secrets_store.go` — `secrets.Store` on the primary
   `StorageAdapter` (DB passthrough for the `secret_keyslots`, `secrets`, and
   `system_secrets` tables).
-- `backend/engine/runner/secrets.go` — `SecretResolver` and `${name}` expansion
+- `backend/engine/runner/secrets.go` — `SecretResolver` and `${s:name}` expansion
   at spawn time.
 - `backend/handler/secrets.go` — the CRUD / status / recovery endpoints.
 - `frontend/src/pages/secrets.js` — the Secrets page.
@@ -88,12 +88,14 @@ without either the on-box machine KEK or the recovery code.
 
 ## Spawn-time resolution
 
-`${name}` placeholders are expanded in `osProcessEnv` output at spawn time
+`${s:name}` placeholders are expanded in env output at spawn time
 (`backend/engine/runner/secrets.go`), not at config time. This keeps resolved
 values out of stored config, replication, and logs (spawnDaemon logs env keys
-only), and means a rotated secret is picked up on the next restart. `$$` escapes
-a literal `$`. An unknown secret, a locked store, or no resolver on the node is
-a **fail-closed** spawn error, surfaced in the run output via `writeSpawnError`.
+only), and means a rotated secret is picked up on the next restart. Plain
+`user_configs` values use `${c:name}` and are not encrypted at rest. `$$`
+escapes a literal `$`. Unknown references, locked secrets, or no resolver on the
+node are **fail-closed** spawn errors, surfaced in the run output via
+`writeSpawnError`.
 
 ## The `machineKeyProvider` boundary
 

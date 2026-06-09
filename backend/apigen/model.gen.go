@@ -1166,6 +1166,180 @@ func DecodeSecretUnlockRequest(b []byte) (*SecretUnlockRequest, error) {
 	return &m, nil
 }
 
+type UserConfig struct {
+	Name      string
+	Group     string
+	Value     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	UpdatedBy int32
+}
+
+func (m *UserConfig) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendStringField(b, m.Group, 2)
+	b = AppendStringField(b, m.Value, 3)
+	b = AppendInt64FromTime(b, m.CreatedAt, 4)
+	b = AppendInt64FromTime(b, m.UpdatedAt, 5)
+	b = AppendInt32Field(b, m.UpdatedBy, 6)
+	return b
+}
+
+func DecodeUserConfig(b []byte) (*UserConfig, error) {
+	var m UserConfig
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Group, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Value, err = ConsumeString(b, typ)
+		case 4:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 5:
+			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 6:
+			b, m.UpdatedBy, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type UserConfigList struct {
+	Items []*UserConfig
+}
+
+func (m *UserConfigList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeUserConfigList(b []byte) (*UserConfigList, error) {
+	var m UserConfigList
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *UserConfig
+				item, err = DecodeUserConfig(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type UserConfigSetRequest struct {
+	Name  string
+	Group string
+	Value string
+}
+
+func (m *UserConfigSetRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendStringField(b, m.Group, 2)
+	b = AppendStringField(b, m.Value, 3)
+	return b
+}
+
+func DecodeUserConfigSetRequest(b []byte) (*UserConfigSetRequest, error) {
+	var m UserConfigSetRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Group, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Value, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type UserConfigDeleteRequest struct {
+	Name string
+}
+
+func (m *UserConfigDeleteRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	return b
+}
+
+func DecodeUserConfigDeleteRequest(b []byte) (*UserConfigDeleteRequest, error) {
+	var m UserConfigDeleteRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type NixBuildConfig struct {
 	Repo             string
 	Flake            string

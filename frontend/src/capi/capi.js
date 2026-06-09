@@ -19,6 +19,8 @@ import {
   decodeSecretRevealResponse,
   decodeSecretsStatusResponse,
   decodeState,
+  decodeUserConfig,
+  decodeUserConfigList,
   decodeWebAuthNOptionsResponse,
   encodeConfigUpdateRequest,
   encodeDeploymentCreateRequest,
@@ -39,6 +41,8 @@ import {
   encodeSecretSetRequest,
   encodeSecretUnlockRequest,
   encodeSecretValue,
+  encodeUserConfigDeleteRequest,
+  encodeUserConfigSetRequest,
   encodeWebAuthNFinishRequest,
 } from './model.js';
 
@@ -479,6 +483,42 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeSecretsStatusResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {EmptyRequest} payload
+   * @returns {Promise<UserConfigList>}
+   */
+  async postV1UserConfigsList(payload) {
+    const response = await this.#request("/v1/user/configs/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeUserConfigList(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {UserConfigSetRequest} payload
+   * @returns {Promise<UserConfig>}
+   */
+  async postV1UserConfigsSet(payload) {
+    const response = await this.#request("/v1/user/configs/set", { method: 'POST', body: encodeUserConfigSetRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeUserConfig(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {UserConfigDeleteRequest} payload
+   * @returns {Promise<void>}
+   */
+  async postV1UserConfigsDelete(payload) {
+    const response = await this.#request("/v1/user/configs/delete", { method: 'POST', body: encodeUserConfigDeleteRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    await response.arrayBuffer();
   }
 
   /**

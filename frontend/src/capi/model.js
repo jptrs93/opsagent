@@ -145,6 +145,29 @@
  * @property {string} code
  */
 /**
+ * @typedef {Object} UserConfig
+ * @property {string} name
+ * @property {string} group
+ * @property {string} value
+ * @property {Date} createdAt
+ * @property {Date} updatedAt
+ * @property {number} updatedBy
+ */
+/**
+ * @typedef {Object} UserConfigList
+ * @property {UserConfig[]} items
+ */
+/**
+ * @typedef {Object} UserConfigSetRequest
+ * @property {string} name
+ * @property {string} group
+ * @property {string} value
+ */
+/**
+ * @typedef {Object} UserConfigDeleteRequest
+ * @property {string} name
+ */
+/**
  * @typedef {Object} NixBuildConfig
  * @property {string} repo
  * @property {string} flake
@@ -2214,6 +2237,283 @@ function decodeSecretUnlockRequestMessage(reader, length) {
 export function decodeSecretUnlockRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeSecretUnlockRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {UserConfig} message
+ * @param {Writer} writer
+ */
+export function writeUserConfig(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.group !== undefined && message.group !== null && message.group !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.group);
+    }
+    if (message.value !== undefined && message.value !== null && message.value !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
+    }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.updatedAt instanceof Date && message.updatedAt.getTime() !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.updatedAt.getTime()));
+    }
+    if (message.updatedBy !== undefined && message.updatedBy !== null && message.updatedBy !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.updatedBy);
+    }
+}
+
+
+/**
+ * @param {UserConfig} message
+ * @returns {Uint8Array}
+ */
+export function encodeUserConfig(message) {
+    const writer = Writer.create();
+    writeUserConfig(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {UserConfig}
+ */
+function decodeUserConfigMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "", group: "", value: "", createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 2: {
+                message.group = reader.string();
+                break;
+            }
+            case 3: {
+                message.value = reader.string();
+                break;
+            }
+            case 4: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 5: {
+                message.updatedAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 6: {
+                message.updatedBy = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {UserConfig}
+ */
+export function decodeUserConfig(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeUserConfigMessage(reader);
+}
+
+
+
+/**
+ * @param {UserConfigList} message
+ * @param {Writer} writer
+ */
+export function writeUserConfigList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeUserConfig(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {UserConfigList} message
+ * @returns {Uint8Array}
+ */
+export function encodeUserConfigList(message) {
+    const writer = Writer.create();
+    writeUserConfigList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {UserConfigList}
+ */
+function decodeUserConfigListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeUserConfigMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {UserConfigList}
+ */
+export function decodeUserConfigList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeUserConfigListMessage(reader);
+}
+
+
+
+/**
+ * @param {UserConfigSetRequest} message
+ * @param {Writer} writer
+ */
+export function writeUserConfigSetRequest(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.group !== undefined && message.group !== null && message.group !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.group);
+    }
+    if (message.value !== undefined && message.value !== null && message.value !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
+    }
+}
+
+
+/**
+ * @param {UserConfigSetRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeUserConfigSetRequest(message) {
+    const writer = Writer.create();
+    writeUserConfigSetRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {UserConfigSetRequest}
+ */
+function decodeUserConfigSetRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "", group: "", value: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 2: {
+                message.group = reader.string();
+                break;
+            }
+            case 3: {
+                message.value = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {UserConfigSetRequest}
+ */
+export function decodeUserConfigSetRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeUserConfigSetRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {UserConfigDeleteRequest} message
+ * @param {Writer} writer
+ */
+export function writeUserConfigDeleteRequest(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+}
+
+
+/**
+ * @param {UserConfigDeleteRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeUserConfigDeleteRequest(message) {
+    const writer = Writer.create();
+    writeUserConfigDeleteRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {UserConfigDeleteRequest}
+ */
+function decodeUserConfigDeleteRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {UserConfigDeleteRequest}
+ */
+export function decodeUserConfigDeleteRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeUserConfigDeleteRequestMessage(reader);
 }
 
 

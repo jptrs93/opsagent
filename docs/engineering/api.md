@@ -78,6 +78,11 @@ Key generated files:
 | GET | `/v1/config` | — | `DynamicConfiguration` | ANY_OF default |
 | POST | `/v1/config/update` | `ConfigUpdateRequest` | `DynamicConfiguration` | ANY_OF default |
 | POST | `/v1/secret/value/reveal` | `SecretValue` | `SecretRevealResponse` | ANY_OF default |
+| POST | `/v1/user/configs/list` | `EmptyRequest` | `UserConfigList` | ANY_OF default |
+| POST | `/v1/user/configs/set` | `UserConfigSetRequest` | `UserConfig` | ANY_OF default |
+| POST | `/v1/user/configs/delete` | `UserConfigDeleteRequest` | — | ANY_OF default |
+
+User-managed configs are plaintext values stored in `user_configs` and referenced from deployment env as `${c:name}`. Encrypted secrets are referenced as `${s:name}`.
 
 ### Enrollment
 | Method | Path | Request | Response | Policy |

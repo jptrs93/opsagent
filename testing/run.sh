@@ -23,7 +23,7 @@ NETWORK=opendeploy-install-test
 PRIMARY_VOLUME=opendeploy-primary-containerd
 SECONDARY_VOLUME=opendeploy-secondary-containerd
 REPO=jptrs93/opsagent
-VERSION=v0.0.115
+VERSION=v0.0.116
 
 docker_arch=$(docker version --format '{{.Server.Arch}}')
 case "$docker_arch" in

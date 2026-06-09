@@ -157,12 +157,12 @@ func (r *osProcessRunner) run() {
 		}
 		hadProcess = true
 		r.status.LastRestartAt = time.Now()
-		// Resolve ${name} secret references at spawn time so values are never
-		// persisted/logged and rotated secrets are picked up on respawn. A
-		// failure (unknown secret, locked store) fails the spawn closed.
+		// Resolve ${s:name}/${c:name} references at spawn time so values are not
+		// persisted/logged and updates are picked up on respawn. Any unresolved
+		// reference fails the spawn closed.
 		env, err := resolveEnv(r.env)
 		if err != nil {
-			slog.ErrorContext(r.ctx, "resolving env secrets failed", "err", err)
+			slog.ErrorContext(r.ctx, "resolving env references failed", "err", err)
 			writeSpawnError(r.outputPath, err)
 			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 			crashCount++

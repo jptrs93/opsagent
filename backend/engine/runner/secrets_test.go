@@ -4,22 +4,25 @@ import "testing"
 
 type fakeResolver map[string]string
 
-func (f fakeResolver) Resolve(name string) (string, bool) { v, ok := f[name]; return v, ok }
+func (f fakeResolver) Resolve(name string) (string, bool)       { v, ok := f[name]; return v, ok }
+func (f fakeResolver) ResolveConfig(name string) (string, bool) { v, ok := f[name]; return v, ok }
 
-func withResolver(r SecretResolver, fn func()) {
-	prev := Secrets
-	Secrets = r
-	defer func() { Secrets = prev }()
+func withResolvers(secrets SecretResolver, configs ConfigResolver, fn func()) {
+	prevSecrets := Secrets
+	prevConfigs := Configs
+	Secrets = secrets
+	Configs = configs
+	defer func() { Secrets = prevSecrets; Configs = prevConfigs }()
 	fn()
 }
 
 func TestResolveEnv(t *testing.T) {
-	withResolver(fakeResolver{"db.pass": "s3cret", "tok": "abc"}, func() {
+	withResolvers(fakeResolver{"db.pass": "s3cret", "tok": "abc"}, fakeResolver{"host": "db.local"}, func() {
 		in := []string{
 			"PLAIN=value",
-			"DB_PASS=${db.pass}",
-			"URL=postgres://u:${db.pass}@host/db",
-			"MIX=${tok}-${db.pass}",
+			"DB_PASS=${s:db.pass}",
+			"URL=postgres://u:${s:db.pass}@${c:host}/db",
+			"MIX=${s:tok}-${s:db.pass}-${c:host}",
 			"LITERAL=cost is $$5",
 			"NOEQUALSIGN",
 		}
@@ -30,8 +33,8 @@ func TestResolveEnv(t *testing.T) {
 		want := []string{
 			"PLAIN=value",
 			"DB_PASS=s3cret",
-			"URL=postgres://u:s3cret@host/db",
-			"MIX=abc-s3cret",
+			"URL=postgres://u:s3cret@db.local/db",
+			"MIX=abc-s3cret-db.local",
 			"LITERAL=cost is $5",
 			"NOEQUALSIGN",
 		}
@@ -44,17 +47,28 @@ func TestResolveEnv(t *testing.T) {
 }
 
 func TestResolveEnvUnknownSecretFailsClosed(t *testing.T) {
-	withResolver(fakeResolver{}, func() {
-		if _, err := resolveEnv([]string{"X=${missing}"}); err == nil {
+	withResolvers(fakeResolver{}, fakeResolver{}, func() {
+		if _, err := resolveEnv([]string{"X=${s:missing}"}); err == nil {
 			t.Fatal("expected error for unknown secret")
 		}
 	})
 }
 
+func TestResolveEnvUnknownConfigFailsClosed(t *testing.T) {
+	withResolvers(fakeResolver{}, fakeResolver{}, func() {
+		if _, err := resolveEnv([]string{"X=${c:missing}"}); err == nil {
+			t.Fatal("expected error for unknown config")
+		}
+	})
+}
+
 func TestResolveEnvNoResolverFailsClosed(t *testing.T) {
-	withResolver(nil, func() {
-		if _, err := resolveEnv([]string{"X=${anything}"}); err == nil {
+	withResolvers(nil, nil, func() {
+		if _, err := resolveEnv([]string{"X=${s:anything}"}); err == nil {
 			t.Fatal("expected error when no resolver is set")
+		}
+		if _, err := resolveEnv([]string{"X=${c:anything}"}); err == nil {
+			t.Fatal("expected error when no config resolver is set")
 		}
 		// ...but values without placeholders still pass through.
 		out, err := resolveEnv([]string{"X=plain"})
@@ -65,9 +79,17 @@ func TestResolveEnvNoResolverFailsClosed(t *testing.T) {
 }
 
 func TestExpandSecretsUnterminated(t *testing.T) {
-	withResolver(fakeResolver{}, func() {
-		if _, err := expandSecrets("${unterminated"); err == nil {
+	withResolvers(fakeResolver{}, fakeResolver{}, func() {
+		if _, err := expandRefs("${unterminated"); err == nil {
 			t.Fatal("expected error for unterminated reference")
+		}
+	})
+}
+
+func TestExpandRefsRejectsLegacySyntax(t *testing.T) {
+	withResolvers(fakeResolver{"db.pass": "s3cret"}, fakeResolver{}, func() {
+		if _, err := resolveEnv([]string{"X=${db.pass}"}); err == nil {
+			t.Fatal("expected error for legacy secret reference")
 		}
 	})
 }

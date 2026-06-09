@@ -116,3 +116,12 @@ type User struct {
 	Name     string
 	DataBlob []byte
 }
+
+type UserConfig struct {
+	Name        string
+	ConfigGroup string
+	Value       string
+	CreatedAt   int64
+	UpdatedAt   int64
+	UpdatedBy   int64
+}

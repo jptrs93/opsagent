@@ -77,6 +77,15 @@ func (q *Queries) DeleteSecret(ctx context.Context, name string) error {
 	return err
 }
 
+const deleteUserConfig = `-- name: DeleteUserConfig :exec
+DELETE FROM user_configs WHERE name = ?
+`
+
+func (q *Queries) DeleteUserConfig(ctx context.Context, name string) error {
+	_, err := q.db.ExecContext(ctx, deleteUserConfig, name)
+	return err
+}
+
 const getConfigHistoryDesiredVersion = `-- name: GetConfigHistoryDesiredVersion :one
 SELECT desired_version
 FROM deployment_config_history
@@ -180,6 +189,25 @@ func (q *Queries) GetUser(ctx context.Context, id int64) (User, error) {
 	row := q.db.QueryRowContext(ctx, getUser, id)
 	var i User
 	err := row.Scan(&i.ID, &i.Name, &i.DataBlob)
+	return i, err
+}
+
+const getUserConfig = `-- name: GetUserConfig :one
+SELECT name, config_group, value, created_at, updated_at, updated_by
+FROM user_configs WHERE name = ?
+`
+
+func (q *Queries) GetUserConfig(ctx context.Context, name string) (UserConfig, error) {
+	row := q.db.QueryRowContext(ctx, getUserConfig, name)
+	var i UserConfig
+	err := row.Scan(
+		&i.Name,
+		&i.ConfigGroup,
+		&i.Value,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
+	)
 	return i, err
 }
 
@@ -624,6 +652,43 @@ func (q *Queries) ListSecrets(ctx context.Context) ([]Secret, error) {
 	return items, nil
 }
 
+const listUserConfigs = `-- name: ListUserConfigs :many
+
+SELECT name, config_group, value, created_at, updated_at, updated_by
+FROM user_configs ORDER BY name
+`
+
+// === user_configs ===
+func (q *Queries) ListUserConfigs(ctx context.Context) ([]UserConfig, error) {
+	rows, err := q.db.QueryContext(ctx, listUserConfigs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UserConfig
+	for rows.Next() {
+		var i UserConfig
+		if err := rows.Scan(
+			&i.Name,
+			&i.ConfigGroup,
+			&i.Value,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUsers = `-- name: ListUsers :many
 SELECT id, name, data_blob FROM users ORDER BY id
 `
@@ -925,5 +990,36 @@ type UpsertUserParams struct {
 
 func (q *Queries) UpsertUser(ctx context.Context, arg UpsertUserParams) error {
 	_, err := q.db.ExecContext(ctx, upsertUser, arg.ID, arg.Name, arg.DataBlob)
+	return err
+}
+
+const upsertUserConfig = `-- name: UpsertUserConfig :exec
+INSERT INTO user_configs (name, config_group, value, created_at, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(name) DO UPDATE SET
+    config_group = excluded.config_group,
+    value = excluded.value,
+    updated_at = excluded.updated_at,
+    updated_by = excluded.updated_by
+`
+
+type UpsertUserConfigParams struct {
+	Name        string
+	ConfigGroup string
+	Value       string
+	CreatedAt   int64
+	UpdatedAt   int64
+	UpdatedBy   int64
+}
+
+func (q *Queries) UpsertUserConfig(ctx context.Context, arg UpsertUserConfigParams) error {
+	_, err := q.db.ExecContext(ctx, upsertUserConfig,
+		arg.Name,
+		arg.ConfigGroup,
+		arg.Value,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+		arg.UpdatedBy,
+	)
 	return err
 }

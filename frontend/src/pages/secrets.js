@@ -244,7 +244,7 @@ export function secretsPage() {
             }, plusIcon(), "Add secret")),
         p({class: "text-xs text-gray-400"},
             "Reference a secret from a deployment's env value as ",
-            code({class: "font-mono text-gray-300"}, "${name}"), "."),
+            code({class: "font-mono text-gray-300"}, "${s:name}"), "."),
         () => {
             if (rows.val === null) return p({class: "text-gray-400 text-sm"}, "Loading...");
             if (rows.val.length === 0) {

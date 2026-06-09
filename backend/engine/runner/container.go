@@ -39,7 +39,7 @@ type containerRunner struct {
 
 	// derived from the deployment config version; not part of RunnerStatus.
 	user           string
-	env            []string // "KEY=VALUE" entries; ${name} resolved at start
+	env            []string // "KEY=VALUE" entries; ${s:name}/${c:name} refs resolved at start
 	command        []string // argv override; empty = image default
 	cwd            string   // process cwd; empty = image default
 	mounts         []ctrd.Mount
@@ -168,11 +168,11 @@ func (r *containerRunner) run() {
 		hadProcess = true
 		r.status.LastRestartAt = time.Now()
 
-		// Resolve ${name} secret references at spawn time (values never
-		// persisted/logged; rotated secrets picked up on respawn).
+		// Resolve ${s:name}/${c:name} references at spawn time (values not
+		// persisted/logged; updates picked up on respawn).
 		env, err := resolveEnv(r.env)
 		if err != nil {
-			slog.ErrorContext(r.ctx, "resolving env secrets failed", "err", err)
+			slog.ErrorContext(r.ctx, "resolving env references failed", "err", err)
 			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 			crashCount++
 			if !r.sleepBackoff(crashCount) {

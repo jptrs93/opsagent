@@ -165,6 +165,28 @@ ON CONFLICT(key) DO UPDATE SET
     value = excluded.value,
     updated_at = excluded.updated_at;
 
+-- === user_configs ===
+
+-- name: ListUserConfigs :many
+SELECT name, config_group, value, created_at, updated_at, updated_by
+FROM user_configs ORDER BY name;
+
+-- name: GetUserConfig :one
+SELECT name, config_group, value, created_at, updated_at, updated_by
+FROM user_configs WHERE name = ?;
+
+-- name: UpsertUserConfig :exec
+INSERT INTO user_configs (name, config_group, value, created_at, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(name) DO UPDATE SET
+    config_group = excluded.config_group,
+    value = excluded.value,
+    updated_at = excluded.updated_at,
+    updated_by = excluded.updated_by;
+
+-- name: DeleteUserConfig :exec
+DELETE FROM user_configs WHERE name = ?;
+
 -- === secret_keyslots ===
 
 -- name: ListSecretKeyslots :many

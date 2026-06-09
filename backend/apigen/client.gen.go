@@ -637,6 +637,59 @@ func (c *OpsagentHttpV1Capi) PostV1SecretsUnlock(ctx context.Context, req *Secre
 	return DecodeSecretsStatusResponse(body)
 }
 
+func (c *OpsagentHttpV1Capi) PostV1UserConfigsList(ctx context.Context, req *EmptyRequest) (*UserConfigList, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1UserConfigsList request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/user/configs/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeUserConfigList(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1UserConfigsSet(ctx context.Context, req *UserConfigSetRequest) (*UserConfig, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1UserConfigsSet request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/user/configs/set", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeUserConfig(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1UserConfigsDelete(ctx context.Context, req *UserConfigDeleteRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1UserConfigsDelete request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/user/configs/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
 func (c *OpsagentHttpV1Capi) PostV1EnrollmentAccept(ctx context.Context, req *EnrollmentAcceptRequest) (*EnrollmentRequestStatus, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1EnrollmentAccept request is nil")

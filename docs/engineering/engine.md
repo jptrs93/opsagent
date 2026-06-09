@@ -257,8 +257,9 @@ exit replaces process exit. The full crash/backoff machinery
   is a numeric uid or a name that also exists on the host.
 - **`user`** maps to OCI `process.user`; with no user namespace the in-container
   uid equals the host uid, so volume file ownership matches `runAs` semantics.
-- **Secrets/env**: `${name}` placeholders resolve at start via the same
-  `resolveEnv` resolver as `osProcess`, then into the container's env.
+- **Refs/env**: `${s:name}` secret and `${c:name}` config placeholders resolve
+  at start via the same `resolveEnv` resolver as `osProcess`, then into the
+  container's env.
 - **Reattach**: `ctrd.LoadTask` reconnects to a still-running container by id and
   re-establishes `Wait()`; if the task is gone it spawns fresh (RunTask first
   removes any stale container with the same id).

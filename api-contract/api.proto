@@ -117,7 +117,7 @@ service OpsagentHttpV1 {
 
   // Secrets management. List yields names + metadata only; the decrypted value
   // is returned solely by the explicit Reveal call. Referenced from deployment
-  // env as ${name}.
+  // env as ${s:name}.
   rpc PostV1SecretsList(EmptyRequest) returns (SecretList) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -150,6 +150,20 @@ service OpsagentHttpV1 {
   // Unlock a locked secrets store on a freshly recovered machine using the
   // recovery code; re-establishes the local machine key.
   rpc PostV1SecretsUnlock(SecretUnlockRequest) returns (SecretsStatusResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Plain user-managed configuration values. These are not encrypted at rest
+  // and can be referenced from deployment env as ${c:name}.
+  rpc PostV1UserConfigsList(EmptyRequest) returns (UserConfigList) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1UserConfigsSet(UserConfigSetRequest) returns (UserConfig) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1UserConfigsDelete(UserConfigDeleteRequest) returns (cp.Empty) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -346,6 +360,31 @@ message SecretUnlockRequest {
   string code = 1;         // the recovery code
 }
 
+// === User config messages ===
+
+message UserConfig {
+  string name = 1;
+  string group = 2;        // optional grouping label
+  string value = 3;        // plaintext value; not encrypted at rest
+  int64 created_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int64 updated_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int32 updated_by = 6;
+}
+
+message UserConfigList {
+  repeated UserConfig items = 1;
+}
+
+message UserConfigSetRequest {
+  string name = 1;
+  string group = 2;
+  string value = 3;
+}
+
+message UserConfigDeleteRequest {
+  string name = 1;
+}
+
 // === Deployment config messages ===
 
 message NixBuildConfig {
@@ -397,7 +436,7 @@ message ContainerMount {
 
 message ContainerRunnerConfig {
   string user = 1;             // OCI process.user (uid, uid:gid, or name); empty = image default
-  repeated EnvVar env = 2;     // env vars; ${name} secrets resolved at start
+  repeated EnvVar env = 2;     // env vars; ${s:name}/${c:name} refs resolved at start
   repeated string command = 3; // optional argv override (entrypoint+cmd); empty = image default
   string working_dir = 4;      // optional OCI process.cwd; empty = image default
   string data_mount_path = 5;  // override the default data-volume mount point inside the container

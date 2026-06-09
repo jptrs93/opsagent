@@ -98,6 +98,9 @@ type OpsagentHttpV1Handler interface {
 	PostV1SecretsStatus(Context, *EmptyRequest) (*SecretsStatusResponse, error)
 	PostV1SecretsGenerateRecoveryCode(Context, *EmptyRequest) (*SecretRecoveryCodeResponse, error)
 	PostV1SecretsUnlock(Context, *SecretUnlockRequest) (*SecretsStatusResponse, error)
+	PostV1UserConfigsList(Context, *EmptyRequest) (*UserConfigList, error)
+	PostV1UserConfigsSet(Context, *UserConfigSetRequest) (*UserConfig, error)
+	PostV1UserConfigsDelete(Context, *UserConfigDeleteRequest) error
 	PostV1EnrollmentAccept(Context, *EnrollmentAcceptRequest) (*EnrollmentRequestStatus, error)
 }
 
@@ -433,6 +436,43 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/secrets/unlock", buildHandlerFunc(config, verifyAuth, postV1SecretsUnlockAccessPolicy, postAuthHandlerPostV1SecretsUnlock, compressionModeAuto, false))
+	postV1UserConfigsListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1UserConfigsList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1UserConfigsList(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/user/configs/list", buildHandlerFunc(config, verifyAuth, postV1UserConfigsListAccessPolicy, postAuthHandlerPostV1UserConfigsList, compressionModeAuto, false))
+	postV1UserConfigsSetAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1UserConfigsSet := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeUserConfigSetRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1UserConfigsSet(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/user/configs/set", buildHandlerFunc(config, verifyAuth, postV1UserConfigsSetAccessPolicy, postAuthHandlerPostV1UserConfigsSet, compressionModeAuto, false))
+	postV1UserConfigsDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1UserConfigsDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeUserConfigDeleteRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1UserConfigsDelete(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/user/configs/delete", buildHandlerFunc(config, verifyAuth, postV1UserConfigsDeleteAccessPolicy, postAuthHandlerPostV1UserConfigsDelete, compressionModeAuto, false))
 	postV1EnrollmentAcceptAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1EnrollmentAccept := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEnrollmentAcceptRequest)

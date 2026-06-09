@@ -36,7 +36,7 @@ type Handler struct {
 	Config        ainit.DynamicConfiguration
 
 	// Secrets is the primary-only encrypted secrets store. It resolves
-	// ${name} env placeholders at deployment spawn time.
+	// ${s:name} env placeholders at deployment spawn time.
 	Secrets *secrets.Manager
 
 	// MachineName identifies this node when deciding whether a log request
@@ -109,9 +109,10 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	versionprovider.Git = versionprovider.NewGitVersionProvider(preparer.Nix.Git)
 	versionprovider.GHRel = versionprovider.NewGithubReleaseVersionProvider(githubCredentials)
 
-	// Wire the primary-only secrets store as the runner's secret resolver so
-	// ${name} env placeholders resolve at spawn time.
+	// Wire the primary-only stores as runner resolvers so ${s:name} and
+	// ${c:name} env placeholders resolve at spawn time.
 	runner.Secrets = secretsMgr
+	runner.Configs = store
 
 	h := &Handler{
 		staticFS:           staticFS,

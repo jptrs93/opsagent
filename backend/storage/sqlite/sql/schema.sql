@@ -85,6 +85,17 @@ CREATE TABLE IF NOT EXISTS system_config (
     updated_at INTEGER NOT NULL DEFAULT 0  -- epoch ms
 );
 
+-- Plain user-managed configuration values. These are intentionally not
+-- encrypted at rest; encrypted credentials belong in secrets instead.
+CREATE TABLE IF NOT EXISTS user_configs (
+    name         TEXT PRIMARY KEY,
+    config_group TEXT    NOT NULL DEFAULT '',
+    value        TEXT    NOT NULL DEFAULT '',
+    created_at   INTEGER NOT NULL,  -- epoch ms
+    updated_at   INTEGER NOT NULL,  -- epoch ms
+    updated_by   INTEGER NOT NULL DEFAULT 0
+);
+
 -- Secrets: envelope-encrypted key/value store. PRIMARY-ONLY — these two tables
 -- are never replicated to secondaries (the cluster feeder only sends deployment
 -- configs/status; see primary/session.go). They are created on every node by

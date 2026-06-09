@@ -6,23 +6,27 @@ import (
 )
 
 // SecretResolver resolves a secret name to its plaintext value. It is set at
-// startup (on the primary) to the secrets manager. When nil — e.g. on a
-// secondary in this phase, or before init — any env value referencing ${name}
-// fails to resolve and the spawn fails closed.
+// startup (on the primary) to the secrets manager.
 type SecretResolver interface {
 	Resolve(name string) (value string, ok bool)
 }
 
-// Secrets is the process-wide resolver used to expand ${name} placeholders in
-// deployment env values at spawn time. Resolution happens at spawn (not at
-// config time) so values are never persisted, never replicated, and never
-// logged (spawnDaemon logs env keys only), and so a rotated secret is picked up
-// on the next (re)start.
-var Secrets SecretResolver
+// ConfigResolver resolves a plain user config by name. It is intentionally a
+// separate interface because config values are not encrypted at rest.
+type ConfigResolver interface {
+	ResolveConfig(name string) (value string, ok bool)
+}
 
-// resolveEnv expands ${name} secret references in each "KEY=VALUE" entry's
+// Secrets and Configs are process-wide resolvers used to expand ${s:name} and
+// ${c:name} placeholders in deployment env values at spawn time. Resolution
+// happens at spawn (not at config time) so referenced values are picked up on
+// the next (re)start.
+var Secrets SecretResolver
+var Configs ConfigResolver
+
+// resolveEnv expands ${s:name} secret and ${c:name} config references in each "KEY=VALUE" entry's
 // value. A value with no placeholder is passed through untouched (so
-// deployments without secrets need no resolver). Any unresolved reference
+// deployments without references need no resolver). Any unresolved reference
 // returns an error, which the runner turns into a failed spawn.
 func resolveEnv(env []string) ([]string, error) {
 	out := make([]string, 0, len(env))
@@ -32,7 +36,7 @@ func resolveEnv(env []string) ([]string, error) {
 			out = append(out, kv)
 			continue
 		}
-		expanded, err := expandSecrets(val)
+		expanded, err := expandRefs(val)
 		if err != nil {
 			return nil, fmt.Errorf("env %s: %w", key, err)
 		}
@@ -41,10 +45,10 @@ func resolveEnv(env []string) ([]string, error) {
 	return out, nil
 }
 
-// expandSecrets replaces ${name} with the resolved secret value. "$$" is an
-// escape for a literal "$". Error messages reference the secret name (a
-// non-sensitive plaintext key), never the value.
-func expandSecrets(s string) (string, error) {
+// expandRefs replaces ${s:name} with a resolved secret and ${c:name} with a
+// plain config value. "$$" is an escape for a literal "$". Error messages
+// reference the non-sensitive plaintext key, never the resolved value.
+func expandRefs(s string) (string, error) {
 	if !strings.Contains(s, "${") && !strings.Contains(s, "$$") {
 		return s, nil
 	}
@@ -59,10 +63,10 @@ func expandSecrets(s string) (string, error) {
 			case '{':
 				end := strings.IndexByte(s[i+2:], '}')
 				if end < 0 {
-					return "", fmt.Errorf("unterminated secret reference")
+					return "", fmt.Errorf("unterminated reference")
 				}
-				name := strings.TrimSpace(s[i+2 : i+2+end])
-				val, err := resolveSecretRef(name)
+				ref := strings.TrimSpace(s[i+2 : i+2+end])
+				val, err := resolveRef(ref)
 				if err != nil {
 					return "", err
 				}
@@ -77,16 +81,43 @@ func expandSecrets(s string) (string, error) {
 	return b.String(), nil
 }
 
-func resolveSecretRef(name string) (string, error) {
-	if name == "" {
-		return "", fmt.Errorf("empty secret reference ${}")
+func resolveRef(ref string) (string, error) {
+	if ref == "" {
+		return "", fmt.Errorf("empty reference ${}")
 	}
+	prefix, name, ok := strings.Cut(ref, ":")
+	if !ok || strings.TrimSpace(name) == "" {
+		return "", fmt.Errorf("reference ${%s} must use ${s:name} or ${c:name}", ref)
+	}
+	name = strings.TrimSpace(name)
+	switch strings.TrimSpace(prefix) {
+	case "s":
+		return resolveSecretRef(name)
+	case "c":
+		return resolveConfigRef(name)
+	default:
+		return "", fmt.Errorf("unknown reference type ${%s}; use ${s:name} or ${c:name}", ref)
+	}
+}
+
+func resolveSecretRef(name string) (string, error) {
 	if Secrets == nil {
-		return "", fmt.Errorf("unknown secret ${%s}: no secrets store on this node", name)
+		return "", fmt.Errorf("unknown secret ${s:%s}: no secrets store on this node", name)
 	}
 	val, ok := Secrets.Resolve(name)
 	if !ok {
-		return "", fmt.Errorf("unknown secret ${%s}", name)
+		return "", fmt.Errorf("unknown secret ${s:%s}", name)
+	}
+	return val, nil
+}
+
+func resolveConfigRef(name string) (string, error) {
+	if Configs == nil {
+		return "", fmt.Errorf("unknown config ${c:%s}: no config store on this node", name)
+	}
+	val, ok := Configs.ResolveConfig(name)
+	if !ok {
+		return "", fmt.Errorf("unknown config ${c:%s}", name)
 	}
 	return val, nil
 }
