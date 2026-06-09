@@ -93,6 +93,16 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  // Runtime configuration snapshot. Secret-valued fields carry only a secret
+  // key; use PostV1SecretValueReveal to reveal the plaintext explicitly.
+  rpc GetV1Config(cp.Empty) returns (DynamicConfiguration) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1SecretValueReveal(SecretValue) returns (SecretRevealResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   // Secrets management. List yields names + metadata only; the decrypted value
   // is returned solely by the explicit Reveal call. Referenced from deployment
   // env as ${name}.
@@ -207,6 +217,30 @@ message EnrollmentAccepted {
 
 message GithubCredentials {
   string token = 1;
+}
+
+// SecretValue references an encrypted value by key. It intentionally carries no
+// plaintext; callers must reveal it through an explicit endpoint.
+message SecretValue {
+  string key = 1;
+}
+
+message DynamicConfiguration {
+  string web_listen = 1;
+  bool web_http_only = 2;
+  string cluster_listen = 3;
+  string enrollment_listen = 4;
+  repeated string acme_hosts = 5;
+  string acme_email = 6;
+
+  SecretValue github_token = 7;
+
+  string backup_s3_access_key_id = 8;
+  SecretValue backup_s3_secret_access_key = 9;
+  string backup_s3_bucket = 10;
+  string backup_s3_path = 11;
+  string backup_s3_region = 12;
+  string backup_s3_endpoint = 13;
 }
 
 // === Auth messages ===

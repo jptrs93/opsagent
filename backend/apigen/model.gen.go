@@ -345,6 +345,145 @@ func DecodeGithubCredentials(b []byte) (*GithubCredentials, error) {
 	return &m, nil
 }
 
+type SecretValue struct {
+	Key string
+}
+
+func (m *SecretValue) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	return b
+}
+
+func DecodeSecretValue(b []byte) (*SecretValue, error) {
+	var m SecretValue
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type DynamicConfiguration struct {
+	WebListen               string
+	WebHttpOnly             bool
+	ClusterListen           string
+	EnrollmentListen        string
+	AcmeHosts               []string
+	AcmeEmail               string
+	GithubToken             *SecretValue
+	BackupS3AccessKeyID     string
+	BackupS3SecretAccessKey *SecretValue
+	BackupS3Bucket          string
+	BackupS3Path            string
+	BackupS3Region          string
+	BackupS3Endpoint        string
+}
+
+func (m *DynamicConfiguration) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.WebListen, 1)
+	b = AppendBoolField(b, m.WebHttpOnly, 2)
+	b = AppendStringField(b, m.ClusterListen, 3)
+	b = AppendStringField(b, m.EnrollmentListen, 4)
+	b = AppendRepeated(b, m.AcmeHosts, AppendFieldDecorator(AppendStringField, 5))
+	b = AppendStringField(b, m.AcmeEmail, 6)
+	if m.GithubToken != nil {
+		b = protowire.AppendTag(b, 7, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.GithubToken.Encode())
+	}
+	b = AppendStringField(b, m.BackupS3AccessKeyID, 8)
+	if m.BackupS3SecretAccessKey != nil {
+		b = protowire.AppendTag(b, 9, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.BackupS3SecretAccessKey.Encode())
+	}
+	b = AppendStringField(b, m.BackupS3Bucket, 10)
+	b = AppendStringField(b, m.BackupS3Path, 11)
+	b = AppendStringField(b, m.BackupS3Region, 12)
+	b = AppendStringField(b, m.BackupS3Endpoint, 13)
+	return b
+}
+
+func DecodeDynamicConfiguration(b []byte) (*DynamicConfiguration, error) {
+	var m DynamicConfiguration
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.WebListen, err = ConsumeString(b, typ)
+		case 2:
+			b, m.WebHttpOnly, err = ConsumeBool(b, typ)
+		case 3:
+			b, m.ClusterListen, err = ConsumeString(b, typ)
+		case 4:
+			b, m.EnrollmentListen, err = ConsumeString(b, typ)
+		case 5:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.AcmeHosts = append(m.AcmeHosts, item)
+			}
+		case 6:
+			b, m.AcmeEmail, err = ConsumeString(b, typ)
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretValue
+				item, err = DecodeSecretValue(msgBytes)
+				if err == nil {
+					m.GithubToken = item
+				}
+			}
+		case 8:
+			b, m.BackupS3AccessKeyID, err = ConsumeString(b, typ)
+		case 9:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretValue
+				item, err = DecodeSecretValue(msgBytes)
+				if err == nil {
+					m.BackupS3SecretAccessKey = item
+				}
+			}
+		case 10:
+			b, m.BackupS3Bucket, err = ConsumeString(b, typ)
+		case 11:
+			b, m.BackupS3Path, err = ConsumeString(b, typ)
+		case 12:
+			b, m.BackupS3Region, err = ConsumeString(b, typ)
+		case 13:
+			b, m.BackupS3Endpoint, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type EmptyRequest struct {
 }
 

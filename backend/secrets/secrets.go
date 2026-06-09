@@ -220,6 +220,13 @@ func (m *Manager) Resolve(name string) (string, bool) {
 	return string(pt), true
 }
 
+func (m *Manager) HasSecret(name string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	_, ok := m.cache[name]
+	return ok
+}
+
 // Reveal returns the decrypted value of a single secret on explicit operator
 // request. Unlike Resolve (the runner's silent spawn-time path), it
 // distinguishes the failure modes for the API: ErrLocked when the store is

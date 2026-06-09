@@ -39,6 +39,26 @@
  * @property {string} token
  */
 /**
+ * @typedef {Object} SecretValue
+ * @property {string} key
+ */
+/**
+ * @typedef {Object} DynamicConfiguration
+ * @property {string} webListen
+ * @property {boolean} webHttpOnly
+ * @property {string} clusterListen
+ * @property {string} enrollmentListen
+ * @property {string[]} acmeHosts
+ * @property {string} acmeEmail
+ * @property {SecretValue} githubToken
+ * @property {string} backupS3AccessKeyId
+ * @property {SecretValue} backupS3SecretAccessKey
+ * @property {string} backupS3Bucket
+ * @property {string} backupS3Path
+ * @property {string} backupS3Region
+ * @property {string} backupS3Endpoint
+ */
+/**
  * @typedef {Object} EmptyRequest
  */
 /**
@@ -859,6 +879,208 @@ function decodeGithubCredentialsMessage(reader, length) {
 export function decodeGithubCredentials(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeGithubCredentialsMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretValue} message
+ * @param {Writer} writer
+ */
+export function writeSecretValue(message, writer) {
+    if (message.key !== undefined && message.key !== null && message.key !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
+    }
+}
+
+
+/**
+ * @param {SecretValue} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretValue(message) {
+    const writer = Writer.create();
+    writeSecretValue(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretValue}
+ */
+function decodeSecretValueMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {key: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.key = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretValue}
+ */
+export function decodeSecretValue(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretValueMessage(reader);
+}
+
+
+
+/**
+ * @param {DynamicConfiguration} message
+ * @param {Writer} writer
+ */
+export function writeDynamicConfiguration(message, writer) {
+    if (message.webListen !== undefined && message.webListen !== null && message.webListen !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.webListen);
+    }
+    if (message.webHttpOnly === true) {
+        writer.uint32(tag(2, WIRE.VARINT)).bool(message.webHttpOnly);
+    }
+    if (message.clusterListen !== undefined && message.clusterListen !== null && message.clusterListen !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.clusterListen);
+    }
+    if (message.enrollmentListen !== undefined && message.enrollmentListen !== null && message.enrollmentListen !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.enrollmentListen);
+    }
+    if (message.acmeHosts && message.acmeHosts.length > 0) {
+        for (const item of message.acmeHosts) {
+            writer.uint32(tag(5, WIRE.LDELIM)).string(item);
+        }
+    }
+    if (message.acmeEmail !== undefined && message.acmeEmail !== null && message.acmeEmail !== "") {
+        writer.uint32(tag(6, WIRE.LDELIM)).string(message.acmeEmail);
+    }
+    if (message.githubToken !== undefined && message.githubToken !== null) {
+        writer.uint32(tag(7, WIRE.LDELIM)).fork();
+        writeSecretValue(message.githubToken, writer);
+        writer.ldelim();
+    }
+    if (message.backupS3AccessKeyId !== undefined && message.backupS3AccessKeyId !== null && message.backupS3AccessKeyId !== "") {
+        writer.uint32(tag(8, WIRE.LDELIM)).string(message.backupS3AccessKeyId);
+    }
+    if (message.backupS3SecretAccessKey !== undefined && message.backupS3SecretAccessKey !== null) {
+        writer.uint32(tag(9, WIRE.LDELIM)).fork();
+        writeSecretValue(message.backupS3SecretAccessKey, writer);
+        writer.ldelim();
+    }
+    if (message.backupS3Bucket !== undefined && message.backupS3Bucket !== null && message.backupS3Bucket !== "") {
+        writer.uint32(tag(10, WIRE.LDELIM)).string(message.backupS3Bucket);
+    }
+    if (message.backupS3Path !== undefined && message.backupS3Path !== null && message.backupS3Path !== "") {
+        writer.uint32(tag(11, WIRE.LDELIM)).string(message.backupS3Path);
+    }
+    if (message.backupS3Region !== undefined && message.backupS3Region !== null && message.backupS3Region !== "") {
+        writer.uint32(tag(12, WIRE.LDELIM)).string(message.backupS3Region);
+    }
+    if (message.backupS3Endpoint !== undefined && message.backupS3Endpoint !== null && message.backupS3Endpoint !== "") {
+        writer.uint32(tag(13, WIRE.LDELIM)).string(message.backupS3Endpoint);
+    }
+}
+
+
+/**
+ * @param {DynamicConfiguration} message
+ * @returns {Uint8Array}
+ */
+export function encodeDynamicConfiguration(message) {
+    const writer = Writer.create();
+    writeDynamicConfiguration(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DynamicConfiguration}
+ */
+function decodeDynamicConfigurationMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {webListen: "", webHttpOnly: false, clusterListen: "", enrollmentListen: "", acmeHosts: [], acmeEmail: "", githubToken: undefined, backupS3AccessKeyId: "", backupS3SecretAccessKey: undefined, backupS3Bucket: "", backupS3Path: "", backupS3Region: "", backupS3Endpoint: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.webListen = reader.string();
+                break;
+            }
+            case 2: {
+                message.webHttpOnly = reader.bool();
+                break;
+            }
+            case 3: {
+                message.clusterListen = reader.string();
+                break;
+            }
+            case 4: {
+                message.enrollmentListen = reader.string();
+                break;
+            }
+            case 5: {
+                message.acmeHosts.push(reader.string());
+                break;
+            }
+            case 6: {
+                message.acmeEmail = reader.string();
+                break;
+            }
+            case 7: {
+                message.githubToken = decodeSecretValueMessage(reader, reader.uint32());
+                break;
+            }
+            case 8: {
+                message.backupS3AccessKeyId = reader.string();
+                break;
+            }
+            case 9: {
+                message.backupS3SecretAccessKey = decodeSecretValueMessage(reader, reader.uint32());
+                break;
+            }
+            case 10: {
+                message.backupS3Bucket = reader.string();
+                break;
+            }
+            case 11: {
+                message.backupS3Path = reader.string();
+                break;
+            }
+            case 12: {
+                message.backupS3Region = reader.string();
+                break;
+            }
+            case 13: {
+                message.backupS3Endpoint = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DynamicConfiguration}
+ */
+export function decodeDynamicConfiguration(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDynamicConfigurationMessage(reader);
 }
 
 

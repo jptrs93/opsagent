@@ -29,8 +29,12 @@ func MustRestoreAndStartReplicationIfEnabled(configService *appconfig.Service) {
 	dbPath := filepath.Join(ainit.StaticConfig.DataDir, "primary.db")
 
 	client := s3.NewReplicaClient()
+	secretAccessKey, err := revealSecretValue(cfg.BackupS3SecretAccessKey)
+	if err != nil {
+		panic(fmt.Errorf("reveal backup S3 secret access key: %w", err))
+	}
 	client.AccessKeyID = cfg.BackupS3AccessKeyID
-	client.SecretAccessKey = cfg.BackupS3SecretAccessKey
+	client.SecretAccessKey = secretAccessKey
 	client.Bucket = cfg.BackupS3Bucket
 	client.Path = cfg.BackupS3Path
 	client.Region = cfg.BackupS3Region
@@ -61,7 +65,7 @@ func MustRestoreAndStartReplicationIfEnabled(configService *appconfig.Service) {
 
 func configured(cfg ainit.DynamicConfiguration) bool {
 	return cfg.BackupS3AccessKeyID != "" ||
-		cfg.BackupS3SecretAccessKey != "" ||
+		cfg.BackupS3SecretAccessKey != nil && cfg.BackupS3SecretAccessKey.Key() != "" ||
 		cfg.BackupS3Bucket != "" ||
 		cfg.BackupS3Endpoint != "" ||
 		cfg.BackupS3Path != "" && cfg.BackupS3Path != "opendeploy/primary"
@@ -71,7 +75,11 @@ func validateConfig(cfg ainit.DynamicConfiguration) error {
 	if cfg.BackupS3AccessKeyID == "" {
 		return fmt.Errorf("OPENDEPLOY_BACKUP_S3_ACCESS_KEY_ID is required when backup is configured")
 	}
-	if cfg.BackupS3SecretAccessKey == "" {
+	secretAccessKey, err := revealSecretValue(cfg.BackupS3SecretAccessKey)
+	if err != nil {
+		return fmt.Errorf("reveal backup S3 secret access key: %w", err)
+	}
+	if secretAccessKey == "" {
 		return fmt.Errorf("OPENDEPLOY_BACKUP_S3_SECRET_ACCESS_KEY is required when backup is configured")
 	}
 	if cfg.BackupS3Bucket == "" {
@@ -84,4 +92,13 @@ func validateConfig(cfg ainit.DynamicConfiguration) error {
 		return fmt.Errorf("OPENDEPLOY_BACKUP_S3_REGION is required when backup is configured")
 	}
 	return nil
+}
+
+func revealSecretValue(value interface {
+	Reveal() (string, error)
+}) (string, error) {
+	if value == nil {
+		return "", nil
+	}
+	return value.Reveal()
 }

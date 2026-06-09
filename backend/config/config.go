@@ -9,7 +9,9 @@ import (
 	"github.com/jptrs93/goutil/ptru"
 	"github.com/jptrs93/goutil/pubsubu"
 	"github.com/jptrs93/opsagent/backend/ainit"
+	"github.com/jptrs93/opsagent/backend/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/util/secretu"
 )
 
 type configKey string
@@ -32,10 +34,17 @@ const (
 
 type Service struct {
 	Storage *sqlite.PrimaryStorage
+	Secrets *secrets.Manager
 
 	mu   sync.Mutex
 	subs *pubsubu.PubSub[ainit.DynamicConfiguration]
 }
+
+const (
+	configSecretGroup                 = "config"
+	githubTokenSecretName             = "config.github_token"
+	backupS3SecretAccessKeySecretName = "config.backup_s3_secret_access_key"
+)
 
 func (s *Service) SnapshotAndSubscribe() *pubsubu.Sub[ainit.DynamicConfiguration] {
 	s.mu.Lock()
@@ -47,10 +56,30 @@ func (s *Service) SnapshotAndSubscribe() *pubsubu.Sub[ainit.DynamicConfiguration
 	return s.subs.Subscribe(nil)
 }
 
+func (s *Service) Snapshot() ainit.DynamicConfiguration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.snapshot()
+}
+
 func (s *Service) UpdateValue(key configKey, value string) {
+	switch key {
+	case GithubToken:
+		s.updateConfigSecretValue(githubTokenSecretName, value)
+		s.notify()
+		return
+	case BackupS3SecretAccessKey:
+		s.updateConfigSecretValue(backupS3SecretAccessKeySecretName, value)
+		s.notify()
+		return
+	}
 	if err := s.Storage.SetConfigValue(string(key), value); err != nil {
 		panic(fmt.Sprintf("SetConfigValue %s: %v", key, err))
 	}
+	s.notify()
+}
+
+func (s *Service) notify() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.subs != nil {
@@ -67,9 +96,9 @@ func (s *Service) snapshot() ainit.DynamicConfiguration {
 		EnrollmentListen:        ptru.NonNil(s.mustLoadValue(EnrollmentListen), static.InitialEnrollmentListen),
 		AcmeHosts:               parseStringList(ptru.NonNil(s.mustLoadValue(AcmeHosts), strings.Join(static.InitialAcmeHosts, ","))),
 		AcmeEmail:               ptru.NonNil(s.mustLoadValue(AcmeEmail), static.InitialAcmeEmail),
-		GithubToken:             ptru.SafeDref(s.mustLoadValue(GithubToken)),
+		GithubToken:             s.loadGithubToken(),
 		BackupS3AccessKeyID:     ptru.SafeDref(s.mustLoadValue(BackupS3AccessKeyID)),
-		BackupS3SecretAccessKey: ptru.SafeDref(s.mustLoadValue(BackupS3SecretAccessKey)),
+		BackupS3SecretAccessKey: s.loadBackupS3SecretAccessKey(),
 		BackupS3Bucket:          ptru.SafeDref(s.mustLoadValue(BackupS3Bucket)),
 		BackupS3Path:            ptru.NonNil(s.mustLoadValue(BackupS3Path), "opendeploy/primary"),
 		BackupS3Region:          ptru.NonNil(s.mustLoadValue(BackupS3Region), "us-east-1"),
@@ -86,6 +115,32 @@ func (s *Service) mustLoadValue(key configKey) *string {
 		return nil
 	}
 	return &value
+}
+
+func (s *Service) updateConfigSecretValue(secretName, value string) {
+	if value == "" {
+		if err := s.Secrets.Delete(secretName); err != nil {
+			panic(fmt.Sprintf("DeleteSecret %s: %v", secretName, err))
+		}
+		return
+	}
+	if _, err := s.Secrets.Set(secretName, configSecretGroup, []byte(value), 0); err != nil {
+		panic(fmt.Sprintf("SetSecret %s: %v", secretName, err))
+	}
+}
+
+func (s *Service) loadGithubToken() secretu.SecretValue {
+	if !s.Secrets.HasSecret(githubTokenSecretName) {
+		return secretu.PlainSecretValue{}
+	}
+	return secretu.StoredSecretValue{K: githubTokenSecretName, Revealer: s.Secrets}
+}
+
+func (s *Service) loadBackupS3SecretAccessKey() secretu.SecretValue {
+	if !s.Secrets.HasSecret(backupS3SecretAccessKeySecretName) {
+		return secretu.PlainSecretValue{}
+	}
+	return secretu.StoredSecretValue{K: backupS3SecretAccessKeySecretName, Revealer: s.Secrets}
 }
 
 func parseBool(value string, key configKey) bool {

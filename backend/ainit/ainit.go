@@ -10,6 +10,7 @@ import (
 	"github.com/jptrs93/goutil/envu"
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/logu"
+	"github.com/jptrs93/opsagent/backend/util/secretu"
 )
 
 var StaticConfig StaticConfiguration
@@ -95,10 +96,10 @@ type DynamicConfiguration struct {
 	AcmeHosts        []string
 	AcmeEmail        string
 
-	GithubToken string
+	GithubToken secretu.SecretValue
 
 	BackupS3AccessKeyID     string
-	BackupS3SecretAccessKey string
+	BackupS3SecretAccessKey secretu.SecretValue
 	BackupS3Bucket          string
 	BackupS3Path            string
 	BackupS3Region          string

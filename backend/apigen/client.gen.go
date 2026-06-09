@@ -424,6 +424,41 @@ func (c *OpsagentHttpV1Capi) PostV1GithubAssetValidate(ctx context.Context, req 
 	return DecodeRepoValidateResponse(body)
 }
 
+func (c *OpsagentHttpV1Capi) GetV1Config(ctx context.Context) (*DynamicConfiguration, error) {
+	resp, err := c.do(ctx, "GET", "/v1/config", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeDynamicConfiguration(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1SecretValueReveal(ctx context.Context, req *SecretValue) (*SecretRevealResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1SecretValueReveal request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/secret/value/reveal", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeSecretRevealResponse(body)
+}
+
 func (c *OpsagentHttpV1Capi) PostV1SecretsList(ctx context.Context, req *EmptyRequest) (*SecretList, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsList request is nil")

@@ -86,7 +86,13 @@ func (h *Handler) GetV1Healthz(ctx apigen.Context, request *http.Request, writer
 
 func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(ainit.StaticConfig.DataDir, "primary.db"))
-	configService := &appconfig.Service{Storage: store}
+	// Open the primary-only secrets store before config snapshotting. Config-owned
+	// secret values such as GitHub/S3 credentials are resolved through it.
+	secretsMgr, err := secrets.Open(ainit.StaticConfig.DataDir, store)
+	if err != nil {
+		return nil, err
+	}
+	configService := &appconfig.Service{Storage: store, Secrets: secretsMgr}
 	configSub := configService.SnapshotAndSubscribe()
 	cfg := configSub.InitialValue
 	githubCredentials := credentials.StaticGithubCredentialsProvider{Token: cfg.GithubToken}
@@ -103,12 +109,8 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	versionprovider.Git = versionprovider.NewGitVersionProvider(preparer.Nix.Git)
 	versionprovider.GHRel = versionprovider.NewGithubReleaseVersionProvider(githubCredentials)
 
-	// Open the primary-only secrets store and wire it as the runner's secret
-	// resolver so ${name} env placeholders resolve at spawn time.
-	secretsMgr, err := secrets.Open(ainit.StaticConfig.DataDir, store)
-	if err != nil {
-		return nil, err
-	}
+	// Wire the primary-only secrets store as the runner's secret resolver so
+	// ${name} env placeholders resolve at spawn time.
 	runner.Secrets = secretsMgr
 
 	h := &Handler{

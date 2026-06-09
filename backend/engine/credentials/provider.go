@@ -1,6 +1,10 @@
 package credentials
 
-import "context"
+import (
+	"context"
+
+	"github.com/jptrs93/opsagent/backend/util/secretu"
+)
 
 type GithubCredentials struct {
 	Token string
@@ -11,11 +15,18 @@ type GithubCredentialsProvider interface {
 }
 
 type StaticGithubCredentialsProvider struct {
-	Token string
+	Token secretu.SecretValue
 }
 
 func (p StaticGithubCredentialsProvider) GithubCredentials(context.Context) (GithubCredentials, error) {
-	return GithubCredentials{Token: p.Token}, nil
+	if p.Token == nil {
+		return GithubCredentials{}, nil
+	}
+	token, err := p.Token.Reveal()
+	if err != nil {
+		return GithubCredentials{}, err
+	}
+	return GithubCredentials{Token: token}, nil
 }
 
 type EmptyGithubCredentialsProvider struct{}

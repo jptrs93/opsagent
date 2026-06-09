@@ -6,6 +6,7 @@ import {
   decodeDeploymentHistory,
   decodeDeploymentVersions,
   decodeDesiredState,
+  decodeDynamicConfiguration,
   decodeEnrollmentPrimaryMsg,
   decodeEnrollmentRequestStatus,
   decodeGithubCredentials,
@@ -34,6 +35,7 @@ import {
   encodeSecretRevealRequest,
   encodeSecretSetRequest,
   encodeSecretUnlockRequest,
+  encodeSecretValue,
   encodeWebAuthNFinishRequest,
 } from './model.js';
 
@@ -331,6 +333,29 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeRepoValidateResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @returns {Promise<DynamicConfiguration>}
+   */
+  async getV1Config() {
+    const response = await this.#request("/v1/config", { method: 'GET' });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeDynamicConfiguration(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {SecretValue} payload
+   * @returns {Promise<SecretRevealResponse>}
+   */
+  async postV1SecretValueReveal(payload) {
+    const response = await this.#request("/v1/secret/value/reveal", { method: 'POST', body: encodeSecretValue(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeSecretRevealResponse(await response.arrayBuffer());
   }
 
   /**

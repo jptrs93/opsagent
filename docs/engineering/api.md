@@ -70,6 +70,12 @@ Key generated files:
 | GET | `/v1/cluster/status` | — | `ClusterStatusResponse` | ANY_OF default |
 | GET | `/v1/cluster/github-credentials` | — | `GithubCredentials` | NO_AUTH over mTLS cluster listener |
 
+### Config
+| Method | Path | Request | Response | Policy |
+|--------|------|---------|----------|--------|
+| GET | `/v1/config` | — | `DynamicConfiguration` | ANY_OF default |
+| POST | `/v1/secret/value/reveal` | `SecretValue` | `SecretRevealResponse` | ANY_OF default |
+
 ### Enrollment
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
