@@ -22,30 +22,32 @@ Key files:
 - `backend/secrets/secrets.go` — `Manager`, the key hierarchy, AEAD, and the
   `machineKeyProvider` boundary.
 - `backend/storage/sqlite/secrets_store.go` — `secrets.Store` on the primary
-  `StorageAdapter` (DB passthrough for the `secret_keyslots` and `secrets`
-  tables).
+  `StorageAdapter` (DB passthrough for the `secret_keyslots`, `secrets`, and
+  `system_secrets` tables).
 - `backend/engine/runner/secrets.go` — `SecretResolver` and `${name}` expansion
   at spawn time.
 - `backend/handler/secrets.go` — the CRUD / status / recovery endpoints.
 - `frontend/src/pages/secrets.js` — the Secrets page.
 
-OpenDeploy also stores internal key material in the same encrypted table with
-`internal = 1`. Internal secrets use the reserved `opendeploy.` name prefix, are
-not listed in the Secrets UI, cannot be revealed through user-facing APIs, and
-cannot be referenced from deployment env vars. Current internal secrets hold the
-primary cluster CA/server mTLS material generated on first startup.
+OpenDeploy also stores internal key material in a separate encrypted
+`system_secrets` table. System secrets use the reserved `opendeploy.` name
+prefix, are not listed in the Secrets UI, cannot be revealed through
+user-facing APIs, and cannot be referenced from deployment env vars. Current
+system secrets hold the primary cluster CA/server mTLS material generated on
+first startup.
 
 ## Key hierarchy (envelope encryption)
 
 ```
 recovery code ──Argon2id(salt)──► recovery KEK ─┐
-                                                 ├─ wrap ─► SMK ──AEAD(AAD=name)──► secret values
+                                                 ├─ wrap ─► SMK ──AEAD(AAD=class+name)──► secret values
 machine KEK (provider-supplied) ────────────────┘
 ```
 
 - A single 32-byte **Secrets Master Key (SMK)** encrypts every value with
-  XChaCha20-Poly1305. The secret's name is bound as **associated data**, so a
-  ciphertext cannot be moved to another name.
+  XChaCha20-Poly1305. The secret's name and class (`user` or `system`) are bound
+  as **associated data**, so a ciphertext cannot be moved to another name or
+  between the user/system tables.
 - The SMK is never stored in the clear. It is stored wrapped, once per
   **keyslot** (`secret_keyslots` table):
   - **machine slot** — `AEAD(SMK, machineKEK)`, for unattended boot.

@@ -67,8 +67,6 @@ func (h *Handler) PostV1SecretsReveal(ctx apigen.Context, req *apigen.SecretReve
 			return nil, SecretsLockedErr
 		case errors.Is(err, secrets.ErrNotFound):
 			return nil, SecretNotFoundErr
-		case errors.Is(err, secrets.ErrInternalSecret):
-			return nil, SecretNotFoundErr
 		default:
 			return nil, err
 		}
@@ -81,7 +79,7 @@ func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDele
 		return SecretNameRequiredErr
 	}
 	if err := h.Secrets.Delete(req.Name); err != nil {
-		if errors.Is(err, secrets.ErrReservedName) || errors.Is(err, secrets.ErrInternalSecret) {
+		if errors.Is(err, secrets.ErrReservedName) {
 			return SecretReservedNameErr
 		}
 		return err

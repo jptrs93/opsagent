@@ -16,9 +16,9 @@
 // code. Recovery on a fresh machine: restore the DB backup, then Unlock with
 // the recovery code — this re-derives the SMK and writes a new machine.key.
 //
-// The secret_keyslots and secrets tables are PRIMARY-ONLY: the cluster feeder
-// never replicates them (it only ships deployment configs/status), so secrets
-// never reach a secondary's database.
+// The secret_keyslots, secrets, and system_secrets tables are PRIMARY-ONLY: the
+// cluster feeder never replicates them (it only ships deployment configs/status),
+// so secrets never reach a secondary's database.
 package secrets
 
 import (
@@ -73,10 +73,6 @@ var ErrNotFound = errors.New("secret not found")
 // reserved internal secret namespace.
 var ErrReservedName = errors.New("secret name is reserved for internal use")
 
-// ErrInternalSecret is returned when user-facing APIs try to reveal/delete an
-// internal secret directly.
-var ErrInternalSecret = errors.New("secret is internal")
-
 // Keyslot is a wrapped copy of the SMK as persisted in secret_keyslots.
 type Keyslot struct {
 	Slot       string
@@ -91,7 +87,6 @@ type Keyslot struct {
 type Record struct {
 	Name       string
 	Group      string
-	Internal   bool
 	SMKVersion int32
 	Ciphertext []byte
 	Nonce      []byte
@@ -100,11 +95,21 @@ type Record struct {
 	UpdatedBy  int32
 }
 
+// SystemRecord is an encrypted OpenDeploy-managed secret as persisted in the
+// system_secrets table.
+type SystemRecord struct {
+	Name       string
+	SMKVersion int32
+	Ciphertext []byte
+	Nonce      []byte
+	CreatedAt  int64 // epoch ms
+	UpdatedAt  int64 // epoch ms
+}
+
 // Meta describes a secret WITHOUT its value, for listing.
 type Meta struct {
 	Name      string
 	Group     string
-	Internal  bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	UpdatedBy int32
@@ -118,6 +123,8 @@ type Store interface {
 	ListSecrets() []Record
 	UpsertSecret(Record)
 	DeleteSecret(name string)
+	GetSystemSecret(name string) (SystemRecord, bool)
+	UpsertSystemSecret(SystemRecord)
 }
 
 // machineKeyProvider supplies the key-encryption key (KEK) that wraps the SMK
@@ -145,10 +152,11 @@ type Manager struct {
 	store      Store
 	machineKey machineKeyProvider
 
-	mu      sync.RWMutex
-	smk     []byte // nil => locked
-	version int32
-	cache   map[string]Record // name -> record (ciphertext)
+	mu          sync.RWMutex
+	smk         []byte // nil => locked
+	version     int32
+	cache       map[string]Record // name -> record (ciphertext)
+	systemCache map[string]SystemRecord
 }
 
 // Open loads the secrets store. On first run (no keyslots) it generates the SMK
@@ -158,9 +166,10 @@ type Manager struct {
 // until Unlock). Open only returns an error for a genuine first-init failure.
 func Open(dataDir string, store Store) (*Manager, error) {
 	m := &Manager{
-		store:      store,
-		machineKey: &fileMachineKey{path: filepath.Join(dataDir, machineKeyFile)},
-		cache:      make(map[string]Record),
+		store:       store,
+		machineKey:  &fileMachineKey{path: filepath.Join(dataDir, machineKeyFile)},
+		cache:       make(map[string]Record),
+		systemCache: make(map[string]SystemRecord),
 	}
 	for _, r := range store.ListSecrets() {
 		m.cache[r.Name] = r
@@ -200,10 +209,10 @@ func (m *Manager) Resolve(name string) (string, bool) {
 		return "", false
 	}
 	rec, ok := m.cache[name]
-	if !ok || rec.Internal {
+	if !ok {
 		return "", false
 	}
-	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD(name, rec.Internal))
+	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD("user", name))
 	if err != nil {
 		slog.Error("decrypting secret failed", "name", name, "err", err)
 		return "", false
@@ -225,10 +234,7 @@ func (m *Manager) Reveal(name string) ([]byte, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if rec.Internal {
-		return nil, ErrInternalSecret
-	}
-	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD(name, rec.Internal))
+	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD("user", name))
 	if err != nil {
 		return nil, fmt.Errorf("decrypting secret %q: %w", name, err)
 	}
@@ -245,7 +251,7 @@ func (m *Manager) Set(name, group string, value []byte, updatedBy int32) (Meta, 
 	if isReservedInternalName(name) {
 		return Meta{}, ErrReservedName
 	}
-	return m.set(name, group, false, value, updatedBy)
+	return m.set(name, group, value, updatedBy)
 }
 
 // SetInternal creates or updates an OpenDeploy-managed internal secret. Internal
@@ -255,17 +261,42 @@ func (m *Manager) SetInternal(name string, value []byte) error {
 	if name == "" {
 		return errors.New("secret name is required")
 	}
-	_, err := m.set(name, "opendeploy", true, value, 0)
-	return err
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.smk == nil {
+		return ErrLocked
+	}
+	ct, nonce, err := aeadSeal(m.smk, value, secretAAD("system", name))
+	if err != nil {
+		return err
+	}
+	now := nowMs()
+	createdAt := now
+	if existing, ok := m.systemCache[name]; ok {
+		createdAt = existing.CreatedAt
+	} else if existing, ok := m.store.GetSystemSecret(name); ok {
+		createdAt = existing.CreatedAt
+	}
+	rec := SystemRecord{
+		Name:       name,
+		SMKVersion: m.version,
+		Ciphertext: ct,
+		Nonce:      nonce,
+		CreatedAt:  createdAt,
+		UpdatedAt:  now,
+	}
+	m.store.UpsertSystemSecret(rec)
+	m.systemCache[name] = rec
+	return nil
 }
 
-func (m *Manager) set(name, group string, internal bool, value []byte, updatedBy int32) (Meta, error) {
+func (m *Manager) set(name, group string, value []byte, updatedBy int32) (Meta, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.smk == nil {
 		return Meta{}, ErrLocked
 	}
-	ct, nonce, err := aeadSeal(m.smk, value, secretAAD(name, internal))
+	ct, nonce, err := aeadSeal(m.smk, value, secretAAD("user", name))
 	if err != nil {
 		return Meta{}, err
 	}
@@ -277,7 +308,6 @@ func (m *Manager) set(name, group string, internal bool, value []byte, updatedBy
 	rec := Record{
 		Name:       name,
 		Group:      strings.TrimSpace(group),
-		Internal:   internal,
 		SMKVersion: m.version,
 		Ciphertext: ct,
 		Nonce:      nonce,
@@ -298,11 +328,13 @@ func (m *Manager) RevealInternal(name string) ([]byte, error) {
 	if m.smk == nil {
 		return nil, ErrLocked
 	}
-	rec, ok := m.cache[name]
-	if !ok || !rec.Internal {
-		return nil, ErrNotFound
+	rec, ok := m.systemCache[name]
+	if !ok {
+		if rec, ok = m.store.GetSystemSecret(name); !ok {
+			return nil, ErrNotFound
+		}
 	}
-	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD(name, rec.Internal))
+	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD("system", name))
 	if err != nil {
 		return nil, fmt.Errorf("decrypting internal secret %q: %w", name, err)
 	}
@@ -316,9 +348,6 @@ func (m *Manager) Delete(name string) error {
 	if isReservedInternalName(name) {
 		return ErrReservedName
 	}
-	if rec, ok := m.cache[name]; ok && rec.Internal {
-		return ErrInternalSecret
-	}
 	m.store.DeleteSecret(name)
 	delete(m.cache, name)
 	return nil
@@ -330,9 +359,6 @@ func (m *Manager) List() []Meta {
 	defer m.mu.RUnlock()
 	out := make([]Meta, 0, len(m.cache))
 	for _, rec := range m.cache {
-		if rec.Internal {
-			continue
-		}
 		out = append(out, rec.meta())
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -484,11 +510,7 @@ func aeadOpen(key, ciphertext, nonce, aad []byte) ([]byte, error) {
 
 func slotAAD(slot string) []byte { return []byte("opendeploy-keyslot:" + slot) }
 
-func secretAAD(name string, internal bool) []byte {
-	class := "user"
-	if internal {
-		class = "internal"
-	}
+func secretAAD(class, name string) []byte {
 	return []byte("opendeploy-secret:" + class + ":" + name)
 }
 
@@ -565,7 +587,6 @@ func (r Record) meta() Meta {
 	return Meta{
 		Name:      r.Name,
 		Group:     r.Group,
-		Internal:  r.Internal,
 		CreatedAt: time.UnixMilli(r.CreatedAt),
 		UpdatedAt: time.UnixMilli(r.UpdatedAt),
 		UpdatedBy: r.UpdatedBy,

@@ -385,6 +385,7 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 }
 
 type OpsagentClusterV1Handler interface {
+	GetV1ClusterGithubCredentials(Context) (*GithubCredentials, error)
 	PostV1ClusterConnect(Context, iter.Seq2[*MsgToMaster, error]) iter.Seq2[*MsgToWorker, error]
 }
 
@@ -400,6 +401,12 @@ func CreateOpsagentClusterV1Mux(h OpsagentClusterV1Handler, config *MuxConfig) *
 		}
 	}
 	m := http.NewServeMux()
+	getV1ClusterGithubCredentialsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerGetV1ClusterGithubCredentials := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		res, err := h.GetV1ClusterGithubCredentials(authCtx)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("GET /v1/cluster/github-credentials", buildHandlerFunc(config, verifyAuth, getV1ClusterGithubCredentialsAccessPolicy, postAuthHandlerGetV1ClusterGithubCredentials, compressionModeAuto, false))
 	postV1ClusterConnectAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
 	postAuthHandlerPostV1ClusterConnect := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		sr := NewStreamReader(r.Body, config.MaxRequestBodySize)

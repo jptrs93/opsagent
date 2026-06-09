@@ -144,6 +144,11 @@ service OpsagentHttpV1 {
 // (OpsagentClusterV1Capi). Peer identity is the client cert CN; auth is mTLS,
 // hence NO_AUTH at the policy layer.
 service OpsagentClusterV1 {
+  rpc GetV1ClusterGithubCredentials(cp.Empty) returns (GithubCredentials) {
+    option (cp.url) = "/v1/cluster/github-credentials";
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
   // PostV1ClusterConnect is the long-lived bidirectional stream between a
   // worker (client) and the primary (server). The worker sends MsgToMaster
   // (status writes, log data); the primary sends MsgToWorker (deployment
@@ -198,6 +203,10 @@ message EnrollmentAccepted {
   bytes ca_certificate = 3;
   bytes worker_certificate = 4;
   bytes worker_private_key = 5;
+}
+
+message GithubCredentials {
+  string token = 1;
 }
 
 // === Auth messages ===

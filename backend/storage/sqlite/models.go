@@ -72,16 +72,30 @@ type AuthSetting struct {
 	MasterPasswordHash string
 }
 
+type ConfigValue struct {
+	Key       string
+	Value     string
+	UpdatedAt int64
+}
+
 type Secret struct {
 	Name        string
 	SecretGroup string
-	Internal    int64
 	SmkVersion  int64
 	Ciphertext  []byte
 	Nonce       []byte
 	CreatedAt   int64
 	UpdatedAt   int64
 	UpdatedBy   int64
+}
+
+type SystemSecret struct {
+	Name       string
+	SmkVersion int64
+	Ciphertext []byte
+	Nonce      []byte
+	CreatedAt  int64
+	UpdatedAt  int64
 }
 
 type SecretKeyslot struct {

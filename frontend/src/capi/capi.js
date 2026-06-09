@@ -8,6 +8,7 @@ import {
   decodeDesiredState,
   decodeEnrollmentPrimaryMsg,
   decodeEnrollmentRequestStatus,
+  decodeGithubCredentials,
   decodeLoginResponse,
   decodeMsgToWorker,
   decodeRepoValidateResponse,
@@ -426,6 +427,17 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeEnrollmentRequestStatus(await response.arrayBuffer());
+  }
+
+  /**
+   * @returns {Promise<GithubCredentials>}
+   */
+  async getV1ClusterGithubCredentials() {
+    const response = await this.#request("/v1/cluster/github-credentials", { method: 'GET' });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeGithubCredentials(await response.arrayBuffer());
   }
 
   /**

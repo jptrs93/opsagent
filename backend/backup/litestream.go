@@ -4,28 +4,29 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/benbjohnson/litestream"
 	"github.com/benbjohnson/litestream/s3"
 	"github.com/jptrs93/opsagent/backend/ainit"
+	appconfig "github.com/jptrs93/opsagent/backend/config"
 )
 
 var activeStore *litestream.Store
 
-func MustRestoreAndStartReplicationIfEnabled() {
-	cfg := ainit.Config
-	if !configured() {
+func MustRestoreAndStartReplicationIfEnabled(configService *appconfig.Service) {
+	sub := configService.SnapshotAndSubscribe()
+	cfg := sub.InitialValue
+	if !configured(cfg) {
 		return
 	}
-	if err := validateConfig(); err != nil {
+	if err := validateConfig(cfg); err != nil {
 		panic(err)
 	}
 
 	ctx := context.Background()
-	dbPath := filepath.Join(cfg.DataDir, "primary.db")
+	dbPath := filepath.Join(ainit.StaticConfig.DataDir, "primary.db")
 
 	client := s3.NewReplicaClient()
 	client.AccessKeyID = cfg.BackupS3AccessKeyID
@@ -42,14 +43,10 @@ func MustRestoreAndStartReplicationIfEnabled() {
 	replica := litestream.NewReplicaWithClient(db, client)
 	db.Replica = replica
 
-	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		slog.Info("local primary database missing; restoring from backup if available", "path", dbPath)
-	} else if err != nil {
-		panic(fmt.Errorf("stat primary database: %w", err))
-	}
-	if err := db.EnsureExists(ctx); err != nil {
-		panic(fmt.Errorf("restore primary database: %w", err))
-	}
+	// Restore is disabled while backup configuration moves into system_config.
+	// if err := db.EnsureExists(ctx); err != nil {
+	// 	panic(fmt.Errorf("restore primary database: %w", err))
+	// }
 
 	store := litestream.NewStore([]*litestream.DB{db}, litestream.CompactionLevels{
 		{Level: 0},
@@ -62,8 +59,7 @@ func MustRestoreAndStartReplicationIfEnabled() {
 	slog.Info("started primary database backup replication", "bucket", cfg.BackupS3Bucket, "path", cfg.BackupS3Path)
 }
 
-func configured() bool {
-	cfg := ainit.Config
+func configured(cfg ainit.DynamicConfiguration) bool {
 	return cfg.BackupS3AccessKeyID != "" ||
 		cfg.BackupS3SecretAccessKey != "" ||
 		cfg.BackupS3Bucket != "" ||
@@ -71,8 +67,7 @@ func configured() bool {
 		cfg.BackupS3Path != "" && cfg.BackupS3Path != "opendeploy/primary"
 }
 
-func validateConfig() error {
-	cfg := ainit.Config
+func validateConfig(cfg ainit.DynamicConfiguration) error {
 	if cfg.BackupS3AccessKeyID == "" {
 		return fmt.Errorf("OPENDEPLOY_BACKUP_S3_ACCESS_KEY_ID is required when backup is configured")
 	}

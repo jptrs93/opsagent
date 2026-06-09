@@ -82,7 +82,7 @@ func (h *Handler) masterPasswordHash() (string, error) {
 	if dbConfigured {
 		return hash, nil
 	}
-	return ainit.Config.InitialMasterPasswordHash, nil
+	return ainit.StaticConfig.InitialMasterPasswordHash, nil
 }
 
 func (h *Handler) GetV1AuthCurrentSession(ctx apigen.Context) (*apigen.LoginResponse, error) {

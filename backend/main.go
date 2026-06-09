@@ -14,13 +14,13 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/backup"
 	"github.com/jptrs93/opsagent/backend/cluster"
+	"github.com/jptrs93/opsagent/backend/engine/credentials"
 	"github.com/jptrs93/opsagent/backend/internal/installer"
 	"github.com/jptrs93/opsagent/backend/primary"
 	"github.com/jptrs93/opsagent/backend/secondary"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 
 	"log/slog"
-	"net"
 	"net/http"
 
 	"github.com/jptrs93/opsagent/backend/handler"
@@ -54,85 +54,54 @@ var fsys embed.FS
 // See docs/engineering/engine.md for the rationale.
 
 func main() {
-	// Installer subcommands run inside the same binary but are a distinct entry
-	// point — they provision the host and must not start the server. ainit.init()
-	// skips its server bootstrap for these same subcommands (Go runs init()
-	// before main(), so the skip lives there, not here).
-	if installer.IsSubcommand(os.Args) {
+	switch ainit.Args.Command {
+	case ainit.CommandInstall, ainit.CommandUninstall:
 		if err := installer.Run(os.Args); err != nil {
 			fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
 			os.Exit(1)
 		}
 		return
-	}
-
-	if len(os.Args) < 2 {
-		usage(os.Args[0])
-		os.Exit(2)
-	}
-
-	fmt.Println(fmt.Sprintf("opendeploy starting version=%v", version))
-
-	switch os.Args[1] {
-	case "primary":
+	case ainit.CommandPrimary:
+		fmt.Println(fmt.Sprintf("opendeploy starting primary version=%v", version))
 		runPrimary()
 		return
-	case "secondary":
+	case ainit.CommandSecondary:
+		fmt.Println(fmt.Sprintf("opendeploy starting secondary version=%v", version))
 		runSecondary()
 		return
 	default:
-		usage(os.Args[0])
-		fmt.Fprintf(os.Stderr, "\nunknown command: %s\n", os.Args[1])
-		os.Exit(2)
+		panic(fmt.Sprintf("unsupported command after argument parsing: %s", ainit.Args.Command))
 	}
 
 }
 
-func usage(prog string) {
-	fmt.Fprintf(os.Stderr, `%[1]s - deployment management server
-
-Usage:
-  %[1]s primary
-  %[1]s secondary
-  %[1]s install [--version vX.Y.Z] [--dry-run]
-  %[1]s uninstall [--purge] [--yes] [--dry-run]
-
-Commands:
-  primary     Run the primary HTTP server and cluster listeners.
-  secondary   Run a worker that enrolls with and connects to the primary.
-  install     Fresh install or in-place upgrade.
-  uninstall   Remove the service and binary; --purge also wipes all state.
-`, prog)
-}
-
 func runPrimary() {
-	backup.MustRestoreAndStartReplicationIfEnabled()
-
 	subFS, err := fs.Sub(fsys, "web/dist")
 	if err != nil {
 		panic(fmt.Sprintf("creating embedded sub fs: %v", err))
 	}
-	machineName := ainit.ResolvePrimaryMachineName()
+	machineName := ainit.StaticConfig.PrimaryName
 	slog.Info("starting in primary mode", "machine", machineName)
 	h, err := handler.New(subFS, machineName)
 	if err != nil {
 		panic(fmt.Sprintf("creating handler: %v", err))
 	}
+	backup.MustRestoreAndStartReplicationIfEnabled(h.ConfigService)
+	cfg := h.Config
 	clusterMaterial, err := cluster.BootstrapPrimary(h.Secrets, machineName)
 	if err != nil {
 		panic(fmt.Sprintf("bootstrapping cluster TLS material: %v", err))
 	}
 
 	// Primary cluster and enrollment listeners start for every primary.
-	startPrimaryCluster(h, clusterMaterial)
-	startPrimaryEnrollment(h)
+	startPrimaryCluster(h, clusterMaterial, cfg)
+	startPrimaryEnrollment(h, cfg)
 	m := apigen.CreateOpsagentHttpV1Mux(h, &apigen.MuxConfig{
 		VerifyAuth:         h.VerifyAuth,
 		MaxRequestBodySize: 20_000_000,
 	})
-	if ainit.Config.HTTPOnly {
-		httpAddr := net.JoinHostPort(ainit.Config.BindAddr, "8080")
-		httpServer := http.Server{Handler: m, Addr: httpAddr}
+	if cfg.WebHTTPOnly {
+		httpServer := http.Server{Handler: m, Addr: cfg.WebListen}
 		slog.Info("starting http-only server", "addr", httpServer.Addr)
 		err := httpServer.ListenAndServe()
 		panic(fmt.Sprintf("http-only server ended: %v", err))
@@ -140,25 +109,24 @@ func runPrimary() {
 
 	certManager := &autocert.Manager{
 		Prompt:      autocert.AcceptTOS,
-		Cache:       autocert.DirCache(filepath.Join(ainit.Config.DataDir, ".certs")),
-		HostPolicy:  autocert.HostWhitelist(ainit.Config.AcmeHosts...),
-		Email:       ainit.Config.AcmeEmail,
+		Cache:       autocert.DirCache(filepath.Join(ainit.StaticConfig.DataDir, ".certs")),
+		HostPolicy:  autocert.HostWhitelist(cfg.AcmeHosts...),
+		Email:       cfg.AcmeEmail,
 		RenewBefore: 168 * time.Hour,
 	}
 	// TLS-ALPN-01 ACME challenge runs inside the port 443 listener
-	httpsAddr := net.JoinHostPort(ainit.Config.BindAddr, "443")
 	httpsServer := http.Server{
 		Handler:   m,
-		Addr:      httpsAddr,
+		Addr:      cfg.WebListen,
 		TLSConfig: certManager.TLSConfig(),
 	}
-	slog.Info("starting https server", "addr", httpsAddr)
+	slog.Info("starting https server", "addr", cfg.WebListen)
 	err = httpsServer.ListenAndServeTLS("", "")
 	panic(fmt.Sprintf("https server ended: %v", err))
 }
 
 func runSecondary() {
-	cfg := ainit.Config
+	cfg := ainit.StaticConfig
 	if cfg.PrimaryAddr == "" {
 		panic("OPENDEPLOY_PRIMARY_ADDR must be set when running secondary")
 	}
@@ -185,7 +153,6 @@ func runSecondary() {
 		PrimaryName: cfg.PrimaryName,
 		MachineName: machineName,
 		DataDir:     cfg.DataDir,
-		GithubToken: cfg.GithubToken,
 	})
 }
 
@@ -203,17 +170,17 @@ func workerTLSMaterialExists(paths ...string) bool {
 	return true
 }
 
-func startPrimaryCluster(h *handler.Handler, material *cluster.Material) {
-	cfg := ainit.Config
+func startPrimaryCluster(h *handler.Handler, material *cluster.Material, cfg ainit.DynamicConfiguration) {
 	tlsCfg := certu.MustLoadTLSConfigFromPEM(material.CACert, material.PrimaryCert, material.PrimaryKey)
 
-	p := primary.New(h.Store)
+	githubCredentials := credentials.StaticGithubCredentialsProvider{Token: cfg.GithubToken}
+	p := primary.New(h.Store, githubCredentials)
 	h.ClusterPrimary = p
 
 	// The cluster transport is a separate mTLS HTTP/2-only listener, distinct
 	// mux; peer identity comes from the client cert CN. The server emits its own
 	// health-check PINGs (HTTP2Config) so it detects a dead worker.
-	mux := apigen.CreateOpsagentClusterV1Mux(p, &apigen.MuxConfig{
+	clusterMux := apigen.CreateOpsagentClusterV1Mux(p, &apigen.MuxConfig{
 		VerifyAuth:         primary.VerifyClusterPeer,
 		MaxRequestBodySize: 16 * 1024 * 1024, // 16 MB cap on a single inbound stream frame
 	})
@@ -221,7 +188,7 @@ func startPrimaryCluster(h *handler.Handler, material *cluster.Material) {
 	protocols.SetHTTP2(true)
 	srv := &http.Server{
 		Addr:      cfg.ClusterListen,
-		Handler:   mux,
+		Handler:   clusterMux,
 		TLSConfig: tlsCfg,
 		Protocols: protocols,
 		HTTP2: &http.HTTP2Config{
@@ -236,8 +203,7 @@ func startPrimaryCluster(h *handler.Handler, material *cluster.Material) {
 	}()
 }
 
-func startPrimaryEnrollment(h *handler.Handler) {
-	cfg := ainit.Config
+func startPrimaryEnrollment(h *handler.Handler, cfg ainit.DynamicConfiguration) {
 	mux := apigen.CreateEnrollmentV1Mux(h, &apigen.MuxConfig{
 		VerifyAuth:         h.VerifyEnrollmentRequest,
 		MaxRequestBodySize: 1 * 1024 * 1024,

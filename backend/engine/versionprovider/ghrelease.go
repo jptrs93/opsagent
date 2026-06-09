@@ -9,16 +9,17 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/engine/credentials"
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
 )
 
 // GithubReleaseVersionProvider lists release tags from the GitHub API.
 type GithubReleaseVersionProvider struct {
-	githubToken string
+	credentials credentials.GithubCredentialsProvider
 }
 
-func NewGithubReleaseVersionProvider(githubToken string) *GithubReleaseVersionProvider {
-	return &GithubReleaseVersionProvider{githubToken: githubToken}
+func NewGithubReleaseVersionProvider(provider credentials.GithubCredentialsProvider) *GithubReleaseVersionProvider {
+	return &GithubReleaseVersionProvider{credentials: credentials.OrEmpty(provider)}
 }
 
 func (p *GithubReleaseVersionProvider) ListScopes(_ context.Context, _ *apigen.PrepareConfig) ([]string, error) {
@@ -96,8 +97,12 @@ func (p *GithubReleaseVersionProvider) fetchReleases(ctx context.Context, ownerR
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	if p.githubToken != "" {
-		req.Header.Set("Authorization", "Bearer "+p.githubToken)
+	creds, err := p.credentials.GithubCredentials(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if creds.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+creds.Token)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

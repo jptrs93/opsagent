@@ -11,7 +11,6 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/jptrs93/goutil/authu"
-	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
@@ -33,8 +32,8 @@ func (h *Handler) initPasskeyService() error {
 
 	service, err := authu.NewPasskeyService[*apigen.InternalUser](&webauthn.Config{
 		RPDisplayName: "Opsagent",
-		RPID:          passkeyRPID(),
-		RPOrigins:     passkeyOrigins(),
+		RPID:          h.passkeyRPID(),
+		RPOrigins:     h.passkeyOrigins(),
 		AuthenticatorSelection: protocol.AuthenticatorSelection{
 			ResidentKey:      protocol.ResidentKeyRequirementRequired,
 			UserVerification: protocol.VerificationPreferred,
@@ -69,22 +68,22 @@ func (h *Handler) initPasskeyService() error {
 	return nil
 }
 
-func passkeyRPID() string {
-	if ainit.Config.HTTPOnly {
+func (h *Handler) passkeyRPID() string {
+	if h.Config.WebHTTPOnly {
 		return "localhost"
 	}
-	if len(ainit.Config.AcmeHosts) == 0 || strings.TrimSpace(ainit.Config.AcmeHosts[0]) == "" {
+	if len(h.Config.AcmeHosts) == 0 || strings.TrimSpace(h.Config.AcmeHosts[0]) == "" {
 		return "opendeploy.dev"
 	}
-	return strings.TrimSpace(ainit.Config.AcmeHosts[0])
+	return strings.TrimSpace(h.Config.AcmeHosts[0])
 }
 
-func passkeyOrigins() []string {
-	if ainit.Config.HTTPOnly {
+func (h *Handler) passkeyOrigins() []string {
+	if h.Config.WebHTTPOnly {
 		return []string{"http://localhost:8080", "http://localhost:5173"}
 	}
-	origins := make([]string, 0, len(ainit.Config.AcmeHosts))
-	for _, host := range ainit.Config.AcmeHosts {
+	origins := make([]string, 0, len(h.Config.AcmeHosts))
+	for _, host := range h.Config.AcmeHosts {
 		host = strings.TrimSpace(host)
 		if host == "" {
 			continue

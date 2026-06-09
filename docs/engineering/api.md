@@ -68,6 +68,7 @@ Key generated files:
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | GET | `/v1/cluster/status` | — | `ClusterStatusResponse` | ANY_OF default |
+| GET | `/v1/cluster/github-credentials` | — | `GithubCredentials` | NO_AUTH over mTLS cluster listener |
 
 ### Enrollment
 | Method | Path | Request | Response | Policy |

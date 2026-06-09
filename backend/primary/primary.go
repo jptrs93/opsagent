@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/engine/credentials"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
@@ -47,7 +48,8 @@ func machineFromContext(ctx context.Context) string {
 // and connected workers. It implements apigen.OpsagentClusterV1Handler; the
 // generated mux invokes PostV1ClusterConnect once per worker connection.
 type Primary struct {
-	store *sqlite.StorageAdapter
+	store             *sqlite.PrimaryStorage
+	githubCredentials credentials.GithubCredentialsProvider
 
 	mu          sync.RWMutex
 	sessions    map[string]*Session  // machine name → session
@@ -56,12 +58,21 @@ type Primary struct {
 
 // New creates a Primary. The mTLS HTTP/2 listener that drives it is created by
 // the caller, which mounts CreateOpsagentClusterV1Mux(p, ...) on a server.
-func New(store *sqlite.StorageAdapter) *Primary {
+func New(store *sqlite.PrimaryStorage, githubCredentials credentials.GithubCredentialsProvider) *Primary {
 	return &Primary{
-		store:       store,
-		sessions:    make(map[string]*Session),
-		connectedAt: make(map[string]time.Time),
+		store:             store,
+		githubCredentials: credentials.OrEmpty(githubCredentials),
+		sessions:          make(map[string]*Session),
+		connectedAt:       make(map[string]time.Time),
 	}
+}
+
+func (p *Primary) GetV1ClusterGithubCredentials(authCtx apigen.Context) (*apigen.GithubCredentials, error) {
+	creds, err := p.githubCredentials.GithubCredentials(authCtx)
+	if err != nil {
+		return nil, err
+	}
+	return &apigen.GithubCredentials{Token: creds.Token}, nil
 }
 
 // PostV1ClusterConnect handles one worker's bidirectional stream for its full

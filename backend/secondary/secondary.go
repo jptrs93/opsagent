@@ -26,7 +26,6 @@ type Config struct {
 	PrimaryName string // cert CN of the primary (for TLS server name verification)
 	MachineName string
 	DataDir     string
-	GithubToken string
 }
 type outbox struct {
 	ch  chan *apigen.MsgToMaster
@@ -47,17 +46,19 @@ func (o *outbox) Send(msg *apigen.MsgToMaster) bool {
 // failures should panic and let the service manager restart the process.
 func Run(cfg Config) {
 	store := sqlite.NewSecondaryStorage(filepath.Join(cfg.DataDir, "secondary.db"))
+	primaryHTTPClient := newPrimaryHTTPClient(cfg.TLS, cfg.PrimaryName)
+	githubCredentials := NewPrimaryGithubCredentialsProvider("https://"+cfg.PrimaryAddr, primaryHTTPClient)
 
-	preparer.Nix = preparer.NewNixBuilder(cfg.DataDir, cfg.GithubToken)
-	preparer.GHRel = preparer.NewGithubReleaseDownloader(cfg.DataDir, cfg.GithubToken)
+	preparer.Nix = preparer.NewNixBuilder(cfg.DataDir, githubCredentials)
+	preparer.GHRel = preparer.NewGithubReleaseDownloader(cfg.DataDir, githubCredentials)
 
-	ctrdClient := ctrd.Connect(ainit.Config.ContainerdAddress, ainit.Config.ContainerdNamespace)
+	ctrdClient := ctrd.Connect(ainit.StaticConfig.ContainerdAddress, ainit.StaticConfig.ContainerdNamespace)
 	preparer.ContainerImg = preparer.NewContainerImagePuller(ctrdClient)
 	runner.Containerd = ctrdClient
 
 	go engine.DeploymentOperator{Store: store}.RunAll(cfg.MachineName)
 
-	runPrimaryConnLoop(cfg, store)
+	runPrimaryConnLoop(cfg, store, primaryHTTPClient)
 }
 
 // newPrimaryHTTPClient builds the HTTP/2-only client a worker uses to dial the
@@ -87,10 +88,10 @@ func newPrimaryHTTPClient(tlsConfig *tls.Config, serverName string) *http.Client
 	}
 }
 
-func runPrimaryConnLoop(cfg Config, store *sqlite.SecondaryStorage) {
+func runPrimaryConnLoop(cfg Config, store *sqlite.SecondaryStorage, primaryHTTPClient *http.Client) {
 	capi := apigen.NewOpsagentClusterV1Capi(
 		"https://"+cfg.PrimaryAddr,
-		apigen.WithOpsagentClusterV1CapiHTTPClient(newPrimaryHTTPClient(cfg.TLS, cfg.PrimaryName)),
+		apigen.WithOpsagentClusterV1CapiHTTPClient(primaryHTTPClient),
 	)
 
 	backoff := time.Second

@@ -52,8 +52,8 @@ The signing key is stored as internal encrypted secret material on the primary.
 
 ## Enrollment protocol
 
-The cluster mTLS listener (`OPENDEPLOY_CLUSTER_LISTEN`, default `:9443`) and
-the unauthenticated enrollment listener (`OPENDEPLOY_ENROLLMENT_LISTEN`,
+The cluster mTLS listener (`OPENDEPLOY_INITIAL_CLUSTER_LISTEN`, default `:9443`) and
+the unauthenticated enrollment listener (`OPENDEPLOY_INITIAL_ENROLLMENT_LISTEN`,
 default `:9444`) start for every primary. Enrollment is intentionally separate
 from the mTLS cluster listener because new workers do not yet have client certs:
 

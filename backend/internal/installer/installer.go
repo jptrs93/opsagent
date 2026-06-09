@@ -17,6 +17,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 )
 
 // IsSubcommand reports whether argv selects an installer subcommand. main()
@@ -48,9 +50,43 @@ func Run(argv []string) error {
 	case "install":
 		fs := flag.NewFlagSet("install", flag.ExitOnError)
 		version := fs.String("version", "latest", "release tag to install (default: latest)")
+		httpOnlyRaw := fs.String("http-only", "", "set OPENDEPLOY_INITIAL_WEB_HTTP_ONLY (true or false)")
+		webListenRaw := fs.String("web-listen", "", "set OPENDEPLOY_INITIAL_WEB_LISTEN (for example :8080)")
+		acmeHostsRaw := fs.String("acme-hosts", "", "set OPENDEPLOY_INITIAL_ACME_HOSTS (comma-separated hostnames)")
 		fs.BoolVar(&dryRun, "dry-run", false, "print the actions that would be taken without performing them")
 		_ = fs.Parse(argv[2:])
-		return doInstall(*version)
+
+		opts := installOptions{}
+		var parseErr error
+		fs.Visit(func(f *flag.Flag) {
+			switch f.Name {
+			case "http-only":
+				v, err := strconv.ParseBool(*httpOnlyRaw)
+				if err != nil && parseErr == nil {
+					parseErr = fmt.Errorf("invalid --http-only value %q: use true or false", *httpOnlyRaw)
+					return
+				}
+				opts.httpOnly = &v
+			case "web-listen":
+				v := strings.TrimSpace(*webListenRaw)
+				if err := validateEnvValue("--web-listen", v); err != nil && parseErr == nil {
+					parseErr = err
+					return
+				}
+				opts.webListen = &v
+			case "acme-hosts":
+				v := strings.TrimSpace(*acmeHostsRaw)
+				if err := validateEnvValue("--acme-hosts", v); err != nil && parseErr == nil {
+					parseErr = err
+					return
+				}
+				opts.acmeHosts = &v
+			}
+		})
+		if parseErr != nil {
+			return parseErr
+		}
+		return doInstall(*version, opts)
 
 	case "uninstall":
 		fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
@@ -70,7 +106,7 @@ func usage(prog string) {
 	fmt.Fprintf(os.Stderr, `%[1]s install / uninstall — provision, upgrade, and remove opendeploy
 
 Usage:
-  %[1]s install [--version vX.Y.Z] [--dry-run]
+  %[1]s install [--version vX.Y.Z] [--http-only true] [--web-listen :8080] [--acme-hosts host1,host2] [--dry-run]
   %[1]s uninstall [--purge] [--yes] [--dry-run]
 
 Commands:

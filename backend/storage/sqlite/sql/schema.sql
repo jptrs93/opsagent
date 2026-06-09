@@ -85,6 +85,14 @@ CREATE TABLE IF NOT EXISTS auth_settings (
     master_password_hash TEXT    NOT NULL DEFAULT ''
 );
 
+-- Runtime system configuration values. Absence of a row means the corresponding
+-- OPENDEPLOY_INITIAL_* or install-time default is still in effect.
+CREATE TABLE IF NOT EXISTS system_config (
+    key        TEXT PRIMARY KEY,
+    value      TEXT    NOT NULL,
+    updated_at INTEGER NOT NULL DEFAULT 0  -- epoch ms
+);
+
 -- Secrets: envelope-encrypted key/value store. PRIMARY-ONLY — these two tables
 -- are never replicated to secondaries (the cluster feeder only sends deployment
 -- configs/status; see primary/session.go). They are created on every node by
@@ -103,20 +111,30 @@ CREATE TABLE IF NOT EXISTS secret_keyslots (
     created_at  INTEGER NOT NULL          -- epoch ms
 );
 
--- Encrypted secret values, keyed by a plaintext name (e.g. 'staging.db.password').
+-- Encrypted user secret values, keyed by a plaintext name (e.g. 'staging.db.password').
 -- The value is AEAD-sealed under the SMK with the name bound as associated data
 -- so a row cannot be moved to a different name. secret_group is optional and
 -- reserved for grouping secrets in the UI later; it carries no security meaning.
 CREATE TABLE IF NOT EXISTS secrets (
     name         TEXT PRIMARY KEY,
     secret_group TEXT    NOT NULL DEFAULT '',
-    internal     INTEGER NOT NULL DEFAULT 0,
     smk_version  INTEGER NOT NULL,
     ciphertext   BLOB    NOT NULL,
     nonce        BLOB    NOT NULL,
     created_at   INTEGER NOT NULL,  -- epoch ms
     updated_at   INTEGER NOT NULL,  -- epoch ms
     updated_by   INTEGER NOT NULL DEFAULT 0
+);
+
+-- Encrypted OpenDeploy-managed system secrets. These are not visible through
+-- user-facing secret CRUD and use a separate AEAD associated-data class.
+CREATE TABLE IF NOT EXISTS system_secrets (
+    name        TEXT PRIMARY KEY,
+    smk_version INTEGER NOT NULL,
+    ciphertext  BLOB    NOT NULL,
+    nonce       BLOB    NOT NULL,
+    created_at  INTEGER NOT NULL,  -- epoch ms
+    updated_at  INTEGER NOT NULL   -- epoch ms
 );
 
 -- Worker enrollment requests. A reconnecting unenrolled worker is identified by

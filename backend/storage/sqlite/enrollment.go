@@ -16,7 +16,7 @@ const (
 	EnrollmentStatusAccepted     = "accepted"
 )
 
-func (s *StorageAdapter) MustUpsertEnrollmentRequest(requestingIPAddress, requestingMachineID string) *apigen.EnrollmentRequestStatus {
+func (s *PrimaryStorage) MustUpsertEnrollmentRequest(requestingIPAddress, requestingMachineID string) *apigen.EnrollmentRequestStatus {
 	now := time.Now().UnixMilli()
 	row, err := scanEnrollmentRequest(s.db.QueryRowContext(context.Background(), `
 		INSERT INTO enrollment_requests (created_at, updated_at, requesting_ip_address, requesting_machine_id, status)
@@ -34,7 +34,7 @@ func (s *StorageAdapter) MustUpsertEnrollmentRequest(requestingIPAddress, reques
 	return row
 }
 
-func (s *StorageAdapter) MustMarkEnrollmentDisconnected(id int32, requestingMachineID string) {
+func (s *PrimaryStorage) MustMarkEnrollmentDisconnected(id int32, requestingMachineID string) {
 	now := time.Now().UnixMilli()
 	if _, err := s.db.ExecContext(context.Background(), `
 		UPDATE enrollment_requests
@@ -46,7 +46,7 @@ func (s *StorageAdapter) MustMarkEnrollmentDisconnected(id int32, requestingMach
 	}
 }
 
-func (s *StorageAdapter) AcceptEnrollmentRequest(id int32) (*apigen.EnrollmentRequestStatus, error) {
+func (s *PrimaryStorage) AcceptEnrollmentRequest(id int32) (*apigen.EnrollmentRequestStatus, error) {
 	now := time.Now().UnixMilli()
 	row, err := scanEnrollmentRequest(s.db.QueryRowContext(context.Background(), `
 		UPDATE enrollment_requests

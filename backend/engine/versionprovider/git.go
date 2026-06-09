@@ -19,18 +19,18 @@ func NewGitVersionProvider(git *preparer.GitManagerImpl) *GitVersionProvider {
 	return &GitVersionProvider{git: git}
 }
 
-func (p *GitVersionProvider) ListScopes(_ context.Context, cfg *apigen.PrepareConfig) ([]string, error) {
+func (p *GitVersionProvider) ListScopes(ctx context.Context, cfg *apigen.PrepareConfig) ([]string, error) {
 	if cfg == nil || cfg.NixBuild.IsZero() {
 		return nil, fmt.Errorf("nixBuild config missing")
 	}
-	return p.git.ListBranches(cfg.NixBuild.Repo)
+	return p.git.ListBranches(ctx, cfg.NixBuild.Repo)
 }
 
-func (p *GitVersionProvider) ListVersions(_ context.Context, cfg *apigen.PrepareConfig, scope string) ([]*apigen.Version, error) {
+func (p *GitVersionProvider) ListVersions(ctx context.Context, cfg *apigen.PrepareConfig, scope string) ([]*apigen.Version, error) {
 	if cfg == nil || cfg.NixBuild.IsZero() {
 		return nil, fmt.Errorf("nixBuild config missing")
 	}
-	commits, err := p.git.GetCommitLog(cfg.NixBuild.Repo, scope, 25)
+	commits, err := p.git.GetCommitLog(ctx, cfg.NixBuild.Repo, scope, 25)
 	if err != nil {
 		return nil, err
 	}

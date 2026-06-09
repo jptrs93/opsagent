@@ -12,7 +12,9 @@ import (
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	appconfig "github.com/jptrs93/opsagent/backend/config"
 	"github.com/jptrs93/opsagent/backend/engine"
+	"github.com/jptrs93/opsagent/backend/engine/credentials"
 	"github.com/jptrs93/opsagent/backend/engine/ctrd"
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
 	"github.com/jptrs93/opsagent/backend/engine/runner"
@@ -29,7 +31,9 @@ type Handler struct {
 
 	// Store is the primary-side storage adapter. Handles both deployment
 	// state and auth (users + JWT keys).
-	Store *sqlite.StorageAdapter
+	Store         *sqlite.PrimaryStorage
+	ConfigService *appconfig.Service
+	Config        ainit.DynamicConfiguration
 
 	// Secrets is the primary-only encrypted secrets store. It resolves
 	// ${name} env placeholders at deployment spawn time.
@@ -81,23 +85,27 @@ func (h *Handler) GetV1Healthz(ctx apigen.Context, request *http.Request, writer
 }
 
 func New(staticFS fs.FS, machineName string) (*Handler, error) {
-	store := sqlite.NewStorageAdapter(filepath.Join(ainit.Config.DataDir, "primary.db"))
+	store := sqlite.NewPrimaryStorage(filepath.Join(ainit.StaticConfig.DataDir, "primary.db"))
+	configService := &appconfig.Service{Storage: store}
+	configSub := configService.SnapshotAndSubscribe()
+	cfg := configSub.InitialValue
+	githubCredentials := credentials.StaticGithubCredentialsProvider{Token: cfg.GithubToken}
 
-	preparer.Nix = preparer.NewNixBuilder(ainit.Config.DataDir, ainit.Config.GithubToken)
-	preparer.GHRel = preparer.NewGithubReleaseDownloader(ainit.Config.DataDir, ainit.Config.GithubToken)
+	preparer.Nix = preparer.NewNixBuilder(ainit.StaticConfig.DataDir, githubCredentials)
+	preparer.GHRel = preparer.NewGithubReleaseDownloader(ainit.StaticConfig.DataDir, githubCredentials)
 
 	// Shared containerd client for the container image preparer and runner. It
 	// connects lazily, so opendeploy still starts on hosts without containerd.
-	ctrdClient := ctrd.Connect(ainit.Config.ContainerdAddress, ainit.Config.ContainerdNamespace)
+	ctrdClient := ctrd.Connect(ainit.StaticConfig.ContainerdAddress, ainit.StaticConfig.ContainerdNamespace)
 	preparer.ContainerImg = preparer.NewContainerImagePuller(ctrdClient)
 	runner.Containerd = ctrdClient
 
 	versionprovider.Git = versionprovider.NewGitVersionProvider(preparer.Nix.Git)
-	versionprovider.GHRel = versionprovider.NewGithubReleaseVersionProvider(ainit.Config.GithubToken)
+	versionprovider.GHRel = versionprovider.NewGithubReleaseVersionProvider(githubCredentials)
 
 	// Open the primary-only secrets store and wire it as the runner's secret
 	// resolver so ${name} env placeholders resolve at spawn time.
-	secretsMgr, err := secrets.Open(ainit.Config.DataDir, store)
+	secretsMgr, err := secrets.Open(ainit.StaticConfig.DataDir, store)
 	if err != nil {
 		return nil, err
 	}
@@ -106,6 +114,8 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	h := &Handler{
 		staticFS:           staticFS,
 		Store:              store,
+		ConfigService:      configService,
+		Config:             cfg,
 		Secrets:            secretsMgr,
 		MachineName:        machineName,
 		enrollmentSessions: make(map[int32]*enrollmentSession),

@@ -6,56 +6,43 @@ import (
 	"log/slog"
 	"os"
 	"path"
-	"strings"
 
 	"github.com/jptrs93/goutil/envu"
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/logu"
 )
 
-var Config Configuration
+var StaticConfig StaticConfiguration
 
 const productionDataDir = "/var/lib/opendeploy"
 
 func init() {
-	if isInstallerInvocation() {
+	initArgs()
+	if Args.Installer {
 		return
 	}
-	Config = envu.MustParse[Configuration](os.LookupEnv)
-	if isTestInvocation() {
-		Config.DataDir = path.Join(erru.Must(os.UserConfigDir()), "opendeploy")
+	StaticConfig = envu.MustParse[StaticConfiguration](os.LookupEnv)
+	if envu.IsTestBasedOnArgs() {
+		StaticConfig.DataDir = path.Join(erru.Must(os.UserConfigDir()), "opendeploy")
 	} else {
-		Config.DataDir = productionDataDir
+		StaticConfig.DataDir = productionDataDir
 	}
-	Config.VolumesDir = Config.DataDir + "-volumes"
-	Config.ReleasesDir = Config.DataDir + "-releases"
-	Config.LogDir = path.Join(Config.DataDir, "log")
-	Config.PrepareOutputDir = path.Join(Config.DataDir, "prepare")
-	Config.RunOutputDir = path.Join(Config.DataDir, "runs")
-	mustCreateDir(Config.DataDir, 0o750)
-	mustCreateDir(Config.LogDir, 0o750)
-	mustCreateDir(Config.PrepareOutputDir, 0o750)
-	mustCreateDir(Config.RunOutputDir, 0o750)
-	mustCreateDir(Config.VolumesDir, 0o755)
-	mustCreateDir(Config.ReleasesDir, 0o755)
+	StaticConfig.VolumesDir = StaticConfig.DataDir + "-volumes"
+	StaticConfig.ReleasesDir = StaticConfig.DataDir + "-releases"
+	StaticConfig.LogDir = path.Join(StaticConfig.DataDir, "log")
+	StaticConfig.PrepareOutputDir = path.Join(StaticConfig.DataDir, "prepare")
+	StaticConfig.RunOutputDir = path.Join(StaticConfig.DataDir, "runs")
+	StaticConfig.ContainerdNamespace = "opendeploy"
+	StaticConfig.ContainerdAddress = "/run/opendeploy/containerd.sock"
+	mustCreateDir(StaticConfig.DataDir, 0o750)
+	mustCreateDir(StaticConfig.LogDir, 0o750)
+	mustCreateDir(StaticConfig.PrepareOutputDir, 0o750)
+	mustCreateDir(StaticConfig.RunOutputDir, 0o750)
+	mustCreateDir(StaticConfig.VolumesDir, 0o755)
+	mustCreateDir(StaticConfig.ReleasesDir, 0o755)
 	logLevel := getLogLevel()
 	l := slog.New(&logu.PlainLogHandler{Writer: os.Stdout, Level: logLevel})
 	slog.SetDefault(l)
-}
-
-func isInstallerInvocation() bool {
-	if len(os.Args) < 2 {
-		return false
-	}
-	switch os.Args[1] {
-	case "install", "uninstall":
-		return true
-	}
-	return false
-}
-
-func isTestInvocation() bool {
-	return strings.HasSuffix(os.Args[0], ".test")
 }
 
 func mustCreateDir(p string, mode os.FileMode) {
@@ -78,37 +65,42 @@ func getLogLevel() slog.Level {
 	return slog.LevelInfo
 }
 
-type Configuration struct {
-	DataDir          string
-	RunOutputDir     string
-	PrepareOutputDir string
-	VolumesDir       string
-	ReleasesDir      string
-	LogDir           string
+type StaticConfiguration struct {
+	DataDir             string
+	RunOutputDir        string
+	PrepareOutputDir    string
+	VolumesDir          string
+	ReleasesDir         string
+	LogDir              string
+	ContainerdAddress   string
+	ContainerdNamespace string
 
-	ContainerdAddress   string `env:"OPENDEPLOY_CONTAINERD_ADDRESS,/run/opendeploy/containerd.sock"`
-	ContainerdNamespace string `env:"OPENDEPLOY_CONTAINERD_NAMESPACE,opendeploy"`
+	PrimaryAddr string `env:"OPENDEPLOY_PRIMARY_ADDR,"`        // secondaries only: primary's mTLS/enrollment address
+	PrimaryName string `env:"OPENDEPLOY_PRIMARY_NAME,primary"` // primary cert DNS name; secondaries use it for TLS verification when dialing by IP
 
-	BindAddr string `env:"OPENDEPLOY_BIND_ADDR,0.0.0.0"` // listen host (e.g. "0.0.0.0", "::", or a specific IP)
-	HTTPOnly bool   `env:"OPENDEPLOY_HTTP_ONLY,false"`   // serve the primary API over plain HTTP on port 8080 instead of ACME TLS on port 443
-
+	InitialWebListen          string   `env:"OPENDEPLOY_INITIAL_WEB_LISTEN,:443"`
+	InitialWebHTTPOnly        bool     `env:"OPENDEPLOY_INITIAL_WEB_HTTP_ONLY,false"` // serve the primary API over plain HTTP on port 8080 instead of ACME TLS on port 443
 	InitialMasterPasswordHash string   `env:"OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH,"`
-	GithubToken               string   `env:"OPENDEPLOY_GITHUB_TOKEN,"`
-	AcmeHosts                 []string `env:"OPENDEPLOY_ACME_HOSTS,opendeploy.dev"`
-	AcmeEmail                 string   `env:"OPENDEPLOY_ACME_EMAIL,"`
-	BackupS3AccessKeyID       string   `env:"OPENDEPLOY_BACKUP_S3_ACCESS_KEY_ID,"`
-	BackupS3SecretAccessKey   string   `env:"OPENDEPLOY_BACKUP_S3_SECRET_ACCESS_KEY,"`
-	BackupS3Bucket            string   `env:"OPENDEPLOY_BACKUP_S3_BUCKET,"`
-	BackupS3Path              string   `env:"OPENDEPLOY_BACKUP_S3_PATH,opendeploy/primary"`
-	BackupS3Region            string   `env:"OPENDEPLOY_BACKUP_S3_REGION,us-east-1"`
-	BackupS3Endpoint          string   `env:"OPENDEPLOY_BACKUP_S3_ENDPOINT,"`
-
-	ClusterListen    string `env:"OPENDEPLOY_CLUSTER_LISTEN,:9443"`    // mTLS listen address
-	EnrollmentListen string `env:"OPENDEPLOY_ENROLLMENT_LISTEN,:9444"` // unauthenticated worker enrollment listen address
-	PrimaryAddr      string `env:"OPENDEPLOY_PRIMARY_ADDR,"`           // secondaries only: primary's mTLS/enrollment address
-	PrimaryName      string `env:"OPENDEPLOY_PRIMARY_NAME,primary"`    // primary cert DNS name; secondaries use it for TLS verification when dialing by IP
+	InitialClusterListen      string   `env:"OPENDEPLOY_INITIAL_CLUSTER_LISTEN,:9443"`    // mTLS listen address
+	InitialEnrollmentListen   string   `env:"OPENDEPLOY_INITIAL_ENROLLMENT_LISTEN,:9444"` // unauthenticated worker enrollment listen address
+	InitialAcmeHosts          []string `env:"OPENDEPLOY_INITIAL_ACME_HOSTS,opendeploy.dev"`
+	InitialAcmeEmail          string   `env:"OPENDEPLOY_INITIAL_ACME_EMAIL,"`
 }
 
-func ResolvePrimaryMachineName() string {
-	return Config.PrimaryName
+type DynamicConfiguration struct {
+	WebListen        string
+	WebHTTPOnly      bool
+	ClusterListen    string
+	EnrollmentListen string
+	AcmeHosts        []string
+	AcmeEmail        string
+
+	GithubToken string
+
+	BackupS3AccessKeyID     string
+	BackupS3SecretAccessKey string
+	BackupS3Bucket          string
+	BackupS3Path            string
+	BackupS3Region          string
+	BackupS3Endpoint        string
 }

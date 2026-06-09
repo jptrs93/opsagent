@@ -7,7 +7,7 @@ import (
 
 func TestMasterPasswordHashSettingsRoundTrip(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	store := NewStorageAdapter(dbPath)
+	store := NewPrimaryStorage(dbPath)
 
 	hash, configured, err := store.FetchMasterPasswordHash()
 	if err != nil {
@@ -28,7 +28,7 @@ func TestMasterPasswordHashSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("expected configured hash-1, got configured=%v hash=%q", configured, hash)
 	}
 
-	reopened := NewStorageAdapter(dbPath)
+	reopened := NewPrimaryStorage(dbPath)
 	hash, configured, err = reopened.FetchMasterPasswordHash()
 	if err != nil {
 		t.Fatalf("FetchMasterPasswordHash after reopen: %v", err)

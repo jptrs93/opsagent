@@ -12,7 +12,7 @@
         pkgs = import nixpkgs { inherit system; };
 
         go = pkgs.go_1_26;
-        nodejs = pkgs.nodejs_22;
+        nodejs = pkgs.nodejs_24;
         pnpm = pkgs.pnpm_10;
 
         frontendDeps = pkgs.fetchPnpmDeps {

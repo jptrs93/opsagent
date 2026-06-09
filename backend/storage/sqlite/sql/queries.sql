@@ -163,6 +163,17 @@ SELECT id, master_password_hash FROM auth_settings WHERE id = 1;
 INSERT INTO auth_settings (id, master_password_hash) VALUES (1, ?)
 ON CONFLICT(id) DO UPDATE SET master_password_hash = excluded.master_password_hash;
 
+-- === system_config ===
+
+-- name: GetConfigValue :one
+SELECT key, value, updated_at FROM system_config WHERE key = ?;
+
+-- name: UpsertConfigValue :exec
+INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?)
+ON CONFLICT(key) DO UPDATE SET
+    value = excluded.value,
+    updated_at = excluded.updated_at;
+
 -- === secret_keyslots ===
 
 -- name: ListSecretKeyslots :many
@@ -182,15 +193,14 @@ ON CONFLICT(slot) DO UPDATE SET
 -- === secrets ===
 
 -- name: ListSecrets :many
-SELECT name, secret_group, internal, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
+SELECT name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
 FROM secrets ORDER BY name;
 
 -- name: UpsertSecret :exec
-INSERT INTO secrets (name, secret_group, internal, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO secrets (name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(name) DO UPDATE SET
     secret_group = excluded.secret_group,
-    internal = excluded.internal,
     smk_version = excluded.smk_version,
     ciphertext = excluded.ciphertext,
     nonce = excluded.nonce,
@@ -199,3 +209,19 @@ ON CONFLICT(name) DO UPDATE SET
 
 -- name: DeleteSecret :exec
 DELETE FROM secrets WHERE name = ?;
+
+-- === system_secrets ===
+
+-- name: GetSystemSecret :one
+SELECT name, smk_version, ciphertext, nonce, created_at, updated_at
+FROM system_secrets
+WHERE name = ?;
+
+-- name: UpsertSystemSecret :exec
+INSERT INTO system_secrets (name, smk_version, ciphertext, nonce, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(name) DO UPDATE SET
+    smk_version = excluded.smk_version,
+    ciphertext = excluded.ciphertext,
+    nonce = excluded.nonce,
+    updated_at = excluded.updated_at;

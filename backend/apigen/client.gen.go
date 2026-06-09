@@ -641,6 +641,22 @@ func (c *OpsagentClusterV1Capi) do(ctx context.Context, method string, path stri
 	return httpClient.Do(req)
 }
 
+func (c *OpsagentClusterV1Capi) GetV1ClusterGithubCredentials(ctx context.Context) (*GithubCredentials, error) {
+	resp, err := c.do(ctx, "GET", "/v1/cluster/github-credentials", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeGithubCredentials(body)
+}
+
 func (c *OpsagentClusterV1Capi) PostV1ClusterConnect(ctx context.Context, reqs iter.Seq2[*MsgToMaster, error]) iter.Seq2[*MsgToWorker, error] {
 	return func(yield func(*MsgToWorker, error) bool) {
 		resp, err := c.do(ctx, "POST", "/v1/cluster/connect", writeGoCapiClientStream(reqs), "application/protobuf-stream", "application/protobuf-stream")

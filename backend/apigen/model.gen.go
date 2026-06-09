@@ -312,6 +312,39 @@ func DecodeEnrollmentAccepted(b []byte) (*EnrollmentAccepted, error) {
 	return &m, nil
 }
 
+type GithubCredentials struct {
+	Token string
+}
+
+func (m *GithubCredentials) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Token, 1)
+	return b
+}
+
+func DecodeGithubCredentials(b []byte) (*GithubCredentials, error) {
+	var m GithubCredentials
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Token, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type EmptyRequest struct {
 }
 

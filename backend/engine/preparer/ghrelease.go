@@ -16,6 +16,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/engine/credentials"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
@@ -24,14 +25,14 @@ import (
 // tag name (not a commit hash).
 type GithubReleaseDownloader struct {
 	dataDir     string
-	githubToken string
+	credentials credentials.GithubCredentialsProvider
 	sem         chan struct{}
 }
 
-func NewGithubReleaseDownloader(dataDir string, githubToken string) *GithubReleaseDownloader {
+func NewGithubReleaseDownloader(dataDir string, provider credentials.GithubCredentialsProvider) *GithubReleaseDownloader {
 	return &GithubReleaseDownloader{
 		dataDir:     dataDir,
-		githubToken: githubToken,
+		credentials: credentials.OrEmpty(provider),
 		sem:         make(chan struct{}, 1),
 	}
 }
@@ -174,8 +175,13 @@ func (g *GithubReleaseDownloader) runDownloadScript(ctx context.Context, gh apig
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.Env = os.Environ()
-	if g.githubToken != "" {
-		cmd.Env = append(cmd.Env, "GITHUB_TOKEN="+g.githubToken)
+	creds, err := g.credentials.GithubCredentials(ctx)
+	if err != nil {
+		writeLog("ERROR loading GitHub credentials: %v", err)
+		return "", apigen.PreparationStatus_FAILED
+	}
+	if creds.Token != "" {
+		cmd.Env = append(cmd.Env, "GITHUB_TOKEN="+creds.Token)
 	}
 	if err := cmd.Run(); err != nil {
 		writeLog("ERROR download script failed: %v", err)
@@ -238,7 +244,7 @@ func resolveScriptArtifact(dstDir, asset string) (string, error) {
 // prepareReleaseDir creates the per-release download dir and keeps every new
 // component traversable so non-owner runAs users can execute the artifact.
 func (g *GithubReleaseDownloader) prepareReleaseDir(ownerRepo, tag string) (string, error) {
-	base := ainit.Config.ReleasesDir
+	base := ainit.StaticConfig.ReleasesDir
 	dstDir := filepath.Join(base, ownerRepo, tag)
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return "", err
@@ -303,8 +309,12 @@ func (g *GithubReleaseDownloader) doGithubJSON(ctx context.Context, url, accept 
 		return err
 	}
 	req.Header.Set("Accept", accept)
-	if g.githubToken != "" {
-		req.Header.Set("Authorization", "Bearer "+g.githubToken)
+	creds, err := g.credentials.GithubCredentials(ctx)
+	if err != nil {
+		return err
+	}
+	if creds.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+creds.Token)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -338,8 +348,12 @@ func (g *GithubReleaseDownloader) downloadAsset(ctx context.Context, assetAPIURL
 		return err
 	}
 	req.Header.Set("Accept", "application/octet-stream")
-	if g.githubToken != "" {
-		req.Header.Set("Authorization", "Bearer "+g.githubToken)
+	creds, err := g.credentials.GithubCredentials(ctx)
+	if err != nil {
+		return err
+	}
+	if creds.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+creds.Token)
 	}
 	resp, err := client.Do(req)
 	if err != nil {

@@ -19,21 +19,21 @@ import (
 // excluded from the user-config deletion sweep.
 const SystemEnvironment = "OPENDEPLOY_SYSTEM"
 
-type StorageAdapter struct {
+type PrimaryStorage struct {
 	*deploymentStore
 	userSubs *pubsubu.PubSub[apigen.User]
 }
 
-func NewStorageAdapter(dbPath string) *StorageAdapter {
+func NewPrimaryStorage(dbPath string) *PrimaryStorage {
 	db := mustInitPrimary(dbPath)
-	return &StorageAdapter{
+	return &PrimaryStorage{
 		deploymentStore: newDeploymentStore(db),
 		userSubs:        &pubsubu.PubSub[apigen.User]{},
 	}
 }
 
 // ListActiveDeploymentConfigs returns all non-deleted configs from the cache.
-func (s *StorageAdapter) ListActiveDeploymentConfigs() []*apigen.DeploymentConfig {
+func (s *PrimaryStorage) ListActiveDeploymentConfigs() []*apigen.DeploymentConfig {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]*apigen.DeploymentConfig, 0, len(s.configCache))
@@ -52,7 +52,7 @@ func boolToInt(b bool) int64 {
 	return 0
 }
 
-func (s *StorageAdapter) MustWriteReplicatedDeploymentStatus(st *apigen.DeploymentStatus) {
+func (s *PrimaryStorage) MustWriteReplicatedDeploymentStatus(st *apigen.DeploymentStatus) {
 	if st == nil || st.DeploymentID == 0 || st.UpdatedAt.IsZero() {
 		return
 	}
@@ -116,7 +116,7 @@ func (s *StorageAdapter) MustWriteReplicatedDeploymentStatus(st *apigen.Deployme
 
 // --- deployment history ---
 
-func (s *StorageAdapter) MustFetchDeploymentHistory(deploymentID int32) []*apigen.DeploymentConfig {
+func (s *PrimaryStorage) MustFetchDeploymentHistory(deploymentID int32) []*apigen.DeploymentConfig {
 	ctx := context.Background()
 	dbID := int64(deploymentID)
 	rows, err := s.q.ListDeploymentConfigHistory(ctx, dbID)
@@ -137,7 +137,7 @@ func (s *StorageAdapter) MustFetchDeploymentHistory(deploymentID int32) []*apige
 	return out
 }
 
-func (s *StorageAdapter) MustFetchDeploymentStatusHistory(deploymentID int32) []*apigen.DeploymentStatus {
+func (s *PrimaryStorage) MustFetchDeploymentStatusHistory(deploymentID int32) []*apigen.DeploymentStatus {
 	ctx := context.Background()
 	dbID := int64(deploymentID)
 	rows, err := s.q.ListDeploymentStatusHistory(ctx, dbID)
@@ -153,7 +153,7 @@ func (s *StorageAdapter) MustFetchDeploymentStatusHistory(deploymentID int32) []
 
 // --- desired state ---
 
-func (s *StorageAdapter) MustSetDeploymentDesiredState(ctx apigen.Context, deploymentID int32, desired apigen.DesiredState) {
+func (s *PrimaryStorage) MustSetDeploymentDesiredState(ctx apigen.Context, deploymentID int32, desired apigen.DesiredState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -208,7 +208,7 @@ func (s *StorageAdapter) MustSetDeploymentDesiredState(ctx apigen.Context, deplo
 
 // --- deployment spec update ---
 
-func (s *StorageAdapter) MustUpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec) {
+func (s *PrimaryStorage) MustUpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -278,7 +278,7 @@ func (s *StorageAdapter) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 // MustCreateDeployment creates a brand-new deployment from a DeploymentIdentifier and spec.
 // It allocates a deployment ID, persists the config, inserts a default status,
 // and returns the resulting DeploymentConfig.
-func (s *StorageAdapter) MustCreateDeployment(ctx apigen.Context, cid *apigen.DeploymentIdentifier, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
+func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.DeploymentIdentifier, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -363,7 +363,7 @@ func (s *StorageAdapter) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 
 // EnsureSystemDeployment creates the OPENDEPLOY_SYSTEM opendeploy deployment for
 // the given machine if it does not already exist.
-func (s *StorageAdapter) EnsureSystemDeployment(machine string) {
+func (s *PrimaryStorage) EnsureSystemDeployment(machine string) {
 	cid := apigen.DeploymentIdentifier{
 		Environment: SystemEnvironment,
 		Machine:     machine,
@@ -669,7 +669,7 @@ func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfi
 
 var ErrNotFound = fmt.Errorf("not found")
 
-func (s *StorageAdapter) WriteUser(user *apigen.InternalUser) {
+func (s *PrimaryStorage) WriteUser(user *apigen.InternalUser) {
 	ctx := context.Background()
 	if err := s.q.UpsertUser(ctx, UpsertUserParams{
 		ID:       int64(user.ID),
@@ -681,7 +681,7 @@ func (s *StorageAdapter) WriteUser(user *apigen.InternalUser) {
 	s.userSubs.Notify(apigen.User{ID: user.ID, Name: user.Name})
 }
 
-func (s *StorageAdapter) ListUsersPublic() []*apigen.User {
+func (s *PrimaryStorage) ListUsersPublic() []*apigen.User {
 	rows, err := s.q.ListUsers(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("ListUsersPublic: %v", err))
@@ -693,12 +693,12 @@ func (s *StorageAdapter) ListUsersPublic() []*apigen.User {
 	return out
 }
 
-func (s *StorageAdapter) SubscribeUserUpdates() (*pubsubu.Sub[apigen.User], func()) {
+func (s *PrimaryStorage) SubscribeUserUpdates() (*pubsubu.Sub[apigen.User], func()) {
 	sub := s.userSubs.Subscribe(nil)
 	return sub, sub.UnsubscribeFunc
 }
 
-func (s *StorageAdapter) FetchUserByID(id int32) (*apigen.InternalUser, error) {
+func (s *PrimaryStorage) FetchUserByID(id int32) (*apigen.InternalUser, error) {
 	row, err := s.q.GetUser(context.Background(), int64(id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -709,7 +709,7 @@ func (s *StorageAdapter) FetchUserByID(id int32) (*apigen.InternalUser, error) {
 	return apigen.DecodeInternalUser(row.DataBlob)
 }
 
-func (s *StorageAdapter) FetchUserMatching(predicate func(*apigen.InternalUser) bool) (*apigen.InternalUser, error) {
+func (s *PrimaryStorage) FetchUserMatching(predicate func(*apigen.InternalUser) bool) (*apigen.InternalUser, error) {
 	rows, err := s.q.ListUsers(context.Background())
 	if err != nil {
 		return nil, err
@@ -726,7 +726,7 @@ func (s *StorageAdapter) FetchUserMatching(predicate func(*apigen.InternalUser) 
 	return nil, ErrNotFound
 }
 
-func (s *StorageAdapter) UpdateUserMatching(predicate func(*apigen.InternalUser) bool, f func(*apigen.InternalUser)) {
+func (s *PrimaryStorage) UpdateUserMatching(predicate func(*apigen.InternalUser) bool, f func(*apigen.InternalUser)) {
 	user, err := s.FetchUserMatching(predicate)
 	if err != nil {
 		panic(fmt.Sprintf("UpdateUserMatching: %v", err))
@@ -735,7 +735,7 @@ func (s *StorageAdapter) UpdateUserMatching(predicate func(*apigen.InternalUser)
 	s.WriteUser(user)
 }
 
-func (s *StorageAdapter) UserCount() int {
+func (s *PrimaryStorage) UserCount() int {
 	rows, err := s.q.ListUsers(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("UserCount: %v", err))
@@ -743,7 +743,7 @@ func (s *StorageAdapter) UserCount() int {
 	return len(rows)
 }
 
-func (s *StorageAdapter) FetchMasterPasswordHash() (hash string, dbConfigured bool, err error) {
+func (s *PrimaryStorage) FetchMasterPasswordHash() (hash string, dbConfigured bool, err error) {
 	row, err := s.q.GetAuthSettings(context.Background())
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
@@ -754,12 +754,31 @@ func (s *StorageAdapter) FetchMasterPasswordHash() (hash string, dbConfigured bo
 	return row.MasterPasswordHash, true, nil
 }
 
-func (s *StorageAdapter) SetMasterPasswordHash(hash string) error {
+func (s *PrimaryStorage) SetMasterPasswordHash(hash string) error {
 	return s.q.UpsertAuthSettings(context.Background(), hash)
 }
 
+func (s *PrimaryStorage) FetchConfigValue(key string) (value string, configured bool, err error) {
+	row, err := s.q.GetConfigValue(context.Background(), key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return row.Value, true, nil
+}
+
+func (s *PrimaryStorage) SetConfigValue(key, value string) error {
+	return s.q.UpsertConfigValue(context.Background(), UpsertConfigValueParams{
+		Key:       key,
+		Value:     value,
+		UpdatedAt: time.Now().UnixMilli(),
+	})
+}
+
 // --- auth: public keys ---
-func (s *StorageAdapter) WritePublicKey(rec *apigen.PublicKeyRecord) {
+func (s *PrimaryStorage) WritePublicKey(rec *apigen.PublicKeyRecord) {
 	ctx := context.Background()
 	if err := s.q.UpsertPublicKey(ctx, UpsertPublicKeyParams{
 		Kid:      rec.Kid,
@@ -769,7 +788,7 @@ func (s *StorageAdapter) WritePublicKey(rec *apigen.PublicKeyRecord) {
 	}
 }
 
-func (s *StorageAdapter) FetchPublicKey(kid string) (*apigen.PublicKeyRecord, error) {
+func (s *PrimaryStorage) FetchPublicKey(kid string) (*apigen.PublicKeyRecord, error) {
 	row, err := s.q.GetPublicKey(context.Background(), kid)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound

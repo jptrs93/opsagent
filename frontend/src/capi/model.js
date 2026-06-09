@@ -35,6 +35,10 @@
  * @property {Uint8Array} workerPrivateKey
  */
 /**
+ * @typedef {Object} GithubCredentials
+ * @property {string} token
+ */
+/**
  * @typedef {Object} EmptyRequest
  */
 /**
@@ -799,6 +803,62 @@ function decodeEnrollmentAcceptedMessage(reader, length) {
 export function decodeEnrollmentAccepted(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeEnrollmentAcceptedMessage(reader);
+}
+
+
+
+/**
+ * @param {GithubCredentials} message
+ * @param {Writer} writer
+ */
+export function writeGithubCredentials(message, writer) {
+    if (message.token !== undefined && message.token !== null && message.token !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.token);
+    }
+}
+
+
+/**
+ * @param {GithubCredentials} message
+ * @returns {Uint8Array}
+ */
+export function encodeGithubCredentials(message) {
+    const writer = Writer.create();
+    writeGithubCredentials(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {GithubCredentials}
+ */
+function decodeGithubCredentialsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {token: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.token = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {GithubCredentials}
+ */
+export function decodeGithubCredentials(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeGithubCredentialsMessage(reader);
 }
 
 

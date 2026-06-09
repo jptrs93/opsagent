@@ -33,7 +33,7 @@ type Session struct {
 	sessCtx context.Context
 	cancel  context.CancelFunc
 	machine string
-	store   *sqlite.StorageAdapter
+	store   *sqlite.PrimaryStorage
 
 	// outbox carries frames destined for the worker. It is never closed;
 	// senders fall through on sessCtx.Done so they never block past teardown.
@@ -50,7 +50,7 @@ type logChunk struct {
 	end  bool
 }
 
-func newSession(sessCtx context.Context, cancel context.CancelFunc, machine string, store *sqlite.StorageAdapter) *Session {
+func newSession(sessCtx context.Context, cancel context.CancelFunc, machine string, store *sqlite.PrimaryStorage) *Session {
 	return &Session{
 		sessCtx:    sessCtx,
 		cancel:     cancel,

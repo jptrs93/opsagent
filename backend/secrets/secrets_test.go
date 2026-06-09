@@ -9,12 +9,13 @@ import (
 // memStore is an in-memory secrets.Store for tests. It mimics the real store's
 // persistence so a second Open() sees the same rows (as on a restart/recovery).
 type memStore struct {
-	slots   map[string]Keyslot
-	records map[string]Record
+	slots         map[string]Keyslot
+	records       map[string]Record
+	systemRecords map[string]SystemRecord
 }
 
 func newMemStore() *memStore {
-	return &memStore{slots: map[string]Keyslot{}, records: map[string]Record{}}
+	return &memStore{slots: map[string]Keyslot{}, records: map[string]Record{}, systemRecords: map[string]SystemRecord{}}
 }
 
 func (m *memStore) ListSecretKeyslots() []Keyslot {
@@ -34,6 +35,11 @@ func (m *memStore) ListSecrets() []Record {
 }
 func (m *memStore) UpsertSecret(r Record)    { m.records[r.Name] = r }
 func (m *memStore) DeleteSecret(name string) { delete(m.records, name) }
+func (m *memStore) GetSystemSecret(name string) (SystemRecord, bool) {
+	r, ok := m.systemRecords[name]
+	return r, ok
+}
+func (m *memStore) UpsertSystemSecret(r SystemRecord) { m.systemRecords[r.Name] = r }
 
 func mustOpen(t *testing.T, dir string, store Store) *Manager {
 	t.Helper()
@@ -124,6 +130,53 @@ func TestAADBindingPreventsSwap(t *testing.T) {
 	mgr2 := mustOpen(t, dir, store)
 	if got, ok := mgr2.Resolve("b"); ok {
 		t.Fatalf("expected AAD mismatch to fail; got %q", got)
+	}
+}
+
+func TestSystemSecretsAreSeparateFromUserSecrets(t *testing.T) {
+	dir := t.TempDir()
+	store := newMemStore()
+	mgr := mustOpen(t, dir, store)
+
+	if err := mgr.SetInternal("opendeploy.cluster.ca.key", []byte("ca-key")); err != nil {
+		t.Fatalf("SetInternal: %v", err)
+	}
+	if len(store.records) != 0 {
+		t.Fatalf("system secret was written to user records: %+v", store.records)
+	}
+	if _, ok := store.systemRecords["opendeploy.cluster.ca.key"]; !ok {
+		t.Fatal("system secret was not written to system records")
+	}
+	if got := mgr.List(); len(got) != 0 {
+		t.Fatalf("List exposed system secret: %+v", got)
+	}
+	if _, ok := mgr.Resolve("opendeploy.cluster.ca.key"); ok {
+		t.Fatal("Resolve exposed system secret")
+	}
+	if _, err := mgr.Reveal("opendeploy.cluster.ca.key"); err != ErrNotFound {
+		t.Fatalf("Reveal system secret err = %v; want ErrNotFound", err)
+	}
+	got, err := mgr.RevealInternal("opendeploy.cluster.ca.key")
+	if err != nil || string(got) != "ca-key" {
+		t.Fatalf("RevealInternal = %q, %v; want ca-key, nil", got, err)
+	}
+	if _, err := mgr.Set("opendeploy.cluster.ca.key", "", []byte("user"), 0); err != ErrReservedName {
+		t.Fatalf("Set reserved name err = %v; want ErrReservedName", err)
+	}
+}
+
+func TestRevealInternalLoadsFromStoreAfterReopen(t *testing.T) {
+	dir := t.TempDir()
+	store := newMemStore()
+	mgr := mustOpen(t, dir, store)
+	if err := mgr.SetInternal("opendeploy.cluster.primary.key", []byte("primary-key")); err != nil {
+		t.Fatalf("SetInternal: %v", err)
+	}
+
+	mgr2 := mustOpen(t, dir, store)
+	got, err := mgr2.RevealInternal("opendeploy.cluster.primary.key")
+	if err != nil || string(got) != "primary-key" {
+		t.Fatalf("RevealInternal after reopen = %q, %v; want primary-key, nil", got, err)
 	}
 }
 

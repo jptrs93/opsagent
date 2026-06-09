@@ -24,7 +24,17 @@ type staged struct {
 //
 // A network or checksum failure in phase 1 aborts with the host untouched,
 // rather than leaving a half-provisioned machine.
-func doInstall(version string) error {
+type installOptions struct {
+	httpOnly  *bool
+	webListen *string
+	acmeHosts *string
+}
+
+func (o installOptions) hasEnvOverrides() bool {
+	return o.httpOnly != nil || o.webListen != nil || o.acmeHosts != nil
+}
+
+func doInstall(version string, opts installOptions) error {
 	upgrade := pathExists(serviceUnitPath)
 
 	arch, err := hostArch()
@@ -59,9 +69,9 @@ func doInstall(version string) error {
 
 	// Phase 2 — apply.
 	if upgrade {
-		return runUpgrade(version, arch, st)
+		return runUpgrade(version, arch, st, opts)
 	}
-	return runFreshInstall(version, arch, st)
+	return runFreshInstall(version, arch, st, opts)
 }
 
 // stageAll (phase 1) downloads + verifies the agent binary and, when requested,
@@ -161,9 +171,10 @@ func releaseBinPath(version, arch string) string {
 
 // runUpgrade (phase 2) installs the staged binary into its versioned dir, flips
 // the symlink, restarts the service, then applies the staged runtime (if any).
-func runUpgrade(version, arch string, st *staged) error {
+func runUpgrade(version, arch string, st *staged, opts installOptions) error {
 	step("Phase 2/2 — upgrading opendeploy to %s (linux/%s)", version, arch)
 	own := resolveOpenDeployOwner()
+	rootOpenDeploy := owner{uid: 0, gid: own.gid}
 
 	dst := releaseBinPath(version, arch)
 	if err := ensureDir(filepath.Dir(dst), 0o755, own); err != nil {
@@ -176,6 +187,12 @@ func runUpgrade(version, arch string, st *staged) error {
 		return err
 	}
 	info("symlinked %s -> %s", binPath, dst)
+	if opts.hasEnvOverrides() {
+		step("Updating config")
+		if err := updateEnvFile(opts, rootOpenDeploy); err != nil {
+			return err
+		}
+	}
 
 	step("Restarting %s", serviceName)
 	if isRoot() || dryRun {
@@ -200,7 +217,7 @@ func runUpgrade(version, arch string, st *staged) error {
 }
 
 // runFreshInstall (phase 2) does the full first-time setup from staged binaries.
-func runFreshInstall(version, arch string, st *staged) error {
+func runFreshInstall(version, arch string, st *staged, opts installOptions) error {
 	step("Phase 2/2 — installing opendeploy %s (linux/%s)", version, arch)
 
 	// system user (must exist before we can resolve ownership)
@@ -239,9 +256,14 @@ func runFreshInstall(version, arch string, st *staged) error {
 
 	// env file — never clobber an existing operator-edited file
 	step("Writing config")
-	wrote, err := writeFile(envFile, envTemplate, 0o640, rootOpenDeploy, true)
+	wrote, err := writeFile(envFile, renderEnvTemplate(opts), 0o640, rootOpenDeploy, true)
 	if err != nil {
 		return err
+	}
+	if !wrote && opts.hasEnvOverrides() {
+		if err := updateEnvFile(opts, rootOpenDeploy); err != nil {
+			return err
+		}
 	}
 	if wrote {
 		info("created %s (edit before starting)", envFile)

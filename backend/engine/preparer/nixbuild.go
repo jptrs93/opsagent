@@ -16,6 +16,7 @@ import (
 
 	"github.com/jptrs93/goutil/cmdu"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/engine/credentials"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
@@ -25,17 +26,18 @@ import (
 // don't thrash the Nix store.
 type NixBuilder struct {
 	dataDir     string
-	githubToken string
+	credentials credentials.GithubCredentialsProvider
 	sem         chan struct{} // capacity 1: one build at a time
 	Git         *GitManagerImpl
 }
 
-func NewNixBuilder(dataDir string, githubToken string) *NixBuilder {
+func NewNixBuilder(dataDir string, provider credentials.GithubCredentialsProvider) *NixBuilder {
+	provider = credentials.OrEmpty(provider)
 	return &NixBuilder{
 		dataDir:     dataDir,
-		githubToken: githubToken,
+		credentials: provider,
 		sem:         make(chan struct{}, 1),
-		Git:         NewGitManager(dataDir, githubToken),
+		Git:         NewGitManager(dataDir, provider),
 	}
 }
 
@@ -146,10 +148,16 @@ func (b *NixBuilder) runBuild(ctx context.Context, store storage.OperatorStore, 
 }
 
 func (b *NixBuilder) ensureRepo(ctx context.Context, repoDir string, repoURL string, logFile io.Writer) error {
-	cloneURL := b.resolveCloneURL(repoURL)
+	cloneURL, err := b.resolveCloneURL(ctx, repoURL)
+	if err != nil {
+		return err
+	}
 
 	if _, err := os.Stat(filepath.Join(repoDir, ".git")); err == nil {
 		fmt.Fprintf(logFile, "[%s] fetching latest for %s\n", time.Now().Format(time.RFC3339), repoURL)
+		if err := b.runCmd(ctx, repoDir, logFile, "git", "remote", "set-url", "origin", cloneURL); err != nil {
+			return err
+		}
 		return b.runCmd(ctx, repoDir, logFile, "git", "fetch", "--all")
 	}
 
@@ -160,11 +168,15 @@ func (b *NixBuilder) ensureRepo(ctx context.Context, repoDir string, repoURL str
 	return b.runCmd(ctx, "", logFile, "git", "clone", cloneURL, repoDir)
 }
 
-func (b *NixBuilder) resolveCloneURL(repoURL string) string {
-	if b.githubToken != "" {
-		return fmt.Sprintf("https://x-access-token:%s@%s.git", b.githubToken, repoURL)
+func (b *NixBuilder) resolveCloneURL(ctx context.Context, repoURL string) (string, error) {
+	creds, err := b.credentials.GithubCredentials(ctx)
+	if err != nil {
+		return "", err
 	}
-	return fmt.Sprintf("https://%s.git", repoURL)
+	if creds.Token != "" {
+		return fmt.Sprintf("https://x-access-token:%s@%s.git", creds.Token, repoURL), nil
+	}
+	return fmt.Sprintf("https://%s.git", repoURL), nil
 }
 
 func resolveExecPath(artifactPath string, outputExecutable string) (string, error) {

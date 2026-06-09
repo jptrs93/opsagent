@@ -25,11 +25,11 @@ func (s *DeploymentStatus) BumpUpdatedAt() {
 }
 
 func prepareOutputFile(deploymentID int32, version int32) string {
-	return filepath.Join(ainit.Config.PrepareOutputDir, fmt.Sprintf("%d_%d", deploymentID, version))
+	return filepath.Join(ainit.StaticConfig.PrepareOutputDir, fmt.Sprintf("%d_%d", deploymentID, version))
 }
 
 func RunOutputFile(deploymentID int32, version int32) string {
-	return filepath.Join(ainit.Config.RunOutputDir, fmt.Sprintf("%d_%d", deploymentID, version))
+	return filepath.Join(ainit.StaticConfig.RunOutputDir, fmt.Sprintf("%d_%d", deploymentID, version))
 }
 
 func (d *DeploymentConfig) PrepareOutputPath() string {

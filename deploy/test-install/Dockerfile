@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 		systemd systemd-sysv \
 		sudo \
 		ca-certificates \
+		curl \
     && rm -rf /var/lib/apt/lists/* \
     # don't let getty/udev etc. spin in a container
     && systemctl mask getty@tty1.service systemd-udevd.service systemd-udevd-kernel.socket

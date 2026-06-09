@@ -106,6 +106,39 @@ func (q *Queries) GetAuthSettings(ctx context.Context) (AuthSetting, error) {
 	return i, err
 }
 
+const getConfigValue = `-- name: GetConfigValue :one
+SELECT key, value, updated_at FROM system_config WHERE key = ?
+`
+
+// === system_config ===
+func (q *Queries) GetConfigValue(ctx context.Context, key string) (ConfigValue, error) {
+	row := q.db.QueryRowContext(ctx, getConfigValue, key)
+	var i ConfigValue
+	err := row.Scan(&i.Key, &i.Value, &i.UpdatedAt)
+	return i, err
+}
+
+const getSystemSecret = `-- name: GetSystemSecret :one
+SELECT name, smk_version, ciphertext, nonce, created_at, updated_at
+FROM system_secrets
+WHERE name = ?
+`
+
+// === system_secrets ===
+func (q *Queries) GetSystemSecret(ctx context.Context, name string) (SystemSecret, error) {
+	row := q.db.QueryRowContext(ctx, getSystemSecret, name)
+	var i SystemSecret
+	err := row.Scan(
+		&i.Name,
+		&i.SmkVersion,
+		&i.Ciphertext,
+		&i.Nonce,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getDeploymentConfig = `-- name: GetDeploymentConfig :one
 SELECT deployment_id, environment, machine, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
@@ -563,7 +596,7 @@ func (q *Queries) ListSecretKeyslots(ctx context.Context) ([]SecretKeyslot, erro
 
 const listSecrets = `-- name: ListSecrets :many
 
-SELECT name, secret_group, internal, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
+SELECT name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
 FROM secrets ORDER BY name
 `
 
@@ -580,7 +613,6 @@ func (q *Queries) ListSecrets(ctx context.Context) ([]Secret, error) {
 		if err := rows.Scan(
 			&i.Name,
 			&i.SecretGroup,
-			&i.Internal,
 			&i.SmkVersion,
 			&i.Ciphertext,
 			&i.Nonce,
@@ -781,12 +813,29 @@ func (q *Queries) UpsertAuthSettings(ctx context.Context, masterPasswordHash str
 	return err
 }
 
+const upsertConfigValue = `-- name: UpsertConfigValue :exec
+INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?)
+ON CONFLICT(key) DO UPDATE SET
+    value = excluded.value,
+    updated_at = excluded.updated_at
+`
+
+type UpsertConfigValueParams struct {
+	Key       string
+	Value     string
+	UpdatedAt int64
+}
+
+func (q *Queries) UpsertConfigValue(ctx context.Context, arg UpsertConfigValueParams) error {
+	_, err := q.db.ExecContext(ctx, upsertConfigValue, arg.Key, arg.Value, arg.UpdatedAt)
+	return err
+}
+
 const upsertSecret = `-- name: UpsertSecret :exec
-INSERT INTO secrets (name, secret_group, internal, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO secrets (name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(name) DO UPDATE SET
     secret_group = excluded.secret_group,
-    internal = excluded.internal,
     smk_version = excluded.smk_version,
     ciphertext = excluded.ciphertext,
     nonce = excluded.nonce,
@@ -797,7 +846,6 @@ ON CONFLICT(name) DO UPDATE SET
 type UpsertSecretParams struct {
 	Name        string
 	SecretGroup string
-	Internal    int64
 	SmkVersion  int64
 	Ciphertext  []byte
 	Nonce       []byte
@@ -810,13 +858,43 @@ func (q *Queries) UpsertSecret(ctx context.Context, arg UpsertSecretParams) erro
 	_, err := q.db.ExecContext(ctx, upsertSecret,
 		arg.Name,
 		arg.SecretGroup,
-		arg.Internal,
 		arg.SmkVersion,
 		arg.Ciphertext,
 		arg.Nonce,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 		arg.UpdatedBy,
+	)
+	return err
+}
+
+const upsertSystemSecret = `-- name: UpsertSystemSecret :exec
+INSERT INTO system_secrets (name, smk_version, ciphertext, nonce, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(name) DO UPDATE SET
+    smk_version = excluded.smk_version,
+    ciphertext = excluded.ciphertext,
+    nonce = excluded.nonce,
+    updated_at = excluded.updated_at
+`
+
+type UpsertSystemSecretParams struct {
+	Name       string
+	SmkVersion int64
+	Ciphertext []byte
+	Nonce      []byte
+	CreatedAt  int64
+	UpdatedAt  int64
+}
+
+func (q *Queries) UpsertSystemSecret(ctx context.Context, arg UpsertSystemSecretParams) error {
+	_, err := q.db.ExecContext(ctx, upsertSystemSecret,
+		arg.Name,
+		arg.SmkVersion,
+		arg.Ciphertext,
+		arg.Nonce,
+		arg.CreatedAt,
+		arg.UpdatedAt,
 	)
 	return err
 }
