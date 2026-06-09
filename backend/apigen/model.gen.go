@@ -484,6 +484,90 @@ func DecodeDynamicConfiguration(b []byte) (*DynamicConfiguration, error) {
 	return &m, nil
 }
 
+type ConfigUpdateRequest struct {
+	Values []*ConfigValueUpdate
+}
+
+func (m *ConfigUpdateRequest) Encode() []byte {
+	var b []byte
+	for _, item := range m.Values {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeConfigUpdateRequest(b []byte) (*ConfigUpdateRequest, error) {
+	var m ConfigUpdateRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ConfigValueUpdate
+				item, err = DecodeConfigValueUpdate(msgBytes)
+				if err == nil {
+					m.Values = append(m.Values, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ConfigValueUpdate struct {
+	Key   string
+	Value string
+}
+
+func (m *ConfigValueUpdate) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	b = AppendStringField(b, m.Value, 2)
+	return b
+}
+
+func DecodeConfigValueUpdate(b []byte) (*ConfigValueUpdate, error) {
+	var m ConfigValueUpdate
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Value, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type EmptyRequest struct {
 }
 

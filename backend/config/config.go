@@ -14,22 +14,22 @@ import (
 	"github.com/jptrs93/opsagent/backend/util/secretu"
 )
 
-type configKey string
+type ConfigKey string
 
 const (
-	WebListen               configKey = "WEB_LISTEN"
-	WebHTTPOnly             configKey = "WEB_HTTP_ONLY"
-	ClusterListen           configKey = "CLUSTER_LISTEN"
-	EnrollmentListen        configKey = "ENROLLMENT_LISTEN"
-	AcmeHosts               configKey = "ACME_HOSTS"
-	AcmeEmail               configKey = "ACME_EMAIL"
-	GithubToken             configKey = "GITHUB_TOKEN"
-	BackupS3AccessKeyID     configKey = "BACKUP_S3_ACCESS_KEY_ID"
-	BackupS3SecretAccessKey configKey = "BACKUP_S3_SECRET_ACCESS_KEY"
-	BackupS3Bucket          configKey = "BACKUP_S3_BUCKET"
-	BackupS3Path            configKey = "BACKUP_S3_PATH"
-	BackupS3Region          configKey = "BACKUP_S3_REGION"
-	BackupS3Endpoint        configKey = "BACKUP_S3_ENDPOINT"
+	WebListen               ConfigKey = "WEB_LISTEN"
+	WebHTTPOnly             ConfigKey = "WEB_HTTP_ONLY"
+	ClusterListen           ConfigKey = "CLUSTER_LISTEN"
+	EnrollmentListen        ConfigKey = "ENROLLMENT_LISTEN"
+	AcmeHosts               ConfigKey = "ACME_HOSTS"
+	AcmeEmail               ConfigKey = "ACME_EMAIL"
+	GithubToken             ConfigKey = "GITHUB_TOKEN"
+	BackupS3AccessKeyID     ConfigKey = "BACKUP_S3_ACCESS_KEY_ID"
+	BackupS3SecretAccessKey ConfigKey = "BACKUP_S3_SECRET_ACCESS_KEY"
+	BackupS3Bucket          ConfigKey = "BACKUP_S3_BUCKET"
+	BackupS3Path            ConfigKey = "BACKUP_S3_PATH"
+	BackupS3Region          ConfigKey = "BACKUP_S3_REGION"
+	BackupS3Endpoint        ConfigKey = "BACKUP_S3_ENDPOINT"
 )
 
 type Service struct {
@@ -38,6 +38,11 @@ type Service struct {
 
 	mu   sync.Mutex
 	subs *pubsubu.PubSub[ainit.DynamicConfiguration]
+}
+
+type Update struct {
+	Key   ConfigKey
+	Value string
 }
 
 const (
@@ -62,21 +67,43 @@ func (s *Service) Snapshot() ainit.DynamicConfiguration {
 	return s.snapshot()
 }
 
-func (s *Service) UpdateValue(key configKey, value string) {
-	switch key {
-	case GithubToken:
-		s.updateConfigSecretValue(githubTokenSecretName, value)
-		s.notify()
-		return
-	case BackupS3SecretAccessKey:
-		s.updateConfigSecretValue(backupS3SecretAccessKeySecretName, value)
-		s.notify()
-		return
+func (s *Service) UpdateValue(key ConfigKey, value string) error {
+	return s.UpdateValues([]Update{{Key: key, Value: value}})
+}
+
+func (s *Service) UpdateValues(updates []Update) error {
+	for _, update := range updates {
+		if isSecretConfigKey(update.Key) && update.Value != "" {
+			unlocked, _ := s.Secrets.Status()
+			if !unlocked {
+				return secrets.ErrLocked
+			}
+		}
 	}
-	if err := s.Storage.SetConfigValue(string(key), value); err != nil {
-		panic(fmt.Sprintf("SetConfigValue %s: %v", key, err))
+	for _, update := range updates {
+		if err := s.updateValueWithoutNotify(update.Key, update.Value); err != nil {
+			return err
+		}
 	}
 	s.notify()
+	return nil
+}
+
+func (s *Service) updateValueWithoutNotify(key ConfigKey, value string) error {
+	switch key {
+	case GithubToken:
+		return s.updateConfigSecretValue(githubTokenSecretName, value)
+	case BackupS3SecretAccessKey:
+		return s.updateConfigSecretValue(backupS3SecretAccessKeySecretName, value)
+	}
+	if err := s.Storage.SetConfigValue(string(key), value); err != nil {
+		return fmt.Errorf("SetConfigValue %s: %w", key, err)
+	}
+	return nil
+}
+
+func isSecretConfigKey(key ConfigKey) bool {
+	return key == GithubToken || key == BackupS3SecretAccessKey
 }
 
 func (s *Service) notify() {
@@ -106,7 +133,7 @@ func (s *Service) snapshot() ainit.DynamicConfiguration {
 	}
 }
 
-func (s *Service) mustLoadValue(key configKey) *string {
+func (s *Service) mustLoadValue(key ConfigKey) *string {
 	value, configured, err := s.Storage.FetchConfigValue(string(key))
 	if err != nil {
 		panic(fmt.Sprintf("FetchConfigValue %s: %v", key, err))
@@ -117,16 +144,17 @@ func (s *Service) mustLoadValue(key configKey) *string {
 	return &value
 }
 
-func (s *Service) updateConfigSecretValue(secretName, value string) {
+func (s *Service) updateConfigSecretValue(secretName, value string) error {
 	if value == "" {
 		if err := s.Secrets.Delete(secretName); err != nil {
-			panic(fmt.Sprintf("DeleteSecret %s: %v", secretName, err))
+			return fmt.Errorf("DeleteSecret %s: %w", secretName, err)
 		}
-		return
+		return nil
 	}
 	if _, err := s.Secrets.Set(secretName, configSecretGroup, []byte(value), 0); err != nil {
-		panic(fmt.Sprintf("SetSecret %s: %v", secretName, err))
+		return fmt.Errorf("SetSecret %s: %w", secretName, err)
 	}
+	return nil
 }
 
 func (s *Service) loadGithubToken() secretu.SecretValue {
@@ -143,7 +171,7 @@ func (s *Service) loadBackupS3SecretAccessKey() secretu.SecretValue {
 	return secretu.StoredSecretValue{K: backupS3SecretAccessKeySecretName, Revealer: s.Secrets}
 }
 
-func parseBool(value string, key configKey) bool {
+func parseBool(value string, key ConfigKey) bool {
 	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
 	if err != nil {
 		panic(fmt.Sprintf("parse config value %s as bool: %v", key, err))

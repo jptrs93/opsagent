@@ -10,12 +10,12 @@ import (
 	"github.com/benbjohnson/litestream"
 	"github.com/benbjohnson/litestream/s3"
 	"github.com/jptrs93/opsagent/backend/ainit"
-	appconfig "github.com/jptrs93/opsagent/backend/config"
+	"github.com/jptrs93/opsagent/backend/config"
 )
 
 var activeStore *litestream.Store
 
-func MustRestoreAndStartReplicationIfEnabled(configService *appconfig.Service) {
+func MustRestoreAndStartReplicationIfEnabled(configService *config.Service) {
 	sub := configService.SnapshotAndSubscribe()
 	cfg := sub.InitialValue
 	if !configured(cfg) {

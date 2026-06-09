@@ -74,6 +74,7 @@ Key generated files:
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | GET | `/v1/config` | — | `DynamicConfiguration` | ANY_OF default |
+| POST | `/v1/config/update` | `ConfigUpdateRequest` | `DynamicConfiguration` | ANY_OF default |
 | POST | `/v1/secret/value/reveal` | `SecretValue` | `SecretRevealResponse` | ANY_OF default |
 
 ### Enrollment

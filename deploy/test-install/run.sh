@@ -19,7 +19,7 @@ NAME=opendeploy-install-test
 IMG=opendeploy-install-test
 VOLUME=opendeploy-test-containerd
 REPO=jptrs93/opsagent
-VERSION=v0.0.108
+VERSION=v0.0.110
 
 docker_arch=$(docker version --format '{{.Server.Arch}}')
 case "$docker_arch" in
@@ -84,6 +84,7 @@ download_opendeploy() {
 
 download_opendeploy
 docker exec "$NAME" opendeploy install --version "$VERSION" --http-only true --web-listen :8080
+docker exec "$NAME" systemctl start opendeploy.service
 
 echo
 echo "==> Post-install state"

@@ -87,6 +87,7 @@ type OpsagentHttpV1Handler interface {
 	PostV1RepoValidate(Context, *RepoValidateRequest) (*RepoValidateResponse, error)
 	PostV1GithubAssetValidate(Context, *GithubAssetValidateRequest) (*RepoValidateResponse, error)
 	GetV1Config(Context) (*DynamicConfiguration, error)
+	PostV1ConfigUpdate(Context, *ConfigUpdateRequest) (*DynamicConfiguration, error)
 	PostV1SecretValueReveal(Context, *SecretValue) (*SecretRevealResponse, error)
 	PostV1SecretsList(Context, *EmptyRequest) (*SecretList, error)
 	PostV1SecretsSet(Context, *SecretSetRequest) (*SecretMeta, error)
@@ -297,6 +298,17 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("GET /v1/config", buildHandlerFunc(config, verifyAuth, getV1ConfigAccessPolicy, postAuthHandlerGetV1Config, compressionModeAuto, false))
+	postV1ConfigUpdateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1ConfigUpdate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeConfigUpdateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1ConfigUpdate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/config/update", buildHandlerFunc(config, verifyAuth, postV1ConfigUpdateAccessPolicy, postAuthHandlerPostV1ConfigUpdate, compressionModeAuto, false))
 	postV1SecretValueRevealAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1SecretValueReveal := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretValue)

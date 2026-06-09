@@ -20,6 +20,7 @@ import {
   decodeSecretsStatusResponse,
   decodeState,
   decodeWebAuthNOptionsResponse,
+  encodeConfigUpdateRequest,
   encodeDeploymentCreateRequest,
   encodeDeploymentHistoryRequest,
   encodeDeploymentUpdateRequest,
@@ -340,6 +341,18 @@ export class Capi {
    */
   async getV1Config() {
     const response = await this.#request("/v1/config", { method: 'GET' });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeDynamicConfiguration(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {ConfigUpdateRequest} payload
+   * @returns {Promise<DynamicConfiguration>}
+   */
+  async postV1ConfigUpdate(payload) {
+    const response = await this.#request("/v1/config/update", { method: 'POST', body: encodeConfigUpdateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }

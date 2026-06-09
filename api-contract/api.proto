@@ -99,6 +99,10 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc PostV1ConfigUpdate(ConfigUpdateRequest) returns (DynamicConfiguration) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   rpc PostV1SecretValueReveal(SecretValue) returns (SecretRevealResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -241,6 +245,15 @@ message DynamicConfiguration {
   string backup_s3_path = 11;
   string backup_s3_region = 12;
   string backup_s3_endpoint = 13;
+}
+
+message ConfigUpdateRequest {
+  repeated ConfigValueUpdate values = 1;
+}
+
+message ConfigValueUpdate {
+  string key = 1;
+  string value = 2;
 }
 
 // === Auth messages ===

@@ -59,6 +59,15 @@
  * @property {string} backupS3Endpoint
  */
 /**
+ * @typedef {Object} ConfigUpdateRequest
+ * @property {ConfigValueUpdate[]} values
+ */
+/**
+ * @typedef {Object} ConfigValueUpdate
+ * @property {string} key
+ * @property {string} value
+ */
+/**
  * @typedef {Object} EmptyRequest
  */
 /**
@@ -1081,6 +1090,129 @@ function decodeDynamicConfigurationMessage(reader, length) {
 export function decodeDynamicConfiguration(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeDynamicConfigurationMessage(reader);
+}
+
+
+
+/**
+ * @param {ConfigUpdateRequest} message
+ * @param {Writer} writer
+ */
+export function writeConfigUpdateRequest(message, writer) {
+    if (message.values && message.values.length > 0) {
+        for (const item of message.values) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeConfigValueUpdate(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ConfigUpdateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeConfigUpdateRequest(message) {
+    const writer = Writer.create();
+    writeConfigUpdateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ConfigUpdateRequest}
+ */
+function decodeConfigUpdateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {values: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.values.push(decodeConfigValueUpdateMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ConfigUpdateRequest}
+ */
+export function decodeConfigUpdateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeConfigUpdateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {ConfigValueUpdate} message
+ * @param {Writer} writer
+ */
+export function writeConfigValueUpdate(message, writer) {
+    if (message.key !== undefined && message.key !== null && message.key !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
+    }
+    if (message.value !== undefined && message.value !== null && message.value !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.value);
+    }
+}
+
+
+/**
+ * @param {ConfigValueUpdate} message
+ * @returns {Uint8Array}
+ */
+export function encodeConfigValueUpdate(message) {
+    const writer = Writer.create();
+    writeConfigValueUpdate(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ConfigValueUpdate}
+ */
+function decodeConfigValueUpdateMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {key: "", value: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.key = reader.string();
+                break;
+            }
+            case 2: {
+                message.value = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ConfigValueUpdate}
+ */
+export function decodeConfigValueUpdate(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeConfigValueUpdateMessage(reader);
 }
 
 

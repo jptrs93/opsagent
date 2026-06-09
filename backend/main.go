@@ -57,7 +57,7 @@ func main() {
 	switch ainit.Args.Command {
 	case ainit.CommandInstall, ainit.CommandUninstall:
 		if err := installer.Run(os.Args); err != nil {
-			fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
+			_, _ = fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
 			os.Exit(1)
 		}
 		return

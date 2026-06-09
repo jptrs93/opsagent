@@ -12,7 +12,7 @@ import (
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	appconfig "github.com/jptrs93/opsagent/backend/config"
+	"github.com/jptrs93/opsagent/backend/config"
 	"github.com/jptrs93/opsagent/backend/engine"
 	"github.com/jptrs93/opsagent/backend/engine/credentials"
 	"github.com/jptrs93/opsagent/backend/engine/ctrd"
@@ -32,7 +32,7 @@ type Handler struct {
 	// Store is the primary-side storage adapter. Handles both deployment
 	// state and auth (users + JWT keys).
 	Store         *sqlite.PrimaryStorage
-	ConfigService *appconfig.Service
+	ConfigService *config.Service
 	Config        ainit.DynamicConfiguration
 
 	// Secrets is the primary-only encrypted secrets store. It resolves
@@ -92,7 +92,7 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	configService := &appconfig.Service{Storage: store, Secrets: secretsMgr}
+	configService := &config.Service{Storage: store, Secrets: secretsMgr}
 	configSub := configService.SnapshotAndSubscribe()
 	cfg := configSub.InitialValue
 	githubCredentials := credentials.StaticGithubCredentialsProvider{Token: cfg.GithubToken}
