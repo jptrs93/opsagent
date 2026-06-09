@@ -690,6 +690,22 @@ func (c *OpsagentHttpV1Capi) PostV1UserConfigsDelete(ctx context.Context, req *U
 	return nil
 }
 
+func (c *OpsagentHttpV1Capi) PostV1EnrollmentList(ctx context.Context) (*EnrollmentRequestList, error) {
+	resp, err := c.do(ctx, "POST", "/v1/enrollment/list", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeEnrollmentRequestList(body)
+}
+
 func (c *OpsagentHttpV1Capi) PostV1EnrollmentAccept(ctx context.Context, req *EnrollmentAcceptRequest) (*EnrollmentRequestStatus, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1EnrollmentAccept request is nil")

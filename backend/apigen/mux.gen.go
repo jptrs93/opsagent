@@ -101,6 +101,7 @@ type OpsagentHttpV1Handler interface {
 	PostV1UserConfigsList(Context, *EmptyRequest) (*UserConfigList, error)
 	PostV1UserConfigsSet(Context, *UserConfigSetRequest) (*UserConfig, error)
 	PostV1UserConfigsDelete(Context, *UserConfigDeleteRequest) error
+	PostV1EnrollmentList(Context) (*EnrollmentRequestList, error)
 	PostV1EnrollmentAccept(Context, *EnrollmentAcceptRequest) (*EnrollmentRequestStatus, error)
 }
 
@@ -473,6 +474,12 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/user/configs/delete", buildHandlerFunc(config, verifyAuth, postV1UserConfigsDeleteAccessPolicy, postAuthHandlerPostV1UserConfigsDelete, compressionModeAuto, false))
+	postV1EnrollmentListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1EnrollmentList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		res, err := h.PostV1EnrollmentList(authCtx)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/enrollment/list", buildHandlerFunc(config, verifyAuth, postV1EnrollmentListAccessPolicy, postAuthHandlerPostV1EnrollmentList, compressionModeAuto, false))
 	postV1EnrollmentAcceptAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1EnrollmentAccept := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEnrollmentAcceptRequest)

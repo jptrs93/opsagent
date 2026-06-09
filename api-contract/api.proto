@@ -167,6 +167,11 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  // List pending and historical worker enrollment requests for operator review.
+  rpc PostV1EnrollmentList(cp.Empty) returns (EnrollmentRequestList) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   // Accept a connected worker's pending enrollment request and issue its
   // cluster client certificate using the operator-chosen machine name.
   rpc PostV1EnrollmentAccept(EnrollmentAcceptRequest) returns (EnrollmentRequestStatus) {
@@ -226,6 +231,10 @@ message EnrollmentRequestStatus {
   string requesting_ip_address = 4;
   string requesting_machine_id = 5;
   string status = 6; // waiting | disconnected | accepted
+}
+
+message EnrollmentRequestList {
+  repeated EnrollmentRequestStatus items = 1;
 }
 
 message EnrollmentAcceptRequest {

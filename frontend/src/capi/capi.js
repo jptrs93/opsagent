@@ -8,6 +8,7 @@ import {
   decodeDesiredState,
   decodeDynamicConfiguration,
   decodeEnrollmentPrimaryMsg,
+  decodeEnrollmentRequestList,
   decodeEnrollmentRequestStatus,
   decodeGithubCredentials,
   decodeLoginResponse,
@@ -519,6 +520,17 @@ export class Capi {
       return this.errorHandler(response);
     }
     await response.arrayBuffer();
+  }
+
+  /**
+   * @returns {Promise<EnrollmentRequestList>}
+   */
+  async postV1EnrollmentList() {
+    const response = await this.#request("/v1/enrollment/list", { method: 'POST' });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeEnrollmentRequestList(await response.arrayBuffer());
   }
 
   /**

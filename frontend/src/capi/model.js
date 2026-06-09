@@ -22,6 +22,10 @@
  * @property {string} status
  */
 /**
+ * @typedef {Object} EnrollmentRequestList
+ * @property {EnrollmentRequestStatus[]} items
+ */
+/**
  * @typedef {Object} EnrollmentAcceptRequest
  * @property {number} id
  * @property {string} workerName
@@ -716,6 +720,66 @@ function decodeEnrollmentRequestStatusMessage(reader, length) {
 export function decodeEnrollmentRequestStatus(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeEnrollmentRequestStatusMessage(reader);
+}
+
+
+
+/**
+ * @param {EnrollmentRequestList} message
+ * @param {Writer} writer
+ */
+export function writeEnrollmentRequestList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeEnrollmentRequestStatus(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {EnrollmentRequestList} message
+ * @returns {Uint8Array}
+ */
+export function encodeEnrollmentRequestList(message) {
+    const writer = Writer.create();
+    writeEnrollmentRequestList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {EnrollmentRequestList}
+ */
+function decodeEnrollmentRequestListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeEnrollmentRequestStatusMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {EnrollmentRequestList}
+ */
+export function decodeEnrollmentRequestList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeEnrollmentRequestListMessage(reader);
 }
 
 

@@ -226,6 +226,53 @@ func DecodeEnrollmentRequestStatus(b []byte) (*EnrollmentRequestStatus, error) {
 	return &m, nil
 }
 
+type EnrollmentRequestList struct {
+	Items []*EnrollmentRequestStatus
+}
+
+func (m *EnrollmentRequestList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeEnrollmentRequestList(b []byte) (*EnrollmentRequestList, error) {
+	var m EnrollmentRequestList
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *EnrollmentRequestStatus
+				item, err = DecodeEnrollmentRequestStatus(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type EnrollmentAcceptRequest struct {
 	ID         int32
 	WorkerName string

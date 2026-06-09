@@ -46,6 +46,30 @@ func (s *PrimaryStorage) MustMarkEnrollmentDisconnected(id int32, requestingMach
 	}
 }
 
+func (s *PrimaryStorage) ListEnrollmentRequests() ([]*apigen.EnrollmentRequestStatus, error) {
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT id, created_at, updated_at, requesting_ip_address, requesting_machine_id, status
+		FROM enrollment_requests
+		ORDER BY updated_at DESC, id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []*apigen.EnrollmentRequestStatus
+	for rows.Next() {
+		item, err := scanEnrollmentRequestRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func (s *PrimaryStorage) AcceptEnrollmentRequest(id int32) (*apigen.EnrollmentRequestStatus, error) {
 	now := time.Now().UnixMilli()
 	row, err := scanEnrollmentRequest(s.db.QueryRowContext(context.Background(), `
@@ -62,13 +86,25 @@ func (s *PrimaryStorage) AcceptEnrollmentRequest(id int32) (*apigen.EnrollmentRe
 }
 
 func scanEnrollmentRequest(row *sql.Row) (*apigen.EnrollmentRequestStatus, error) {
+	return scanEnrollmentRequestScanner(row)
+}
+
+func scanEnrollmentRequestRows(rows *sql.Rows) (*apigen.EnrollmentRequestStatus, error) {
+	return scanEnrollmentRequestScanner(rows)
+}
+
+type enrollmentRequestScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanEnrollmentRequestScanner(scanner enrollmentRequestScanner) (*apigen.EnrollmentRequestStatus, error) {
 	var id int64
 	var createdAt int64
 	var updatedAt int64
 	var requestingIPAddress string
 	var requestingMachineID string
 	var status string
-	if err := row.Scan(&id, &createdAt, &updatedAt, &requestingIPAddress, &requestingMachineID, &status); err != nil {
+	if err := scanner.Scan(&id, &createdAt, &updatedAt, &requestingIPAddress, &requestingMachineID, &status); err != nil {
 		return nil, err
 	}
 	return &apigen.EnrollmentRequestStatus{

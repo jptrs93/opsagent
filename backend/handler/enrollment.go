@@ -76,6 +76,14 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 	}
 }
 
+func (h *Handler) PostV1EnrollmentList(ctx apigen.Context) (*apigen.EnrollmentRequestList, error) {
+	items, err := h.Store.ListEnrollmentRequests()
+	if err != nil {
+		return nil, err
+	}
+	return &apigen.EnrollmentRequestList{Items: items}, nil
+}
+
 func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.EnrollmentAcceptRequest) (*apigen.EnrollmentRequestStatus, error) {
 	if req == nil || req.ID == 0 {
 		return nil, EnrollmentNotFoundErr
