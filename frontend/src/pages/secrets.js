@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 
-const { div, h1, h2, p, span, input, button, table, thead, tbody, tr, th, td, code } = van.tags;
+const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, code } = van.tags;
 const { svg, path, circle, line } = van.tags("http://www.w3.org/2000/svg");
 
 // --- icons ---
@@ -44,6 +44,7 @@ export function secretsPage() {
     const status = van.state(null);   // {unlocked, recoveryConfigured} | null
     const rows = van.state(null);     // [rowModel] | null
     const error = van.state(null);
+    const search = van.state("");
 
     // A rowModel mirrors one secret as an editable row. `orig` holds the
     // last-saved values for dirty detection; `orig.value` is meaningful only
@@ -90,6 +91,14 @@ export function secretsPage() {
 
     const addRow = () => { rows.val = [...(rows.val || []), makeRow(null)]; };
     const removeRow = (row) => { rows.val = rows.val.filter(r => r !== row); };
+    const filteredRows = () => {
+        if (!rows.val) return rows.val;
+        const query = search.val.trim().toLowerCase();
+        if (!query) return rows.val;
+        return rows.val.filter(row =>
+            row.name.val.toLowerCase().includes(query) ||
+            row.group.val.toLowerCase().includes(query));
+    };
 
     const toggleReveal = async (row) => {
         if (row.revealed.val) { row.revealed.val = false; return; }
@@ -241,6 +250,10 @@ export function secretsPage() {
             if (rows.val.length === 0) {
                 return p({class: "text-gray-400 text-sm"}, "No secrets yet. Click “Add secret”.");
             }
+            const visibleRows = filteredRows();
+            if (visibleRows.length === 0) {
+                return p({class: "text-gray-400 text-sm"}, "No secrets match your search.");
+            }
             return table(
                 {class: "w-full text-sm"},
                 thead(
@@ -250,14 +263,25 @@ export function secretsPage() {
                         th({class: "pb-2 pr-3 font-medium"}, "Value"),
                         th({class: "pb-2 w-px"}, ""),
                     )),
-                tbody(...rows.val.map(rowEl)),
+                tbody(...visibleRows.map(rowEl)),
             );
         },
     );
 
+    const filterCard = () => div(
+        {class: "card"},
+        input({
+            class: "text-input w-full",
+            type: "search",
+            placeholder: "Search secrets",
+            value: search,
+            oninput: (e) => search.val = e.target.value,
+        }),
+    );
+
     return div(
-        {class: "flex-1 min-h-0 overflow-auto p-6 flex flex-col gap-6"},
-        h1({class: "text-xl font-bold"}, "Secrets"),
+        {class: "flex-1 min-h-0 overflow-auto p-6 flex flex-col gap-3"},
+        filterCard,
         () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : div(),
         () => {
             if (status.val === null) return p({class: "text-gray-400"}, "Loading...");
