@@ -74,6 +74,11 @@ const eyeOffIcon = () => svg(iconBase,
     line({x1: "2", y1: "2", x2: "22", y2: "22"}),
 );
 
+const copyIcon = () => svg(iconBase,
+    path({d: "M8 8h11a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"}),
+    path({d: "M4 16c-.55 0-1-.45-1-1V4c0-.55.45-1 1-1h11c.55 0 1 .45 1 1"}),
+);
+
 function valueInput(setting, draft, error, patchDraft, saving) {
     const item = () => draft.val?.[setting.key];
     const patch = (next) => patchDraft(setting.key, next);
@@ -112,33 +117,25 @@ function valueInput(setting, draft, error, patchDraft, saving) {
         };
 
         return div(
-            {class: "flex flex-col gap-2"},
-            div({class: "flex flex-wrap items-center gap-2"},
-                () => item()?.secret?.key
-                    ? code({class: "text-xs text-blue-300 bg-gray-900 px-2 py-1 rounded"}, item().secret.key)
-                    : "",
-                () => item()?.cleared
-                    ? span({class: "text-xs text-amber-300"}, "will be cleared")
-                    : "",
-                () => item()?.secret?.key ? button({
-                    type: "button",
-                    title: () => item().revealed ? "Hide saved secret" : "Reveal saved secret",
-                    "aria-label": () => item().revealed ? "Hide saved secret" : "Reveal saved secret",
-                    disabled: () => saving.val,
-                    class: "p-1.5 rounded text-gray-300 bg-gray-700 hover:bg-gray-600 cursor-pointer",
-                    onclick: revealSecret,
-                }, () => item().revealed ? eyeOffIcon() : eyeIcon()) : "",
-                () => item()?.secret?.key ? button({
-                    type: "button",
-                    disabled: () => saving.val,
-                    class: "text-xs px-3 py-1 rounded-md font-medium text-gray-200 bg-gray-700 hover:bg-gray-600 cursor-pointer",
-                    onclick: () => patch({value: "", cleared: true}),
-                }, "Clear") : "",
-            ),
-            () => item()?.revealed ? code({
-                class: "text-xs text-amber-200 bg-amber-950/40 px-2 py-1 rounded break-all",
-            }, item().revealedValue) : "",
-            div({class: "relative"},
+            {class: "flex items-center gap-2"},
+            () => item()?.secret?.key
+                ? code({class: "text-xs text-blue-300 bg-gray-900 px-2 py-1 rounded whitespace-nowrap"}, item().secret.key)
+                : "",
+            () => item()?.secret?.key ? button({
+                type: "button",
+                title: () => item().revealed ? "Hide saved secret" : "Reveal saved secret",
+                "aria-label": () => item().revealed ? "Hide saved secret" : "Reveal saved secret",
+                disabled: () => saving.val,
+                class: "p-1.5 rounded text-gray-300 bg-gray-700 hover:bg-gray-600 cursor-pointer",
+                onclick: revealSecret,
+            }, () => item().revealed ? eyeOffIcon() : eyeIcon()) : "",
+            () => item()?.secret?.key ? button({
+                type: "button",
+                disabled: () => saving.val,
+                class: "text-xs px-3 py-1 rounded-md font-medium text-gray-200 bg-gray-700 hover:bg-gray-600 cursor-pointer whitespace-nowrap",
+                onclick: () => patch({value: "", cleared: true}),
+            }, "Clear") : "",
+            div({class: "relative flex-1 min-w-64"},
                 input({
                     class: `${inputClass} pr-10 font-mono`,
                     type: () => item()?.draftRevealed ? "text" : "password",
@@ -157,6 +154,13 @@ function valueInput(setting, draft, error, patchDraft, saving) {
                     onclick: () => patch({draftRevealed: !item()?.draftRevealed}),
                 }, () => item()?.draftRevealed ? eyeOffIcon() : eyeIcon()),
             ),
+            () => item()?.cleared
+                ? span({class: "text-xs text-amber-300 whitespace-nowrap"}, "will be cleared")
+                : "",
+            () => item()?.revealed ? code({
+                class: "text-xs text-amber-200 bg-amber-950/40 px-2 py-1 rounded truncate max-w-64",
+                title: item().revealedValue,
+            }, item().revealedValue) : "",
         );
     }
     return input({
@@ -178,9 +182,12 @@ export function settingsPage() {
     const recoveryCode = van.state("");
     const masterPasswordVerifyValue = van.state("");
     const masterPasswordVerifyResult = van.state("");
+    const masterPasswordVerifyOK = van.state(false);
+    const masterPasswordVerifyOverlay = van.state(false);
     const masterPasswordOverlay = van.state(false);
     const newMasterPassword = van.state("");
     const newMasterPasswordRevealed = van.state(false);
+    const newMasterPasswordCopied = van.state(false);
 
     const setDraft = (next) => {
         draft.val = next;
@@ -252,6 +259,7 @@ export function settingsPage() {
         for (const b of bytes) binary += String.fromCharCode(b);
         newMasterPassword.val = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
         newMasterPasswordRevealed.val = true;
+        newMasterPasswordCopied.val = false;
     };
 
     const saveNewMasterPassword = async () => {
@@ -264,6 +272,7 @@ export function settingsPage() {
             newMasterPasswordRevealed.val = false;
             masterPasswordVerifyValue.val = "";
             masterPasswordVerifyResult.val = "Master password updated.";
+            masterPasswordVerifyOK.val = true;
         } catch (e) {
             error.val = e.message;
         }
@@ -275,9 +284,20 @@ export function settingsPage() {
             masterPasswordVerifyResult.val = "";
             await capi.postV1AuthMasterPasswordVerify({password: masterPasswordVerifyValue.val});
             masterPasswordVerifyResult.val = "Master password verified.";
+            masterPasswordVerifyOK.val = true;
+            masterPasswordVerifyOverlay.val = false;
+            masterPasswordVerifyValue.val = "";
         } catch (e) {
             masterPasswordVerifyResult.val = "Master password did not match.";
+            masterPasswordVerifyOK.val = false;
         }
+    };
+
+    const copyNewMasterPassword = async () => {
+        if (!newMasterPassword.val) return;
+        await navigator.clipboard.writeText(newMasterPassword.val);
+        newMasterPasswordCopied.val = true;
+        setTimeout(() => { newMasterPasswordCopied.val = false; }, 1500);
     };
 
     const masterPasswordCard = () => {
@@ -287,30 +307,60 @@ export function settingsPage() {
                 div({class: "flex flex-col gap-1"},
                     h2({class: "text-base font-semibold"}, "Master password"),
                     () => masterPasswordVerifyResult.val
-                        ? p({class: "text-xs text-green-400"}, masterPasswordVerifyResult.val)
+                        ? p({class: () => `text-xs ${masterPasswordVerifyOK.val ? "text-green-400" : "text-red-400"}`}, masterPasswordVerifyResult.val)
                         : p({class: "text-xs text-gray-400"},
-                            "Verify the current master password or generate a new one-time visible password."),
+                            "Verify the current master password or update it."),
                 ),
                 div({class: "flex items-center gap-2"},
-                    input({
-                        class: `${inputClass} min-w-72 font-mono`,
-                        type: "password",
-                        placeholder: "current master password",
-                        value: masterPasswordVerifyValue,
-                        oninput: (e) => { masterPasswordVerifyValue.val = e.target.value; masterPasswordVerifyResult.val = ""; },
-                    }),
-                    spinnerButton("Verify master password", verifyMasterPassword,
-                        `${compactButtonClass} whitespace-nowrap bg-gray-700 text-gray-200 hover:bg-gray-600`,
-                        "button", () => !masterPasswordVerifyValue.val.trim()),
                     button({
                         type: "button",
                         class: `${compactButtonClass} whitespace-nowrap bg-gray-700 text-gray-200 hover:bg-gray-600`,
-                        onclick: () => { masterPasswordOverlay.val = true; newMasterPassword.val = ""; newMasterPasswordRevealed.val = false; },
+                        onclick: () => { masterPasswordVerifyOverlay.val = true; masterPasswordVerifyValue.val = ""; masterPasswordVerifyResult.val = ""; },
+                    }, "Verify master password"),
+                    button({
+                        type: "button",
+                        class: `${compactButtonClass} whitespace-nowrap bg-gray-700 text-gray-200 hover:bg-gray-600`,
+                        onclick: () => { masterPasswordOverlay.val = true; newMasterPassword.val = ""; newMasterPasswordRevealed.val = false; newMasterPasswordCopied.val = false; },
                     }, "Update master password"),
                 ),
             ),
         );
     };
+
+    const masterPasswordVerifyDialog = () => masterPasswordVerifyOverlay.val ? div(
+        {class: "fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6"},
+        div({class: "card w-full max-w-xl flex flex-col gap-3 border-gray-600"},
+            div({class: "flex items-center justify-between gap-4"},
+                h2({class: "text-base font-semibold"}, "Verify master password"),
+                button({
+                    type: "button",
+                    class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer",
+                    onclick: () => { masterPasswordVerifyOverlay.val = false; masterPasswordVerifyValue.val = ""; },
+                }, "Close"),
+            ),
+            p({class: "text-xs text-gray-400"}, "Enter the current master password to verify it."),
+            input({
+                class: `${inputClass} font-mono`,
+                type: "password",
+                placeholder: "current master password",
+                value: masterPasswordVerifyValue,
+                oninput: (e) => { masterPasswordVerifyValue.val = e.target.value; masterPasswordVerifyResult.val = ""; },
+            }),
+            () => masterPasswordVerifyResult.val
+                ? p({class: () => `text-xs ${masterPasswordVerifyOK.val ? "text-green-400" : "text-red-400"}`}, masterPasswordVerifyResult.val)
+                : "",
+            div({class: "flex items-center justify-end gap-2"},
+                button({
+                    type: "button",
+                    class: `${compactButtonClass} bg-gray-700 text-gray-200 hover:bg-gray-600 cursor-pointer`,
+                    onclick: () => { masterPasswordVerifyOverlay.val = false; masterPasswordVerifyValue.val = ""; },
+                }, "Cancel"),
+                spinnerButton("Verify master password", verifyMasterPassword,
+                    `${compactButtonClass} bg-brand text-white hover:bg-blue-600 whitespace-nowrap`,
+                    "button", () => !masterPasswordVerifyValue.val.trim()),
+            ),
+        ),
+    ) : "";
 
     const masterPasswordUpdateOverlay = () => masterPasswordOverlay.val ? div(
         {class: "fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6"},
@@ -320,19 +370,31 @@ export function settingsPage() {
                 button({
                     type: "button",
                     class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer",
-                    onclick: () => { masterPasswordOverlay.val = false; newMasterPassword.val = ""; newMasterPasswordRevealed.val = false; },
+                    onclick: () => { masterPasswordOverlay.val = false; newMasterPassword.val = ""; newMasterPasswordRevealed.val = false; newMasterPasswordCopied.val = false; },
                 }, "Close"),
             ),
             p({class: "text-xs text-gray-400"},
                 "Enter a new master password or generate one here. Save it before submitting; it will not be shown again."),
             div({class: "relative"},
                 input({
-                    class: `${inputClass} pr-10 font-mono`,
+                    class: `${inputClass} pr-20 font-mono`,
                     type: () => newMasterPasswordRevealed.val ? "text" : "password",
                     placeholder: "new master password",
                     value: newMasterPassword,
-                    oninput: (e) => { newMasterPassword.val = e.target.value; },
+                    oninput: (e) => { newMasterPassword.val = e.target.value; newMasterPasswordCopied.val = false; },
                 }),
+                button({
+                    type: "button",
+                    title: "Copy new master password",
+                    "aria-label": "Copy new master password",
+                    disabled: () => !newMasterPassword.val,
+                    class: () => `absolute right-9 top-1/2 -translate-y-1/2 p-1.5 rounded text-gray-300 ` +
+                        `hover:bg-gray-700 cursor-pointer ${newMasterPassword.val ? "" : "invisible"}`,
+                    onclick: copyNewMasterPassword,
+                }, copyIcon()),
+                () => newMasterPasswordCopied.val ? span({
+                    class: "absolute right-20 top-1/2 -translate-y-1/2 text-xs text-green-400 bg-gray-900 px-2 py-1 rounded",
+                }, "Copied") : "",
                 button({
                     type: "button",
                     title: () => newMasterPasswordRevealed.val ? "Hide new master password" : "Reveal new master password",
@@ -353,7 +415,7 @@ export function settingsPage() {
                     button({
                         type: "button",
                         class: `${compactButtonClass} bg-gray-700 text-gray-200 hover:bg-gray-600 cursor-pointer`,
-                        onclick: () => { masterPasswordOverlay.val = false; newMasterPassword.val = ""; newMasterPasswordRevealed.val = false; },
+                        onclick: () => { masterPasswordOverlay.val = false; newMasterPassword.val = ""; newMasterPasswordRevealed.val = false; newMasterPasswordCopied.val = false; },
                     }, "Cancel"),
                     spinnerButton("Save new master password", saveNewMasterPassword,
                         `${compactButtonClass} bg-brand text-white hover:bg-blue-600 whitespace-nowrap`,
@@ -412,8 +474,8 @@ export function settingsPage() {
     };
 
     const rowEl = (setting) => tr(
-        {class: "border-b border-gray-800 last:border-0 align-top"},
-        td({class: "py-3 pr-3 whitespace-nowrap"},
+        {class: "border-b border-gray-800 last:border-0 align-middle"},
+        td({class: "py-2 pr-3 whitespace-nowrap align-middle"},
             span({class: "text-gray-200"}, setting.label),
         ),
         td({class: "py-2 text-white"}, valueInput(setting, draft, error, patchDraft, saving)),
@@ -458,6 +520,7 @@ export function settingsPage() {
         },
         masterPasswordCard,
         recoveryCard,
+        masterPasswordVerifyDialog,
         masterPasswordUpdateOverlay,
     );
 }
