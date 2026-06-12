@@ -76,14 +76,15 @@ type StaticConfiguration struct {
 	ContainerdAddress   string
 	ContainerdNamespace string
 
-	PrimaryAddr string `env:"OPENDEPLOY_PRIMARY_ADDR,"`        // secondaries only: primary's mTLS/enrollment address
-	PrimaryName string `env:"OPENDEPLOY_PRIMARY_NAME,primary"` // primary cert DNS name; secondaries use it for TLS verification when dialing by IP
+	PrimaryClusterAddr    string `env:"OPENDEPLOY_PRIMARY_CLUSTER_ADDR,"`    // secondaries only: primary's mTLS cluster address
+	PrimaryEnrollmentAddr string `env:"OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR,"` // secondaries only: primary's unauthenticated enrollment address
+	PrimaryName           string `env:"OPENDEPLOY_PRIMARY_NAME,primary"`     // primary cert DNS name; secondaries use it for TLS verification when dialing by IP
 
 	InitialWebListen          string   `env:"OPENDEPLOY_INITIAL_WEB_LISTEN,:443"`
 	InitialWebHTTPOnly        bool     `env:"OPENDEPLOY_INITIAL_WEB_HTTP_ONLY,false"` // serve the primary API over plain HTTP on port 8080 instead of ACME TLS on port 443
 	InitialMasterPasswordHash string   `env:"OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH,"`
 	InitialClusterListen      string   `env:"OPENDEPLOY_INITIAL_CLUSTER_LISTEN,:9443"`    // mTLS listen address
-	InitialEnrollmentListen   string   `env:"OPENDEPLOY_INITIAL_ENROLLMENT_LISTEN,:9444"` // unauthenticated worker enrollment listen address
+	InitialEnrollmentListen   string   `env:"OPENDEPLOY_INITIAL_ENROLLMENT_LISTEN,:9444"` // HTTPS worker enrollment listen address
 	InitialAcmeHosts          []string `env:"OPENDEPLOY_INITIAL_ACME_HOSTS,opendeploy.dev"`
 	InitialAcmeEmail          string   `env:"OPENDEPLOY_INITIAL_ACME_EMAIL,"`
 }

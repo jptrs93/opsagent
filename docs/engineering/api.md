@@ -88,9 +88,10 @@ User-managed configs are plaintext values stored in `user_configs` and reference
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | POST | `/v1/enrollment/request` | stream `EnrollmentWorkerMsg` | stream `EnrollmentPrimaryMsg` | NO_AUTH |
+| POST | `/v1/enrollment/list` | — | `EnrollmentRequestList` | ANY_OF default |
 | POST | `/v1/enrollment/accept` | `EnrollmentAcceptRequest` | `EnrollmentRequestStatus` | ANY_OF default |
 
-Workers use `EnrollmentV1` only when local cluster CA/cert/key material is missing. They send a stable generated `requesting_machine_id`, then keep the stream open until an operator accepts the request. Acceptance signs a worker certificate with the primary's internally stored cluster CA key and returns the CA certificate, worker certificate, and worker private key. By default the worker writes them to `/var/lib/opendeploy/tls/ca.crt`, `/var/lib/opendeploy/tls/node.crt`, and `/var/lib/opendeploy/tls/node.key`, then reconnects to `OpsagentClusterV1` over mTLS. The cert files are written `0644`; the private key is written `0600`.
+Workers use `EnrollmentV1` only when local cluster CA/cert/key material is missing. The enrollment listener is HTTPS using the primary server certificate, but workers skip server verification during bootstrap because they do not yet have a trust root. Workers generate their private key locally, send a stable generated `requesting_machine_id` plus a PEM CSR, then keep the stream open until an operator accepts the request. Acceptance signs the CSR with the primary's internally stored cluster CA key and returns only the CA certificate and worker certificate; the private key never leaves the worker. By default the worker writes them to `/var/lib/opendeploy/tls/ca.crt`, `/var/lib/opendeploy/tls/node.crt`, and `/var/lib/opendeploy/tls/node.key`, then reconnects to `OpsagentClusterV1` over mTLS. The cert files are written `0644`; the private key is written `0600`.
 
 ## Adding new endpoints
 

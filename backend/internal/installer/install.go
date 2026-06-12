@@ -25,16 +25,17 @@ type staged struct {
 // A network or checksum failure in phase 1 aborts with the host untouched,
 // rather than leaving a half-provisioned machine.
 type installOptions struct {
-	role        string
-	httpOnly    *bool
-	webListen   *string
-	acmeHosts   *string
-	primaryAddr *string
-	primaryName *string
+	role           string
+	httpOnly       *bool
+	webListen      *string
+	acmeHosts      *string
+	clusterAddr    *string
+	enrollmentAddr *string
+	primaryName    *string
 }
 
 func (o installOptions) hasEnvOverrides() bool {
-	return o.httpOnly != nil || o.webListen != nil || o.acmeHosts != nil || o.primaryAddr != nil || o.primaryName != nil
+	return o.httpOnly != nil || o.webListen != nil || o.acmeHosts != nil || o.clusterAddr != nil || o.enrollmentAddr != nil || o.primaryName != nil
 }
 
 func doInstall(version string, opts installOptions) error {

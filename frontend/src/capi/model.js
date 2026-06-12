@@ -6,6 +6,7 @@
 /**
  * @typedef {Object} EnrollmentHello
  * @property {string} requestingMachineId
+ * @property {Uint8Array} workerCertificateRequest
  */
 /**
  * @typedef {Object} EnrollmentPrimaryMsg
@@ -36,7 +37,6 @@
  * @property {string} workerName
  * @property {Uint8Array} caCertificate
  * @property {Uint8Array} workerCertificate
- * @property {Uint8Array} workerPrivateKey
  */
 /**
  * @typedef {Object} GithubCredentials
@@ -518,6 +518,9 @@ export function writeEnrollmentHello(message, writer) {
     if (message.requestingMachineId !== undefined && message.requestingMachineId !== null && message.requestingMachineId !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.requestingMachineId);
     }
+    if (message.workerCertificateRequest && message.workerCertificateRequest.length > 0) {
+        writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.workerCertificateRequest);
+    }
 }
 
 
@@ -539,12 +542,16 @@ export function encodeEnrollmentHello(message) {
  */
 function decodeEnrollmentHelloMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {requestingMachineId: "" };
+    const message = {requestingMachineId: "", workerCertificateRequest: new Uint8Array(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.requestingMachineId = reader.string();
+                break;
+            }
+            case 2: {
+                message.workerCertificateRequest = reader.bytes();
                 break;
             }
             default:
@@ -864,9 +871,6 @@ export function writeEnrollmentAccepted(message, writer) {
     if (message.workerCertificate && message.workerCertificate.length > 0) {
         writer.uint32(tag(4, WIRE.LDELIM)).bytes(message.workerCertificate);
     }
-    if (message.workerPrivateKey && message.workerPrivateKey.length > 0) {
-        writer.uint32(tag(5, WIRE.LDELIM)).bytes(message.workerPrivateKey);
-    }
 }
 
 
@@ -888,7 +892,7 @@ export function encodeEnrollmentAccepted(message) {
  */
 function decodeEnrollmentAcceptedMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, workerName: "", caCertificate: new Uint8Array(0), workerCertificate: new Uint8Array(0), workerPrivateKey: new Uint8Array(0) };
+    const message = {id: 0, workerName: "", caCertificate: new Uint8Array(0), workerCertificate: new Uint8Array(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -906,10 +910,6 @@ function decodeEnrollmentAcceptedMessage(reader, length) {
             }
             case 4: {
                 message.workerCertificate = reader.bytes();
-                break;
-            }
-            case 5: {
-                message.workerPrivateKey = reader.bytes();
                 break;
             }
             default:

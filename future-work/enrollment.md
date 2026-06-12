@@ -19,7 +19,7 @@ At the time this proposal was written, worker setup required:
 2. Copying all three files to the worker's `/var/lib/opendeploy/tls/` out-of-band
    (scp, config management, etc.).
 3. Editing `/etc/opendeploy/env` on the worker to set the cert paths and
-   `OPENDEPLOY_PRIMARY_ADDR`.
+   `OPENDEPLOY_PRIMARY_CLUSTER_ADDR` and `OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR`.
 
 That's three files and one env edit per worker, all manual. For a small
 cluster this is tolerable; for anything more it's friction and a source of
@@ -31,7 +31,8 @@ Install a new worker with a single command:
 
 ```bash
 sudo ./ubuntu_worker_install.sh \
-    --primary-addr primary.example.com:9443 \
+    --cluster-addr primary.example.com:9443 \
+    --enrollment-addr primary.example.com:9444 \
     --primary-fingerprint sha256:AA:BB:CC:...
 ```
 
@@ -62,10 +63,10 @@ from the mTLS cluster listener because new workers do not yet have client certs:
 
 ### Worker-side first contact
 
-1. Worker reads `--primary-addr` and `--primary-fingerprint` from its env.
+1. Worker reads `--cluster-addr`, `--enrollment-addr`, and `--primary-fingerprint` from its env.
 2. If `/var/lib/opendeploy/tls/node.crt` already exists, skip enrollment and
    connect directly on the mTLS channel. (Idempotent — reruns are safe.)
-3. Otherwise, dial `--primary-addr` with TLS `InsecureSkipVerify: true` plus
+3. Otherwise, dial `--enrollment-addr` with TLS `InsecureSkipVerify: true` plus
    a custom `VerifyConnection` callback that computes the SHA-256 of the
    presented leaf cert and compares it to `--primary-fingerprint`. On
    mismatch, **abort with a clear error** — do not proceed.
@@ -151,9 +152,9 @@ Workers hold secrets in memory only; no on-disk copy. Restart → reconnect
 
 - `opendeploy install` stays the primary installer, unchanged.
 - Worker install: `opendeploy install` grows a worker mode via flags
-  (`--primary-addr`, `--primary-fingerprint`):
+  (`--cluster-addr`, `--enrollment-addr`, `--primary-fingerprint`):
   - creates the `opendeploy` user, data dir, sudoers, unit file (same as primary)
-  - writes `/etc/opendeploy/env` with `OPENDEPLOY_PRIMARY_ADDR` and
+  - writes `/etc/opendeploy/env` with `OPENDEPLOY_PRIMARY_CLUSTER_ADDR`, `OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR`, and
     `OPENDEPLOY_PRIMARY_FINGERPRINT` set, everything else blank
   - starts the service immediately — no manual config step, since first-contact
     enrollment blocks in-process until the operator approves

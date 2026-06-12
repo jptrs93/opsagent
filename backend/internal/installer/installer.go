@@ -135,7 +135,8 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 func parseInstallSecondary(args []string) (string, installOptions, error) {
 	fs := flag.NewFlagSet("install secondary", flag.ExitOnError)
 	version := fs.String("version", "latest", "release tag to install (default: latest)")
-	primaryAddrRaw := fs.String("primary-addr", "", "set OPENDEPLOY_PRIMARY_ADDR for the primary cluster/enrollment address")
+	clusterAddrRaw := fs.String("cluster-addr", "", "set OPENDEPLOY_PRIMARY_CLUSTER_ADDR for the primary mTLS cluster address")
+	enrollmentAddrRaw := fs.String("enrollment-addr", "", "set OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR for the primary enrollment address")
 	primaryNameRaw := fs.String("primary-name", "", "set OPENDEPLOY_PRIMARY_NAME for primary TLS verification (default runtime value: primary)")
 	fs.BoolVar(&dryRun, "dry-run", false, "print the actions that would be taken without performing them")
 	_ = fs.Parse(args)
@@ -144,13 +145,20 @@ func parseInstallSecondary(args []string) (string, installOptions, error) {
 	var parseErr error
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
-		case "primary-addr":
-			v := strings.TrimSpace(*primaryAddrRaw)
-			if err := validateInstallStringFlag("--primary-addr", v); err != nil && parseErr == nil {
+		case "cluster-addr":
+			v := strings.TrimSpace(*clusterAddrRaw)
+			if err := validateInstallStringFlag("--cluster-addr", v); err != nil && parseErr == nil {
 				parseErr = err
 				return
 			}
-			opts.primaryAddr = &v
+			opts.clusterAddr = &v
+		case "enrollment-addr":
+			v := strings.TrimSpace(*enrollmentAddrRaw)
+			if err := validateInstallStringFlag("--enrollment-addr", v); err != nil && parseErr == nil {
+				parseErr = err
+				return
+			}
+			opts.enrollmentAddr = &v
 		case "primary-name":
 			v := strings.TrimSpace(*primaryNameRaw)
 			if err := validateInstallStringFlag("--primary-name", v); err != nil && parseErr == nil {
@@ -163,8 +171,11 @@ func parseInstallSecondary(args []string) (string, installOptions, error) {
 	if parseErr != nil {
 		return "", installOptions{}, parseErr
 	}
-	if opts.primaryAddr == nil {
-		return "", installOptions{}, fmt.Errorf("install secondary requires --primary-addr")
+	if opts.clusterAddr == nil {
+		return "", installOptions{}, fmt.Errorf("install secondary requires --cluster-addr")
+	}
+	if opts.enrollmentAddr == nil {
+		return "", installOptions{}, fmt.Errorf("install secondary requires --enrollment-addr")
 	}
 	return *version, opts, nil
 }
@@ -181,7 +192,7 @@ func usage(prog string) {
 
 Usage:
   %[1]s install primary [--version vX.Y.Z] [--http-only true] [--web-listen :8080] [--acme-hosts host1,host2] [--primary-name primary] [--dry-run]
-  %[1]s install secondary --primary-addr host:9444 [--version vX.Y.Z] [--primary-name primary] [--dry-run]
+  %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 [--version vX.Y.Z] [--primary-name primary] [--dry-run]
   %[1]s uninstall [--purge] [--yes] [--dry-run]
 
 Commands:

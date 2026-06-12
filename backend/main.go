@@ -95,7 +95,7 @@ func runPrimary() {
 
 	// Primary cluster and enrollment listeners start for every primary.
 	startPrimaryCluster(h, clusterMaterial, cfg)
-	startPrimaryEnrollment(h, cfg)
+	startPrimaryEnrollment(h, clusterMaterial, cfg)
 	m := apigen.CreateOpsagentHttpV1Mux(h, &apigen.MuxConfig{
 		VerifyAuth:         h.VerifyAuth,
 		MaxRequestBodySize: 20_000_000,
@@ -127,18 +127,21 @@ func runPrimary() {
 
 func runSecondary() {
 	cfg := ainit.StaticConfig
-	if cfg.PrimaryAddr == "" {
-		panic("OPENDEPLOY_PRIMARY_ADDR must be set when running secondary")
+	if cfg.PrimaryClusterAddr == "" {
+		panic("OPENDEPLOY_PRIMARY_CLUSTER_ADDR must be set when running secondary")
+	}
+	if cfg.PrimaryEnrollmentAddr == "" {
+		panic("OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR must be set when running secondary")
 	}
 	caPath, certPath, keyPath := workerTLSPaths(cfg.DataDir)
 	if !workerTLSMaterialExists(caPath, certPath, keyPath) {
-		slog.Info("worker cluster certs missing; starting enrollment", "primaryAddr", cfg.PrimaryAddr)
+		slog.Info("worker cluster certs missing; starting enrollment", "enrollmentAddr", cfg.PrimaryEnrollmentAddr)
 		if err := secondary.Enroll(secondary.EnrollmentConfig{
-			PrimaryAddr:     cfg.PrimaryAddr,
-			DataDir:         cfg.DataDir,
-			ClusterCAPath:   caPath,
-			ClusterCertPath: certPath,
-			ClusterKeyPath:  keyPath,
+			PrimaryEnrollmentAddr: cfg.PrimaryEnrollmentAddr,
+			DataDir:               cfg.DataDir,
+			ClusterCAPath:         caPath,
+			ClusterCertPath:       certPath,
+			ClusterKeyPath:        keyPath,
 		}); err != nil {
 			panic(fmt.Sprintf("worker enrollment: %v", err))
 		}
@@ -146,13 +149,13 @@ func runSecondary() {
 	tlsCfg := certu.MustLoadTLSConfig(caPath, certPath, keyPath)
 	machineName := certu.MustCertLoadCommonName(certPath)
 
-	slog.Info("starting in slave mode", "machine", machineName, "primary", cfg.PrimaryAddr, "primaryName", cfg.PrimaryName)
+	slog.Info("starting in slave mode", "machine", machineName, "clusterAddr", cfg.PrimaryClusterAddr, "primaryName", cfg.PrimaryName)
 	secondary.Run(secondary.Config{
-		TLS:         tlsCfg,
-		PrimaryAddr: cfg.PrimaryAddr,
-		PrimaryName: cfg.PrimaryName,
-		MachineName: machineName,
-		DataDir:     cfg.DataDir,
+		TLS:                tlsCfg,
+		PrimaryClusterAddr: cfg.PrimaryClusterAddr,
+		PrimaryName:        cfg.PrimaryName,
+		MachineName:        machineName,
+		DataDir:            cfg.DataDir,
 	})
 }
 
@@ -203,7 +206,7 @@ func startPrimaryCluster(h *handler.Handler, material *cluster.Material, cfg ain
 	}()
 }
 
-func startPrimaryEnrollment(h *handler.Handler, cfg ainit.DynamicConfiguration) {
+func startPrimaryEnrollment(h *handler.Handler, material *cluster.Material, cfg ainit.DynamicConfiguration) {
 	mux := apigen.CreateEnrollmentV1Mux(h, &apigen.MuxConfig{
 		VerifyAuth:         h.VerifyEnrollmentRequest,
 		MaxRequestBodySize: 1 * 1024 * 1024,
@@ -217,12 +220,13 @@ func startPrimaryEnrollment(h *handler.Handler, cfg ainit.DynamicConfiguration) 
 		},
 	})
 	srv := &http.Server{
-		Addr:    cfg.EnrollmentListen,
-		Handler: mux,
+		Addr:      cfg.EnrollmentListen,
+		Handler:   mux,
+		TLSConfig: certu.MustLoadServerTLSConfigFromPEM(material.PrimaryCert, material.PrimaryKey),
 	}
 	slog.Info("starting primary enrollment", "addr", cfg.EnrollmentListen)
 	go func() {
-		err := srv.ListenAndServe()
+		err := srv.ListenAndServeTLS("", "")
 		panic(fmt.Sprintf("enrollment server ended: %v", err))
 	}()
 }

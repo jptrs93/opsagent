@@ -20,10 +20,12 @@ type enrollmentRequestIPKey struct{}
 type enrollmentSession struct {
 	id                  int32
 	requestingMachineID string
+	csrPEM              []byte
 	accepted            chan *apigen.EnrollmentAccepted
 }
 
 var EnrollmentMachineIDRequiredErr = apigen.NewApiErr("Requesting machine ID is required", "enrollment_machine_id_required", http.StatusBadRequest)
+var EnrollmentCSRRequiredErr = apigen.NewApiErr("Worker certificate request is required", "enrollment_csr_required", http.StatusBadRequest)
 var EnrollmentWorkerNameRequiredErr = apigen.NewApiErr("Worker name is required", "enrollment_worker_name_required", http.StatusBadRequest)
 var EnrollmentNotConnectedErr = apigen.NewApiErr("Worker is not connected", "enrollment_not_connected", http.StatusConflict)
 var EnrollmentSigningNotConfiguredErr = apigen.NewApiErr("Cluster CA signing key is not configured", "enrollment_signing_not_configured", http.StatusServiceUnavailable)
@@ -45,11 +47,16 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 			yield(nil, EnrollmentMachineIDRequiredErr)
 			return
 		}
+		if len(hello.WorkerCertificateRequest) == 0 {
+			yield(nil, EnrollmentCSRRequiredErr)
+			return
+		}
 
 		status := h.Store.MustUpsertEnrollmentRequest(enrollmentRequestIP(ctx), requestingMachineID)
 		sess := &enrollmentSession{
 			id:                  status.ID,
 			requestingMachineID: requestingMachineID,
+			csrPEM:              hello.WorkerCertificateRequest,
 			accepted:            make(chan *apigen.EnrollmentAccepted, 1),
 		}
 		h.registerEnrollmentSession(sess)
@@ -96,12 +103,12 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 	if sess == nil {
 		return nil, EnrollmentNotConnectedErr
 	}
-	caCert, workerCert, workerKey, err := cluster.GenerateWorkerCertificate(h.Secrets, workerName)
+	caCert, workerCert, err := cluster.SignWorkerCertificateRequest(h.Secrets, sess.csrPEM, workerName)
 	if errors.Is(err, secrets.ErrLocked) || errors.Is(err, secrets.ErrNotFound) {
 		return nil, EnrollmentSigningNotConfiguredErr
 	}
 	if err != nil {
-		return nil, fmt.Errorf("signing worker cert: %w", err)
+		return nil, fmt.Errorf("signing worker CSR: %w", err)
 	}
 	status, err := h.Store.AcceptEnrollmentRequest(req.ID)
 	if errors.Is(err, sqlite.ErrNotFound) {
@@ -115,7 +122,6 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 		WorkerName:        workerName,
 		CaCertificate:     caCert,
 		WorkerCertificate: workerCert,
-		WorkerPrivateKey:  workerKey,
 	}
 	select {
 	case sess.accepted <- accepted:

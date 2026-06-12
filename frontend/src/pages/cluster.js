@@ -148,12 +148,13 @@ function enrollmentRow(req, reload) {
                 div({class: "flex gap-2"},
                     input({
                         class: "text-input w-44",
-                        value: workerName.val,
+                        value: workerName,
                         oninput: e => workerName.val = e.target.value,
                     }),
                     button({
+                        type: "button",
                         class: "btn-primary",
-                        disabled: accepting.val,
+                        disabled: () => accepting.val,
                         onclick: accept,
                     }, () => accepting.val ? "Accepting..." : "Accept"),
                 ),

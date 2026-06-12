@@ -23,7 +23,7 @@ NETWORK=opendeploy-install-test
 PRIMARY_VOLUME=opendeploy-primary-containerd
 SECONDARY_VOLUME=opendeploy-secondary-containerd
 REPO=jptrs93/opsagent
-VERSION=v0.0.117
+VERSION=v0.0.118
 
 docker_arch=$(docker version --format '{{.Server.Arch}}')
 case "$docker_arch" in
@@ -115,7 +115,7 @@ install_primary() {
 
 install_secondary() {
 	download_opendeploy "$SECONDARY_NAME"
-	docker exec "$SECONDARY_NAME" opendeploy install secondary --version "$VERSION" --primary-addr "$PRIMARY_NAME:9444"
+	docker exec "$SECONDARY_NAME" opendeploy install secondary --version "$VERSION" --cluster-addr "$PRIMARY_NAME:9443" --enrollment-addr "$PRIMARY_NAME:9444"
 	docker exec "$SECONDARY_NAME" systemctl start opendeploy.service
 }
 

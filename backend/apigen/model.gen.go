@@ -83,12 +83,14 @@ func DecodeEnrollmentWorkerMsg(b []byte) (*EnrollmentWorkerMsg, error) {
 }
 
 type EnrollmentHello struct {
-	RequestingMachineID string
+	RequestingMachineID      string
+	WorkerCertificateRequest []byte
 }
 
 func (m *EnrollmentHello) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.RequestingMachineID, 1)
+	b = AppendBytesField(b, m.WorkerCertificateRequest, 2)
 	return b
 }
 
@@ -105,6 +107,8 @@ func DecodeEnrollmentHello(b []byte) (*EnrollmentHello, error) {
 		switch num {
 		case 1:
 			b, m.RequestingMachineID, err = ConsumeString(b, typ)
+		case 2:
+			b, m.WorkerCertificateRequest, err = ConsumeBytesCopy(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -315,7 +319,6 @@ type EnrollmentAccepted struct {
 	WorkerName        string
 	CaCertificate     []byte
 	WorkerCertificate []byte
-	WorkerPrivateKey  []byte
 }
 
 func (m *EnrollmentAccepted) Encode() []byte {
@@ -324,7 +327,6 @@ func (m *EnrollmentAccepted) Encode() []byte {
 	b = AppendStringField(b, m.WorkerName, 2)
 	b = AppendBytesField(b, m.CaCertificate, 3)
 	b = AppendBytesField(b, m.WorkerCertificate, 4)
-	b = AppendBytesField(b, m.WorkerPrivateKey, 5)
 	return b
 }
 
@@ -347,8 +349,6 @@ func DecodeEnrollmentAccepted(b []byte) (*EnrollmentAccepted, error) {
 			b, m.CaCertificate, err = ConsumeBytesCopy(b, typ)
 		case 4:
 			b, m.WorkerCertificate, err = ConsumeBytesCopy(b, typ)
-		case 5:
-			b, m.WorkerPrivateKey, err = ConsumeBytesCopy(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"math/big"
 	"net"
-	"os"
 	"time"
 )
 
@@ -92,41 +91,50 @@ func GenerateNodeCertificate(caCertPEM, caKeyPEM []byte, nodeName string) (certP
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}), keyPEM, nil
 }
 
-func GenerateWorkerCertificate(caPath, caKeyPath string, workerName string) ([]byte, []byte, []byte, error) {
-	caPEM, _, err := loadCertificate(caPath)
-	if err != nil {
-		return nil, nil, nil, err
+func GenerateWorkerCertificateRequest(requestingMachineID string) (csrPEM, keyPEM []byte, err error) {
+	if requestingMachineID == "" {
+		return nil, nil, fmt.Errorf("requesting machine ID is empty")
 	}
-	caKeyPEM, err := os.ReadFile(caKeyPath)
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("reading CA key %q: %w", caKeyPath, err)
+		return nil, nil, fmt.Errorf("generating worker key: %w", err)
 	}
-	return GenerateWorkerCertificateFromPEM(caPEM, caKeyPEM, workerName)
+	keyPEM, err = marshalPrivateKey(priv)
+	if err != nil {
+		return nil, nil, err
+	}
+	tmpl := &x509.CertificateRequest{
+		Subject: pkix.Name{CommonName: requestingMachineID},
+	}
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, tmpl, priv)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating worker CSR: %w", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER}), keyPEM, nil
 }
 
-func GenerateWorkerCertificateFromPEM(caCertPEM, caKeyPEM []byte, workerName string) ([]byte, []byte, []byte, error) {
+func SignWorkerCertificateRequestFromPEM(caCertPEM, caKeyPEM, csrPEM []byte, workerName string) ([]byte, []byte, error) {
 	if workerName == "" {
-		return nil, nil, nil, fmt.Errorf("worker name is empty")
+		return nil, nil, fmt.Errorf("worker name is empty")
 	}
 	_, caCert, err := parseCertificate(caCertPEM, "CA cert")
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	caKey, err := parsePrivateKey(caKeyPEM, "CA key")
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	csr, err := parseCertificateRequest(csrPEM)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("generating worker key: %w", err)
+		return nil, nil, err
 	}
-	keyPEM, err := marshalPrivateKey(priv)
-	if err != nil {
-		return nil, nil, nil, err
+	if err := csr.CheckSignature(); err != nil {
+		return nil, nil, fmt.Errorf("validating worker CSR signature: %w", err)
 	}
 	serial, err := randomSerial()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
@@ -138,20 +146,12 @@ func GenerateWorkerCertificateFromPEM(caCertPEM, caKeyPEM []byte, workerName str
 		KeyUsage:    x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
-	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, pub, caKey)
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, csr.PublicKey, caKey)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("signing worker certificate: %w", err)
+		return nil, nil, fmt.Errorf("signing worker certificate: %w", err)
 	}
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	return caCertPEM, certPEM, keyPEM, nil
-}
-
-func loadCertificate(path string) ([]byte, *x509.Certificate, error) {
-	certPEM, err := os.ReadFile(path)
-	if err != nil {
-		return nil, nil, fmt.Errorf("reading CA cert %q: %w", path, err)
-	}
-	return parseCertificate(certPEM, fmt.Sprintf("CA cert %q", path))
+	return caCertPEM, certPEM, nil
 }
 
 func parseCertificate(certPEM []byte, label string) ([]byte, *x509.Certificate, error) {
@@ -164,6 +164,18 @@ func parseCertificate(certPEM []byte, label string) ([]byte, *x509.Certificate, 
 		return nil, nil, fmt.Errorf("parsing %s: %w", label, err)
 	}
 	return certPEM, cert, nil
+}
+
+func parseCertificateRequest(csrPEM []byte) (*x509.CertificateRequest, error) {
+	block, _ := pem.Decode(csrPEM)
+	if block == nil || block.Type != "CERTIFICATE REQUEST" {
+		return nil, fmt.Errorf("worker CSR contains no certificate request PEM")
+	}
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parsing worker CSR: %w", err)
+	}
+	return csr, nil
 }
 
 func parsePrivateKey(keyPEM []byte, label string) (any, error) {

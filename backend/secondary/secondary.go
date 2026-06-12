@@ -21,11 +21,11 @@ import (
 )
 
 type Config struct {
-	TLS         *tls.Config
-	PrimaryAddr string
-	PrimaryName string // cert CN of the primary (for TLS server name verification)
-	MachineName string
-	DataDir     string
+	TLS                *tls.Config
+	PrimaryClusterAddr string
+	PrimaryName        string // cert CN of the primary (for TLS server name verification)
+	MachineName        string
+	DataDir            string
 }
 type outbox struct {
 	ch  chan *apigen.MsgToMaster
@@ -47,7 +47,7 @@ func (o *outbox) Send(msg *apigen.MsgToMaster) bool {
 func Run(cfg Config) {
 	store := sqlite.NewSecondaryStorage(filepath.Join(cfg.DataDir, "secondary.db"))
 	primaryHTTPClient := newPrimaryHTTPClient(cfg.TLS, cfg.PrimaryName)
-	githubCredentials := NewPrimaryGithubCredentialsProvider("https://"+cfg.PrimaryAddr, primaryHTTPClient)
+	githubCredentials := NewPrimaryGithubCredentialsProvider("https://"+cfg.PrimaryClusterAddr, primaryHTTPClient)
 
 	preparer.Nix = preparer.NewNixBuilder(cfg.DataDir, githubCredentials)
 	preparer.GHRel = preparer.NewGithubReleaseDownloader(cfg.DataDir, githubCredentials)
@@ -90,7 +90,7 @@ func newPrimaryHTTPClient(tlsConfig *tls.Config, serverName string) *http.Client
 
 func runPrimaryConnLoop(cfg Config, store *sqlite.SecondaryStorage, primaryHTTPClient *http.Client) {
 	capi := apigen.NewOpsagentClusterV1Capi(
-		"https://"+cfg.PrimaryAddr,
+		"https://"+cfg.PrimaryClusterAddr,
 		apigen.WithOpsagentClusterV1CapiHTTPClient(primaryHTTPClient),
 	)
 
@@ -105,7 +105,7 @@ func runPrimaryConnLoop(cfg Config, store *sqlite.SecondaryStorage, primaryHTTPC
 			backoff = time.Second
 		}
 		slog.Warn("slave disconnected from primary; reconnecting",
-			"addr", cfg.PrimaryAddr,
+			"addr", cfg.PrimaryClusterAddr,
 			"peer", cfg.PrimaryName,
 			"connected_for", time.Since(connectedAt).Round(time.Second),
 			"retry_in", backoff,

@@ -2,8 +2,10 @@ package secondary
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,25 +13,26 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
 type EnrollmentConfig struct {
-	PrimaryAddr     string
-	DataDir         string
-	ClusterCAPath   string
-	ClusterCertPath string
-	ClusterKeyPath  string
+	PrimaryEnrollmentAddr string
+	DataDir               string
+	ClusterCAPath         string
+	ClusterCertPath       string
+	ClusterKeyPath        string
 }
 
 func Enroll(cfg EnrollmentConfig) error {
-	if strings.TrimSpace(cfg.PrimaryAddr) == "" {
-		return fmt.Errorf("primary address is empty")
+	if strings.TrimSpace(cfg.PrimaryEnrollmentAddr) == "" {
+		return fmt.Errorf("primary enrollment address is empty")
 	}
 	machineID, err := ensureRequestingMachineID(cfg.DataDir)
 	if err != nil {
 		return err
 	}
-	capi := apigen.NewEnrollmentV1Capi(enrollmentBaseURL(cfg.PrimaryAddr))
+	capi := apigen.NewEnrollmentV1Capi(enrollmentBaseURL(cfg.PrimaryEnrollmentAddr), apigen.WithEnrollmentV1CapiHTTPClient(enrollmentHTTPClient()))
 
 	backoff := time.Second
 	const maxBackoff = 30 * time.Second
@@ -43,7 +46,7 @@ func Enroll(cfg EnrollmentConfig) error {
 			backoff = time.Second
 		}
 		slog.Warn("worker enrollment disconnected; reconnecting",
-			"addr", cfg.PrimaryAddr,
+			"addr", cfg.PrimaryEnrollmentAddr,
 			"requestingMachineID", machineID,
 			"connected_for", time.Since(connectedAt).Round(time.Second),
 			"retry_in", backoff,
@@ -59,9 +62,13 @@ func Enroll(cfg EnrollmentConfig) error {
 func runEnrollmentSession(capi *apigen.EnrollmentV1Capi, machineID string, cfg EnrollmentConfig) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	csrPEM, keyPEM, err := certu.GenerateWorkerCertificateRequest(machineID)
+	if err != nil {
+		return err
+	}
 
 	reqs := func(yield func(*apigen.EnrollmentWorkerMsg, error) bool) {
-		if !yield(&apigen.EnrollmentWorkerMsg{Hello: &apigen.EnrollmentHello{RequestingMachineID: machineID}}, nil) {
+		if !yield(&apigen.EnrollmentWorkerMsg{Hello: &apigen.EnrollmentHello{RequestingMachineID: machineID, WorkerCertificateRequest: csrPEM}}, nil) {
 			return
 		}
 		<-ctx.Done()
@@ -78,7 +85,7 @@ func runEnrollmentSession(capi *apigen.EnrollmentV1Capi, machineID string, cfg E
 			slog.Info("worker enrollment request registered", "id", msg.RequestStatus.ID, "status", msg.RequestStatus.Status)
 		}
 		if msg.Accepted != nil {
-			if err := writeEnrollmentTLSBundle(cfg, msg.Accepted); err != nil {
+			if err := writeEnrollmentTLSBundle(cfg, msg.Accepted, keyPEM); err != nil {
 				return err
 			}
 			slog.Info("worker enrollment accepted", "id", msg.Accepted.ID, "machine", msg.Accepted.WorkerName)
@@ -88,8 +95,8 @@ func runEnrollmentSession(capi *apigen.EnrollmentV1Capi, machineID string, cfg E
 	return fmt.Errorf("enrollment stream ended before acceptance")
 }
 
-func writeEnrollmentTLSBundle(cfg EnrollmentConfig, accepted *apigen.EnrollmentAccepted) error {
-	if len(accepted.CaCertificate) == 0 || len(accepted.WorkerCertificate) == 0 || len(accepted.WorkerPrivateKey) == 0 {
+func writeEnrollmentTLSBundle(cfg EnrollmentConfig, accepted *apigen.EnrollmentAccepted, keyPEM []byte) error {
+	if len(accepted.CaCertificate) == 0 || len(accepted.WorkerCertificate) == 0 || len(keyPEM) == 0 {
 		return fmt.Errorf("accepted enrollment response missing TLS material")
 	}
 	for _, path := range []string{cfg.ClusterCAPath, cfg.ClusterCertPath, cfg.ClusterKeyPath} {
@@ -106,10 +113,17 @@ func writeEnrollmentTLSBundle(cfg EnrollmentConfig, accepted *apigen.EnrollmentA
 	if err := os.WriteFile(cfg.ClusterCertPath, accepted.WorkerCertificate, 0o644); err != nil {
 		return fmt.Errorf("writing worker cert: %w", err)
 	}
-	if err := os.WriteFile(cfg.ClusterKeyPath, accepted.WorkerPrivateKey, 0o600); err != nil {
+	if err := os.WriteFile(cfg.ClusterKeyPath, keyPEM, 0o600); err != nil {
 		return fmt.Errorf("writing worker key: %w", err)
 	}
 	return nil
+}
+
+func enrollmentHTTPClient() *http.Client {
+	// The worker has no cluster trust root before enrollment. TLS still prevents
+	// passive capture, while CSR enrollment keeps the private key off the wire.
+	// Fingerprint pinning can replace this bootstrap skip later.
+	return &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
 }
 
 func ensureRequestingMachineID(dataDir string) (string, error) {
@@ -133,8 +147,11 @@ func ensureRequestingMachineID(dataDir string) (string, error) {
 }
 
 func enrollmentBaseURL(addr string) string {
-	if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
+	if strings.HasPrefix(addr, "https://") {
 		return addr
 	}
-	return "http://" + addr
+	if strings.HasPrefix(addr, "http://") {
+		return "https://" + strings.TrimPrefix(addr, "http://")
+	}
+	return "https://" + addr
 }

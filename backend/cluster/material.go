@@ -74,10 +74,10 @@ func LoadPrimary(store *secrets.Manager) (*Material, error) {
 	return &Material{CACert: caCert, CAKey: caKey, PrimaryCert: primaryCert, PrimaryKey: primaryKey}, nil
 }
 
-func GenerateWorkerCertificate(store *secrets.Manager, workerName string) (caCert, workerCert, workerKey []byte, err error) {
+func SignWorkerCertificateRequest(store *secrets.Manager, csrPEM []byte, workerName string) (caCert, workerCert []byte, err error) {
 	mat, err := LoadPrimary(store)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("loading cluster signing material: %w", err)
+		return nil, nil, fmt.Errorf("loading cluster signing material: %w", err)
 	}
-	return certu.GenerateWorkerCertificateFromPEM(mat.CACert, mat.CAKey, workerName)
+	return certu.SignWorkerCertificateRequestFromPEM(mat.CACert, mat.CAKey, csrPEM, workerName)
 }

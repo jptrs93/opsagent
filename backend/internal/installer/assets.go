@@ -72,8 +72,11 @@ func applyEnvOverrides(content []byte, opts installOptions) []byte {
 	if opts.acmeHosts != nil {
 		values["OPENDEPLOY_INITIAL_ACME_HOSTS"] = *opts.acmeHosts
 	}
-	if opts.primaryAddr != nil {
-		values["OPENDEPLOY_PRIMARY_ADDR"] = *opts.primaryAddr
+	if opts.clusterAddr != nil {
+		values["OPENDEPLOY_PRIMARY_CLUSTER_ADDR"] = *opts.clusterAddr
+	}
+	if opts.enrollmentAddr != nil {
+		values["OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR"] = *opts.enrollmentAddr
 	}
 	if opts.primaryName != nil {
 		values["OPENDEPLOY_PRIMARY_NAME"] = *opts.primaryName
@@ -96,7 +99,7 @@ func applyEnvOverrides(content []byte, opts installOptions) []byte {
 		lines[i] = key + "=" + value
 		seen[key] = true
 	}
-	for _, key := range []string{"OPENDEPLOY_INITIAL_ACME_HOSTS", "OPENDEPLOY_INITIAL_WEB_HTTP_ONLY", "OPENDEPLOY_INITIAL_WEB_LISTEN", "OPENDEPLOY_PRIMARY_ADDR", "OPENDEPLOY_PRIMARY_NAME"} {
+	for _, key := range []string{"OPENDEPLOY_INITIAL_ACME_HOSTS", "OPENDEPLOY_INITIAL_WEB_HTTP_ONLY", "OPENDEPLOY_INITIAL_WEB_LISTEN", "OPENDEPLOY_PRIMARY_CLUSTER_ADDR", "OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR", "OPENDEPLOY_PRIMARY_NAME"} {
 		if value, ok := values[key]; ok && !seen[key] {
 			lines = append(lines, key+"="+value)
 		}

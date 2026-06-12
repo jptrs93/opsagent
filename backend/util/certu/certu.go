@@ -49,6 +49,17 @@ func MustLoadTLSConfigFromPEM(caCertPEM, certPEM, keyPEM []byte) *tls.Config {
 	}
 }
 
+func MustLoadServerTLSConfigFromPEM(certPEM, keyPEM []byte) *tls.Config {
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		panic(fmt.Sprintf("loading cert/key: %v", err))
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS13,
+	}
+}
+
 func MustCertLoadCommonName(certPath string) string {
 	certBytes, err := os.ReadFile(certPath)
 	if err != nil {
