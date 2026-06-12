@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -73,7 +74,10 @@ func awaitProcessExit(pid int) {
 // run as root). If runAs is empty, the process inherits opendeploy's user.
 func spawnDaemon(binPath, workDir, logPath, runAs string, extraEnv []string) (int, error) {
 	slog.Info("spawnDaemon", "bin", binPath, "workDir", workDir, "logPath", logPath, "runAs", runAs)
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o750); err != nil {
+		return 0, fmt.Errorf("creating log dir for %q: %w", logPath, err)
+	}
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
 	if err != nil {
 		return 0, fmt.Errorf("opening log file %q: %w", logPath, err)
 	}

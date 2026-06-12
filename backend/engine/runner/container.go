@@ -42,6 +42,7 @@ type containerRunner struct {
 	env            []string // "KEY=VALUE" entries; ${s:name}/${c:name} refs resolved at start
 	command        []string // argv override; empty = image default
 	cwd            string   // process cwd; empty = image default
+	outputPath     string   // where stdout/stderr of the container is streamed to
 	mounts         []ctrd.Mount
 	dataVolumeHost string // host dir to create+chown for the default data volume ("" = disabled)
 	dataVolumeUser string // user the data volume should be owned by
@@ -69,6 +70,7 @@ func newContainerRunner(store storage.OperatorStore, dep *apigen.DeploymentConfi
 		Status:                  apigen.RunningStatus_STARTING,
 		LastRestartAt:           time.Now(),
 	}
+	r.outputPath = apigen.RunOutputFile(dep.ID, configVersion)
 	r.writeStatus()
 	go r.run()
 	return r
@@ -78,6 +80,7 @@ func reAttachContainerRunner(store storage.OperatorStore, dep *apigen.Deployment
 	ctx, cancel := context.WithCancel(context.Background())
 	r := buildContainerRunner(ctx, cancel, store, dep)
 	r.status = prev
+	r.outputPath = apigen.RunOutputFile(dep.ID, prev.DeploymentConfigVersion)
 	go r.run()
 	return r
 }
@@ -192,6 +195,7 @@ func (r *containerRunner) run() {
 			Args:   r.command,
 			Cwd:    r.cwd,
 			Mounts: r.mounts,
+			Output: r.outputPath,
 		}
 		task, err := Containerd.RunTask(r.ctx, spec)
 		if err != nil {

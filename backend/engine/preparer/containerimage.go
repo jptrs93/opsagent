@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -60,7 +59,7 @@ func (p *ContainerImagePuller) runPull(ctx context.Context, store storage.Operat
 	ref := imageRef(dep.Spec.Prepare.ContainerImage.Image, version)
 	slog.InfoContext(ctx, "image pull starting", "ref", ref, "log_path", logPath)
 
-	logFile, err := os.Create(logPath)
+	logFile, logPath, err := createPrepareLog(dep)
 	if err != nil {
 		slog.ErrorContext(ctx, "creating prepare log file failed", "path", logPath, "err", err)
 		return "", apigen.PreparationStatus_FAILED

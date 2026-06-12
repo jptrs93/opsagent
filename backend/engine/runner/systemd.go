@@ -163,8 +163,8 @@ func (r *systemdRunner) appendOutput(format string, args ...any) {
 	if r.outputPath == "" {
 		return
 	}
-	_ = os.MkdirAll(filepath.Dir(r.outputPath), 0o755)
-	f, err := os.OpenFile(r.outputPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	_ = os.MkdirAll(filepath.Dir(r.outputPath), 0o750)
+	f, err := os.OpenFile(r.outputPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o640)
 	if err != nil {
 		return
 	}

@@ -10,35 +10,18 @@ runner and `containerImage` prepare variants).
 
 This file tracks the work deliberately left out of phase 1.
 
-## Logging (immediate next change)
+## Logging follow-ups
 
-Phase 1 discards container stdout/stderr (`cio.NullIO`) — there is no run-log
-output for container deployments yet. The next change wires it up.
+Container stdout/stderr now use containerd `cio.LogFile` and write directly to
+the shared run-log layout (`RunOutputDir/{deploymentID}/{version}.log`).
+OpenDeploy creates/truncates the file before fresh task creation, then the
+running task/shim owns writing to it independently of the OpenDeploy daemon.
 
-containerd does no log management (no `docker logs`, no json-file driver, no
-rotation): it hands the task its stdio and the caller decides where it goes. The
-shim creates FIFOs for stdout/stderr, and something must drain them or the
-container blocks when the pipe buffer fills.
-
-Plan: give the task `cio.LogFile(apigen.RunOutputFile(deploymentID, configVersion))`
-so the **shim itself** writes stdout+stderr straight to the same
-per-deployment/version run-log file `osProcess` uses
-(`RunOutputDir/{deploymentID}_{version}`). This reuses the existing "view run
-output" UI streaming (`streamRunLog`) and the `RunOutputRequest.version` selector
-unchanged. Two properties fall out of the shim owning the file:
-
-- **Survives opendeploy restarts** — the shim keeps writing while opendeploy is down,
-  so there is no log gap across restarts (better than draining a FIFO inside
-  opendeploy's process, which would drop output during a restart).
-- **Reattach needs nothing** — on reattach the shim is still writing to the same
-  path; opendeploy re-streams the existing file.
-
-Known gap (shared with osProcess today): `cio.LogFile` is append-only with **no
-rotation**, so a chatty container grows the file unboundedly. Rotation is a
-shared future concern (a `binary://` logging URI, a logging plugin, or
-lumberjack-style rotation like opendeploy's own server log), not a blocker. Avoid
-containerd's CRI-style `binary://` logging — that is the K8s log-format path
-opendeploy does not need.
+Known gap (shared with osProcess today): there is no live rotation, so a chatty
+container can grow the active file unboundedly. Rotation/archiving can later be
+implemented with `copytruncate` semantics, inactive-version cleanup, or a tiny
+per-workload `cio.BinaryIO` helper that owns rotation while keeping the main
+OpenDeploy daemon out of the workload log data path.
 
 ## Future phases
 

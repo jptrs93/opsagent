@@ -74,7 +74,7 @@ func (b *NixBuilder) runBuild(ctx context.Context, store storage.OperatorStore, 
 	slog.InfoContext(ctx, "build starting", "log_path", logPath)
 	writePrepareStatus(store, dep, "", apigen.PreparationStatus_PREPARING)
 
-	logFile, err := os.Create(logPath)
+	logFile, logPath, err := createPrepareLog(dep)
 	if err != nil {
 		slog.ErrorContext(ctx, "creating prepare log file failed", "path", logPath, "err", err)
 		return "", apigen.PreparationStatus_FAILED

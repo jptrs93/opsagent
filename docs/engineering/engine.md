@@ -94,7 +94,7 @@ Flow:
 7. On success: `PreparerStatus.Status = READY`, `artifact` set to the resolved executable.
 8. On failure: `PreparerStatus.Status = FAILED`.
 
-Prepare output is written to `{PrepareOutputDir}/{deploymentID}_{version}`.
+Prepare output is written to `{PrepareOutputDir}/{deploymentID}/{version}.log`.
 
 `ListScopes` returns branches via the GitHub API. `ListVersions`
 fetches the most recent 25 commits from the given branch via the GitHub API
@@ -112,7 +112,7 @@ Flow:
 5. `chmod 0755` on the downloaded file.
 6. On success: `PreparerStatus.Status = READY`. On any failure: `FAILED`.
 
-**Artifact location.** Artifacts live in a sibling of the data dir (`{dataDir}-releases`, e.g. `/var/lib/opendeploy-releases`), not under it. The data dir itself is kept `0750` (it holds the sqlite db, TLS keys, and prepare/run logs), but os-process deployments run the artifact as a different OS user (`runAs`) that must be able to traverse to and execute it. The release dir and every component down to the artifact are `chmod 0755` so that traversal works even under a restrictive process umask. This mirrors how nix artifacts live in the world-traversable `/nix/store` — which is why nix os-process runners already work under `runAs`.
+**Artifact location.** Artifacts live in a sibling of the data dir (`{dataDir}-releases`, e.g. `/var/lib/opendeploy-releases`), not under it. The data dir itself is kept `0750` (it holds the sqlite db and TLS keys), while build logs live under `{dataDir}-build-logs` and run logs under `{dataDir}-run-logs` (for production, `/var/lib/opendeploy-build-logs` and `/var/lib/opendeploy-run-logs`). Os-process deployments run the artifact as a different OS user (`runAs`) that must be able to traverse to and execute it. The release dir and every component down to the artifact are `chmod 0755` so that traversal works even under a restrictive process umask. This mirrors how nix artifacts live in the world-traversable `/nix/store` — which is why nix os-process runners already work under `runAs`.
 
 **Custom download script.** If `cfg.Spec.Prepare.GithubRelease.DownloadScript` is set, steps 2–4 are skipped. Instead the script is written to a temp file and run as `bash <script> <tag>` with the working directory set to the release dir (`{dataDir}-releases/{owner}/{repo}/{tag}`) — so the version tag arrives as `$1` and the script downloads into that dir. The configured GitHub token is exposed as `GITHUB_TOKEN` in the environment (passed via env, never via args, so it isn't written to the prepare log). The artifact is then resolved from that dir: `Asset` names the produced file if set, otherwise the script must leave exactly one regular file. The resolved file is `chmod 0755`'d and returned.
 
@@ -195,7 +195,7 @@ on `r.status.RunningPid`.
 Flow:
 
 1. `syscall.ForkExec` with `Setsid: true` (detached daemon). stdin → `/dev/null`,
-   stdout/stderr → `{RunOutputDir}/{deploymentID}_{version}`.
+   stdout/stderr → `{RunOutputDir}/{deploymentID}/{version}.log`.
 2. Write `RUNNING` with the PID.
 3. `awaitProcessOrCancel(pid)` — wraps blocking `Wait4` in a goroutine with `ctx.Done()` select.
 4. If `Stop()` was called: write `STOPPED` and exit.
@@ -280,12 +280,19 @@ exit replaces process exit. The full crash/backoff machinery
   at start via the same `resolveEnv` resolver as `osProcess`, then into the
   container's env.
 - **Reattach**: `ctrd.LoadTask` reconnects to a still-running container by id and
-  re-establishes `Wait()`; if the task is gone it spawns fresh (RunTask first
-  removes any stale container with the same id).
+  re-establishes `Wait()`; logging is already owned by the running task's
+  containerd `file://` log URI, so no OpenDeploy-side IO reattach is needed. If
+  the task is gone it spawns fresh (RunTask first removes any stale container
+  with the same id).
 - **Stop**: SIGTERM the task, wait up to 3s for exit, SIGKILL, then delete the
   container + snapshot.
-- **Logging**: phase 1 discards container stdout/stderr (`cio.NullIO`). Draining
-  the FIFOs into the run log is the immediate follow-up change.
+- **Logging**: container stdout/stderr are configured with containerd
+  `cio.LogFile`, so the shim/runtime writes directly to
+  `{RunOutputDir}/{deploymentID}/{version}.log`. OpenDeploy creates/truncates the
+  file before fresh task creation; if OpenDeploy restarts while the workload keeps
+  running, the existing task continues writing to the same file independently.
+  Future rotation/archiving can replace the file log creator with a `BinaryIO`
+  log-consumer helper without changing runner lifecycle semantics.
 - **Platform**: Linux only. The `ctrd` package stubs out on non-linux so the
   backend still builds on macOS/dev; container deployments there fail at prepare
   with a clear "containers require linux" error.

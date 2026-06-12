@@ -179,6 +179,12 @@ func runUpgrade(version, arch string, st *staged, opts installOptions) error {
 	step("Phase 2/2 — upgrading opendeploy to %s (linux/%s)", version, arch)
 	own := resolveOpenDeployOwner()
 	rootOpenDeploy := owner{uid: 0, gid: own.gid}
+	if !isRoot() && !dryRun && (!pathExists(buildLogsDir) || !pathExists(runLogsDir)) {
+		return fmt.Errorf("upgrade requires root once to create %s and %s", buildLogsDir, runLogsDir)
+	}
+	if err := ensureLogDirs(own); err != nil {
+		return err
+	}
 
 	dst := releaseBinPath(version, arch)
 	if err := ensureDir(filepath.Dir(dst), 0o755, own); err != nil {
@@ -239,9 +245,12 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 	if err := ensureDir(dataDir, 0o750, own); err != nil {
 		return err
 	}
-	// Sibling dirs reachable by a different runAs user (0755), outside the
-	// private data dir.
+	// Sibling dirs outside the private data dir. Release artifacts are reachable by
+	// a different runAs user (0755); logs stay private to opendeploy (0750).
 	if err := ensureDir(releasesDir, 0o755, own); err != nil {
+		return err
+	}
+	if err := ensureLogDirs(own); err != nil {
 		return err
 	}
 	if err := ensureDir(filepath.Dir(binPath), 0o755, own); err != nil {
@@ -308,6 +317,15 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 	}
 
 	printNextSteps(opts)
+	return nil
+}
+
+func ensureLogDirs(own owner) error {
+	for _, dir := range []string{buildLogsDir, runLogsDir} {
+		if err := ensureDir(dir, 0o750, own); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

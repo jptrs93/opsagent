@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/user"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -218,7 +219,11 @@ func (r *osProcessRunner) run() {
 // failure it is empty and this line stands alone. Best effort: a failure to
 // write is itself only logged.
 func writeSpawnError(outputPath string, spawnErr error) {
-	f, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o750); err != nil {
+		slog.Error("creating run log dir for spawn error failed", "path", outputPath, "err", err)
+		return
+	}
+	f, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o640)
 	if err != nil {
 		slog.Error("writing spawn error to output file failed", "path", outputPath, "err", err)
 		return

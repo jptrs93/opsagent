@@ -38,6 +38,7 @@ type ContainerSpec struct {
 	Args   []string // argv override (entrypoint+cmd); empty = image default
 	Cwd    string   // process cwd; empty = image default
 	Mounts []Mount  // host bind mounts
+	Output string   // stdout/stderr log file path
 }
 
 // ImageStream is an OCI/Docker image tar stream to import into containerd.

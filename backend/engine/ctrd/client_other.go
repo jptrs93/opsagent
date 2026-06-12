@@ -24,7 +24,9 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 	return nil, ErrUnsupported
 }
 
-func (c *Client) LoadTask(ctx context.Context, id string) (*Task, error) { return nil, ErrUnsupported }
+func (c *Client) LoadTask(ctx context.Context, id string) (*Task, error) {
+	return nil, ErrUnsupported
+}
 
 // Task is the non-linux stub.
 type Task struct{}

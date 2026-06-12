@@ -10,9 +10,9 @@ import (
 	"time"
 
 	containerd "github.com/containerd/containerd/v2/client"
-	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/containerd/v2/pkg/oci"
+	"github.com/jptrs93/opsagent/backend/engine/logconsumer"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
@@ -163,9 +163,12 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 		return nil, fmt.Errorf("creating container: %w", err)
 	}
 
-	// Phase 1: stdout/stderr are discarded (NullIO). Draining the FIFOs into the
-	// run log is the immediate follow-up change.
-	task, err := container.NewTask(ctx, cio.NullIO)
+	ioCreator, err := logconsumer.NewFile(spec.Output, logconsumer.Truncate)
+	if err != nil {
+		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
+		return nil, err
+	}
+	task, err := container.NewTask(ctx, ioCreator)
 	if err != nil {
 		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
 		return nil, fmt.Errorf("creating task: %w", err)

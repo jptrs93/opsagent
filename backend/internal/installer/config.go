@@ -15,13 +15,15 @@ const (
 
 	// Core paths. DataDir stays 0750 (db, TLS keys, logs private); siblings that
 	// must be reachable by a different runAs user are 0755 and live outside it.
-	dataDir     = "/var/lib/opendeploy"
-	binPath     = "/var/lib/opendeploy/bin/opendeploy"
-	releasesDir = "/var/lib/opendeploy-releases"
-	volumesDir  = "/var/lib/opendeploy-volumes"
-	configDir   = "/etc/opendeploy"
-	envFile     = "/etc/opendeploy/env"
-	tlsDir      = dataDir + "/tls"
+	dataDir      = "/var/lib/opendeploy"
+	binPath      = "/var/lib/opendeploy/bin/opendeploy"
+	releasesDir  = "/var/lib/opendeploy-releases"
+	volumesDir   = "/var/lib/opendeploy-volumes"
+	buildLogsDir = "/var/lib/opendeploy-build-logs"
+	runLogsDir   = "/var/lib/opendeploy-run-logs"
+	configDir    = "/etc/opendeploy"
+	envFile      = "/etc/opendeploy/env"
+	tlsDir       = dataDir + "/tls"
 
 	serviceName     = "opendeploy.service"
 	serviceUnitPath = "/etc/systemd/system/opendeploy.service"

@@ -30,9 +30,9 @@ func init() {
 	}
 	StaticConfig.VolumesDir = StaticConfig.DataDir + "-volumes"
 	StaticConfig.ReleasesDir = StaticConfig.DataDir + "-releases"
+	StaticConfig.PrepareOutputDir = StaticConfig.DataDir + "-build-logs"
+	StaticConfig.RunOutputDir = StaticConfig.DataDir + "-run-logs"
 	StaticConfig.LogDir = path.Join(StaticConfig.DataDir, "log")
-	StaticConfig.PrepareOutputDir = path.Join(StaticConfig.DataDir, "prepare")
-	StaticConfig.RunOutputDir = path.Join(StaticConfig.DataDir, "runs")
 	StaticConfig.ContainerdNamespace = "opendeploy"
 	StaticConfig.ContainerdAddress = "/run/opendeploy/containerd.sock"
 	mustCreateDir(StaticConfig.DataDir, 0o750)
