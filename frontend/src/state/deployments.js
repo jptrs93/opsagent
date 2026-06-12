@@ -7,6 +7,8 @@ import { loginS } from "./login.js";
 export const deploymentsS = van.state([]);
 // usersMapS holds a Map<userId, userName> for resolving display names.
 export const usersMapS = van.state(new Map());
+export const machinesS = van.state([]);
+export const enrollmentsS = van.state([]);
 export const deploymentsStreamS = van.state({
     status: 'offline',
     sentence: 'offline',
@@ -60,6 +62,8 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
     if (clearDeployments) {
         deploymentsS.val = [];
         usersMapS.val = new Map();
+        machinesS.val = [];
+        enrollmentsS.val = [];
     }
     setStreamState('offline', 'offline');
 };
@@ -90,6 +94,30 @@ const handleStateMessage = (message) => {
         const next = new Map(usersMapS.val);
         next.set(message.userUpdate.id, message.userUpdate.name);
         usersMapS.val = next;
+    }
+
+    if (message.machinesSnapshot) {
+        machinesS.val = message.machinesSnapshot.items || [];
+    }
+
+    if (message.machineUpdate?.name) {
+        const next = new Map((machinesS.val || []).map((machine) => [machine.name, machine]));
+        if (message.machineUpdate.connected) {
+            next.set(message.machineUpdate.name, message.machineUpdate);
+        } else {
+            next.delete(message.machineUpdate.name);
+        }
+        machinesS.val = Array.from(next.values());
+    }
+
+    if (message.enrollmentsSnapshot) {
+        enrollmentsS.val = message.enrollmentsSnapshot.items || [];
+    }
+
+    if (message.enrollmentUpdate?.id) {
+        const next = new Map((enrollmentsS.val || []).map((enrollment) => [enrollment.id, enrollment]));
+        next.set(message.enrollmentUpdate.id, message.enrollmentUpdate);
+        enrollmentsS.val = Array.from(next.values());
     }
 };
 

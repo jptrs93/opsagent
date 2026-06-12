@@ -66,6 +66,8 @@ Key generated files:
 | POST | `/v1/deployment/logs` | `DeploymentLogRequest` | length-prefixed log stream | ANY_OF default |
 | POST | `/v1/deployment/versions` | `DeploymentVersionsRequest` | `DeploymentVersions` | ANY_OF default |
 
+`/v1/state/stream` is the UI's live state source. Its initial `State` message includes deployment, user, connected-machine, and enrollment snapshots; subsequent messages carry deployment, user, machine, and enrollment updates plus heartbeats.
+
 ### Cluster
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|

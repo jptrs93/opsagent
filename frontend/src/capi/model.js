@@ -240,10 +240,18 @@
  * @property {DeploymentWithStatus} deploymentUpdate
  * @property {User[]} usersSnapshot
  * @property {User} userUpdate
+ * @property {ClusterMachineList} machinesSnapshot
+ * @property {ClusterMachine} machineUpdate
+ * @property {EnrollmentRequestList} enrollmentsSnapshot
+ * @property {EnrollmentRequestStatus} enrollmentUpdate
  */
 /**
  * @typedef {Object} DeploymentWithStatusSnapshot
  * @property {DeploymentWithStatus[]} items
+ */
+/**
+ * @typedef {Object} ClusterMachineList
+ * @property {ClusterMachine[]} items
  */
 /**
  * @typedef {Object} DeploymentHistoryEntry
@@ -3352,6 +3360,26 @@ export function writeState(message, writer) {
         writeUser(message.userUpdate, writer);
         writer.ldelim();
     }
+    if (message.machinesSnapshot !== undefined && message.machinesSnapshot !== null) {
+        writer.uint32(tag(8, WIRE.LDELIM)).fork();
+        writeClusterMachineList(message.machinesSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.machineUpdate !== undefined && message.machineUpdate !== null) {
+        writer.uint32(tag(9, WIRE.LDELIM)).fork();
+        writeClusterMachine(message.machineUpdate, writer);
+        writer.ldelim();
+    }
+    if (message.enrollmentsSnapshot !== undefined && message.enrollmentsSnapshot !== null) {
+        writer.uint32(tag(10, WIRE.LDELIM)).fork();
+        writeEnrollmentRequestList(message.enrollmentsSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.enrollmentUpdate !== undefined && message.enrollmentUpdate !== null) {
+        writer.uint32(tag(11, WIRE.LDELIM)).fork();
+        writeEnrollmentRequestStatus(message.enrollmentUpdate, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -3373,7 +3401,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined };
+    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, machinesSnapshot: undefined, machineUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3395,6 +3423,22 @@ function decodeStateMessage(reader, length) {
             }
             case 7: {
                 message.userUpdate = decodeUserMessage(reader, reader.uint32());
+                break;
+            }
+            case 8: {
+                message.machinesSnapshot = decodeClusterMachineListMessage(reader, reader.uint32());
+                break;
+            }
+            case 9: {
+                message.machineUpdate = decodeClusterMachineMessage(reader, reader.uint32());
+                break;
+            }
+            case 10: {
+                message.enrollmentsSnapshot = decodeEnrollmentRequestListMessage(reader, reader.uint32());
+                break;
+            }
+            case 11: {
+                message.enrollmentUpdate = decodeEnrollmentRequestStatusMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -3472,6 +3516,66 @@ function decodeDeploymentWithStatusSnapshotMessage(reader, length) {
 export function decodeDeploymentWithStatusSnapshot(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeDeploymentWithStatusSnapshotMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterMachineList} message
+ * @param {Writer} writer
+ */
+export function writeClusterMachineList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeClusterMachine(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ClusterMachineList} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterMachineList(message) {
+    const writer = Writer.create();
+    writeClusterMachineList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterMachineList}
+ */
+function decodeClusterMachineListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeClusterMachineMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterMachineList}
+ */
+export function decodeClusterMachineList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterMachineListMessage(reader);
 }
 
 

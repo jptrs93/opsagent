@@ -42,14 +42,18 @@ func NewGitManager(dataDir string, provider credentials.GithubCredentialsProvide
 }
 
 func (g *GitManagerImpl) resolveCloneURL(ctx context.Context, repoURL string) (string, error) {
+	ownerRepo, err := RepoOwnerName(repoURL)
+	if err != nil {
+		return "", err
+	}
 	creds, err := g.credentials.GithubCredentials(ctx)
 	if err != nil {
 		return "", err
 	}
 	if creds.Token != "" {
-		return fmt.Sprintf("https://x-access-token:%s@%s.git", creds.Token, repoURL), nil
+		return fmt.Sprintf("https://x-access-token:%s@github.com/%s.git", creds.Token, ownerRepo), nil
 	}
-	return fmt.Sprintf("https://%s.git", repoURL), nil
+	return fmt.Sprintf("https://github.com/%s.git", ownerRepo), nil
 }
 
 func (g *GitManagerImpl) FetchRepoInfo(ctx context.Context, repoURL string) (*RepoInfo, error) {

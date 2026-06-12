@@ -1969,6 +1969,10 @@ type State struct {
 	DeploymentUpdate    *DeploymentWithStatus
 	UsersSnapshot       []*User
 	UserUpdate          *User
+	MachinesSnapshot    *ClusterMachineList
+	MachineUpdate       *ClusterMachine
+	EnrollmentsSnapshot *EnrollmentRequestList
+	EnrollmentUpdate    *EnrollmentRequestStatus
 }
 
 func (m *State) Encode() []byte {
@@ -1992,6 +1996,22 @@ func (m *State) Encode() []byte {
 	if m.UserUpdate != nil {
 		b = protowire.AppendTag(b, 7, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.UserUpdate.Encode())
+	}
+	if m.MachinesSnapshot != nil {
+		b = protowire.AppendTag(b, 8, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.MachinesSnapshot.Encode())
+	}
+	if m.MachineUpdate != nil {
+		b = protowire.AppendTag(b, 9, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.MachineUpdate.Encode())
+	}
+	if m.EnrollmentsSnapshot != nil {
+		b = protowire.AppendTag(b, 10, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.EnrollmentsSnapshot.Encode())
+	}
+	if m.EnrollmentUpdate != nil {
+		b = protowire.AppendTag(b, 11, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.EnrollmentUpdate.Encode())
 	}
 	return b
 }
@@ -2046,6 +2066,42 @@ func DecodeState(b []byte) (*State, error) {
 					m.UserUpdate = item
 				}
 			}
+		case 8:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterMachineList
+				item, err = DecodeClusterMachineList(msgBytes)
+				if err == nil {
+					m.MachinesSnapshot = item
+				}
+			}
+		case 9:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterMachine
+				item, err = DecodeClusterMachine(msgBytes)
+				if err == nil {
+					m.MachineUpdate = item
+				}
+			}
+		case 10:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *EnrollmentRequestList
+				item, err = DecodeEnrollmentRequestList(msgBytes)
+				if err == nil {
+					m.EnrollmentsSnapshot = item
+				}
+			}
+		case 11:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *EnrollmentRequestStatus
+				item, err = DecodeEnrollmentRequestStatus(msgBytes)
+				if err == nil {
+					m.EnrollmentUpdate = item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -2089,6 +2145,53 @@ func DecodeDeploymentWithStatusSnapshot(b []byte) (*DeploymentWithStatusSnapshot
 			if err == nil {
 				var item *DeploymentWithStatus
 				item, err = DecodeDeploymentWithStatus(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ClusterMachineList struct {
+	Items []*ClusterMachine
+}
+
+func (m *ClusterMachineList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeClusterMachineList(b []byte) (*ClusterMachineList, error) {
+	var m ClusterMachineList
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterMachine
+				item, err = DecodeClusterMachine(msgBytes)
 				if err == nil {
 					m.Items = append(m.Items, item)
 				}

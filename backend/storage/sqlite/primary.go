@@ -21,7 +21,8 @@ const SystemEnvironment = "OPENDEPLOY_SYSTEM"
 
 type PrimaryStorage struct {
 	*deploymentStore
-	userSubs *pubsubu.PubSub[apigen.User]
+	userSubs       *pubsubu.PubSub[apigen.User]
+	enrollmentSubs *pubsubu.PubSub[apigen.EnrollmentRequestStatus]
 }
 
 func NewPrimaryStorage(dbPath string) *PrimaryStorage {
@@ -29,6 +30,7 @@ func NewPrimaryStorage(dbPath string) *PrimaryStorage {
 	return &PrimaryStorage{
 		deploymentStore: newDeploymentStore(db),
 		userSubs:        &pubsubu.PubSub[apigen.User]{},
+		enrollmentSubs:  &pubsubu.PubSub[apigen.EnrollmentRequestStatus]{},
 	}
 }
 

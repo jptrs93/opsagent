@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jptrs93/goutil/pubsubu"
+
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine/credentials"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
@@ -54,6 +56,7 @@ type Primary struct {
 	mu          sync.RWMutex
 	sessions    map[string]*Session  // machine name → session
 	connectedAt map[string]time.Time // machine name → when session was accepted
+	machineSubs *pubsubu.PubSub[apigen.ClusterMachine]
 }
 
 // New creates a Primary. The mTLS HTTP/2 listener that drives it is created by
@@ -64,6 +67,7 @@ func New(store *sqlite.PrimaryStorage, githubCredentials credentials.GithubCrede
 		githubCredentials: credentials.OrEmpty(githubCredentials),
 		sessions:          make(map[string]*Session),
 		connectedAt:       make(map[string]time.Time),
+		machineSubs:       &pubsubu.PubSub[apigen.ClusterMachine]{},
 	}
 }
 
@@ -109,7 +113,9 @@ func (p *Primary) registerSession(machine string, sess *Session) {
 		old.cancel() // kick the stale session so its handler returns
 	}
 	p.sessions[machine] = sess
-	p.connectedAt[machine] = time.Now()
+	connectedAt := time.Now()
+	p.connectedAt[machine] = connectedAt
+	p.machineSubs.Notify(apigen.ClusterMachine{Name: machine, Connected: true, ConnectedAt: connectedAt})
 }
 
 func (p *Primary) unregisterSession(machine string, expected *Session) {
@@ -118,6 +124,7 @@ func (p *Primary) unregisterSession(machine string, expected *Session) {
 	if current, ok := p.sessions[machine]; ok && current == expected {
 		delete(p.sessions, machine)
 		delete(p.connectedAt, machine)
+		p.machineSubs.Notify(apigen.ClusterMachine{Name: machine, Connected: false})
 	}
 }
 
@@ -144,6 +151,22 @@ func (p *Primary) ConnectedMachines() map[string]time.Time {
 		out[name] = p.connectedAt[name]
 	}
 	return out
+}
+
+func (p *Primary) FetchMachinesSnapshotAndSubscribe() ([]*apigen.ClusterMachine, chan apigen.ClusterMachine, func()) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	machines := make([]*apigen.ClusterMachine, 0, len(p.sessions))
+	for name := range p.sessions {
+		machines = append(machines, &apigen.ClusterMachine{
+			Name:        name,
+			Connected:   true,
+			ConnectedAt: p.connectedAt[name],
+		})
+	}
+	sub := p.machineSubs.Subscribe(nil)
+	return machines, sub.Ch, sub.UnsubscribeFunc
 }
 
 // MachineNotConnectedError is returned when a log proxy request targets a

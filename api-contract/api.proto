@@ -489,10 +489,18 @@ message State {
   DeploymentWithStatus deployment_update = 3;
   repeated User users_snapshot = 6;
   User user_update = 7;
+  ClusterMachineList machines_snapshot = 8;
+  ClusterMachine machine_update = 9;
+  EnrollmentRequestList enrollments_snapshot = 10;
+  EnrollmentRequestStatus enrollment_update = 11;
 }
 
 message DeploymentWithStatusSnapshot {
   repeated DeploymentWithStatus items = 1;
+}
+
+message ClusterMachineList {
+  repeated ClusterMachine items = 1;
 }
 
 message DeploymentHistoryEntry {

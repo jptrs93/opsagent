@@ -17,6 +17,9 @@ const (
 )
 
 func (s *PrimaryStorage) MustUpsertEnrollmentRequest(requestingIPAddress, requestingMachineID string) *apigen.EnrollmentRequestStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	now := time.Now().UnixMilli()
 	row, err := scanEnrollmentRequest(s.db.QueryRowContext(context.Background(), `
 		INSERT INTO enrollment_requests (created_at, updated_at, requesting_ip_address, requesting_machine_id, status)
@@ -31,22 +34,50 @@ func (s *PrimaryStorage) MustUpsertEnrollmentRequest(requestingIPAddress, reques
 	if err != nil {
 		panic(fmt.Sprintf("upsert enrollment request: %v", err))
 	}
+	s.enrollmentSubs.Notify(*row)
 	return row
 }
 
 func (s *PrimaryStorage) MustMarkEnrollmentDisconnected(id int32, requestingMachineID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	now := time.Now().UnixMilli()
-	if _, err := s.db.ExecContext(context.Background(), `
+	row, err := scanEnrollmentRequest(s.db.QueryRowContext(context.Background(), `
 		UPDATE enrollment_requests
 		SET updated_at = ?, status = ?
-		WHERE id = ? AND requesting_machine_id = ? AND status = ?`,
+		WHERE id = ? AND requesting_machine_id = ? AND status = ?
+		RETURNING id, created_at, updated_at, requesting_ip_address, requesting_machine_id, status`,
 		now, EnrollmentStatusDisconnected, int64(id), requestingMachineID, EnrollmentStatusWaiting,
-	); err != nil {
+	))
+	if errors.Is(err, sql.ErrNoRows) {
+		return
+	}
+	if err != nil {
 		panic(fmt.Sprintf("mark enrollment disconnected: %v", err))
 	}
+	s.enrollmentSubs.Notify(*row)
 }
 
 func (s *PrimaryStorage) ListEnrollmentRequests() ([]*apigen.EnrollmentRequestStatus, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listEnrollmentRequestsLocked()
+}
+
+func (s *PrimaryStorage) MustFetchEnrollmentSnapshotAndSubscribe() ([]*apigen.EnrollmentRequestStatus, chan apigen.EnrollmentRequestStatus, func(), error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	items, err := s.listEnrollmentRequestsLocked()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sub := s.enrollmentSubs.Subscribe(nil)
+	return items, sub.Ch, sub.UnsubscribeFunc, nil
+}
+
+func (s *PrimaryStorage) listEnrollmentRequestsLocked() ([]*apigen.EnrollmentRequestStatus, error) {
 	rows, err := s.db.QueryContext(context.Background(), `
 		SELECT id, created_at, updated_at, requesting_ip_address, requesting_machine_id, status
 		FROM enrollment_requests
@@ -71,6 +102,9 @@ func (s *PrimaryStorage) ListEnrollmentRequests() ([]*apigen.EnrollmentRequestSt
 }
 
 func (s *PrimaryStorage) AcceptEnrollmentRequest(id int32) (*apigen.EnrollmentRequestStatus, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	now := time.Now().UnixMilli()
 	row, err := scanEnrollmentRequest(s.db.QueryRowContext(context.Background(), `
 		UPDATE enrollment_requests
@@ -81,6 +115,9 @@ func (s *PrimaryStorage) AcceptEnrollmentRequest(id int32) (*apigen.EnrollmentRe
 	))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
+	}
+	if err == nil {
+		s.enrollmentSubs.Notify(*row)
 	}
 	return row, err
 }

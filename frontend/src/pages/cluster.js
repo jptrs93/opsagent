@@ -1,5 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
+import {deploymentsStreamS, enrollmentsS, machinesS} from "../state/deployments.js";
 
 const { button, div, h1, h2, input, p, span, table, tbody, td, th, thead, tr } = van.tags;
 
@@ -11,43 +12,20 @@ const formatTime = (t) => {
 };
 
 export function clusterPage() {
-    const machines = van.state(null);
-    const enrollments = van.state(null);
-    const error = van.state(null);
-
-    const load = async () => {
-        try {
-            const [clusterRes, enrollmentRes] = await Promise.all([
-                capi.getV1ClusterStatus(),
-                capi.postV1EnrollmentList(),
-            ]);
-            machines.val = clusterRes.machines || [];
-            enrollments.val = enrollmentRes.items || [];
-            error.val = null;
-        } catch (e) {
-            error.val = e.message;
-        }
-    };
-
-    load();
-
     return div(
         {class: "flex-1 min-h-0 overflow-auto p-6 flex flex-col gap-6"},
         h1({class: "text-xl font-bold"}, "Machines"),
         () => {
-            if (error.val) {
-                return p({class: "text-red-400"}, `Error: ${error.val}`);
-            }
-            if (machines.val === null || enrollments.val === null) {
+            if (deploymentsStreamS.val.status !== "connected" && machinesS.val.length === 0) {
                 return p({class: "text-gray-400"}, "Loading...");
             }
 
-            const sorted = [...machines.val].sort((a, b) => {
+            const sorted = [...machinesS.val].sort((a, b) => {
                 if (a.isPrimary && !b.isPrimary) return -1;
                 if (!a.isPrimary && b.isPrimary) return 1;
                 return a.name.localeCompare(b.name);
             });
-            const pending = enrollments.val.filter(e => e.status === "waiting");
+            const pending = enrollmentsS.val.filter(e => e.status === "waiting");
 
             return div(
                 {class: "flex flex-col gap-6"},
@@ -104,7 +82,7 @@ export function clusterPage() {
                                     th({class: "pb-2"}, "Accept as"),
                                 )
                             ),
-                            tbody(...pending.map(req => enrollmentRow(req, load)))
+                            tbody(...pending.map(req => enrollmentRow(req)))
                         )
                 )
             );
@@ -112,7 +90,7 @@ export function clusterPage() {
     );
 }
 
-function enrollmentRow(req, reload) {
+function enrollmentRow(req) {
     const workerName = van.state(`worker-${req.id}`);
     const accepting = van.state(false);
     const rowError = van.state(null);
@@ -127,7 +105,6 @@ function enrollmentRow(req, reload) {
         rowError.val = null;
         try {
             await capi.postV1EnrollmentAccept({id: req.id, workerName: name});
-            await reload();
         } catch (e) {
             rowError.val = e.message;
         } finally {

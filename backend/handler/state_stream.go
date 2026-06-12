@@ -16,6 +16,29 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 		defer updatesUnsub()
 		userSub, userUnsub := h.Store.SubscribeUserUpdates()
 		defer userUnsub()
+		enrollments, enrollmentCh, enrollmentUnsub, err := h.Store.MustFetchEnrollmentSnapshotAndSubscribe()
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		defer enrollmentUnsub()
+
+		machines := []*apigen.ClusterMachine{{
+			Name:      h.MachineName,
+			IsPrimary: true,
+			Connected: true,
+		}}
+		var machineCh chan apigen.ClusterMachine
+		var machineUnsub func()
+		if h.ClusterPrimary != nil {
+			workerMachines, ch, unsub := h.ClusterPrimary.FetchMachinesSnapshotAndSubscribe()
+			machines = append(machines, workerMachines...)
+			machineCh = ch
+			machineUnsub = unsub
+		}
+		if machineUnsub != nil {
+			defer machineUnsub()
+		}
 
 		items := make([]*apigen.DeploymentWithStatus, 0, len(snapshot))
 		for i := range snapshot {
@@ -24,6 +47,8 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 		initial := &apigen.State{
 			DeploymentsSnapshot: &apigen.DeploymentWithStatusSnapshot{Items: items},
 			UsersSnapshot:       h.Store.ListUsersPublic(),
+			MachinesSnapshot:    &apigen.ClusterMachineList{Items: machines},
+			EnrollmentsSnapshot: &apigen.EnrollmentRequestList{Items: enrollments},
 		}
 		if !yield(initial, nil) {
 			return
@@ -49,6 +74,20 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 					return
 				}
 				if !yield(&apigen.State{UserUpdate: &u}, nil) {
+					return
+				}
+			case machine, ok := <-machineCh:
+				if !ok {
+					return
+				}
+				if !yield(&apigen.State{MachineUpdate: &machine}, nil) {
+					return
+				}
+			case enrollment, ok := <-enrollmentCh:
+				if !ok {
+					return
+				}
+				if !yield(&apigen.State{EnrollmentUpdate: &enrollment}, nil) {
 					return
 				}
 			case <-heartbeatTicker.C:
