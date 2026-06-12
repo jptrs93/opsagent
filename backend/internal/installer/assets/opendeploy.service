@@ -29,10 +29,10 @@ RestartSec=5
 # ProtectSystem is intentionally not used: opendeploy spawns arbitrary child
 # processes whose resource needs (tmp dirs, sockets, etc.) can't be predicted.
 # ReadWritePaths whack-a-mole is not sustainable for a process manager.
-# Allow binding to privileged ports (80/443). CAP_CHOWN lets the container
-# runner chown each deployment's data-volume dir to its (non-root) in-container
-# user so the container can write to it.
-AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_SETUID CAP_SETGID CAP_KILL CAP_CHOWN
+# Allow binding to privileged ports (80/443). Container deployments need
+# CAP_SYS_ADMIN for snapshot mounts, CAP_DAC_OVERRIDE to access root-owned
+# containerd snapshot paths, and CAP_CHOWN for deployment data-volume ownership.
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_SETUID CAP_SETGID CAP_KILL CAP_CHOWN CAP_SYS_ADMIN CAP_DAC_OVERRIDE
 
 [Install]
 WantedBy=multi-user.target

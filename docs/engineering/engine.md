@@ -271,6 +271,9 @@ exit replaces process exit. The full crash/backoff machinery
   `dataMountPath`, disableable via `disableDataVolume`. chown needs `CAP_CHOWN`
   (granted in the unit); it is best-effort and only fully resolvable when `user`
   is a numeric uid or a name that also exists on the host.
+- **Service capabilities**: the non-root `opendeploy` service needs
+  `CAP_SYS_ADMIN` for snapshot mounts and `CAP_DAC_OVERRIDE` to access
+  root-owned containerd snapshot paths when creating container tasks.
 - **`user`** maps to OCI `process.user`; with no user namespace the in-container
   uid equals the host uid, so volume file ownership matches `runAs` semantics.
 - **Refs/env**: `${s:name}` secret and `${c:name}` config placeholders resolve

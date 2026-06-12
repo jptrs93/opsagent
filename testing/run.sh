@@ -23,7 +23,7 @@ NETWORK=opendeploy-install-test
 PRIMARY_VOLUME=opendeploy-primary-containerd
 SECONDARY_VOLUME=opendeploy-secondary-containerd
 REPO=jptrs93/opsagent
-VERSION=v0.0.120
+VERSION=v0.0.122
 
 docker_arch=$(docker version --format '{{.Server.Arch}}')
 case "$docker_arch" in
@@ -110,12 +110,16 @@ download_opendeploy() {
 install_primary() {
 	download_opendeploy "$PRIMARY_NAME"
 	docker exec "$PRIMARY_NAME" opendeploy install primary --version "$VERSION" --http-only true --web-listen :8080
+	# Ubuntu's Nix daemon socket directory is restricted to nix-users.
+	docker exec "$PRIMARY_NAME" usermod -aG nix-users opendeploy
 	docker exec "$PRIMARY_NAME" systemctl start opendeploy.service
 }
 
 install_secondary() {
 	download_opendeploy "$SECONDARY_NAME"
 	docker exec "$SECONDARY_NAME" opendeploy install secondary --version "$VERSION" --cluster-addr "$PRIMARY_NAME:9443" --enrollment-addr "$PRIMARY_NAME:9444"
+	# Ubuntu's Nix daemon socket directory is restricted to nix-users.
+	docker exec "$SECONDARY_NAME" usermod -aG nix-users opendeploy
 	docker exec "$SECONDARY_NAME" systemctl start opendeploy.service
 }
 
