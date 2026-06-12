@@ -178,6 +178,11 @@
  * @property {string} outputExecutable
  */
 /**
+ * @typedef {Object} NixDockerBuildConfig
+ * @property {string} repo
+ * @property {string} flake
+ */
+/**
  * @typedef {Object} GithubReleaseConfig
  * @property {string} repo
  * @property {string} asset
@@ -193,6 +198,7 @@
  * @property {NixBuildConfig} nixBuild
  * @property {GithubReleaseConfig} githubRelease
  * @property {ContainerImageConfig} containerImage
+ * @property {NixDockerBuildConfig} nixDockerBuild
  */
 /**
  * @typedef {Object} OsProcessRunnerConfig
@@ -2661,6 +2667,69 @@ export function decodeNixBuildConfig(buffer) {
 
 
 /**
+ * @param {NixDockerBuildConfig} message
+ * @param {Writer} writer
+ */
+export function writeNixDockerBuildConfig(message, writer) {
+    if (message.repo !== undefined && message.repo !== null && message.repo !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.repo);
+    }
+    if (message.flake !== undefined && message.flake !== null && message.flake !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.flake);
+    }
+}
+
+
+/**
+ * @param {NixDockerBuildConfig} message
+ * @returns {Uint8Array}
+ */
+export function encodeNixDockerBuildConfig(message) {
+    const writer = Writer.create();
+    writeNixDockerBuildConfig(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NixDockerBuildConfig}
+ */
+function decodeNixDockerBuildConfigMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {repo: "", flake: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.repo = reader.string();
+                break;
+            }
+            case 2: {
+                message.flake = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NixDockerBuildConfig}
+ */
+export function decodeNixDockerBuildConfig(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNixDockerBuildConfigMessage(reader);
+}
+
+
+
+/**
  * @param {GithubReleaseConfig} message
  * @param {Writer} writer
  */
@@ -2813,6 +2882,11 @@ export function writePrepareConfig(message, writer) {
         writeContainerImageConfig(message.containerImage, writer);
         writer.ldelim();
     }
+    if (message.nixDockerBuild !== undefined && message.nixDockerBuild !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeNixDockerBuildConfig(message.nixDockerBuild, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -2834,7 +2908,7 @@ export function encodePrepareConfig(message) {
  */
 function decodePrepareConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {nixBuild: undefined, githubRelease: undefined, containerImage: undefined };
+    const message = {nixBuild: undefined, githubRelease: undefined, containerImage: undefined, nixDockerBuild: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2848,6 +2922,10 @@ function decodePrepareConfigMessage(reader, length) {
             }
             case 3: {
                 message.containerImage = decodeContainerImageConfigMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.nixDockerBuild = decodeNixDockerBuildConfigMessage(reader, reader.uint32());
                 break;
             }
             default:

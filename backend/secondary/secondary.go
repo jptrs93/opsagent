@@ -53,6 +53,7 @@ func Run(cfg Config) {
 	preparer.GHRel = preparer.NewGithubReleaseDownloader(cfg.DataDir, githubCredentials)
 
 	ctrdClient := ctrd.Connect(ainit.StaticConfig.ContainerdAddress, ainit.StaticConfig.ContainerdNamespace)
+	preparer.NixDocker = preparer.NewNixDockerBuilder(cfg.DataDir, githubCredentials, ctrdClient)
 	preparer.ContainerImg = preparer.NewContainerImagePuller(ctrdClient)
 	runner.Containerd = ctrdClient
 

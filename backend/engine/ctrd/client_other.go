@@ -16,6 +16,10 @@ func (c *Client) Supported() bool { return false }
 
 func (c *Client) Pull(ctx context.Context, ref string) (string, error) { return "", ErrUnsupported }
 
+func (c *Client) Import(ctx context.Context, image ImageStream) (string, error) {
+	return "", ErrUnsupported
+}
+
 func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error) {
 	return nil, ErrUnsupported
 }

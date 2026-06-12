@@ -108,7 +108,7 @@ function versionLink(deployment) {
     const mismatched = Boolean(desired) && running !== desired;
     const color = mismatched ? 'text-orange-400' : 'text-gray-300';
     const title = mismatched ? `Running ${short}; desired ${shortVersion(desired)}` : undefined;
-    if (deployment.variant === 'nixBuild' && deployment.repo) {
+    if ((deployment.variant === 'nixBuild' || deployment.variant === 'nixDockerBuild') && deployment.repo) {
         return a({
             class: `font-mono ${color} underline hover:text-white`,
             href: `https://${deployment.repo}/commit/${running}`,

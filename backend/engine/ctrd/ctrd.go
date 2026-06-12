@@ -9,7 +9,10 @@
 // error.
 package ctrd
 
-import "errors"
+import (
+	"errors"
+	"io"
+)
 
 // ErrUnsupported is returned by every operation on non-linux platforms.
 var ErrUnsupported = errors.New("containers require linux with containerd")
@@ -35,6 +38,12 @@ type ContainerSpec struct {
 	Args   []string // argv override (entrypoint+cmd); empty = image default
 	Cwd    string   // process cwd; empty = image default
 	Mounts []Mount  // host bind mounts
+}
+
+// ImageStream is an OCI/Docker image tar stream to import into containerd.
+type ImageStream struct {
+	Reader io.Reader
+	Ref    string // image ref to create/update in containerd
 }
 
 // ExitStatus is the terminal result of a container task.

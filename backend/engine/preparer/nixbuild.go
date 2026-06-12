@@ -169,14 +169,18 @@ func (b *NixBuilder) ensureRepo(ctx context.Context, repoDir string, repoURL str
 }
 
 func (b *NixBuilder) resolveCloneURL(ctx context.Context, repoURL string) (string, error) {
+	ownerRepo, err := RepoOwnerName(repoURL)
+	if err != nil {
+		return "", err
+	}
 	creds, err := b.credentials.GithubCredentials(ctx)
 	if err != nil {
 		return "", err
 	}
 	if creds.Token != "" {
-		return fmt.Sprintf("https://x-access-token:%s@%s.git", creds.Token, repoURL), nil
+		return fmt.Sprintf("https://x-access-token:%s@github.com/%s.git", creds.Token, ownerRepo), nil
 	}
-	return fmt.Sprintf("https://%s.git", repoURL), nil
+	return fmt.Sprintf("https://github.com/%s.git", ownerRepo), nil
 }
 
 func resolveExecPath(artifactPath string, outputExecutable string) (string, error) {

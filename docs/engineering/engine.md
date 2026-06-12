@@ -134,6 +134,22 @@ anonymously — no registry credentials. Version listing is a no-op
 (`ContainerImageVersionProvider` returns nothing): the user types the tag/digest
 directly in the deploy overlay.
 
+### NixDockerBuilder
+
+`NixDockerBuilder` is a separate prepare variant from `NixBuilder`. It clones or
+fetches the configured GitHub repo, checks out `DesiredState.Version`, and runs
+`nix build --no-link --print-out-paths -L` in the directory containing the
+configured flake. The build's default output must be an executable image stream,
+such as the output of `pkgs.dockerTools.streamLayeredImage`.
+
+The preparer executes that store path and pipes stdout directly into
+`ctrd.Client.Import`, assigning an OpenDeploy-local image ref of the form
+`opendeploy.local/nix-docker-build/{deploymentID}:{version}`. The image is then
+unpacked into containerd's default snapshotter and `PreparerStatus.Artifact` is
+set to the local image ref. The runtime image lives in OpenDeploy's containerd
+root (`/var/lib/opendeploy-containerd/`); the Nix store output is only an import
+source and can be removed by Nix GC once nothing else roots it.
+
 ## Runners (`backend/engine/runner/`)
 
 The `runner` package owns everything to do with keeping a deployment
@@ -246,9 +262,9 @@ host networking, start), then `task.Wait()` replaces `Wait4` and the container
 exit replaces process exit. The full crash/backoff machinery
 (`computeOSProcessBackoff`, 15s stability reset) is reused.
 
-- **Dispatch** keys off the *prepare* side (`!Prepare.ContainerImage.IsZero()`),
-  not the runner config, because a valid `container` runner block may be
-  all-defaults and therefore `IsZero`.
+- **Dispatch** keys off the *prepare* side (`containerImage` or
+  `nixDockerBuild`), not the runner config, because a valid `container` runner
+  block may be all-defaults and therefore `IsZero`.
 - **Default data volume**: a per-deployment host dir under `{dataDir}-volumes/`
   is created + chowned to the in-container user at each spawn and bind-mounted at
   `/data` (root) or `/home/<user>/data` (non-root), overridable via

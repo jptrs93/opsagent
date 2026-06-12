@@ -5,15 +5,16 @@
 OpenDeploy manages deployment configurations and deployment lifecycles. Users
 create each deployment individually with a per-deployment YAML spec. The
 system fetches available versions (git commits for nix builds, tag names
-for github releases) on demand, prepares artifacts (builds or downloads),
-and supervises running processes with automatic crash recovery.
+for github releases) on demand, prepares artifacts (builds, downloads, pulls,
+or imports images), and supervises running processes with automatic crash
+recovery.
 
 ## Deployment config
 
 Each deployment has two explicit steps:
 
-- **`prepare`** — produces an executable on disk. Pick exactly one variant.
-- **`runner`** — runs the executable. Optional; defaults to `osProcess`.
+- **`prepare`** — produces an executable on disk or an image in containerd. Pick exactly one variant.
+- **`runner`** — runs the executable or image. Optional; defaults to `osProcess` for executable prepares and `container` for image prepares.
 
 A deployment is created from a single YAML document posted to
 `POST /v1/deployment/create`:
@@ -43,6 +44,7 @@ cannot be changed through this path.
 | Variant | Fields | Description |
 |---|---|---|
 | `nixBuild` | `repo`, `flake`, `outputExecutable` | Clones the repo, checks out the desired version, runs `nix build`, and resolves the executable from the result. If `outputExecutable` is set, it selects that binary from `bin/`; otherwise it requires exactly one executable output. |
+| `nixDockerBuild` | `repo`, `flake` | Clones the repo, checks out the desired version, runs `nix build`, expects the default output to be an executable OCI/Docker image stream such as `pkgs.dockerTools.streamLayeredImage`, imports that stream into OpenDeploy's bundled containerd, and returns the local image ref. Must be paired with the `container` runner. |
 | `githubRelease` | `repo`, `asset`, `tag` | Fetches the given release from GitHub (using `OPENDEPLOY_GITHUB_TOKEN` for private repos) and downloads the named asset (or the first asset if unset) to `{dataDir}-releases/{owner}/{repo}/{tag}/{asset}`. |
 | `containerImage` | `image` | Pulls `image:version` (version is the desired tag/digest) into containerd's content store and unpacks it. Phase 1 pulls anonymously — no registry credentials. Must be paired with the `container` runner. |
 
@@ -52,7 +54,7 @@ cannot be changed through this path.
 |---|---|---|
 | `osProcess` *(default)* | `workingDir`, `runAs`, `strategy` | Spawns the artifact as a detached daemon via `fork/exec` with `setsid`. The runner monitors the process directly and restarts it on crashes with exponential backoff. Used when no `runner` block is set. `strategy: "leavePrevious"` skips terminating the old process on upgrade for apps with built-in rollover. |
 | `systemd` | `name`, `binPath` | Installs the artifact into `binPath` via atomic symlink and runs `systemctl restart <name>`. Polls `systemctl is-active` for lifecycle state. Systemd owns process-level restarts. |
-| `container` | `user`, `env`, `command`, `workingDir`, `dataMountPath`, `disableDataVolume`, `mounts` | Runs the pulled image as a container via containerd (host networking, opendeploy-supervised with the same crash/backoff loop as `osProcess`). Every container gets a default per-deployment host data volume bind-mounted at `/data` (or `/home/<user>/data` when `user` is set; override with `dataMountPath`, opt out with `disableDataVolume`). `user` maps to the in-container OS user. Requires the `containerImage` prepare. Linux only. |
+| `container` | `user`, `env`, `command`, `workingDir`, `dataMountPath`, `disableDataVolume`, `mounts` | Runs the prepared image as a container via containerd (host networking, opendeploy-supervised with the same crash/backoff loop as `osProcess`). Every container gets a default per-deployment host data volume bind-mounted at `/data` (or `/home/<user>/data` when `user` is set; override with `dataMountPath`, opt out with `disableDataVolume`). `user` maps to the in-container OS user. Requires the `containerImage` or `nixDockerBuild` prepare. Linux only. |
 
 ### Config versioning
 
@@ -111,8 +113,8 @@ card carries a per-environment tinted background and displays:
    (version, running=true), and bumps `DeploymentConfig.Version`.
 5. The operator's reconciliation loop picks up the change and starts a
    preparer.
-6. The preparer clones/fetches or downloads, resolves the executable, and
-   writes `PreparerStatus.Status = READY`.
+6. The preparer clones/fetches, downloads, pulls, or imports the artifact/image,
+   then writes `PreparerStatus.Status = READY`.
 7. The operator creates a runner, which writes `RunnerStatus.Status =
    STARTING` then `RUNNING` with the PID.
 

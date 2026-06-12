@@ -1434,6 +1434,48 @@ func DecodeNixBuildConfig(b []byte) (*NixBuildConfig, error) {
 	return &m, nil
 }
 
+type NixDockerBuildConfig struct {
+	Repo  string
+	Flake string
+}
+
+func (m NixDockerBuildConfig) IsZero() bool {
+	return m.Repo == "" &&
+		m.Flake == ""
+}
+
+func (m *NixDockerBuildConfig) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Repo, 1)
+	b = AppendStringField(b, m.Flake, 2)
+	return b
+}
+
+func DecodeNixDockerBuildConfig(b []byte) (*NixDockerBuildConfig, error) {
+	var m NixDockerBuildConfig
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Repo, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Flake, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type GithubReleaseConfig struct {
 	Repo           string
 	Asset          string
@@ -1527,12 +1569,14 @@ type PrepareConfig struct {
 	NixBuild       NixBuildConfig
 	GithubRelease  GithubReleaseConfig
 	ContainerImage ContainerImageConfig
+	NixDockerBuild NixDockerBuildConfig
 }
 
 func (m PrepareConfig) IsZero() bool {
 	return m.NixBuild.IsZero() &&
 		m.GithubRelease.IsZero() &&
-		m.ContainerImage.IsZero()
+		m.ContainerImage.IsZero() &&
+		m.NixDockerBuild.IsZero()
 }
 
 func (m *PrepareConfig) Encode() []byte {
@@ -1548,6 +1592,10 @@ func (m *PrepareConfig) Encode() []byte {
 	if !m.ContainerImage.IsZero() {
 		b = protowire.AppendTag(b, 3, protowire.BytesType)
 		b = protowire.AppendBytes(b, m.ContainerImage.Encode())
+	}
+	if !m.NixDockerBuild.IsZero() {
+		b = protowire.AppendTag(b, 4, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.NixDockerBuild.Encode())
 	}
 	return b
 }
@@ -1589,6 +1637,15 @@ func DecodePrepareConfig(b []byte) (*PrepareConfig, error) {
 				item, err = DecodeContainerImageConfig(msgBytes)
 				if err == nil {
 					m.ContainerImage = *item
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NixDockerBuildConfig
+				item, err = DecodeNixDockerBuildConfig(msgBytes)
+				if err == nil {
+					m.NixDockerBuild = *item
 				}
 			}
 		default:

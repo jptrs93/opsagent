@@ -30,6 +30,7 @@ type PrepareWrapper struct{}
 // to hold references to the variant instances.
 var (
 	Nix          *NixBuilder
+	NixDocker    *NixDockerBuilder
 	GHRel        *GithubReleaseDownloader
 	ContainerImg *ContainerImagePuller
 )
@@ -71,6 +72,9 @@ func startFor(store storage.OperatorStore, dep *apigen.DeploymentConfig) Prepare
 	case hasNixBuild(dep):
 		slog.Info("preparer.startFor: dispatching nixBuild", "deploymentConfigVersion", dep.Version)
 		return Nix.start(store, dep)
+	case hasNixDockerBuild(dep):
+		slog.Info("preparer.startFor: dispatching nixDockerBuild", "deploymentConfigVersion", dep.Version)
+		return NixDocker.start(store, dep)
 	case hasGithubRelease(dep):
 		slog.Info("preparer.startFor: dispatching githubRelease", "deploymentConfigVersion", dep.Version)
 		return GHRel.start(store, dep)
@@ -85,6 +89,10 @@ func startFor(store storage.OperatorStore, dep *apigen.DeploymentConfig) Prepare
 
 func hasNixBuild(dep *apigen.DeploymentConfig) bool {
 	return !dep.Spec.Prepare.NixBuild.IsZero()
+}
+
+func hasNixDockerBuild(dep *apigen.DeploymentConfig) bool {
+	return !dep.Spec.Prepare.NixDockerBuild.IsZero()
 }
 
 func hasGithubRelease(dep *apigen.DeploymentConfig) bool {

@@ -402,6 +402,11 @@ message NixBuildConfig {
   string output_executable = 3; // optional exact executable name in the build output's bin/
 }
 
+message NixDockerBuildConfig {
+  string repo = 1;
+  string flake = 2; // path to flake.nix relative to repo root; default output must stream an OCI/Docker image tar
+}
+
 message GithubReleaseConfig {
   string repo = 1;
   string asset = 2; // asset name (optional; falls back to first asset). With download_script, the output file the script leaves in the download dir.
@@ -418,6 +423,7 @@ message PrepareConfig {
   NixBuildConfig nix_build = 1 [(cp.go_value) = true];
   GithubReleaseConfig github_release = 2 [(cp.go_value) = true];
   ContainerImageConfig container_image = 3 [(cp.go_value) = true];
+  NixDockerBuildConfig nix_docker_build = 4 [(cp.go_value) = true];
 }
 
 message OsProcessRunnerConfig {

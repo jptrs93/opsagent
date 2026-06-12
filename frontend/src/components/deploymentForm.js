@@ -6,8 +6,10 @@ const { div, h3, label, input, select, option, button, p, span, datalist, textar
 
 const SOURCE_GITHUB = 'githubRelease';
 const SOURCE_NIX = 'nixBuild';
+const SOURCE_NIX_DOCKER = 'nixDockerBuild';
 const RUNNER_OS = 'osProcess';
 const RUNNER_SYSTEMD = 'systemd';
+const RUNNER_CONTAINER = 'container';
 
 let nextDatalistID = 1;
 let nextEnvID = 1;
@@ -40,9 +42,11 @@ export function deploymentConfigToForm(cfg) {
     const prepare = spec.prepare || {};
     const runner = spec.runner || {};
     const nix = prepare.nixBuild || {};
+    const nixDocker = prepare.nixDockerBuild || {};
     const gh = prepare.githubRelease || {};
     const os = runner.osProcess || {};
     const systemd = runner.systemd || {};
+    const imagePrepare = Boolean(prepare.nixDockerBuild || prepare.containerImage);
 
     // Reveal a section's additional options up-front when the existing config
     // already sets one of them, so they aren't hidden on edit.
@@ -53,15 +57,15 @@ export function deploymentConfigToForm(cfg) {
         name: cid.name || '',
         environment: cid.environment || '',
         machine: cid.machine || '',
-        sourceType: prepare.githubRelease ? SOURCE_GITHUB : SOURCE_NIX,
-        nixRepo: nix.repo || '',
-        nixFlake: nix.flake || '',
+        sourceType: prepare.githubRelease ? SOURCE_GITHUB : (prepare.nixDockerBuild ? SOURCE_NIX_DOCKER : SOURCE_NIX),
+        nixRepo: nix.repo || nixDocker.repo || '',
+        nixFlake: nix.flake || nixDocker.flake || '',
         nixOutputExecutable: nix.outputExecutable || '',
         githubRepo: gh.repo || '',
         githubAsset: gh.asset || '',
         githubTag: gh.tag || '',
         githubDownloadScript: gh.downloadScript || '',
-        runnerType: runner.systemd ? RUNNER_SYSTEMD : RUNNER_OS,
+        runnerType: runner.container || imagePrepare ? RUNNER_CONTAINER : (runner.systemd ? RUNNER_SYSTEMD : RUNNER_OS),
         osWorkingDir: os.workingDir || '',
         osRunAs: os.runAs || '',
         osStrategy: os.strategy || '',
@@ -129,10 +133,17 @@ export function deploymentForm(form, opts = {}) {
                 selectField("Source type", form.sourceType, [
                     {value: SOURCE_GITHUB, label: "Github release"},
                     {value: SOURCE_NIX, label: "Build NIX store"},
-                ]),
+                    {value: SOURCE_NIX_DOCKER, label: "Build NIX Docker image"},
+                ], "w-56", value => {
+                    if (value === SOURCE_NIX_DOCKER) {
+                        form.runnerType.val = RUNNER_CONTAINER;
+                    } else if (form.runnerType.val === RUNNER_CONTAINER) {
+                        form.runnerType.val = RUNNER_OS;
+                    }
+                }),
                 () => repoField(form, form.sourceType.val),
             ),
-            () => form.sourceType.val === SOURCE_NIX
+            () => form.sourceType.val === SOURCE_NIX || form.sourceType.val === SOURCE_NIX_DOCKER
                 ? field("Flake", textInput(form.nixFlake, "nix/app/flake.nix"))
                 : span(),
             optionsDisclosure(form.showSourceOpts, () => sourceOptions(form)),
@@ -143,6 +154,7 @@ export function deploymentForm(form, opts = {}) {
             selectField("Runner type", form.runnerType, [
                 {value: RUNNER_OS, label: "OpsAgent process"},
                 {value: RUNNER_SYSTEMD, label: "systemd service"},
+                {value: RUNNER_CONTAINER, label: "Container"},
             ]),
             () => form.runnerType.val === RUNNER_SYSTEMD
                 ? div(
@@ -150,6 +162,8 @@ export function deploymentForm(form, opts = {}) {
                     field("Unit name", textInput(form.systemdName, "my-service.service")),
                     field("Binary path", textInput(form.systemdBinPath, "/opt/my-service/bin/app")),
                 )
+                : form.runnerType.val === RUNNER_CONTAINER
+                    ? p({class: "text-xs text-gray-500"}, "Runs the prepared image with the container runner. Edit YAML for container env, command, mounts, or data volume options.")
                 : div(
                     {class: "flex flex-col gap-3"},
                     p({class: "text-xs text-gray-500"}, "Runs with sensible defaults."),
@@ -176,6 +190,11 @@ export function formToYaml(form) {
             tag: form.githubTag.val.trim(),
             downloadScript: form.githubDownloadScript.val.replace(/\s+$/, ''),
         };
+    } else if (form.sourceType.val === SOURCE_NIX_DOCKER) {
+        obj.prepare.nixDockerBuild = {
+            repo: form.nixRepo.val.trim(),
+            flake: form.nixFlake.val.trim(),
+        };
     } else {
         obj.prepare.nixBuild = {
             repo: form.nixRepo.val.trim(),
@@ -188,6 +207,10 @@ export function formToYaml(form) {
         obj.runner.systemd = {
             name: form.systemdName.val.trim(),
             binPath: form.systemdBinPath.val.trim(),
+        };
+    } else if (form.runnerType.val === RUNNER_CONTAINER || form.sourceType.val === SOURCE_NIX_DOCKER) {
+        obj.runner.container = {
+            disableDataVolume: false,
         };
     } else {
         obj.runner.osProcess = {
@@ -214,6 +237,8 @@ export function isFormValid(form, opts = {}) {
     } else if (!form.nixRepo.val.trim() || !form.nixFlake.val.trim()) {
         return false;
     }
+    if (form.sourceType.val === SOURCE_NIX_DOCKER && form.runnerType.val !== RUNNER_CONTAINER) return false;
+    if (form.runnerType.val === RUNNER_CONTAINER && form.sourceType.val !== SOURCE_NIX_DOCKER) return false;
     if (form.runnerType.val === RUNNER_SYSTEMD) {
         return Boolean(form.systemdName.val.trim() && form.systemdBinPath.val.trim());
     }
@@ -304,6 +329,8 @@ function optionsDisclosure(open, content) {
 function sourceOptions(form) {
     return () => form.sourceType.val === SOURCE_GITHUB
         ? div({class: "flex flex-col gap-3"}, assetField(form), downloadScriptField(form))
+        : form.sourceType.val === SOURCE_NIX_DOCKER
+            ? span({class: "text-[11px] text-gray-500"}, "The flake default output must be an executable image stream, such as dockerTools.streamLayeredImage.")
         : field("Output executable", textInput(form.nixOutputExecutable, "app"), "Executable name in the build output's bin/. Defaults to the only executable.");
 }
 
@@ -579,10 +606,13 @@ function repoMsgClass(status) {
 // selectField renders a label-above dropdown, consistent with the text fields.
 // widthClass constrains the select so source/runner type sit left-aligned
 // rather than stretching the full row.
-function selectField(text, state, options, widthClass = "w-56") {
+function selectField(text, state, options, widthClass = "w-56", onChange) {
     return field(text, select({
         class: `${widthClass} px-3 py-2 rounded-lg bg-gray-800 text-gray-100 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-brand`,
-        onchange: e => { state.val = e.target.value; },
+        onchange: e => {
+            state.val = e.target.value;
+            if (onChange) onChange(e.target.value);
+        },
     },
         ...options.map(opt => option({value: opt.value, selected: state.rawVal === opt.value}, opt.label)),
     ));

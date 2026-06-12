@@ -103,6 +103,7 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	// Shared containerd client for the container image preparer and runner. It
 	// connects lazily, so opendeploy still starts on hosts without containerd.
 	ctrdClient := ctrd.Connect(ainit.StaticConfig.ContainerdAddress, ainit.StaticConfig.ContainerdNamespace)
+	preparer.NixDocker = preparer.NewNixDockerBuilder(ainit.StaticConfig.DataDir, githubCredentials, ctrdClient)
 	preparer.ContainerImg = preparer.NewContainerImagePuller(ctrdClient)
 	runner.Containerd = ctrdClient
 

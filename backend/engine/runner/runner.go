@@ -76,5 +76,5 @@ func useSystemd(dep *apigen.DeploymentConfig) bool {
 // field is required and so never zero) rather than the runner config, because a
 // valid container runner block may be all-defaults and therefore IsZero.
 func useContainer(dep *apigen.DeploymentConfig) bool {
-	return !dep.Spec.Prepare.ContainerImage.IsZero()
+	return !dep.Spec.Prepare.ContainerImage.IsZero() || !dep.Spec.Prepare.NixDockerBuild.IsZero()
 }

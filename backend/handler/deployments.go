@@ -156,6 +156,8 @@ func (h *Handler) PostV1RepoValidate(ctx apigen.Context, req *apigen.RepoValidat
 		prepare.GithubRelease = apigen.GithubReleaseConfig{Repo: repo}
 	case "nixBuild":
 		prepare.NixBuild = apigen.NixBuildConfig{Repo: repo}
+	case "nixDockerBuild":
+		prepare.NixDockerBuild = apigen.NixDockerBuildConfig{Repo: repo}
 	default:
 		return nil, InvalidSourceTypeErr
 	}
@@ -453,6 +455,7 @@ type yamlDeployment struct {
 
 type yamlPrepare struct {
 	NixBuild       *yamlNixBuild       `yaml:"nixBuild,omitempty"`
+	NixDockerBuild *yamlNixDockerBuild `yaml:"nixDockerBuild,omitempty"`
 	GithubRelease  *yamlGithubRelease  `yaml:"githubRelease,omitempty"`
 	ContainerImage *yamlContainerImage `yaml:"containerImage,omitempty"`
 }
@@ -465,6 +468,11 @@ type yamlNixBuild struct {
 	Repo             string `yaml:"repo"`
 	Flake            string `yaml:"flake"`
 	OutputExecutable string `yaml:"outputExecutable,omitempty"`
+}
+
+type yamlNixDockerBuild struct {
+	Repo  string `yaml:"repo"`
+	Flake string `yaml:"flake"`
 }
 
 type yamlGithubRelease struct {
@@ -543,19 +551,20 @@ func toPrepareConfig(yp *yamlPrepare) (*apigen.PrepareConfig, error) {
 		return nil, invalidConfigErrf("prepare is required")
 	}
 	hasNix := yp.NixBuild != nil
+	hasNixDocker := yp.NixDockerBuild != nil
 	hasGH := yp.GithubRelease != nil
 	hasContainer := yp.ContainerImage != nil
 	set := 0
-	for _, b := range []bool{hasNix, hasGH, hasContainer} {
+	for _, b := range []bool{hasNix, hasNixDocker, hasGH, hasContainer} {
 		if b {
 			set++
 		}
 	}
 	if set == 0 {
-		return nil, invalidConfigErrf("prepare: one of nixBuild, githubRelease or containerImage must be set")
+		return nil, invalidConfigErrf("prepare: one of nixBuild, nixDockerBuild, githubRelease or containerImage must be set")
 	}
 	if set > 1 {
-		return nil, invalidConfigErrf("prepare: only one of nixBuild, githubRelease or containerImage may be set")
+		return nil, invalidConfigErrf("prepare: only one of nixBuild, nixDockerBuild, githubRelease or containerImage may be set")
 	}
 	out := &apigen.PrepareConfig{}
 	if hasNix {
@@ -569,6 +578,18 @@ func toPrepareConfig(yp *yamlPrepare) (*apigen.PrepareConfig, error) {
 			Repo:             yp.NixBuild.Repo,
 			Flake:            yp.NixBuild.Flake,
 			OutputExecutable: yp.NixBuild.OutputExecutable,
+		}
+	}
+	if hasNixDocker {
+		if yp.NixDockerBuild.Repo == "" {
+			return nil, invalidConfigErrf("prepare.nixDockerBuild: repo is required")
+		}
+		if yp.NixDockerBuild.Flake == "" {
+			return nil, invalidConfigErrf("prepare.nixDockerBuild: flake is required")
+		}
+		out.NixDockerBuild = apigen.NixDockerBuildConfig{
+			Repo:  yp.NixDockerBuild.Repo,
+			Flake: yp.NixDockerBuild.Flake,
 		}
 	}
 	if hasGH {
@@ -595,14 +616,14 @@ func toPrepareConfig(yp *yamlPrepare) (*apigen.PrepareConfig, error) {
 // container runner are used together — an image can only be run as a container,
 // and the container runner can only run an image.
 func validateContainerPairing(yp *yamlPrepare, yr *yamlRunner) error {
-	prepareIsContainer := yp != nil && yp.ContainerImage != nil
+	prepareIsContainer := yp != nil && (yp.ContainerImage != nil || yp.NixDockerBuild != nil)
 	runnerIsContainer := yr != nil && yr.Container != nil
 	runnerIsOther := yr != nil && (yr.OsProcess != nil || yr.Systemd != nil)
 	if prepareIsContainer && runnerIsOther {
-		return invalidConfigErrf("prepare.containerImage requires the container runner (or no runner block)")
+		return invalidConfigErrf("container image prepare variants require the container runner (or no runner block)")
 	}
 	if runnerIsContainer && !prepareIsContainer {
-		return invalidConfigErrf("runner.container requires prepare.containerImage")
+		return invalidConfigErrf("runner.container requires prepare.containerImage or prepare.nixDockerBuild")
 	}
 	return nil
 }
@@ -733,12 +754,21 @@ func deploymentConfigToYaml(cfg *apigen.DeploymentConfig) string {
 					OutputExecutable: cfg.Spec.Prepare.NixBuild.OutputExecutable,
 				}
 			}
+			if !cfg.Spec.Prepare.NixDockerBuild.IsZero() {
+				dep.Prepare.NixDockerBuild = &yamlNixDockerBuild{
+					Repo:  cfg.Spec.Prepare.NixDockerBuild.Repo,
+					Flake: cfg.Spec.Prepare.NixDockerBuild.Flake,
+				}
+			}
 			if !cfg.Spec.Prepare.GithubRelease.IsZero() {
 				dep.Prepare.GithubRelease = &yamlGithubRelease{
 					Repo:  cfg.Spec.Prepare.GithubRelease.Repo,
 					Asset: cfg.Spec.Prepare.GithubRelease.Asset,
 					Tag:   cfg.Spec.Prepare.GithubRelease.Tag,
 				}
+			}
+			if !cfg.Spec.Prepare.ContainerImage.IsZero() {
+				dep.Prepare.ContainerImage = &yamlContainerImage{Image: cfg.Spec.Prepare.ContainerImage.Image}
 			}
 		}
 		if !cfg.Spec.Runner.IsZero() {
@@ -754,6 +784,21 @@ func deploymentConfigToYaml(cfg *apigen.DeploymentConfig) string {
 				dep.Runner.Systemd = &yamlSystemd{
 					Name:    cfg.Spec.Runner.Systemd.Name,
 					BinPath: cfg.Spec.Runner.Systemd.BinPath,
+				}
+			}
+			if !cfg.Spec.Runner.Container.IsZero() {
+				dep.Runner.Container = &yamlContainer{
+					User:              cfg.Spec.Runner.Container.User,
+					Command:           cfg.Spec.Runner.Container.Command,
+					WorkingDir:        cfg.Spec.Runner.Container.WorkingDir,
+					DataMountPath:     cfg.Spec.Runner.Container.DataMountPath,
+					DisableDataVolume: cfg.Spec.Runner.Container.DisableDataVolume,
+				}
+				for _, e := range cfg.Spec.Runner.Container.Env {
+					dep.Runner.Container.Env = append(dep.Runner.Container.Env, yamlEnvVar{Key: e.Key, Value: e.Value})
+				}
+				for _, m := range cfg.Spec.Runner.Container.Mounts {
+					dep.Runner.Container.Mounts = append(dep.Runner.Container.Mounts, yamlContainerMount{Host: m.Host, Container: m.Container, Readonly: m.Readonly})
 				}
 			}
 		}
@@ -785,6 +830,9 @@ func parseCreateDeploymentYaml(yamlContent string) (*apigen.DeploymentIdentifier
 	}
 	runnerCfg, err := toRunnerConfig(dep.Runner)
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := validateContainerPairing(dep.Prepare, dep.Runner); err != nil {
 		return nil, nil, err
 	}
 

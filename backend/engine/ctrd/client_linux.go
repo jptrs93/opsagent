@@ -68,6 +68,33 @@ func (c *Client) Pull(ctx context.Context, ref string) (string, error) {
 	return img.Name(), nil
 }
 
+// Import ingests an OCI/Docker image tar stream into containerd, tags it as ref,
+// and unpacks it into the default snapshotter for immediate execution.
+func (c *Client) Import(ctx context.Context, image ImageStream) (string, error) {
+	if image.Reader == nil {
+		return "", fmt.Errorf("image stream reader is nil")
+	}
+	if image.Ref == "" {
+		return "", fmt.Errorf("image ref is empty")
+	}
+	cl, err := c.ensure()
+	if err != nil {
+		return "", err
+	}
+	ctx = c.withNS(ctx)
+	if _, err := cl.Import(ctx, image.Reader, containerd.WithIndexName(image.Ref)); err != nil {
+		return "", err
+	}
+	img, err := cl.GetImage(ctx, image.Ref)
+	if err != nil {
+		return "", fmt.Errorf("loading imported image %s: %w", image.Ref, err)
+	}
+	if err := img.Unpack(ctx, ""); err != nil {
+		return "", fmt.Errorf("unpacking imported image %s: %w", image.Ref, err)
+	}
+	return image.Ref, nil
+}
+
 // Task is a handle to a created (and started) container task.
 type Task struct {
 	client    *Client

@@ -90,12 +90,16 @@ const mapDeploymentsToView = (deployments) => {
         if (spec.prepare?.nixBuild) {
             variant = 'nixBuild';
             repo = spec.prepare.nixBuild.repo || '';
+        } else if (spec.prepare?.nixDockerBuild) {
+            variant = 'nixDockerBuild';
+            repo = spec.prepare.nixDockerBuild.repo || '';
         } else if (spec.prepare?.githubRelease) {
             variant = 'githubRelease';
             repo = spec.prepare.githubRelease.repo || '';
         }
 
-        const runnerType = spec.runner?.systemd ? 'systemd' : 'osProcess';
+        const imagePrepare = Boolean(spec.prepare?.containerImage || spec.prepare?.nixDockerBuild);
+        const runnerType = spec.runner?.container || imagePrepare ? 'container' : (spec.runner?.systemd ? 'systemd' : 'osProcess');
 
         return {
             id,
