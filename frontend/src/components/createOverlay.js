@@ -3,7 +3,19 @@ import {capi} from "../capi/index.js";
 import {deploymentsS} from "../state/deployments.js";
 import {spinnerButton} from "./spinnerbutton.js";
 import {RefreshCw} from "vanjs-feather";
-import {deploymentForm, emptyDeploymentForm, envVarsPane, formToYaml, isFormValid, sectionDivider} from "./deploymentForm.js";
+import {
+    buildValidateSourceRequest,
+    deploymentForm,
+    emptyDeploymentForm,
+    envVarsPane,
+    formToYaml,
+    isFormValid,
+    sectionDivider,
+    sourceCheckFromValidation,
+    sourceValidationKey,
+    validateSelectedCommit,
+    validationSourceResult,
+} from "./deploymentForm.js";
 
 const { div, span, button, p, label, select, option, input } = van.tags;
 
@@ -82,7 +94,7 @@ export function createOverlay(onClose, onCreated) {
         {class: "fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 pointer-events-none", "data-testid": "create-deployment-dialog"},
         div(
             {class: "bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-row overflow-hidden pointer-events-auto",
-             style: () => `width: ${form.envPaneOpen.val ? 1240 : 760}px; max-width: calc(100vw - 2rem); max-height: 88vh;`,
+             style: () => `width: ${form.envPaneOpen.val ? 1360 : 960}px; max-width: calc(100vw - 2rem); max-height: 88vh;`,
              onclick: (e) => e.stopPropagation()},
             div(
                 {class: "flex-1 min-w-0 flex flex-col"},
@@ -132,9 +144,6 @@ function createTargetVersion(form, selectedVersion, selectedVersionSourceKey) {
     const version = selectedVersion.val.trim();
     if (!version) return '';
     if (selectedVersionSourceKey.val !== sourceKey(form)) return '';
-    if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
-        return form.containerImage.val.trim() ? version : '';
-    }
     const check = activeRepoCheck(form);
     if (check.status !== 'ok') return '';
     const versionsByScope = check.versionsByScope || {};
@@ -146,25 +155,33 @@ function createVersionSection(args) {
     const sourceType = args.form.sourceType.val;
     if (sourceType === SOURCE_DOCKER_IMAGE) {
         const imageSet = Boolean(args.form.containerImage.val.trim());
+        const check = activeRepoCheck(args.form);
+        const ready = check.status === 'ok';
+        const versions = check.versions || [];
+        const selectedVersion = args.selectedVersionSourceKey.val === sourceKey(args.form) ? args.selectedVersion.val : '';
         return div(
             {class: "flex flex-col gap-3"},
             sectionDivider("Version"),
-            versionMessage(imageSet ? '' : 'Repository not set'),
-            label(
-                {class: "grid grid-cols-[7rem_1fr] items-center gap-3 text-xs text-gray-400"},
-                span("Tag / digest"),
-                input({
-                    class: selectClass(),
-                    disabled: !imageSet,
-                    value: args.selectedVersion.rawVal,
-                    placeholder: "latest or sha256:...",
-                    oninput: (e) => {
-                        args.selectedVersion.val = e.target.value;
-                        args.selectedVersionSourceKey.val = sourceKey(args.form);
+            versionMessage(imageSet ? versionStatusMessage(args.form, check) : 'Image not set'),
+            div(
+                {class: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] items-end gap-3"},
+                label(
+                    {class: "flex flex-col gap-1 text-xs text-gray-400"},
+                    span("Tag"),
+                    select({
+                        class: selectClass(),
+                        disabled: !ready || args.loadingVersions.val || versions.length === 0,
+                        onchange: (e) => {
+                            args.selectedVersion.val = e.target.value;
+                            args.selectedVersionSourceKey.val = sourceKey(args.form);
+                        },
                     },
-                }),
+                        option({value: '', disabled: true, selected: !selectedVersion}, versionPlaceholder(ready, args.loadingVersions.val, versions, "Image unavailable")),
+                        ...versions.map(v => option({value: v.id, selected: v.id === selectedVersion}, versionLabel(v))),
+                    ),
+                ),
+                refreshRow(!imageSet || args.loadingVersions.val, args.onRefresh),
             ),
-            refreshRow(true, args.onRefresh),
         );
     }
 
@@ -181,72 +198,67 @@ function createVersionSection(args) {
         sectionDivider("Version"),
         versionMessage(versionStatusMessage(args.form, check)),
         div(
-            {class: "flex items-center gap-3"},
-            div(
-                {class: "flex-1 flex flex-col gap-3"},
-                sourceType === SOURCE_GITHUB
-                    ? span()
-                    : label(
-                        {class: "grid grid-cols-[7rem_1fr] items-center gap-3 text-xs text-gray-400"},
-                        span("Branch"),
-                        select(
-                            {
-                                class: selectClass(),
-                                disabled: !ready || scopes.length === 0 || args.loadingVersions.val,
-                                onchange: (e) => args.onScopeChange(e.target.value),
-                            },
-                            option({value: '', selected: !scope}, scopes.length ? "Select a branch..." : "No branches loaded"),
-                            ...scopes.map(s => option({value: s, selected: s === scope}, s)),
-                        ),
-                    ),
-                label(
-                    {class: "grid grid-cols-[7rem_1fr] items-center gap-3 text-xs text-gray-400"},
-                    span(sourceLabel),
+            {class: sourceType === SOURCE_GITHUB
+                ? "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] items-end gap-3"
+                : "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-3"},
+            sourceType === SOURCE_GITHUB
+                ? ''
+                : label(
+                    {class: "flex flex-col gap-1 text-xs text-gray-400"},
+                    span("Branch"),
                     select(
                         {
                             class: selectClass(),
-                            disabled: !ready || args.loadingVersions.val || versions.length === 0,
-                            onchange: (e) => {
-                                args.selectedVersion.val = e.target.value;
-                                args.selectedVersionSourceKey.val = sourceKey(args.form);
-                            },
+                            disabled: !ready || scopes.length === 0 || args.loadingVersions.val,
+                            onchange: (e) => args.onScopeChange(e.target.value),
                         },
-                        option({value: '', disabled: true, selected: !selectedVersion}, versionPlaceholder(ready, args.loadingVersions.val, versions)),
-                        ...versions.map(v => option({value: v.id, selected: v.id === selectedVersion}, versionLabel(v))),
+                        option({value: '', selected: !scope}, scopes.length ? "Select a branch..." : "No branches loaded"),
+                        ...scopes.map(s => option({value: s, selected: s === scope}, s)),
                     ),
                 ),
+            label(
+                {class: "flex flex-col gap-1 text-xs text-gray-400"},
+                span(sourceLabel),
+                select(
+                    {
+                        class: selectClass(),
+                        disabled: !ready || args.loadingVersions.val || versions.length === 0,
+                        onchange: (e) => {
+                            args.selectedVersion.val = e.target.value;
+                            args.selectedVersionSourceKey.val = sourceKey(args.form);
+                            validateSelectedCommit(args.form, scope, e.target.value);
+                        },
+                    },
+                    option({value: '', disabled: true, selected: !selectedVersion}, versionPlaceholder(ready, args.loadingVersions.val, versions)),
+                    ...versions.map(v => option({value: v.id, selected: v.id === selectedVersion}, versionLabel(v))),
+                ),
             ),
-            refreshRow(!ready || args.loadingVersions.val, args.onRefresh),
+            refreshRow(!currentRepo(args.form) || args.loadingVersions.val, args.onRefresh),
         ),
     );
 }
 
 async function loadSourceVersions(form, selectedScope, selectedVersion, selectedVersionSourceKey, loadingVersions, scope) {
     const repo = currentRepo(form);
-    if (!repo || form.sourceType.val === SOURCE_DOCKER_IMAGE) return;
+    if (!repo) return;
     loadingVersions.val = true;
     const sourceType = form.sourceType.val;
+    const sourceKey = sourceValidationKey(form);
     try {
-        const res = await capi.postV1RepoValidate({repo, sourceType, scope: scope || ''});
-        form.repoCheck.val = {
-            status: res.ok ? 'ok' : 'error',
-            message: res.message || (res.ok ? 'Repository is accessible.' : 'Repository not accessible.'),
-            repo,
-            sourceType,
-            scopes: res.scopes || [],
-            versionsByScope: res.versionsByScope || {},
-        };
-        if (res.ok) {
-            const nextScope = currentScope(form.repoCheck.val, scope || selectedScope.val);
+        const res = await capi.postV1RepoValidate(buildValidateSourceRequest(form, {scope: scope || ''}));
+        const sourceResult = validationSourceResult(form, res);
+        form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKey);
+        if (form.repoCheck.val.status === 'ok') {
+            const nextScope = sourceResult.scope || currentScope(form.repoCheck.val, scope || selectedScope.val);
             selectedScope.val = nextScope;
-            const versions = ((res.versionsByScope || {})[nextScope]?.versions) || [];
+            const versions = sourceResult.versions || [];
             if (!versions.some(v => v.id === selectedVersion.val)) {
                 selectedVersion.val = versions[0]?.id || '';
                 selectedVersionSourceKey.val = selectedVersion.val ? sourceKey(form) : '';
             }
         }
     } catch (e) {
-        form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType};
+        form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType, sourceKey};
     }
     loadingVersions.val = false;
 }
@@ -254,20 +266,19 @@ async function loadSourceVersions(form, selectedScope, selectedVersion, selected
 function activeRepoCheck(form) {
     const c = form.repoCheck.val;
     const repo = currentRepo(form);
-    if (!repo || c.sourceType !== form.sourceType.val || c.repo !== repo) {
+    if (!repo || c.sourceType !== form.sourceType.val || c.repo !== repo || c.sourceKey !== sourceValidationKey(form)) {
         return {status: repo ? 'idle' : 'empty', message: ''};
     }
     return c;
 }
 
 function currentRepo(form) {
+    if (form.sourceType.val === SOURCE_DOCKER_IMAGE) return form.containerImage.val.trim();
     return (form.sourceType.val === SOURCE_GITHUB ? form.githubRepo.val : form.nixRepo.val).trim();
 }
 
 function sourceKey(form) {
-    const source = form.sourceType.val;
-    const id = source === SOURCE_DOCKER_IMAGE ? form.containerImage.val.trim() : currentRepo(form);
-    return `${source}:${id}`;
+    return sourceValidationKey(form);
 }
 
 function currentScope(check, selectedScope) {
@@ -280,9 +291,9 @@ function currentScope(check, selectedScope) {
 }
 
 function versionStatusMessage(form, check) {
-    if (!currentRepo(form)) return 'Repository not set';
+    if (!currentRepo(form)) return form.sourceType.val === SOURCE_DOCKER_IMAGE ? 'Image not set' : 'Repository not set';
     if (check.status === 'checking') return 'Checking repository access...';
-    if (check.status !== 'ok') return 'Unable to connect to source repository.';
+    if (check.status !== 'ok') return form.sourceType.val === SOURCE_DOCKER_IMAGE ? 'Unable to list image tags.' : 'Unable to connect to source repository.';
     return '';
 }
 
@@ -292,7 +303,7 @@ function versionMessage(message) {
 
 function refreshRow(disabled, onRefresh) {
     return div(
-        {class: "flex items-center self-stretch"},
+        {class: "flex items-end"},
         button({
             class: "inline-flex h-9 items-center justify-center gap-1.5 px-3 rounded-lg text-xs text-gray-300 bg-gray-800 border border-gray-600 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer",
             disabled,
@@ -303,8 +314,8 @@ function refreshRow(disabled, onRefresh) {
     );
 }
 
-function versionPlaceholder(ready, loading, versions) {
-    if (!ready) return "Repository unavailable";
+function versionPlaceholder(ready, loading, versions, unavailable = "Repository unavailable") {
+    if (!ready) return unavailable;
     if (loading) return "Loading versions...";
     return versions.length ? "Select a version..." : "No versions loaded";
 }

@@ -89,15 +89,15 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  // Check whether a repo is reachable/authorized for the given source type,
-  // before a deployment referencing it is created.
-  rpc PostV1RepoValidate(RepoValidateRequest) returns (RepoValidateResponse) {
+  // Check whether a binary source is reachable/authorized before a deployment
+  // referencing it is created.
+  rpc PostV1RepoValidate(ValidateSourceRequest) returns (ValidateSourceResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
   // Check whether a named release asset exists in any of a GitHub repo's
   // published releases, before a deployment referencing it is created.
-  rpc PostV1GithubAssetValidate(GithubAssetValidateRequest) returns (RepoValidateResponse) {
+  rpc PostV1GithubAssetValidate(GithubAssetValidateRequest) returns (ValidateSourceResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -649,19 +649,76 @@ message DeploymentVersionsRequest {
   string scope = 2;  // optional: specific branch/scope to list versions for
 }
 
-// RepoValidateRequest checks a repo's accessibility before a deployment using
-// it is created/updated.
-message RepoValidateRequest {
-  string repo = 1;         // e.g. "github.com/owner/repo"
-  string source_type = 2;  // "nixBuild" or "githubRelease"
-  string scope = 3;        // optional branch/scope whose versions should be listed
+// ValidateSourceRequest checks a binary source's accessibility before a
+// deployment using it is created/updated. Exactly one source field must be set.
+message ValidateSourceRequest {
+  ValidateNixBuildSource nix_build = 1 [(cp.go_value) = true];
+  ValidateNixDockerBuildSource nix_docker_build = 2 [(cp.go_value) = true];
+  ValidateGithubReleaseSource github_release = 3 [(cp.go_value) = true];
+  ValidateContainerImageSource container_image = 4 [(cp.go_value) = true];
 }
 
-message RepoValidateResponse {
+message ValidateNixBuildSource {
+  string repo_url = 1;     // e.g. "github.com/owner/repo"
+  string branch = 2;       // optional branch/scope whose versions should be listed
+  string commit = 3;       // optional exact commit to validate
+  string flake_path = 4;   // optional path to flake.nix; when empty, path is not validated
+}
+
+message ValidateNixDockerBuildSource {
+  string repo_url = 1;     // e.g. "github.com/owner/repo"
+  string branch = 2;       // optional branch/scope whose versions should be listed
+  string commit = 3;       // optional exact commit to validate
+  string flake_path = 4;   // optional path to flake.nix; when empty, path is not validated
+}
+
+message ValidateGithubReleaseSource {
+  string repo_url = 1;     // e.g. "github.com/owner/repo"
+}
+
+message ValidateContainerImageSource {
+  string image = 1;        // image repository without tag; e.g. "ghcr.io/owner/app"
+}
+
+message ValidationResult {
   bool ok = 1;
   string message = 2;  // human-readable result, safe to display to the user
+}
+
+message ValidateSourceResponse {
+  ValidateNixBuildSourceResponse nix_build = 1 [(cp.go_value) = true];
+  ValidateNixDockerBuildSourceResponse nix_docker_build = 2 [(cp.go_value) = true];
+  ValidateGithubReleaseSourceResponse github_release = 3 [(cp.go_value) = true];
+  ValidateContainerImageSourceResponse container_image = 4 [(cp.go_value) = true];
+}
+
+message ValidateNixBuildSourceResponse {
+  ValidationResult git_repository = 1 [(cp.go_value) = true];
+  ValidationResult nix_flake_file = 2 [(cp.go_value) = true];
   repeated string scopes = 3;
-  map<string, ScopedVersions> versions_by_scope = 4;
+  string scope = 4;    // scope these versions belong to
+  repeated Version versions = 5;
+}
+
+message ValidateNixDockerBuildSourceResponse {
+  ValidationResult git_repository = 1 [(cp.go_value) = true];
+  ValidationResult nix_flake_file = 2 [(cp.go_value) = true];
+  repeated string scopes = 3;
+  string scope = 4;    // scope these versions belong to
+  repeated Version versions = 5;
+}
+
+message ValidateGithubReleaseSourceResponse {
+  ValidationResult git_repository = 1 [(cp.go_value) = true];
+  ValidationResult release_asset = 2 [(cp.go_value) = true];
+  repeated string scopes = 3;
+  string scope = 4;    // empty for GitHub releases
+  repeated Version versions = 5;
+}
+
+message ValidateContainerImageSourceResponse {
+  ValidationResult image = 1 [(cp.go_value) = true];
+  repeated Version versions = 2; // available image tags
 }
 
 // GithubAssetValidateRequest checks that a named release asset exists in a

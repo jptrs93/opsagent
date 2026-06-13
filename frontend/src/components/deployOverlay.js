@@ -4,6 +4,7 @@ import {deploymentsS} from "../state/deployments.js";
 import {spinnerButton} from "./spinnerbutton.js";
 import {RefreshCw} from "vanjs-feather";
 import {
+    buildValidateSourceRequest,
     configToYaml,
     deploymentConfigToForm,
     deploymentForm,
@@ -11,6 +12,10 @@ import {
     formToYaml,
     isFormValid,
     sectionDivider,
+    sourceCheckFromValidation,
+    sourceValidationKey,
+    validateSelectedCommit,
+    validationSourceResult,
 } from "./deploymentForm.js";
 
 const { div, span, select, option, button, p, label, input } = van.tags;
@@ -43,7 +48,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
 
     const environmentOptions = () => {
         const envs = new Set();
-        for (const d of deploymentsS.val || []) {
+        for (const d of deploymentsS.rawVal || []) {
             const env = d.config?.configId?.environment;
             if (env) envs.add(env);
         }
@@ -51,35 +56,45 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     };
 
     const loadVersions = async (scope) => {
+        const sourceID = currentSourceID(form);
+        if (!sourceID) {
+            versionError.val = form.sourceType.val === 'containerImage' ? 'Image not set' : 'Repository not set';
+            versions.val = [];
+            return;
+        }
         loadingVersions.val = true;
         versionError.val = '';
+        const sourceType = form.sourceType.val;
+        const sourceKey = sourceValidationKey(form);
         try {
-            const result = await capi.postV1DeploymentVersions({
-                deploymentId: deployment.id,
-                scope: scope || '',
-            });
-            scopes.val = result?.scopes || [];
-            const byScope = result?.versionsByScope || {};
-            const scopeKey = scope || Object.keys(byScope)[0] || '';
-            const sv = byScope[scopeKey];
-            const vsList = sv?.versions || [];
-            versions.val = vsList;
-            if (!selectedScope.val && scopeKey) {
+            const result = await capi.postV1RepoValidate(buildValidateSourceRequest(form, {scope: scope || ''}));
+            const sourceResult = validationSourceResult(form, result);
+            form.repoCheck.val = sourceCheckFromValidation(form, result, sourceID, sourceType, sourceKey);
+            if (form.repoCheck.val.status !== 'ok') {
+                versionError.val = form.repoCheck.val.message || 'Unable to connect to source repository.';
+                scopes.val = sourceResult.scopes || [];
+                versions.val = [];
+            } else {
+                scopes.val = sourceResult.scopes || [];
+                const scopeKey = sourceResult.scope || '';
+                const vsList = sourceResult.versions || [];
+                versions.val = vsList;
                 selectedScope.val = scopeKey;
-            }
-            const deployedId = deployment.deployedVersion || '';
-            if (deployedId && vsList.some(v => v.id === deployedId)) {
-                selectedVersion.val = deployedId;
+                const deployedId = deployment.deployedVersion || '';
+                if (deployedId && vsList.some(v => v.id === deployedId)) {
+                    selectedVersion.val = deployedId;
+                }
             }
         } catch (e) {
             versionError.val = e.message || 'Failed to load versions';
+            form.repoCheck.val = {status: 'error', message: versionError.val, repo: sourceID, sourceType, sourceKey};
             versions.val = [];
         }
         loadingVersions.val = false;
     };
 
-    if (deployment.variant && deployment.variant !== 'containerImage') {
-        setTimeout(() => loadVersions(''), 0);
+    if (deployment.variant) {
+        loadVersions('');
     }
 
     const onScopeChange = (e) => {
@@ -164,7 +179,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         {class: "fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 pointer-events-none"},
         div(
             {class: "bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-row overflow-hidden pointer-events-auto",
-             style: () => `width: ${form.envPaneOpen.val ? 1240 : 760}px; max-width: calc(100vw - 2rem); max-height: 88vh;`,
+             style: () => `width: ${form.envPaneOpen.val ? 1360 : 960}px; max-width: calc(100vw - 2rem); max-height: 88vh;`,
              onclick: (e) => e.stopPropagation()},
             div(
                 {class: "flex-1 min-w-0 flex flex-col"},
@@ -181,8 +196,9 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                         sourceType: form.sourceType,
                         deployedVersion: deployment.deployedVersion || '',
                         onScopeChange,
+                        onVersionChange: (version) => validateSelectedCommit(form, selectedScope.val, version),
                         onRefresh: () => loadVersions(selectedScope.val),
-                    }) : null,
+                    }) : '',
                 ),
                 () => {
                     if (!errorMsg.val) return span();
@@ -237,18 +253,29 @@ function lifecycleButton(args) {
 
 function versionSection(args) {
     if (args.sourceType.val === 'containerImage') {
+        const vs = args.versions.val;
+        const message = args.loadingVersions.val
+            ? "Loading tags..."
+            : args.versionError.val;
         return div(
             {class: "flex flex-col gap-3"},
             sectionDivider("Version"),
-            label(
-                {class: "grid grid-cols-[7rem_1fr] items-center gap-3 text-xs text-gray-400"},
-                span("Tag / digest"),
-                input({
-                    class: selectClass(),
-                    value: args.selectedVersion.rawVal,
-                    placeholder: "latest or sha256:...",
-                    oninput: (e) => { args.selectedVersion.val = e.target.value; },
-                }),
+            div(
+                {class: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] items-end gap-3"},
+                label(
+                    {class: "flex flex-col gap-1 text-xs text-gray-400"},
+                    span("Tag"),
+                    select(
+                        {
+                            class: selectClass(),
+                            disabled: args.loadingVersions.val || args.versionError.val || vs.length === 0,
+                            onchange: (e) => { args.selectedVersion.val = e.target.value; },
+                        },
+                        option({value: '', disabled: true, selected: !args.selectedVersion.val}, message || (vs.length ? "Select a tag..." : "No tags loaded")),
+                        ...vs.map(v => option({value: v.id, selected: v.id === args.selectedVersion.val}, versionLabel(v))),
+                    ),
+                ),
+                refreshButton(args),
             ),
         );
     }
@@ -257,57 +284,70 @@ function versionSection(args) {
         {class: "flex flex-col gap-3"},
         sectionDivider("Version"),
         div(
-            {class: "flex items-center gap-3"},
-            div(
-                {class: "flex-1 flex flex-col gap-3"},
-                () => {
-                    const s = args.scopes.val;
-                    if (s.length === 0) return span();
-                    return label(
-                        {class: "grid grid-cols-[7rem_1fr] items-center gap-3 text-xs text-gray-400"},
-                        span("Branch"),
-                        select(
-                            {
-                                class: selectClass(),
-                                onchange: args.onScopeChange,
+            {class: () => args.sourceType.val === 'githubRelease'
+                ? "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] items-end gap-3"
+                : "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-3"},
+            () => {
+                if (args.sourceType.val === 'githubRelease') return '';
+                const s = args.scopes.val;
+                return label(
+                    {class: "flex flex-col gap-1 text-xs text-gray-400"},
+                    span("Branch"),
+                    select(
+                        {
+                            class: selectClass(),
+                            disabled: s.length === 0 || args.loadingVersions.val,
+                            onchange: args.onScopeChange,
+                        },
+                        option({value: '', disabled: true, selected: s.length === 0}, s.length ? "Select a branch..." : "No branches loaded"),
+                        ...s.map(b => option({value: b, selected: b === args.selectedScope.val}, b)),
+                    ),
+                );
+            },
+            () => {
+                const vs = args.versions.val;
+                const message = args.loadingVersions.val
+                    ? "Loading versions..."
+                    : args.versionError.val;
+                return label(
+                    {class: "flex flex-col gap-1 text-xs text-gray-400"},
+                    span(() => args.sourceType.val === 'githubRelease' ? "Release" : "Commit"),
+                    select(
+                        {
+                            class: selectClass(),
+                            disabled: args.loadingVersions.val || args.versionError.val || vs.length === 0,
+                            onchange: (e) => {
+                                args.selectedVersion.val = e.target.value;
+                                if (args.onVersionChange) args.onVersionChange(e.target.value);
                             },
-                            ...s.map(b => option({value: b, selected: b === args.selectedScope.val}, b)),
-                        ),
-                    );
-                },
-                () => {
-                    if (args.loadingVersions.val) {
-                        return p({class: "text-xs text-gray-500"}, "Loading versions...");
-                    }
-                    if (args.versionError.val) {
-                        return p({class: "text-xs text-red-400"}, args.versionError.val);
-                    }
-                    const vs = args.versions.val;
-                    return label(
-                        {class: "grid grid-cols-[7rem_1fr] items-center gap-3 text-xs text-gray-400"},
-                        span(() => args.sourceType.val === 'githubRelease' ? "Release" : "Commit"),
-                        select(
-                            {
-                                class: selectClass(),
-                                onchange: (e) => { args.selectedVersion.val = e.target.value; },
-                            },
-                            option({value: '', disabled: true, selected: true}, vs.length ? "Select a version..." : "No versions loaded"),
-                            ...vs.map(v => option({value: v.id, selected: v.id === args.deployedVersion}, versionLabel(v))),
-                        ),
-                    );
-                },
-            ),
-            div(
-                {class: "flex items-center self-stretch"},
-                button({
-                    class: "inline-flex h-9 items-center justify-center gap-1.5 px-3 rounded-lg text-xs text-gray-300 bg-gray-800 border border-gray-600 hover:bg-gray-700 transition-colors cursor-pointer",
-                    onclick: args.onRefresh,
-                    type: "button",
-                    title: "Refresh available versions",
-                }, RefreshCw({size: 12}), "Refresh"),
-            ),
+                        },
+                        option({value: '', disabled: true, selected: !args.selectedVersion.val}, message || (vs.length ? "Select a version..." : "No versions loaded")),
+                        ...vs.map(v => option({value: v.id, selected: v.id === args.selectedVersion.val}, versionLabel(v))),
+                    ),
+                );
+            },
+            refreshButton(args),
         ),
     );
+}
+
+function refreshButton(args) {
+    return div(
+        {class: "flex items-end"},
+        button({
+            class: "inline-flex h-9 items-center justify-center gap-1.5 px-3 rounded-lg text-xs text-gray-300 bg-gray-800 border border-gray-600 hover:bg-gray-700 transition-colors cursor-pointer",
+            disabled: args.loadingVersions.val,
+            onclick: args.onRefresh,
+            type: "button",
+            title: "Refresh available versions",
+        }, RefreshCw({size: 12}), "Refresh"),
+    );
+}
+
+function currentSourceID(form) {
+    if (form.sourceType.val === 'containerImage') return form.containerImage.val.trim();
+    if (form.sourceType.val === 'githubRelease') return form.githubRepo.val.trim();
+    return form.nixRepo.val.trim();
 }
 
 function selectClass() {

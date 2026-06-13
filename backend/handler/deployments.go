@@ -136,80 +136,232 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 }
 
 var RepoRequiredErr = apigen.NewApiErr("Repository is required", "missing_repo", http.StatusBadRequest)
+var ImageRequiredErr = apigen.NewApiErr("Image is required", "missing_image", http.StatusBadRequest)
 var InvalidSourceTypeErr = apigen.NewApiErr("Invalid source type", "invalid_source_type", http.StatusBadRequest)
 
-// PostV1RepoValidate checks that a repo is reachable and authorized for the
-// given source type. It reuses the version providers (git ls-remote / GitHub
-// API), so a successful listing implies the configured credentials grant
-// access. On success it also returns the first page of versions so the create UI
-// can select an initial deployment version before the deployment exists. The
-// returned message is intentionally generic — underlying errors are logged
-// server-side rather than surfaced, since they can be noisy and the clone URL
-// embeds the GitHub token.
-func (h *Handler) PostV1RepoValidate(ctx apigen.Context, req *apigen.RepoValidateRequest) (*apigen.RepoValidateResponse, error) {
-	repo := strings.TrimSpace(req.Repo)
-	if repo == "" {
-		return nil, RepoRequiredErr
+type validateSourceInput struct {
+	prepare   *apigen.PrepareConfig
+	source    string
+	repo      string
+	scope     string
+	commit    string
+	flakePath string
+}
+
+// PostV1RepoValidate checks that a binary source is reachable and authorized.
+// It uses remote metadata APIs instead of cloning: git ls-remote for branches,
+// the GitHub API for commits/releases, and GitHub contents for optional flake
+// path validation.
+func (h *Handler) PostV1RepoValidate(ctx apigen.Context, req *apigen.ValidateSourceRequest) (*apigen.ValidateSourceResponse, error) {
+	in, err := validateSourceFromRequest(req)
+	if err != nil {
+		return nil, err
 	}
 
-	prepare := &apigen.PrepareConfig{}
-	switch req.SourceType {
-	case "githubRelease":
-		prepare.GithubRelease = apigen.GithubReleaseConfig{Repo: repo}
+	provider, err := versionprovider.ForConfig(in.prepare)
+	if err != nil {
+		return validationResponse(in, validationErr("Unsupported source type."), validationErr(""), nil, "", nil), nil
+	}
+
+	scopes, err := provider.ListScopes(ctx, in.prepare)
+	if err != nil {
+		slog.Warn("source validation failed", "repo", in.repo, "err", err)
+		return validationResponse(in, validationErr(sourceAccessErrorMessage(in)), validationErr(""), nil, "", nil), nil
+	}
+
+	scope := selectedValidationScope(scopes, in.scope)
+	versions, err := provider.ListVersions(ctx, in.prepare, scope)
+	if err != nil {
+		slog.Warn("source validation failed", "repo", in.repo, "scope", scope, "err", err)
+		return validationResponse(in, validationErr(sourceAccessErrorMessage(in)), validationErr(""), scopes, scope, nil), nil
+	}
+	gitResult := validationOK(sourceAccessOKMessage(in))
+	flakeResult := validationErr("")
+
+	if in.commit != "" {
+		exists, err := versionprovider.Git.CommitExists(ctx, in.repo, in.commit)
+		if err != nil {
+			slog.Warn("source commit validation failed", "repo", in.repo, "commit", in.commit, "err", err)
+			return validationResponse(in, validationErr("Unable to validate selected commit."), flakeResult, scopes, scope, versions), nil
+		}
+		if !exists {
+			return validationResponse(in, validationErr("Selected commit not found."), flakeResult, scopes, scope, versions), nil
+		}
+	}
+
+	if in.flakePath != "" {
+		ref := in.commit
+		if ref == "" {
+			ref = scope
+		}
+		exists, err := versionprovider.Git.PathExists(ctx, in.repo, in.flakePath, ref)
+		if err != nil {
+			slog.Warn("source flake path validation failed", "repo", in.repo, "flakePath", in.flakePath, "ref", ref, "err", err)
+			return validationResponse(in, gitResult, validationErr("Unable to validate flake path."), scopes, scope, versions), nil
+		}
+		if !exists {
+			return validationResponse(in, gitResult, validationErr("Flake path not found at selected revision."), scopes, scope, versions), nil
+		}
+		flakeResult = validationOK("Path verified")
+	}
+
+	return validationResponse(in, gitResult, flakeResult, scopes, scope, versions), nil
+}
+
+func validationOK(message string) apigen.ValidationResult {
+	return apigen.ValidationResult{Ok: true, Message: message}
+}
+
+func validationErr(message string) apigen.ValidationResult {
+	return apigen.ValidationResult{Ok: false, Message: message}
+}
+
+func sourceAccessOKMessage(in *validateSourceInput) string {
+	if in != nil && in.source == "containerImage" {
+		return "Image accessible."
+	}
+	return "Repo accessible."
+}
+
+func sourceAccessErrorMessage(in *validateSourceInput) string {
+	if in != nil && in.source == "containerImage" {
+		return "Image not accessible."
+	}
+	return "Git repository not accessible."
+}
+
+func validationResponse(in *validateSourceInput, gitResult apigen.ValidationResult, flakeResult apigen.ValidationResult, scopes []string, scope string, versions []*apigen.Version) *apigen.ValidateSourceResponse {
+	if in == nil {
+		return &apigen.ValidateSourceResponse{}
+	}
+	switch in.source {
 	case "nixBuild":
-		prepare.NixBuild = apigen.NixBuildConfig{Repo: repo}
+		return &apigen.ValidateSourceResponse{NixBuild: apigen.ValidateNixBuildSourceResponse{
+			GitRepository: gitResult,
+			NixFlakeFile:  flakeResult,
+			Scopes:        scopes,
+			Scope:         scope,
+			Versions:      versions,
+		}}
 	case "nixDockerBuild":
-		prepare.NixDockerBuild = apigen.NixDockerBuildConfig{Repo: repo}
+		return &apigen.ValidateSourceResponse{NixDockerBuild: apigen.ValidateNixDockerBuildSourceResponse{
+			GitRepository: gitResult,
+			NixFlakeFile:  flakeResult,
+			Scopes:        scopes,
+			Scope:         scope,
+			Versions:      versions,
+		}}
+	case "githubRelease":
+		return &apigen.ValidateSourceResponse{GithubRelease: apigen.ValidateGithubReleaseSourceResponse{
+			GitRepository: gitResult,
+			Scopes:        scopes,
+			Scope:         scope,
+			Versions:      versions,
+		}}
+	case "containerImage":
+		return &apigen.ValidateSourceResponse{ContainerImage: apigen.ValidateContainerImageSourceResponse{Image: gitResult, Versions: versions}}
 	default:
+		return &apigen.ValidateSourceResponse{}
+	}
+}
+
+func validateSourceFromRequest(req *apigen.ValidateSourceRequest) (*validateSourceInput, error) {
+	if req == nil {
+		return nil, InvalidRequestBodyErr
+	}
+	if countValidationSources(req) != 1 {
 		return nil, InvalidSourceTypeErr
 	}
 
-	provider, err := versionprovider.ForConfig(prepare)
-	if err != nil {
-		return &apigen.RepoValidateResponse{Ok: false, Message: "Unsupported source type."}, nil
-	}
-
-	scopes, err := provider.ListScopes(ctx, prepare)
-	if err != nil {
-		slog.Warn("repo validation failed", "repo", repo, "sourceType", req.SourceType, "err", err)
-		return &apigen.RepoValidateResponse{
-			Ok:      false,
-			Message: "Repository not found or not accessible. Check the URL and that the configured GitHub token grants access.",
+	if !req.NixBuild.IsZero() {
+		repo := strings.TrimSpace(req.NixBuild.RepoUrl)
+		flakePath := strings.TrimSpace(req.NixBuild.FlakePath)
+		if repo == "" {
+			return nil, RepoRequiredErr
+		}
+		return &validateSourceInput{
+			prepare:   &apigen.PrepareConfig{NixBuild: apigen.NixBuildConfig{Repo: repo, Flake: flakePath}},
+			source:    "nixBuild",
+			repo:      repo,
+			scope:     strings.TrimSpace(req.NixBuild.Branch),
+			commit:    strings.TrimSpace(req.NixBuild.Commit),
+			flakePath: flakePath,
 		}, nil
 	}
 
-	versionsByScope := make(map[string]*apigen.ScopedVersions)
-	scope := strings.TrimSpace(req.Scope)
-	if !prepare.GithubRelease.IsZero() {
-		scope = ""
-	} else if scope == "" {
+	if !req.NixDockerBuild.IsZero() {
+		repo := strings.TrimSpace(req.NixDockerBuild.RepoUrl)
+		flakePath := strings.TrimSpace(req.NixDockerBuild.FlakePath)
+		if repo == "" {
+			return nil, RepoRequiredErr
+		}
+		return &validateSourceInput{
+			prepare:   &apigen.PrepareConfig{NixDockerBuild: apigen.NixDockerBuildConfig{Repo: repo, Flake: flakePath}},
+			source:    "nixDockerBuild",
+			repo:      repo,
+			scope:     strings.TrimSpace(req.NixDockerBuild.Branch),
+			commit:    strings.TrimSpace(req.NixDockerBuild.Commit),
+			flakePath: flakePath,
+		}, nil
+	}
+
+	if !req.GithubRelease.IsZero() {
+		repo := strings.TrimSpace(req.GithubRelease.RepoUrl)
+		if repo == "" {
+			return nil, RepoRequiredErr
+		}
+		return &validateSourceInput{
+			prepare: &apigen.PrepareConfig{GithubRelease: apigen.GithubReleaseConfig{Repo: repo}},
+			source:  "githubRelease",
+			repo:    repo,
+		}, nil
+	}
+
+	image := strings.TrimSpace(req.ContainerImage.Image)
+	if image == "" {
+		return nil, ImageRequiredErr
+	}
+	return &validateSourceInput{
+		prepare: &apigen.PrepareConfig{ContainerImage: apigen.ContainerImageConfig{Image: image}},
+		source:  "containerImage",
+	}, nil
+}
+
+func countValidationSources(req *apigen.ValidateSourceRequest) int {
+	count := 0
+	if !req.NixBuild.IsZero() {
+		count++
+	}
+	if !req.NixDockerBuild.IsZero() {
+		count++
+	}
+	if !req.GithubRelease.IsZero() {
+		count++
+	}
+	if !req.ContainerImage.IsZero() {
+		count++
+	}
+	return count
+}
+
+func selectedValidationScope(scopes []string, requested string) string {
+	scope := strings.TrimSpace(requested)
+	if len(scopes) == 0 {
+		return ""
+	}
+	if scope == "" {
 		scope = "main"
-		if !containsString(scopes, scope) && len(scopes) > 0 {
+		if !containsString(scopes, scope) {
 			scope = scopes[0]
 		}
 	}
-	versions, err := provider.ListVersions(ctx, prepare, scope)
-	if err != nil {
-		slog.Warn("repo validation failed", "repo", repo, "sourceType", req.SourceType, "err", err)
-		return &apigen.RepoValidateResponse{
-			Ok:      false,
-			Message: "Repository not found or not accessible. Check the URL and that the configured GitHub token grants access.",
-		}, nil
-	}
-	versionsByScope[scope] = &apigen.ScopedVersions{Versions: versions}
-
-	return &apigen.RepoValidateResponse{
-		Ok:              true,
-		Message:         "Repository is accessible.",
-		Scopes:          scopes,
-		VersionsByScope: versionsByScope,
-	}, nil
+	return scope
 }
 
 // PostV1GithubAssetValidate checks that a named release asset exists in at least
 // one of the repo's published releases. As with repo validation, the message is
 // generic and underlying errors are logged server-side only.
-func (h *Handler) PostV1GithubAssetValidate(ctx apigen.Context, req *apigen.GithubAssetValidateRequest) (*apigen.RepoValidateResponse, error) {
+func (h *Handler) PostV1GithubAssetValidate(ctx apigen.Context, req *apigen.GithubAssetValidateRequest) (*apigen.ValidateSourceResponse, error) {
 	repo := strings.TrimSpace(req.Repo)
 	asset := strings.TrimSpace(req.Asset)
 	if repo == "" {
@@ -217,25 +369,23 @@ func (h *Handler) PostV1GithubAssetValidate(ctx apigen.Context, req *apigen.Gith
 	}
 	// An empty asset means "use the release's only asset" — nothing to check.
 	if asset == "" {
-		return &apigen.RepoValidateResponse{Ok: true, Message: ""}, nil
+		return &apigen.ValidateSourceResponse{GithubRelease: apigen.ValidateGithubReleaseSourceResponse{ReleaseAsset: validationOK("")}}, nil
 	}
 
 	prepare := &apigen.PrepareConfig{GithubRelease: apigen.GithubReleaseConfig{Repo: repo}}
 	found, err := versionprovider.GHRel.AssetExists(ctx, prepare, asset)
 	if err != nil {
 		slog.Warn("github asset validation failed", "repo", repo, "asset", asset, "err", err)
-		return &apigen.RepoValidateResponse{
-			Ok:      false,
-			Message: "Could not check releases. Verify the repository and that the configured GitHub token grants access.",
+		return &apigen.ValidateSourceResponse{
+			GithubRelease: apigen.ValidateGithubReleaseSourceResponse{ReleaseAsset: validationErr("Could not check releases. Verify the repository and that the configured GitHub token grants access.")},
 		}, nil
 	}
 	if !found {
-		return &apigen.RepoValidateResponse{
-			Ok:      false,
-			Message: "No published release has an asset with this name.",
+		return &apigen.ValidateSourceResponse{
+			GithubRelease: apigen.ValidateGithubReleaseSourceResponse{ReleaseAsset: validationErr("No published release has an asset with this name.")},
 		}, nil
 	}
-	return &apigen.RepoValidateResponse{Ok: true, Message: "Asset found in a published release."}, nil
+	return &apigen.ValidateSourceResponse{GithubRelease: apigen.ValidateGithubReleaseSourceResponse{ReleaseAsset: validationOK("Asset found in a published release.")}}, nil
 }
 
 func (h *Handler) PostV1DeploymentLogs(ctx apigen.Context, r *http.Request, w http.ResponseWriter) error {

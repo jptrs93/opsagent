@@ -3311,25 +3311,40 @@ func DecodeDeploymentVersionsRequest(b []byte) (*DeploymentVersionsRequest, erro
 	return &m, nil
 }
 
-type RepoValidateRequest struct {
-	Repo       string
-	SourceType string
-	Scope      string
+type ValidateSourceRequest struct {
+	NixBuild       ValidateNixBuildSource
+	NixDockerBuild ValidateNixDockerBuildSource
+	GithubRelease  ValidateGithubReleaseSource
+	ContainerImage ValidateContainerImageSource
 }
 
-func (m *RepoValidateRequest) Encode() []byte {
+func (m *ValidateSourceRequest) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.Repo, 1)
-	b = AppendStringField(b, m.SourceType, 2)
-	b = AppendStringField(b, m.Scope, 3)
+	if !m.NixBuild.IsZero() {
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.NixBuild.Encode())
+	}
+	if !m.NixDockerBuild.IsZero() {
+		b = protowire.AppendTag(b, 2, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.NixDockerBuild.Encode())
+	}
+	if !m.GithubRelease.IsZero() {
+		b = protowire.AppendTag(b, 3, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.GithubRelease.Encode())
+	}
+	if !m.ContainerImage.IsZero() {
+		b = protowire.AppendTag(b, 4, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.ContainerImage.Encode())
+	}
 	return b
 }
 
-func DecodeRepoValidateRequest(b []byte) (*RepoValidateRequest, error) {
-	var m RepoValidateRequest
+func DecodeValidateSourceRequest(b []byte) (*ValidateSourceRequest, error) {
+	var m ValidateSourceRequest
 	var num protowire.Number
 	var typ protowire.Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -3337,11 +3352,41 @@ func DecodeRepoValidateRequest(b []byte) (*RepoValidateRequest, error) {
 		}
 		switch num {
 		case 1:
-			b, m.Repo, err = ConsumeString(b, typ)
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidateNixBuildSource
+				item, err = DecodeValidateNixBuildSource(msgBytes)
+				if err == nil {
+					m.NixBuild = *item
+				}
+			}
 		case 2:
-			b, m.SourceType, err = ConsumeString(b, typ)
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidateNixDockerBuildSource
+				item, err = DecodeValidateNixDockerBuildSource(msgBytes)
+				if err == nil {
+					m.NixDockerBuild = *item
+				}
+			}
 		case 3:
-			b, m.Scope, err = ConsumeString(b, typ)
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidateGithubReleaseSource
+				item, err = DecodeValidateGithubReleaseSource(msgBytes)
+				if err == nil {
+					m.GithubRelease = *item
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidateContainerImageSource
+				item, err = DecodeValidateContainerImageSource(msgBytes)
+				if err == nil {
+					m.ContainerImage = *item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3352,24 +3397,203 @@ func DecodeRepoValidateRequest(b []byte) (*RepoValidateRequest, error) {
 	return &m, nil
 }
 
-type RepoValidateResponse struct {
-	Ok              bool
-	Message         string
-	Scopes          []string
-	VersionsByScope map[string]*ScopedVersions
+type ValidateNixBuildSource struct {
+	RepoUrl   string
+	Branch    string
+	Commit    string
+	FlakePath string
 }
 
-func (m *RepoValidateResponse) Encode() []byte {
+func (m ValidateNixBuildSource) IsZero() bool {
+	return m.RepoUrl == "" &&
+		m.Branch == "" &&
+		m.Commit == "" &&
+		m.FlakePath == ""
+}
+
+func (m *ValidateNixBuildSource) Encode() []byte {
 	var b []byte
-	b = AppendBoolField(b, m.Ok, 1)
-	b = AppendStringField(b, m.Message, 2)
-	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 3))
-	b = AppendMap(b, m.VersionsByScope, 4, AppendFieldDecorator(AppendStringField, 1), AppendMessageFieldDecorator[*ScopedVersions](2))
+	b = AppendStringField(b, m.RepoUrl, 1)
+	b = AppendStringField(b, m.Branch, 2)
+	b = AppendStringField(b, m.Commit, 3)
+	b = AppendStringField(b, m.FlakePath, 4)
 	return b
 }
 
-func DecodeRepoValidateResponse(b []byte) (*RepoValidateResponse, error) {
-	var m RepoValidateResponse
+func DecodeValidateNixBuildSource(b []byte) (*ValidateNixBuildSource, error) {
+	var m ValidateNixBuildSource
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.RepoUrl, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Branch, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Commit, err = ConsumeString(b, typ)
+		case 4:
+			b, m.FlakePath, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ValidateNixDockerBuildSource struct {
+	RepoUrl   string
+	Branch    string
+	Commit    string
+	FlakePath string
+}
+
+func (m ValidateNixDockerBuildSource) IsZero() bool {
+	return m.RepoUrl == "" &&
+		m.Branch == "" &&
+		m.Commit == "" &&
+		m.FlakePath == ""
+}
+
+func (m *ValidateNixDockerBuildSource) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.RepoUrl, 1)
+	b = AppendStringField(b, m.Branch, 2)
+	b = AppendStringField(b, m.Commit, 3)
+	b = AppendStringField(b, m.FlakePath, 4)
+	return b
+}
+
+func DecodeValidateNixDockerBuildSource(b []byte) (*ValidateNixDockerBuildSource, error) {
+	var m ValidateNixDockerBuildSource
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.RepoUrl, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Branch, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Commit, err = ConsumeString(b, typ)
+		case 4:
+			b, m.FlakePath, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ValidateGithubReleaseSource struct {
+	RepoUrl string
+}
+
+func (m ValidateGithubReleaseSource) IsZero() bool {
+	return m.RepoUrl == ""
+}
+
+func (m *ValidateGithubReleaseSource) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.RepoUrl, 1)
+	return b
+}
+
+func DecodeValidateGithubReleaseSource(b []byte) (*ValidateGithubReleaseSource, error) {
+	var m ValidateGithubReleaseSource
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.RepoUrl, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ValidateContainerImageSource struct {
+	Image string
+}
+
+func (m ValidateContainerImageSource) IsZero() bool {
+	return m.Image == ""
+}
+
+func (m *ValidateContainerImageSource) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Image, 1)
+	return b
+}
+
+func DecodeValidateContainerImageSource(b []byte) (*ValidateContainerImageSource, error) {
+	var m ValidateContainerImageSource
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Image, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ValidationResult struct {
+	Ok      bool
+	Message string
+}
+
+func (m ValidationResult) IsZero() bool {
+	return m.Ok == false &&
+		m.Message == ""
+}
+
+func (m *ValidationResult) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Ok, 1)
+	b = AppendStringField(b, m.Message, 2)
+	return b
+}
+
+func DecodeValidationResult(b []byte) (*ValidationResult, error) {
+	var m ValidationResult
 	var num protowire.Number
 	var typ protowire.Type
 	var err error
@@ -3383,6 +3607,170 @@ func DecodeRepoValidateResponse(b []byte) (*RepoValidateResponse, error) {
 			b, m.Ok, err = ConsumeBool(b, typ)
 		case 2:
 			b, m.Message, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ValidateSourceResponse struct {
+	NixBuild       ValidateNixBuildSourceResponse
+	NixDockerBuild ValidateNixDockerBuildSourceResponse
+	GithubRelease  ValidateGithubReleaseSourceResponse
+	ContainerImage ValidateContainerImageSourceResponse
+}
+
+func (m *ValidateSourceResponse) Encode() []byte {
+	var b []byte
+	if !m.NixBuild.IsZero() {
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.NixBuild.Encode())
+	}
+	if !m.NixDockerBuild.IsZero() {
+		b = protowire.AppendTag(b, 2, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.NixDockerBuild.Encode())
+	}
+	if !m.GithubRelease.IsZero() {
+		b = protowire.AppendTag(b, 3, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.GithubRelease.Encode())
+	}
+	if !m.ContainerImage.IsZero() {
+		b = protowire.AppendTag(b, 4, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.ContainerImage.Encode())
+	}
+	return b
+}
+
+func DecodeValidateSourceResponse(b []byte) (*ValidateSourceResponse, error) {
+	var m ValidateSourceResponse
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidateNixBuildSourceResponse
+				item, err = DecodeValidateNixBuildSourceResponse(msgBytes)
+				if err == nil {
+					m.NixBuild = *item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidateNixDockerBuildSourceResponse
+				item, err = DecodeValidateNixDockerBuildSourceResponse(msgBytes)
+				if err == nil {
+					m.NixDockerBuild = *item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidateGithubReleaseSourceResponse
+				item, err = DecodeValidateGithubReleaseSourceResponse(msgBytes)
+				if err == nil {
+					m.GithubRelease = *item
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidateContainerImageSourceResponse
+				item, err = DecodeValidateContainerImageSourceResponse(msgBytes)
+				if err == nil {
+					m.ContainerImage = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ValidateNixBuildSourceResponse struct {
+	GitRepository ValidationResult
+	NixFlakeFile  ValidationResult
+	Scopes        []string
+	Scope         string
+	Versions      []*Version
+}
+
+func (m ValidateNixBuildSourceResponse) IsZero() bool {
+	return m.GitRepository.IsZero() &&
+		m.NixFlakeFile.IsZero() &&
+		len(m.Scopes) == 0 &&
+		m.Scope == "" &&
+		len(m.Versions) == 0
+}
+
+func (m *ValidateNixBuildSourceResponse) Encode() []byte {
+	var b []byte
+	if !m.GitRepository.IsZero() {
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.GitRepository.Encode())
+	}
+	if !m.NixFlakeFile.IsZero() {
+		b = protowire.AppendTag(b, 2, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.NixFlakeFile.Encode())
+	}
+	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 3))
+	b = AppendStringField(b, m.Scope, 4)
+	for _, item := range m.Versions {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 5, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeValidateNixBuildSourceResponse(b []byte) (*ValidateNixBuildSourceResponse, error) {
+	var m ValidateNixBuildSourceResponse
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidationResult
+				item, err = DecodeValidationResult(msgBytes)
+				if err == nil {
+					m.GitRepository = *item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidationResult
+				item, err = DecodeValidationResult(msgBytes)
+				if err == nil {
+					m.NixFlakeFile = *item
+				}
+			}
 		case 3:
 			var item string
 			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
@@ -3390,10 +3778,272 @@ func DecodeRepoValidateResponse(b []byte) (*RepoValidateResponse, error) {
 				m.Scopes = append(m.Scopes, item)
 			}
 		case 4:
-			if m.VersionsByScope == nil {
-				m.VersionsByScope = make(map[string]*ScopedVersions)
+			b, m.Scope, err = ConsumeString(b, typ)
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Version
+				item, err = DecodeVersion(msgBytes)
+				if err == nil {
+					m.Versions = append(m.Versions, item)
+				}
 			}
-			b, err = ConsumeMapEntry(b, typ, m.VersionsByScope, ConsumeString, ConsumeMessageDecorator(DecodeScopedVersions))
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ValidateNixDockerBuildSourceResponse struct {
+	GitRepository ValidationResult
+	NixFlakeFile  ValidationResult
+	Scopes        []string
+	Scope         string
+	Versions      []*Version
+}
+
+func (m ValidateNixDockerBuildSourceResponse) IsZero() bool {
+	return m.GitRepository.IsZero() &&
+		m.NixFlakeFile.IsZero() &&
+		len(m.Scopes) == 0 &&
+		m.Scope == "" &&
+		len(m.Versions) == 0
+}
+
+func (m *ValidateNixDockerBuildSourceResponse) Encode() []byte {
+	var b []byte
+	if !m.GitRepository.IsZero() {
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.GitRepository.Encode())
+	}
+	if !m.NixFlakeFile.IsZero() {
+		b = protowire.AppendTag(b, 2, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.NixFlakeFile.Encode())
+	}
+	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 3))
+	b = AppendStringField(b, m.Scope, 4)
+	for _, item := range m.Versions {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 5, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeValidateNixDockerBuildSourceResponse(b []byte) (*ValidateNixDockerBuildSourceResponse, error) {
+	var m ValidateNixDockerBuildSourceResponse
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidationResult
+				item, err = DecodeValidationResult(msgBytes)
+				if err == nil {
+					m.GitRepository = *item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidationResult
+				item, err = DecodeValidationResult(msgBytes)
+				if err == nil {
+					m.NixFlakeFile = *item
+				}
+			}
+		case 3:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Scopes = append(m.Scopes, item)
+			}
+		case 4:
+			b, m.Scope, err = ConsumeString(b, typ)
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Version
+				item, err = DecodeVersion(msgBytes)
+				if err == nil {
+					m.Versions = append(m.Versions, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ValidateGithubReleaseSourceResponse struct {
+	GitRepository ValidationResult
+	ReleaseAsset  ValidationResult
+	Scopes        []string
+	Scope         string
+	Versions      []*Version
+}
+
+func (m ValidateGithubReleaseSourceResponse) IsZero() bool {
+	return m.GitRepository.IsZero() &&
+		m.ReleaseAsset.IsZero() &&
+		len(m.Scopes) == 0 &&
+		m.Scope == "" &&
+		len(m.Versions) == 0
+}
+
+func (m *ValidateGithubReleaseSourceResponse) Encode() []byte {
+	var b []byte
+	if !m.GitRepository.IsZero() {
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.GitRepository.Encode())
+	}
+	if !m.ReleaseAsset.IsZero() {
+		b = protowire.AppendTag(b, 2, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.ReleaseAsset.Encode())
+	}
+	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 3))
+	b = AppendStringField(b, m.Scope, 4)
+	for _, item := range m.Versions {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 5, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeValidateGithubReleaseSourceResponse(b []byte) (*ValidateGithubReleaseSourceResponse, error) {
+	var m ValidateGithubReleaseSourceResponse
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidationResult
+				item, err = DecodeValidationResult(msgBytes)
+				if err == nil {
+					m.GitRepository = *item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidationResult
+				item, err = DecodeValidationResult(msgBytes)
+				if err == nil {
+					m.ReleaseAsset = *item
+				}
+			}
+		case 3:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Scopes = append(m.Scopes, item)
+			}
+		case 4:
+			b, m.Scope, err = ConsumeString(b, typ)
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Version
+				item, err = DecodeVersion(msgBytes)
+				if err == nil {
+					m.Versions = append(m.Versions, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ValidateContainerImageSourceResponse struct {
+	Image    ValidationResult
+	Versions []*Version
+}
+
+func (m ValidateContainerImageSourceResponse) IsZero() bool {
+	return m.Image.IsZero() &&
+		len(m.Versions) == 0
+}
+
+func (m *ValidateContainerImageSourceResponse) Encode() []byte {
+	var b []byte
+	if !m.Image.IsZero() {
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.Image.Encode())
+	}
+	for _, item := range m.Versions {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 2, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeValidateContainerImageSourceResponse(b []byte) (*ValidateContainerImageSourceResponse, error) {
+	var m ValidateContainerImageSourceResponse
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidationResult
+				item, err = DecodeValidationResult(msgBytes)
+				if err == nil {
+					m.Image = *item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Version
+				item, err = DecodeVersion(msgBytes)
+				if err == nil {
+					m.Versions = append(m.Versions, item)
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

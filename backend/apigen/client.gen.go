@@ -416,7 +416,7 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentVersions(ctx context.Context, req *
 	return DecodeDeploymentVersions(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1RepoValidate(ctx context.Context, req *RepoValidateRequest) (*RepoValidateResponse, error) {
+func (c *OpsagentHttpV1Capi) PostV1RepoValidate(ctx context.Context, req *ValidateSourceRequest) (*ValidateSourceResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1RepoValidate request is nil")
 	}
@@ -432,10 +432,10 @@ func (c *OpsagentHttpV1Capi) PostV1RepoValidate(ctx context.Context, req *RepoVa
 	if err != nil {
 		return nil, err
 	}
-	return DecodeRepoValidateResponse(body)
+	return DecodeValidateSourceResponse(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1GithubAssetValidate(ctx context.Context, req *GithubAssetValidateRequest) (*RepoValidateResponse, error) {
+func (c *OpsagentHttpV1Capi) PostV1GithubAssetValidate(ctx context.Context, req *GithubAssetValidateRequest) (*ValidateSourceResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1GithubAssetValidate request is nil")
 	}
@@ -451,7 +451,7 @@ func (c *OpsagentHttpV1Capi) PostV1GithubAssetValidate(ctx context.Context, req 
 	if err != nil {
 		return nil, err
 	}
-	return DecodeRepoValidateResponse(body)
+	return DecodeValidateSourceResponse(body)
 }
 
 func (c *OpsagentHttpV1Capi) GetV1Config(ctx context.Context) (*DynamicConfiguration, error) {

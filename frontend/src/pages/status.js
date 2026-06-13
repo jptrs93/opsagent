@@ -128,7 +128,7 @@ const mapDeploymentsToView = (deployments) => {
 
 // findRawConfig finds the raw DeploymentWithStatus from deploymentsS for a given deployment ID.
 const findRawConfig = (deploymentId) => {
-    const all = deploymentsS.val;
+    const all = deploymentsS.rawVal;
     if (!Array.isArray(all)) return null;
     for (const d of all) {
         if (d.config && d.config.id === deploymentId) return d.config;
@@ -144,10 +144,11 @@ export function statusPage() {
     const sidebarRevision = van.state(0);
     let activeSidebarAbort = null;
 
-    // Overlay state
-    const overlayDeployment = van.state(null);
-    const overlayRevision = van.state(0);
-    const showCreateOverlay = van.state(false);
+    // Overlay nodes are created from explicit user events, not from a derive,
+    // so child-local state reads inside overlay construction are not captured by
+    // the page-level render path.
+    const overlayNode = van.state('');
+    const createOverlayNode = van.state('');
     const groupByEnvironment = van.state(true);
     const collapsedEnvironmentGroups = van.state({});
 
@@ -181,13 +182,21 @@ export function statusPage() {
     const onShowHistory = (deployment) => openSidebar(deployment, SIDEBAR_HISTORY);
     const onShowPrepareOutput = (deployment) => openSidebar(deployment, SIDEBAR_PREPARE);
 
-    const onUpdate = (deployment) => {
-        overlayDeployment.val = deployment;
-        overlayRevision.val++;
+    const closeOverlay = () => {
+        overlayNode.val = '';
     };
 
-    const closeOverlay = () => {
-        overlayDeployment.val = null;
+    const onUpdate = (deployment) => {
+        const rawConfig = findRawConfig(deployment.id);
+        overlayNode.val = deployOverlay(deployment, rawConfig, closeOverlay);
+    };
+
+    const closeCreateOverlay = () => {
+        createOverlayNode.val = '';
+    };
+
+    const openCreateOverlay = () => {
+        createOverlayNode.val = createOverlay(closeCreateOverlay);
     };
 
     const toggleEnvironmentGroup = (environment) => {
@@ -203,7 +212,7 @@ export function statusPage() {
             tr(
                 {class: "border-b border-gray-700 text-xs uppercase tracking-wide text-gray-500"},
                 tableHeader("Deployment", headerTips.deployment, "py-3 pl-4 pr-3 font-medium"),
-                showEnvironmentColumn ? tableHeader("Environment", headerTips.environment, "py-3 px-3 font-medium") : null,
+                showEnvironmentColumn ? tableHeader("Environment", headerTips.environment, "py-3 px-3 font-medium") : '',
                 tableHeader("Machine", headerTips.machine, "py-3 px-3 font-medium"),
                 tableHeader("Status", headerTips.status, "py-3 px-3 font-medium"),
                 tableHeader("Running Version", headerTips.version, "py-3 px-3 font-medium"),
@@ -303,7 +312,7 @@ export function statusPage() {
                 button({
                     "data-testid": "add-deployment-button",
                     class: "btn-primary text-sm py-1.5 px-4 cursor-pointer",
-                    onclick: () => { showCreateOverlay.val = true; },
+                    onclick: openCreateOverlay,
                 }, "Add deployment"),
             ),
         ),
@@ -364,7 +373,7 @@ export function statusPage() {
                     return div(
                         {class: "w-max min-w-full rounded-lg bg-surface border border-gray-700 p-2"},
                         header,
-                        collapsed ? null : deploymentTable(group.rows, false),
+                        collapsed ? '' : deploymentTable(group.rows, false),
                     );
                 }),
             );
@@ -448,44 +457,12 @@ export function statusPage() {
         applySidebarLayout(true);
     });
 
-    // Overlay container — appended to body-level so it floats above everything.
-    const overlayContainer = div();
-
-    van.derive(() => {
-        const dep = overlayDeployment.val;
-        const _rev = overlayRevision.val;
-        overlayContainer.innerHTML = '';
-
-        if (!dep) return;
-
-        const rawConfig = findRawConfig(dep.id);
-        overlayContainer.appendChild(
-            deployOverlay(dep, rawConfig, closeOverlay)
-        );
-    });
-
-    // Create overlay container
-    const createOverlayContainer = div();
-
-    van.derive(() => {
-        const show = showCreateOverlay.val;
-        createOverlayContainer.innerHTML = '';
-
-        if (!show) return;
-
-        createOverlayContainer.appendChild(
-            createOverlay(
-                () => { showCreateOverlay.val = false; },
-            )
-        );
-    });
-
     return div(
         {class: "flex h-full min-h-0 overflow-hidden"},
         mainPane,
         dividerEl,
         sidebarPane,
-        overlayContainer,
-        createOverlayContainer,
+        () => overlayNode.val || '',
+        () => createOverlayNode.val || '',
     );
 }

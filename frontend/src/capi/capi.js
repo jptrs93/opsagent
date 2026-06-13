@@ -13,7 +13,6 @@ import {
   decodeGithubCredentials,
   decodeLoginResponse,
   decodeMsgToWorker,
-  decodeRepoValidateResponse,
   decodeSecretList,
   decodeSecretMeta,
   decodeSecretRecoveryCodeResponse,
@@ -22,6 +21,7 @@ import {
   decodeState,
   decodeUserConfig,
   decodeUserConfigList,
+  decodeValidateSourceResponse,
   decodeWebAuthNOptionsResponse,
   encodeConfigUpdateRequest,
   encodeDeploymentCreateRequest,
@@ -36,7 +36,6 @@ import {
   encodeMasterPasswordSaveRequest,
   encodeMasterPasswordVerifyRequest,
   encodeMsgToMaster,
-  encodeRepoValidateRequest,
   encodeSecretDeleteRequest,
   encodeSecretRevealRequest,
   encodeSecretSetRequest,
@@ -44,6 +43,7 @@ import {
   encodeSecretValue,
   encodeUserConfigDeleteRequest,
   encodeUserConfigSetRequest,
+  encodeValidateSourceRequest,
   encodeWebAuthNFinishRequest,
 } from './model.js';
 
@@ -344,27 +344,27 @@ export class Capi {
   }
 
   /**
-   * @param {RepoValidateRequest} payload
-   * @returns {Promise<RepoValidateResponse>}
+   * @param {ValidateSourceRequest} payload
+   * @returns {Promise<ValidateSourceResponse>}
    */
   async postV1RepoValidate(payload) {
-    const response = await this.#request("/v1/repo/validate", { method: 'POST', body: encodeRepoValidateRequest(payload) });
+    const response = await this.#request("/v1/repo/validate", { method: 'POST', body: encodeValidateSourceRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeRepoValidateResponse(await response.arrayBuffer());
+    return decodeValidateSourceResponse(await response.arrayBuffer());
   }
 
   /**
    * @param {GithubAssetValidateRequest} payload
-   * @returns {Promise<RepoValidateResponse>}
+   * @returns {Promise<ValidateSourceResponse>}
    */
   async postV1GithubAssetValidate(payload) {
     const response = await this.#request("/v1/github/asset/validate", { method: 'POST', body: encodeGithubAssetValidateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeRepoValidateResponse(await response.arrayBuffer());
+    return decodeValidateSourceResponse(await response.arrayBuffer());
   }
 
   /**

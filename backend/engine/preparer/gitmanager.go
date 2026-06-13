@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"strings"
 	"time"
@@ -180,6 +181,93 @@ func (g *GitManagerImpl) GetCommitLog(ctx context.Context, repoURL string, branc
 		commits = append(commits, ci)
 	}
 	return commits, nil
+}
+
+func (g *GitManagerImpl) CommitExists(ctx context.Context, repoURL string, commit string) (bool, error) {
+	ownerRepo, err := RepoOwnerName(repoURL)
+	if err != nil {
+		return false, err
+	}
+	commit = strings.TrimSpace(commit)
+	if commit == "" {
+		return false, fmt.Errorf("commit is required")
+	}
+
+	req, err := g.newGithubRequest(ctx, fmt.Sprintf("https://api.github.com/repos/%s/commits/%s", ownerRepo, url.PathEscape(commit)))
+	if err != nil {
+		return false, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("github api: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		return true, nil
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	body, _ := io.ReadAll(resp.Body)
+	return false, fmt.Errorf("github api %d: %s", resp.StatusCode, string(body))
+}
+
+func (g *GitManagerImpl) PathExists(ctx context.Context, repoURL string, repoPath string, ref string) (bool, error) {
+	ownerRepo, err := RepoOwnerName(repoURL)
+	if err != nil {
+		return false, err
+	}
+	repoPath = strings.Trim(strings.TrimSpace(repoPath), "/")
+	if repoPath == "" {
+		return false, fmt.Errorf("path is required")
+	}
+
+	urlPath := escapeRepoPath(repoPath)
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s", ownerRepo, urlPath)
+	if ref = strings.TrimSpace(ref); ref != "" {
+		apiURL += "?ref=" + url.QueryEscape(ref)
+	}
+	req, err := g.newGithubRequest(ctx, apiURL)
+	if err != nil {
+		return false, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("github api: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		return true, nil
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	body, _ := io.ReadAll(resp.Body)
+	return false, fmt.Errorf("github api %d: %s", resp.StatusCode, string(body))
+}
+
+func (g *GitManagerImpl) newGithubRequest(ctx context.Context, apiURL string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	creds, err := g.credentials.GithubCredentials(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if creds.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+creds.Token)
+	}
+	return req, nil
+}
+
+func escapeRepoPath(repoPath string) string {
+	parts := strings.Split(repoPath, "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
 }
 
 func (g *GitManagerImpl) fetchDefaultBranch(ctx context.Context, ownerRepo string) string {

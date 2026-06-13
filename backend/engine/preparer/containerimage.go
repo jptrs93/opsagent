@@ -88,8 +88,21 @@ func (p *ContainerImagePuller) runPull(ctx context.Context, store storage.Operat
 // version that looks like a digest is appended with '@'; otherwise it is treated
 // as a ':tag'.
 func imageRef(image, version string) string {
+	image = stripImageTagOrDigest(image)
 	if strings.HasPrefix(version, "sha256:") {
 		return image + "@" + version
 	}
 	return image + ":" + version
+}
+
+func stripImageTagOrDigest(image string) string {
+	if idx := strings.IndexByte(image, '@'); idx >= 0 {
+		return image[:idx]
+	}
+	lastSlash := strings.LastIndexByte(image, '/')
+	lastColon := strings.LastIndexByte(image, ':')
+	if lastColon > lastSlash {
+		return image[:lastColon]
+	}
+	return image
 }

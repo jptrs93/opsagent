@@ -48,6 +48,14 @@ func (p *GitVersionProvider) ListVersions(ctx context.Context, cfg *apigen.Prepa
 	return out, nil
 }
 
+func (p *GitVersionProvider) CommitExists(ctx context.Context, repo string, commit string) (bool, error) {
+	return p.git.CommitExists(ctx, repo, commit)
+}
+
+func (p *GitVersionProvider) PathExists(ctx context.Context, repo string, repoPath string, ref string) (bool, error) {
+	return p.git.PathExists(ctx, repo, repoPath, ref)
+}
+
 func gitRepo(cfg *apigen.PrepareConfig) string {
 	if cfg == nil {
 		return ""

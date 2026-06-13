@@ -89,28 +89,33 @@ export function deploymentForm(form, opts = {}) {
     const machineOptionValues = machineOptions.map(m => typeof m === 'string' ? m : m.name).filter(Boolean);
     const machineOptionsLoaded = opts.machineOptionsLoaded !== false;
     const executionTitle = opts.executionTitle || "Execution";
-    const showRunnerSummary = opts.showRunnerSummary !== false;
+    const showIdentityLockedNotice = () => {
+        if (!identityLocked) return;
+        form.identityLockNotice.val = true;
+        if (form.identityLockNoticeTimer) clearTimeout(form.identityLockNoticeTimer);
+        form.identityLockNoticeTimer = setTimeout(() => {
+            form.identityLockNotice.val = false;
+            form.identityLockNoticeTimer = null;
+        }, 5000);
+    };
 
     return div(
         {class: "flex flex-col gap-5"},
         sectionDivider("Deployment identity"),
         div(
             {class: "flex flex-col gap-3"},
-            identityLocked
-                ? span({class: "text-xs text-orange-300 self-end"}, "Deployment identity is fixed after creation.")
-                : null,
             div(
                 {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
-                field("Name", input({
+                identityField("Name", input({
                     type: "text",
                     "data-testid": "deployment-name-input",
                     value: form.name.rawVal,
                     disabled: identityLocked,
-                    class: () => textInputClass(nameValid(form), identityLocked, nameValid(form)),
+                    class: () => textInputClass(false, identityLocked, !identityLocked && nameValid(form)),
                     placeholder: "my-service",
                     oninput: e => { form.name.val = e.target.value; },
-                })),
-                field("Environment (optional)", div(
+                }), identityLocked, showIdentityLockedNotice),
+                identityField("Environment (optional)", div(
                     input({
                         type: "text",
                         "data-testid": "deployment-environment-input",
@@ -125,13 +130,16 @@ export function deploymentForm(form, opts = {}) {
                         {id: environmentDatalistID},
                         ...environmentOptions.map(env => option({value: env}, env)),
                     ),
-                )),
-                field("Machine", machineSelect(form, {
+                ), identityLocked, showIdentityLockedNotice),
+                identityField("Machine", machineSelect(form, {
                     identityLocked,
                     machineOptionsLoaded,
                     machineOptionValues,
-                })),
+                }), identityLocked, showIdentityLockedNotice),
             ),
+            () => identityLocked && form.identityLockNotice.val
+                ? span({class: "text-xs text-red-400 -mb-2"}, "Deployment identity is fixed after creation.")
+                : '',
         ),
         sectionDivider("Binary source"),
         div(
@@ -150,17 +158,11 @@ export function deploymentForm(form, opts = {}) {
                     ? dockerImageField(form)
                     : repoField(form, form.sourceType.val),
             ),
-            () => form.sourceType.val === SOURCE_NIX || form.sourceType.val === SOURCE_NIX_DOCKER
-                ? field("Flake", textInput(form.nixFlake, "nix/app/flake.nix"))
-                : span(),
-            () => sourceHasAdditionalOptions(form.sourceType.val)
-                ? optionsDisclosure(form.showSourceOpts, () => sourceOptions(form))
-                : span(),
+            () => nixSourceFields(form),
         ),
         sectionDivider(executionTitle),
         div(
             {class: "flex flex-col gap-3"},
-            () => showRunnerSummary ? runnerSummary(form) : span(),
             () => form.runnerType.val === RUNNER_CONTAINER
                 ? p({class: "text-xs text-gray-500"}, "Runs the prepared image with the container runner. Edit YAML for container env, command, mounts, or data volume options.")
                 : div(
@@ -255,6 +257,101 @@ export function configToYaml(cfg) {
     return formToYaml(deploymentConfigToForm(cfg));
 }
 
+export function buildValidateSourceRequest(form, opts = {}) {
+    const sourceType = form.sourceType.val;
+    const branch = (opts.scope || '').trim();
+    const commit = (opts.commit || '').trim();
+    if (sourceType === SOURCE_GITHUB) {
+        return {githubRelease: {repoUrl: form.githubRepo.val.trim()}};
+    }
+    if (sourceType === SOURCE_NIX_DOCKER) {
+        return {nixDockerBuild: {
+            repoUrl: form.nixRepo.val.trim(),
+            branch,
+            commit,
+            flakePath: form.nixFlake.val.trim(),
+        }};
+    }
+    if (sourceType === SOURCE_DOCKER_IMAGE) {
+        return {containerImage: {image: form.containerImage.val.trim()}};
+    }
+    return {nixBuild: {
+        repoUrl: form.nixRepo.val.trim(),
+        branch,
+        commit,
+        flakePath: form.nixFlake.val.trim(),
+    }};
+}
+
+export function sourceValidationKey(form) {
+    const sourceType = form.sourceType.val;
+    if (sourceType === SOURCE_DOCKER_IMAGE) {
+        return `${sourceType}:${form.containerImage.val.trim()}`;
+    }
+    const repo = sourceType === SOURCE_GITHUB ? form.githubRepo.val.trim() : form.nixRepo.val.trim();
+    const flake = sourceType === SOURCE_NIX || sourceType === SOURCE_NIX_DOCKER
+        ? form.nixFlake.val.trim()
+        : '';
+    return `${sourceType}:${repo}:${flake}`;
+}
+
+export function validationSourceResult(form, res) {
+    switch (form.sourceType.val) {
+        case SOURCE_NIX:
+            return res?.nixBuild || {};
+        case SOURCE_NIX_DOCKER:
+            return res?.nixDockerBuild || {};
+        case SOURCE_GITHUB:
+            return res?.githubRelease || {};
+        case SOURCE_DOCKER_IMAGE:
+            return res?.containerImage || {};
+        default:
+            return {};
+    }
+}
+
+export function validationVersionsByScope(sourceResult) {
+    return {[sourceResult?.scope || '']: {versions: sourceResult?.versions || []}};
+}
+
+export function sourceCheckFromValidation(form, res, repo, sourceType, sourceKey) {
+    const sourceResult = validationSourceResult(form, res);
+    const gitRepository = sourceResult.gitRepository || sourceResult.image || {ok: false, message: 'Source not accessible.'};
+    const nixFlakeFile = sourceResult.nixFlakeFile || {ok: false, message: ''};
+    const flakeRequired = sourceType === SOURCE_NIX || sourceType === SOURCE_NIX_DOCKER;
+    const ok = Boolean(gitRepository.ok && (!flakeRequired || !form.nixFlake.val.trim() || nixFlakeFile.ok));
+    return {
+        status: ok ? 'ok' : 'error',
+        message: gitRepository.message || (gitRepository.ok ? 'Repo accessible.' : 'Source not accessible.'),
+        repo,
+        sourceType,
+        sourceKey,
+        gitRepository,
+        nixFlakeFile,
+        scopes: sourceResult.scopes || [],
+        scope: sourceResult.scope || '',
+        versions: sourceResult.versions || [],
+        versionsByScope: validationVersionsByScope(sourceResult),
+    };
+}
+
+export async function validateSelectedCommit(form, scope, commit) {
+    const sourceType = form.sourceType.val;
+    if (sourceType !== SOURCE_NIX && sourceType !== SOURCE_NIX_DOCKER) return;
+    const repo = form.nixRepo.val.trim();
+    const selectedCommit = (commit || '').trim();
+    if (!repo || !selectedCommit) return;
+
+    const sourceKey = sourceValidationKey(form);
+    form.repoCheck.val = {status: 'checking', message: 'Checking repository access…', repo, sourceType, sourceKey};
+    try {
+        const res = await capi.postV1RepoValidate(buildValidateSourceRequest(form, {scope, commit: selectedCommit}));
+        form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKey);
+    } catch (e) {
+        form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType, sourceKey};
+    }
+}
+
 function makeFormState(values) {
     return {
         name: van.state(values.name),
@@ -278,11 +375,13 @@ function makeFormState(values) {
         envVars: van.state(values.envVars || []),
         showSourceOpts: van.state(Boolean(values.showSourceOpts)),
         showExecOpts: van.state(Boolean(values.showExecOpts)),
+        identityLockNotice: van.state(false),
+        identityLockNoticeTimer: null,
         // Whether the environment-variables editor pane is open in the overlay.
         envPaneOpen: van.state(false),
         // Transient repo-accessibility check; tracks the repo/source it applies
         // to so a stale result is hidden once the inputs change.
-        repoCheck: van.state({status: 'idle', message: '', repo: '', sourceType: ''}),
+        repoCheck: van.state({status: 'idle', message: '', repo: '', sourceType: '', sourceKey: ''}),
         // Transient github-asset check; tracks the repo/asset it applies to so a
         // stale result is hidden once either input changes.
         assetCheck: van.state({status: 'idle', message: '', repo: '', asset: ''}),
@@ -305,7 +404,15 @@ function field(text, control, hint) {
         {class: "flex flex-col gap-1 text-xs text-gray-400"},
         span(text),
         control,
-        hint ? span({class: "text-[11px] text-gray-500"}, hint) : null,
+        hint ? span({class: "text-[11px] text-gray-500"}, hint) : '',
+    );
+}
+
+function identityField(text, control, locked, onLockedClick) {
+    return label(
+        {class: "flex flex-col gap-1 text-xs text-gray-400", onpointerdown: locked ? onLockedClick : undefined},
+        span(text),
+        control,
     );
 }
 
@@ -333,37 +440,24 @@ function optionsDisclosure(open, content) {
     );
 }
 
-function sourceOptions(form) {
-    return () => form.sourceType.val === SOURCE_GITHUB
-        ? div({class: "flex flex-col gap-3"}, assetField(form), downloadScriptField(form))
-        : form.sourceType.val === SOURCE_NIX_DOCKER
-            ? span({class: "text-[11px] text-gray-500"}, "The flake default output must be an executable image stream, such as dockerTools.streamLayeredImage.")
-        : field("Output executable", textInput(form.nixOutputExecutable, "app"), "Executable name in the build output's bin/. Defaults to the only executable.");
-}
-
-function sourceHasAdditionalOptions(sourceType) {
-    return sourceType === SOURCE_GITHUB || sourceType === SOURCE_NIX || sourceType === SOURCE_NIX_DOCKER;
+function nixSourceFields(form) {
+    if (form.sourceType.val === SOURCE_NIX) {
+        return div(
+            {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
+            flakeField(form),
+            field("Output executable (optional)", textInput(form.nixOutputExecutable, "app"), "Executable name in the build output's bin/. Defaults to the only executable."),
+        );
+    }
+    if (form.sourceType.val === SOURCE_NIX_DOCKER) {
+        return flakeField(form);
+    }
+    return '';
 }
 
 function runnerForSource(sourceType) {
     return sourceType === SOURCE_NIX_DOCKER || sourceType === SOURCE_DOCKER_IMAGE
         ? RUNNER_CONTAINER
         : RUNNER_OS;
-}
-
-function runnerSummary(form) {
-    const isContainer = runnerForSource(form.sourceType.val) === RUNNER_CONTAINER;
-    return div(
-        {class: "flex flex-col gap-1 text-xs text-gray-400"},
-        span("Runner type"),
-        div(
-            {
-                "data-testid": "deployment-runner-type-display",
-                class: "w-56 px-3 py-2 rounded-lg bg-gray-800 text-gray-100 border border-gray-700",
-            },
-            isContainer ? "Container" : "OpsAgent process",
-        ),
-    );
 }
 
 // downloadScriptField lets the operator supply a bash script that downloads the
@@ -449,9 +543,10 @@ async function validateAsset(form) {
     form.assetCheck.val = {status: 'checking', message: 'Checking asset…', repo, asset};
     try {
         const res = await capi.postV1GithubAssetValidate({repo, asset});
+        const result = res.githubRelease?.releaseAsset || {ok: false, message: ''};
         form.assetCheck.val = {
-            status: res.ok ? 'ok' : 'error',
-            message: res.message || (res.ok ? 'Asset found.' : 'Asset not found.'),
+            status: result.ok ? 'ok' : 'error',
+            message: result.message || (result.ok ? 'Asset found.' : 'Asset not found.'),
             repo,
             asset,
         };
@@ -566,7 +661,14 @@ function repoField(form, sourceType) {
     const repoState = sourceType === SOURCE_GITHUB ? form.githubRepo : form.nixRepo;
     return label(
         {class: "flex-1 flex flex-col gap-1 text-xs text-gray-400"},
-        span("Repository"),
+        div(
+            {class: "flex items-center justify-between gap-3"},
+            span("Repository"),
+            () => {
+                const c = activeRepoCheck(form, sourceType, repoState);
+                return c.status === 'idle' ? '' : span({class: repoMsgClass(c.status)}, c.message);
+            },
+        ),
         input({
             type: "text",
             "data-testid": "deployment-repo-input",
@@ -576,23 +678,54 @@ function repoField(form, sourceType) {
             oninput: e => { repoState.val = e.target.value; },
             onblur: () => validateRepo(form),
         }),
-        () => {
-            const c = activeRepoCheck(form, sourceType, repoState);
-            if (c.status === 'idle') return span();
-            return p({class: repoMsgClass(c.status)}, c.message);
-        },
+    );
+}
+
+function flakeField(form) {
+    return label(
+        {class: "flex flex-col gap-1 text-xs text-gray-400"},
+        div(
+            {class: "flex items-center justify-between gap-3"},
+            span("Path to flake.nix"),
+            () => {
+                const c = activeFlakeCheck(form);
+                return c.status === 'idle' ? '' : span({class: repoMsgClass(c.status)}, c.message);
+            },
+        ),
+        input({
+            type: "text",
+            "data-testid": "deployment-flake-input",
+            value: form.nixFlake.rawVal,
+            class: () => repoInputClass(activeFlakeCheck(form).status),
+            placeholder: "nix/app/flake.nix",
+            oninput: e => { form.nixFlake.val = e.target.value; },
+            onblur: () => validateRepo(form),
+        }),
     );
 }
 
 function dockerImageField(form) {
-    return field("Image repository", input({
-        type: "text",
-        "data-testid": "deployment-container-image-input",
-        value: form.containerImage.rawVal,
-        placeholder: "docker.io/org/app",
-        class: textInputClass(),
-        oninput: e => { form.containerImage.val = e.target.value; },
-    }), "Repository image without tag. The selected deployment version is used as the tag or digest.");
+    return label(
+        {class: "flex-1 flex flex-col gap-1 text-xs text-gray-400"},
+        div(
+            {class: "flex items-center justify-between gap-3"},
+            span("Image"),
+            () => {
+                const c = activeImageCheck(form);
+                return c.status === 'idle' ? '' : span({class: repoMsgClass(c.status)}, c.message);
+            },
+        ),
+        input({
+            type: "text",
+            "data-testid": "deployment-container-image-input",
+            value: form.containerImage.rawVal,
+            placeholder: "postgres or ghcr.io/org/app",
+            class: () => repoInputClass(activeImageCheck(form).status),
+            oninput: e => { form.containerImage.val = e.target.value; },
+            onblur: () => validateRepo(form),
+        }),
+        span({class: "text-[11px] text-gray-500"}, "Kubernetes-style image path. Docker Hub shorthand such as postgres is supported."),
+    );
 }
 
 // activeRepoCheck returns the validation result only if it still matches the
@@ -601,7 +734,39 @@ function dockerImageField(form) {
 function activeRepoCheck(form, sourceType, repoState) {
     const c = form.repoCheck.val;
     const repo = repoState.val.trim();
-    if (!repo || c.sourceType !== sourceType || c.repo !== repo) {
+    if (!repo || c.sourceType !== sourceType || c.repo !== repo || c.sourceKey !== sourceValidationKey(form)) {
+        return {status: 'idle', message: ''};
+    }
+    return c;
+}
+
+function activeFlakeCheck(form) {
+    const sourceType = form.sourceType.val;
+    if (sourceType !== SOURCE_NIX && sourceType !== SOURCE_NIX_DOCKER) {
+        return {status: 'idle', message: ''};
+    }
+    const repo = form.nixRepo.val.trim();
+    const flakePath = form.nixFlake.val.trim();
+    const c = form.repoCheck.val;
+    if (!repo || !flakePath || c.sourceKey !== sourceValidationKey(form)) {
+        return {status: 'idle', message: ''};
+    }
+    if (c.status === 'checking') {
+        return {status: 'checking', message: 'Checking path…'};
+    }
+    if (c.nixFlakeFile?.ok) {
+        return {status: 'ok', message: c.nixFlakeFile.message || 'Path verified'};
+    }
+    if (c.nixFlakeFile?.message) {
+        return {status: 'error', message: c.nixFlakeFile.message};
+    }
+    return {status: 'idle', message: ''};
+}
+
+function activeImageCheck(form) {
+    const c = form.repoCheck.val;
+    const image = form.containerImage.val.trim();
+    if (!image || form.sourceType.val !== SOURCE_DOCKER_IMAGE || c.sourceKey !== sourceValidationKey(form)) {
         return {status: 'idle', message: ''};
     }
     return c;
@@ -609,30 +774,26 @@ function activeRepoCheck(form, sourceType, repoState) {
 
 async function validateRepo(form) {
     const sourceType = form.sourceType.val;
-    const repoState = sourceType === SOURCE_GITHUB ? form.githubRepo : form.nixRepo;
+    const repoState = sourceType === SOURCE_GITHUB
+        ? form.githubRepo
+        : (sourceType === SOURCE_DOCKER_IMAGE ? form.containerImage : form.nixRepo);
     const repo = repoState.val.trim();
     if (!repo) {
-        form.repoCheck.val = {status: 'idle', message: '', repo: '', sourceType};
+        form.repoCheck.val = {status: 'idle', message: '', repo: '', sourceType, sourceKey: ''};
         return;
     }
+    const sourceKey = sourceValidationKey(form);
     const c = form.repoCheck.val;
     // Don't re-check a repo we already have a verdict for.
-    if (c.repo === repo && c.sourceType === sourceType && (c.status === 'ok' || c.status === 'error')) {
+    if (c.sourceKey === sourceKey && (c.status === 'ok' || c.status === 'error')) {
         return;
     }
-    form.repoCheck.val = {status: 'checking', message: 'Checking repository access…', repo, sourceType};
+    form.repoCheck.val = {status: 'checking', message: 'Checking repository access…', repo, sourceType, sourceKey};
     try {
-        const res = await capi.postV1RepoValidate({repo, sourceType});
-        form.repoCheck.val = {
-            status: res.ok ? 'ok' : 'error',
-            message: res.message || (res.ok ? 'Repository is accessible.' : 'Repository not accessible.'),
-            repo,
-            sourceType,
-            scopes: res.scopes || [],
-            versionsByScope: res.versionsByScope || {},
-        };
+        const res = await capi.postV1RepoValidate(buildValidateSourceRequest(form));
+        form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKey);
     } catch (e) {
-        form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType};
+        form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType, sourceKey};
     }
 }
 
@@ -655,7 +816,6 @@ function repoMsgClass(status) {
 function selectField(text, state, options, widthClass = "w-56", onChange) {
     const testID = {
         "Source type": "deployment-source-type-select",
-        "Runner type": "deployment-runner-type-select",
         "Strategy": "deployment-runner-strategy-select",
     }[text];
     return field(text, select({
@@ -671,7 +831,7 @@ function selectField(text, state, options, widthClass = "w-56", onChange) {
     ));
 }
 
-function textInput(state, placeholder = '') {
+function textInput(state, placeholder = '', onblur) {
     const testID = placeholder === 'nix/app/flake.nix' ? 'deployment-flake-input' : undefined;
     return input({
         type: "text",
@@ -680,12 +840,13 @@ function textInput(state, placeholder = '') {
         class: textInputClass(),
         placeholder,
         oninput: e => { state.val = e.target.value; },
+        onblur,
     });
 }
 
 function textInputClass(valid = false, disabled = false, success = false) {
     const border = success ? 'border-green-500 focus:ring-green-500' : 'border-gray-600 focus:ring-brand';
-    const muted = disabled ? 'opacity-70 cursor-not-allowed' : '';
+    const muted = disabled ? 'opacity-70 cursor-not-allowed pointer-events-none' : '';
     return `w-full px-3 py-2 rounded-lg bg-gray-800 text-gray-100 border ${border} focus:outline-none focus:ring-1 ${muted}`;
 }
 
@@ -701,7 +862,7 @@ function machineSelect(form, opts) {
     return select({
         "data-testid": "deployment-machine-select",
         value: form.machine,
-        class: selectClass(),
+        class: `${selectClass()} ${opts.identityLocked ? 'opacity-70 cursor-not-allowed pointer-events-none' : ''}`,
         disabled: opts.identityLocked || !opts.machineOptionsLoaded || opts.machineOptionValues.length === 0,
         onchange: e => { form.machine.val = e.target.value; },
     },

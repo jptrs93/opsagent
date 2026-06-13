@@ -379,17 +379,74 @@
  * @property {string} scope
  */
 /**
- * @typedef {Object} RepoValidateRequest
- * @property {string} repo
- * @property {string} sourceType
- * @property {string} scope
+ * @typedef {Object} ValidateSourceRequest
+ * @property {ValidateNixBuildSource} nixBuild
+ * @property {ValidateNixDockerBuildSource} nixDockerBuild
+ * @property {ValidateGithubReleaseSource} githubRelease
+ * @property {ValidateContainerImageSource} containerImage
  */
 /**
- * @typedef {Object} RepoValidateResponse
+ * @typedef {Object} ValidateNixBuildSource
+ * @property {string} repoUrl
+ * @property {string} branch
+ * @property {string} commit
+ * @property {string} flakePath
+ */
+/**
+ * @typedef {Object} ValidateNixDockerBuildSource
+ * @property {string} repoUrl
+ * @property {string} branch
+ * @property {string} commit
+ * @property {string} flakePath
+ */
+/**
+ * @typedef {Object} ValidateGithubReleaseSource
+ * @property {string} repoUrl
+ */
+/**
+ * @typedef {Object} ValidateContainerImageSource
+ * @property {string} image
+ */
+/**
+ * @typedef {Object} ValidationResult
  * @property {boolean} ok
  * @property {string} message
+ */
+/**
+ * @typedef {Object} ValidateSourceResponse
+ * @property {ValidateNixBuildSourceResponse} nixBuild
+ * @property {ValidateNixDockerBuildSourceResponse} nixDockerBuild
+ * @property {ValidateGithubReleaseSourceResponse} githubRelease
+ * @property {ValidateContainerImageSourceResponse} containerImage
+ */
+/**
+ * @typedef {Object} ValidateNixBuildSourceResponse
+ * @property {ValidationResult} gitRepository
+ * @property {ValidationResult} nixFlakeFile
  * @property {string[]} scopes
- * @property {Object.<string, ScopedVersions>} versionsByScope
+ * @property {string} scope
+ * @property {Version[]} versions
+ */
+/**
+ * @typedef {Object} ValidateNixDockerBuildSourceResponse
+ * @property {ValidationResult} gitRepository
+ * @property {ValidationResult} nixFlakeFile
+ * @property {string[]} scopes
+ * @property {string} scope
+ * @property {Version[]} versions
+ */
+/**
+ * @typedef {Object} ValidateGithubReleaseSourceResponse
+ * @property {ValidationResult} gitRepository
+ * @property {ValidationResult} releaseAsset
+ * @property {string[]} scopes
+ * @property {string} scope
+ * @property {Version[]} versions
+ */
+/**
+ * @typedef {Object} ValidateContainerImageSourceResponse
+ * @property {ValidationResult} image
+ * @property {Version[]} versions
  */
 /**
  * @typedef {Object} GithubAssetValidateRequest
@@ -5120,29 +5177,40 @@ export function decodeDeploymentVersionsRequest(buffer) {
 
 
 /**
- * @param {RepoValidateRequest} message
+ * @param {ValidateSourceRequest} message
  * @param {Writer} writer
  */
-export function writeRepoValidateRequest(message, writer) {
-    if (message.repo !== undefined && message.repo !== null && message.repo !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.repo);
+export function writeValidateSourceRequest(message, writer) {
+    if (message.nixBuild !== undefined && message.nixBuild !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeValidateNixBuildSource(message.nixBuild, writer);
+        writer.ldelim();
     }
-    if (message.sourceType !== undefined && message.sourceType !== null && message.sourceType !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.sourceType);
+    if (message.nixDockerBuild !== undefined && message.nixDockerBuild !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeValidateNixDockerBuildSource(message.nixDockerBuild, writer);
+        writer.ldelim();
     }
-    if (message.scope !== undefined && message.scope !== null && message.scope !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.scope);
+    if (message.githubRelease !== undefined && message.githubRelease !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeValidateGithubReleaseSource(message.githubRelease, writer);
+        writer.ldelim();
+    }
+    if (message.containerImage !== undefined && message.containerImage !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeValidateContainerImageSource(message.containerImage, writer);
+        writer.ldelim();
     }
 }
 
 
 /**
- * @param {RepoValidateRequest} message
+ * @param {ValidateSourceRequest} message
  * @returns {Uint8Array}
  */
-export function encodeRepoValidateRequest(message) {
+export function encodeValidateSourceRequest(message) {
     const writer = Writer.create();
-    writeRepoValidateRequest(message, writer);
+    writeValidateSourceRequest(message, writer);
     return writer.finish();
 }
 
@@ -5150,24 +5218,28 @@ export function encodeRepoValidateRequest(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {RepoValidateRequest}
+ * @returns {ValidateSourceRequest}
  */
-function decodeRepoValidateRequestMessage(reader, length) {
+function decodeValidateSourceRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {repo: "", sourceType: "", scope: "" };
+    const message = {nixBuild: undefined, nixDockerBuild: undefined, githubRelease: undefined, containerImage: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.repo = reader.string();
+                message.nixBuild = decodeValidateNixBuildSourceMessage(reader, reader.uint32());
                 break;
             }
             case 2: {
-                message.sourceType = reader.string();
+                message.nixDockerBuild = decodeValidateNixDockerBuildSourceMessage(reader, reader.uint32());
                 break;
             }
             case 3: {
-                message.scope = reader.string();
+                message.githubRelease = decodeValidateGithubReleaseSourceMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.containerImage = decodeValidateContainerImageSourceMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -5180,54 +5252,42 @@ function decodeRepoValidateRequestMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {RepoValidateRequest}
+ * @returns {ValidateSourceRequest}
  */
-export function decodeRepoValidateRequest(buffer) {
+export function decodeValidateSourceRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeRepoValidateRequestMessage(reader);
+    return decodeValidateSourceRequestMessage(reader);
 }
 
 
 
 /**
- * @param {RepoValidateResponse} message
+ * @param {ValidateNixBuildSource} message
  * @param {Writer} writer
  */
-export function writeRepoValidateResponse(message, writer) {
-    if (message.ok === true) {
-        writer.uint32(tag(1, WIRE.VARINT)).bool(message.ok);
+export function writeValidateNixBuildSource(message, writer) {
+    if (message.repoUrl !== undefined && message.repoUrl !== null && message.repoUrl !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.repoUrl);
     }
-    if (message.message !== undefined && message.message !== null && message.message !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.message);
+    if (message.branch !== undefined && message.branch !== null && message.branch !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.branch);
     }
-    if (message.scopes && message.scopes.length > 0) {
-        for (const item of message.scopes) {
-            writer.uint32(tag(3, WIRE.LDELIM)).string(item);
-        }
+    if (message.commit !== undefined && message.commit !== null && message.commit !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.commit);
     }
-    if (message.versionsByScope && Object.keys(message.versionsByScope).length > 0) {
-        for (const [rawKey, value] of Object.entries(message.versionsByScope)) {
-            const key = rawKey;
-            writer.uint32(tag(4, WIRE.LDELIM)).fork();
-            writer.uint32(tag(1, WIRE.LDELIM)).string(key);
-            if (value) {
-                writer.uint32(tag(2, WIRE.LDELIM)).fork();
-                writeScopedVersions(value, writer);
-                writer.ldelim();
-            }
-            writer.ldelim();
-        }
+    if (message.flakePath !== undefined && message.flakePath !== null && message.flakePath !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.flakePath);
     }
 }
 
 
 /**
- * @param {RepoValidateResponse} message
+ * @param {ValidateNixBuildSource} message
  * @returns {Uint8Array}
  */
-export function encodeRepoValidateResponse(message) {
+export function encodeValidateNixBuildSource(message) {
     const writer = Writer.create();
-    writeRepoValidateResponse(message, writer);
+    writeValidateNixBuildSource(message, writer);
     return writer.finish();
 }
 
@@ -5235,11 +5295,271 @@ export function encodeRepoValidateResponse(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {RepoValidateResponse}
+ * @returns {ValidateNixBuildSource}
  */
-function decodeRepoValidateResponseMessage(reader, length) {
+function decodeValidateNixBuildSourceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {ok: false, message: "", scopes: [], versionsByScope: {} };
+    const message = {repoUrl: "", branch: "", commit: "", flakePath: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.repoUrl = reader.string();
+                break;
+            }
+            case 2: {
+                message.branch = reader.string();
+                break;
+            }
+            case 3: {
+                message.commit = reader.string();
+                break;
+            }
+            case 4: {
+                message.flakePath = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValidateNixBuildSource}
+ */
+export function decodeValidateNixBuildSource(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValidateNixBuildSourceMessage(reader);
+}
+
+
+
+/**
+ * @param {ValidateNixDockerBuildSource} message
+ * @param {Writer} writer
+ */
+export function writeValidateNixDockerBuildSource(message, writer) {
+    if (message.repoUrl !== undefined && message.repoUrl !== null && message.repoUrl !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.repoUrl);
+    }
+    if (message.branch !== undefined && message.branch !== null && message.branch !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.branch);
+    }
+    if (message.commit !== undefined && message.commit !== null && message.commit !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.commit);
+    }
+    if (message.flakePath !== undefined && message.flakePath !== null && message.flakePath !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.flakePath);
+    }
+}
+
+
+/**
+ * @param {ValidateNixDockerBuildSource} message
+ * @returns {Uint8Array}
+ */
+export function encodeValidateNixDockerBuildSource(message) {
+    const writer = Writer.create();
+    writeValidateNixDockerBuildSource(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValidateNixDockerBuildSource}
+ */
+function decodeValidateNixDockerBuildSourceMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {repoUrl: "", branch: "", commit: "", flakePath: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.repoUrl = reader.string();
+                break;
+            }
+            case 2: {
+                message.branch = reader.string();
+                break;
+            }
+            case 3: {
+                message.commit = reader.string();
+                break;
+            }
+            case 4: {
+                message.flakePath = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValidateNixDockerBuildSource}
+ */
+export function decodeValidateNixDockerBuildSource(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValidateNixDockerBuildSourceMessage(reader);
+}
+
+
+
+/**
+ * @param {ValidateGithubReleaseSource} message
+ * @param {Writer} writer
+ */
+export function writeValidateGithubReleaseSource(message, writer) {
+    if (message.repoUrl !== undefined && message.repoUrl !== null && message.repoUrl !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.repoUrl);
+    }
+}
+
+
+/**
+ * @param {ValidateGithubReleaseSource} message
+ * @returns {Uint8Array}
+ */
+export function encodeValidateGithubReleaseSource(message) {
+    const writer = Writer.create();
+    writeValidateGithubReleaseSource(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValidateGithubReleaseSource}
+ */
+function decodeValidateGithubReleaseSourceMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {repoUrl: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.repoUrl = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValidateGithubReleaseSource}
+ */
+export function decodeValidateGithubReleaseSource(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValidateGithubReleaseSourceMessage(reader);
+}
+
+
+
+/**
+ * @param {ValidateContainerImageSource} message
+ * @param {Writer} writer
+ */
+export function writeValidateContainerImageSource(message, writer) {
+    if (message.image !== undefined && message.image !== null && message.image !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.image);
+    }
+}
+
+
+/**
+ * @param {ValidateContainerImageSource} message
+ * @returns {Uint8Array}
+ */
+export function encodeValidateContainerImageSource(message) {
+    const writer = Writer.create();
+    writeValidateContainerImageSource(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValidateContainerImageSource}
+ */
+function decodeValidateContainerImageSourceMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {image: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.image = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValidateContainerImageSource}
+ */
+export function decodeValidateContainerImageSource(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValidateContainerImageSourceMessage(reader);
+}
+
+
+
+/**
+ * @param {ValidationResult} message
+ * @param {Writer} writer
+ */
+export function writeValidationResult(message, writer) {
+    if (message.ok === true) {
+        writer.uint32(tag(1, WIRE.VARINT)).bool(message.ok);
+    }
+    if (message.message !== undefined && message.message !== null && message.message !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.message);
+    }
+}
+
+
+/**
+ * @param {ValidationResult} message
+ * @returns {Uint8Array}
+ */
+export function encodeValidationResult(message) {
+    const writer = Writer.create();
+    writeValidationResult(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValidationResult}
+ */
+function decodeValidationResultMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {ok: false, message: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5251,29 +5571,89 @@ function decodeRepoValidateResponseMessage(reader, length) {
                 message.message = reader.string();
                 break;
             }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValidationResult}
+ */
+export function decodeValidationResult(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValidationResultMessage(reader);
+}
+
+
+
+/**
+ * @param {ValidateSourceResponse} message
+ * @param {Writer} writer
+ */
+export function writeValidateSourceResponse(message, writer) {
+    if (message.nixBuild !== undefined && message.nixBuild !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeValidateNixBuildSourceResponse(message.nixBuild, writer);
+        writer.ldelim();
+    }
+    if (message.nixDockerBuild !== undefined && message.nixDockerBuild !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeValidateNixDockerBuildSourceResponse(message.nixDockerBuild, writer);
+        writer.ldelim();
+    }
+    if (message.githubRelease !== undefined && message.githubRelease !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeValidateGithubReleaseSourceResponse(message.githubRelease, writer);
+        writer.ldelim();
+    }
+    if (message.containerImage !== undefined && message.containerImage !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeValidateContainerImageSourceResponse(message.containerImage, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {ValidateSourceResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeValidateSourceResponse(message) {
+    const writer = Writer.create();
+    writeValidateSourceResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValidateSourceResponse}
+ */
+function decodeValidateSourceResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {nixBuild: undefined, nixDockerBuild: undefined, githubRelease: undefined, containerImage: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.nixBuild = decodeValidateNixBuildSourceResponseMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.nixDockerBuild = decodeValidateNixDockerBuildSourceResponseMessage(reader, reader.uint32());
+                break;
+            }
             case 3: {
-                message.scopes.push(reader.string());
+                message.githubRelease = decodeValidateGithubReleaseSourceResponseMessage(reader, reader.uint32());
                 break;
             }
             case 4: {
-                const end2 = reader.uint32() + reader.pos;
-                let key = "";
-                let value = undefined;
-                while (reader.pos < end2) {
-                    const tag2 = reader.uint32();
-                    switch (tag2 >>> 3) {
-                        case 1:
-                            key = reader.string();
-                            break;
-                        case 2:
-                            value = decodeScopedVersionsMessage(reader, reader.uint32());
-                            break;
-                        default:
-                            reader.skipType(tag2 & 7);
-                    }
-                }
-                if (!message.versionsByScope) { message.versionsByScope = {}; }
-                message.versionsByScope[String(key)] = value;
+                message.containerImage = decodeValidateContainerImageSourceResponseMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -5286,11 +5666,362 @@ function decodeRepoValidateResponseMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {RepoValidateResponse}
+ * @returns {ValidateSourceResponse}
  */
-export function decodeRepoValidateResponse(buffer) {
+export function decodeValidateSourceResponse(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeRepoValidateResponseMessage(reader);
+    return decodeValidateSourceResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {ValidateNixBuildSourceResponse} message
+ * @param {Writer} writer
+ */
+export function writeValidateNixBuildSourceResponse(message, writer) {
+    if (message.gitRepository !== undefined && message.gitRepository !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeValidationResult(message.gitRepository, writer);
+        writer.ldelim();
+    }
+    if (message.nixFlakeFile !== undefined && message.nixFlakeFile !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeValidationResult(message.nixFlakeFile, writer);
+        writer.ldelim();
+    }
+    if (message.scopes && message.scopes.length > 0) {
+        for (const item of message.scopes) {
+            writer.uint32(tag(3, WIRE.LDELIM)).string(item);
+        }
+    }
+    if (message.scope !== undefined && message.scope !== null && message.scope !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.scope);
+    }
+    if (message.versions && message.versions.length > 0) {
+        for (const item of message.versions) {
+            writer.uint32(tag(5, WIRE.LDELIM)).fork();
+            writeVersion(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ValidateNixBuildSourceResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeValidateNixBuildSourceResponse(message) {
+    const writer = Writer.create();
+    writeValidateNixBuildSourceResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValidateNixBuildSourceResponse}
+ */
+function decodeValidateNixBuildSourceResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {gitRepository: undefined, nixFlakeFile: undefined, scopes: [], scope: "", versions: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.gitRepository = decodeValidationResultMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.nixFlakeFile = decodeValidationResultMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.scopes.push(reader.string());
+                break;
+            }
+            case 4: {
+                message.scope = reader.string();
+                break;
+            }
+            case 5: {
+                message.versions.push(decodeVersionMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValidateNixBuildSourceResponse}
+ */
+export function decodeValidateNixBuildSourceResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValidateNixBuildSourceResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {ValidateNixDockerBuildSourceResponse} message
+ * @param {Writer} writer
+ */
+export function writeValidateNixDockerBuildSourceResponse(message, writer) {
+    if (message.gitRepository !== undefined && message.gitRepository !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeValidationResult(message.gitRepository, writer);
+        writer.ldelim();
+    }
+    if (message.nixFlakeFile !== undefined && message.nixFlakeFile !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeValidationResult(message.nixFlakeFile, writer);
+        writer.ldelim();
+    }
+    if (message.scopes && message.scopes.length > 0) {
+        for (const item of message.scopes) {
+            writer.uint32(tag(3, WIRE.LDELIM)).string(item);
+        }
+    }
+    if (message.scope !== undefined && message.scope !== null && message.scope !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.scope);
+    }
+    if (message.versions && message.versions.length > 0) {
+        for (const item of message.versions) {
+            writer.uint32(tag(5, WIRE.LDELIM)).fork();
+            writeVersion(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ValidateNixDockerBuildSourceResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeValidateNixDockerBuildSourceResponse(message) {
+    const writer = Writer.create();
+    writeValidateNixDockerBuildSourceResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValidateNixDockerBuildSourceResponse}
+ */
+function decodeValidateNixDockerBuildSourceResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {gitRepository: undefined, nixFlakeFile: undefined, scopes: [], scope: "", versions: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.gitRepository = decodeValidationResultMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.nixFlakeFile = decodeValidationResultMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.scopes.push(reader.string());
+                break;
+            }
+            case 4: {
+                message.scope = reader.string();
+                break;
+            }
+            case 5: {
+                message.versions.push(decodeVersionMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValidateNixDockerBuildSourceResponse}
+ */
+export function decodeValidateNixDockerBuildSourceResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValidateNixDockerBuildSourceResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {ValidateGithubReleaseSourceResponse} message
+ * @param {Writer} writer
+ */
+export function writeValidateGithubReleaseSourceResponse(message, writer) {
+    if (message.gitRepository !== undefined && message.gitRepository !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeValidationResult(message.gitRepository, writer);
+        writer.ldelim();
+    }
+    if (message.releaseAsset !== undefined && message.releaseAsset !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeValidationResult(message.releaseAsset, writer);
+        writer.ldelim();
+    }
+    if (message.scopes && message.scopes.length > 0) {
+        for (const item of message.scopes) {
+            writer.uint32(tag(3, WIRE.LDELIM)).string(item);
+        }
+    }
+    if (message.scope !== undefined && message.scope !== null && message.scope !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.scope);
+    }
+    if (message.versions && message.versions.length > 0) {
+        for (const item of message.versions) {
+            writer.uint32(tag(5, WIRE.LDELIM)).fork();
+            writeVersion(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ValidateGithubReleaseSourceResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeValidateGithubReleaseSourceResponse(message) {
+    const writer = Writer.create();
+    writeValidateGithubReleaseSourceResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValidateGithubReleaseSourceResponse}
+ */
+function decodeValidateGithubReleaseSourceResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {gitRepository: undefined, releaseAsset: undefined, scopes: [], scope: "", versions: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.gitRepository = decodeValidationResultMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.releaseAsset = decodeValidationResultMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.scopes.push(reader.string());
+                break;
+            }
+            case 4: {
+                message.scope = reader.string();
+                break;
+            }
+            case 5: {
+                message.versions.push(decodeVersionMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValidateGithubReleaseSourceResponse}
+ */
+export function decodeValidateGithubReleaseSourceResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValidateGithubReleaseSourceResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {ValidateContainerImageSourceResponse} message
+ * @param {Writer} writer
+ */
+export function writeValidateContainerImageSourceResponse(message, writer) {
+    if (message.image !== undefined && message.image !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeValidationResult(message.image, writer);
+        writer.ldelim();
+    }
+    if (message.versions && message.versions.length > 0) {
+        for (const item of message.versions) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeVersion(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ValidateContainerImageSourceResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeValidateContainerImageSourceResponse(message) {
+    const writer = Writer.create();
+    writeValidateContainerImageSourceResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValidateContainerImageSourceResponse}
+ */
+function decodeValidateContainerImageSourceResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {image: undefined, versions: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.image = decodeValidationResultMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.versions.push(decodeVersionMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValidateContainerImageSourceResponse}
+ */
+export function decodeValidateContainerImageSourceResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValidateContainerImageSourceResponseMessage(reader);
 }
 
 
