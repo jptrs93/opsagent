@@ -96,6 +96,9 @@ const mapDeploymentsToView = (deployments) => {
         } else if (spec.prepare?.githubRelease) {
             variant = 'githubRelease';
             repo = spec.prepare.githubRelease.repo || '';
+        } else if (spec.prepare?.containerImage) {
+            variant = 'containerImage';
+            repo = spec.prepare.containerImage.image || '';
         }
 
         const imagePrepare = Boolean(spec.prepare?.containerImage || spec.prepare?.nixDockerBuild);
@@ -298,6 +301,7 @@ export function statusPage() {
                     span("Group by environment"),
                 ),
                 button({
+                    "data-testid": "add-deployment-button",
                     class: "btn-primary text-sm py-1.5 px-4 cursor-pointer",
                     onclick: () => { showCreateOverlay.val = true; },
                 }, "Add deployment"),

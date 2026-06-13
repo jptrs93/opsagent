@@ -54,13 +54,16 @@ export function createOverlay(onClose, onCreated) {
         onClose();
     };
 
+    const createButton = spinnerButton("Create", doCreate, "btn-primary text-sm py-1.5 px-4", "button", () => !isFormValid(form, {machineOptions: machines.val}));
+    createButton.dataset.testid = "create-deployment-submit";
+
     const backdrop = div({
         class: "fixed inset-0 bg-black/60 z-40",
         onclick: onClose,
     });
 
     const dialog = div(
-        {class: "fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 pointer-events-none"},
+        {class: "fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 pointer-events-none", "data-testid": "create-deployment-dialog"},
         div(
             {class: "bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-row overflow-hidden pointer-events-auto",
              style: () => `width: ${form.envPaneOpen.val ? 1240 : 760}px; max-width: calc(100vw - 2rem); max-height: 88vh;`,
@@ -88,7 +91,7 @@ export function createOverlay(onClose, onCreated) {
                         class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5",
                         onclick: onClose,
                     }, "Cancel"),
-                    spinnerButton("Create", doCreate, "btn-primary text-sm py-1.5 px-4", "button", () => !isFormValid(form, {machineOptions: machines.val})),
+                    createButton,
                 ),
             ),
             envVarsPane(form),

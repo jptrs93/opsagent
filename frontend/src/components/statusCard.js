@@ -42,7 +42,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
     const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
 
     return tr(
-        {class: "border-b border-gray-800 last:border-0 hover:bg-gray-800/60 transition-colors"},
+        {class: "border-b border-gray-800 last:border-0 hover:bg-gray-800/60 transition-colors", "data-testid": `deployment-row-${deployment.name || deployment.id}`},
         td(
             {class: "py-3 pl-4 pr-3 align-top min-w-32"},
             div({class: "font-medium text-sm text-white break-words"}, deployment.name || `#${deployment.id}`),

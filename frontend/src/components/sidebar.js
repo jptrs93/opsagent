@@ -14,6 +14,7 @@ const streamDotClass = (status) => status === 'connected'
 export function sidebar(activePage) {
     const item = (label, key) => {
         return div({
+            "data-testid": `nav-${key}`,
             class: () => `px-4 py-2 rounded cursor-pointer text-sm transition-colors ${
                 activePage.val === key
                     ? 'bg-surface text-white'
@@ -53,6 +54,7 @@ export function sidebar(activePage) {
         div(
             {class: "p-3 border-t border-gray-800 flex flex-col gap-1"},
             div({
+                "data-testid": "nav-sign-out",
                 class: "px-4 py-2 rounded cursor-pointer text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-surface-hover",
                 onclick: () => {
                     clearLoginState();

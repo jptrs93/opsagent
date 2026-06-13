@@ -1,0 +1,11 @@
+{
+  "name": "opendeploy-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "@playwright/test": "1.57.0"
+  }
+}

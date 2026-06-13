@@ -13,7 +13,7 @@ import {
     sectionDivider,
 } from "./deploymentForm.js";
 
-const { div, span, select, option, button, p, label } = van.tags;
+const { div, span, select, option, button, p, label, input } = van.tags;
 
 const STATUS_RUNNING = 2;
 
@@ -33,7 +33,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     const scopes = van.state([]);
     const selectedScope = van.state('');
     const versions = van.state([]);
-    const selectedVersion = van.state('');
+    const selectedVersion = van.state(deployment.variant === 'containerImage' ? (deployment.deployedVersion || '') : '');
     const loadingVersions = van.state(false);
     const versionError = van.state('');
     const errorMsg = van.state('');
@@ -78,7 +78,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         loadingVersions.val = false;
     };
 
-    if (deployment.variant) {
+    if (deployment.variant && deployment.variant !== 'containerImage') {
         setTimeout(() => loadVersions(''), 0);
     }
 
@@ -103,8 +103,9 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         if (nextYaml !== initialYaml) {
             payload.yamlContent = nextYaml;
         }
-        if (selectedVersion.val) {
-            payload.targetVersion = selectedVersion.val;
+        const targetVersion = selectedVersion.val.trim();
+        if (targetVersion) {
+            payload.targetVersion = targetVersion;
         }
 
         try {
@@ -235,6 +236,23 @@ function lifecycleButton(args) {
 }
 
 function versionSection(args) {
+    if (args.sourceType.val === 'containerImage') {
+        return div(
+            {class: "flex flex-col gap-3"},
+            sectionDivider("Version"),
+            label(
+                {class: "grid grid-cols-[7rem_1fr] items-center gap-3 text-xs text-gray-400"},
+                span("Tag / digest"),
+                input({
+                    class: selectClass(),
+                    value: args.selectedVersion.rawVal,
+                    placeholder: "latest or sha256:...",
+                    oninput: (e) => { args.selectedVersion.val = e.target.value; },
+                }),
+            ),
+        );
+    }
+
     return div(
         {class: "flex flex-col gap-3"},
         sectionDivider("Version"),

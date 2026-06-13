@@ -1,0 +1,31 @@
+# OpenDeploy E2E Flows
+
+Run browser flows from a separate Playwright container against the local
+install-test deployment.
+
+```sh
+bash testing/e2e/run.sh
+```
+
+By default the runner resets the local primary/secondary containers with
+`testing/run.sh`, builds the Playwright image, and runs:
+
+```sh
+FLOWS=bootstrap-enroll-nixdocker
+```
+
+Select one or more flow files with a comma-separated list:
+
+```sh
+FLOWS=bootstrap-enroll-nixdocker RESET=false bash testing/e2e/run.sh
+```
+
+Flows run in the primary container's network namespace by default and target
+`http://localhost:8080`. This keeps WebAuthn on the same origin the HTTP-only
+server allows for passkeys.
+
+Override the Docker network mode or base URL if needed:
+
+```sh
+NETWORK_MODE=opendeploy-install-test OPD_BASE_URL=http://opendeploy-install-primary:8080 bash testing/e2e/run.sh
+```

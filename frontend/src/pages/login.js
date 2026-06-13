@@ -33,6 +33,7 @@ export function loginPage() {
             loginErr.val = p({class: 'text-red-400 text-sm'}, passkeyServerErrorMessage('Passkey sign-in', e));
         }
     }, "btn-primary w-full text-lg py-3", 'button');
+    passkeyButton.dataset.testid = "login-passkey-button";
 
     return div(
         {class: "min-h-dvh w-dvw flex"},

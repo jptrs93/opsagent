@@ -46,7 +46,7 @@ export function clusterPage() {
                             ),
                             tbody(
                                 ...sorted.map(m =>
-                                    tr({class: "border-b border-gray-800 last:border-0"},
+                                    tr({class: "border-b border-gray-800 last:border-0", "data-testid": `machine-row-${m.name}`},
                                         td({class: "py-3 pr-6 text-white font-medium"}, m.name),
                                         td({class: "py-3 pr-6"},
                                             m.isPrimary
@@ -113,7 +113,7 @@ function enrollmentRow(req) {
     };
 
     return tr(
-        {class: "border-b border-gray-800 last:border-0 align-top"},
+        {class: "border-b border-gray-800 last:border-0 align-top", "data-testid": `enrollment-request-${req.id}`},
         td({class: "py-3 pr-6"},
             div({class: "text-white font-medium"}, `#${req.id}`),
             div({class: "text-xs text-gray-500 font-mono break-all"}, req.requestingMachineId),
@@ -124,12 +124,14 @@ function enrollmentRow(req) {
             div({class: "flex flex-col gap-2"},
                 div({class: "flex gap-2"},
                     input({
+                        "data-testid": "enrollment-worker-name-input",
                         class: "text-input w-44",
                         value: workerName,
                         oninput: e => workerName.val = e.target.value,
                     }),
                     button({
                         type: "button",
+                        "data-testid": "enrollment-accept-button",
                         class: "btn-primary",
                         disabled: () => accepting.val,
                         onclick: accept,

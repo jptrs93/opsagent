@@ -13,6 +13,7 @@ export function bootstrapPage() {
 
     const usernameInput = input({
         type: "text",
+        "data-testid": "bootstrap-username-input",
         required: true,
         class: "text-input",
         placeholder: "Your name",
@@ -21,6 +22,7 @@ export function bootstrapPage() {
 
     const passwordInput = input({
         type: "password",
+        "data-testid": "bootstrap-password-input",
         required: true,
         class: "text-input",
         placeholder: "Master password",
@@ -28,6 +30,7 @@ export function bootstrapPage() {
     });
 
     const submitButton = spinnerButton("Authenticate", null, "btn-primary w-full", 'submit');
+    submitButton.dataset.testid = "bootstrap-authenticate-button";
 
     const handlePasswordSubmit = async (e) => {
         e.preventDefault();
@@ -80,6 +83,7 @@ export function bootstrapPage() {
             status.val = p({class: 'text-red-400 text-sm'}, passkeyServerErrorMessage('Passkey registration', e));
         }
     }, "btn-primary w-full", 'button');
+    registerButton.dataset.testid = "bootstrap-register-passkey-button";
 
     return div(
         {class: "min-h-dvh w-dvw flex"},

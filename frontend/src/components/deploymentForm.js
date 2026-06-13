@@ -7,6 +7,7 @@ const { div, h3, label, input, select, option, button, p, span, datalist, textar
 const SOURCE_GITHUB = 'githubRelease';
 const SOURCE_NIX = 'nixBuild';
 const SOURCE_NIX_DOCKER = 'nixDockerBuild';
+const SOURCE_DOCKER_IMAGE = 'containerImage';
 const RUNNER_OS = 'osProcess';
 const RUNNER_SYSTEMD = 'systemd';
 const RUNNER_CONTAINER = 'container';
@@ -27,6 +28,7 @@ export function emptyDeploymentForm() {
         githubAsset: '',
         githubTag: '',
         githubDownloadScript: '',
+        containerImage: '',
         runnerType: RUNNER_OS,
         osWorkingDir: '',
         osRunAs: '',
@@ -44,6 +46,7 @@ export function deploymentConfigToForm(cfg) {
     const nix = prepare.nixBuild || {};
     const nixDocker = prepare.nixDockerBuild || {};
     const gh = prepare.githubRelease || {};
+    const containerImage = prepare.containerImage || {};
     const os = runner.osProcess || {};
     const systemd = runner.systemd || {};
     const imagePrepare = Boolean(prepare.nixDockerBuild || prepare.containerImage);
@@ -57,7 +60,7 @@ export function deploymentConfigToForm(cfg) {
         name: cid.name || '',
         environment: cid.environment || '',
         machine: cid.machine || '',
-        sourceType: prepare.githubRelease ? SOURCE_GITHUB : (prepare.nixDockerBuild ? SOURCE_NIX_DOCKER : SOURCE_NIX),
+        sourceType: prepare.githubRelease ? SOURCE_GITHUB : (prepare.nixDockerBuild ? SOURCE_NIX_DOCKER : (prepare.containerImage ? SOURCE_DOCKER_IMAGE : SOURCE_NIX)),
         nixRepo: nix.repo || nixDocker.repo || '',
         nixFlake: nix.flake || nixDocker.flake || '',
         nixOutputExecutable: nix.outputExecutable || '',
@@ -65,7 +68,8 @@ export function deploymentConfigToForm(cfg) {
         githubAsset: gh.asset || '',
         githubTag: gh.tag || '',
         githubDownloadScript: gh.downloadScript || '',
-        runnerType: runner.container || imagePrepare ? RUNNER_CONTAINER : (runner.systemd ? RUNNER_SYSTEMD : RUNNER_OS),
+        containerImage: containerImage.image || '',
+        runnerType: imagePrepare ? RUNNER_CONTAINER : RUNNER_OS,
         osWorkingDir: os.workingDir || '',
         osRunAs: os.runAs || '',
         osStrategy: os.strategy || '',
@@ -97,6 +101,7 @@ export function deploymentForm(form, opts = {}) {
                 {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
                 field("Name", input({
                     type: "text",
+                    "data-testid": "deployment-name-input",
                     value: form.name.rawVal,
                     disabled: identityLocked,
                     class: () => textInputClass(nameValid(form), identityLocked, nameValid(form)),
@@ -106,6 +111,7 @@ export function deploymentForm(form, opts = {}) {
                 field("Environment (optional)", div(
                     input({
                         type: "text",
+                        "data-testid": "deployment-environment-input",
                         list: environmentDatalistID,
                         value: form.environment.rawVal,
                         disabled: identityLocked,
@@ -134,36 +140,27 @@ export function deploymentForm(form, opts = {}) {
                     {value: SOURCE_GITHUB, label: "Github release"},
                     {value: SOURCE_NIX, label: "Build NIX store"},
                     {value: SOURCE_NIX_DOCKER, label: "Build NIX Docker image"},
+                    {value: SOURCE_DOCKER_IMAGE, label: "Docker image"},
                 ], "w-56", value => {
-                    if (value === SOURCE_NIX_DOCKER) {
-                        form.runnerType.val = RUNNER_CONTAINER;
-                    } else if (form.runnerType.val === RUNNER_CONTAINER) {
-                        form.runnerType.val = RUNNER_OS;
-                    }
+                    form.runnerType.val = runnerForSource(value);
                 }),
-                () => repoField(form, form.sourceType.val),
+                () => form.sourceType.val === SOURCE_DOCKER_IMAGE
+                    ? dockerImageField(form)
+                    : repoField(form, form.sourceType.val),
             ),
             () => form.sourceType.val === SOURCE_NIX || form.sourceType.val === SOURCE_NIX_DOCKER
                 ? field("Flake", textInput(form.nixFlake, "nix/app/flake.nix"))
                 : span(),
-            optionsDisclosure(form.showSourceOpts, () => sourceOptions(form)),
+            () => sourceHasAdditionalOptions(form.sourceType.val)
+                ? optionsDisclosure(form.showSourceOpts, () => sourceOptions(form))
+                : span(),
         ),
         sectionDivider("Execution"),
         div(
             {class: "flex flex-col gap-3"},
-            selectField("Runner type", form.runnerType, [
-                {value: RUNNER_OS, label: "OpsAgent process"},
-                {value: RUNNER_SYSTEMD, label: "systemd service"},
-                {value: RUNNER_CONTAINER, label: "Container"},
-            ]),
-            () => form.runnerType.val === RUNNER_SYSTEMD
-                ? div(
-                    {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
-                    field("Unit name", textInput(form.systemdName, "my-service.service")),
-                    field("Binary path", textInput(form.systemdBinPath, "/opt/my-service/bin/app")),
-                )
-                : form.runnerType.val === RUNNER_CONTAINER
-                    ? p({class: "text-xs text-gray-500"}, "Runs the prepared image with the container runner. Edit YAML for container env, command, mounts, or data volume options.")
+            () => runnerSummary(form),
+            () => form.runnerType.val === RUNNER_CONTAINER
+                ? p({class: "text-xs text-gray-500"}, "Runs the prepared image with the container runner. Edit YAML for container env, command, mounts, or data volume options.")
                 : div(
                     {class: "flex flex-col gap-3"},
                     p({class: "text-xs text-gray-500"}, "Runs with sensible defaults."),
@@ -195,6 +192,10 @@ export function formToYaml(form) {
             repo: form.nixRepo.val.trim(),
             flake: form.nixFlake.val.trim(),
         };
+    } else if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
+        obj.prepare.containerImage = {
+            image: form.containerImage.val.trim(),
+        };
     } else {
         obj.prepare.nixBuild = {
             repo: form.nixRepo.val.trim(),
@@ -203,12 +204,14 @@ export function formToYaml(form) {
         };
     }
 
-    if (form.runnerType.val === RUNNER_SYSTEMD) {
+    const runnerType = runnerForSource(form.sourceType.val);
+
+    if (runnerType === RUNNER_SYSTEMD) {
         obj.runner.systemd = {
             name: form.systemdName.val.trim(),
             binPath: form.systemdBinPath.val.trim(),
         };
-    } else if (form.runnerType.val === RUNNER_CONTAINER || form.sourceType.val === SOURCE_NIX_DOCKER) {
+    } else if (runnerType === RUNNER_CONTAINER) {
         obj.runner.container = {
             disableDataVolume: false,
         };
@@ -234,12 +237,13 @@ export function isFormValid(form, opts = {}) {
     if (machineOptionValues.length > 0 && !machineOptionValues.includes(form.machine.val.trim())) return false;
     if (form.sourceType.val === SOURCE_GITHUB) {
         if (!form.githubRepo.val.trim()) return false;
+    } else if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
+        if (!form.containerImage.val.trim()) return false;
     } else if (!form.nixRepo.val.trim() || !form.nixFlake.val.trim()) {
         return false;
     }
-    if (form.sourceType.val === SOURCE_NIX_DOCKER && form.runnerType.val !== RUNNER_CONTAINER) return false;
-    if (form.runnerType.val === RUNNER_CONTAINER && form.sourceType.val !== SOURCE_NIX_DOCKER) return false;
-    if (form.runnerType.val === RUNNER_SYSTEMD) {
+    const runnerType = runnerForSource(form.sourceType.val);
+    if (runnerType === RUNNER_SYSTEMD) {
         return Boolean(form.systemdName.val.trim() && form.systemdBinPath.val.trim());
     }
     return true;
@@ -262,6 +266,7 @@ function makeFormState(values) {
         githubAsset: van.state(values.githubAsset),
         githubTag: van.state(values.githubTag),
         githubDownloadScript: van.state(values.githubDownloadScript || ''),
+        containerImage: van.state(values.containerImage || ''),
         runnerType: van.state(values.runnerType),
         osWorkingDir: van.state(values.osWorkingDir),
         osRunAs: van.state(values.osRunAs),
@@ -332,6 +337,31 @@ function sourceOptions(form) {
         : form.sourceType.val === SOURCE_NIX_DOCKER
             ? span({class: "text-[11px] text-gray-500"}, "The flake default output must be an executable image stream, such as dockerTools.streamLayeredImage.")
         : field("Output executable", textInput(form.nixOutputExecutable, "app"), "Executable name in the build output's bin/. Defaults to the only executable.");
+}
+
+function sourceHasAdditionalOptions(sourceType) {
+    return sourceType === SOURCE_GITHUB || sourceType === SOURCE_NIX || sourceType === SOURCE_NIX_DOCKER;
+}
+
+function runnerForSource(sourceType) {
+    return sourceType === SOURCE_NIX_DOCKER || sourceType === SOURCE_DOCKER_IMAGE
+        ? RUNNER_CONTAINER
+        : RUNNER_OS;
+}
+
+function runnerSummary(form) {
+    const isContainer = runnerForSource(form.sourceType.val) === RUNNER_CONTAINER;
+    return div(
+        {class: "flex flex-col gap-1 text-xs text-gray-400"},
+        span("Runner type"),
+        div(
+            {
+                "data-testid": "deployment-runner-type-display",
+                class: "w-56 px-3 py-2 rounded-lg bg-gray-800 text-gray-100 border border-gray-700",
+            },
+            isContainer ? "Container" : "OpsAgent process",
+        ),
+    );
 }
 
 // downloadScriptField lets the operator supply a bash script that downloads the
@@ -537,6 +567,7 @@ function repoField(form, sourceType) {
         span("Repository"),
         input({
             type: "text",
+            "data-testid": "deployment-repo-input",
             value: repoState.rawVal,
             placeholder: "github.com/org/repo",
             class: () => repoInputClass(activeRepoCheck(form, sourceType, repoState).status),
@@ -549,6 +580,17 @@ function repoField(form, sourceType) {
             return p({class: repoMsgClass(c.status)}, c.message);
         },
     );
+}
+
+function dockerImageField(form) {
+    return field("Image repository", input({
+        type: "text",
+        "data-testid": "deployment-container-image-input",
+        value: form.containerImage.rawVal,
+        placeholder: "docker.io/org/app",
+        class: textInputClass(),
+        oninput: e => { form.containerImage.val = e.target.value; },
+    }), "Repository image without tag. The selected deployment version is used as the tag or digest.");
 }
 
 // activeRepoCheck returns the validation result only if it still matches the
@@ -607,7 +649,14 @@ function repoMsgClass(status) {
 // widthClass constrains the select so source/runner type sit left-aligned
 // rather than stretching the full row.
 function selectField(text, state, options, widthClass = "w-56", onChange) {
+    const testID = {
+        "Source type": "deployment-source-type-select",
+        "Runner type": "deployment-runner-type-select",
+        "Strategy": "deployment-runner-strategy-select",
+    }[text];
     return field(text, select({
+        "data-testid": testID,
+        value: state,
         class: `${widthClass} px-3 py-2 rounded-lg bg-gray-800 text-gray-100 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-brand`,
         onchange: e => {
             state.val = e.target.value;
@@ -619,8 +668,10 @@ function selectField(text, state, options, widthClass = "w-56", onChange) {
 }
 
 function textInput(state, placeholder = '') {
+    const testID = placeholder === 'nix/app/flake.nix' ? 'deployment-flake-input' : undefined;
     return input({
         type: "text",
+        "data-testid": testID,
         value: state.rawVal,
         class: textInputClass(),
         placeholder,
@@ -644,6 +695,8 @@ function machineSelect(form, opts) {
         ? [option({value: current, selected: true}, current)]
         : [];
     return select({
+        "data-testid": "deployment-machine-select",
+        value: form.machine,
         class: selectClass(),
         disabled: opts.identityLocked || !opts.machineOptionsLoaded || opts.machineOptionValues.length === 0,
         onchange: e => { form.machine.val = e.target.value; },
