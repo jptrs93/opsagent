@@ -4,8 +4,8 @@ Tiny `nixDockerBuild` test app. The flake default output is an executable image
 stream from `pkgs.dockerTools.streamLayeredImage`, suitable for OpenDeploy's
 `prepare.nixDockerBuild` importer.
 
-The container runs a Go program that prints an incrementing count every 10
-seconds forever.
+The container runs a Go program that prints selected environment variables at
+startup, then prints an incrementing count every 10 seconds forever.
 
 Example deployment YAML:
 

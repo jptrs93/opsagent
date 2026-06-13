@@ -267,7 +267,7 @@ exit replaces process exit. The full crash/backoff machinery
   block may be all-defaults and therefore `IsZero`.
 - **Default data volume**: a per-deployment host dir under `{dataDir}-volumes/`
   is created + chowned to the in-container user at each spawn and bind-mounted at
-  `/data` (root) or `/home/<user>/data` (non-root), overridable via
+  `/var` (root) or `/home/<user>/var` (non-root), overridable via
   `dataMountPath`, disableable via `disableDataVolume`. chown needs `CAP_CHOWN`
   (granted in the unit); it is best-effort and only fully resolvable when `user`
   is a numeric uid or a name that also exists on the host.

@@ -29,6 +29,10 @@ the test containers, and installs it as `v0.0.0` with `opendeploy install
 USE_SELF=true bash testing/e2e/run.sh
 ```
 
+If `OPENDEPLOY_GITHUB_TOKEN` is set in the host environment, the install harness
+adds it to both test containers' `/etc/opendeploy/env` files. This keeps source
+validation and Nix/GitHub preparers on authenticated GitHub API limits.
+
 Flows run in the primary container's network namespace by default and target
 `http://localhost:8080`. This keeps WebAuthn on the same origin the HTTP-only
 server allows for passkeys.

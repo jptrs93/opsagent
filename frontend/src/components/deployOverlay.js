@@ -84,6 +84,8 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                 const deployedId = deployment.deployedVersion || '';
                 if (deployedId && vsList.some(v => v.id === deployedId)) {
                     selectedVersion.val = deployedId;
+                } else if (!vsList.some(v => v.id === selectedVersion.val)) {
+                    selectedVersion.val = vsList[0]?.id || '';
                 }
             }
         } catch (e) {

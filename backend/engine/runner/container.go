@@ -366,24 +366,24 @@ func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd.Mount, string) {
 // container's default data volume. A sibling of the data dir (world-traversable,
 // 0755), like release artifacts, so the in-container user can reach it.
 func defaultVolumeHostDir(deploymentID int32) string {
-	return filepath.Join(ainit.StaticConfig.VolumesDir, strconv.Itoa(int(deploymentID)), "data")
+	return filepath.Join(ainit.StaticConfig.VolumesDir, strconv.Itoa(int(deploymentID)), "var")
 }
 
 // defaultVolumeDest is the in-container mount point for the default data volume:
-// the explicit override if set, else /data for a root container, else
-// /home/<user>/data.
+// the explicit override if set, else /var for a root container, else
+// /home/<user>/var.
 func defaultVolumeDest(usr, override string) string {
 	if override != "" {
 		return override
 	}
 	if usr == "" || usr == "root" || usr == "0" {
-		return "/data"
+		return "/var"
 	}
 	name := usr
 	if i := strings.IndexByte(name, ':'); i >= 0 {
 		name = name[:i]
 	}
-	return "/home/" + name + "/data"
+	return "/home/" + name + "/var"
 }
 
 // chownToUser chowns path to the host uid/gid for usr. usr may be "", "root", a

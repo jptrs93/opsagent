@@ -49,6 +49,7 @@ export function deploymentConfigToForm(cfg) {
     const containerImage = prepare.containerImage || {};
     const os = runner.osProcess || {};
     const systemd = runner.systemd || {};
+    const container = runner.container || {};
     const imagePrepare = Boolean(prepare.nixDockerBuild || prepare.containerImage);
 
     // Reveal a section's additional options up-front when the existing config
@@ -75,7 +76,7 @@ export function deploymentConfigToForm(cfg) {
         osStrategy: os.strategy || '',
         systemdName: systemd.name || '',
         systemdBinPath: systemd.binPath || '',
-        envVars: (os.env || []).map(e => ({id: nextEnvID++, key: e.key || '', value: e.value || ''})),
+        envVars: ((imagePrepare ? container.env : os.env) || []).map(e => ({id: nextEnvID++, key: e.key || '', value: e.value || ''})),
         showSourceOpts,
         showExecOpts,
     });
@@ -88,7 +89,7 @@ export function deploymentForm(form, opts = {}) {
     const machineOptions = opts.machineOptions || [];
     const machineOptionValues = machineOptions.map(m => typeof m === 'string' ? m : m.name).filter(Boolean);
     const machineOptionsLoaded = opts.machineOptionsLoaded !== false;
-    const executionTitle = opts.executionTitle || "Execution";
+    const executionTitle = opts.executionTitle || "Environment";
     const showIdentityLockedNotice = () => {
         if (!identityLocked) return;
         form.identityLockNotice.val = true;
@@ -164,7 +165,11 @@ export function deploymentForm(form, opts = {}) {
         div(
             {class: "flex flex-col gap-3"},
             () => form.runnerType.val === RUNNER_CONTAINER
-                ? p({class: "text-xs text-gray-500"}, "Runs the prepared image with the container runner. Edit YAML for container env, command, mounts, or data volume options.")
+                ? div(
+                    {class: "flex flex-col gap-3"},
+                    p({class: "text-xs text-gray-500"}, "Runs the prepared image with the container runner. Edit YAML for command, mounts, or data volume options."),
+                    envSummary(form),
+                )
                 : div(
                     {class: "flex flex-col gap-3"},
                     p({class: "text-xs text-gray-500"}, "Runs with sensible defaults."),
@@ -219,15 +224,15 @@ export function formToYaml(form) {
         obj.runner.container = {
             disableDataVolume: false,
         };
+        const env = formEnvVars(form);
+        if (env.length) obj.runner.container.env = env;
     } else {
         obj.runner.osProcess = {
             workingDir: form.osWorkingDir.val.trim(),
             runAs: form.osRunAs.val.trim(),
             strategy: form.osStrategy.val,
         };
-        const env = form.envVars.val
-            .map(v => ({key: v.key.trim(), value: v.value}))
-            .filter(v => v.key);
+        const env = formEnvVars(form);
         if (env.length) obj.runner.osProcess.env = env;
     }
 
@@ -354,7 +359,15 @@ export async function validateSelectedCommit(form, scope, commit) {
     if (!repo || !selectedCommit) return;
 
     const sourceKey = sourceValidationKey(form);
-    form.repoCheck.val = {status: 'checking', message: 'Checking repository access…', repo, sourceType, sourceKey};
+    const previous = form.repoCheck.val;
+    form.repoCheck.val = {
+        ...previous,
+        status: 'checking',
+        message: previous.message || 'Checking repository access…',
+        repo,
+        sourceType,
+        sourceKey,
+    };
     try {
         const res = await capi.postV1RepoValidate(buildValidateSourceRequest(form, {scope, commit: selectedCommit}));
         form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKey);
@@ -601,6 +614,7 @@ function envSummary(form) {
             return n === 0 ? "No environment variables" : `${n} environment variable${n === 1 ? '' : 's'}`;
         }),
         button({
+            "data-testid": "deployment-env-vars-toggle",
             type: "button",
             class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
             onclick: () => { form.envPaneOpen.val = !form.envPaneOpen.val; },
@@ -631,6 +645,7 @@ export function envVarsPane(form) {
             {class: "flex-1 min-h-0 flex flex-col gap-2 p-4"},
             p({class: "text-[11px] text-gray-500"}, "One variable per line, as KEY=value."),
             textarea({
+                "data-testid": "deployment-env-vars-textarea",
                 class: "flex-1 min-h-0 w-full resize-none rounded-lg bg-gray-800 text-gray-100 border border-gray-600 px-3 py-2 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand",
                 spellcheck: "false",
                 placeholder: "DATABASE_URL=postgres://...\nLOG_LEVEL=info",
@@ -646,6 +661,12 @@ export function envVarsPane(form) {
 
 function envVarCount(arr) {
     return (arr || []).filter(v => v && v.key && v.key.trim()).length;
+}
+
+function formEnvVars(form) {
+    return form.envVars.val
+        .map(v => ({key: v.key.trim(), value: v.value}))
+        .filter(v => v.key);
 }
 
 function envVarsToText(arr) {

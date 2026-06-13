@@ -143,6 +143,7 @@ install_primary() {
 	else
 		docker exec "$PRIMARY_NAME" opendeploy install primary --version "$VERSION" --http-only true --web-listen :8080
 	fi
+	configure_github_token "$PRIMARY_NAME"
 	# Ubuntu's Nix daemon socket directory is restricted to nix-users.
 	docker exec "$PRIMARY_NAME" usermod -aG nix-users opendeploy
 	docker exec "$PRIMARY_NAME" systemctl start opendeploy.service
@@ -155,9 +156,21 @@ install_secondary() {
 	else
 		docker exec "$SECONDARY_NAME" opendeploy install secondary --version "$VERSION" --cluster-addr "$PRIMARY_NAME:9443" --enrollment-addr "$PRIMARY_NAME:9444"
 	fi
+	configure_github_token "$SECONDARY_NAME"
 	# Ubuntu's Nix daemon socket directory is restricted to nix-users.
 	docker exec "$SECONDARY_NAME" usermod -aG nix-users opendeploy
 	docker exec "$SECONDARY_NAME" systemctl start opendeploy.service
+}
+
+configure_github_token() {
+	local name=$1
+	if [[ -z "${OPENDEPLOY_GITHUB_TOKEN:-}" ]]; then
+		return
+	fi
+	docker exec -e OPENDEPLOY_GITHUB_TOKEN="$OPENDEPLOY_GITHUB_TOKEN" "$name" bash -lc '
+		set -euo pipefail
+		printf "\nOPENDEPLOY_GITHUB_TOKEN=%q\n" "$OPENDEPLOY_GITHUB_TOKEN" >> /etc/opendeploy/env
+	'
 }
 
 install_primary

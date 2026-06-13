@@ -33,6 +33,17 @@ export function createOverlay(onClose, onCreated) {
     const selectedVersionSourceKey = van.state('');
     const loadingVersions = van.state(false);
 
+    van.derive(() => {
+        const check = form.repoCheck.val;
+        const key = sourceKey(form);
+        if (check.status !== 'ok' || check.sourceKey !== key) return;
+        const versions = Object.values(check.versionsByScope || {}).flatMap(scope => scope?.versions || []);
+        if (versions.length === 0) return;
+        if (selectedVersionSourceKey.val === key && versions.some(v => v.id === selectedVersion.val)) return;
+        selectedVersion.val = versions[0].id;
+        selectedVersionSourceKey.val = key;
+    });
+
     const loadMachines = async () => {
         try {
             const res = await capi.getV1ClusterStatus();
@@ -105,7 +116,6 @@ export function createOverlay(onClose, onCreated) {
                         environmentOptions: environmentOptions(),
                         machineOptions: machines.val,
                         machineOptionsLoaded: machinesLoaded.val,
-                        executionTitle: "Environment",
                         showRunnerSummary: false,
                     }),
                     () => createVersionSection({
@@ -270,7 +280,7 @@ async function loadSourceVersions(form, selectedScope, selectedVersion, selected
             const nextScope = sourceResult.scope || currentScope(form.repoCheck.val, scope || selectedScope.val);
             selectedScope.val = nextScope;
             const versions = sourceResult.versions || [];
-            if (!versions.some(v => v.id === selectedVersion.val)) {
+            if (selectedVersionSourceKey.val !== sourceKey(form) || !versions.some(v => v.id === selectedVersion.val)) {
                 selectedVersion.val = versions[0]?.id || '';
                 selectedVersionSourceKey.val = selectedVersion.val ? sourceKey(form) : '';
             }
