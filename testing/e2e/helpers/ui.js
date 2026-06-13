@@ -108,7 +108,7 @@ async function setDeploymentEnvVars(dialog, env) {
 
   await byTestId(dialog, 'deployment-env-vars-toggle', dialog.getByRole('button', {name: 'View / edit'})).click();
   const text = entries.map(([key, value]) => `${key}=${value}`).join('\n');
-  await byTestId(dialog, 'deployment-env-vars-textarea', dialog.getByRole('textbox')).fill(text);
+  await dialog.getByTestId('deployment-env-vars-textarea').fill(text);
   await expect(dialog.getByText(`${entries.length} environment variables`)).toBeVisible();
 }
 
