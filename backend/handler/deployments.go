@@ -218,16 +218,24 @@ func validationErr(message string) apigen.ValidationResult {
 
 func sourceAccessOKMessage(in *validateSourceInput) string {
 	if in != nil && in.source == "containerImage" {
-		return "Image accessible."
+		return "Image accessible: " + containerImageRepoURL(in.repo)
 	}
 	return "Repo accessible."
 }
 
 func sourceAccessErrorMessage(in *validateSourceInput) string {
 	if in != nil && in.source == "containerImage" {
-		return "Image not accessible."
+		return "Image not accessible: " + containerImageRepoURL(in.repo)
 	}
 	return "Git repository not accessible."
+}
+
+func containerImageRepoURL(image string) string {
+	repoURL, err := versionprovider.ContainerImageRepositoryURL(image)
+	if err != nil {
+		return image
+	}
+	return repoURL
 }
 
 func validationResponse(in *validateSourceInput, gitResult apigen.ValidationResult, flakeResult apigen.ValidationResult, scopes []string, scope string, versions []*apigen.Version) *apigen.ValidateSourceResponse {
@@ -324,6 +332,7 @@ func validateSourceFromRequest(req *apigen.ValidateSourceRequest) (*validateSour
 	return &validateSourceInput{
 		prepare: &apigen.PrepareConfig{ContainerImage: apigen.ContainerImageConfig{Image: image}},
 		source:  "containerImage",
+		repo:    image,
 	}, nil
 }
 

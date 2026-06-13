@@ -32,6 +32,16 @@ func (ContainerImageVersionProvider) ListVersions(ctx context.Context, cfg *apig
 	if err != nil {
 		return nil, err
 	}
+	if ref.version != "" {
+		ok, err := imageVersionExists(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, fmt.Errorf("image version %q not found", ref.version)
+		}
+		return []*apigen.Version{{ID: ref.version, Label: ref.version}}, nil
+	}
 	tags, err := listImageTags(ctx, ref)
 	if err != nil {
 		return nil, err
@@ -46,6 +56,19 @@ func (ContainerImageVersionProvider) ListVersions(ctx context.Context, cfg *apig
 type imageRepository struct {
 	registry string
 	name     string
+	version  string
+}
+
+func ContainerImageRepositoryURL(raw string) (string, error) {
+	ref, err := parseImageRepository(raw)
+	if err != nil {
+		return "", err
+	}
+	return ref.repositoryURL(), nil
+}
+
+func (r imageRepository) repositoryURL() string {
+	return fmt.Sprintf("https://%s/v2/%s", r.registry, r.name)
 }
 
 func parseImageRepository(raw string) (imageRepository, error) {
@@ -57,6 +80,7 @@ func parseImageRepository(raw string) (imageRepository, error) {
 	image = strings.TrimPrefix(image, "https://")
 	image = strings.TrimPrefix(image, "http://")
 	image = strings.TrimSuffix(image, "/")
+	version := imageTagOrDigest(image)
 	image = stripImageTagOrDigest(image)
 	parts := strings.Split(image, "/")
 	if len(parts) == 0 || parts[0] == "" {
@@ -75,7 +99,19 @@ func parseImageRepository(raw string) (imageRepository, error) {
 	if registry == dockerHubRegistry && len(nameParts) == 1 {
 		nameParts = append([]string{"library"}, nameParts...)
 	}
-	return imageRepository{registry: registry, name: strings.Join(nameParts, "/")}, nil
+	return imageRepository{registry: registry, name: strings.Join(nameParts, "/"), version: version}, nil
+}
+
+func imageTagOrDigest(image string) string {
+	if idx := strings.IndexByte(image, '@'); idx >= 0 {
+		return image[idx+1:]
+	}
+	lastSlash := strings.LastIndexByte(image, '/')
+	lastColon := strings.LastIndexByte(image, ':')
+	if lastColon > lastSlash {
+		return image[lastColon+1:]
+	}
+	return ""
 }
 
 func stripImageTagOrDigest(image string) string {
@@ -96,49 +132,133 @@ func looksLikeRegistry(first string) bool {
 
 func listImageTags(ctx context.Context, ref imageRepository) ([]string, error) {
 	client := http.DefaultClient
-	endpoint := fmt.Sprintf("https://%s/v2/%s/tags/list?n=100", ref.registry, ref.name)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+	nextURL := fmt.Sprintf("%s/tags/list?n=100", ref.repositoryURL())
+	var token string
+	var tags []string
 
-	if resp.StatusCode == http.StatusUnauthorized {
-		challenge := resp.Header.Get("WWW-Authenticate")
-		io.Copy(io.Discard, resp.Body)
-		token, err := registryBearerToken(ctx, client, challenge)
+	for nextURL != "" {
+		resp, err := registryGet(ctx, client, nextURL, token)
 		if err != nil {
 			return nil, err
 		}
-		req, err = http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-		if err != nil {
+		if resp.StatusCode == http.StatusUnauthorized {
+			challenge := resp.Header.Get("WWW-Authenticate")
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			token, err = registryBearerToken(ctx, client, challenge)
+			if err != nil {
+				return nil, err
+			}
+			resp, err = registryGet(ctx, client, nextURL, token)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			resp.Body.Close()
+			return nil, fmt.Errorf("registry tag listing failed: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+
+		var out struct {
+			Tags []string `json:"tags"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			resp.Body.Close()
 			return nil, err
 		}
-		req.Header.Set("Authorization", "Bearer "+token)
-		resp, err = client.Do(req)
+		tags = append(tags, out.Tags...)
+		nextURL = nextRegistryPageURL(nextURL, resp.Header.Get("Link"))
+		resp.Body.Close()
+	}
+
+	sort.Strings(tags)
+	for i, j := 0, len(tags)-1; i < j; i, j = i+1, j-1 {
+		tags[i], tags[j] = tags[j], tags[i]
+	}
+	return tags, nil
+}
+
+func imageVersionExists(ctx context.Context, ref imageRepository) (bool, error) {
+	client := http.DefaultClient
+	manifestURL := fmt.Sprintf("%s/manifests/%s", ref.repositoryURL(), url.PathEscape(ref.version))
+	var token string
+	for attempt := 0; attempt < 2; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
 		if err != nil {
-			return nil, err
+			return false, err
+		}
+		req.Header.Set("Accept", "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return false, err
+		}
+		if resp.StatusCode == http.StatusUnauthorized && token == "" {
+			challenge := resp.Header.Get("WWW-Authenticate")
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			token, err = registryBearerToken(ctx, client, challenge)
+			if err != nil {
+				return false, err
+			}
+			continue
 		}
 		defer resp.Body.Close()
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if resp.StatusCode == http.StatusOK {
+			return true, nil
+		}
+		if resp.StatusCode == http.StatusNotFound {
+			return false, nil
+		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("registry tag listing failed: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return false, fmt.Errorf("registry manifest lookup failed: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
+	return false, fmt.Errorf("registry manifest lookup failed")
+}
 
-	var out struct {
-		Tags []string `json:"tags"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+func registryGet(ctx context.Context, client *http.Client, rawURL string, token string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
 		return nil, err
 	}
-	sort.Strings(out.Tags)
-	return out.Tags, nil
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	return client.Do(req)
+}
+
+func nextRegistryPageURL(currentURL string, linkHeader string) string {
+	if linkHeader == "" {
+		return ""
+	}
+	for _, link := range strings.Split(linkHeader, ",") {
+		section, params, ok := strings.Cut(strings.TrimSpace(link), ";")
+		if !ok || !strings.Contains(params, `rel="next"`) {
+			continue
+		}
+		section = strings.TrimSpace(section)
+		if !strings.HasPrefix(section, "<") || !strings.HasSuffix(section, ">") {
+			continue
+		}
+		next := strings.TrimSuffix(strings.TrimPrefix(section, "<"), ">")
+		if strings.HasPrefix(next, "http://") || strings.HasPrefix(next, "https://") {
+			return next
+		}
+		base, err := url.Parse(currentURL)
+		if err != nil {
+			return ""
+		}
+		rel, err := url.Parse(next)
+		if err != nil {
+			return ""
+		}
+		return base.ResolveReference(rel).String()
+	}
+	return ""
 }
 
 func registryBearerToken(ctx context.Context, client *http.Client, challenge string) (string, error) {

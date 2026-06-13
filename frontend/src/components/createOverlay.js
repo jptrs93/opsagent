@@ -9,6 +9,7 @@ import {
     emptyDeploymentForm,
     envVarsPane,
     formToYaml,
+    imageVersionFromReference,
     isFormValid,
     sectionDivider,
     sourceCheckFromValidation,
@@ -141,6 +142,10 @@ export function createOverlay(onClose, onCreated) {
 }
 
 function createTargetVersion(form, selectedVersion, selectedVersionSourceKey) {
+    if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
+        const explicitVersion = imageVersionFromReference(form.containerImage.val);
+        if (explicitVersion) return explicitVersion;
+    }
     const version = selectedVersion.val.trim();
     if (!version) return '';
     if (selectedVersionSourceKey.val !== sourceKey(form)) return '';
@@ -155,10 +160,23 @@ function createVersionSection(args) {
     const sourceType = args.form.sourceType.val;
     if (sourceType === SOURCE_DOCKER_IMAGE) {
         const imageSet = Boolean(args.form.containerImage.val.trim());
+        const explicitVersion = imageVersionFromReference(args.form.containerImage.val);
         const check = activeRepoCheck(args.form);
         const ready = check.status === 'ok';
         const versions = check.versions || [];
         const selectedVersion = args.selectedVersionSourceKey.val === sourceKey(args.form) ? args.selectedVersion.val : '';
+        if (explicitVersion) {
+            return div(
+                {class: "flex flex-col gap-3"},
+                sectionDivider("Version"),
+                versionMessage(imageSet && check.status !== 'idle' ? versionStatusMessage(args.form, check) : (imageSet ? '' : 'Image not set')),
+                label(
+                    {class: "flex flex-col gap-1 text-xs text-gray-400"},
+                    span(explicitVersion.startsWith('sha256:') ? "Digest from image" : "Tag from image"),
+                    input({class: selectClass(), disabled: true, value: explicitVersion}),
+                ),
+            );
+        }
         return div(
             {class: "flex flex-col gap-3"},
             sectionDivider("Version"),

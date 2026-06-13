@@ -295,6 +295,17 @@ export function sourceValidationKey(form) {
     return `${sourceType}:${repo}:${flake}`;
 }
 
+export function imageVersionFromReference(raw) {
+    let image = (raw || '').trim();
+    image = image.replace(/^docker:\/\//, '').replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const digestIdx = image.indexOf('@');
+    if (digestIdx >= 0) return image.slice(digestIdx + 1);
+    const lastSlash = image.lastIndexOf('/');
+    const lastColon = image.lastIndexOf(':');
+    if (lastColon > lastSlash) return image.slice(lastColon + 1);
+    return '';
+}
+
 export function validationSourceResult(form, res) {
     switch (form.sourceType.val) {
         case SOURCE_NIX:
@@ -718,6 +729,11 @@ function dockerImageField(form) {
         input({
             type: "text",
             "data-testid": "deployment-container-image-input",
+            name: "deployment-container-image",
+            autocomplete: "off",
+            autocapitalize: "none",
+            autocorrect: "off",
+            spellcheck: "false",
             value: form.containerImage.rawVal,
             placeholder: "postgres or ghcr.io/org/app",
             class: () => repoInputClass(activeImageCheck(form).status),

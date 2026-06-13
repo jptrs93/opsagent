@@ -10,6 +10,7 @@ import {
     deploymentForm,
     envVarsPane,
     formToYaml,
+    imageVersionFromReference,
     isFormValid,
     sectionDivider,
     sourceCheckFromValidation,
@@ -38,7 +39,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     const scopes = van.state([]);
     const selectedScope = van.state('');
     const versions = van.state([]);
-    const selectedVersion = van.state(deployment.variant === 'containerImage' ? (deployment.deployedVersion || '') : '');
+    const selectedVersion = van.state(deployment.variant === 'containerImage' ? (imageVersionFromReference(form.containerImage.val) || deployment.deployedVersion || '') : '');
     const loadingVersions = van.state(false);
     const versionError = van.state('');
     const errorMsg = van.state('');
@@ -118,7 +119,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         if (nextYaml !== initialYaml) {
             payload.yamlContent = nextYaml;
         }
-        const targetVersion = selectedVersion.val.trim();
+        const targetVersion = imageVersionFromReference(form.containerImage.val) || selectedVersion.val.trim();
         if (targetVersion) {
             payload.targetVersion = targetVersion;
         }
@@ -187,6 +188,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                     {class: "flex-1 min-h-0 overflow-auto p-4 flex flex-col gap-5"},
                     deploymentForm(form, {identityLocked: true, environmentOptions: environmentOptions()}),
                     hasVersions ? versionSection({
+                        form,
                         scopes,
                         selectedScope,
                         versions,
@@ -253,6 +255,18 @@ function lifecycleButton(args) {
 
 function versionSection(args) {
     if (args.sourceType.val === 'containerImage') {
+        const explicitVersion = imageVersionFromReference(args.form.containerImage.val);
+        if (explicitVersion) {
+            return div(
+                {class: "flex flex-col gap-3"},
+                sectionDivider("Version"),
+                label(
+                    {class: "flex flex-col gap-1 text-xs text-gray-400"},
+                    span(explicitVersion.startsWith('sha256:') ? "Digest from image" : "Tag from image"),
+                    input({class: selectClass(), disabled: true, value: explicitVersion}),
+                ),
+            );
+        }
         const vs = args.versions.val;
         const message = args.loadingVersions.val
             ? "Loading tags..."
