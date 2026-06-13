@@ -2,15 +2,23 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {deploymentsS} from "../state/deployments.js";
 import {spinnerButton} from "./spinnerbutton.js";
-import {deploymentForm, emptyDeploymentForm, envVarsPane, formToYaml, isFormValid} from "./deploymentForm.js";
+import {RefreshCw} from "vanjs-feather";
+import {deploymentForm, emptyDeploymentForm, envVarsPane, formToYaml, isFormValid, sectionDivider} from "./deploymentForm.js";
 
-const { div, span, button, p } = van.tags;
+const { div, span, button, p, label, select, option, input } = van.tags;
+
+const SOURCE_GITHUB = 'githubRelease';
+const SOURCE_DOCKER_IMAGE = 'containerImage';
 
 export function createOverlay(onClose, onCreated) {
     const errorMsg = van.state('');
     const form = emptyDeploymentForm();
     const machines = van.state([]);
     const machinesLoaded = van.state(false);
+    const selectedScope = van.state('');
+    const selectedVersion = van.state('');
+    const selectedVersionSourceKey = van.state('');
+    const loadingVersions = van.state(false);
 
     const loadMachines = async () => {
         try {
@@ -45,7 +53,15 @@ export function createOverlay(onClose, onCreated) {
         }
 
         try {
-            await capi.postV1DeploymentCreate({yamlContent: formToYaml(form)});
+            const cfg = await capi.postV1DeploymentCreate({yamlContent: formToYaml(form)});
+            const targetVersion = createTargetVersion(form, selectedVersion, selectedVersionSourceKey);
+            if (targetVersion && cfg?.id) {
+                await capi.postV1DeploymentUpdate({
+                    deploymentId: cfg.id,
+                    targetVersion,
+                    version: (cfg.version || 0) + 1,
+                });
+            }
         } catch (e) {
             errorMsg.val = e.message || 'Failed to create deployment';
             throw e;
@@ -71,11 +87,22 @@ export function createOverlay(onClose, onCreated) {
             div(
                 {class: "flex-1 min-w-0 flex flex-col"},
                 div(
-                    {class: "flex-1 min-h-0 overflow-auto p-4"},
+                    {class: "flex-1 min-h-0 overflow-auto p-4 flex flex-col gap-5"},
                     () => deploymentForm(form, {
                         environmentOptions: environmentOptions(),
                         machineOptions: machines.val,
                         machineOptionsLoaded: machinesLoaded.val,
+                        executionTitle: "Environment",
+                        showRunnerSummary: false,
+                    }),
+                    () => createVersionSection({
+                        form,
+                        selectedScope,
+                        selectedVersion,
+                        selectedVersionSourceKey,
+                        loadingVersions,
+                        onScopeChange: (scope) => loadSourceVersions(form, selectedScope, selectedVersion, selectedVersionSourceKey, loadingVersions, scope),
+                        onRefresh: () => loadSourceVersions(form, selectedScope, selectedVersion, selectedVersionSourceKey, loadingVersions, selectedScope.val),
                     }),
                 ),
                 () => {
@@ -99,4 +126,199 @@ export function createOverlay(onClose, onCreated) {
     );
 
     return div(backdrop, dialog);
+}
+
+function createTargetVersion(form, selectedVersion, selectedVersionSourceKey) {
+    const version = selectedVersion.val.trim();
+    if (!version) return '';
+    if (selectedVersionSourceKey.val !== sourceKey(form)) return '';
+    if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
+        return form.containerImage.val.trim() ? version : '';
+    }
+    const check = activeRepoCheck(form);
+    if (check.status !== 'ok') return '';
+    const versionsByScope = check.versionsByScope || {};
+    const versions = Object.values(versionsByScope).flatMap(scope => scope?.versions || []);
+    return versions.some(v => v.id === version) ? version : '';
+}
+
+function createVersionSection(args) {
+    const sourceType = args.form.sourceType.val;
+    if (sourceType === SOURCE_DOCKER_IMAGE) {
+        const imageSet = Boolean(args.form.containerImage.val.trim());
+        return div(
+            {class: "flex flex-col gap-3"},
+            sectionDivider("Version"),
+            versionMessage(imageSet ? '' : 'Repository not set'),
+            label(
+                {class: "grid grid-cols-[7rem_1fr] items-center gap-3 text-xs text-gray-400"},
+                span("Tag / digest"),
+                input({
+                    class: selectClass(),
+                    disabled: !imageSet,
+                    value: args.selectedVersion.rawVal,
+                    placeholder: "latest or sha256:...",
+                    oninput: (e) => {
+                        args.selectedVersion.val = e.target.value;
+                        args.selectedVersionSourceKey.val = sourceKey(args.form);
+                    },
+                }),
+            ),
+            refreshRow(true, args.onRefresh),
+        );
+    }
+
+    const check = activeRepoCheck(args.form);
+    const ready = check.status === 'ok';
+    const scopes = check.scopes || [];
+    const scope = currentScope(check, args.selectedScope.val);
+    const versions = ((check.versionsByScope || {})[scope]?.versions) || [];
+    const sourceLabel = sourceType === SOURCE_GITHUB ? "Release" : "Commit";
+    const selectedVersion = args.selectedVersionSourceKey.val === sourceKey(args.form) ? args.selectedVersion.val : '';
+
+    return div(
+        {class: "flex flex-col gap-3"},
+        sectionDivider("Version"),
+        versionMessage(versionStatusMessage(args.form, check)),
+        div(
+            {class: "flex items-center gap-3"},
+            div(
+                {class: "flex-1 flex flex-col gap-3"},
+                sourceType === SOURCE_GITHUB
+                    ? span()
+                    : label(
+                        {class: "grid grid-cols-[7rem_1fr] items-center gap-3 text-xs text-gray-400"},
+                        span("Branch"),
+                        select(
+                            {
+                                class: selectClass(),
+                                disabled: !ready || scopes.length === 0 || args.loadingVersions.val,
+                                onchange: (e) => args.onScopeChange(e.target.value),
+                            },
+                            option({value: '', selected: !scope}, scopes.length ? "Select a branch..." : "No branches loaded"),
+                            ...scopes.map(s => option({value: s, selected: s === scope}, s)),
+                        ),
+                    ),
+                label(
+                    {class: "grid grid-cols-[7rem_1fr] items-center gap-3 text-xs text-gray-400"},
+                    span(sourceLabel),
+                    select(
+                        {
+                            class: selectClass(),
+                            disabled: !ready || args.loadingVersions.val || versions.length === 0,
+                            onchange: (e) => {
+                                args.selectedVersion.val = e.target.value;
+                                args.selectedVersionSourceKey.val = sourceKey(args.form);
+                            },
+                        },
+                        option({value: '', disabled: true, selected: !selectedVersion}, versionPlaceholder(ready, args.loadingVersions.val, versions)),
+                        ...versions.map(v => option({value: v.id, selected: v.id === selectedVersion}, versionLabel(v))),
+                    ),
+                ),
+            ),
+            refreshRow(!ready || args.loadingVersions.val, args.onRefresh),
+        ),
+    );
+}
+
+async function loadSourceVersions(form, selectedScope, selectedVersion, selectedVersionSourceKey, loadingVersions, scope) {
+    const repo = currentRepo(form);
+    if (!repo || form.sourceType.val === SOURCE_DOCKER_IMAGE) return;
+    loadingVersions.val = true;
+    const sourceType = form.sourceType.val;
+    try {
+        const res = await capi.postV1RepoValidate({repo, sourceType, scope: scope || ''});
+        form.repoCheck.val = {
+            status: res.ok ? 'ok' : 'error',
+            message: res.message || (res.ok ? 'Repository is accessible.' : 'Repository not accessible.'),
+            repo,
+            sourceType,
+            scopes: res.scopes || [],
+            versionsByScope: res.versionsByScope || {},
+        };
+        if (res.ok) {
+            const nextScope = currentScope(form.repoCheck.val, scope || selectedScope.val);
+            selectedScope.val = nextScope;
+            const versions = ((res.versionsByScope || {})[nextScope]?.versions) || [];
+            if (!versions.some(v => v.id === selectedVersion.val)) {
+                selectedVersion.val = versions[0]?.id || '';
+                selectedVersionSourceKey.val = selectedVersion.val ? sourceKey(form) : '';
+            }
+        }
+    } catch (e) {
+        form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType};
+    }
+    loadingVersions.val = false;
+}
+
+function activeRepoCheck(form) {
+    const c = form.repoCheck.val;
+    const repo = currentRepo(form);
+    if (!repo || c.sourceType !== form.sourceType.val || c.repo !== repo) {
+        return {status: repo ? 'idle' : 'empty', message: ''};
+    }
+    return c;
+}
+
+function currentRepo(form) {
+    return (form.sourceType.val === SOURCE_GITHUB ? form.githubRepo.val : form.nixRepo.val).trim();
+}
+
+function sourceKey(form) {
+    const source = form.sourceType.val;
+    const id = source === SOURCE_DOCKER_IMAGE ? form.containerImage.val.trim() : currentRepo(form);
+    return `${source}:${id}`;
+}
+
+function currentScope(check, selectedScope) {
+    if (check.status !== 'ok') return '';
+    if (selectedScope && (check.versionsByScope || {})[selectedScope]) return selectedScope;
+    const keys = Object.keys(check.versionsByScope || {});
+    if (keys.length > 0) return keys[0];
+    if ((check.scopes || []).includes('main')) return 'main';
+    return (check.scopes || [])[0] || '';
+}
+
+function versionStatusMessage(form, check) {
+    if (!currentRepo(form)) return 'Repository not set';
+    if (check.status === 'checking') return 'Checking repository access...';
+    if (check.status !== 'ok') return 'Unable to connect to source repository.';
+    return '';
+}
+
+function versionMessage(message) {
+    return message ? p({class: "text-xs text-gray-500"}, message) : span();
+}
+
+function refreshRow(disabled, onRefresh) {
+    return div(
+        {class: "flex items-center self-stretch"},
+        button({
+            class: "inline-flex h-9 items-center justify-center gap-1.5 px-3 rounded-lg text-xs text-gray-300 bg-gray-800 border border-gray-600 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer",
+            disabled,
+            onclick: onRefresh,
+            type: "button",
+            title: "Refresh available versions",
+        }, RefreshCw({size: 12}), "Refresh"),
+    );
+}
+
+function versionPlaceholder(ready, loading, versions) {
+    if (!ready) return "Repository unavailable";
+    if (loading) return "Loading versions...";
+    return versions.length ? "Select a version..." : "No versions loaded";
+}
+
+function versionLabel(v) {
+    const date = v.time instanceof Date && v.time.getTime() > 0
+        ? v.time.toISOString().substring(0, 10)
+        : '';
+    const shortId = v.id.length > 7 && /^[0-9a-f]+$/i.test(v.id) ? v.id.substring(0, 7) : v.id;
+    const labelText = (v.label || '').substring(0, 30);
+    const ellipsis = (v.label || '').length > 30 ? '...' : '';
+    return `${date}\t\t${shortId}\t\t${labelText}${ellipsis}`;
+}
+
+function selectClass() {
+    return "w-full h-9 px-3 rounded-lg bg-gray-800 text-gray-100 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-brand";
 }

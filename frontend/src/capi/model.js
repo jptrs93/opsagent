@@ -382,11 +382,14 @@
  * @typedef {Object} RepoValidateRequest
  * @property {string} repo
  * @property {string} sourceType
+ * @property {string} scope
  */
 /**
  * @typedef {Object} RepoValidateResponse
  * @property {boolean} ok
  * @property {string} message
+ * @property {string[]} scopes
+ * @property {Object.<string, ScopedVersions>} versionsByScope
  */
 /**
  * @typedef {Object} GithubAssetValidateRequest
@@ -5127,6 +5130,9 @@ export function writeRepoValidateRequest(message, writer) {
     if (message.sourceType !== undefined && message.sourceType !== null && message.sourceType !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.sourceType);
     }
+    if (message.scope !== undefined && message.scope !== null && message.scope !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.scope);
+    }
 }
 
 
@@ -5148,7 +5154,7 @@ export function encodeRepoValidateRequest(message) {
  */
 function decodeRepoValidateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {repo: "", sourceType: "" };
+    const message = {repo: "", sourceType: "", scope: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5158,6 +5164,10 @@ function decodeRepoValidateRequestMessage(reader, length) {
             }
             case 2: {
                 message.sourceType = reader.string();
+                break;
+            }
+            case 3: {
+                message.scope = reader.string();
                 break;
             }
             default:
@@ -5190,6 +5200,24 @@ export function writeRepoValidateResponse(message, writer) {
     if (message.message !== undefined && message.message !== null && message.message !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.message);
     }
+    if (message.scopes && message.scopes.length > 0) {
+        for (const item of message.scopes) {
+            writer.uint32(tag(3, WIRE.LDELIM)).string(item);
+        }
+    }
+    if (message.versionsByScope && Object.keys(message.versionsByScope).length > 0) {
+        for (const [rawKey, value] of Object.entries(message.versionsByScope)) {
+            const key = rawKey;
+            writer.uint32(tag(4, WIRE.LDELIM)).fork();
+            writer.uint32(tag(1, WIRE.LDELIM)).string(key);
+            if (value) {
+                writer.uint32(tag(2, WIRE.LDELIM)).fork();
+                writeScopedVersions(value, writer);
+                writer.ldelim();
+            }
+            writer.ldelim();
+        }
+    }
 }
 
 
@@ -5211,7 +5239,7 @@ export function encodeRepoValidateResponse(message) {
  */
 function decodeRepoValidateResponseMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {ok: false, message: "" };
+    const message = {ok: false, message: "", scopes: [], versionsByScope: {} };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5221,6 +5249,31 @@ function decodeRepoValidateResponseMessage(reader, length) {
             }
             case 2: {
                 message.message = reader.string();
+                break;
+            }
+            case 3: {
+                message.scopes.push(reader.string());
+                break;
+            }
+            case 4: {
+                const end2 = reader.uint32() + reader.pos;
+                let key = "";
+                let value = undefined;
+                while (reader.pos < end2) {
+                    const tag2 = reader.uint32();
+                    switch (tag2 >>> 3) {
+                        case 1:
+                            key = reader.string();
+                            break;
+                        case 2:
+                            value = decodeScopedVersionsMessage(reader, reader.uint32());
+                            break;
+                        default:
+                            reader.skipType(tag2 & 7);
+                    }
+                }
+                if (!message.versionsByScope) { message.versionsByScope = {}; }
+                message.versionsByScope[String(key)] = value;
                 break;
             }
             default:

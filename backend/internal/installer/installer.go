@@ -85,6 +85,7 @@ func parseInstall(args []string) (string, installOptions, error) {
 func parseInstallPrimary(args []string) (string, installOptions, error) {
 	fs := flag.NewFlagSet("install primary", flag.ExitOnError)
 	version := fs.String("version", "latest", "release tag to install (default: latest)")
+	useSelf := fs.Bool("use-self", false, "install this executable as v0.0.0 instead of downloading opendeploy")
 	httpOnlyRaw := fs.String("http-only", "", "set OPENDEPLOY_INITIAL_WEB_HTTP_ONLY (true or false)")
 	webListenRaw := fs.String("web-listen", "", "set OPENDEPLOY_INITIAL_WEB_LISTEN (for example :8080)")
 	acmeHostsRaw := fs.String("acme-hosts", "", "set OPENDEPLOY_INITIAL_ACME_HOSTS (comma-separated hostnames)")
@@ -92,7 +93,7 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 	fs.BoolVar(&dryRun, "dry-run", false, "print the actions that would be taken without performing them")
 	_ = fs.Parse(args)
 
-	opts := installOptions{role: "primary"}
+	opts := installOptions{role: "primary", useSelf: *useSelf}
 	var parseErr error
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
@@ -135,13 +136,14 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 func parseInstallSecondary(args []string) (string, installOptions, error) {
 	fs := flag.NewFlagSet("install secondary", flag.ExitOnError)
 	version := fs.String("version", "latest", "release tag to install (default: latest)")
+	useSelf := fs.Bool("use-self", false, "install this executable as v0.0.0 instead of downloading opendeploy")
 	clusterAddrRaw := fs.String("cluster-addr", "", "set OPENDEPLOY_PRIMARY_CLUSTER_ADDR for the primary mTLS cluster address")
 	enrollmentAddrRaw := fs.String("enrollment-addr", "", "set OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR for the primary enrollment address")
 	primaryNameRaw := fs.String("primary-name", "", "set OPENDEPLOY_PRIMARY_NAME for primary TLS verification (default runtime value: primary)")
 	fs.BoolVar(&dryRun, "dry-run", false, "print the actions that would be taken without performing them")
 	_ = fs.Parse(args)
 
-	opts := installOptions{role: "secondary"}
+	opts := installOptions{role: "secondary", useSelf: *useSelf}
 	var parseErr error
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
@@ -191,8 +193,8 @@ func usage(prog string) {
 	fmt.Fprintf(os.Stderr, `%[1]s install / uninstall — provision, upgrade, and remove opendeploy
 
 Usage:
-  %[1]s install primary [--version vX.Y.Z] [--http-only true] [--web-listen :8080] [--acme-hosts host1,host2] [--primary-name primary] [--dry-run]
-  %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 [--version vX.Y.Z] [--primary-name primary] [--dry-run]
+  %[1]s install primary [--version vX.Y.Z] [--use-self] [--http-only true] [--web-listen :8080] [--acme-hosts host1,host2] [--primary-name primary] [--dry-run]
+  %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 [--version vX.Y.Z] [--use-self] [--primary-name primary] [--dry-run]
   %[1]s uninstall [--purge] [--yes] [--dry-run]
 
 Commands:

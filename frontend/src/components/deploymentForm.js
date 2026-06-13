@@ -88,6 +88,8 @@ export function deploymentForm(form, opts = {}) {
     const machineOptions = opts.machineOptions || [];
     const machineOptionValues = machineOptions.map(m => typeof m === 'string' ? m : m.name).filter(Boolean);
     const machineOptionsLoaded = opts.machineOptionsLoaded !== false;
+    const executionTitle = opts.executionTitle || "Execution";
+    const showRunnerSummary = opts.showRunnerSummary !== false;
 
     return div(
         {class: "flex flex-col gap-5"},
@@ -155,10 +157,10 @@ export function deploymentForm(form, opts = {}) {
                 ? optionsDisclosure(form.showSourceOpts, () => sourceOptions(form))
                 : span(),
         ),
-        sectionDivider("Execution"),
+        sectionDivider(executionTitle),
         div(
             {class: "flex flex-col gap-3"},
-            () => runnerSummary(form),
+            () => showRunnerSummary ? runnerSummary(form) : span(),
             () => form.runnerType.val === RUNNER_CONTAINER
                 ? p({class: "text-xs text-gray-500"}, "Runs the prepared image with the container runner. Edit YAML for container env, command, mounts, or data volume options.")
                 : div(
@@ -626,6 +628,8 @@ async function validateRepo(form) {
             message: res.message || (res.ok ? 'Repository is accessible.' : 'Repository not accessible.'),
             repo,
             sourceType,
+            scopes: res.scopes || [],
+            versionsByScope: res.versionsByScope || {},
         };
     } catch (e) {
         form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType};

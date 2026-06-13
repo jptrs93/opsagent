@@ -141,9 +141,11 @@ var InvalidSourceTypeErr = apigen.NewApiErr("Invalid source type", "invalid_sour
 // PostV1RepoValidate checks that a repo is reachable and authorized for the
 // given source type. It reuses the version providers (git ls-remote / GitHub
 // API), so a successful listing implies the configured credentials grant
-// access. The returned message is intentionally generic — underlying errors are
-// logged server-side rather than surfaced, since they can be noisy and the
-// clone URL embeds the GitHub token.
+// access. On success it also returns the first page of versions so the create UI
+// can select an initial deployment version before the deployment exists. The
+// returned message is intentionally generic — underlying errors are logged
+// server-side rather than surfaced, since they can be noisy and the clone URL
+// embeds the GitHub token.
 func (h *Handler) PostV1RepoValidate(ctx apigen.Context, req *apigen.RepoValidateRequest) (*apigen.RepoValidateResponse, error) {
 	repo := strings.TrimSpace(req.Repo)
 	if repo == "" {
@@ -167,13 +169,7 @@ func (h *Handler) PostV1RepoValidate(ctx apigen.Context, req *apigen.RepoValidat
 		return &apigen.RepoValidateResponse{Ok: false, Message: "Unsupported source type."}, nil
 	}
 
-	// For git/nix, listing branches hits the remote; for github releases the
-	// scope list is a no-op, so list versions to actually exercise the API.
-	if !prepare.GithubRelease.IsZero() {
-		_, err = provider.ListVersions(ctx, prepare, "")
-	} else {
-		_, err = provider.ListScopes(ctx, prepare)
-	}
+	scopes, err := provider.ListScopes(ctx, prepare)
 	if err != nil {
 		slog.Warn("repo validation failed", "repo", repo, "sourceType", req.SourceType, "err", err)
 		return &apigen.RepoValidateResponse{
@@ -182,7 +178,32 @@ func (h *Handler) PostV1RepoValidate(ctx apigen.Context, req *apigen.RepoValidat
 		}, nil
 	}
 
-	return &apigen.RepoValidateResponse{Ok: true, Message: "Repository is accessible."}, nil
+	versionsByScope := make(map[string]*apigen.ScopedVersions)
+	scope := strings.TrimSpace(req.Scope)
+	if !prepare.GithubRelease.IsZero() {
+		scope = ""
+	} else if scope == "" {
+		scope = "main"
+		if !containsString(scopes, scope) && len(scopes) > 0 {
+			scope = scopes[0]
+		}
+	}
+	versions, err := provider.ListVersions(ctx, prepare, scope)
+	if err != nil {
+		slog.Warn("repo validation failed", "repo", repo, "sourceType", req.SourceType, "err", err)
+		return &apigen.RepoValidateResponse{
+			Ok:      false,
+			Message: "Repository not found or not accessible. Check the URL and that the configured GitHub token grants access.",
+		}, nil
+	}
+	versionsByScope[scope] = &apigen.ScopedVersions{Versions: versions}
+
+	return &apigen.RepoValidateResponse{
+		Ok:              true,
+		Message:         "Repository is accessible.",
+		Scopes:          scopes,
+		VersionsByScope: versionsByScope,
+	}, nil
 }
 
 // PostV1GithubAssetValidate checks that a named release asset exists in at least

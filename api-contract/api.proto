@@ -654,11 +654,14 @@ message DeploymentVersionsRequest {
 message RepoValidateRequest {
   string repo = 1;         // e.g. "github.com/owner/repo"
   string source_type = 2;  // "nixBuild" or "githubRelease"
+  string scope = 3;        // optional branch/scope whose versions should be listed
 }
 
 message RepoValidateResponse {
   bool ok = 1;
   string message = 2;  // human-readable result, safe to display to the user
+  repeated string scopes = 3;
+  map<string, ScopedVersions> versions_by_scope = 4;
 }
 
 // GithubAssetValidateRequest checks that a named release asset exists in a

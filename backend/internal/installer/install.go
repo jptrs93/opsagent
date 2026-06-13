@@ -26,6 +26,7 @@ type staged struct {
 // rather than leaving a half-provisioned machine.
 type installOptions struct {
 	role           string
+	useSelf        bool
 	httpOnly       *bool
 	webListen      *string
 	acmeHosts      *string
@@ -48,7 +49,9 @@ func doInstall(version string, opts installOptions) error {
 	if err := preflight(upgrade); err != nil {
 		return err
 	}
-	if version == "" || version == "latest" {
+	if opts.useSelf {
+		version = "v0.0.0"
+	} else if version == "" || version == "latest" {
 		step("Resolving latest release")
 		version, err = resolveLatestTag()
 		if err != nil {
@@ -66,7 +69,7 @@ func doInstall(version string, opts installOptions) error {
 	// Phase 1 — stage. Runtime binaries are provisioned root-only, so an
 	// unprivileged upgrade skips staging them.
 	withRuntime := isRoot() || dryRun
-	st, err := stageAll(version, arch, tmp, withRuntime)
+	st, err := stageAll(version, arch, tmp, withRuntime, opts.useSelf)
 	if err != nil {
 		return err
 	}
@@ -80,12 +83,20 @@ func doInstall(version string, opts installOptions) error {
 
 // stageAll (phase 1) downloads + verifies the agent binary and, when requested,
 // every runtime dep, into tmp. Nothing on the host is touched.
-func stageAll(version, arch, tmp string, withRuntime bool) (*staged, error) {
-	step("Phase 1/2 — downloading and verifying binaries (linux/%s)", arch)
+func stageAll(version, arch, tmp string, withRuntime bool, useSelf bool) (*staged, error) {
+	if useSelf {
+		step("Phase 1/2 — staging current binary and verifying runtime deps (linux/%s)", arch)
+	} else {
+		step("Phase 1/2 — downloading and verifying binaries (linux/%s)", arch)
+	}
 	st := &staged{}
 
 	var err error
-	st.agentBin, err = stageAgent(version, arch, tmp)
+	if useSelf {
+		st.agentBin, err = stageSelfAgent(tmp)
+	} else {
+		st.agentBin, err = stageAgent(version, arch, tmp)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -102,6 +113,23 @@ func stageAll(version, arch, tmp string, withRuntime bool) (*staged, error) {
 		info("skipping container runtime (needs root)")
 	}
 	return st, nil
+}
+
+func stageSelfAgent(tmp string) (string, error) {
+	self, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolving current executable: %w", err)
+	}
+	self, err = filepath.EvalSymlinks(self)
+	if err != nil {
+		return "", fmt.Errorf("resolving current executable symlink: %w", err)
+	}
+	dst := filepath.Join(tmp, "opendeploy-self")
+	if err := installBinary(self, dst, 0o755, noChown); err != nil {
+		return "", fmt.Errorf("staging current executable %s: %w", self, err)
+	}
+	info("using current executable %s as v0.0.0", self)
+	return dst, nil
 }
 
 // preflight enforces the same permission rules as the shell installer: fresh

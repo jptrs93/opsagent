@@ -20,6 +20,15 @@ Select one or more flow files with a comma-separated list:
 FLOWS=bootstrap-enroll-nixdocker RESET=false bash testing/e2e/run.sh
 ```
 
+To test local backend/frontend changes without publishing a release first, pass
+`USE_SELF=true`. The install harness builds the local checkout, copies it into
+the test containers, and installs it as `v0.0.0` with `opendeploy install
+--use-self`:
+
+```sh
+USE_SELF=true bash testing/e2e/run.sh
+```
+
 Flows run in the primary container's network namespace by default and target
 `http://localhost:8080`. This keeps WebAuthn on the same origin the HTTP-only
 server allows for passkeys.

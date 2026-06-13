@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Spin up systemd containers and run `opendeploy install` from a GitHub release
-# binary. This intentionally does not build or copy any local opendeploy binary;
-# the bootstrap installer and installed services both come from release artifacts.
+# Spin up systemd containers and run `opendeploy install`. By default this uses a
+# GitHub release binary. Set USE_SELF=true to build the local checkout, copy that
+# binary into each container, and install it as v0.0.0 with `--use-self`.
 #
 # Usage:
 #   ./run.sh
@@ -24,6 +24,8 @@ PRIMARY_VOLUME=opendeploy-primary-containerd
 SECONDARY_VOLUME=opendeploy-secondary-containerd
 REPO=jptrs93/opsagent
 VERSION=v0.0.123
+USE_SELF=${USE_SELF:-false}
+SELF_VERSION=v0.0.0
 
 docker_arch=$(docker version --format '{{.Server.Arch}}')
 case "$docker_arch" in
@@ -38,6 +40,27 @@ case "$docker_arch" in
 		exit 1
 		;;
 esac
+
+SELF_BIN="$(pwd)/.tmp/opendeploy-linux-${ARCH}"
+
+build_self_opendeploy() {
+	if [[ "$USE_SELF" != "true" ]]; then
+		return
+	fi
+
+	echo "==> Building local opendeploy ${SELF_VERSION} for linux/${ARCH}"
+	(
+		cd ../frontend
+		pnpm run build
+	)
+	mkdir -p "$(dirname "$SELF_BIN")"
+	(
+		cd ../backend
+		CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -trimpath -ldflags="-s -w -X main.version=${SELF_VERSION}" -o "$SELF_BIN" .
+	)
+}
+
+build_self_opendeploy
 
 echo "==> Building systemd container image"
 docker build -t "$IMG" .
@@ -94,6 +117,12 @@ wait_for_systemd "$SECONDARY_NAME"
 
 download_opendeploy() {
 	local name=$1
+	if [[ "$USE_SELF" == "true" ]]; then
+		echo "==> Copying local opendeploy ${SELF_VERSION} for linux/${ARCH} into ${name}"
+		docker cp "$SELF_BIN" "$name:/usr/local/bin/opendeploy"
+		docker exec "$name" chmod 0755 /usr/local/bin/opendeploy
+		return
+	fi
 	echo "==> Downloading opendeploy ${VERSION} for linux/${ARCH} in ${name}"
 	docker exec \
 		-e OPD_REPO="$REPO" \
@@ -109,7 +138,11 @@ download_opendeploy() {
 
 install_primary() {
 	download_opendeploy "$PRIMARY_NAME"
-	docker exec "$PRIMARY_NAME" opendeploy install primary --version "$VERSION" --http-only true --web-listen :8080
+	if [[ "$USE_SELF" == "true" ]]; then
+		docker exec "$PRIMARY_NAME" opendeploy install primary --use-self --http-only true --web-listen :8080
+	else
+		docker exec "$PRIMARY_NAME" opendeploy install primary --version "$VERSION" --http-only true --web-listen :8080
+	fi
 	# Ubuntu's Nix daemon socket directory is restricted to nix-users.
 	docker exec "$PRIMARY_NAME" usermod -aG nix-users opendeploy
 	docker exec "$PRIMARY_NAME" systemctl start opendeploy.service
@@ -117,7 +150,11 @@ install_primary() {
 
 install_secondary() {
 	download_opendeploy "$SECONDARY_NAME"
-	docker exec "$SECONDARY_NAME" opendeploy install secondary --version "$VERSION" --cluster-addr "$PRIMARY_NAME:9443" --enrollment-addr "$PRIMARY_NAME:9444"
+	if [[ "$USE_SELF" == "true" ]]; then
+		docker exec "$SECONDARY_NAME" opendeploy install secondary --use-self --cluster-addr "$PRIMARY_NAME:9443" --enrollment-addr "$PRIMARY_NAME:9444"
+	else
+		docker exec "$SECONDARY_NAME" opendeploy install secondary --version "$VERSION" --cluster-addr "$PRIMARY_NAME:9443" --enrollment-addr "$PRIMARY_NAME:9444"
+	fi
 	# Ubuntu's Nix daemon socket directory is restricted to nix-users.
 	docker exec "$SECONDARY_NAME" usermod -aG nix-users opendeploy
 	docker exec "$SECONDARY_NAME" systemctl start opendeploy.service

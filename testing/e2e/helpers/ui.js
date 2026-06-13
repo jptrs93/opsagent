@@ -51,9 +51,7 @@ export async function createNixDockerDeployment(page, {
   await byTestId(dialog, 'deployment-source-type-select', selectField(dialog, 'Source type')).selectOption('nixDockerBuild');
   await byTestId(dialog, 'deployment-repo-input', textField(dialog, 'Repository')).fill(repo);
   await byTestId(dialog, 'deployment-flake-input', textField(dialog, 'Flake')).fill(flake);
-  const runnerType = byTestId(dialog, 'deployment-runner-type-select', selectField(dialog, 'Runner type'));
-  await runnerType.selectOption('container');
-  await expect(runnerType).toHaveValue('container');
+  await expect(dialog.getByText('Runs the prepared image with the container runner.')).toBeVisible();
   await byTestId(dialog, 'create-deployment-submit', dialog.getByRole('button', {name: 'Create'})).click();
 
   const row = byTestId(page, `deployment-row-${name}`, page.locator('tr').filter({hasText: name}).filter({hasText: machine}));

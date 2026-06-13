@@ -3314,12 +3314,14 @@ func DecodeDeploymentVersionsRequest(b []byte) (*DeploymentVersionsRequest, erro
 type RepoValidateRequest struct {
 	Repo       string
 	SourceType string
+	Scope      string
 }
 
 func (m *RepoValidateRequest) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Repo, 1)
 	b = AppendStringField(b, m.SourceType, 2)
+	b = AppendStringField(b, m.Scope, 3)
 	return b
 }
 
@@ -3338,6 +3340,8 @@ func DecodeRepoValidateRequest(b []byte) (*RepoValidateRequest, error) {
 			b, m.Repo, err = ConsumeString(b, typ)
 		case 2:
 			b, m.SourceType, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Scope, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3349,14 +3353,18 @@ func DecodeRepoValidateRequest(b []byte) (*RepoValidateRequest, error) {
 }
 
 type RepoValidateResponse struct {
-	Ok      bool
-	Message string
+	Ok              bool
+	Message         string
+	Scopes          []string
+	VersionsByScope map[string]*ScopedVersions
 }
 
 func (m *RepoValidateResponse) Encode() []byte {
 	var b []byte
 	b = AppendBoolField(b, m.Ok, 1)
 	b = AppendStringField(b, m.Message, 2)
+	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 3))
+	b = AppendMap(b, m.VersionsByScope, 4, AppendFieldDecorator(AppendStringField, 1), AppendMessageFieldDecorator[*ScopedVersions](2))
 	return b
 }
 
@@ -3375,6 +3383,17 @@ func DecodeRepoValidateResponse(b []byte) (*RepoValidateResponse, error) {
 			b, m.Ok, err = ConsumeBool(b, typ)
 		case 2:
 			b, m.Message, err = ConsumeString(b, typ)
+		case 3:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Scopes = append(m.Scopes, item)
+			}
+		case 4:
+			if m.VersionsByScope == nil {
+				m.VersionsByScope = make(map[string]*ScopedVersions)
+			}
+			b, err = ConsumeMapEntry(b, typ, m.VersionsByScope, ConsumeString, ConsumeMessageDecorator(DecodeScopedVersions))
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
