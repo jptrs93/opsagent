@@ -3040,7 +3040,7 @@ type DeploymentUpdateRequest struct {
 	TargetVersion string
 	Stop          bool
 	Version       int32
-	YamlContent   string
+	Spec          DeploymentSpec
 }
 
 func (m *DeploymentUpdateRequest) Encode() []byte {
@@ -3049,7 +3049,10 @@ func (m *DeploymentUpdateRequest) Encode() []byte {
 	b = AppendStringField(b, m.TargetVersion, 2)
 	b = AppendBoolField(b, m.Stop, 3)
 	b = AppendInt32Field(b, m.Version, 4)
-	b = AppendStringField(b, m.YamlContent, 6)
+	if !m.Spec.IsZero() {
+		b = protowire.AppendTag(b, 6, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.Spec.Encode())
+	}
 	return b
 }
 
@@ -3058,6 +3061,7 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 	var num protowire.Number
 	var typ protowire.Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -3073,7 +3077,14 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 		case 4:
 			b, m.Version, err = ConsumeVarInt32(b, typ)
 		case 6:
-			b, m.YamlContent, err = ConsumeString(b, typ)
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentSpec
+				item, err = DecodeDeploymentSpec(msgBytes)
+				if err == nil {
+					m.Spec = *item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3085,12 +3096,20 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 }
 
 type DeploymentCreateRequest struct {
-	YamlContent string
+	ConfigID DeploymentIdentifier
+	Spec     DeploymentSpec
 }
 
 func (m *DeploymentCreateRequest) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.YamlContent, 1)
+	if !m.ConfigID.IsZero() {
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.ConfigID.Encode())
+	}
+	if !m.Spec.IsZero() {
+		b = protowire.AppendTag(b, 2, protowire.BytesType)
+		b = protowire.AppendBytes(b, m.Spec.Encode())
+	}
 	return b
 }
 
@@ -3099,6 +3118,7 @@ func DecodeDeploymentCreateRequest(b []byte) (*DeploymentCreateRequest, error) {
 	var num protowire.Number
 	var typ protowire.Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -3106,7 +3126,23 @@ func DecodeDeploymentCreateRequest(b []byte) (*DeploymentCreateRequest, error) {
 		}
 		switch num {
 		case 1:
-			b, m.YamlContent, err = ConsumeString(b, typ)
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentIdentifier
+				item, err = DecodeDeploymentIdentifier(msgBytes)
+				if err == nil {
+					m.ConfigID = *item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentSpec
+				item, err = DecodeDeploymentSpec(msgBytes)
+				if err == nil {
+					m.Spec = *item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

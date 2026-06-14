@@ -11,7 +11,6 @@ require (
 	github.com/opencontainers/runtime-spec v1.3.0
 	golang.org/x/crypto v0.49.0
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
-	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.51.0
 )
 

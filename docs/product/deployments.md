@@ -3,7 +3,7 @@
 ## Overview
 
 OpenDeploy manages deployment configurations and deployment lifecycles. Users
-create each deployment individually with a per-deployment YAML spec. The
+create each deployment individually through typed protobuf API messages. The
 system fetches available versions (git commits for nix builds, tag names
 for github releases) on demand, prepares artifacts (builds, downloads, pulls,
 or imports images), and supervises running processes with automatic crash
@@ -16,26 +16,36 @@ Each deployment has two explicit steps:
 - **`prepare`** — produces an executable on disk or an image in containerd. Pick exactly one variant.
 - **`runner`** — runs the executable or image. Optional; defaults to `osProcess` for executable prepares and `container` for image prepares.
 
-A deployment is created from a single YAML document posted to
+A deployment is created by posting a `DeploymentCreateRequest` to
 `POST /v1/deployment/create`:
 
-```yaml
-name: coflip_server
-environment: PROD
-machine: 192.168.1.100
-prepare:
-  nixBuild:
-    repo: github.com/org/repo
-    flake: nix/server/flake.nix
-    outputExecutable: coflip_server
-runner:
-  osProcess:
-    workingDir: /var/lib/coflip
-    runAs: coflip
+```json
+{
+  "configId": {
+    "name": "coflip_server",
+    "environment": "PROD",
+    "machine": "192.168.1.100"
+  },
+  "spec": {
+    "prepare": {
+      "nixBuild": {
+        "repo": "github.com/org/repo",
+        "flake": "nix/server/flake.nix",
+        "outputExecutable": "coflip_server"
+      }
+    },
+    "runner": {
+      "osProcess": {
+        "workingDir": "/var/lib/coflip",
+        "runAs": "coflip"
+      }
+    }
+  }
+}
 ```
 
-The spec of an existing deployment is updated by posting YAML in the
-`yaml_content` field of `POST /v1/deployment/update`; the `name`,
+The spec of an existing deployment is updated by posting the typed `spec` field
+in `POST /v1/deployment/update`; the `name`,
 `environment`, and `machine` identity fields are fixed at create time and
 cannot be changed through this path.
 
@@ -99,16 +109,16 @@ card carries a per-environment tinted background and displays:
 - Stop/Start buttons
 - Two-column info panel: deployment info (deployed by, deployed at, version) and runtime info (restart count, last restart time)
 - Prepare status with link to prepare output (build log for nix, download log for github release)
-- "Update" button that opens an overlay for version selection and optional per-deployment YAML edits
+- "Update" button that opens an overlay for version selection and optional deployment spec edits
 
 ## Deploy workflow
 
 1. The user clicks "Update" on a card. The overlay fetches available
    versions via `POST /v1/deployment/versions` — 25 most recent commits
    per scope for nix (scopes are branches), all releases for github release.
-2. The user picks a version (and optionally edits the YAML spec) and submits.
+2. The user picks a version (and optionally edits the deployment spec) and submits.
 3. The frontend calls `POST /v1/deployment/update` with the target version
-   and, if the spec was edited, the new `yaml_content`.
+   and, if the spec was edited, the new typed `spec`.
 4. The backend writes the new spec (if any), sets `DesiredState`
    (version, running=true), and bumps `DeploymentConfig.Version`.
 5. The operator's reconciliation loop picks up the change and starts a
@@ -137,4 +147,4 @@ The history sidebar shows a chronological log of all deployment config and statu
 
 ## Empty state
 
-When no deployments exist, the status page displays "No deployments configured. Create a deployment config first." Clicking "Add deployment" opens an overlay with a per-deployment YAML template.
+When no deployments exist, the status page displays "No deployments configured. Create a deployment config first." Clicking "Add deployment" opens the typed deployment form.

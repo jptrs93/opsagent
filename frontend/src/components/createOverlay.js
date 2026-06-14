@@ -10,7 +10,8 @@ import {
     deploymentForm,
     emptyDeploymentForm,
     envVarsPane,
-    formToYaml,
+    formToDeploymentIdentifier,
+    formToSpec,
     imageVersionFromReference,
     isFormValid,
     sectionDivider,
@@ -86,12 +87,15 @@ export function createOverlay(onClose, onCreated) {
     const doCreate = async () => {
         errorMsg.val = '';
         if (!isFormValid(form, {machineOptions: machines.val})) {
-            errorMsg.val = 'Name, machine, binary source, and required execution fields must be set.';
+            errorMsg.val = 'Name, machine, artifact source, and required execution fields must be set.';
             throw new Error(errorMsg.val);
         }
 
         try {
-            const cfg = await capi.postV1DeploymentCreate({yamlContent: formToYaml(form)});
+            const cfg = await capi.postV1DeploymentCreate({
+                configId: formToDeploymentIdentifier(form),
+                spec: formToSpec(form),
+            });
             const targetVersion = createTargetVersion(form, selectedVersion, selectedVersionSourceKey);
             if (targetVersion && cfg?.id) {
                 await capi.postV1DeploymentUpdate({
@@ -120,7 +124,7 @@ export function createOverlay(onClose, onCreated) {
         {class: "fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 pointer-events-none", "data-testid": "create-deployment-dialog"},
         div(
             {class: "bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-row overflow-hidden pointer-events-auto",
-             style: () => `width: ${form.envPaneOpen.val || form.assetMountsPaneOpen.val || form.volumeMountsPaneOpen.val || form.assetEditorOpen.val ? 1360 : 960}px; max-width: calc(100vw - 2rem); max-height: 88vh;`,
+             style: () => `width: ${form.envPaneOpen.val || form.assetMountsPaneOpen.val || form.volumeMountsPaneOpen.val || form.assetEditorOpen.val ? 1560 : 1120}px; max-width: calc(100vw - 1rem); max-height: 88vh;`,
              onclick: (e) => e.stopPropagation()},
             div(
                 {class: "flex-1 min-w-0 flex flex-col"},
@@ -378,5 +382,5 @@ function versionLabel(v) {
 }
 
 function selectClass() {
-    return "w-full h-9 px-3 rounded-lg bg-gray-800 text-gray-100 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-brand";
+    return "w-full h-9 px-3 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand";
 }

@@ -17,8 +17,6 @@ let nextEnvID = 1;
 let nextAssetMountID = 1;
 let nextVolumeMountID = 1;
 
-const CREATE_ASSET_OPTION = "Create new asset";
-
 export function emptyDeploymentForm() {
     return makeFormState({
         name: '',
@@ -89,7 +87,10 @@ export function deploymentConfigToForm(cfg) {
         containerDataMountPath: container.dataMountPath || '',
         containerDisableDataVolume: Boolean(container.disableDataVolume),
         envVars: ((imagePrepare ? container.env : os.env) || []).map(e => ({id: nextEnvID++, key: e.key || '', value: e.value || ''})),
-        assetMounts: (container.assetMounts || []).map(m => ({id: nextAssetMountID++, assetId: m.assetId || 0, key: m.asset || '', path: m.path || '', version: m.version || 0})),
+        assetMounts: (container.assetMounts || []).map(m => {
+            const row = {id: nextAssetMountID++, assetId: m.assetId || 0, key: m.asset || '', path: m.path || '', version: m.version || 0};
+            return {...row, originalAssetId: row.assetId, originalKey: row.key, originalPath: row.path, originalVersion: row.version};
+        }),
         volumeMounts: (container.mounts || []).map(m => ({id: nextVolumeMountID++, host: m.host || '', container: m.container || '', readonly: Boolean(m.readonly)})),
         showSourceOpts,
         showExecOpts,
@@ -156,7 +157,7 @@ export function deploymentForm(form, opts = {}) {
                 ? span({class: "text-xs text-red-400 -mb-2"}, "Deployment identity is fixed after creation.")
                 : '',
         ),
-        sectionDivider("Binary source"),
+        sectionDivider("Artifact source"),
         div(
             {class: "flex flex-col gap-3"},
             div(
@@ -193,34 +194,38 @@ export function deploymentForm(form, opts = {}) {
     );
 }
 
-export function formToYaml(form) {
-    const obj = {
+export function formToDeploymentIdentifier(form) {
+    return {
         name: form.name.val.trim(),
+        environment: form.environment.val.trim(),
         machine: form.machine.val.trim(),
+    };
+}
+
+export function formToSpec(form) {
+    const spec = {
         prepare: {},
         runner: {},
     };
-    const environment = form.environment.val.trim();
-    if (environment) obj.environment = environment;
 
     if (form.sourceType.val === SOURCE_GITHUB) {
-        obj.prepare.githubRelease = {
+        spec.prepare.githubRelease = {
             repo: form.githubRepo.val.trim(),
             asset: form.githubAsset.val.trim(),
             tag: form.githubTag.val.trim(),
             downloadScript: form.githubDownloadScript.val.replace(/\s+$/, ''),
         };
     } else if (form.sourceType.val === SOURCE_NIX_DOCKER) {
-        obj.prepare.nixDockerBuild = {
+        spec.prepare.nixDockerBuild = {
             repo: form.nixRepo.val.trim(),
             flake: form.nixFlake.val.trim(),
         };
     } else if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
-        obj.prepare.containerImage = {
+        spec.prepare.containerImage = {
             image: form.containerImage.val.trim(),
         };
     } else {
-        obj.prepare.nixBuild = {
+        spec.prepare.nixBuild = {
             repo: form.nixRepo.val.trim(),
             flake: form.nixFlake.val.trim(),
             outputExecutable: form.nixOutputExecutable.val.trim(),
@@ -230,35 +235,35 @@ export function formToYaml(form) {
     const runnerType = runnerForSource(form.sourceType.val);
 
     if (runnerType === RUNNER_SYSTEMD) {
-        obj.runner.systemd = {
+        spec.runner.systemd = {
             name: form.systemdName.val.trim(),
             binPath: form.systemdBinPath.val.trim(),
         };
     } else if (runnerType === RUNNER_CONTAINER) {
-        obj.runner.container = {
+        spec.runner.container = {
             disableDataVolume: Boolean(form.containerDisableDataVolume.val),
         };
         const user = form.containerUser.val.trim();
-        if (user) obj.runner.container.user = user;
+        if (user) spec.runner.container.user = user;
         const dataMountPath = form.containerDataMountPath.val.trim();
-        if (dataMountPath) obj.runner.container.dataMountPath = dataMountPath;
+        if (dataMountPath) spec.runner.container.dataMountPath = dataMountPath;
         const env = formEnvVars(form);
-        if (env.length) obj.runner.container.env = env;
+        if (env.length) spec.runner.container.env = env;
         const mounts = formVolumeMounts(form);
-        if (mounts.length) obj.runner.container.mounts = mounts;
+        if (mounts.length) spec.runner.container.mounts = mounts;
         const assetMounts = formAssetMounts(form);
-        if (assetMounts.length) obj.runner.container.assetMounts = assetMounts;
+        if (assetMounts.length) spec.runner.container.assetMounts = assetMounts;
     } else {
-        obj.runner.osProcess = {
+        spec.runner.osProcess = {
             workingDir: form.osWorkingDir.val.trim(),
             runAs: form.osRunAs.val.trim(),
             strategy: form.osStrategy.val,
         };
         const env = formEnvVars(form);
-        if (env.length) obj.runner.osProcess.env = env;
+        if (env.length) spec.runner.osProcess.env = env;
     }
 
-    return toYaml(obj);
+    return spec;
 }
 
 export function isFormValid(form, opts = {}) {
@@ -279,10 +284,6 @@ export function isFormValid(form, opts = {}) {
     }
     if (runnerType === RUNNER_CONTAINER && (hasInvalidVolumeConfig(form) || hasInvalidAssetMounts(form))) return false;
     return true;
-}
-
-export function configToYaml(cfg) {
-    return formToYaml(deploymentConfigToForm(cfg));
 }
 
 export function buildValidateSourceRequest(form, opts = {}) {
@@ -529,7 +530,7 @@ function downloadScriptField(form) {
         {class: "flex flex-col gap-1 text-xs text-gray-400"},
         span("Custom download script"),
         textarea({
-            class: "w-full h-32 resize-y rounded-lg bg-gray-800 text-gray-100 border border-gray-600 px-3 py-2 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand",
+            class: "w-full h-32 resize-y rounded-sm bg-gray-800 text-gray-100 border border-gray-700 px-3 py-2 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand",
             spellcheck: "false",
             placeholder: "#!/usr/bin/env bash\nset -euo pipefail\nversion=\"$1\"\ncurl -fsSL -o app \"https://example.com/$version/app\"",
             value: form.githubDownloadScript.rawVal,
@@ -687,12 +688,11 @@ function assetMountsSection(form, opts = {}) {
 function volumeMountsSummary(form) {
     const summaryText = () => {
         const n = form.containerDisableDataVolume.val ? 0 : 1;
-        if (n === 0) return "No volumes mounted - click to manage";
-        return `${n} volume${n === 1 ? '' : 's'} mounted - click to manage`;
+        return `${n} mounted volume${n === 1 ? '' : 's'}`;
     };
     return div(
         {class: "flex items-center justify-between gap-3"},
-        span({class: "text-xs text-gray-400"}, "Mounted volumes"),
+        span({class: "text-xs text-gray-400"}, summaryText),
         button({
             type: "button",
             class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
@@ -700,7 +700,7 @@ function volumeMountsSummary(form) {
                 form.volumeMountsPaneOpen.val = !form.volumeMountsPaneOpen.val;
                 if (form.volumeMountsPaneOpen.val) closeRuntimePanes(form, 'volumes');
             },
-        }, () => form.volumeMountsPaneOpen.val ? "Close" : summaryText()),
+        }, () => form.volumeMountsPaneOpen.val ? "Close" : "Click to manage"),
     );
 }
 
@@ -712,26 +712,29 @@ function defaultVolumeCard(form) {
                 span({class: "text-xs font-medium text-gray-200"}, "deployment-default"),
                 span({class: "text-[11px] text-gray-500"}, "Disabled"),
             ),
-            p({class: "text-[11px] text-gray-500"}, "This deployment has disabled the built-in writable data volume in YAML."),
+            p({class: "text-[11px] text-gray-500"}, "This deployment has disabled the built-in writable data volume."),
         );
     }
     return div(
         {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
-        div({class: "flex items-center justify-between gap-3"},
-            span({class: "text-xs font-medium text-gray-200"}, "deployment-default"),
-            span({class: "text-[11px] text-gray-500"}, "Writable"),
+        div(
+            {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
+            field("Volume", input({
+                class: textInputClass(false, true),
+                value: "deployment-default",
+                disabled: true,
+            })),
+            field("Container path", input({
+                class: textInputClass(),
+                placeholder: defaultVolumeFallbackContainerPath(form),
+                value: form.containerDataMountPath.rawVal,
+                oninput: e => { form.containerDataMountPath.val = e.target.value; },
+            })),
         ),
-        field("Container mount path", input({
-            class: textInputClass(),
-            placeholder: defaultVolumeFallbackContainerPath(form),
-            value: form.containerDataMountPath.rawVal,
-            oninput: e => { form.containerDataMountPath.val = e.target.value; },
-        }), "Leave empty for the default path."),
     );
 }
 
 export function assetMountsPane(form, opts = {}) {
-    const datalistID = `deployment-assets-${nextDatalistID++}`;
     const assets = opts.assets || [];
     const enableAssetEditor = Boolean(opts.enableAssetEditor);
     const addMount = () => {
@@ -745,6 +748,14 @@ export function assetMountsPane(form, opts = {}) {
     const removeMount = (row) => {
         form.assetMounts.val = form.assetMounts.val.filter(m => m.id !== row.id);
     };
+    const discardMountChanges = (row) => {
+        updateMount(row, {
+            assetId: row.originalAssetId || 0,
+            key: row.originalKey || '',
+            path: row.originalPath || '',
+            version: row.originalVersion || 0,
+        });
+    };
     const openAssetEditor = (row) => {
         form.assetEditorMountID.val = row.id;
         form.assetEditorKey.val = row.key || '';
@@ -754,12 +765,7 @@ export function assetMountsPane(form, opts = {}) {
         form.assetEditorOpen.val = true;
         closeRuntimePanes(form, 'assetEditor');
     };
-    const onKeyInput = (row, value) => {
-        if (enableAssetEditor && value === CREATE_ASSET_OPTION) {
-            updateMount(row, {key: '', version: 0});
-            openAssetEditor(row);
-            return;
-        }
+    const onAssetSelect = (row, value) => {
         const match = assets.find(a => a.key === value);
         updateMount(row, {key: value, assetId: match?.id || 0, version: match?.version || 0});
     };
@@ -767,26 +773,41 @@ export function assetMountsPane(form, opts = {}) {
     const rows = () => form.assetMounts.val || [];
     const rowEl = (row) => div(
         {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
-        field("Asset", input({
-            class: textInputClass(true),
-            list: datalistID,
-            placeholder: "nginx.conf",
-            value: row.key,
-            oninput: e => onKeyInput(row, e.target.value),
-        })),
-        field("Container path", input({
-            class: textInputClass(true),
-            placeholder: "/etc/nginx/nginx.conf",
-            value: row.path,
-            oninput: e => updateMount(row, {path: e.target.value}),
-        })),
+        div(
+            {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
+            field("Asset", select({
+                class: `${selectClass()} ${assets.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`,
+                disabled: assets.length === 0,
+                value: row.key,
+                onchange: e => onAssetSelect(row, e.target.value),
+            },
+                option({value: '', disabled: true, selected: !row.key || assets.length === 0}, assets.length ? "Select an asset..." : "No assets defined"),
+                ...assets.map(a => option({value: a.key, selected: a.key === row.key}, `${a.key} v${a.version}`)),
+            )),
+            field("Container path", input({
+                class: textInputClass(true),
+                placeholder: "/etc/nginx/nginx.conf",
+                value: row.path,
+                oninput: e => updateMount(row, {path: e.target.value}),
+            })),
+        ),
         div({class: "flex items-center justify-between gap-2"},
-            span({class: "text-[11px] text-gray-500"}, () => row.version ? `Version ${row.version}` : "Latest version will be selected when saved"),
-            button({
-                type: "button",
-                class: "text-xs text-gray-500 hover:text-red-400 cursor-pointer",
-                onclick: () => removeMount(row),
-            }, "Remove"),
+            span({class: () => newInvalidAssetMount(row, assets) ? "text-[11px] text-amber-400" : "text-[11px] text-gray-500"}, () => {
+                if (newInvalidAssetMount(row, assets)) return "No valid asset selected, this mount won't be saved.";
+                return row.version ? `Version ${row.version}` : '';
+            }),
+            div({class: "flex items-center gap-3"},
+                () => savedAssetMountEdited(row) ? button({
+                    type: "button",
+                    class: "text-xs text-gray-400 hover:text-gray-200 cursor-pointer",
+                    onclick: () => discardMountChanges(row),
+                }, "Discard changes") : '',
+                button({
+                    type: "button",
+                    class: "text-xs text-gray-500 hover:text-red-400 cursor-pointer",
+                    onclick: () => removeMount(row),
+                }, "Remove"),
+            ),
         ),
     );
     return div(
@@ -803,14 +824,8 @@ export function assetMountsPane(form, opts = {}) {
                 onclick: () => { form.assetMountsPaneOpen.val = false; },
             }, X({size: 16})),
         ),
-        datalist(
-            {id: datalistID},
-            ...assets.map(a => option({value: a.key}, `${a.key} v${a.version}`)),
-            enableAssetEditor ? option({value: CREATE_ASSET_OPTION}, CREATE_ASSET_OPTION) : '',
-        ),
         div(
             {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-4"},
-            p({class: "text-[11px] text-gray-500"}, "Mount OpenDeploy-managed asset files into the container as read-only files."),
             () => div({class: "flex flex-col gap-3"}, ...rows().map(rowEl)),
             div({class: "flex items-center justify-between gap-2"},
                 button({
@@ -826,6 +841,19 @@ export function assetMountsPane(form, opts = {}) {
             ),
         ),
     );
+}
+
+function savedAssetMountEdited(row) {
+    if (row.originalKey === undefined) return false;
+    return (row.assetId || 0) !== (row.originalAssetId || 0)
+        || (row.key || '') !== (row.originalKey || '')
+        || (row.path || '') !== (row.originalPath || '')
+        || (row.version || 0) !== (row.originalVersion || 0);
+}
+
+function newInvalidAssetMount(row, assets) {
+    if (row.originalKey !== undefined) return false;
+    return !assets.some(a => a.key === row.key);
 }
 
 export function volumeMountsPane(form) {
@@ -845,7 +873,7 @@ export function volumeMountsPane(form) {
         ),
         div(
             {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-4"},
-            p({class: "text-[11px] text-gray-500"}, "Volumes are OpenDeploy-managed named storage mounted into the container."),
+            p({class: "text-[11px] text-gray-500"}, "Volumes are named storage directories mounted into the container at a chosen location. They are persistent across container restarts."),
             defaultVolumeCard(form),
             p({class: "text-[11px] text-gray-500"}, "Additional named volumes will be managed here later."),
         ),
@@ -911,7 +939,7 @@ export function assetEditorPane(form, opts = {}) {
                 oninput: e => { form.assetEditorFormat.val = e.target.value; },
             })),
             textarea({
-                class: "flex-1 min-h-0 w-full resize-none rounded-lg bg-gray-800 text-gray-100 border border-gray-600 px-3 py-2 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand",
+                class: "flex-1 min-h-0 w-full resize-none rounded-sm bg-gray-800 text-gray-100 border border-gray-700 px-3 py-2 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand",
                 spellcheck: "false",
                 placeholder: "Paste config file contents here",
                 value: form.assetEditorContent,
@@ -952,7 +980,7 @@ export function envVarsPane(form) {
             p({class: "text-[11px] text-gray-500"}, "One variable per line, as KEY=value."),
             textarea({
                 "data-testid": "deployment-env-vars-textarea",
-                class: "flex-1 min-h-0 w-full resize-none rounded-lg bg-gray-800 text-gray-100 border border-gray-600 px-3 py-2 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand",
+                class: "flex-1 min-h-0 w-full resize-none rounded-sm bg-gray-800 text-gray-100 border border-gray-700 px-3 py-2 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand",
                 spellcheck: "false",
                 placeholder: "DATABASE_URL=postgres://...\nLOG_LEVEL=info",
                 value: text.rawVal,
@@ -1004,8 +1032,8 @@ function hasInvalidAssetMounts(form) {
     return (form.assetMounts.val || []).some(m => {
         const key = (m.key || '').trim();
         const path = (m.path || '').trim();
-        if (!key && !path) return false;
-        return !key || !path || !path.startsWith('/') || path.endsWith('/') || path.includes('/../') || path.includes('/./') || path === '/';
+        if (!key) return false;
+        return !path || !path.startsWith('/') || path.endsWith('/') || path.includes('/../') || path.includes('/./') || path === '/';
     });
 }
 
@@ -1182,10 +1210,10 @@ async function validateRepo(form) {
 }
 
 function repoInputClass(status) {
-    let border = 'border-gray-600 focus:ring-brand';
+    let border = 'border-gray-700 focus:ring-brand';
     if (status === 'ok') border = 'border-green-500 focus:ring-green-500';
     else if (status === 'error') border = 'border-red-500 focus:ring-red-500';
-    return `w-full px-3 py-2 rounded-lg bg-gray-800 text-gray-100 border ${border} focus:outline-none focus:ring-1`;
+    return `w-full px-3 py-2 rounded-sm bg-gray-800 text-gray-100 border ${border} focus:outline-none focus:ring-1`;
 }
 
 function repoMsgClass(status) {
@@ -1205,7 +1233,7 @@ function selectField(text, state, options, widthClass = "w-56", onChange) {
     return field(text, select({
         "data-testid": testID,
         value: state,
-        class: `${widthClass} px-3 py-2 rounded-lg bg-gray-800 text-gray-100 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-brand`,
+        class: `${widthClass} px-3 py-2 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand`,
         onchange: e => {
             state.val = e.target.value;
             if (onChange) onChange(e.target.value);
@@ -1229,13 +1257,13 @@ function textInput(state, placeholder = '', onblur) {
 }
 
 function textInputClass(valid = false, disabled = false, success = false) {
-    const border = success ? 'border-green-500 focus:ring-green-500' : 'border-gray-600 focus:ring-brand';
+    const border = success ? 'border-green-500 focus:ring-green-500' : 'border-gray-700 focus:ring-brand';
     const muted = disabled ? 'opacity-70 cursor-not-allowed pointer-events-none' : '';
-    return `w-full px-3 py-2 rounded-lg bg-gray-800 text-gray-100 border ${border} focus:outline-none focus:ring-1 ${muted}`;
+    return `w-full px-3 py-2 rounded-sm bg-gray-800 text-gray-100 border ${border} focus:outline-none focus:ring-1 ${muted}`;
 }
 
 function selectClass() {
-    return "w-full px-3 py-2 rounded-lg bg-gray-800 text-gray-100 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-brand";
+    return "w-full px-3 py-2 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand";
 }
 
 function machineSelect(form, opts) {
@@ -1263,45 +1291,4 @@ function machinePlaceholder(loaded, options) {
 
 function nameValid(form) {
     return Boolean(form.name.val.trim());
-}
-
-function toYaml(obj, indent = 0) {
-    const lines = [];
-    const pad = '  '.repeat(indent);
-    for (const [key, val] of Object.entries(obj)) {
-        if (val === undefined || val === null || val === '') continue;
-        if (Array.isArray(val)) {
-            if (val.length === 0) continue;
-            lines.push(`${pad}${key}:`);
-            const itemPad = '  '.repeat(indent + 1);
-            for (const item of val) {
-                const entries = (item !== null && typeof item === 'object')
-                    ? Object.entries(item)
-                    : [[null, item]];
-                let first = true;
-                for (const [k, v] of entries) {
-                    if (v === undefined || v === null) continue;
-                    const scalar = typeof v === 'string' ? JSON.stringify(v) : String(v);
-                    const body = k === null ? scalar : `${k}: ${scalar}`;
-                    lines.push(`${itemPad}${first ? '- ' : '  '}${body}`);
-                    first = false;
-                }
-            }
-        } else if (typeof val === 'object') {
-            lines.push(`${pad}${key}:`);
-            const nested = toYaml(val, indent + 1);
-            if (nested) lines.push(nested);
-        } else if (typeof val === 'string' && val.includes('\n')) {
-            // Multi-line strings are emitted as a literal block scalar so
-            // newlines and shell syntax survive the round-trip intact.
-            lines.push(`${pad}${key}: |`);
-            const blockPad = '  '.repeat(indent + 1);
-            for (const line of val.replace(/\n+$/, '').split('\n')) {
-                lines.push(line === '' ? '' : `${blockPad}${line}`);
-            }
-        } else {
-            lines.push(`${pad}${key}: ${String(val)}`);
-        }
-    }
-    return lines.join('\n');
 }

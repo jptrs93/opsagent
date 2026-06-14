@@ -46,9 +46,9 @@ The dashboard uses a split-pane layout:
 ### Status (`pages/status.js`)
 - Consumes live deployment state from `POST /v1/state/stream` (binary protobuf stream via `AsyncIterable<State>`).
 - Renders one card per deployment, sorted by OPENDEPLOY_SYSTEM-last, then environment, name, machine, and id (deterministic across stream reconnects).
-- "Add deployment" button opens `components/createOverlay.js` to POST a per-deployment YAML via `POST /v1/deployment/create`.
+- "Add deployment" button opens `components/createOverlay.js` to POST a typed `DeploymentCreateRequest` via `POST /v1/deployment/create`.
 - Each card (`components/statusCard.js`) shows status badge, deployment info (deployed by/at/version), runtime info (restarts/last restart), prepare status, and an Update button that opens `components/deployOverlay.js`. Running cards expose a stop icon; stopped cards with a known version expose a start icon.
-- The deploy overlay fetches available versions on demand via `POST /v1/deployment/versions`, lets the user edit the per-deployment YAML spec, and submits via `POST /v1/deployment/update`.
+- The deploy overlay fetches available versions on demand via `POST /v1/deployment/versions`, lets the user edit the deployment spec form, and submits a typed `DeploymentUpdateRequest` via `POST /v1/deployment/update`.
 - Sidebar content is reused by the same `components/deploymentLogs.js` for prepare output and run output (switched by a mode flag), and `components/deploymentHistory.js` for the history view. All three show "Connection error" in the header on network failure.
 - Deployment history (`components/deploymentHistory.js`) color-codes entries: green for stable running, grey for other status transitions, orange for config changes.
 

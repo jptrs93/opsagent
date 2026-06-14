@@ -7,21 +7,20 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-func TestParseCreateDeploymentYamlNixDockerBuild(t *testing.T) {
-	_, spec, err := parseCreateDeploymentYaml(`
-name: web
-environment: PROD
-machine: primary
-prepare:
-  nixDockerBuild:
-    repo: github.com/acme/web
-    flake: nix/web/flake.nix
-runner:
-  container:
-    user: "1000"
-`)
+func TestValidateDeploymentSpecNixDockerBuild(t *testing.T) {
+	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			NixDockerBuild: apigen.NixDockerBuildConfig{
+				Repo:  "github.com/acme/web",
+				Flake: "nix/web/flake.nix",
+			},
+		},
+		Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{User: "1000"},
+		},
+	}, nil)
 	if err != nil {
-		t.Fatalf("parseCreateDeploymentYaml failed: %v", err)
+		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
 	}
 	if spec.Prepare.NixDockerBuild.Repo != "github.com/acme/web" {
 		t.Fatalf("repo = %q", spec.Prepare.NixDockerBuild.Repo)
@@ -44,7 +43,7 @@ func (r fakeAssetResolver) GetAsset(key string, version int32) (*apigen.Asset, b
 	return asset, true
 }
 
-func TestParseCreateDeploymentYamlResolvesAssetMounts(t *testing.T) {
+func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
 	assets := fakeAssetResolver{
 		"nginx.conf": {
 			ID:        42,
@@ -54,20 +53,21 @@ func TestParseCreateDeploymentYamlResolvesAssetMounts(t *testing.T) {
 			Format:    "nginx",
 		},
 	}
-	_, spec, err := parseCreateDeploymentYamlWithAssets(`
-name: web
-machine: primary
-prepare:
-  containerImage:
-    image: nginx:latest
-runner:
-  container:
-    assetMounts:
-      - asset: nginx.conf
-        path: /etc/nginx/nginx.conf
-`, assets)
+	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: apigen.ContainerImageConfig{Image: "nginx:latest"},
+		},
+		Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{
+				AssetMounts: []*apigen.ContainerAssetMount{{
+					Asset: "nginx.conf",
+					Path:  "/etc/nginx/nginx.conf",
+				}},
+			},
+		},
+	}, assets)
 	if err != nil {
-		t.Fatalf("parseCreateDeploymentYamlWithAssets failed: %v", err)
+		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
 	}
 	mounts := spec.Runner.Container.AssetMounts
 	if len(mounts) != 1 {
@@ -78,19 +78,19 @@ runner:
 	}
 }
 
-func TestParseCreateDeploymentYamlRejectsNixDockerWithProcessRunner(t *testing.T) {
-	_, _, err := parseCreateDeploymentYaml(`
-name: web
-machine: primary
-prepare:
-  nixDockerBuild:
-    repo: github.com/acme/web
-    flake: nix/web/flake.nix
-runner:
-  osProcess:
-    runAs: ubuntu
-`)
+func TestValidateDeploymentSpecRejectsNixDockerWithProcessRunner(t *testing.T) {
+	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			NixDockerBuild: apigen.NixDockerBuildConfig{
+				Repo:  "github.com/acme/web",
+				Flake: "nix/web/flake.nix",
+			},
+		},
+		Runner: apigen.RunnerConfig{
+			OsProcess: apigen.OsProcessRunnerConfig{RunAs: "ubuntu"},
+		},
+	}, nil)
 	if err == nil {
-		t.Fatal("expected parseCreateDeploymentYaml to reject process runner with nixDockerBuild")
+		t.Fatal("expected validateDeploymentSpecWithAssets to reject process runner with nixDockerBuild")
 	}
 }

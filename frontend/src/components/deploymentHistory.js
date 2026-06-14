@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {format} from "date-fns";
+import {formatClockTime, formatHistoryTime} from "../lib/date.js";
 import {resolveUserDisplayName} from "../lib/users.js";
 
 const { div, h2, span, button, p } = van.tags;
@@ -78,7 +78,7 @@ function formatRunner(r) {
     const label = runnerStatusLabels[r.status] || `runner=${r.status}`;
     const extras = [`pid=${r.runningPid || 0}`, `restarts=${r.numberOfRestarts || 0}`];
     if (r.lastRestartAt instanceof Date && r.lastRestartAt.getTime() > 0) {
-        extras.push(`last_restart=${format(r.lastRestartAt, "HH:mm:ss")}`);
+        extras.push(`last_restart=${formatClockTime(r.lastRestartAt)}`);
     }
     return `run: ${label} ${extras.join(' ')}`;
 }
@@ -176,7 +176,7 @@ export function deploymentHistory(deploymentId, label, onClose) {
                 const lines = visibleEntries.map((e, i) => {
                     const isConfig = !!e.config;
                     const ts = entryTime(e) > 0
-                        ? format(isConfig ? e.config.updatedAt : e.status.updatedAt, "MMM d HH:mm:ss")
+                        ? formatHistoryTime(isConfig ? e.config.updatedAt : e.status.updatedAt)
                         : '';
 
                     if (isConfig) {

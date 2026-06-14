@@ -7,16 +7,26 @@ stream from `pkgs.dockerTools.streamLayeredImage`, suitable for OpenDeploy's
 The container runs a Go program that prints selected environment variables at
 startup, then prints an incrementing count every 10 seconds forever.
 
-Example deployment YAML:
+Example deployment request shape:
 
-```yaml
-name: nixdockerbuild1
-machine: primary
-prepare:
-  nixDockerBuild:
-    repo: github.com/jptrs93/opsagent
-    flake: testexamples/nixdockerbuild1/flake.nix
-runner:
-  container:
-    disableDataVolume: true
+```json
+{
+  "configId": {
+    "name": "nixdockerbuild1",
+    "machine": "primary"
+  },
+  "spec": {
+    "prepare": {
+      "nixDockerBuild": {
+        "repo": "github.com/jptrs93/opsagent",
+        "flake": "testexamples/nixdockerbuild1/flake.nix"
+      }
+    },
+    "runner": {
+      "container": {
+        "disableDataVolume": true
+      }
+    }
+  }
+}
 ```

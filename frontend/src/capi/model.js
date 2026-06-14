@@ -361,11 +361,12 @@
  * @property {string} targetVersion
  * @property {boolean} stop
  * @property {number} version
- * @property {string} yamlContent
+ * @property {DeploymentSpec} spec
  */
 /**
  * @typedef {Object} DeploymentCreateRequest
- * @property {string} yamlContent
+ * @property {DeploymentIdentifier} configId
+ * @property {DeploymentSpec} spec
  */
 /**
  * @typedef {Object} DeploymentHistoryRequest
@@ -4998,8 +4999,10 @@ export function writeDeploymentUpdateRequest(message, writer) {
     if (message.version !== undefined && message.version !== null && message.version !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.version);
     }
-    if (message.yamlContent !== undefined && message.yamlContent !== null && message.yamlContent !== "") {
-        writer.uint32(tag(6, WIRE.LDELIM)).string(message.yamlContent);
+    if (message.spec !== undefined && message.spec !== null) {
+        writer.uint32(tag(6, WIRE.LDELIM)).fork();
+        writeDeploymentSpec(message.spec, writer);
+        writer.ldelim();
     }
 }
 
@@ -5022,7 +5025,7 @@ export function encodeDeploymentUpdateRequest(message) {
  */
 function decodeDeploymentUpdateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, targetVersion: "", stop: false, version: 0, yamlContent: "" };
+    const message = {deploymentId: 0, targetVersion: "", stop: false, version: 0, spec: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5043,7 +5046,7 @@ function decodeDeploymentUpdateRequestMessage(reader, length) {
                 break;
             }
             case 6: {
-                message.yamlContent = reader.string();
+                message.spec = decodeDeploymentSpecMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -5070,8 +5073,15 @@ export function decodeDeploymentUpdateRequest(buffer) {
  * @param {Writer} writer
  */
 export function writeDeploymentCreateRequest(message, writer) {
-    if (message.yamlContent !== undefined && message.yamlContent !== null && message.yamlContent !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.yamlContent);
+    if (message.configId !== undefined && message.configId !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeDeploymentIdentifier(message.configId, writer);
+        writer.ldelim();
+    }
+    if (message.spec !== undefined && message.spec !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeDeploymentSpec(message.spec, writer);
+        writer.ldelim();
     }
 }
 
@@ -5094,12 +5104,16 @@ export function encodeDeploymentCreateRequest(message) {
  */
 function decodeDeploymentCreateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {yamlContent: "" };
+    const message = {configId: undefined, spec: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.yamlContent = reader.string();
+                message.configId = decodeDeploymentIdentifierMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.spec = decodeDeploymentSpecMessage(reader, reader.uint32());
                 break;
             }
             default:

@@ -1,5 +1,5 @@
 import van from "vanjs-core";
-import {format} from "date-fns";
+import {formatDateTime} from "../lib/date.js";
 import {resolveUserDisplayName} from "../lib/users.js";
 
 const { tr, td, div, span, button, a } = van.tags;
@@ -132,5 +132,5 @@ function shortVersion(v) {
 }
 
 function formatMaybeDate(value, fallback) {
-    return value instanceof Date && value.getTime() > 0 ? format(value, "MMM d, HH:mm") : fallback;
+    return formatDateTime(value, fallback);
 }

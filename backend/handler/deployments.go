@@ -12,25 +12,26 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine/versionprovider"
-	"gopkg.in/yaml.v3"
 )
 
 var InvalidRequestBodyErr = apigen.NewApiErr("Invalid request body", "invalid_request_body", http.StatusBadRequest)
 var MissingKeyErr = apigen.NewApiErr("Missing deployment identifier", "missing_key", http.StatusBadRequest)
 var NoPrepareLogErr = apigen.NewApiErr("No prepare log found", "prepare_log_not_found", http.StatusNotFound)
 var NoRunOutputErr = apigen.NewApiErr("No run output found", "run_output_not_found", http.StatusNotFound)
-var InvalidYAMLErr = apigen.NewApiErr("", "invalid_yaml", http.StatusBadRequest)
 var InvalidConfigErr = apigen.NewApiErr("", "invalid_config", http.StatusBadRequest)
 var DeploymentNotFoundErr = apigen.NewApiErr("Deployment not found", "deployment_not_found", http.StatusNotFound)
 
 var DuplicateDeploymentErr = apigen.NewApiErr("A deployment with this name, environment, and machine already exists", "duplicate_deployment", http.StatusConflict)
 
 func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentConfig, error) {
-	if req.YamlContent == "" {
-		return nil, InvalidYAMLErr
+	cid := req.ConfigID
+	if cid.Name == "" {
+		return nil, invalidConfigErrf("name is required")
 	}
-
-	cid, spec, err := h.parseCreateDeploymentYaml(req.YamlContent)
+	if cid.Machine == "" {
+		return nil, invalidConfigErrf("machine is required")
+	}
+	spec, err := h.validateDeploymentSpec(&req.Spec)
 	if err != nil {
 		return nil, err
 	}
@@ -38,12 +39,12 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 	// Check for duplicate before creating.
 	snapshot := h.Store.FetchDeploymentSnapshot("")
 	for _, dws := range snapshot {
-		if dws.Config.ConfigID == *cid && !dws.Config.Deleted {
+		if dws.Config.ConfigID == cid && !dws.Config.Deleted {
 			return nil, DuplicateDeploymentErr
 		}
 	}
 
-	cfg := h.Store.MustCreateDeployment(ctx, cid, spec)
+	cfg := h.Store.MustCreateDeployment(ctx, &cid, spec)
 	return cfg, nil
 }
 
@@ -52,9 +53,8 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 		return nil, MissingKeyErr
 	}
 
-	// If yaml_content is provided, update the deployment spec first.
-	if req.YamlContent != "" {
-		spec, err := h.parseDeploymentYaml(req.YamlContent)
+	if !req.Spec.IsZero() {
+		spec, err := h.validateDeploymentSpec(&req.Spec)
 		if err != nil {
 			return nil, err
 		}
@@ -624,136 +624,39 @@ func containsString(ss []string, s string) bool {
 	return false
 }
 
-// --- Per-deployment YAML parsing ---
-
-type yamlDeployment struct {
-	Name        string       `yaml:"name"`
-	Environment string       `yaml:"environment"`
-	Machine     string       `yaml:"machine"`
-	Prepare     *yamlPrepare `yaml:"prepare,omitempty"`
-	Runner      *yamlRunner  `yaml:"runner,omitempty"`
-}
-
-type yamlPrepare struct {
-	NixBuild       *yamlNixBuild       `yaml:"nixBuild,omitempty"`
-	NixDockerBuild *yamlNixDockerBuild `yaml:"nixDockerBuild,omitempty"`
-	GithubRelease  *yamlGithubRelease  `yaml:"githubRelease,omitempty"`
-	ContainerImage *yamlContainerImage `yaml:"containerImage,omitempty"`
-}
-
-type yamlContainerImage struct {
-	Image string `yaml:"image"`
-}
-
-type yamlNixBuild struct {
-	Repo             string `yaml:"repo"`
-	Flake            string `yaml:"flake"`
-	OutputExecutable string `yaml:"outputExecutable,omitempty"`
-}
-
-type yamlNixDockerBuild struct {
-	Repo  string `yaml:"repo"`
-	Flake string `yaml:"flake"`
-}
-
-type yamlGithubRelease struct {
-	Repo           string `yaml:"repo"`
-	Asset          string `yaml:"asset,omitempty"`
-	Tag            string `yaml:"tag,omitempty"`
-	DownloadScript string `yaml:"downloadScript,omitempty"`
-}
-
-type yamlRunner struct {
-	OsProcess *yamlOsProcess `yaml:"osProcess,omitempty"`
-	Systemd   *yamlSystemd   `yaml:"systemd,omitempty"`
-	Container *yamlContainer `yaml:"container,omitempty"`
-}
-
-type yamlContainer struct {
-	User              string               `yaml:"user,omitempty"`
-	Env               []yamlEnvVar         `yaml:"env,omitempty"`
-	Command           []string             `yaml:"command,omitempty"`
-	WorkingDir        string               `yaml:"workingDir,omitempty"`
-	DataMountPath     string               `yaml:"dataMountPath,omitempty"`
-	DisableDataVolume bool                 `yaml:"disableDataVolume,omitempty"`
-	Mounts            []yamlContainerMount `yaml:"mounts,omitempty"`
-	AssetMounts       []yamlAssetMount     `yaml:"assetMounts,omitempty"`
-}
-
-type yamlContainerMount struct {
-	Host      string `yaml:"host"`
-	Container string `yaml:"container"`
-	Readonly  bool   `yaml:"readonly,omitempty"`
-}
-
-type yamlAssetMount struct {
-	Asset   string `yaml:"asset"`
-	Version int32  `yaml:"version,omitempty"`
-	Path    string `yaml:"path"`
-}
-
 type deploymentAssetResolver interface {
 	GetAsset(key string, version int32) (*apigen.Asset, bool)
 }
 
-type yamlOsProcess struct {
-	WorkingDir string       `yaml:"workingDir,omitempty"`
-	RunAs      string       `yaml:"runAs,omitempty"`
-	Strategy   string       `yaml:"strategy,omitempty"`
-	Env        []yamlEnvVar `yaml:"env,omitempty"`
+func (h *Handler) validateDeploymentSpec(spec *apigen.DeploymentSpec) (*apigen.DeploymentSpec, error) {
+	return validateDeploymentSpecWithAssets(spec, h.Store)
 }
 
-type yamlEnvVar struct {
-	Key   string `yaml:"key"`
-	Value string `yaml:"value"`
-}
-
-type yamlSystemd struct {
-	Name    string `yaml:"name"`
-	BinPath string `yaml:"binPath"`
-}
-
-// parseDeploymentYaml parses a single-deployment YAML into a DeploymentSpec.
-func parseDeploymentYaml(yamlContent string) (*apigen.DeploymentSpec, error) {
-	return parseDeploymentYamlWithAssets(yamlContent, nil)
-}
-
-func (h *Handler) parseDeploymentYaml(yamlContent string) (*apigen.DeploymentSpec, error) {
-	return parseDeploymentYamlWithAssets(yamlContent, h.Store)
-}
-
-func parseDeploymentYamlWithAssets(yamlContent string, assets deploymentAssetResolver) (*apigen.DeploymentSpec, error) {
-	var dep yamlDeployment
-	if err := yaml.Unmarshal([]byte(yamlContent), &dep); err != nil {
-		return nil, InvalidYAMLErr
-	}
-
-	prepare, err := toPrepareConfig(dep.Prepare)
-	if err != nil {
-		return nil, err
-	}
-	runnerCfg, err := toRunnerConfig(dep.Runner, assets)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateContainerPairing(dep.Prepare, dep.Runner); err != nil {
-		return nil, err
-	}
-
-	return &apigen.DeploymentSpec{
-		Prepare: *prepare,
-		Runner:  runnerConfigValue(runnerCfg),
-	}, nil
-}
-
-func toPrepareConfig(yp *yamlPrepare) (*apigen.PrepareConfig, error) {
-	if yp == nil {
+func validateDeploymentSpecWithAssets(spec *apigen.DeploymentSpec, assets deploymentAssetResolver) (*apigen.DeploymentSpec, error) {
+	if spec == nil {
 		return nil, invalidConfigErrf("prepare is required")
 	}
-	hasNix := yp.NixBuild != nil
-	hasNixDocker := yp.NixDockerBuild != nil
-	hasGH := yp.GithubRelease != nil
-	hasContainer := yp.ContainerImage != nil
+	out := *spec
+	if err := validatePrepareConfig(&out.Prepare); err != nil {
+		return nil, err
+	}
+	if err := validateRunnerConfig(&out.Runner, &out.Prepare, assets); err != nil {
+		return nil, err
+	}
+	if err := validateContainerPairing(&out.Prepare, &out.Runner); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func validatePrepareConfig(prepare *apigen.PrepareConfig) error {
+	if prepare == nil || prepare.IsZero() {
+		return invalidConfigErrf("prepare is required")
+	}
+	hasNix := !prepare.NixBuild.IsZero()
+	hasNixDocker := !prepare.NixDockerBuild.IsZero()
+	hasGH := !prepare.GithubRelease.IsZero()
+	hasContainer := !prepare.ContainerImage.IsZero()
 	set := 0
 	for _, b := range []bool{hasNix, hasNixDocker, hasGH, hasContainer} {
 		if b {
@@ -761,64 +664,47 @@ func toPrepareConfig(yp *yamlPrepare) (*apigen.PrepareConfig, error) {
 		}
 	}
 	if set == 0 {
-		return nil, invalidConfigErrf("prepare: one of nixBuild, nixDockerBuild, githubRelease or containerImage must be set")
+		return invalidConfigErrf("prepare: one of nixBuild, nixDockerBuild, githubRelease or containerImage must be set")
 	}
 	if set > 1 {
-		return nil, invalidConfigErrf("prepare: only one of nixBuild, nixDockerBuild, githubRelease or containerImage may be set")
+		return invalidConfigErrf("prepare: only one of nixBuild, nixDockerBuild, githubRelease or containerImage may be set")
 	}
-	out := &apigen.PrepareConfig{}
 	if hasNix {
-		if yp.NixBuild.Repo == "" {
-			return nil, invalidConfigErrf("prepare.nixBuild: repo is required")
+		if prepare.NixBuild.Repo == "" {
+			return invalidConfigErrf("prepare.nixBuild: repo is required")
 		}
-		if yp.NixBuild.Flake == "" {
-			return nil, invalidConfigErrf("prepare.nixBuild: flake is required")
-		}
-		out.NixBuild = apigen.NixBuildConfig{
-			Repo:             yp.NixBuild.Repo,
-			Flake:            yp.NixBuild.Flake,
-			OutputExecutable: yp.NixBuild.OutputExecutable,
+		if prepare.NixBuild.Flake == "" {
+			return invalidConfigErrf("prepare.nixBuild: flake is required")
 		}
 	}
 	if hasNixDocker {
-		if yp.NixDockerBuild.Repo == "" {
-			return nil, invalidConfigErrf("prepare.nixDockerBuild: repo is required")
+		if prepare.NixDockerBuild.Repo == "" {
+			return invalidConfigErrf("prepare.nixDockerBuild: repo is required")
 		}
-		if yp.NixDockerBuild.Flake == "" {
-			return nil, invalidConfigErrf("prepare.nixDockerBuild: flake is required")
-		}
-		out.NixDockerBuild = apigen.NixDockerBuildConfig{
-			Repo:  yp.NixDockerBuild.Repo,
-			Flake: yp.NixDockerBuild.Flake,
+		if prepare.NixDockerBuild.Flake == "" {
+			return invalidConfigErrf("prepare.nixDockerBuild: flake is required")
 		}
 	}
 	if hasGH {
-		if yp.GithubRelease.Repo == "" {
-			return nil, invalidConfigErrf("prepare.githubRelease: repo is required")
-		}
-		out.GithubRelease = apigen.GithubReleaseConfig{
-			Repo:           yp.GithubRelease.Repo,
-			Asset:          yp.GithubRelease.Asset,
-			Tag:            yp.GithubRelease.Tag,
-			DownloadScript: yp.GithubRelease.DownloadScript,
+		if prepare.GithubRelease.Repo == "" {
+			return invalidConfigErrf("prepare.githubRelease: repo is required")
 		}
 	}
 	if hasContainer {
-		if yp.ContainerImage.Image == "" {
-			return nil, invalidConfigErrf("prepare.containerImage: image is required")
+		if prepare.ContainerImage.Image == "" {
+			return invalidConfigErrf("prepare.containerImage: image is required")
 		}
-		out.ContainerImage = apigen.ContainerImageConfig{Image: yp.ContainerImage.Image}
 	}
-	return out, nil
+	return nil
 }
 
 // validateContainerPairing enforces that the container image prepare and the
 // container runner are used together — an image can only be run as a container,
 // and the container runner can only run an image.
-func validateContainerPairing(yp *yamlPrepare, yr *yamlRunner) error {
-	prepareIsContainer := yp != nil && (yp.ContainerImage != nil || yp.NixDockerBuild != nil)
-	runnerIsContainer := yr != nil && yr.Container != nil
-	runnerIsOther := yr != nil && (yr.OsProcess != nil || yr.Systemd != nil)
+func validateContainerPairing(prepare *apigen.PrepareConfig, runner *apigen.RunnerConfig) error {
+	prepareIsContainer := prepare != nil && (!prepare.ContainerImage.IsZero() || !prepare.NixDockerBuild.IsZero())
+	runnerIsContainer := runner != nil && !runner.Container.IsZero()
+	runnerIsOther := runner != nil && (!runner.OsProcess.IsZero() || !runner.Systemd.IsZero())
 	if prepareIsContainer && runnerIsOther {
 		return invalidConfigErrf("container image prepare variants require the container runner (or no runner block)")
 	}
@@ -828,13 +714,13 @@ func validateContainerPairing(yp *yamlPrepare, yr *yamlRunner) error {
 	return nil
 }
 
-func toRunnerConfig(yr *yamlRunner, assets deploymentAssetResolver) (*apigen.RunnerConfig, error) {
-	if yr == nil {
-		return nil, nil
+func validateRunnerConfig(runner *apigen.RunnerConfig, prepare *apigen.PrepareConfig, assets deploymentAssetResolver) error {
+	if runner == nil || runner.IsZero() {
+		return nil
 	}
-	hasOS := yr.OsProcess != nil
-	hasSystemd := yr.Systemd != nil
-	hasContainer := yr.Container != nil
+	hasOS := !runner.OsProcess.IsZero()
+	hasSystemd := !runner.Systemd.IsZero()
+	hasContainer := !runner.Container.IsZero()
 	set := 0
 	for _, b := range []bool{hasOS, hasSystemd, hasContainer} {
 		if b {
@@ -842,68 +728,40 @@ func toRunnerConfig(yr *yamlRunner, assets deploymentAssetResolver) (*apigen.Run
 		}
 	}
 	if set > 1 {
-		return nil, invalidConfigErrf("runner: only one of osProcess, systemd or container may be set")
+		return invalidConfigErrf("runner: only one of osProcess, systemd or container may be set")
 	}
-	out := &apigen.RunnerConfig{}
 	if hasOS {
-		env, err := toEnvVars(yr.OsProcess.Env)
-		if err != nil {
-			return nil, err
-		}
-		out.OsProcess = apigen.OsProcessRunnerConfig{
-			WorkingDir: yr.OsProcess.WorkingDir,
-			RunAs:      yr.OsProcess.RunAs,
-			Strategy:   yr.OsProcess.Strategy,
-			Env:        env,
+		if err := validateEnvVars("runner.osProcess.env", runner.OsProcess.Env); err != nil {
+			return err
 		}
 	}
 	if hasSystemd {
-		if yr.Systemd.Name == "" {
-			return nil, invalidConfigErrf("runner.systemd: name is required")
+		if runner.Systemd.Name == "" {
+			return invalidConfigErrf("runner.systemd: name is required")
 		}
-		if yr.Systemd.BinPath == "" {
-			return nil, invalidConfigErrf("runner.systemd: binPath is required")
-		}
-		out.Systemd = apigen.SystemdRunnerConfig{
-			Name:    yr.Systemd.Name,
-			BinPath: yr.Systemd.BinPath,
+		if runner.Systemd.BinPath == "" {
+			return invalidConfigErrf("runner.systemd: binPath is required")
 		}
 	}
 	if hasContainer {
-		env, err := toEnvVars(yr.Container.Env)
-		if err != nil {
-			return nil, err
+		if err := validateEnvVars("runner.container.env", runner.Container.Env); err != nil {
+			return err
 		}
-		var mounts []*apigen.ContainerMount
-		for _, m := range yr.Container.Mounts {
-			if m.Host == "" || m.Container == "" {
-				return nil, invalidConfigErrf("runner.container.mounts: host and container are both required")
+		for _, m := range runner.Container.Mounts {
+			if m == nil || m.Host == "" || m.Container == "" {
+				return invalidConfigErrf("runner.container.mounts: host and container are both required")
 			}
-			mounts = append(mounts, &apigen.ContainerMount{
-				Host:      m.Host,
-				Container: m.Container,
-				Readonly:  m.Readonly,
-			})
 		}
-		assetMounts, err := toAssetMounts(yr.Container.AssetMounts, assets)
+		assetMounts, err := resolveAssetMounts(runner.Container.AssetMounts, assets)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		out.Container = apigen.ContainerRunnerConfig{
-			User:              yr.Container.User,
-			Env:               env,
-			Command:           yr.Container.Command,
-			WorkingDir:        yr.Container.WorkingDir,
-			DataMountPath:     yr.Container.DataMountPath,
-			DisableDataVolume: yr.Container.DisableDataVolume,
-			Mounts:            mounts,
-			AssetMounts:       assetMounts,
-		}
+		runner.Container.AssetMounts = assetMounts
 	}
-	return out, nil
+	return nil
 }
 
-func toAssetMounts(in []yamlAssetMount, assets deploymentAssetResolver) ([]*apigen.ContainerAssetMount, error) {
+func resolveAssetMounts(in []*apigen.ContainerAssetMount, assets deploymentAssetResolver) ([]*apigen.ContainerAssetMount, error) {
 	if len(in) == 0 {
 		return nil, nil
 	}
@@ -912,6 +770,9 @@ func toAssetMounts(in []yamlAssetMount, assets deploymentAssetResolver) ([]*apig
 	}
 	out := make([]*apigen.ContainerAssetMount, 0, len(in))
 	for _, m := range in {
+		if m == nil {
+			return nil, invalidConfigErrf("runner.container.assetMounts: asset and path are both required")
+		}
 		key := strings.TrimSpace(m.Asset)
 		path := strings.TrimSpace(m.Path)
 		if key == "" || path == "" {
@@ -942,34 +803,25 @@ func toAssetMounts(in []yamlAssetMount, assets deploymentAssetResolver) ([]*apig
 	return out, nil
 }
 
-// toEnvVars validates and converts YAML env entries. Keys are trimmed and
-// required; duplicate keys are rejected so the resulting process environment is
-// unambiguous.
-func toEnvVars(in []yamlEnvVar) ([]*apigen.EnvVar, error) {
-	if len(in) == 0 {
-		return nil, nil
-	}
-	out := make([]*apigen.EnvVar, 0, len(in))
+// validateEnvVars trims and validates env keys. Duplicate keys are rejected so
+// the resulting process environment is unambiguous.
+func validateEnvVars(scope string, in []*apigen.EnvVar) error {
 	seen := make(map[string]struct{}, len(in))
 	for _, e := range in {
+		if e == nil {
+			return invalidConfigErrf("%s: key is required", scope)
+		}
 		key := strings.TrimSpace(e.Key)
 		if key == "" {
-			return nil, invalidConfigErrf("runner.osProcess.env: key is required")
+			return invalidConfigErrf("%s: key is required", scope)
 		}
 		if _, dup := seen[key]; dup {
-			return nil, invalidConfigErrf("runner.osProcess.env: duplicate key %q", key)
+			return invalidConfigErrf("%s: duplicate key %q", scope, key)
 		}
 		seen[key] = struct{}{}
-		out = append(out, &apigen.EnvVar{Key: key, Value: e.Value})
+		e.Key = key
 	}
-	return out, nil
-}
-
-func runnerConfigValue(cfg *apigen.RunnerConfig) apigen.RunnerConfig {
-	if cfg == nil {
-		return apigen.RunnerConfig{}
-	}
-	return *cfg
+	return nil
 }
 
 func invalidConfigErrf(format string, args ...any) error {
@@ -978,127 +830,4 @@ func invalidConfigErrf(format string, args ...any) error {
 	e.InternalErr = msg
 	e.DisplayErr = msg
 	return e
-}
-
-// deploymentConfigToYaml converts a DeploymentConfig to per-deployment YAML.
-func deploymentConfigToYaml(cfg *apigen.DeploymentConfig) string {
-	dep := yamlDeployment{}
-	if !cfg.ConfigID.IsZero() {
-		dep.Name = cfg.ConfigID.Name
-		dep.Environment = cfg.ConfigID.Environment
-		dep.Machine = cfg.ConfigID.Machine
-	}
-	if !cfg.Spec.IsZero() {
-		if !cfg.Spec.Prepare.IsZero() {
-			dep.Prepare = &yamlPrepare{}
-			if !cfg.Spec.Prepare.NixBuild.IsZero() {
-				dep.Prepare.NixBuild = &yamlNixBuild{
-					Repo:             cfg.Spec.Prepare.NixBuild.Repo,
-					Flake:            cfg.Spec.Prepare.NixBuild.Flake,
-					OutputExecutable: cfg.Spec.Prepare.NixBuild.OutputExecutable,
-				}
-			}
-			if !cfg.Spec.Prepare.NixDockerBuild.IsZero() {
-				dep.Prepare.NixDockerBuild = &yamlNixDockerBuild{
-					Repo:  cfg.Spec.Prepare.NixDockerBuild.Repo,
-					Flake: cfg.Spec.Prepare.NixDockerBuild.Flake,
-				}
-			}
-			if !cfg.Spec.Prepare.GithubRelease.IsZero() {
-				dep.Prepare.GithubRelease = &yamlGithubRelease{
-					Repo:  cfg.Spec.Prepare.GithubRelease.Repo,
-					Asset: cfg.Spec.Prepare.GithubRelease.Asset,
-					Tag:   cfg.Spec.Prepare.GithubRelease.Tag,
-				}
-			}
-			if !cfg.Spec.Prepare.ContainerImage.IsZero() {
-				dep.Prepare.ContainerImage = &yamlContainerImage{Image: cfg.Spec.Prepare.ContainerImage.Image}
-			}
-		}
-		if !cfg.Spec.Runner.IsZero() {
-			dep.Runner = &yamlRunner{}
-			if !cfg.Spec.Runner.OsProcess.IsZero() {
-				dep.Runner.OsProcess = &yamlOsProcess{
-					WorkingDir: cfg.Spec.Runner.OsProcess.WorkingDir,
-					RunAs:      cfg.Spec.Runner.OsProcess.RunAs,
-					Strategy:   cfg.Spec.Runner.OsProcess.Strategy,
-				}
-			}
-			if !cfg.Spec.Runner.Systemd.IsZero() {
-				dep.Runner.Systemd = &yamlSystemd{
-					Name:    cfg.Spec.Runner.Systemd.Name,
-					BinPath: cfg.Spec.Runner.Systemd.BinPath,
-				}
-			}
-			if !cfg.Spec.Runner.Container.IsZero() {
-				dep.Runner.Container = &yamlContainer{
-					User:              cfg.Spec.Runner.Container.User,
-					Command:           cfg.Spec.Runner.Container.Command,
-					WorkingDir:        cfg.Spec.Runner.Container.WorkingDir,
-					DataMountPath:     cfg.Spec.Runner.Container.DataMountPath,
-					DisableDataVolume: cfg.Spec.Runner.Container.DisableDataVolume,
-				}
-				for _, e := range cfg.Spec.Runner.Container.Env {
-					dep.Runner.Container.Env = append(dep.Runner.Container.Env, yamlEnvVar{Key: e.Key, Value: e.Value})
-				}
-				for _, m := range cfg.Spec.Runner.Container.Mounts {
-					dep.Runner.Container.Mounts = append(dep.Runner.Container.Mounts, yamlContainerMount{Host: m.Host, Container: m.Container, Readonly: m.Readonly})
-				}
-				for _, m := range cfg.Spec.Runner.Container.AssetMounts {
-					dep.Runner.Container.AssetMounts = append(dep.Runner.Container.AssetMounts, yamlAssetMount{Asset: m.Asset, Version: m.Version, Path: m.Path})
-				}
-			}
-		}
-	}
-	out, err := yaml.Marshal(dep)
-	if err != nil {
-		return ""
-	}
-	return string(out)
-}
-
-// parseCreateDeploymentYaml parses YAML into a DeploymentIdentifier and DeploymentSpec for creation.
-func parseCreateDeploymentYaml(yamlContent string) (*apigen.DeploymentIdentifier, *apigen.DeploymentSpec, error) {
-	return parseCreateDeploymentYamlWithAssets(yamlContent, nil)
-}
-
-func (h *Handler) parseCreateDeploymentYaml(yamlContent string) (*apigen.DeploymentIdentifier, *apigen.DeploymentSpec, error) {
-	return parseCreateDeploymentYamlWithAssets(yamlContent, h.Store)
-}
-
-func parseCreateDeploymentYamlWithAssets(yamlContent string, assets deploymentAssetResolver) (*apigen.DeploymentIdentifier, *apigen.DeploymentSpec, error) {
-	var dep yamlDeployment
-	if err := yaml.Unmarshal([]byte(yamlContent), &dep); err != nil {
-		return nil, nil, InvalidYAMLErr
-	}
-
-	if dep.Name == "" {
-		return nil, nil, invalidConfigErrf("name is required")
-	}
-	if dep.Machine == "" {
-		return nil, nil, invalidConfigErrf("machine is required")
-	}
-
-	prepare, err := toPrepareConfig(dep.Prepare)
-	if err != nil {
-		return nil, nil, err
-	}
-	runnerCfg, err := toRunnerConfig(dep.Runner, assets)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := validateContainerPairing(dep.Prepare, dep.Runner); err != nil {
-		return nil, nil, err
-	}
-
-	cid := &apigen.DeploymentIdentifier{
-		Name:        dep.Name,
-		Environment: dep.Environment,
-		Machine:     dep.Machine,
-	}
-	spec := &apigen.DeploymentSpec{
-		Prepare: *prepare,
-		Runner:  runnerConfigValue(runnerCfg),
-	}
-	return cid, spec, nil
 }

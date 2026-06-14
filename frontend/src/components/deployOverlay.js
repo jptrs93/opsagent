@@ -7,11 +7,10 @@ import {
     assetEditorPane,
     assetMountsPane,
     buildValidateSourceRequest,
-    configToYaml,
     deploymentConfigToForm,
     deploymentForm,
     envVarsPane,
-    formToYaml,
+    formToSpec,
     imageVersionFromReference,
     isFormValid,
     sectionDivider,
@@ -38,7 +37,7 @@ const versionLabel = (v) => {
 
 export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed) {
     const form = deploymentConfigToForm(deploymentConfig);
-    const initialYaml = configToYaml(deploymentConfig);
+    const initialSpecKey = JSON.stringify(formToSpec(form));
     const scopes = van.state([]);
     const selectedScope = van.state('');
     const versions = van.state([]);
@@ -122,7 +121,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     const doDeploy = async () => {
         errorMsg.val = '';
         if (!isFormValid(form)) {
-            errorMsg.val = 'Binary source and required execution fields must be set.';
+            errorMsg.val = 'Artifact source and required execution fields must be set.';
             throw new Error(errorMsg.val);
         }
 
@@ -131,9 +130,9 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
             version: deployment.currentVersion + 1,
         };
 
-        const nextYaml = formToYaml(form);
-        if (nextYaml !== initialYaml) {
-            payload.yamlContent = nextYaml;
+        const nextSpec = formToSpec(form);
+        if (JSON.stringify(nextSpec) !== initialSpecKey) {
+            payload.spec = nextSpec;
         }
         const targetVersion = imageVersionFromReference(form.containerImage.val) || selectedVersion.val.trim();
         if (targetVersion) {
@@ -196,7 +195,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         {class: "fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 pointer-events-none"},
         div(
             {class: "bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-row overflow-hidden pointer-events-auto",
-             style: () => `width: ${form.envPaneOpen.val || form.assetMountsPaneOpen.val || form.volumeMountsPaneOpen.val || form.assetEditorOpen.val ? 1360 : 960}px; max-width: calc(100vw - 2rem); max-height: 88vh;`,
+             style: () => `width: ${form.envPaneOpen.val || form.assetMountsPaneOpen.val || form.volumeMountsPaneOpen.val || form.assetEditorOpen.val ? 1560 : 1120}px; max-width: calc(100vw - 1rem); max-height: 88vh;`,
              onclick: (e) => e.stopPropagation()},
             div(
                 {class: "flex-1 min-w-0 flex flex-col"},
@@ -389,5 +388,5 @@ function currentSourceID(form) {
 }
 
 function selectClass() {
-    return "w-full h-9 px-3 rounded-lg bg-gray-800 text-gray-100 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-brand";
+    return "w-full h-9 px-3 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand";
 }
