@@ -15,6 +15,7 @@ const RUNNER_CONTAINER = 'container';
 let nextDatalistID = 1;
 let nextEnvID = 1;
 let nextAssetMountID = 1;
+let nextVolumeMountID = 1;
 
 const CREATE_ASSET_OPTION = "Create new asset";
 
@@ -38,7 +39,11 @@ export function emptyDeploymentForm() {
         osStrategy: '',
         systemdName: '',
         systemdBinPath: '',
+        containerUser: '',
+        containerDataMountPath: '',
+        containerDisableDataVolume: false,
         assetMounts: [],
+        volumeMounts: [],
     });
 }
 
@@ -80,8 +85,12 @@ export function deploymentConfigToForm(cfg) {
         osStrategy: os.strategy || '',
         systemdName: systemd.name || '',
         systemdBinPath: systemd.binPath || '',
+        containerUser: container.user || '',
+        containerDataMountPath: container.dataMountPath || '',
+        containerDisableDataVolume: Boolean(container.disableDataVolume),
         envVars: ((imagePrepare ? container.env : os.env) || []).map(e => ({id: nextEnvID++, key: e.key || '', value: e.value || ''})),
         assetMounts: (container.assetMounts || []).map(m => ({id: nextAssetMountID++, assetId: m.assetId || 0, key: m.asset || '', path: m.path || '', version: m.version || 0})),
+        volumeMounts: (container.mounts || []).map(m => ({id: nextVolumeMountID++, host: m.host || '', container: m.container || '', readonly: Boolean(m.readonly)})),
         showSourceOpts,
         showExecOpts,
     });
@@ -173,6 +182,7 @@ export function deploymentForm(form, opts = {}) {
                 ? div(
                     {class: "flex flex-col gap-3"},
                     envSummary(form),
+                    volumeMountsSummary(form),
                     assetMountsSection(form, opts),
                 )
                 : div(
@@ -226,10 +236,16 @@ export function formToYaml(form) {
         };
     } else if (runnerType === RUNNER_CONTAINER) {
         obj.runner.container = {
-            disableDataVolume: false,
+            disableDataVolume: Boolean(form.containerDisableDataVolume.val),
         };
+        const user = form.containerUser.val.trim();
+        if (user) obj.runner.container.user = user;
+        const dataMountPath = form.containerDataMountPath.val.trim();
+        if (dataMountPath) obj.runner.container.dataMountPath = dataMountPath;
         const env = formEnvVars(form);
         if (env.length) obj.runner.container.env = env;
+        const mounts = formVolumeMounts(form);
+        if (mounts.length) obj.runner.container.mounts = mounts;
         const assetMounts = formAssetMounts(form);
         if (assetMounts.length) obj.runner.container.assetMounts = assetMounts;
     } else {
@@ -261,7 +277,7 @@ export function isFormValid(form, opts = {}) {
     if (runnerType === RUNNER_SYSTEMD) {
         return Boolean(form.systemdName.val.trim() && form.systemdBinPath.val.trim());
     }
-    if (runnerType === RUNNER_CONTAINER && hasInvalidAssetMounts(form)) return false;
+    if (runnerType === RUNNER_CONTAINER && (hasInvalidVolumeConfig(form) || hasInvalidAssetMounts(form))) return false;
     return true;
 }
 
@@ -403,15 +419,20 @@ function makeFormState(values) {
         osStrategy: van.state(values.osStrategy),
         systemdName: van.state(values.systemdName),
         systemdBinPath: van.state(values.systemdBinPath),
+        containerUser: van.state(values.containerUser || ''),
+        containerDataMountPath: van.state(values.containerDataMountPath || ''),
+        containerDisableDataVolume: van.state(Boolean(values.containerDisableDataVolume)),
         envVars: van.state(values.envVars || []),
         assetMounts: van.state(values.assetMounts || []),
+        volumeMounts: van.state(values.volumeMounts || []),
         showSourceOpts: van.state(Boolean(values.showSourceOpts)),
         showExecOpts: van.state(Boolean(values.showExecOpts)),
         identityLockNotice: van.state(false),
         identityLockNoticeTimer: null,
         // Whether the environment-variables editor pane is open in the overlay.
         envPaneOpen: van.state(false),
-        assetMountsOpen: van.state(false),
+        assetMountsPaneOpen: van.state(false),
+        volumeMountsPaneOpen: van.state(false),
         assetEditorOpen: van.state(false),
         assetEditorMountID: van.state(0),
         assetEditorError: van.state(''),
@@ -634,20 +655,88 @@ function envSummary(form) {
             class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
             onclick: () => {
                 form.envPaneOpen.val = !form.envPaneOpen.val;
-                if (form.envPaneOpen.val) form.assetEditorOpen.val = false;
+                if (form.envPaneOpen.val) closeRuntimePanes(form, 'env');
             },
         }, () => form.envPaneOpen.val ? "Close" : "View / edit"),
     );
 }
 
 function assetMountsSection(form, opts = {}) {
+    const rows = () => form.assetMounts.val || [];
+    const validRows = () => rows().filter(m => m && m.key && m.path);
+    return div(
+        {class: "flex items-center justify-between gap-3"},
+        span({class: "text-xs text-gray-400"}, () => {
+            const n = validRows().length;
+            return n === 0 ? "No mounted assets" : `${n} mounted asset${n === 1 ? '' : 's'}`;
+        }),
+        button({
+            type: "button",
+            class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
+            onclick: () => {
+                if (rows().length === 0) {
+                    form.assetMounts.val = [...rows(), {id: nextAssetMountID++, assetId: 0, key: '', path: '', version: 0}];
+                }
+                form.assetMountsPaneOpen.val = !form.assetMountsPaneOpen.val;
+                if (form.assetMountsPaneOpen.val) closeRuntimePanes(form, 'assets');
+            },
+        }, () => form.assetMountsPaneOpen.val ? "Close" : (validRows().length ? "Click to manage" : "Click to mount assets")),
+    );
+}
+
+function volumeMountsSummary(form) {
+    const summaryText = () => {
+        const n = form.containerDisableDataVolume.val ? 0 : 1;
+        if (n === 0) return "No volumes mounted - click to manage";
+        return `${n} volume${n === 1 ? '' : 's'} mounted - click to manage`;
+    };
+    return div(
+        {class: "flex items-center justify-between gap-3"},
+        span({class: "text-xs text-gray-400"}, "Mounted volumes"),
+        button({
+            type: "button",
+            class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
+            onclick: () => {
+                form.volumeMountsPaneOpen.val = !form.volumeMountsPaneOpen.val;
+                if (form.volumeMountsPaneOpen.val) closeRuntimePanes(form, 'volumes');
+            },
+        }, () => form.volumeMountsPaneOpen.val ? "Close" : summaryText()),
+    );
+}
+
+function defaultVolumeCard(form) {
+    if (form.containerDisableDataVolume.val) {
+        return div(
+            {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-1"},
+            div({class: "flex items-center justify-between gap-3"},
+                span({class: "text-xs font-medium text-gray-200"}, "deployment-default"),
+                span({class: "text-[11px] text-gray-500"}, "Disabled"),
+            ),
+            p({class: "text-[11px] text-gray-500"}, "This deployment has disabled the built-in writable data volume in YAML."),
+        );
+    }
+    return div(
+        {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
+        div({class: "flex items-center justify-between gap-3"},
+            span({class: "text-xs font-medium text-gray-200"}, "deployment-default"),
+            span({class: "text-[11px] text-gray-500"}, "Writable"),
+        ),
+        field("Container mount path", input({
+            class: textInputClass(),
+            placeholder: defaultVolumeFallbackContainerPath(form),
+            value: form.containerDataMountPath.rawVal,
+            oninput: e => { form.containerDataMountPath.val = e.target.value; },
+        }), "Leave empty for the default path."),
+    );
+}
+
+export function assetMountsPane(form, opts = {}) {
     const datalistID = `deployment-assets-${nextDatalistID++}`;
     const assets = opts.assets || [];
     const enableAssetEditor = Boolean(opts.enableAssetEditor);
     const addMount = () => {
         const row = {id: nextAssetMountID++, assetId: 0, key: '', path: '', version: 0};
         form.assetMounts.val = [...(form.assetMounts.val || []), row];
-        form.assetMountsOpen.val = true;
         return row;
     };
     const updateMount = (row, patch) => {
@@ -663,7 +752,7 @@ function assetMountsSection(form, opts = {}) {
         form.assetEditorContent.val = '';
         form.assetEditorError.val = '';
         form.assetEditorOpen.val = true;
-        form.envPaneOpen.val = false;
+        closeRuntimePanes(form, 'assetEditor');
     };
     const onKeyInput = (row, value) => {
         if (enableAssetEditor && value === CREATE_ASSET_OPTION) {
@@ -676,56 +765,53 @@ function assetMountsSection(form, opts = {}) {
     };
 
     const rows = () => form.assetMounts.val || [];
-    const validRows = () => rows().filter(m => m && (m.key || m.path));
+    const rowEl = (row) => div(
+        {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
+        field("Asset", input({
+            class: textInputClass(true),
+            list: datalistID,
+            placeholder: "nginx.conf",
+            value: row.key,
+            oninput: e => onKeyInput(row, e.target.value),
+        })),
+        field("Container path", input({
+            class: textInputClass(true),
+            placeholder: "/etc/nginx/nginx.conf",
+            value: row.path,
+            oninput: e => updateMount(row, {path: e.target.value}),
+        })),
+        div({class: "flex items-center justify-between gap-2"},
+            span({class: "text-[11px] text-gray-500"}, () => row.version ? `Version ${row.version}` : "Latest version will be selected when saved"),
+            button({
+                type: "button",
+                class: "text-xs text-gray-500 hover:text-red-400 cursor-pointer",
+                onclick: () => removeMount(row),
+            }, "Remove"),
+        ),
+    );
     return div(
-        {class: "flex flex-col gap-2 pt-1"},
+        {class: () => form.assetMountsPaneOpen.val
+            ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
+            : "hidden"},
+        div(
+            {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
+            h3({class: "text-sm font-semibold text-gray-200"}, "Mounted assets"),
+            button({
+                type: "button",
+                class: "text-gray-500 hover:text-gray-200 cursor-pointer",
+                title: "Close",
+                onclick: () => { form.assetMountsPaneOpen.val = false; },
+            }, X({size: 16})),
+        ),
         datalist(
             {id: datalistID},
             ...assets.map(a => option({value: a.key}, `${a.key} v${a.version}`)),
             enableAssetEditor ? option({value: CREATE_ASSET_OPTION}, CREATE_ASSET_OPTION) : '',
         ),
         div(
-            {class: "flex items-center justify-between gap-3"},
-            span({class: "text-xs text-gray-400"}, () => {
-                const n = validRows().filter(m => m.key && m.path).length;
-                return n === 0 ? "No mounted assets" : `${n} mounted asset${n === 1 ? '' : 's'}`;
-            }),
-            button({
-                type: "button",
-                class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
-                onclick: () => {
-                    if (rows().length === 0) {
-                        addMount();
-                        form.assetMountsOpen.val = true;
-                    } else {
-                        form.assetMountsOpen.val = !form.assetMountsOpen.val;
-                    }
-                },
-            }, () => form.assetMountsOpen.val ? "Close" : (validRows().length ? "Edit mounts" : "Click to mount assets")),
-        ),
-        div(
-            {class: () => form.assetMountsOpen.val ? "flex flex-col gap-2" : "hidden"},
-            () => rows().map(row => div(
-                {class: "grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 items-center"},
-                input({
-                    class: textInputClass(true),
-                    list: datalistID,
-                    placeholder: "Asset key",
-                    value: row.key,
-                    oninput: e => onKeyInput(row, e.target.value),
-                }),
-                input({
-                    class: textInputClass(true),
-                    placeholder: "/etc/nginx/nginx.conf",
-                    value: row.path,
-                    oninput: e => updateMount(row, {path: e.target.value}),
-                }),
-                button({
-                    type: "button",
-                    class: "text-xs text-gray-500 hover:text-red-400 cursor-pointer px-2",
-                    onclick: () => removeMount(row),
-                }, "Remove"),
-            )),
+            {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-4"},
+            p({class: "text-[11px] text-gray-500"}, "Mount OpenDeploy-managed asset files into the container as read-only files."),
+            () => div({class: "flex flex-col gap-3"}, ...rows().map(rowEl)),
             div({class: "flex items-center justify-between gap-2"},
                 button({
                     type: "button",
@@ -738,6 +824,30 @@ function assetMountsSection(form, opts = {}) {
                     onclick: () => openAssetEditor(addMount()),
                 }, "Create new asset") : '',
             ),
+        ),
+    );
+}
+
+export function volumeMountsPane(form) {
+    return div(
+        {class: () => form.volumeMountsPaneOpen.val
+            ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
+            : "hidden"},
+        div(
+            {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
+            h3({class: "text-sm font-semibold text-gray-200"}, "Mounted volumes"),
+            button({
+                type: "button",
+                class: "text-gray-500 hover:text-gray-200 cursor-pointer",
+                title: "Close",
+                onclick: () => { form.volumeMountsPaneOpen.val = false; },
+            }, X({size: 16})),
+        ),
+        div(
+            {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-4"},
+            p({class: "text-[11px] text-gray-500"}, "Volumes are OpenDeploy-managed named storage mounted into the container."),
+            defaultVolumeCard(form),
+            p({class: "text-[11px] text-gray-500"}, "Additional named volumes will be managed here later."),
         ),
     );
 }
@@ -764,9 +874,9 @@ export function assetEditorPane(form, opts = {}) {
                     : m);
             } else if (!form.assetMounts.val.some(m => m.key === asset.key)) {
                 form.assetMounts.val = [...form.assetMounts.val, {id: nextAssetMountID++, assetId: asset.id, key: asset.key, version: asset.version, path: ''}];
-                form.assetMountsOpen.val = true;
             }
             form.assetEditorOpen.val = false;
+            form.assetMountsPaneOpen.val = true;
         } catch (e) {
             form.assetEditorError.val = e.message || 'Failed to save asset';
         }
@@ -871,6 +981,25 @@ function formAssetMounts(form) {
         .filter(m => m.asset && m.path);
 }
 
+function formVolumeMounts(form) {
+    return (form.volumeMounts.val || [])
+        .map(m => ({host: (m.host || '').trim(), container: (m.container || '').trim(), readonly: Boolean(m.readonly)}))
+        .filter(m => m.host && m.container);
+}
+
+function defaultVolumeFallbackContainerPath(form) {
+    const user = form.containerUser.val.trim();
+    if (!user || user === 'root' || user === '0') return '/var';
+    const name = user.includes(':') ? user.slice(0, user.indexOf(':')) : user;
+    return `/home/${name}/var`;
+}
+
+function hasInvalidVolumeConfig(form) {
+    const path = form.containerDataMountPath.val.trim();
+    if (!path) return false;
+    return !path.startsWith('/') || path.endsWith('/') || path.includes('/../') || path.includes('/./') || path === '/';
+}
+
 function hasInvalidAssetMounts(form) {
     return (form.assetMounts.val || []).some(m => {
         const key = (m.key || '').trim();
@@ -878,6 +1007,13 @@ function hasInvalidAssetMounts(form) {
         if (!key && !path) return false;
         return !key || !path || !path.startsWith('/') || path.endsWith('/') || path.includes('/../') || path.includes('/./') || path === '/';
     });
+}
+
+function closeRuntimePanes(form, keep) {
+    if (keep !== 'env') form.envPaneOpen.val = false;
+    if (keep !== 'assets') form.assetMountsPaneOpen.val = false;
+    if (keep !== 'volumes') form.volumeMountsPaneOpen.val = false;
+    if (keep !== 'assetEditor') form.assetEditorOpen.val = false;
 }
 
 function envVarsToText(arr) {

@@ -4,6 +4,8 @@ import {deploymentsS} from "../state/deployments.js";
 import {spinnerButton} from "./spinnerbutton.js";
 import {RefreshCw} from "vanjs-feather";
 import {
+    assetEditorPane,
+    assetMountsPane,
     buildValidateSourceRequest,
     configToYaml,
     deploymentConfigToForm,
@@ -17,6 +19,7 @@ import {
     sourceValidationKey,
     validateSelectedCommit,
     validationSourceResult,
+    volumeMountsPane,
 } from "./deploymentForm.js";
 
 const { div, span, select, option, button, p, label, input } = van.tags;
@@ -43,6 +46,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     const loadingVersions = van.state(false);
     const versionError = van.state('');
     const errorMsg = van.state('');
+    const assets = van.state([]);
     const isRunning = deployment.existingStatus === STATUS_RUNNING;
     const canManageLifecycle = deployment.runnerType !== 'systemd';
     const canStart = Boolean(deployment.deployedVersion);
@@ -96,9 +100,19 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         loadingVersions.val = false;
     };
 
+    const loadAssets = async () => {
+        try {
+            const res = await capi.postV1AssetsList({});
+            assets.val = res.items || [];
+        } catch (e) {
+            assets.val = [];
+        }
+    };
+
     if (deployment.variant) {
         loadVersions('');
     }
+    loadAssets();
 
     const onScopeChange = (e) => {
         selectedScope.val = e.target.value;
@@ -182,13 +196,18 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         {class: "fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 pointer-events-none"},
         div(
             {class: "bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-row overflow-hidden pointer-events-auto",
-             style: () => `width: ${form.envPaneOpen.val ? 1360 : 960}px; max-width: calc(100vw - 2rem); max-height: 88vh;`,
+             style: () => `width: ${form.envPaneOpen.val || form.assetMountsPaneOpen.val || form.volumeMountsPaneOpen.val || form.assetEditorOpen.val ? 1360 : 960}px; max-width: calc(100vw - 2rem); max-height: 88vh;`,
              onclick: (e) => e.stopPropagation()},
             div(
                 {class: "flex-1 min-w-0 flex flex-col"},
                 div(
                     {class: "flex-1 min-h-0 overflow-auto p-4 flex flex-col gap-5"},
-                    deploymentForm(form, {identityLocked: true, environmentOptions: environmentOptions()}),
+                    () => deploymentForm(form, {
+                        identityLocked: true,
+                        environmentOptions: environmentOptions(),
+                        assets: assets.val,
+                        enableAssetEditor: true,
+                    }),
                     hasVersions ? versionSection({
                         form,
                         scopes,
@@ -231,6 +250,9 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                 ),
             ),
             envVarsPane(form),
+            volumeMountsPane(form),
+            () => assetMountsPane(form, {assets: assets.val, enableAssetEditor: true}),
+            assetEditorPane(form, {onSaved: loadAssets}),
         ),
     );
 
