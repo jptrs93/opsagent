@@ -37,6 +37,7 @@ const versionLabel = (v) => {
 
 export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed) {
     const form = deploymentConfigToForm(deploymentConfig);
+    const internalGithubRelease = deployment.variant === 'githubRelease';
     const initialSpecKey = JSON.stringify(formToSpec(form));
     const scopes = van.state([]);
     const selectedScope = van.state('');
@@ -61,7 +62,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
 
     const loadVersions = async (scope) => {
         const sourceID = currentSourceID(form);
-        if (!sourceID) {
+        if (!internalGithubRelease && !sourceID) {
             versionError.val = form.sourceType.val === 'containerImage' ? 'Image not set' : 'Repository not set';
             versions.val = [];
             return;
@@ -71,6 +72,17 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         const sourceType = form.sourceType.val;
         const sourceKey = sourceValidationKey(form);
         try {
+            if (internalGithubRelease) {
+                const result = await capi.postV1DeploymentVersions({deploymentId: deployment.id, scope: scope || ''});
+                scopes.val = result.scopes || [];
+                versions.val = result.versions || [];
+                selectedScope.val = result.scope || '';
+                if (!versions.val.some(v => v.id === selectedVersion.val)) {
+                    selectedVersion.val = versions.val[0]?.id || '';
+                }
+                loadingVersions.val = false;
+                return;
+            }
             const result = await capi.postV1RepoValidate(buildValidateSourceRequest(form, {scope: scope || ''}));
             const sourceResult = validationSourceResult(form, result);
             form.repoCheck.val = sourceCheckFromValidation(form, result, sourceID, sourceType, sourceKey);
@@ -120,7 +132,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
 
     const doDeploy = async () => {
         errorMsg.val = '';
-        if (!isFormValid(form)) {
+        if (!internalGithubRelease && !isFormValid(form)) {
             errorMsg.val = 'Artifact source and required execution fields must be set.';
             throw new Error(errorMsg.val);
         }
@@ -130,11 +142,13 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
             version: deployment.currentVersion + 1,
         };
 
-        const nextSpec = formToSpec(form);
-        if (JSON.stringify(nextSpec) !== initialSpecKey) {
-            payload.spec = nextSpec;
+        if (!internalGithubRelease) {
+            const nextSpec = formToSpec(form);
+            if (JSON.stringify(nextSpec) !== initialSpecKey) {
+                payload.spec = nextSpec;
+            }
         }
-        const targetVersion = imageVersionFromReference(form.containerImage.val) || selectedVersion.val.trim();
+        const targetVersion = internalGithubRelease ? selectedVersion.val.trim() : (imageVersionFromReference(form.containerImage.val) || selectedVersion.val.trim());
         if (targetVersion) {
             payload.targetVersion = targetVersion;
         }
@@ -203,6 +217,8 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                     {class: "flex-1 min-h-0 overflow-auto p-4 flex flex-col gap-5"},
                     () => deploymentForm(form, {
                         identityLocked: true,
+                        hideArtifactSource: internalGithubRelease,
+                        hideExecution: internalGithubRelease,
                         environmentOptions: environmentOptions(),
                         assets: assets.val,
                         enableAssetEditor: true,
@@ -215,7 +231,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                         selectedVersion,
                         loadingVersions,
                         versionError,
-                        sourceType: form.sourceType,
+                        sourceType: internalGithubRelease ? {val: 'githubRelease'} : form.sourceType,
                         deployedVersion: deployment.deployedVersion || '',
                         onScopeChange,
                         onVersionChange: (version) => validateSelectedCommit(form, selectedScope.val, version),
@@ -244,7 +260,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                             doStop,
                             doStart,
                         }),
-                        spinnerButton("Update deployment", doDeploy, "btn-primary text-sm py-1.5 px-4", "button", () => !isFormValid(form)),
+                        spinnerButton("Update deployment", doDeploy, "btn-primary text-sm py-1.5 px-4", "button", () => !internalGithubRelease && !isFormValid(form)),
                     ),
                 ),
             ),
@@ -383,7 +399,6 @@ function refreshButton(args) {
 
 function currentSourceID(form) {
     if (form.sourceType.val === 'containerImage') return form.containerImage.val.trim();
-    if (form.sourceType.val === 'githubRelease') return form.githubRepo.val.trim();
     return form.nixRepo.val.trim();
 }
 

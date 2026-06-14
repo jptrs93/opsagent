@@ -250,12 +250,6 @@
  * @property {string} key
  */
 /**
- * @typedef {Object} NixBuildConfig
- * @property {string} repo
- * @property {string} flake
- * @property {string} outputExecutable
- */
-/**
  * @typedef {Object} NixDockerBuildConfig
  * @property {string} repo
  * @property {string} flake
@@ -273,17 +267,9 @@
  */
 /**
  * @typedef {Object} PrepareConfig
- * @property {NixBuildConfig} nixBuild
  * @property {GithubReleaseConfig} githubRelease
  * @property {ContainerImageConfig} containerImage
  * @property {NixDockerBuildConfig} nixDockerBuild
- */
-/**
- * @typedef {Object} OsProcessRunnerConfig
- * @property {string} workingDir
- * @property {string} runAs
- * @property {string} strategy
- * @property {EnvVar[]} env
  */
 /**
  * @typedef {Object} EnvVar
@@ -322,7 +308,6 @@
  */
 /**
  * @typedef {Object} RunnerConfig
- * @property {OsProcessRunnerConfig} osProcess
  * @property {SystemdRunnerConfig} systemd
  * @property {ContainerRunnerConfig} container
  */
@@ -468,17 +453,8 @@
  */
 /**
  * @typedef {Object} ValidateSourceRequest
- * @property {ValidateNixBuildSource} nixBuild
  * @property {ValidateNixDockerBuildSource} nixDockerBuild
- * @property {ValidateGithubReleaseSource} githubRelease
  * @property {ValidateContainerImageSource} containerImage
- */
-/**
- * @typedef {Object} ValidateNixBuildSource
- * @property {string} repoUrl
- * @property {string} branch
- * @property {string} commit
- * @property {string} flakePath
  */
 /**
  * @typedef {Object} ValidateNixDockerBuildSource
@@ -486,10 +462,6 @@
  * @property {string} branch
  * @property {string} commit
  * @property {string} flakePath
- */
-/**
- * @typedef {Object} ValidateGithubReleaseSource
- * @property {string} repoUrl
  */
 /**
  * @typedef {Object} ValidateContainerImageSource
@@ -502,18 +474,8 @@
  */
 /**
  * @typedef {Object} ValidateSourceResponse
- * @property {ValidateNixBuildSourceResponse} nixBuild
  * @property {ValidateNixDockerBuildSourceResponse} nixDockerBuild
- * @property {ValidateGithubReleaseSourceResponse} githubRelease
  * @property {ValidateContainerImageSourceResponse} containerImage
- */
-/**
- * @typedef {Object} ValidateNixBuildSourceResponse
- * @property {ValidationResult} gitRepository
- * @property {ValidationResult} nixFlakeFile
- * @property {string[]} scopes
- * @property {string} scope
- * @property {Version[]} versions
  */
 /**
  * @typedef {Object} ValidateNixDockerBuildSourceResponse
@@ -524,22 +486,9 @@
  * @property {Version[]} versions
  */
 /**
- * @typedef {Object} ValidateGithubReleaseSourceResponse
- * @property {ValidationResult} gitRepository
- * @property {ValidationResult} releaseAsset
- * @property {string[]} scopes
- * @property {string} scope
- * @property {Version[]} versions
- */
-/**
  * @typedef {Object} ValidateContainerImageSourceResponse
  * @property {ValidationResult} image
  * @property {Version[]} versions
- */
-/**
- * @typedef {Object} GithubAssetValidateRequest
- * @property {string} repo
- * @property {string} asset
  */
 /**
  * @typedef {Object} User
@@ -601,8 +550,7 @@
  * @property {string} displayErr
  * @property {string} internalErr
  */
-import protobufjsm from 'protobufjs/minimal';
-const { Reader, Writer } = protobufjsm;
+import { Reader, Writer } from './runtime.js';
 
 const WIRE = {
     VARINT: 0,
@@ -3699,76 +3647,6 @@ export function decodeAssetDeleteRequest(buffer) {
 
 
 /**
- * @param {NixBuildConfig} message
- * @param {Writer} writer
- */
-export function writeNixBuildConfig(message, writer) {
-    if (message.repo !== undefined && message.repo !== null && message.repo !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.repo);
-    }
-    if (message.flake !== undefined && message.flake !== null && message.flake !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.flake);
-    }
-    if (message.outputExecutable !== undefined && message.outputExecutable !== null && message.outputExecutable !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.outputExecutable);
-    }
-}
-
-
-/**
- * @param {NixBuildConfig} message
- * @returns {Uint8Array}
- */
-export function encodeNixBuildConfig(message) {
-    const writer = Writer.create();
-    writeNixBuildConfig(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {NixBuildConfig}
- */
-function decodeNixBuildConfigMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {repo: "", flake: "", outputExecutable: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.repo = reader.string();
-                break;
-            }
-            case 2: {
-                message.flake = reader.string();
-                break;
-            }
-            case 3: {
-                message.outputExecutable = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {NixBuildConfig}
- */
-export function decodeNixBuildConfig(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeNixBuildConfigMessage(reader);
-}
-
-
-
-/**
  * @param {NixDockerBuildConfig} message
  * @param {Writer} writer
  */
@@ -3969,11 +3847,6 @@ export function decodeContainerImageConfig(buffer) {
  * @param {Writer} writer
  */
 export function writePrepareConfig(message, writer) {
-    if (message.nixBuild !== undefined && message.nixBuild !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeNixBuildConfig(message.nixBuild, writer);
-        writer.ldelim();
-    }
     if (message.githubRelease !== undefined && message.githubRelease !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
         writeGithubReleaseConfig(message.githubRelease, writer);
@@ -4010,14 +3883,10 @@ export function encodePrepareConfig(message) {
  */
 function decodePrepareConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {nixBuild: undefined, githubRelease: undefined, containerImage: undefined, nixDockerBuild: undefined };
+    const message = {githubRelease: undefined, containerImage: undefined, nixDockerBuild: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.nixBuild = decodeNixBuildConfigMessage(reader, reader.uint32());
-                break;
-            }
             case 2: {
                 message.githubRelease = decodeGithubReleaseConfigMessage(reader, reader.uint32());
                 break;
@@ -4045,87 +3914,6 @@ function decodePrepareConfigMessage(reader, length) {
 export function decodePrepareConfig(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodePrepareConfigMessage(reader);
-}
-
-
-
-/**
- * @param {OsProcessRunnerConfig} message
- * @param {Writer} writer
- */
-export function writeOsProcessRunnerConfig(message, writer) {
-    if (message.workingDir !== undefined && message.workingDir !== null && message.workingDir !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.workingDir);
-    }
-    if (message.runAs !== undefined && message.runAs !== null && message.runAs !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.runAs);
-    }
-    if (message.strategy !== undefined && message.strategy !== null && message.strategy !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.strategy);
-    }
-    if (message.env && message.env.length > 0) {
-        for (const item of message.env) {
-            writer.uint32(tag(4, WIRE.LDELIM)).fork();
-            writeEnvVar(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {OsProcessRunnerConfig} message
- * @returns {Uint8Array}
- */
-export function encodeOsProcessRunnerConfig(message) {
-    const writer = Writer.create();
-    writeOsProcessRunnerConfig(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {OsProcessRunnerConfig}
- */
-function decodeOsProcessRunnerConfigMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {workingDir: "", runAs: "", strategy: "", env: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.workingDir = reader.string();
-                break;
-            }
-            case 2: {
-                message.runAs = reader.string();
-                break;
-            }
-            case 3: {
-                message.strategy = reader.string();
-                break;
-            }
-            case 4: {
-                message.env.push(decodeEnvVarMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {OsProcessRunnerConfig}
- */
-export function decodeOsProcessRunnerConfig(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeOsProcessRunnerConfigMessage(reader);
 }
 
 
@@ -4534,11 +4322,6 @@ export function decodeContainerRunnerConfig(buffer) {
  * @param {Writer} writer
  */
 export function writeRunnerConfig(message, writer) {
-    if (message.osProcess !== undefined && message.osProcess !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeOsProcessRunnerConfig(message.osProcess, writer);
-        writer.ldelim();
-    }
     if (message.systemd !== undefined && message.systemd !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
         writeSystemdRunnerConfig(message.systemd, writer);
@@ -4570,14 +4353,10 @@ export function encodeRunnerConfig(message) {
  */
 function decodeRunnerConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {osProcess: undefined, systemd: undefined, container: undefined };
+    const message = {systemd: undefined, container: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.osProcess = decodeOsProcessRunnerConfigMessage(reader, reader.uint32());
-                break;
-            }
             case 2: {
                 message.systemd = decodeSystemdRunnerConfigMessage(reader, reader.uint32());
                 break;
@@ -6331,19 +6110,9 @@ export function decodeDeploymentVersionsRequest(buffer) {
  * @param {Writer} writer
  */
 export function writeValidateSourceRequest(message, writer) {
-    if (message.nixBuild !== undefined && message.nixBuild !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeValidateNixBuildSource(message.nixBuild, writer);
-        writer.ldelim();
-    }
     if (message.nixDockerBuild !== undefined && message.nixDockerBuild !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
         writeValidateNixDockerBuildSource(message.nixDockerBuild, writer);
-        writer.ldelim();
-    }
-    if (message.githubRelease !== undefined && message.githubRelease !== null) {
-        writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeValidateGithubReleaseSource(message.githubRelease, writer);
         writer.ldelim();
     }
     if (message.containerImage !== undefined && message.containerImage !== null) {
@@ -6372,20 +6141,12 @@ export function encodeValidateSourceRequest(message) {
  */
 function decodeValidateSourceRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {nixBuild: undefined, nixDockerBuild: undefined, githubRelease: undefined, containerImage: undefined };
+    const message = {nixDockerBuild: undefined, containerImage: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.nixBuild = decodeValidateNixBuildSourceMessage(reader, reader.uint32());
-                break;
-            }
             case 2: {
                 message.nixDockerBuild = decodeValidateNixDockerBuildSourceMessage(reader, reader.uint32());
-                break;
-            }
-            case 3: {
-                message.githubRelease = decodeValidateGithubReleaseSourceMessage(reader, reader.uint32());
                 break;
             }
             case 4: {
@@ -6407,83 +6168,6 @@ function decodeValidateSourceRequestMessage(reader, length) {
 export function decodeValidateSourceRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeValidateSourceRequestMessage(reader);
-}
-
-
-
-/**
- * @param {ValidateNixBuildSource} message
- * @param {Writer} writer
- */
-export function writeValidateNixBuildSource(message, writer) {
-    if (message.repoUrl !== undefined && message.repoUrl !== null && message.repoUrl !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.repoUrl);
-    }
-    if (message.branch !== undefined && message.branch !== null && message.branch !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.branch);
-    }
-    if (message.commit !== undefined && message.commit !== null && message.commit !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.commit);
-    }
-    if (message.flakePath !== undefined && message.flakePath !== null && message.flakePath !== "") {
-        writer.uint32(tag(4, WIRE.LDELIM)).string(message.flakePath);
-    }
-}
-
-
-/**
- * @param {ValidateNixBuildSource} message
- * @returns {Uint8Array}
- */
-export function encodeValidateNixBuildSource(message) {
-    const writer = Writer.create();
-    writeValidateNixBuildSource(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ValidateNixBuildSource}
- */
-function decodeValidateNixBuildSourceMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {repoUrl: "", branch: "", commit: "", flakePath: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.repoUrl = reader.string();
-                break;
-            }
-            case 2: {
-                message.branch = reader.string();
-                break;
-            }
-            case 3: {
-                message.commit = reader.string();
-                break;
-            }
-            case 4: {
-                message.flakePath = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ValidateNixBuildSource}
- */
-export function decodeValidateNixBuildSource(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeValidateNixBuildSourceMessage(reader);
 }
 
 
@@ -6561,62 +6245,6 @@ function decodeValidateNixDockerBuildSourceMessage(reader, length) {
 export function decodeValidateNixDockerBuildSource(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeValidateNixDockerBuildSourceMessage(reader);
-}
-
-
-
-/**
- * @param {ValidateGithubReleaseSource} message
- * @param {Writer} writer
- */
-export function writeValidateGithubReleaseSource(message, writer) {
-    if (message.repoUrl !== undefined && message.repoUrl !== null && message.repoUrl !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.repoUrl);
-    }
-}
-
-
-/**
- * @param {ValidateGithubReleaseSource} message
- * @returns {Uint8Array}
- */
-export function encodeValidateGithubReleaseSource(message) {
-    const writer = Writer.create();
-    writeValidateGithubReleaseSource(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ValidateGithubReleaseSource}
- */
-function decodeValidateGithubReleaseSourceMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {repoUrl: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.repoUrl = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ValidateGithubReleaseSource}
- */
-export function decodeValidateGithubReleaseSource(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeValidateGithubReleaseSourceMessage(reader);
 }
 
 
@@ -6745,19 +6373,9 @@ export function decodeValidationResult(buffer) {
  * @param {Writer} writer
  */
 export function writeValidateSourceResponse(message, writer) {
-    if (message.nixBuild !== undefined && message.nixBuild !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeValidateNixBuildSourceResponse(message.nixBuild, writer);
-        writer.ldelim();
-    }
     if (message.nixDockerBuild !== undefined && message.nixDockerBuild !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
         writeValidateNixDockerBuildSourceResponse(message.nixDockerBuild, writer);
-        writer.ldelim();
-    }
-    if (message.githubRelease !== undefined && message.githubRelease !== null) {
-        writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeValidateGithubReleaseSourceResponse(message.githubRelease, writer);
         writer.ldelim();
     }
     if (message.containerImage !== undefined && message.containerImage !== null) {
@@ -6786,20 +6404,12 @@ export function encodeValidateSourceResponse(message) {
  */
 function decodeValidateSourceResponseMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {nixBuild: undefined, nixDockerBuild: undefined, githubRelease: undefined, containerImage: undefined };
+    const message = {nixDockerBuild: undefined, containerImage: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.nixBuild = decodeValidateNixBuildSourceResponseMessage(reader, reader.uint32());
-                break;
-            }
             case 2: {
                 message.nixDockerBuild = decodeValidateNixDockerBuildSourceResponseMessage(reader, reader.uint32());
-                break;
-            }
-            case 3: {
-                message.githubRelease = decodeValidateGithubReleaseSourceResponseMessage(reader, reader.uint32());
                 break;
             }
             case 4: {
@@ -6821,100 +6431,6 @@ function decodeValidateSourceResponseMessage(reader, length) {
 export function decodeValidateSourceResponse(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeValidateSourceResponseMessage(reader);
-}
-
-
-
-/**
- * @param {ValidateNixBuildSourceResponse} message
- * @param {Writer} writer
- */
-export function writeValidateNixBuildSourceResponse(message, writer) {
-    if (message.gitRepository !== undefined && message.gitRepository !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeValidationResult(message.gitRepository, writer);
-        writer.ldelim();
-    }
-    if (message.nixFlakeFile !== undefined && message.nixFlakeFile !== null) {
-        writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeValidationResult(message.nixFlakeFile, writer);
-        writer.ldelim();
-    }
-    if (message.scopes && message.scopes.length > 0) {
-        for (const item of message.scopes) {
-            writer.uint32(tag(3, WIRE.LDELIM)).string(item);
-        }
-    }
-    if (message.scope !== undefined && message.scope !== null && message.scope !== "") {
-        writer.uint32(tag(4, WIRE.LDELIM)).string(message.scope);
-    }
-    if (message.versions && message.versions.length > 0) {
-        for (const item of message.versions) {
-            writer.uint32(tag(5, WIRE.LDELIM)).fork();
-            writeVersion(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {ValidateNixBuildSourceResponse} message
- * @returns {Uint8Array}
- */
-export function encodeValidateNixBuildSourceResponse(message) {
-    const writer = Writer.create();
-    writeValidateNixBuildSourceResponse(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ValidateNixBuildSourceResponse}
- */
-function decodeValidateNixBuildSourceResponseMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {gitRepository: undefined, nixFlakeFile: undefined, scopes: [], scope: "", versions: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.gitRepository = decodeValidationResultMessage(reader, reader.uint32());
-                break;
-            }
-            case 2: {
-                message.nixFlakeFile = decodeValidationResultMessage(reader, reader.uint32());
-                break;
-            }
-            case 3: {
-                message.scopes.push(reader.string());
-                break;
-            }
-            case 4: {
-                message.scope = reader.string();
-                break;
-            }
-            case 5: {
-                message.versions.push(decodeVersionMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ValidateNixBuildSourceResponse}
- */
-export function decodeValidateNixBuildSourceResponse(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeValidateNixBuildSourceResponseMessage(reader);
 }
 
 
@@ -7014,100 +6530,6 @@ export function decodeValidateNixDockerBuildSourceResponse(buffer) {
 
 
 /**
- * @param {ValidateGithubReleaseSourceResponse} message
- * @param {Writer} writer
- */
-export function writeValidateGithubReleaseSourceResponse(message, writer) {
-    if (message.gitRepository !== undefined && message.gitRepository !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeValidationResult(message.gitRepository, writer);
-        writer.ldelim();
-    }
-    if (message.releaseAsset !== undefined && message.releaseAsset !== null) {
-        writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeValidationResult(message.releaseAsset, writer);
-        writer.ldelim();
-    }
-    if (message.scopes && message.scopes.length > 0) {
-        for (const item of message.scopes) {
-            writer.uint32(tag(3, WIRE.LDELIM)).string(item);
-        }
-    }
-    if (message.scope !== undefined && message.scope !== null && message.scope !== "") {
-        writer.uint32(tag(4, WIRE.LDELIM)).string(message.scope);
-    }
-    if (message.versions && message.versions.length > 0) {
-        for (const item of message.versions) {
-            writer.uint32(tag(5, WIRE.LDELIM)).fork();
-            writeVersion(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {ValidateGithubReleaseSourceResponse} message
- * @returns {Uint8Array}
- */
-export function encodeValidateGithubReleaseSourceResponse(message) {
-    const writer = Writer.create();
-    writeValidateGithubReleaseSourceResponse(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ValidateGithubReleaseSourceResponse}
- */
-function decodeValidateGithubReleaseSourceResponseMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {gitRepository: undefined, releaseAsset: undefined, scopes: [], scope: "", versions: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.gitRepository = decodeValidationResultMessage(reader, reader.uint32());
-                break;
-            }
-            case 2: {
-                message.releaseAsset = decodeValidationResultMessage(reader, reader.uint32());
-                break;
-            }
-            case 3: {
-                message.scopes.push(reader.string());
-                break;
-            }
-            case 4: {
-                message.scope = reader.string();
-                break;
-            }
-            case 5: {
-                message.versions.push(decodeVersionMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ValidateGithubReleaseSourceResponse}
- */
-export function decodeValidateGithubReleaseSourceResponse(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeValidateGithubReleaseSourceResponseMessage(reader);
-}
-
-
-
-/**
  * @param {ValidateContainerImageSourceResponse} message
  * @param {Writer} writer
  */
@@ -7172,69 +6594,6 @@ function decodeValidateContainerImageSourceResponseMessage(reader, length) {
 export function decodeValidateContainerImageSourceResponse(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeValidateContainerImageSourceResponseMessage(reader);
-}
-
-
-
-/**
- * @param {GithubAssetValidateRequest} message
- * @param {Writer} writer
- */
-export function writeGithubAssetValidateRequest(message, writer) {
-    if (message.repo !== undefined && message.repo !== null && message.repo !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.repo);
-    }
-    if (message.asset !== undefined && message.asset !== null && message.asset !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.asset);
-    }
-}
-
-
-/**
- * @param {GithubAssetValidateRequest} message
- * @returns {Uint8Array}
- */
-export function encodeGithubAssetValidateRequest(message) {
-    const writer = Writer.create();
-    writeGithubAssetValidateRequest(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {GithubAssetValidateRequest}
- */
-function decodeGithubAssetValidateRequestMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {repo: "", asset: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.repo = reader.string();
-                break;
-            }
-            case 2: {
-                message.asset = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {GithubAssetValidateRequest}
- */
-export function decodeGithubAssetValidateRequest(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeGithubAssetValidateRequestMessage(reader);
 }
 
 
@@ -7965,6 +7324,9 @@ function readInt64(reader, method) {
     const value = reader[method]();
     if (typeof value === "number") {
         return value;
+    }
+    if (typeof value === "bigint") {
+        return Number(value);
     }
     return value.toNumber();
 }

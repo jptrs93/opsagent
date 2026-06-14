@@ -42,7 +42,7 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 
 		items := make([]*apigen.DeploymentWithStatus, 0, len(snapshot))
 		for i := range snapshot {
-			items = append(items, &snapshot[i])
+			items = append(items, redactDeploymentWithStatus(&snapshot[i]))
 		}
 		initial := &apigen.State{
 			DeploymentsSnapshot: &apigen.DeploymentWithStatusSnapshot{Items: items},
@@ -65,8 +65,8 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 				if !ok {
 					return
 				}
-				update := dws
-				if !yield(&apigen.State{DeploymentUpdate: &update}, nil) {
+				update := redactDeploymentWithStatus(&dws)
+				if !yield(&apigen.State{DeploymentUpdate: update}, nil) {
 					return
 				}
 			case u, ok := <-userSub.Ch:

@@ -87,7 +87,6 @@ type OpsagentHttpV1Handler interface {
 	PostV1DeploymentCreate(Context, *DeploymentCreateRequest) (*DeploymentConfig, error)
 	PostV1DeploymentVersions(Context, *DeploymentVersionsRequest) (*DeploymentVersions, error)
 	PostV1RepoValidate(Context, *ValidateSourceRequest) (*ValidateSourceResponse, error)
-	PostV1GithubAssetValidate(Context, *GithubAssetValidateRequest) (*ValidateSourceResponse, error)
 	GetV1Config(Context) (*DynamicConfiguration, error)
 	PostV1ConfigUpdate(Context, *ConfigUpdateRequest) (*DynamicConfiguration, error)
 	PostV1SecretValueReveal(Context, *SecretValue) (*SecretRevealResponse, error)
@@ -321,17 +320,6 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/repo/validate", buildHandlerFunc(config, verifyAuth, postV1RepoValidateAccessPolicy, postAuthHandlerPostV1RepoValidate, compressionModeAuto, false))
-	postV1GithubAssetValidateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
-	postAuthHandlerPostV1GithubAssetValidate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeGithubAssetValidateRequest)
-		if err != nil {
-			HandleReqErr(authCtx, err, r, w)
-			return
-		}
-		res, err := h.PostV1GithubAssetValidate(authCtx, req)
-		Respond(authCtx, r, w, res, err)
-	}
-	m.HandleFunc("POST /v1/github/asset/validate", buildHandlerFunc(config, verifyAuth, postV1GithubAssetValidateAccessPolicy, postAuthHandlerPostV1GithubAssetValidate, compressionModeAuto, false))
 	getV1ConfigAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerGetV1Config := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		res, err := h.GetV1Config(authCtx)

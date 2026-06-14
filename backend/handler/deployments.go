@@ -244,25 +244,10 @@ func validationResponse(in *validateSourceInput, gitResult apigen.ValidationResu
 		return &apigen.ValidateSourceResponse{}
 	}
 	switch in.source {
-	case "nixBuild":
-		return &apigen.ValidateSourceResponse{NixBuild: apigen.ValidateNixBuildSourceResponse{
-			GitRepository: gitResult,
-			NixFlakeFile:  flakeResult,
-			Scopes:        scopes,
-			Scope:         scope,
-			Versions:      versions,
-		}}
 	case "nixDockerBuild":
 		return &apigen.ValidateSourceResponse{NixDockerBuild: apigen.ValidateNixDockerBuildSourceResponse{
 			GitRepository: gitResult,
 			NixFlakeFile:  flakeResult,
-			Scopes:        scopes,
-			Scope:         scope,
-			Versions:      versions,
-		}}
-	case "githubRelease":
-		return &apigen.ValidateSourceResponse{GithubRelease: apigen.ValidateGithubReleaseSourceResponse{
-			GitRepository: gitResult,
 			Scopes:        scopes,
 			Scope:         scope,
 			Versions:      versions,
@@ -282,22 +267,6 @@ func validateSourceFromRequest(req *apigen.ValidateSourceRequest) (*validateSour
 		return nil, InvalidSourceTypeErr
 	}
 
-	if !req.NixBuild.IsZero() {
-		repo := strings.TrimSpace(req.NixBuild.RepoUrl)
-		flakePath := strings.TrimSpace(req.NixBuild.FlakePath)
-		if repo == "" {
-			return nil, RepoRequiredErr
-		}
-		return &validateSourceInput{
-			prepare:   &apigen.PrepareConfig{NixBuild: apigen.NixBuildConfig{Repo: repo, Flake: flakePath}},
-			source:    "nixBuild",
-			repo:      repo,
-			scope:     strings.TrimSpace(req.NixBuild.Branch),
-			commit:    strings.TrimSpace(req.NixBuild.Commit),
-			flakePath: flakePath,
-		}, nil
-	}
-
 	if !req.NixDockerBuild.IsZero() {
 		repo := strings.TrimSpace(req.NixDockerBuild.RepoUrl)
 		flakePath := strings.TrimSpace(req.NixDockerBuild.FlakePath)
@@ -314,18 +283,6 @@ func validateSourceFromRequest(req *apigen.ValidateSourceRequest) (*validateSour
 		}, nil
 	}
 
-	if !req.GithubRelease.IsZero() {
-		repo := strings.TrimSpace(req.GithubRelease.RepoUrl)
-		if repo == "" {
-			return nil, RepoRequiredErr
-		}
-		return &validateSourceInput{
-			prepare: &apigen.PrepareConfig{GithubRelease: apigen.GithubReleaseConfig{Repo: repo}},
-			source:  "githubRelease",
-			repo:    repo,
-		}, nil
-	}
-
 	image := strings.TrimSpace(req.ContainerImage.Image)
 	if image == "" {
 		return nil, ImageRequiredErr
@@ -339,13 +296,7 @@ func validateSourceFromRequest(req *apigen.ValidateSourceRequest) (*validateSour
 
 func countValidationSources(req *apigen.ValidateSourceRequest) int {
 	count := 0
-	if !req.NixBuild.IsZero() {
-		count++
-	}
 	if !req.NixDockerBuild.IsZero() {
-		count++
-	}
-	if !req.GithubRelease.IsZero() {
 		count++
 	}
 	if !req.ContainerImage.IsZero() {
@@ -366,36 +317,6 @@ func selectedValidationScope(scopes []string, requested string) string {
 		}
 	}
 	return scope
-}
-
-// PostV1GithubAssetValidate checks that a named release asset exists in at least
-// one of the repo's published releases. As with repo validation, the message is
-// generic and underlying errors are logged server-side only.
-func (h *Handler) PostV1GithubAssetValidate(ctx apigen.Context, req *apigen.GithubAssetValidateRequest) (*apigen.ValidateSourceResponse, error) {
-	repo := strings.TrimSpace(req.Repo)
-	asset := strings.TrimSpace(req.Asset)
-	if repo == "" {
-		return nil, RepoRequiredErr
-	}
-	// An empty asset means "use the release's only asset" — nothing to check.
-	if asset == "" {
-		return &apigen.ValidateSourceResponse{GithubRelease: apigen.ValidateGithubReleaseSourceResponse{ReleaseAsset: validationOK("")}}, nil
-	}
-
-	prepare := &apigen.PrepareConfig{GithubRelease: apigen.GithubReleaseConfig{Repo: repo}}
-	found, err := versionprovider.GHRel.AssetExists(ctx, prepare, asset)
-	if err != nil {
-		slog.Warn("github asset validation failed", "repo", repo, "asset", asset, "err", err)
-		return &apigen.ValidateSourceResponse{
-			GithubRelease: apigen.ValidateGithubReleaseSourceResponse{ReleaseAsset: validationErr("Could not check releases. Verify the repository and that the configured GitHub token grants access.")},
-		}, nil
-	}
-	if !found {
-		return &apigen.ValidateSourceResponse{
-			GithubRelease: apigen.ValidateGithubReleaseSourceResponse{ReleaseAsset: validationErr("No published release has an asset with this name.")},
-		}, nil
-	}
-	return &apigen.ValidateSourceResponse{GithubRelease: apigen.ValidateGithubReleaseSourceResponse{ReleaseAsset: validationOK("Asset found in a published release.")}}, nil
 }
 
 func (h *Handler) PostV1DeploymentLogs(ctx apigen.Context, r *http.Request, w http.ResponseWriter) error {
@@ -653,29 +574,23 @@ func validatePrepareConfig(prepare *apigen.PrepareConfig) error {
 	if prepare == nil || prepare.IsZero() {
 		return invalidConfigErrf("prepare is required")
 	}
-	hasNix := !prepare.NixBuild.IsZero()
 	hasNixDocker := !prepare.NixDockerBuild.IsZero()
 	hasGH := !prepare.GithubRelease.IsZero()
 	hasContainer := !prepare.ContainerImage.IsZero()
 	set := 0
-	for _, b := range []bool{hasNix, hasNixDocker, hasGH, hasContainer} {
+	for _, b := range []bool{hasNixDocker, hasGH, hasContainer} {
 		if b {
 			set++
 		}
 	}
 	if set == 0 {
-		return invalidConfigErrf("prepare: one of nixBuild, nixDockerBuild, githubRelease or containerImage must be set")
+		return invalidConfigErrf("prepare: one of nixDockerBuild or containerImage must be set")
 	}
 	if set > 1 {
-		return invalidConfigErrf("prepare: only one of nixBuild, nixDockerBuild, githubRelease or containerImage may be set")
+		return invalidConfigErrf("prepare: only one of nixDockerBuild or containerImage may be set")
 	}
-	if hasNix {
-		if prepare.NixBuild.Repo == "" {
-			return invalidConfigErrf("prepare.nixBuild: repo is required")
-		}
-		if prepare.NixBuild.Flake == "" {
-			return invalidConfigErrf("prepare.nixBuild: flake is required")
-		}
+	if hasGH {
+		return invalidConfigErrf("prepare.githubRelease is internal-only")
 	}
 	if hasNixDocker {
 		if prepare.NixDockerBuild.Repo == "" {
@@ -683,11 +598,6 @@ func validatePrepareConfig(prepare *apigen.PrepareConfig) error {
 		}
 		if prepare.NixDockerBuild.Flake == "" {
 			return invalidConfigErrf("prepare.nixDockerBuild: flake is required")
-		}
-	}
-	if hasGH {
-		if prepare.GithubRelease.Repo == "" {
-			return invalidConfigErrf("prepare.githubRelease: repo is required")
 		}
 	}
 	if hasContainer {
@@ -698,18 +608,11 @@ func validatePrepareConfig(prepare *apigen.PrepareConfig) error {
 	return nil
 }
 
-// validateContainerPairing enforces that the container image prepare and the
-// container runner are used together — an image can only be run as a container,
-// and the container runner can only run an image.
-func validateContainerPairing(prepare *apigen.PrepareConfig, runner *apigen.RunnerConfig) error {
-	prepareIsContainer := prepare != nil && (!prepare.ContainerImage.IsZero() || !prepare.NixDockerBuild.IsZero())
-	runnerIsContainer := runner != nil && !runner.Container.IsZero()
-	runnerIsOther := runner != nil && (!runner.OsProcess.IsZero() || !runner.Systemd.IsZero())
-	if prepareIsContainer && runnerIsOther {
-		return invalidConfigErrf("container image prepare variants require the container runner (or no runner block)")
-	}
-	if runnerIsContainer && !prepareIsContainer {
-		return invalidConfigErrf("runner.container requires prepare.containerImage or prepare.nixDockerBuild")
+// validateContainerPairing enforces that public deployments only use the
+// container runner. An omitted runner means all-default container config.
+func validateContainerPairing(_ *apigen.PrepareConfig, runner *apigen.RunnerConfig) error {
+	if runner != nil && !runner.Systemd.IsZero() {
+		return invalidConfigErrf("runner.systemd is internal-only")
 	}
 	return nil
 }
@@ -718,30 +621,10 @@ func validateRunnerConfig(runner *apigen.RunnerConfig, prepare *apigen.PrepareCo
 	if runner == nil || runner.IsZero() {
 		return nil
 	}
-	hasOS := !runner.OsProcess.IsZero()
 	hasSystemd := !runner.Systemd.IsZero()
 	hasContainer := !runner.Container.IsZero()
-	set := 0
-	for _, b := range []bool{hasOS, hasSystemd, hasContainer} {
-		if b {
-			set++
-		}
-	}
-	if set > 1 {
-		return invalidConfigErrf("runner: only one of osProcess, systemd or container may be set")
-	}
-	if hasOS {
-		if err := validateEnvVars("runner.osProcess.env", runner.OsProcess.Env); err != nil {
-			return err
-		}
-	}
 	if hasSystemd {
-		if runner.Systemd.Name == "" {
-			return invalidConfigErrf("runner.systemd: name is required")
-		}
-		if runner.Systemd.BinPath == "" {
-			return invalidConfigErrf("runner.systemd: binPath is required")
-		}
+		return invalidConfigErrf("runner.systemd is internal-only")
 	}
 	if hasContainer {
 		if err := validateEnvVars("runner.container.env", runner.Container.Env); err != nil {

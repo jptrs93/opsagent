@@ -9,8 +9,8 @@ import (
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
 )
 
-// GitVersionProvider lists branches and commits for repos that use nix-build
-// style preparation (versions are git commit hashes).
+// GitVersionProvider lists branches and commits for repos that use Nix Docker
+// image preparation (versions are git commit hashes).
 type GitVersionProvider struct {
 	git *preparer.GitManagerImpl
 }
@@ -59,9 +59,6 @@ func (p *GitVersionProvider) PathExists(ctx context.Context, repo string, repoPa
 func gitRepo(cfg *apigen.PrepareConfig) string {
 	if cfg == nil {
 		return ""
-	}
-	if !cfg.NixBuild.IsZero() {
-		return cfg.NixBuild.Repo
 	}
 	if !cfg.NixDockerBuild.IsZero() {
 		return cfg.NixDockerBuild.Repo

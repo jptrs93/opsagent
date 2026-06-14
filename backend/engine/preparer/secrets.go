@@ -92,7 +92,6 @@ func SecretRefs(cfg *apigen.DeploymentConfig) []string {
 			}
 		}
 	}
-	addEnvRefs(cfg.Spec.Runner.OsProcess.Env)
 	addEnvRefs(cfg.Spec.Runner.Container.Env)
 
 	keys := make([]string, 0, len(seen))
@@ -118,7 +117,6 @@ func ConfigRefs(cfg *apigen.DeploymentConfig) []string {
 			}
 		}
 	}
-	addEnvRefs(cfg.Spec.Runner.OsProcess.Env)
 	addEnvRefs(cfg.Spec.Runner.Container.Env)
 
 	keys := make([]string, 0, len(seen))

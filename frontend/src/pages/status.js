@@ -87,10 +87,7 @@ const mapDeploymentsToView = (deployments) => {
 
         let variant = '';
         let repo = '';
-        if (spec.prepare?.nixBuild) {
-            variant = 'nixBuild';
-            repo = spec.prepare.nixBuild.repo || '';
-        } else if (spec.prepare?.nixDockerBuild) {
+        if (spec.prepare?.nixDockerBuild) {
             variant = 'nixDockerBuild';
             repo = spec.prepare.nixDockerBuild.repo || '';
         } else if (spec.prepare?.githubRelease) {
@@ -101,8 +98,7 @@ const mapDeploymentsToView = (deployments) => {
             repo = spec.prepare.containerImage.image || '';
         }
 
-        const imagePrepare = Boolean(spec.prepare?.containerImage || spec.prepare?.nixDockerBuild);
-        const runnerType = spec.runner?.container || imagePrepare ? 'container' : (spec.runner?.systemd ? 'systemd' : 'osProcess');
+        const runnerType = cid.environment === 'OPENDEPLOY' || spec.runner?.systemd ? 'systemd' : 'container';
 
         return {
             id,
@@ -333,12 +329,12 @@ export function statusPage() {
                 );
             }
 
-            // Sort: OPENDEPLOY_SYSTEM last, then by environment, name, machine,
+            // Sort: OPENDEPLOY last, then by environment, name, machine,
             // and finally id so the order is fully deterministic across
             // stream snapshots and reconnects.
             const sorted = [...filtered].sort((a, b) => {
-                const aSystem = a.environment === 'OPENDEPLOY_SYSTEM' ? 1 : 0;
-                const bSystem = b.environment === 'OPENDEPLOY_SYSTEM' ? 1 : 0;
+                const aSystem = a.environment === 'OPENDEPLOY' ? 1 : 0;
+                const bSystem = b.environment === 'OPENDEPLOY' ? 1 : 0;
                 return aSystem - bSystem
                     || (a.environment || '').localeCompare(b.environment || '')
                     || (a.name || '').localeCompare(b.name || '')

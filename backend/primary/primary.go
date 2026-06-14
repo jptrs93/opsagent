@@ -141,7 +141,7 @@ func (p *Primary) PostV1ClusterConnect(authCtx apigen.Context, reqs iter.Seq2[*a
 		sess := newSession(sessCtx, cancel, machine, p.store)
 		p.registerSession(machine, sess)
 		defer p.unregisterSession(machine, sess)
-		// Ensure the worker has its OPENDEPLOY_SYSTEM deployment now that it has
+		// Ensure the worker has its OPENDEPLOY deployment now that it has
 		// connected and been registered.
 		p.store.EnsureSystemDeployment(machine)
 

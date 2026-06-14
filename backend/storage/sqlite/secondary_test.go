@@ -53,5 +53,5 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 // nonEmptySpec returns a spec that encodes to non-empty bytes (an empty
 // DeploymentSpec{} encodes to nil, which violates spec_blob NOT NULL).
 func nonEmptySpec() *apigen.DeploymentSpec {
-	return &apigen.DeploymentSpec{Runner: apigen.RunnerConfig{Systemd: apigen.SystemdRunnerConfig{Name: "test"}}}
+	return &apigen.DeploymentSpec{Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{User: "1000"}}}
 }

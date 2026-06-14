@@ -25,9 +25,14 @@ import (
 // is shared with the container image preparer.
 var Containerd *ctrd.Client
 
+const (
+	containerMinBackoff      = 1 * time.Second
+	containerMaxBackoff      = 60 * time.Second
+	containerStableRunWindow = 15 * time.Second
+)
+
 // containerRunner owns the create/start/monitor/respawn/backoff lifecycle of a
-// single deployment's container, mirroring osProcessRunner but driving
-// containerd instead of fork/exec. One container per deployment, keyed by a
+// single deployment's container. One container per deployment is keyed by a
 // deterministic id so reattach can find it after an opendeploy restart.
 type containerRunner struct {
 	ctx    context.Context
@@ -224,7 +229,7 @@ func (r *containerRunner) run() {
 		}
 
 		// Crash: stability reset, record CRASHED, clean up, back off, respawn.
-		if time.Since(startedAt) >= osProcessStableRunWindow {
+		if time.Since(startedAt) >= containerStableRunWindow {
 			crashCount = 0
 		}
 		crashCount++
@@ -252,7 +257,7 @@ func (r *containerRunner) monitorTask(task *ctrd.Task) {
 }
 
 func (r *containerRunner) sleepBackoff(crashCount int) bool {
-	delay := computeOSProcessBackoff(crashCount)
+	delay := computeContainerBackoff(crashCount)
 	slog.InfoContext(r.ctx, "backoff sleep before container respawn", "delay", delay, "crashes", crashCount)
 	select {
 	case <-r.ctx.Done():
@@ -260,6 +265,20 @@ func (r *containerRunner) sleepBackoff(crashCount int) bool {
 	case <-time.After(delay):
 		return true
 	}
+}
+
+func computeContainerBackoff(crashCount int) time.Duration {
+	if crashCount <= 1 {
+		return containerMinBackoff
+	}
+	delay := containerMinBackoff
+	for i := 1; i < crashCount; i++ {
+		delay *= 2
+		if delay >= containerMaxBackoff {
+			return containerMaxBackoff
+		}
+	}
+	return delay
 }
 
 // ensureDataVolume creates and chowns the default data-volume host directory so

@@ -4,12 +4,8 @@ import {capi} from "../capi/index.js";
 
 const { div, h3, label, input, select, option, button, p, span, datalist, textarea } = van.tags;
 
-const SOURCE_GITHUB = 'githubRelease';
-const SOURCE_NIX = 'nixBuild';
 const SOURCE_NIX_DOCKER = 'nixDockerBuild';
 const SOURCE_DOCKER_IMAGE = 'containerImage';
-const RUNNER_OS = 'osProcess';
-const RUNNER_SYSTEMD = 'systemd';
 const RUNNER_CONTAINER = 'container';
 
 let nextDatalistID = 1;
@@ -22,21 +18,11 @@ export function emptyDeploymentForm() {
         name: '',
         environment: '',
         machine: '',
-        sourceType: SOURCE_NIX,
+        sourceType: SOURCE_NIX_DOCKER,
         nixRepo: '',
         nixFlake: '',
-        nixOutputExecutable: '',
-        githubRepo: '',
-        githubAsset: '',
-        githubTag: '',
-        githubDownloadScript: '',
         containerImage: '',
-        runnerType: RUNNER_OS,
-        osWorkingDir: '',
-        osRunAs: '',
-        osStrategy: '',
-        systemdName: '',
-        systemdBinPath: '',
+        runnerType: RUNNER_CONTAINER,
         containerUser: '',
         containerDataMountPath: '',
         containerDisableDataVolume: false,
@@ -50,43 +36,28 @@ export function deploymentConfigToForm(cfg) {
     const spec = cfg?.spec || {};
     const prepare = spec.prepare || {};
     const runner = spec.runner || {};
-    const nix = prepare.nixBuild || {};
     const nixDocker = prepare.nixDockerBuild || {};
-    const gh = prepare.githubRelease || {};
     const containerImage = prepare.containerImage || {};
-    const os = runner.osProcess || {};
-    const systemd = runner.systemd || {};
     const container = runner.container || {};
-    const imagePrepare = Boolean(prepare.nixDockerBuild || prepare.containerImage);
 
     // Reveal a section's additional options up-front when the existing config
     // already sets one of them, so they aren't hidden on edit.
-    const showSourceOpts = Boolean(gh.asset || gh.downloadScript || nix.outputExecutable);
-    const showExecOpts = Boolean(os.workingDir || os.runAs || os.strategy || (os.env && os.env.length));
+    const showSourceOpts = false;
+    const showExecOpts = false;
 
     return makeFormState({
         name: cid.name || '',
         environment: cid.environment || '',
         machine: cid.machine || '',
-        sourceType: prepare.githubRelease ? SOURCE_GITHUB : (prepare.nixDockerBuild ? SOURCE_NIX_DOCKER : (prepare.containerImage ? SOURCE_DOCKER_IMAGE : SOURCE_NIX)),
-        nixRepo: nix.repo || nixDocker.repo || '',
-        nixFlake: nix.flake || nixDocker.flake || '',
-        nixOutputExecutable: nix.outputExecutable || '',
-        githubRepo: gh.repo || '',
-        githubAsset: gh.asset || '',
-        githubTag: gh.tag || '',
-        githubDownloadScript: gh.downloadScript || '',
+        sourceType: prepare.containerImage ? SOURCE_DOCKER_IMAGE : SOURCE_NIX_DOCKER,
+        nixRepo: nixDocker.repo || '',
+        nixFlake: nixDocker.flake || '',
         containerImage: containerImage.image || '',
-        runnerType: imagePrepare ? RUNNER_CONTAINER : RUNNER_OS,
-        osWorkingDir: os.workingDir || '',
-        osRunAs: os.runAs || '',
-        osStrategy: os.strategy || '',
-        systemdName: systemd.name || '',
-        systemdBinPath: systemd.binPath || '',
+        runnerType: RUNNER_CONTAINER,
         containerUser: container.user || '',
         containerDataMountPath: container.dataMountPath || '',
         containerDisableDataVolume: Boolean(container.disableDataVolume),
-        envVars: ((imagePrepare ? container.env : os.env) || []).map(e => ({id: nextEnvID++, key: e.key || '', value: e.value || ''})),
+        envVars: (container.env || []).map(e => ({id: nextEnvID++, key: e.key || '', value: e.value || ''})),
         assetMounts: (container.assetMounts || []).map(m => {
             const row = {id: nextAssetMountID++, assetId: m.assetId || 0, key: m.asset || '', path: m.path || '', version: m.version || 0};
             return {...row, originalAssetId: row.assetId, originalKey: row.key, originalPath: row.path, originalVersion: row.version};
@@ -157,39 +128,38 @@ export function deploymentForm(form, opts = {}) {
                 ? span({class: "text-xs text-red-400 -mb-2"}, "Deployment identity is fixed after creation.")
                 : '',
         ),
-        sectionDivider("Artifact source"),
-        div(
-            {class: "flex flex-col gap-3"},
+        opts.hideArtifactSource ? '' : div(
+            {class: "flex flex-col gap-5"},
+            sectionDivider("Artifact source"),
             div(
-                {class: "flex items-start gap-4"},
-                selectField("Source type", form.sourceType, [
-                    {value: SOURCE_GITHUB, label: "Github release"},
-                    {value: SOURCE_NIX, label: "Build NIX store"},
-                    {value: SOURCE_NIX_DOCKER, label: "Build NIX Docker image"},
-                    {value: SOURCE_DOCKER_IMAGE, label: "Docker image"},
-                ], "w-56", value => {
-                    form.runnerType.val = runnerForSource(value);
-                }),
-                () => form.sourceType.val === SOURCE_DOCKER_IMAGE
-                    ? dockerImageField(form)
-                    : repoField(form, form.sourceType.val),
+                {class: "flex flex-col gap-3"},
+                div(
+                    {class: "flex items-start gap-4"},
+                    selectField("Source type", form.sourceType, [
+                        {value: SOURCE_NIX_DOCKER, label: "Build NIX Docker image"},
+                        {value: SOURCE_DOCKER_IMAGE, label: "Docker image"},
+                    ], "w-56", value => {
+                        form.runnerType.val = runnerForSource(value);
+                    }),
+                    () => form.sourceType.val === SOURCE_DOCKER_IMAGE
+                        ? dockerImageField(form)
+                        : repoField(form, form.sourceType.val),
+                ),
+                () => nixSourceFields(form),
             ),
-            () => nixSourceFields(form),
         ),
-        sectionDivider(executionTitle),
-        div(
-            {class: "flex flex-col gap-3"},
-            () => form.runnerType.val === RUNNER_CONTAINER
-                ? div(
+        opts.hideExecution ? '' : div(
+            {class: "flex flex-col gap-5"},
+            sectionDivider(executionTitle),
+            div(
+                {class: "flex flex-col gap-3"},
+                div(
                     {class: "flex flex-col gap-3"},
                     envSummary(form),
                     volumeMountsSummary(form),
                     assetMountsSection(form, opts),
-                )
-                : div(
-                    {class: "flex flex-col gap-3"},
-                    optionsDisclosure(form.showExecOpts, () => execOptions(form)),
                 ),
+            ),
         ),
     );
 }
@@ -208,14 +178,7 @@ export function formToSpec(form) {
         runner: {},
     };
 
-    if (form.sourceType.val === SOURCE_GITHUB) {
-        spec.prepare.githubRelease = {
-            repo: form.githubRepo.val.trim(),
-            asset: form.githubAsset.val.trim(),
-            tag: form.githubTag.val.trim(),
-            downloadScript: form.githubDownloadScript.val.replace(/\s+$/, ''),
-        };
-    } else if (form.sourceType.val === SOURCE_NIX_DOCKER) {
+    if (form.sourceType.val === SOURCE_NIX_DOCKER) {
         spec.prepare.nixDockerBuild = {
             repo: form.nixRepo.val.trim(),
             flake: form.nixFlake.val.trim(),
@@ -224,44 +187,21 @@ export function formToSpec(form) {
         spec.prepare.containerImage = {
             image: form.containerImage.val.trim(),
         };
-    } else {
-        spec.prepare.nixBuild = {
-            repo: form.nixRepo.val.trim(),
-            flake: form.nixFlake.val.trim(),
-            outputExecutable: form.nixOutputExecutable.val.trim(),
-        };
     }
 
-    const runnerType = runnerForSource(form.sourceType.val);
-
-    if (runnerType === RUNNER_SYSTEMD) {
-        spec.runner.systemd = {
-            name: form.systemdName.val.trim(),
-            binPath: form.systemdBinPath.val.trim(),
-        };
-    } else if (runnerType === RUNNER_CONTAINER) {
-        spec.runner.container = {
-            disableDataVolume: Boolean(form.containerDisableDataVolume.val),
-        };
-        const user = form.containerUser.val.trim();
-        if (user) spec.runner.container.user = user;
-        const dataMountPath = form.containerDataMountPath.val.trim();
-        if (dataMountPath) spec.runner.container.dataMountPath = dataMountPath;
-        const env = formEnvVars(form);
-        if (env.length) spec.runner.container.env = env;
-        const mounts = formVolumeMounts(form);
-        if (mounts.length) spec.runner.container.mounts = mounts;
-        const assetMounts = formAssetMounts(form);
-        if (assetMounts.length) spec.runner.container.assetMounts = assetMounts;
-    } else {
-        spec.runner.osProcess = {
-            workingDir: form.osWorkingDir.val.trim(),
-            runAs: form.osRunAs.val.trim(),
-            strategy: form.osStrategy.val,
-        };
-        const env = formEnvVars(form);
-        if (env.length) spec.runner.osProcess.env = env;
-    }
+    spec.runner.container = {
+        disableDataVolume: Boolean(form.containerDisableDataVolume.val),
+    };
+    const user = form.containerUser.val.trim();
+    if (user) spec.runner.container.user = user;
+    const dataMountPath = form.containerDataMountPath.val.trim();
+    if (dataMountPath) spec.runner.container.dataMountPath = dataMountPath;
+    const env = formEnvVars(form);
+    if (env.length) spec.runner.container.env = env;
+    const mounts = formVolumeMounts(form);
+    if (mounts.length) spec.runner.container.mounts = mounts;
+    const assetMounts = formAssetMounts(form);
+    if (assetMounts.length) spec.runner.container.assetMounts = assetMounts;
 
     return spec;
 }
@@ -271,18 +211,12 @@ export function isFormValid(form, opts = {}) {
     const machineOptions = opts.machineOptions || [];
     const machineOptionValues = machineOptions.map(m => typeof m === 'string' ? m : m.name).filter(Boolean);
     if (machineOptionValues.length > 0 && !machineOptionValues.includes(form.machine.val.trim())) return false;
-    if (form.sourceType.val === SOURCE_GITHUB) {
-        if (!form.githubRepo.val.trim()) return false;
-    } else if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
+    if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
         if (!form.containerImage.val.trim()) return false;
     } else if (!form.nixRepo.val.trim() || !form.nixFlake.val.trim()) {
         return false;
     }
-    const runnerType = runnerForSource(form.sourceType.val);
-    if (runnerType === RUNNER_SYSTEMD) {
-        return Boolean(form.systemdName.val.trim() && form.systemdBinPath.val.trim());
-    }
-    if (runnerType === RUNNER_CONTAINER && (hasInvalidVolumeConfig(form) || hasInvalidAssetMounts(form))) return false;
+    if (hasInvalidVolumeConfig(form) || hasInvalidAssetMounts(form)) return false;
     return true;
 }
 
@@ -290,9 +224,6 @@ export function buildValidateSourceRequest(form, opts = {}) {
     const sourceType = form.sourceType.val;
     const branch = (opts.scope || '').trim();
     const commit = (opts.commit || '').trim();
-    if (sourceType === SOURCE_GITHUB) {
-        return {githubRelease: {repoUrl: form.githubRepo.val.trim()}};
-    }
     if (sourceType === SOURCE_NIX_DOCKER) {
         return {nixDockerBuild: {
             repoUrl: form.nixRepo.val.trim(),
@@ -304,12 +235,7 @@ export function buildValidateSourceRequest(form, opts = {}) {
     if (sourceType === SOURCE_DOCKER_IMAGE) {
         return {containerImage: {image: form.containerImage.val.trim()}};
     }
-    return {nixBuild: {
-        repoUrl: form.nixRepo.val.trim(),
-        branch,
-        commit,
-        flakePath: form.nixFlake.val.trim(),
-    }};
+    return {containerImage: {image: form.containerImage.val.trim()}};
 }
 
 export function sourceValidationKey(form) {
@@ -317,10 +243,8 @@ export function sourceValidationKey(form) {
     if (sourceType === SOURCE_DOCKER_IMAGE) {
         return `${sourceType}:${form.containerImage.val.trim()}`;
     }
-    const repo = sourceType === SOURCE_GITHUB ? form.githubRepo.val.trim() : form.nixRepo.val.trim();
-    const flake = sourceType === SOURCE_NIX || sourceType === SOURCE_NIX_DOCKER
-        ? form.nixFlake.val.trim()
-        : '';
+    const repo = form.nixRepo.val.trim();
+    const flake = sourceType === SOURCE_NIX_DOCKER ? form.nixFlake.val.trim() : '';
     return `${sourceType}:${repo}:${flake}`;
 }
 
@@ -337,12 +261,8 @@ export function imageVersionFromReference(raw) {
 
 export function validationSourceResult(form, res) {
     switch (form.sourceType.val) {
-        case SOURCE_NIX:
-            return res?.nixBuild || {};
         case SOURCE_NIX_DOCKER:
             return res?.nixDockerBuild || {};
-        case SOURCE_GITHUB:
-            return res?.githubRelease || {};
         case SOURCE_DOCKER_IMAGE:
             return res?.containerImage || {};
         default:
@@ -358,7 +278,7 @@ export function sourceCheckFromValidation(form, res, repo, sourceType, sourceKey
     const sourceResult = validationSourceResult(form, res);
     const gitRepository = sourceResult.gitRepository || sourceResult.image || {ok: false, message: 'Source not accessible.'};
     const nixFlakeFile = sourceResult.nixFlakeFile || {ok: false, message: ''};
-    const flakeRequired = sourceType === SOURCE_NIX || sourceType === SOURCE_NIX_DOCKER;
+    const flakeRequired = sourceType === SOURCE_NIX_DOCKER;
     const ok = Boolean(gitRepository.ok && (!flakeRequired || !form.nixFlake.val.trim() || nixFlakeFile.ok));
     return {
         status: ok ? 'ok' : 'error',
@@ -377,7 +297,7 @@ export function sourceCheckFromValidation(form, res, repo, sourceType, sourceKey
 
 export async function validateSelectedCommit(form, scope, commit) {
     const sourceType = form.sourceType.val;
-    if (sourceType !== SOURCE_NIX && sourceType !== SOURCE_NIX_DOCKER) return;
+    if (sourceType !== SOURCE_NIX_DOCKER) return;
     const repo = form.nixRepo.val.trim();
     const selectedCommit = (commit || '').trim();
     if (!repo || !selectedCommit) return;
@@ -408,18 +328,8 @@ function makeFormState(values) {
         sourceType: van.state(values.sourceType),
         nixRepo: van.state(values.nixRepo),
         nixFlake: van.state(values.nixFlake),
-        nixOutputExecutable: van.state(values.nixOutputExecutable),
-        githubRepo: van.state(values.githubRepo),
-        githubAsset: van.state(values.githubAsset),
-        githubTag: van.state(values.githubTag),
-        githubDownloadScript: van.state(values.githubDownloadScript || ''),
         containerImage: van.state(values.containerImage || ''),
         runnerType: van.state(values.runnerType),
-        osWorkingDir: van.state(values.osWorkingDir),
-        osRunAs: van.state(values.osRunAs),
-        osStrategy: van.state(values.osStrategy),
-        systemdName: van.state(values.systemdName),
-        systemdBinPath: van.state(values.systemdBinPath),
         containerUser: van.state(values.containerUser || ''),
         containerDataMountPath: van.state(values.containerDataMountPath || ''),
         containerDisableDataVolume: van.state(Boolean(values.containerDisableDataVolume)),
@@ -443,9 +353,6 @@ function makeFormState(values) {
         // Transient repo-accessibility check; tracks the repo/source it applies
         // to so a stale result is hidden once the inputs change.
         repoCheck: van.state({status: 'idle', message: '', repo: '', sourceType: '', sourceKey: ''}),
-        // Transient github-asset check; tracks the repo/asset it applies to so a
-        // stale result is hidden once either input changes.
-        assetCheck: van.state({status: 'idle', message: '', repo: '', asset: ''}),
     };
 }
 
@@ -502,13 +409,6 @@ function optionsDisclosure(open, content) {
 }
 
 function nixSourceFields(form) {
-    if (form.sourceType.val === SOURCE_NIX) {
-        return div(
-            {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
-            flakeField(form),
-            field("Output executable (optional)", textInput(form.nixOutputExecutable, "app"), "Executable name in the build output's bin/. Defaults to the only executable."),
-        );
-    }
     if (form.sourceType.val === SOURCE_NIX_DOCKER) {
         return flakeField(form);
     }
@@ -516,129 +416,7 @@ function nixSourceFields(form) {
 }
 
 function runnerForSource(sourceType) {
-    return sourceType === SOURCE_NIX_DOCKER || sourceType === SOURCE_DOCKER_IMAGE
-        ? RUNNER_CONTAINER
-        : RUNNER_OS;
-}
-
-// downloadScriptField lets the operator supply a bash script that downloads the
-// artifact instead of pulling a release asset directly. The script runs in the
-// release download dir with the version tag as $1 and must leave the runnable
-// artifact there (named by Asset, or the only file it produces).
-function downloadScriptField(form) {
-    return label(
-        {class: "flex flex-col gap-1 text-xs text-gray-400"},
-        span("Custom download script"),
-        textarea({
-            class: "w-full h-32 resize-y rounded-sm bg-gray-800 text-gray-100 border border-gray-700 px-3 py-2 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand",
-            spellcheck: "false",
-            placeholder: "#!/usr/bin/env bash\nset -euo pipefail\nversion=\"$1\"\ncurl -fsSL -o app \"https://example.com/$version/app\"",
-            value: form.githubDownloadScript.rawVal,
-            oninput: e => { form.githubDownloadScript.val = e.target.value; },
-        }),
-        span({class: "text-[11px] text-gray-500"}, "Optional. Runs instead of downloading an asset. Receives the version tag as $1 and runs in the download directory; leave the built executable there. GITHUB_TOKEN is available in the environment."),
-    );
-}
-
-// assetField mirrors repoField: on blur it checks (when filled) that the named
-// release asset exists in at least one published release of the configured repo.
-function assetField(form) {
-    return label(
-        {class: "flex flex-col gap-1 text-xs text-gray-400"},
-        span("Asset"),
-        input({
-            type: "text",
-            value: form.githubAsset.rawVal,
-            placeholder: "app-linux-amd64",
-            class: () => repoInputClass(activeAssetCheck(form).status),
-            oninput: e => { form.githubAsset.val = e.target.value; },
-            onblur: () => validateAsset(form),
-        }),
-        () => {
-            const c = activeAssetCheck(form);
-            if (c.status !== 'idle') {
-                return p({class: repoMsgClass(c.status)}, c.message);
-            }
-            // With a custom download script the asset is no longer a release
-            // asset — it names the file the script leaves in the download dir.
-            const scripted = form.githubDownloadScript.val.trim() !== '';
-            return span({class: "text-[11px] text-gray-500"}, scripted
-                ? "Output file the script leaves in the download dir. Defaults to the only file it produces."
-                : "Release asset to download. Defaults to the release's only asset.");
-        },
-    );
-}
-
-function activeAssetCheck(form) {
-    const c = form.assetCheck.val;
-    const repo = form.githubRepo.val.trim();
-    const asset = form.githubAsset.val.trim();
-    // A custom download script means the asset isn't a release asset, so the
-    // GitHub asset check doesn't apply.
-    if (!asset || form.githubDownloadScript.val.trim() || c.repo !== repo || c.asset !== asset) {
-        return {status: 'idle', message: ''};
-    }
-    return c;
-}
-
-async function validateAsset(form) {
-    const repo = form.githubRepo.val.trim();
-    const asset = form.githubAsset.val.trim();
-    if (form.githubDownloadScript.val.trim()) {
-        form.assetCheck.val = {status: 'idle', message: '', repo: '', asset: ''};
-        return;
-    }
-    if (!asset) {
-        form.assetCheck.val = {status: 'idle', message: '', repo, asset: ''};
-        return;
-    }
-    if (!repo) {
-        form.assetCheck.val = {status: 'error', message: 'Set the repository first.', repo: '', asset};
-        return;
-    }
-    const c = form.assetCheck.val;
-    // Don't re-check an asset/repo pair we already have a verdict for.
-    if (c.repo === repo && c.asset === asset && (c.status === 'ok' || c.status === 'error')) {
-        return;
-    }
-    form.assetCheck.val = {status: 'checking', message: 'Checking asset…', repo, asset};
-    try {
-        const res = await capi.postV1GithubAssetValidate({repo, asset});
-        const result = res.githubRelease?.releaseAsset || {ok: false, message: ''};
-        form.assetCheck.val = {
-            status: result.ok ? 'ok' : 'error',
-            message: result.message || (result.ok ? 'Asset found.' : 'Asset not found.'),
-            repo,
-            asset,
-        };
-    } catch (e) {
-        form.assetCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, asset};
-    }
-}
-
-function execOptions(form) {
-    return div(
-        {class: "flex flex-col gap-3"},
-        div(
-            {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
-            field("Run as", textInput(form.osRunAs, "ubuntu"), "OS user to run as. Defaults to the ubuntu user."),
-            field("Working directory", input({
-                type: "text",
-                value: form.osWorkingDir.rawVal,
-                class: textInputClass(),
-                placeholder: () => `/home/${form.osRunAs.val.trim() || 'ubuntu'}`,
-                oninput: e => { form.osWorkingDir.val = e.target.value; },
-            }), "Defaults to the run-as user's home directory."),
-            field("Strategy", select({
-                class: selectClass(),
-                onchange: e => { form.osStrategy.val = e.target.value; },
-            },
-                option({value: '', selected: form.osStrategy.val === ''}, "Terminate previous"),
-                option({value: 'leavePrevious', selected: form.osStrategy.val === 'leavePrevious'}, "Leave previous running"),
-            )),
-        ),
-        envSummary(form),
-    );
+    return RUNNER_CONTAINER;
 }
 
 // envSummary shows the configured env-var count and a link that opens the
@@ -1065,7 +843,7 @@ function textToEnvVars(text) {
 // --- Repository field with on-blur accessibility validation ----------------
 
 function repoField(form, sourceType) {
-    const repoState = sourceType === SOURCE_GITHUB ? form.githubRepo : form.nixRepo;
+    const repoState = form.nixRepo;
     return label(
         {class: "flex-1 flex flex-col gap-1 text-xs text-gray-400"},
         div(
@@ -1154,7 +932,7 @@ function activeRepoCheck(form, sourceType, repoState) {
 
 function activeFlakeCheck(form) {
     const sourceType = form.sourceType.val;
-    if (sourceType !== SOURCE_NIX && sourceType !== SOURCE_NIX_DOCKER) {
+    if (sourceType !== SOURCE_NIX_DOCKER) {
         return {status: 'idle', message: ''};
     }
     const repo = form.nixRepo.val.trim();
@@ -1186,9 +964,7 @@ function activeImageCheck(form) {
 
 async function validateRepo(form) {
     const sourceType = form.sourceType.val;
-    const repoState = sourceType === SOURCE_GITHUB
-        ? form.githubRepo
-        : (sourceType === SOURCE_DOCKER_IMAGE ? form.containerImage : form.nixRepo);
+    const repoState = sourceType === SOURCE_DOCKER_IMAGE ? form.containerImage : form.nixRepo;
     const repo = repoState.val.trim();
     if (!repo) {
         form.repoCheck.val = {status: 'idle', message: '', repo: '', sourceType, sourceKey: ''};

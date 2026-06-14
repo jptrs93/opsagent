@@ -89,15 +89,9 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  // Check whether a binary source is reachable/authorized before a deployment
+  // Check whether an image source is reachable/authorized before a deployment
   // referencing it is created.
   rpc PostV1RepoValidate(ValidateSourceRequest) returns (ValidateSourceResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
-  }
-
-  // Check whether a named release asset exists in any of a GitHub repo's
-  // published releases, before a deployment referencing it is created.
-  rpc PostV1GithubAssetValidate(GithubAssetValidateRequest) returns (ValidateSourceResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -510,17 +504,13 @@ message AssetDeleteRequest {
 
 // === Deployment config messages ===
 
-message NixBuildConfig {
-  string repo = 1;
-  string flake = 2; // path to flake.nix relative to repo root
-  string output_executable = 3; // optional exact executable name in the build output's bin/
-}
-
 message NixDockerBuildConfig {
   string repo = 1;
   string flake = 2; // path to flake.nix relative to repo root; default output must stream an OCI/Docker image tar
 }
 
+// Internal-only source for the OPENDEPLOY deployment. Public deployment
+// create/update validation rejects this branch.
 message GithubReleaseConfig {
   string repo = 1;
   string asset = 2; // asset name (optional; falls back to first asset). With download_script, the output file the script leaves in the download dir.
@@ -534,17 +524,10 @@ message ContainerImageConfig {
 }
 
 message PrepareConfig {
-  NixBuildConfig nix_build = 1 [(cp.go_value) = true];
+  // field 1 was nix_build; do not reuse.
   GithubReleaseConfig github_release = 2 [(cp.go_value) = true];
   ContainerImageConfig container_image = 3 [(cp.go_value) = true];
   NixDockerBuildConfig nix_docker_build = 4 [(cp.go_value) = true];
-}
-
-message OsProcessRunnerConfig {
-  string working_dir = 1;
-  string run_as = 2; // OS user to run the deployment process as (default: "ubuntu")
-  string strategy = 3; // "leavePrevious": skip terminating the old process on upgrade (app handles its own rollover)
-  repeated EnvVar env = 4; // environment variables set on the spawned process
 }
 
 message EnvVar {
@@ -552,6 +535,8 @@ message EnvVar {
   string value = 2;
 }
 
+// Internal-only runner for the OPENDEPLOY deployment. Public deployment
+// create/update validation rejects this branch.
 message SystemdRunnerConfig {
   string name = 1;     // systemd unit name
   string bin_path = 2; // where the artifact is installed on disk
@@ -583,7 +568,7 @@ message ContainerRunnerConfig {
 }
 
 message RunnerConfig {
-  OsProcessRunnerConfig os_process = 1 [(cp.go_value) = true];
+  // field 1 was os_process; do not reuse.
   SystemdRunnerConfig systemd = 2 [(cp.go_value) = true];
   ContainerRunnerConfig container = 3 [(cp.go_value) = true];
 }
@@ -773,20 +758,11 @@ message DeploymentVersionsRequest {
   string scope = 2;  // optional: specific branch/scope to list versions for
 }
 
-// ValidateSourceRequest checks a binary source's accessibility before a
+// ValidateSourceRequest checks an image source's accessibility before a
 // deployment using it is created/updated. Exactly one source field must be set.
 message ValidateSourceRequest {
-  ValidateNixBuildSource nix_build = 1 [(cp.go_value) = true];
   ValidateNixDockerBuildSource nix_docker_build = 2 [(cp.go_value) = true];
-  ValidateGithubReleaseSource github_release = 3 [(cp.go_value) = true];
   ValidateContainerImageSource container_image = 4 [(cp.go_value) = true];
-}
-
-message ValidateNixBuildSource {
-  string repo_url = 1;     // e.g. "github.com/owner/repo"
-  string branch = 2;       // optional branch/scope whose versions should be listed
-  string commit = 3;       // optional exact commit to validate
-  string flake_path = 4;   // optional path to flake.nix; when empty, path is not validated
 }
 
 message ValidateNixDockerBuildSource {
@@ -794,10 +770,6 @@ message ValidateNixDockerBuildSource {
   string branch = 2;       // optional branch/scope whose versions should be listed
   string commit = 3;       // optional exact commit to validate
   string flake_path = 4;   // optional path to flake.nix; when empty, path is not validated
-}
-
-message ValidateGithubReleaseSource {
-  string repo_url = 1;     // e.g. "github.com/owner/repo"
 }
 
 message ValidateContainerImageSource {
@@ -810,18 +782,8 @@ message ValidationResult {
 }
 
 message ValidateSourceResponse {
-  ValidateNixBuildSourceResponse nix_build = 1 [(cp.go_value) = true];
   ValidateNixDockerBuildSourceResponse nix_docker_build = 2 [(cp.go_value) = true];
-  ValidateGithubReleaseSourceResponse github_release = 3 [(cp.go_value) = true];
   ValidateContainerImageSourceResponse container_image = 4 [(cp.go_value) = true];
-}
-
-message ValidateNixBuildSourceResponse {
-  ValidationResult git_repository = 1 [(cp.go_value) = true];
-  ValidationResult nix_flake_file = 2 [(cp.go_value) = true];
-  repeated string scopes = 3;
-  string scope = 4;    // scope these versions belong to
-  repeated Version versions = 5;
 }
 
 message ValidateNixDockerBuildSourceResponse {
@@ -832,24 +794,9 @@ message ValidateNixDockerBuildSourceResponse {
   repeated Version versions = 5;
 }
 
-message ValidateGithubReleaseSourceResponse {
-  ValidationResult git_repository = 1 [(cp.go_value) = true];
-  ValidationResult release_asset = 2 [(cp.go_value) = true];
-  repeated string scopes = 3;
-  string scope = 4;    // empty for GitHub releases
-  repeated Version versions = 5;
-}
-
 message ValidateContainerImageSourceResponse {
   ValidationResult image = 1 [(cp.go_value) = true];
   repeated Version versions = 2; // available image tags
-}
-
-// GithubAssetValidateRequest checks that a named release asset exists in a
-// GitHub repo's published releases.
-message GithubAssetValidateRequest {
-  string repo = 1;   // e.g. "github.com/owner/repo"
-  string asset = 2;  // release asset filename, e.g. "app-linux-amd64"
 }
 
 // === Storage-only messages ===

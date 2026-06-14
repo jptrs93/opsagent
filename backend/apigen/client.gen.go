@@ -435,25 +435,6 @@ func (c *OpsagentHttpV1Capi) PostV1RepoValidate(ctx context.Context, req *Valida
 	return DecodeValidateSourceResponse(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1GithubAssetValidate(ctx context.Context, req *GithubAssetValidateRequest) (*ValidateSourceResponse, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1GithubAssetValidate request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/github/asset/validate", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeValidateSourceResponse(body)
-}
-
 func (c *OpsagentHttpV1Capi) GetV1Config(ctx context.Context) (*DynamicConfiguration, error) {
 	resp, err := c.do(ctx, "GET", "/v1/config", nil, "application/protobuf", "application/protobuf")
 	if err != nil {

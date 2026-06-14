@@ -29,7 +29,7 @@ Key generated files:
 
 - `frontend/src/capi/capi.js` is the typed API wrapper.
 - `frontend/src/capi/err.js` decodes `ApiErr` responses and throws JS errors.
-- Protobuf encoding/decoding uses `protobufjs/minimal`.
+- Protobuf encoding/decoding uses generated local runtimes, with no frontend protobuf runtime package required.
 
 ## Error handling
 

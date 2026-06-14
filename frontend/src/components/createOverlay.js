@@ -24,7 +24,6 @@ import {
 
 const { div, span, button, p, label, select, option, input } = van.tags;
 
-const SOURCE_GITHUB = 'githubRelease';
 const SOURCE_DOCKER_IMAGE = 'containerImage';
 
 export function createOverlay(onClose, onCreated) {
@@ -241,7 +240,7 @@ function createVersionSection(args) {
     const scopes = check.scopes || [];
     const scope = currentScope(check, args.selectedScope.val);
     const versions = ((check.versionsByScope || {})[scope]?.versions) || [];
-    const sourceLabel = sourceType === SOURCE_GITHUB ? "Release" : "Commit";
+    const sourceLabel = "Commit";
     const selectedVersion = args.selectedVersionSourceKey.val === sourceKey(args.form) ? args.selectedVersion.val : '';
 
     return div(
@@ -249,24 +248,20 @@ function createVersionSection(args) {
         sectionDivider("Version"),
         versionMessage(versionStatusMessage(args.form, check)),
         div(
-            {class: sourceType === SOURCE_GITHUB
-                ? "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] items-end gap-3"
-                : "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-3"},
-            sourceType === SOURCE_GITHUB
-                ? ''
-                : label(
-                    {class: "flex flex-col gap-1 text-xs text-gray-400"},
-                    span("Branch"),
-                    select(
-                        {
-                            class: selectClass(),
-                            disabled: !ready || scopes.length === 0 || args.loadingVersions.val,
-                            onchange: (e) => args.onScopeChange(e.target.value),
-                        },
-                        option({value: '', selected: !scope}, scopes.length ? "Select a branch..." : "No branches loaded"),
-                        ...scopes.map(s => option({value: s, selected: s === scope}, s)),
-                    ),
+            {class: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-3"},
+            label(
+                {class: "flex flex-col gap-1 text-xs text-gray-400"},
+                span("Branch"),
+                select(
+                    {
+                        class: selectClass(),
+                        disabled: !ready || scopes.length === 0 || args.loadingVersions.val,
+                        onchange: (e) => args.onScopeChange(e.target.value),
+                    },
+                    option({value: '', selected: !scope}, scopes.length ? "Select a branch..." : "No branches loaded"),
+                    ...scopes.map(s => option({value: s, selected: s === scope}, s)),
                 ),
+            ),
             label(
                 {class: "flex flex-col gap-1 text-xs text-gray-400"},
                 span(sourceLabel),
@@ -325,7 +320,7 @@ function activeRepoCheck(form) {
 
 function currentRepo(form) {
     if (form.sourceType.val === SOURCE_DOCKER_IMAGE) return form.containerImage.val.trim();
-    return (form.sourceType.val === SOURCE_GITHUB ? form.githubRepo.val : form.nixRepo.val).trim();
+    return form.nixRepo.val.trim();
 }
 
 function sourceKey(form) {

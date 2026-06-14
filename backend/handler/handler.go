@@ -99,7 +99,6 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	cfg := configSub.InitialValue
 	githubCredentials := credentials.StaticGithubCredentialsProvider{Token: cfg.GithubToken}
 
-	preparer.Nix = preparer.NewNixBuilder(ainit.StaticConfig.DataDir, githubCredentials)
 	preparer.GHRel = preparer.NewGithubReleaseDownloader(ainit.StaticConfig.DataDir, githubCredentials)
 
 	// Shared containerd client for the container image preparer and runner. It
@@ -114,7 +113,7 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	preparer.Configs = configProvider
 	runner.Containerd = ctrdClient
 
-	versionprovider.Git = versionprovider.NewGitVersionProvider(preparer.Nix.Git)
+	versionprovider.Git = versionprovider.NewGitVersionProvider(preparer.NixDocker.Git)
 	versionprovider.GHRel = versionprovider.NewGithubReleaseVersionProvider(githubCredentials)
 
 	// Wire prepared in-memory secrets/configs for env expansion.

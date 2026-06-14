@@ -17,7 +17,7 @@ import (
 // SystemEnvironment is the reserved environment name for OpenDeploy's own
 // self-management deployments. It is auto-created for each machine and
 // excluded from the user-config deletion sweep.
-const SystemEnvironment = "OPENDEPLOY_SYSTEM"
+const SystemEnvironment = "OPENDEPLOY"
 
 type PrimaryStorage struct {
 	*deploymentStore
@@ -363,7 +363,7 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 	return cfg
 }
 
-// EnsureSystemDeployment creates the OPENDEPLOY_SYSTEM opendeploy deployment for
+// EnsureSystemDeployment creates the OPENDEPLOY opendeploy deployment for
 // the given machine if it does not already exist.
 func (s *PrimaryStorage) EnsureSystemDeployment(machine string) {
 	cid := apigen.DeploymentIdentifier{

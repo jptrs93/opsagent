@@ -179,6 +179,10 @@ func resolveImageStreamPath(artifactPath string) (string, error) {
 	return artifactPath, nil
 }
 
+func isExecutableFile(mode os.FileMode) bool {
+	return mode&0o111 != 0
+}
+
 func lastNonEmptyLine(lines []string) string {
 	for i := len(lines) - 1; i >= 0; i-- {
 		if strings.TrimSpace(lines[i]) != "" {

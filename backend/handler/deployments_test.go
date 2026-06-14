@@ -78,7 +78,7 @@ func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
 	}
 }
 
-func TestValidateDeploymentSpecRejectsNixDockerWithProcessRunner(t *testing.T) {
+func TestValidateDeploymentSpecRejectsSystemdRunner(t *testing.T) {
 	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{
 			NixDockerBuild: apigen.NixDockerBuildConfig{
@@ -87,10 +87,10 @@ func TestValidateDeploymentSpecRejectsNixDockerWithProcessRunner(t *testing.T) {
 			},
 		},
 		Runner: apigen.RunnerConfig{
-			OsProcess: apigen.OsProcessRunnerConfig{RunAs: "ubuntu"},
+			Systemd: apigen.SystemdRunnerConfig{Name: "opendeploy", BinPath: "/var/lib/opendeploy/bin/opendeploy"},
 		},
 	}, nil)
 	if err == nil {
-		t.Fatal("expected validateDeploymentSpecWithAssets to reject process runner with nixDockerBuild")
+		t.Fatal("expected validateDeploymentSpecWithAssets to reject systemd runner")
 	}
 }

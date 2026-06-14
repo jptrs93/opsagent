@@ -36,12 +36,10 @@ func (f *fakeConfigProvider) FetchConfigs(ctx context.Context, keys []string) (m
 
 func TestSecretRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-		OsProcess: apigen.OsProcessRunnerConfig{Env: []*apigen.EnvVar{
+		Container: apigen.ContainerRunnerConfig{Env: []*apigen.EnvVar{
 			{Key: "DB", Value: "${s:db.pass}"},
 			{Key: "MIX", Value: "${c:host}:${s: api.token }:${s:db.pass}"},
 			{Key: "ESCAPED", Value: "$${s:not.secret}"},
-		}},
-		Container: apigen.ContainerRunnerConfig{Env: []*apigen.EnvVar{
 			{Key: "OTHER", Value: "prefix-${s:other}-suffix"},
 		}},
 	}}}
@@ -54,12 +52,10 @@ func TestSecretRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 
 func TestConfigRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-		OsProcess: apigen.OsProcessRunnerConfig{Env: []*apigen.EnvVar{
+		Container: apigen.ContainerRunnerConfig{Env: []*apigen.EnvVar{
 			{Key: "URL", Value: "${c:host}:${c: port }:${s:secret}"},
 			{Key: "DUP", Value: "${c:host}"},
 			{Key: "ESCAPED", Value: "$${c:not.config}"},
-		}},
-		Container: apigen.ContainerRunnerConfig{Env: []*apigen.EnvVar{
 			{Key: "OTHER", Value: "prefix-${c:other}-suffix"},
 		}},
 	}}}
@@ -77,7 +73,7 @@ func TestEnsureSecretsReadyFetchesBatch(t *testing.T) {
 	defer func() { Secrets = prev }()
 
 	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-		OsProcess: apigen.OsProcessRunnerConfig{Env: []*apigen.EnvVar{
+		Container: apigen.ContainerRunnerConfig{Env: []*apigen.EnvVar{
 			{Key: "A", Value: "${s:a}"},
 			{Key: "B", Value: "${s:b}"},
 		}},

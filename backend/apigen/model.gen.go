@@ -3,7 +3,6 @@
 package apigen
 
 import (
-	"google.golang.org/protobuf/encoding/protowire"
 	"time"
 )
 
@@ -45,16 +44,16 @@ type EnrollmentWorkerMsg struct {
 func (m *EnrollmentWorkerMsg) Encode() []byte {
 	var b []byte
 	if m.Hello != nil {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.Hello.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Hello.Encode())
 	}
 	return b
 }
 
 func DecodeEnrollmentWorkerMsg(b []byte) (*EnrollmentWorkerMsg, error) {
 	var m EnrollmentWorkerMsg
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -96,8 +95,8 @@ func (m *EnrollmentHello) Encode() []byte {
 
 func DecodeEnrollmentHello(b []byte) (*EnrollmentHello, error) {
 	var m EnrollmentHello
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -127,20 +126,20 @@ type EnrollmentPrimaryMsg struct {
 func (m *EnrollmentPrimaryMsg) Encode() []byte {
 	var b []byte
 	if m.RequestStatus != nil {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.RequestStatus.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.RequestStatus.Encode())
 	}
 	if m.Accepted != nil {
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.Accepted.Encode())
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Accepted.Encode())
 	}
 	return b
 }
 
 func DecodeEnrollmentPrimaryMsg(b []byte) (*EnrollmentPrimaryMsg, error) {
 	var m EnrollmentPrimaryMsg
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -199,8 +198,8 @@ func (m *EnrollmentRequestStatus) Encode() []byte {
 
 func DecodeEnrollmentRequestStatus(b []byte) (*EnrollmentRequestStatus, error) {
 	var m EnrollmentRequestStatus
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -240,16 +239,16 @@ func (m *EnrollmentRequestList) Encode() []byte {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
 func DecodeEnrollmentRequestList(b []byte) (*EnrollmentRequestList, error) {
 	var m EnrollmentRequestList
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -291,8 +290,8 @@ func (m *EnrollmentAcceptRequest) Encode() []byte {
 
 func DecodeEnrollmentAcceptRequest(b []byte) (*EnrollmentAcceptRequest, error) {
 	var m EnrollmentAcceptRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -332,8 +331,8 @@ func (m *EnrollmentAccepted) Encode() []byte {
 
 func DecodeEnrollmentAccepted(b []byte) (*EnrollmentAccepted, error) {
 	var m EnrollmentAccepted
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -371,8 +370,8 @@ func (m *GithubCredentials) Encode() []byte {
 
 func DecodeGithubCredentials(b []byte) (*GithubCredentials, error) {
 	var m GithubCredentials
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -406,8 +405,8 @@ func (m *ClusterAssetRequest) Encode() []byte {
 
 func DecodeClusterAssetRequest(b []byte) (*ClusterAssetRequest, error) {
 	var m ClusterAssetRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -449,8 +448,8 @@ func (m *ClusterAssetBlob) Encode() []byte {
 
 func DecodeClusterAssetBlob(b []byte) (*ClusterAssetBlob, error) {
 	var m ClusterAssetBlob
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -490,8 +489,8 @@ func (m *ClusterSecretsRequest) Encode() []byte {
 
 func DecodeClusterSecretsRequest(b []byte) (*ClusterSecretsRequest, error) {
 	var m ClusterSecretsRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -529,8 +528,8 @@ func (m *ClusterSecretValue) Encode() []byte {
 
 func DecodeClusterSecretValue(b []byte) (*ClusterSecretValue, error) {
 	var m ClusterSecretValue
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -562,16 +561,16 @@ func (m *ClusterSecretsResponse) Encode() []byte {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
 func DecodeClusterSecretsResponse(b []byte) (*ClusterSecretsResponse, error) {
 	var m ClusterSecretsResponse
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -611,8 +610,8 @@ func (m *ClusterConfigsRequest) Encode() []byte {
 
 func DecodeClusterConfigsRequest(b []byte) (*ClusterConfigsRequest, error) {
 	var m ClusterConfigsRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -650,8 +649,8 @@ func (m *ClusterConfigValue) Encode() []byte {
 
 func DecodeClusterConfigValue(b []byte) (*ClusterConfigValue, error) {
 	var m ClusterConfigValue
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -683,16 +682,16 @@ func (m *ClusterConfigsResponse) Encode() []byte {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
 func DecodeClusterConfigsResponse(b []byte) (*ClusterConfigsResponse, error) {
 	var m ClusterConfigsResponse
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -732,8 +731,8 @@ func (m *SecretValue) Encode() []byte {
 
 func DecodeSecretValue(b []byte) (*SecretValue, error) {
 	var m SecretValue
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -778,13 +777,13 @@ func (m *DynamicConfiguration) Encode() []byte {
 	b = AppendRepeated(b, m.AcmeHosts, AppendFieldDecorator(AppendStringField, 5))
 	b = AppendStringField(b, m.AcmeEmail, 6)
 	if m.GithubToken != nil {
-		b = protowire.AppendTag(b, 7, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.GithubToken.Encode())
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.GithubToken.Encode())
 	}
 	b = AppendStringField(b, m.BackupS3AccessKeyID, 8)
 	if m.BackupS3SecretAccessKey != nil {
-		b = protowire.AppendTag(b, 9, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.BackupS3SecretAccessKey.Encode())
+		b = AppendTag(b, 9, BytesType)
+		b = AppendBytes(b, m.BackupS3SecretAccessKey.Encode())
 	}
 	b = AppendStringField(b, m.BackupS3Bucket, 10)
 	b = AppendStringField(b, m.BackupS3Path, 11)
@@ -795,8 +794,8 @@ func (m *DynamicConfiguration) Encode() []byte {
 
 func DecodeDynamicConfiguration(b []byte) (*DynamicConfiguration, error) {
 	var m DynamicConfiguration
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -869,16 +868,16 @@ func (m *ConfigUpdateRequest) Encode() []byte {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
 func DecodeConfigUpdateRequest(b []byte) (*ConfigUpdateRequest, error) {
 	var m ConfigUpdateRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -920,8 +919,8 @@ func (m *ConfigValueUpdate) Encode() []byte {
 
 func DecodeConfigValueUpdate(b []byte) (*ConfigValueUpdate, error) {
 	var m ConfigValueUpdate
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -953,8 +952,8 @@ func (m *EmptyRequest) Encode() []byte {
 
 func DecodeEmptyRequest(b []byte) (*EmptyRequest, error) {
 	var m EmptyRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -986,8 +985,8 @@ func (m *MasterPasswordRequest) Encode() []byte {
 
 func DecodeMasterPasswordRequest(b []byte) (*MasterPasswordRequest, error) {
 	var m MasterPasswordRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1021,8 +1020,8 @@ func (m *MasterPasswordVerifyRequest) Encode() []byte {
 
 func DecodeMasterPasswordVerifyRequest(b []byte) (*MasterPasswordVerifyRequest, error) {
 	var m MasterPasswordVerifyRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1054,8 +1053,8 @@ func (m *MasterPasswordSaveRequest) Encode() []byte {
 
 func DecodeMasterPasswordSaveRequest(b []byte) (*MasterPasswordSaveRequest, error) {
 	var m MasterPasswordSaveRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1095,8 +1094,8 @@ func (m *LoginResponse) Encode() []byte {
 
 func DecodeLoginResponse(b []byte) (*LoginResponse, error) {
 	var m LoginResponse
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1142,8 +1141,8 @@ func (m *WebAuthNOptionsResponse) Encode() []byte {
 
 func DecodeWebAuthNOptionsResponse(b []byte) (*WebAuthNOptionsResponse, error) {
 	var m WebAuthNOptionsResponse
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1179,8 +1178,8 @@ func (m *WebAuthNFinishRequest) Encode() []byte {
 
 func DecodeWebAuthNFinishRequest(b []byte) (*WebAuthNFinishRequest, error) {
 	var m WebAuthNFinishRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1222,8 +1221,8 @@ func (m *SecretMeta) Encode() []byte {
 
 func DecodeSecretMeta(b []byte) (*SecretMeta, error) {
 	var m SecretMeta
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1261,16 +1260,16 @@ func (m *SecretList) Encode() []byte {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
 func DecodeSecretList(b []byte) (*SecretList, error) {
 	var m SecretList
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -1314,8 +1313,8 @@ func (m *SecretSetRequest) Encode() []byte {
 
 func DecodeSecretSetRequest(b []byte) (*SecretSetRequest, error) {
 	var m SecretSetRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1351,8 +1350,8 @@ func (m *SecretDeleteRequest) Encode() []byte {
 
 func DecodeSecretDeleteRequest(b []byte) (*SecretDeleteRequest, error) {
 	var m SecretDeleteRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1384,8 +1383,8 @@ func (m *SecretRevealRequest) Encode() []byte {
 
 func DecodeSecretRevealRequest(b []byte) (*SecretRevealRequest, error) {
 	var m SecretRevealRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1417,8 +1416,8 @@ func (m *SecretRevealResponse) Encode() []byte {
 
 func DecodeSecretRevealResponse(b []byte) (*SecretRevealResponse, error) {
 	var m SecretRevealResponse
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1452,8 +1451,8 @@ func (m *SecretsStatusResponse) Encode() []byte {
 
 func DecodeSecretsStatusResponse(b []byte) (*SecretsStatusResponse, error) {
 	var m SecretsStatusResponse
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1487,8 +1486,8 @@ func (m *SecretRecoveryCodeResponse) Encode() []byte {
 
 func DecodeSecretRecoveryCodeResponse(b []byte) (*SecretRecoveryCodeResponse, error) {
 	var m SecretRecoveryCodeResponse
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1520,8 +1519,8 @@ func (m *SecretUnlockRequest) Encode() []byte {
 
 func DecodeSecretUnlockRequest(b []byte) (*SecretUnlockRequest, error) {
 	var m SecretUnlockRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1563,8 +1562,8 @@ func (m *UserConfig) Encode() []byte {
 
 func DecodeUserConfig(b []byte) (*UserConfig, error) {
 	var m UserConfig
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1604,16 +1603,16 @@ func (m *UserConfigList) Encode() []byte {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
 func DecodeUserConfigList(b []byte) (*UserConfigList, error) {
 	var m UserConfigList
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -1657,8 +1656,8 @@ func (m *UserConfigSetRequest) Encode() []byte {
 
 func DecodeUserConfigSetRequest(b []byte) (*UserConfigSetRequest, error) {
 	var m UserConfigSetRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1694,8 +1693,8 @@ func (m *UserConfigDeleteRequest) Encode() []byte {
 
 func DecodeUserConfigDeleteRequest(b []byte) (*UserConfigDeleteRequest, error) {
 	var m UserConfigDeleteRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1739,8 +1738,8 @@ func (m *AssetMeta) Encode() []byte {
 
 func DecodeAssetMeta(b []byte) (*AssetMeta, error) {
 	var m AssetMeta
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1796,8 +1795,8 @@ func (m *Asset) Encode() []byte {
 
 func DecodeAsset(b []byte) (*Asset, error) {
 	var m Asset
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1839,16 +1838,16 @@ func (m *AssetList) Encode() []byte {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
 func DecodeAssetList(b []byte) (*AssetList, error) {
 	var m AssetList
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -1890,8 +1889,8 @@ func (m *AssetGetRequest) Encode() []byte {
 
 func DecodeAssetGetRequest(b []byte) (*AssetGetRequest, error) {
 	var m AssetGetRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1929,8 +1928,8 @@ func (m *AssetSetRequest) Encode() []byte {
 
 func DecodeAssetSetRequest(b []byte) (*AssetSetRequest, error) {
 	var m AssetSetRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1966,8 +1965,8 @@ func (m *AssetDeleteRequest) Encode() []byte {
 
 func DecodeAssetDeleteRequest(b []byte) (*AssetDeleteRequest, error) {
 	var m AssetDeleteRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -1977,53 +1976,6 @@ func DecodeAssetDeleteRequest(b []byte) (*AssetDeleteRequest, error) {
 		switch num {
 		case 1:
 			b, m.Key, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-type NixBuildConfig struct {
-	Repo             string
-	Flake            string
-	OutputExecutable string
-}
-
-func (m NixBuildConfig) IsZero() bool {
-	return m.Repo == "" &&
-		m.Flake == "" &&
-		m.OutputExecutable == ""
-}
-
-func (m *NixBuildConfig) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Repo, 1)
-	b = AppendStringField(b, m.Flake, 2)
-	b = AppendStringField(b, m.OutputExecutable, 3)
-	return b
-}
-
-func DecodeNixBuildConfig(b []byte) (*NixBuildConfig, error) {
-	var m NixBuildConfig
-	var num protowire.Number
-	var typ protowire.Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Repo, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Flake, err = ConsumeString(b, typ)
-		case 3:
-			b, m.OutputExecutable, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -2053,8 +2005,8 @@ func (m *NixDockerBuildConfig) Encode() []byte {
 
 func DecodeNixDockerBuildConfig(b []byte) (*NixDockerBuildConfig, error) {
 	var m NixDockerBuildConfig
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -2101,8 +2053,8 @@ func (m *GithubReleaseConfig) Encode() []byte {
 
 func DecodeGithubReleaseConfig(b []byte) (*GithubReleaseConfig, error) {
 	var m GithubReleaseConfig
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -2144,8 +2096,8 @@ func (m *ContainerImageConfig) Encode() []byte {
 
 func DecodeContainerImageConfig(b []byte) (*ContainerImageConfig, error) {
 	var m ContainerImageConfig
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -2166,44 +2118,38 @@ func DecodeContainerImageConfig(b []byte) (*ContainerImageConfig, error) {
 }
 
 type PrepareConfig struct {
-	NixBuild       NixBuildConfig
 	GithubRelease  GithubReleaseConfig
 	ContainerImage ContainerImageConfig
 	NixDockerBuild NixDockerBuildConfig
 }
 
 func (m PrepareConfig) IsZero() bool {
-	return m.NixBuild.IsZero() &&
-		m.GithubRelease.IsZero() &&
+	return m.GithubRelease.IsZero() &&
 		m.ContainerImage.IsZero() &&
 		m.NixDockerBuild.IsZero()
 }
 
 func (m *PrepareConfig) Encode() []byte {
 	var b []byte
-	if !m.NixBuild.IsZero() {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.NixBuild.Encode())
-	}
 	if !m.GithubRelease.IsZero() {
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.GithubRelease.Encode())
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.GithubRelease.Encode())
 	}
 	if !m.ContainerImage.IsZero() {
-		b = protowire.AppendTag(b, 3, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.ContainerImage.Encode())
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.ContainerImage.Encode())
 	}
 	if !m.NixDockerBuild.IsZero() {
-		b = protowire.AppendTag(b, 4, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.NixDockerBuild.Encode())
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.NixDockerBuild.Encode())
 	}
 	return b
 }
 
 func DecodePrepareConfig(b []byte) (*PrepareConfig, error) {
 	var m PrepareConfig
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -2212,15 +2158,6 @@ func DecodePrepareConfig(b []byte) (*PrepareConfig, error) {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *NixBuildConfig
-				item, err = DecodeNixBuildConfig(msgBytes)
-				if err == nil {
-					m.NixBuild = *item
-				}
-			}
 		case 2:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -2258,72 +2195,6 @@ func DecodePrepareConfig(b []byte) (*PrepareConfig, error) {
 	return &m, nil
 }
 
-type OsProcessRunnerConfig struct {
-	WorkingDir string
-	RunAs      string
-	Strategy   string
-	Env        []*EnvVar
-}
-
-func (m OsProcessRunnerConfig) IsZero() bool {
-	return m.WorkingDir == "" &&
-		m.RunAs == "" &&
-		m.Strategy == "" &&
-		len(m.Env) == 0
-}
-
-func (m *OsProcessRunnerConfig) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.WorkingDir, 1)
-	b = AppendStringField(b, m.RunAs, 2)
-	b = AppendStringField(b, m.Strategy, 3)
-	for _, item := range m.Env {
-		if item == nil {
-			continue
-		}
-		b = protowire.AppendTag(b, 4, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeOsProcessRunnerConfig(b []byte) (*OsProcessRunnerConfig, error) {
-	var m OsProcessRunnerConfig
-	var num protowire.Number
-	var typ protowire.Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.WorkingDir, err = ConsumeString(b, typ)
-		case 2:
-			b, m.RunAs, err = ConsumeString(b, typ)
-		case 3:
-			b, m.Strategy, err = ConsumeString(b, typ)
-		case 4:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *EnvVar
-				item, err = DecodeEnvVar(msgBytes)
-				if err == nil {
-					m.Env = append(m.Env, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 type EnvVar struct {
 	Key   string
 	Value string
@@ -2338,8 +2209,8 @@ func (m *EnvVar) Encode() []byte {
 
 func DecodeEnvVar(b []byte) (*EnvVar, error) {
 	var m EnvVar
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -2380,8 +2251,8 @@ func (m *SystemdRunnerConfig) Encode() []byte {
 
 func DecodeSystemdRunnerConfig(b []byte) (*SystemdRunnerConfig, error) {
 	var m SystemdRunnerConfig
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -2419,8 +2290,8 @@ func (m *ContainerMount) Encode() []byte {
 
 func DecodeContainerMount(b []byte) (*ContainerMount, error) {
 	var m ContainerMount
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -2464,8 +2335,8 @@ func (m *ContainerAssetMount) Encode() []byte {
 
 func DecodeContainerAssetMount(b []byte) (*ContainerAssetMount, error) {
 	var m ContainerAssetMount
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -2522,8 +2393,8 @@ func (m *ContainerRunnerConfig) Encode() []byte {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	b = AppendRepeated(b, m.Command, AppendFieldDecorator(AppendStringField, 3))
 	b = AppendStringField(b, m.WorkingDir, 4)
@@ -2533,23 +2404,23 @@ func (m *ContainerRunnerConfig) Encode() []byte {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 7, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	for _, item := range m.AssetMounts {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 8, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 8, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
 func DecodeContainerRunnerConfig(b []byte) (*ContainerRunnerConfig, error) {
 	var m ContainerRunnerConfig
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -2610,38 +2481,32 @@ func DecodeContainerRunnerConfig(b []byte) (*ContainerRunnerConfig, error) {
 }
 
 type RunnerConfig struct {
-	OsProcess OsProcessRunnerConfig
 	Systemd   SystemdRunnerConfig
 	Container ContainerRunnerConfig
 }
 
 func (m RunnerConfig) IsZero() bool {
-	return m.OsProcess.IsZero() &&
-		m.Systemd.IsZero() &&
+	return m.Systemd.IsZero() &&
 		m.Container.IsZero()
 }
 
 func (m *RunnerConfig) Encode() []byte {
 	var b []byte
-	if !m.OsProcess.IsZero() {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.OsProcess.Encode())
-	}
 	if !m.Systemd.IsZero() {
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.Systemd.Encode())
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Systemd.Encode())
 	}
 	if !m.Container.IsZero() {
-		b = protowire.AppendTag(b, 3, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.Container.Encode())
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Container.Encode())
 	}
 	return b
 }
 
 func DecodeRunnerConfig(b []byte) (*RunnerConfig, error) {
 	var m RunnerConfig
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -2650,15 +2515,6 @@ func DecodeRunnerConfig(b []byte) (*RunnerConfig, error) {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *OsProcessRunnerConfig
-				item, err = DecodeOsProcessRunnerConfig(msgBytes)
-				if err == nil {
-					m.OsProcess = *item
-				}
-			}
 		case 2:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -2703,47 +2559,47 @@ func (m *State) Encode() []byte {
 	var b []byte
 	b = AppendBoolField(b, m.Heartbeat, 1)
 	if m.DeploymentsSnapshot != nil {
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.DeploymentsSnapshot.Encode())
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.DeploymentsSnapshot.Encode())
 	}
 	if m.DeploymentUpdate != nil {
-		b = protowire.AppendTag(b, 3, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.DeploymentUpdate.Encode())
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.DeploymentUpdate.Encode())
 	}
 	for _, item := range m.UsersSnapshot {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 6, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	if m.UserUpdate != nil {
-		b = protowire.AppendTag(b, 7, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.UserUpdate.Encode())
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.UserUpdate.Encode())
 	}
 	if m.MachinesSnapshot != nil {
-		b = protowire.AppendTag(b, 8, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.MachinesSnapshot.Encode())
+		b = AppendTag(b, 8, BytesType)
+		b = AppendBytes(b, m.MachinesSnapshot.Encode())
 	}
 	if m.MachineUpdate != nil {
-		b = protowire.AppendTag(b, 9, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.MachineUpdate.Encode())
+		b = AppendTag(b, 9, BytesType)
+		b = AppendBytes(b, m.MachineUpdate.Encode())
 	}
 	if m.EnrollmentsSnapshot != nil {
-		b = protowire.AppendTag(b, 10, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.EnrollmentsSnapshot.Encode())
+		b = AppendTag(b, 10, BytesType)
+		b = AppendBytes(b, m.EnrollmentsSnapshot.Encode())
 	}
 	if m.EnrollmentUpdate != nil {
-		b = protowire.AppendTag(b, 11, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.EnrollmentUpdate.Encode())
+		b = AppendTag(b, 11, BytesType)
+		b = AppendBytes(b, m.EnrollmentUpdate.Encode())
 	}
 	return b
 }
 
 func DecodeState(b []byte) (*State, error) {
 	var m State
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -2846,16 +2702,16 @@ func (m *DeploymentWithStatusSnapshot) Encode() []byte {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
 func DecodeDeploymentWithStatusSnapshot(b []byte) (*DeploymentWithStatusSnapshot, error) {
 	var m DeploymentWithStatusSnapshot
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -2893,16 +2749,16 @@ func (m *ClusterMachineList) Encode() []byte {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
 func DecodeClusterMachineList(b []byte) (*ClusterMachineList, error) {
 	var m ClusterMachineList
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -2938,20 +2794,20 @@ type DeploymentHistoryEntry struct {
 func (m *DeploymentHistoryEntry) Encode() []byte {
 	var b []byte
 	if m.Config != nil {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.Config.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Config.Encode())
 	}
 	if m.Status != nil {
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.Status.Encode())
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Status.Encode())
 	}
 	return b
 }
 
 func DecodeDeploymentHistoryEntry(b []byte) (*DeploymentHistoryEntry, error) {
 	var m DeploymentHistoryEntry
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -2998,16 +2854,16 @@ func (m *DeploymentHistory) Encode() []byte {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
 func DecodeDeploymentHistory(b []byte) (*DeploymentHistory, error) {
 	var m DeploymentHistory
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -3050,16 +2906,16 @@ func (m *DeploymentUpdateRequest) Encode() []byte {
 	b = AppendBoolField(b, m.Stop, 3)
 	b = AppendInt32Field(b, m.Version, 4)
 	if !m.Spec.IsZero() {
-		b = protowire.AppendTag(b, 6, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.Spec.Encode())
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, m.Spec.Encode())
 	}
 	return b
 }
 
 func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 	var m DeploymentUpdateRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -3103,20 +2959,20 @@ type DeploymentCreateRequest struct {
 func (m *DeploymentCreateRequest) Encode() []byte {
 	var b []byte
 	if !m.ConfigID.IsZero() {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.ConfigID.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.ConfigID.Encode())
 	}
 	if !m.Spec.IsZero() {
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.Spec.Encode())
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Spec.Encode())
 	}
 	return b
 }
 
 func DecodeDeploymentCreateRequest(b []byte) (*DeploymentCreateRequest, error) {
 	var m DeploymentCreateRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -3165,8 +3021,8 @@ func (m *DeploymentHistoryRequest) Encode() []byte {
 
 func DecodeDeploymentHistoryRequest(b []byte) (*DeploymentHistoryRequest, error) {
 	var m DeploymentHistoryRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -3200,8 +3056,8 @@ func (m *PrepareOutputRequest) Encode() []byte {
 
 func DecodePrepareOutputRequest(b []byte) (*PrepareOutputRequest, error) {
 	var m PrepareOutputRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -3237,8 +3093,8 @@ func (m *RunOutputRequest) Encode() []byte {
 
 func DecodeRunOutputRequest(b []byte) (*RunOutputRequest, error) {
 	var m RunOutputRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -3269,12 +3125,12 @@ type DeploymentLogRequest struct {
 func (m *DeploymentLogRequest) Encode() []byte {
 	var b []byte
 	if m.RunnerOutput != nil {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.RunnerOutput.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.RunnerOutput.Encode())
 	}
 	if m.PreparerOutput != nil {
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.PreparerOutput.Encode())
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.PreparerOutput.Encode())
 	}
 	b = AppendStringField(b, m.RequestID, 3)
 	return b
@@ -3282,8 +3138,8 @@ func (m *DeploymentLogRequest) Encode() []byte {
 
 func DecodeDeploymentLogRequest(b []byte) (*DeploymentLogRequest, error) {
 	var m DeploymentLogRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -3344,8 +3200,8 @@ func (m *DeploymentIdentifier) Encode() []byte {
 
 func DecodeDeploymentIdentifier(b []byte) (*DeploymentIdentifier, error) {
 	var m DeploymentIdentifier
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -3382,20 +3238,20 @@ func (m DeploymentSpec) IsZero() bool {
 func (m *DeploymentSpec) Encode() []byte {
 	var b []byte
 	if !m.Prepare.IsZero() {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.Prepare.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Prepare.Encode())
 	}
 	if !m.Runner.IsZero() {
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.Runner.Encode())
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Runner.Encode())
 	}
 	return b
 }
 
 func DecodeDeploymentSpec(b []byte) (*DeploymentSpec, error) {
 	var m DeploymentSpec
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -3451,8 +3307,8 @@ func (m *DesiredState) Encode() []byte {
 
 func DecodeDesiredState(b []byte) (*DesiredState, error) {
 	var m DesiredState
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -3502,19 +3358,19 @@ func (m *DeploymentConfig) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 8)
 	if !m.ConfigID.IsZero() {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.ConfigID.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.ConfigID.Encode())
 	}
 	b = AppendInt32Field(b, m.Version, 2)
 	b = AppendInt64FromTime(b, m.UpdatedAt, 3)
 	b = AppendInt32Field(b, m.UpdatedBy, 4)
 	if !m.Spec.IsZero() {
-		b = protowire.AppendTag(b, 5, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.Spec.Encode())
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.Spec.Encode())
 	}
 	if !m.DesiredState.IsZero() {
-		b = protowire.AppendTag(b, 6, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.DesiredState.Encode())
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, m.DesiredState.Encode())
 	}
 	b = AppendBoolField(b, m.Deleted, 7)
 	b = AppendInt64FromTime(b, m.CreatedAt, 9)
@@ -3523,8 +3379,8 @@ func (m *DeploymentConfig) Encode() []byte {
 
 func DecodeDeploymentConfig(b []byte) (*DeploymentConfig, error) {
 	var m DeploymentConfig
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -3590,20 +3446,20 @@ type DeploymentWithStatus struct {
 func (m *DeploymentWithStatus) Encode() []byte {
 	var b []byte
 	if !m.Config.IsZero() {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.Config.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Config.Encode())
 	}
 	if !m.Status.IsZero() {
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.Status.Encode())
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Status.Encode())
 	}
 	return b
 }
 
 func DecodeDeploymentWithStatus(b []byte) (*DeploymentWithStatus, error) {
 	var m DeploymentWithStatus
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -3661,20 +3517,20 @@ func (m *DeploymentStatus) Encode() []byte {
 	}
 	b = AppendInt32Field(b, m.DeploymentID, 6)
 	if !m.Preparer.IsZero() {
-		b = protowire.AppendTag(b, 4, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.Preparer.Encode())
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.Preparer.Encode())
 	}
 	if !m.Runner.IsZero() {
-		b = protowire.AppendTag(b, 5, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.Runner.Encode())
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.Runner.Encode())
 	}
 	return b
 }
 
 func DecodeDeploymentStatus(b []byte) (*DeploymentStatus, error) {
 	var m DeploymentStatus
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -3737,8 +3593,8 @@ func (m *PreparerStatus) Encode() []byte {
 
 func DecodePreparerStatus(b []byte) (*PreparerStatus, error) {
 	var m PreparerStatus
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -3800,8 +3656,8 @@ func (m *RunnerStatus) Encode() []byte {
 
 func DecodeRunnerStatus(b []byte) (*RunnerStatus, error) {
 	var m RunnerStatus
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -3855,8 +3711,8 @@ func (m *Version) Encode() []byte {
 
 func DecodeVersion(b []byte) (*Version, error) {
 	var m Version
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -3898,8 +3754,8 @@ func (m *DeploymentVersions) Encode() []byte {
 
 func DecodeDeploymentVersions(b []byte) (*DeploymentVersions, error) {
 	var m DeploymentVersions
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -3940,16 +3796,16 @@ func (m *ScopedVersions) Encode() []byte {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
 func DecodeScopedVersions(b []byte) (*ScopedVersions, error) {
 	var m ScopedVersions
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -3991,8 +3847,8 @@ func (m *DeploymentVersionsRequest) Encode() []byte {
 
 func DecodeDeploymentVersionsRequest(b []byte) (*DeploymentVersionsRequest, error) {
 	var m DeploymentVersionsRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -4015,37 +3871,27 @@ func DecodeDeploymentVersionsRequest(b []byte) (*DeploymentVersionsRequest, erro
 }
 
 type ValidateSourceRequest struct {
-	NixBuild       ValidateNixBuildSource
 	NixDockerBuild ValidateNixDockerBuildSource
-	GithubRelease  ValidateGithubReleaseSource
 	ContainerImage ValidateContainerImageSource
 }
 
 func (m *ValidateSourceRequest) Encode() []byte {
 	var b []byte
-	if !m.NixBuild.IsZero() {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.NixBuild.Encode())
-	}
 	if !m.NixDockerBuild.IsZero() {
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.NixDockerBuild.Encode())
-	}
-	if !m.GithubRelease.IsZero() {
-		b = protowire.AppendTag(b, 3, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.GithubRelease.Encode())
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.NixDockerBuild.Encode())
 	}
 	if !m.ContainerImage.IsZero() {
-		b = protowire.AppendTag(b, 4, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.ContainerImage.Encode())
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.ContainerImage.Encode())
 	}
 	return b
 }
 
 func DecodeValidateSourceRequest(b []byte) (*ValidateSourceRequest, error) {
 	var m ValidateSourceRequest
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -4054,15 +3900,6 @@ func DecodeValidateSourceRequest(b []byte) (*ValidateSourceRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ValidateNixBuildSource
-				item, err = DecodeValidateNixBuildSource(msgBytes)
-				if err == nil {
-					m.NixBuild = *item
-				}
-			}
 		case 2:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -4070,15 +3907,6 @@ func DecodeValidateSourceRequest(b []byte) (*ValidateSourceRequest, error) {
 				item, err = DecodeValidateNixDockerBuildSource(msgBytes)
 				if err == nil {
 					m.NixDockerBuild = *item
-				}
-			}
-		case 3:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ValidateGithubReleaseSource
-				item, err = DecodeValidateGithubReleaseSource(msgBytes)
-				if err == nil {
-					m.GithubRelease = *item
 				}
 			}
 		case 4:
@@ -4090,58 +3918,6 @@ func DecodeValidateSourceRequest(b []byte) (*ValidateSourceRequest, error) {
 					m.ContainerImage = *item
 				}
 			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-type ValidateNixBuildSource struct {
-	RepoUrl   string
-	Branch    string
-	Commit    string
-	FlakePath string
-}
-
-func (m ValidateNixBuildSource) IsZero() bool {
-	return m.RepoUrl == "" &&
-		m.Branch == "" &&
-		m.Commit == "" &&
-		m.FlakePath == ""
-}
-
-func (m *ValidateNixBuildSource) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.RepoUrl, 1)
-	b = AppendStringField(b, m.Branch, 2)
-	b = AppendStringField(b, m.Commit, 3)
-	b = AppendStringField(b, m.FlakePath, 4)
-	return b
-}
-
-func DecodeValidateNixBuildSource(b []byte) (*ValidateNixBuildSource, error) {
-	var m ValidateNixBuildSource
-	var num protowire.Number
-	var typ protowire.Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.RepoUrl, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Branch, err = ConsumeString(b, typ)
-		case 3:
-			b, m.Commit, err = ConsumeString(b, typ)
-		case 4:
-			b, m.FlakePath, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4177,8 +3953,8 @@ func (m *ValidateNixDockerBuildSource) Encode() []byte {
 
 func DecodeValidateNixDockerBuildSource(b []byte) (*ValidateNixDockerBuildSource, error) {
 	var m ValidateNixDockerBuildSource
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -4194,43 +3970,6 @@ func DecodeValidateNixDockerBuildSource(b []byte) (*ValidateNixDockerBuildSource
 			b, m.Commit, err = ConsumeString(b, typ)
 		case 4:
 			b, m.FlakePath, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-type ValidateGithubReleaseSource struct {
-	RepoUrl string
-}
-
-func (m ValidateGithubReleaseSource) IsZero() bool {
-	return m.RepoUrl == ""
-}
-
-func (m *ValidateGithubReleaseSource) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.RepoUrl, 1)
-	return b
-}
-
-func DecodeValidateGithubReleaseSource(b []byte) (*ValidateGithubReleaseSource, error) {
-	var m ValidateGithubReleaseSource
-	var num protowire.Number
-	var typ protowire.Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.RepoUrl, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4257,8 +3996,8 @@ func (m *ValidateContainerImageSource) Encode() []byte {
 
 func DecodeValidateContainerImageSource(b []byte) (*ValidateContainerImageSource, error) {
 	var m ValidateContainerImageSource
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -4297,8 +4036,8 @@ func (m *ValidationResult) Encode() []byte {
 
 func DecodeValidationResult(b []byte) (*ValidationResult, error) {
 	var m ValidationResult
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -4321,37 +4060,27 @@ func DecodeValidationResult(b []byte) (*ValidationResult, error) {
 }
 
 type ValidateSourceResponse struct {
-	NixBuild       ValidateNixBuildSourceResponse
 	NixDockerBuild ValidateNixDockerBuildSourceResponse
-	GithubRelease  ValidateGithubReleaseSourceResponse
 	ContainerImage ValidateContainerImageSourceResponse
 }
 
 func (m *ValidateSourceResponse) Encode() []byte {
 	var b []byte
-	if !m.NixBuild.IsZero() {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.NixBuild.Encode())
-	}
 	if !m.NixDockerBuild.IsZero() {
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.NixDockerBuild.Encode())
-	}
-	if !m.GithubRelease.IsZero() {
-		b = protowire.AppendTag(b, 3, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.GithubRelease.Encode())
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.NixDockerBuild.Encode())
 	}
 	if !m.ContainerImage.IsZero() {
-		b = protowire.AppendTag(b, 4, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.ContainerImage.Encode())
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.ContainerImage.Encode())
 	}
 	return b
 }
 
 func DecodeValidateSourceResponse(b []byte) (*ValidateSourceResponse, error) {
 	var m ValidateSourceResponse
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -4360,15 +4089,6 @@ func DecodeValidateSourceResponse(b []byte) (*ValidateSourceResponse, error) {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ValidateNixBuildSourceResponse
-				item, err = DecodeValidateNixBuildSourceResponse(msgBytes)
-				if err == nil {
-					m.NixBuild = *item
-				}
-			}
 		case 2:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -4378,15 +4098,6 @@ func DecodeValidateSourceResponse(b []byte) (*ValidateSourceResponse, error) {
 					m.NixDockerBuild = *item
 				}
 			}
-		case 3:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ValidateGithubReleaseSourceResponse
-				item, err = DecodeValidateGithubReleaseSourceResponse(msgBytes)
-				if err == nil {
-					m.GithubRelease = *item
-				}
-			}
 		case 4:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -4394,101 +4105,6 @@ func DecodeValidateSourceResponse(b []byte) (*ValidateSourceResponse, error) {
 				item, err = DecodeValidateContainerImageSourceResponse(msgBytes)
 				if err == nil {
 					m.ContainerImage = *item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-type ValidateNixBuildSourceResponse struct {
-	GitRepository ValidationResult
-	NixFlakeFile  ValidationResult
-	Scopes        []string
-	Scope         string
-	Versions      []*Version
-}
-
-func (m ValidateNixBuildSourceResponse) IsZero() bool {
-	return m.GitRepository.IsZero() &&
-		m.NixFlakeFile.IsZero() &&
-		len(m.Scopes) == 0 &&
-		m.Scope == "" &&
-		len(m.Versions) == 0
-}
-
-func (m *ValidateNixBuildSourceResponse) Encode() []byte {
-	var b []byte
-	if !m.GitRepository.IsZero() {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.GitRepository.Encode())
-	}
-	if !m.NixFlakeFile.IsZero() {
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.NixFlakeFile.Encode())
-	}
-	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 3))
-	b = AppendStringField(b, m.Scope, 4)
-	for _, item := range m.Versions {
-		if item == nil {
-			continue
-		}
-		b = protowire.AppendTag(b, 5, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeValidateNixBuildSourceResponse(b []byte) (*ValidateNixBuildSourceResponse, error) {
-	var m ValidateNixBuildSourceResponse
-	var num protowire.Number
-	var typ protowire.Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ValidationResult
-				item, err = DecodeValidationResult(msgBytes)
-				if err == nil {
-					m.GitRepository = *item
-				}
-			}
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ValidationResult
-				item, err = DecodeValidationResult(msgBytes)
-				if err == nil {
-					m.NixFlakeFile = *item
-				}
-			}
-		case 3:
-			var item string
-			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
-			if err == nil {
-				m.Scopes = append(m.Scopes, item)
-			}
-		case 4:
-			b, m.Scope, err = ConsumeString(b, typ)
-		case 5:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *Version
-				item, err = DecodeVersion(msgBytes)
-				if err == nil {
-					m.Versions = append(m.Versions, item)
 				}
 			}
 		default:
@@ -4520,12 +4136,12 @@ func (m ValidateNixDockerBuildSourceResponse) IsZero() bool {
 func (m *ValidateNixDockerBuildSourceResponse) Encode() []byte {
 	var b []byte
 	if !m.GitRepository.IsZero() {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.GitRepository.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.GitRepository.Encode())
 	}
 	if !m.NixFlakeFile.IsZero() {
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.NixFlakeFile.Encode())
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.NixFlakeFile.Encode())
 	}
 	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 3))
 	b = AppendStringField(b, m.Scope, 4)
@@ -4533,16 +4149,16 @@ func (m *ValidateNixDockerBuildSourceResponse) Encode() []byte {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 5, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
 func DecodeValidateNixDockerBuildSourceResponse(b []byte) (*ValidateNixDockerBuildSourceResponse, error) {
 	var m ValidateNixDockerBuildSourceResponse
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -4567,101 +4183,6 @@ func DecodeValidateNixDockerBuildSourceResponse(b []byte) (*ValidateNixDockerBui
 				item, err = DecodeValidationResult(msgBytes)
 				if err == nil {
 					m.NixFlakeFile = *item
-				}
-			}
-		case 3:
-			var item string
-			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
-			if err == nil {
-				m.Scopes = append(m.Scopes, item)
-			}
-		case 4:
-			b, m.Scope, err = ConsumeString(b, typ)
-		case 5:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *Version
-				item, err = DecodeVersion(msgBytes)
-				if err == nil {
-					m.Versions = append(m.Versions, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-type ValidateGithubReleaseSourceResponse struct {
-	GitRepository ValidationResult
-	ReleaseAsset  ValidationResult
-	Scopes        []string
-	Scope         string
-	Versions      []*Version
-}
-
-func (m ValidateGithubReleaseSourceResponse) IsZero() bool {
-	return m.GitRepository.IsZero() &&
-		m.ReleaseAsset.IsZero() &&
-		len(m.Scopes) == 0 &&
-		m.Scope == "" &&
-		len(m.Versions) == 0
-}
-
-func (m *ValidateGithubReleaseSourceResponse) Encode() []byte {
-	var b []byte
-	if !m.GitRepository.IsZero() {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.GitRepository.Encode())
-	}
-	if !m.ReleaseAsset.IsZero() {
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.ReleaseAsset.Encode())
-	}
-	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 3))
-	b = AppendStringField(b, m.Scope, 4)
-	for _, item := range m.Versions {
-		if item == nil {
-			continue
-		}
-		b = protowire.AppendTag(b, 5, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeValidateGithubReleaseSourceResponse(b []byte) (*ValidateGithubReleaseSourceResponse, error) {
-	var m ValidateGithubReleaseSourceResponse
-	var num protowire.Number
-	var typ protowire.Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ValidationResult
-				item, err = DecodeValidationResult(msgBytes)
-				if err == nil {
-					m.GitRepository = *item
-				}
-			}
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ValidationResult
-				item, err = DecodeValidationResult(msgBytes)
-				if err == nil {
-					m.ReleaseAsset = *item
 				}
 			}
 		case 3:
@@ -4704,23 +4225,23 @@ func (m ValidateContainerImageSourceResponse) IsZero() bool {
 func (m *ValidateContainerImageSourceResponse) Encode() []byte {
 	var b []byte
 	if !m.Image.IsZero() {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.Image.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Image.Encode())
 	}
 	for _, item := range m.Versions {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
 func DecodeValidateContainerImageSourceResponse(b []byte) (*ValidateContainerImageSourceResponse, error) {
 	var m ValidateContainerImageSourceResponse
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -4757,43 +4278,6 @@ func DecodeValidateContainerImageSourceResponse(b []byte) (*ValidateContainerIma
 	return &m, nil
 }
 
-type GithubAssetValidateRequest struct {
-	Repo  string
-	Asset string
-}
-
-func (m *GithubAssetValidateRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Repo, 1)
-	b = AppendStringField(b, m.Asset, 2)
-	return b
-}
-
-func DecodeGithubAssetValidateRequest(b []byte) (*GithubAssetValidateRequest, error) {
-	var m GithubAssetValidateRequest
-	var num protowire.Number
-	var typ protowire.Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Repo, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Asset, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 type User struct {
 	ID   int32
 	Name string
@@ -4808,8 +4292,8 @@ func (m *User) Encode() []byte {
 
 func DecodeUser(b []byte) (*User, error) {
 	var m User
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -4845,8 +4329,8 @@ func (m *WebAuthnCredential) Encode() []byte {
 
 func DecodeWebAuthnCredential(b []byte) (*WebAuthnCredential, error) {
 	var m WebAuthnCredential
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -4884,16 +4368,16 @@ func (m *InternalUser) Encode() []byte {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 4, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
 func DecodeInternalUser(b []byte) (*InternalUser, error) {
 	var m InternalUser
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -4941,8 +4425,8 @@ func (m *PublicKeyRecord) Encode() []byte {
 
 func DecodePublicKeyRecord(b []byte) (*PublicKeyRecord, error) {
 	var m PublicKeyRecord
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -4982,8 +4466,8 @@ func (m *ClusterMachine) Encode() []byte {
 
 func DecodeClusterMachine(b []byte) (*ClusterMachine, error) {
 	var m ClusterMachine
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -5019,16 +4503,16 @@ func (m *ClusterStatusResponse) Encode() []byte {
 		if item == nil {
 			continue
 		}
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, item.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
 func DecodeClusterStatusResponse(b []byte) (*ClusterStatusResponse, error) {
 	var m ClusterStatusResponse
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -5068,24 +4552,24 @@ type MsgToWorker struct {
 func (m *MsgToWorker) Encode() []byte {
 	var b []byte
 	if m.DeploymentsSnapshot != nil {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.DeploymentsSnapshot.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.DeploymentsSnapshot.Encode())
 	}
 	if m.DeploymentUpdate != nil {
-		b = protowire.AppendTag(b, 2, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.DeploymentUpdate.Encode())
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.DeploymentUpdate.Encode())
 	}
 	if m.PrepareLogRequest != nil {
-		b = protowire.AppendTag(b, 3, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.PrepareLogRequest.Encode())
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.PrepareLogRequest.Encode())
 	}
 	if m.RunLogRequest != nil {
-		b = protowire.AppendTag(b, 4, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.RunLogRequest.Encode())
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.RunLogRequest.Encode())
 	}
 	if m.DeploymentLogRequest != nil {
-		b = protowire.AppendTag(b, 5, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.DeploymentLogRequest.Encode())
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.DeploymentLogRequest.Encode())
 	}
 	b = AppendStringField(b, m.StopLogRequestID, 6)
 	return b
@@ -5093,8 +4577,8 @@ func (m *MsgToWorker) Encode() []byte {
 
 func DecodeMsgToWorker(b []byte) (*MsgToWorker, error) {
 	var m MsgToWorker
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -5170,8 +4654,8 @@ type MsgToMaster struct {
 func (m *MsgToMaster) Encode() []byte {
 	var b []byte
 	if m.StatusWrite != nil {
-		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendBytes(b, m.StatusWrite.Encode())
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.StatusWrite.Encode())
 	}
 	b = AppendBytesField(b, m.LogData, 2)
 	b = AppendBoolField(b, m.LogEnd, 3)
@@ -5181,8 +4665,8 @@ func (m *MsgToMaster) Encode() []byte {
 
 func DecodeMsgToMaster(b []byte) (*MsgToMaster, error) {
 	var m MsgToMaster
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	var msgBytes []byte
 	for len(b) > 0 {
@@ -5230,8 +4714,8 @@ func (m *AccessPolicy) Encode() []byte {
 
 func DecodeAccessPolicy(b []byte) (*AccessPolicy, error) {
 	var m AccessPolicy
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
@@ -5276,8 +4760,8 @@ func (m *ApiErr) Encode() []byte {
 
 func DecodeApiErr(b []byte) (*ApiErr, error) {
 	var m ApiErr
-	var num protowire.Number
-	var typ protowire.Type
+	var num Number
+	var typ Type
 	var err error
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)

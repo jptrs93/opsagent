@@ -17,8 +17,8 @@ the shared run-log layout (`RunOutputDir/{deploymentID}/{version}.log`).
 OpenDeploy creates/truncates the file before fresh task creation, then the
 running task/shim owns writing to it independently of the OpenDeploy daemon.
 
-Known gap (shared with osProcess today): there is no live rotation, so a chatty
-container can grow the active file unboundedly. Rotation/archiving can later be
+Known gap: there is no live rotation, so a chatty container can grow the active
+file unboundedly. Rotation/archiving can later be
 implemented with `copytruncate` semantics, inactive-version cleanup, or a tiny
 per-workload `cio.BinaryIO` helper that owns rotation while keeping the main
 OpenDeploy daemon out of the workload log data path.

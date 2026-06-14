@@ -1,5 +1,5 @@
 #!/bin/sh
-# go install github.com/jptrs93/cleanproto/cmd/cleanproto@latest
+# go install github.com/jptrs93/cleanproto/cmd/cleanproto@v1.16.0
 set -e
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)

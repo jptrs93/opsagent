@@ -15,15 +15,12 @@ import (
 	"time"
 
 	"github.com/jptrs93/goutil/cmdu"
-	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine/credentials"
-	"github.com/jptrs93/opsagent/backend/storage"
 )
 
-// NixBuilder clones a repo, checks out a specific git version, and runs
-// `nix build` to produce an executable artifact. A semaphore limits
-// concurrency to one nix invocation at a time so simultaneous deploys
-// don't thrash the Nix store.
+// NixBuilder holds the shared Git/Nix command helpers used by NixDockerBuilder.
+// A semaphore limits concurrency to one nix invocation at a time so simultaneous
+// deploys don't thrash the Nix store.
 type NixBuilder struct {
 	dataDir     string
 	credentials credentials.GithubCredentialsProvider
@@ -39,116 +36,6 @@ func NewNixBuilder(dataDir string, provider credentials.GithubCredentialsProvide
 		sem:         make(chan struct{}, 1),
 		Git:         NewGitManager(dataDir, provider),
 	}
-}
-
-func (b *NixBuilder) start(store storage.OperatorStore, dep *apigen.DeploymentConfig) Preparer {
-	ctx, cancel := context.WithCancel(context.Background())
-	p := &activePreparer{cancel: cancel, done: make(chan struct{}), deploymentConfigVersion: dep.Version}
-
-	version := desiredVersion(dep)
-	if version == "" {
-		cancel()
-		writePrepareStatus(store, dep, "", apigen.PreparationStatus_FAILED)
-		close(p.done)
-		return p
-	}
-
-	go func() {
-		defer close(p.done)
-		select {
-		case b.sem <- struct{}{}:
-			defer func() { <-b.sem }()
-		case <-ctx.Done():
-			writePrepareStatus(store, dep, "", apigen.PreparationStatus_FAILED)
-			return
-		}
-		artifact, status := b.runBuild(ctx, store, dep, version)
-		writePrepareStatus(store, dep, artifact, status)
-	}()
-
-	return p
-}
-
-func (b *NixBuilder) runBuild(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, version string) (string, apigen.PreparationStatus) {
-	logPath := dep.PrepareOutputPath()
-	slog.InfoContext(ctx, "build starting", "log_path", logPath)
-	writePrepareStatus(store, dep, "", apigen.PreparationStatus_PREPARING)
-
-	logFile, logPath, err := createPrepareLog(dep)
-	if err != nil {
-		slog.ErrorContext(ctx, "creating prepare log file failed", "path", logPath, "err", err)
-		return "", apigen.PreparationStatus_FAILED
-	}
-	defer logFile.Close()
-
-	writeLog := func(format string, args ...any) {
-		msg := fmt.Sprintf(format, args...)
-		slog.InfoContext(ctx, msg)
-		fmt.Fprintf(logFile, "==> %s\n", msg)
-	}
-
-	nix := dep.Spec.Prepare.NixBuild
-	if err := EnsureRuntimeInputsReady(ctx, dep); err != nil {
-		writeLog("ERROR preparing runtime inputs: %v", err)
-		return "", apigen.PreparationStatus_FAILED
-	}
-
-	repoDir := filepath.Join(b.dataDir, "repos", nix.Repo)
-	writeLog("repo dir: %s", repoDir)
-
-	writeLog("ensuring repo %s", nix.Repo)
-	if err := b.ensureRepo(ctx, repoDir, nix.Repo, logFile); err != nil {
-		writeLog("ERROR git clone/fetch failed: %v", err)
-		return "", apigen.PreparationStatus_FAILED
-	}
-	writeLog("repo ready")
-
-	writeLog("checking out version %s", version)
-	if err := b.runCmd(ctx, repoDir, logFile, "git", "reset", "--hard"); err != nil {
-		writeLog("ERROR git reset --hard failed: %v", err)
-		return "", apigen.PreparationStatus_FAILED
-	}
-	if err := b.runCmd(ctx, repoDir, logFile, "git", "clean", "-fdx"); err != nil {
-		writeLog("ERROR git clean failed: %v", err)
-		return "", apigen.PreparationStatus_FAILED
-	}
-	if err := b.runCmd(ctx, repoDir, logFile, "git", "checkout", version); err != nil {
-		writeLog("ERROR git checkout failed: %v", err)
-		return "", apigen.PreparationStatus_FAILED
-	}
-	writeLog("checkout complete")
-
-	nixDir := filepath.Join(repoDir, filepath.Dir(nix.Flake))
-
-	writeLog("running nix build in %s", nixDir)
-	stdoutLines, err := b.runCmdCapture(ctx, nixDir, logFile, "nix", "--extra-experimental-features", "nix-command flakes", "build", "--no-link", "--print-out-paths", "-L")
-	if err != nil {
-		writeLog("ERROR nix build failed: %v", err)
-		return "", apigen.PreparationStatus_FAILED
-	}
-
-	artifactPath := ""
-	for i := len(stdoutLines) - 1; i >= 0; i-- {
-		if strings.TrimSpace(stdoutLines[i]) != "" {
-			artifactPath = strings.TrimSpace(stdoutLines[i])
-			break
-		}
-	}
-
-	writeLog("build complete, artifact: %s", artifactPath)
-	if artifactPath == "" {
-		writeLog("empty artifact path %s", artifactPath)
-		return "", apigen.PreparationStatus_FAILED
-	}
-
-	execPath, err := resolveExecPath(artifactPath, nix.OutputExecutable)
-	if err != nil {
-		writeLog("ERROR resolving executable: %v", err)
-		return "", apigen.PreparationStatus_FAILED
-	}
-	writeLog("resolved executable: %s", execPath)
-
-	return execPath, apigen.PreparationStatus_READY
 }
 
 func (b *NixBuilder) ensureRepo(ctx context.Context, repoDir string, repoURL string, logFile io.Writer) error {
@@ -185,77 +72,6 @@ func (b *NixBuilder) resolveCloneURL(ctx context.Context, repoURL string) (strin
 		return fmt.Sprintf("https://x-access-token:%s@github.com/%s.git", creds.Token, ownerRepo), nil
 	}
 	return fmt.Sprintf("https://github.com/%s.git", ownerRepo), nil
-}
-
-func resolveExecPath(artifactPath string, outputExecutable string) (string, error) {
-	slog.Info(fmt.Sprintf("resolve executable in '%v', outputExecutable='%v'", artifactPath, outputExecutable))
-	artifactInfo, err := os.Stat(artifactPath)
-	if err != nil {
-		return "", fmt.Errorf("stat artifact path: %w", err)
-	}
-
-	if !artifactInfo.IsDir() {
-		if !isExecutableFile(artifactInfo.Mode()) {
-			return "", fmt.Errorf("artifact path is not executable: %s", artifactPath)
-		}
-		return artifactPath, nil
-	}
-
-	binDir := filepath.Join(artifactPath, "bin")
-	binEntries, err := os.ReadDir(binDir)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("artifact path has no bin directory: %s", artifactPath)
-		}
-		return "", fmt.Errorf("reading bin dir: %w", err)
-	}
-
-	if outputExecutable != "" {
-		if filepath.Base(outputExecutable) != outputExecutable {
-			return "", fmt.Errorf("configured outputExecutable must be a file name: %q", outputExecutable)
-		}
-
-		candidate := filepath.Join(binDir, outputExecutable)
-		info, statErr := os.Stat(candidate)
-		if statErr != nil {
-			if errors.Is(statErr, os.ErrNotExist) {
-				return "", fmt.Errorf("configured executable %q not found in artifact bin dir: %s", outputExecutable, binDir)
-			}
-			return "", fmt.Errorf("stat configured executable %q: %w", outputExecutable, statErr)
-		}
-		if info.IsDir() {
-			return "", fmt.Errorf("configured executable %q is a directory in artifact bin dir: %s", outputExecutable, binDir)
-		}
-		if !isExecutableFile(info.Mode()) {
-			return "", fmt.Errorf("configured executable %q is not executable in artifact bin dir: %s", outputExecutable, binDir)
-		}
-		return candidate, nil
-	}
-
-	executables := make([]string, 0, len(binEntries))
-	for _, entry := range binEntries {
-		candidate := filepath.Join(binDir, entry.Name())
-		info, infoErr := os.Stat(candidate)
-		if infoErr != nil || info.IsDir() {
-			continue
-		}
-		if isExecutableFile(info.Mode()) {
-			executables = append(executables, candidate)
-		}
-	}
-
-	if len(executables) == 0 {
-		return "", fmt.Errorf("no executable found in artifact bin dir: %s", binDir)
-	}
-	if len(executables) > 1 {
-		return "", fmt.Errorf("multiple executables found in artifact bin dir: %s", binDir)
-	}
-
-	return executables[0], nil
-}
-
-func isExecutableFile(mode os.FileMode) bool {
-	return mode&0o111 != 0
 }
 
 func (b *NixBuilder) runCmd(ctx context.Context, dir string, logWriter io.Writer, name string, args ...string) error {

@@ -1,7 +1,7 @@
-// Package preparer produces an executable artifact on disk for a deployment.
-// Each variant (nix build, github release) owns its own goroutine while the
-// work runs and writes its status through storage.OperatorStore. The operator
-// drives lifecycle by calling StartPrepare / ReAttach and later Cancel.
+// Package preparer produces a containerd image ref for a deployment. Each
+// variant owns its own goroutine while the work runs and writes its status
+// through storage.OperatorStore. The operator drives lifecycle by calling
+// StartPrepare / ReAttach and later Cancel.
 package preparer
 
 import (
@@ -29,9 +29,8 @@ type PrepareWrapper struct{}
 // starts. StartPrepare dispatches through them so the operator does not need
 // to hold references to the variant instances.
 var (
-	Nix          *NixBuilder
-	NixDocker    *NixDockerBuilder
 	GHRel        *GithubReleaseDownloader
+	NixDocker    *NixDockerBuilder
 	ContainerImg *ContainerImagePuller
 )
 
@@ -74,15 +73,12 @@ func ReAttach(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev ap
 
 func startFor(store storage.OperatorStore, dep *apigen.DeploymentConfig) Preparer {
 	switch {
-	case hasNixBuild(dep):
-		slog.Info("preparer.startFor: dispatching nixBuild", "deploymentConfigVersion", dep.Version)
-		return Nix.start(store, dep)
+	case hasGithubRelease(dep):
+		slog.Info("preparer.startFor: dispatching internal githubRelease", "deploymentConfigVersion", dep.Version)
+		return GHRel.start(store, dep)
 	case hasNixDockerBuild(dep):
 		slog.Info("preparer.startFor: dispatching nixDockerBuild", "deploymentConfigVersion", dep.Version)
 		return NixDocker.start(store, dep)
-	case hasGithubRelease(dep):
-		slog.Info("preparer.startFor: dispatching githubRelease", "deploymentConfigVersion", dep.Version)
-		return GHRel.start(store, dep)
 	case hasContainerImage(dep):
 		slog.Info("preparer.startFor: dispatching containerImage", "deploymentConfigVersion", dep.Version)
 		return ContainerImg.start(store, dep)
@@ -92,16 +88,12 @@ func startFor(store storage.OperatorStore, dep *apigen.DeploymentConfig) Prepare
 	return &finishedPreparer{deploymentConfigVersion: dep.Version}
 }
 
-func hasNixBuild(dep *apigen.DeploymentConfig) bool {
-	return !dep.Spec.Prepare.NixBuild.IsZero()
+func hasGithubRelease(dep *apigen.DeploymentConfig) bool {
+	return !dep.Spec.Prepare.GithubRelease.IsZero()
 }
 
 func hasNixDockerBuild(dep *apigen.DeploymentConfig) bool {
 	return !dep.Spec.Prepare.NixDockerBuild.IsZero()
-}
-
-func hasGithubRelease(dep *apigen.DeploymentConfig) bool {
-	return !dep.Spec.Prepare.GithubRelease.IsZero()
 }
 
 func hasContainerImage(dep *apigen.DeploymentConfig) bool {

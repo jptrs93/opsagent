@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.17",
-    "protobufjs": "^7.5.0",
     "tailwindcss": "^4.1.17",
     "vanjs-core": "^1.6.0",
     "vanjs-feather": "^0.1.7"

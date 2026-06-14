@@ -17,7 +17,7 @@ type Provider interface {
 // ForConfig returns the Provider that matches the given prepare config.
 func ForConfig(cfg *apigen.PrepareConfig) (Provider, error) {
 	switch {
-	case cfg != nil && (!cfg.NixBuild.IsZero() || !cfg.NixDockerBuild.IsZero()):
+	case cfg != nil && !cfg.NixDockerBuild.IsZero():
 		return Git, nil
 	case cfg != nil && !cfg.GithubRelease.IsZero():
 		return GHRel, nil

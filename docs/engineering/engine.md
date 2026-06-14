@@ -2,330 +2,99 @@
 
 ## Overview
 
-The engine package (`backend/engine/`) orchestrates deployments through an operator-per-deployment model. Each deployment gets a `DeploymentOperator` that runs a reconciliation loop, reacting to state changes and delegating to a preparer and a runner.
+The engine package (`backend/engine/`) orchestrates deployments through an operator-per-deployment model. Each deployment gets a `DeploymentOperator` reconciliation loop that reacts to config/status changes, starts a preparer, and then starts or replaces a runner when the prepared image is ready.
 
 Key files:
+
 - `backend/engine/operator.go` — `DeploymentOperator` reconciliation loop.
-- `backend/engine/preparer/preparer.go` — `Preparer` interface, `StartPrepare`/`ReAttach` dispatchers.
-- `backend/engine/preparer/nixbuild.go` — `NixBuilder` for cloning, checking out, and running `nix build`.
-- `backend/engine/preparer/ghrelease.go` — `GithubReleaseDownloader` for fetching prebuilt release assets.
-- `backend/engine/preparer/containerimage.go` — `ContainerImagePuller` for pulling a container image into containerd.
-- `backend/engine/ctrd/` — containerd client wrapper isolating all containerd imports behind linux build tags (`client_linux.go` real, `client_other.go` stub). Used by both the container preparer and runner.
-- `backend/engine/preparer/gitmanager.go` — `GitManagerImpl` for fetching repo info and commit history (used by `NixBuilder`).
-- `backend/engine/runner/runner.go` — `Runner` interface, `Create`/`ReAttach` factories.
-- `backend/engine/runner/osprocess.go` — `osProcessRunner` with its internal spawn/respawn/backoff loop.
-- `backend/engine/runner/osprocess_unix.go` — Unix-specific process spawning (`ForkExec`) and signal handling.
-- `backend/engine/runner/systemd.go` — `systemdRunner` for systemd-managed deployments.
-- `backend/engine/runner/container.go` — `containerRunner` for containerd-managed deployments.
+- `backend/engine/preparer/preparer.go` — `Preparer` interface plus `StartPrepare`/`ReAttach` dispatch.
+- `backend/engine/preparer/nixdockerbuild.go` — builds a Nix flake that streams an OCI/Docker image and imports it into containerd.
+- `backend/engine/preparer/containerimage.go` — pulls a container image into containerd.
+- `backend/engine/preparer/ghrelease.go` — internal-only GitHub release downloader for the `OPENDEPLOY` self-deployment.
+- `backend/engine/preparer/nixbuild.go` — shared Git/Nix command helper used by `NixDockerBuilder`; not a public Nix-store executable preparer.
+- `backend/engine/preparer/gitmanager.go` — GitHub repo/branch/commit helper used by Nix Docker builds.
+- `backend/engine/ctrd/` — containerd client wrapper behind Linux build tags.
+- `backend/engine/runner/runner.go` — `Runner` interface and factories.
+- `backend/engine/runner/container.go` — public containerd runner.
+- `backend/engine/runner/systemd.go` — internal-only runner for the `OPENDEPLOY` self-deployment.
 
-## Deployment data model
+## Data Model
 
-The deployment state is split across two proto messages:
+Public deployment configs have two steps:
 
-- **`DeploymentConfig`** `{id, config_id, version, updated_at, updated_by, spec, desired_state, deleted}` — the deployment's identity, config, and desired state. `id` is the integer primary key; `config_id` is the human-readable `DeploymentIdentifier{environment, machine, name}`; `version` is a per-deployment monotonically increasing config version number. `desired_state` contains `{version, running}` set by user actions.
+- `prepare` produces a containerd image ref. Public variants are `nixDockerBuild` and `containerImage`.
+- `runner` runs the image. Public deployments use only `runner.container`; omitted runner config means all-default container settings.
 
-- **`DeploymentStatus`** `{status_seq_no, timestamp, deployment_id, preparer, runner}` — the deployment's runtime state, containing:
-  - **`PreparerStatus`** `{deployment_config_version, artifact, status}` — written by the preparer. Tracks prepare progress and the resolved executable path.
-  - **`RunnerStatus`** `{deployment_config_version, running_pid, running_artifact, status, number_of_restarts, last_restart_at}` — written by the runner. Tracks the currently running (or most recently run) process.
+Internal exceptions:
 
-The `deployment_config_version` field flows from `DeploymentConfig.Version` → `PreparerStatus` → `RunnerStatus`. `number_of_restarts` resets to zero when a new version is deployed.
+- `prepare.githubRelease` is retained for the OpenDeploy self-deployment.
+- `runner.systemd` is retained for the OpenDeploy self-deployment.
+- Public create/update validation rejects both internal branches, and public state/history responses redact `runner.systemd` to an empty `runner` object.
+
+`PreparerStatus.Artifact` is the resolved runtime artifact. For public deployments this is always a local containerd image ref. For the internal system deployment it is the downloaded OpenDeploy binary path consumed by the internal systemd runner.
 
 ## Operator
 
-`DeploymentOperator` runs a reconciliation loop that watches for deployment state changes and config updates. It does not mutate deployment state directly — it delegates to the preparer and the runner, which write their own sections.
+`DeploymentOperator` is deliberately small: it decides which prepared artifact should be running and delegates lifecycle to the current preparer/runner.
 
-The operator is deliberately minimal: it decides _which_ artifact should be
-running, and creates/replaces/stops the runner at the boundaries. The runner
-owns the full crash/respawn/backoff lifecycle for a given artifact — the
-operator does not re-create the runner on each crash.
+Decision flow:
 
-State tracked inside the operator loop:
-
-- `currentRunner` — the live `runner.Runner` (or `Stopped()` sentinel).
-- `currentPreparer` — the in-flight `Preparer` (or `finishedPreparer`).
-
-Decision logic (in the reconciliation select loop):
-
-- `config.Deleted` — deployment deleted; cancel preparer, stop runner, unsubscribe.
+- `config.Deleted` — cancel preparer, stop runner, unsubscribe.
 - `!config.DesiredState.Running` — stop runner.
-- `config.Version > currentPreparer.Version()` — config ahead of preparer; cancel old and start new prepare.
-- `preparerReady(status, config.Version) && config.Version > currentRunner.Version()` — preparer ready with new version; stop old runner, create new one.
+- `config.Version > currentPreparer.Version()` — cancel old prepare and start a new one.
+- `preparerReady(status, config.Version) && config.Version > currentRunner.Version()` — stop old runner and create a new one.
 
-On stop/replace the operator calls `currentRunner.Stop()` which blocks until
-the runner has fully stopped and written its terminal state.
+`Stop()` is synchronous. The operator waits until the runner has stopped and written terminal status before moving on.
 
-## Git manager
+## Preparers
 
-`GitManagerImpl` interacts with remote Git repositories via the GitHub API. It uses the GitHub token from `OPENDEPLOY_GITHUB_TOKEN` for private repo access.
+`NixDockerBuilder` clones/fetches the configured GitHub repo, checks out `DesiredState.Version`, runs `nix build --no-link --print-out-paths -L` in the configured flake directory, executes the resulting image stream, and pipes it into `ctrd.Client.Import`. The imported image is tagged as `opendeploy.local/nix-docker-build/{deploymentID}:{version}`.
 
-Methods:
-- `ListBranches(repoURL)` — lists remote branches via the GitHub API.
-- `GetCommitLog(repoURL, branch, limit)` — fetches recent commits via the GitHub API. Defaults to 30 commits.
+`ContainerImagePuller` pulls `prepare.containerImage.image` plus the desired tag/digest into containerd and unpacks it. Pulls are anonymous in the current phase.
 
-## Preparers (`backend/engine/preparer/`)
-
-The `Preparer` interface:
-
-```go
-type Preparer interface {
-    Cancel()
-    Version() int32
-}
-```
-
-`StartPrepare` dispatches to the correct implementation based on which variant is set on `DeploymentConfig.Spec.Prepare`. `ReAttach` resumes observation: if the previous run reached READY for the current config version, it returns a no-op handle; otherwise it starts a fresh preparation.
-
-Version discovery methods are on the variant structs directly:
-- `ListScopes(ctx, cfg)` — returns top-level scopes a user can pick from (branches for nix; nil for github releases).
-- `ListVersions(ctx, cfg, scope)` — returns the list of available versions within that scope (commits for nix; release tags for github releases).
-
-### NixBuilder
-
-`NixBuilder` clones a repo, checks out a specific version, and runs `nix build`. A semaphore limits concurrency to one `nix build` invocation at a time.
-
-Flow:
-
-1. Reads `DeploymentConfig.DesiredState.Version` and starts the build in a goroutine.
-2. Writes `PreparerStatus.Status = PREPARING` with the `deployment_config_version` from `DeploymentConfig.Version`.
-3. Clones or fetches the repo into `{dataDir}/repos/{repo}/`.
-4. `git checkout <version>`.
-5. Runs `nix build --no-link --print-out-paths -L` in the flake directory (`filepath.Dir(cfg.Spec.Prepare.NixBuild.Flake)`).
-6. Resolves the executable path from the Nix store output (`prepare.nixBuild.outputExecutable` from `bin/` when set, otherwise a single executable in `bin/` or the artifact itself).
-7. On success: `PreparerStatus.Status = READY`, `artifact` set to the resolved executable.
-8. On failure: `PreparerStatus.Status = FAILED`.
+`GithubReleaseDownloader` is internal-only. It downloads OpenDeploy release assets for `OPENDEPLOY`; it is not exposed as a public deployment source.
 
 Prepare output is written to `{PrepareOutputDir}/{deploymentID}/{version}.log`.
 
-`ListScopes` returns branches via the GitHub API. `ListVersions`
-fetches the most recent 25 commits from the given branch via the GitHub API
-(reuses `GitManagerImpl`).
+## Runners
 
-### GithubReleaseDownloader
-
-`GithubReleaseDownloader` fetches a prebuilt artifact from a GitHub release.
-Flow:
-
-1. Writes `PreparerStatus.Status = DOWNLOADING` with the `deployment_config_version` from `DeploymentConfig.Version`.
-2. Fetches `/repos/{owner}/{repo}/releases/tags/{tag}` from the GitHub API, using `OPENDEPLOY_GITHUB_TOKEN` for auth.
-3. Picks the asset by exact name from `cfg.Spec.Prepare.GithubRelease.Asset`; if unset, uses the first asset in the release.
-4. Downloads to `{dataDir}-releases/{owner}/{repo}/{tag}/{asset}` via atomic rename. Redirects from the GitHub asset API are followed manually so the Authorization header isn't forwarded to the CDN. Existing file with the correct size is skipped.
-5. `chmod 0755` on the downloaded file.
-6. On success: `PreparerStatus.Status = READY`. On any failure: `FAILED`.
-
-**Artifact location.** Artifacts live in a sibling of the data dir (`{dataDir}-releases`, e.g. `/var/lib/opendeploy-releases`), not under it. The data dir itself is kept `0750` (it holds the sqlite db and TLS keys), while build logs live under `{dataDir}-build-logs` and run logs under `{dataDir}-run-logs` (for production, `/var/lib/opendeploy-build-logs` and `/var/lib/opendeploy-run-logs`). Os-process deployments run the artifact as a different OS user (`runAs`) that must be able to traverse to and execute it. The release dir and every component down to the artifact are `chmod 0755` so that traversal works even under a restrictive process umask. This mirrors how nix artifacts live in the world-traversable `/nix/store` — which is why nix os-process runners already work under `runAs`.
-
-**Custom download script.** If `cfg.Spec.Prepare.GithubRelease.DownloadScript` is set, steps 2–4 are skipped. Instead the script is written to a temp file and run as `bash <script> <tag>` with the working directory set to the release dir (`{dataDir}-releases/{owner}/{repo}/{tag}`) — so the version tag arrives as `$1` and the script downloads into that dir. The configured GitHub token is exposed as `GITHUB_TOKEN` in the environment (passed via env, never via args, so it isn't written to the prepare log). The artifact is then resolved from that dir: `Asset` names the produced file if set, otherwise the script must leave exactly one regular file. The resolved file is `chmod 0755`'d and returned.
-
-`ListScopes` returns nil (releases are flat — no branch dimension).
-`ListVersions` calls `/repos/{owner}/{repo}/releases?per_page=50`, returning
-each release's `tag_name` as the version id, `name` as the label, and
-`published_at` as the time.
-
-### ContainerImagePuller
-
-`ContainerImagePuller` pulls an image into containerd's content store and
-unpacks it into the snapshotter, via the shared `ctrd.Client`. The target
-version (`DesiredState.Version`) is the image tag or digest; the puller joins it
-to the configured `image` repo (`:tag`, or `@sha256:...` for a digest). On
-success it writes `PreparerStatus.Status = READY` with the resolved image ref as
-the artifact (the same ref the runner looks up). Status flow: `PULLING` → `READY`
-/ `FAILED`. A semaphore bounds concurrency to one pull at a time. Phase 1 pulls
-anonymously — no registry credentials. Version listing is a no-op
-(`ContainerImageVersionProvider` returns nothing): the user types the tag/digest
-directly in the deploy overlay.
-
-### NixDockerBuilder
-
-`NixDockerBuilder` is a separate prepare variant from `NixBuilder`. It clones or
-fetches the configured GitHub repo, checks out `DesiredState.Version`, and runs
-`nix build --no-link --print-out-paths -L` in the directory containing the
-configured flake. The build's default output must be an executable image stream,
-such as the output of `pkgs.dockerTools.streamLayeredImage`.
-
-The preparer executes that store path and pipes stdout directly into
-`ctrd.Client.Import`, assigning an OpenDeploy-local image ref of the form
-`opendeploy.local/nix-docker-build/{deploymentID}:{version}`. The image is then
-unpacked into containerd's default snapshotter and `PreparerStatus.Artifact` is
-set to the local image ref. The runtime image lives in OpenDeploy's containerd
-root (`/var/lib/opendeploy-containerd/`); the Nix store output is only an import
-source and can be removed by Nix GC once nothing else roots it.
-
-## Runners (`backend/engine/runner/`)
-
-The `runner` package owns everything to do with keeping a deployment
-artifact's process alive. The operator interacts with it only through two
-entry points:
-
-- `runner.Create(ctx, store, dep, status)` — fresh start for a new
-  version. Dispatches to the correct variant based on `dep.Spec.Runner`;
-  missing `Runner` or missing sub-variants default to `osProcess`.
-- `runner.ReAttach(ctx, store, dep, prev)` — resume supervision
-  of a deployment that was already running before opendeploy restarted.
-
-`Runner` is a minimal interface:
+`Runner` remains a small interface so internal and future runner variants can coexist:
 
 ```go
 type Runner interface {
-    Stop()          // synchronous; blocks until the runner has fully stopped
+    Stop()
     Version() int32
 }
 ```
 
-Runner goroutines stay alive until `Stop` is called. Transient
-crashes are written to the store but handled internally: `osProcessRunner`
-runs its own backoff/respawn loop; `systemdRunner` keeps polling so systemd's
-own `Restart=` directive can recover the unit.
+Public deployments run through `containerRunner`. It creates one deterministic containerd container per deployment (`opendeploy-{deploymentID}`), starts a task with host networking, wires stdout/stderr to `{RunOutputDir}/{deploymentID}/{version}.log`, waits for task exit, and respawns with exponential backoff on crashes.
 
-Stale-write guard: both runners pass a `func(*DeploymentStatus) bool`
-callback to `MustWriteDeploymentStatus`. The callback inspects the
-current cached status and returns `false` when
-`s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion`
-(i.e. a newer runner has already written). On `false`, the adapter skips
-the upsert and history insert entirely — this prevents
-`UNIQUE(deployment_id, status_seq_no)` collisions that would otherwise
-panic the process.
+Container runner behavior:
 
-### osProcessRunner
+- Env refs `${s:name}` and `${c:name}` are prepared by the preparer and resolved at start time.
+- Default data volume is created under `{dataDir}-volumes/` and mounted at `/var` for root containers or `/home/<user>/var` for non-root containers, unless disabled.
+- Additional host mounts and OpenDeploy-managed asset mounts are translated to containerd bind mounts.
+- Reattach uses `ctrd.LoadTask` by deterministic id; if no running task exists, the runner starts fresh.
+- Stop sends SIGTERM, waits up to 3 seconds, sends SIGKILL if needed, then deletes the task/container/snapshot.
 
-`osProcessRunner` owns the full spawn/monitor/respawn/backoff loop for an
-OS process. State is consolidated into a single `apigen.RunnerStatus` struct
-field. Cross-goroutine PID visibility uses `atomic.StoreInt32`/`atomic.LoadInt32`
-on `r.status.RunningPid`.
+`systemdRunner` is internal-only for the OpenDeploy self-deployment. It symlinks the downloaded binary to the configured bin path, restarts the systemd unit, and polls `systemctl is-active` for status. Public API validation rejects systemd runner config.
 
-Flow:
+## Containerd Runtime
 
-1. `syscall.ForkExec` with `Setsid: true` (detached daemon). stdin → `/dev/null`,
-   stdout/stderr → `{RunOutputDir}/{deploymentID}/{version}.log`.
-2. Write `RUNNING` with the PID.
-3. `awaitProcessOrCancel(pid)` — wraps blocking `Wait4` in a goroutine with `ctx.Done()` select.
-4. If `Stop()` was called: write `STOPPED` and exit.
-5. Otherwise: write `CRASHED`, sleep with exponential backoff (1s → 60s),
-   bump `NumberOfRestarts` and `LastRestartAt`, then respawn (goto 1).
+OpenDeploy runs its own bundled containerd provisioned by the installer as `opendeploy-containerd.service`. Runtime binaries/config live under `/var/lib/opendeploy/runtime/`; containerd root state lives under `/var/lib/opendeploy-containerd/`; transient state lives under `/run/opendeploy-containerd/`; the socket is `/run/opendeploy/containerd.sock`.
 
-The stability reset still applies: if the process ran >= 15 seconds before
-crashing, the local crash count is reset so a stable deployment doesn't get
-stuck at the max backoff after the occasional crash.
-
-`Stop()` owns the signal logic: sends SIGTERM, waits 3s, then SIGKILL. When
-`leavePrevious` strategy is set, `Stop()` skips signals entirely — the app
-handles its own rollover.
-
-`OPENDEPLOY_*` environment variables are scrubbed from the spawned process so
-secrets (initial master password hash, GitHub token) don't leak into deployed
-artifacts.
-
-#### Reattach
-
-`runner.ReAttach` constructs an `osProcessRunner` with the PID from the
-persisted `RunnerStatus`. The runner's first iteration polls that PID with
-`kill(pid, 0)` (Wait4 only works on our own children). If the polled process
-is still alive, the runner monitors it; if/when it exits, the runner writes
-`CRASHED` with the adopted PID (so the transition is visible in history),
-then falls through to its normal spawn loop and respawns from the same
-artifact path. An error count limit (15) prevents infinite polling on
-persistent errors.
-
-#### leavePrevious strategy
-
-When `strategy: "leavePrevious"` is set in the osProcess runner config,
-`Stop()` cancels the context but does not send SIGTERM/SIGKILL to the old
-process. This is for apps with built-in rollover behavior that kill the
-previous process on their own port once the new version is ready.
-
-### systemdRunner
-
-`systemdRunner` manages a deployment via a systemd unit. Creation flow:
-
-1. Write `STARTING`, symlink the artifact to `BinPath` via atomic rename.
-2. `systemctl restart <name>`.
-3. Enter the monitor loop.
-
-The monitor loop polls `systemctl is-active <name>` every 2 seconds and
-maps the result: `active`/`reloading` → `RUNNING`, `activating` → `STARTING`,
-`deactivating`/`inactive` → `STOPPED`, `failed` → `CRASHED`. The loop does
-*not* exit on terminal states — it keeps polling so that when systemd's own
-`Restart=` directive brings the unit back, the next tick picks up the new
-`active` and writes `RUNNING` again. The goroutine only exits when
-`Stop` is called.
-
-`Stop` cancels the monitor goroutine. It does NOT stop the systemd unit.
-Unlike `osProcessRunner`, `systemdRunner` does not implement its own backoff —
-systemd owns process-level restart behavior.
-
-### containerRunner
-
-`containerRunner` mirrors `osProcessRunner` but drives containerd (via
-`ctrd.Client`) instead of fork/exec. One container per deployment, keyed by a
-  deterministic id (`opendeploy-{deploymentID}`) so reattach can find it. It owns the
-same create/monitor/respawn/backoff loop: `RunTask` (create container + task,
-host networking, start), then `task.Wait()` replaces `Wait4` and the container
-exit replaces process exit. The full crash/backoff machinery
-(`computeOSProcessBackoff`, 15s stability reset) is reused.
-
-- **Dispatch** keys off the *prepare* side (`containerImage` or
-  `nixDockerBuild`), not the runner config, because a valid `container` runner
-  block may be all-defaults and therefore `IsZero`.
-- **Default data volume**: a per-deployment host dir under `{dataDir}-volumes/`
-  is created + chowned to the in-container user at each spawn and bind-mounted at
-  `/var` (root) or `/home/<user>/var` (non-root), overridable via
-  `dataMountPath`, disableable via `disableDataVolume`. chown needs `CAP_CHOWN`
-  (granted in the unit); it is best-effort and only fully resolvable when `user`
-  is a numeric uid or a name that also exists on the host.
-- **Service capabilities**: the non-root `opendeploy` service needs
-  `CAP_SYS_ADMIN` for snapshot mounts and `CAP_DAC_OVERRIDE` to access
-  root-owned containerd snapshot paths when creating container tasks.
-- **`user`** maps to OCI `process.user`; with no user namespace the in-container
-  uid equals the host uid, so volume file ownership matches `runAs` semantics.
-- **Refs/env**: `${s:name}` secret and `${c:name}` config placeholders are
-  prepared in batches and cached in memory, then resolved at start via the same
-  `resolveEnv` resolver as `osProcess` into the container's env.
-- **Reattach**: `ctrd.LoadTask` reconnects to a still-running container by id and
-  re-establishes `Wait()`; logging is already owned by the running task's
-  containerd `file://` log URI, so no OpenDeploy-side IO reattach is needed. If
-  the task is gone it spawns fresh (RunTask first removes any stale container
-  with the same id).
-- **Stop**: SIGTERM the task, wait up to 3s for exit, SIGKILL, then delete the
-  container + snapshot.
-- **Logging**: container stdout/stderr are configured with containerd
-  `cio.LogFile`, so the shim/runtime writes directly to
-  `{RunOutputDir}/{deploymentID}/{version}.log`. OpenDeploy creates/truncates the
-  file before fresh task creation; if OpenDeploy restarts while the workload keeps
-  running, the existing task continues writing to the same file independently.
-  Future rotation/archiving can replace the file log creator with a `BinaryIO`
-  log-consumer helper without changing runner lifecycle semantics.
-- **Platform**: Linux only. The `ctrd` package stubs out on non-linux so the
-  backend still builds on macOS/dev; container deployments there fail at prepare
-  with a clear "containers require linux" error.
-
-opendeploy runs its own dedicated, bundled+pinned containerd provisioned by the
-installer as the `opendeploy-containerd.service` unit. The bundled runtime
-binaries and config live under `/var/lib/opendeploy/runtime/`, containerd's root
-state lives under `/var/lib/opendeploy-containerd/`, transient state lives under
-`/run/opendeploy-containerd/`, and the socket is
-`/run/opendeploy/containerd.sock`. This containerd is not embedded in opendeploy
-and does not share a distro/Docker containerd. Provisioning is done by the
-`opendeploy install` subcommand (`backend/internal/installer`), which embeds the
-unit files and the pinned containerd/runc versions + checksums.
-
-Primary cluster mTLS material is not read from env-configured files. On first
-primary startup, opendeploy generates the cluster CA and primary server
-certificate/key, then stores that PEM material as internal encrypted secrets in
-the primary secrets store. Worker nodes receive their local TLS files through
-`EnrollmentV1` and cache them under `/var/lib/opendeploy/tls/`.
+The `ctrd` package stubs out on non-Linux so the backend builds on macOS/dev. Container prepares/runs fail at runtime on unsupported platforms with a clear containerd/Linux error.
 
 ## Backoff
 
-Exponential crash backoff (1s → 60s, doubling per consecutive crash, reset
-after a >= 15 s stable run) lives inside `osProcessRunner.run()` and is reused by
-`containerRunner`. It is not a separate package, not a decorator on the operator
-loop, and not applied to the systemd runner.
+Container crash backoff is 1 second to 60 seconds, doubling per consecutive crash. If a container runs for at least 15 seconds before crashing, the local crash count resets.
 
-## Storage failure policy
+## Storage Failure Policy
 
-All DB calls go through `Must*` variants which panic on error. The process is expected to run under a supervisor (systemd, launchd, etc.) that will restart it; on startup the in-memory state is rebuilt from the database.
+All DB calls go through `Must*` variants when failure is an internal invariant violation. The process is expected to run under a supervisor that restarts it; startup rebuilds in-memory state from the database.
 
 Rules for new code:
 
-- **Writes** — always `Must*`. There is no sensible recovery from a write failure.
-- **Reads where the key is an internal invariant** — use `Must*`. A missing key here is a bug, not a user error.
-- **Reads driven by user input** where "not found" is an expected outcome — use the non-`Must*` variant and translate the error to an `ApiErr`.
+- Writes use `Must*`.
+- Reads where the key is an internal invariant use `Must*`.
+- Reads driven by user input where "not found" is expected use non-`Must*` and translate to `ApiErr`.

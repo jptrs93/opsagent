@@ -50,7 +50,6 @@ func Run(cfg Config) {
 	primaryURL := "https://" + cfg.PrimaryClusterAddr
 	githubCredentials := NewPrimaryGithubCredentialsProvider(primaryURL, primaryHTTPClient)
 
-	preparer.Nix = preparer.NewNixBuilder(cfg.DataDir, githubCredentials)
 	preparer.GHRel = preparer.NewGithubReleaseDownloader(cfg.DataDir, githubCredentials)
 
 	ctrdClient := ctrd.Connect(ainit.StaticConfig.ContainerdAddress, ainit.StaticConfig.ContainerdNamespace)

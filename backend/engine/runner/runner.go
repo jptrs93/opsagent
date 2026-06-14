@@ -1,8 +1,8 @@
 // Package runner spawns and monitors deployment artifacts. The operator
 // creates a Runner when a deployment should start and calls Stop when it
-// should stop or be replaced. OS-process runners own crash-restart with
-// exponential backoff. Systemd runners are monitor-only — systemd owns
-// process restarts via its Restart= directives.
+// should stop or be replaced. Container runners own crash-restart with
+// exponential backoff. Systemd is retained for the internal OPENDEPLOY
+// deployment only.
 package runner
 
 import (
@@ -29,20 +29,17 @@ func Create(store storage.OperatorStore, dep *apigen.DeploymentConfig, status *a
 	if status != nil {
 		preparer = status.Preparer
 	}
-	slog.Info("runner.Create", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion, "systemd", useSystemd(dep), "container", useContainer(dep))
+	slog.Info("runner.Create", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion, "systemd", useSystemd(dep))
 	switch {
 	case useSystemd(dep):
 		return newSystemdRunnerWithRestart(store, dep, preparer)
-	case useContainer(dep):
-		return newContainerRunner(store, dep, preparer)
 	}
-	return newOSProcessRunner(store, dep, preparer)
+	return newContainerRunner(store, dep, preparer)
 }
 
 // ReAttach resumes supervision of a deployment that was already running
-// before opendeploy restarted. For os-process runners the adopted PID is
-// polled and falls through to the normal spawn-and-respawn loop on exit.
-// For systemd runners this starts a monitor-only loop — no install or restart.
+// before opendeploy restarted. Container runners reattach to a running task by
+// id. Systemd runners start a monitor-only loop — no install or restart.
 func ReAttach(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
 	if prev.IsZero() {
 		slog.Info("runner.ReAttach: no previous runner, returning stopped")
@@ -54,10 +51,8 @@ func ReAttach(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev ap
 	switch {
 	case useSystemd(dep):
 		return reAttachSystemdRunner(store, dep, prev)
-	case useContainer(dep):
-		return reAttachContainerRunner(store, dep, prev)
 	}
-	return reAttachOSProcessRunner(store, *dep, prev)
+	return reAttachContainerRunner(store, dep, prev)
 }
 
 // Stopped returns a no-op Runner sentinel used when no process is running.
@@ -70,11 +65,4 @@ func (stoppedRunner) Version() int32 { return -1 }
 
 func useSystemd(dep *apigen.DeploymentConfig) bool {
 	return !dep.Spec.Runner.Systemd.IsZero()
-}
-
-// useContainer keys off the prepare side (the container image, whose image
-// field is required and so never zero) rather than the runner config, because a
-// valid container runner block may be all-defaults and therefore IsZero.
-func useContainer(dep *apigen.DeploymentConfig) bool {
-	return !dep.Spec.Prepare.ContainerImage.IsZero() || !dep.Spec.Prepare.NixDockerBuild.IsZero()
 }

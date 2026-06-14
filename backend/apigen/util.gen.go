@@ -5,204 +5,203 @@ package apigen
 import (
 	"errors"
 	"github.com/google/uuid"
+	"io"
 	"math"
 	"time"
 	"unicode/utf8"
-
-	"google.golang.org/protobuf/encoding/protowire"
 )
 
 var errInvalidWireType = errors.New("invalid wire type")
 var errInvalidUTF8 = errors.New("invalid UTF-8")
 
-func ConsumeTag(b []byte) ([]byte, protowire.Number, protowire.Type, error) {
-	num, typ, n := protowire.ConsumeTag(b)
-	if err := protowire.ParseError(n); err != nil {
+func ConsumeTag(b []byte) ([]byte, Number, Type, error) {
+	num, typ, n := consumeTag(b)
+	if err := ParseError(n); err != nil {
 		return nil, 0, 0, err
 	}
 	return b[n:], num, typ, nil
 }
 
-func SkipFieldValue(b []byte, num protowire.Number, typ protowire.Type) ([]byte, error) {
-	n := protowire.ConsumeFieldValue(num, typ, b)
-	if err := protowire.ParseError(n); err != nil {
+func SkipFieldValue(b []byte, num Number, typ Type) ([]byte, error) {
+	n := ConsumeFieldValue(num, typ, b)
+	if err := ParseError(n); err != nil {
 		return nil, err
 	}
 	return b[n:], nil
 }
 
-func ConsumeVarInt32(b []byte, typ protowire.Type) ([]byte, int32, error) {
-	if typ != protowire.VarintType {
+func ConsumeVarInt32(b []byte, typ Type) ([]byte, int32, error) {
+	if typ != VarintType {
 		return nil, 0, errInvalidWireType
 	}
-	v, n := protowire.ConsumeVarint(b)
-	if err := protowire.ParseError(n); err != nil {
+	v, n := ConsumeVarint(b)
+	if err := ParseError(n); err != nil {
 		return nil, 0, err
 	}
 	return b[n:], int32(v), nil
 }
 
-func ConsumeVarInt64(b []byte, typ protowire.Type) ([]byte, int64, error) {
-	if typ != protowire.VarintType {
+func ConsumeVarInt64(b []byte, typ Type) ([]byte, int64, error) {
+	if typ != VarintType {
 		return nil, 0, errInvalidWireType
 	}
-	v, n := protowire.ConsumeVarint(b)
-	if err := protowire.ParseError(n); err != nil {
+	v, n := ConsumeVarint(b)
+	if err := ParseError(n); err != nil {
 		return nil, 0, err
 	}
 	return b[n:], int64(v), nil
 }
 
-func ConsumeVarUint32(b []byte, typ protowire.Type) ([]byte, uint32, error) {
-	if typ != protowire.VarintType {
+func ConsumeVarUint32(b []byte, typ Type) ([]byte, uint32, error) {
+	if typ != VarintType {
 		return nil, 0, errInvalidWireType
 	}
-	v, n := protowire.ConsumeVarint(b)
-	if err := protowire.ParseError(n); err != nil {
+	v, n := ConsumeVarint(b)
+	if err := ParseError(n); err != nil {
 		return nil, 0, err
 	}
 	return b[n:], uint32(v), nil
 }
 
-func ConsumeVarUint64(b []byte, typ protowire.Type) ([]byte, uint64, error) {
-	if typ != protowire.VarintType {
+func ConsumeVarUint64(b []byte, typ Type) ([]byte, uint64, error) {
+	if typ != VarintType {
 		return nil, 0, errInvalidWireType
 	}
-	v, n := protowire.ConsumeVarint(b)
-	if err := protowire.ParseError(n); err != nil {
+	v, n := ConsumeVarint(b)
+	if err := ParseError(n); err != nil {
 		return nil, 0, err
 	}
 	return b[n:], v, nil
 }
 
-func ConsumeSint32(b []byte, typ protowire.Type) ([]byte, int32, error) {
-	if typ != protowire.VarintType {
+func ConsumeSint32(b []byte, typ Type) ([]byte, int32, error) {
+	if typ != VarintType {
 		return nil, 0, errInvalidWireType
 	}
-	v, n := protowire.ConsumeVarint(b)
-	if err := protowire.ParseError(n); err != nil {
+	v, n := ConsumeVarint(b)
+	if err := ParseError(n); err != nil {
 		return nil, 0, err
 	}
-	return b[n:], int32(protowire.DecodeZigZag(v)), nil
+	return b[n:], int32(DecodeZigZag(v)), nil
 }
 
-func ConsumeSint64(b []byte, typ protowire.Type) ([]byte, int64, error) {
-	if typ != protowire.VarintType {
+func ConsumeSint64(b []byte, typ Type) ([]byte, int64, error) {
+	if typ != VarintType {
 		return nil, 0, errInvalidWireType
 	}
-	v, n := protowire.ConsumeVarint(b)
-	if err := protowire.ParseError(n); err != nil {
+	v, n := ConsumeVarint(b)
+	if err := ParseError(n); err != nil {
 		return nil, 0, err
 	}
-	return b[n:], int64(protowire.DecodeZigZag(v)), nil
+	return b[n:], int64(DecodeZigZag(v)), nil
 }
 
-func ConsumeBool(b []byte, typ protowire.Type) ([]byte, bool, error) {
-	if typ != protowire.VarintType {
+func ConsumeBool(b []byte, typ Type) ([]byte, bool, error) {
+	if typ != VarintType {
 		return nil, false, errInvalidWireType
 	}
-	v, n := protowire.ConsumeVarint(b)
-	if err := protowire.ParseError(n); err != nil {
+	v, n := ConsumeVarint(b)
+	if err := ParseError(n); err != nil {
 		return nil, false, err
 	}
 	return b[n:], v != 0, nil
 }
 
-func ConsumeEnum(b []byte, typ protowire.Type) ([]byte, int32, error) {
+func ConsumeEnum(b []byte, typ Type) ([]byte, int32, error) {
 	return ConsumeVarInt32(b, typ)
 }
 
-func ConsumeFixedInt32(b []byte, typ protowire.Type) ([]byte, int32, error) {
-	if typ != protowire.Fixed32Type {
+func ConsumeFixedInt32(b []byte, typ Type) ([]byte, int32, error) {
+	if typ != Fixed32Type {
 		return nil, 0, errInvalidWireType
 	}
-	v, n := protowire.ConsumeFixed32(b)
-	if err := protowire.ParseError(n); err != nil {
+	v, n := ConsumeFixed32(b)
+	if err := ParseError(n); err != nil {
 		return nil, 0, err
 	}
 	return b[n:], int32(v), nil
 }
 
-func ConsumeFixedUint32(b []byte, typ protowire.Type) ([]byte, uint32, error) {
-	if typ != protowire.Fixed32Type {
+func ConsumeFixedUint32(b []byte, typ Type) ([]byte, uint32, error) {
+	if typ != Fixed32Type {
 		return nil, 0, errInvalidWireType
 	}
-	v, n := protowire.ConsumeFixed32(b)
-	if err := protowire.ParseError(n); err != nil {
+	v, n := ConsumeFixed32(b)
+	if err := ParseError(n); err != nil {
 		return nil, 0, err
 	}
 	return b[n:], v, nil
 }
 
-func ConsumeFixedInt64(b []byte, typ protowire.Type) ([]byte, int64, error) {
-	if typ != protowire.Fixed64Type {
+func ConsumeFixedInt64(b []byte, typ Type) ([]byte, int64, error) {
+	if typ != Fixed64Type {
 		return nil, 0, errInvalidWireType
 	}
-	v, n := protowire.ConsumeFixed64(b)
-	if err := protowire.ParseError(n); err != nil {
+	v, n := ConsumeFixed64(b)
+	if err := ParseError(n); err != nil {
 		return nil, 0, err
 	}
 	return b[n:], int64(v), nil
 }
 
-func ConsumeFixedUint64(b []byte, typ protowire.Type) ([]byte, uint64, error) {
-	if typ != protowire.Fixed64Type {
+func ConsumeFixedUint64(b []byte, typ Type) ([]byte, uint64, error) {
+	if typ != Fixed64Type {
 		return nil, 0, errInvalidWireType
 	}
-	v, n := protowire.ConsumeFixed64(b)
-	if err := protowire.ParseError(n); err != nil {
+	v, n := ConsumeFixed64(b)
+	if err := ParseError(n); err != nil {
 		return nil, 0, err
 	}
 	return b[n:], v, nil
 }
 
-func ConsumeSfixed32(b []byte, typ protowire.Type) ([]byte, int32, error) {
+func ConsumeSfixed32(b []byte, typ Type) ([]byte, int32, error) {
 	return ConsumeFixedInt32(b, typ)
 }
 
-func ConsumeSfixed64(b []byte, typ protowire.Type) ([]byte, int64, error) {
+func ConsumeSfixed64(b []byte, typ Type) ([]byte, int64, error) {
 	return ConsumeFixedInt64(b, typ)
 }
 
-func ConsumeFloat32(b []byte, typ protowire.Type) ([]byte, float32, error) {
-	if typ != protowire.Fixed32Type {
+func ConsumeFloat32(b []byte, typ Type) ([]byte, float32, error) {
+	if typ != Fixed32Type {
 		return nil, 0, errInvalidWireType
 	}
-	v, n := protowire.ConsumeFixed32(b)
-	if err := protowire.ParseError(n); err != nil {
+	v, n := ConsumeFixed32(b)
+	if err := ParseError(n); err != nil {
 		return nil, 0, err
 	}
 	return b[n:], math.Float32frombits(v), nil
 }
 
-func ConsumeFloat64(b []byte, typ protowire.Type) ([]byte, float64, error) {
-	if typ != protowire.Fixed64Type {
+func ConsumeFloat64(b []byte, typ Type) ([]byte, float64, error) {
+	if typ != Fixed64Type {
 		return nil, 0, errInvalidWireType
 	}
-	v, n := protowire.ConsumeFixed64(b)
-	if err := protowire.ParseError(n); err != nil {
+	v, n := ConsumeFixed64(b)
+	if err := ParseError(n); err != nil {
 		return nil, 0, err
 	}
 	return b[n:], math.Float64frombits(v), nil
 }
 
-func ConsumeBytes(b []byte, typ protowire.Type) ([]byte, []byte, error) {
-	if typ != protowire.BytesType {
+func ConsumeBytes(b []byte, typ Type) ([]byte, []byte, error) {
+	if typ != BytesType {
 		return nil, nil, errInvalidWireType
 	}
-	v, n := protowire.ConsumeBytes(b)
-	if err := protowire.ParseError(n); err != nil {
+	v, n := consumeBytes(b)
+	if err := ParseError(n); err != nil {
 		return nil, nil, err
 	}
 	return b[n:], v, nil
 }
 
-func ConsumeString(b []byte, typ protowire.Type) ([]byte, string, error) {
-	if typ != protowire.BytesType {
+func ConsumeString(b []byte, typ Type) ([]byte, string, error) {
+	if typ != BytesType {
 		return nil, "", errInvalidWireType
 	}
-	v, n := protowire.ConsumeBytes(b)
-	if err := protowire.ParseError(n); err != nil {
+	v, n := consumeBytes(b)
+	if err := ParseError(n); err != nil {
 		return nil, "", err
 	}
 	if !utf8.Valid(v) {
@@ -211,8 +210,409 @@ func ConsumeString(b []byte, typ protowire.Type) ([]byte, string, error) {
 	return b[n:], string(v), nil
 }
 
-func ConsumeMessage(b []byte, typ protowire.Type) ([]byte, []byte, error) {
+func ConsumeMessage(b []byte, typ Type) ([]byte, []byte, error) {
 	return ConsumeBytes(b, typ)
+}
+
+// ---- Everything below is copied/adapted from the google.golang.org/protobuf/encoding/protowire package. ----
+// Copyright 2018 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license.
+
+// Number represents the field number.
+type Number int32
+
+const (
+	MinValidNumber        Number = 1
+	MaxValidNumber        Number = 1<<29 - 1
+	DefaultRecursionLimit        = 10000
+)
+
+// Type represents the wire type.
+type Type int8
+
+const (
+	VarintType     Type = 0
+	Fixed32Type    Type = 5
+	Fixed64Type    Type = 1
+	BytesType      Type = 2
+	StartGroupType Type = 3
+	EndGroupType   Type = 4
+)
+
+const (
+	_ = -iota
+	errCodeTruncated
+	errCodeFieldNumber
+	errCodeOverflow
+	errCodeReserved
+	errCodeEndGroup
+	errCodeRecursionDepth
+)
+
+var (
+	errFieldNumber = errors.New("invalid field number")
+	errOverflow    = errors.New("variable length integer overflow")
+	errReserved    = errors.New("cannot parse reserved wire type")
+	errEndGroup    = errors.New("mismatching end group marker")
+	errParse       = errors.New("parse error")
+)
+
+// ParseError converts an error code into an error value.
+// This returns nil if n is a non-negative number.
+func ParseError(n int) error {
+	if n >= 0 {
+		return nil
+	}
+	switch n {
+	case errCodeTruncated:
+		return io.ErrUnexpectedEOF
+	case errCodeFieldNumber:
+		return errFieldNumber
+	case errCodeOverflow:
+		return errOverflow
+	case errCodeReserved:
+		return errReserved
+	case errCodeEndGroup:
+		return errEndGroup
+	default:
+		return errParse
+	}
+}
+
+// ConsumeFieldValue parses a field value and returns its length.
+// This assumes that the field Number and wire Type have already been parsed.
+// This returns a negative length upon an error (see ParseError).
+func ConsumeFieldValue(num Number, typ Type, b []byte) (n int) {
+	return consumeFieldValueD(num, typ, b, DefaultRecursionLimit)
+}
+
+func consumeFieldValueD(num Number, typ Type, b []byte, depth int) (n int) {
+	switch typ {
+	case VarintType:
+		_, n = ConsumeVarint(b)
+		return n
+	case Fixed32Type:
+		_, n = ConsumeFixed32(b)
+		return n
+	case Fixed64Type:
+		_, n = ConsumeFixed64(b)
+		return n
+	case BytesType:
+		_, n = consumeBytes(b)
+		return n
+	case StartGroupType:
+		if depth < 0 {
+			return errCodeRecursionDepth
+		}
+		n0 := len(b)
+		for {
+			num2, typ2, n := consumeTag(b)
+			if n < 0 {
+				return n
+			}
+			b = b[n:]
+			if typ2 == EndGroupType {
+				if num != num2 {
+					return errCodeEndGroup
+				}
+				return n0 - len(b)
+			}
+
+			n = consumeFieldValueD(num2, typ2, b, depth-1)
+			if n < 0 {
+				return n
+			}
+			b = b[n:]
+		}
+	case EndGroupType:
+		return errCodeEndGroup
+	default:
+		return errCodeReserved
+	}
+}
+
+// AppendTag encodes num and typ as a varint-encoded tag and appends it to b.
+func AppendTag(b []byte, num Number, typ Type) []byte {
+	return AppendVarint(b, EncodeTag(num, typ))
+}
+
+func consumeTag(b []byte) (Number, Type, int) {
+	v, n := ConsumeVarint(b)
+	if n < 0 {
+		return 0, 0, n
+	}
+	num, typ := DecodeTag(v)
+	if num < MinValidNumber {
+		return 0, 0, errCodeFieldNumber
+	}
+	return num, typ, n
+}
+
+// AppendVarint appends v to b as a varint-encoded uint64.
+func AppendVarint(b []byte, v uint64) []byte {
+	switch {
+	case v < 1<<7:
+		b = append(b, byte(v))
+	case v < 1<<14:
+		b = append(b,
+			byte((v>>0)&0x7f|0x80),
+			byte(v>>7))
+	case v < 1<<21:
+		b = append(b,
+			byte((v>>0)&0x7f|0x80),
+			byte((v>>7)&0x7f|0x80),
+			byte(v>>14))
+	case v < 1<<28:
+		b = append(b,
+			byte((v>>0)&0x7f|0x80),
+			byte((v>>7)&0x7f|0x80),
+			byte((v>>14)&0x7f|0x80),
+			byte(v>>21))
+	case v < 1<<35:
+		b = append(b,
+			byte((v>>0)&0x7f|0x80),
+			byte((v>>7)&0x7f|0x80),
+			byte((v>>14)&0x7f|0x80),
+			byte((v>>21)&0x7f|0x80),
+			byte(v>>28))
+	case v < 1<<42:
+		b = append(b,
+			byte((v>>0)&0x7f|0x80),
+			byte((v>>7)&0x7f|0x80),
+			byte((v>>14)&0x7f|0x80),
+			byte((v>>21)&0x7f|0x80),
+			byte((v>>28)&0x7f|0x80),
+			byte(v>>35))
+	case v < 1<<49:
+		b = append(b,
+			byte((v>>0)&0x7f|0x80),
+			byte((v>>7)&0x7f|0x80),
+			byte((v>>14)&0x7f|0x80),
+			byte((v>>21)&0x7f|0x80),
+			byte((v>>28)&0x7f|0x80),
+			byte((v>>35)&0x7f|0x80),
+			byte(v>>42))
+	case v < 1<<56:
+		b = append(b,
+			byte((v>>0)&0x7f|0x80),
+			byte((v>>7)&0x7f|0x80),
+			byte((v>>14)&0x7f|0x80),
+			byte((v>>21)&0x7f|0x80),
+			byte((v>>28)&0x7f|0x80),
+			byte((v>>35)&0x7f|0x80),
+			byte((v>>42)&0x7f|0x80),
+			byte(v>>49))
+	case v < 1<<63:
+		b = append(b,
+			byte((v>>0)&0x7f|0x80),
+			byte((v>>7)&0x7f|0x80),
+			byte((v>>14)&0x7f|0x80),
+			byte((v>>21)&0x7f|0x80),
+			byte((v>>28)&0x7f|0x80),
+			byte((v>>35)&0x7f|0x80),
+			byte((v>>42)&0x7f|0x80),
+			byte((v>>49)&0x7f|0x80),
+			byte(v>>56))
+	default:
+		b = append(b,
+			byte((v>>0)&0x7f|0x80),
+			byte((v>>7)&0x7f|0x80),
+			byte((v>>14)&0x7f|0x80),
+			byte((v>>21)&0x7f|0x80),
+			byte((v>>28)&0x7f|0x80),
+			byte((v>>35)&0x7f|0x80),
+			byte((v>>42)&0x7f|0x80),
+			byte((v>>49)&0x7f|0x80),
+			byte((v>>56)&0x7f|0x80),
+			1)
+	}
+	return b
+}
+
+// ConsumeVarint parses b as a varint-encoded uint64, reporting its length.
+// This returns a negative length upon an error (see ParseError).
+func ConsumeVarint(b []byte) (v uint64, n int) {
+	var y uint64
+	if len(b) <= 0 {
+		return 0, errCodeTruncated
+	}
+	v = uint64(b[0])
+	if v < 0x80 {
+		return v, 1
+	}
+	v -= 0x80
+
+	if len(b) <= 1 {
+		return 0, errCodeTruncated
+	}
+	y = uint64(b[1])
+	v += y << 7
+	if y < 0x80 {
+		return v, 2
+	}
+	v -= 0x80 << 7
+
+	if len(b) <= 2 {
+		return 0, errCodeTruncated
+	}
+	y = uint64(b[2])
+	v += y << 14
+	if y < 0x80 {
+		return v, 3
+	}
+	v -= 0x80 << 14
+
+	if len(b) <= 3 {
+		return 0, errCodeTruncated
+	}
+	y = uint64(b[3])
+	v += y << 21
+	if y < 0x80 {
+		return v, 4
+	}
+	v -= 0x80 << 21
+
+	if len(b) <= 4 {
+		return 0, errCodeTruncated
+	}
+	y = uint64(b[4])
+	v += y << 28
+	if y < 0x80 {
+		return v, 5
+	}
+	v -= 0x80 << 28
+
+	if len(b) <= 5 {
+		return 0, errCodeTruncated
+	}
+	y = uint64(b[5])
+	v += y << 35
+	if y < 0x80 {
+		return v, 6
+	}
+	v -= 0x80 << 35
+
+	if len(b) <= 6 {
+		return 0, errCodeTruncated
+	}
+	y = uint64(b[6])
+	v += y << 42
+	if y < 0x80 {
+		return v, 7
+	}
+	v -= 0x80 << 42
+
+	if len(b) <= 7 {
+		return 0, errCodeTruncated
+	}
+	y = uint64(b[7])
+	v += y << 49
+	if y < 0x80 {
+		return v, 8
+	}
+	v -= 0x80 << 49
+
+	if len(b) <= 8 {
+		return 0, errCodeTruncated
+	}
+	y = uint64(b[8])
+	v += y << 56
+	if y < 0x80 {
+		return v, 9
+	}
+	v -= 0x80 << 56
+
+	if len(b) <= 9 {
+		return 0, errCodeTruncated
+	}
+	y = uint64(b[9])
+	v += y << 63
+	if y < 2 {
+		return v, 10
+	}
+	return 0, errCodeOverflow
+}
+
+// AppendFixed32 appends v to b as a little-endian uint32.
+func AppendFixed32(b []byte, v uint32) []byte {
+	return append(b,
+		byte(v>>0),
+		byte(v>>8),
+		byte(v>>16),
+		byte(v>>24))
+}
+
+// ConsumeFixed32 parses b as a little-endian uint32, reporting its length.
+// This returns a negative length upon an error (see ParseError).
+func ConsumeFixed32(b []byte) (v uint32, n int) {
+	if len(b) < 4 {
+		return 0, errCodeTruncated
+	}
+	v = uint32(b[0])<<0 | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24
+	return v, 4
+}
+
+// AppendFixed64 appends v to b as a little-endian uint64.
+func AppendFixed64(b []byte, v uint64) []byte {
+	return append(b,
+		byte(v>>0),
+		byte(v>>8),
+		byte(v>>16),
+		byte(v>>24),
+		byte(v>>32),
+		byte(v>>40),
+		byte(v>>48),
+		byte(v>>56))
+}
+
+// ConsumeFixed64 parses b as a little-endian uint64, reporting its length.
+// This returns a negative length upon an error (see ParseError).
+func ConsumeFixed64(b []byte) (v uint64, n int) {
+	if len(b) < 8 {
+		return 0, errCodeTruncated
+	}
+	v = uint64(b[0])<<0 | uint64(b[1])<<8 | uint64(b[2])<<16 | uint64(b[3])<<24 | uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56
+	return v, 8
+}
+
+// AppendBytes appends v to b as a length-prefixed bytes value.
+func AppendBytes(b []byte, v []byte) []byte {
+	return append(AppendVarint(b, uint64(len(v))), v...)
+}
+
+func consumeBytes(b []byte) (v []byte, n int) {
+	m, n := ConsumeVarint(b)
+	if n < 0 {
+		return nil, n
+	}
+	if m > uint64(len(b[n:])) {
+		return nil, errCodeTruncated
+	}
+	return b[n:][:m], n + int(m)
+}
+
+// DecodeTag decodes the field Number and wire Type from its unified form.
+// The Number is -1 if the decoded field number overflows int32.
+func DecodeTag(x uint64) (Number, Type) {
+	if x>>3 > uint64(math.MaxInt32) {
+		return -1, 0
+	}
+	return Number(x >> 3), Type(x & 7)
+}
+
+// EncodeTag encodes the field Number and wire Type into its unified form.
+func EncodeTag(num Number, typ Type) uint64 {
+	return uint64(num)<<3 | uint64(typ&7)
+}
+
+// DecodeZigZag decodes a zig-zag-encoded uint64 as an int64.
+func DecodeZigZag(x uint64) int64 {
+	return int64(x>>1) ^ int64(x)<<63>>63
+}
+
+// EncodeZigZag encodes an int64 as a zig-zag-encoded uint64.
+func EncodeZigZag(x int64) uint64 {
+	return uint64(x<<1) ^ uint64(x>>63)
 }
 
 func EncodeTimestamp(t time.Time) []byte {
@@ -222,11 +622,11 @@ func EncodeTimestamp(t time.Time) []byte {
 	var b []byte
 	seconds := t.Unix()
 	nanos := int32(t.Nanosecond())
-	b = protowire.AppendTag(b, 1, protowire.VarintType)
-	b = protowire.AppendVarint(b, uint64(seconds))
+	b = AppendTag(b, 1, VarintType)
+	b = AppendVarint(b, uint64(seconds))
 	if nanos != 0 {
-		b = protowire.AppendTag(b, 2, protowire.VarintType)
-		b = protowire.AppendVarint(b, uint64(int64(nanos)))
+		b = AppendTag(b, 2, VarintType)
+		b = AppendVarint(b, uint64(int64(nanos)))
 	}
 	return b
 }
@@ -235,8 +635,8 @@ func DecodeTimestamp(b []byte) (time.Time, error) {
 	var seconds int64
 	var nanos int32
 	for len(b) > 0 {
-		var num protowire.Number
-		var typ protowire.Type
+		var num Number
+		var typ Type
 		var err error
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -265,7 +665,7 @@ func DecodeTimestamp(b []byte) (time.Time, error) {
 	return time.Unix(seconds, int64(nanos)), nil
 }
 
-func ConsumeTimestamp(b []byte, typ protowire.Type) ([]byte, time.Time, error) {
+func ConsumeTimestamp(b []byte, typ Type) ([]byte, time.Time, error) {
 	var msgBytes []byte
 	var err error
 	b, msgBytes, err = ConsumeMessage(b, typ)
@@ -279,32 +679,32 @@ func ConsumeTimestamp(b []byte, typ protowire.Type) ([]byte, time.Time, error) {
 	return b, msg, nil
 }
 
-func AppendTimestampFromTime(b []byte, v time.Time, num protowire.Number) []byte {
+func AppendTimestampFromTime(b []byte, v time.Time, num Number) []byte {
 	if v.IsZero() {
 		return b
 	}
 	return AppendBytesField(b, EncodeTimestamp(v), num)
 }
 
-func AppendInt32FromTime(b []byte, v time.Time, num protowire.Number) []byte {
+func AppendInt32FromTime(b []byte, v time.Time, num Number) []byte {
 	if v.IsZero() {
 		return b
 	}
 	return AppendInt32Field(b, int32(v.Unix()), num)
 }
 
-func AppendInt64FromTime(b []byte, v time.Time, num protowire.Number) []byte {
+func AppendInt64FromTime(b []byte, v time.Time, num Number) []byte {
 	if v.IsZero() {
 		return b
 	}
 	return AppendInt64Field(b, v.UnixMilli(), num)
 }
 
-func ConsumeTimeFromTimestamp(b []byte, typ protowire.Type) ([]byte, time.Time, error) {
+func ConsumeTimeFromTimestamp(b []byte, typ Type) ([]byte, time.Time, error) {
 	return ConsumeTimestamp(b, typ)
 }
 
-func ConsumeTimeFromTimestampOpt(b []byte, typ protowire.Type) ([]byte, *time.Time, error) {
+func ConsumeTimeFromTimestampOpt(b []byte, typ Type) ([]byte, *time.Time, error) {
 	var v time.Time
 	var err error
 	b, v, err = ConsumeTimeFromTimestamp(b, typ)
@@ -314,7 +714,7 @@ func ConsumeTimeFromTimestampOpt(b []byte, typ protowire.Type) ([]byte, *time.Ti
 	return b, &v, nil
 }
 
-func ConsumeTimeFromInt32(b []byte, typ protowire.Type) ([]byte, time.Time, error) {
+func ConsumeTimeFromInt32(b []byte, typ Type) ([]byte, time.Time, error) {
 	var raw int32
 	var err error
 	b, raw, err = ConsumeVarInt32(b, typ)
@@ -324,7 +724,7 @@ func ConsumeTimeFromInt32(b []byte, typ protowire.Type) ([]byte, time.Time, erro
 	return b, time.Unix(int64(raw), 0), nil
 }
 
-func ConsumeTimeFromInt32Opt(b []byte, typ protowire.Type) ([]byte, *time.Time, error) {
+func ConsumeTimeFromInt32Opt(b []byte, typ Type) ([]byte, *time.Time, error) {
 	var v time.Time
 	var err error
 	b, v, err = ConsumeTimeFromInt32(b, typ)
@@ -334,7 +734,7 @@ func ConsumeTimeFromInt32Opt(b []byte, typ protowire.Type) ([]byte, *time.Time, 
 	return b, &v, nil
 }
 
-func ConsumeTimeFromInt64(b []byte, typ protowire.Type) ([]byte, time.Time, error) {
+func ConsumeTimeFromInt64(b []byte, typ Type) ([]byte, time.Time, error) {
 	var raw int64
 	var err error
 	b, raw, err = ConsumeVarInt64(b, typ)
@@ -344,7 +744,7 @@ func ConsumeTimeFromInt64(b []byte, typ protowire.Type) ([]byte, time.Time, erro
 	return b, time.UnixMilli(raw), nil
 }
 
-func ConsumeTimeFromInt64Opt(b []byte, typ protowire.Type) ([]byte, *time.Time, error) {
+func ConsumeTimeFromInt64Opt(b []byte, typ Type) ([]byte, *time.Time, error) {
 	var v time.Time
 	var err error
 	b, v, err = ConsumeTimeFromInt64(b, typ)
@@ -361,11 +761,11 @@ func EncodeDuration(d time.Duration) []byte {
 	var b []byte
 	seconds := int64(d / time.Second)
 	nanos := int32(d % time.Second)
-	b = protowire.AppendTag(b, 1, protowire.VarintType)
-	b = protowire.AppendVarint(b, uint64(seconds))
+	b = AppendTag(b, 1, VarintType)
+	b = AppendVarint(b, uint64(seconds))
 	if nanos != 0 {
-		b = protowire.AppendTag(b, 2, protowire.VarintType)
-		b = protowire.AppendVarint(b, uint64(int64(nanos)))
+		b = AppendTag(b, 2, VarintType)
+		b = AppendVarint(b, uint64(int64(nanos)))
 	}
 	return b
 }
@@ -374,8 +774,8 @@ func DecodeDuration(b []byte) (time.Duration, error) {
 	var seconds int64
 	var nanos int32
 	for len(b) > 0 {
-		var num protowire.Number
-		var typ protowire.Type
+		var num Number
+		var typ Type
 		var err error
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -404,7 +804,7 @@ func DecodeDuration(b []byte) (time.Duration, error) {
 	return time.Duration(seconds)*time.Second + time.Duration(nanos), nil
 }
 
-func ConsumeDuration(b []byte, typ protowire.Type) ([]byte, time.Duration, error) {
+func ConsumeDuration(b []byte, typ Type) ([]byte, time.Duration, error) {
 	var msgBytes []byte
 	var err error
 	b, msgBytes, err = ConsumeMessage(b, typ)
@@ -418,7 +818,7 @@ func ConsumeDuration(b []byte, typ protowire.Type) ([]byte, time.Duration, error
 	return b, msg, nil
 }
 
-func ConsumeDurationOpt(b []byte, typ protowire.Type) ([]byte, *time.Duration, error) {
+func ConsumeDurationOpt(b []byte, typ Type) ([]byte, *time.Duration, error) {
 	var v time.Duration
 	var err error
 	b, v, err = ConsumeDuration(b, typ)
@@ -428,32 +828,32 @@ func ConsumeDurationOpt(b []byte, typ protowire.Type) ([]byte, *time.Duration, e
 	return b, &v, nil
 }
 
-func AppendDurationFromDuration(b []byte, v time.Duration, num protowire.Number) []byte {
+func AppendDurationFromDuration(b []byte, v time.Duration, num Number) []byte {
 	if v == 0 {
 		return b
 	}
 	return AppendBytesField(b, EncodeDuration(v), num)
 }
 
-func AppendInt32FromDuration(b []byte, v time.Duration, num protowire.Number) []byte {
+func AppendInt32FromDuration(b []byte, v time.Duration, num Number) []byte {
 	if v == 0 {
 		return b
 	}
 	return AppendInt32Field(b, int32(v/time.Second), num)
 }
 
-func AppendInt64FromDuration(b []byte, v time.Duration, num protowire.Number) []byte {
+func AppendInt64FromDuration(b []byte, v time.Duration, num Number) []byte {
 	if v == 0 {
 		return b
 	}
 	return AppendInt64Field(b, int64(v/time.Second), num)
 }
 
-func ConsumeDurationFromDuration(b []byte, typ protowire.Type) ([]byte, time.Duration, error) {
+func ConsumeDurationFromDuration(b []byte, typ Type) ([]byte, time.Duration, error) {
 	return ConsumeDuration(b, typ)
 }
 
-func ConsumeDurationFromDurationOpt(b []byte, typ protowire.Type) ([]byte, *time.Duration, error) {
+func ConsumeDurationFromDurationOpt(b []byte, typ Type) ([]byte, *time.Duration, error) {
 	var v time.Duration
 	var err error
 	b, v, err = ConsumeDurationFromDuration(b, typ)
@@ -463,7 +863,7 @@ func ConsumeDurationFromDurationOpt(b []byte, typ protowire.Type) ([]byte, *time
 	return b, &v, nil
 }
 
-func ConsumeDurationFromInt32(b []byte, typ protowire.Type) ([]byte, time.Duration, error) {
+func ConsumeDurationFromInt32(b []byte, typ Type) ([]byte, time.Duration, error) {
 	var raw int32
 	var err error
 	b, raw, err = ConsumeVarInt32(b, typ)
@@ -473,7 +873,7 @@ func ConsumeDurationFromInt32(b []byte, typ protowire.Type) ([]byte, time.Durati
 	return b, time.Duration(raw) * time.Second, nil
 }
 
-func ConsumeDurationFromInt32Opt(b []byte, typ protowire.Type) ([]byte, *time.Duration, error) {
+func ConsumeDurationFromInt32Opt(b []byte, typ Type) ([]byte, *time.Duration, error) {
 	var v time.Duration
 	var err error
 	b, v, err = ConsumeDurationFromInt32(b, typ)
@@ -483,7 +883,7 @@ func ConsumeDurationFromInt32Opt(b []byte, typ protowire.Type) ([]byte, *time.Du
 	return b, &v, nil
 }
 
-func ConsumeDurationFromInt64(b []byte, typ protowire.Type) ([]byte, time.Duration, error) {
+func ConsumeDurationFromInt64(b []byte, typ Type) ([]byte, time.Duration, error) {
 	var raw int64
 	var err error
 	b, raw, err = ConsumeVarInt64(b, typ)
@@ -493,7 +893,7 @@ func ConsumeDurationFromInt64(b []byte, typ protowire.Type) ([]byte, time.Durati
 	return b, time.Duration(raw) * time.Second, nil
 }
 
-func ConsumeDurationFromInt64Opt(b []byte, typ protowire.Type) ([]byte, *time.Duration, error) {
+func ConsumeDurationFromInt64Opt(b []byte, typ Type) ([]byte, *time.Duration, error) {
 	var v time.Duration
 	var err error
 	b, v, err = ConsumeDurationFromInt64(b, typ)
@@ -503,14 +903,14 @@ func ConsumeDurationFromInt64Opt(b []byte, typ protowire.Type) ([]byte, *time.Du
 	return b, &v, nil
 }
 
-func AppendBytesFromUUID(b []byte, v uuid.UUID, num protowire.Number) []byte {
+func AppendBytesFromUUID(b []byte, v uuid.UUID, num Number) []byte {
 	if v == uuid.Nil {
 		return b
 	}
 	return AppendBytesField(b, v[:], num)
 }
 
-func ConsumeUUIDFromBytes(b []byte, typ protowire.Type) ([]byte, uuid.UUID, error) {
+func ConsumeUUIDFromBytes(b []byte, typ Type) ([]byte, uuid.UUID, error) {
 	var raw []byte
 	var err error
 	b, raw, err = ConsumeBytes(b, typ)
@@ -524,7 +924,7 @@ func ConsumeUUIDFromBytes(b []byte, typ protowire.Type) ([]byte, uuid.UUID, erro
 	return b, v, nil
 }
 
-func ConsumeUUIDFromBytesOpt(b []byte, typ protowire.Type) ([]byte, *uuid.UUID, error) {
+func ConsumeUUIDFromBytesOpt(b []byte, typ Type) ([]byte, *uuid.UUID, error) {
 	var v uuid.UUID
 	var err error
 	b, v, err = ConsumeUUIDFromBytes(b, typ)
@@ -534,10 +934,10 @@ func ConsumeUUIDFromBytesOpt(b []byte, typ protowire.Type) ([]byte, *uuid.UUID, 
 	return b, &v, nil
 }
 
-func ConsumeMapEntry[K comparable, V any](b []byte, typ protowire.Type, m map[K]V, consumeK func([]byte, protowire.Type) ([]byte, K, error), consumeV func([]byte, protowire.Type) ([]byte, V, error)) ([]byte, error) {
+func ConsumeMapEntry[K comparable, V any](b []byte, typ Type, m map[K]V, consumeK func([]byte, Type) ([]byte, K, error), consumeV func([]byte, Type) ([]byte, V, error)) ([]byte, error) {
 	var key K
 	var value V
-	if typ != protowire.BytesType {
+	if typ != BytesType {
 		return nil, errInvalidWireType
 	}
 	var entryBytes []byte
@@ -547,8 +947,8 @@ func ConsumeMapEntry[K comparable, V any](b []byte, typ protowire.Type, m map[K]
 		return nil, err
 	}
 	for len(entryBytes) > 0 {
-		var num protowire.Number
-		var t protowire.Type
+		var num Number
+		var t Type
 		var err2 error
 		entryBytes, num, t, err2 = ConsumeTag(entryBytes)
 		if err2 != nil {
@@ -576,8 +976,8 @@ func ConsumeMapEntry[K comparable, V any](b []byte, typ protowire.Type, m map[K]
 	return b, nil
 }
 
-func ConsumeMessageDecorator[T any](decodeFunc func([]byte) (T, error)) func(b []byte, typ protowire.Type) ([]byte, T, error) {
-	return func(b []byte, typ protowire.Type) ([]byte, T, error) {
+func ConsumeMessageDecorator[T any](decodeFunc func([]byte) (T, error)) func(b []byte, typ Type) ([]byte, T, error) {
+	return func(b []byte, typ Type) ([]byte, T, error) {
 		var zeroV T
 		var msgBytes []byte
 		var err error
@@ -593,7 +993,7 @@ func ConsumeMessageDecorator[T any](decodeFunc func([]byte) (T, error)) func(b [
 	}
 }
 
-func ConsumeRepeatedElement[T any](b []byte, typ protowire.Type, consume func([]byte, protowire.Type) ([]byte, T, error)) ([]byte, T, error) {
+func ConsumeRepeatedElement[T any](b []byte, typ Type, consume func([]byte, Type) ([]byte, T, error)) ([]byte, T, error) {
 	var item T
 	var err error
 	b, item, err = consume(b, typ)
@@ -603,8 +1003,8 @@ func ConsumeRepeatedElement[T any](b []byte, typ protowire.Type, consume func([]
 	return b, item, nil
 }
 
-func ConsumeRepeatedCompact[T any](b []byte, typ protowire.Type, elemTyp protowire.Type, consume func([]byte, protowire.Type) ([]byte, T, error)) ([]byte, []T, error) {
-	if typ != protowire.BytesType || elemTyp == protowire.BytesType {
+func ConsumeRepeatedCompact[T any](b []byte, typ Type, elemTyp Type, consume func([]byte, Type) ([]byte, T, error)) ([]byte, []T, error) {
+	if typ != BytesType || elemTyp == BytesType {
 		return nil, nil, errInvalidWireType
 	}
 	var packed []byte
@@ -625,7 +1025,7 @@ func ConsumeRepeatedCompact[T any](b []byte, typ protowire.Type, elemTyp protowi
 	return b, items, nil
 }
 
-func ConsumeVarInt32Opt(b []byte, typ protowire.Type) ([]byte, *int32, error) {
+func ConsumeVarInt32Opt(b []byte, typ Type) ([]byte, *int32, error) {
 	var v int32
 	var err error
 	b, v, err = ConsumeVarInt32(b, typ)
@@ -635,7 +1035,7 @@ func ConsumeVarInt32Opt(b []byte, typ protowire.Type) ([]byte, *int32, error) {
 	return b, &v, nil
 }
 
-func ConsumeVarInt64Opt(b []byte, typ protowire.Type) ([]byte, *int64, error) {
+func ConsumeVarInt64Opt(b []byte, typ Type) ([]byte, *int64, error) {
 	var v int64
 	var err error
 	b, v, err = ConsumeVarInt64(b, typ)
@@ -645,7 +1045,7 @@ func ConsumeVarInt64Opt(b []byte, typ protowire.Type) ([]byte, *int64, error) {
 	return b, &v, nil
 }
 
-func ConsumeVarUint32Opt(b []byte, typ protowire.Type) ([]byte, *uint32, error) {
+func ConsumeVarUint32Opt(b []byte, typ Type) ([]byte, *uint32, error) {
 	var v uint32
 	var err error
 	b, v, err = ConsumeVarUint32(b, typ)
@@ -655,7 +1055,7 @@ func ConsumeVarUint32Opt(b []byte, typ protowire.Type) ([]byte, *uint32, error) 
 	return b, &v, nil
 }
 
-func ConsumeVarUint64Opt(b []byte, typ protowire.Type) ([]byte, *uint64, error) {
+func ConsumeVarUint64Opt(b []byte, typ Type) ([]byte, *uint64, error) {
 	var v uint64
 	var err error
 	b, v, err = ConsumeVarUint64(b, typ)
@@ -665,7 +1065,7 @@ func ConsumeVarUint64Opt(b []byte, typ protowire.Type) ([]byte, *uint64, error) 
 	return b, &v, nil
 }
 
-func ConsumeSint32Opt(b []byte, typ protowire.Type) ([]byte, *int32, error) {
+func ConsumeSint32Opt(b []byte, typ Type) ([]byte, *int32, error) {
 	var v int32
 	var err error
 	b, v, err = ConsumeSint32(b, typ)
@@ -675,7 +1075,7 @@ func ConsumeSint32Opt(b []byte, typ protowire.Type) ([]byte, *int32, error) {
 	return b, &v, nil
 }
 
-func ConsumeSint64Opt(b []byte, typ protowire.Type) ([]byte, *int64, error) {
+func ConsumeSint64Opt(b []byte, typ Type) ([]byte, *int64, error) {
 	var v int64
 	var err error
 	b, v, err = ConsumeSint64(b, typ)
@@ -685,7 +1085,7 @@ func ConsumeSint64Opt(b []byte, typ protowire.Type) ([]byte, *int64, error) {
 	return b, &v, nil
 }
 
-func ConsumeFixedUint32Opt(b []byte, typ protowire.Type) ([]byte, *uint32, error) {
+func ConsumeFixedUint32Opt(b []byte, typ Type) ([]byte, *uint32, error) {
 	var v uint32
 	var err error
 	b, v, err = ConsumeFixedUint32(b, typ)
@@ -695,7 +1095,7 @@ func ConsumeFixedUint32Opt(b []byte, typ protowire.Type) ([]byte, *uint32, error
 	return b, &v, nil
 }
 
-func ConsumeFixedUint64Opt(b []byte, typ protowire.Type) ([]byte, *uint64, error) {
+func ConsumeFixedUint64Opt(b []byte, typ Type) ([]byte, *uint64, error) {
 	var v uint64
 	var err error
 	b, v, err = ConsumeFixedUint64(b, typ)
@@ -705,7 +1105,7 @@ func ConsumeFixedUint64Opt(b []byte, typ protowire.Type) ([]byte, *uint64, error
 	return b, &v, nil
 }
 
-func ConsumeSfixed32Opt(b []byte, typ protowire.Type) ([]byte, *int32, error) {
+func ConsumeSfixed32Opt(b []byte, typ Type) ([]byte, *int32, error) {
 	var v int32
 	var err error
 	b, v, err = ConsumeSfixed32(b, typ)
@@ -715,7 +1115,7 @@ func ConsumeSfixed32Opt(b []byte, typ protowire.Type) ([]byte, *int32, error) {
 	return b, &v, nil
 }
 
-func ConsumeSfixed64Opt(b []byte, typ protowire.Type) ([]byte, *int64, error) {
+func ConsumeSfixed64Opt(b []byte, typ Type) ([]byte, *int64, error) {
 	var v int64
 	var err error
 	b, v, err = ConsumeSfixed64(b, typ)
@@ -725,7 +1125,7 @@ func ConsumeSfixed64Opt(b []byte, typ protowire.Type) ([]byte, *int64, error) {
 	return b, &v, nil
 }
 
-func ConsumeFloat32Opt(b []byte, typ protowire.Type) ([]byte, *float32, error) {
+func ConsumeFloat32Opt(b []byte, typ Type) ([]byte, *float32, error) {
 	var v float32
 	var err error
 	b, v, err = ConsumeFloat32(b, typ)
@@ -735,7 +1135,7 @@ func ConsumeFloat32Opt(b []byte, typ protowire.Type) ([]byte, *float32, error) {
 	return b, &v, nil
 }
 
-func ConsumeFloat64Opt(b []byte, typ protowire.Type) ([]byte, *float64, error) {
+func ConsumeFloat64Opt(b []byte, typ Type) ([]byte, *float64, error) {
 	var v float64
 	var err error
 	b, v, err = ConsumeFloat64(b, typ)
@@ -745,7 +1145,7 @@ func ConsumeFloat64Opt(b []byte, typ protowire.Type) ([]byte, *float64, error) {
 	return b, &v, nil
 }
 
-func ConsumeBoolOpt(b []byte, typ protowire.Type) ([]byte, *bool, error) {
+func ConsumeBoolOpt(b []byte, typ Type) ([]byte, *bool, error) {
 	var v bool
 	var err error
 	b, v, err = ConsumeBool(b, typ)
@@ -755,7 +1155,7 @@ func ConsumeBoolOpt(b []byte, typ protowire.Type) ([]byte, *bool, error) {
 	return b, &v, nil
 }
 
-func ConsumeStringOpt(b []byte, typ protowire.Type) ([]byte, *string, error) {
+func ConsumeStringOpt(b []byte, typ Type) ([]byte, *string, error) {
 	var v string
 	var err error
 	b, v, err = ConsumeString(b, typ)
@@ -765,7 +1165,7 @@ func ConsumeStringOpt(b []byte, typ protowire.Type) ([]byte, *string, error) {
 	return b, &v, nil
 }
 
-func ConsumeBytesOpt(b []byte, typ protowire.Type) ([]byte, *[]byte, error) {
+func ConsumeBytesOpt(b []byte, typ Type) ([]byte, *[]byte, error) {
 	var v []byte
 	var err error
 	b, v, err = ConsumeBytes(b, typ)
@@ -776,7 +1176,7 @@ func ConsumeBytesOpt(b []byte, typ protowire.Type) ([]byte, *[]byte, error) {
 	return b, &copyBytes, nil
 }
 
-func ConsumeBytesCopy(b []byte, typ protowire.Type) ([]byte, []byte, error) {
+func ConsumeBytesCopy(b []byte, typ Type) ([]byte, []byte, error) {
 	var v []byte
 	var err error
 	b, v, err = ConsumeBytes(b, typ)
@@ -786,255 +1186,255 @@ func ConsumeBytesCopy(b []byte, typ protowire.Type) ([]byte, []byte, error) {
 	return b, append([]byte(nil), v...), nil
 }
 
-func AppendVarIntField(b []byte, v uint64, num protowire.Number) []byte {
+func AppendVarIntField(b []byte, v uint64, num Number) []byte {
 	if v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.VarintType)
-	return protowire.AppendVarint(b, v)
+	b = AppendTag(b, num, VarintType)
+	return AppendVarint(b, v)
 }
 
-func AppendVarIntFieldOpt(b []byte, v *uint64, num protowire.Number) []byte {
+func AppendVarIntFieldOpt(b []byte, v *uint64, num Number) []byte {
 	if v == nil || *v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.VarintType)
-	return protowire.AppendVarint(b, *v)
+	b = AppendTag(b, num, VarintType)
+	return AppendVarint(b, *v)
 }
 
-func AppendStringField(b []byte, v string, num protowire.Number) []byte {
+func AppendStringField(b []byte, v string, num Number) []byte {
 	if v == "" {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.BytesType)
-	return protowire.AppendBytes(b, []byte(v))
+	b = AppendTag(b, num, BytesType)
+	return AppendBytes(b, []byte(v))
 }
 
-func AppendStringFieldOpt(b []byte, v *string, num protowire.Number) []byte {
+func AppendStringFieldOpt(b []byte, v *string, num Number) []byte {
 	if v == nil || *v == "" {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.BytesType)
-	return protowire.AppendBytes(b, []byte(*v))
+	b = AppendTag(b, num, BytesType)
+	return AppendBytes(b, []byte(*v))
 }
 
-func AppendBytesField(b []byte, v []byte, num protowire.Number) []byte {
+func AppendBytesField(b []byte, v []byte, num Number) []byte {
 	if len(v) == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.BytesType)
-	return protowire.AppendBytes(b, v)
+	b = AppendTag(b, num, BytesType)
+	return AppendBytes(b, v)
 }
 
-func AppendBoolField(b []byte, v bool, num protowire.Number) []byte {
+func AppendBoolField(b []byte, v bool, num Number) []byte {
 	if !v {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.VarintType)
-	return protowire.AppendVarint(b, 1)
+	b = AppendTag(b, num, VarintType)
+	return AppendVarint(b, 1)
 }
 
-func AppendBoolFieldOpt(b []byte, v *bool, num protowire.Number) []byte {
+func AppendBoolFieldOpt(b []byte, v *bool, num Number) []byte {
 	if v == nil || !*v {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.VarintType)
-	return protowire.AppendVarint(b, 1)
+	b = AppendTag(b, num, VarintType)
+	return AppendVarint(b, 1)
 }
 
-func AppendFloat32Field(b []byte, v float32, num protowire.Number) []byte {
+func AppendFloat32Field(b []byte, v float32, num Number) []byte {
 	if v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.Fixed32Type)
-	return protowire.AppendFixed32(b, math.Float32bits(v))
+	b = AppendTag(b, num, Fixed32Type)
+	return AppendFixed32(b, math.Float32bits(v))
 }
 
-func AppendFloat32FieldOpt(b []byte, v *float32, num protowire.Number) []byte {
+func AppendFloat32FieldOpt(b []byte, v *float32, num Number) []byte {
 	if v == nil || *v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.Fixed32Type)
-	return protowire.AppendFixed32(b, math.Float32bits(*v))
+	b = AppendTag(b, num, Fixed32Type)
+	return AppendFixed32(b, math.Float32bits(*v))
 }
 
-func AppendFloat64Field(b []byte, v float64, num protowire.Number) []byte {
+func AppendFloat64Field(b []byte, v float64, num Number) []byte {
 	if v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.Fixed64Type)
-	return protowire.AppendFixed64(b, math.Float64bits(v))
+	b = AppendTag(b, num, Fixed64Type)
+	return AppendFixed64(b, math.Float64bits(v))
 }
 
-func AppendFloat64FieldOpt(b []byte, v *float64, num protowire.Number) []byte {
+func AppendFloat64FieldOpt(b []byte, v *float64, num Number) []byte {
 	if v == nil || *v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.Fixed64Type)
-	return protowire.AppendFixed64(b, math.Float64bits(*v))
+	b = AppendTag(b, num, Fixed64Type)
+	return AppendFixed64(b, math.Float64bits(*v))
 }
 
-func AppendInt32Field(b []byte, v int32, num protowire.Number) []byte {
+func AppendInt32Field(b []byte, v int32, num Number) []byte {
 	if v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.VarintType)
-	return protowire.AppendVarint(b, uint64(uint32(v)))
+	b = AppendTag(b, num, VarintType)
+	return AppendVarint(b, uint64(uint32(v)))
 }
 
-func AppendInt32FieldOpt(b []byte, v *int32, num protowire.Number) []byte {
+func AppendInt32FieldOpt(b []byte, v *int32, num Number) []byte {
 	if v == nil || *v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.VarintType)
-	return protowire.AppendVarint(b, uint64(uint32(*v)))
+	b = AppendTag(b, num, VarintType)
+	return AppendVarint(b, uint64(uint32(*v)))
 }
 
-func AppendUint32Field(b []byte, v uint32, num protowire.Number) []byte {
+func AppendUint32Field(b []byte, v uint32, num Number) []byte {
 	if v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.VarintType)
-	return protowire.AppendVarint(b, uint64(v))
+	b = AppendTag(b, num, VarintType)
+	return AppendVarint(b, uint64(v))
 }
 
-func AppendUint32FieldOpt(b []byte, v *uint32, num protowire.Number) []byte {
+func AppendUint32FieldOpt(b []byte, v *uint32, num Number) []byte {
 	if v == nil || *v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.VarintType)
-	return protowire.AppendVarint(b, uint64(*v))
+	b = AppendTag(b, num, VarintType)
+	return AppendVarint(b, uint64(*v))
 }
 
-func AppendSint32Field(b []byte, v int32, num protowire.Number) []byte {
+func AppendSint32Field(b []byte, v int32, num Number) []byte {
 	if v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.VarintType)
-	return protowire.AppendVarint(b, protowire.EncodeZigZag(int64(v)))
+	b = AppendTag(b, num, VarintType)
+	return AppendVarint(b, EncodeZigZag(int64(v)))
 }
 
-func AppendSint32FieldOpt(b []byte, v *int32, num protowire.Number) []byte {
+func AppendSint32FieldOpt(b []byte, v *int32, num Number) []byte {
 	if v == nil || *v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.VarintType)
-	return protowire.AppendVarint(b, protowire.EncodeZigZag(int64(*v)))
+	b = AppendTag(b, num, VarintType)
+	return AppendVarint(b, EncodeZigZag(int64(*v)))
 }
 
-func AppendInt64Field(b []byte, v int64, num protowire.Number) []byte {
+func AppendInt64Field(b []byte, v int64, num Number) []byte {
 	if v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.VarintType)
-	return protowire.AppendVarint(b, uint64(v))
+	b = AppendTag(b, num, VarintType)
+	return AppendVarint(b, uint64(v))
 }
 
-func AppendInt64FieldOpt(b []byte, v *int64, num protowire.Number) []byte {
+func AppendInt64FieldOpt(b []byte, v *int64, num Number) []byte {
 	if v == nil || *v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.VarintType)
-	return protowire.AppendVarint(b, uint64(*v))
+	b = AppendTag(b, num, VarintType)
+	return AppendVarint(b, uint64(*v))
 }
 
-func AppendUint64Field(b []byte, v uint64, num protowire.Number) []byte {
+func AppendUint64Field(b []byte, v uint64, num Number) []byte {
 	if v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.VarintType)
-	return protowire.AppendVarint(b, v)
+	b = AppendTag(b, num, VarintType)
+	return AppendVarint(b, v)
 }
 
-func AppendUint64FieldOpt(b []byte, v *uint64, num protowire.Number) []byte {
+func AppendUint64FieldOpt(b []byte, v *uint64, num Number) []byte {
 	if v == nil || *v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.VarintType)
-	return protowire.AppendVarint(b, *v)
+	b = AppendTag(b, num, VarintType)
+	return AppendVarint(b, *v)
 }
 
-func AppendSint64Field(b []byte, v int64, num protowire.Number) []byte {
+func AppendSint64Field(b []byte, v int64, num Number) []byte {
 	if v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.VarintType)
-	return protowire.AppendVarint(b, protowire.EncodeZigZag(v))
+	b = AppendTag(b, num, VarintType)
+	return AppendVarint(b, EncodeZigZag(v))
 }
 
-func AppendSint64FieldOpt(b []byte, v *int64, num protowire.Number) []byte {
+func AppendSint64FieldOpt(b []byte, v *int64, num Number) []byte {
 	if v == nil || *v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.VarintType)
-	return protowire.AppendVarint(b, protowire.EncodeZigZag(*v))
+	b = AppendTag(b, num, VarintType)
+	return AppendVarint(b, EncodeZigZag(*v))
 }
 
-func AppendFixed32Field(b []byte, v uint32, num protowire.Number) []byte {
+func AppendFixed32Field(b []byte, v uint32, num Number) []byte {
 	if v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.Fixed32Type)
-	return protowire.AppendFixed32(b, v)
+	b = AppendTag(b, num, Fixed32Type)
+	return AppendFixed32(b, v)
 }
 
-func AppendFixed32FieldOpt(b []byte, v *uint32, num protowire.Number) []byte {
+func AppendFixed32FieldOpt(b []byte, v *uint32, num Number) []byte {
 	if v == nil || *v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.Fixed32Type)
-	return protowire.AppendFixed32(b, *v)
+	b = AppendTag(b, num, Fixed32Type)
+	return AppendFixed32(b, *v)
 }
 
-func AppendFixed64Field(b []byte, v uint64, num protowire.Number) []byte {
+func AppendFixed64Field(b []byte, v uint64, num Number) []byte {
 	if v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.Fixed64Type)
-	return protowire.AppendFixed64(b, v)
+	b = AppendTag(b, num, Fixed64Type)
+	return AppendFixed64(b, v)
 }
 
-func AppendFixed64FieldOpt(b []byte, v *uint64, num protowire.Number) []byte {
+func AppendFixed64FieldOpt(b []byte, v *uint64, num Number) []byte {
 	if v == nil || *v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.Fixed64Type)
-	return protowire.AppendFixed64(b, *v)
+	b = AppendTag(b, num, Fixed64Type)
+	return AppendFixed64(b, *v)
 }
 
-func AppendSfixed32Field(b []byte, v int32, num protowire.Number) []byte {
+func AppendSfixed32Field(b []byte, v int32, num Number) []byte {
 	if v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.Fixed32Type)
-	return protowire.AppendFixed32(b, uint32(v))
+	b = AppendTag(b, num, Fixed32Type)
+	return AppendFixed32(b, uint32(v))
 }
 
-func AppendSfixed32FieldOpt(b []byte, v *int32, num protowire.Number) []byte {
+func AppendSfixed32FieldOpt(b []byte, v *int32, num Number) []byte {
 	if v == nil || *v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.Fixed32Type)
-	return protowire.AppendFixed32(b, uint32(*v))
+	b = AppendTag(b, num, Fixed32Type)
+	return AppendFixed32(b, uint32(*v))
 }
 
-func AppendSfixed64Field(b []byte, v int64, num protowire.Number) []byte {
+func AppendSfixed64Field(b []byte, v int64, num Number) []byte {
 	if v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.Fixed64Type)
-	return protowire.AppendFixed64(b, uint64(v))
+	b = AppendTag(b, num, Fixed64Type)
+	return AppendFixed64(b, uint64(v))
 }
 
-func AppendSfixed64FieldOpt(b []byte, v *int64, num protowire.Number) []byte {
+func AppendSfixed64FieldOpt(b []byte, v *int64, num Number) []byte {
 	if v == nil || *v == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.Fixed64Type)
-	return protowire.AppendFixed64(b, uint64(*v))
+	b = AppendTag(b, num, Fixed64Type)
+	return AppendFixed64(b, uint64(*v))
 }
 
-func AppendFieldDecorator[T any](appendField func([]byte, T, protowire.Number) []byte, num protowire.Number) func([]byte, T) []byte {
+func AppendFieldDecorator[T any](appendField func([]byte, T, Number) []byte, num Number) func([]byte, T) []byte {
 	return func(b []byte, value T) []byte {
 		return appendField(b, value, num)
 	}
@@ -1048,64 +1448,64 @@ func AppendCompactDecorator[T any](appendCompact func([]byte, T) []byte) func([]
 
 func AppendBoolCompact(b []byte, v bool) []byte {
 	if v {
-		return protowire.AppendVarint(b, 1)
+		return AppendVarint(b, 1)
 	}
-	return protowire.AppendVarint(b, 0)
+	return AppendVarint(b, 0)
 }
 
 func AppendFloat32Compact(b []byte, v float32) []byte {
-	return protowire.AppendFixed32(b, math.Float32bits(v))
+	return AppendFixed32(b, math.Float32bits(v))
 }
 
 func AppendFloat64Compact(b []byte, v float64) []byte {
-	return protowire.AppendFixed64(b, math.Float64bits(v))
+	return AppendFixed64(b, math.Float64bits(v))
 }
 
 func AppendInt32Compact(b []byte, v int32) []byte {
-	return protowire.AppendVarint(b, uint64(uint32(v)))
+	return AppendVarint(b, uint64(uint32(v)))
 }
 
 func AppendUint32Compact(b []byte, v uint32) []byte {
-	return protowire.AppendVarint(b, uint64(v))
+	return AppendVarint(b, uint64(v))
 }
 
 func AppendSint32Compact(b []byte, v int32) []byte {
-	return protowire.AppendVarint(b, protowire.EncodeZigZag(int64(v)))
+	return AppendVarint(b, EncodeZigZag(int64(v)))
 }
 
 func AppendInt64Compact(b []byte, v int64) []byte {
-	return protowire.AppendVarint(b, uint64(v))
+	return AppendVarint(b, uint64(v))
 }
 
 func AppendUint64Compact(b []byte, v uint64) []byte {
-	return protowire.AppendVarint(b, v)
+	return AppendVarint(b, v)
 }
 
 func AppendSint64Compact(b []byte, v int64) []byte {
-	return protowire.AppendVarint(b, protowire.EncodeZigZag(v))
+	return AppendVarint(b, EncodeZigZag(v))
 }
 
 func AppendFixed32Compact(b []byte, v uint32) []byte {
-	return protowire.AppendFixed32(b, v)
+	return AppendFixed32(b, v)
 }
 
 func AppendSfixed32Compact(b []byte, v int32) []byte {
-	return protowire.AppendFixed32(b, uint32(v))
+	return AppendFixed32(b, uint32(v))
 }
 
 func AppendFixed64Compact(b []byte, v uint64) []byte {
-	return protowire.AppendFixed64(b, v)
+	return AppendFixed64(b, v)
 }
 
 func AppendSfixed64Compact(b []byte, v int64) []byte {
-	return protowire.AppendFixed64(b, uint64(v))
+	return AppendFixed64(b, uint64(v))
 }
 
 type Encodable interface {
 	Encode() []byte
 }
 
-func AppendMessageFieldDecorator[T Encodable](num protowire.Number) func([]byte, T) []byte {
+func AppendMessageFieldDecorator[T Encodable](num Number) func([]byte, T) []byte {
 	return func(b []byte, value T) []byte {
 		return AppendBytesField(b, value.Encode(), num)
 	}
@@ -1118,7 +1518,7 @@ func AppendRepeated[T any](b []byte, values []T, appendValue func([]byte, T) []b
 	return b
 }
 
-func AppendRepeatedCompact[T any](b []byte, values []T, num protowire.Number, appendValue func([]byte, T) []byte) []byte {
+func AppendRepeatedCompact[T any](b []byte, values []T, num Number, appendValue func([]byte, T) []byte) []byte {
 	var packed []byte
 	for _, value := range values {
 		packed = appendValue(packed, value)
@@ -1126,14 +1526,14 @@ func AppendRepeatedCompact[T any](b []byte, values []T, num protowire.Number, ap
 	if len(packed) == 0 {
 		return b
 	}
-	b = protowire.AppendTag(b, num, protowire.BytesType)
-	return protowire.AppendBytes(b, packed)
+	b = AppendTag(b, num, BytesType)
+	return AppendBytes(b, packed)
 }
 
 func AppendMap[K comparable, V any](
 	b []byte,
 	m map[K]V,
-	num protowire.Number,
+	num Number,
 	appendKey func([]byte, K) []byte,
 	appendValue func([]byte, V) []byte,
 ) []byte {
@@ -1141,8 +1541,8 @@ func AppendMap[K comparable, V any](
 		var entry []byte
 		entry = appendKey(entry, key)
 		entry = appendValue(entry, value)
-		b = protowire.AppendTag(b, num, protowire.BytesType)
-		b = protowire.AppendBytes(b, entry)
+		b = AppendTag(b, num, BytesType)
+		b = AppendBytes(b, entry)
 	}
 	return b
 }

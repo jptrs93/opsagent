@@ -42,7 +42,6 @@ import {
   encodeEmptyRequest,
   encodeEnrollmentAcceptRequest,
   encodeEnrollmentWorkerMsg,
-  encodeGithubAssetValidateRequest,
   encodeMasterPasswordRequest,
   encodeMasterPasswordSaveRequest,
   encodeMasterPasswordVerifyRequest,
@@ -360,18 +359,6 @@ export class Capi {
    */
   async postV1RepoValidate(payload) {
     const response = await this.#request("/v1/repo/validate", { method: 'POST', body: encodeValidateSourceRequest(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeValidateSourceResponse(await response.arrayBuffer());
-  }
-
-  /**
-   * @param {GithubAssetValidateRequest} payload
-   * @returns {Promise<ValidateSourceResponse>}
-   */
-  async postV1GithubAssetValidate(payload) {
-    const response = await this.#request("/v1/github/asset/validate", { method: 'POST', body: encodeGithubAssetValidateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
