@@ -98,7 +98,7 @@ export async function createNixDockerDeployment(page, {
 
 export async function createConfig(page, {name, value, group = 'e2e'} = {}) {
   await byTestId(page, 'nav-configs', page.getByText('Configs')).click();
-  await expect(page.getByRole('heading', {name: 'Configs'})).toBeVisible();
+  await expect(page.getByText("Reference a config from a deployment's env value as")).toBeVisible();
   await page.getByRole('button', {name: 'Add config'}).click();
 
   const row = page.locator('tbody tr').last();
@@ -111,7 +111,7 @@ export async function createConfig(page, {name, value, group = 'e2e'} = {}) {
 
 export async function createSecret(page, {name, value, group = 'e2e'} = {}) {
   await byTestId(page, 'nav-secrets', page.getByText('Secrets')).click();
-  await expect(page.getByRole('heading', {name: 'Secrets'})).toBeVisible();
+  await expect(page.getByText("Reference a secret from a deployment's env value as")).toBeVisible();
   await page.getByRole('button', {name: 'Add secret'}).click();
 
   const row = page.locator('tbody tr').last();
@@ -124,7 +124,7 @@ export async function createSecret(page, {name, value, group = 'e2e'} = {}) {
 
 export async function createAsset(page, {key, content, format = 'text'} = {}) {
   await byTestId(page, 'nav-assets', page.getByText('Assets')).click();
-  await expect(page.getByRole('heading', {name: 'Assets'})).toBeVisible();
+  await expect(page.getByPlaceholder('Search assets')).toBeVisible();
   await page.getByRole('button', {name: 'Add asset'}).click();
 
   await page.getByPlaceholder('nginx.conf').fill(key);
