@@ -73,6 +73,9 @@ Key generated files:
 |--------|------|---------|----------|--------|
 | GET | `/v1/cluster/status` | — | `ClusterStatusResponse` | ANY_OF default |
 | GET | `/v1/cluster/github-credentials` | — | `GithubCredentials` | NO_AUTH over mTLS cluster listener |
+| GET | `/v1/cluster/asset` | `ClusterAssetRequest` | `ClusterAssetBlob` | NO_AUTH over mTLS cluster listener |
+| GET | `/v1/cluster/secrets` | `ClusterSecretsRequest` | `ClusterSecretsResponse` | NO_AUTH over mTLS cluster listener |
+| GET | `/v1/cluster/configs` | `ClusterConfigsRequest` | `ClusterConfigsResponse` | NO_AUTH over mTLS cluster listener |
 
 ### Config
 | Method | Path | Request | Response | Policy |
@@ -83,8 +86,14 @@ Key generated files:
 | POST | `/v1/user/configs/list` | `EmptyRequest` | `UserConfigList` | ANY_OF default |
 | POST | `/v1/user/configs/set` | `UserConfigSetRequest` | `UserConfig` | ANY_OF default |
 | POST | `/v1/user/configs/delete` | `UserConfigDeleteRequest` | — | ANY_OF default |
+| POST | `/v1/assets/list` | `EmptyRequest` | `AssetList` | ANY_OF default |
+| POST | `/v1/assets/get` | `AssetGetRequest` | `Asset` | ANY_OF default |
+| POST | `/v1/assets/set` | `AssetSetRequest` | `Asset` | ANY_OF default |
+| POST | `/v1/assets/delete` | `AssetDeleteRequest` | — | ANY_OF default |
 
-User-managed configs are plaintext values stored in `user_configs` and referenced from deployment env as `${c:name}`. Encrypted secrets are referenced as `${s:name}`.
+User-managed configs are plaintext values stored in `user_configs` and referenced from deployment env as `${c:name}`. Encrypted secrets are referenced as `${s:name}`. Deployment preparation batches referenced secret and config keys; secondaries fetch them over the mTLS cluster secrets/configs endpoints into memory only.
+
+Assets are versioned plaintext file blobs stored in `assets`. Rows are immutable; setting an existing key creates a new version with a numeric asset id. The first implementation stores blobs inline up to 10 MiB and reserves `location` for future filesystem/S3-backed assets. Workers download required asset blobs on demand over the mTLS cluster asset endpoint during preparation.
 
 ### Enrollment
 | Method | Path | Request | Response | Policy |

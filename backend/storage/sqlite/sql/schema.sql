@@ -96,6 +96,23 @@ CREATE TABLE IF NOT EXISTS user_configs (
     updated_by   INTEGER NOT NULL DEFAULT 0
 );
 
+-- Versioned user-managed file assets. Rows are immutable: editing an asset
+-- appends a new version for the same key. For now blob holds small assets
+-- inline; location is reserved for future disk/S3-backed storage.
+CREATE TABLE IF NOT EXISTS assets (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    key         TEXT    NOT NULL,
+    created_at  INTEGER NOT NULL,  -- epoch ms; creation time of this version
+    version     INTEGER NOT NULL,
+    format      TEXT    NOT NULL DEFAULT '',
+    location    TEXT    NOT NULL DEFAULT '',
+    blob        BLOB    NOT NULL,
+    UNIQUE (key, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_assets_key_created_at
+    ON assets(key, created_at);
+
 -- Secrets: envelope-encrypted key/value store. PRIMARY-ONLY — these two tables
 -- are never replicated to secondaries (the cluster feeder only sends deployment
 -- configs/status; see primary/session.go). They are created on every node by

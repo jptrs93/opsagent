@@ -1,6 +1,11 @@
 package handler
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"github.com/jptrs93/opsagent/backend/apigen"
+)
 
 func TestParseCreateDeploymentYamlNixDockerBuild(t *testing.T) {
 	_, spec, err := parseCreateDeploymentYaml(`
@@ -26,6 +31,50 @@ runner:
 	}
 	if spec.Runner.Container.User != "1000" {
 		t.Fatalf("container user = %q", spec.Runner.Container.User)
+	}
+}
+
+type fakeAssetResolver map[string]*apigen.Asset
+
+func (r fakeAssetResolver) GetAsset(key string, version int32) (*apigen.Asset, bool) {
+	asset, ok := r[key]
+	if !ok || (version > 0 && asset.Version != version) {
+		return nil, false
+	}
+	return asset, true
+}
+
+func TestParseCreateDeploymentYamlResolvesAssetMounts(t *testing.T) {
+	assets := fakeAssetResolver{
+		"nginx.conf": {
+			ID:        42,
+			Key:       "nginx.conf",
+			CreatedAt: time.UnixMilli(1000),
+			Version:   3,
+			Format:    "nginx",
+		},
+	}
+	_, spec, err := parseCreateDeploymentYamlWithAssets(`
+name: web
+machine: primary
+prepare:
+  containerImage:
+    image: nginx:latest
+runner:
+  container:
+    assetMounts:
+      - asset: nginx.conf
+        path: /etc/nginx/nginx.conf
+`, assets)
+	if err != nil {
+		t.Fatalf("parseCreateDeploymentYamlWithAssets failed: %v", err)
+	}
+	mounts := spec.Runner.Container.AssetMounts
+	if len(mounts) != 1 {
+		t.Fatalf("asset mounts len = %d", len(mounts))
+	}
+	if mounts[0].AssetID != 42 || mounts[0].Asset != "nginx.conf" || mounts[0].Version != 3 || mounts[0].Path != "/etc/nginx/nginx.conf" || mounts[0].Format != "nginx" {
+		t.Fatalf("asset mount not resolved: %+v", mounts[0])
 	}
 }
 

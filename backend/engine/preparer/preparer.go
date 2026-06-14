@@ -48,6 +48,11 @@ func StartPrepare(store storage.OperatorStore, dep *apigen.DeploymentConfig) Pre
 // start a fresh preparation.
 func ReAttach(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.PreparerStatus) Preparer {
 	if prev.DeploymentConfigVersion == dep.Version && prev.Status == apigen.PreparationStatus_READY {
+		if err := EnsureRuntimeRefsReady(context.Background(), dep); err != nil {
+			slog.Error("preparer.ReAttach: prepared runtime refs unavailable", "configVersion", dep.Version, "err", err)
+			writePrepareStatus(store, dep, prev.Artifact, apigen.PreparationStatus_FAILED)
+			return &finishedPreparer{deploymentConfigVersion: dep.Version}
+		}
 		slog.Info("preparer.ReAttach: already READY, returning finished",
 			"configVersion", dep.Version, "artifact", prev.Artifact)
 		return &finishedPreparer{deploymentConfigVersion: dep.Version}

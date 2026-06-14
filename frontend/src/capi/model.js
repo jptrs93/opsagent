@@ -43,6 +43,45 @@
  * @property {string} token
  */
 /**
+ * @typedef {Object} ClusterAssetRequest
+ * @property {number} assetId
+ * @property {number} version
+ */
+/**
+ * @typedef {Object} ClusterAssetBlob
+ * @property {number} assetId
+ * @property {string} key
+ * @property {number} version
+ * @property {string} format
+ * @property {Uint8Array} blob
+ */
+/**
+ * @typedef {Object} ClusterSecretsRequest
+ * @property {string[]} keys
+ */
+/**
+ * @typedef {Object} ClusterSecretValue
+ * @property {string} key
+ * @property {Uint8Array} value
+ */
+/**
+ * @typedef {Object} ClusterSecretsResponse
+ * @property {ClusterSecretValue[]} items
+ */
+/**
+ * @typedef {Object} ClusterConfigsRequest
+ * @property {string[]} keys
+ */
+/**
+ * @typedef {Object} ClusterConfigValue
+ * @property {string} key
+ * @property {string} value
+ */
+/**
+ * @typedef {Object} ClusterConfigsResponse
+ * @property {ClusterConfigValue[]} items
+ */
+/**
  * @typedef {Object} SecretValue
  * @property {string} key
  */
@@ -172,6 +211,45 @@
  * @property {string} name
  */
 /**
+ * @typedef {Object} AssetMeta
+ * @property {string} key
+ * @property {Date} createdAt
+ * @property {number} version
+ * @property {string} format
+ * @property {string} location
+ * @property {number} sizeBytes
+ * @property {number} id
+ */
+/**
+ * @typedef {Object} Asset
+ * @property {string} key
+ * @property {Date} createdAt
+ * @property {number} version
+ * @property {string} format
+ * @property {string} location
+ * @property {Uint8Array} blob
+ * @property {number} id
+ */
+/**
+ * @typedef {Object} AssetList
+ * @property {AssetMeta[]} items
+ */
+/**
+ * @typedef {Object} AssetGetRequest
+ * @property {string} key
+ * @property {number} version
+ */
+/**
+ * @typedef {Object} AssetSetRequest
+ * @property {string} key
+ * @property {string} format
+ * @property {Uint8Array} blob
+ */
+/**
+ * @typedef {Object} AssetDeleteRequest
+ * @property {string} key
+ */
+/**
  * @typedef {Object} NixBuildConfig
  * @property {string} repo
  * @property {string} flake
@@ -224,6 +302,14 @@
  * @property {boolean} readonly
  */
 /**
+ * @typedef {Object} ContainerAssetMount
+ * @property {string} asset
+ * @property {number} version
+ * @property {string} path
+ * @property {string} format
+ * @property {number} assetId
+ */
+/**
  * @typedef {Object} ContainerRunnerConfig
  * @property {string} user
  * @property {EnvVar[]} env
@@ -232,6 +318,7 @@
  * @property {string} dataMountPath
  * @property {boolean} disableDataVolume
  * @property {ContainerMount[]} mounts
+ * @property {ContainerAssetMount[]} assetMounts
  */
 /**
  * @typedef {Object} RunnerConfig
@@ -1057,6 +1144,515 @@ function decodeGithubCredentialsMessage(reader, length) {
 export function decodeGithubCredentials(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeGithubCredentialsMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterAssetRequest} message
+ * @param {Writer} writer
+ */
+export function writeClusterAssetRequest(message, writer) {
+    if (message.assetId !== undefined && message.assetId !== null && message.assetId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.assetId);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
+    }
+}
+
+
+/**
+ * @param {ClusterAssetRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterAssetRequest(message) {
+    const writer = Writer.create();
+    writeClusterAssetRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterAssetRequest}
+ */
+function decodeClusterAssetRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {assetId: 0, version: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.assetId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.version = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterAssetRequest}
+ */
+export function decodeClusterAssetRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterAssetRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterAssetBlob} message
+ * @param {Writer} writer
+ */
+export function writeClusterAssetBlob(message, writer) {
+    if (message.assetId !== undefined && message.assetId !== null && message.assetId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.assetId);
+    }
+    if (message.key !== undefined && message.key !== null && message.key !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.key);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.version);
+    }
+    if (message.format !== undefined && message.format !== null && message.format !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.format);
+    }
+    if (message.blob && message.blob.length > 0) {
+        writer.uint32(tag(5, WIRE.LDELIM)).bytes(message.blob);
+    }
+}
+
+
+/**
+ * @param {ClusterAssetBlob} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterAssetBlob(message) {
+    const writer = Writer.create();
+    writeClusterAssetBlob(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterAssetBlob}
+ */
+function decodeClusterAssetBlobMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {assetId: 0, key: "", version: 0, format: "", blob: new Uint8Array(0) };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.assetId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.key = reader.string();
+                break;
+            }
+            case 3: {
+                message.version = reader.int32();
+                break;
+            }
+            case 4: {
+                message.format = reader.string();
+                break;
+            }
+            case 5: {
+                message.blob = reader.bytes();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterAssetBlob}
+ */
+export function decodeClusterAssetBlob(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterAssetBlobMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterSecretsRequest} message
+ * @param {Writer} writer
+ */
+export function writeClusterSecretsRequest(message, writer) {
+    if (message.keys && message.keys.length > 0) {
+        for (const item of message.keys) {
+            writer.uint32(tag(1, WIRE.LDELIM)).string(item);
+        }
+    }
+}
+
+
+/**
+ * @param {ClusterSecretsRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterSecretsRequest(message) {
+    const writer = Writer.create();
+    writeClusterSecretsRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterSecretsRequest}
+ */
+function decodeClusterSecretsRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {keys: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.keys.push(reader.string());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterSecretsRequest}
+ */
+export function decodeClusterSecretsRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterSecretsRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterSecretValue} message
+ * @param {Writer} writer
+ */
+export function writeClusterSecretValue(message, writer) {
+    if (message.key !== undefined && message.key !== null && message.key !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
+    }
+    if (message.value && message.value.length > 0) {
+        writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.value);
+    }
+}
+
+
+/**
+ * @param {ClusterSecretValue} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterSecretValue(message) {
+    const writer = Writer.create();
+    writeClusterSecretValue(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterSecretValue}
+ */
+function decodeClusterSecretValueMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {key: "", value: new Uint8Array(0) };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.key = reader.string();
+                break;
+            }
+            case 2: {
+                message.value = reader.bytes();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterSecretValue}
+ */
+export function decodeClusterSecretValue(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterSecretValueMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterSecretsResponse} message
+ * @param {Writer} writer
+ */
+export function writeClusterSecretsResponse(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeClusterSecretValue(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ClusterSecretsResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterSecretsResponse(message) {
+    const writer = Writer.create();
+    writeClusterSecretsResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterSecretsResponse}
+ */
+function decodeClusterSecretsResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeClusterSecretValueMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterSecretsResponse}
+ */
+export function decodeClusterSecretsResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterSecretsResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterConfigsRequest} message
+ * @param {Writer} writer
+ */
+export function writeClusterConfigsRequest(message, writer) {
+    if (message.keys && message.keys.length > 0) {
+        for (const item of message.keys) {
+            writer.uint32(tag(1, WIRE.LDELIM)).string(item);
+        }
+    }
+}
+
+
+/**
+ * @param {ClusterConfigsRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterConfigsRequest(message) {
+    const writer = Writer.create();
+    writeClusterConfigsRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterConfigsRequest}
+ */
+function decodeClusterConfigsRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {keys: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.keys.push(reader.string());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterConfigsRequest}
+ */
+export function decodeClusterConfigsRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterConfigsRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterConfigValue} message
+ * @param {Writer} writer
+ */
+export function writeClusterConfigValue(message, writer) {
+    if (message.key !== undefined && message.key !== null && message.key !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
+    }
+    if (message.value !== undefined && message.value !== null && message.value !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.value);
+    }
+}
+
+
+/**
+ * @param {ClusterConfigValue} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterConfigValue(message) {
+    const writer = Writer.create();
+    writeClusterConfigValue(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterConfigValue}
+ */
+function decodeClusterConfigValueMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {key: "", value: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.key = reader.string();
+                break;
+            }
+            case 2: {
+                message.value = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterConfigValue}
+ */
+export function decodeClusterConfigValue(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterConfigValueMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterConfigsResponse} message
+ * @param {Writer} writer
+ */
+export function writeClusterConfigsResponse(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeClusterConfigValue(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ClusterConfigsResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterConfigsResponse(message) {
+    const writer = Writer.create();
+    writeClusterConfigsResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterConfigsResponse}
+ */
+function decodeClusterConfigsResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeClusterConfigValueMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterConfigsResponse}
+ */
+export function decodeClusterConfigsResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterConfigsResponseMessage(reader);
 }
 
 
@@ -2657,6 +3253,451 @@ export function decodeUserConfigDeleteRequest(buffer) {
 
 
 /**
+ * @param {AssetMeta} message
+ * @param {Writer} writer
+ */
+export function writeAssetMeta(message, writer) {
+    if (message.key !== undefined && message.key !== null && message.key !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
+    }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.version);
+    }
+    if (message.format !== undefined && message.format !== null && message.format !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.format);
+    }
+    if (message.location !== undefined && message.location !== null && message.location !== "") {
+        writer.uint32(tag(5, WIRE.LDELIM)).string(message.location);
+    }
+    if (message.sizeBytes !== undefined && message.sizeBytes !== null && message.sizeBytes !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.sizeBytes);
+    }
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.id);
+    }
+}
+
+
+/**
+ * @param {AssetMeta} message
+ * @returns {Uint8Array}
+ */
+export function encodeAssetMeta(message) {
+    const writer = Writer.create();
+    writeAssetMeta(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AssetMeta}
+ */
+function decodeAssetMetaMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {key: "", createdAt: new Date(0), version: 0, format: "", location: "", sizeBytes: 0, id: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.key = reader.string();
+                break;
+            }
+            case 2: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 3: {
+                message.version = reader.int32();
+                break;
+            }
+            case 4: {
+                message.format = reader.string();
+                break;
+            }
+            case 5: {
+                message.location = reader.string();
+                break;
+            }
+            case 6: {
+                message.sizeBytes = reader.int32();
+                break;
+            }
+            case 7: {
+                message.id = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AssetMeta}
+ */
+export function decodeAssetMeta(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAssetMetaMessage(reader);
+}
+
+
+
+/**
+ * @param {Asset} message
+ * @param {Writer} writer
+ */
+export function writeAsset(message, writer) {
+    if (message.key !== undefined && message.key !== null && message.key !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
+    }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.version);
+    }
+    if (message.format !== undefined && message.format !== null && message.format !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.format);
+    }
+    if (message.location !== undefined && message.location !== null && message.location !== "") {
+        writer.uint32(tag(5, WIRE.LDELIM)).string(message.location);
+    }
+    if (message.blob && message.blob.length > 0) {
+        writer.uint32(tag(6, WIRE.LDELIM)).bytes(message.blob);
+    }
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.id);
+    }
+}
+
+
+/**
+ * @param {Asset} message
+ * @returns {Uint8Array}
+ */
+export function encodeAsset(message) {
+    const writer = Writer.create();
+    writeAsset(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {Asset}
+ */
+function decodeAssetMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {key: "", createdAt: new Date(0), version: 0, format: "", location: "", blob: new Uint8Array(0), id: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.key = reader.string();
+                break;
+            }
+            case 2: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 3: {
+                message.version = reader.int32();
+                break;
+            }
+            case 4: {
+                message.format = reader.string();
+                break;
+            }
+            case 5: {
+                message.location = reader.string();
+                break;
+            }
+            case 6: {
+                message.blob = reader.bytes();
+                break;
+            }
+            case 7: {
+                message.id = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {Asset}
+ */
+export function decodeAsset(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAssetMessage(reader);
+}
+
+
+
+/**
+ * @param {AssetList} message
+ * @param {Writer} writer
+ */
+export function writeAssetList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeAssetMeta(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {AssetList} message
+ * @returns {Uint8Array}
+ */
+export function encodeAssetList(message) {
+    const writer = Writer.create();
+    writeAssetList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AssetList}
+ */
+function decodeAssetListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeAssetMetaMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AssetList}
+ */
+export function decodeAssetList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAssetListMessage(reader);
+}
+
+
+
+/**
+ * @param {AssetGetRequest} message
+ * @param {Writer} writer
+ */
+export function writeAssetGetRequest(message, writer) {
+    if (message.key !== undefined && message.key !== null && message.key !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
+    }
+}
+
+
+/**
+ * @param {AssetGetRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAssetGetRequest(message) {
+    const writer = Writer.create();
+    writeAssetGetRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AssetGetRequest}
+ */
+function decodeAssetGetRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {key: "", version: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.key = reader.string();
+                break;
+            }
+            case 2: {
+                message.version = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AssetGetRequest}
+ */
+export function decodeAssetGetRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAssetGetRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AssetSetRequest} message
+ * @param {Writer} writer
+ */
+export function writeAssetSetRequest(message, writer) {
+    if (message.key !== undefined && message.key !== null && message.key !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
+    }
+    if (message.format !== undefined && message.format !== null && message.format !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.format);
+    }
+    if (message.blob && message.blob.length > 0) {
+        writer.uint32(tag(3, WIRE.LDELIM)).bytes(message.blob);
+    }
+}
+
+
+/**
+ * @param {AssetSetRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAssetSetRequest(message) {
+    const writer = Writer.create();
+    writeAssetSetRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AssetSetRequest}
+ */
+function decodeAssetSetRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {key: "", format: "", blob: new Uint8Array(0) };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.key = reader.string();
+                break;
+            }
+            case 2: {
+                message.format = reader.string();
+                break;
+            }
+            case 3: {
+                message.blob = reader.bytes();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AssetSetRequest}
+ */
+export function decodeAssetSetRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAssetSetRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AssetDeleteRequest} message
+ * @param {Writer} writer
+ */
+export function writeAssetDeleteRequest(message, writer) {
+    if (message.key !== undefined && message.key !== null && message.key !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
+    }
+}
+
+
+/**
+ * @param {AssetDeleteRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAssetDeleteRequest(message) {
+    const writer = Writer.create();
+    writeAssetDeleteRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AssetDeleteRequest}
+ */
+function decodeAssetDeleteRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {key: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.key = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AssetDeleteRequest}
+ */
+export function decodeAssetDeleteRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAssetDeleteRequestMessage(reader);
+}
+
+
+
+/**
  * @param {NixBuildConfig} message
  * @param {Writer} writer
  */
@@ -3285,6 +4326,90 @@ export function decodeContainerMount(buffer) {
 
 
 /**
+ * @param {ContainerAssetMount} message
+ * @param {Writer} writer
+ */
+export function writeContainerAssetMount(message, writer) {
+    if (message.asset !== undefined && message.asset !== null && message.asset !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.asset);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
+    }
+    if (message.path !== undefined && message.path !== null && message.path !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.path);
+    }
+    if (message.format !== undefined && message.format !== null && message.format !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.format);
+    }
+    if (message.assetId !== undefined && message.assetId !== null && message.assetId !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.assetId);
+    }
+}
+
+
+/**
+ * @param {ContainerAssetMount} message
+ * @returns {Uint8Array}
+ */
+export function encodeContainerAssetMount(message) {
+    const writer = Writer.create();
+    writeContainerAssetMount(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ContainerAssetMount}
+ */
+function decodeContainerAssetMountMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {asset: "", version: 0, path: "", format: "", assetId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.asset = reader.string();
+                break;
+            }
+            case 2: {
+                message.version = reader.int32();
+                break;
+            }
+            case 3: {
+                message.path = reader.string();
+                break;
+            }
+            case 4: {
+                message.format = reader.string();
+                break;
+            }
+            case 5: {
+                message.assetId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ContainerAssetMount}
+ */
+export function decodeContainerAssetMount(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeContainerAssetMountMessage(reader);
+}
+
+
+
+/**
  * @param {ContainerRunnerConfig} message
  * @param {Writer} writer
  */
@@ -3320,6 +4445,13 @@ export function writeContainerRunnerConfig(message, writer) {
             writer.ldelim();
         }
     }
+    if (message.assetMounts && message.assetMounts.length > 0) {
+        for (const item of message.assetMounts) {
+            writer.uint32(tag(8, WIRE.LDELIM)).fork();
+            writeContainerAssetMount(item, writer);
+            writer.ldelim();
+        }
+    }
 }
 
 
@@ -3341,7 +4473,7 @@ export function encodeContainerRunnerConfig(message) {
  */
 function decodeContainerRunnerConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {user: "", env: [], command: [], workingDir: "", dataMountPath: "", disableDataVolume: false, mounts: [] };
+    const message = {user: "", env: [], command: [], workingDir: "", dataMountPath: "", disableDataVolume: false, mounts: [], assetMounts: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3371,6 +4503,10 @@ function decodeContainerRunnerConfigMessage(reader, length) {
             }
             case 7: {
                 message.mounts.push(decodeContainerMountMessage(reader, reader.uint32()));
+                break;
+            }
+            case 8: {
+                message.assetMounts.push(decodeContainerAssetMountMessage(reader, reader.uint32()));
                 break;
             }
             default:

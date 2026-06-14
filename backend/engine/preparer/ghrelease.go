@@ -82,6 +82,10 @@ func (g *GithubReleaseDownloader) runDownload(ctx context.Context, store storage
 		slog.InfoContext(ctx, msg)
 		fmt.Fprintf(logFile, "==> %s\n", msg)
 	}
+	if err := EnsureRuntimeInputsReady(ctx, dep); err != nil {
+		writeLog("ERROR preparing runtime inputs: %v", err)
+		return "", apigen.PreparationStatus_FAILED
+	}
 
 	gh := dep.Spec.Prepare.GithubRelease
 	ownerRepo, err := RepoOwnerName(gh.Repo)

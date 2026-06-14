@@ -88,6 +88,10 @@ func (b *NixBuilder) runBuild(ctx context.Context, store storage.OperatorStore, 
 	}
 
 	nix := dep.Spec.Prepare.NixBuild
+	if err := EnsureRuntimeInputsReady(ctx, dep); err != nil {
+		writeLog("ERROR preparing runtime inputs: %v", err)
+		return "", apigen.PreparationStatus_FAILED
+	}
 
 	repoDir := filepath.Join(b.dataDir, "repos", nix.Repo)
 	writeLog("repo dir: %s", repoDir)

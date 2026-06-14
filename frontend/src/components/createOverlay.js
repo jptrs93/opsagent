@@ -4,6 +4,7 @@ import {deploymentsS} from "../state/deployments.js";
 import {spinnerButton} from "./spinnerbutton.js";
 import {RefreshCw} from "vanjs-feather";
 import {
+    assetEditorPane,
     buildValidateSourceRequest,
     deploymentForm,
     emptyDeploymentForm,
@@ -28,6 +29,7 @@ export function createOverlay(onClose, onCreated) {
     const form = emptyDeploymentForm();
     const machines = van.state([]);
     const machinesLoaded = van.state(false);
+    const assets = van.state([]);
     const selectedScope = van.state('');
     const selectedVersion = van.state('');
     const selectedVersionSourceKey = van.state('');
@@ -58,7 +60,17 @@ export function createOverlay(onClose, onCreated) {
         machinesLoaded.val = true;
     };
 
+    const loadAssets = async () => {
+        try {
+            const res = await capi.postV1AssetsList({});
+            assets.val = res.items || [];
+        } catch (e) {
+            assets.val = [];
+        }
+    };
+
     loadMachines();
+    loadAssets();
 
     const environmentOptions = () => {
         const envs = new Set();
@@ -106,7 +118,7 @@ export function createOverlay(onClose, onCreated) {
         {class: "fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 pointer-events-none", "data-testid": "create-deployment-dialog"},
         div(
             {class: "bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-row overflow-hidden pointer-events-auto",
-             style: () => `width: ${form.envPaneOpen.val ? 1360 : 960}px; max-width: calc(100vw - 2rem); max-height: 88vh;`,
+             style: () => `width: ${form.envPaneOpen.val || form.assetEditorOpen.val ? 1360 : 960}px; max-width: calc(100vw - 2rem); max-height: 88vh;`,
              onclick: (e) => e.stopPropagation()},
             div(
                 {class: "flex-1 min-w-0 flex flex-col"},
@@ -116,6 +128,8 @@ export function createOverlay(onClose, onCreated) {
                         environmentOptions: environmentOptions(),
                         machineOptions: machines.val,
                         machineOptionsLoaded: machinesLoaded.val,
+                        assets: assets.val,
+                        enableAssetEditor: true,
                         showRunnerSummary: false,
                     }),
                     () => createVersionSection({
@@ -145,6 +159,7 @@ export function createOverlay(onClose, onCreated) {
                 ),
             ),
             envVarsPane(form),
+            assetEditorPane(form, {onSaved: loadAssets}),
         ),
     );
 

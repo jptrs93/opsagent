@@ -44,6 +44,7 @@ export function sidebar(activePage) {
             item("Deployments", "status"),
             item("Secrets", "secrets"),
             item("Configs", "configs"),
+            item("Assets", "assets"),
         ),
         div({class: "flex-1"}),
         div(

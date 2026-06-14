@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,7 +30,7 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 		return nil, InvalidYAMLErr
 	}
 
-	cid, spec, err := parseCreateDeploymentYaml(req.YamlContent)
+	cid, spec, err := h.parseCreateDeploymentYaml(req.YamlContent)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +54,7 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 
 	// If yaml_content is provided, update the deployment spec first.
 	if req.YamlContent != "" {
-		spec, err := parseDeploymentYaml(req.YamlContent)
+		spec, err := h.parseDeploymentYaml(req.YamlContent)
 		if err != nil {
 			return nil, err
 		}
@@ -676,12 +677,23 @@ type yamlContainer struct {
 	DataMountPath     string               `yaml:"dataMountPath,omitempty"`
 	DisableDataVolume bool                 `yaml:"disableDataVolume,omitempty"`
 	Mounts            []yamlContainerMount `yaml:"mounts,omitempty"`
+	AssetMounts       []yamlAssetMount     `yaml:"assetMounts,omitempty"`
 }
 
 type yamlContainerMount struct {
 	Host      string `yaml:"host"`
 	Container string `yaml:"container"`
 	Readonly  bool   `yaml:"readonly,omitempty"`
+}
+
+type yamlAssetMount struct {
+	Asset   string `yaml:"asset"`
+	Version int32  `yaml:"version,omitempty"`
+	Path    string `yaml:"path"`
+}
+
+type deploymentAssetResolver interface {
+	GetAsset(key string, version int32) (*apigen.Asset, bool)
 }
 
 type yamlOsProcess struct {
@@ -703,6 +715,14 @@ type yamlSystemd struct {
 
 // parseDeploymentYaml parses a single-deployment YAML into a DeploymentSpec.
 func parseDeploymentYaml(yamlContent string) (*apigen.DeploymentSpec, error) {
+	return parseDeploymentYamlWithAssets(yamlContent, nil)
+}
+
+func (h *Handler) parseDeploymentYaml(yamlContent string) (*apigen.DeploymentSpec, error) {
+	return parseDeploymentYamlWithAssets(yamlContent, h.Store)
+}
+
+func parseDeploymentYamlWithAssets(yamlContent string, assets deploymentAssetResolver) (*apigen.DeploymentSpec, error) {
 	var dep yamlDeployment
 	if err := yaml.Unmarshal([]byte(yamlContent), &dep); err != nil {
 		return nil, InvalidYAMLErr
@@ -712,7 +732,7 @@ func parseDeploymentYaml(yamlContent string) (*apigen.DeploymentSpec, error) {
 	if err != nil {
 		return nil, err
 	}
-	runnerCfg, err := toRunnerConfig(dep.Runner)
+	runnerCfg, err := toRunnerConfig(dep.Runner, assets)
 	if err != nil {
 		return nil, err
 	}
@@ -808,7 +828,7 @@ func validateContainerPairing(yp *yamlPrepare, yr *yamlRunner) error {
 	return nil
 }
 
-func toRunnerConfig(yr *yamlRunner) (*apigen.RunnerConfig, error) {
+func toRunnerConfig(yr *yamlRunner, assets deploymentAssetResolver) (*apigen.RunnerConfig, error) {
 	if yr == nil {
 		return nil, nil
 	}
@@ -865,6 +885,10 @@ func toRunnerConfig(yr *yamlRunner) (*apigen.RunnerConfig, error) {
 				Readonly:  m.Readonly,
 			})
 		}
+		assetMounts, err := toAssetMounts(yr.Container.AssetMounts, assets)
+		if err != nil {
+			return nil, err
+		}
 		out.Container = apigen.ContainerRunnerConfig{
 			User:              yr.Container.User,
 			Env:               env,
@@ -873,7 +897,47 @@ func toRunnerConfig(yr *yamlRunner) (*apigen.RunnerConfig, error) {
 			DataMountPath:     yr.Container.DataMountPath,
 			DisableDataVolume: yr.Container.DisableDataVolume,
 			Mounts:            mounts,
+			AssetMounts:       assetMounts,
 		}
+	}
+	return out, nil
+}
+
+func toAssetMounts(in []yamlAssetMount, assets deploymentAssetResolver) ([]*apigen.ContainerAssetMount, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	if assets == nil {
+		return nil, invalidConfigErrf("runner.container.assetMounts: assets cannot be resolved here")
+	}
+	out := make([]*apigen.ContainerAssetMount, 0, len(in))
+	for _, m := range in {
+		key := strings.TrimSpace(m.Asset)
+		path := strings.TrimSpace(m.Path)
+		if key == "" || path == "" {
+			return nil, invalidConfigErrf("runner.container.assetMounts: asset and path are both required")
+		}
+		if !filepath.IsAbs(path) {
+			return nil, invalidConfigErrf("runner.container.assetMounts: path must be absolute")
+		}
+		cleanPath := filepath.Clean(path)
+		if cleanPath != path || cleanPath == "/" || strings.HasSuffix(path, "/") {
+			return nil, invalidConfigErrf("runner.container.assetMounts: path must be an absolute file path")
+		}
+		asset, ok := assets.GetAsset(key, m.Version)
+		if !ok {
+			if m.Version > 0 {
+				return nil, invalidConfigErrf("runner.container.assetMounts: asset %q version %d not found", key, m.Version)
+			}
+			return nil, invalidConfigErrf("runner.container.assetMounts: asset %q not found", key)
+		}
+		out = append(out, &apigen.ContainerAssetMount{
+			Asset:   asset.Key,
+			Version: asset.Version,
+			Path:    cleanPath,
+			Format:  asset.Format,
+			AssetID: asset.ID,
+		})
 	}
 	return out, nil
 }
@@ -980,6 +1044,9 @@ func deploymentConfigToYaml(cfg *apigen.DeploymentConfig) string {
 				for _, m := range cfg.Spec.Runner.Container.Mounts {
 					dep.Runner.Container.Mounts = append(dep.Runner.Container.Mounts, yamlContainerMount{Host: m.Host, Container: m.Container, Readonly: m.Readonly})
 				}
+				for _, m := range cfg.Spec.Runner.Container.AssetMounts {
+					dep.Runner.Container.AssetMounts = append(dep.Runner.Container.AssetMounts, yamlAssetMount{Asset: m.Asset, Version: m.Version, Path: m.Path})
+				}
 			}
 		}
 	}
@@ -992,6 +1059,14 @@ func deploymentConfigToYaml(cfg *apigen.DeploymentConfig) string {
 
 // parseCreateDeploymentYaml parses YAML into a DeploymentIdentifier and DeploymentSpec for creation.
 func parseCreateDeploymentYaml(yamlContent string) (*apigen.DeploymentIdentifier, *apigen.DeploymentSpec, error) {
+	return parseCreateDeploymentYamlWithAssets(yamlContent, nil)
+}
+
+func (h *Handler) parseCreateDeploymentYaml(yamlContent string) (*apigen.DeploymentIdentifier, *apigen.DeploymentSpec, error) {
+	return parseCreateDeploymentYamlWithAssets(yamlContent, h.Store)
+}
+
+func parseCreateDeploymentYamlWithAssets(yamlContent string, assets deploymentAssetResolver) (*apigen.DeploymentIdentifier, *apigen.DeploymentSpec, error) {
 	var dep yamlDeployment
 	if err := yaml.Unmarshal([]byte(yamlContent), &dep); err != nil {
 		return nil, nil, InvalidYAMLErr
@@ -1008,7 +1083,7 @@ func parseCreateDeploymentYaml(yamlContent string) (*apigen.DeploymentIdentifier
 	if err != nil {
 		return nil, nil, err
 	}
-	runnerCfg, err := toRunnerConfig(dep.Runner)
+	runnerCfg, err := toRunnerConfig(dep.Runner, assets)
 	if err != nil {
 		return nil, nil, err
 	}

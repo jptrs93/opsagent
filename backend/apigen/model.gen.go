@@ -392,6 +392,334 @@ func DecodeGithubCredentials(b []byte) (*GithubCredentials, error) {
 	return &m, nil
 }
 
+type ClusterAssetRequest struct {
+	AssetID int32
+	Version int32
+}
+
+func (m *ClusterAssetRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.AssetID, 1)
+	b = AppendInt32Field(b, m.Version, 2)
+	return b
+}
+
+func DecodeClusterAssetRequest(b []byte) (*ClusterAssetRequest, error) {
+	var m ClusterAssetRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.AssetID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ClusterAssetBlob struct {
+	AssetID int32
+	Key     string
+	Version int32
+	Format  string
+	Blob    []byte
+}
+
+func (m *ClusterAssetBlob) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.AssetID, 1)
+	b = AppendStringField(b, m.Key, 2)
+	b = AppendInt32Field(b, m.Version, 3)
+	b = AppendStringField(b, m.Format, 4)
+	b = AppendBytesField(b, m.Blob, 5)
+	return b
+}
+
+func DecodeClusterAssetBlob(b []byte) (*ClusterAssetBlob, error) {
+	var m ClusterAssetBlob
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.AssetID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.Format, err = ConsumeString(b, typ)
+		case 5:
+			b, m.Blob, err = ConsumeBytesCopy(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ClusterSecretsRequest struct {
+	Keys []string
+}
+
+func (m *ClusterSecretsRequest) Encode() []byte {
+	var b []byte
+	b = AppendRepeated(b, m.Keys, AppendFieldDecorator(AppendStringField, 1))
+	return b
+}
+
+func DecodeClusterSecretsRequest(b []byte) (*ClusterSecretsRequest, error) {
+	var m ClusterSecretsRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Keys = append(m.Keys, item)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ClusterSecretValue struct {
+	Key   string
+	Value []byte
+}
+
+func (m *ClusterSecretValue) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	b = AppendBytesField(b, m.Value, 2)
+	return b
+}
+
+func DecodeClusterSecretValue(b []byte) (*ClusterSecretValue, error) {
+	var m ClusterSecretValue
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Value, err = ConsumeBytesCopy(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ClusterSecretsResponse struct {
+	Items []*ClusterSecretValue
+}
+
+func (m *ClusterSecretsResponse) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeClusterSecretsResponse(b []byte) (*ClusterSecretsResponse, error) {
+	var m ClusterSecretsResponse
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterSecretValue
+				item, err = DecodeClusterSecretValue(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ClusterConfigsRequest struct {
+	Keys []string
+}
+
+func (m *ClusterConfigsRequest) Encode() []byte {
+	var b []byte
+	b = AppendRepeated(b, m.Keys, AppendFieldDecorator(AppendStringField, 1))
+	return b
+}
+
+func DecodeClusterConfigsRequest(b []byte) (*ClusterConfigsRequest, error) {
+	var m ClusterConfigsRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Keys = append(m.Keys, item)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ClusterConfigValue struct {
+	Key   string
+	Value string
+}
+
+func (m *ClusterConfigValue) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	b = AppendStringField(b, m.Value, 2)
+	return b
+}
+
+func DecodeClusterConfigValue(b []byte) (*ClusterConfigValue, error) {
+	var m ClusterConfigValue
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Value, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ClusterConfigsResponse struct {
+	Items []*ClusterConfigValue
+}
+
+func (m *ClusterConfigsResponse) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeClusterConfigsResponse(b []byte) (*ClusterConfigsResponse, error) {
+	var m ClusterConfigsResponse
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterConfigValue
+				item, err = DecodeClusterConfigValue(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type SecretValue struct {
 	Key string
 }
@@ -1387,6 +1715,278 @@ func DecodeUserConfigDeleteRequest(b []byte) (*UserConfigDeleteRequest, error) {
 	return &m, nil
 }
 
+type AssetMeta struct {
+	Key       string
+	CreatedAt time.Time
+	Version   int32
+	Format    string
+	Location  string
+	SizeBytes int32
+	ID        int32
+}
+
+func (m *AssetMeta) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	b = AppendInt64FromTime(b, m.CreatedAt, 2)
+	b = AppendInt32Field(b, m.Version, 3)
+	b = AppendStringField(b, m.Format, 4)
+	b = AppendStringField(b, m.Location, 5)
+	b = AppendInt32Field(b, m.SizeBytes, 6)
+	b = AppendInt32Field(b, m.ID, 7)
+	return b
+}
+
+func DecodeAssetMeta(b []byte) (*AssetMeta, error) {
+	var m AssetMeta
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 2:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.Format, err = ConsumeString(b, typ)
+		case 5:
+			b, m.Location, err = ConsumeString(b, typ)
+		case 6:
+			b, m.SizeBytes, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type Asset struct {
+	Key       string
+	CreatedAt time.Time
+	Version   int32
+	Format    string
+	Location  string
+	Blob      []byte
+	ID        int32
+}
+
+func (m *Asset) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	b = AppendInt64FromTime(b, m.CreatedAt, 2)
+	b = AppendInt32Field(b, m.Version, 3)
+	b = AppendStringField(b, m.Format, 4)
+	b = AppendStringField(b, m.Location, 5)
+	b = AppendBytesField(b, m.Blob, 6)
+	b = AppendInt32Field(b, m.ID, 7)
+	return b
+}
+
+func DecodeAsset(b []byte) (*Asset, error) {
+	var m Asset
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 2:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.Format, err = ConsumeString(b, typ)
+		case 5:
+			b, m.Location, err = ConsumeString(b, typ)
+		case 6:
+			b, m.Blob, err = ConsumeBytesCopy(b, typ)
+		case 7:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type AssetList struct {
+	Items []*AssetMeta
+}
+
+func (m *AssetList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 1, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeAssetList(b []byte) (*AssetList, error) {
+	var m AssetList
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AssetMeta
+				item, err = DecodeAssetMeta(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type AssetGetRequest struct {
+	Key     string
+	Version int32
+}
+
+func (m *AssetGetRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	b = AppendInt32Field(b, m.Version, 2)
+	return b
+}
+
+func DecodeAssetGetRequest(b []byte) (*AssetGetRequest, error) {
+	var m AssetGetRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type AssetSetRequest struct {
+	Key    string
+	Format string
+	Blob   []byte
+}
+
+func (m *AssetSetRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	b = AppendStringField(b, m.Format, 2)
+	b = AppendBytesField(b, m.Blob, 3)
+	return b
+}
+
+func DecodeAssetSetRequest(b []byte) (*AssetSetRequest, error) {
+	var m AssetSetRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Format, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Blob, err = ConsumeBytesCopy(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type AssetDeleteRequest struct {
+	Key string
+}
+
+func (m *AssetDeleteRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	return b
+}
+
+func DecodeAssetDeleteRequest(b []byte) (*AssetDeleteRequest, error) {
+	var m AssetDeleteRequest
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type NixBuildConfig struct {
 	Repo             string
 	Flake            string
@@ -1844,6 +2444,55 @@ func DecodeContainerMount(b []byte) (*ContainerMount, error) {
 	return &m, nil
 }
 
+type ContainerAssetMount struct {
+	Asset   string
+	Version int32
+	Path    string
+	Format  string
+	AssetID int32
+}
+
+func (m *ContainerAssetMount) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Asset, 1)
+	b = AppendInt32Field(b, m.Version, 2)
+	b = AppendStringField(b, m.Path, 3)
+	b = AppendStringField(b, m.Format, 4)
+	b = AppendInt32Field(b, m.AssetID, 5)
+	return b
+}
+
+func DecodeContainerAssetMount(b []byte) (*ContainerAssetMount, error) {
+	var m ContainerAssetMount
+	var num protowire.Number
+	var typ protowire.Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Asset, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.Path, err = ConsumeString(b, typ)
+		case 4:
+			b, m.Format, err = ConsumeString(b, typ)
+		case 5:
+			b, m.AssetID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type ContainerRunnerConfig struct {
 	User              string
 	Env               []*EnvVar
@@ -1852,6 +2501,7 @@ type ContainerRunnerConfig struct {
 	DataMountPath     string
 	DisableDataVolume bool
 	Mounts            []*ContainerMount
+	AssetMounts       []*ContainerAssetMount
 }
 
 func (m ContainerRunnerConfig) IsZero() bool {
@@ -1861,7 +2511,8 @@ func (m ContainerRunnerConfig) IsZero() bool {
 		m.WorkingDir == "" &&
 		m.DataMountPath == "" &&
 		m.DisableDataVolume == false &&
-		len(m.Mounts) == 0
+		len(m.Mounts) == 0 &&
+		len(m.AssetMounts) == 0
 }
 
 func (m *ContainerRunnerConfig) Encode() []byte {
@@ -1883,6 +2534,13 @@ func (m *ContainerRunnerConfig) Encode() []byte {
 			continue
 		}
 		b = protowire.AppendTag(b, 7, protowire.BytesType)
+		b = protowire.AppendBytes(b, item.Encode())
+	}
+	for _, item := range m.AssetMounts {
+		if item == nil {
+			continue
+		}
+		b = protowire.AppendTag(b, 8, protowire.BytesType)
 		b = protowire.AppendBytes(b, item.Encode())
 	}
 	return b
@@ -1930,6 +2588,15 @@ func DecodeContainerRunnerConfig(b []byte) (*ContainerRunnerConfig, error) {
 				item, err = DecodeContainerMount(msgBytes)
 				if err == nil {
 					m.Mounts = append(m.Mounts, item)
+				}
+			}
+		case 8:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ContainerAssetMount
+				item, err = DecodeContainerAssetMount(msgBytes)
+				if err == nil {
+					m.AssetMounts = append(m.AssetMounts, item)
 				}
 			}
 		default:

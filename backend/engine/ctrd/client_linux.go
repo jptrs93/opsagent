@@ -5,6 +5,7 @@ package ctrd
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"syscall"
 	"time"
@@ -121,7 +122,11 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 
 	var mounts []specs.Mount
 	for _, m := range spec.Mounts {
-		opts := []string{"rbind"}
+		bindOpt := "rbind"
+		if st, err := os.Stat(m.Source); err == nil && !st.IsDir() {
+			bindOpt = "bind"
+		}
+		opts := []string{bindOpt}
 		if m.ReadOnly {
 			opts = append(opts, "ro")
 		} else {

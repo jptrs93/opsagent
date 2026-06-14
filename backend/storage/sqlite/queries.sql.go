@@ -68,6 +68,15 @@ func (q *Queries) CreateDeploymentConfig(ctx context.Context, arg CreateDeployme
 	return i, err
 }
 
+const deleteAsset = `-- name: DeleteAsset :exec
+DELETE FROM assets WHERE key = ?
+`
+
+func (q *Queries) DeleteAsset(ctx context.Context, key string) error {
+	_, err := q.db.ExecContext(ctx, deleteAsset, key)
+	return err
+}
+
 const deleteSecret = `-- name: DeleteSecret :exec
 DELETE FROM secrets WHERE name = ?
 `
@@ -84,6 +93,58 @@ DELETE FROM user_configs WHERE name = ?
 func (q *Queries) DeleteUserConfig(ctx context.Context, name string) error {
 	_, err := q.db.ExecContext(ctx, deleteUserConfig, name)
 	return err
+}
+
+const getAssetByIDVersion = `-- name: GetAssetByIDVersion :one
+SELECT id, key, created_at, version, format, location, blob
+FROM assets
+WHERE id = ? AND version = ?
+`
+
+type GetAssetByIDVersionParams struct {
+	ID      int64
+	Version int64
+}
+
+func (q *Queries) GetAssetByIDVersion(ctx context.Context, arg GetAssetByIDVersionParams) (Asset, error) {
+	row := q.db.QueryRowContext(ctx, getAssetByIDVersion, arg.ID, arg.Version)
+	var i Asset
+	err := row.Scan(
+		&i.ID,
+		&i.Key,
+		&i.CreatedAt,
+		&i.Version,
+		&i.Format,
+		&i.Location,
+		&i.Blob,
+	)
+	return i, err
+}
+
+const getAssetVersion = `-- name: GetAssetVersion :one
+SELECT id, key, created_at, version, format, location, blob
+FROM assets
+WHERE key = ? AND version = ?
+`
+
+type GetAssetVersionParams struct {
+	Key     string
+	Version int64
+}
+
+func (q *Queries) GetAssetVersion(ctx context.Context, arg GetAssetVersionParams) (Asset, error) {
+	row := q.db.QueryRowContext(ctx, getAssetVersion, arg.Key, arg.Version)
+	var i Asset
+	err := row.Scan(
+		&i.ID,
+		&i.Key,
+		&i.CreatedAt,
+		&i.Version,
+		&i.Format,
+		&i.Location,
+		&i.Blob,
+	)
+	return i, err
 }
 
 const getConfigHistoryDesiredVersion = `-- name: GetConfigHistoryDesiredVersion :one
@@ -142,6 +203,42 @@ func (q *Queries) GetDeploymentConfig(ctx context.Context, deploymentID int64) (
 		&i.Deleted,
 	)
 	return i, err
+}
+
+const getLatestAsset = `-- name: GetLatestAsset :one
+SELECT id, key, created_at, version, format, location, blob
+FROM assets
+WHERE key = ?
+ORDER BY version DESC
+LIMIT 1
+`
+
+func (q *Queries) GetLatestAsset(ctx context.Context, key string) (Asset, error) {
+	row := q.db.QueryRowContext(ctx, getLatestAsset, key)
+	var i Asset
+	err := row.Scan(
+		&i.ID,
+		&i.Key,
+		&i.CreatedAt,
+		&i.Version,
+		&i.Format,
+		&i.Location,
+		&i.Blob,
+	)
+	return i, err
+}
+
+const getNextAssetVersion = `-- name: GetNextAssetVersion :one
+SELECT COALESCE(MAX(version), 0) + 1
+FROM assets
+WHERE key = ?
+`
+
+func (q *Queries) GetNextAssetVersion(ctx context.Context, key string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getNextAssetVersion, key)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const getPublicKey = `-- name: GetPublicKey :one
@@ -207,6 +304,43 @@ func (q *Queries) GetUserConfig(ctx context.Context, name string) (UserConfig, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.UpdatedBy,
+	)
+	return i, err
+}
+
+const insertAsset = `-- name: InsertAsset :one
+INSERT INTO assets (key, created_at, version, format, location, blob)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id, key, created_at, version, format, location, blob
+`
+
+type InsertAssetParams struct {
+	Key       string
+	CreatedAt int64
+	Version   int64
+	Format    string
+	Location  string
+	Blob      []byte
+}
+
+func (q *Queries) InsertAsset(ctx context.Context, arg InsertAssetParams) (Asset, error) {
+	row := q.db.QueryRowContext(ctx, insertAsset,
+		arg.Key,
+		arg.CreatedAt,
+		arg.Version,
+		arg.Format,
+		arg.Location,
+		arg.Blob,
+	)
+	var i Asset
+	err := row.Scan(
+		&i.ID,
+		&i.Key,
+		&i.CreatedAt,
+		&i.Version,
+		&i.Format,
+		&i.Location,
+		&i.Blob,
 	)
 	return i, err
 }
@@ -535,6 +669,60 @@ func (q *Queries) ListDeploymentStatusHistorySince(ctx context.Context, arg List
 			&i.RunnerStatus,
 			&i.RunnerNumRestarts,
 			&i.RunnerLastRestartAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLatestAssets = `-- name: ListLatestAssets :many
+
+SELECT a.id, a.key, a.created_at, a.version, a.format, a.location, length(a.blob) AS size_bytes
+FROM assets a
+JOIN (
+    SELECT key, MAX(version) AS version
+    FROM assets
+    GROUP BY key
+) latest ON latest.key = a.key AND latest.version = a.version
+ORDER BY a.key
+`
+
+type ListLatestAssetsRow struct {
+	ID        int64
+	Key       string
+	CreatedAt int64
+	Version   int64
+	Format    string
+	Location  string
+	SizeBytes sql.NullInt64
+}
+
+// === assets ===
+func (q *Queries) ListLatestAssets(ctx context.Context) ([]ListLatestAssetsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listLatestAssets)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLatestAssetsRow
+	for rows.Next() {
+		var i ListLatestAssetsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Key,
+			&i.CreatedAt,
+			&i.Version,
+			&i.Format,
+			&i.Location,
+			&i.SizeBytes,
 		); err != nil {
 			return nil, err
 		}

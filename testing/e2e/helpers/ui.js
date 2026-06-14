@@ -76,7 +76,6 @@ export async function createNixDockerDeployment(page, {
     validateRequests.stop();
   }
 
-  await expect(dialog.getByText('Runs the prepared image with the container runner.')).toBeVisible();
   await setDeploymentEnvVars(dialog, env);
   await byTestId(dialog, 'create-deployment-submit', dialog.getByRole('button', {name: 'Create'})).click();
 

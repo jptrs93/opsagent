@@ -187,6 +187,48 @@ ON CONFLICT(name) DO UPDATE SET
 -- name: DeleteUserConfig :exec
 DELETE FROM user_configs WHERE name = ?;
 
+-- === assets ===
+
+-- name: ListLatestAssets :many
+SELECT a.id, a.key, a.created_at, a.version, a.format, a.location, length(a.blob) AS size_bytes
+FROM assets a
+JOIN (
+    SELECT key, MAX(version) AS version
+    FROM assets
+    GROUP BY key
+) latest ON latest.key = a.key AND latest.version = a.version
+ORDER BY a.key;
+
+-- name: GetLatestAsset :one
+SELECT id, key, created_at, version, format, location, blob
+FROM assets
+WHERE key = ?
+ORDER BY version DESC
+LIMIT 1;
+
+-- name: GetAssetVersion :one
+SELECT id, key, created_at, version, format, location, blob
+FROM assets
+WHERE key = ? AND version = ?;
+
+-- name: GetAssetByIDVersion :one
+SELECT id, key, created_at, version, format, location, blob
+FROM assets
+WHERE id = ? AND version = ?;
+
+-- name: GetNextAssetVersion :one
+SELECT COALESCE(MAX(version), 0) + 1
+FROM assets
+WHERE key = ?;
+
+-- name: InsertAsset :one
+INSERT INTO assets (key, created_at, version, format, location, blob)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id, key, created_at, version, format, location, blob;
+
+-- name: DeleteAsset :exec
+DELETE FROM assets WHERE key = ?;
+
 -- === secret_keyslots ===
 
 -- name: ListSecretKeyslots :many

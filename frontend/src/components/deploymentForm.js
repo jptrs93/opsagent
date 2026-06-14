@@ -14,6 +14,9 @@ const RUNNER_CONTAINER = 'container';
 
 let nextDatalistID = 1;
 let nextEnvID = 1;
+let nextAssetMountID = 1;
+
+const CREATE_ASSET_OPTION = "Create new asset";
 
 export function emptyDeploymentForm() {
     return makeFormState({
@@ -35,6 +38,7 @@ export function emptyDeploymentForm() {
         osStrategy: '',
         systemdName: '',
         systemdBinPath: '',
+        assetMounts: [],
     });
 }
 
@@ -77,6 +81,7 @@ export function deploymentConfigToForm(cfg) {
         systemdName: systemd.name || '',
         systemdBinPath: systemd.binPath || '',
         envVars: ((imagePrepare ? container.env : os.env) || []).map(e => ({id: nextEnvID++, key: e.key || '', value: e.value || ''})),
+        assetMounts: (container.assetMounts || []).map(m => ({id: nextAssetMountID++, assetId: m.assetId || 0, key: m.asset || '', path: m.path || '', version: m.version || 0})),
         showSourceOpts,
         showExecOpts,
     });
@@ -167,12 +172,11 @@ export function deploymentForm(form, opts = {}) {
             () => form.runnerType.val === RUNNER_CONTAINER
                 ? div(
                     {class: "flex flex-col gap-3"},
-                    p({class: "text-xs text-gray-500"}, "Runs the prepared image with the container runner. Edit YAML for command, mounts, or data volume options."),
                     envSummary(form),
+                    assetMountsSection(form, opts),
                 )
                 : div(
                     {class: "flex flex-col gap-3"},
-                    p({class: "text-xs text-gray-500"}, "Runs with sensible defaults."),
                     optionsDisclosure(form.showExecOpts, () => execOptions(form)),
                 ),
         ),
@@ -226,6 +230,8 @@ export function formToYaml(form) {
         };
         const env = formEnvVars(form);
         if (env.length) obj.runner.container.env = env;
+        const assetMounts = formAssetMounts(form);
+        if (assetMounts.length) obj.runner.container.assetMounts = assetMounts;
     } else {
         obj.runner.osProcess = {
             workingDir: form.osWorkingDir.val.trim(),
@@ -255,6 +261,7 @@ export function isFormValid(form, opts = {}) {
     if (runnerType === RUNNER_SYSTEMD) {
         return Boolean(form.systemdName.val.trim() && form.systemdBinPath.val.trim());
     }
+    if (runnerType === RUNNER_CONTAINER && hasInvalidAssetMounts(form)) return false;
     return true;
 }
 
@@ -397,12 +404,20 @@ function makeFormState(values) {
         systemdName: van.state(values.systemdName),
         systemdBinPath: van.state(values.systemdBinPath),
         envVars: van.state(values.envVars || []),
+        assetMounts: van.state(values.assetMounts || []),
         showSourceOpts: van.state(Boolean(values.showSourceOpts)),
         showExecOpts: van.state(Boolean(values.showExecOpts)),
         identityLockNotice: van.state(false),
         identityLockNoticeTimer: null,
         // Whether the environment-variables editor pane is open in the overlay.
         envPaneOpen: van.state(false),
+        assetMountsOpen: van.state(false),
+        assetEditorOpen: van.state(false),
+        assetEditorMountID: van.state(0),
+        assetEditorError: van.state(''),
+        assetEditorKey: van.state(''),
+        assetEditorFormat: van.state('text'),
+        assetEditorContent: van.state(''),
         // Transient repo-accessibility check; tracks the repo/source it applies
         // to so a stale result is hidden once the inputs change.
         repoCheck: van.state({status: 'idle', message: '', repo: '', sourceType: '', sourceKey: ''}),
@@ -608,7 +623,7 @@ function execOptions(form) {
 // editor pane (rendered at the overlay level via envVarsPane).
 function envSummary(form) {
     return div(
-        {class: "flex items-center justify-between gap-3 border-t border-gray-700 pt-3"},
+        {class: "flex items-center justify-between gap-3"},
         span({class: "text-xs text-gray-400"}, () => {
             const n = envVarCount(form.envVars.val);
             return n === 0 ? "No environment variables" : `${n} environment variable${n === 1 ? '' : 's'}`;
@@ -617,8 +632,189 @@ function envSummary(form) {
             "data-testid": "deployment-env-vars-toggle",
             type: "button",
             class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
-            onclick: () => { form.envPaneOpen.val = !form.envPaneOpen.val; },
+            onclick: () => {
+                form.envPaneOpen.val = !form.envPaneOpen.val;
+                if (form.envPaneOpen.val) form.assetEditorOpen.val = false;
+            },
         }, () => form.envPaneOpen.val ? "Close" : "View / edit"),
+    );
+}
+
+function assetMountsSection(form, opts = {}) {
+    const datalistID = `deployment-assets-${nextDatalistID++}`;
+    const assets = opts.assets || [];
+    const enableAssetEditor = Boolean(opts.enableAssetEditor);
+    const addMount = () => {
+        const row = {id: nextAssetMountID++, assetId: 0, key: '', path: '', version: 0};
+        form.assetMounts.val = [...(form.assetMounts.val || []), row];
+        form.assetMountsOpen.val = true;
+        return row;
+    };
+    const updateMount = (row, patch) => {
+        form.assetMounts.val = form.assetMounts.val.map(m => m.id === row.id ? {...m, ...patch} : m);
+    };
+    const removeMount = (row) => {
+        form.assetMounts.val = form.assetMounts.val.filter(m => m.id !== row.id);
+    };
+    const openAssetEditor = (row) => {
+        form.assetEditorMountID.val = row.id;
+        form.assetEditorKey.val = row.key || '';
+        form.assetEditorFormat.val = 'text';
+        form.assetEditorContent.val = '';
+        form.assetEditorError.val = '';
+        form.assetEditorOpen.val = true;
+        form.envPaneOpen.val = false;
+    };
+    const onKeyInput = (row, value) => {
+        if (enableAssetEditor && value === CREATE_ASSET_OPTION) {
+            updateMount(row, {key: '', version: 0});
+            openAssetEditor(row);
+            return;
+        }
+        const match = assets.find(a => a.key === value);
+        updateMount(row, {key: value, assetId: match?.id || 0, version: match?.version || 0});
+    };
+
+    const rows = () => form.assetMounts.val || [];
+    const validRows = () => rows().filter(m => m && (m.key || m.path));
+    return div(
+        {class: "flex flex-col gap-2 pt-1"},
+        datalist(
+            {id: datalistID},
+            ...assets.map(a => option({value: a.key}, `${a.key} v${a.version}`)),
+            enableAssetEditor ? option({value: CREATE_ASSET_OPTION}, CREATE_ASSET_OPTION) : '',
+        ),
+        div(
+            {class: "flex items-center justify-between gap-3"},
+            span({class: "text-xs text-gray-400"}, () => {
+                const n = validRows().filter(m => m.key && m.path).length;
+                return n === 0 ? "No mounted assets" : `${n} mounted asset${n === 1 ? '' : 's'}`;
+            }),
+            button({
+                type: "button",
+                class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
+                onclick: () => {
+                    if (rows().length === 0) {
+                        addMount();
+                        form.assetMountsOpen.val = true;
+                    } else {
+                        form.assetMountsOpen.val = !form.assetMountsOpen.val;
+                    }
+                },
+            }, () => form.assetMountsOpen.val ? "Close" : (validRows().length ? "Edit mounts" : "Click to mount assets")),
+        ),
+        div(
+            {class: () => form.assetMountsOpen.val ? "flex flex-col gap-2" : "hidden"},
+            () => rows().map(row => div(
+                {class: "grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 items-center"},
+                input({
+                    class: textInputClass(true),
+                    list: datalistID,
+                    placeholder: "Asset key",
+                    value: row.key,
+                    oninput: e => onKeyInput(row, e.target.value),
+                }),
+                input({
+                    class: textInputClass(true),
+                    placeholder: "/etc/nginx/nginx.conf",
+                    value: row.path,
+                    oninput: e => updateMount(row, {path: e.target.value}),
+                }),
+                button({
+                    type: "button",
+                    class: "text-xs text-gray-500 hover:text-red-400 cursor-pointer px-2",
+                    onclick: () => removeMount(row),
+                }, "Remove"),
+            )),
+            div({class: "flex items-center justify-between gap-2"},
+                button({
+                    type: "button",
+                    class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
+                    onclick: addMount,
+                }, "Add mount"),
+                enableAssetEditor ? button({
+                    type: "button",
+                    class: "text-xs text-gray-400 hover:text-gray-200 cursor-pointer",
+                    onclick: () => openAssetEditor(addMount()),
+                }, "Create new asset") : '',
+            ),
+        ),
+    );
+}
+
+export function assetEditorPane(form, opts = {}) {
+    const save = async () => {
+        const key = form.assetEditorKey.val.trim();
+        if (!key) {
+            form.assetEditorError.val = 'Asset key is required';
+            return;
+        }
+        try {
+            form.assetEditorError.val = '';
+            const asset = await capi.postV1AssetsSet({
+                key,
+                format: form.assetEditorFormat.val.trim() || 'text',
+                blob: new TextEncoder().encode(form.assetEditorContent.val),
+            });
+            if (opts.onSaved) await opts.onSaved(asset);
+            const mountID = form.assetEditorMountID.val;
+            if (mountID) {
+                form.assetMounts.val = form.assetMounts.val.map(m => m.id === mountID
+                    ? {...m, assetId: asset.id, key: asset.key, version: asset.version}
+                    : m);
+            } else if (!form.assetMounts.val.some(m => m.key === asset.key)) {
+                form.assetMounts.val = [...form.assetMounts.val, {id: nextAssetMountID++, assetId: asset.id, key: asset.key, version: asset.version, path: ''}];
+                form.assetMountsOpen.val = true;
+            }
+            form.assetEditorOpen.val = false;
+        } catch (e) {
+            form.assetEditorError.val = e.message || 'Failed to save asset';
+        }
+    };
+    return div(
+        {class: () => form.assetEditorOpen.val
+            ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
+            : "hidden"},
+        div(
+            {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
+            h3({class: "text-sm font-semibold text-gray-200"}, "Create asset"),
+            button({
+                type: "button",
+                class: "text-gray-500 hover:text-gray-200 cursor-pointer",
+                title: "Close",
+                onclick: () => { form.assetEditorOpen.val = false; },
+            }, X({size: 16})),
+        ),
+        div(
+            {class: "flex-1 min-h-0 flex flex-col gap-3 p-4"},
+            () => form.assetEditorError.val ? p({class: "text-xs text-red-400"}, form.assetEditorError.val) : '',
+            field("Key", input({
+                class: textInputClass(true),
+                placeholder: "nginx.conf",
+                value: form.assetEditorKey,
+                oninput: e => { form.assetEditorKey.val = e.target.value; },
+            })),
+            field("Format", input({
+                class: textInputClass(true),
+                placeholder: "text",
+                value: form.assetEditorFormat,
+                oninput: e => { form.assetEditorFormat.val = e.target.value; },
+            })),
+            textarea({
+                class: "flex-1 min-h-0 w-full resize-none rounded-lg bg-gray-800 text-gray-100 border border-gray-600 px-3 py-2 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand",
+                spellcheck: "false",
+                placeholder: "Paste config file contents here",
+                value: form.assetEditorContent,
+                oninput: e => { form.assetEditorContent.val = e.target.value; },
+            }),
+            div({class: "flex justify-end"},
+                button({
+                    type: "button",
+                    class: "btn-primary text-sm py-1.5 px-4 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
+                    disabled: () => !form.assetEditorKey.val.trim(),
+                    onclick: save,
+                }, "Save asset")),
+        ),
     );
 }
 
@@ -667,6 +863,21 @@ function formEnvVars(form) {
     return form.envVars.val
         .map(v => ({key: v.key.trim(), value: v.value}))
         .filter(v => v.key);
+}
+
+function formAssetMounts(form) {
+    return (form.assetMounts.val || [])
+        .map(m => ({asset: (m.key || '').trim(), version: m.version || 0, path: (m.path || '').trim()}))
+        .filter(m => m.asset && m.path);
+}
+
+function hasInvalidAssetMounts(form) {
+    return (form.assetMounts.val || []).some(m => {
+        const key = (m.key || '').trim();
+        const path = (m.path || '').trim();
+        if (!key && !path) return false;
+        return !key || !path || !path.startsWith('/') || path.endsWith('/') || path.includes('/../') || path.includes('/./') || path === '/';
+    });
 }
 
 function envVarsToText(arr) {

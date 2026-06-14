@@ -78,6 +78,10 @@ func (b *NixDockerBuilder) runBuild(ctx context.Context, store storage.OperatorS
 		writeLog("ERROR containers are not supported on this platform (linux + containerd required)")
 		return "", apigen.PreparationStatus_FAILED
 	}
+	if err := EnsureRuntimeInputsReady(ctx, dep); err != nil {
+		writeLog("ERROR preparing runtime inputs: %v", err)
+		return "", apigen.PreparationStatus_FAILED
+	}
 
 	nix := dep.Spec.Prepare.NixDockerBuild
 	repoDir := filepath.Join(b.dataDir, "repos", nix.Repo)

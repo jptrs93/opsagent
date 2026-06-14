@@ -177,7 +177,7 @@ func startPrimaryCluster(h *handler.Handler, material *cluster.Material, cfg ain
 	tlsCfg := certu.MustLoadTLSConfigFromPEM(material.CACert, material.PrimaryCert, material.PrimaryKey)
 
 	githubCredentials := credentials.StaticGithubCredentialsProvider{Token: cfg.GithubToken}
-	p := primary.New(h.Store, githubCredentials)
+	p := primary.New(h.Store, githubCredentials, h.Secrets)
 	h.ClusterPrimary = p
 
 	// The cluster transport is a separate mTLS HTTP/2-only listener, distinct

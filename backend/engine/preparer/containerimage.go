@@ -73,6 +73,10 @@ func (p *ContainerImagePuller) runPull(ctx context.Context, store storage.Operat
 		fmt.Fprintf(logFile, "containers are not supported on this platform (linux + containerd required)\n")
 		return "", apigen.PreparationStatus_FAILED
 	}
+	if err := EnsureRuntimeInputsReady(ctx, dep); err != nil {
+		fmt.Fprintf(logFile, "Runtime input preparation failed: %v\n", err)
+		return "", apigen.PreparationStatus_FAILED
+	}
 
 	resolved, err := p.client.Pull(ctx, ref)
 	if err != nil {

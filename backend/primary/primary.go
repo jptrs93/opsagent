@@ -19,6 +19,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine/credentials"
+	"github.com/jptrs93/opsagent/backend/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
@@ -52,6 +53,7 @@ func machineFromContext(ctx context.Context) string {
 type Primary struct {
 	store             *sqlite.PrimaryStorage
 	githubCredentials credentials.GithubCredentialsProvider
+	secrets           *secrets.Manager
 
 	mu          sync.RWMutex
 	sessions    map[string]*Session  // machine name → session
@@ -61,10 +63,11 @@ type Primary struct {
 
 // New creates a Primary. The mTLS HTTP/2 listener that drives it is created by
 // the caller, which mounts CreateOpsagentClusterV1Mux(p, ...) on a server.
-func New(store *sqlite.PrimaryStorage, githubCredentials credentials.GithubCredentialsProvider) *Primary {
+func New(store *sqlite.PrimaryStorage, githubCredentials credentials.GithubCredentialsProvider, secretsMgr *secrets.Manager) *Primary {
 	return &Primary{
 		store:             store,
 		githubCredentials: credentials.OrEmpty(githubCredentials),
+		secrets:           secretsMgr,
 		sessions:          make(map[string]*Session),
 		connectedAt:       make(map[string]time.Time),
 		machineSubs:       &pubsubu.PubSub[apigen.ClusterMachine]{},
@@ -77,6 +80,46 @@ func (p *Primary) GetV1ClusterGithubCredentials(authCtx apigen.Context) (*apigen
 		return nil, err
 	}
 	return &apigen.GithubCredentials{Token: creds.Token}, nil
+}
+
+func (p *Primary) GetV1ClusterAsset(authCtx apigen.Context, req *apigen.ClusterAssetRequest) (*apigen.ClusterAssetBlob, error) {
+	if req == nil || req.AssetID == 0 || req.Version == 0 {
+		return nil, fmt.Errorf("asset_id and version are required")
+	}
+	return p.store.FetchAsset(authCtx, req.AssetID, req.Version)
+}
+
+func (p *Primary) GetV1ClusterSecrets(authCtx apigen.Context, req *apigen.ClusterSecretsRequest) (*apigen.ClusterSecretsResponse, error) {
+	if p.secrets == nil {
+		return nil, fmt.Errorf("secrets manager is not configured")
+	}
+	if req == nil || len(req.Keys) == 0 {
+		return nil, fmt.Errorf("at least one secret key is required")
+	}
+	values, err := p.secrets.ResolveMany(req.Keys)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]*apigen.ClusterSecretValue, 0, len(values))
+	for key, value := range values {
+		items = append(items, &apigen.ClusterSecretValue{Key: key, Value: []byte(value)})
+	}
+	return &apigen.ClusterSecretsResponse{Items: items}, nil
+}
+
+func (p *Primary) GetV1ClusterConfigs(authCtx apigen.Context, req *apigen.ClusterConfigsRequest) (*apigen.ClusterConfigsResponse, error) {
+	if req == nil || len(req.Keys) == 0 {
+		return nil, fmt.Errorf("at least one config key is required")
+	}
+	values, err := p.store.ResolveConfigs(req.Keys)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]*apigen.ClusterConfigValue, 0, len(values))
+	for key, value := range values {
+		items = append(items, &apigen.ClusterConfigValue{Key: key, Value: value})
+	}
+	return &apigen.ClusterConfigsResponse{Items: items}, nil
 }
 
 // PostV1ClusterConnect handles one worker's bidirectional stream for its full

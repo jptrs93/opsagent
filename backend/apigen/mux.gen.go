@@ -101,6 +101,10 @@ type OpsagentHttpV1Handler interface {
 	PostV1UserConfigsList(Context, *EmptyRequest) (*UserConfigList, error)
 	PostV1UserConfigsSet(Context, *UserConfigSetRequest) (*UserConfig, error)
 	PostV1UserConfigsDelete(Context, *UserConfigDeleteRequest) error
+	PostV1AssetsList(Context, *EmptyRequest) (*AssetList, error)
+	PostV1AssetsGet(Context, *AssetGetRequest) (*Asset, error)
+	PostV1AssetsSet(Context, *AssetSetRequest) (*Asset, error)
+	PostV1AssetsDelete(Context, *AssetDeleteRequest) error
 	PostV1EnrollmentList(Context) (*EnrollmentRequestList, error)
 	PostV1EnrollmentAccept(Context, *EnrollmentAcceptRequest) (*EnrollmentRequestStatus, error)
 }
@@ -474,6 +478,54 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/user/configs/delete", buildHandlerFunc(config, verifyAuth, postV1UserConfigsDeleteAccessPolicy, postAuthHandlerPostV1UserConfigsDelete, compressionModeAuto, false))
+	postV1AssetsListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AssetsList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AssetsList(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/assets/list", buildHandlerFunc(config, verifyAuth, postV1AssetsListAccessPolicy, postAuthHandlerPostV1AssetsList, compressionModeAuto, false))
+	postV1AssetsGetAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AssetsGet := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetGetRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AssetsGet(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/assets/get", buildHandlerFunc(config, verifyAuth, postV1AssetsGetAccessPolicy, postAuthHandlerPostV1AssetsGet, compressionModeAuto, false))
+	postV1AssetsSetAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AssetsSet := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetSetRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AssetsSet(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/assets/set", buildHandlerFunc(config, verifyAuth, postV1AssetsSetAccessPolicy, postAuthHandlerPostV1AssetsSet, compressionModeAuto, false))
+	postV1AssetsDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AssetsDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetDeleteRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1AssetsDelete(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/assets/delete", buildHandlerFunc(config, verifyAuth, postV1AssetsDeleteAccessPolicy, postAuthHandlerPostV1AssetsDelete, compressionModeAuto, false))
 	postV1EnrollmentListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1EnrollmentList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		res, err := h.PostV1EnrollmentList(authCtx)
@@ -496,6 +548,9 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 
 type OpsagentClusterV1Handler interface {
 	GetV1ClusterGithubCredentials(Context) (*GithubCredentials, error)
+	GetV1ClusterAsset(Context, *ClusterAssetRequest) (*ClusterAssetBlob, error)
+	GetV1ClusterSecrets(Context, *ClusterSecretsRequest) (*ClusterSecretsResponse, error)
+	GetV1ClusterConfigs(Context, *ClusterConfigsRequest) (*ClusterConfigsResponse, error)
 	PostV1ClusterConnect(Context, iter.Seq2[*MsgToMaster, error]) iter.Seq2[*MsgToWorker, error]
 }
 
@@ -517,6 +572,39 @@ func CreateOpsagentClusterV1Mux(h OpsagentClusterV1Handler, config *MuxConfig) *
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("GET /v1/cluster/github-credentials", buildHandlerFunc(config, verifyAuth, getV1ClusterGithubCredentialsAccessPolicy, postAuthHandlerGetV1ClusterGithubCredentials, compressionModeAuto, false))
+	getV1ClusterAssetAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerGetV1ClusterAsset := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeClusterAssetRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.GetV1ClusterAsset(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("GET /v1/cluster/asset", buildHandlerFunc(config, verifyAuth, getV1ClusterAssetAccessPolicy, postAuthHandlerGetV1ClusterAsset, compressionModeAuto, false))
+	getV1ClusterSecretsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerGetV1ClusterSecrets := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeClusterSecretsRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.GetV1ClusterSecrets(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("GET /v1/cluster/secrets", buildHandlerFunc(config, verifyAuth, getV1ClusterSecretsAccessPolicy, postAuthHandlerGetV1ClusterSecrets, compressionModeAuto, false))
+	getV1ClusterConfigsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerGetV1ClusterConfigs := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeClusterConfigsRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.GetV1ClusterConfigs(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("GET /v1/cluster/configs", buildHandlerFunc(config, verifyAuth, getV1ClusterConfigsAccessPolicy, postAuthHandlerGetV1ClusterConfigs, compressionModeAuto, false))
 	postV1ClusterConnectAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
 	postAuthHandlerPostV1ClusterConnect := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		sr := NewStreamReader(r.Body, config.MaxRequestBodySize)

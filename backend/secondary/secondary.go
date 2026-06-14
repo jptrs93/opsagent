@@ -47,7 +47,8 @@ func (o *outbox) Send(msg *apigen.MsgToMaster) bool {
 func Run(cfg Config) {
 	store := sqlite.NewSecondaryStorage(filepath.Join(cfg.DataDir, "secondary.db"))
 	primaryHTTPClient := newPrimaryHTTPClient(cfg.TLS, cfg.PrimaryName)
-	githubCredentials := NewPrimaryGithubCredentialsProvider("https://"+cfg.PrimaryClusterAddr, primaryHTTPClient)
+	primaryURL := "https://" + cfg.PrimaryClusterAddr
+	githubCredentials := NewPrimaryGithubCredentialsProvider(primaryURL, primaryHTTPClient)
 
 	preparer.Nix = preparer.NewNixBuilder(cfg.DataDir, githubCredentials)
 	preparer.GHRel = preparer.NewGithubReleaseDownloader(cfg.DataDir, githubCredentials)
@@ -55,6 +56,13 @@ func Run(cfg Config) {
 	ctrdClient := ctrd.Connect(ainit.StaticConfig.ContainerdAddress, ainit.StaticConfig.ContainerdNamespace)
 	preparer.NixDocker = preparer.NewNixDockerBuilder(cfg.DataDir, githubCredentials, ctrdClient)
 	preparer.ContainerImg = preparer.NewContainerImagePuller(ctrdClient)
+	preparer.Assets = NewPrimaryAssetProvider(primaryURL, primaryHTTPClient)
+	secretProvider := NewPrimarySecretProvider(primaryURL, primaryHTTPClient)
+	preparer.Secrets = secretProvider
+	runner.Secrets = secretProvider
+	configProvider := NewPrimaryConfigProvider(primaryURL, primaryHTTPClient)
+	preparer.Configs = configProvider
+	runner.Configs = configProvider
 	runner.Containerd = ctrdClient
 
 	go engine.DeploymentOperator{Store: store}.RunAll(cfg.MachineName)

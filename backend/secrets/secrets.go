@@ -220,6 +220,37 @@ func (m *Manager) Resolve(name string) (string, bool) {
 	return string(pt), true
 }
 
+// ResolveMany decrypts the requested user secrets as one batch. It is used by
+// deployment preparation so workers can fetch all referenced secrets in a
+// single cluster request and keep plaintext only in memory for runner startup.
+func (m *Manager) ResolveMany(names []string) (map[string]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.smk == nil {
+		return nil, ErrLocked
+	}
+	out := make(map[string]string, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, fmt.Errorf("secret name is required")
+		}
+		if _, ok := out[name]; ok {
+			continue
+		}
+		rec, ok := m.cache[name]
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
+		}
+		pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD("user", name))
+		if err != nil {
+			return nil, fmt.Errorf("decrypting secret %q: %w", name, err)
+		}
+		out[name] = string(pt)
+	}
+	return out, nil
+}
+
 func (m *Manager) HasSecret(name string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

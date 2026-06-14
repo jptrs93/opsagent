@@ -17,6 +17,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine/ctrd"
+	"github.com/jptrs93/opsagent/backend/engine/preparer"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
@@ -358,6 +359,13 @@ func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd.Mount, string) {
 			continue
 		}
 		mounts = append(mounts, ctrd.Mount{Source: m.Host, Dest: m.Container, ReadOnly: m.Readonly})
+	}
+	for _, m := range cfg.AssetMounts {
+		if m == nil {
+			continue
+		}
+		hostPath := preparer.AssetCachePath(m.AssetID, m.Version)
+		mounts = append(mounts, ctrd.Mount{Source: hostPath, Dest: m.Path, ReadOnly: true})
 	}
 	return mounts, dataHost
 }

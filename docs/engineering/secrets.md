@@ -4,9 +4,10 @@
 
 The secrets store lets operators save encrypted key/value pairs and reference
 them from a deployment's environment as `${s:name}` (e.g.
-`DB_PASS=${s:staging.db.password}`). Values are decrypted at process spawn time,
-on the node that runs the deployment, and never appear in stored config, the UI
-state stream, the cluster replication feed, or logs.
+`DB_PASS=${s:staging.db.password}`). Values are decrypted during deployment
+preparation, cached in memory on the node that runs the deployment, and expanded
+at process spawn time. They never appear in stored config, the UI state stream,
+the cluster replication feed, or logs.
 
 A signed-in operator can also decrypt a single value on demand via the explicit
 `PostV1SecretsReveal` endpoint (surfaced as the per-row "Reveal" button in the
@@ -24,8 +25,13 @@ Key files:
 - `backend/storage/sqlite/secrets_store.go` — `secrets.Store` on the primary
   `StorageAdapter` (DB passthrough for the `secret_keyslots`, `secrets`, and
   `system_secrets` tables).
+- `backend/engine/preparer/secrets.go` — finds `${s:name}` references and fetches
+  all needed secrets as one preparation batch.
+- `backend/engine/secretdist/secretdist.go` — primary-side prepared secret cache.
+- `backend/secondary/secrets.go` — secondary-side mTLS batch fetcher and in-memory
+  cache.
 - `backend/engine/runner/secrets.go` — `SecretResolver` and `${s:name}` expansion
-  at spawn time.
+  from the prepared in-memory cache at spawn time.
 - `backend/handler/secrets.go` — the CRUD / status / recovery endpoints.
 - `frontend/src/pages/secrets.js` — the Secrets page.
 
@@ -86,16 +92,26 @@ without either the on-box machine KEK or the recovery code.
   re-establishes a fresh machine slot via the provider so subsequent boots are
   unattended again.
 
-## Spawn-time resolution
+## Prepare-time distribution and spawn-time expansion
 
-`${s:name}` placeholders are expanded in env output at spawn time
-(`backend/engine/runner/secrets.go`), not at config time. This keeps resolved
-values out of stored config, replication, and logs (spawnDaemon logs env keys
-only), and means a rotated secret is picked up on the next restart. Plain
-`user_configs` values use `${c:name}` and are not encrypted at rest. `$$`
-escapes a literal `$`. Unknown references, locked secrets, or no resolver on the
-node are **fail-closed** spawn errors, surfaced in the run output via
-`writeSpawnError`.
+`${s:name}` placeholders are discovered during deployment preparation
+(`backend/engine/preparer/secrets.go`). `${c:name}` user config placeholders are
+discovered the same way. The preparer requests all referenced secret keys as one
+batch through `SecretProvider.FetchSecrets` and all referenced config keys as one
+batch through `ConfigProvider.FetchConfigs`; this is the same prepare-time
+readiness boundary used for asset materialization.
+
+On the primary, the provider decrypts from `secrets.Manager` and stores the
+plaintext values in an in-memory runner cache. On a secondary, the provider calls
+the primary over the mTLS cluster endpoint `GET /v1/cluster/secrets` with a
+`ClusterSecretsRequest{keys}` payload, then stores the returned plaintext values
+in an internal in-memory cache. Secrets are never written to `secondary.db`.
+
+At process spawn time (`backend/engine/runner/secrets.go`), `${s:name}` and
+`${c:name}` are expanded from prepared in-memory caches. Plain `user_configs`
+values are not encrypted at rest. `$$` escapes a literal `$`. Unknown
+references, locked secrets, missing primary connectivity during prepare, or no
+resolver on the node are **fail-closed** errors.
 
 ## The `machineKeyProvider` boundary
 
@@ -117,20 +133,12 @@ data dir).
 
 ---
 
-## Phase 2 (planned): secret distribution to secondaries
+## Secondary secret distribution
 
-Today a deployment that runs **on a secondary** and references `${...}` fails
-closed, because the secondary has no resolver. Phase 2 adds in-memory
-distribution:
-
-- Add `MsgToWorker.SecretsBundle{deployment_id, version, [{key, value}]}` to the
-  cluster protocol.
-- On the primary, when a deployment's config or a referenced secret changes,
-  compute that deployment's secret references, decrypt them, and push the bundle
-  over the existing mTLS feeder (`backend/primary/session.go`).
-- On the secondary, set `runner.Secrets` to an **in-memory** resolver backed by
-  the received bundles. Secrets are **never written to `secondary.db`** and are
-  dropped when the version is retired.
+Deployments running on a secondary can reference `${s:name}`. The secondary does
+not receive the encrypted secrets table or SMK; it fetches only the plaintext
+keys needed by the deployment currently being prepared, over the cluster mTLS
+listener, and keeps them in process memory only.
 
 Tradeoff: a secondary cannot cold-start a deployment while the primary is
 unreachable. If that resilience is needed, an at-rest cache wrapped by a

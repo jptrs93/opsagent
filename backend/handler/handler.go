@@ -14,10 +14,12 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/config"
 	"github.com/jptrs93/opsagent/backend/engine"
+	"github.com/jptrs93/opsagent/backend/engine/configdist"
 	"github.com/jptrs93/opsagent/backend/engine/credentials"
 	"github.com/jptrs93/opsagent/backend/engine/ctrd"
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
 	"github.com/jptrs93/opsagent/backend/engine/runner"
+	"github.com/jptrs93/opsagent/backend/engine/secretdist"
 	"github.com/jptrs93/opsagent/backend/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/primary"
 	"github.com/jptrs93/opsagent/backend/secrets"
@@ -35,8 +37,8 @@ type Handler struct {
 	ConfigService *config.Service
 	Config        ainit.DynamicConfiguration
 
-	// Secrets is the primary-only encrypted secrets store. It resolves
-	// ${s:name} env placeholders at deployment spawn time.
+	// Secrets is the primary-only encrypted secrets store. Deployment preparation
+	// decrypts referenced ${s:name} values into an in-memory runner cache.
 	Secrets *secrets.Manager
 
 	// MachineName identifies this node when deciding whether a log request
@@ -105,15 +107,19 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	ctrdClient := ctrd.Connect(ainit.StaticConfig.ContainerdAddress, ainit.StaticConfig.ContainerdNamespace)
 	preparer.NixDocker = preparer.NewNixDockerBuilder(ainit.StaticConfig.DataDir, githubCredentials, ctrdClient)
 	preparer.ContainerImg = preparer.NewContainerImagePuller(ctrdClient)
+	preparer.Assets = store
+	secretProvider := secretdist.NewPrimaryProvider(secretsMgr)
+	preparer.Secrets = secretProvider
+	configProvider := configdist.NewPrimaryProvider(store)
+	preparer.Configs = configProvider
 	runner.Containerd = ctrdClient
 
 	versionprovider.Git = versionprovider.NewGitVersionProvider(preparer.Nix.Git)
 	versionprovider.GHRel = versionprovider.NewGithubReleaseVersionProvider(githubCredentials)
 
-	// Wire the primary-only stores as runner resolvers so ${s:name} and
-	// ${c:name} env placeholders resolve at spawn time.
-	runner.Secrets = secretsMgr
-	runner.Configs = store
+	// Wire prepared in-memory secrets/configs for env expansion.
+	runner.Secrets = secretProvider
+	runner.Configs = configProvider
 
 	h := &Handler{
 		staticFS:           staticFS,

@@ -8,6 +8,16 @@ import (
 	"database/sql"
 )
 
+type Asset struct {
+	ID        int64
+	Key       string
+	CreatedAt int64
+	Version   int64
+	Format    string
+	Location  string
+	Blob      []byte
+}
+
 type DeploymentConfig struct {
 	DeploymentID   int64
 	Environment    string

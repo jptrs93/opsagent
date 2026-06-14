@@ -276,9 +276,9 @@ exit replaces process exit. The full crash/backoff machinery
   root-owned containerd snapshot paths when creating container tasks.
 - **`user`** maps to OCI `process.user`; with no user namespace the in-container
   uid equals the host uid, so volume file ownership matches `runAs` semantics.
-- **Refs/env**: `${s:name}` secret and `${c:name}` config placeholders resolve
-  at start via the same `resolveEnv` resolver as `osProcess`, then into the
-  container's env.
+- **Refs/env**: `${s:name}` secret and `${c:name}` config placeholders are
+  prepared in batches and cached in memory, then resolved at start via the same
+  `resolveEnv` resolver as `osProcess` into the container's env.
 - **Reattach**: `ctrd.LoadTask` reconnects to a still-running container by id and
   re-establishes `Wait()`; logging is already owned by the running task's
   containerd `file://` log URI, so no OpenDeploy-side IO reattach is needed. If

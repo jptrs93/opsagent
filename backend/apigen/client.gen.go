@@ -690,6 +690,78 @@ func (c *OpsagentHttpV1Capi) PostV1UserConfigsDelete(ctx context.Context, req *U
 	return nil
 }
 
+func (c *OpsagentHttpV1Capi) PostV1AssetsList(ctx context.Context, req *EmptyRequest) (*AssetList, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AssetsList request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/assets/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAssetList(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1AssetsGet(ctx context.Context, req *AssetGetRequest) (*Asset, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AssetsGet request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/assets/get", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAsset(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1AssetsSet(ctx context.Context, req *AssetSetRequest) (*Asset, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AssetsSet request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/assets/set", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAsset(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1AssetsDelete(ctx context.Context, req *AssetDeleteRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1AssetsDelete request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/assets/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
 func (c *OpsagentHttpV1Capi) PostV1EnrollmentList(ctx context.Context) (*EnrollmentRequestList, error) {
 	resp, err := c.do(ctx, "POST", "/v1/enrollment/list", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
@@ -808,6 +880,63 @@ func (c *OpsagentClusterV1Capi) GetV1ClusterGithubCredentials(ctx context.Contex
 		return nil, err
 	}
 	return DecodeGithubCredentials(body)
+}
+
+func (c *OpsagentClusterV1Capi) GetV1ClusterAsset(ctx context.Context, req *ClusterAssetRequest) (*ClusterAssetBlob, error) {
+	if req == nil {
+		return nil, fmt.Errorf("GetV1ClusterAsset request is nil")
+	}
+	resp, err := c.do(ctx, "GET", "/v1/cluster/asset", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeClusterAssetBlob(body)
+}
+
+func (c *OpsagentClusterV1Capi) GetV1ClusterSecrets(ctx context.Context, req *ClusterSecretsRequest) (*ClusterSecretsResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("GetV1ClusterSecrets request is nil")
+	}
+	resp, err := c.do(ctx, "GET", "/v1/cluster/secrets", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeClusterSecretsResponse(body)
+}
+
+func (c *OpsagentClusterV1Capi) GetV1ClusterConfigs(ctx context.Context, req *ClusterConfigsRequest) (*ClusterConfigsResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("GetV1ClusterConfigs request is nil")
+	}
+	resp, err := c.do(ctx, "GET", "/v1/cluster/configs", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeClusterConfigsResponse(body)
 }
 
 func (c *OpsagentClusterV1Capi) PostV1ClusterConnect(ctx context.Context, reqs iter.Seq2[*MsgToMaster, error]) iter.Seq2[*MsgToWorker, error] {
