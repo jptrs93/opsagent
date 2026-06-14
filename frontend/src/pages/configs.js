@@ -1,7 +1,7 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 
-const { div, h2, p, input, button, table, thead, tbody, tr, th, td, code } = van.tags;
+const { div, p, input, button, table, thead, tbody, tr, th, td, code } = van.tags;
 const { svg, path, line } = van.tags("http://www.w3.org/2000/svg");
 
 const svgBase = {
@@ -147,16 +147,15 @@ export function configsPage() {
     const configsTable = () => div(
         {class: "card flex flex-col gap-3"},
         div({class: "flex items-center justify-between"},
-            h2({class: "text-base font-semibold"}, "Configs"),
+            p({class: "text-xs text-gray-400"},
+                "Reference a config from a deployment's env value as ",
+                code({class: "font-mono text-gray-300"}, "${c:name}"), "."),
             button({
                 type: "button",
                 class: "flex items-center gap-1 text-sm px-3 py-1.5 rounded-lg bg-gray-700 " +
                     "text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer",
                 onclick: addRow,
             }, plusIcon(), "Add config")),
-        p({class: "text-xs text-gray-400"},
-            "Reference a config from a deployment's env value as ",
-            code({class: "font-mono text-gray-300"}, "${c:name}"), "."),
         () => {
             if (rows.val === null) return p({class: "text-gray-400 text-sm"}, "Loading...");
             if (rows.val.length === 0) {

@@ -44,23 +44,26 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
     return tr(
         {class: "border-b border-gray-800 last:border-0 hover:bg-gray-800/60 transition-colors", "data-testid": `deployment-row-${deployment.name || deployment.id}`},
         td(
-            {class: "py-3 pl-4 pr-3 align-top min-w-32"},
-            div({class: "font-medium text-sm text-white break-words"}, deployment.name || `#${deployment.id}`),
-            button({
-                class: "text-xs text-gray-500 hover:text-gray-300 underline cursor-pointer p-0",
-                onclick: () => onShowHistory(deployment),
-                type: "button",
-            }, "history"),
+            {class: "py-3 pl-4 pr-3 align-middle min-w-32"},
+            div(
+                {class: "inline-flex items-baseline gap-2 max-w-full"},
+                span({class: "font-medium text-sm text-white break-words"}, deployment.name || `#${deployment.id}`),
+                button({
+                    class: "shrink-0 text-xs text-gray-500 hover:text-gray-300 underline cursor-pointer p-0",
+                    onclick: () => onShowHistory(deployment),
+                    type: "button",
+                }, "history"),
+            ),
         ),
-        showEnvironment ? td({class: "py-3 px-3 align-top text-sm text-gray-300 whitespace-nowrap"}, deployment.environment || '-') : null,
-        td({class: "py-3 px-3 align-top text-sm text-gray-300 break-words"}, deployment.machine || '-'),
+        showEnvironment ? td({class: "py-3 px-3 align-middle text-sm text-gray-300 whitespace-nowrap"}, deployment.environment || '-') : '',
+        td({class: "py-3 px-3 align-middle text-sm text-gray-300 break-words"}, deployment.machine || '-'),
         td(
-            {class: "py-3 px-3 align-top whitespace-nowrap"},
+            {class: "py-3 px-3 align-middle whitespace-nowrap"},
             statusBadge(hasExisting, existingColors, () => onShowRunOutput(deployment)),
         ),
-        td({class: "py-3 px-3 align-top text-sm whitespace-nowrap"}, versionLink(deployment)),
+        td({class: "py-3 px-3 align-middle text-sm whitespace-nowrap"}, versionLink(deployment)),
         td(
-            {class: "py-3 px-3 align-top text-sm break-words"},
+            {class: "py-3 px-3 align-middle text-sm break-words"},
             prepareCopy
                 ? a({
                     class: `underline hover:text-white cursor-pointer ${prepareCopy.class}`,
@@ -69,19 +72,25 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
                 : span({class: "text-gray-500"}, '-'),
         ),
         td(
-            {class: "py-3 px-3 align-top text-sm text-gray-300 whitespace-nowrap"},
-            div(deployment.numberOfRestarts),
-            div({class: "text-xs text-gray-500"}, formatMaybeDate(deployment.lastRestartAt, 'n/a')),
+            {class: "py-3 px-3 align-middle text-sm text-gray-300 whitespace-nowrap"},
+            div(
+                {class: "inline-flex items-baseline gap-2"},
+                span(deployment.numberOfRestarts),
+                span({class: "text-xs text-gray-500"}, formatMaybeDate(deployment.lastRestartAt, 'n/a')),
+            ),
         ),
         td(
-            {class: "py-3 px-3 align-top text-sm text-gray-300"},
-            div({class: "break-words"}, () => resolveUserDisplayName(deployment.deployedBy) || 'unknown'),
-            div({class: "text-xs text-gray-500 whitespace-nowrap"}, formatMaybeDate(deployment.deployedAt, 'unknown')),
+            {class: "py-3 px-3 align-middle text-sm text-gray-300 break-words"},
+            () => resolveUserDisplayName(deployment.deployedBy) || 'unknown',
         ),
         td(
-            {class: "py-3 pl-3 pr-4 align-top text-right whitespace-nowrap"},
+            {class: "py-3 px-3 align-middle text-sm text-gray-500 whitespace-nowrap"},
+            formatMaybeDate(deployment.deployedAt, 'unknown'),
+        ),
+        td(
+            {class: "py-3 pl-3 pr-4 align-middle text-right whitespace-nowrap"},
             button({
-                class: "btn-secondary text-xs py-1.5 px-3 cursor-pointer",
+                class: "btn-secondary text-xs leading-none py-0.5 px-2.5 cursor-pointer",
                 onclick: () => onUpdate(deployment),
                 type: "button",
             }, "Update"),

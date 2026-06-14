@@ -62,7 +62,8 @@ const headerTips = {
     version: 'Currently running commit or GitHub release tag. Orange when it differs from the desired version.',
     prepare: 'Latest prepare/build/download result. Click to view prepare logs.',
     restarts: 'Runner restart count and last restart time for the current deployment version.',
-    deployed: 'User and timestamp of the latest deployment config change.',
+    deployedBy: 'User who made the latest deployment config change.',
+    deployedAt: 'Timestamp of the latest deployment config change.',
     actions: 'Open the update overlay to deploy, start, or stop this deployment.',
 };
 
@@ -214,7 +215,8 @@ export function statusPage() {
                 tableHeader("Running Version", headerTips.version, "py-3 px-3 font-medium"),
                 tableHeader("Prepare", headerTips.prepare, "py-3 px-3 font-medium"),
                 tableHeader("Restarts", headerTips.restarts, "py-3 px-3 font-medium"),
-                tableHeader("Deployed", headerTips.deployed, "py-3 px-3 font-medium"),
+                tableHeader("Deployed by", headerTips.deployedBy, "py-3 px-3 font-medium"),
+                tableHeader("Deployed at", headerTips.deployedAt, "py-3 px-3 font-medium"),
                 tableHeader("Actions", headerTips.actions, "py-3 pl-3 pr-4 font-medium text-right", true),
             ),
         ),

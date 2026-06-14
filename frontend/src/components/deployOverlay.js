@@ -74,9 +74,10 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         try {
             if (internalGithubRelease) {
                 const result = await capi.postV1DeploymentVersions({deploymentId: deployment.id, scope: scope || ''});
+                const selected = selectedDeploymentVersionScope(result, scope);
                 scopes.val = result.scopes || [];
-                versions.val = result.versions || [];
-                selectedScope.val = result.scope || '';
+                versions.val = selected.versions;
+                selectedScope.val = selected.scope;
                 if (!versions.val.some(v => v.id === selectedVersion.val)) {
                     selectedVersion.val = versions.val[0]?.id || '';
                 }
@@ -400,6 +401,19 @@ function refreshButton(args) {
 function currentSourceID(form) {
     if (form.sourceType.val === 'containerImage') return form.containerImage.val.trim();
     return form.nixRepo.val.trim();
+}
+
+function selectedDeploymentVersionScope(result, requestedScope) {
+    const versionsByScope = result?.versionsByScope || {};
+    if (requestedScope && versionsByScope[requestedScope]) {
+        return {scope: requestedScope, versions: versionsByScope[requestedScope]?.versions || []};
+    }
+    if (versionsByScope['']) {
+        return {scope: '', versions: versionsByScope['']?.versions || []};
+    }
+    const scopes = result?.scopes || [];
+    const fallbackScope = scopes.includes('main') ? 'main' : (scopes[0] || Object.keys(versionsByScope)[0] || '');
+    return {scope: fallbackScope, versions: versionsByScope[fallbackScope]?.versions || []};
 }
 
 function selectClass() {

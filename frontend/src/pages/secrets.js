@@ -235,16 +235,15 @@ export function secretsPage() {
     const secretsTable = () => div(
         {class: "card flex flex-col gap-3"},
         div({class: "flex items-center justify-between"},
-            h2({class: "text-base font-semibold"}, "Secrets"),
+            p({class: "text-xs text-gray-400"},
+                "Reference a secret from a deployment's env value as ",
+                code({class: "font-mono text-gray-300"}, "${s:name}"), "."),
             button({
                 type: "button",
                 class: "flex items-center gap-1 text-sm px-3 py-1.5 rounded-lg bg-gray-700 " +
                     "text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer",
                 onclick: addRow,
             }, plusIcon(), "Add secret")),
-        p({class: "text-xs text-gray-400"},
-            "Reference a secret from a deployment's env value as ",
-            code({class: "font-mono text-gray-300"}, "${s:name}"), "."),
         () => {
             if (rows.val === null) return p({class: "text-gray-400 text-sm"}, "Loading...");
             if (rows.val.length === 0) {

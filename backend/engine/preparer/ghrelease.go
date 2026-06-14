@@ -254,7 +254,7 @@ func (g *GithubReleaseDownloader) prepareReleaseDir(ownerRepo, tag string) (stri
 		return "", err
 	}
 	for dir := dstDir; ; dir = filepath.Dir(dir) {
-		if err := os.Chmod(dir, 0o755); err != nil {
+		if err := ensureReleaseDirMode(dir); err != nil {
 			return "", err
 		}
 		if dir == base {
@@ -262,6 +262,20 @@ func (g *GithubReleaseDownloader) prepareReleaseDir(ownerRepo, tag string) (stri
 		}
 	}
 	return dstDir, nil
+}
+
+func ensureReleaseDirMode(dir string) error {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	// Existing release dirs may be root-owned from installer-driven upgrades.
+	// If they already have the required 0755 bits, avoid an unnecessary chmod
+	// that the unprivileged daemon cannot perform.
+	if info.Mode().Perm()&0o755 == 0o755 {
+		return nil
+	}
+	return os.Chmod(dir, 0o755)
 }
 
 // --- github api helpers ---

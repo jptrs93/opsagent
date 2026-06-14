@@ -1,7 +1,7 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 
-const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, textarea, code } = van.tags;
+const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, textarea } = van.tags;
 const { svg, path, line } = van.tags("http://www.w3.org/2000/svg");
 
 const encoder = new TextEncoder();
@@ -14,6 +14,7 @@ const svgBase = {
 };
 
 const plusIcon = () => svg(svgBase, line({x1: "12", y1: "5", x2: "12", y2: "19"}), line({x1: "5", y1: "12", x2: "19", y2: "12"}));
+const closeIcon = () => svg(svgBase, line({x1: "18", y1: "6", x2: "6", y2: "18"}), line({x1: "6", y1: "6", x2: "18", y2: "18"}));
 const trashIcon = () => svg(svgBase,
     path({d: "M3 6h18"}),
     path({d: "M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"}),
@@ -48,7 +49,6 @@ export function assetsPage() {
     const draftContent = van.state("");
     const draftVersion = van.state(0);
     const draftCreatedAt = van.state(null);
-    const requestedVersion = van.state("");
     const original = {key: "", format: "", content: "", version: 0};
 
     const setOriginal = (asset) => {
@@ -65,7 +65,6 @@ export function assetsPage() {
         draftContent.val = original.content;
         draftVersion.val = original.version;
         draftCreatedAt.val = asset.createdAt || null;
-        requestedVersion.val = original.version ? String(original.version) : "";
     };
 
     const clearDraft = () => {
@@ -79,7 +78,6 @@ export function assetsPage() {
         draftContent.val = "";
         draftVersion.val = 0;
         draftCreatedAt.val = null;
-        requestedVersion.val = "";
     };
 
     const isDirty = () => draftKey.val.trim() !== original.key
@@ -151,13 +149,6 @@ export function assetsPage() {
         }
     };
 
-    const loadRequestedVersion = async () => {
-        const key = draftKey.val.trim();
-        if (!key) return;
-        const n = Number.parseInt(requestedVersion.val, 10);
-        await loadAsset(key, Number.isFinite(n) && n > 0 ? n : 0);
-    };
-
     const filteredRows = () => {
         if (!rows.val) return rows.val;
         const query = search.val.trim().toLowerCase();
@@ -168,25 +159,17 @@ export function assetsPage() {
     };
 
     const listPanel = () => div(
-        {class: "card flex flex-col gap-3 min-w-0 lg:w-[28rem]"},
+        {class: "card flex-1 flex flex-col gap-3 min-w-0 min-h-0"},
         div({class: "flex items-center justify-between gap-3"},
-            h2({class: "text-base font-semibold"}, "Assets"),
+            p({class: "text-xs text-gray-400"},
+                "Assets are immutable config files for future read-only container mounts. Saving creates a new version."),
             button({
                 type: "button",
                 class: "flex items-center gap-1 text-sm px-3 py-1.5 rounded-lg bg-gray-700 " +
                     "text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer",
                 onclick: addAsset,
             }, plusIcon(), "Add asset")),
-        p({class: "text-xs text-gray-400"},
-            "Assets are immutable config files for future read-only container mounts. Saving creates a new version."),
-        input({
-            class: "text-input w-full",
-            type: "search",
-            placeholder: "Search assets",
-            value: search,
-            oninput: (e) => search.val = e.target.value,
-        }),
-        () => {
+        div({class: "flex-1 min-h-0 overflow-auto"}, () => {
             if (rows.val === null) return p({class: "text-gray-400 text-sm"}, "Loading...");
             const visibleRows = filteredRows();
             if (rows.val.length === 0) return p({class: "text-gray-400 text-sm"}, "No assets yet. Click Add asset.");
@@ -217,18 +200,25 @@ export function assetsPage() {
                         }, trashIcon())),
                 ))),
             );
-        },
+        }),
     );
 
     const editorPanel = () => div(
-        {class: "card flex-1 min-w-0 flex flex-col gap-4"},
+        {class: "card flex-1 min-w-0 min-h-0 self-stretch flex flex-col gap-4"},
         div({class: "flex items-start justify-between gap-3"},
             div({class: "min-w-0"},
                 h2({class: "text-base font-semibold"}, () => draftVersion.val ? `Editing ${draftKey.val}` : "New asset"),
-                p({class: "text-xs text-gray-400"}, () => draftVersion.val
-                    ? `Version ${draftVersion.val} created ${fmtDate(draftCreatedAt.val)}. Saving creates version ${draftVersion.val + 1}.`
-                    : "Create an inline text asset up to 10 MiB.")),
-            span({class: "text-xs text-gray-500 whitespace-nowrap"}, () => loadingAsset.val ? "Loading..." : "")),
+                () => draftVersion.val
+                    ? p({class: "text-xs text-gray-400"}, `Version ${draftVersion.val} created ${fmtDate(draftCreatedAt.val)}. Saving creates version ${draftVersion.val + 1}.`)
+                    : ""),
+            div({class: "flex items-center gap-2"},
+                span({class: "text-xs text-gray-500 whitespace-nowrap"}, () => loadingAsset.val ? "Loading..." : ""),
+                button({
+                    type: "button",
+                    title: "Close editor",
+                    class: "p-1.5 rounded text-gray-400 hover:text-gray-100 hover:bg-surface transition-colors cursor-pointer",
+                    onclick: clearDraft,
+                }, closeIcon()))),
         div({class: "grid grid-cols-1 md:grid-cols-[1fr_12rem] gap-3"},
             labelField("Key", input({
                 class: "text-input font-mono",
@@ -242,17 +232,8 @@ export function assetsPage() {
                 value: draftFormat,
                 oninput: (e) => draftFormat.val = e.target.value,
             }))),
-        div({class: "flex items-end gap-2"},
-            labelField("Load version", input({
-                class: "text-input font-mono w-28",
-                placeholder: "latest",
-                value: requestedVersion,
-                oninput: (e) => requestedVersion.val = e.target.value,
-            })),
-            smallBtn("Load", loadRequestedVersion, "bg-gray-700 text-gray-200 hover:bg-gray-600",
-                () => !draftKey.val.trim())),
         textarea({
-            class: "text-input font-mono text-sm min-h-[28rem] resize-y leading-relaxed",
+            class: "text-input font-mono text-sm flex-1 min-h-0 resize-none leading-relaxed",
             spellcheck: "false",
             placeholder: "Paste config file contents here",
             value: draftContent,
@@ -275,10 +256,27 @@ export function assetsPage() {
         ),
     );
 
+    const filterCard = () => div(
+        {class: "card"},
+        input({
+            class: "text-input w-full",
+            type: "search",
+            placeholder: "Search assets",
+            value: search,
+            oninput: (e) => search.val = e.target.value,
+        }),
+    );
+
+    const leftPane = () => div(
+        {class: () => `flex flex-col gap-3 min-w-0 min-h-0 ${selected.val === null ? "flex-1" : "lg:w-[28rem]"}`},
+        filterCard,
+        listPanel,
+    );
+
     return div(
-        {class: "flex-1 min-h-0 overflow-auto p-6 flex flex-col gap-3"},
+        {class: "h-full min-h-0 overflow-hidden p-6 flex flex-col gap-3"},
         () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : "",
-        div({class: "flex flex-col lg:flex-row gap-3 min-h-0"}, listPanel, editorPanel),
+        div({class: "flex-1 flex flex-col lg:flex-row gap-3 min-h-0"}, leftPane, () => selected.val === null ? "" : editorPanel()),
     );
 }
 

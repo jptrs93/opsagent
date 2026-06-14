@@ -215,7 +215,7 @@ func runUpgrade(version, arch string, st *staged, opts installOptions) error {
 	}
 
 	dst := releaseBinPath(version, arch)
-	if err := ensureDir(filepath.Dir(dst), 0o755, own); err != nil {
+	if err := ensureReleaseArtifactDir(version, arch, own); err != nil {
 		return err
 	}
 	if err := installBinary(st.agentBin, dst, 0o755, own); err != nil {
@@ -288,7 +288,7 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 	// install staged binary into its versioned dir + symlink
 	step("Installing binary")
 	dst := releaseBinPath(version, arch)
-	if err := ensureDir(filepath.Dir(dst), 0o755, own); err != nil {
+	if err := ensureReleaseArtifactDir(version, arch, own); err != nil {
 		return err
 	}
 	if err := installBinary(st.agentBin, dst, 0o755, own); err != nil {
@@ -351,6 +351,28 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 func ensureLogDirs(own owner) error {
 	for _, dir := range []string{buildLogsDir, runLogsDir} {
 		if err := ensureDir(dir, 0o750, own); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureReleaseArtifactDir(version, arch string, own owner) error {
+	dir := filepath.Dir(releaseBinPath(version, arch))
+	if err := ensureDir(releasesDir, 0o755, own); err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(releasesDir, dir)
+	if err != nil {
+		return err
+	}
+	current := releasesDir
+	for _, part := range strings.Split(rel, string(os.PathSeparator)) {
+		if part == "." || part == "" {
+			continue
+		}
+		current = filepath.Join(current, part)
+		if err := ensureDir(current, 0o755, own); err != nil {
 			return err
 		}
 	}
