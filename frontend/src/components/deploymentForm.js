@@ -18,7 +18,7 @@ export function emptyDeploymentForm() {
         name: '',
         environment: '',
         machine: '',
-        sourceType: SOURCE_NIX_DOCKER,
+        sourceType: SOURCE_DOCKER_IMAGE,
         nixRepo: '',
         nixFlake: '',
         containerImage: '',

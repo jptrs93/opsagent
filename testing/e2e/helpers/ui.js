@@ -43,6 +43,9 @@ export async function createNixDockerDeployment(page, {
     OPENDEPLOY_E2E_MESSAGE: 'hello-from-playwright',
     OPENDEPLOY_E2E_COLOR: 'blue',
   },
+  expectedEnv = env,
+  assetMount,
+  expectDefaultDockerImage = false,
 } = {}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
   await byTestId(page, 'add-deployment-button', page.getByRole('button', {name: 'Add deployment'})).click();
@@ -52,7 +55,11 @@ export async function createNixDockerDeployment(page, {
 
   await byTestId(dialog, 'deployment-name-input', textField(dialog, 'Name')).fill(name);
   await byTestId(dialog, 'deployment-machine-select', selectField(dialog, 'Machine')).selectOption(machine);
-  await byTestId(dialog, 'deployment-source-type-select', selectField(dialog, 'Source type')).selectOption('nixDockerBuild');
+  const sourceTypeSelect = byTestId(dialog, 'deployment-source-type-select', selectField(dialog, 'Source type'));
+  if (expectDefaultDockerImage) {
+    await expect(sourceTypeSelect).toHaveValue('containerImage');
+  }
+  await sourceTypeSelect.selectOption('nixDockerBuild');
   const validateRequests = trackRepoValidateRequests(page);
   const repoInput = byTestId(dialog, 'deployment-repo-input', textField(dialog, 'Repository'));
   const flakeInput = byTestId(dialog, 'deployment-flake-input', textField(dialog, 'Path to flake.nix'));
@@ -77,6 +84,7 @@ export async function createNixDockerDeployment(page, {
   }
 
   await setDeploymentEnvVars(dialog, env);
+  if (assetMount) await setDeploymentAssetMount(dialog, assetMount);
   await byTestId(dialog, 'create-deployment-submit', dialog.getByRole('button', {name: 'Create'})).click();
 
   const row = byTestId(page, `deployment-row-${name}`, page.locator('tr').filter({hasText: name}).filter({hasText: machine}));
@@ -84,8 +92,57 @@ export async function createNixDockerDeployment(page, {
   await expect(row.getByText('Running', {exact: true})).toBeVisible({timeout: 180_000});
   await row.getByText('Running', {exact: true}).click();
   await expect(page.getByRole('heading', {name: new RegExp(`^Output: .*${name}`)})).toBeVisible();
-  await expect(page.getByText(`nixdockerbuild1 env OPENDEPLOY_E2E_MESSAGE=${env.OPENDEPLOY_E2E_MESSAGE}`)).toBeVisible({timeout: 30_000});
-  await expect(page.getByText(`nixdockerbuild1 env OPENDEPLOY_E2E_COLOR=${env.OPENDEPLOY_E2E_COLOR}`)).toBeVisible();
+  await expectOutputText(page, `nixdockerbuild1 env OPENDEPLOY_E2E_MESSAGE=${expectedEnv.OPENDEPLOY_E2E_MESSAGE}`);
+  await expectOutputText(page, `nixdockerbuild1 env OPENDEPLOY_E2E_COLOR=${expectedEnv.OPENDEPLOY_E2E_COLOR}`);
+}
+
+export async function createConfig(page, {name, value, group = 'e2e'} = {}) {
+  await byTestId(page, 'nav-configs', page.getByText('Configs')).click();
+  await expect(page.getByRole('heading', {name: 'Configs'})).toBeVisible();
+  await page.getByRole('button', {name: 'Add config'}).click();
+
+  const row = page.locator('tbody tr').last();
+  await row.locator('input').nth(0).fill(name);
+  await row.locator('input').nth(1).fill(group);
+  await row.locator('input').nth(2).fill(value);
+  await row.getByRole('button', {name: 'Save'}).click();
+  await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(name))})).toBeVisible();
+}
+
+export async function createSecret(page, {name, value, group = 'e2e'} = {}) {
+  await byTestId(page, 'nav-secrets', page.getByText('Secrets')).click();
+  await expect(page.getByRole('heading', {name: 'Secrets'})).toBeVisible();
+  await page.getByRole('button', {name: 'Add secret'}).click();
+
+  const row = page.locator('tbody tr').last();
+  await row.locator('input').nth(0).fill(name);
+  await row.locator('input').nth(1).fill(group);
+  await row.locator('input').nth(2).fill(value);
+  await row.getByRole('button', {name: 'Save'}).click();
+  await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(name))})).toBeVisible();
+}
+
+export async function createAsset(page, {key, content, format = 'text'} = {}) {
+  await byTestId(page, 'nav-assets', page.getByText('Assets')).click();
+  await expect(page.getByRole('heading', {name: 'Assets'})).toBeVisible();
+  await page.getByRole('button', {name: 'Add asset'}).click();
+
+  await page.getByPlaceholder('nginx.conf').fill(key);
+  await page.getByPlaceholder('text').fill(format);
+  await page.getByPlaceholder('Paste config file contents here').fill(content);
+  await page.getByRole('button', {name: 'Save new version'}).click();
+  await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(key))})).toBeVisible();
+}
+
+export async function expectDeploymentOutput(page, name, expectedLines) {
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  const row = byTestId(page, `deployment-row-${name}`, page.locator('tr').filter({hasText: name}));
+  await expect(row.getByText('Running', {exact: true})).toBeVisible({timeout: 180_000});
+  await row.getByText('Running', {exact: true}).click();
+  await expect(page.getByRole('heading', {name: new RegExp(`^Output: .*${name}`)})).toBeVisible();
+  for (const line of expectedLines) {
+    await expectOutputText(page, line);
+  }
 }
 
 async function waitForOptionalPathValidation(dialog) {
@@ -109,6 +166,19 @@ async function setDeploymentEnvVars(dialog, env) {
   const text = entries.map(([key, value]) => `${key}=${value}`).join('\n');
   await dialog.getByTestId('deployment-env-vars-textarea').fill(text);
   await expect(dialog.getByText(`${entries.length} environment variables`)).toBeVisible();
+}
+
+async function setDeploymentAssetMount(dialog, {asset, path}) {
+  await dialog.getByRole('button', {name: 'Click to mount assets'}).click();
+  await expect(dialog.getByRole('heading', {name: 'Mounted assets'})).toBeVisible();
+  const pane = dialog.getByRole('heading', {name: 'Mounted assets'}).locator('xpath=ancestor::div[contains(@class, "border-l")][1]');
+  await field(pane, 'Asset').locator('select').selectOption(asset);
+  await field(pane, 'Container path').getByRole('textbox').fill(path);
+  await expect(dialog.getByText('1 mounted asset')).toBeVisible();
+}
+
+async function expectOutputText(page, text) {
+  await expect(page.getByText(text)).toBeVisible({timeout: 30_000});
 }
 
 function trackRepoValidateRequests(page) {
@@ -147,4 +217,8 @@ function textField(dialog, label) {
 
 function selectField(dialog, label) {
   return field(dialog, label).locator('select');
+}
+
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
