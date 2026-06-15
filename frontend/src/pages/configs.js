@@ -36,6 +36,8 @@ export function configsPage() {
     const error = van.state(null);
     const search = van.state("");
 
+    const errorBanner = () => error.val ? p({class: "text-red-400 text-sm"}, `Error: ${error.val}`) : "";
+
     const makeRow = (config) => {
         const isNew = !config;
         return {
@@ -145,7 +147,8 @@ export function configsPage() {
     );
 
     const configsTable = () => div(
-        {class: "card p-3 flex-1 min-h-0 flex flex-col gap-3"},
+        {class: "card h-full min-h-0 flex flex-col gap-3"},
+        errorBanner,
         div({class: "flex flex-wrap items-center justify-between gap-3"},
             p({class: "text-xs text-gray-400"},
                 "Reference a config from a deployment's env value as ",
@@ -188,8 +191,7 @@ export function configsPage() {
     );
 
     return div(
-        {class: "flex-1 min-h-0 overflow-hidden p-3 flex flex-col"},
-        () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : div(),
-        div({class: "flex-1 min-h-0 flex flex-col"}, configsTable),
+        {class: "h-full min-h-0 overflow-hidden p-3"},
+        configsTable,
     );
 }

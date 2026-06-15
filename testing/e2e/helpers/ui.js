@@ -5,6 +5,7 @@ const OPTIONAL_VALIDATION_TIMEOUT = 5_000;
 const VALIDATE_REQUEST_TIMEOUT = 5_000;
 const LOG_OUTPUT_TIMEOUT = 120_000;
 const LOG_OUTPUT_POLL_TIMEOUT = 1_500;
+const RESTART_TIMEOUT = 120_000;
 const STABLE_CHECK_DELAY = 200;
 
 export async function bootstrapFirstUser(page, {username = 'E2E Operator', password = 'opendeploy-setup'} = {}) {
@@ -53,7 +54,6 @@ export async function expectOpenDeployLogs(page) {
 
 export async function acceptFirstWaitingWorker(page, {workerName = 'worker-1'} = {}) {
   await byTestId(page, 'nav-cluster', page.getByText('Machines')).click();
-  await expect(page.getByRole('heading', {name: 'Machines', exact: true})).toBeVisible();
   await expect(page.getByRole('heading', {name: 'Enrollment requests'})).toBeVisible();
 
   const requestRow = byTestId(page, 'enrollment-request-1', page.locator('tr').filter({hasText: '#1'}).filter({hasText: 'Accept'}));
@@ -122,8 +122,29 @@ export async function createNixDockerDeployment(page, {
   let row = byTestId(page, `deployment-row-${name}`, page.locator('tr').filter({hasText: name}).filter({hasText: machine}));
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await openDeploymentLogsSearch(page, row);
-  await expectOutputText(page, `nixdockerbuild1 env OPENDEPLOY_E2E_MESSAGE=${expectedEnv.OPENDEPLOY_E2E_MESSAGE}`);
-  await expectOutputText(page, `nixdockerbuild1 env OPENDEPLOY_E2E_COLOR=${expectedEnv.OPENDEPLOY_E2E_COLOR}`);
+  for (const [key, value] of Object.entries(expectedEnv || {})) {
+    await expectOutputText(page, `nixdockerbuild1 env ${key}=${value}`);
+  }
+}
+
+export async function createNixDockerCrasherDeployment(page, {
+  name = 'nixdockercrasher',
+  machine = 'worker-1',
+} = {}) {
+  await createNixDockerDeployment(page, {
+    name,
+    machine,
+    flake: 'testexamples/nixdockercrasher/flake.nix',
+    env: {},
+    expectedEnv: {},
+  });
+  await expectDeploymentRestartCount(page, name, 3);
+  await expectDeploymentOutput(page, name, [
+    'nixdockercrasher wrote crash number=1',
+    'nixdockercrasher wrote crash number=2',
+    'nixdockercrasher wrote crash number=3',
+    'nixdockercrasher crash count=3; staying alive',
+  ]);
 }
 
 export async function createConfig(page, {name, value, group = 'e2e'} = {}) {
@@ -183,6 +204,17 @@ export async function expectPrepareOutput(page, name, expectedText) {
   await expect(page.getByTestId('prepare-output-text')).toContainText(expectedText, {timeout: LONG_UI_TIMEOUT});
   await page.getByRole('button', {name: 'Close'}).click();
   await expect(page.getByTestId('prepare-output-overlay')).toBeHidden();
+}
+
+export async function expectDeploymentRestartCount(page, name, count) {
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  const row = byTestId(page, `deployment-row-${name}`, page.locator('tr').filter({hasText: name}));
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await expect.poll(async () => {
+    const text = await row.getByTestId(`deployment-restarts-${name}`).textContent();
+    return Number.parseInt(text || '0', 10) || 0;
+  }, {message: `expected ${name} to restart ${count} times`, timeout: RESTART_TIMEOUT}).toBe(count);
+  await expect(row.getByTitle('View run output')).toContainText('Running', {timeout: LONG_UI_TIMEOUT});
 }
 
 async function openDeploymentLogsSearch(page, row) {

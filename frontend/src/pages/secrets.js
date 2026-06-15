@@ -46,6 +46,8 @@ export function secretsPage() {
     const error = van.state(null);
     const search = van.state("");
 
+    const errorBanner = () => error.val ? p({class: "text-red-400 text-sm"}, `Error: ${error.val}`) : "";
+
     // A rowModel mirrors one secret as an editable row. `orig` holds the
     // last-saved values for dirty detection; `orig.value` is meaningful only
     // once `loaded` is true (we fetch the plaintext lazily, on reveal/save).
@@ -178,8 +180,15 @@ export function secretsPage() {
 
     // --- sections ---
 
+    const loadingSection = () => div(
+        {class: "card h-full min-h-0"},
+        errorBanner,
+        p({class: "text-gray-400"}, "Loading..."),
+    );
+
     const lockedSection = () => div(
-        {class: "card flex flex-col gap-3 max-w-xl"},
+        {class: "card h-full min-h-0 flex flex-col gap-3 max-w-xl"},
+        errorBanner,
         h2({class: "text-lg font-semibold text-amber-400"}, "Secrets store is locked"),
         p({class: "text-sm text-gray-400"},
             "This machine has no local key to decrypt the secrets store (e.g. after restoring " +
@@ -235,7 +244,8 @@ export function secretsPage() {
     );
 
     const secretsTable = () => div(
-        {class: "card p-3 flex-1 min-h-0 flex flex-col gap-3"},
+        {class: "card h-full min-h-0 flex flex-col gap-3"},
+        errorBanner,
         div({class: "flex flex-wrap items-center justify-between gap-3"},
             p({class: "text-xs text-gray-400"},
                 "Reference a secret from a deployment's env value as ",
@@ -278,12 +288,11 @@ export function secretsPage() {
     );
 
     return div(
-        {class: "flex-1 min-h-0 overflow-hidden p-3 flex flex-col"},
-        () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : div(),
-        div({class: "flex-1 min-h-0 flex flex-col"}, () => {
-            if (status.val === null) return p({class: "text-gray-400"}, "Loading...");
+        {class: "h-full min-h-0 overflow-hidden p-3"},
+        () => {
+            if (status.val === null) return loadingSection();
             if (!status.val.unlocked) return lockedSection();
             return secretsTable();
-        }),
+        },
     );
 }

@@ -74,7 +74,10 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
                 : span({class: "text-gray-500"}, '-'),
         ),
         td(
-            {class: "py-3 px-3 align-middle text-sm text-gray-300 whitespace-nowrap"},
+            {
+                class: "py-3 px-3 align-middle text-sm text-gray-300 whitespace-nowrap",
+                "data-testid": `deployment-restarts-${deployment.name || deployment.id}`,
+            },
             div(
                 {class: "inline-flex items-baseline gap-2"},
                 span(deployment.numberOfRestarts),

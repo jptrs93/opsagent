@@ -4,6 +4,7 @@ import {
   acceptFirstWaitingWorker,
   bootstrapFirstUser,
   createAsset,
+  createNixDockerCrasherDeployment,
   createConfig,
   createNixDockerDeployment,
   createSecret,
@@ -57,4 +58,6 @@ test('bootstrap primary, enroll worker, and create Nix Docker deployment', async
     'nixdockerbuild1 asset file opendeploy-e2e-asset.txt',
     'nixdockerbuild1 asset content opendeploy-e2e-asset.txt=hello-from-asset-page',
   ]);
+
+  await createNixDockerCrasherDeployment(page);
 });
