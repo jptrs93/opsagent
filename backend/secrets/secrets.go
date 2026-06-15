@@ -251,11 +251,11 @@ func (m *Manager) ResolveMany(names []string) (map[string]string, error) {
 	return out, nil
 }
 
-func (m *Manager) HasSecret(name string) bool {
+func (m *Manager) HasSecret(name string) (bool, time.Time) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	_, ok := m.cache[name]
-	return ok
+	r, ok := m.cache[name]
+	return ok, time.Unix(r.UpdatedAt/1000, 0)
 }
 
 // Reveal returns the decrypted value of a single secret on explicit operator

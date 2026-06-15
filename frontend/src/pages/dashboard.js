@@ -39,7 +39,7 @@ export function dashboard() {
                 if (activePage.val === 'assets') return assetsPage();
                 if (activePage.val === 'cluster') return clusterPage();
                 if (activePage.val === 'settings') return settingsPage();
-                return div({class: "p-6"}, "Unknown page");
+                return div({class: "p-3"}, "Unknown page");
             }
         )
     );

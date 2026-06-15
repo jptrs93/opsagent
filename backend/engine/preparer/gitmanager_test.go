@@ -4,15 +4,15 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jptrs93/opsagent/backend/engine/credentials"
+	"github.com/jptrs93/opsagent/backend/repo/githubcredentials"
 )
 
 type testGithubCredentialsProvider struct {
 	token string
 }
 
-func (p testGithubCredentialsProvider) GithubCredentials(context.Context) (credentials.GithubCredentials, error) {
-	return credentials.GithubCredentials{Token: p.token}, nil
+func (p testGithubCredentialsProvider) LoadCredentials(context.Context) (*githubcredentials.GithubCredentials, error) {
+	return &githubcredentials.GithubCredentials{Token: p.token}, nil
 }
 
 func TestGitManagerResolveCloneURLNormalizesGithubRepo(t *testing.T) {
@@ -40,12 +40,12 @@ func TestGitManagerResolveCloneURLNormalizesGithubRepo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewGitManager("", testGithubCredentialsProvider{token: "secret"}).resolveCloneURL(context.Background(), tt.repo)
+			got, err := NewGitManager("", testGithubCredentialsProvider{token: "secret"}).ResolveCloneURL(context.Background(), tt.repo)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if got != tt.want {
-				t.Fatalf("resolveCloneURL() = %q, want %q", got, tt.want)
+				t.Fatalf("ResolveCloneURL() = %q, want %q", got, tt.want)
 			}
 		})
 	}

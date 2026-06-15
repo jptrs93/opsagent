@@ -41,6 +41,7 @@
 /**
  * @typedef {Object} GithubCredentials
  * @property {string} token
+ * @property {Date} changedAt
  */
 /**
  * @typedef {Object} ClusterAssetRequest
@@ -385,6 +386,7 @@
  * @property {string} levelMin
  * @property {Object.<string, string>} searchKeys
  * @property {string} requestId
+ * @property {number} logLineLimit
  */
 /**
  * @typedef {Object} LogLine
@@ -482,10 +484,15 @@
  * @property {string} branch
  * @property {string} commit
  * @property {string} flakePath
+ * @property {boolean} refreshScopes
+ * @property {boolean} refreshVersions
+ * @property {boolean} checkCommit
+ * @property {boolean} checkFlakePath
  */
 /**
  * @typedef {Object} ValidateContainerImageSource
  * @property {string} image
+ * @property {boolean} refreshVersions
  */
 /**
  * @typedef {Object} ValidationResult
@@ -1071,6 +1078,9 @@ export function writeGithubCredentials(message, writer) {
     if (message.token !== undefined && message.token !== null && message.token !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.token);
     }
+    if (message.changedAt instanceof Date && message.changedAt.getTime() !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.changedAt.getTime()));
+    }
 }
 
 
@@ -1092,12 +1102,16 @@ export function encodeGithubCredentials(message) {
  */
 function decodeGithubCredentialsMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {token: "" };
+    const message = {token: "", changedAt: new Date(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.token = reader.string();
+                break;
+            }
+            case 2: {
+                message.changedAt = new Date(readInt64(reader, "int64"));
                 break;
             }
             default:
@@ -5279,6 +5293,9 @@ export function writeLogSearchRequest(message, writer) {
     if (message.requestId !== undefined && message.requestId !== null && message.requestId !== "") {
         writer.uint32(tag(6, WIRE.LDELIM)).string(message.requestId);
     }
+    if (message.logLineLimit !== undefined && message.logLineLimit !== null && message.logLineLimit !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.logLineLimit);
+    }
 }
 
 
@@ -5300,7 +5317,7 @@ export function encodeLogSearchRequest(message) {
  */
 function decodeLogSearchRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, timeStart: new Date(0), timeEnd: new Date(0), levelMin: "", searchKeys: {}, requestId: "" };
+    const message = {deploymentId: 0, timeStart: new Date(0), timeEnd: new Date(0), levelMin: "", searchKeys: {}, requestId: "", logLineLimit: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5343,6 +5360,10 @@ function decodeLogSearchRequestMessage(reader, length) {
             }
             case 6: {
                 message.requestId = reader.string();
+                break;
+            }
+            case 7: {
+                message.logLineLimit = reader.int32();
                 break;
             }
             default:
@@ -6485,6 +6506,18 @@ export function writeValidateNixDockerBuildSource(message, writer) {
     if (message.flakePath !== undefined && message.flakePath !== null && message.flakePath !== "") {
         writer.uint32(tag(4, WIRE.LDELIM)).string(message.flakePath);
     }
+    if (message.refreshScopes === true) {
+        writer.uint32(tag(5, WIRE.VARINT)).bool(message.refreshScopes);
+    }
+    if (message.refreshVersions === true) {
+        writer.uint32(tag(6, WIRE.VARINT)).bool(message.refreshVersions);
+    }
+    if (message.checkCommit === true) {
+        writer.uint32(tag(7, WIRE.VARINT)).bool(message.checkCommit);
+    }
+    if (message.checkFlakePath === true) {
+        writer.uint32(tag(8, WIRE.VARINT)).bool(message.checkFlakePath);
+    }
 }
 
 
@@ -6506,7 +6539,7 @@ export function encodeValidateNixDockerBuildSource(message) {
  */
 function decodeValidateNixDockerBuildSourceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {repoUrl: "", branch: "", commit: "", flakePath: "" };
+    const message = {repoUrl: "", branch: "", commit: "", flakePath: "", refreshScopes: false, refreshVersions: false, checkCommit: false, checkFlakePath: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6524,6 +6557,22 @@ function decodeValidateNixDockerBuildSourceMessage(reader, length) {
             }
             case 4: {
                 message.flakePath = reader.string();
+                break;
+            }
+            case 5: {
+                message.refreshScopes = reader.bool();
+                break;
+            }
+            case 6: {
+                message.refreshVersions = reader.bool();
+                break;
+            }
+            case 7: {
+                message.checkCommit = reader.bool();
+                break;
+            }
+            case 8: {
+                message.checkFlakePath = reader.bool();
                 break;
             }
             default:
@@ -6553,6 +6602,9 @@ export function writeValidateContainerImageSource(message, writer) {
     if (message.image !== undefined && message.image !== null && message.image !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.image);
     }
+    if (message.refreshVersions === true) {
+        writer.uint32(tag(2, WIRE.VARINT)).bool(message.refreshVersions);
+    }
 }
 
 
@@ -6574,12 +6626,16 @@ export function encodeValidateContainerImageSource(message) {
  */
 function decodeValidateContainerImageSourceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {image: "" };
+    const message = {image: "", refreshVersions: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.image = reader.string();
+                break;
+            }
+            case 2: {
+                message.refreshVersions = reader.bool();
                 break;
             }
             default:

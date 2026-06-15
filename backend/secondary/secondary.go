@@ -375,13 +375,15 @@ func streamLogSearch(ctx context.Context, out *outbox, req *apigen.LogSearchRequ
 	defer func() {
 		out.Send(&apigen.MsgToMaster{LogEnd: true, LogRequestID: requestID})
 	}()
-	if req.DeploymentID == 0 || req.TimeStart.IsZero() {
+	if req.TimeStart.IsZero() {
 		return
 	}
 	var till *time.Time
 	if !req.TimeEnd.IsZero() {
 		till = &req.TimeEnd
 	}
+	count := 0
+	limit := logSearchLimit(req)
 	for line, err := range logreader.StreamLogs(int(req.DeploymentID), req.TimeStart, till) {
 		if err != nil {
 			slog.Error("failed searching run logs", "deploymentID", req.DeploymentID, "err", err)
@@ -399,7 +401,18 @@ func streamLogSearch(ctx context.Context, out *outbox, req *apigen.LogSearchRequ
 		if !out.Send(&apigen.MsgToMaster{LogLine: apiLine, LogRequestID: requestID}) {
 			return
 		}
+		count++
+		if limit > 0 && count >= limit {
+			return
+		}
 	}
+}
+
+func logSearchLimit(req *apigen.LogSearchRequest) int {
+	if req == nil || req.LogLineLimit <= 0 {
+		return 0
+	}
+	return int(req.LogLineLimit)
 }
 
 func matchesLogSearch(line logreader.LogLine, req *apigen.LogSearchRequest) bool {
@@ -407,6 +420,9 @@ func matchesLogSearch(line logreader.LogLine, req *apigen.LogSearchRequest) bool
 		return false
 	}
 	for key, want := range req.SearchKeys {
+		if req.DeploymentID == 0 && key == "machine" {
+			continue
+		}
 		if logSearchValue(line, key) != want {
 			return false
 		}

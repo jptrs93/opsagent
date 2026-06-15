@@ -359,12 +359,14 @@ func DecodeEnrollmentAccepted(b []byte) (*EnrollmentAccepted, error) {
 }
 
 type GithubCredentials struct {
-	Token string
+	Token     string
+	ChangedAt time.Time
 }
 
 func (m *GithubCredentials) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Token, 1)
+	b = AppendInt64FromTime(b, m.ChangedAt, 2)
 	return b
 }
 
@@ -381,6 +383,8 @@ func DecodeGithubCredentials(b []byte) (*GithubCredentials, error) {
 		switch num {
 		case 1:
 			b, m.Token, err = ConsumeString(b, typ)
+		case 2:
+			b, m.ChangedAt, err = ConsumeTimeFromInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3218,6 +3222,7 @@ type LogSearchRequest struct {
 	LevelMin     string
 	SearchKeys   map[string]string
 	RequestID    string
+	LogLineLimit int32
 }
 
 func (m *LogSearchRequest) Encode() []byte {
@@ -3228,6 +3233,7 @@ func (m *LogSearchRequest) Encode() []byte {
 	b = AppendStringField(b, m.LevelMin, 4)
 	b = AppendMap(b, m.SearchKeys, 5, AppendFieldDecorator(AppendStringField, 1), AppendFieldDecorator(AppendStringField, 2))
 	b = AppendStringField(b, m.RequestID, 6)
+	b = AppendInt32Field(b, m.LogLineLimit, 7)
 	return b
 }
 
@@ -3257,6 +3263,8 @@ func DecodeLogSearchRequest(b []byte) (*LogSearchRequest, error) {
 			b, err = ConsumeMapEntry(b, typ, m.SearchKeys, ConsumeString, ConsumeString)
 		case 6:
 			b, m.RequestID, err = ConsumeString(b, typ)
+		case 7:
+			b, m.LogLineLimit, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4073,17 +4081,25 @@ func DecodeValidateSourceRequest(b []byte) (*ValidateSourceRequest, error) {
 }
 
 type ValidateNixDockerBuildSource struct {
-	RepoUrl   string
-	Branch    string
-	Commit    string
-	FlakePath string
+	RepoUrl         string
+	Branch          string
+	Commit          string
+	FlakePath       string
+	RefreshScopes   bool
+	RefreshVersions bool
+	CheckCommit     bool
+	CheckFlakePath  bool
 }
 
 func (m ValidateNixDockerBuildSource) IsZero() bool {
 	return m.RepoUrl == "" &&
 		m.Branch == "" &&
 		m.Commit == "" &&
-		m.FlakePath == ""
+		m.FlakePath == "" &&
+		m.RefreshScopes == false &&
+		m.RefreshVersions == false &&
+		m.CheckCommit == false &&
+		m.CheckFlakePath == false
 }
 
 func (m *ValidateNixDockerBuildSource) Encode() []byte {
@@ -4092,6 +4108,10 @@ func (m *ValidateNixDockerBuildSource) Encode() []byte {
 	b = AppendStringField(b, m.Branch, 2)
 	b = AppendStringField(b, m.Commit, 3)
 	b = AppendStringField(b, m.FlakePath, 4)
+	b = AppendBoolField(b, m.RefreshScopes, 5)
+	b = AppendBoolField(b, m.RefreshVersions, 6)
+	b = AppendBoolField(b, m.CheckCommit, 7)
+	b = AppendBoolField(b, m.CheckFlakePath, 8)
 	return b
 }
 
@@ -4114,6 +4134,14 @@ func DecodeValidateNixDockerBuildSource(b []byte) (*ValidateNixDockerBuildSource
 			b, m.Commit, err = ConsumeString(b, typ)
 		case 4:
 			b, m.FlakePath, err = ConsumeString(b, typ)
+		case 5:
+			b, m.RefreshScopes, err = ConsumeBool(b, typ)
+		case 6:
+			b, m.RefreshVersions, err = ConsumeBool(b, typ)
+		case 7:
+			b, m.CheckCommit, err = ConsumeBool(b, typ)
+		case 8:
+			b, m.CheckFlakePath, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4125,16 +4153,19 @@ func DecodeValidateNixDockerBuildSource(b []byte) (*ValidateNixDockerBuildSource
 }
 
 type ValidateContainerImageSource struct {
-	Image string
+	Image           string
+	RefreshVersions bool
 }
 
 func (m ValidateContainerImageSource) IsZero() bool {
-	return m.Image == ""
+	return m.Image == "" &&
+		m.RefreshVersions == false
 }
 
 func (m *ValidateContainerImageSource) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Image, 1)
+	b = AppendBoolField(b, m.RefreshVersions, 2)
 	return b
 }
 
@@ -4151,6 +4182,8 @@ func DecodeValidateContainerImageSource(b []byte) (*ValidateContainerImageSource
 		switch num {
 		case 1:
 			b, m.Image, err = ConsumeString(b, typ)
+		case 2:
+			b, m.RefreshVersions, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

@@ -16,7 +16,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/engine/credentials"
+	"github.com/jptrs93/opsagent/backend/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
@@ -25,14 +25,14 @@ import (
 // tag name (not a commit hash).
 type GithubReleaseDownloader struct {
 	dataDir     string
-	credentials credentials.GithubCredentialsProvider
+	credentials githubcredentials.Provider
 	sem         chan struct{}
 }
 
-func NewGithubReleaseDownloader(dataDir string, provider credentials.GithubCredentialsProvider) *GithubReleaseDownloader {
+func NewGithubReleaseDownloader(dataDir string, provider githubcredentials.Provider) *GithubReleaseDownloader {
 	return &GithubReleaseDownloader{
 		dataDir:     dataDir,
-		credentials: credentials.OrEmpty(provider),
+		credentials: provider,
 		sem:         make(chan struct{}, 1),
 	}
 }
@@ -179,7 +179,7 @@ func (g *GithubReleaseDownloader) runDownloadScript(ctx context.Context, gh apig
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.Env = os.Environ()
-	creds, err := g.credentials.GithubCredentials(ctx)
+	creds, err := g.credentials.LoadCredentials(ctx)
 	if err != nil {
 		writeLog("ERROR loading GitHub credentials: %v", err)
 		return "", apigen.PreparationStatus_FAILED
@@ -327,7 +327,7 @@ func (g *GithubReleaseDownloader) doGithubJSON(ctx context.Context, url, accept 
 		return err
 	}
 	req.Header.Set("Accept", accept)
-	creds, err := g.credentials.GithubCredentials(ctx)
+	creds, err := g.credentials.LoadCredentials(ctx)
 	if err != nil {
 		return err
 	}
@@ -366,7 +366,7 @@ func (g *GithubReleaseDownloader) downloadAsset(ctx context.Context, assetAPIURL
 		return err
 	}
 	req.Header.Set("Accept", "application/octet-stream")
-	creds, err := g.credentials.GithubCredentials(ctx)
+	creds, err := g.credentials.LoadCredentials(ctx)
 	if err != nil {
 		return err
 	}

@@ -285,6 +285,7 @@ message EnrollmentAccepted {
 
 message GithubCredentials {
   string token = 1;
+  int64 changed_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
 }
 
 message ClusterAssetRequest {
@@ -677,6 +678,7 @@ message LogSearchRequest {
   string level_min = 4;
   map<string, string> search_keys = 5;
   string request_id = 6;  // Internal: multiplexes worker log-search streams.
+  int32 log_line_limit = 7;
 }
 
 message LogLine {
@@ -795,10 +797,15 @@ message ValidateNixDockerBuildSource {
   string branch = 2;       // optional branch/scope whose versions should be listed
   string commit = 3;       // optional exact commit to validate
   string flake_path = 4;   // optional path to flake.nix; when empty, path is not validated
+  bool refresh_scopes = 5; // list available branches/scopes
+  bool refresh_versions = 6; // list versions for branch/scope
+  bool check_commit = 7; // validate commit exists
+  bool check_flake_path = 8; // validate flake_path exists at branch/commit
 }
 
 message ValidateContainerImageSource {
   string image = 1;        // image repository without tag; e.g. "ghcr.io/owner/app"
+  bool refresh_versions = 2; // list available image tags/versions
 }
 
 message ValidationResult {

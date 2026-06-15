@@ -9,17 +9,17 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/engine/credentials"
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
+	"github.com/jptrs93/opsagent/backend/repo/githubcredentials"
 )
 
 // GithubReleaseVersionProvider lists release tags from the GitHub API.
 type GithubReleaseVersionProvider struct {
-	credentials credentials.GithubCredentialsProvider
+	credentials githubcredentials.Provider
 }
 
-func NewGithubReleaseVersionProvider(provider credentials.GithubCredentialsProvider) *GithubReleaseVersionProvider {
-	return &GithubReleaseVersionProvider{credentials: credentials.OrEmpty(provider)}
+func NewGithubReleaseVersionProvider(provider githubcredentials.Provider) *GithubReleaseVersionProvider {
+	return &GithubReleaseVersionProvider{credentials: provider}
 }
 
 func (p *GithubReleaseVersionProvider) ListScopes(_ context.Context, _ *apigen.PrepareConfig) ([]string, error) {
@@ -97,7 +97,7 @@ func (p *GithubReleaseVersionProvider) fetchReleases(ctx context.Context, ownerR
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	creds, err := p.credentials.GithubCredentials(ctx)
+	creds, err := p.credentials.LoadCredentials(ctx)
 	if err != nil {
 		return nil, err
 	}

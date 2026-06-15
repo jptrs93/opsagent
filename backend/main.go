@@ -14,7 +14,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/backup"
 	"github.com/jptrs93/opsagent/backend/cluster"
-	"github.com/jptrs93/opsagent/backend/engine/credentials"
 	"github.com/jptrs93/opsagent/backend/internal/installer"
 	"github.com/jptrs93/opsagent/backend/logconsumer"
 	"github.com/jptrs93/opsagent/backend/primary"
@@ -88,6 +87,9 @@ func runPrimary() {
 		panic(fmt.Sprintf("creating embedded sub fs: %v", err))
 	}
 	machineName := ainit.StaticConfig.PrimaryName
+	if err := ainit.ConfigureServiceLogging(machineName); err != nil {
+		panic(fmt.Sprintf("configuring service logging: %v", err))
+	}
 	slog.Info("starting in primary mode", "machine", machineName)
 	h, err := handler.New(subFS, machineName)
 	if err != nil {
@@ -155,6 +157,9 @@ func runSecondary() {
 	}
 	tlsCfg := certu.MustLoadTLSConfig(caPath, certPath, keyPath)
 	machineName := certu.MustCertLoadCommonName(certPath)
+	if err := ainit.ConfigureServiceLogging(machineName); err != nil {
+		panic(fmt.Sprintf("configuring service logging: %v", err))
+	}
 
 	slog.Info("starting in slave mode", "machine", machineName, "clusterAddr", cfg.PrimaryClusterAddr, "primaryName", cfg.PrimaryName)
 	secondary.Run(secondary.Config{
@@ -183,8 +188,7 @@ func workerTLSMaterialExists(paths ...string) bool {
 func startPrimaryCluster(h *handler.Handler, material *cluster.Material, cfg ainit.DynamicConfiguration) {
 	tlsCfg := certu.MustLoadTLSConfigFromPEM(material.CACert, material.PrimaryCert, material.PrimaryKey)
 
-	githubCredentials := credentials.StaticGithubCredentialsProvider{Token: cfg.GithubToken}
-	p := primary.New(h.Store, githubCredentials, h.Secrets)
+	p := primary.New(h.Store, h.Github, h.Secrets)
 	h.ClusterPrimary = p
 
 	// The cluster transport is a separate mTLS HTTP/2-only listener, distinct

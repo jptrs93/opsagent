@@ -287,7 +287,7 @@ export function statusPage(onOpenLogs = () => {}) {
     );
 
     const mainContent = div(
-        {class: "flex flex-col gap-6 w-max min-w-full"},
+        {class: "flex flex-col gap-3 w-max min-w-full"},
         div(
             {class: "flex items-center justify-end"},
             div(
@@ -379,7 +379,7 @@ export function statusPage(onOpenLogs = () => {}) {
     // Persistent DOM nodes — widths are updated directly during drag
     // so VanJS doesn't rebuild the sidebar on every mouse move.
     const mainPane = div(
-        {class: "min-h-0 overflow-auto p-6 flex flex-col gap-6", style: "width:100%"},
+        {class: "min-h-0 overflow-auto p-3 flex flex-col gap-6", style: "width:100%"},
         mainContent,
     );
 

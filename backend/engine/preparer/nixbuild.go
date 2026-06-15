@@ -15,31 +15,28 @@ import (
 	"time"
 
 	"github.com/jptrs93/goutil/cmdu"
-	"github.com/jptrs93/opsagent/backend/engine/credentials"
+	"github.com/jptrs93/opsagent/backend/repo/githubcredentials"
 )
 
 // NixBuilder holds the shared Git/Nix command helpers used by NixDockerBuilder.
 // A semaphore limits concurrency to one nix invocation at a time so simultaneous
 // deploys don't thrash the Nix store.
 type NixBuilder struct {
-	dataDir     string
-	credentials credentials.GithubCredentialsProvider
-	sem         chan struct{} // capacity 1: one build at a time
-	Git         *GitManagerImpl
+	dataDir string
+	sem     chan struct{} // capacity 1: one build at a time
+	Git     *GitManager
 }
 
-func NewNixBuilder(dataDir string, provider credentials.GithubCredentialsProvider) *NixBuilder {
-	provider = credentials.OrEmpty(provider)
+func NewNixBuilder(dataDir string, provider githubcredentials.Provider) *NixBuilder {
 	return &NixBuilder{
-		dataDir:     dataDir,
-		credentials: provider,
-		sem:         make(chan struct{}, 1),
-		Git:         NewGitManager(dataDir, provider),
+		dataDir: dataDir,
+		sem:     make(chan struct{}, 1),
+		Git:     NewGitManager(dataDir, provider),
 	}
 }
 
 func (b *NixBuilder) ensureRepo(ctx context.Context, repoDir string, repoURL string, logFile io.Writer) error {
-	cloneURL, err := b.resolveCloneURL(ctx, repoURL)
+	cloneURL, err := b.Git.ResolveCloneURL(ctx, repoURL)
 	if err != nil {
 		return err
 	}
@@ -57,21 +54,6 @@ func (b *NixBuilder) ensureRepo(ctx context.Context, repoDir string, repoURL str
 		return fmt.Errorf("creating repo dir: %w", err)
 	}
 	return b.runCmd(ctx, "", logFile, "git", "clone", cloneURL, repoDir)
-}
-
-func (b *NixBuilder) resolveCloneURL(ctx context.Context, repoURL string) (string, error) {
-	ownerRepo, err := RepoOwnerName(repoURL)
-	if err != nil {
-		return "", err
-	}
-	creds, err := b.credentials.GithubCredentials(ctx)
-	if err != nil {
-		return "", err
-	}
-	if creds.Token != "" {
-		return fmt.Sprintf("https://x-access-token:%s@github.com/%s.git", creds.Token, ownerRepo), nil
-	}
-	return fmt.Sprintf("https://github.com/%s.git", ownerRepo), nil
 }
 
 func (b *NixBuilder) runCmd(ctx context.Context, dir string, logWriter io.Writer, name string, args ...string) error {

@@ -11,8 +11,8 @@ import (
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/engine/credentials"
 	"github.com/jptrs93/opsagent/backend/engine/ctrd"
+	"github.com/jptrs93/opsagent/backend/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
@@ -24,7 +24,7 @@ type NixDockerBuilder struct {
 	client *ctrd.Client
 }
 
-func NewNixDockerBuilder(dataDir string, provider credentials.GithubCredentialsProvider, client *ctrd.Client) *NixDockerBuilder {
+func NewNixDockerBuilder(dataDir string, provider githubcredentials.Provider, client *ctrd.Client) *NixDockerBuilder {
 	return &NixDockerBuilder{NixBuilder: NewNixBuilder(dataDir, provider), client: client}
 }
 

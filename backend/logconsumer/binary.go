@@ -17,6 +17,22 @@ import (
 )
 
 const CommandName = "log-consumer"
+const SystemLogRun = "opendeploy"
+
+func SystemLogBasePath(runOutputDir string, machine string) string {
+	return filepath.Join(runOutputDir, "0", machine, SystemLogRun)
+}
+
+func NewHourlyWriter(basePath string) (io.WriteCloser, error) {
+	if err := os.MkdirAll(basePath, 0o750); err != nil {
+		return nil, err
+	}
+	w := &hourlyWriter{basePath: basePath}
+	if err := w.ensureOpen(time.Now().UTC()); err != nil {
+		return nil, err
+	}
+	return w, nil
+}
 
 func RunBinaryProcess(args []string) error {
 	if len(args) != 3 || args[1] != CommandName || args[2] == "" {

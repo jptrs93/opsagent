@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"mime"
@@ -15,15 +16,16 @@ import (
 	"github.com/jptrs93/opsagent/backend/config"
 	"github.com/jptrs93/opsagent/backend/engine"
 	"github.com/jptrs93/opsagent/backend/engine/configdist"
-	"github.com/jptrs93/opsagent/backend/engine/credentials"
 	"github.com/jptrs93/opsagent/backend/engine/ctrd"
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
 	"github.com/jptrs93/opsagent/backend/engine/runner"
 	"github.com/jptrs93/opsagent/backend/engine/secretdist"
 	"github.com/jptrs93/opsagent/backend/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/primary"
+	"github.com/jptrs93/opsagent/backend/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/util/secretu"
 )
 
 type Handler struct {
@@ -36,6 +38,7 @@ type Handler struct {
 	Store         *sqlite.PrimaryStorage
 	ConfigService *config.Service
 	Config        ainit.DynamicConfiguration
+	Github        githubcredentials.Provider
 
 	// Secrets is the primary-only encrypted secrets store. Deployment preparation
 	// decrypts referenced ${s:name} values into an in-memory runner cache.
@@ -97,7 +100,11 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	configService := &config.Service{Storage: store, Secrets: secretsMgr}
 	configSub := configService.SnapshotAndSubscribe()
 	cfg := configSub.InitialValue
-	githubCredentials := credentials.StaticGithubCredentialsProvider{Token: cfg.GithubToken}
+	githubCredentials := githubcredentials.SecretProvider{
+		Value: func(context.Context) secretu.SecretValue {
+			return configService.Snapshot().GithubToken
+		},
+	}
 
 	preparer.GHRel = preparer.NewGithubReleaseDownloader(ainit.StaticConfig.DataDir, githubCredentials)
 
@@ -125,6 +132,7 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 		Store:              store,
 		ConfigService:      configService,
 		Config:             cfg,
+		Github:             githubCredentials,
 		Secrets:            secretsMgr,
 		MachineName:        machineName,
 		enrollmentSessions: make(map[int32]*enrollmentSession),

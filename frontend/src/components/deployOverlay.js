@@ -11,6 +11,7 @@ import {
     deploymentForm,
     envVarsPane,
     formToSpec,
+    hasTrustedSourceValidation,
     imageVersionFromReference,
     isFormValid,
     sectionDivider,
@@ -84,7 +85,12 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                 loadingVersions.val = false;
                 return;
             }
-            const result = await capi.postV1RepoValidate(buildValidateSourceRequest(form, {scope: scope || ''}));
+            const trusted = hasTrustedSourceValidation(form);
+            const result = await capi.postV1RepoValidate(buildValidateSourceRequest(form, trusted ? {
+                scope: scope || selectedScope.val || '',
+                refreshScopes: !scope && scopes.val.length === 0,
+                refreshVersions: true,
+            } : {scope: scope || ''}));
             const sourceResult = validationSourceResult(form, result);
             form.repoCheck.val = sourceCheckFromValidation(form, result, sourceID, sourceType, sourceKey);
             if (form.repoCheck.val.status !== 'ok') {

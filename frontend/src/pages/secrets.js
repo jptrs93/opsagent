@@ -215,7 +215,9 @@ export function secretsPage() {
                 input({
                     class: "flex-1 min-w-0 bg-transparent px-2 py-1 rounded border border-transparent " +
                         "hover:border-gray-700 focus:border-brand focus:outline-none font-mono",
-                    type: () => row.revealed.val ? "text" : "password",
+                    type: "text",
+                    autocomplete: "off",
+                    style: () => row.revealed.val ? "" : "-webkit-text-security: disc;",
                     placeholder: row.isNew ? "value" : "••••••••",
                     value: row.value,
                     oninput: (e) => { row.value.val = e.target.value; row.valueDirty.val = true; },
@@ -233,18 +235,26 @@ export function secretsPage() {
     );
 
     const secretsTable = () => div(
-        {class: "card flex flex-col gap-3"},
-        div({class: "flex items-center justify-between"},
+        {class: "card p-3 flex-1 min-h-0 flex flex-col gap-3"},
+        div({class: "flex flex-wrap items-center justify-between gap-3"},
             p({class: "text-xs text-gray-400"},
                 "Reference a secret from a deployment's env value as ",
                 code({class: "font-mono text-gray-300"}, "${s:name}"), "."),
-            button({
-                type: "button",
-                class: "flex items-center gap-1 text-sm px-3 py-1.5 rounded-lg bg-gray-700 " +
-                    "text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer",
-                onclick: addRow,
-            }, plusIcon(), "Add secret")),
-        () => {
+            div({class: "flex items-center gap-2"},
+                input({
+                    class: "text-input w-64",
+                    type: "search",
+                    placeholder: "Search secrets",
+                    value: search,
+                    oninput: (e) => search.val = e.target.value,
+                }),
+                button({
+                    type: "button",
+                    class: "flex items-center gap-1 whitespace-nowrap text-sm px-3 py-1.5 rounded-lg bg-gray-700 " +
+                        "text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer",
+                    onclick: addRow,
+                }, plusIcon(), "Add secret"))),
+        div({class: "flex-1 min-h-0 overflow-auto"}, () => {
             if (rows.val === null) return p({class: "text-gray-400 text-sm"}, "Loading...");
             if (rows.val.length === 0) {
                 return p({class: "text-gray-400 text-sm"}, "No secrets yet. Click “Add secret”.");
@@ -264,31 +274,16 @@ export function secretsPage() {
                     )),
                 tbody(...visibleRows.map(rowEl)),
             );
-        },
-    );
-
-    const filterCard = () => div(
-        {class: "card"},
-        input({
-            class: "text-input w-full",
-            type: "search",
-            placeholder: "Search secrets",
-            value: search,
-            oninput: (e) => search.val = e.target.value,
         }),
     );
 
     return div(
-        {class: "flex-1 min-h-0 overflow-auto p-6 flex flex-col gap-3"},
-        filterCard,
+        {class: "flex-1 min-h-0 overflow-hidden p-3 flex flex-col"},
         () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : div(),
-        () => {
+        div({class: "flex-1 min-h-0 flex flex-col"}, () => {
             if (status.val === null) return p({class: "text-gray-400"}, "Loading...");
             if (!status.val.unlocked) return lockedSection();
-            return div(
-                {class: "flex flex-col gap-6"},
-                secretsTable(),
-            );
-        },
+            return secretsTable();
+        }),
     );
 }

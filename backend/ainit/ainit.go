@@ -10,6 +10,7 @@ import (
 	"github.com/jptrs93/goutil/envu"
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/logu"
+	"github.com/jptrs93/opsagent/backend/logconsumer"
 	"github.com/jptrs93/opsagent/backend/util/secretu"
 )
 
@@ -53,6 +54,18 @@ func mustCreateDir(p string, mode os.FileMode) {
 	if err := os.Chmod(p, mode); err != nil {
 		panic(fmt.Sprintf("chmod dir %q: %v", p, err))
 	}
+}
+
+func ConfigureServiceLogging(machine string) error {
+	basePath := logconsumer.SystemLogBasePath(StaticConfig.RunOutputDir, machine)
+	w, err := logconsumer.NewHourlyWriter(basePath)
+	if err != nil {
+		return fmt.Errorf("opening service log writer: %w", err)
+	}
+	logLevel := getLogLevel()
+	l := slog.New(logconsumer.NewSlogHandler(w, logLevel)).With("machine", machine)
+	slog.SetDefault(l)
+	return nil
 }
 
 func getLogLevel() slog.Level {

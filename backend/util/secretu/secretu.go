@@ -1,11 +1,15 @@
 package secretu
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 type SecretValue interface {
 	Key() string
 	Reveal() (string, error)
 	MustReveal() string
+	Updated() time.Time
 }
 
 type Revealer interface {
@@ -13,8 +17,9 @@ type Revealer interface {
 }
 
 type PlainSecretValue struct {
-	V string
-	K string
+	V         string
+	K         string
+	UpdatedAt time.Time
 }
 
 func (v PlainSecretValue) Key() string {
@@ -29,9 +34,14 @@ func (v PlainSecretValue) MustReveal() string {
 	return v.V
 }
 
+func (v PlainSecretValue) Updated() time.Time {
+	return v.UpdatedAt
+}
+
 type StoredSecretValue struct {
-	K        string
-	Revealer Revealer
+	K         string
+	Revealer  Revealer
+	UpdatedAt time.Time
 }
 
 func (v StoredSecretValue) Key() string {
@@ -55,4 +65,8 @@ func (v StoredSecretValue) MustReveal() string {
 		panic(fmt.Sprintf("reveal secret %s: %v", v.K, err))
 	}
 	return value
+}
+
+func (v StoredSecretValue) Updated() time.Time {
+	return v.UpdatedAt
 }

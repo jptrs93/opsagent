@@ -6,6 +6,9 @@ import {deploymentsS} from "../state/deployments.js";
 const {div, p, select, option, input, button, pre, span, label} = van.tags;
 
 const LEVELS = ['', 'TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'];
+const SYSTEM_ENVIRONMENT = 'OPENDEPLOY';
+const SYSTEM_DEPLOYMENT_NAME = 'opendeploy';
+const DEFAULT_LOG_LINE_LIMIT = 10000;
 
 function toLocalInputValue(date) {
     const pad = (n) => String(n).padStart(2, '0');
@@ -21,7 +24,26 @@ function fromLocalInputValue(value) {
 function deploymentLabel(item) {
     const cfg = item?.config || {};
     const cid = cfg.configId || {};
-    return [cid.environment, cid.machine, cid.name].filter(Boolean).join(' / ') || `#${cfg.id}`;
+    return [cid.machine, cid.name].filter(Boolean).join(' / ') || `#${cfg.id}`;
+}
+
+function deploymentEnvironment(item) {
+    return item?.config?.configId?.environment || '';
+}
+
+function selectedDeployment(items, id) {
+    return items.find(item => item.config?.id === id) || null;
+}
+
+function isSystemDeployment(item) {
+    const cid = item?.config?.configId || {};
+    return cid.environment === SYSTEM_ENVIRONMENT && cid.name === SYSTEM_DEPLOYMENT_NAME;
+}
+
+function environmentSort(a, b) {
+    if (a === SYSTEM_ENVIRONMENT && b !== SYSTEM_ENVIRONMENT) return 1;
+    if (b === SYSTEM_ENVIRONMENT && a !== SYSTEM_ENVIRONMENT) return -1;
+    return a.localeCompare(b);
 }
 
 function formatLogfmtValue(value, forceQuote = false) {
@@ -49,6 +71,7 @@ function formatLine(line) {
 
 export function logsPage(selectedDeploymentId) {
     const now = new Date();
+    const environment = van.state('');
     const deploymentId = van.state(selectedDeploymentId.val || 0);
     const timeStart = van.state(toLocalInputValue(new Date(now.getTime() - 24 * 60 * 60 * 1000)));
     const timeEnd = van.state('');
@@ -57,6 +80,20 @@ export function logsPage(selectedDeploymentId) {
     const status = van.state('Choose filters, then search.');
     const loading = van.state(false);
     let activeAbort = null;
+    let autoSearchedDeploymentId = 0;
+
+    const environmentSelect = select({
+        "data-testid": "logs-environment-select",
+        class: "input min-w-48",
+        onchange: (e) => {
+            environment.val = e.target.value;
+            const items = (deploymentsS.val || []).filter(item => item.config?.id && !item.config.deleted);
+            const current = selectedDeployment(items, Number(deploymentId.val || 0));
+            if (current && environment.val && deploymentEnvironment(current) !== environment.val) {
+                deploymentId.val = 0;
+            }
+        },
+    });
 
     const deploymentSelect = select({
         "data-testid": "logs-deployment-select",
@@ -68,13 +105,32 @@ export function logsPage(selectedDeploymentId) {
         if (selectedDeploymentId.val && selectedDeploymentId.val !== deploymentId.val) {
             deploymentId.val = selectedDeploymentId.val;
         }
+        const items = (deploymentsS.val || []).filter(item => item.config?.id && !item.config.deleted);
+        const selected = selectedDeployment(items, Number(deploymentId.val || 0));
+        if (selected && environment.val !== deploymentEnvironment(selected)) {
+            environment.val = deploymentEnvironment(selected);
+        }
     });
 
     van.derive(() => {
         const items = (deploymentsS.val || []).filter(item => item.config?.id && !item.config.deleted);
+        const environments = [...new Set(items.map(deploymentEnvironment))].sort(environmentSort);
+        environmentSelect.replaceChildren(
+            option({value: ""}, "All environments"),
+            ...environments.map(env => option({value: env}, env || 'No environment')),
+        );
+        environmentSelect.value = environment.val;
+    });
+
+    van.derive(() => {
+        const items = (deploymentsS.val || []).filter(item => item.config?.id && !item.config.deleted);
+        const filtered = environment.val ? items.filter(item => deploymentEnvironment(item) === environment.val) : items;
+        if (deploymentId.val && filtered.length > 0 && !selectedDeployment(filtered, Number(deploymentId.val))) {
+            deploymentId.val = 0;
+        }
         deploymentSelect.replaceChildren(
             option({value: ""}, "Select deployment"),
-            ...items.map(item => option({value: String(item.config.id)}, deploymentLabel(item))),
+            ...filtered.map(item => option({value: String(item.config.id)}, deploymentLabel(item))),
         );
         deploymentSelect.value = String(deploymentId.val || '');
     });
@@ -94,18 +150,25 @@ export function logsPage(selectedDeploymentId) {
         status.val = 'Searching logs...';
         let count = 0;
         try {
+            const items = (deploymentsS.val || []).filter(item => item.config?.id && !item.config.deleted);
+            const selected = selectedDeployment(items, id);
+            const systemDeployment = isSystemDeployment(selected);
+            const machine = selected?.config?.configId?.machine || '';
             const payload = {
-                deploymentId: id,
+                deploymentId: systemDeployment ? 0 : id,
                 timeStart: start,
                 timeEnd: end || undefined,
                 levelMin: levelMin.val,
-                searchKeys: undefined,
+                searchKeys: systemDeployment ? {machine} : undefined,
+                logLineLimit: DEFAULT_LOG_LINE_LIMIT,
             };
             for await (const line of capi.postV1DeploymentLogSearch(payload, {signal: activeAbort.signal})) {
                 count += 1;
                 output.val += `${formatLine(line)}\n`;
             }
-            status.val = `${count} log line${count === 1 ? '' : 's'} returned.`;
+            status.val = count >= DEFAULT_LOG_LINE_LIMIT
+                ? `Showing newest ${DEFAULT_LOG_LINE_LIMIT.toLocaleString()} log lines.`
+                : `${count} log line${count === 1 ? '' : 's'} returned.`;
         } catch (e) {
             if (e.name !== 'AbortError') {
                 status.val = `Search failed: ${e.message || e}`;
@@ -115,6 +178,15 @@ export function logsPage(selectedDeploymentId) {
         }
     };
 
+    van.derive(() => {
+        const id = Number(deploymentId.val || 0);
+        if (!id || !loginS.val || autoSearchedDeploymentId === id) return;
+        autoSearchedDeploymentId = id;
+        setTimeout(() => {
+            if (Number(deploymentId.val || 0) === id) void runSearch();
+        }, 0);
+    });
+
     const field = (caption, node) => label(
         {class: "flex flex-col gap-1 text-xs uppercase tracking-wide text-gray-500"},
         span(caption),
@@ -122,9 +194,10 @@ export function logsPage(selectedDeploymentId) {
     );
 
     return div(
-        {class: "h-full min-h-0 overflow-hidden p-6 flex flex-col gap-4"},
+        {class: "h-full min-h-0 overflow-hidden p-3 flex flex-col gap-2"},
         div(
-            {class: "card flex flex-wrap items-end gap-3"},
+            {class: "card p-3 flex flex-wrap items-end gap-2"},
+            field("Environment", environmentSelect),
             field("Deployment", deploymentSelect),
             field("From", input({
                 "data-testid": "logs-time-start-input",
@@ -158,7 +231,7 @@ export function logsPage(selectedDeploymentId) {
         ),
         p({class: "sr-only", "aria-live": "polite"}, () => status.val),
         pre(
-            {"data-testid": "logs-output", class: "rounded-lg bg-gray-950 border border-gray-800 p-4 overflow-auto flex-1 min-h-0 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
+            {"data-testid": "logs-output", class: "rounded-lg bg-gray-950 border border-gray-800 p-3 overflow-auto flex-1 min-h-0 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
             () => output.val || 'No log lines loaded.',
         ),
     );

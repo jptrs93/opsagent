@@ -1,7 +1,7 @@
 package logreader
 
 import (
-	"bufio"
+	"bytes"
 	"fmt"
 	"iter"
 	"os"
@@ -113,7 +113,7 @@ func candidateLogFiles(dir string, since time.Time, till *time.Time) ([]string, 
 		}
 		files = append(files, filepath.Join(dir, entry.Name()))
 	}
-	sort.Strings(files)
+	sort.Sort(sort.Reverse(sort.StringSlice(files)))
 	return files, nil
 }
 
@@ -130,27 +130,56 @@ func streamLogFile(path string, since time.Time, till *time.Time, yield func(Log
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
-	for scanner.Scan() {
-		line, err := ParseLogfmtLine(scanner.Text())
-		if err != nil {
-			return yield(LogLine{}, fmt.Errorf("parse %s: %w", path, err))
-		}
-		if line.Time.Before(since) {
-			continue
-		}
-		if till != nil && !line.Time.Before(*till) {
-			continue
-		}
-		if !yield(line, nil) {
-			return false
-		}
-	}
-	if err := scanner.Err(); err != nil {
+	info, err := f.Stat()
+	if err != nil {
 		return yield(LogLine{}, err)
 	}
+
+	const chunkSize = 64 * 1024
+	var remainder []byte
+	for offset := info.Size(); offset > 0; {
+		readSize := int64(chunkSize)
+		if offset < readSize {
+			readSize = offset
+		}
+		offset -= readSize
+
+		buf := make([]byte, readSize+int64(len(remainder)))
+		if _, err := f.ReadAt(buf[:readSize], offset); err != nil {
+			return yield(LogLine{}, err)
+		}
+		copy(buf[readSize:], remainder)
+		end := len(buf)
+		for end > 0 {
+			idx := bytes.LastIndexByte(buf[:end], '\n')
+			if idx == -1 {
+				break
+			}
+			if idx+1 < end && !yieldParsedLogLine(path, buf[idx+1:end], since, till, yield) {
+				return false
+			}
+			end = idx
+		}
+		remainder = append(remainder[:0], buf[:end]...)
+	}
+	if len(remainder) > 0 {
+		return yieldParsedLogLine(path, remainder, since, till, yield)
+	}
 	return true
+}
+
+func yieldParsedLogLine(path string, raw []byte, since time.Time, till *time.Time, yield func(LogLine, error) bool) bool {
+	line, err := ParseLogfmtLine(string(raw))
+	if err != nil {
+		return yield(LogLine{}, fmt.Errorf("parse %s: %w", path, err))
+	}
+	if line.Time.Before(since) {
+		return true
+	}
+	if till != nil && !line.Time.Before(*till) {
+		return true
+	}
+	return yield(line, nil)
 }
 
 func mergeStreams(streams ...iter.Seq2[LogLine, error]) iter.Seq2[LogLine, error] {
@@ -179,13 +208,13 @@ func mergeStreams(streams ...iter.Seq2[LogLine, error]) iter.Seq2[LogLine, error
 		}
 
 		for len(states) > 0 {
-			minIdx := 0
+			maxIdx := 0
 			for i := 1; i < len(states); i++ {
-				if states[i].line.Time.Before(states[minIdx].line.Time) {
-					minIdx = i
+				if states[maxIdx].line.Time.Before(states[i].line.Time) {
+					maxIdx = i
 				}
 			}
-			state := &states[minIdx]
+			state := &states[maxIdx]
 			if !yield(state.line, state.err) || state.err != nil {
 				return
 			}
@@ -196,7 +225,7 @@ func mergeStreams(streams ...iter.Seq2[LogLine, error]) iter.Seq2[LogLine, error
 				continue
 			}
 			state.stop()
-			states = append(states[:minIdx], states[minIdx+1:]...)
+			states = append(states[:maxIdx], states[maxIdx+1:]...)
 		}
 	}
 }

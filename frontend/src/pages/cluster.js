@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {deploymentsStreamS, enrollmentsS, machinesS} from "../state/deployments.js";
 
-const { button, div, h1, h2, input, p, span, table, tbody, td, th, thead, tr } = van.tags;
+const { button, div, h2, input, p, span, table, tbody, td, th, thead, tr } = van.tags;
 
 const formatTime = (t) => {
     if (!t) return '-';
@@ -13,8 +13,7 @@ const formatTime = (t) => {
 
 export function clusterPage() {
     return div(
-        {class: "flex-1 min-h-0 overflow-auto p-6 flex flex-col gap-6"},
-        h1({class: "text-xl font-bold"}, "Machines"),
+        {class: "flex-1 min-h-0 overflow-auto p-3 flex flex-col gap-3"},
         () => {
             if (deploymentsStreamS.val.status !== "connected" && machinesS.val.length === 0) {
                 return p({class: "text-gray-400"}, "Loading...");
@@ -28,7 +27,7 @@ export function clusterPage() {
             const pending = enrollmentsS.val.filter(e => e.status === "waiting");
 
             return div(
-                {class: "flex flex-col gap-6"},
+                {class: "flex flex-col gap-3"},
                 div(
                     {class: "card"},
                     h2({class: "font-semibold mb-4"}, "Connected machines"),

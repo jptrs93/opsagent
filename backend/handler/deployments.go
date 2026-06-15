@@ -143,12 +143,16 @@ var ImageRequiredErr = apigen.NewApiErr("Image is required", "missing_image", ht
 var InvalidSourceTypeErr = apigen.NewApiErr("Invalid source type", "invalid_source_type", http.StatusBadRequest)
 
 type validateSourceInput struct {
-	prepare   *apigen.PrepareConfig
-	source    string
-	repo      string
-	scope     string
-	commit    string
-	flakePath string
+	prepare         *apigen.PrepareConfig
+	source          string
+	repo            string
+	scope           string
+	commit          string
+	flakePath       string
+	refreshScopes   bool
+	refreshVersions bool
+	checkCommit     bool
+	checkFlakePath  bool
 }
 
 // PostV1RepoValidate checks that a binary source is reachable and authorized.
@@ -166,22 +170,34 @@ func (h *Handler) PostV1RepoValidate(ctx apigen.Context, req *apigen.ValidateSou
 		return validationResponse(in, validationErr("Unsupported source type."), validationErr(""), nil, "", nil), nil
 	}
 
-	scopes, err := provider.ListScopes(ctx, in.prepare)
-	if err != nil {
-		slog.Warn("source validation failed", "repo", in.repo, "err", err)
-		return validationResponse(in, validationErr(sourceAccessErrorMessage(in)), validationErr(""), nil, "", nil), nil
+	var scopes []string
+	if in.refreshScopes {
+		var err error
+		scopes, err = provider.ListScopes(ctx, in.prepare)
+		if err != nil {
+			slog.Warn("source validation failed", "repo", in.repo, "err", err)
+			return validationResponse(in, validationErr(sourceAccessErrorMessage(in)), validationErr(""), nil, "", nil), nil
+		}
 	}
 
-	scope := selectedValidationScope(scopes, in.scope)
-	versions, err := provider.ListVersions(ctx, in.prepare, scope)
-	if err != nil {
-		slog.Warn("source validation failed", "repo", in.repo, "scope", scope, "err", err)
-		return validationResponse(in, validationErr(sourceAccessErrorMessage(in)), validationErr(""), scopes, scope, nil), nil
+	scope := strings.TrimSpace(in.scope)
+	if in.refreshScopes {
+		scope = selectedValidationScope(scopes, in.scope)
 	}
-	gitResult := validationOK(sourceAccessOKMessage(in))
+	var versions []*apigen.Version
+	gitResult := validationErr("")
 	flakeResult := validationErr("")
+	if in.refreshVersions {
+		var err error
+		versions, err = provider.ListVersions(ctx, in.prepare, scope)
+		if err != nil {
+			slog.Warn("source validation failed", "repo", in.repo, "scope", scope, "err", err)
+			return validationResponse(in, validationErr(sourceAccessErrorMessage(in)), validationErr(""), scopes, scope, nil), nil
+		}
+		gitResult = validationOK(sourceAccessOKMessage(in))
+	}
 
-	if in.commit != "" {
+	if in.checkCommit && in.commit != "" {
 		exists, err := versionprovider.Git.CommitExists(ctx, in.repo, in.commit)
 		if err != nil {
 			slog.Warn("source commit validation failed", "repo", in.repo, "commit", in.commit, "err", err)
@@ -190,9 +206,10 @@ func (h *Handler) PostV1RepoValidate(ctx apigen.Context, req *apigen.ValidateSou
 		if !exists {
 			return validationResponse(in, validationErr("Selected commit not found."), flakeResult, scopes, scope, versions), nil
 		}
+		gitResult = validationOK(sourceAccessOKMessage(in))
 	}
 
-	if in.flakePath != "" {
+	if in.checkFlakePath && in.flakePath != "" {
 		ref := in.commit
 		if ref == "" {
 			ref = scope
@@ -205,6 +222,7 @@ func (h *Handler) PostV1RepoValidate(ctx apigen.Context, req *apigen.ValidateSou
 		if !exists {
 			return validationResponse(in, gitResult, validationErr("Flake path not found at selected revision."), scopes, scope, versions), nil
 		}
+		gitResult = validationOK(sourceAccessOKMessage(in))
 		flakeResult = validationOK("Path verified")
 	}
 
@@ -272,16 +290,31 @@ func validateSourceFromRequest(req *apigen.ValidateSourceRequest) (*validateSour
 	if !req.NixDockerBuild.IsZero() {
 		repo := strings.TrimSpace(req.NixDockerBuild.RepoUrl)
 		flakePath := strings.TrimSpace(req.NixDockerBuild.FlakePath)
+		commit := strings.TrimSpace(req.NixDockerBuild.Commit)
 		if repo == "" {
 			return nil, RepoRequiredErr
 		}
+		refreshScopes := req.NixDockerBuild.RefreshScopes
+		refreshVersions := req.NixDockerBuild.RefreshVersions
+		checkCommit := req.NixDockerBuild.CheckCommit
+		checkFlakePath := req.NixDockerBuild.CheckFlakePath
+		if !refreshScopes && !refreshVersions && !checkCommit && !checkFlakePath {
+			refreshScopes = true
+			refreshVersions = true
+			checkCommit = commit != ""
+			checkFlakePath = flakePath != ""
+		}
 		return &validateSourceInput{
-			prepare:   &apigen.PrepareConfig{NixDockerBuild: apigen.NixDockerBuildConfig{Repo: repo, Flake: flakePath}},
-			source:    "nixDockerBuild",
-			repo:      repo,
-			scope:     strings.TrimSpace(req.NixDockerBuild.Branch),
-			commit:    strings.TrimSpace(req.NixDockerBuild.Commit),
-			flakePath: flakePath,
+			prepare:         &apigen.PrepareConfig{NixDockerBuild: apigen.NixDockerBuildConfig{Repo: repo, Flake: flakePath}},
+			source:          "nixDockerBuild",
+			repo:            repo,
+			scope:           strings.TrimSpace(req.NixDockerBuild.Branch),
+			commit:          commit,
+			flakePath:       flakePath,
+			refreshScopes:   refreshScopes,
+			refreshVersions: refreshVersions,
+			checkCommit:     checkCommit,
+			checkFlakePath:  checkFlakePath,
 		}, nil
 	}
 
@@ -290,9 +323,10 @@ func validateSourceFromRequest(req *apigen.ValidateSourceRequest) (*validateSour
 		return nil, ImageRequiredErr
 	}
 	return &validateSourceInput{
-		prepare: &apigen.PrepareConfig{ContainerImage: apigen.ContainerImageConfig{Image: image}},
-		source:  "containerImage",
-		repo:    image,
+		prepare:         &apigen.PrepareConfig{ContainerImage: apigen.ContainerImageConfig{Image: image}},
+		source:          "containerImage",
+		repo:            image,
+		refreshVersions: true,
 	}, nil
 }
 
@@ -323,7 +357,7 @@ func selectedValidationScope(scopes []string, requested string) string {
 
 func (h *Handler) PostV1DeploymentLogSearch(ctx apigen.Context, req *apigen.LogSearchRequest) iter.Seq2[*apigen.LogLine, error] {
 	return func(yield func(*apigen.LogLine, error) bool) {
-		if req == nil || req.DeploymentID == 0 {
+		if req == nil {
 			yield(nil, MissingKeyErr)
 			return
 		}
@@ -334,6 +368,39 @@ func (h *Handler) PostV1DeploymentLogSearch(ctx apigen.Context, req *apigen.LogS
 		var till *time.Time
 		if !req.TimeEnd.IsZero() {
 			till = &req.TimeEnd
+		}
+		if req.DeploymentID == 0 {
+			machine := strings.TrimSpace(req.SearchKeys["machine"])
+			if machine == "" {
+				yield(nil, MissingKeyErr)
+				return
+			}
+			if machine != h.MachineName && h.ClusterPrimary != nil {
+				stream, err := h.ClusterPrimary.RequestLogSearch(machine, &apigen.MsgToWorker{LogSearchRequest: req})
+				if err != nil {
+					yield(nil, apigen.NewApiErr("Worker not connected: "+machine, "worker_not_connected", 502))
+					return
+				}
+				defer stream.Close()
+				go func() {
+					<-ctx.Done()
+					stream.Close()
+				}()
+				count := 0
+				limit := logSearchLimit(req)
+				for line, err := range stream.Seq() {
+					if !yield(line, err) || err != nil {
+						return
+					}
+					count++
+					if limit > 0 && count >= limit {
+						return
+					}
+				}
+				return
+			}
+			streamLocalLogSearch(req, till, yield)
+			return
 		}
 
 		cfg := h.findConfigByID(req.DeploymentID)
@@ -352,28 +419,51 @@ func (h *Handler) PostV1DeploymentLogSearch(ctx apigen.Context, req *apigen.LogS
 				<-ctx.Done()
 				stream.Close()
 			}()
+			count := 0
+			limit := logSearchLimit(req)
 			for line, err := range stream.Seq() {
 				if !yield(line, err) || err != nil {
+					return
+				}
+				count++
+				if limit > 0 && count >= limit {
 					return
 				}
 			}
 			return
 		}
 
-		for line, err := range logreader.StreamLogs(int(req.DeploymentID), req.TimeStart, till) {
-			if err != nil {
-				yield(nil, err)
-				return
-			}
-			if !matchesLogSearch(line, req) {
-				continue
-			}
-			apiLine := toAPILogLine(line)
-			if !yield(&apiLine, nil) {
-				return
-			}
+		streamLocalLogSearch(req, till, yield)
+	}
+}
+
+func streamLocalLogSearch(req *apigen.LogSearchRequest, till *time.Time, yield func(*apigen.LogLine, error) bool) {
+	count := 0
+	limit := logSearchLimit(req)
+	for line, err := range logreader.StreamLogs(int(req.DeploymentID), req.TimeStart, till) {
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		if !matchesLogSearch(line, req) {
+			continue
+		}
+		apiLine := toAPILogLine(line)
+		if !yield(&apiLine, nil) {
+			return
+		}
+		count++
+		if limit > 0 && count >= limit {
+			return
 		}
 	}
+}
+
+func logSearchLimit(req *apigen.LogSearchRequest) int {
+	if req == nil || req.LogLineLimit <= 0 {
+		return 0
+	}
+	return int(req.LogLineLimit)
 }
 
 func (h *Handler) PostV1DeploymentPrepareOutput(ctx apigen.Context, req *apigen.PrepareOutputRequest) iter.Seq2[*apigen.PrepareOutputChunk, error] {
@@ -528,6 +618,9 @@ func matchesLogSearch(line logreader.LogLine, req *apigen.LogSearchRequest) bool
 		return false
 	}
 	for key, want := range req.SearchKeys {
+		if req.DeploymentID == 0 && key == "machine" {
+			continue
+		}
 		if logSearchValue(line, key) != want {
 			return false
 		}

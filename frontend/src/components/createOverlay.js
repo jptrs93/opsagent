@@ -12,6 +12,7 @@ import {
     envVarsPane,
     formToDeploymentIdentifier,
     formToSpec,
+    hasTrustedSourceValidation,
     imageVersionFromReference,
     isFormValid,
     sectionDivider,
@@ -291,7 +292,12 @@ async function loadSourceVersions(form, selectedScope, selectedVersion, selected
     const sourceType = form.sourceType.val;
     const sourceKey = sourceValidationKey(form);
     try {
-        const res = await capi.postV1RepoValidate(buildValidateSourceRequest(form, {scope: scope || ''}));
+        const trusted = hasTrustedSourceValidation(form);
+        const res = await capi.postV1RepoValidate(buildValidateSourceRequest(form, trusted ? {
+            scope: scope || selectedScope.val || '',
+            refreshScopes: !scope,
+            refreshVersions: true,
+        } : {scope: scope || ''}));
         const sourceResult = validationSourceResult(form, res);
         form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKey);
         if (form.repoCheck.val.status === 'ok') {

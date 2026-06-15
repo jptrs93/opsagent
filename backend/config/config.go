@@ -177,17 +177,19 @@ func (s *Service) updateConfigSecretValue(secretName, value string) error {
 }
 
 func (s *Service) loadGithubToken() secretu.SecretValue {
-	if !s.Secrets.HasSecret(githubTokenSecretName) {
+	if ok, t := s.Secrets.HasSecret(githubTokenSecretName); !ok {
 		return secretu.PlainSecretValue{}
+	} else {
+		return secretu.StoredSecretValue{K: githubTokenSecretName, Revealer: s.Secrets, UpdatedAt: t}
 	}
-	return secretu.StoredSecretValue{K: githubTokenSecretName, Revealer: s.Secrets}
 }
 
 func (s *Service) loadBackupS3SecretAccessKey() secretu.SecretValue {
-	if !s.Secrets.HasSecret(backupS3SecretAccessKeySecretName) {
+	if ok, t := s.Secrets.HasSecret(backupS3SecretAccessKeySecretName); !ok {
 		return secretu.PlainSecretValue{}
+	} else {
+		return secretu.StoredSecretValue{K: backupS3SecretAccessKeySecretName, Revealer: s.Secrets, UpdatedAt: t}
 	}
-	return secretu.StoredSecretValue{K: backupS3SecretAccessKeySecretName, Revealer: s.Secrets}
 }
 
 func parseBool(value string, key ConfigKey) bool {

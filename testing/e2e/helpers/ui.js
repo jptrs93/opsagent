@@ -26,6 +26,31 @@ export async function signOutAndLoginWithPasskey(page) {
   await expect(byTestId(page, 'add-deployment-button', page.getByRole('button', {name: 'Add deployment'}))).toBeVisible();
 }
 
+export async function expectOpenDeployLogs(page) {
+  await byTestId(page, 'nav-logs', page.getByText('Logs')).click();
+  const environmentSelect = page.getByTestId('logs-environment-select');
+  await expect(environmentSelect).toBeVisible();
+  await expect.poll(async () => {
+    return await environmentSelect.locator('option').evaluateAll(options => options.map(o => o.value));
+  }, {message: 'expected OPENDEPLOY environment option', timeout: LONG_UI_TIMEOUT}).toContain('OPENDEPLOY');
+  await environmentSelect.selectOption('OPENDEPLOY');
+
+  const deploymentSelect = page.getByTestId('logs-deployment-select');
+  await expect.poll(async () => {
+    const options = await deploymentSelect.locator('option').evaluateAll(options =>
+      options.map(o => ({value: o.value, text: o.textContent || ''})),
+    );
+    return options.find(o => o.value && o.text.includes('opendeploy'))?.value || '';
+  }, {message: 'expected OPENDEPLOY opendeploy deployment option', timeout: LONG_UI_TIMEOUT}).not.toBe('');
+  const deploymentValue = await deploymentSelect.locator('option').evaluateAll(options => {
+    const match = options.find(o => o.value && (o.textContent || '').includes('opendeploy'));
+    return match?.value || '';
+  });
+  await deploymentSelect.selectOption(deploymentValue);
+  await page.getByTestId('logs-search-button').click();
+  await expectOutputText(page, 'starting in');
+}
+
 export async function acceptFirstWaitingWorker(page, {workerName = 'worker-1'} = {}) {
   await byTestId(page, 'nav-cluster', page.getByText('Machines')).click();
   await expect(page.getByRole('heading', {name: 'Machines', exact: true})).toBeVisible();
@@ -163,9 +188,9 @@ export async function expectPrepareOutput(page, name, expectedText) {
 async function openDeploymentLogsSearch(page, row) {
   await row.getByTitle('View run output').click();
   await expect(byTestId(page, 'nav-logs', page.getByText('Logs'))).toBeVisible();
+  await expect(page.getByTestId('logs-environment-select')).toBeVisible();
   await expect(page.getByTestId('logs-deployment-select')).not.toHaveValue('');
   await expect(page.getByTestId('logs-output')).toBeVisible();
-  await page.getByTestId('logs-search-button').click();
 }
 
 async function waitForOptionalPathValidation(dialog) {

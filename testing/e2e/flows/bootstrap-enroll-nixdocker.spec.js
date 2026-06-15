@@ -8,6 +8,7 @@ import {
   createNixDockerDeployment,
   createSecret,
   expectDeploymentOutput,
+  expectOpenDeployLogs,
   expectPrepareOutput,
   signOutAndLoginWithPasskey,
 } from '../helpers/ui.js';
@@ -17,6 +18,7 @@ test('bootstrap primary, enroll worker, and create Nix Docker deployment', async
 
   await bootstrapFirstUser(page);
   await signOutAndLoginWithPasskey(page);
+  await expectOpenDeployLogs(page);
   await acceptFirstWaitingWorker(page);
   await createNixDockerDeployment(page, {expectDefaultDockerImage: true});
   await expectPrepareOutput(page, 'nixdockerbuild1', 'repo dir:');

@@ -11,14 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jptrs93/opsagent/backend/engine/credentials"
+	"github.com/jptrs93/opsagent/backend/repo/githubcredentials"
 )
-
-type GitManager interface {
-	FetchRepoInfo(ctx context.Context, repoURL string) (*RepoInfo, error)
-	ListBranches(ctx context.Context, repoURL string) ([]string, error)
-	GetCommitLog(ctx context.Context, repoURL string, branch string, limit int) ([]CommitInfo, error)
-}
 
 type RepoInfo struct {
 	LatestCommit string
@@ -33,21 +27,21 @@ type CommitInfo struct {
 	Branch  string
 }
 
-type GitManagerImpl struct {
+type GitManager struct {
 	dataDir     string
-	credentials credentials.GithubCredentialsProvider
+	credentials githubcredentials.Provider
 }
 
-func NewGitManager(dataDir string, provider credentials.GithubCredentialsProvider) *GitManagerImpl {
-	return &GitManagerImpl{dataDir: dataDir, credentials: credentials.OrEmpty(provider)}
+func NewGitManager(dataDir string, provider githubcredentials.Provider) *GitManager {
+	return &GitManager{dataDir: dataDir, credentials: provider}
 }
 
-func (g *GitManagerImpl) resolveCloneURL(ctx context.Context, repoURL string) (string, error) {
+func (g *GitManager) ResolveCloneURL(ctx context.Context, repoURL string) (string, error) {
 	ownerRepo, err := RepoOwnerName(repoURL)
 	if err != nil {
 		return "", err
 	}
-	creds, err := g.credentials.GithubCredentials(ctx)
+	creds, err := g.credentials.LoadCredentials(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -57,8 +51,8 @@ func (g *GitManagerImpl) resolveCloneURL(ctx context.Context, repoURL string) (s
 	return fmt.Sprintf("https://github.com/%s.git", ownerRepo), nil
 }
 
-func (g *GitManagerImpl) FetchRepoInfo(ctx context.Context, repoURL string) (*RepoInfo, error) {
-	cloneURL, err := g.resolveCloneURL(ctx, repoURL)
+func (g *GitManager) FetchRepoInfo(ctx context.Context, repoURL string) (*RepoInfo, error) {
+	cloneURL, err := g.ResolveCloneURL(ctx, repoURL)
 	if err != nil {
 		return nil, err
 	}
@@ -84,8 +78,8 @@ func (g *GitManagerImpl) FetchRepoInfo(ctx context.Context, repoURL string) (*Re
 	return info, nil
 }
 
-func (g *GitManagerImpl) ListBranches(ctx context.Context, repoURL string) ([]string, error) {
-	cloneURL, err := g.resolveCloneURL(ctx, repoURL)
+func (g *GitManager) ListBranches(ctx context.Context, repoURL string) ([]string, error) {
+	cloneURL, err := g.ResolveCloneURL(ctx, repoURL)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +111,7 @@ func RepoOwnerName(repoURL string) (string, error) {
 }
 
 // GetCommitLog fetches recent commits from the GitHub API.
-func (g *GitManagerImpl) GetCommitLog(ctx context.Context, repoURL string, branch string, limit int) ([]CommitInfo, error) {
+func (g *GitManager) GetCommitLog(ctx context.Context, repoURL string, branch string, limit int) ([]CommitInfo, error) {
 	ownerRepo, err := RepoOwnerName(repoURL)
 	if err != nil {
 		return nil, err
@@ -136,7 +130,7 @@ func (g *GitManagerImpl) GetCommitLog(ctx context.Context, repoURL string, branc
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	creds, err := g.credentials.GithubCredentials(ctx)
+	creds, err := g.credentials.LoadCredentials(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +177,7 @@ func (g *GitManagerImpl) GetCommitLog(ctx context.Context, repoURL string, branc
 	return commits, nil
 }
 
-func (g *GitManagerImpl) CommitExists(ctx context.Context, repoURL string, commit string) (bool, error) {
+func (g *GitManager) CommitExists(ctx context.Context, repoURL string, commit string) (bool, error) {
 	ownerRepo, err := RepoOwnerName(repoURL)
 	if err != nil {
 		return false, err
@@ -212,7 +206,7 @@ func (g *GitManagerImpl) CommitExists(ctx context.Context, repoURL string, commi
 	return false, fmt.Errorf("github api %d: %s", resp.StatusCode, string(body))
 }
 
-func (g *GitManagerImpl) PathExists(ctx context.Context, repoURL string, repoPath string, ref string) (bool, error) {
+func (g *GitManager) PathExists(ctx context.Context, repoURL string, repoPath string, ref string) (bool, error) {
 	ownerRepo, err := RepoOwnerName(repoURL)
 	if err != nil {
 		return false, err
@@ -246,13 +240,13 @@ func (g *GitManagerImpl) PathExists(ctx context.Context, repoURL string, repoPat
 	return false, fmt.Errorf("github api %d: %s", resp.StatusCode, string(body))
 }
 
-func (g *GitManagerImpl) newGithubRequest(ctx context.Context, apiURL string) (*http.Request, error) {
+func (g *GitManager) newGithubRequest(ctx context.Context, apiURL string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	creds, err := g.credentials.GithubCredentials(ctx)
+	creds, err := g.credentials.LoadCredentials(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -270,13 +264,13 @@ func escapeRepoPath(repoPath string) string {
 	return strings.Join(parts, "/")
 }
 
-func (g *GitManagerImpl) fetchDefaultBranch(ctx context.Context, ownerRepo string) string {
+func (g *GitManager) fetchDefaultBranch(ctx context.Context, ownerRepo string) string {
 	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://api.github.com/repos/%s", ownerRepo), nil)
 	if err != nil {
 		return ""
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	creds, err := g.credentials.GithubCredentials(ctx)
+	creds, err := g.credentials.LoadCredentials(ctx)
 	if err != nil {
 		return ""
 	}

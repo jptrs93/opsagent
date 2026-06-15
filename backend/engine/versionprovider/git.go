@@ -12,10 +12,10 @@ import (
 // GitVersionProvider lists branches and commits for repos that use Nix Docker
 // image preparation (versions are git commit hashes).
 type GitVersionProvider struct {
-	git *preparer.GitManagerImpl
+	git *preparer.GitManager
 }
 
-func NewGitVersionProvider(git *preparer.GitManagerImpl) *GitVersionProvider {
+func NewGitVersionProvider(git *preparer.GitManager) *GitVersionProvider {
 	return &GitVersionProvider{git: git}
 }
 

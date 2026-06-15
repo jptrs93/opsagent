@@ -14,6 +14,8 @@ let nextAssetMountID = 1;
 let nextVolumeMountID = 1;
 
 export function emptyDeploymentForm() {
+    const repoCheck = nixDocker.repo && nixDocker.flake ? knownNixSourceCheck(nixDocker.repo, nixDocker.flake) : undefined;
+
     return makeFormState({
         name: '',
         environment: '',
@@ -44,6 +46,7 @@ export function deploymentConfigToForm(cfg) {
     // already sets one of them, so they aren't hidden on edit.
     const showSourceOpts = false;
     const showExecOpts = false;
+    const repoCheck = nixDocker.repo && nixDocker.flake ? knownNixSourceCheck(nixDocker.repo, nixDocker.flake) : undefined;
 
     return makeFormState({
         name: cid.name || '',
@@ -65,6 +68,7 @@ export function deploymentConfigToForm(cfg) {
         volumeMounts: (container.mounts || []).map(m => ({id: nextVolumeMountID++, host: m.host || '', container: m.container || '', readonly: Boolean(m.readonly)})),
         showSourceOpts,
         showExecOpts,
+        repoCheck,
     });
 }
 
@@ -224,18 +228,23 @@ export function buildValidateSourceRequest(form, opts = {}) {
     const sourceType = form.sourceType.val;
     const branch = (opts.scope || '').trim();
     const commit = (opts.commit || '').trim();
+    const hasExplicitFlags = ['refreshScopes', 'refreshVersions', 'checkCommit', 'checkFlakePath'].some(k => k in opts);
     if (sourceType === SOURCE_NIX_DOCKER) {
         return {nixDockerBuild: {
             repoUrl: form.nixRepo.val.trim(),
             branch,
             commit,
             flakePath: form.nixFlake.val.trim(),
+            refreshScopes: hasExplicitFlags ? Boolean(opts.refreshScopes) : true,
+            refreshVersions: hasExplicitFlags ? Boolean(opts.refreshVersions) : true,
+            checkCommit: hasExplicitFlags ? Boolean(opts.checkCommit) : Boolean(commit),
+            checkFlakePath: hasExplicitFlags ? Boolean(opts.checkFlakePath) : Boolean(form.nixFlake.val.trim()),
         }};
     }
     if (sourceType === SOURCE_DOCKER_IMAGE) {
-        return {containerImage: {image: form.containerImage.val.trim()}};
+        return {containerImage: {image: form.containerImage.val.trim(), refreshVersions: opts.refreshVersions !== false}};
     }
-    return {containerImage: {image: form.containerImage.val.trim()}};
+    return {containerImage: {image: form.containerImage.val.trim(), refreshVersions: opts.refreshVersions !== false}};
 }
 
 export function sourceValidationKey(form) {
@@ -276,10 +285,24 @@ export function validationVersionsByScope(sourceResult) {
 
 export function sourceCheckFromValidation(form, res, repo, sourceType, sourceKey) {
     const sourceResult = validationSourceResult(form, res);
-    const gitRepository = sourceResult.gitRepository || sourceResult.image || {ok: false, message: 'Source not accessible.'};
-    const nixFlakeFile = sourceResult.nixFlakeFile || {ok: false, message: ''};
+    const previous = form.repoCheck.val || {};
+    const canReusePrevious = previous.sourceKey === sourceKey && previous.sourceType === sourceType && previous.repo === repo;
+    const gitRepository = validationResultOrPrevious(
+        sourceResult.gitRepository || sourceResult.image,
+        canReusePrevious ? previous.gitRepository : undefined,
+        {ok: false, message: 'Source not accessible.'},
+    );
+    const nixFlakeFile = validationResultOrPrevious(
+        sourceResult.nixFlakeFile,
+        canReusePrevious ? previous.nixFlakeFile : undefined,
+        {ok: false, message: ''},
+    );
     const flakeRequired = sourceType === SOURCE_NIX_DOCKER;
     const ok = Boolean(gitRepository.ok && (!flakeRequired || !form.nixFlake.val.trim() || nixFlakeFile.ok));
+    const versionsByScope = canReusePrevious ? {...(previous.versionsByScope || {})} : {};
+    if ((sourceResult.versions || []).length > 0 || sourceResult.scope) {
+        versionsByScope[sourceResult.scope || ''] = {versions: sourceResult.versions || []};
+    }
     return {
         status: ok ? 'ok' : 'error',
         message: gitRepository.message || (gitRepository.ok ? 'Repo accessible.' : 'Source not accessible.'),
@@ -288,10 +311,39 @@ export function sourceCheckFromValidation(form, res, repo, sourceType, sourceKey
         sourceKey,
         gitRepository,
         nixFlakeFile,
-        scopes: sourceResult.scopes || [],
-        scope: sourceResult.scope || '',
+        scopes: (sourceResult.scopes || []).length > 0 ? sourceResult.scopes : (canReusePrevious ? previous.scopes || [] : []),
+        scope: sourceResult.scope || (canReusePrevious ? previous.scope || '' : ''),
         versions: sourceResult.versions || [],
-        versionsByScope: validationVersionsByScope(sourceResult),
+        versionsByScope,
+    };
+}
+
+function hasValidationResult(result) {
+    return Boolean(result && (result.ok || result.message));
+}
+
+function validationResultOrPrevious(result, previous, fallback) {
+    if (hasValidationResult(result)) return result;
+    if (hasValidationResult(previous)) return previous;
+    return fallback;
+}
+
+function knownNixSourceCheck(repo, flake) {
+    const trimmedRepo = (repo || '').trim();
+    const trimmedFlake = (flake || '').trim();
+    const sourceKey = `${SOURCE_NIX_DOCKER}:${trimmedRepo}:${trimmedFlake}`;
+    return {
+        status: 'ok',
+        message: 'Repo accessible.',
+        repo: trimmedRepo,
+        sourceType: SOURCE_NIX_DOCKER,
+        sourceKey,
+        gitRepository: {ok: true, message: 'Repo accessible.'},
+        nixFlakeFile: {ok: true, message: 'Path verified'},
+        scopes: [],
+        scope: '',
+        versions: [],
+        versionsByScope: {},
     };
 }
 
@@ -313,11 +365,23 @@ export async function validateSelectedCommit(form, scope, commit) {
         sourceKey,
     };
     try {
-        const res = await capi.postV1RepoValidate(buildValidateSourceRequest(form, {scope, commit: selectedCommit}));
+        const res = await capi.postV1RepoValidate(buildValidateSourceRequest(form, {
+            scope,
+            commit: selectedCommit,
+            checkCommit: true,
+            checkFlakePath: Boolean(form.nixFlake.val.trim()),
+        }));
         form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKey);
     } catch (e) {
         form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType, sourceKey};
     }
+}
+
+export function hasTrustedSourceValidation(form) {
+    const sourceType = form.sourceType.val;
+    const repo = sourceType === SOURCE_DOCKER_IMAGE ? form.containerImage.val.trim() : form.nixRepo.val.trim();
+    const c = form.repoCheck.val;
+    return Boolean(repo && c.status === 'ok' && c.sourceType === sourceType && c.repo === repo && c.sourceKey === sourceValidationKey(form));
 }
 
 function makeFormState(values) {
@@ -352,7 +416,7 @@ function makeFormState(values) {
         assetEditorContent: van.state(''),
         // Transient repo-accessibility check; tracks the repo/source it applies
         // to so a stale result is hidden once the inputs change.
-        repoCheck: van.state({status: 'idle', message: '', repo: '', sourceType: '', sourceKey: ''}),
+        repoCheck: van.state(values.repoCheck || {status: 'idle', message: '', repo: '', sourceType: '', sourceKey: ''}),
     };
 }
 

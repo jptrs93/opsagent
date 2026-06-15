@@ -33,7 +33,7 @@ func TestStreamLogsMergesRunDirsByTimestamp(t *testing.T) {
 	ainit.StaticConfig.RunOutputDir = base
 	t.Cleanup(func() { ainit.StaticConfig.RunOutputDir = old })
 
-	writeLog(t, base, 42, 1, 1, "20260615_14.logbin", "time=2026-06-15T14:30:02Z level=INFO msg=third run=1\n")
+	writeLog(t, base, 42, 1, 1, "20260615_14.logbin", "time=2026-06-15T14:30:02Z level=INFO msg=third run=1\ntime=2026-06-15T14:30:03Z level=INFO msg=fourth run=1\n")
 	writeLog(t, base, 42, 1, 2, "20260615_14.logbin", "time=2026-06-15T14:30:01Z level=INFO msg=second run=2\n")
 	writeLog(t, base, 42, 2, 1, "20260615_14.logbin", "time=2026-06-15T14:30:00Z level=INFO msg=first run=3\n")
 
@@ -45,7 +45,7 @@ func TestStreamLogsMergesRunDirsByTimestamp(t *testing.T) {
 		}
 		got = append(got, line.Msg)
 	}
-	want := []string{"first", "second", "third"}
+	want := []string{"fourth", "third", "second", "first"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("messages = %#v, want %#v", got, want)
 	}

@@ -18,7 +18,7 @@ import (
 	"github.com/jptrs93/goutil/pubsubu"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/engine/credentials"
+	"github.com/jptrs93/opsagent/backend/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
@@ -52,7 +52,7 @@ func machineFromContext(ctx context.Context) string {
 // generated mux invokes PostV1ClusterConnect once per worker connection.
 type Primary struct {
 	store             *sqlite.PrimaryStorage
-	githubCredentials credentials.GithubCredentialsProvider
+	githubCredentials githubcredentials.Provider
 	secrets           *secrets.Manager
 
 	mu          sync.RWMutex
@@ -63,10 +63,10 @@ type Primary struct {
 
 // New creates a Primary. The mTLS HTTP/2 listener that drives it is created by
 // the caller, which mounts CreateOpsagentClusterV1Mux(p, ...) on a server.
-func New(store *sqlite.PrimaryStorage, githubCredentials credentials.GithubCredentialsProvider, secretsMgr *secrets.Manager) *Primary {
+func New(store *sqlite.PrimaryStorage, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager) *Primary {
 	return &Primary{
 		store:             store,
-		githubCredentials: credentials.OrEmpty(githubCredentials),
+		githubCredentials: githubCredentials,
 		secrets:           secretsMgr,
 		sessions:          make(map[string]*Session),
 		connectedAt:       make(map[string]time.Time),
@@ -75,11 +75,11 @@ func New(store *sqlite.PrimaryStorage, githubCredentials credentials.GithubCrede
 }
 
 func (p *Primary) GetV1ClusterGithubCredentials(authCtx apigen.Context) (*apigen.GithubCredentials, error) {
-	creds, err := p.githubCredentials.GithubCredentials(authCtx)
+	creds, err := p.githubCredentials.LoadCredentials(authCtx)
 	if err != nil {
 		return nil, err
 	}
-	return &apigen.GithubCredentials{Token: creds.Token}, nil
+	return &apigen.GithubCredentials{Token: creds.Token, ChangedAt: creds.ChangedAt}, nil
 }
 
 func (p *Primary) GetV1ClusterAsset(authCtx apigen.Context, req *apigen.ClusterAssetRequest) (*apigen.ClusterAssetBlob, error) {

@@ -42,7 +42,7 @@ export function prepareOutputOverlay(deploymentId, deploymentLabel, onClose) {
     void startStream();
 
     const outputPre = pre(
-        {"data-testid": "prepare-output-text", class: "flex-1 overflow-auto rounded-lg bg-gray-950 border border-gray-800 p-4 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
+        {"data-testid": "prepare-output-text", class: "h-full w-full overflow-auto bg-gray-950 p-4 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
         () => outputText.val || 'Waiting for prepare output...',
     );
 
@@ -66,7 +66,7 @@ export function prepareOutputOverlay(deploymentId, deploymentLabel, onClose) {
                     ),
                     button({class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5", onclick: close}, "Close"),
                 ),
-                div({class: "flex-1 min-h-0 p-4"}, outputPre),
+                div({class: "flex-1 min-h-0 bg-gray-950 overflow-hidden"}, outputPre),
             ),
         ),
     );
