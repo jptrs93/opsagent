@@ -45,8 +45,11 @@ func RunBinaryProcess(args []string) error {
 func runBinaryLogger(basePath string) {
 	logging.Run(func(ctx context.Context, cfg *logging.Config, ready func() error) error {
 		hourly := &hourlyWriter{basePath: basePath}
-		writer := newLogfmtWriter(hourly)
-		defer writer.Close()
+		stdoutWriter := newLogfmtStreamWriter(hourly, "INFO")
+		stderrWriter := newLogfmtStreamWriter(hourly, "ERROR")
+		defer hourly.Close()
+		defer stdoutWriter.Close()
+		defer stderrWriter.Close()
 		if err := hourly.ensureOpen(time.Now().UTC()); err != nil {
 			return err
 		}
@@ -56,7 +59,7 @@ func runBinaryLogger(basePath string) {
 
 		var wg sync.WaitGroup
 		errCh := make(chan error, 2)
-		copyStream := func(r io.Reader) {
+		copyStream := func(r io.Reader, writer io.Writer) {
 			defer wg.Done()
 			_, err := io.CopyBuffer(writer, r, make([]byte, 32*1024))
 			if err != nil && ctx.Err() == nil {
@@ -65,8 +68,8 @@ func runBinaryLogger(basePath string) {
 		}
 
 		wg.Add(2)
-		go copyStream(cfg.Stdout)
-		go copyStream(cfg.Stderr)
+		go copyStream(cfg.Stdout, stdoutWriter)
+		go copyStream(cfg.Stderr, stderrWriter)
 
 		done := make(chan struct{})
 		go func() {
@@ -97,28 +100,32 @@ func closeReader(r io.Reader) {
 	}
 }
 
-const unformattedFlushDelay = 20 * time.Millisecond
-
 type logfmtWriter struct {
-	out        *hourlyWriter
-	now        func() time.Time
-	flushDelay time.Duration
+	out          *hourlyWriter
+	now          func() time.Time
+	defaultLevel string
+	closeOut     bool
 
-	mu          sync.Mutex
-	partial     []byte
-	pending     []string
-	pendingTime time.Time
-	timer       *time.Timer
-	err         error
-	closed      bool
+	mu      sync.Mutex
+	partial []byte
+	err     error
+	closed  bool
 }
 
 func newLogfmtWriter(out *hourlyWriter) *logfmtWriter {
 	return &logfmtWriter{
-		out:        out,
-		now:        func() time.Time { return time.Now().UTC() },
-		flushDelay: unformattedFlushDelay,
+		out:          out,
+		now:          func() time.Time { return time.Now().UTC() },
+		defaultLevel: "ERROR",
+		closeOut:     true,
 	}
+}
+
+func newLogfmtStreamWriter(out *hourlyWriter, defaultLevel string) *logfmtWriter {
+	w := newLogfmtWriter(out)
+	w.defaultLevel = defaultLevel
+	w.closeOut = false
+	return w
 }
 
 func (w *logfmtWriter) Write(p []byte) (int, error) {
@@ -154,58 +161,11 @@ func (w *logfmtWriter) writeAt(now time.Time, p []byte) (int, error) {
 
 func (w *logfmtWriter) handleLineLocked(now time.Time, line string) error {
 	if strings.HasPrefix(line, "time=") {
-		if err := w.flushUnformattedLocked(); err != nil {
-			return err
-		}
 		_, err := w.out.writeAt(now, []byte(line+"\n"))
 		return err
 	}
-	w.appendUnformattedLocked(now, line)
-	return nil
-}
-
-func (w *logfmtWriter) appendUnformattedLocked(now time.Time, line string) {
-	if len(w.pending) == 0 {
-		w.pendingTime = now
-	}
-	w.pending = append(w.pending, line)
-	w.resetTimerLocked()
-}
-
-func (w *logfmtWriter) resetTimerLocked() {
-	if w.flushDelay <= 0 {
-		return
-	}
-	if w.timer == nil {
-		w.timer = time.AfterFunc(w.flushDelay, w.flushFromTimer)
-		return
-	}
-	w.timer.Reset(w.flushDelay)
-}
-
-func (w *logfmtWriter) flushFromTimer() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.closed || w.err != nil {
-		return
-	}
-	if err := w.flushUnformattedLocked(); err != nil {
-		w.err = err
-	}
-}
-
-func (w *logfmtWriter) flushUnformattedLocked() error {
-	if len(w.pending) == 0 {
-		return nil
-	}
-	if w.timer != nil {
-		w.timer.Stop()
-	}
-	writeTime := w.pendingTime
-	line := formatUnformattedLogLine(writeTime, strings.Join(w.pending, "\n"))
-	w.pending = nil
-	w.pendingTime = time.Time{}
-	_, err := w.out.writeAt(writeTime, []byte(line))
+	logLine := formatUnformattedLogLine(now, w.defaultLevel, line)
+	_, err := w.out.writeAt(now, []byte(logLine))
 	return err
 }
 
@@ -216,9 +176,6 @@ func (w *logfmtWriter) Close() error {
 		return nil
 	}
 	w.closed = true
-	if w.timer != nil {
-		w.timer.Stop()
-	}
 	if len(w.partial) > 0 {
 		line := string(bytes.TrimSuffix(w.partial, []byte{'\r'}))
 		w.partial = nil
@@ -226,19 +183,21 @@ func (w *logfmtWriter) Close() error {
 			w.err = err
 		}
 	}
-	if err := w.flushUnformattedLocked(); err != nil && w.err == nil {
-		w.err = err
-	}
 	err := w.err
 	w.mu.Unlock()
-	if closeErr := w.out.Close(); err == nil {
-		err = closeErr
+	if w.closeOut {
+		if closeErr := w.out.Close(); err == nil {
+			err = closeErr
+		}
 	}
 	return err
 }
 
-func formatUnformattedLogLine(t time.Time, message string) string {
-	return "time=" + t.UTC().Format(time.RFC3339Nano) + " level=ERROR fmt=unformatted msg=" + quoteLogfmtValue(message) + "\n"
+func formatUnformattedLogLine(t time.Time, level string, message string) string {
+	if level == "" {
+		level = "ERROR"
+	}
+	return "time=" + t.UTC().Format(time.RFC3339Nano) + " level=" + level + " fmt=unformatted msg=" + quoteLogfmtValue(message) + "\n"
 }
 
 func quoteLogfmtValue(s string) string {

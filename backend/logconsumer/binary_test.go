@@ -83,13 +83,12 @@ func TestLogfmtWriterPassesThroughStructuredLines(t *testing.T) {
 	assertFileContent(t, filepath.Join(base, "20260615_14.logbin"), line)
 }
 
-func TestLogfmtWriterFlushesUnformattedBeforeStructuredLine(t *testing.T) {
+func TestLogfmtWriterWritesEachUnformattedLineSeparately(t *testing.T) {
 	base := filepath.Join(t.TempDir(), "12", "34", "1")
 	if err := os.MkdirAll(base, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	w := newLogfmtWriter(&hourlyWriter{basePath: base})
-	w.flushDelay = time.Hour
 
 	first := time.Date(2026, 6, 15, 14, 30, 0, 0, time.UTC)
 	if _, err := w.writeAt(first, []byte("panic: bad\nstack \"line\"\n")); err != nil {
@@ -103,11 +102,13 @@ func TestLogfmtWriterFlushesUnformattedBeforeStructuredLine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "time=2026-06-15T14:30:00Z level=ERROR fmt=unformatted msg=\"panic: bad\\nstack \\\"line\\\"\"\n" + structured
+	want := "time=2026-06-15T14:30:00Z level=ERROR fmt=unformatted msg=\"panic: bad\"\n" +
+		"time=2026-06-15T14:30:00Z level=ERROR fmt=unformatted msg=\"stack \\\"line\\\"\"\n" +
+		structured
 	assertFileContent(t, filepath.Join(base, "20260615_14.logbin"), want)
 }
 
-func TestLogfmtWriterFlushesUnformattedAfterDelay(t *testing.T) {
+func TestLogfmtWriterUsesDefaultLevelForUnformattedLines(t *testing.T) {
 	base := filepath.Join(t.TempDir(), "12", "34", "1")
 	if err := os.MkdirAll(base, 0o750); err != nil {
 		t.Fatal(err)
@@ -115,16 +116,33 @@ func TestLogfmtWriterFlushesUnformattedAfterDelay(t *testing.T) {
 	now := time.Date(2026, 6, 15, 14, 30, 0, 0, time.UTC)
 	w := newLogfmtWriter(&hourlyWriter{basePath: base})
 	w.now = func() time.Time { return now }
-	w.flushDelay = 5 * time.Millisecond
 
 	if _, err := w.writeAt(now, []byte("not logfmt\n")); err != nil {
 		t.Fatalf("write unformatted line: %v", err)
 	}
 	want := "time=2026-06-15T14:30:00Z level=ERROR fmt=unformatted msg=\"not logfmt\"\n"
-	waitForFileContent(t, filepath.Join(base, "20260615_14.logbin"), want)
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
+	assertFileContent(t, filepath.Join(base, "20260615_14.logbin"), want)
+}
+
+func TestLogfmtStreamWriterUsesConfiguredLevel(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "12", "34", "1")
+	if err := os.MkdirAll(base, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 6, 15, 14, 30, 0, 0, time.UTC)
+	w := newLogfmtStreamWriter(&hourlyWriter{basePath: base}, "INFO")
+	w.now = func() time.Time { return now }
+
+	if _, err := w.writeAt(now, []byte("stdout line\n")); err != nil {
+		t.Fatalf("write unformatted line: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	assertFileContent(t, filepath.Join(base, "20260615_14.logbin"), "time=2026-06-15T14:30:00Z level=INFO fmt=unformatted msg=\"stdout line\"\n")
 }
 
 func TestFileModeForDir(t *testing.T) {
