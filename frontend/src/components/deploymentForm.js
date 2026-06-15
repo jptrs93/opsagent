@@ -14,8 +14,6 @@ let nextAssetMountID = 1;
 let nextVolumeMountID = 1;
 
 export function emptyDeploymentForm() {
-    const repoCheck = nixDocker.repo && nixDocker.flake ? knownNixSourceCheck(nixDocker.repo, nixDocker.flake) : undefined;
-
     return makeFormState({
         name: '',
         environment: '',
