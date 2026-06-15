@@ -65,9 +65,11 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
         td(
             {class: "py-3 px-3 align-middle text-sm break-words"},
             prepareCopy
-                ? a({
-                    class: `underline hover:text-white cursor-pointer ${prepareCopy.class}`,
+                ? button({
+                    class: `${prepareCopy.class} hover:brightness-125 underline cursor-pointer p-0`,
                     onclick: () => onShowPrepareOutput(deployment),
+                    title: "View prepare output",
+                    type: "button",
                 }, prepareCopy.text)
                 : span({class: "text-gray-500"}, '-'),
         ),

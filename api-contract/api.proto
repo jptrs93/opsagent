@@ -68,8 +68,13 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1DeploymentLogs(cp.Empty) returns (cp.Empty) {
-    option (cp.go_custom) = true;
+  rpc PostV1DeploymentLogSearch(LogSearchRequest) returns (stream LogLine) {
+    option (cp.url) = "/v1/deployment/log-search";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1DeploymentPrepareOutput(PrepareOutputRequest) returns (stream PrepareOutputChunk) {
+    option (cp.url) = "/v1/deployment/prepare-output";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -650,6 +655,10 @@ message PrepareOutputRequest {
   int32 version = 2;  // config version whose log to stream (0 = latest)
 }
 
+message PrepareOutputChunk {
+  bytes data = 1;
+}
+
 message RunOutputRequest {
   int32 deployment_id = 3;
   int32 version = 2;  // config version whose log to stream (0 = latest)
@@ -659,6 +668,22 @@ message DeploymentLogRequest {
   RunOutputRequest runner_output = 1;
   PrepareOutputRequest preparer_output = 2;
   string request_id = 3;  // Unique ID for multiplexing parallel log streams over a single cluster session.
+}
+
+message LogSearchRequest {
+  int32 deployment_id = 1;
+  int64 time_start = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int64 time_end = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  string level_min = 4;
+  map<string, string> search_keys = 5;
+  string request_id = 6;  // Internal: multiplexes worker log-search streams.
+}
+
+message LogLine {
+  int64 time = 1 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  string level = 2;
+  string msg = 3;
+  map<string, string> props = 4;
 }
 
 
@@ -851,6 +876,7 @@ message MsgToWorker {
   RunOutputRequest run_log_request = 4;
   DeploymentLogRequest deployment_log_request = 5;
   string stop_log_request_id = 6;  // Cancel an active log stream by its request_id.
+  LogSearchRequest log_search_request = 7;
 }
 
 message MsgToMaster {
@@ -858,4 +884,5 @@ message MsgToMaster {
   bytes log_data = 2;
   bool log_end = 3;
   string log_request_id = 4;  // Tags log_data/log_end with the originating request_id.
+  LogLine log_line = 5 [(cp.go_value) = true];
 }

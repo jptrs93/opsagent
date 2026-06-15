@@ -8,6 +8,7 @@ import {secretsPage} from "./secrets.js";
 import {configsPage} from "./configs.js";
 import {assetsPage} from "./assets.js";
 import {settingsPage} from "./settings.js";
+import {logsPage} from "./logs.js";
 
 const { div, h1, span } = van.tags;
 
@@ -18,6 +19,12 @@ export function dashboard() {
     }
 
     const activePage = van.state('status');
+    const selectedLogDeploymentId = van.state(0);
+
+    const openLogsForDeployment = (deploymentId) => {
+        selectedLogDeploymentId.val = deploymentId;
+        activePage.val = 'logs';
+    };
 
     return div(
         {class: "h-dvh min-h-dvh w-dvw flex overflow-hidden"},
@@ -25,7 +32,8 @@ export function dashboard() {
         div(
             {class: "flex-1 min-h-0 overflow-hidden"},
             () => {
-                if (activePage.val === 'status') return statusPage();
+                if (activePage.val === 'status') return statusPage(openLogsForDeployment);
+                if (activePage.val === 'logs') return logsPage(selectedLogDeploymentId);
                 if (activePage.val === 'secrets') return secretsPage();
                 if (activePage.val === 'configs') return configsPage();
                 if (activePage.val === 'assets') return assetsPage();

@@ -3079,6 +3079,39 @@ func DecodePrepareOutputRequest(b []byte) (*PrepareOutputRequest, error) {
 	return &m, nil
 }
 
+type PrepareOutputChunk struct {
+	Data []byte
+}
+
+func (m *PrepareOutputChunk) Encode() []byte {
+	var b []byte
+	b = AppendBytesField(b, m.Data, 1)
+	return b
+}
+
+func DecodePrepareOutputChunk(b []byte) (*PrepareOutputChunk, error) {
+	var m PrepareOutputChunk
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Data, err = ConsumeBytesCopy(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type RunOutputRequest struct {
 	DeploymentID int32
 	Version      int32
@@ -3168,6 +3201,117 @@ func DecodeDeploymentLogRequest(b []byte) (*DeploymentLogRequest, error) {
 			}
 		case 3:
 			b, m.RequestID, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type LogSearchRequest struct {
+	DeploymentID int32
+	TimeStart    time.Time
+	TimeEnd      time.Time
+	LevelMin     string
+	SearchKeys   map[string]string
+	RequestID    string
+}
+
+func (m *LogSearchRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DeploymentID, 1)
+	b = AppendInt64FromTime(b, m.TimeStart, 2)
+	b = AppendInt64FromTime(b, m.TimeEnd, 3)
+	b = AppendStringField(b, m.LevelMin, 4)
+	b = AppendMap(b, m.SearchKeys, 5, AppendFieldDecorator(AppendStringField, 1), AppendFieldDecorator(AppendStringField, 2))
+	b = AppendStringField(b, m.RequestID, 6)
+	return b
+}
+
+func DecodeLogSearchRequest(b []byte) (*LogSearchRequest, error) {
+	var m LogSearchRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.TimeStart, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			b, m.TimeEnd, err = ConsumeTimeFromInt64(b, typ)
+		case 4:
+			b, m.LevelMin, err = ConsumeString(b, typ)
+		case 5:
+			if m.SearchKeys == nil {
+				m.SearchKeys = make(map[string]string)
+			}
+			b, err = ConsumeMapEntry(b, typ, m.SearchKeys, ConsumeString, ConsumeString)
+		case 6:
+			b, m.RequestID, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type LogLine struct {
+	Time  time.Time
+	Level string
+	Msg   string
+	Props map[string]string
+}
+
+func (m LogLine) IsZero() bool {
+	return m.Time.IsZero() &&
+		m.Level == "" &&
+		m.Msg == "" &&
+		len(m.Props) == 0
+}
+
+func (m *LogLine) Encode() []byte {
+	var b []byte
+	b = AppendInt64FromTime(b, m.Time, 1)
+	b = AppendStringField(b, m.Level, 2)
+	b = AppendStringField(b, m.Msg, 3)
+	b = AppendMap(b, m.Props, 4, AppendFieldDecorator(AppendStringField, 1), AppendFieldDecorator(AppendStringField, 2))
+	return b
+}
+
+func DecodeLogLine(b []byte) (*LogLine, error) {
+	var m LogLine
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Time, err = ConsumeTimeFromInt64(b, typ)
+		case 2:
+			b, m.Level, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Msg, err = ConsumeString(b, typ)
+		case 4:
+			if m.Props == nil {
+				m.Props = make(map[string]string)
+			}
+			b, err = ConsumeMapEntry(b, typ, m.Props, ConsumeString, ConsumeString)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4547,6 +4691,7 @@ type MsgToWorker struct {
 	RunLogRequest        *RunOutputRequest
 	DeploymentLogRequest *DeploymentLogRequest
 	StopLogRequestID     string
+	LogSearchRequest     *LogSearchRequest
 }
 
 func (m *MsgToWorker) Encode() []byte {
@@ -4572,6 +4717,10 @@ func (m *MsgToWorker) Encode() []byte {
 		b = AppendBytes(b, m.DeploymentLogRequest.Encode())
 	}
 	b = AppendStringField(b, m.StopLogRequestID, 6)
+	if m.LogSearchRequest != nil {
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.LogSearchRequest.Encode())
+	}
 	return b
 }
 
@@ -4634,6 +4783,15 @@ func DecodeMsgToWorker(b []byte) (*MsgToWorker, error) {
 			}
 		case 6:
 			b, m.StopLogRequestID, err = ConsumeString(b, typ)
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LogSearchRequest
+				item, err = DecodeLogSearchRequest(msgBytes)
+				if err == nil {
+					m.LogSearchRequest = item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4649,6 +4807,7 @@ type MsgToMaster struct {
 	LogData      []byte
 	LogEnd       bool
 	LogRequestID string
+	LogLine      LogLine
 }
 
 func (m *MsgToMaster) Encode() []byte {
@@ -4660,6 +4819,10 @@ func (m *MsgToMaster) Encode() []byte {
 	b = AppendBytesField(b, m.LogData, 2)
 	b = AppendBoolField(b, m.LogEnd, 3)
 	b = AppendStringField(b, m.LogRequestID, 4)
+	if !m.LogLine.IsZero() {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.LogLine.Encode())
+	}
 	return b
 }
 
@@ -4690,6 +4853,15 @@ func DecodeMsgToMaster(b []byte) (*MsgToMaster, error) {
 			b, m.LogEnd, err = ConsumeBool(b, typ)
 		case 4:
 			b, m.LogRequestID, err = ConsumeString(b, typ)
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LogLine
+				item, err = DecodeLogLine(msgBytes)
+				if err == nil {
+					m.LogLine = *item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

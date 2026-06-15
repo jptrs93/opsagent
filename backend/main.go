@@ -16,6 +16,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/cluster"
 	"github.com/jptrs93/opsagent/backend/engine/credentials"
 	"github.com/jptrs93/opsagent/backend/internal/installer"
+	"github.com/jptrs93/opsagent/backend/logconsumer"
 	"github.com/jptrs93/opsagent/backend/primary"
 	"github.com/jptrs93/opsagent/backend/secondary"
 	"github.com/jptrs93/opsagent/backend/util/certu"
@@ -57,6 +58,12 @@ func main() {
 	switch ainit.Args.Command {
 	case ainit.CommandInstall, ainit.CommandUninstall:
 		if err := installer.Run(os.Args); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	case ainit.CommandLogConsumer:
+		if err := logconsumer.RunBinaryProcess(os.Args); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
 			os.Exit(1)
 		}

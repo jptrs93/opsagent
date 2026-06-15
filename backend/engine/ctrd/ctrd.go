@@ -31,7 +31,7 @@ type Mount struct {
 // ContainerSpec describes a container to create and start. The default data
 // volume (if any) is already resolved into Mounts by the caller.
 type ContainerSpec struct {
-	ID     string   // deterministic container id (one per deployment)
+	ID     string   // deterministic container id (one per deployment config version)
 	Image  string   // resolved image ref to run (as stored by Pull)
 	User   string   // OCI process.user (uid, uid:gid, or name); empty = image default
 	Env    []string // KEY=VALUE entries

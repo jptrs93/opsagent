@@ -16,8 +16,10 @@ import {
   decodeEnrollmentRequestList,
   decodeEnrollmentRequestStatus,
   decodeGithubCredentials,
+  decodeLogLine,
   decodeLoginResponse,
   decodeMsgToWorker,
+  decodePrepareOutputChunk,
   decodeSecretList,
   decodeSecretMeta,
   decodeSecretRecoveryCodeResponse,
@@ -42,10 +44,12 @@ import {
   encodeEmptyRequest,
   encodeEnrollmentAcceptRequest,
   encodeEnrollmentWorkerMsg,
+  encodeLogSearchRequest,
   encodeMasterPasswordRequest,
   encodeMasterPasswordSaveRequest,
   encodeMasterPasswordVerifyRequest,
   encodeMsgToMaster,
+  encodePrepareOutputRequest,
   encodeSecretDeleteRequest,
   encodeSecretRevealRequest,
   encodeSecretSetRequest,
@@ -308,14 +312,39 @@ export class Capi {
   }
 
   /**
-   * @returns {Promise<void>}
+   * @param {LogSearchRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {AsyncIterable<LogLine>}
    */
-  async postV1DeploymentLogs() {
-    const response = await this.#request("/v1/deployment/logs", { method: 'POST' });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    await response.arrayBuffer();
+  postV1DeploymentLogSearch(payload, options = {}) {
+    const self = this;
+    return {
+      [Symbol.asyncIterator]: async function* () {
+        const response = await self.#request("/v1/deployment/log-search", { method: 'POST', body: encodeLogSearchRequest(payload), signal: options.signal });
+        if (!response.ok) {
+          return self.errorHandler(response);
+        }
+        yield* readLengthPrefixedFrames(response.body, decodeLogLine);
+      },
+    };
+  }
+
+  /**
+   * @param {PrepareOutputRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {AsyncIterable<PrepareOutputChunk>}
+   */
+  postV1DeploymentPrepareOutput(payload, options = {}) {
+    const self = this;
+    return {
+      [Symbol.asyncIterator]: async function* () {
+        const response = await self.#request("/v1/deployment/prepare-output", { method: 'POST', body: encodePrepareOutputRequest(payload), signal: options.signal });
+        if (!response.ok) {
+          return self.errorHandler(response);
+        }
+        yield* readLengthPrefixedFrames(response.body, decodePrepareOutputChunk);
+      },
+    };
   }
 
   /**

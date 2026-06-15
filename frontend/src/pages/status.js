@@ -2,10 +2,10 @@ import van from "vanjs-core";
 import {Info} from "vanjs-feather";
 import {deploymentsS, deploymentsStreamS} from "../state/deployments.js";
 import {statusRow} from "../components/statusCard.js";
-import {deploymentLogs} from "../components/deploymentLogs.js";
 import {deploymentHistory} from "../components/deploymentHistory.js";
 import {deployOverlay} from "../components/deployOverlay.js";
 import {createOverlay} from "../components/createOverlay.js";
+import {prepareOutputOverlay} from "../components/prepareOutputOverlay.js";
 
 const { div, p, button, table, thead, tbody, tr, th, span } = van.tags;
 
@@ -133,8 +133,7 @@ const findRawConfig = (deploymentId) => {
     return null;
 };
 
-export function statusPage() {
-    const statuses = van.state([]);
+export function statusPage(onOpenLogs = () => {}) {
     const sidebarMode = van.state(SIDEBAR_NONE);
     const sidebarDeploymentId = van.state(null);
     const sidebarLabel = van.state('');
@@ -148,11 +147,6 @@ export function statusPage() {
     const createOverlayNode = van.state('');
     const groupByEnvironment = van.state(true);
     const collapsedEnvironmentGroups = van.state({});
-
-    // Track deployments
-    van.derive(() => {
-        statuses.val = mapDeploymentsToView(deploymentsS.val);
-    });
 
     const abortActiveSidebar = () => {
         if (activeSidebarAbort) {
@@ -175,9 +169,11 @@ export function statusPage() {
         sidebarRevision.val++;
     };
 
-    const onShowRunOutput = (deployment) => openSidebar(deployment, SIDEBAR_RUN);
+    const onShowRunOutput = (deployment) => onOpenLogs(deployment.id);
     const onShowHistory = (deployment) => openSidebar(deployment, SIDEBAR_HISTORY);
-    const onShowPrepareOutput = (deployment) => openSidebar(deployment, SIDEBAR_PREPARE);
+    const onShowPrepareOutput = (deployment) => {
+        overlayNode.val = prepareOutputOverlay(deployment.id, formatDeploymentLabel(deployment), closeOverlay);
+    };
 
     const closeOverlay = () => {
         overlayNode.val = '';
@@ -315,11 +311,11 @@ export function statusPage() {
             ),
         ),
         () => {
-            if (deploymentsStreamS.val.status !== 'connected' && statuses.val.length === 0) {
+            const filtered = mapDeploymentsToView(deploymentsS.val);
+
+            if (deploymentsStreamS.val.status !== 'connected' && filtered.length === 0) {
                 return p({class: "text-gray-400"}, deploymentsStreamS.val.sentence);
             }
-
-            const filtered = statuses.val;
 
             if (filtered.length === 0) {
                 return div(
@@ -440,18 +436,15 @@ export function statusPage() {
             return;
         }
 
-        const label = sidebarLabel.val;
-        let content;
-        if (mode === SIDEBAR_HISTORY) {
-            content = deploymentHistory(depId, label, closeSidebar);
-        } else {
-            abortActiveSidebar();
-            const ac = new AbortController();
-            activeSidebarAbort = ac;
-            content = deploymentLogs(depId, label, mode, ac, closeSidebar);
-        }
+		const label = sidebarLabel.val;
+		let content;
+		if (mode !== SIDEBAR_HISTORY) {
+			applySidebarLayout(false);
+			return;
+		}
+		content = deploymentHistory(depId, label, closeSidebar);
 
-        sidebarPane.appendChild(content);
+		sidebarPane.appendChild(content);
         applySidebarLayout(true);
     });
 

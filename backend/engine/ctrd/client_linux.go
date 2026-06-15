@@ -168,7 +168,7 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 		return nil, fmt.Errorf("creating container: %w", err)
 	}
 
-	ioCreator, err := logconsumer.NewFile(spec.Output, logconsumer.Truncate)
+	ioCreator, err := logconsumer.NewBinaryV2(spec.Output)
 	if err != nil {
 		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
 		return nil, err

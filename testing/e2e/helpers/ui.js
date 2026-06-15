@@ -1,5 +1,12 @@
 import {expect} from '@playwright/test';
 
+const LONG_UI_TIMEOUT = 15_000;
+const OPTIONAL_VALIDATION_TIMEOUT = 5_000;
+const VALIDATE_REQUEST_TIMEOUT = 5_000;
+const LOG_OUTPUT_TIMEOUT = 120_000;
+const LOG_OUTPUT_POLL_TIMEOUT = 1_500;
+const STABLE_CHECK_DELAY = 200;
+
 export async function bootstrapFirstUser(page, {username = 'E2E Operator', password = 'opendeploy-setup'} = {}) {
   await page.goto('/bootstrap');
   await expect(page.getByRole('heading', {name: 'First time setup'})).toBeVisible();
@@ -25,13 +32,13 @@ export async function acceptFirstWaitingWorker(page, {workerName = 'worker-1'} =
   await expect(page.getByRole('heading', {name: 'Enrollment requests'})).toBeVisible();
 
   const requestRow = byTestId(page, 'enrollment-request-1', page.locator('tr').filter({hasText: '#1'}).filter({hasText: 'Accept'}));
-  await expect(requestRow).toBeVisible({timeout: 30_000});
+  await expect(requestRow).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await byTestId(requestRow, 'enrollment-worker-name-input', requestRow.getByRole('textbox')).fill(workerName);
   await byTestId(requestRow, 'enrollment-accept-button', requestRow.getByRole('button', {name: 'Accept'})).click();
 
-  await expect(page.getByText('No pending enrollment requests.')).toBeVisible({timeout: 30_000});
+  await expect(page.getByText('No pending enrollment requests.')).toBeVisible({timeout: LONG_UI_TIMEOUT});
   const workerRow = byTestId(page, `machine-row-${workerName}`, page.locator('tr').filter({hasText: workerName}).filter({hasText: 'secondary'}));
-  await expect(workerRow).toContainText('connected', {timeout: 30_000});
+  await expect(workerRow).toContainText('connected', {timeout: LONG_UI_TIMEOUT});
 }
 
 export async function createNixDockerDeployment(page, {
@@ -87,11 +94,9 @@ export async function createNixDockerDeployment(page, {
   if (assetMount) await setDeploymentAssetMount(dialog, assetMount);
   await byTestId(dialog, 'create-deployment-submit', dialog.getByRole('button', {name: 'Create'})).click();
 
-  const row = byTestId(page, `deployment-row-${name}`, page.locator('tr').filter({hasText: name}).filter({hasText: machine}));
-  await expect(row).toBeVisible({timeout: 30_000});
-  await expect(row.getByText('Running', {exact: true})).toBeVisible({timeout: 180_000});
-  await row.getByText('Running', {exact: true}).click();
-  await expect(page.getByRole('heading', {name: new RegExp(`^Output: .*${name}`)})).toBeVisible();
+  let row = byTestId(page, `deployment-row-${name}`, page.locator('tr').filter({hasText: name}).filter({hasText: machine}));
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await openDeploymentLogsSearch(page, row);
   await expectOutputText(page, `nixdockerbuild1 env OPENDEPLOY_E2E_MESSAGE=${expectedEnv.OPENDEPLOY_E2E_MESSAGE}`);
   await expectOutputText(page, `nixdockerbuild1 env OPENDEPLOY_E2E_COLOR=${expectedEnv.OPENDEPLOY_E2E_COLOR}`);
 }
@@ -137,20 +142,38 @@ export async function createAsset(page, {key, content, format = 'text'} = {}) {
 export async function expectDeploymentOutput(page, name, expectedLines) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
   const row = byTestId(page, `deployment-row-${name}`, page.locator('tr').filter({hasText: name}));
-  await expect(row.getByText('Running', {exact: true})).toBeVisible({timeout: 180_000});
-  await row.getByText('Running', {exact: true}).click();
-  await expect(page.getByRole('heading', {name: new RegExp(`^Output: .*${name}`)})).toBeVisible();
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await openDeploymentLogsSearch(page, row);
   for (const line of expectedLines) {
     await expectOutputText(page, line);
   }
+}
+
+export async function expectPrepareOutput(page, name, expectedText) {
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  const row = byTestId(page, `deployment-row-${name}`, page.locator('tr').filter({hasText: name}));
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await row.getByTitle('View prepare output').click();
+  await expect(page.getByTestId('prepare-output-overlay')).toBeVisible();
+  await expect(page.getByTestId('prepare-output-text')).toContainText(expectedText, {timeout: LONG_UI_TIMEOUT});
+  await page.getByRole('button', {name: 'Close'}).click();
+  await expect(page.getByTestId('prepare-output-overlay')).toBeHidden();
+}
+
+async function openDeploymentLogsSearch(page, row) {
+  await row.getByTitle('View run output').click();
+  await expect(byTestId(page, 'nav-logs', page.getByText('Logs'))).toBeVisible();
+  await expect(page.getByTestId('logs-deployment-select')).not.toHaveValue('');
+  await expect(page.getByTestId('logs-output')).toBeVisible();
+  await page.getByTestId('logs-search-button').click();
 }
 
 async function waitForOptionalPathValidation(dialog) {
   const pathVerified = dialog.getByText('Path verified');
   const validationFailed = dialog.getByText(/Git repository not accessible|Unable to validate flake path|Flake path not found|Selected commit not found/);
   return Promise.race([
-    pathVerified.waitFor({state: 'visible', timeout: 15_000}).then(() => true).catch(() => false),
-    validationFailed.waitFor({state: 'visible', timeout: 15_000}).then(() => false).catch(() => false),
+    pathVerified.waitFor({state: 'visible', timeout: OPTIONAL_VALIDATION_TIMEOUT}).then(() => true).catch(() => false),
+    validationFailed.waitFor({state: 'visible', timeout: OPTIONAL_VALIDATION_TIMEOUT}).then(() => false).catch(() => false),
   ]);
 }
 
@@ -178,7 +201,16 @@ async function setDeploymentAssetMount(dialog, {asset, path}) {
 }
 
 async function expectOutputText(page, text) {
-  await expect(page.getByText(text)).toBeVisible({timeout: 30_000});
+  const deadline = Date.now() + LOG_OUTPUT_TIMEOUT;
+  while (Date.now() < deadline) {
+    try {
+      await expect(page.getByTestId('logs-output')).toContainText(text, {timeout: LOG_OUTPUT_POLL_TIMEOUT});
+      return;
+    } catch {
+      await page.getByTestId('logs-search-button').click();
+    }
+  }
+  await expect(page.getByTestId('logs-output')).toContainText(text, {timeout: 1});
 }
 
 function trackRepoValidateRequests(page) {
@@ -194,11 +226,11 @@ function trackRepoValidateRequests(page) {
 
   return {
     async expectCount(count, message) {
-      await expect.poll(() => requests.length, {message, timeout: 10_000}).toBe(count);
+      await expect.poll(() => requests.length, {message, timeout: VALIDATE_REQUEST_TIMEOUT}).toBe(count);
     },
     async expectStableCount(count, message) {
       await expect(requests, message).toHaveLength(count);
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(STABLE_CHECK_DELAY);
       await expect(requests, message).toHaveLength(count);
     },
     stop() {

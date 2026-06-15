@@ -6,16 +6,18 @@ import (
 	"os"
 
 	"github.com/jptrs93/goutil/envu"
+	"github.com/jptrs93/opsagent/backend/logconsumer"
 )
 
 type Command string
 
 const (
-	CommandPrimary   Command = "primary"
-	CommandSecondary Command = "secondary"
-	CommandInstall   Command = "install"
-	CommandUninstall Command = "uninstall"
-	commandTest      Command = "test"
+	CommandPrimary     Command = "primary"
+	CommandSecondary   Command = "secondary"
+	CommandInstall     Command = "install"
+	CommandUninstall   Command = "uninstall"
+	CommandLogConsumer Command = logconsumer.CommandName
+	commandTest        Command = "test"
 )
 
 type Arguments struct {
@@ -48,6 +50,8 @@ func initArgs() {
 	case CommandUninstall:
 		Args.Command = CommandUninstall
 		Args.Installer = true
+	case CommandLogConsumer:
+		Args.Command = CommandLogConsumer
 	default:
 		usage(os.Stderr, Args.Program)
 		fmt.Fprintf(os.Stderr, "\nunknown command: %s\n", os.Args[1])

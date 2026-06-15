@@ -63,10 +63,15 @@ Key generated files:
 | POST | `/v1/deployment/create` | `DeploymentCreateRequest` | `DeploymentConfig` | ANY_OF default |
 | POST | `/v1/deployment/update` | `DeploymentUpdateRequest` | `DesiredState` | ANY_OF default |
 | POST | `/v1/deployment/history` | `DeploymentHistoryRequest` | `DeploymentHistory` | ANY_OF default |
-| POST | `/v1/deployment/logs` | `DeploymentLogRequest` | length-prefixed log stream | ANY_OF default |
+| POST | `/v1/deployment/log-search` | `LogSearchRequest` | stream `LogLine` | ANY_OF default |
+| POST | `/v1/deployment/prepare-output` | `PrepareOutputRequest` | stream `PrepareOutputChunk` | ANY_OF default |
 | POST | `/v1/deployment/versions` | `DeploymentVersionsRequest` | `DeploymentVersions` | ANY_OF default |
 
 `/v1/state/stream` is the UI's live state source. Its initial `State` message includes deployment, user, connected-machine, and enrollment snapshots; subsequent messages carry deployment, user, machine, and enrollment updates plus heartbeats.
+
+`/v1/deployment/log-search` streams historical run logs as typed `LogLine` protobuf frames. It scans existing `.logbin` files for the requested deployment and time range; it does not tail the currently active log file.
+
+`/v1/deployment/prepare-output` streams raw prepare/build output chunks for a deployment config version. A request with `version=0` resolves to the latest known prepare status and tails while preparation is still active.
 
 ### Cluster
 | Method | Path | Request | Response | Policy |

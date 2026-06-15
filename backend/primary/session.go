@@ -47,6 +47,7 @@ type Session struct {
 
 type logChunk struct {
 	data []byte
+	line *apigen.LogLine
 	end  bool
 }
 
@@ -152,6 +153,9 @@ func (s *Session) handleIncoming(msg *apigen.MsgToMaster) {
 		s.handleStatusWrite(msg.StatusWrite)
 	case len(msg.LogData) > 0:
 		s.routeLogChunk(msg.LogRequestID, logChunk{data: msg.LogData})
+	case !msg.LogLine.IsZero():
+		line := msg.LogLine
+		s.routeLogChunk(msg.LogRequestID, logChunk{line: &line})
 	case msg.LogEnd:
 		s.routeLogChunk(msg.LogRequestID, logChunk{end: true})
 	}
@@ -211,7 +215,9 @@ func (s *Session) handleStatusWrite(st *apigen.DeploymentStatus) {
 func (s *Session) requestLogs(req *apigen.MsgToWorker) (io.ReadCloser, error) {
 	// Assign a unique request ID.
 	id := fmt.Sprintf("%s-%d", s.machine, s.nextLogID.Add(1))
-	req.DeploymentLogRequest.RequestID = id
+	if req.DeploymentLogRequest != nil {
+		req.DeploymentLogRequest.RequestID = id
+	}
 
 	ch := make(chan logChunk, 64)
 	s.logMu.Lock()
@@ -227,6 +233,79 @@ func (s *Session) requestLogs(req *apigen.MsgToWorker) (io.ReadCloser, error) {
 	}
 
 	return &logReader{session: s, requestID: id, ch: ch, closeCh: make(chan struct{})}, nil
+}
+
+func (s *Session) requestLogSearch(req *apigen.MsgToWorker) (*LogSearchStream, error) {
+	id := fmt.Sprintf("%s-%d", s.machine, s.nextLogID.Add(1))
+	if req.LogSearchRequest == nil {
+		return nil, fmt.Errorf("log search request is nil")
+	}
+	req.LogSearchRequest.RequestID = id
+
+	ch := make(chan logChunk, 64)
+	s.logMu.Lock()
+	s.logStreams[id] = ch
+	s.logMu.Unlock()
+
+	if !s.send(req) {
+		s.logMu.Lock()
+		delete(s.logStreams, id)
+		s.logMu.Unlock()
+		close(ch)
+		return nil, fmt.Errorf("worker %s is not connected", s.machine)
+	}
+
+	return &LogSearchStream{session: s, requestID: id, ch: ch, closeCh: make(chan struct{})}, nil
+}
+
+type LogSearchStream struct {
+	session   *Session
+	requestID string
+	ch        chan logChunk
+	done      bool
+	closeCh   chan struct{}
+	closeOnce sync.Once
+}
+
+func (r *LogSearchStream) Seq() iter.Seq2[*apigen.LogLine, error] {
+	return func(yield func(*apigen.LogLine, error) bool) {
+		for {
+			select {
+			case chunk, ok := <-r.ch:
+				if !ok || chunk.end {
+					r.done = true
+					return
+				}
+				if chunk.line != nil && !yield(chunk.line, nil) {
+					return
+				}
+			case <-r.closeCh:
+				r.done = true
+				return
+			case <-time.After(30 * time.Second):
+				r.done = true
+				return
+			}
+		}
+	}
+}
+
+func (r *LogSearchStream) Close() error {
+	r.closeOnce.Do(func() {
+		r.done = true
+		close(r.closeCh)
+
+		r.session.logMu.Lock()
+		delete(r.session.logStreams, r.requestID)
+		r.session.logMu.Unlock()
+
+		stop := &apigen.MsgToWorker{StopLogRequestID: r.requestID}
+		if !r.session.send(stop) {
+			slog.Warn("failed sending stop log request to worker (session ended)",
+				"machine", r.session.machine, "requestID", r.requestID)
+		}
+	})
+	return nil
 }
 
 // logReader implements io.ReadCloser over the streamed log chunks for one

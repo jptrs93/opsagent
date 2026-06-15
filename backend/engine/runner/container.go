@@ -32,8 +32,8 @@ const (
 )
 
 // containerRunner owns the create/start/monitor/respawn/backoff lifecycle of a
-// single deployment's container. One container per deployment is keyed by a
-// deterministic id so reattach can find it after an opendeploy restart.
+// single deployment config version's container. The deterministic id includes
+// the version so reattach can find the exact task after an opendeploy restart.
 type containerRunner struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -48,7 +48,6 @@ type containerRunner struct {
 	env            []string // "KEY=VALUE" entries; ${s:name}/${c:name} refs resolved at start
 	command        []string // argv override; empty = image default
 	cwd            string   // process cwd; empty = image default
-	outputPath     string   // where stdout/stderr of the container is streamed to
 	mounts         []ctrd.Mount
 	dataVolumeHost string // host dir to create+chown for the default data volume ("" = disabled)
 	dataVolumeUser string // user the data volume should be owned by
@@ -61,22 +60,21 @@ type containerRunner struct {
 	task   *ctrd.Task
 }
 
-// containerID is the deterministic containerd id for a deployment.
-func containerID(deploymentID int32) string {
-	return fmt.Sprintf("opendeploy-%d", deploymentID)
+// containerID is the deterministic containerd id for a deployment config version.
+func containerID(deploymentID int32, configVersion int32) string {
+	return fmt.Sprintf("opendeploy-%d-v%d", deploymentID, configVersion)
 }
 
 func newContainerRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(context.Background())
 	configVersion := preparerStatus.DeploymentConfigVersion
-	r := buildContainerRunner(ctx, cancel, store, dep)
+	r := buildContainerRunner(ctx, cancel, store, dep, configVersion)
 	r.status = apigen.RunnerStatus{
 		DeploymentConfigVersion: configVersion,
 		RunningArtifact:         preparerStatus.Artifact,
 		Status:                  apigen.RunningStatus_STARTING,
 		LastRestartAt:           time.Now(),
 	}
-	r.outputPath = apigen.RunOutputFile(dep.ID, configVersion)
 	r.writeStatus()
 	go r.run()
 	return r
@@ -84,14 +82,13 @@ func newContainerRunner(store storage.OperatorStore, dep *apigen.DeploymentConfi
 
 func reAttachContainerRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(context.Background())
-	r := buildContainerRunner(ctx, cancel, store, dep)
+	r := buildContainerRunner(ctx, cancel, store, dep, prev.DeploymentConfigVersion)
 	r.status = prev
-	r.outputPath = apigen.RunOutputFile(dep.ID, prev.DeploymentConfigVersion)
 	go r.run()
 	return r
 }
 
-func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, dep *apigen.DeploymentConfig) *containerRunner {
+func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
 	cfg := dep.Spec.Runner.Container
 	r := &containerRunner{
 		ctx:          ctx,
@@ -99,7 +96,7 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		done:         make(chan struct{}),
 		store:        store,
 		deploymentID: dep.ID,
-		containerID:  containerID(dep.ID),
+		containerID:  containerID(dep.ID, configVersion),
 		user:         cfg.User,
 		env:          containerEnv(dep),
 		command:      cfg.Command,
@@ -162,6 +159,7 @@ func (r *containerRunner) run() {
 			}
 		} else {
 			slog.InfoContext(r.ctx, "no running container to adopt, spawning fresh", "id", r.containerID)
+			hadProcess = true
 		}
 	}
 
@@ -192,6 +190,18 @@ func (r *containerRunner) run() {
 		}
 
 		r.ensureDataVolume()
+		runNumber := r.status.NumberOfRestarts + 1
+		outputPath := apigen.RunOutputRunDir(r.deploymentID, r.status.DeploymentConfigVersion, runNumber)
+		if err := os.MkdirAll(outputPath, 0o750); err != nil {
+			slog.ErrorContext(r.ctx, "creating run log dir failed", "err", err, "path", outputPath)
+			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+			crashCount++
+			if !r.sleepBackoff(crashCount) {
+				r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+				return
+			}
+			continue
+		}
 
 		spec := ctrd.ContainerSpec{
 			ID:     r.containerID,
@@ -201,7 +211,7 @@ func (r *containerRunner) run() {
 			Args:   r.command,
 			Cwd:    r.cwd,
 			Mounts: r.mounts,
-			Output: r.outputPath,
+			Output: outputPath,
 		}
 		task, err := Containerd.RunTask(r.ctx, spec)
 		if err != nil {

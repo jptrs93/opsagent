@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"iter"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,13 +13,13 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/engine/logreader"
 	"github.com/jptrs93/opsagent/backend/engine/versionprovider"
 )
 
 var InvalidRequestBodyErr = apigen.NewApiErr("Invalid request body", "invalid_request_body", http.StatusBadRequest)
 var MissingKeyErr = apigen.NewApiErr("Missing deployment identifier", "missing_key", http.StatusBadRequest)
-var NoPrepareLogErr = apigen.NewApiErr("No prepare log found", "prepare_log_not_found", http.StatusNotFound)
-var NoRunOutputErr = apigen.NewApiErr("No run output found", "run_output_not_found", http.StatusNotFound)
+var NoPrepareOutputErr = apigen.NewApiErr("No prepare output found", "prepare_output_not_found", http.StatusNotFound)
 var InvalidConfigErr = apigen.NewApiErr("", "invalid_config", http.StatusBadRequest)
 var DeploymentNotFoundErr = apigen.NewApiErr("Deployment not found", "deployment_not_found", http.StatusNotFound)
 
@@ -319,84 +321,180 @@ func selectedValidationScope(scopes []string, requested string) string {
 	return scope
 }
 
-func (h *Handler) PostV1DeploymentLogs(ctx apigen.Context, r *http.Request, w http.ResponseWriter) error {
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		return fmt.Errorf("reading deployment log request body: %w", err)
-	}
+func (h *Handler) PostV1DeploymentLogSearch(ctx apigen.Context, req *apigen.LogSearchRequest) iter.Seq2[*apigen.LogLine, error] {
+	return func(yield func(*apigen.LogLine, error) bool) {
+		if req == nil || req.DeploymentID == 0 {
+			yield(nil, MissingKeyErr)
+			return
+		}
+		if req.TimeStart.IsZero() {
+			yield(nil, invalidConfigErrf("timeStart is required"))
+			return
+		}
+		var till *time.Time
+		if !req.TimeEnd.IsZero() {
+			till = &req.TimeEnd
+		}
 
-	req, err := apigen.DecodeDeploymentLogRequest(bodyBytes)
-	if err != nil {
-		respondErr(w, InvalidRequestBodyErr)
-		return nil
-	}
+		cfg := h.findConfigByID(req.DeploymentID)
+		if cfg == nil {
+			yield(nil, DeploymentNotFoundErr)
+			return
+		}
+		if cfg.ConfigID.Machine != "" && cfg.ConfigID.Machine != h.MachineName && h.ClusterPrimary != nil {
+			stream, err := h.ClusterPrimary.RequestLogSearch(cfg.ConfigID.Machine, &apigen.MsgToWorker{LogSearchRequest: req})
+			if err != nil {
+				yield(nil, apigen.NewApiErr("Worker not connected: "+cfg.ConfigID.Machine, "worker_not_connected", 502))
+				return
+			}
+			defer stream.Close()
+			go func() {
+				<-ctx.Done()
+				stream.Close()
+			}()
+			for line, err := range stream.Seq() {
+				if !yield(line, err) || err != nil {
+					return
+				}
+			}
+			return
+		}
 
-	var deploymentID int32
-	if req.RunnerOutput != nil {
-		deploymentID = req.RunnerOutput.DeploymentID
-	} else if req.PreparerOutput != nil {
-		deploymentID = req.PreparerOutput.DeploymentID
-	}
-	if deploymentID == 0 {
-		respondErr(w, MissingKeyErr)
-		return nil
-	}
-
-	// Check if the deployment lives on a remote machine.
-	cfg := h.findConfigByID(deploymentID)
-	if cfg != nil && cfg.ConfigID.Machine != "" && cfg.ConfigID.Machine != h.MachineName && h.ClusterPrimary != nil {
-		clusterReq := &apigen.MsgToWorker{DeploymentLogRequest: req}
-		return h.proxyRemoteLogs(ctx, w, cfg.ConfigID.Machine, clusterReq)
-	}
-
-	// Resolve seqNo=0 to latest from local status.
-	if req.RunnerOutput != nil {
-		if req.RunnerOutput.Version == 0 {
-			st := h.Store.FetchDeploymentStatus(deploymentID)
-			if st != nil && !st.Runner.IsZero() {
-				req.RunnerOutput.Version = st.Runner.DeploymentConfigVersion
+		for line, err := range logreader.StreamLogs(int(req.DeploymentID), req.TimeStart, till) {
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			if !matchesLogSearch(line, req) {
+				continue
+			}
+			apiLine := toAPILogLine(line)
+			if !yield(&apiLine, nil) {
+				return
 			}
 		}
-		return h.streamRunLog(ctx, w, req.RunnerOutput)
 	}
-	if req.PreparerOutput.Version == 0 {
-		st := h.Store.FetchDeploymentStatus(deploymentID)
-		if st != nil && !st.Preparer.IsZero() {
-			req.PreparerOutput.Version = st.Preparer.DeploymentConfigVersion
+}
+
+func (h *Handler) PostV1DeploymentPrepareOutput(ctx apigen.Context, req *apigen.PrepareOutputRequest) iter.Seq2[*apigen.PrepareOutputChunk, error] {
+	return func(yield func(*apigen.PrepareOutputChunk, error) bool) {
+		if req == nil || req.DeploymentID == 0 {
+			yield(nil, MissingKeyErr)
+			return
+		}
+
+		cfg := h.findConfigByID(req.DeploymentID)
+		if cfg == nil {
+			yield(nil, DeploymentNotFoundErr)
+			return
+		}
+		if cfg.ConfigID.Machine != "" && cfg.ConfigID.Machine != h.MachineName && h.ClusterPrimary != nil {
+			reader, err := h.ClusterPrimary.RequestLogs(cfg.ConfigID.Machine, &apigen.MsgToWorker{
+				DeploymentLogRequest: &apigen.DeploymentLogRequest{PreparerOutput: req},
+			})
+			if err != nil {
+				yield(nil, apigen.NewApiErr("Worker not connected: "+cfg.ConfigID.Machine, "worker_not_connected", 502))
+				return
+			}
+			defer reader.Close()
+			go func() {
+				<-ctx.Done()
+				reader.Close()
+			}()
+			streamPrepareOutputReader(reader, yield)
+			return
+		}
+
+		localReq := *req
+		if localReq.Version == 0 {
+			st := h.Store.FetchDeploymentStatus(localReq.DeploymentID)
+			if st != nil && !st.Preparer.IsZero() {
+				localReq.Version = st.Preparer.DeploymentConfigVersion
+			} else {
+				localReq.Version = cfg.Version
+			}
+		}
+		if localReq.Version == 0 {
+			yield(nil, NoPrepareOutputErr)
+			return
+		}
+		streamLocalPrepareOutput(ctx, h, &localReq, yield)
+	}
+}
+
+func streamPrepareOutputReader(r io.Reader, yield func(*apigen.PrepareOutputChunk, error) bool) {
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			data := make([]byte, n)
+			copy(data, buf[:n])
+			if !yield(&apigen.PrepareOutputChunk{Data: data}, nil) {
+				return
+			}
+		}
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			yield(nil, err)
+			return
 		}
 	}
-	return h.streamPrepareLog(ctx, w, req.PreparerOutput)
 }
 
-func (h *Handler) streamRunLog(ctx apigen.Context, w http.ResponseWriter, req *apigen.RunOutputRequest) error {
-	logPath := req.OutputPath()
-	f, err := waitForFile(ctx, logPath)
+func streamLocalPrepareOutput(ctx apigen.Context, h *Handler, req *apigen.PrepareOutputRequest, yield func(*apigen.PrepareOutputChunk, error) bool) {
+	f, err := waitForPrepareOutputFile(ctx, req.OutputPath())
 	if err != nil {
-		respondErr(w, NoRunOutputErr)
-		return nil
+		yield(nil, NoPrepareOutputErr)
+		return
 	}
 	defer f.Close()
-	return streamLogFile(ctx, w, f, func() bool {
-		st := h.Store.FetchDeploymentStatus(req.DeploymentID)
-		return st != nil && !st.Runner.IsZero() && isRunnerActive(st.Runner.Status)
-	})
-}
 
-func (h *Handler) streamPrepareLog(ctx apigen.Context, w http.ResponseWriter, req *apigen.PrepareOutputRequest) error {
-	logPath := req.OutputPath()
-	f, err := waitForFile(ctx, logPath)
-	if err != nil {
-		respondErr(w, NoPrepareLogErr)
-		return nil
+	buf := make([]byte, 32*1024)
+	drain := func() bool {
+		for {
+			n, readErr := f.Read(buf)
+			if n > 0 {
+				data := make([]byte, n)
+				copy(data, buf[:n])
+				if !yield(&apigen.PrepareOutputChunk{Data: data}, nil) {
+					return false
+				}
+			}
+			if readErr == io.EOF {
+				return true
+			}
+			if readErr != nil {
+				yield(nil, readErr)
+				return false
+			}
+		}
 	}
-	defer f.Close()
-	return streamLogFile(ctx, w, f, func() bool {
-		st := h.Store.FetchDeploymentStatus(req.DeploymentID)
-		return st != nil && !st.Preparer.IsZero() && isPrepareInProgress(st.Preparer.Status)
-	})
+
+	if !drain() {
+		return
+	}
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if !drain() {
+				return
+			}
+			st := h.Store.FetchDeploymentStatus(req.DeploymentID)
+			if st == nil || st.Preparer.IsZero() || !isPrepareInProgress(st.Preparer.Status) {
+				_ = drain()
+				return
+			}
+		}
+	}
 }
 
-func waitForFile(ctx apigen.Context, path string) (*os.File, error) {
+func waitForPrepareOutputFile(ctx context.Context, path string) (*os.File, error) {
 	f, err := os.Open(path)
 	if err == nil {
 		return f, nil
@@ -425,92 +523,56 @@ func waitForFile(ctx apigen.Context, path string) (*os.File, error) {
 	}
 }
 
-func (h *Handler) proxyRemoteLogs(ctx apigen.Context, w http.ResponseWriter, machine string, req *apigen.MsgToWorker) error {
-	reader, err := h.ClusterPrimary.RequestLogs(machine, req)
-	if err != nil {
-		respondErr(w, apigen.NewApiErr("Worker not connected: "+machine, "worker_not_connected", 502))
-		return nil
+func matchesLogSearch(line logreader.LogLine, req *apigen.LogSearchRequest) bool {
+	if req.LevelMin != "" && levelRank(line.Level) < levelRank(req.LevelMin) {
+		return false
 	}
-	defer reader.Close()
-
-	// Close the reader when the client disconnects so the worker is told
-	// to stop tailing and the session's stream channel is cleaned up.
-	go func() {
-		<-ctx.Done()
-		reader.Close()
-	}()
-
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	flusher, canFlush := w.(http.Flusher)
-
-	buf := make([]byte, 32*1024)
-	for {
-		n, readErr := reader.Read(buf)
-		if n > 0 {
-			if _, werr := w.Write(buf[:n]); werr != nil {
-				return nil
-			}
-			if canFlush {
-				flusher.Flush()
-			}
+	for key, want := range req.SearchKeys {
+		if logSearchValue(line, key) != want {
+			return false
 		}
-		if readErr != nil {
-			return nil
-		}
+	}
+	return true
+}
+
+func logSearchValue(line logreader.LogLine, key string) string {
+	switch key {
+	case "time":
+		return line.Time.Format(time.RFC3339Nano)
+	case "level":
+		return line.Level
+	case "msg", "message":
+		return line.Msg
+	default:
+		return line.Props[key]
 	}
 }
 
-func streamLogFile(ctx apigen.Context, w http.ResponseWriter, f *os.File, keepTailing func() bool) error {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	flusher, canFlush := w.(http.Flusher)
-
-	buf := make([]byte, 4096)
-	drain := func() (eof bool, err error) {
-		for {
-			n, readErr := f.Read(buf)
-			if n > 0 {
-				if _, werr := w.Write(buf[:n]); werr != nil {
-					return false, werr
-				}
-			}
-			if readErr == io.EOF {
-				return true, nil
-			}
-			if readErr != nil {
-				return false, readErr
-			}
-		}
+func levelRank(level string) int {
+	switch strings.ToUpper(level) {
+	case "TRACE":
+		return 1
+	case "DEBUG":
+		return 2
+	case "INFO":
+		return 3
+	case "WARN", "WARNING":
+		return 4
+	case "ERROR":
+		return 5
+	case "FATAL", "PANIC":
+		return 6
+	default:
+		return 0
 	}
+}
 
-	if _, err := drain(); err != nil {
-		return nil
-	}
-	if canFlush {
-		flusher.Flush()
-	}
-
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			if _, err := drain(); err != nil {
-				return nil
-			}
-			if canFlush {
-				flusher.Flush()
-			}
-			if !keepTailing() {
-				return nil
-			}
-		}
+func toAPILogLine(line logreader.LogLine) apigen.LogLine {
+	return apigen.LogLine{
+		Time:  line.Time,
+		Level: line.Level,
+		Msg:   line.Msg,
+		Props: line.Props,
 	}
 }
 

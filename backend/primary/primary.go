@@ -184,6 +184,16 @@ func (p *Primary) RequestLogs(machineName string, req *apigen.MsgToWorker) (io.R
 	return sess.requestLogs(req)
 }
 
+func (p *Primary) RequestLogSearch(machineName string, req *apigen.MsgToWorker) (*LogSearchStream, error) {
+	p.mu.RLock()
+	sess, ok := p.sessions[machineName]
+	p.mu.RUnlock()
+	if !ok {
+		return nil, &MachineNotConnectedError{Machine: machineName}
+	}
+	return sess.requestLogSearch(req)
+}
+
 // ConnectedMachines returns the set of currently connected worker machines and
 // when each connected.
 func (p *Primary) ConnectedMachines() map[string]time.Time {

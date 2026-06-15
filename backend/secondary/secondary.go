@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine"
 	"github.com/jptrs93/opsagent/backend/engine/ctrd"
+	"github.com/jptrs93/opsagent/backend/engine/logreader"
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
 	"github.com/jptrs93/opsagent/backend/engine/runner"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
@@ -222,6 +224,8 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *sqlite.Seconda
 		msgType = "deployment_update"
 	case msg.DeploymentLogRequest != nil:
 		msgType = "deployment_log_request"
+	case msg.LogSearchRequest != nil:
+		msgType = "log_search_request"
 	case msg.StopLogRequestID != "":
 		msgType = "stop_log_request"
 	case msg.PrepareLogRequest != nil:
@@ -244,6 +248,13 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *sqlite.Seconda
 		go func() {
 			defer tracker.remove(requestID)
 			streamDeploymentLog(streamCtx, out, store, msg.DeploymentLogRequest)
+		}()
+	case msg.LogSearchRequest != nil:
+		requestID := msg.LogSearchRequest.RequestID
+		streamCtx := tracker.start(ctx, requestID)
+		go func() {
+			defer tracker.remove(requestID)
+			streamLogSearch(streamCtx, out, msg.LogSearchRequest)
 		}()
 	case msg.PrepareLogRequest != nil:
 		go streamPrepareLog(ctx, out, msg.PrepareLogRequest)
@@ -336,7 +347,7 @@ func streamDeploymentLog(ctx context.Context, out *outbox, store *sqlite.Seconda
 				r.Version = st.Runner.DeploymentConfigVersion
 			}
 		}
-		streamFile(ctx, out, r.OutputPath(), requestID, func() bool {
+		streamLatestRunLog(ctx, out, r, requestID, func() bool {
 			st := store.FetchDeploymentStatus(r.DeploymentID)
 			return st != nil && !st.Runner.IsZero() && isRunnerActive(st.Runner.Status)
 		})
@@ -359,6 +370,82 @@ func streamDeploymentLog(ctx context.Context, out *outbox, store *sqlite.Seconda
 	out.Send(&apigen.MsgToMaster{LogEnd: true, LogRequestID: requestID})
 }
 
+func streamLogSearch(ctx context.Context, out *outbox, req *apigen.LogSearchRequest) {
+	requestID := req.RequestID
+	defer func() {
+		out.Send(&apigen.MsgToMaster{LogEnd: true, LogRequestID: requestID})
+	}()
+	if req.DeploymentID == 0 || req.TimeStart.IsZero() {
+		return
+	}
+	var till *time.Time
+	if !req.TimeEnd.IsZero() {
+		till = &req.TimeEnd
+	}
+	for line, err := range logreader.StreamLogs(int(req.DeploymentID), req.TimeStart, till) {
+		if err != nil {
+			slog.Error("failed searching run logs", "deploymentID", req.DeploymentID, "err", err)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		if !matchesLogSearch(line, req) {
+			continue
+		}
+		apiLine := apigen.LogLine{Time: line.Time, Level: line.Level, Msg: line.Msg, Props: line.Props}
+		if !out.Send(&apigen.MsgToMaster{LogLine: apiLine, LogRequestID: requestID}) {
+			return
+		}
+	}
+}
+
+func matchesLogSearch(line logreader.LogLine, req *apigen.LogSearchRequest) bool {
+	if req.LevelMin != "" && levelRank(line.Level) < levelRank(req.LevelMin) {
+		return false
+	}
+	for key, want := range req.SearchKeys {
+		if logSearchValue(line, key) != want {
+			return false
+		}
+	}
+	return true
+}
+
+func logSearchValue(line logreader.LogLine, key string) string {
+	switch key {
+	case "time":
+		return line.Time.Format(time.RFC3339Nano)
+	case "level":
+		return line.Level
+	case "msg", "message":
+		return line.Msg
+	default:
+		return line.Props[key]
+	}
+}
+
+func levelRank(level string) int {
+	switch strings.ToUpper(level) {
+	case "TRACE":
+		return 1
+	case "DEBUG":
+		return 2
+	case "INFO":
+		return 3
+	case "WARN", "WARNING":
+		return 4
+	case "ERROR":
+		return 5
+	case "FATAL", "PANIC":
+		return 6
+	default:
+		return 0
+	}
+}
+
 // streamPrepareLog reads a prepare output file and sends it back to the primary
 // as a series of LogData frames followed by a LogEnd frame.
 func streamPrepareLog(ctx context.Context, out *outbox, req *apigen.PrepareOutputRequest) {
@@ -367,7 +454,154 @@ func streamPrepareLog(ctx context.Context, out *outbox, req *apigen.PrepareOutpu
 
 // streamRunLog reads a run output file and sends it back to the primary.
 func streamRunLog(ctx context.Context, out *outbox, req *apigen.RunOutputRequest) {
-	streamFile(ctx, out, req.OutputPath(), "", nil)
+	streamLatestRunLog(ctx, out, req, "", nil)
+}
+
+func streamLatestRunLog(ctx context.Context, out *outbox, req *apigen.RunOutputRequest, requestID string, keepTailing func() bool) {
+	defer func() {
+		out.Send(&apigen.MsgToMaster{LogEnd: true, LogRequestID: requestID})
+	}()
+
+	path, f, err := waitForLatestRunLogFile(ctx, req)
+	if err != nil {
+		slog.Error("run log file not found for streaming", "deploymentID", req.DeploymentID, "version", req.Version, "err", err)
+		return
+	}
+	defer f.Close()
+
+	buf := make([]byte, 32*1024)
+	drain := func() error {
+		for {
+			n, readErr := f.Read(buf)
+			if n > 0 {
+				chunk := make([]byte, n)
+				copy(chunk, buf[:n])
+				if !out.Send(&apigen.MsgToMaster{LogData: chunk, LogRequestID: requestID}) {
+					return context.Canceled
+				}
+			}
+			if readErr == io.EOF {
+				return nil
+			}
+			if readErr != nil {
+				return readErr
+			}
+		}
+	}
+
+	if err := drain(); err != nil {
+		slog.Error("failed streaming run log file", "path", path, "err", err)
+		return
+	}
+	if keepTailing == nil {
+		return
+	}
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := drain(); err != nil {
+				slog.Error("failed streaming run log file", "path", path, "err", err)
+				return
+			}
+			if latest, err := latestRunLogFile(req.DeploymentID, req.Version); err == nil && latest != path {
+				if nf, err := os.Open(latest); err == nil {
+					_ = f.Close()
+					path = latest
+					f = nf
+					_ = drain()
+				}
+			}
+			if !keepTailing() {
+				_ = drain()
+				return
+			}
+		}
+	}
+}
+
+func waitForLatestRunLogFile(ctx context.Context, req *apigen.RunOutputRequest) (string, *os.File, error) {
+	openLatest := func() (string, *os.File, error) {
+		path, err := latestRunLogFile(req.DeploymentID, req.Version)
+		if err != nil {
+			return "", nil, err
+		}
+		f, err := os.Open(path)
+		return path, f, err
+	}
+	path, f, err := openLatest()
+	if err == nil {
+		return path, f, nil
+	}
+	legacyPath := req.OutputPath()
+	f, legacyErr := os.Open(legacyPath)
+	if legacyErr == nil {
+		return legacyPath, f, nil
+	}
+	if !os.IsNotExist(err) && err != filepath.ErrBadPattern {
+		return "", nil, err
+	}
+	if !os.IsNotExist(legacyErr) {
+		return "", nil, legacyErr
+	}
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-ctx.Done():
+			return "", nil, ctx.Err()
+		case <-deadline:
+			return "", nil, os.ErrNotExist
+		case <-ticker.C:
+			path, f, err = openLatest()
+			if err == nil {
+				return path, f, nil
+			}
+			f, legacyErr = os.Open(legacyPath)
+			if legacyErr == nil {
+				return legacyPath, f, nil
+			}
+			if !os.IsNotExist(err) && err != filepath.ErrBadPattern {
+				return "", nil, err
+			}
+			if !os.IsNotExist(legacyErr) {
+				return "", nil, legacyErr
+			}
+		}
+	}
+}
+
+func latestRunLogFile(deploymentID int32, version int32) (string, error) {
+	pattern := filepath.Join(apigen.RunOutputBaseDir(deploymentID, version), "*", "*.logbin")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return "", err
+	}
+	if len(matches) == 0 {
+		return "", os.ErrNotExist
+	}
+	latest := matches[0]
+	latestInfo, err := os.Stat(latest)
+	if err != nil {
+		return "", err
+	}
+	for _, match := range matches[1:] {
+		info, err := os.Stat(match)
+		if err != nil {
+			return "", err
+		}
+		if info.ModTime().After(latestInfo.ModTime()) {
+			latest = match
+			latestInfo = info
+		}
+	}
+	return latest, nil
 }
 
 // streamFile reads a file and sends its contents as LogData frames, followed by

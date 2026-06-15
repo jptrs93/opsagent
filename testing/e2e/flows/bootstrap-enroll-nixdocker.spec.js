@@ -8,6 +8,7 @@ import {
   createNixDockerDeployment,
   createSecret,
   expectDeploymentOutput,
+  expectPrepareOutput,
   signOutAndLoginWithPasskey,
 } from '../helpers/ui.js';
 
@@ -18,6 +19,7 @@ test('bootstrap primary, enroll worker, and create Nix Docker deployment', async
   await signOutAndLoginWithPasskey(page);
   await acceptFirstWaitingWorker(page);
   await createNixDockerDeployment(page, {expectDefaultDockerImage: true});
+  await expectPrepareOutput(page, 'nixdockerbuild1', 'repo dir:');
 
   await createConfig(page, {
     name: 'e2e.config.message',

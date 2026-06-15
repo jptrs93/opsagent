@@ -350,16 +350,80 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentHistory(ctx context.Context, req *D
 	return DecodeDeploymentHistory(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1DeploymentLogs(ctx context.Context) error {
-	resp, err := c.do(ctx, "POST", "/v1/deployment/logs", nil, "application/protobuf", "application/protobuf")
-	if err != nil {
-		return err
+func (c *OpsagentHttpV1Capi) PostV1DeploymentLogSearch(ctx context.Context, req *LogSearchRequest) iter.Seq2[*LogLine, error] {
+	return func(yield func(*LogLine, error) bool) {
+		if req == nil {
+			yield(nil, fmt.Errorf("PostV1DeploymentLogSearch request is nil"))
+			return
+		}
+		resp, err := c.do(ctx, "POST", "/v1/deployment/log-search", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf-stream")
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			yield(nil, c.ErrorHandler(ctx, resp))
+			return
+		}
+		reader := NewStreamReader(resp.Body, 0)
+		for {
+			payload, ok, err := reader.Next()
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			if !ok {
+				return
+			}
+			item, err := DecodeLogLine(payload)
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			if !yield(item, nil) {
+				return
+			}
+		}
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return c.ErrorHandler(ctx, resp)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1DeploymentPrepareOutput(ctx context.Context, req *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error] {
+	return func(yield func(*PrepareOutputChunk, error) bool) {
+		if req == nil {
+			yield(nil, fmt.Errorf("PostV1DeploymentPrepareOutput request is nil"))
+			return
+		}
+		resp, err := c.do(ctx, "POST", "/v1/deployment/prepare-output", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf-stream")
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			yield(nil, c.ErrorHandler(ctx, resp))
+			return
+		}
+		reader := NewStreamReader(resp.Body, 0)
+		for {
+			payload, ok, err := reader.Next()
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			if !ok {
+				return
+			}
+			item, err := DecodePrepareOutputChunk(payload)
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			if !yield(item, nil) {
+				return
+			}
+		}
 	}
-	return nil
 }
 
 func (c *OpsagentHttpV1Capi) GetV1ClusterStatus(ctx context.Context) (*ClusterStatusResponse, error) {

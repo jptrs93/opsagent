@@ -82,7 +82,8 @@ type OpsagentHttpV1Handler interface {
 	PostV1StateStream(Context) iter.Seq2[*State, error]
 	PostV1DeploymentUpdate(Context, *DeploymentUpdateRequest) (*DesiredState, error)
 	PostV1DeploymentHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
-	PostV1DeploymentLogs(Context, *http.Request, http.ResponseWriter) error
+	PostV1DeploymentLogSearch(Context, *LogSearchRequest) iter.Seq2[*LogLine, error]
+	PostV1DeploymentPrepareOutput(Context, *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error]
 	GetV1ClusterStatus(Context, *http.Request, http.ResponseWriter) error
 	PostV1DeploymentCreate(Context, *DeploymentCreateRequest) (*DeploymentConfig, error)
 	PostV1DeploymentVersions(Context, *DeploymentVersionsRequest) (*DeploymentVersions, error)
@@ -269,15 +270,52 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/deployment/history", buildHandlerFunc(config, verifyAuth, postV1DeploymentHistoryAccessPolicy, postAuthHandlerPostV1DeploymentHistory, compressionModeAuto, false))
-	postV1DeploymentLogsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
-	postAuthHandlerPostV1DeploymentLogs := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		err := h.PostV1DeploymentLogs(authCtx, r, w)
+	postV1DeploymentLogSearchAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1DeploymentLogSearch := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeLogSearchRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		seq := h.PostV1DeploymentLogSearch(authCtx, req)
+		stream := NewStreamWriter(w)
+		var streamErr error
+		for resp, yieldErr := range seq {
+			if yieldErr != nil {
+				streamErr = fmt.Errorf("streaming err: %w", yieldErr)
+				break
+			}
+			if werr := stream.Write(resp.Encode()); werr != nil {
+				streamErr = fmt.Errorf("writing stream resp: %w", werr)
+				break
+			}
+		}
+		stream.Finish(authCtx, streamErr)
 	}
-	m.HandleFunc("POST /v1/deployment/logs", buildHandlerFunc(config, verifyAuth, postV1DeploymentLogsAccessPolicy, postAuthHandlerPostV1DeploymentLogs, compressionModeAuto, false))
+	m.HandleFunc("POST /v1/deployment/log-search", buildHandlerFunc(config, verifyAuth, postV1DeploymentLogSearchAccessPolicy, postAuthHandlerPostV1DeploymentLogSearch, compressionModeAuto, true))
+	postV1DeploymentPrepareOutputAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1DeploymentPrepareOutput := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodePrepareOutputRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		seq := h.PostV1DeploymentPrepareOutput(authCtx, req)
+		stream := NewStreamWriter(w)
+		var streamErr error
+		for resp, yieldErr := range seq {
+			if yieldErr != nil {
+				streamErr = fmt.Errorf("streaming err: %w", yieldErr)
+				break
+			}
+			if werr := stream.Write(resp.Encode()); werr != nil {
+				streamErr = fmt.Errorf("writing stream resp: %w", werr)
+				break
+			}
+		}
+		stream.Finish(authCtx, streamErr)
+	}
+	m.HandleFunc("POST /v1/deployment/prepare-output", buildHandlerFunc(config, verifyAuth, postV1DeploymentPrepareOutputAccessPolicy, postAuthHandlerPostV1DeploymentPrepareOutput, compressionModeAuto, true))
 	getV1ClusterStatusAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerGetV1ClusterStatus := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		err := h.GetV1ClusterStatus(authCtx, r, w)
