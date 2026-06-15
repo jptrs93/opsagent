@@ -27,7 +27,7 @@ var Containerd *ctrd.Client
 
 const (
 	containerMinBackoff      = 1 * time.Second
-	containerMaxBackoff      = 60 * time.Second
+	containerMaxBackoff      = 30 * time.Second
 	containerStableRunWindow = 15 * time.Second
 )
 

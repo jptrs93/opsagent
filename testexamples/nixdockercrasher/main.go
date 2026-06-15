@@ -35,8 +35,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("nixdockercrasher wrote crash number=%d to %s; crashing now\n", next, crashCountPath)
-	os.Exit(1)
+	fmt.Printf("nixdockercrasher wrote crash number=%d to %s; panicking now\n", next, crashCountPath)
+	panic(fmt.Sprintf("nixdockercrasher panic crash count=%d", next))
 }
 
 func readCrashCount() (int, error) {
