@@ -30,7 +30,7 @@
 }
 
 .card {
-    @apply rounded-lg bg-surface border border-gray-700 p-4;
+    @apply rounded-[0.3rem] bg-surface border border-gray-700 p-4;
 }
 
 .settings-scroll {

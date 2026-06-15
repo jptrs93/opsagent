@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,31 +13,34 @@ import (
 const crashCountPath = "/var/crashcount.txt"
 
 func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
 	count, err := readCrashCount()
 	if err != nil {
-		fmt.Printf("nixdockercrasher read crash count error=%v\n", err)
+		logger.Error("nixdockercrasher read crash count error", "err", err)
 		os.Exit(1)
 	}
 
 	if count >= 3 {
-		fmt.Printf("nixdockercrasher crash count=%d; staying alive\n", count)
+		logger.Info(fmt.Sprintf("nixdockercrasher crash count=%d; staying alive", count), "count", count)
 		for tick := 1; ; tick++ {
-			fmt.Printf("nixdockercrasher healthy tick=%d time=%s\n", tick, time.Now().Format(time.RFC3339))
+			logger.Info("nixdockercrasher healthy", "tick", tick)
 			time.Sleep(10 * time.Second)
 		}
 	}
 
 	next := count + 1
-	fmt.Printf("nixdockercrasher will crash number=%d after 2s\n", next)
+	logger.Info(fmt.Sprintf("nixdockercrasher will crash number=%d after 2s", next), "number", next, "delay", 2*time.Second)
 	time.Sleep(2 * time.Second)
 
 	if err := writeCrashCount(next); err != nil {
-		fmt.Printf("nixdockercrasher write crash count error=%v\n", err)
+		logger.Error("nixdockercrasher write crash count error", "err", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("nixdockercrasher wrote crash number=%d to %s; panicking now\n", next, crashCountPath)
-	panic(fmt.Sprintf("nixdockercrasher panic crash count=%d", next))
+	logger.Info(fmt.Sprintf("nixdockercrasher wrote crash number=%d to %s; exiting now", next, crashCountPath), "number", next, "path", crashCountPath)
+	logger.Error(fmt.Sprintf("panic: nixdockercrasher panic crash count=%d", next), "count", next)
+	os.Exit(2)
 }
 
 func readCrashCount() (int, error) {

@@ -20,6 +20,8 @@ import (
 // producers block, applying backpressure rather than growing unbounded.
 const outboxSize = 64
 
+const logStreamBufferSize = 10_000
+
 // heartbeatInterval is how often the primary emits an empty MsgToWorker. With
 // HTTP/2 PINGs covering the worker's dead-primary detection, this exists so the
 // primary's own writes fail fast against a dead worker.
@@ -219,7 +221,7 @@ func (s *Session) requestLogs(req *apigen.MsgToWorker) (io.ReadCloser, error) {
 		req.DeploymentLogRequest.RequestID = id
 	}
 
-	ch := make(chan logChunk, 64)
+	ch := make(chan logChunk, logStreamBufferSize)
 	s.logMu.Lock()
 	s.logStreams[id] = ch
 	s.logMu.Unlock()
@@ -242,7 +244,7 @@ func (s *Session) requestLogSearch(req *apigen.MsgToWorker) (*LogSearchStream, e
 	}
 	req.LogSearchRequest.RequestID = id
 
-	ch := make(chan logChunk, 64)
+	ch := make(chan logChunk, logStreamBufferSize)
 	s.logMu.Lock()
 	s.logStreams[id] = ch
 	s.logMu.Unlock()
