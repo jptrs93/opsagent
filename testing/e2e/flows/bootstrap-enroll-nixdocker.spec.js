@@ -3,6 +3,7 @@ import {installVirtualAuthenticator} from '../helpers/webauthn.js';
 import {
   acceptFirstWaitingWorker,
   bootstrapFirstUser,
+  configureGithubToken,
   createAsset,
   createNixDockerCrasherDeployment,
   createConfig,
@@ -22,6 +23,7 @@ test('bootstrap primary, enroll worker, and create Nix Docker deployment', async
 
   await bootstrapFirstUser(page);
   await signOutAndLoginWithPasskey(page);
+  await configureGithubToken(page, process.env.OPENDEPLOY_GITHUB_TOKEN || '');
   await expectOpenDeployLogs(page);
   await acceptFirstWaitingWorker(page);
   await createNixDockerDeployment(page, {expectDefaultDockerImage: true});

@@ -28,6 +28,16 @@ export async function signOutAndLoginWithPasskey(page) {
   await expect(byTestId(page, 'add-deployment-button', page.getByRole('button', {name: 'Add deployment'}))).toBeVisible();
 }
 
+export async function configureGithubToken(page, token) {
+  if (!token) return;
+  await byTestId(page, 'nav-settings', page.getByText('Settings')).click();
+  await expect(page.getByRole('heading', {name: 'General settings'})).toBeVisible();
+  const row = page.getByRole('row', {name: /GitHub token/});
+  await row.getByRole('textbox').fill(token);
+  await page.getByRole('button', {name: 'Save changes'}).click();
+  await expect(page.getByText('Unsaved changes')).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
 export async function expectOpenDeployLogs(page) {
   await byTestId(page, 'nav-logs', page.getByText('Logs')).click();
   const environmentSelect = page.getByTestId('logs-environment-select');

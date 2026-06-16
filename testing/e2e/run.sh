@@ -36,6 +36,7 @@ echo "==> Running Playwright flows: ${flow_args[*]}"
 docker run --rm \
   --network "$NETWORK_MODE" \
   -e OPD_BASE_URL="$BASE_URL" \
+  -e OPENDEPLOY_GITHUB_TOKEN="${OPENDEPLOY_GITHUB_TOKEN:-}" \
   -v "$(pwd)/test-results:/e2e/test-results" \
   -v "$(pwd)/playwright-report:/e2e/playwright-report" \
   "$IMG" npx playwright test "${flow_args[@]}"
