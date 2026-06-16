@@ -6,6 +6,7 @@ const VALIDATE_REQUEST_TIMEOUT = 5_000;
 const LOG_OUTPUT_TIMEOUT = 120_000;
 const LOG_OUTPUT_POLL_TIMEOUT = 1_500;
 const RESTART_TIMEOUT = 120_000;
+const UPGRADE_TIMEOUT = 180_000;
 const STABLE_CHECK_DELAY = 200;
 
 export async function bootstrapFirstUser(page, {username = 'E2E Operator', password = 'opendeploy-setup'} = {}) {
@@ -150,6 +151,62 @@ export async function createNixDockerCrasherDeployment(page, {
   ]);
 }
 
+export async function upgradeOpenDeployAgents(page, {version = 'v0.0.135', workerName = 'worker-1'} = {}) {
+  await upgradeOpenDeployAgent(page, {machine: workerName, version});
+  await expectOpenDeployAgentVersion(page, {machine: workerName, version});
+  await expectMachineConnected(page, workerName);
+  await upgradeOpenDeployAgent(page, {machine: 'primary', version});
+  await waitForHealthyApp(page);
+  await page.reload();
+  await expect(byTestId(page, 'add-deployment-button', page.getByRole('button', {name: 'Add deployment'}))).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await expectOpenDeployAgentVersion(page, {machine: 'primary', version});
+  await expectOpenDeployAgentVersion(page, {machine: workerName, version});
+}
+
+export async function createPostgresDeployment(page, {
+  name = 'postgres18',
+  machine = 'worker-1',
+} = {}) {
+  await createContainerImageDeployment(page, {
+    name,
+    machine,
+    image: 'docker.io/library/postgres:18',
+    env: {
+      POSTGRES_USER: '${s:postgres}',
+      POSTGRES_PASSWORD: '${s:postgrespass}',
+      POSTGRES_DB: 'postgres',
+    },
+    dataMountPath: '/var/lib/postgresql/data',
+  });
+  await expectDeploymentRunning(page, name);
+  await expectDeploymentOutput(page, name, ['database system is ready to accept connections']);
+}
+
+export async function createPostgresClientDeployment(page, {
+  name = 'postgresclient',
+  machine = 'worker-1',
+} = {}) {
+  await createNixDockerDeployment(page, {
+    name,
+    machine,
+    flake: 'testexamples/postgresclient/flake.nix',
+    env: {
+      PGHOST: '127.0.0.1',
+      PGPORT: '5432',
+      PGUSER: '${s:postgres}',
+      PGPASSWORD: '${s:postgrespass}',
+      PGDATABASE: 'postgres',
+    },
+    expectedEnv: {},
+  });
+  await expectDeploymentOutput(page, name, [
+    'postgresclient row id=1 name=alpha',
+    'postgresclient row id=2 name=bravo',
+    'postgresclient row id=3 name=charlie',
+    'postgresclient verified rows count=3',
+  ]);
+}
+
 export async function createConfig(page, {name, value, group = 'e2e'} = {}) {
   await byTestId(page, 'nav-configs', page.getByText('Configs')).click();
   await expect(page.getByText("Reference a config from a deployment's env value as")).toBeVisible();
@@ -174,6 +231,31 @@ export async function createSecret(page, {name, value, group = 'e2e'} = {}) {
   await row.locator('input').nth(2).fill(value);
   await row.getByRole('button', {name: 'Save'}).click();
   await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(name))})).toBeVisible();
+}
+
+async function createContainerImageDeployment(page, {
+  name,
+  machine,
+  image,
+  env = {},
+  dataMountPath = '',
+} = {}) {
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  await byTestId(page, 'add-deployment-button', page.getByRole('button', {name: 'Add deployment'})).click();
+
+  const dialog = byTestId(page, 'create-deployment-dialog', page.locator('.fixed.inset-0.z-50').filter({hasText: 'Deployment identity'}).last());
+  await expect(dialog).toBeVisible();
+
+  await byTestId(dialog, 'deployment-name-input', textField(dialog, 'Name')).fill(name);
+  await byTestId(dialog, 'deployment-machine-select', selectField(dialog, 'Machine')).selectOption(machine);
+  await byTestId(dialog, 'deployment-source-type-select', selectField(dialog, 'Source type')).selectOption('containerImage');
+  await byTestId(dialog, 'deployment-container-image-input', textField(dialog, 'Image')).fill(image);
+  await setDeploymentEnvVars(dialog, env);
+  if (dataMountPath) await setDeploymentDataMountPath(dialog, dataMountPath);
+  await byTestId(dialog, 'create-deployment-submit', dialog.getByRole('button', {name: 'Create'})).click();
+
+  const row = deploymentRow(page, {name, machine});
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
 }
 
 export async function createAsset(page, {key, content, format = 'text'} = {}) {
@@ -220,12 +302,72 @@ export async function expectDeploymentRestartCount(page, name, count) {
   await expect(row.getByTitle('View run output')).toContainText('Running', {timeout: LONG_UI_TIMEOUT});
 }
 
+async function upgradeOpenDeployAgent(page, {machine, version}) {
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  const row = deploymentRow(page, {name: 'opendeploy', machine, environment: 'OPENDEPLOY'});
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await row.getByRole('button', {name: 'Update'}).click();
+
+  const dialog = page.locator('.fixed.inset-0.z-50').filter({hasText: 'Update deployment'}).last();
+  await expect(dialog).toBeVisible();
+  const releaseSelect = field(dialog, 'Release').locator('select');
+  await expect.poll(async () => {
+    return await releaseSelect.locator('option').evaluateAll(options => options.map(o => o.value));
+  }, {message: `expected ${version} release option`, timeout: LONG_UI_TIMEOUT}).toContain(version);
+  await releaseSelect.selectOption(version);
+  await dialog.getByRole('button', {name: 'Update deployment'}).click();
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
+async function expectOpenDeployAgentVersion(page, {machine, version}) {
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  const row = deploymentRow(page, {name: 'opendeploy', machine, environment: 'OPENDEPLOY'});
+  await expect(row).toContainText(version, {timeout: UPGRADE_TIMEOUT});
+  await expect(row.getByTitle('View run output')).toContainText('Running', {timeout: UPGRADE_TIMEOUT});
+}
+
+async function expectMachineConnected(page, machine) {
+  await byTestId(page, 'nav-cluster', page.getByText('Machines')).click();
+  const row = byTestId(page, `machine-row-${machine}`, page.locator('tr').filter({hasText: machine}));
+  await expect(row).toContainText('connected', {timeout: UPGRADE_TIMEOUT});
+}
+
+async function expectDeploymentRunning(page, name) {
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  const row = deploymentRow(page, {name});
+  await expect(row.getByTitle('View run output')).toContainText('Running', {timeout: RESTART_TIMEOUT});
+}
+
 async function openDeploymentLogsSearch(page, row) {
   await row.getByTitle('View run output').click();
   await expect(byTestId(page, 'nav-logs', page.getByText('Logs'))).toBeVisible();
   await expect(page.getByTestId('logs-environment-select')).toBeVisible();
   await expect(page.getByTestId('logs-deployment-select')).not.toHaveValue('');
   await expect(page.getByTestId('logs-output')).toBeVisible();
+}
+
+function deploymentRow(page, {name, machine, environment} = {}) {
+  let row = page.locator('tr').filter({hasText: name});
+  if (machine) row = row.filter({hasText: machine});
+  if (environment) row = row.filter({hasText: environment});
+  return row.first();
+}
+
+async function waitForHealthyApp(page) {
+  await expect.poll(async () => {
+    try {
+      return await page.evaluate(async () => {
+        try {
+          const response = await fetch('/v1/healthz', {cache: 'no-store'});
+          return response.ok;
+        } catch {
+          return false;
+        }
+      });
+    } catch {
+      return false;
+    }
+  }, {message: 'expected OpenDeploy web API to recover', timeout: UPGRADE_TIMEOUT}).toBe(true);
 }
 
 async function waitForOptionalPathValidation(dialog) {
@@ -249,6 +391,13 @@ async function setDeploymentEnvVars(dialog, env) {
   const text = entries.map(([key, value]) => `${key}=${value}`).join('\n');
   await dialog.getByTestId('deployment-env-vars-textarea').fill(text);
   await expect(dialog.getByText(`${entries.length} environment variables`)).toBeVisible();
+}
+
+async function setDeploymentDataMountPath(dialog, path) {
+  await dialog.getByRole('button', {name: 'Click to manage'}).click();
+  await expect(dialog.getByRole('heading', {name: 'Mounted volumes'})).toBeVisible();
+  const pane = dialog.getByRole('heading', {name: 'Mounted volumes'}).locator('xpath=ancestor::div[contains(@class, "border-l")][1]');
+  await field(pane, 'Container path').getByRole('textbox').fill(path);
 }
 
 async function setDeploymentAssetMount(dialog, {asset, path}) {

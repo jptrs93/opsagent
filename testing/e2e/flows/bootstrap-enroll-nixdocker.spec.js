@@ -7,11 +7,14 @@ import {
   createNixDockerCrasherDeployment,
   createConfig,
   createNixDockerDeployment,
+  createPostgresClientDeployment,
+  createPostgresDeployment,
   createSecret,
   expectDeploymentOutput,
   expectOpenDeployLogs,
   expectPrepareOutput,
   signOutAndLoginWithPasskey,
+  upgradeOpenDeployAgents,
 } from '../helpers/ui.js';
 
 test('bootstrap primary, enroll worker, and create Nix Docker deployment', async ({page}) => {
@@ -60,4 +63,15 @@ test('bootstrap primary, enroll worker, and create Nix Docker deployment', async
   ]);
 
   await createNixDockerCrasherDeployment(page);
+  await createSecret(page, {
+    name: 'postgres',
+    value: 'postgres',
+  });
+  await createSecret(page, {
+    name: 'postgrespass',
+    value: 'postgrespass',
+  });
+  await upgradeOpenDeployAgents(page, {version: 'v0.0.135'});
+  await createPostgresDeployment(page);
+  await createPostgresClientDeployment(page);
 });
