@@ -1,7 +1,7 @@
 import {expect} from '@playwright/test';
 
 const LONG_UI_TIMEOUT = 15_000;
-const OPTIONAL_VALIDATION_TIMEOUT = 5_000;
+const OPTIONAL_VALIDATION_TIMEOUT = LONG_UI_TIMEOUT;
 const VALIDATE_REQUEST_TIMEOUT = 5_000;
 const LOG_OUTPUT_TIMEOUT = 120_000;
 const LOG_OUTPUT_POLL_TIMEOUT = 1_500;
@@ -106,10 +106,9 @@ export async function createNixDockerDeployment(page, {
     await flakeInput.blur();
     await validateRequests.expectCount(2, 'expected a second validate call after setting flake path');
 
-    if (await waitForOptionalPathValidation(dialog)) {
-      const commitSelect = selectField(dialog, 'Commit');
-      await expect(commitSelect).not.toHaveValue('');
-    }
+    await expectPathValidation(dialog);
+    const commitSelect = selectField(dialog, 'Commit');
+    await expect(commitSelect).not.toHaveValue('', {timeout: LONG_UI_TIMEOUT});
 
     await validateRequests.expectStableCount(2, 'expected only the repo and flake validate calls');
   } finally {
@@ -377,6 +376,11 @@ async function waitForOptionalPathValidation(dialog) {
     pathVerified.waitFor({state: 'visible', timeout: OPTIONAL_VALIDATION_TIMEOUT}).then(() => true).catch(() => false),
     validationFailed.waitFor({state: 'visible', timeout: OPTIONAL_VALIDATION_TIMEOUT}).then(() => false).catch(() => false),
   ]);
+}
+
+async function expectPathValidation(dialog) {
+  if (await waitForOptionalPathValidation(dialog)) return;
+  await expect(dialog.getByText('Path verified')).toBeVisible({timeout: 1});
 }
 
 function byTestId(root, testID, fallback) {
