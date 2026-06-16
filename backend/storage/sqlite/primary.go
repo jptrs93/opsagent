@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime"
 	"time"
 
 	"github.com/jptrs93/goutil/ptru"
@@ -385,7 +386,8 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string) {
 	spec := &apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{
 			GithubRelease: apigen.GithubReleaseConfig{
-				Repo: "github.com/jptrs93/opsagent",
+				Repo:  "github.com/jptrs93/opsagent",
+				Asset: "opendeploy-linux-" + runtime.GOARCH,
 			},
 		},
 		Runner: apigen.RunnerConfig{

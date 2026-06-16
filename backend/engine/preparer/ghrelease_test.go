@@ -3,6 +3,7 @@ package preparer
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/ainit"
@@ -36,6 +37,34 @@ func TestEnsureReleaseDirModeCorrectsRestrictiveDir(t *testing.T) {
 		t.Fatalf("ensureReleaseDirMode: %v", err)
 	}
 	assertMode(t, dir, 0o755)
+}
+
+func TestPickAssetPrefersCurrentArchitecture(t *testing.T) {
+	assets := []ghAsset{
+		{Name: "opendeploy-linux-amd64"},
+		{Name: "sha256sums.txt"},
+		{Name: "opendeploy-linux-" + runtime.GOARCH},
+	}
+
+	asset := pickAsset(assets, "")
+	if asset == nil {
+		t.Fatal("asset is nil")
+	}
+	if got, want := asset.Name, "opendeploy-linux-"+runtime.GOARCH; got != want {
+		t.Fatalf("asset = %q, want %q", got, want)
+	}
+}
+
+func TestPickAssetUsesRequestedAsset(t *testing.T) {
+	assets := []ghAsset{{Name: "first"}, {Name: "requested"}}
+
+	asset := pickAsset(assets, "requested")
+	if asset == nil {
+		t.Fatal("asset is nil")
+	}
+	if got, want := asset.Name, "requested"; got != want {
+		t.Fatalf("asset = %q, want %q", got, want)
+	}
 }
 
 func assertMode(t *testing.T, path string, want os.FileMode) {

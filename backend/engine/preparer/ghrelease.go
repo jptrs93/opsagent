@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -422,6 +423,12 @@ func (g *GithubReleaseDownloader) downloadAsset(ctx context.Context, assetAPIURL
 
 func pickAsset(assets []ghAsset, requested string) *ghAsset {
 	if requested == "" {
+		preferred := "opendeploy-linux-" + runtime.GOARCH
+		for i := range assets {
+			if assets[i].Name == preferred {
+				return &assets[i]
+			}
+		}
 		return &assets[0]
 	}
 	for i := range assets {
