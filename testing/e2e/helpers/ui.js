@@ -141,11 +141,11 @@ export async function createNixDockerCrasherDeployment(page, {
   await expectDeploymentRestartCount(page, name, 3);
   await expectDeploymentOutput(page, name, [
     'nixdockercrasher wrote crash number=1',
-    'panic: nixdockercrasher panic crash count=1',
+    'msg="panic: nixdockercrasher panic crash count=1" fmt=unformatted',
     'nixdockercrasher wrote crash number=2',
-    'panic: nixdockercrasher panic crash count=2',
+    'msg="panic: nixdockercrasher panic crash count=2" fmt=unformatted',
     'nixdockercrasher wrote crash number=3',
-    'panic: nixdockercrasher panic crash count=3',
+    'msg="panic: nixdockercrasher panic crash count=3" fmt=unformatted',
     'nixdockercrasher crash count=3; staying alive',
   ]);
 }

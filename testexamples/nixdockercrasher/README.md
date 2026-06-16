@@ -7,7 +7,7 @@ default output is an executable image stream from
 
 The container reads `/var/crashcount.txt` on startup. If the count is less than
 3, it waits 2 seconds, writes the next crash number to `/var/crashcount.txt`,
-then exits with status 1. Once the file contains 3 or more, it stops crashing
+then panics. Once the file contains 3 or more, it stops crashing
 and prints a health tick every 10 seconds forever.
 
 Use the default container data volume so `/var/crashcount.txt` persists across
