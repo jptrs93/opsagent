@@ -350,8 +350,8 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentHistory(ctx context.Context, req *D
 	return DecodeDeploymentHistory(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1DeploymentLogSearch(ctx context.Context, req *LogSearchRequest) iter.Seq2[*LogLine, error] {
-	return func(yield func(*LogLine, error) bool) {
+func (c *OpsagentHttpV1Capi) PostV1DeploymentLogSearch(ctx context.Context, req *LogSearchRequest) iter.Seq2[*LogLineBatch, error] {
+	return func(yield func(*LogLineBatch, error) bool) {
 		if req == nil {
 			yield(nil, fmt.Errorf("PostV1DeploymentLogSearch request is nil"))
 			return
@@ -376,7 +376,7 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentLogSearch(ctx context.Context, req 
 			if !ok {
 				return
 			}
-			item, err := DecodeLogLine(payload)
+			item, err := DecodeLogLineBatch(payload)
 			if err != nil {
 				yield(nil, err)
 				return

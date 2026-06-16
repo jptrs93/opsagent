@@ -48,9 +48,9 @@ type Session struct {
 }
 
 type logChunk struct {
-	data []byte
-	line *apigen.LogLine
-	end  bool
+	data  []byte
+	lines []*apigen.LogLine
+	end   bool
 }
 
 func newSession(sessCtx context.Context, cancel context.CancelFunc, machine string, store *sqlite.PrimaryStorage) *Session {
@@ -155,9 +155,8 @@ func (s *Session) handleIncoming(msg *apigen.MsgToMaster) {
 		s.handleStatusWrite(msg.StatusWrite)
 	case len(msg.LogData) > 0:
 		s.routeLogChunk(msg.LogRequestID, logChunk{data: msg.LogData})
-	case !msg.LogLine.IsZero():
-		line := msg.LogLine
-		s.routeLogChunk(msg.LogRequestID, logChunk{line: &line})
+	case !msg.LogLines.IsZero():
+		s.routeLogChunk(msg.LogRequestID, logChunk{lines: msg.LogLines.Lines})
 	case msg.LogEnd:
 		s.routeLogChunk(msg.LogRequestID, logChunk{end: true})
 	}
@@ -269,8 +268,8 @@ type LogSearchStream struct {
 	closeOnce sync.Once
 }
 
-func (r *LogSearchStream) Seq() iter.Seq2[*apigen.LogLine, error] {
-	return func(yield func(*apigen.LogLine, error) bool) {
+func (r *LogSearchStream) Seq() iter.Seq2[*apigen.LogLineBatch, error] {
+	return func(yield func(*apigen.LogLineBatch, error) bool) {
 		for {
 			select {
 			case chunk, ok := <-r.ch:
@@ -278,7 +277,11 @@ func (r *LogSearchStream) Seq() iter.Seq2[*apigen.LogLine, error] {
 					r.done = true
 					return
 				}
-				if chunk.line != nil && !yield(chunk.line, nil) {
+				batch := r.drainBatch(chunk)
+				if len(batch.Lines) > 0 && !yield(batch, nil) {
+					return
+				}
+				if r.done {
 					return
 				}
 			case <-r.closeCh:
@@ -288,6 +291,23 @@ func (r *LogSearchStream) Seq() iter.Seq2[*apigen.LogLine, error] {
 				r.done = true
 				return
 			}
+		}
+	}
+}
+
+func (r *LogSearchStream) drainBatch(first logChunk) *apigen.LogLineBatch {
+	batch := &apigen.LogLineBatch{}
+	batch.Lines = append(batch.Lines, first.lines...)
+	for {
+		select {
+		case chunk, ok := <-r.ch:
+			if !ok || chunk.end {
+				r.done = true
+				return batch
+			}
+			batch.Lines = append(batch.Lines, chunk.lines...)
+		default:
+			return batch
 		}
 	}
 }

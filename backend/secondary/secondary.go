@@ -384,6 +384,15 @@ func streamLogSearch(ctx context.Context, out *outbox, req *apigen.LogSearchRequ
 	}
 	count := 0
 	limit := logSearchLimit(req)
+	batch := make([]*apigen.LogLine, 0, logSearchBatchSize)
+	flush := func() bool {
+		if len(batch) == 0 {
+			return true
+		}
+		lines := batch
+		batch = make([]*apigen.LogLine, 0, logSearchBatchSize)
+		return out.Send(&apigen.MsgToMaster{LogLines: apigen.LogLineBatch{Lines: lines}, LogRequestID: requestID})
+	}
 	for line, err := range logreader.StreamLogs(int(req.DeploymentID), req.TimeStart, till) {
 		if err != nil {
 			slog.Error("failed searching run logs", "deploymentID", req.DeploymentID, "err", err)
@@ -397,16 +406,20 @@ func streamLogSearch(ctx context.Context, out *outbox, req *apigen.LogSearchRequ
 		if !matchesLogSearch(line, req) {
 			continue
 		}
-		apiLine := apigen.LogLine{Time: line.Time, Level: line.Level, Msg: line.Msg, Props: line.Props}
-		if !out.Send(&apigen.MsgToMaster{LogLine: apiLine, LogRequestID: requestID}) {
+		batch = append(batch, &apigen.LogLine{Time: line.Time, Level: line.Level, Msg: line.Msg, Props: line.Props})
+		if len(batch) >= logSearchBatchSize && !flush() {
 			return
 		}
 		count++
 		if limit > 0 && count >= limit {
+			flush()
 			return
 		}
 	}
+	flush()
 }
+
+const logSearchBatchSize = 256
 
 func logSearchLimit(req *apigen.LogSearchRequest) int {
 	if req == nil || req.LogLineLimit <= 0 {

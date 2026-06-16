@@ -3282,13 +3282,6 @@ type LogLine struct {
 	Props map[string]string
 }
 
-func (m LogLine) IsZero() bool {
-	return m.Time.IsZero() &&
-		m.Level == "" &&
-		m.Msg == "" &&
-		len(m.Props) == 0
-}
-
 func (m *LogLine) Encode() []byte {
 	var b []byte
 	b = AppendInt64FromTime(b, m.Time, 1)
@@ -3320,6 +3313,57 @@ func DecodeLogLine(b []byte) (*LogLine, error) {
 				m.Props = make(map[string]string)
 			}
 			b, err = ConsumeMapEntry(b, typ, m.Props, ConsumeString, ConsumeString)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type LogLineBatch struct {
+	Lines []*LogLine
+}
+
+func (m LogLineBatch) IsZero() bool {
+	return len(m.Lines) == 0
+}
+
+func (m *LogLineBatch) Encode() []byte {
+	var b []byte
+	for _, item := range m.Lines {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeLogLineBatch(b []byte) (*LogLineBatch, error) {
+	var m LogLineBatch
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LogLine
+				item, err = DecodeLogLine(msgBytes)
+				if err == nil {
+					m.Lines = append(m.Lines, item)
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4840,7 +4884,7 @@ type MsgToMaster struct {
 	LogData      []byte
 	LogEnd       bool
 	LogRequestID string
-	LogLine      LogLine
+	LogLines     LogLineBatch
 }
 
 func (m *MsgToMaster) Encode() []byte {
@@ -4852,9 +4896,9 @@ func (m *MsgToMaster) Encode() []byte {
 	b = AppendBytesField(b, m.LogData, 2)
 	b = AppendBoolField(b, m.LogEnd, 3)
 	b = AppendStringField(b, m.LogRequestID, 4)
-	if !m.LogLine.IsZero() {
+	if !m.LogLines.IsZero() {
 		b = AppendTag(b, 5, BytesType)
-		b = AppendBytes(b, m.LogLine.Encode())
+		b = AppendBytes(b, m.LogLines.Encode())
 	}
 	return b
 }
@@ -4889,10 +4933,10 @@ func DecodeMsgToMaster(b []byte) (*MsgToMaster, error) {
 		case 5:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *LogLine
-				item, err = DecodeLogLine(msgBytes)
+				var item *LogLineBatch
+				item, err = DecodeLogLineBatch(msgBytes)
 				if err == nil {
-					m.LogLine = *item
+					m.LogLines = *item
 				}
 			}
 		default:

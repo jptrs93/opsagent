@@ -162,9 +162,10 @@ export function logsPage(selectedDeploymentId) {
                 searchKeys: systemDeployment ? {machine} : undefined,
                 logLineLimit: DEFAULT_LOG_LINE_LIMIT,
             };
-            for await (const line of capi.postV1DeploymentLogSearch(payload, {signal: activeAbort.signal})) {
-                count += 1;
-                output.val += `${formatLine(line)}\n`;
+            for await (const batch of capi.postV1DeploymentLogSearch(payload, {signal: activeAbort.signal})) {
+                const lines = batch.lines || [];
+                count += lines.length;
+                output.val += lines.map(line => `${formatLine(line)}\n`).join('');
             }
             status.val = count >= DEFAULT_LOG_LINE_LIMIT
                 ? `Showing newest ${DEFAULT_LOG_LINE_LIMIT.toLocaleString()} log lines.`

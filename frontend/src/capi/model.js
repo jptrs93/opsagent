@@ -396,6 +396,10 @@
  * @property {Object.<string, string>} props
  */
 /**
+ * @typedef {Object} LogLineBatch
+ * @property {LogLine[]} lines
+ */
+/**
  * @typedef {Object} DeploymentIdentifier
  * @property {string} environment
  * @property {string} machine
@@ -566,7 +570,7 @@
  * @property {Uint8Array} logData
  * @property {boolean} logEnd
  * @property {string} logRequestId
- * @property {LogLine} logLine
+ * @property {LogLineBatch} logLines
  */
 /**
  * @typedef {Object} AccessPolicy
@@ -5488,6 +5492,66 @@ export function decodeLogLine(buffer) {
 
 
 /**
+ * @param {LogLineBatch} message
+ * @param {Writer} writer
+ */
+export function writeLogLineBatch(message, writer) {
+    if (message.lines && message.lines.length > 0) {
+        for (const item of message.lines) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeLogLine(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {LogLineBatch} message
+ * @returns {Uint8Array}
+ */
+export function encodeLogLineBatch(message) {
+    const writer = Writer.create();
+    writeLogLineBatch(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {LogLineBatch}
+ */
+function decodeLogLineBatchMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {lines: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.lines.push(decodeLogLineMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {LogLineBatch}
+ */
+export function decodeLogLineBatch(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeLogLineBatchMessage(reader);
+}
+
+
+
+/**
  * @param {DeploymentIdentifier} message
  * @param {Writer} writer
  */
@@ -7486,9 +7550,9 @@ export function writeMsgToMaster(message, writer) {
     if (message.logRequestId !== undefined && message.logRequestId !== null && message.logRequestId !== "") {
         writer.uint32(tag(4, WIRE.LDELIM)).string(message.logRequestId);
     }
-    if (message.logLine !== undefined && message.logLine !== null) {
+    if (message.logLines !== undefined && message.logLines !== null) {
         writer.uint32(tag(5, WIRE.LDELIM)).fork();
-        writeLogLine(message.logLine, writer);
+        writeLogLineBatch(message.logLines, writer);
         writer.ldelim();
     }
 }
@@ -7512,7 +7576,7 @@ export function encodeMsgToMaster(message) {
  */
 function decodeMsgToMasterMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {statusWrite: undefined, logData: new Uint8Array(0), logEnd: false, logRequestId: "", logLine: undefined };
+    const message = {statusWrite: undefined, logData: new Uint8Array(0), logEnd: false, logRequestId: "", logLines: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -7533,7 +7597,7 @@ function decodeMsgToMasterMessage(reader, length) {
                 break;
             }
             case 5: {
-                message.logLine = decodeLogLineMessage(reader, reader.uint32());
+                message.logLines = decodeLogLineBatchMessage(reader, reader.uint32());
                 break;
             }
             default:

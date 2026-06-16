@@ -82,7 +82,7 @@ type OpsagentHttpV1Handler interface {
 	PostV1StateStream(Context) iter.Seq2[*State, error]
 	PostV1DeploymentUpdate(Context, *DeploymentUpdateRequest) (*DesiredState, error)
 	PostV1DeploymentHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
-	PostV1DeploymentLogSearch(Context, *LogSearchRequest) iter.Seq2[*LogLine, error]
+	PostV1DeploymentLogSearch(Context, *LogSearchRequest) iter.Seq2[*LogLineBatch, error]
 	PostV1DeploymentPrepareOutput(Context, *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error]
 	GetV1ClusterStatus(Context, *http.Request, http.ResponseWriter) error
 	PostV1DeploymentCreate(Context, *DeploymentCreateRequest) (*DeploymentConfig, error)

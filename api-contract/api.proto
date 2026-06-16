@@ -68,7 +68,7 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1DeploymentLogSearch(LogSearchRequest) returns (stream LogLine) {
+  rpc PostV1DeploymentLogSearch(LogSearchRequest) returns (stream LogLineBatch) {
     option (cp.url) = "/v1/deployment/log-search";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -688,6 +688,10 @@ message LogLine {
   map<string, string> props = 4;
 }
 
+message LogLineBatch {
+  repeated LogLine lines = 1;
+}
+
 
 message DeploymentIdentifier {
   string environment = 1;
@@ -891,5 +895,5 @@ message MsgToMaster {
   bytes log_data = 2;
   bool log_end = 3;
   string log_request_id = 4;  // Tags log_data/log_end with the originating request_id.
-  LogLine log_line = 5 [(cp.go_value) = true];
+  LogLineBatch log_lines = 5 [(cp.go_value) = true];
 }

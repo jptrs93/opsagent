@@ -16,7 +16,7 @@ import {
   decodeEnrollmentRequestList,
   decodeEnrollmentRequestStatus,
   decodeGithubCredentials,
-  decodeLogLine,
+  decodeLogLineBatch,
   decodeLoginResponse,
   decodeMsgToWorker,
   decodePrepareOutputChunk,
@@ -314,7 +314,7 @@ export class Capi {
   /**
    * @param {LogSearchRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {AsyncIterable<LogLine>}
+   * @returns {AsyncIterable<LogLineBatch>}
    */
   postV1DeploymentLogSearch(payload, options = {}) {
     const self = this;
@@ -324,7 +324,7 @@ export class Capi {
         if (!response.ok) {
           return self.errorHandler(response);
         }
-        yield* readLengthPrefixedFrames(response.body, decodeLogLine);
+        yield* readLengthPrefixedFrames(response.body, decodeLogLineBatch);
       },
     };
   }

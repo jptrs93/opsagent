@@ -1,6 +1,7 @@
 package logconsumer
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -18,6 +19,9 @@ import (
 
 const CommandName = "log-consumer"
 const SystemLogRun = "opendeploy"
+
+const logOutputQueueSize = 5_000
+const maxUnformattedBlockBytes = 256 * 1024
 
 func SystemLogBasePath(runOutputDir string, machine string) string {
 	return filepath.Join(runOutputDir, "0", machine, SystemLogRun)
@@ -45,53 +49,80 @@ func RunBinaryProcess(args []string) error {
 func runBinaryLogger(basePath string) {
 	logging.Run(func(ctx context.Context, cfg *logging.Config, ready func() error) error {
 		hourly := &hourlyWriter{basePath: basePath}
-		stdoutWriter := newLogfmtStreamWriter(hourly, "INFO")
-		stderrWriter := newLogfmtStreamWriter(hourly, "ERROR")
 		defer hourly.Close()
-		defer stdoutWriter.Close()
-		defer stderrWriter.Close()
 		if err := hourly.ensureOpen(time.Now().UTC()); err != nil {
 			return err
 		}
+
+		outlines := make(chan []byte, logOutputQueueSize)
+		var wg sync.WaitGroup
+		var stdoutErr error
+		var stderrErr error
+		closeInputs := sync.OnceFunc(func() {
+			closeReader(cfg.Stdout)
+			closeReader(cfg.Stderr)
+		})
+
+		wg.Go(func() { stdoutErr = processLinesWithClock(cfg.Stdout, outlines, time.Now) })
+		wg.Go(func() { stderrErr = processLinesWithClock(cfg.Stderr, outlines, time.Now) })
+
+		go func() {
+			<-ctx.Done()
+			closeInputs()
+		}()
+
+		go func() {
+			wg.Wait()
+			close(outlines)
+		}()
+
 		if err := ready(); err != nil {
+			closeInputs()
+			for range outlines {
+			} // drain to allow line consumers to continue
 			return err
 		}
 
-		var wg sync.WaitGroup
-		errCh := make(chan error, 2)
-		copyStream := func(r io.Reader, writer io.Writer) {
-			defer wg.Done()
-			_, err := io.CopyBuffer(writer, r, make([]byte, 32*1024))
-			if err != nil && ctx.Err() == nil {
-				errCh <- err
+		var writeErr error
+		for line := range outlines {
+			if writeErr != nil {
+				continue
+			}
+			if _, err := hourly.writeAt(time.Now().UTC(), line); err != nil {
+				writeErr = err
+				closeInputs()
 			}
 		}
 
-		wg.Add(2)
-		go copyStream(cfg.Stdout, stdoutWriter)
-		go copyStream(cfg.Stderr, stderrWriter)
-
-		done := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(done)
-		}()
-
-		select {
-		case <-ctx.Done():
-			closeReader(cfg.Stdout)
-			closeReader(cfg.Stderr)
-			<-done
+		if ctx.Err() != nil && writeErr == nil {
 			return nil
-		case <-done:
-			close(errCh)
-			var errs []error
-			for err := range errCh {
-				errs = append(errs, err)
-			}
-			return errors.Join(errs...)
 		}
+		var errs []error
+		if writeErr != nil {
+			errs = append(errs, writeErr)
+		}
+		if stdoutErr != nil && ctx.Err() == nil {
+			errs = append(errs, stdoutErr)
+		}
+		if stderrErr != nil && ctx.Err() == nil {
+			errs = append(errs, stderrErr)
+		}
+		return errors.Join(errs...)
 	})
+}
+
+func processLinesWithClock(r io.Reader, ch chan<- []byte, now func() time.Time) error {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 64*1024), maxUnformattedBlockBytes)
+	for scanner.Scan() {
+		line := bytes.Clone(scanner.Bytes())
+		if bytes.HasPrefix(line, []byte("time=")) {
+			ch <- append(line, '\n')
+		} else {
+			ch <- []byte(formatUnformattedLogLine(now(), string(line)))
+		}
+	}
+	return scanner.Err()
 }
 
 func closeReader(r io.Reader) {
@@ -100,104 +131,8 @@ func closeReader(r io.Reader) {
 	}
 }
 
-type logfmtWriter struct {
-	out          *hourlyWriter
-	now          func() time.Time
-	defaultLevel string
-	closeOut     bool
-
-	mu      sync.Mutex
-	partial []byte
-	err     error
-	closed  bool
-}
-
-func newLogfmtWriter(out *hourlyWriter) *logfmtWriter {
-	return &logfmtWriter{
-		out:          out,
-		now:          func() time.Time { return time.Now().UTC() },
-		defaultLevel: "ERROR",
-		closeOut:     true,
-	}
-}
-
-func newLogfmtStreamWriter(out *hourlyWriter, defaultLevel string) *logfmtWriter {
-	w := newLogfmtWriter(out)
-	w.defaultLevel = defaultLevel
-	w.closeOut = false
-	return w
-}
-
-func (w *logfmtWriter) Write(p []byte) (int, error) {
-	return w.writeAt(w.now(), p)
-}
-
-func (w *logfmtWriter) writeAt(now time.Time, p []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.err != nil {
-		return 0, w.err
-	}
-	if w.closed {
-		return 0, os.ErrClosed
-	}
-	if len(p) == 0 {
-		return 0, nil
-	}
-	w.partial = append(w.partial, p...)
-	for {
-		idx := bytes.IndexByte(w.partial, '\n')
-		if idx < 0 {
-			return len(p), nil
-		}
-		line := string(bytes.TrimSuffix(w.partial[:idx], []byte{'\r'}))
-		w.partial = w.partial[idx+1:]
-		if err := w.handleLineLocked(now.UTC(), line); err != nil {
-			w.err = err
-			return 0, err
-		}
-	}
-}
-
-func (w *logfmtWriter) handleLineLocked(now time.Time, line string) error {
-	if strings.HasPrefix(line, "time=") {
-		_, err := w.out.writeAt(now, []byte(line+"\n"))
-		return err
-	}
-	logLine := formatUnformattedLogLine(now, w.defaultLevel, line)
-	_, err := w.out.writeAt(now, []byte(logLine))
-	return err
-}
-
-func (w *logfmtWriter) Close() error {
-	w.mu.Lock()
-	if w.closed {
-		w.mu.Unlock()
-		return nil
-	}
-	w.closed = true
-	if len(w.partial) > 0 {
-		line := string(bytes.TrimSuffix(w.partial, []byte{'\r'}))
-		w.partial = nil
-		if err := w.handleLineLocked(w.now().UTC(), line); err != nil && w.err == nil {
-			w.err = err
-		}
-	}
-	err := w.err
-	w.mu.Unlock()
-	if w.closeOut {
-		if closeErr := w.out.Close(); err == nil {
-			err = closeErr
-		}
-	}
-	return err
-}
-
-func formatUnformattedLogLine(t time.Time, level string, message string) string {
-	if level == "" {
-		level = "ERROR"
-	}
-	return "time=" + t.UTC().Format(time.RFC3339Nano) + " level=" + level + " fmt=unformatted msg=" + quoteLogfmtValue(message) + "\n"
+func formatUnformattedLogLine(t time.Time, message string) string {
+	return "time=" + t.UTC().Format(time.RFC3339Nano) + " level=ERROR fmt=unformatted msg=" + quoteLogfmtValue(message) + "\n"
 }
 
 func quoteLogfmtValue(s string) string {
@@ -225,7 +160,6 @@ func quoteLogfmtValue(s string) string {
 
 type hourlyWriter struct {
 	basePath string
-	mu       sync.Mutex
 	current  string
 	lineOpen bool
 	file     *os.File
@@ -236,13 +170,15 @@ func (w *hourlyWriter) Write(p []byte) (int, error) {
 }
 
 func (w *hourlyWriter) writeAt(now time.Time, p []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	if len(p) == 0 {
 		return 0, nil
 	}
 	bucket := now.Format("20060102_15")
-	if err := w.openBucket(w.targetBucket(bucket)); err != nil {
+	targetBucket := bucket
+	if w.file != nil && w.current != "" && w.current != bucket && w.lineOpen {
+		targetBucket = w.current
+	}
+	if err := w.openBucket(targetBucket); err != nil {
 		return 0, err
 	}
 	written := 0
@@ -278,13 +214,6 @@ func (w *hourlyWriter) ensureOpen(now time.Time) error {
 	return w.openBucket(now.Format("20060102_15"))
 }
 
-func (w *hourlyWriter) targetBucket(bucket string) string {
-	if w.file != nil && w.current != "" && w.current != bucket && w.lineOpen {
-		return w.current
-	}
-	return bucket
-}
-
 func (w *hourlyWriter) openBucket(bucket string) error {
 	if w.file != nil && w.current == bucket {
 		return nil
@@ -312,8 +241,6 @@ func (w *hourlyWriter) openBucket(bucket string) error {
 }
 
 func (w *hourlyWriter) Close() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	if w.file == nil {
 		return nil
 	}

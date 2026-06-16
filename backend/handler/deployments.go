@@ -355,8 +355,8 @@ func selectedValidationScope(scopes []string, requested string) string {
 	return scope
 }
 
-func (h *Handler) PostV1DeploymentLogSearch(ctx apigen.Context, req *apigen.LogSearchRequest) iter.Seq2[*apigen.LogLine, error] {
-	return func(yield func(*apigen.LogLine, error) bool) {
+func (h *Handler) PostV1DeploymentLogSearch(ctx apigen.Context, req *apigen.LogSearchRequest) iter.Seq2[*apigen.LogLineBatch, error] {
+	return func(yield func(*apigen.LogLineBatch, error) bool) {
 		if req == nil {
 			yield(nil, MissingKeyErr)
 			return
@@ -386,17 +386,7 @@ func (h *Handler) PostV1DeploymentLogSearch(ctx apigen.Context, req *apigen.LogS
 					<-ctx.Done()
 					stream.Close()
 				}()
-				count := 0
-				limit := logSearchLimit(req)
-				for line, err := range stream.Seq() {
-					if !yield(line, err) || err != nil {
-						return
-					}
-					count++
-					if limit > 0 && count >= limit {
-						return
-					}
-				}
+				streamRemoteLogSearch(stream.Seq(), req, yield)
 				return
 			}
 			streamLocalLogSearch(req, till, yield)
@@ -419,17 +409,7 @@ func (h *Handler) PostV1DeploymentLogSearch(ctx apigen.Context, req *apigen.LogS
 				<-ctx.Done()
 				stream.Close()
 			}()
-			count := 0
-			limit := logSearchLimit(req)
-			for line, err := range stream.Seq() {
-				if !yield(line, err) || err != nil {
-					return
-				}
-				count++
-				if limit > 0 && count >= limit {
-					return
-				}
-			}
+			streamRemoteLogSearch(stream.Seq(), req, yield)
 			return
 		}
 
@@ -437,9 +417,46 @@ func (h *Handler) PostV1DeploymentLogSearch(ctx apigen.Context, req *apigen.LogS
 	}
 }
 
-func streamLocalLogSearch(req *apigen.LogSearchRequest, till *time.Time, yield func(*apigen.LogLine, error) bool) {
+func streamRemoteLogSearch(seq iter.Seq2[*apigen.LogLineBatch, error], req *apigen.LogSearchRequest, yield func(*apigen.LogLineBatch, error) bool) {
 	count := 0
 	limit := logSearchLimit(req)
+	for batch, err := range seq {
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		if batch == nil || len(batch.Lines) == 0 {
+			continue
+		}
+		if limit > 0 && count+len(batch.Lines) > limit {
+			remaining := limit - count
+			if remaining <= 0 {
+				return
+			}
+			batch = &apigen.LogLineBatch{Lines: batch.Lines[:remaining]}
+		}
+		if !yield(batch, nil) {
+			return
+		}
+		count += len(batch.Lines)
+		if limit > 0 && count >= limit {
+			return
+		}
+	}
+}
+
+func streamLocalLogSearch(req *apigen.LogSearchRequest, till *time.Time, yield func(*apigen.LogLineBatch, error) bool) {
+	count := 0
+	limit := logSearchLimit(req)
+	batch := make([]*apigen.LogLine, 0, logSearchBatchSize)
+	flush := func() bool {
+		if len(batch) == 0 {
+			return true
+		}
+		lines := batch
+		batch = make([]*apigen.LogLine, 0, logSearchBatchSize)
+		return yield(&apigen.LogLineBatch{Lines: lines}, nil)
+	}
 	for line, err := range logreader.StreamLogs(int(req.DeploymentID), req.TimeStart, till) {
 		if err != nil {
 			yield(nil, err)
@@ -449,15 +466,20 @@ func streamLocalLogSearch(req *apigen.LogSearchRequest, till *time.Time, yield f
 			continue
 		}
 		apiLine := toAPILogLine(line)
-		if !yield(&apiLine, nil) {
+		batch = append(batch, apiLine)
+		if len(batch) >= logSearchBatchSize && !flush() {
 			return
 		}
 		count++
 		if limit > 0 && count >= limit {
+			flush()
 			return
 		}
 	}
+	flush()
 }
+
+const logSearchBatchSize = 256
 
 func logSearchLimit(req *apigen.LogSearchRequest) int {
 	if req == nil || req.LogLineLimit <= 0 {
@@ -660,8 +682,8 @@ func levelRank(level string) int {
 	}
 }
 
-func toAPILogLine(line logreader.LogLine) apigen.LogLine {
-	return apigen.LogLine{
+func toAPILogLine(line logreader.LogLine) *apigen.LogLine {
+	return &apigen.LogLine{
 		Time:  line.Time,
 		Level: line.Level,
 		Msg:   line.Msg,

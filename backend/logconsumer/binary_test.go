@@ -3,6 +3,7 @@ package logconsumer
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -64,85 +65,72 @@ func TestHourlyWriterRequiresExistingBaseDir(t *testing.T) {
 	}
 }
 
-func TestLogfmtWriterPassesThroughStructuredLines(t *testing.T) {
-	base := filepath.Join(t.TempDir(), "12", "34", "1")
-	if err := os.MkdirAll(base, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	w := newLogfmtWriter(&hourlyWriter{basePath: base})
-
+func TestProcessLinesPassesThroughStructuredLines(t *testing.T) {
 	now := time.Date(2026, 6, 15, 14, 30, 0, 0, time.UTC)
 	line := "time=2026-06-15T14:30:00Z level=INFO message=ready\n"
-	if _, err := w.writeAt(now, []byte(line)); err != nil {
-		t.Fatalf("write structured line: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
+	lines := processLinesForTest(t, line, now)
 
-	assertFileContent(t, filepath.Join(base, "20260615_14.logbin"), line)
+	if len(lines) != 1 {
+		t.Fatalf("len(lines) = %d, want 1", len(lines))
+	}
+	if string(lines[0]) != line {
+		t.Fatalf("line = %q, want %q", string(lines[0]), line)
+	}
 }
 
-func TestLogfmtWriterWritesEachUnformattedLineSeparately(t *testing.T) {
-	base := filepath.Join(t.TempDir(), "12", "34", "1")
-	if err := os.MkdirAll(base, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	w := newLogfmtWriter(&hourlyWriter{basePath: base})
-
+func TestProcessLinesWritesEachUnformattedLineSeparately(t *testing.T) {
 	first := time.Date(2026, 6, 15, 14, 30, 0, 0, time.UTC)
-	if _, err := w.writeAt(first, []byte("panic: bad\nstack \"line\"\n")); err != nil {
-		t.Fatalf("write unformatted lines: %v", err)
+	lines := processLinesForTest(t, "panic: bad\n\nstack \"line\"\n", first)
+
+	want := []string{
+		"time=2026-06-15T14:30:00Z level=ERROR fmt=unformatted msg=\"panic: bad\"\n",
+		"time=2026-06-15T14:30:00Z level=ERROR fmt=unformatted msg=\"\"\n",
+		"time=2026-06-15T14:30:00Z level=ERROR fmt=unformatted msg=\"stack \\\"line\\\"\"\n",
 	}
+	if len(lines) != len(want) {
+		t.Fatalf("len(lines) = %d, want %d", len(lines), len(want))
+	}
+	for i := range want {
+		if string(lines[i]) != want[i] {
+			t.Fatalf("line %d = %q, want %q", i, string(lines[i]), want[i])
+		}
+	}
+}
+
+func TestProcessLinesFlushesUnformattedBeforeStructuredLine(t *testing.T) {
+	first := time.Date(2026, 6, 15, 14, 30, 0, 0, time.UTC)
 	structured := "time=2026-06-15T14:30:01Z level=INFO message=ready\n"
-	if _, err := w.writeAt(first.Add(time.Second), []byte(structured)); err != nil {
-		t.Fatalf("write structured line: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
+	lines := processLinesForTest(t, "panic: bad\n"+structured, first)
 
-	want := "time=2026-06-15T14:30:00Z level=ERROR fmt=unformatted msg=\"panic: bad\"\n" +
-		"time=2026-06-15T14:30:00Z level=ERROR fmt=unformatted msg=\"stack \\\"line\\\"\"\n" +
-		structured
-	assertFileContent(t, filepath.Join(base, "20260615_14.logbin"), want)
+	if len(lines) != 2 {
+		t.Fatalf("len(lines) = %d, want 2", len(lines))
+	}
+	if got, want := string(lines[0]), "time=2026-06-15T14:30:00Z level=ERROR fmt=unformatted msg=\"panic: bad\"\n"; got != want {
+		t.Fatalf("first line = %q, want %q", got, want)
+	}
+	if got := string(lines[1]); got != structured {
+		t.Fatalf("second line = %q, want %q", got, structured)
+	}
 }
 
-func TestLogfmtWriterUsesDefaultLevelForUnformattedLines(t *testing.T) {
-	base := filepath.Join(t.TempDir(), "12", "34", "1")
-	if err := os.MkdirAll(base, 0o750); err != nil {
-		t.Fatal(err)
-	}
+func TestProcessLinesUsesErrorLevelForUnformattedLines(t *testing.T) {
 	now := time.Date(2026, 6, 15, 14, 30, 0, 0, time.UTC)
-	w := newLogfmtWriter(&hourlyWriter{basePath: base})
-	w.now = func() time.Time { return now }
+	lines := processLinesForTest(t, "not logfmt\n", now)
 
-	if _, err := w.writeAt(now, []byte("not logfmt\n")); err != nil {
-		t.Fatalf("write unformatted line: %v", err)
-	}
 	want := "time=2026-06-15T14:30:00Z level=ERROR fmt=unformatted msg=\"not logfmt\"\n"
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
+	if len(lines) != 1 || string(lines[0]) != want {
+		t.Fatalf("lines = %#v, want one line %q", lines, want)
 	}
-	assertFileContent(t, filepath.Join(base, "20260615_14.logbin"), want)
 }
 
-func TestLogfmtStreamWriterUsesConfiguredLevel(t *testing.T) {
-	base := filepath.Join(t.TempDir(), "12", "34", "1")
-	if err := os.MkdirAll(base, 0o750); err != nil {
-		t.Fatal(err)
-	}
+func TestProcessLinesUsesErrorLevelForStdoutUnformattedLines(t *testing.T) {
 	now := time.Date(2026, 6, 15, 14, 30, 0, 0, time.UTC)
-	w := newLogfmtStreamWriter(&hourlyWriter{basePath: base}, "INFO")
-	w.now = func() time.Time { return now }
+	lines := processLinesForTest(t, "stdout line\n", now)
 
-	if _, err := w.writeAt(now, []byte("stdout line\n")); err != nil {
-		t.Fatalf("write unformatted line: %v", err)
+	want := "time=2026-06-15T14:30:00Z level=ERROR fmt=unformatted msg=\"stdout line\"\n"
+	if len(lines) != 1 || string(lines[0]) != want {
+		t.Fatalf("lines = %#v, want one line %q", lines, want)
 	}
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
-	assertFileContent(t, filepath.Join(base, "20260615_14.logbin"), "time=2026-06-15T14:30:00Z level=INFO fmt=unformatted msg=\"stdout line\"\n")
 }
 
 func TestFileModeForDir(t *testing.T) {
@@ -156,6 +144,20 @@ func TestFileModeForDir(t *testing.T) {
 			t.Fatalf("fileModeForDir(%o) = %o, want %o", dirMode, got, want)
 		}
 	}
+}
+
+func processLinesForTest(t *testing.T, input string, now time.Time) [][]byte {
+	t.Helper()
+	out := make(chan []byte, 10)
+	if err := processLinesWithClock(strings.NewReader(input), out, func() time.Time { return now }); err != nil {
+		t.Fatal(err)
+	}
+	close(out)
+	var lines [][]byte
+	for line := range out {
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 func assertFileContent(t *testing.T, path string, want string) {
