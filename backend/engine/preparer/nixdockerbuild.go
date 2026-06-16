@@ -109,9 +109,14 @@ func (b *NixDockerBuilder) runBuild(ctx context.Context, store storage.OperatorS
 	}
 	writeLog("checkout complete")
 
-	nixDir := filepath.Join(repoDir, filepath.Dir(nix.Flake))
+	flakePath, err := checkedOutFlakePath(repoDir, nix.Flake)
+	if err != nil {
+		writeLog("ERROR flake path invalid: %v", err)
+		return "", apigen.PreparationStatus_FAILED
+	}
+	nixDir := filepath.Dir(flakePath)
 	writeLog("running nix build in %s", nixDir)
-	stdoutLines, err := b.runCmdCapture(ctx, nixDir, logFile, "nix", "--extra-experimental-features", "nix-command flakes", "build", "--no-link", "--print-out-paths", "-L")
+	stdoutLines, err := b.runCmdCapture(ctx, nixDir, logFile, "nix", "--extra-experimental-features", "nix-command flakes", "build", "--no-update-lock-file", "--no-link", "--print-out-paths", "-L")
 	if err != nil {
 		writeLog("ERROR nix build failed: %v", err)
 		return "", apigen.PreparationStatus_FAILED
@@ -163,6 +168,35 @@ func (b *NixDockerBuilder) importStream(ctx context.Context, streamPath string, 
 		return fmt.Errorf("image stream exited: %w", waitErr)
 	}
 	return nil
+}
+
+func checkedOutFlakePath(repoDir string, flake string) (string, error) {
+	clean, err := cleanRepoPath(flake)
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(repoDir, clean)
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("flake file not found at %s: %w", clean, err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("flake path is a directory: %s", clean)
+	}
+	return path, nil
+}
+
+func cleanRepoPath(path string) (string, error) {
+	clean := filepath.Clean(filepath.FromSlash(strings.TrimSpace(path)))
+	if clean == "." || filepath.IsAbs(clean) {
+		return "", fmt.Errorf("path must be relative to the repository")
+	}
+	for _, part := range strings.Split(clean, string(filepath.Separator)) {
+		if part == ".." {
+			return "", fmt.Errorf("path must stay within the repository")
+		}
+	}
+	return clean, nil
 }
 
 func resolveImageStreamPath(artifactPath string) (string, error) {

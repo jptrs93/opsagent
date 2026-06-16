@@ -48,7 +48,7 @@ Decision flow:
 
 ## Preparers
 
-`NixDockerBuilder` clones/fetches the configured GitHub repo, checks out `DesiredState.Version`, runs `nix build --no-link --print-out-paths -L` in the configured flake directory, executes the resulting image stream, and pipes it into `ctrd.Client.Import`. The imported image is tagged as `opendeploy.local/nix-docker-build/{deploymentID}:{version}`.
+`NixDockerBuilder` clones/fetches the configured GitHub repo, checks out `DesiredState.Version`, verifies the configured `flake.nix` path exists in that checked-out tree, runs `nix build --no-update-lock-file --no-link --print-out-paths -L` in the configured flake directory, executes the resulting image stream, and pipes it into `ctrd.Client.Import`. The imported image is tagged as `opendeploy.local/nix-docker-build/{deploymentID}:{version}`.
 
 `ContainerImagePuller` pulls `prepare.containerImage.image` plus the desired tag/digest into containerd and unpacks it. Pulls are anonymous in the current phase.
 

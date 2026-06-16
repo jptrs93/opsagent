@@ -1,7 +1,7 @@
 {
   description = "OpenDeploy Postgres client E2E image";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
   outputs = { nixpkgs, ... }:
     let
