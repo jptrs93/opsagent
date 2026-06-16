@@ -176,7 +176,7 @@ export async function createPostgresDeployment(page, {
       POSTGRES_PASSWORD: '${s:postgrespass}',
       POSTGRES_DB: 'postgres',
     },
-    dataMountPath: '/var/lib/postgresql/data',
+    dataMountPath: '/var/lib/postgresql',
   });
   await expectDeploymentRunning(page, name);
   await expectDeploymentOutput(page, name, ['database system is ready to accept connections']);
