@@ -291,15 +291,23 @@ async function loadSourceVersions(form, selectedScope, selectedVersion, selected
     loadingVersions.val = true;
     const sourceType = form.sourceType.val;
     const sourceKey = sourceValidationKey(form);
+    const trusted = hasTrustedSourceValidation(form);
+    const req = buildValidateSourceRequest(form, trusted ? {
+        scope: scope || selectedScope.val || '',
+        refreshScopes: !scope,
+        refreshVersions: true,
+    } : {scope: scope || ''});
+    let res;
     try {
-        const trusted = hasTrustedSourceValidation(form);
-        const req = buildValidateSourceRequest(form, trusted ? {
-            scope: scope || selectedScope.val || '',
-            refreshScopes: !scope,
-            refreshVersions: true,
-        } : {scope: scope || ''});
-        const res = await capi.postV1RepoValidate(req);
-        console.log('[opendeploy] create version refresh response', {request: req, response: res});
+        res = await capi.postV1RepoValidate(req);
+    } catch (e) {
+        console.error('[opendeploy] create version refresh request failed', {request: req, error: e, stack: e?.stack});
+        form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType, sourceKey};
+        loadingVersions.val = false;
+        return;
+    }
+    console.log('[opendeploy] create version refresh response', {request: req, response: res});
+    try {
         const sourceResult = validationSourceResult(form, res);
         form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKey);
         if (form.repoCheck.val.status === 'ok') {
@@ -312,7 +320,8 @@ async function loadSourceVersions(form, selectedScope, selectedVersion, selected
             }
         }
     } catch (e) {
-        form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType, sourceKey};
+        console.error('[opendeploy] create version refresh client error', {request: req, response: res, error: e, stack: e?.stack});
+        form.repoCheck.val = {status: 'error', message: `Client error after validation: ${e.message || e}`, repo, sourceType, sourceKey};
     }
     loadingVersions.val = false;
 }

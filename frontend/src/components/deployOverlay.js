@@ -74,11 +74,20 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         versionError.val = '';
         const sourceType = form.sourceType.val;
         const sourceKey = sourceValidationKey(form);
-        try {
-            if (internalGithubRelease) {
-                const req = {deploymentId: deployment.id, scope: scope || ''};
-                const result = await capi.postV1DeploymentVersions(req);
-                console.log('[opendeploy] deployment versions refresh response', {request: req, response: result});
+        if (internalGithubRelease) {
+            const req = {deploymentId: deployment.id, scope: scope || ''};
+            let result;
+            try {
+                result = await capi.postV1DeploymentVersions(req);
+            } catch (e) {
+                console.error('[opendeploy] deployment versions refresh request failed', {request: req, error: e, stack: e?.stack});
+                versionError.val = e.message || 'Failed to load versions';
+                versions.val = [];
+                loadingVersions.val = false;
+                return;
+            }
+            console.log('[opendeploy] deployment versions refresh response', {request: req, response: result});
+            try {
                 const selected = selectedDeploymentVersionScope(result, scope);
                 scopes.val = result.scopes || [];
                 versions.val = selected.versions;
@@ -86,17 +95,33 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                 if (!versions.val.some(v => v.id === selectedVersion.val)) {
                     selectedVersion.val = versions.val[0]?.id || '';
                 }
-                loadingVersions.val = false;
-                return;
+            } catch (e) {
+                console.error('[opendeploy] deployment versions refresh client error', {request: req, response: result, error: e, stack: e?.stack});
+                versionError.val = `Client error after loading versions: ${e.message || e}`;
+                versions.val = [];
             }
-            const trusted = hasTrustedSourceValidation(form);
-            const req = buildValidateSourceRequest(form, trusted ? {
-                scope: scope || selectedScope.val || '',
-                refreshScopes: !scope && scopes.val.length === 0,
-                refreshVersions: true,
-            } : {scope: scope || ''});
-            const result = await capi.postV1RepoValidate(req);
-            console.log('[opendeploy] deployment repo refresh response', {request: req, response: result});
+            loadingVersions.val = false;
+            return;
+        }
+        const trusted = hasTrustedSourceValidation(form);
+        const req = buildValidateSourceRequest(form, trusted ? {
+            scope: scope || selectedScope.val || '',
+            refreshScopes: !scope && scopes.val.length === 0,
+            refreshVersions: true,
+        } : {scope: scope || ''});
+        let result;
+        try {
+            result = await capi.postV1RepoValidate(req);
+        } catch (e) {
+            console.error('[opendeploy] deployment repo refresh request failed', {request: req, error: e, stack: e?.stack});
+            versionError.val = e.message || 'Failed to load versions';
+            form.repoCheck.val = {status: 'error', message: versionError.val, repo: sourceID, sourceType, sourceKey};
+            versions.val = [];
+            loadingVersions.val = false;
+            return;
+        }
+        console.log('[opendeploy] deployment repo refresh response', {request: req, response: result});
+        try {
             const sourceResult = validationSourceResult(form, result);
             form.repoCheck.val = sourceCheckFromValidation(form, result, sourceID, sourceType, sourceKey);
             if (form.repoCheck.val.status !== 'ok') {
@@ -117,7 +142,8 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                 }
             }
         } catch (e) {
-            versionError.val = e.message || 'Failed to load versions';
+            console.error('[opendeploy] deployment repo refresh client error', {request: req, response: result, error: e, stack: e?.stack});
+            versionError.val = `Client error after validation: ${e.message || e}`;
             form.repoCheck.val = {status: 'error', message: versionError.val, repo: sourceID, sourceType, sourceKey};
             versions.val = [];
         }

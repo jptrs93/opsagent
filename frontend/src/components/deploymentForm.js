@@ -390,6 +390,7 @@ export async function validateSelectedCommit(form, scope, commit) {
         console.log('[opendeploy] repo validate selected commit response', {request: req, response: res});
         form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKey);
     } catch (e) {
+        console.error('[opendeploy] repo validate selected commit failed', {error: e, stack: e?.stack});
         form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType, sourceKey};
     }
 }
@@ -1064,6 +1065,7 @@ async function validateRepo(form) {
         console.log('[opendeploy] repo validate response', {request: req, response: res});
         form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKey);
     } catch (e) {
+        console.error('[opendeploy] repo validate failed', {error: e, stack: e?.stack});
         form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType, sourceKey};
     }
 }
