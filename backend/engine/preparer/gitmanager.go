@@ -243,14 +243,14 @@ func (g *GitManager) PathExists(ctx context.Context, repoURL string, repoPath st
 	lock.Lock()
 	defer lock.Unlock()
 
+	if exists, ok := g.localPathExists(ctx, repoDir, ref, repoPath); ok {
+		return exists, nil
+	}
 	if err := g.fetchMetadataRef(ctx, repoDir, ref, "blob:none", 1); err != nil {
 		return false, err
 	}
-	out, err := g.runGit(ctx, repoDir, "cat-file", "-t", "FETCH_HEAD:"+repoPath)
-	if err != nil {
-		return false, nil
-	}
-	return strings.TrimSpace(out) == "blob", nil
+	exists, _ := g.localPathExists(ctx, repoDir, "FETCH_HEAD", repoPath)
+	return exists, nil
 }
 
 func (g *GitManager) EnsureCheckout(ctx context.Context, repoURL string, ref string, logFile io.Writer) (string, error) {
@@ -336,6 +336,13 @@ func (g *GitManager) fetchMetadataRef(ctx context.Context, repoDir string, ref s
 func (g *GitManager) gitObjectExists(ctx context.Context, repoDir string, object string) bool {
 	_, err := g.runGit(ctx, repoDir, "cat-file", "-e", object)
 	return err == nil
+}
+
+func (g *GitManager) localPathExists(ctx context.Context, repoDir string, ref string, repoPath string) (bool, bool) {
+	if !g.gitObjectExists(ctx, repoDir, ref+"^{commit}") || !g.gitObjectExists(ctx, repoDir, ref+"^{tree}") {
+		return false, false
+	}
+	return g.gitObjectExists(ctx, repoDir, ref+":"+repoPath), true
 }
 
 func (g *GitManager) runGitLogged(ctx context.Context, dir string, logWriter io.Writer, args ...string) error {

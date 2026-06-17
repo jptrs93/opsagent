@@ -69,6 +69,9 @@ func TestGitManagerUsesGitForCommitAndPathValidation(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(repoDir, "nix"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(repoDir, "nix", "default.nix"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	runTestGit(t, repoDir, "add", ".")
 	runTestGit(t, repoDir, "commit", "-m", "initial commit")
 	initialCommit := strings.TrimSpace(runTestGit(t, repoDir, "rev-parse", "HEAD"))
@@ -126,8 +129,8 @@ func TestGitManagerUsesGitForCommitAndPathValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if exists {
-		t.Fatal("PathExists(nix directory) = true, want false")
+	if !exists {
+		t.Fatal("PathExists(nix directory) = false, want true")
 	}
 }
 
