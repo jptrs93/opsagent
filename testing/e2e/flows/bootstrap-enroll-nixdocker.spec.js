@@ -12,6 +12,7 @@ import {
   createPostgresDeployment,
   createSecret,
   expectDeploymentOutput,
+  expectOpenDeployAgentVersion,
   expectOpenDeployLogs,
   expectPrepareOutput,
   signOutAndLoginWithPasskey,
@@ -24,6 +25,7 @@ test('bootstrap primary, enroll worker, and create Nix Docker deployment', async
   await bootstrapFirstUser(page);
   await signOutAndLoginWithPasskey(page);
   await configureGithubToken(page, process.env.OPENDEPLOY_GITHUB_TOKEN || '');
+  await expectOpenDeployAgentVersion(page, {machine: 'primary', version: process.env.OPD_INSTALL_VERSION || 'v0.0.140'});
   await expectOpenDeployLogs(page);
   await acceptFirstWaitingWorker(page);
   await createNixDockerDeployment(page, {expectDefaultDockerImage: true});

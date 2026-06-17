@@ -3,35 +3,34 @@
 # Install
 
 Installs from GitHub releases on Ubuntu (amd64 or arm64). The `opendeploy` binary
-is its own installer — download it and run `opendeploy install primary` or
-`opendeploy install secondary`. Idempotent —
-re-run to upgrade.
+is its own installer; the shell wrappers only detect the host architecture,
+download and checksum the release binary, then pass every option through to
+`opendeploy install` / `opendeploy uninstall`. Idempotent — re-run to upgrade.
 
 ```bash
-# Detect arch, fetch the latest release binary, and install.
-ARCH=$(uname -m); case "$ARCH" in x86_64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; esac
-curl -fsSL "https://github.com/jptrs93/opsagent/releases/latest/download/opendeploy-linux-$ARCH" -o opendeploy
-chmod +x opendeploy
-sudo ./opendeploy install primary
+# Install or upgrade a primary.
+curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/install_primary.sh | bash -s --
+
+# Install or upgrade a secondary.
+curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/install_secondary.sh | bash -s -- \
+  --cluster-addr primary.example.com:9443 \
+  --enrollment-addr primary.example.com:9444
 ```
 
-To pin a specific version (the installer fetches that release itself):
+Options are passed through to the underlying installer. To pin a specific version:
 
 ```bash
-sudo ./opendeploy install primary --version v0.0.1
+curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/install_primary.sh | bash -s -- --version v0.0.1
 ```
 
 Example primary install bound to a public IPv6 address with ACME TLS:
 
 ```bash
-ARCH=$(uname -m); case "$ARCH" in x86_64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; esac
 VERSION=v0.0.139
 IPV6=2001:db8:203:a17e::12
 DOMAIN=opendeploy.example.com
 
-curl -fsSL "https://github.com/jptrs93/opsagent/releases/download/$VERSION/opendeploy-linux-$ARCH" -o opendeploy
-chmod +x opendeploy
-sudo ./opendeploy install primary \
+curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/install_primary.sh | bash -s -- \
   --version "$VERSION" \
   --web-listen "[$IPV6]:443" \
   --acme-hosts "$DOMAIN"
@@ -39,7 +38,11 @@ sudo ./opendeploy install primary \
 
 Use the IPv6 address without the `/128` prefix length in `--web-listen`, and point the domain's `AAAA` record at that address.
 
-Preview every action without touching the host with `sudo ./opendeploy install primary --dry-run`.
+Preview every action without touching the host with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/install_primary.sh | bash -s -- --dry-run
+```
 
 The installer:
 
@@ -50,9 +53,17 @@ The installer:
 - writes `/etc/opendeploy/env` with a generated temporary setup password hash (first primary install only) and prints the password once
 - installs sudoers + the `opendeploy.service` systemd unit
 - on upgrade: atomically swaps the binary and restarts the service
-- on first install: starts `opendeploy.service` and prints the Web UI address
+- on first install: starts `opendeploy.service` and prints the Web UI address plus the current service log directory/file
 
-To remove: `sudo ./opendeploy uninstall` (keeps data) or `sudo ./opendeploy uninstall --purge` (wipes everything).
+To remove:
+
+```bash
+# Keeps data.
+curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/uninstall.sh | bash -s --
+
+# Wipes everything.
+curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/uninstall.sh | bash -s -- --purge
+```
 
 ## First-run configuration
 
@@ -63,12 +74,13 @@ After the first primary install, edit `/etc/opendeploy/env`:
 3. **Cluster mTLS** — primary cluster (`:9443`) and HTTPS enrollment (`:9444`) listeners start by default. Primary CA/server key material is generated automatically and stored encrypted in the primary secrets store. Workers use `OPENDEPLOY_PRIMARY_CLUSTER_ADDR` for mTLS traffic and `OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR` for bootstrap enrollment. During enrollment the worker generates its private key locally, sends a CSR, and caches the received `ca.crt` / `node.crt` plus its local `node.key` under `/var/lib/opendeploy/tls/`.
 4. **ACME / TLS** — set `OPENDEPLOY_INITIAL_ACME_HOSTS` and `OPENDEPLOY_INITIAL_ACME_EMAIL` to your public hostname and contact email.
 
-Then start the service:
+For diagnostics, inspect the printed OpenDeploy service log file first. It is under:
 
 ```bash
-sudo systemctl start opendeploy
-sudo journalctl -u opendeploy -f
+/var/lib/opendeploy-run-logs/0/<version>/opendeploy/YYYYMMDD_HH.logbin
 ```
+
+Use `sudo journalctl -u opendeploy -f` as a fallback when the service does not start far enough to create runtime logs.
 
 # Development
 

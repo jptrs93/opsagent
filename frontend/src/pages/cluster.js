@@ -113,10 +113,11 @@ function enrollmentRow(req) {
 
     return tr(
         {class: "border-b border-gray-800 last:border-0 align-top", "data-testid": `enrollment-request-${req.id}`},
-        td({class: "py-3 pr-6"},
-            div({class: "text-white font-medium"}, `#${req.id}`),
-            div({class: "text-xs text-gray-500 font-mono break-all"}, req.requestingMachineId),
-        ),
+		td({class: "py-3 pr-6"},
+			div({class: "text-white font-medium"}, `#${req.id}`),
+			div({class: "text-xs text-gray-500 font-mono break-all"}, req.requestingMachineId),
+			req.opendeployVersion ? div({class: "text-xs text-gray-400 font-mono"}, req.opendeployVersion) : '',
+		),
         td({class: "py-3 pr-6 text-gray-300"}, req.requestingIpAddress || "-"),
         td({class: "py-3 pr-6 text-gray-400"}, formatTime(req.updatedAt)),
         td({class: "py-3"},
@@ -136,8 +137,8 @@ function enrollmentRow(req) {
                         onclick: accept,
                     }, () => accepting.val ? "Accepting..." : "Accept"),
                 ),
-                () => rowError.val ? p({class: "text-xs text-red-400"}, rowError.val) : null,
-            )
-        ),
+				() => rowError.val ? p({class: "text-xs text-red-400"}, rowError.val) : '',
+			)
+		),
     );
 }

@@ -56,6 +56,11 @@ func ReAttach(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev ap
 			"configVersion", dep.Version, "artifact", prev.Artifact)
 		return &finishedPreparer{deploymentConfigVersion: dep.Version}
 	}
+	if isSystemdDeployment(dep) && prev.IsZero() && dep.DesiredState.Version != "" {
+		slog.Info("preparer.ReAttach: systemd deployment already installed, returning finished",
+			"deploymentConfigVersion", dep.Version, "desiredVersion", desiredVersion(dep))
+		return &finishedPreparer{deploymentConfigVersion: dep.Version}
+	}
 	if dep.DesiredState.Version == "" {
 		slog.Info("preparer.ReAttach: no version to build, returning finished",
 			"deploymentConfigVersion", dep.Version)
@@ -98,6 +103,10 @@ func hasNixDockerBuild(dep *apigen.DeploymentConfig) bool {
 
 func hasContainerImage(dep *apigen.DeploymentConfig) bool {
 	return !dep.Spec.Prepare.ContainerImage.IsZero()
+}
+
+func isSystemdDeployment(dep *apigen.DeploymentConfig) bool {
+	return !dep.Spec.Runner.Systemd.IsZero()
 }
 
 // activePreparer is the handle shared by the nix + github variants: ctx owns

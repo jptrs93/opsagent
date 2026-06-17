@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/jptrs93/goutil/ptru"
@@ -365,8 +366,11 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 }
 
 // EnsureSystemDeployment creates the OPENDEPLOY opendeploy deployment for
-// the given machine if it does not already exist.
-func (s *PrimaryStorage) EnsureSystemDeployment(machine string) {
+// the given machine if it does not already exist. When opendeployVersion is
+// known, first-time system deployments are marked desired-running at that
+// version so the systemd runner can observe the already-running service.
+func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersion string) {
+	opendeployVersion = strings.TrimSpace(opendeployVersion)
 	cid := apigen.DeploymentIdentifier{
 		Environment: SystemEnvironment,
 		Machine:     machine,
@@ -408,16 +412,22 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string) {
 
 	q := s.q.WithTx(tx)
 	now := time.Now().UnixMilli()
+	desiredRunning := int64(0)
+	if opendeployVersion != "" {
+		desiredRunning = 1
+	}
 
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
-		Environment: cid.Environment,
-		Machine:     cid.Machine,
-		Name:        cid.Name,
-		CreatedAt:   now,
-		Version:     1,
-		UpdatedAt:   now,
-		SpecBlob:    specBlob,
-		Deleted:     0,
+		Environment:    cid.Environment,
+		Machine:        cid.Machine,
+		Name:           cid.Name,
+		CreatedAt:      now,
+		Version:        1,
+		UpdatedAt:      now,
+		SpecBlob:       specBlob,
+		DesiredVersion: opendeployVersion,
+		DesiredRunning: desiredRunning,
+		Deleted:        0,
 	})
 	if err != nil {
 		panic(fmt.Sprintf("CreateDeploymentConfig (system): %v", err))
@@ -425,11 +435,13 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string) {
 	dbID := row.DeploymentID
 
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
-		DeploymentID: dbID,
-		Version:      1,
-		UpdatedAt:    now,
-		SpecBlob:     specBlob,
-		Deleted:      0,
+		DeploymentID:   dbID,
+		Version:        1,
+		UpdatedAt:      now,
+		SpecBlob:       specBlob,
+		DesiredVersion: opendeployVersion,
+		DesiredRunning: desiredRunning,
+		Deleted:        0,
 	}); err != nil {
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory (system): %v", err))
 	}
@@ -442,18 +454,20 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string) {
 
 	id := int32(dbID)
 	s.configCache[id] = upsertParamsToProto(UpsertDeploymentConfigParams{
-		DeploymentID: dbID,
-		Environment:  cid.Environment,
-		Machine:      cid.Machine,
-		Name:         cid.Name,
-		CreatedAt:    row.CreatedAt,
-		Version:      1,
-		UpdatedAt:    now,
-		SpecBlob:     specBlob,
-		Deleted:      0,
+		DeploymentID:   dbID,
+		Environment:    cid.Environment,
+		Machine:        cid.Machine,
+		Name:           cid.Name,
+		CreatedAt:      row.CreatedAt,
+		Version:        1,
+		UpdatedAt:      now,
+		SpecBlob:       specBlob,
+		DesiredVersion: opendeployVersion,
+		DesiredRunning: desiredRunning,
+		Deleted:        0,
 	})
 	s.notifyFromCache(id)
-	slog.Info("created system deployment", "machine", machine)
+	slog.Info("created system deployment", "machine", machine, "version", opendeployVersion)
 }
 
 // --- row <-> proto conversions ---

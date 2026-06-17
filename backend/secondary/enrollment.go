@@ -22,6 +22,7 @@ type EnrollmentConfig struct {
 	ClusterCAPath         string
 	ClusterCertPath       string
 	ClusterKeyPath        string
+	OpendeployVersion     string
 }
 
 func Enroll(cfg EnrollmentConfig) error {
@@ -68,7 +69,7 @@ func runEnrollmentSession(capi *apigen.EnrollmentV1Capi, machineID string, cfg E
 	}
 
 	reqs := func(yield func(*apigen.EnrollmentWorkerMsg, error) bool) {
-		if !yield(&apigen.EnrollmentWorkerMsg{Hello: &apigen.EnrollmentHello{RequestingMachineID: machineID, WorkerCertificateRequest: csrPEM}}, nil) {
+		if !yield(&apigen.EnrollmentWorkerMsg{Hello: &apigen.EnrollmentHello{RequestingMachineID: machineID, WorkerCertificateRequest: csrPEM, OpendeployVersion: strings.TrimSpace(cfg.OpendeployVersion)}}, nil) {
 			return
 		}
 		<-ctx.Done()

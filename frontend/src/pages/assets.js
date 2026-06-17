@@ -165,7 +165,7 @@ export function assetsPage() {
                 "Assets are immutable config files for future read-only container mounts. Saving creates a new version."),
             div({class: "flex items-center gap-2"},
                 input({
-                    class: "text-input w-64",
+                    class: "text-input search-input",
                     type: "search",
                     placeholder: "Search assets",
                     value: search,

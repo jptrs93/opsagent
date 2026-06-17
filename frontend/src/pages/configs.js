@@ -155,7 +155,7 @@ export function configsPage() {
                 code({class: "font-mono text-gray-300"}, "${c:name}"), "."),
             div({class: "flex items-center gap-2"},
                 input({
-                    class: "text-input w-64",
+                    class: "text-input search-input",
                     type: "search",
                     placeholder: "Search configs",
                     value: search,

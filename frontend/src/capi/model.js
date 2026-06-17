@@ -7,6 +7,7 @@
  * @typedef {Object} EnrollmentHello
  * @property {string} requestingMachineId
  * @property {Uint8Array} workerCertificateRequest
+ * @property {string} opendeployVersion
  */
 /**
  * @typedef {Object} EnrollmentPrimaryMsg
@@ -21,6 +22,7 @@
  * @property {string} requestingIpAddress
  * @property {string} requestingMachineId
  * @property {string} status
+ * @property {string} opendeployVersion
  */
 /**
  * @typedef {Object} EnrollmentRequestList
@@ -664,6 +666,9 @@ export function writeEnrollmentHello(message, writer) {
     if (message.workerCertificateRequest && message.workerCertificateRequest.length > 0) {
         writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.workerCertificateRequest);
     }
+    if (message.opendeployVersion !== undefined && message.opendeployVersion !== null && message.opendeployVersion !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.opendeployVersion);
+    }
 }
 
 
@@ -685,7 +690,7 @@ export function encodeEnrollmentHello(message) {
  */
 function decodeEnrollmentHelloMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {requestingMachineId: "", workerCertificateRequest: new Uint8Array(0) };
+    const message = {requestingMachineId: "", workerCertificateRequest: new Uint8Array(0), opendeployVersion: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -695,6 +700,10 @@ function decodeEnrollmentHelloMessage(reader, length) {
             }
             case 2: {
                 message.workerCertificateRequest = reader.bytes();
+                break;
+            }
+            case 3: {
+                message.opendeployVersion = reader.string();
                 break;
             }
             default:
@@ -806,6 +815,9 @@ export function writeEnrollmentRequestStatus(message, writer) {
     if (message.status !== undefined && message.status !== null && message.status !== "") {
         writer.uint32(tag(6, WIRE.LDELIM)).string(message.status);
     }
+    if (message.opendeployVersion !== undefined && message.opendeployVersion !== null && message.opendeployVersion !== "") {
+        writer.uint32(tag(7, WIRE.LDELIM)).string(message.opendeployVersion);
+    }
 }
 
 
@@ -827,7 +839,7 @@ export function encodeEnrollmentRequestStatus(message) {
  */
 function decodeEnrollmentRequestStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, createdAt: new Date(0), updatedAt: new Date(0), requestingIpAddress: "", requestingMachineId: "", status: "" };
+    const message = {id: 0, createdAt: new Date(0), updatedAt: new Date(0), requestingIpAddress: "", requestingMachineId: "", status: "", opendeployVersion: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -853,6 +865,10 @@ function decodeEnrollmentRequestStatusMessage(reader, length) {
             }
             case 6: {
                 message.status = reader.string();
+                break;
+            }
+            case 7: {
+                message.opendeployVersion = reader.string();
                 break;
             }
             default:

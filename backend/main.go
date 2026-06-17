@@ -145,6 +145,7 @@ func runSecondary() {
 			ClusterCAPath:         caPath,
 			ClusterCertPath:       certPath,
 			ClusterKeyPath:        keyPath,
+			OpendeployVersion:     version.Version,
 		}); err != nil {
 			panic(fmt.Sprintf("worker enrollment: %v", err))
 		}

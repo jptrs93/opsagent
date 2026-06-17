@@ -26,6 +26,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 	"github.com/jptrs93/opsagent/backend/util/secretu"
+	"github.com/jptrs93/opsagent/backend/version"
 )
 
 type Handler struct {
@@ -158,7 +159,7 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	}
 
 	// Ensure the system self-management deployment exists for the primary.
-	h.Store.EnsureSystemDeployment(machineName)
+	h.Store.EnsureSystemDeployment(machineName, version.Version)
 
 	// Kick off the deployment operator for this machine. RunAll pulls the
 	// current snapshot from the store and spawns a per-deployment reconciler

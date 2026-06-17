@@ -23,9 +23,11 @@ NETWORK=opendeploy-install-test
 PRIMARY_VOLUME=opendeploy-primary-containerd
 SECONDARY_VOLUME=opendeploy-secondary-containerd
 REPO=jptrs93/opsagent
-VERSION=v0.0.123
+VERSION=v0.0.140
 USE_SELF=${USE_SELF:-false}
 SELF_VERSION=v0.0.0
+STATE_DIR="$(pwd)/.tmp"
+E2E_ENV_FILE="$STATE_DIR/e2e.env"
 
 docker_arch=$(docker version --format '{{.Server.Arch}}')
 case "$docker_arch" in
@@ -70,6 +72,8 @@ docker rm -f "$PRIMARY_NAME" "$SECONDARY_NAME" >/dev/null 2>&1 || true
 docker volume rm "$PRIMARY_VOLUME" "$SECONDARY_VOLUME" >/dev/null 2>&1 || true
 docker network rm "$NETWORK" >/dev/null 2>&1 || true
 docker network create "$NETWORK" >/dev/null
+mkdir -p "$STATE_DIR"
+rm -f "$E2E_ENV_FILE"
 
 start_container() {
 	local name=$1
@@ -138,15 +142,34 @@ download_opendeploy() {
 
 install_primary() {
 	download_opendeploy "$PRIMARY_NAME"
+	local install_output
 	if [[ "$USE_SELF" == "true" ]]; then
-		docker exec "$PRIMARY_NAME" opendeploy install primary --use-self --http-only true --web-listen :8080
+		if ! install_output=$(docker exec "$PRIMARY_NAME" opendeploy install primary --use-self --http-only true --web-listen :8080 2>&1); then
+			printf '%s\n' "$install_output" >&2
+			exit 1
+		fi
 	else
-		docker exec "$PRIMARY_NAME" opendeploy install primary --version "$VERSION" --http-only true --web-listen :8080
+		if ! install_output=$(docker exec "$PRIMARY_NAME" opendeploy install primary --version "$VERSION" --http-only true --web-listen :8080 2>&1); then
+			printf '%s\n' "$install_output" >&2
+			exit 1
+		fi
+	fi
+	printf '%s\n' "$install_output"
+	if [[ "$install_output" =~ Temporary[[:space:]]setup[[:space:]]password:[[:space:]]([^[:space:]]+) ]]; then
+		local install_version="$VERSION"
+		if [[ "$USE_SELF" == "true" ]]; then
+			install_version="$SELF_VERSION"
+		fi
+		printf 'OPD_SETUP_PASSWORD=%q\nOPD_INSTALL_VERSION=%q\n' "${BASH_REMATCH[1]}" "$install_version" > "$E2E_ENV_FILE"
+	else
+		echo "installer output did not include a temporary setup password" >&2
+		exit 1
 	fi
 	configure_github_token "$PRIMARY_NAME"
 	# Ubuntu's Nix daemon socket directory is restricted to nix-users.
 	docker exec "$PRIMARY_NAME" usermod -aG nix-users opendeploy
-	docker exec "$PRIMARY_NAME" systemctl start opendeploy.service
+	docker exec "$PRIMARY_NAME" systemctl restart opendeploy.service
+	wait_for_service "$PRIMARY_NAME" opendeploy.service
 }
 
 install_secondary() {
@@ -159,7 +182,22 @@ install_secondary() {
 	configure_github_token "$SECONDARY_NAME"
 	# Ubuntu's Nix daemon socket directory is restricted to nix-users.
 	docker exec "$SECONDARY_NAME" usermod -aG nix-users opendeploy
-	docker exec "$SECONDARY_NAME" systemctl start opendeploy.service
+	docker exec "$SECONDARY_NAME" systemctl restart opendeploy.service
+	wait_for_service "$SECONDARY_NAME" opendeploy.service
+}
+
+wait_for_service() {
+	local name=$1
+	local service=$2
+	local state=""
+	for _ in $(seq 1 30); do
+		state=$(docker exec "$name" systemctl is-active "$service" 2>/dev/null || true)
+		[[ "$state" == active ]] && return
+		sleep 1
+	done
+	echo "$service did not become active in $name (state: ${state:-unknown})" >&2
+	docker exec "$name" systemctl status "$service" --no-pager >&2 || true
+	exit 1
 }
 
 configure_github_token() {

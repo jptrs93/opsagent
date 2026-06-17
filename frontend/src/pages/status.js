@@ -200,7 +200,7 @@ export function statusPage(onOpenLogs = () => {}) {
     };
 
     const deploymentTable = (rows, showEnvironmentColumn) => table(
-        {class: "min-w-full w-max text-left text-sm whitespace-nowrap"},
+        {class: "w-full text-left text-sm"},
         thead(
             tr(
                 {class: "border-b border-gray-700 text-xs uppercase tracking-wide text-gray-500"},
@@ -280,14 +280,14 @@ export function statusPage(onOpenLogs = () => {}) {
         );
     };
 
-    const deploymentTableCard = (rows, showEnvironmentColumn, header = null) => div(
-        {class: "w-max min-w-full rounded-lg bg-surface border border-gray-700 p-2"},
+    const deploymentTableCard = (rows, showEnvironmentColumn, header = null, collapsed = false) => div(
+        {class: "w-full min-w-0 rounded-lg bg-surface border border-gray-700 p-2"},
         header,
-        deploymentTable(rows, showEnvironmentColumn),
+        collapsed ? '' : div({class: "w-full overflow-x-auto"}, deploymentTable(rows, showEnvironmentColumn)),
     );
 
     const mainContent = div(
-        {class: "flex flex-col gap-3 w-max min-w-full"},
+        {class: "flex flex-col gap-3 w-full min-w-0"},
         div(
             {class: "flex items-center justify-end"},
             div(
@@ -347,7 +347,7 @@ export function statusPage(onOpenLogs = () => {}) {
             const groups = groupDeploymentsByEnvironment(sorted);
             const canCollapse = groups.length > 1;
             return div(
-                {class: "flex flex-col gap-4 w-max min-w-full"},
+                {class: "flex flex-col gap-4 w-full min-w-0"},
                 ...groups.map(group => {
                     const collapsed = canCollapse && Boolean(collapsedEnvironmentGroups.val[group.environment]);
                     const header = div(
@@ -364,11 +364,7 @@ export function statusPage(onOpenLogs = () => {}) {
                             title: collapsed ? "Expand" : "Collapse",
                         }, collapsed ? "Expand" : "Collapse") : span(),
                     );
-                    return div(
-                        {class: "w-max min-w-full rounded-lg bg-surface border border-gray-700 p-2"},
-                        header,
-                        collapsed ? '' : deploymentTable(group.rows, false),
-                    );
+                    return deploymentTableCard(group.rows, false, header, collapsed);
                 }),
             );
         }
@@ -379,7 +375,7 @@ export function statusPage(onOpenLogs = () => {}) {
     // Persistent DOM nodes — widths are updated directly during drag
     // so VanJS doesn't rebuild the sidebar on every mouse move.
     const mainPane = div(
-        {class: "min-h-0 overflow-auto p-3 flex flex-col gap-6", style: "width:100%"},
+        {class: "min-w-0 min-h-0 overflow-y-auto overflow-x-hidden p-3 flex flex-col gap-6", style: "width:100%"},
         mainContent,
     );
 

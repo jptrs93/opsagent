@@ -194,12 +194,32 @@ export function logsPage(selectedDeploymentId) {
         node,
     );
 
+    const setQuickRange = (durationMs) => {
+        const end = new Date();
+        timeStart.val = toLocalInputValue(new Date(end.getTime() - durationMs));
+        timeEnd.val = toLocalInputValue(end);
+    };
+
+    const quickRangeButton = (text, durationMs) => button({
+        type: "button",
+        class: "whitespace-nowrap rounded-lg bg-gray-700 px-2.5 py-1.5 text-xs text-gray-200 transition-colors cursor-pointer hover:bg-gray-600",
+        onclick: () => setQuickRange(durationMs),
+    }, text);
+
     return div(
         {class: "h-full min-h-0 overflow-hidden p-3 flex flex-col gap-2"},
         div(
             {class: "card p-3 flex flex-wrap items-end gap-2"},
             field("Environment", environmentSelect),
             field("Deployment", deploymentSelect),
+            field("Minimum level", select({
+                    "data-testid": "logs-level-min-select",
+                    class: "input",
+                    value: () => levelMin.val,
+                    onchange: (e) => { levelMin.val = e.target.value; },
+                },
+                ...LEVELS.map(level => option({value: level}, level || 'Any')),
+            )),
             field("From", input({
                 "data-testid": "logs-time-start-input",
                 class: "input",
@@ -214,14 +234,13 @@ export function logsPage(selectedDeploymentId) {
                 value: () => timeEnd.val,
                 oninput: (e) => { timeEnd.val = e.target.value; },
             })),
-            field("Minimum level", select({
-                    "data-testid": "logs-level-min-select",
-                    class: "input",
-                    value: () => levelMin.val,
-                    onchange: (e) => { levelMin.val = e.target.value; },
-                },
-                ...LEVELS.map(level => option({value: level}, level || 'Any')),
-            )),
+            div(
+                {class: "flex flex-wrap items-center gap-1.5 pb-0.5"},
+                quickRangeButton("Last 10min", 10 * 60 * 1000),
+                quickRangeButton("Last hour", 60 * 60 * 1000),
+                quickRangeButton("Last day", 24 * 60 * 60 * 1000),
+                quickRangeButton("Last 3 days", 3 * 24 * 60 * 60 * 1000),
+            ),
             div({class: "flex-1"}),
             button({
                 "data-testid": "logs-search-button",

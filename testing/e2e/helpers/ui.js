@@ -9,7 +9,7 @@ const RESTART_TIMEOUT = 120_000;
 const UPGRADE_TIMEOUT = 180_000;
 const STABLE_CHECK_DELAY = 200;
 
-export async function bootstrapFirstUser(page, {username = 'E2E Operator', password = 'opendeploy-setup'} = {}) {
+export async function bootstrapFirstUser(page, {username = 'E2E Operator', password = process.env.OPD_SETUP_PASSWORD || 'opendeploy-setup'} = {}) {
   await page.goto('/bootstrap');
   await expect(page.getByRole('heading', {name: 'First time setup'})).toBeVisible();
   await byTestId(page, 'bootstrap-username-input', page.getByPlaceholder('Your name')).fill(username);
@@ -60,7 +60,7 @@ export async function expectOpenDeployLogs(page) {
   });
   await deploymentSelect.selectOption(deploymentValue);
   await page.getByTestId('logs-search-button').click();
-  await expectOutputText(page, 'starting in');
+  await expectOutputText(page, 'opendeploy starting primary');
 }
 
 export async function acceptFirstWaitingWorker(page, {workerName = 'worker-1'} = {}) {
@@ -328,7 +328,7 @@ async function upgradeOpenDeployAgent(page, {machine, version}) {
   await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
 }
 
-async function expectOpenDeployAgentVersion(page, {machine, version}) {
+export async function expectOpenDeployAgentVersion(page, {machine, version}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
   const row = deploymentRow(page, {name: 'opendeploy', machine, environment: 'OPENDEPLOY'});
   await expect(row).toContainText(version, {timeout: UPGRADE_TIMEOUT});

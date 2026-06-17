@@ -4,10 +4,12 @@
 a host. It is built into the main `opendeploy` binary and invoked as the
 `opendeploy install` / `opendeploy uninstall` subcommands.
 
-This is the **only** supported install path — it replaced the former
+This is the **only** supported install logic — it replaced the former
 `deploy/ubuntu_server_{install,uninstall}.sh` shell scripts, which have been
-removed. The `opendeploy` binary is its own installer: download it and run
-`opendeploy install` (see the repo `README.md` for the bootstrap one-liner).
+removed. The repo-level `scripts/install_primary.sh`,
+`scripts/install_secondary.sh`, and `scripts/uninstall.sh` files are thin
+bootstrap wrappers that download the release binary and then invoke these
+subcommands (see the repo `README.md` for one-liners).
 
 ## Independence
 
@@ -59,7 +61,8 @@ sudo opendeploy uninstall --purge
 - Same semantics otherwise: versioned-dir + symlink for both the agent binary
   and the containerd/runc runtime, change-detected containerd restart, visudo
   validation, generated primary setup password, service start on fresh install,
-  env-file preservation, and the preserve-vs-`--purge` split.
+  printed service log directory/current file, env-file preservation, and the
+  preserve-vs-`--purge` split.
 
 ## Layout
 

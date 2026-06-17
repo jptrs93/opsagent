@@ -48,6 +48,30 @@ func reAttachSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentCo
 	return r
 }
 
+// observeExistingSystemdRunner is the first-install path for OpenDeploy's own
+// systemd deployment. It does not restart or install anything; it only observes
+// the already-running unit and publishes the first real status from systemd.
+func observeExistingSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig) *systemdRunner {
+	ctx, cancel := context.WithCancel(context.Background())
+	sys := dep.Spec.Runner.Systemd
+	r := &systemdRunner{
+		ctx:          ctx,
+		cancel:       cancel,
+		done:         make(chan struct{}),
+		store:        store,
+		deploymentID: dep.ID,
+		status: apigen.RunnerStatus{
+			DeploymentConfigVersion: dep.Version,
+			RunningArtifact:         resolveSystemdRunnerArtifact(sys.BinPath),
+			Status:                  apigen.RunningStatus_STARTING,
+		},
+		unitName:   normalizeUnit(sys.Name),
+		outputPath: dep.RunOutputPath(),
+	}
+	go r.monitor()
+	return r
+}
+
 // newSystemdRunnerWithRestart installs the prepared artifact, issues a
 // systemd restart, writes the new status, then enters the monitor loop.
 // Called only from runner.Create when the operator has a new artifact ready.
@@ -119,25 +143,36 @@ func (r *systemdRunner) monitorLoop() {
 	defer ticker.Stop()
 
 	var last apigen.RunningStatus
+	poll := func() {
+		active, err := systemctlIsActive(r.ctx, r.unitName)
+		if err != nil {
+			slog.WarnContext(r.ctx, "systemctl is-active failed", "unitName", r.unitName, "err", err)
+			return
+		}
+		status := mapActiveState(active)
+		if status == last {
+			return
+		}
+		last = status
+		pid, _ := systemctlMainPID(r.ctx, r.unitName)
+		r.updateStatus(status, int32(pid))
+	}
+	poll()
 	for {
 		select {
 		case <-r.ctx.Done():
 			return
 		case <-ticker.C:
-			active, err := systemctlIsActive(r.ctx, r.unitName)
-			if err != nil {
-				slog.WarnContext(r.ctx, "systemctl is-active failed", "unitName", r.unitName, "err", err)
-				continue
-			}
-			status := mapActiveState(active)
-			if status == last {
-				continue
-			}
-			last = status
-			pid, _ := systemctlMainPID(r.ctx, r.unitName)
-			r.updateStatus(status, int32(pid))
+			poll()
 		}
 	}
+}
+
+func resolveSystemdRunnerArtifact(binPath string) string {
+	if target, err := filepath.EvalSymlinks(binPath); err == nil && target != "" {
+		return target
+	}
+	return binPath
 }
 
 func (r *systemdRunner) updateStatus(status apigen.RunningStatus, pid int32) {

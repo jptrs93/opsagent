@@ -78,6 +78,7 @@ type EnrollmentRequest struct {
 	UpdatedAt           int64
 	RequestingIpAddress string
 	RequestingMachineID string
+	OpendeployVersion   string
 	Status              string
 }
 

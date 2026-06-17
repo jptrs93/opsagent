@@ -165,6 +165,7 @@ CREATE TABLE IF NOT EXISTS enrollment_requests (
     updated_at               INTEGER NOT NULL,  -- epoch ms
     requesting_ip_address    TEXT    NOT NULL DEFAULT '',
     requesting_machine_id    TEXT    NOT NULL,
+    opendeploy_version       TEXT    NOT NULL DEFAULT '',
     status                   TEXT    NOT NULL DEFAULT 'waiting'
 );
 

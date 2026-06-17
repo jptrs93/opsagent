@@ -10,10 +10,17 @@ NETWORK_MODE=${NETWORK_MODE:-container:opendeploy-install-primary}
 BASE_URL=${OPD_BASE_URL:-http://localhost:8080}
 RESET=${RESET:-true}
 FLOWS=${FLOWS:-bootstrap-enroll-nixdocker}
+STATE_ENV=${STATE_ENV:-../.tmp/e2e.env}
 
 if [[ "$RESET" == "true" ]]; then
   echo "==> Resetting OpenDeploy install-test environment"
   bash ../run.sh
+fi
+
+if [[ -f "$STATE_ENV" ]]; then
+  set -a
+  source "$STATE_ENV"
+  set +a
 fi
 
 echo "==> Building Playwright image"
@@ -36,6 +43,8 @@ echo "==> Running Playwright flows: ${flow_args[*]}"
 docker run --rm \
   --network "$NETWORK_MODE" \
   -e OPD_BASE_URL="$BASE_URL" \
+  -e OPD_SETUP_PASSWORD="${OPD_SETUP_PASSWORD:-}" \
+  -e OPD_INSTALL_VERSION="${OPD_INSTALL_VERSION:-}" \
   -e OPENDEPLOY_GITHUB_TOKEN="${OPENDEPLOY_GITHUB_TOKEN:-}" \
   -v "$(pwd)/test-results:/e2e/test-results" \
   -v "$(pwd)/playwright-report:/e2e/playwright-report" \

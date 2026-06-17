@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jptrs93/goutil/authu"
 )
@@ -363,7 +364,7 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 		return err
 	}
 
-	printInstallComplete(opts, bootstrap, wrote)
+	printInstallComplete(version, opts, bootstrap, wrote)
 	return nil
 }
 
@@ -476,11 +477,11 @@ func updateServiceUnitForUpgrade(opts installOptions) error {
 	return nil
 }
 
-func printInstallComplete(opts installOptions, bootstrap *bootstrapCredentials, wroteEnv bool) {
+func printInstallComplete(version string, opts installOptions, bootstrap *bootstrapCredentials, wroteEnv bool) {
+	logDir, logFile := serviceLogPaths(version, time.Now().UTC())
 	if opts.role == "secondary" {
-		fmt.Print(`
-Install complete. opendeploy.service is enabled and started.
-`)
+		fmt.Print("\nInstall complete. opendeploy.service is enabled and started.\n")
+		printServiceLogDetails(logDir, logFile)
 		return
 	}
 	fmt.Print("\nInstall complete. opendeploy.service is enabled and started.\n")
@@ -494,7 +495,19 @@ Install complete. opendeploy.service is enabled and started.
 	} else {
 		fmt.Printf("\nKept existing %s. Use its configured setup password/hash to bootstrap.\n", envFile)
 	}
-	fmt.Printf("\nLogs: sudo journalctl -u %s -f\n", serviceName)
+	printServiceLogDetails(logDir, logFile)
+}
+
+func printServiceLogDetails(logDir, logFile string) {
+	fmt.Print("\nOpenDeploy service logs:\n")
+	fmt.Printf("  Directory: %s\n", logDir)
+	fmt.Printf("  Current file: %s\n", logFile)
+	fmt.Printf("  Journal fallback: sudo journalctl -u %s -f\n", serviceName)
+}
+
+func serviceLogPaths(version string, now time.Time) (string, string) {
+	logDir := filepath.Join(runLogsDir, "0", version, "opendeploy")
+	return logDir, filepath.Join(logDir, now.UTC().Format("20060102_15")+".logbin")
 }
 
 func webUIAddrs(opts installOptions) []string {

@@ -42,6 +42,10 @@ func Create(store storage.OperatorStore, dep *apigen.DeploymentConfig, status *a
 // id. Systemd runners start a monitor-only loop — no install or restart.
 func ReAttach(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
 	if prev.IsZero() {
+		if useSystemd(dep) && dep.DesiredState.Running {
+			slog.Info("runner.ReAttach: observing existing systemd unit without previous runner status")
+			return observeExistingSystemdRunner(store, dep)
+		}
 		slog.Info("runner.ReAttach: no previous runner, returning stopped")
 		return Stopped()
 	}

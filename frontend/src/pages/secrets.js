@@ -252,7 +252,7 @@ export function secretsPage() {
                 code({class: "font-mono text-gray-300"}, "${s:name}"), "."),
             div({class: "flex items-center gap-2"},
                 input({
-                    class: "text-input w-64",
+                    class: "text-input search-input",
                     type: "search",
                     placeholder: "Search secrets",
                     value: search,

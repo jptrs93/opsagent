@@ -14,6 +14,16 @@ By default the runner resets the local primary/secondary containers with
 FLOWS=bootstrap-enroll-nixdocker
 ```
 
+The reset step captures the installer's generated temporary setup password in
+`testing/.tmp/e2e.env`; the Playwright container receives it as
+`OPD_SETUP_PASSWORD` for first-user bootstrap.
+
+When diagnosing Playwright failures, check the OpenDeploy service `.logbin` file
+printed by `testing/run.sh` first, for example
+`/var/lib/opendeploy-run-logs/0/v0.0.0/opendeploy/YYYYMMDD_HH.logbin` inside the
+primary container. Use `journalctl` mainly when the service fails before runtime
+logging starts.
+
 Select one or more flow files with a comma-separated list:
 
 ```sh

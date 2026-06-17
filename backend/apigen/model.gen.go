@@ -84,12 +84,14 @@ func DecodeEnrollmentWorkerMsg(b []byte) (*EnrollmentWorkerMsg, error) {
 type EnrollmentHello struct {
 	RequestingMachineID      string
 	WorkerCertificateRequest []byte
+	OpendeployVersion        string
 }
 
 func (m *EnrollmentHello) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.RequestingMachineID, 1)
 	b = AppendBytesField(b, m.WorkerCertificateRequest, 2)
+	b = AppendStringField(b, m.OpendeployVersion, 3)
 	return b
 }
 
@@ -108,6 +110,8 @@ func DecodeEnrollmentHello(b []byte) (*EnrollmentHello, error) {
 			b, m.RequestingMachineID, err = ConsumeString(b, typ)
 		case 2:
 			b, m.WorkerCertificateRequest, err = ConsumeBytesCopy(b, typ)
+		case 3:
+			b, m.OpendeployVersion, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -183,6 +187,7 @@ type EnrollmentRequestStatus struct {
 	RequestingIpAddress string
 	RequestingMachineID string
 	Status              string
+	OpendeployVersion   string
 }
 
 func (m *EnrollmentRequestStatus) Encode() []byte {
@@ -193,6 +198,7 @@ func (m *EnrollmentRequestStatus) Encode() []byte {
 	b = AppendStringField(b, m.RequestingIpAddress, 4)
 	b = AppendStringField(b, m.RequestingMachineID, 5)
 	b = AppendStringField(b, m.Status, 6)
+	b = AppendStringField(b, m.OpendeployVersion, 7)
 	return b
 }
 
@@ -219,6 +225,8 @@ func DecodeEnrollmentRequestStatus(b []byte) (*EnrollmentRequestStatus, error) {
 			b, m.RequestingMachineID, err = ConsumeString(b, typ)
 		case 6:
 			b, m.Status, err = ConsumeString(b, typ)
+		case 7:
+			b, m.OpendeployVersion, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

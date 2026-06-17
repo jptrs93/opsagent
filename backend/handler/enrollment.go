@@ -20,6 +20,7 @@ type enrollmentRequestIPKey struct{}
 type enrollmentSession struct {
 	id                  int32
 	requestingMachineID string
+	opendeployVersion   string
 	csrPEM              []byte
 	accepted            chan *apigen.EnrollmentAccepted
 }
@@ -51,11 +52,13 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 			yield(nil, EnrollmentCSRRequiredErr)
 			return
 		}
+		opendeployVersion := strings.TrimSpace(hello.OpendeployVersion)
 
-		status := h.Store.MustUpsertEnrollmentRequest(enrollmentRequestIP(ctx), requestingMachineID)
+		status := h.Store.MustUpsertEnrollmentRequest(enrollmentRequestIP(ctx), requestingMachineID, opendeployVersion)
 		sess := &enrollmentSession{
 			id:                  status.ID,
 			requestingMachineID: requestingMachineID,
+			opendeployVersion:   opendeployVersion,
 			csrPEM:              hello.WorkerCertificateRequest,
 			accepted:            make(chan *apigen.EnrollmentAccepted, 1),
 		}
@@ -117,6 +120,7 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 	if err != nil {
 		return nil, err
 	}
+	h.Store.EnsureSystemDeployment(workerName, sess.opendeployVersion)
 	accepted := &apigen.EnrollmentAccepted{
 		ID:                req.ID,
 		WorkerName:        workerName,

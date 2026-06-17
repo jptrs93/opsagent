@@ -16,20 +16,21 @@ const (
 	EnrollmentStatusAccepted     = "accepted"
 )
 
-func (s *PrimaryStorage) MustUpsertEnrollmentRequest(requestingIPAddress, requestingMachineID string) *apigen.EnrollmentRequestStatus {
+func (s *PrimaryStorage) MustUpsertEnrollmentRequest(requestingIPAddress, requestingMachineID, opendeployVersion string) *apigen.EnrollmentRequestStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	now := time.Now().UnixMilli()
 	row, err := scanEnrollmentRequest(s.db.QueryRowContext(context.Background(), `
-		INSERT INTO enrollment_requests (created_at, updated_at, requesting_ip_address, requesting_machine_id, status)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO enrollment_requests (created_at, updated_at, requesting_ip_address, requesting_machine_id, opendeploy_version, status)
+		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(requesting_machine_id) DO UPDATE SET
 			updated_at = excluded.updated_at,
 			requesting_ip_address = excluded.requesting_ip_address,
+			opendeploy_version = excluded.opendeploy_version,
 			status = excluded.status
-		RETURNING id, created_at, updated_at, requesting_ip_address, requesting_machine_id, status`,
-		now, now, requestingIPAddress, requestingMachineID, EnrollmentStatusWaiting,
+		RETURNING id, created_at, updated_at, requesting_ip_address, requesting_machine_id, opendeploy_version, status`,
+		now, now, requestingIPAddress, requestingMachineID, opendeployVersion, EnrollmentStatusWaiting,
 	))
 	if err != nil {
 		panic(fmt.Sprintf("upsert enrollment request: %v", err))
@@ -47,7 +48,7 @@ func (s *PrimaryStorage) MustMarkEnrollmentDisconnected(id int32, requestingMach
 		UPDATE enrollment_requests
 		SET updated_at = ?, status = ?
 		WHERE id = ? AND requesting_machine_id = ? AND status = ?
-		RETURNING id, created_at, updated_at, requesting_ip_address, requesting_machine_id, status`,
+		RETURNING id, created_at, updated_at, requesting_ip_address, requesting_machine_id, opendeploy_version, status`,
 		now, EnrollmentStatusDisconnected, int64(id), requestingMachineID, EnrollmentStatusWaiting,
 	))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -79,7 +80,7 @@ func (s *PrimaryStorage) MustFetchEnrollmentSnapshotAndSubscribe() ([]*apigen.En
 
 func (s *PrimaryStorage) listEnrollmentRequestsLocked() ([]*apigen.EnrollmentRequestStatus, error) {
 	rows, err := s.db.QueryContext(context.Background(), `
-		SELECT id, created_at, updated_at, requesting_ip_address, requesting_machine_id, status
+		SELECT id, created_at, updated_at, requesting_ip_address, requesting_machine_id, opendeploy_version, status
 		FROM enrollment_requests
 		ORDER BY updated_at DESC, id DESC`)
 	if err != nil {
@@ -110,7 +111,7 @@ func (s *PrimaryStorage) AcceptEnrollmentRequest(id int32) (*apigen.EnrollmentRe
 		UPDATE enrollment_requests
 		SET updated_at = ?, status = ?
 		WHERE id = ?
-		RETURNING id, created_at, updated_at, requesting_ip_address, requesting_machine_id, status`,
+		RETURNING id, created_at, updated_at, requesting_ip_address, requesting_machine_id, opendeploy_version, status`,
 		now, EnrollmentStatusAccepted, int64(id),
 	))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -140,8 +141,9 @@ func scanEnrollmentRequestScanner(scanner enrollmentRequestScanner) (*apigen.Enr
 	var updatedAt int64
 	var requestingIPAddress string
 	var requestingMachineID string
+	var opendeployVersion string
 	var status string
-	if err := scanner.Scan(&id, &createdAt, &updatedAt, &requestingIPAddress, &requestingMachineID, &status); err != nil {
+	if err := scanner.Scan(&id, &createdAt, &updatedAt, &requestingIPAddress, &requestingMachineID, &opendeployVersion, &status); err != nil {
 		return nil, err
 	}
 	return &apigen.EnrollmentRequestStatus{
@@ -150,6 +152,7 @@ func scanEnrollmentRequestScanner(scanner enrollmentRequestScanner) (*apigen.Enr
 		UpdatedAt:           millisToTime(updatedAt),
 		RequestingIpAddress: requestingIPAddress,
 		RequestingMachineID: requestingMachineID,
+		OpendeployVersion:   opendeployVersion,
 		Status:              status,
 	}, nil
 }
