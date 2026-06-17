@@ -160,7 +160,7 @@ export async function createNixDockerCrasherDeployment(page, {
   ]);
 }
 
-export async function upgradeOpenDeployAgents(page, {version = 'v0.0.135', workerName = 'worker-1'} = {}) {
+export async function upgradeOpenDeployAgents(page, {version = 'v0.0.136', workerName = 'worker-1'} = {}) {
   await upgradeOpenDeployAgent(page, {machine: workerName, version});
   await expectOpenDeployAgentVersion(page, {machine: workerName, version});
   await expectMachineConnected(page, workerName);
@@ -209,10 +209,10 @@ export async function createPostgresClientDeployment(page, {
     expectedEnv: {},
   });
   await expectDeploymentOutput(page, name, [
-    'postgresclient row id=1 name=alpha',
-    'postgresclient row id=2 name=bravo',
-    'postgresclient row id=3 name=charlie',
-    'postgresclient verified rows count=3',
+    'msg="postgresclient row" id=1 name=alpha',
+    'msg="postgresclient row" id=2 name=bravo',
+    'msg="postgresclient row" id=3 name=charlie',
+    'msg="postgresclient verified rows" count=3',
   ]);
 }
 

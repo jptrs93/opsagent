@@ -27,7 +27,7 @@ test('bootstrap primary, enroll worker, and create Nix Docker deployment', async
   await expectOpenDeployLogs(page);
   await acceptFirstWaitingWorker(page);
   await createNixDockerDeployment(page, {expectDefaultDockerImage: true});
-  await expectPrepareOutput(page, 'nixdockerbuild1', 'repo dir:');
+  await expectPrepareOutput(page, 'nixdockerbuild1', 'checking out repo');
 
   await createConfig(page, {
     name: 'e2e.config.message',
@@ -73,7 +73,7 @@ test('bootstrap primary, enroll worker, and create Nix Docker deployment', async
     name: 'postgrespass',
     value: 'postgrespass',
   });
-  await upgradeOpenDeployAgents(page, {version: 'v0.0.135'});
+  await upgradeOpenDeployAgents(page, {version: 'v0.0.136'});
   await createPostgresDeployment(page);
   await createPostgresClientDeployment(page);
 });
