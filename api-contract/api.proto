@@ -351,6 +351,7 @@ message DynamicConfiguration {
   string backup_s3_path = 11;
   string backup_s3_region = 12;
   string backup_s3_endpoint = 13;
+  bool backup_enabled = 14;
 }
 
 message ConfigUpdateRequest {

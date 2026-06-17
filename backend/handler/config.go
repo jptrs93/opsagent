@@ -24,6 +24,13 @@ func (h *Handler) PostV1ConfigUpdate(ctx apigen.Context, req *apigen.ConfigUpdat
 	if err != nil {
 		return nil, apigen.NewApiErr(err.Error(), "config_invalid_update", http.StatusBadRequest)
 	}
+	for _, update := range updates {
+		if config.IsSecretConfigKey(update.Key) && strings.TrimSpace(update.Value) != "" {
+			if ok, _ := h.Secrets.HasSecret(strings.TrimSpace(update.Value)); !ok {
+				return nil, SecretNotFoundErr
+			}
+		}
+	}
 	if err := h.ConfigService.UpdateValues(updates); err != nil {
 		if errors.Is(err, secrets.ErrLocked) {
 			return nil, SecretsLockedErr
@@ -78,11 +85,16 @@ func validateConfigUpdate(key, value string) (config.Update, error) {
 	case "ACME_EMAIL":
 		return config.Update{Key: config.AcmeEmail, Value: strings.TrimSpace(value)}, nil
 	case "GITHUB_TOKEN":
-		return config.Update{Key: config.GithubToken, Value: value}, nil
+		return config.Update{Key: config.GithubToken, Value: strings.TrimSpace(value)}, nil
+	case "BACKUP_ENABLED":
+		if _, err := strconv.ParseBool(strings.TrimSpace(value)); err != nil {
+			return config.Update{}, fmt.Errorf("BACKUP_ENABLED must be true or false")
+		}
+		return config.Update{Key: config.BackupEnabled, Value: strings.TrimSpace(value)}, nil
 	case "BACKUP_S3_ACCESS_KEY_ID":
 		return config.Update{Key: config.BackupS3AccessKeyID, Value: strings.TrimSpace(value)}, nil
 	case "BACKUP_S3_SECRET_ACCESS_KEY":
-		return config.Update{Key: config.BackupS3SecretAccessKey, Value: value}, nil
+		return config.Update{Key: config.BackupS3SecretAccessKey, Value: strings.TrimSpace(value)}, nil
 	case "BACKUP_S3_BUCKET":
 		return config.Update{Key: config.BackupS3Bucket, Value: strings.TrimSpace(value)}, nil
 	case "BACKUP_S3_PATH":
@@ -128,6 +140,7 @@ func dynamicConfigToProto(cfg ainit.DynamicConfiguration) *apigen.DynamicConfigu
 		AcmeHosts:               cfg.AcmeHosts,
 		AcmeEmail:               cfg.AcmeEmail,
 		GithubToken:             secretValueToProto(cfg.GithubToken),
+		BackupEnabled:           cfg.BackupEnabled,
 		BackupS3AccessKeyID:     cfg.BackupS3AccessKeyID,
 		BackupS3SecretAccessKey: secretValueToProto(cfg.BackupS3SecretAccessKey),
 		BackupS3Bucket:          cfg.BackupS3Bucket,

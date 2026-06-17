@@ -778,6 +778,7 @@ type DynamicConfiguration struct {
 	BackupS3Path            string
 	BackupS3Region          string
 	BackupS3Endpoint        string
+	BackupEnabled           bool
 }
 
 func (m *DynamicConfiguration) Encode() []byte {
@@ -801,6 +802,7 @@ func (m *DynamicConfiguration) Encode() []byte {
 	b = AppendStringField(b, m.BackupS3Path, 11)
 	b = AppendStringField(b, m.BackupS3Region, 12)
 	b = AppendStringField(b, m.BackupS3Endpoint, 13)
+	b = AppendBoolField(b, m.BackupEnabled, 14)
 	return b
 }
 
@@ -860,6 +862,8 @@ func DecodeDynamicConfiguration(b []byte) (*DynamicConfiguration, error) {
 			b, m.BackupS3Region, err = ConsumeString(b, typ)
 		case 13:
 			b, m.BackupS3Endpoint, err = ConsumeString(b, typ)
+		case 14:
+			b, m.BackupEnabled, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

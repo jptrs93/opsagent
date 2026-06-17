@@ -64,11 +64,7 @@ func MustRestoreAndStartReplicationIfEnabled(configService *config.Service) {
 }
 
 func configured(cfg ainit.DynamicConfiguration) bool {
-	return cfg.BackupS3AccessKeyID != "" ||
-		cfg.BackupS3SecretAccessKey != nil && cfg.BackupS3SecretAccessKey.Key() != "" ||
-		cfg.BackupS3Bucket != "" ||
-		cfg.BackupS3Endpoint != "" ||
-		cfg.BackupS3Path != "" && cfg.BackupS3Path != "opendeploy/primary"
+	return cfg.BackupEnabled
 }
 
 func validateConfig(cfg ainit.DynamicConfiguration) error {

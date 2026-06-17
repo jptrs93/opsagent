@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jptrs93/opsagent/backend/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
@@ -29,5 +30,70 @@ func TestMasterPasswordHashRoundTrip(t *testing.T) {
 	}
 	if hash != "hash-1" {
 		t.Fatalf("expected persisted hash-1, got %q", hash)
+	}
+}
+
+func TestSecretConfigReferencesExistingSecret(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "primary.db")
+	store := sqlite.NewPrimaryStorage(dbPath)
+	secretMgr, err := secrets.Open(dir, store)
+	if err != nil {
+		t.Fatalf("secrets.Open: %v", err)
+	}
+	if _, err := secretMgr.Set("opendeploy.config.github_token", "config", []byte("ghp_test"), 0); err != nil {
+		t.Fatalf("Set secret: %v", err)
+	}
+	service := &Service{Storage: store, Secrets: secretMgr}
+
+	if err := service.UpdateValue(GithubToken, "opendeploy.config.github_token"); err != nil {
+		t.Fatalf("UpdateValue: %v", err)
+	}
+
+	cfg := service.Snapshot()
+	if cfg.GithubToken.Key() != "opendeploy.config.github_token" {
+		t.Fatalf("GithubToken key = %q", cfg.GithubToken.Key())
+	}
+	value, err := cfg.GithubToken.Reveal()
+	if err != nil || value != "ghp_test" {
+		t.Fatalf("GithubToken reveal = %q, %v", value, err)
+	}
+}
+
+func TestSecretConfigFallsBackToLegacyFixedSecret(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "primary.db")
+	store := sqlite.NewPrimaryStorage(dbPath)
+	secretMgr, err := secrets.Open(dir, store)
+	if err != nil {
+		t.Fatalf("secrets.Open: %v", err)
+	}
+	if _, err := secretMgr.Set("config.github_token", "config", []byte("legacy"), 0); err != nil {
+		t.Fatalf("Set legacy secret: %v", err)
+	}
+	service := &Service{Storage: store, Secrets: secretMgr}
+
+	cfg := service.Snapshot()
+	if cfg.GithubToken.Key() != "config.github_token" {
+		t.Fatalf("GithubToken key = %q", cfg.GithubToken.Key())
+	}
+	value, err := cfg.GithubToken.Reveal()
+	if err != nil || value != "legacy" {
+		t.Fatalf("GithubToken reveal = %q, %v", value, err)
+	}
+}
+
+func TestBackupEnabledDefaultsFalseAndCanBeEnabled(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "primary.db")
+	service := &Service{Storage: sqlite.NewPrimaryStorage(dbPath)}
+
+	if service.Snapshot().BackupEnabled {
+		t.Fatal("BackupEnabled default = true, want false")
+	}
+	if err := service.UpdateValue(BackupEnabled, "true"); err != nil {
+		t.Fatalf("UpdateValue BackupEnabled: %v", err)
+	}
+	if !service.Snapshot().BackupEnabled {
+		t.Fatal("BackupEnabled after update = false, want true")
 	}
 }

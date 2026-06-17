@@ -163,6 +163,9 @@ func TestSystemSecretsAreSeparateFromUserSecrets(t *testing.T) {
 	if _, err := mgr.Set("opendeploy.cluster.ca.key", "", []byte("user"), 0); err != ErrReservedName {
 		t.Fatalf("Set reserved name err = %v; want ErrReservedName", err)
 	}
+	if _, err := mgr.Set("opendeploy.config.github_token", "config", []byte("user"), 0); err != nil {
+		t.Fatalf("Set opendeploy config secret err = %v; want nil", err)
+	}
 }
 
 func TestRevealInternalLoadsFromStoreAfterReopen(t *testing.T) {

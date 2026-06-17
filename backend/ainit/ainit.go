@@ -105,6 +105,7 @@ type DynamicConfiguration struct {
 
 	GithubToken secretu.SecretValue
 
+	BackupEnabled           bool
 	BackupS3AccessKeyID     string
 	BackupS3SecretAccessKey secretu.SecretValue
 	BackupS3Bucket          string

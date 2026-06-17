@@ -103,6 +103,7 @@
  * @property {string} backupS3Path
  * @property {string} backupS3Region
  * @property {string} backupS3Endpoint
+ * @property {boolean} backupEnabled
  */
 /**
  * @typedef {Object} ConfigUpdateRequest
@@ -1768,6 +1769,9 @@ export function writeDynamicConfiguration(message, writer) {
     if (message.backupS3Endpoint !== undefined && message.backupS3Endpoint !== null && message.backupS3Endpoint !== "") {
         writer.uint32(tag(13, WIRE.LDELIM)).string(message.backupS3Endpoint);
     }
+    if (message.backupEnabled === true) {
+        writer.uint32(tag(14, WIRE.VARINT)).bool(message.backupEnabled);
+    }
 }
 
 
@@ -1789,7 +1793,7 @@ export function encodeDynamicConfiguration(message) {
  */
 function decodeDynamicConfigurationMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {webListen: "", webHttpOnly: false, clusterListen: "", enrollmentListen: "", acmeHosts: [], acmeEmail: "", githubToken: undefined, backupS3AccessKeyId: "", backupS3SecretAccessKey: undefined, backupS3Bucket: "", backupS3Path: "", backupS3Region: "", backupS3Endpoint: "" };
+    const message = {webListen: "", webHttpOnly: false, clusterListen: "", enrollmentListen: "", acmeHosts: [], acmeEmail: "", githubToken: undefined, backupS3AccessKeyId: "", backupS3SecretAccessKey: undefined, backupS3Bucket: "", backupS3Path: "", backupS3Region: "", backupS3Endpoint: "", backupEnabled: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1843,6 +1847,10 @@ function decodeDynamicConfigurationMessage(reader, length) {
             }
             case 13: {
                 message.backupS3Endpoint = reader.string();
+                break;
+            }
+            case 14: {
+                message.backupEnabled = reader.bool();
                 break;
             }
             default:

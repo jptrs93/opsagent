@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 
-const { div, h2, p, pre, span, table, tbody, tr, td, button, code, input, label: labelEl } = van.tags;
+const { div, h2, p, pre, span, table, tbody, tr, td, button, code, input, select, option, label: labelEl } = van.tags;
 const { svg, path, circle, line } = van.tags("http://www.w3.org/2000/svg");
 
 const boolValue = (value) => value ? "true" : "false";
@@ -15,9 +15,10 @@ const settings = [
     {label: "Web UI email", key: "ACME_EMAIL", type: "text", value: (cfg) => cfg.acmeEmail},
     {label: "Cluster listen", key: "CLUSTER_LISTEN", type: "text", value: (cfg) => cfg.clusterListen},
     {label: "Cluster enrollment listen", key: "ENROLLMENT_LISTEN", type: "text", value: (cfg) => cfg.enrollmentListen},
-    {label: "GitHub token", key: "GITHUB_TOKEN", type: "secret", secret: (cfg) => cfg.githubToken},
+    {label: "GitHub token", key: "GITHUB_TOKEN", type: "secret", secret: (cfg) => cfg.githubToken, defaultSecretName: "opendeploy.config.github_token"},
+    {label: "Backup enabled", key: "BACKUP_ENABLED", type: "bool", value: (cfg) => boolValue(cfg.backupEnabled)},
     {label: "Backup S3 access key ID", key: "BACKUP_S3_ACCESS_KEY_ID", type: "text", value: (cfg) => cfg.backupS3AccessKeyId},
-    {label: "Backup S3 secret access key", key: "BACKUP_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.backupS3SecretAccessKey},
+    {label: "Backup S3 secret access key", key: "BACKUP_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.backupS3SecretAccessKey, defaultSecretName: "opendeploy.config.backup_s3_secret_access_key"},
     {label: "Backup S3 bucket", key: "BACKUP_S3_BUCKET", type: "text", value: (cfg) => cfg.backupS3Bucket},
     {label: "Backup S3 path", key: "BACKUP_S3_PATH", type: "text", value: (cfg) => cfg.backupS3Path},
     {label: "Backup S3 region", key: "BACKUP_S3_REGION", type: "text", value: (cfg) => cfg.backupS3Region},
@@ -26,13 +27,13 @@ const settings = [
 
 const draftValue = (setting, cfg) => {
     if (setting.type === "secret") {
+        const secret = setting.secret(cfg);
         return {
-            value: "",
-            secret: setting.secret(cfg),
+            value: secret?.key || "",
+            original: secret?.key || "",
             cleared: false,
             revealed: false,
             revealedValue: "",
-            draftRevealed: false,
         };
     }
     const original = setting.value(cfg) || "";
@@ -42,7 +43,7 @@ const draftValue = (setting, cfg) => {
 const configDraft = (cfg) => Object.fromEntries(settings.map((setting) => [setting.key, draftValue(setting, cfg)]));
 
 const isDirty = (setting, item) => setting.type === "secret"
-    ? item.value !== "" || item.cleared
+    ? item.value !== item.original
     : item.value !== item.original;
 
 const dirtySettingsFor = (draft) => settings
@@ -79,7 +80,7 @@ const copyIcon = () => svg(iconBase,
     path({d: "M4 16c-.55 0-1-.45-1-1V4c0-.55.45-1 1-1h11c.55 0 1 .45 1 1"}),
 );
 
-function valueInput(setting, draft, error, patchDraft, saving) {
+function valueInput(setting, draft, error, patchDraft, saving, secrets, openCreateSecret) {
     const item = () => draft.val?.[setting.key];
     const patch = (next) => patchDraft(setting.key, next);
 
@@ -105,23 +106,41 @@ function valueInput(setting, draft, error, patchDraft, saving) {
     if (setting.type === "secret") {
         const revealSecret = async () => {
             const current = item();
-            if (!current?.secret?.key) return;
+            if (!current?.value) return;
             if (current.revealed) { patch({revealed: false, revealedValue: ""}); return; }
             try {
                 error.val = null;
-                const res = await capi.postV1SecretValueReveal({key: current.secret.key});
+                const res = await capi.postV1SecretValueReveal({key: current.value});
                 patch({revealed: true, revealedValue: new TextDecoder().decode(res.value)});
             } catch (e) {
                 error.val = e.message;
             }
         };
+        const options = () => {
+            const current = item()?.value || "";
+            const list = secrets.val || [];
+            if (!current || list.some(s => s.name === current)) return list;
+            return [{name: current}, ...list];
+        };
 
         return div(
             {class: "flex items-center gap-2"},
-            () => item()?.secret?.key
-                ? code({class: "text-xs text-blue-300 bg-gray-900 px-2 py-1 rounded whitespace-nowrap"}, item().secret.key)
-                : "",
-            () => item()?.secret?.key ? button({
+            () => select({
+                class: inputClass,
+                disabled: () => saving.val,
+                value: () => item()?.value || "",
+                onchange: (e) => patch({value: e.target.value, revealed: false, revealedValue: ""}),
+            },
+                option({value: "", selected: () => !item()?.value}, "No secret selected"),
+                ...options().map(s => option({value: s.name, selected: s.name === item()?.value}, s.name)),
+            ),
+            button({
+                type: "button",
+                disabled: () => saving.val,
+                class: "text-xs px-3 py-1 rounded-md font-medium text-gray-200 bg-gray-700 hover:bg-gray-600 cursor-pointer whitespace-nowrap",
+                onclick: () => openCreateSecret(setting),
+            }, "Create secret"),
+            () => item()?.value ? button({
                 type: "button",
                 title: () => item().revealed ? "Hide saved secret" : "Reveal saved secret",
                 "aria-label": () => item().revealed ? "Hide saved secret" : "Reveal saved secret",
@@ -129,34 +148,12 @@ function valueInput(setting, draft, error, patchDraft, saving) {
                 class: "p-1.5 rounded text-gray-300 bg-gray-700 hover:bg-gray-600 cursor-pointer",
                 onclick: revealSecret,
             }, () => item().revealed ? eyeOffIcon() : eyeIcon()) : "",
-            () => item()?.secret?.key ? button({
+            () => item()?.value ? button({
                 type: "button",
                 disabled: () => saving.val,
                 class: "text-xs px-3 py-1 rounded-md font-medium text-gray-200 bg-gray-700 hover:bg-gray-600 cursor-pointer whitespace-nowrap",
-                onclick: () => patch({value: "", cleared: true}),
+                onclick: () => patch({value: "", revealed: false, revealedValue: ""}),
             }, "Clear") : "",
-            div({class: "relative flex-1 min-w-64"},
-                input({
-                    class: `${inputClass} pr-10 font-mono`,
-                    type: () => item()?.draftRevealed ? "text" : "password",
-                    disabled: () => saving.val,
-                    placeholder: () => item()?.secret?.key ? "new value leaves existing secret unchanged" : "new value",
-                    value: () => item()?.value || "",
-                    oninput: (e) => patch({value: e.target.value, cleared: false, draftRevealed: item()?.draftRevealed && e.target.value !== ""}),
-                }),
-                button({
-                    type: "button",
-                    title: () => item()?.draftRevealed ? "Hide unsaved secret" : "Reveal unsaved secret",
-                    "aria-label": () => item()?.draftRevealed ? "Hide unsaved secret" : "Reveal unsaved secret",
-                    disabled: () => saving.val || !item()?.value,
-                    class: () => `absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded text-gray-300 ` +
-                        `hover:bg-gray-700 cursor-pointer ${item()?.value ? "" : "invisible"}`,
-                    onclick: () => patch({draftRevealed: !item()?.draftRevealed}),
-                }, () => item()?.draftRevealed ? eyeOffIcon() : eyeIcon()),
-            ),
-            () => item()?.cleared
-                ? span({class: "text-xs text-amber-300 whitespace-nowrap"}, "will be cleared")
-                : "",
             () => item()?.revealed ? code({
                 class: "text-xs text-amber-200 bg-amber-950/40 px-2 py-1 rounded truncate max-w-64",
                 title: item().revealedValue,
@@ -178,6 +175,7 @@ export function settingsPage() {
     const loaded = van.state(false);
     const error = van.state(null);
     const saving = van.state(false);
+    const secrets = van.state([]);
     const recoveryStatus = van.state(null);
     const recoveryCode = van.state("");
     const masterPasswordVerifyValue = van.state("");
@@ -188,6 +186,11 @@ export function settingsPage() {
     const newMasterPassword = van.state("");
     const newMasterPasswordRevealed = van.state(false);
     const newMasterPasswordCopied = van.state(false);
+    const createSecretOverlay = van.state(false);
+    const createSecretSettingKey = van.state("");
+    const createSecretName = van.state("");
+    const createSecretValue = van.state("");
+    const createSecretRevealed = van.state(false);
 
     const setDraft = (next) => {
         draft.val = next;
@@ -209,6 +212,7 @@ export function settingsPage() {
             ]);
             config.val = cfg;
             recoveryStatus.val = secretsStatus;
+            secrets.val = secretsStatus.unlocked ? (await capi.postV1SecretsList({})).items || [] : [];
             setDraft(configDraft(config.val));
             loaded.val = true;
         } catch (e) {
@@ -222,6 +226,44 @@ export function settingsPage() {
     const resetChanges = () => {
         if (!config.val) return;
         setDraft(configDraft(config.val));
+    };
+
+    const reloadSecrets = async () => {
+        recoveryStatus.val = await capi.postV1SecretsStatus({});
+        secrets.val = recoveryStatus.val.unlocked ? (await capi.postV1SecretsList({})).items || [] : [];
+    };
+
+    const openCreateSecret = (setting) => {
+        createSecretSettingKey.val = setting.key;
+        createSecretName.val = setting.defaultSecretName || "";
+        createSecretValue.val = "";
+        createSecretRevealed.val = false;
+        createSecretOverlay.val = true;
+    };
+
+    const closeCreateSecret = () => {
+        createSecretOverlay.val = false;
+        createSecretSettingKey.val = "";
+        createSecretName.val = "";
+        createSecretValue.val = "";
+        createSecretRevealed.val = false;
+    };
+
+    const saveCreatedSecret = async () => {
+        try {
+            error.val = null;
+            const name = createSecretName.val.trim();
+            await capi.postV1SecretsSet({
+                name,
+                group: "config",
+                value: new TextEncoder().encode(createSecretValue.val),
+            });
+            await reloadSecrets();
+            patchDraft(createSecretSettingKey.val, {value: name, revealed: false, revealedValue: ""});
+            closeCreateSecret();
+        } catch (e) {
+            error.val = e.message;
+        }
     };
 
     const saveChanges = async () => {
@@ -425,6 +467,59 @@ export function settingsPage() {
         ),
     ) : "";
 
+    const createSecretDialog = () => createSecretOverlay.val ? div(
+        {class: "fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6"},
+        div({class: "card w-full max-w-xl flex flex-col gap-3 border-gray-600"},
+            div({class: "flex items-center justify-between gap-4"},
+                h2({class: "text-base font-semibold"}, "Create secret"),
+                button({
+                    type: "button",
+                    class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer",
+                    onclick: closeCreateSecret,
+                }, "Close"),
+            ),
+            p({class: "text-xs text-gray-400"}, "Create a secret, then reference it from this setting."),
+            labelEl({class: "flex flex-col gap-1 text-xs text-gray-400"},
+                span("Secret name"),
+                input({
+                    class: `${inputClass} font-mono`,
+                    value: createSecretName,
+                    oninput: (e) => { createSecretName.val = e.target.value; },
+                }),
+            ),
+            labelEl({class: "flex flex-col gap-1 text-xs text-gray-400"},
+                span("Secret value"),
+                div({class: "relative"},
+                    input({
+                        class: `${inputClass} pr-10 font-mono`,
+                        type: () => createSecretRevealed.val ? "text" : "password",
+                        value: createSecretValue,
+                        oninput: (e) => { createSecretValue.val = e.target.value; },
+                    }),
+                    button({
+                        type: "button",
+                        title: () => createSecretRevealed.val ? "Hide secret" : "Reveal secret",
+                        "aria-label": () => createSecretRevealed.val ? "Hide secret" : "Reveal secret",
+                        disabled: () => !createSecretValue.val,
+                        class: () => `absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded text-gray-300 ` +
+                            `hover:bg-gray-700 cursor-pointer ${createSecretValue.val ? "" : "invisible"}`,
+                        onclick: () => { createSecretRevealed.val = !createSecretRevealed.val; },
+                    }, () => createSecretRevealed.val ? eyeOffIcon() : eyeIcon()),
+                ),
+            ),
+            div({class: "flex items-center justify-end gap-2"},
+                button({
+                    type: "button",
+                    class: `${compactButtonClass} bg-gray-700 text-gray-200 hover:bg-gray-600 cursor-pointer`,
+                    onclick: closeCreateSecret,
+                }, "Cancel"),
+                spinnerButton("Create secret", saveCreatedSecret,
+                    `${compactButtonClass} bg-brand text-white hover:bg-blue-600 whitespace-nowrap`,
+                    "button", () => !createSecretName.val.trim() || !createSecretValue.val),
+            ),
+        ),
+    ) : "";
+
     const recoveryCard = () => {
         if (!recoveryStatus.val) {
             return div({class: "card w-full flex flex-col gap-2"},
@@ -478,7 +573,7 @@ export function settingsPage() {
         td({class: "py-2 pr-3 whitespace-nowrap align-middle"},
             span({class: "text-gray-200"}, setting.label),
         ),
-        td({class: "py-2 text-white"}, valueInput(setting, draft, error, patchDraft, saving)),
+        td({class: "py-2 text-white"}, valueInput(setting, draft, error, patchDraft, saving, secrets, openCreateSecret)),
         td({class: "py-2 pl-4 text-right w-20 whitespace-nowrap align-middle"},
             () => {
                 const item = draft.val?.[setting.key];
@@ -522,5 +617,6 @@ export function settingsPage() {
         recoveryCard,
         masterPasswordVerifyDialog,
         masterPasswordUpdateOverlay,
+        createSecretDialog,
     );
 }

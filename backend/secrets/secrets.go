@@ -555,7 +555,8 @@ func secretAAD(class, name string) []byte {
 }
 
 func isReservedInternalName(name string) bool {
-	return strings.HasPrefix(strings.TrimSpace(name), "opendeploy.")
+	name = strings.TrimSpace(name)
+	return strings.HasPrefix(name, "opendeploy.") && !strings.HasPrefix(name, "opendeploy.config.")
 }
 
 // fileMachineKey is the default machineKeyProvider: it stores the machine KEK

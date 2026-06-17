@@ -25,6 +25,7 @@ const (
 	AcmeEmail               ConfigKey = "ACME_EMAIL"
 	MasterPasswordHash      ConfigKey = "MASTER_PASSWORD_HASH"
 	GithubToken             ConfigKey = "GITHUB_TOKEN"
+	BackupEnabled           ConfigKey = "BACKUP_ENABLED"
 	BackupS3AccessKeyID     ConfigKey = "BACKUP_S3_ACCESS_KEY_ID"
 	BackupS3SecretAccessKey ConfigKey = "BACKUP_S3_SECRET_ACCESS_KEY"
 	BackupS3Bucket          ConfigKey = "BACKUP_S3_BUCKET"
@@ -47,9 +48,10 @@ type Update struct {
 }
 
 const (
-	configSecretGroup                 = "config"
-	githubTokenSecretName             = "config.github_token"
-	backupS3SecretAccessKeySecretName = "config.backup_s3_secret_access_key"
+	githubTokenSecretName             = "opendeploy.config.github_token"
+	backupS3SecretAccessKeySecretName = "opendeploy.config.backup_s3_secret_access_key"
+	legacyGithubTokenSecretName       = "config.github_token"
+	legacyBackupS3SecretAccessKeyName = "config.backup_s3_secret_access_key"
 )
 
 func (s *Service) SnapshotAndSubscribe() *pubsubu.Sub[ainit.DynamicConfiguration] {
@@ -92,14 +94,6 @@ func (s *Service) SetMasterPasswordHash(hash string) error {
 
 func (s *Service) UpdateValues(updates []Update) error {
 	for _, update := range updates {
-		if isSecretConfigKey(update.Key) && update.Value != "" {
-			unlocked, _ := s.Secrets.Status()
-			if !unlocked {
-				return secrets.ErrLocked
-			}
-		}
-	}
-	for _, update := range updates {
 		if err := s.updateValueWithoutNotify(update.Key, update.Value); err != nil {
 			return err
 		}
@@ -109,19 +103,13 @@ func (s *Service) UpdateValues(updates []Update) error {
 }
 
 func (s *Service) updateValueWithoutNotify(key ConfigKey, value string) error {
-	switch key {
-	case GithubToken:
-		return s.updateConfigSecretValue(githubTokenSecretName, value)
-	case BackupS3SecretAccessKey:
-		return s.updateConfigSecretValue(backupS3SecretAccessKeySecretName, value)
-	}
 	if err := s.Storage.SetConfigValue(string(key), value); err != nil {
 		return fmt.Errorf("SetConfigValue %s: %w", key, err)
 	}
 	return nil
 }
 
-func isSecretConfigKey(key ConfigKey) bool {
+func IsSecretConfigKey(key ConfigKey) bool {
 	return key == GithubToken || key == BackupS3SecretAccessKey
 }
 
@@ -143,6 +131,7 @@ func (s *Service) snapshot() ainit.DynamicConfiguration {
 		AcmeHosts:               parseStringList(ptru.NonNil(s.mustLoadValue(AcmeHosts), strings.Join(static.InitialAcmeHosts, ","))),
 		AcmeEmail:               ptru.NonNil(s.mustLoadValue(AcmeEmail), static.InitialAcmeEmail),
 		GithubToken:             s.loadGithubToken(),
+		BackupEnabled:           parseBool(ptru.NonNil(s.mustLoadValue(BackupEnabled), "false"), BackupEnabled),
 		BackupS3AccessKeyID:     ptru.SafeDref(s.mustLoadValue(BackupS3AccessKeyID)),
 		BackupS3SecretAccessKey: s.loadBackupS3SecretAccessKey(),
 		BackupS3Bucket:          ptru.SafeDref(s.mustLoadValue(BackupS3Bucket)),
@@ -163,33 +152,26 @@ func (s *Service) mustLoadValue(key ConfigKey) *string {
 	return &value
 }
 
-func (s *Service) updateConfigSecretValue(secretName, value string) error {
-	if value == "" {
-		if err := s.Secrets.Delete(secretName); err != nil {
-			return fmt.Errorf("DeleteSecret %s: %w", secretName, err)
-		}
-		return nil
-	}
-	if _, err := s.Secrets.Set(secretName, configSecretGroup, []byte(value), 0); err != nil {
-		return fmt.Errorf("SetSecret %s: %w", secretName, err)
-	}
-	return nil
-}
-
 func (s *Service) loadGithubToken() secretu.SecretValue {
-	if ok, t := s.Secrets.HasSecret(githubTokenSecretName); !ok {
-		return secretu.PlainSecretValue{}
-	} else {
-		return secretu.StoredSecretValue{K: githubTokenSecretName, Revealer: s.Secrets, UpdatedAt: t}
-	}
+	return s.loadConfigSecretRef(GithubToken, legacyGithubTokenSecretName)
 }
 
 func (s *Service) loadBackupS3SecretAccessKey() secretu.SecretValue {
-	if ok, t := s.Secrets.HasSecret(backupS3SecretAccessKeySecretName); !ok {
+	return s.loadConfigSecretRef(BackupS3SecretAccessKey, legacyBackupS3SecretAccessKeyName)
+}
+
+func (s *Service) loadConfigSecretRef(key ConfigKey, legacySecretName string) secretu.SecretValue {
+	if s.Secrets == nil {
 		return secretu.PlainSecretValue{}
-	} else {
-		return secretu.StoredSecretValue{K: backupS3SecretAccessKeySecretName, Revealer: s.Secrets, UpdatedAt: t}
 	}
+	if ref := strings.TrimSpace(ptru.SafeDref(s.mustLoadValue(key))); ref != "" {
+		_, t := s.Secrets.HasSecret(ref)
+		return secretu.StoredSecretValue{K: ref, Revealer: s.Secrets, UpdatedAt: t}
+	}
+	if ok, t := s.Secrets.HasSecret(legacySecretName); ok {
+		return secretu.StoredSecretValue{K: legacySecretName, Revealer: s.Secrets, UpdatedAt: t}
+	}
+	return secretu.PlainSecretValue{}
 }
 
 func parseBool(value string, key ConfigKey) bool {
