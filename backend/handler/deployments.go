@@ -14,7 +14,9 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine/logreader"
+	"github.com/jptrs93/opsagent/backend/engine/preparer"
 	"github.com/jptrs93/opsagent/backend/engine/versionprovider"
+	"github.com/jptrs93/opsagent/backend/secrets"
 )
 
 var InvalidRequestBodyErr = apigen.NewApiErr("Invalid request body", "invalid_request_body", http.StatusBadRequest)
@@ -726,11 +728,23 @@ type deploymentAssetResolver interface {
 	GetAsset(key string, version int32) (*apigen.Asset, bool)
 }
 
+type deploymentSecretLister interface {
+	List() []secrets.Meta
+}
+
+type deploymentConfigResolver interface {
+	ResolveConfig(name string) (string, bool)
+}
+
 func (h *Handler) validateDeploymentSpec(spec *apigen.DeploymentSpec) (*apigen.DeploymentSpec, error) {
-	return validateDeploymentSpecWithAssets(spec, h.Store)
+	return validateDeploymentSpecWithResolvers(spec, h.Store, h.Secrets, h.Store)
 }
 
 func validateDeploymentSpecWithAssets(spec *apigen.DeploymentSpec, assets deploymentAssetResolver) (*apigen.DeploymentSpec, error) {
+	return validateDeploymentSpecWithResolvers(spec, assets, nil, nil)
+}
+
+func validateDeploymentSpecWithResolvers(spec *apigen.DeploymentSpec, assets deploymentAssetResolver, secretStore deploymentSecretLister, configs deploymentConfigResolver) (*apigen.DeploymentSpec, error) {
 	if spec == nil {
 		return nil, invalidConfigErrf("prepare is required")
 	}
@@ -744,7 +758,40 @@ func validateDeploymentSpecWithAssets(spec *apigen.DeploymentSpec, assets deploy
 	if err := validateContainerPairing(&out.Prepare, &out.Runner); err != nil {
 		return nil, err
 	}
+	if err := validateRuntimeEnvRefs(&out, secretStore, configs); err != nil {
+		return nil, err
+	}
 	return &out, nil
+}
+
+func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec, secretStore deploymentSecretLister, configs deploymentConfigResolver) error {
+	if spec == nil || spec.Runner.Container.IsZero() || len(spec.Runner.Container.Env) == 0 {
+		return nil
+	}
+	cfg := &apigen.DeploymentConfig{Spec: *spec}
+	knownSecrets := map[string]bool{}
+	if secretStore != nil {
+		for _, meta := range secretStore.List() {
+			knownSecrets[meta.Name] = true
+		}
+	}
+	for _, key := range preparer.SecretRefs(cfg) {
+		if secretStore == nil {
+			return invalidConfigErrf("runner.container.env: secrets cannot be resolved here")
+		}
+		if !knownSecrets[key] {
+			return invalidConfigErrf("runner.container.env: unknown secret ${s:%s}", key)
+		}
+	}
+	for _, key := range preparer.ConfigRefs(cfg) {
+		if configs == nil {
+			return invalidConfigErrf("runner.container.env: configs cannot be resolved here")
+		}
+		if _, ok := configs.ResolveConfig(key); !ok {
+			return invalidConfigErrf("runner.container.env: unknown config ${c:%s}", key)
+		}
+	}
+	return nil
 }
 
 func validatePrepareConfig(prepare *apigen.PrepareConfig) error {

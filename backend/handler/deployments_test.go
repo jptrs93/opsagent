@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	secretspkg "github.com/jptrs93/opsagent/backend/secrets"
 )
 
 func TestValidateDeploymentSpecNixDockerBuild(t *testing.T) {
@@ -41,6 +43,23 @@ func (r fakeAssetResolver) GetAsset(key string, version int32) (*apigen.Asset, b
 		return nil, false
 	}
 	return asset, true
+}
+
+type fakeSecretResolver map[string]string
+
+func (r fakeSecretResolver) List() []secretspkg.Meta {
+	out := make([]secretspkg.Meta, 0, len(r))
+	for name := range r {
+		out = append(out, secretspkg.Meta{Name: name})
+	}
+	return out
+}
+
+type fakeConfigResolver map[string]string
+
+func (r fakeConfigResolver) ResolveConfig(name string) (string, bool) {
+	v, ok := r[name]
+	return v, ok
 }
 
 func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
@@ -92,5 +111,70 @@ func TestValidateDeploymentSpecRejectsSystemdRunner(t *testing.T) {
 	}, nil)
 	if err == nil {
 		t.Fatal("expected validateDeploymentSpecWithAssets to reject systemd runner")
+	}
+}
+
+func TestValidateDeploymentSpecAcceptsKnownEnvRefs(t *testing.T) {
+	_, err := validateDeploymentSpecWithResolvers(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: apigen.ContainerImageConfig{Image: "postgres:16"},
+		},
+		Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{Env: []*apigen.EnvVar{
+				{Key: "PGUSER", Value: "${s:postgres.user}"},
+				{Key: "PGDATABASE", Value: "${c:postgres.db}"},
+			}},
+		},
+	}, nil, fakeSecretResolver{"postgres.user": "postgres"}, fakeConfigResolver{"postgres.db": "postgres"})
+	if err != nil {
+		t.Fatalf("validateDeploymentSpecWithResolvers failed: %v", err)
+	}
+}
+
+func TestValidateDeploymentSpecRejectsUnknownSecretRef(t *testing.T) {
+	_, err := validateDeploymentSpecWithResolvers(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: apigen.ContainerImageConfig{Image: "postgres:16"},
+		},
+		Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{Env: []*apigen.EnvVar{
+				{Key: "PGPASSWORD", Value: "${s:missing.password}"},
+			}},
+		},
+	}, nil, fakeSecretResolver{}, fakeConfigResolver{})
+	if err == nil || !strings.Contains(err.Error(), "unknown secret ${s:missing.password}") {
+		t.Fatalf("err = %v, want unknown secret", err)
+	}
+}
+
+func TestValidateDeploymentSpecRejectsUnknownConfigRef(t *testing.T) {
+	_, err := validateDeploymentSpecWithResolvers(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: apigen.ContainerImageConfig{Image: "postgres:16"},
+		},
+		Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{Env: []*apigen.EnvVar{
+				{Key: "PGDATABASE", Value: "${c:missing.db}"},
+			}},
+		},
+	}, nil, fakeSecretResolver{}, fakeConfigResolver{})
+	if err == nil || !strings.Contains(err.Error(), "unknown config ${c:missing.db}") {
+		t.Fatalf("err = %v, want unknown config", err)
+	}
+}
+
+func TestValidateDeploymentSpecIgnoresEscapedRefs(t *testing.T) {
+	_, err := validateDeploymentSpecWithResolvers(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: apigen.ContainerImageConfig{Image: "postgres:16"},
+		},
+		Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{Env: []*apigen.EnvVar{
+				{Key: "LITERAL", Value: "$${s:not.real} and $${c:not.real}"},
+			}},
+		},
+	}, nil, fakeSecretResolver{}, fakeConfigResolver{})
+	if err != nil {
+		t.Fatalf("validateDeploymentSpecWithResolvers failed: %v", err)
 	}
 }

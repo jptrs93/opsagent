@@ -63,7 +63,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         return [...envs].sort();
     };
 
-    const loadVersions = async (scope) => {
+    const loadVersions = async (scope, opts = {}) => {
         const sourceID = currentSourceID(form);
         if (!internalGithubRelease && !sourceID) {
             versionError.val = form.sourceType.val === 'containerImage' ? 'Image not set' : 'Repository not set';
@@ -104,10 +104,13 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
             return;
         }
         const trusted = hasTrustedSourceValidation(form);
+        const shouldRefreshScopes = opts.refreshScopes ?? (!scope && scopes.val.length === 0);
+        const previousSelectedVersion = selectedVersion.val;
         const req = buildValidateSourceRequest(form, trusted ? {
             scope: scope || selectedScope.val || '',
-            refreshScopes: !scope && scopes.val.length === 0,
+            refreshScopes: shouldRefreshScopes,
             refreshVersions: true,
+            checkFlakePath: Boolean(form.nixFlake.val.trim()),
         } : {scope: scope || ''});
         let result;
         try {
@@ -135,7 +138,9 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                 versions.val = vsList;
                 selectedScope.val = scopeKey;
                 const deployedId = deployment.deployedVersion || '';
-                if (deployedId && vsList.some(v => v.id === deployedId)) {
+                if (opts.preserveSelection && previousSelectedVersion && vsList.some(v => v.id === previousSelectedVersion)) {
+                    selectedVersion.val = previousSelectedVersion;
+                } else if (deployedId && vsList.some(v => v.id === deployedId)) {
                     selectedVersion.val = deployedId;
                 } else if (!vsList.some(v => v.id === selectedVersion.val)) {
                     selectedVersion.val = vsList[0]?.id || '';
@@ -286,7 +291,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                         deployedVersion: deployment.deployedVersion || '',
                         onScopeChange,
                         onVersionChange: (version) => validateSelectedCommit(form, selectedScope.val, version),
-                        onRefresh: () => loadVersions(selectedScope.val),
+                        onRefresh: () => loadVersions(selectedScope.val, {refreshScopes: true, preserveSelection: true}),
                     }) : '',
                 ),
                 () => {

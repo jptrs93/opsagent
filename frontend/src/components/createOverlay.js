@@ -145,7 +145,7 @@ export function createOverlay(onClose, onCreated) {
                         selectedVersionSourceKey,
                         loadingVersions,
                         onScopeChange: (scope) => loadSourceVersions(form, selectedScope, selectedVersion, selectedVersionSourceKey, loadingVersions, scope),
-                        onRefresh: () => loadSourceVersions(form, selectedScope, selectedVersion, selectedVersionSourceKey, loadingVersions, selectedScope.val),
+                        onRefresh: () => loadSourceVersions(form, selectedScope, selectedVersion, selectedVersionSourceKey, loadingVersions, selectedScope.val, {refreshScopes: true}),
                     }),
                 ),
                 () => {
@@ -285,7 +285,7 @@ function createVersionSection(args) {
     );
 }
 
-async function loadSourceVersions(form, selectedScope, selectedVersion, selectedVersionSourceKey, loadingVersions, scope) {
+async function loadSourceVersions(form, selectedScope, selectedVersion, selectedVersionSourceKey, loadingVersions, scope, opts = {}) {
     const repo = currentRepo(form);
     if (!repo) return;
     loadingVersions.val = true;
@@ -294,8 +294,9 @@ async function loadSourceVersions(form, selectedScope, selectedVersion, selected
     const trusted = hasTrustedSourceValidation(form);
     const req = buildValidateSourceRequest(form, trusted ? {
         scope: scope || selectedScope.val || '',
-        refreshScopes: !scope,
+        refreshScopes: opts.refreshScopes ?? !scope,
         refreshVersions: true,
+        checkFlakePath: Boolean(form.nixFlake.val.trim()),
     } : {scope: scope || ''});
     let res;
     try {
