@@ -283,7 +283,7 @@ export function statusPage(onOpenLogs = () => {}) {
     const deploymentTableCard = (rows, showEnvironmentColumn, header = null, collapsed = false) => div(
         {class: "w-full min-w-0 rounded-lg bg-surface border border-gray-700 p-2"},
         header,
-        collapsed ? '' : div({class: "w-full overflow-x-auto"}, deploymentTable(rows, showEnvironmentColumn)),
+        collapsed ? '' : div({class: "w-full overflow-x-auto overflow-y-hidden"}, deploymentTable(rows, showEnvironmentColumn)),
     );
 
     const mainContent = div(
