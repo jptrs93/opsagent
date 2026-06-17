@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -33,27 +32,6 @@ func NewNixBuilder(dataDir string, provider githubcredentials.Provider) *NixBuil
 		sem:     make(chan struct{}, 1),
 		Git:     NewGitManager(dataDir, provider),
 	}
-}
-
-func (b *NixBuilder) ensureRepo(ctx context.Context, repoDir string, repoURL string, logFile io.Writer) error {
-	cloneURL, err := b.Git.ResolveCloneURL(ctx, repoURL)
-	if err != nil {
-		return err
-	}
-
-	if _, err := os.Stat(filepath.Join(repoDir, ".git")); err == nil {
-		fmt.Fprintf(logFile, "[%s] fetching latest for %s\n", time.Now().Format(time.RFC3339), repoURL)
-		if err := b.runCmd(ctx, repoDir, logFile, "git", "remote", "set-url", "origin", cloneURL); err != nil {
-			return err
-		}
-		return b.runCmd(ctx, repoDir, logFile, "git", "fetch", "--all")
-	}
-
-	fmt.Fprintf(logFile, "[%s] cloning %s into %s\n", time.Now().Format(time.RFC3339), repoURL, repoDir)
-	if err := os.MkdirAll(filepath.Dir(repoDir), 0o755); err != nil {
-		return fmt.Errorf("creating repo dir: %w", err)
-	}
-	return b.runCmd(ctx, "", logFile, "git", "clone", cloneURL, repoDir)
 }
 
 func (b *NixBuilder) runCmd(ctx context.Context, dir string, logWriter io.Writer, name string, args ...string) error {

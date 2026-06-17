@@ -84,30 +84,13 @@ func (b *NixDockerBuilder) runBuild(ctx context.Context, store storage.OperatorS
 	}
 
 	nix := dep.Spec.Prepare.NixDockerBuild
-	repoDir := filepath.Join(b.dataDir, "repos", nix.Repo)
-	writeLog("repo dir: %s", repoDir)
-
-	writeLog("ensuring repo %s", nix.Repo)
-	if err := b.ensureRepo(ctx, repoDir, nix.Repo, logFile); err != nil {
-		writeLog("ERROR git clone/fetch failed: %v", err)
-		return "", apigen.PreparationStatus_FAILED
-	}
-	writeLog("repo ready")
-
-	writeLog("checking out version %s", version)
-	if err := b.runCmd(ctx, repoDir, logFile, "git", "reset", "--hard"); err != nil {
-		writeLog("ERROR git reset --hard failed: %v", err)
-		return "", apigen.PreparationStatus_FAILED
-	}
-	if err := b.runCmd(ctx, repoDir, logFile, "git", "clean", "-fdx"); err != nil {
-		writeLog("ERROR git clean failed: %v", err)
-		return "", apigen.PreparationStatus_FAILED
-	}
-	if err := b.runCmd(ctx, repoDir, logFile, "git", "checkout", version); err != nil {
+	writeLog("checking out repo %s at version %s", nix.Repo, version)
+	repoDir, err := b.Git.EnsureCheckout(ctx, nix.Repo, version, logFile)
+	if err != nil {
 		writeLog("ERROR git checkout failed: %v", err)
 		return "", apigen.PreparationStatus_FAILED
 	}
-	writeLog("checkout complete")
+	writeLog("checkout complete: %s", repoDir)
 
 	flakePath, err := checkedOutFlakePath(repoDir, nix.Flake)
 	if err != nil {

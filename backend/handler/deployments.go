@@ -156,9 +156,9 @@ type validateSourceInput struct {
 }
 
 // PostV1RepoValidate checks that a binary source is reachable and authorized.
-// It uses remote metadata APIs instead of cloning: git ls-remote for branches,
-// the GitHub API for commits/releases, and GitHub contents for optional flake
-// path validation.
+// It uses remote metadata APIs instead of a full checkout: Git operations for
+// branches, commits, and optional flake path validation; provider-specific APIs
+// remain only for provider-specific source types such as GitHub releases.
 func (h *Handler) PostV1RepoValidate(ctx apigen.Context, req *apigen.ValidateSourceRequest) (*apigen.ValidateSourceResponse, error) {
 	in, err := validateSourceFromRequest(req)
 	if err != nil {

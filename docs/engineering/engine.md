@@ -12,7 +12,7 @@ Key files:
 - `backend/engine/preparer/containerimage.go` — pulls a container image into containerd.
 - `backend/engine/preparer/ghrelease.go` — internal-only GitHub release downloader for the `OPENDEPLOY` self-deployment.
 - `backend/engine/preparer/nixbuild.go` — shared Git/Nix command helper used by `NixDockerBuilder`; not a public Nix-store executable preparer.
-- `backend/engine/preparer/gitmanager.go` — GitHub repo/branch/commit helper used by Nix Docker builds.
+- `backend/engine/preparer/gitmanager.go` — Git repo/branch/commit helper used by validation, version discovery, and Nix Docker builds.
 - `backend/engine/ctrd/` — containerd client wrapper behind Linux build tags.
 - `backend/engine/runner/runner.go` — `Runner` interface and factories.
 - `backend/engine/runner/container.go` — public containerd runner.
@@ -48,7 +48,7 @@ Decision flow:
 
 ## Preparers
 
-`NixDockerBuilder` clones/fetches the configured GitHub repo, checks out `DesiredState.Version`, verifies the configured `flake.nix` path exists in that checked-out tree, runs `nix build --no-update-lock-file --no-link --print-out-paths -L` in the configured flake directory, executes the resulting image stream, and pipes it into `ctrd.Client.Import`. The imported image is tagged as `opendeploy.local/nix-docker-build/{deploymentID}:{version}`.
+`NixDockerBuilder` asks `GitManager` to prepare a local checkout of the configured Git repo at `DesiredState.Version`, verifies the configured `flake.nix` path exists in that checked-out tree, runs `nix build --no-update-lock-file --no-link --print-out-paths -L` in the configured flake directory, executes the resulting image stream, and pipes it into `ctrd.Client.Import`. The imported image is tagged as `opendeploy.local/nix-docker-build/{deploymentID}:{version}`. Validation and version discovery use Git-native remote/ref operations plus a bare partial metadata cache under the data directory, avoiding GitHub API dependency for Nix/Git sources.
 
 `ContainerImagePuller` pulls `prepare.containerImage.image` plus the desired tag/digest into containerd and unpacks it. Pulls are anonymous in the current phase.
 
