@@ -7,6 +7,7 @@ const { div, h3, label, input, select, option, button, p, span, datalist, textar
 const SOURCE_NIX_DOCKER = 'nixDockerBuild';
 const SOURCE_DOCKER_IMAGE = 'containerImage';
 const RUNNER_CONTAINER = 'container';
+const DEPLOYMENT_VOLUME_HOST_RE = /^\/var\/lib\/opendeploy-volumes\/(\d+)\/var$/;
 
 let nextDatalistID = 1;
 let nextEnvID = 1;
@@ -15,6 +16,7 @@ let nextVolumeMountID = 1;
 
 export function emptyDeploymentForm() {
     return makeFormState({
+        deploymentId: 0,
         name: '',
         environment: '',
         machine: '',
@@ -49,6 +51,7 @@ export function deploymentConfigToForm(cfg) {
         : (nixDocker.repo && nixDocker.flake ? knownNixSourceCheck(nixDocker.repo, nixDocker.flake) : undefined);
 
     return makeFormState({
+        deploymentId: cfg.id || 0,
         name: cid.name || '',
         environment: cid.environment || '',
         machine: cid.machine || '',
@@ -65,7 +68,7 @@ export function deploymentConfigToForm(cfg) {
             const row = {id: nextAssetMountID++, assetId: m.assetId || 0, key: m.asset || '', path: m.path || '', version: m.version || 0};
             return {...row, originalAssetId: row.assetId, originalKey: row.key, originalPath: row.path, originalVersion: row.version};
         }),
-        volumeMounts: (container.mounts || []).map(m => ({id: nextVolumeMountID++, host: m.host || '', container: m.container || '', readonly: Boolean(m.readonly)})),
+        volumeMounts: (container.mounts || []).map(m => mountToFormRow(m)),
         showSourceOpts,
         showExecOpts,
         repoCheck,
@@ -220,7 +223,7 @@ export function isFormValid(form, opts = {}) {
     } else if (!form.nixRepo.val.trim() || !form.nixFlake.val.trim()) {
         return false;
     }
-    if (hasInvalidVolumeConfig(form) || hasInvalidAssetMounts(form)) return false;
+    if (hasInvalidVolumeConfig(form, opts) || hasInvalidAssetMounts(form)) return false;
     return true;
 }
 
@@ -405,6 +408,7 @@ export function hasTrustedSourceValidation(form) {
 function makeFormState(values) {
     return {
         name: van.state(values.name),
+        deploymentId: van.state(values.deploymentId || 0),
         environment: van.state(values.environment),
         machine: van.state(values.machine),
         sourceType: van.state(values.sourceType),
@@ -566,29 +570,22 @@ function volumeMountsSummary(form) {
 }
 
 function defaultVolumeCard(form) {
-    if (form.containerDisableDataVolume.val) {
-        return div(
-            {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-1"},
-            div({class: "flex items-center justify-between gap-3"},
-                span({class: "text-xs font-medium text-gray-200"}, "deployment-default"),
-                span({class: "text-[11px] text-gray-500"}, "Disabled"),
-            ),
-            p({class: "text-[11px] text-gray-500"}, "This deployment has disabled the built-in writable data volume."),
-        );
-    }
     return div(
-        {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
-        div(
-            {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
-            field("Volume", input({
-                class: textInputClass(false, true),
-                value: "deployment-default",
-                disabled: true,
-            })),
-            field("Container path", input({
+        {class: "flex flex-col gap-2"},
+        div({class: "grid grid-cols-[auto_minmax(0,1fr)] items-end gap-3"},
+            label({class: "flex items-center gap-2 pb-2 text-xs text-gray-300"},
+                input({
+                    type: "checkbox",
+                    checked: () => !form.containerDisableDataVolume.val,
+                    onchange: e => { form.containerDisableDataVolume.val = !e.target.checked; },
+                }),
+                span("Enable default volume"),
+            ),
+            field("Container mount path", input({
                 class: textInputClass(),
                 placeholder: defaultVolumeFallbackContainerPath(form),
                 value: form.containerDataMountPath.rawVal,
+                disabled: () => form.containerDisableDataVolume.val,
                 oninput: e => { form.containerDataMountPath.val = e.target.value; },
             })),
         ),
@@ -717,10 +714,15 @@ function newInvalidAssetMount(row, assets) {
     return !assets.some(a => a.key === row.key);
 }
 
-export function volumeMountsPane(form) {
+export function volumeMountsPane(form, opts = {}) {
     const rows = () => form.volumeMounts.val || [];
-    const addMount = () => {
-        form.volumeMounts.val = [...rows(), {id: nextVolumeMountID++, host: '', container: '', readonly: false}];
+    const deploymentRows = () => rows().filter(r => (r.kind || 'host') === 'deployment');
+    const hostRows = () => rows().filter(r => (r.kind || 'host') === 'host');
+    const addDeploymentMount = () => {
+        form.volumeMounts.val = [...rows(), {id: nextVolumeMountID++, kind: 'deployment', deploymentId: 0, host: '', container: '', readonly: false}];
+    };
+    const addHostMount = () => {
+        form.volumeMounts.val = [...rows(), {id: nextVolumeMountID++, kind: 'host', host: '', container: '', readonly: false}];
     };
     const updateMount = (row, patch) => {
         form.volumeMounts.val = rows().map(m => m.id === row.id ? {...m, ...patch} : m);
@@ -728,7 +730,38 @@ export function volumeMountsPane(form) {
     const removeMount = (row) => {
         form.volumeMounts.val = rows().filter(m => m.id !== row.id);
     };
-    const rowEl = (row) => div(
+    const deploymentOptions = () => deploymentVolumeOptions(optionDeployments(opts), form);
+    const deploymentRowEl = (row) => div(
+        {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
+        div(
+            {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
+            field("Deployment", select({
+                class: selectClass(),
+                value: String(row.deploymentId || ''),
+                onchange: e => {
+                    const deploymentId = Number(e.target.value || 0);
+                    updateMount(row, {deploymentId, host: deploymentId ? defaultVolumeHostPath(deploymentId) : ''});
+                },
+            },
+                option({value: '', disabled: true, selected: !row.deploymentId}, deploymentOptions().length ? "Select deployment..." : "No deployments on this machine"),
+                ...deploymentOptions().map(d => option({value: String(d.config.id), selected: d.config.id === row.deploymentId}, deploymentVolumeLabel(d))),
+            )),
+            field("Container mount path", input({
+                class: textInputClass(true),
+                placeholder: "/mnt/other-data",
+                value: row.container || '',
+                oninput: e => updateMount(row, {container: e.target.value}),
+            })),
+        ),
+        div({class: "flex justify-end"},
+            button({
+                type: "button",
+                class: "text-xs text-gray-500 hover:text-red-400 cursor-pointer",
+                onclick: () => removeMount(row),
+            }, "Remove"),
+        ),
+    );
+    const hostRowEl = (row) => div(
         {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
         div(
             {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
@@ -738,7 +771,7 @@ export function volumeMountsPane(form) {
                 value: row.host || '',
                 oninput: e => updateMount(row, {host: e.target.value}),
             }), "Must already exist on the target machine."),
-            field("Container path", input({
+            field("Container mount path", input({
                 class: textInputClass(true),
                 placeholder: "/data",
                 value: row.container || '',
@@ -777,13 +810,21 @@ export function volumeMountsPane(form) {
         ),
         div(
             {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-4"},
-            p({class: "text-[11px] text-gray-500"}, "Mount the built-in deployment volume, plus optional existing host paths from the target machine."),
             defaultVolumeCard(form),
-            () => div({class: "flex flex-col gap-3"}, ...rows().map(rowEl)),
+            paneSectionDivider("Mount another deployment's default volume"),
+            p({class: "text-[11px] text-gray-500 -mt-2"}, "Only deployments on the selected machine are shown."),
+            () => div({class: "flex flex-col gap-3"}, ...deploymentRows().map(deploymentRowEl)),
             button({
                 type: "button",
                 class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer self-start",
-                onclick: addMount,
+                onclick: addDeploymentMount,
+            }, "Add deployment volume mount"),
+            paneSectionDivider("Mount custom host directory"),
+            () => div({class: "flex flex-col gap-3"}, ...hostRows().map(hostRowEl)),
+            button({
+                type: "button",
+                class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer self-start",
+                onclick: addHostMount,
             }, "Add host path mount"),
         ),
     );
@@ -920,7 +961,11 @@ function formAssetMounts(form) {
 
 function formVolumeMounts(form) {
     return (form.volumeMounts.val || [])
-        .map(m => ({host: (m.host || '').trim(), container: (m.container || '').trim(), readonly: Boolean(m.readonly)}))
+        .map(m => {
+            const deploymentId = Number(m.deploymentId || 0);
+            const host = (m.kind === 'deployment' && deploymentId) ? defaultVolumeHostPath(deploymentId) : (m.host || '').trim();
+            return {host, container: (m.container || '').trim(), readonly: Boolean(m.readonly)};
+        })
         .filter(m => m.host && m.container);
 }
 
@@ -931,13 +976,16 @@ function defaultVolumeFallbackContainerPath(form) {
     return `/home/${name}/var`;
 }
 
-function hasInvalidVolumeConfig(form) {
+function hasInvalidVolumeConfig(form, opts = {}) {
     const path = form.containerDataMountPath.val.trim();
     if (path && !validAbsolutePath(path)) return true;
+    const deploymentOptions = deploymentVolumeOptions(optionDeployments(opts), form);
     return (form.volumeMounts.val || []).some(m => {
-        const host = (m.host || '').trim();
+        const deploymentId = Number(m.deploymentId || 0);
+        const host = (m.kind === 'deployment' && deploymentId) ? defaultVolumeHostPath(deploymentId) : (m.host || '').trim();
         const container = (m.container || '').trim();
-        if (!host && !container) return false;
+        if (!host && !container && !deploymentId) return false;
+        if (m.kind === 'deployment' && !deploymentOptions.some(d => d.config?.id === deploymentId)) return true;
         return !validAbsolutePath(host) || !validAbsolutePath(container);
     });
 }
@@ -960,6 +1008,48 @@ function validAbsolutePath(path) {
         && !path.includes('/../')
         && !path.includes('/./')
         && path !== '/';
+}
+
+function mountToFormRow(m) {
+    const host = m.host || '';
+    const match = host.match(DEPLOYMENT_VOLUME_HOST_RE);
+    if (match) {
+        return {id: nextVolumeMountID++, kind: 'deployment', deploymentId: Number(match[1]), host, container: m.container || '', readonly: Boolean(m.readonly)};
+    }
+    return {id: nextVolumeMountID++, kind: 'host', host, container: m.container || '', readonly: Boolean(m.readonly)};
+}
+
+function defaultVolumeHostPath(deploymentID) {
+    return `/var/lib/opendeploy-volumes/${deploymentID}/var`;
+}
+
+function deploymentVolumeOptions(deployments, form) {
+    const machine = form.machine.val.trim();
+    const currentID = Number(form.deploymentId.val || 0);
+    return (deployments || [])
+        .filter(d => d.config?.id && d.config.id !== currentID && !d.config?.deleted && d.config?.configId?.machine === machine)
+        .sort((a, b) => deploymentVolumeLabel(a).localeCompare(deploymentVolumeLabel(b)));
+}
+
+function optionDeployments(opts) {
+    const deployments = opts.deployments;
+    if (!deployments) return [];
+    return Array.isArray(deployments) ? deployments : (deployments.val || []);
+}
+
+function deploymentVolumeLabel(deployment) {
+    const id = deployment.config?.configId || {};
+    const env = id.environment ? ` (${id.environment})` : '';
+    return `${id.name || `deployment ${deployment.config?.id}`}${env}`;
+}
+
+function paneSectionDivider(text) {
+    return div(
+        {class: "flex items-center gap-3 mt-2 first:mt-0"},
+        div({class: "flex-1 border-t border-gray-700"}),
+        span({class: "text-xs font-semibold uppercase tracking-wide text-gray-400 text-center"}, text),
+        div({class: "flex-1 border-t border-gray-700"}),
+    );
 }
 
 function closeRuntimePanes(form, keep) {

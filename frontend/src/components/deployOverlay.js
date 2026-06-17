@@ -188,7 +188,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
 
     const doDeploy = async () => {
         errorMsg.val = '';
-        if (!internalGithubRelease && !isFormValid(form)) {
+        if (!internalGithubRelease && !isFormValid(form, {deployments: deploymentsS.val})) {
             errorMsg.val = 'Artifact source and required execution fields must be set.';
             throw new Error(errorMsg.val);
         }
@@ -316,12 +316,12 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                             doStop,
                             doStart,
                         }),
-                        spinnerButton("Update deployment", doDeploy, "btn-primary text-sm py-1.5 px-4", "button", () => !internalGithubRelease && !isFormValid(form)),
+                        spinnerButton("Update deployment", doDeploy, "btn-primary text-sm py-1.5 px-4", "button", () => !internalGithubRelease && !isFormValid(form, {deployments: deploymentsS.val})),
                     ),
                 ),
             ),
             envVarsPane(form),
-            volumeMountsPane(form),
+            volumeMountsPane(form, {deployments: deploymentsS}),
             () => assetMountsPane(form, {assets: assets.val, enableAssetEditor: true}),
             assetEditorPane(form, {onSaved: loadAssets}),
         ),

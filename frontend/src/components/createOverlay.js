@@ -86,7 +86,7 @@ export function createOverlay(onClose, onCreated) {
 
     const doCreate = async () => {
         errorMsg.val = '';
-        if (!isFormValid(form, {machineOptions: machines.val})) {
+        if (!isFormValid(form, {machineOptions: machines.val, deployments: deploymentsS.val})) {
             errorMsg.val = 'Name, machine, artifact source, and required execution fields must be set.';
             throw new Error(errorMsg.val);
         }
@@ -112,7 +112,7 @@ export function createOverlay(onClose, onCreated) {
         onClose();
     };
 
-    const createButton = spinnerButton("Create", doCreate, "btn-primary text-sm py-1.5 px-4", "button", () => !isFormValid(form, {machineOptions: machines.val}));
+    const createButton = spinnerButton("Create", doCreate, "btn-primary text-sm py-1.5 px-4", "button", () => !isFormValid(form, {machineOptions: machines.val, deployments: deploymentsS.val}));
     createButton.dataset.testid = "create-deployment-submit";
 
     const backdrop = div({
@@ -165,7 +165,7 @@ export function createOverlay(onClose, onCreated) {
                 ),
             ),
             envVarsPane(form),
-            volumeMountsPane(form),
+            volumeMountsPane(form, {deployments: deploymentsS}),
             () => assetMountsPane(form, {assets: assets.val, enableAssetEditor: true}),
             assetEditorPane(form, {onSaved: loadAssets}),
         ),
