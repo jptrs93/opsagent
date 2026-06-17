@@ -290,7 +290,7 @@ async function loadSourceVersions(form, selectedScope, selectedVersion, selected
     if (!repo) return;
     loadingVersions.val = true;
     const sourceType = form.sourceType.val;
-    const sourceKey = sourceValidationKey(form);
+    const sourceKeyValue = sourceValidationKey(form);
     const trusted = hasTrustedSourceValidation(form);
     const req = buildValidateSourceRequest(form, trusted ? {
         scope: scope || selectedScope.val || '',
@@ -302,26 +302,26 @@ async function loadSourceVersions(form, selectedScope, selectedVersion, selected
         res = await capi.postV1RepoValidate(req);
     } catch (e) {
         console.error('[opendeploy] create version refresh request failed', {request: req, error: e, stack: e?.stack});
-        form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType, sourceKey};
+        form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType, sourceKey: sourceKeyValue};
         loadingVersions.val = false;
         return;
     }
     console.log('[opendeploy] create version refresh response', {request: req, response: res});
     try {
         const sourceResult = validationSourceResult(form, res);
-        form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKey);
+        form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKeyValue);
         if (form.repoCheck.val.status === 'ok') {
             const nextScope = sourceResult.scope || currentScope(form.repoCheck.val, scope || selectedScope.val);
             selectedScope.val = nextScope;
             const versions = sourceResult.versions || [];
-            if (selectedVersionSourceKey.val !== sourceKey(form) || !versions.some(v => v.id === selectedVersion.val)) {
+            if (selectedVersionSourceKey.val !== sourceKeyValue || !versions.some(v => v.id === selectedVersion.val)) {
                 selectedVersion.val = versions[0]?.id || '';
-                selectedVersionSourceKey.val = selectedVersion.val ? sourceKey(form) : '';
+                selectedVersionSourceKey.val = selectedVersion.val ? sourceKeyValue : '';
             }
         }
     } catch (e) {
         console.error('[opendeploy] create version refresh client error', {request: req, response: res, error: e, stack: e?.stack});
-        form.repoCheck.val = {status: 'error', message: `Client error after validation: ${e.message || e}`, repo, sourceType, sourceKey};
+        form.repoCheck.val = {status: 'error', message: `Client error after validation: ${e.message || e}`, repo, sourceType, sourceKey: sourceKeyValue};
     }
     loadingVersions.val = false;
 }
