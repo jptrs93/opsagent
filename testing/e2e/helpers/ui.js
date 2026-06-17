@@ -89,6 +89,7 @@ export async function createNixDockerDeployment(page, {
   expectedEnv = env,
   assetMount,
   expectDefaultDockerImage = false,
+  verifyLogs = true,
 } = {}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
   await byTestId(page, 'add-deployment-button', page.getByRole('button', {name: 'Add deployment'})).click();
@@ -120,7 +121,15 @@ export async function createNixDockerDeployment(page, {
     const commitSelect = selectField(dialog, 'Commit');
     await expect(commitSelect).not.toHaveValue('', {timeout: LONG_UI_TIMEOUT});
 
-    await validateRequests.expectStableCount(2, 'expected only the repo and flake validate calls');
+    const refreshButton = dialog.getByRole('button', {name: 'Refresh'});
+    await expect(refreshButton).toBeEnabled();
+    await refreshButton.click();
+    await validateRequests.expectCount(3, 'expected a validate call after refreshing versions');
+    await expectPathValidation(dialog);
+    await expect(commitSelect).not.toHaveValue('', {timeout: LONG_UI_TIMEOUT});
+    await expect(dialog.getByText('d is not a function')).toHaveCount(0);
+
+    await validateRequests.expectStableCount(3, 'expected only the repo, flake, and refresh validate calls');
   } finally {
     validateRequests.stop();
   }
@@ -131,6 +140,7 @@ export async function createNixDockerDeployment(page, {
 
   let row = byTestId(page, `deployment-row-${name}`, page.locator('tr').filter({hasText: name}).filter({hasText: machine}));
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  if (!verifyLogs) return;
   await openDeploymentLogsSearch(page, row);
   for (const [key, value] of Object.entries(expectedEnv || {})) {
     await expectOutputText(page, `nixdockerbuild1 env ${key}=${value}`);
@@ -216,28 +226,26 @@ export async function createPostgresClientDeployment(page, {
   ]);
 }
 
-export async function createConfig(page, {name, value, group = 'e2e'} = {}) {
+export async function createConfig(page, {name, value} = {}) {
   await byTestId(page, 'nav-configs', page.getByText('Configs')).click();
   await expect(page.getByText("Reference a config from a deployment's env value as")).toBeVisible();
   await page.getByRole('button', {name: 'Add config'}).click();
 
   const row = page.locator('tbody tr').last();
   await row.locator('input').nth(0).fill(name);
-  await row.locator('input').nth(1).fill(group);
-  await row.locator('input').nth(2).fill(value);
+  await row.locator('input').nth(1).fill(value);
   await row.getByRole('button', {name: 'Save'}).click();
   await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(name))})).toBeVisible();
 }
 
-export async function createSecret(page, {name, value, group = 'e2e'} = {}) {
+export async function createSecret(page, {name, value} = {}) {
   await byTestId(page, 'nav-secrets', page.getByText('Secrets')).click();
   await expect(page.getByText("Reference a secret from a deployment's env value as")).toBeVisible();
   await page.getByRole('button', {name: 'Add secret'}).click();
 
   const row = page.locator('tbody tr').last();
   await row.locator('input').nth(0).fill(name);
-  await row.locator('input').nth(1).fill(group);
-  await row.locator('input').nth(2).fill(value);
+  await row.locator('input').nth(1).fill(value);
   await row.getByRole('button', {name: 'Save'}).click();
   await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(name))})).toBeVisible();
 }

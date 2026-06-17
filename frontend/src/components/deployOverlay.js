@@ -76,7 +76,9 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         const sourceKey = sourceValidationKey(form);
         try {
             if (internalGithubRelease) {
-                const result = await capi.postV1DeploymentVersions({deploymentId: deployment.id, scope: scope || ''});
+                const req = {deploymentId: deployment.id, scope: scope || ''};
+                const result = await capi.postV1DeploymentVersions(req);
+                console.log('[opendeploy] deployment versions refresh response', {request: req, response: result});
                 const selected = selectedDeploymentVersionScope(result, scope);
                 scopes.val = result.scopes || [];
                 versions.val = selected.versions;
@@ -88,11 +90,13 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                 return;
             }
             const trusted = hasTrustedSourceValidation(form);
-            const result = await capi.postV1RepoValidate(buildValidateSourceRequest(form, trusted ? {
+            const req = buildValidateSourceRequest(form, trusted ? {
                 scope: scope || selectedScope.val || '',
                 refreshScopes: !scope && scopes.val.length === 0,
                 refreshVersions: true,
-            } : {scope: scope || ''}));
+            } : {scope: scope || ''});
+            const result = await capi.postV1RepoValidate(req);
+            console.log('[opendeploy] deployment repo refresh response', {request: req, response: result});
             const sourceResult = validationSourceResult(form, result);
             form.repoCheck.val = sourceCheckFromValidation(form, result, sourceID, sourceType, sourceKey);
             if (form.repoCheck.val.status !== 'ok') {

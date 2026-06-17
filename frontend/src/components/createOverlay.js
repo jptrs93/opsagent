@@ -293,11 +293,13 @@ async function loadSourceVersions(form, selectedScope, selectedVersion, selected
     const sourceKey = sourceValidationKey(form);
     try {
         const trusted = hasTrustedSourceValidation(form);
-        const res = await capi.postV1RepoValidate(buildValidateSourceRequest(form, trusted ? {
+        const req = buildValidateSourceRequest(form, trusted ? {
             scope: scope || selectedScope.val || '',
             refreshScopes: !scope,
             refreshVersions: true,
-        } : {scope: scope || ''}));
+        } : {scope: scope || ''});
+        const res = await capi.postV1RepoValidate(req);
+        console.log('[opendeploy] create version refresh response', {request: req, response: res});
         const sourceResult = validationSourceResult(form, res);
         form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKey);
         if (form.repoCheck.val.status === 'ok') {

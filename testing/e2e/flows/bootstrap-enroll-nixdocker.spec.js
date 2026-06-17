@@ -31,6 +31,21 @@ test('bootstrap primary, enroll worker, and create Nix Docker deployment', async
   await createNixDockerDeployment(page, {expectDefaultDockerImage: true});
   await expectPrepareOutput(page, 'nixdockerbuild1', 'checking out repo');
 
+  if (process.env.OPENDEPLOY_GITHUB_TOKEN) {
+    await createNixDockerDeployment(page, {
+      name: 'jnotes-primary',
+      machine: 'primary',
+      repo: 'github.com/jptrs93/jnotes',
+      flake: 'flake.nix',
+      env: {
+        JNOTES_BIND_PORT: '8081',
+        JNOTES_LOCAL_DEV: 'true',
+      },
+      expectedEnv: {},
+      verifyLogs: false,
+    });
+  }
+
   await createConfig(page, {
     name: 'e2e.config.message',
     value: 'hello-from-config-page',

@@ -380,12 +380,14 @@ export async function validateSelectedCommit(form, scope, commit) {
         sourceKey,
     };
     try {
-        const res = await capi.postV1RepoValidate(buildValidateSourceRequest(form, {
+        const req = buildValidateSourceRequest(form, {
             scope,
             commit: selectedCommit,
             checkCommit: true,
             checkFlakePath: Boolean(form.nixFlake.val.trim()),
-        }));
+        });
+        const res = await capi.postV1RepoValidate(req);
+        console.log('[opendeploy] repo validate selected commit response', {request: req, response: res});
         form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKey);
     } catch (e) {
         form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType, sourceKey};
@@ -1057,7 +1059,9 @@ async function validateRepo(form) {
     }
     form.repoCheck.val = {status: 'checking', message: 'Checking repository access…', repo, sourceType, sourceKey};
     try {
-        const res = await capi.postV1RepoValidate(buildValidateSourceRequest(form));
+        const req = buildValidateSourceRequest(form);
+        const res = await capi.postV1RepoValidate(req);
+        console.log('[opendeploy] repo validate response', {request: req, response: res});
         form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKey);
     } catch (e) {
         form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType, sourceKey};
