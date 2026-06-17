@@ -1,11 +1,21 @@
 package installer
 
 import (
+	"crypto/rand"
 	"fmt"
+	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/jptrs93/goutil/authu"
 )
+
+type bootstrapCredentials struct {
+	password string
+	hash     string
+}
 
 // staged holds the verified temp paths produced by phase 1 (download + verify),
 // consumed by phase 2 (apply). runtime is empty when the runtime isn't being
@@ -301,7 +311,11 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 
 	// env file — never clobber an existing operator-edited file
 	step("Writing config")
-	wrote, err := writeFile(envFile, renderEnvTemplate(opts), 0o640, rootOpenDeploy, true)
+	bootstrap, err := generateBootstrapCredentials(opts)
+	if err != nil {
+		return err
+	}
+	wrote, err := writeFile(envFile, renderEnvTemplate(opts, bootstrap), 0o640, rootOpenDeploy, true)
 	if err != nil {
 		return err
 	}
@@ -344,8 +358,29 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 		return err
 	}
 
-	printNextSteps(opts)
+	step("Starting service")
+	if err := systemctl("start", serviceName); err != nil {
+		return err
+	}
+
+	printInstallComplete(opts, bootstrap, wrote)
 	return nil
+}
+
+func generateBootstrapCredentials(opts installOptions) (*bootstrapCredentials, error) {
+	if opts.role != "primary" {
+		return nil, nil
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(10000))
+	if err != nil {
+		return nil, fmt.Errorf("generating setup password: %w", err)
+	}
+	password := fmt.Sprintf("opendeploy%04d", n.Int64())
+	hash, err := authu.HashPassword(password)
+	if err != nil {
+		return nil, fmt.Errorf("hashing setup password: %w", err)
+	}
+	return &bootstrapCredentials{password: password, hash: hash}, nil
 }
 
 func ensureLogDirs(own owner) error {
@@ -441,21 +476,94 @@ func updateServiceUnitForUpgrade(opts installOptions) error {
 	return nil
 }
 
-func printNextSteps(opts installOptions) {
+func printInstallComplete(opts installOptions, bootstrap *bootstrapCredentials, wroteEnv bool) {
 	if opts.role == "secondary" {
 		fmt.Print(`
-Install complete. opendeploy.service is enabled but not started.
-Next step: sudo systemctl start opendeploy.service
+Install complete. opendeploy.service is enabled and started.
 `)
 		return
 	}
-	fmt.Print(`
-Install complete. opendeploy.service is enabled but not started.
-Next steps:
-  1. Edit /etc/opendeploy/env:
-       - On the primary: use the initial setup password "opendeploy-setup"
-         to register the first passkey, or replace
-         OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH with your own hash.
-  2. Start: sudo systemctl start opendeploy.service
-`)
+	fmt.Print("\nInstall complete. opendeploy.service is enabled and started.\n")
+	fmt.Print("\nWeb UI:\n")
+	for _, addr := range webUIAddrs(opts) {
+		fmt.Printf("  %s\n", addr)
+	}
+	if bootstrap != nil && wroteEnv {
+		fmt.Printf("\nTemporary setup password: %s\n", bootstrap.password)
+		fmt.Print("Use this password to register the first passkey. Replace the master password after bootstrap if needed.\n")
+	} else {
+		fmt.Printf("\nKept existing %s. Use its configured setup password/hash to bootstrap.\n", envFile)
+	}
+	fmt.Printf("\nLogs: sudo journalctl -u %s -f\n", serviceName)
+}
+
+func webUIAddrs(opts installOptions) []string {
+	scheme := "https"
+	defaultPort := "443"
+	if opts.httpOnly != nil && *opts.httpOnly {
+		scheme = "http"
+		defaultPort = "80"
+	}
+	listen := ":443"
+	if opts.webListen != nil && strings.TrimSpace(*opts.webListen) != "" {
+		listen = strings.TrimSpace(*opts.webListen)
+	}
+	port := listenPort(listen, defaultPort)
+
+	var addrs []string
+	for _, host := range acmeHosts(opts) {
+		addrs = append(addrs, formatURL(scheme, host, port, defaultPort))
+	}
+	if len(addrs) == 0 {
+		host := listenHost(listen)
+		if host == "" || host == "0.0.0.0" || host == "::" {
+			host = "localhost"
+		}
+		addrs = append(addrs, formatURL(scheme, host, port, defaultPort))
+	}
+	addrs = append(addrs, "listening on "+listen)
+	return addrs
+}
+
+func acmeHosts(opts installOptions) []string {
+	if opts.acmeHosts == nil {
+		return []string{"opendeploy.example.com"}
+	}
+	var hosts []string
+	for _, host := range strings.Split(*opts.acmeHosts, ",") {
+		if host = strings.TrimSpace(host); host != "" {
+			hosts = append(hosts, host)
+		}
+	}
+	return hosts
+}
+
+func listenHost(listen string) string {
+	host, _, err := net.SplitHostPort(listen)
+	if err == nil {
+		return strings.Trim(host, "[]")
+	}
+	return ""
+}
+
+func listenPort(listen string, fallback string) string {
+	_, port, err := net.SplitHostPort(listen)
+	if err == nil && port != "" {
+		return port
+	}
+	idx := strings.LastIndex(listen, ":")
+	if idx >= 0 && idx+1 < len(listen) {
+		return strings.Trim(listen[idx+1:], "[]")
+	}
+	return fallback
+}
+
+func formatURL(scheme, host, port, defaultPort string) string {
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		host = "[" + host + "]"
+	}
+	if port == "" || port == defaultPort {
+		return scheme + "://" + host
+	}
+	return scheme + "://" + host + ":" + port
 }

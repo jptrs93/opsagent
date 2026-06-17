@@ -15,7 +15,7 @@ This package is deliberately self-contained:
 
 - It does **not** import `ainit`, the server config, or any other backend
   package. It keeps its own copy of every path, pinned version, and checksum in
-  `config.go`, with zero non-stdlib dependencies.
+  `config.go`.
 - The only coupling to the rest of the binary is a guard in `ainit.init()` that
   skips server bootstrap (data-dir creation, file logging) when an installer
   subcommand is detected. Go runs every imported package's `init()` before
@@ -58,7 +58,8 @@ sudo opendeploy uninstall --purge
   installer downloads the runtime binaries late, after mutating the system.)
 - Same semantics otherwise: versioned-dir + symlink for both the agent binary
   and the containerd/runc runtime, change-detected containerd restart, visudo
-  validation, env-file preservation, and the preserve-vs-`--purge` split.
+  validation, generated primary setup password, service start on fresh install,
+  env-file preservation, and the preserve-vs-`--purge` split.
 
 ## Layout
 

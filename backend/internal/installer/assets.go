@@ -35,8 +35,14 @@ func renderContainerdConfig(gid int) string {
 		"  gid = " + itoa(gid) + "\n"
 }
 
-func renderEnvTemplate(opts installOptions) []byte {
-	return applyEnvOverrides(envTemplate, opts)
+func renderEnvTemplate(opts installOptions, bootstrap *bootstrapCredentials) []byte {
+	content := envTemplate
+	if bootstrap != nil {
+		content = applyEnvValues(content, map[string]string{
+			"OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH": bootstrap.hash,
+		}, []string{"OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH"})
+	}
+	return applyEnvOverrides(content, opts)
 }
 
 func renderOpenDeployUnit(opts installOptions) []byte {
@@ -81,6 +87,10 @@ func applyEnvOverrides(content []byte, opts installOptions) []byte {
 	if opts.primaryName != nil {
 		values["OPENDEPLOY_PRIMARY_NAME"] = *opts.primaryName
 	}
+	return applyEnvValues(content, values, []string{"OPENDEPLOY_INITIAL_ACME_HOSTS", "OPENDEPLOY_INITIAL_WEB_HTTP_ONLY", "OPENDEPLOY_INITIAL_WEB_LISTEN", "OPENDEPLOY_PRIMARY_CLUSTER_ADDR", "OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR", "OPENDEPLOY_PRIMARY_NAME"})
+}
+
+func applyEnvValues(content []byte, values map[string]string, appendOrder []string) []byte {
 	if len(values) == 0 {
 		return content
 	}
@@ -99,7 +109,7 @@ func applyEnvOverrides(content []byte, opts installOptions) []byte {
 		lines[i] = key + "=" + value
 		seen[key] = true
 	}
-	for _, key := range []string{"OPENDEPLOY_INITIAL_ACME_HOSTS", "OPENDEPLOY_INITIAL_WEB_HTTP_ONLY", "OPENDEPLOY_INITIAL_WEB_LISTEN", "OPENDEPLOY_PRIMARY_CLUSTER_ADDR", "OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR", "OPENDEPLOY_PRIMARY_NAME"} {
+	for _, key := range appendOrder {
 		if value, ok := values[key]; ok && !seen[key] {
 			lines = append(lines, key+"="+value)
 		}
