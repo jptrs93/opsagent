@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {deploymentsStreamS, enrollmentsS, machinesS} from "../state/deployments.js";
 
-const { button, div, h2, input, p, span, table, tbody, td, th, thead, tr } = van.tags;
+const { button, code, div, h2, input, p, span, table, tbody, td, th, thead, tr } = van.tags;
 
 const formatTime = (t) => {
     if (!t) return '-';
@@ -12,6 +12,28 @@ const formatTime = (t) => {
 };
 
 export function clusterPage() {
+    const config = van.state(null);
+    const configError = van.state(null);
+    const copied = van.state(false);
+
+    const loadConfig = async () => {
+        try {
+            configError.val = null;
+            config.val = await capi.getV1Config();
+        } catch (e) {
+            configError.val = e.message || "Failed to load cluster config";
+        }
+    };
+    loadConfig();
+
+    const copyInstallCommand = async () => {
+        const command = secondaryInstallCommand(config.val);
+        if (!command) return;
+        await navigator.clipboard.writeText(command);
+        copied.val = true;
+        setTimeout(() => copied.val = false, 2000);
+    };
+
     return div(
         {class: "flex-1 min-h-0 overflow-auto p-3 flex flex-col gap-3"},
         () => {
@@ -67,8 +89,14 @@ export function clusterPage() {
                 ),
                 div(
                     {class: "card"},
-                    h2({class: "font-semibold mb-2"}, "Enrollment requests"),
-                    p({class: "text-sm text-gray-400 mb-4"}, "Accept a waiting worker to issue its cluster client certificate."),
+                    div(
+                        {class: "flex flex-col gap-3 mb-4"},
+                        div(
+                            h2({class: "font-semibold mb-2"}, "Enrollment requests"),
+                            p({class: "text-sm text-gray-400"}, "Accept a waiting worker to issue its cluster client certificate."),
+                        ),
+                        secondaryInstallPanel(config, configError, copied, copyInstallCommand),
+                    ),
                     pending.length === 0
                         ? p({class: "text-gray-400 text-sm"}, "No pending enrollment requests.")
                         : table(
@@ -87,6 +115,77 @@ export function clusterPage() {
             );
         }
     );
+}
+
+function secondaryInstallPanel(config, configError, copied, onCopy) {
+    return div(
+        {class: "rounded-lg border border-gray-700 bg-gray-900/50 p-3"},
+        div(
+            {class: "flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"},
+            div(
+                {class: "min-w-0 flex-1"},
+                div({class: "text-sm font-medium text-gray-200 mb-1"}, "Install secondary"),
+                () => configError.val
+                    ? p({class: "text-xs text-red-400"}, configError.val)
+                    : installCommandBlock(secondaryInstallCommand(config.val)),
+            ),
+            button(
+                {
+                    type: "button",
+                    class: "btn-secondary text-sm py-1.5 px-3 shrink-0",
+                    disabled: () => !secondaryInstallCommand(config.val),
+                    onclick: onCopy,
+                },
+                () => copied.val ? "Copied" : "Copy",
+            ),
+        ),
+    );
+}
+
+function installCommandBlock(command) {
+    if (!command) {
+        return p({class: "text-xs text-gray-500"}, "Loading primary cluster addresses...");
+    }
+    return code({class: "block overflow-x-auto whitespace-pre rounded bg-gray-950 p-3 text-xs text-gray-200"}, command);
+}
+
+function secondaryInstallCommand(config) {
+    if (!config?.clusterListen || !config?.enrollmentListen) return "";
+    const clusterAddr = dialAddress(config.clusterListen);
+    const enrollmentAddr = dialAddress(config.enrollmentListen);
+    if (!clusterAddr || !enrollmentAddr) return "";
+    return `curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/install_secondary.sh | bash -s -- \\
+  --cluster-addr "${clusterAddr}" \\
+  --enrollment-addr "${enrollmentAddr}"`;
+}
+
+function dialAddress(listen) {
+    const value = (listen || "").trim();
+    if (!value) return "";
+
+    const port = listenPort(value);
+    if (value.startsWith(":") || value.startsWith("0.0.0.0:") || value.startsWith("[::]:")) {
+        return hostPort(browserHost(), port);
+    }
+    return value;
+}
+
+function listenPort(value) {
+    const bracketPort = value.match(/^\[[^\]]+\]:(\d+)$/);
+    if (bracketPort) return bracketPort[1];
+    const hostPort = value.match(/:(\d+)$/);
+    return hostPort ? hostPort[1] : "";
+}
+
+function browserHost() {
+    if (typeof window === "undefined") return "";
+    return window.location.hostname;
+}
+
+function hostPort(host, port) {
+    if (!host || !port) return "";
+    const formattedHost = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+    return `${formattedHost}:${port}`;
 }
 
 function enrollmentRow(req) {

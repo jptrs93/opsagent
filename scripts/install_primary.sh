@@ -2,6 +2,7 @@
 set -euo pipefail
 
 REPO="${OPENDEPLOY_REPO:-jptrs93/opsagent}"
+OPENDEPLOY_DOWNLOAD_TMP=""
 
 log() {
     printf 'opendeploy: %s\n' "$*" >&2
@@ -101,13 +102,13 @@ download_opendeploy() {
 }
 
 main() {
-    local version arch tmp bin
+    local version arch bin
     version="$(requested_version "$@")"
     arch="$(detect_arch)"
-    tmp="$(mktemp -d)"
-    trap 'rm -rf "$tmp"' EXIT
+    OPENDEPLOY_DOWNLOAD_TMP="$(mktemp -d)"
+    trap 'rm -rf -- "$OPENDEPLOY_DOWNLOAD_TMP"' EXIT
 
-    bin="$(download_opendeploy "$version" "$arch" "$tmp")"
+    bin="$(download_opendeploy "$version" "$arch" "$OPENDEPLOY_DOWNLOAD_TMP")"
     # The binary owns installer flag parsing; keep this wrapper transparent.
     run_as_root "$bin" install primary "$@"
 }

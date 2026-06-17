@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO="${OPENDEPLOY_REPO:-jptrs93/opsagent}"
 INSTALLED_BIN="${OPENDEPLOY_BIN:-/var/lib/opendeploy/bin/opendeploy}"
+OPENDEPLOY_DOWNLOAD_TMP=""
 
 log() {
     printf 'opendeploy: %s\n' "$*" >&2
@@ -89,13 +90,13 @@ main() {
         return
     fi
 
-    local version arch tmp bin
+    local version arch bin
     version="${OPENDEPLOY_VERSION:-latest}"
     arch="$(detect_arch)"
-    tmp="$(mktemp -d)"
-    trap 'rm -rf "$tmp"' EXIT
+    OPENDEPLOY_DOWNLOAD_TMP="$(mktemp -d)"
+    trap 'rm -rf -- "$OPENDEPLOY_DOWNLOAD_TMP"' EXIT
 
-    bin="$(download_opendeploy "$version" "$arch" "$tmp")"
+    bin="$(download_opendeploy "$version" "$arch" "$OPENDEPLOY_DOWNLOAD_TMP")"
     run_as_root "$bin" uninstall "$@"
 }
 
