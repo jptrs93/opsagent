@@ -108,6 +108,7 @@ main() {
     trap 'rm -rf "$tmp"' EXIT
 
     bin="$(download_opendeploy "$version" "$arch" "$tmp")"
+    # The binary owns installer flag parsing; keep this wrapper transparent.
     run_as_root "$bin" install primary "$@"
 }
 

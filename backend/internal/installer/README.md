@@ -31,6 +31,7 @@ This package is deliberately self-contained:
 # /etc/systemd/system/opendeploy.service already exists.
 sudo opendeploy install primary                 # latest release
 sudo opendeploy install primary --version v0.1.0
+sudo opendeploy install primary --web-listen '[2001:db8::12]:443' --cluster-listen '[2001:db8::12]:9443' --enrollment-listen '[2001:db8::12]:9444'
 sudo opendeploy install secondary --cluster-addr primary.example.com:9443 --enrollment-addr primary.example.com:9444
 
 # Upgrade can run as the opendeploy user (passwordless systemctl-restart sudoers).

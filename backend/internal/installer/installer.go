@@ -88,6 +88,8 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 	useSelf := fs.Bool("use-self", false, "install this executable as v0.0.0 instead of downloading opendeploy")
 	httpOnlyRaw := fs.String("http-only", "", "set OPENDEPLOY_INITIAL_WEB_HTTP_ONLY (true or false)")
 	webListenRaw := fs.String("web-listen", "", "set OPENDEPLOY_INITIAL_WEB_LISTEN (for example :8080)")
+	clusterListenRaw := fs.String("cluster-listen", "", "set OPENDEPLOY_INITIAL_CLUSTER_LISTEN (for example :9443)")
+	enrollmentListenRaw := fs.String("enrollment-listen", "", "set OPENDEPLOY_INITIAL_ENROLLMENT_LISTEN (for example :9444)")
 	acmeHostsRaw := fs.String("acme-hosts", "", "set OPENDEPLOY_INITIAL_ACME_HOSTS (comma-separated hostnames)")
 	primaryNameRaw := fs.String("primary-name", "", "set OPENDEPLOY_PRIMARY_NAME for the primary certificate/machine name")
 	fs.BoolVar(&dryRun, "dry-run", false, "print the actions that would be taken without performing them")
@@ -111,6 +113,20 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 				return
 			}
 			opts.webListen = &v
+		case "cluster-listen":
+			v := strings.TrimSpace(*clusterListenRaw)
+			if err := validateInstallStringFlag("--cluster-listen", v); err != nil && parseErr == nil {
+				parseErr = err
+				return
+			}
+			opts.clusterListen = &v
+		case "enrollment-listen":
+			v := strings.TrimSpace(*enrollmentListenRaw)
+			if err := validateInstallStringFlag("--enrollment-listen", v); err != nil && parseErr == nil {
+				parseErr = err
+				return
+			}
+			opts.enrollmentListen = &v
 		case "acme-hosts":
 			v := strings.TrimSpace(*acmeHostsRaw)
 			if err := validateEnvValue("--acme-hosts", v); err != nil && parseErr == nil {
@@ -193,7 +209,7 @@ func usage(prog string) {
 	fmt.Fprintf(os.Stderr, `%[1]s install / uninstall — provision, upgrade, and remove opendeploy
 
 Usage:
-  %[1]s install primary [--version vX.Y.Z] [--use-self] [--http-only true] [--web-listen :8080] [--acme-hosts host1,host2] [--primary-name primary] [--dry-run]
+  %[1]s install primary [--version vX.Y.Z] [--use-self] [--http-only true] [--web-listen :8080] [--cluster-listen :9443] [--enrollment-listen :9444] [--acme-hosts host1,host2] [--primary-name primary] [--dry-run]
   %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 [--version vX.Y.Z] [--use-self] [--primary-name primary] [--dry-run]
   %[1]s uninstall [--purge] [--yes] [--dry-run]
 

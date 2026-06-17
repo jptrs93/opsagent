@@ -75,6 +75,12 @@ func applyEnvOverrides(content []byte, opts installOptions) []byte {
 	if opts.webListen != nil {
 		values["OPENDEPLOY_INITIAL_WEB_LISTEN"] = *opts.webListen
 	}
+	if opts.clusterListen != nil {
+		values["OPENDEPLOY_INITIAL_CLUSTER_LISTEN"] = *opts.clusterListen
+	}
+	if opts.enrollmentListen != nil {
+		values["OPENDEPLOY_INITIAL_ENROLLMENT_LISTEN"] = *opts.enrollmentListen
+	}
 	if opts.acmeHosts != nil {
 		values["OPENDEPLOY_INITIAL_ACME_HOSTS"] = *opts.acmeHosts
 	}
@@ -87,7 +93,7 @@ func applyEnvOverrides(content []byte, opts installOptions) []byte {
 	if opts.primaryName != nil {
 		values["OPENDEPLOY_PRIMARY_NAME"] = *opts.primaryName
 	}
-	return applyEnvValues(content, values, []string{"OPENDEPLOY_INITIAL_ACME_HOSTS", "OPENDEPLOY_INITIAL_WEB_HTTP_ONLY", "OPENDEPLOY_INITIAL_WEB_LISTEN", "OPENDEPLOY_PRIMARY_CLUSTER_ADDR", "OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR", "OPENDEPLOY_PRIMARY_NAME"})
+	return applyEnvValues(content, values, []string{"OPENDEPLOY_INITIAL_ACME_HOSTS", "OPENDEPLOY_INITIAL_WEB_HTTP_ONLY", "OPENDEPLOY_INITIAL_WEB_LISTEN", "OPENDEPLOY_INITIAL_CLUSTER_LISTEN", "OPENDEPLOY_INITIAL_ENROLLMENT_LISTEN", "OPENDEPLOY_PRIMARY_CLUSTER_ADDR", "OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR", "OPENDEPLOY_PRIMARY_NAME"})
 }
 
 func applyEnvValues(content []byte, values map[string]string, appendOrder []string) []byte {
