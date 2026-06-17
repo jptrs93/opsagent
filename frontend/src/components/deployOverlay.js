@@ -125,16 +125,27 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         }
         console.log('[opendeploy] deployment repo refresh response', {request: req, response: result});
         try {
-            const sourceResult = validationSourceResult(form, result);
+            let sourceResult = validationSourceResult(form, result);
             form.repoCheck.val = sourceCheckFromValidation(form, result, sourceID, sourceType, sourceKey);
             if (form.repoCheck.val.status !== 'ok') {
                 versionError.val = form.repoCheck.val.message || 'Unable to connect to source repository.';
-                scopes.val = sourceResult.scopes || [];
+                scopes.val = form.repoCheck.val.scopes || [];
                 versions.val = [];
             } else {
-                scopes.val = sourceResult.scopes || [];
+                const preferredVersion = opts.preferVersion || '';
+                if (!scope && preferredVersion && !(sourceResult.versions || []).some(v => v.id === preferredVersion)) {
+                    const found = await validationForVersionScope(form, sourceID, sourceType, sourceKey, form.repoCheck.val.scopes || [], sourceResult.scope || '', preferredVersion);
+                    if (found && sourceValidationKey(form) === sourceKey) {
+                        result = found;
+                        sourceResult = validationSourceResult(form, result);
+                        form.repoCheck.val = sourceCheckFromValidation(form, result, sourceID, sourceType, sourceKey);
+                    }
+                }
+                scopes.val = form.repoCheck.val.scopes || [];
                 const scopeKey = sourceResult.scope || '';
-                const vsList = sourceResult.versions || [];
+                const vsList = (sourceResult.versions || []).length > 0
+                    ? sourceResult.versions
+                    : ((form.repoCheck.val.versionsByScope || {})[scopeKey]?.versions || []);
                 versions.val = vsList;
                 selectedScope.val = scopeKey;
                 const deployedId = deployment.deployedVersion || '';
@@ -179,7 +190,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     });
 
     if (deployment.variant && (deployment.variant !== 'containerImage' || !hasTrustedSourceValidation(form))) {
-        loadVersions('');
+        loadVersions('', {preserveSelection: true, preferVersion: deployment.deployedVersion || ''});
     }
     loadAssets();
 
@@ -471,6 +482,28 @@ function selectedDeploymentVersionScope(result, requestedScope) {
     const scopes = result?.scopes || [];
     const fallbackScope = scopes.includes('main') ? 'main' : (scopes[0] || Object.keys(versionsByScope)[0] || '');
     return {scope: fallbackScope, versions: versionsByScope[fallbackScope]?.versions || []};
+}
+
+async function validationForVersionScope(form, sourceID, sourceType, sourceKey, scopes, currentScope, version) {
+    if (!version || form.sourceType.val !== 'nixDockerBuild') return null;
+    for (const candidate of scopes) {
+        if (!candidate || candidate === currentScope) continue;
+        const req = buildValidateSourceRequest(form, {
+            scope: candidate,
+            refreshScopes: false,
+            refreshVersions: true,
+            checkFlakePath: Boolean(form.nixFlake.val.trim()),
+        });
+        try {
+            const result = await capi.postV1RepoValidate(req);
+            if (sourceValidationKey(form) !== sourceKey) return null;
+            const sourceResult = validationSourceResult(form, result);
+            if ((sourceResult.versions || []).some(v => v.id === version)) return result;
+        } catch (e) {
+            console.error('[opendeploy] deployment version branch search failed', {sourceID, sourceType, scope: candidate, request: req, error: e, stack: e?.stack});
+        }
+    }
+    return null;
 }
 
 function selectClass() {
