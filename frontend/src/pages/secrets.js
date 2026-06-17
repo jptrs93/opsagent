@@ -56,18 +56,16 @@ export function secretsPage() {
         return {
             meta, isNew, _saved: false,
             name: van.state(meta ? meta.name : ""),
-            group: van.state(meta ? meta.group : ""),
             value: van.state(""),
             revealed: van.state(false),  // show plaintext vs masked
             loaded: van.state(isNew),    // `value` holds the real current plaintext
             valueDirty: van.state(false),
-            orig: {name: meta ? meta.name : "", group: meta ? meta.group : "", value: ""},
+            orig: {name: meta ? meta.name : "", value: ""},
         };
     };
 
     const isDirty = (row) => row.isNew
         || row.name.val !== row.orig.name
-        || row.group.val !== row.orig.group
         || row.valueDirty.val;
 
     const loadStatus = async () => { status.val = await capi.postV1SecretsStatus({}); };
@@ -98,8 +96,7 @@ export function secretsPage() {
         const query = search.val.trim().toLowerCase();
         if (!query) return rows.val;
         return rows.val.filter(row =>
-            row.name.val.toLowerCase().includes(query) ||
-            row.group.val.toLowerCase().includes(query));
+            row.name.val.toLowerCase().includes(query));
     };
 
     const toggleReveal = async (row) => {
@@ -122,8 +119,8 @@ export function secretsPage() {
         try {
             error.val = null;
             // Determine the value to persist. If the operator never touched or
-            // loaded the value of an existing secret, fetch it so a name/group
-            // edit doesn't clobber it.
+            // loaded the value of an existing secret, fetch it so a name edit
+            // doesn't clobber it.
             let value;
             if (row.loaded.val || row.valueDirty.val) {
                 value = row.value.val;
@@ -133,7 +130,7 @@ export function secretsPage() {
             }
             await capi.postV1SecretsSet({
                 name,
-                group: row.group.val.trim(),
+                group: "default",
                 value: new TextEncoder().encode(value),
             });
             // A rename of an existing secret is set-new + delete-old.
@@ -150,7 +147,6 @@ export function secretsPage() {
     const discardRow = (row) => {
         if (row.isNew) { removeRow(row); return; }
         row.name.val = row.orig.name;
-        row.group.val = row.orig.group;
         row.value.val = row.loaded.val ? row.orig.value : "";
         row.valueDirty.val = false;
         row.revealed.val = false;
@@ -217,8 +213,7 @@ export function secretsPage() {
 
     const rowEl = (row) => tr(
         {class: "border-b border-gray-800 last:border-0 align-middle"},
-        td({class: "py-1 pr-3 w-1/4"}, cellInput(row.name, "name", true)),
-        td({class: "py-1 pr-3 w-1/6"}, cellInput(row.group, "group", false)),
+        td({class: "py-1 pr-3 w-1/3"}, cellInput(row.name, "name", true)),
         td({class: "py-1 pr-3"},
             div({class: "flex items-center gap-1"},
                 input({
@@ -278,7 +273,6 @@ export function secretsPage() {
                 thead(
                     tr({class: "text-left text-gray-400 border-b border-gray-700"},
                         th({class: "pb-2 pr-3 font-medium"}, "Name"),
-                        th({class: "pb-2 pr-3 font-medium"}, "Group"),
                         th({class: "pb-2 pr-3 font-medium"}, "Value"),
                         th({class: "pb-2 w-px"}, ""),
                     )),

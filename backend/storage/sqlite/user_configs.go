@@ -11,10 +11,12 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
+const userConfigDefaultGroup = "default"
+
 func userConfigRowToProto(r UserConfig) *apigen.UserConfig {
 	return &apigen.UserConfig{
 		Name:      r.Name,
-		Group:     r.ConfigGroup,
+		Group:     userConfigDefaultGroup,
 		Value:     r.Value,
 		CreatedAt: time.UnixMilli(r.CreatedAt),
 		UpdatedAt: time.UnixMilli(r.UpdatedAt),
@@ -38,7 +40,7 @@ func (s *PrimaryStorage) SetUserConfig(name, group, value string, updatedBy int3
 	now := time.Now().UnixMilli()
 	if err := s.q.UpsertUserConfig(context.Background(), UpsertUserConfigParams{
 		Name:        name,
-		ConfigGroup: group,
+		ConfigGroup: userConfigDefaultGroup,
 		Value:       value,
 		CreatedAt:   now,
 		UpdatedAt:   now,

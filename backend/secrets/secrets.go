@@ -115,6 +115,8 @@ type Meta struct {
 	UpdatedBy int32
 }
 
+const defaultUserSecretGroup = "default"
+
 // Store is the persistence the Manager needs. The sqlite StorageAdapter
 // implements it. Writes follow opendeploy's panic-on-failure convention.
 type Store interface {
@@ -345,7 +347,7 @@ func (m *Manager) set(name, group string, value []byte, updatedBy int32) (Meta, 
 	}
 	rec := Record{
 		Name:       name,
-		Group:      strings.TrimSpace(group),
+		Group:      defaultUserSecretGroup,
 		SMKVersion: m.version,
 		Ciphertext: ct,
 		Nonce:      nonce,
@@ -624,7 +626,7 @@ func nowMs() int64 { return time.Now().UnixMilli() }
 func (r Record) meta() Meta {
 	return Meta{
 		Name:      r.Name,
-		Group:     r.Group,
+		Group:     defaultUserSecretGroup,
 		CreatedAt: time.UnixMilli(r.CreatedAt),
 		UpdatedAt: time.UnixMilli(r.UpdatedAt),
 		UpdatedBy: r.UpdatedBy,

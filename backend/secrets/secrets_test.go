@@ -74,7 +74,7 @@ func TestSetResolveRoundTrip(t *testing.T) {
 
 	// List returns metadata, never the value.
 	metas := mgr.List()
-	if len(metas) != 1 || metas[0].Name != "staging.db.password" || metas[0].Group != "staging" {
+	if len(metas) != 1 || metas[0].Name != "staging.db.password" || metas[0].Group != "default" {
 		t.Fatalf("List = %+v", metas)
 	}
 }

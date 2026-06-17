@@ -43,11 +43,9 @@ export function configsPage() {
         return {
             config, isNew, _saved: false,
             name: van.state(config ? config.name : ""),
-            group: van.state(config ? config.group : ""),
             value: van.state(config ? config.value : ""),
             orig: {
                 name: config ? config.name : "",
-                group: config ? config.group : "",
                 value: config ? config.value : "",
             },
         };
@@ -55,7 +53,6 @@ export function configsPage() {
 
     const isDirty = (row) => row.isNew
         || row.name.val !== row.orig.name
-        || row.group.val !== row.orig.group
         || row.value.val !== row.orig.value;
 
     const reloadRows = async () => {
@@ -83,7 +80,6 @@ export function configsPage() {
         if (!query) return rows.val;
         return rows.val.filter(row =>
             row.name.val.toLowerCase().includes(query) ||
-            row.group.val.toLowerCase().includes(query) ||
             row.value.val.toLowerCase().includes(query));
     };
 
@@ -94,7 +90,7 @@ export function configsPage() {
             error.val = null;
             await capi.postV1UserConfigsSet({
                 name,
-                group: row.group.val.trim(),
+                group: "default",
                 value: row.value.val,
             });
             if (!row.isNew && row.orig.name !== name) {
@@ -110,7 +106,6 @@ export function configsPage() {
     const discardRow = (row) => {
         if (row.isNew) { removeRow(row); return; }
         row.name.val = row.orig.name;
-        row.group.val = row.orig.group;
         row.value.val = row.orig.value;
     };
 
@@ -134,8 +129,7 @@ export function configsPage() {
 
     const rowEl = (row) => tr(
         {class: "border-b border-gray-800 last:border-0 align-middle"},
-        td({class: "py-1 pr-3 w-1/4"}, cellInput(row.name, "name", true)),
-        td({class: "py-1 pr-3 w-1/6"}, cellInput(row.group, "group", false)),
+        td({class: "py-1 pr-3 w-1/3"}, cellInput(row.name, "name", true)),
         td({class: "py-1 pr-3"}, cellInput(row.value, "value", true)),
         td({class: "py-1 pl-2 text-right whitespace-nowrap w-px"},
             () => isDirty(row)
@@ -181,7 +175,6 @@ export function configsPage() {
                 thead(
                     tr({class: "text-left text-gray-400 border-b border-gray-700"},
                         th({class: "pb-2 pr-3 font-medium"}, "Name"),
-                        th({class: "pb-2 pr-3 font-medium"}, "Group"),
                         th({class: "pb-2 pr-3 font-medium"}, "Value"),
                         th({class: "pb-2 w-px"}, ""),
                     )),
