@@ -44,7 +44,9 @@ export function deploymentConfigToForm(cfg) {
     // already sets one of them, so they aren't hidden on edit.
     const showSourceOpts = false;
     const showExecOpts = false;
-    const repoCheck = nixDocker.repo && nixDocker.flake ? knownNixSourceCheck(nixDocker.repo, nixDocker.flake) : undefined;
+    const repoCheck = prepare.containerImage && containerImage.image
+        ? knownContainerImageSourceCheck(containerImage.image)
+        : (nixDocker.repo && nixDocker.flake ? knownNixSourceCheck(nixDocker.repo, nixDocker.flake) : undefined);
 
     return makeFormState({
         name: cid.name || '',
@@ -340,6 +342,21 @@ function knownNixSourceCheck(repo, flake) {
         nixFlakeFile: {ok: true, message: 'Path verified'},
         scopes: [],
         scope: '',
+        versions: [],
+        versionsByScope: {},
+    };
+}
+
+function knownContainerImageSourceCheck(image) {
+    const trimmedImage = (image || '').trim();
+    const sourceKey = `${SOURCE_DOCKER_IMAGE}:${trimmedImage}`;
+    return {
+        status: 'ok',
+        message: 'Image accessible.',
+        repo: trimmedImage,
+        sourceType: SOURCE_DOCKER_IMAGE,
+        sourceKey,
+        gitRepository: {ok: true, message: 'Image accessible.'},
         versions: [],
         versionsByScope: {},
     };

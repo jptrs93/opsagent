@@ -42,7 +42,9 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     const initialSpecKey = JSON.stringify(formToSpec(form));
     const scopes = van.state([]);
     const selectedScope = van.state('');
-    const versions = van.state([]);
+    const versions = van.state(deployment.variant === 'containerImage' && deployment.deployedVersion
+        ? [{id: deployment.deployedVersion, label: 'Current'}]
+        : []);
     const selectedVersion = van.state(deployment.variant === 'containerImage' ? (imageVersionFromReference(form.containerImage.val) || deployment.deployedVersion || '') : '');
     const loadingVersions = van.state(false);
     const versionError = van.state('');
@@ -127,7 +129,19 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         }
     };
 
-    if (deployment.variant) {
+    van.derive(() => {
+        if (form.sourceType.val !== 'containerImage') return;
+        const check = form.repoCheck.val;
+        if (check.status !== 'ok' || check.sourceKey !== sourceValidationKey(form)) return;
+        const nextVersions = check.versions || [];
+        if (nextVersions.length === 0) return;
+        versions.val = nextVersions;
+        if (!nextVersions.some(v => v.id === selectedVersion.val)) {
+            selectedVersion.val = nextVersions[0]?.id || '';
+        }
+    });
+
+    if (deployment.variant && (deployment.variant !== 'containerImage' || !hasTrustedSourceValidation(form))) {
         loadVersions('');
     }
     loadAssets();
