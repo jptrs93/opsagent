@@ -227,8 +227,8 @@ export async function createPostgresClientDeployment(page, {
 }
 
 export async function createConfig(page, {name, value} = {}) {
-  await byTestId(page, 'nav-configs', page.getByText('Configs')).click();
-  await expect(page.getByText("Reference a config from a deployment's env value as")).toBeVisible();
+  await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
+  await expect(page.getByText('Reference secrets as')).toBeVisible();
   await page.getByRole('button', {name: 'Add config'}).click();
 
   const row = page.locator('tbody tr').last();
@@ -239,8 +239,8 @@ export async function createConfig(page, {name, value} = {}) {
 }
 
 export async function createSecret(page, {name, value} = {}) {
-  await byTestId(page, 'nav-secrets', page.getByText('Secrets')).click();
-  await expect(page.getByText("Reference a secret from a deployment's env value as")).toBeVisible();
+  await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
+  await expect(page.getByText('Reference secrets as')).toBeVisible();
   await page.getByRole('button', {name: 'Add secret'}).click();
 
   const row = page.locator('tbody tr').last();
