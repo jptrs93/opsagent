@@ -37,7 +37,7 @@ Current semantics:
 - Mount materialized files read-only into the container.
 - Reject paths that are empty, relative, directories, or dangerous container destinations.
 - Fail deployment preparation if an asset key/version no longer exists.
-- Keep existing `runner.container.mounts` for operator-managed host paths; use `assetMounts` only for OpenDeploy-managed config files.
+- Keep existing `runner.container.mounts` for raw host bind mounts; use `assetMounts` only for OpenDeploy-managed config files.
 - In the UI, use the compact Assets section under environment variables to select key/path or create a new asset in the side pane.
 
 Open questions before implementation:

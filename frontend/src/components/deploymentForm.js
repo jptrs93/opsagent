@@ -547,7 +547,8 @@ function assetMountsSection(form, opts = {}) {
 
 function volumeMountsSummary(form) {
     const summaryText = () => {
-        const n = form.containerDisableDataVolume.val ? 0 : 1;
+        const extra = formVolumeMounts(form).length;
+        const n = (form.containerDisableDataVolume.val ? 0 : 1) + extra;
         return `${n} mounted volume${n === 1 ? '' : 's'}`;
     };
     return div(
@@ -717,6 +718,49 @@ function newInvalidAssetMount(row, assets) {
 }
 
 export function volumeMountsPane(form) {
+    const rows = () => form.volumeMounts.val || [];
+    const addMount = () => {
+        form.volumeMounts.val = [...rows(), {id: nextVolumeMountID++, host: '', container: '', readonly: false}];
+    };
+    const updateMount = (row, patch) => {
+        form.volumeMounts.val = rows().map(m => m.id === row.id ? {...m, ...patch} : m);
+    };
+    const removeMount = (row) => {
+        form.volumeMounts.val = rows().filter(m => m.id !== row.id);
+    };
+    const rowEl = (row) => div(
+        {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
+        div(
+            {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
+            field("Host path", input({
+                class: textInputClass(true),
+                placeholder: "/home/ubuntu/coflip-server/data",
+                value: row.host || '',
+                oninput: e => updateMount(row, {host: e.target.value}),
+            }), "Must already exist on the target machine."),
+            field("Container path", input({
+                class: textInputClass(true),
+                placeholder: "/data",
+                value: row.container || '',
+                oninput: e => updateMount(row, {container: e.target.value}),
+            })),
+        ),
+        div({class: "flex items-center justify-between gap-2"},
+            label({class: "flex items-center gap-2 text-xs text-gray-400"},
+                input({
+                    type: "checkbox",
+                    checked: Boolean(row.readonly),
+                    onchange: e => updateMount(row, {readonly: e.target.checked}),
+                }),
+                span("Read-only"),
+            ),
+            button({
+                type: "button",
+                class: "text-xs text-gray-500 hover:text-red-400 cursor-pointer",
+                onclick: () => removeMount(row),
+            }, "Remove"),
+        ),
+    );
     return div(
         {class: () => form.volumeMountsPaneOpen.val
             ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
@@ -733,9 +777,14 @@ export function volumeMountsPane(form) {
         ),
         div(
             {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-4"},
-            p({class: "text-[11px] text-gray-500"}, "Volumes are named storage directories mounted into the container at a chosen location. They are persistent across container restarts."),
+            p({class: "text-[11px] text-gray-500"}, "Mount the built-in deployment volume, plus optional existing host paths from the target machine."),
             defaultVolumeCard(form),
-            p({class: "text-[11px] text-gray-500"}, "Additional named volumes will be managed here later."),
+            () => div({class: "flex flex-col gap-3"}, ...rows().map(rowEl)),
+            button({
+                type: "button",
+                class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer self-start",
+                onclick: addMount,
+            }, "Add host path mount"),
         ),
     );
 }
@@ -884,8 +933,13 @@ function defaultVolumeFallbackContainerPath(form) {
 
 function hasInvalidVolumeConfig(form) {
     const path = form.containerDataMountPath.val.trim();
-    if (!path) return false;
-    return !path.startsWith('/') || path.endsWith('/') || path.includes('/../') || path.includes('/./') || path === '/';
+    if (path && !validAbsolutePath(path)) return true;
+    return (form.volumeMounts.val || []).some(m => {
+        const host = (m.host || '').trim();
+        const container = (m.container || '').trim();
+        if (!host && !container) return false;
+        return !validAbsolutePath(host) || !validAbsolutePath(container);
+    });
 }
 
 function hasInvalidAssetMounts(form) {
@@ -893,8 +947,19 @@ function hasInvalidAssetMounts(form) {
         const key = (m.key || '').trim();
         const path = (m.path || '').trim();
         if (!key) return false;
-        return !path || !path.startsWith('/') || path.endsWith('/') || path.includes('/../') || path.includes('/./') || path === '/';
+        return !validAbsolutePath(path);
     });
+}
+
+function validAbsolutePath(path) {
+    return path.startsWith('/')
+        && !path.endsWith('/')
+        && !path.endsWith('/.')
+        && !path.endsWith('/..')
+        && !path.includes('//')
+        && !path.includes('/../')
+        && !path.includes('/./')
+        && path !== '/';
 }
 
 function closeRuntimePanes(form, keep) {

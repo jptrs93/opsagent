@@ -97,6 +97,61 @@ func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
 	}
 }
 
+func TestValidateDeploymentSpecAcceptsHostMounts(t *testing.T) {
+	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: apigen.ContainerImageConfig{Image: "nginx:latest"},
+		},
+		Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{
+				Mounts: []*apigen.ContainerMount{{
+					Host:      " /home/ubuntu/coflip-server/data ",
+					Container: " /data ",
+					Readonly:  false,
+				}},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
+	}
+	mount := spec.Runner.Container.Mounts[0]
+	if mount.Host != "/home/ubuntu/coflip-server/data" || mount.Container != "/data" || mount.Readonly {
+		t.Fatalf("mount not normalized: %+v", mount)
+	}
+}
+
+func TestValidateDeploymentSpecRejectsInvalidHostMounts(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		host      string
+		container string
+	}{
+		{name: "relative host", host: "data", container: "/data"},
+		{name: "relative container", host: "/srv/data", container: "data"},
+		{name: "root host", host: "/", container: "/data"},
+		{name: "root container", host: "/srv/data", container: "/"},
+		{name: "unclean host", host: "/srv/../data", container: "/data"},
+		{name: "unclean container", host: "/srv/data", container: "/var/../data"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+				Prepare: apigen.PrepareConfig{
+					ContainerImage: apigen.ContainerImageConfig{Image: "nginx:latest"},
+				},
+				Runner: apigen.RunnerConfig{
+					Container: apigen.ContainerRunnerConfig{
+						Mounts: []*apigen.ContainerMount{{Host: tc.host, Container: tc.container}},
+					},
+				},
+			}, nil)
+			if err == nil {
+				t.Fatal("expected invalid host mount")
+			}
+		})
+	}
+}
+
 func TestValidateDeploymentSpecRejectsSystemdRunner(t *testing.T) {
 	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{

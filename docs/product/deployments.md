@@ -35,7 +35,8 @@ A deployment is created by posting a `DeploymentCreateRequest` to
     "runner": {
       "container": {
         "user": "1000",
-        "env": [{"key": "LOG_LEVEL", "value": "info"}]
+        "env": [{"key": "LOG_LEVEL", "value": "info"}],
+        "mounts": [{"host": "/home/ubuntu/coflip-server/data", "container": "/data"}]
       }
     }
   }
@@ -61,7 +62,7 @@ self-deployment. Public create/update validation rejects it.
 
 | Variant | Fields | Description |
 |---|---|---|
-| `container` | `user`, `env`, `command`, `workingDir`, `dataMountPath`, `disableDataVolume`, `mounts` | Runs the prepared image as a container via containerd (host networking, OpenDeploy-supervised crash/backoff loop). Every container gets a default per-deployment host data volume bind-mounted at `/var` (or `/home/<user>/var` when `user` is set; override with `dataMountPath`, opt out with `disableDataVolume`). `user` maps to the in-container OS user. Requires the `containerImage` or `nixDockerBuild` prepare. Linux only. |
+| `container` | `user`, `env`, `command`, `workingDir`, `dataMountPath`, `disableDataVolume`, `mounts` | Runs the prepared image as a container via containerd (host networking, OpenDeploy-supervised crash/backoff loop). Every container gets a default per-deployment host data volume bind-mounted at `/var` (or `/home/<user>/var` when `user` is set; override with `dataMountPath`, opt out with `disableDataVolume`). `mounts` bind existing absolute host paths from the target machine into absolute container paths, read/write by default or read-only with `readonly: true`. `user` maps to the in-container OS user. Requires the `containerImage` or `nixDockerBuild` prepare. Linux only. |
 
 `systemd` remains as an internal-only runner for the `OPENDEPLOY`
 self-deployment. Public create/update validation rejects it, and public state

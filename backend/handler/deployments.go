@@ -854,16 +854,39 @@ func validateRunnerConfig(runner *apigen.RunnerConfig, prepare *apigen.PrepareCo
 		if err := validateEnvVars("runner.container.env", runner.Container.Env); err != nil {
 			return err
 		}
-		for _, m := range runner.Container.Mounts {
-			if m == nil || m.Host == "" || m.Container == "" {
-				return invalidConfigErrf("runner.container.mounts: host and container are both required")
-			}
+		if err := validateContainerMounts(runner.Container.Mounts); err != nil {
+			return err
 		}
 		assetMounts, err := resolveAssetMounts(runner.Container.AssetMounts, assets)
 		if err != nil {
 			return err
 		}
 		runner.Container.AssetMounts = assetMounts
+	}
+	return nil
+}
+
+func validateContainerMounts(mounts []*apigen.ContainerMount) error {
+	for _, m := range mounts {
+		if m == nil || strings.TrimSpace(m.Host) == "" || strings.TrimSpace(m.Container) == "" {
+			return invalidConfigErrf("runner.container.mounts: host and container are both required")
+		}
+		host := strings.TrimSpace(m.Host)
+		container := strings.TrimSpace(m.Container)
+		if !filepath.IsAbs(host) {
+			return invalidConfigErrf("runner.container.mounts: host path must be absolute")
+		}
+		if !filepath.IsAbs(container) {
+			return invalidConfigErrf("runner.container.mounts: container path must be absolute")
+		}
+		if filepath.Clean(host) != host || host == "/" {
+			return invalidConfigErrf("runner.container.mounts: host path must be a clean absolute path")
+		}
+		if filepath.Clean(container) != container || container == "/" {
+			return invalidConfigErrf("runner.container.mounts: container path must be a clean absolute path")
+		}
+		m.Host = host
+		m.Container = container
 	}
 	return nil
 }
