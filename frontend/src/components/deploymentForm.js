@@ -303,9 +303,13 @@ export function sourceCheckFromValidation(form, res, repo, sourceType, sourceKey
     const flakeRequired = sourceType === SOURCE_NIX_DOCKER;
     const ok = Boolean(gitRepository.ok && (!flakeRequired || !form.nixFlake.val.trim() || nixFlakeFile.ok));
     const versionsByScope = canReusePrevious ? {...(previous.versionsByScope || {})} : {};
-    if ((sourceResult.versions || []).length > 0 || sourceResult.scope) {
+    if ((sourceResult.versions || []).length > 0 || (!canReusePrevious && sourceResult.scope)) {
         versionsByScope[sourceResult.scope || ''] = {versions: sourceResult.versions || []};
     }
+    const activeScope = sourceResult.scope || (canReusePrevious ? previous.scope || '' : '');
+    const activeVersions = (sourceResult.versions || []).length > 0
+        ? sourceResult.versions
+        : (versionsByScope[activeScope]?.versions || []);
     return {
         status: ok ? 'ok' : 'error',
         message: gitRepository.message || (gitRepository.ok ? 'Repo accessible.' : 'Source not accessible.'),
@@ -315,8 +319,8 @@ export function sourceCheckFromValidation(form, res, repo, sourceType, sourceKey
         gitRepository,
         nixFlakeFile,
         scopes: (sourceResult.scopes || []).length > 0 ? sourceResult.scopes : (canReusePrevious ? previous.scopes || [] : []),
-        scope: sourceResult.scope || (canReusePrevious ? previous.scope || '' : ''),
-        versions: sourceResult.versions || [],
+        scope: activeScope,
+        versions: activeVersions,
         versionsByScope,
     };
 }

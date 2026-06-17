@@ -42,7 +42,8 @@ export function createOverlay(onClose, onCreated) {
         const check = form.repoCheck.val;
         const key = sourceKey(form);
         if (check.status !== 'ok' || check.sourceKey !== key) return;
-        const versions = Object.values(check.versionsByScope || {}).flatMap(scope => scope?.versions || []);
+        const scope = currentScope(check, selectedScope.val);
+        const versions = ((check.versionsByScope || {})[scope]?.versions) || [];
         if (versions.length === 0) return;
         if (selectedVersionSourceKey.val === key && versions.some(v => v.id === selectedVersion.val)) return;
         selectedVersion.val = versions[0].id;
@@ -144,8 +145,8 @@ export function createOverlay(onClose, onCreated) {
                         selectedVersion,
                         selectedVersionSourceKey,
                         loadingVersions,
-                        onScopeChange: (scope) => loadSourceVersions(form, selectedScope, selectedVersion, selectedVersionSourceKey, loadingVersions, scope),
-                        onRefresh: () => loadSourceVersions(form, selectedScope, selectedVersion, selectedVersionSourceKey, loadingVersions, selectedScope.val, {refreshScopes: true}),
+                        onScopeChange: (scope) => loadSourceVersions(form, selectedScope, selectedVersion, selectedVersionSourceKey, loadingVersions, scope, {preserveSelection: false}),
+                        onRefresh: () => loadSourceVersions(form, selectedScope, selectedVersion, selectedVersionSourceKey, loadingVersions, selectedScope.val, {refreshScopes: true, preserveSelection: true}),
                     }),
                 ),
                 () => {
@@ -315,7 +316,7 @@ async function loadSourceVersions(form, selectedScope, selectedVersion, selected
             const nextScope = sourceResult.scope || currentScope(form.repoCheck.val, scope || selectedScope.val);
             selectedScope.val = nextScope;
             const versions = sourceResult.versions || [];
-            if (selectedVersionSourceKey.val !== sourceKeyValue || !versions.some(v => v.id === selectedVersion.val)) {
+            if (!opts.preserveSelection || selectedVersionSourceKey.val !== sourceKeyValue || !versions.some(v => v.id === selectedVersion.val)) {
                 selectedVersion.val = versions[0]?.id || '';
                 selectedVersionSourceKey.val = selectedVersion.val ? sourceKeyValue : '';
             }

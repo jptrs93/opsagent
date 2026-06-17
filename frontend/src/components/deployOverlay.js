@@ -138,7 +138,9 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                 versions.val = vsList;
                 selectedScope.val = scopeKey;
                 const deployedId = deployment.deployedVersion || '';
-                if (opts.preserveSelection && previousSelectedVersion && vsList.some(v => v.id === previousSelectedVersion)) {
+                if (!opts.preserveSelection) {
+                    selectedVersion.val = vsList[0]?.id || '';
+                } else if (previousSelectedVersion && vsList.some(v => v.id === previousSelectedVersion)) {
                     selectedVersion.val = previousSelectedVersion;
                 } else if (deployedId && vsList.some(v => v.id === deployedId)) {
                     selectedVersion.val = deployedId;
@@ -183,7 +185,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
 
     const onScopeChange = (e) => {
         selectedScope.val = e.target.value;
-        loadVersions(e.target.value);
+        loadVersions(e.target.value, {preserveSelection: false});
     };
 
     const doDeploy = async () => {
