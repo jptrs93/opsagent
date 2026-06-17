@@ -56,7 +56,7 @@ build_self_opendeploy() {
 	mkdir -p "$(dirname "$SELF_BIN")"
 	(
 		cd ../backend
-		CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -trimpath -ldflags="-s -w -X main.version=${SELF_VERSION}" -o "$SELF_BIN" .
+		CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -trimpath -ldflags="-s -w -X github.com/jptrs93/opsagent/backend/version.Version=${SELF_VERSION}" -o "$SELF_BIN" .
 	)
 }
 

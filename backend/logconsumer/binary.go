@@ -23,8 +23,8 @@ const SystemLogRun = "opendeploy"
 const logOutputQueueSize = 5_000
 const maxUnformattedBlockBytes = 256 * 1024
 
-func SystemLogBasePath(runOutputDir string, machine string) string {
-	return filepath.Join(runOutputDir, "0", machine, SystemLogRun)
+func SystemLogBasePath(runOutputDir string, version string) string {
+	return filepath.Join(runOutputDir, "0", version, SystemLogRun)
 }
 
 func NewHourlyWriter(basePath string) (io.WriteCloser, error) {

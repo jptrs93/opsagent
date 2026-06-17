@@ -19,6 +19,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/primary"
 	"github.com/jptrs93/opsagent/backend/secondary"
 	"github.com/jptrs93/opsagent/backend/util/certu"
+	"github.com/jptrs93/opsagent/backend/version"
 
 	"log/slog"
 	"net/http"
@@ -26,9 +27,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/handler"
 	"golang.org/x/crypto/acme/autocert"
 )
-
-// version is set at build time via -ldflags="-X main.version=...".
-var version = "dev"
 
 //go:generate sh -c "cd ../frontend && pnpm install && pnpm run build"
 //go:embed web/dist
@@ -68,11 +66,9 @@ func main() {
 		}
 		return
 	case ainit.CommandPrimary:
-		fmt.Println(fmt.Sprintf("opendeploy starting primary version=%v", version))
 		runPrimary()
 		return
 	case ainit.CommandSecondary:
-		fmt.Println(fmt.Sprintf("opendeploy starting secondary version=%v", version))
 		runSecondary()
 		return
 	default:
@@ -87,10 +83,7 @@ func runPrimary() {
 		panic(fmt.Sprintf("creating embedded sub fs: %v", err))
 	}
 	machineName := ainit.StaticConfig.PrimaryName
-	if err := ainit.ConfigureServiceLogging(machineName); err != nil {
-		panic(fmt.Sprintf("configuring service logging: %v", err))
-	}
-	slog.Info("starting in primary mode", "machine", machineName)
+	slog.Info(fmt.Sprintf("opendeploy starting primary version=%v machine=%v", version.Version, machineName))
 	h, err := handler.New(subFS, machineName)
 	if err != nil {
 		panic(fmt.Sprintf("creating handler: %v", err))
@@ -142,6 +135,7 @@ func runSecondary() {
 	if cfg.PrimaryEnrollmentAddr == "" {
 		panic("OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR must be set when running secondary")
 	}
+
 	caPath, certPath, keyPath := workerTLSPaths(cfg.DataDir)
 	if !workerTLSMaterialExists(caPath, certPath, keyPath) {
 		slog.Info("worker cluster certs missing; starting enrollment", "enrollmentAddr", cfg.PrimaryEnrollmentAddr)
@@ -157,11 +151,7 @@ func runSecondary() {
 	}
 	tlsCfg := certu.MustLoadTLSConfig(caPath, certPath, keyPath)
 	machineName := certu.MustCertLoadCommonName(certPath)
-	if err := ainit.ConfigureServiceLogging(machineName); err != nil {
-		panic(fmt.Sprintf("configuring service logging: %v", err))
-	}
-
-	slog.Info("starting in slave mode", "machine", machineName, "clusterAddr", cfg.PrimaryClusterAddr, "primaryName", cfg.PrimaryName)
+	slog.Info(fmt.Sprintf("opendeploy starting secondary version=%v machine=%v clusterAddr=%v primaryName=%v", version.Version, machineName, cfg.PrimaryClusterAddr, cfg.PrimaryName))
 	secondary.Run(secondary.Config{
 		TLS:                tlsCfg,
 		PrimaryClusterAddr: cfg.PrimaryClusterAddr,
