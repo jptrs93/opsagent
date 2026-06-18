@@ -968,25 +968,24 @@ export function envVarsPane(form) {
             }, X({size: 16})),
         ),
         div(
-            {class: "flex-1 min-h-0 flex flex-col gap-3 p-4 overflow-auto"},
-            p({class: "text-[11px] text-gray-500"}, "Each variable is a literal value, config reference, or secret reference."),
+            {class: "flex-1 min-h-0 flex flex-col p-3 overflow-auto"},
             datalist({id: secretDatalistID}, () => (secretRefsS.val || []).map(ref => option({value: ref.name}))),
             datalist({id: configDatalistID}, () => (userConfigRefsS.val || []).map(ref => option({value: ref.name}))),
             table({class: "w-full text-xs border-collapse"},
                 thead(
                     tr({class: "text-left text-gray-400 border-b border-gray-700"},
-                        th({class: "py-2 pr-2 font-medium"}, "Env name"),
-                        th({class: "py-2 px-2 font-medium w-28"}, "Type"),
-                        th({class: "py-2 px-2 font-medium"}, "Value"),
-                        th({class: "py-2 pl-2 font-medium w-20 text-right"}, ""),
+                        th({class: "pb-1.5 pr-1.5 font-medium"}, "Env name"),
+                        th({class: "pb-1.5 px-1.5 font-medium w-24"}, "Type"),
+                        th({class: "pb-1.5 pl-1.5 pr-0.5 font-medium"}, "Value"),
+                        th({class: "pb-1.5 pl-0.5 font-medium w-12 text-right"}, ""),
                     ),
                 ),
                 envRows,
                 tfoot(
-                    tr(td({colSpan: 4, class: "pt-3"},
+                    tr(td({colSpan: 4, class: "pt-2"},
                         button({
                             type: "button",
-                            class: "w-full rounded-md border border-dashed border-gray-600 text-gray-300 hover:border-brand hover:text-white py-2 cursor-pointer",
+                            class: "w-full rounded-md border border-dashed border-gray-600 text-gray-300 hover:border-brand hover:text-white py-1.5 cursor-pointer",
                             onclick: () => { form.envVars.val = [...(form.envVars.val || []), newEnvRow()]; },
                         }, "+ Add environment variable"),
                     )),
@@ -999,18 +998,18 @@ export function envVarsPane(form) {
 function envVarRow(form, row, secretDatalistID, configDatalistID) {
     const type = row.type || 'value';
     return tr({class: "border-b border-gray-800 last:border-b-0"},
-        td({class: "py-2 pr-2 align-top"},
+        td({class: "py-1 pr-1.5 align-top"},
             input({
                 type: "text",
-                class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-2 py-1.5 text-gray-100 font-mono focus:outline-none focus:ring-1 focus:ring-brand",
+                class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 font-mono focus:outline-none focus:ring-1 focus:ring-brand",
                 placeholder: "DATABASE_URL",
                 value: row.key || '',
                 oninput: e => updateEnvRow(form, row.id, {key: e.target.value}),
             }),
         ),
-        td({class: "py-2 px-2 align-top"},
+        td({class: "py-1 px-1.5 align-top"},
             select({
-                class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-2 py-1.5 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand",
+                class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand",
                 value: type,
                 onchange: e => updateEnvRow(form, row.id, envTypePatch(row, e.target.value)),
             },
@@ -1019,11 +1018,11 @@ function envVarRow(form, row, secretDatalistID, configDatalistID) {
                 option({value: "secret"}, "Secret"),
             ),
         ),
-        td({class: "py-2 px-2 align-top"}, envValueInput(form, row, secretDatalistID, configDatalistID)),
-        td({class: "py-2 pl-2 align-top text-right"},
+        td({class: "py-1 pl-1.5 pr-0.5 align-top"}, envValueInput(form, row, secretDatalistID, configDatalistID)),
+        td({class: "py-1 pl-0.5 align-top text-right"},
             button({
                 type: "button",
-                class: "text-gray-500 hover:text-red-300 cursor-pointer px-2 py-1.5",
+                class: "text-gray-500 hover:text-red-300 cursor-pointer px-1 py-1",
                 onclick: () => { form.envVars.val = (form.envVars.val || []).filter(v => v.id !== row.id); },
             }, "Remove"),
         ),
@@ -1034,7 +1033,7 @@ function envValueInput(form, row, secretDatalistID, configDatalistID) {
     if ((row.type || 'value') === 'value') {
         return input({
             type: "text",
-            class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-2 py-1.5 text-gray-100 font-mono focus:outline-none focus:ring-1 focus:ring-brand",
+            class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 font-mono focus:outline-none focus:ring-1 focus:ring-brand",
             placeholder: "inplace env val",
             value: row.value || '',
             oninput: e => updateEnvRow(form, row.id, {value: e.target.value}),
@@ -1046,7 +1045,7 @@ function envValueInput(form, row, secretDatalistID, configDatalistID) {
     return input({
         type: "text",
         list: row.type === 'secret' ? secretDatalistID : configDatalistID,
-        class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-2 py-1.5 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand",
+        class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand",
         placeholder: row.type === 'secret' ? "Search secrets" : "Search configs",
         value: row.refSearch ?? selected?.name ?? '',
         oninput: e => {
