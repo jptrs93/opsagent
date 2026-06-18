@@ -4,7 +4,7 @@ import {referencePicker} from "../components/referencePicker.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {spacesS} from "../state/deployments.js";
 
-const { div, h2, p, pre, span, table, thead, tbody, tr, th, td, button, code, input, label: labelEl } = van.tags;
+const { div, h2, p, pre, span, table, tbody, tr, td, button, code, input, label: labelEl } = van.tags;
 const { svg, path, circle, line } = van.tags("http://www.w3.org/2000/svg");
 
 const boolValue = (value) => value ? "true" : "false";
@@ -638,16 +638,17 @@ export function settingsPage() {
         );
     };
 
-    const disabledSpaceButtonClass = `${compactButtonClass} bg-gray-800 text-gray-500 cursor-not-allowed`;
-    const secondarySpaceButtonClass = `${compactButtonClass} bg-gray-700 text-gray-200 hover:bg-gray-600 cursor-pointer`;
-    const dangerSpaceButtonClass = `${compactButtonClass} bg-red-950/60 text-red-200 hover:bg-red-900 cursor-pointer`;
+    const compactSpaceButtonClass = "h-7 px-2.5 py-0.5 rounded-md text-xs leading-none";
+    const disabledSpaceButtonClass = `${compactSpaceButtonClass} bg-gray-800 text-gray-500 cursor-not-allowed`;
+    const secondarySpaceButtonClass = `${compactSpaceButtonClass} bg-gray-700 text-gray-200 hover:bg-gray-600 cursor-pointer`;
+    const dangerSpaceButtonClass = `${compactSpaceButtonClass} bg-red-950/60 text-red-200 hover:bg-red-900 cursor-pointer`;
 
     const spaceRow = (space) => tr(
         {class: "border-b border-gray-800 last:border-0 align-middle"},
-        td({class: "py-2 pr-3 align-middle"},
+        td({class: "py-1 pr-3 align-middle"},
             () => editingSpaceID.val === space.id
                 ? input({
-                    class: `${inputClass} max-w-md`,
+                    class: `${inputClass} max-w-md py-0.5 text-sm`,
                     disabled: () => spaceSaving.val,
                     value: editingSpaceName,
                     oninput: (e) => { editingSpaceName.val = e.target.value; },
@@ -658,10 +659,9 @@ export function settingsPage() {
                 })
                 : div({class: "flex items-center gap-2"},
                     span({class: "text-gray-200"}, space.name || `space ${space.id}`),
-                    isDefaultSpace(space) ? span({class: "text-xs text-gray-500"}, "default") : "",
                 ),
         ),
-        td({class: "py-2 pl-4 text-right whitespace-nowrap align-middle"},
+        td({class: "py-1 pl-4 text-right whitespace-nowrap align-middle"},
             () => {
                 if (isDefaultSpace(space)) {
                     return div({class: "flex items-center justify-end gap-2"},
@@ -672,7 +672,7 @@ export function settingsPage() {
                 if (editingSpaceID.val === space.id) {
                     return div({class: "flex items-center justify-end gap-2"},
                         spinnerButton("Save", () => saveRenamedSpace(space),
-                            `${compactButtonClass} bg-brand text-white hover:bg-blue-600 whitespace-nowrap`,
+                            `${compactSpaceButtonClass} bg-brand text-white hover:bg-blue-600 whitespace-nowrap`,
                             "button", () => spaceSaving.val || !editingSpaceName.val.trim()),
                         button({
                             type: "button",
@@ -700,17 +700,9 @@ export function settingsPage() {
         {class: "card flex flex-col gap-3"},
         div({class: "flex flex-col gap-1 pb-2 border-b border-gray-700"},
             h2({class: "text-base font-semibold"}, "Spaces"),
-            p({class: "text-xs text-gray-400"},
-                "Spaces are predefined deployment groups. The built-in spaces cannot be renamed or removed."),
         ),
         () => table(
             {class: "w-full text-sm"},
-            thead(
-                tr({class: "text-left text-xs uppercase tracking-wide text-gray-500"},
-                    th({class: "pb-2 font-medium"}, "Name"),
-                    th({class: "pb-2 font-medium text-right"}, ""),
-                ),
-            ),
             tbody(...(spacesS.val || []).map(spaceRow)),
         ),
         () => addingSpace.val ? div({class: "flex flex-col sm:flex-row sm:items-center gap-2 pt-1"},
@@ -727,7 +719,7 @@ export function settingsPage() {
             }),
             div({class: "flex items-center gap-2"},
                 spinnerButton("Save", saveNewSpace,
-                    `${compactButtonClass} bg-brand text-white hover:bg-blue-600 whitespace-nowrap`,
+                    `${compactSpaceButtonClass} bg-brand text-white hover:bg-blue-600 whitespace-nowrap`,
                     "button", () => spaceSaving.val || !newSpaceName.val.trim()),
                 button({
                     type: "button",
@@ -739,7 +731,7 @@ export function settingsPage() {
         ) : button({
             type: "button",
             disabled: () => spaceSaving.val,
-            class: `${compactButtonClass} self-start bg-gray-700 text-gray-200 hover:bg-gray-600 cursor-pointer`,
+            class: `${compactSpaceButtonClass} self-start bg-gray-700 text-gray-200 hover:bg-gray-600 cursor-pointer`,
             onclick: () => {
                 editingSpaceID.val = null;
                 editingSpaceName.val = "";

@@ -65,6 +65,30 @@ function formatLine(line) {
     return fields.join(' ');
 }
 
+function formatSummaryDate(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
+
+function durationAgo(date, now = new Date()) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return 'unknown';
+    const seconds = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 1000));
+    if (seconds < 5) return 'just now';
+    if (seconds < 60) return `${seconds} seconds ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+    const days = Math.floor(hours / 24);
+    return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
 export function logsPage(selectedDeploymentId) {
     const now = new Date();
     const spaceId = van.state('');
@@ -74,6 +98,7 @@ export function logsPage(selectedDeploymentId) {
     const levelMin = van.state('');
     const output = van.state('');
     const status = van.state('Choose filters, then search.');
+    const lastSearch = van.state(null);
     const loading = van.state(false);
     let activeAbort = null;
     let autoSearchedDeploymentId = 0;
@@ -144,6 +169,7 @@ export function logsPage(selectedDeploymentId) {
         try {
             const items = (deploymentsS.val || []).filter(item => item.config?.id && !item.config.deleted);
             const selected = selectedDeployment(items, id);
+            const selectedLabel = deploymentLabel(selected);
             const systemDeployment = isSystemDeployment(selected);
             const machine = selected?.config?.configId?.machine || '';
             const payload = {
@@ -162,6 +188,14 @@ export function logsPage(selectedDeploymentId) {
             status.val = count >= DEFAULT_LOG_LINE_LIMIT
                 ? `Showing newest ${DEFAULT_LOG_LINE_LIMIT.toLocaleString()} log lines.`
                 : `${count} log line${count === 1 ? '' : 's'} returned.`;
+            const refreshedAt = new Date();
+            lastSearch.val = {
+                deploymentName: selectedLabel,
+                start,
+                end: end || refreshedAt,
+                count,
+                refreshedAt,
+            };
         } catch (e) {
             if (e.name !== 'AbortError') {
                 status.val = `Search failed: ${e.message || e}`;
@@ -197,6 +231,14 @@ export function logsPage(selectedDeploymentId) {
         class: "whitespace-nowrap rounded-lg bg-gray-700 px-2.5 py-1.5 text-xs text-gray-200 transition-colors cursor-pointer hover:bg-gray-600",
         onclick: () => setQuickRange(durationMs),
     }, text);
+
+    const summaryLine = () => {
+        if (loading.val) return 'Searching logs...';
+        const search = lastSearch.val;
+        if (!search) return 'No logs search made.';
+        const lineWord = search.count === 1 ? 'log line' : 'log lines';
+        return `Showing logs for ${search.deploymentName} from ${formatSummaryDate(search.start)} to ${formatSummaryDate(search.end)}. Result ${search.count.toLocaleString()} ${lineWord}. Refreshed ${durationAgo(search.refreshedAt)}.`;
+    };
 
     return div(
         {class: "h-full min-h-0 overflow-hidden p-3 flex flex-col gap-2"},
@@ -241,10 +283,11 @@ export function logsPage(selectedDeploymentId) {
                 onclick: runSearch,
             }, () => loading.val ? 'Searching...' : 'Search'),
         ),
+        p({class: "px-1 text-xs text-gray-400"}, summaryLine),
         p({class: "sr-only", "aria-live": "polite"}, () => status.val),
         pre(
             {"data-testid": "logs-output", class: "rounded-lg bg-gray-950 border border-gray-800 p-3 overflow-auto flex-1 min-h-0 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
-            () => output.val || 'No log lines loaded.',
+            () => output.val,
         ),
     );
 }
