@@ -10,6 +10,8 @@ const SOURCE_NIX_DOCKER = 'nixDockerBuild';
 const SOURCE_DOCKER_IMAGE = 'containerImage';
 const RUNNER_CONTAINER = 'container';
 const DEPLOYMENT_VOLUME_HOST_RE = /^\/var\/lib\/opendeploy-volumes\/(\d+)\/var$/;
+const DEFAULT_SPACE_ID = 1;
+const INTERNAL_SPACE_ID = 0;
 
 let nextEnvID = 1;
 let nextAssetMountID = 1;
@@ -54,7 +56,7 @@ export function deploymentConfigToForm(cfg) {
     return makeFormState({
         deploymentId: cfg.id || 0,
         name: cid.name || '',
-        spaceId: cid.spaceId || 0,
+        spaceId: cid.spaceId ?? DEFAULT_SPACE_ID,
         machine: cid.machine || '',
         sourceType: prepare.containerImage ? SOURCE_DOCKER_IMAGE : SOURCE_NIX_DOCKER,
         nixRepo: nixDocker.repo || '',
@@ -78,7 +80,7 @@ export function deploymentConfigToForm(cfg) {
 
 export function deploymentForm(form, opts = {}) {
     const identityLocked = Boolean(opts.identityLocked);
-    const spaceOptions = opts.spaceOptions || spacesS.val || [{id: 0, name: 'opendeploy'}, {id: 1, name: 'default'}];
+    const spaceOptions = publicSpaceOptions(opts.spaceOptions || spacesS.val, form.spaceId.val);
     const machineOptions = opts.machineOptions || [];
     const machineOptionValues = machineOptions.map(m => typeof m === 'string' ? m : m.name).filter(Boolean);
     const machineOptionsLoaded = opts.machineOptionsLoaded !== false;
@@ -111,10 +113,10 @@ export function deploymentForm(form, opts = {}) {
                 }), identityLocked, () => showIdentityLockedNotice("Name is not currently changeable after creation.")),
                 identityField("Space", select({
                     "data-testid": "deployment-space-select",
-                    value: () => String(form.spaceId.val ?? 0),
+                    value: String(form.spaceId.val ?? DEFAULT_SPACE_ID),
                     class: textInputClass(false, false),
                     onchange: e => { form.spaceId.val = Number(e.target.value || 0); },
-                }, ...spaceOptions.map(space => option({value: String(space.id)}, space.name || `space ${space.id}`))), false),
+                }, ...spaceOptions.map(space => option({value: String(space.id), selected: Number(space.id) === Number(form.spaceId.val)}, space.name || `space ${space.id}`))), false),
                 identityField("Machine", machineSelect(form, {
                     identityLocked,
                     machineOptionsLoaded,
@@ -164,7 +166,7 @@ export function deploymentForm(form, opts = {}) {
 export function formToDeploymentIdentifier(form) {
     return {
         name: form.name.val.trim(),
-        spaceId: Number(form.spaceId.val || 0),
+        spaceId: Number(form.spaceId.val || DEFAULT_SPACE_ID),
         machine: form.machine.val.trim(),
     };
 }
@@ -435,7 +437,7 @@ function makeFormState(values) {
     return {
         name: van.state(values.name),
         deploymentId: van.state(values.deploymentId || 0),
-        spaceId: van.state(values.spaceId || 0),
+        spaceId: van.state(values.spaceId ?? DEFAULT_SPACE_ID),
         machine: van.state(values.machine),
         sourceType: van.state(values.sourceType),
         nixRepo: van.state(values.nixRepo),
@@ -1461,6 +1463,17 @@ function textInputClass(valid = false, disabled = false, success = false) {
 
 function selectClass() {
     return "w-full px-3 py-2 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand";
+}
+
+function publicSpaceOptions(spaces, currentSpaceID) {
+    const current = Number(currentSpaceID ?? DEFAULT_SPACE_ID);
+    const publicSpaces = (spaces || [{id: DEFAULT_SPACE_ID, name: 'default'}])
+        .filter(space => Number(space.id) !== INTERNAL_SPACE_ID);
+    if (current !== INTERNAL_SPACE_ID && !publicSpaces.some(space => Number(space.id) === current)) {
+        publicSpaces.push({id: current, name: `space ${current}`});
+    }
+    if (publicSpaces.length === 0) return [{id: DEFAULT_SPACE_ID, name: 'default'}];
+    return publicSpaces;
 }
 
 function machineSelect(form, opts) {

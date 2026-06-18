@@ -33,17 +33,19 @@ export class DeploymentCreationUpdate {
         this.initialSpecKey = JSON.stringify(formToSpec(this.form));
         this.initialSpaceId = Number(this.form.spaceId.val || 0);
         this.initialSourceKey = this.sourceKey();
+        const hasExistingNixVersion = deployment?.variant === SOURCE_NIX_DOCKER && Boolean(deployment.deployedVersion);
+        const hasExistingImageVersion = deployment?.variant === SOURCE_DOCKER_IMAGE && Boolean(imageVersionFromReference(this.form.containerImage.val) || deployment.deployedVersion);
 
         this.nixDockerBuild = {
             selectedBranch: van.state(''),
             selectedCommit: van.state(deployment?.variant === SOURCE_NIX_DOCKER ? (deployment.deployedVersion || '') : ''),
-            selectedCommitSourceKey: van.state(''),
+            selectedCommitSourceKey: van.state(hasExistingNixVersion ? this.initialSourceKey : ''),
             branches: van.state([]),
             commits: van.state([]),
         };
         this.containerImage = {
             selectedTag: van.state(deployment?.variant === SOURCE_DOCKER_IMAGE ? (imageVersionFromReference(this.form.containerImage.val) || deployment.deployedVersion || '') : ''),
-            selectedTagSourceKey: van.state(''),
+            selectedTagSourceKey: van.state(hasExistingImageVersion ? this.initialSourceKey : ''),
             tags: van.state(deployment?.variant === SOURCE_DOCKER_IMAGE && deployment.deployedVersion
                 ? [{id: deployment.deployedVersion, label: 'Current'}]
                 : []),
@@ -293,7 +295,8 @@ export class DeploymentCreationUpdate {
         if (this.form.sourceType.val === SOURCE_NIX_DOCKER) {
             const commit = this.nixDockerBuild.selectedCommit.val.trim();
             if (!commit || this.nixDockerBuild.selectedCommitSourceKey.val !== this.sourceKey()) return '';
-            return this.commitsForBranch(this.nixDockerBuild.selectedBranch.val).some(v => v.id === commit) ? commit : '';
+            if (this.commitsForBranch(this.nixDockerBuild.selectedBranch.val).some(v => v.id === commit)) return commit;
+            return commit === (this.existingState?.deployedVersion || '') ? commit : '';
         }
         return this.githubRelease.selectedRelease.val.trim();
     }

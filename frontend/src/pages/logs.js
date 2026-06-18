@@ -6,6 +6,7 @@ import {deploymentsS, spacesS} from "../state/deployments.js";
 const {div, p, select, option, input, button, pre, span, label} = van.tags;
 
 const LEVELS = ['', 'TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'];
+const SYSTEM_SPACE_ID = 0;
 const SYSTEM_DEPLOYMENT_NAME = 'opendeploy';
 const DEFAULT_LOG_LINE_LIMIT = 10000;
 
@@ -36,7 +37,9 @@ function selectedDeployment(items, id) {
 
 function isSystemDeployment(item) {
     const cid = item?.config?.configId || {};
-    return cid.name === SYSTEM_DEPLOYMENT_NAME && Boolean(item?.config?.spec?.runner?.systemd);
+    return cid.name === SYSTEM_DEPLOYMENT_NAME && (
+        deploymentSpaceID(item) === SYSTEM_SPACE_ID || Boolean(item?.config?.spec?.runner?.systemd)
+    );
 }
 
 function formatLogfmtValue(value, forceQuote = false) {
