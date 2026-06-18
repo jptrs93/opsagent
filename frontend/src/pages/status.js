@@ -184,6 +184,15 @@ export function statusPage(onOpenLogs = () => {}) {
         overlayNode.val = deployOverlay(deployment, rawConfig, closeOverlay);
     };
 
+    const onFork = (deployment) => {
+        const rawConfig = findRawConfig(deployment.id);
+        if (!rawConfig) return;
+        createOverlayNode.val = createOverlay(closeCreateOverlay, undefined, {
+            sourceDeployment: deployment,
+            sourceDeploymentConfig: rawConfig,
+        });
+    };
+
     const closeCreateOverlay = () => {
         createOverlayNode.val = '';
     };
@@ -223,6 +232,7 @@ export function statusPage(onOpenLogs = () => {}) {
                 onShowRunOutput,
                 onShowPrepareOutput,
                 onUpdate,
+                onFork,
                 {showEnvironment: showEnvironmentColumn},
             )),
         ),
@@ -273,7 +283,7 @@ export function statusPage(onOpenLogs = () => {}) {
                 {
                     // Clicks inside the pinned tooltip shouldn't dismiss it.
                     onmousedown: (e) => { if (pinned.val) e.stopPropagation(); },
-                    class: () => `${pinned.val ? 'visible opacity-100' : 'invisible opacity-0 group-hover:visible group-hover:opacity-100'} transition-opacity absolute top-full mt-1 bg-gray-900 border border-gray-700 text-white text-xs px-3 py-2 rounded-lg w-56 z-20 ${alignRight ? 'right-0' : 'left-0'}`,
+                    class: () => `${pinned.val ? 'block opacity-100' : 'hidden opacity-0 group-hover:block group-hover:opacity-100'} transition-opacity absolute top-full mt-1 bg-gray-900 border border-gray-700 text-white text-xs px-3 py-2 rounded-lg w-56 z-20 ${alignRight ? 'right-0' : 'left-0'}`,
                 },
                 text,
             ),

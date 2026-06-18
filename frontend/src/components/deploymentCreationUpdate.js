@@ -26,6 +26,7 @@ export class DeploymentCreationUpdate {
         this.form = deploymentConfig ? deploymentConfigToForm(deploymentConfig) : emptyDeploymentForm();
         this.form.deploymentCreationUpdate = this;
         this.initialSpecKey = JSON.stringify(formToSpec(this.form));
+        this.initialSourceKey = this.sourceKey();
 
         this.nixDockerBuild = {
             selectedBranch: van.state(''),
@@ -277,7 +278,8 @@ export class DeploymentCreationUpdate {
     }
 
     toCreateUpdatePayload(createdConfig) {
-        const targetVersion = this.selectedTargetVersion();
+        const targetVersion = this.selectedTargetVersion()
+            || (this.existingState?.deployedVersion && this.sourceKey() === this.initialSourceKey ? this.existingState.deployedVersion : '');
         if (!targetVersion || !createdConfig?.id) return null;
         return {
             deploymentId: createdConfig.id,

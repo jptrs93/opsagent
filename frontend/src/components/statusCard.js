@@ -33,7 +33,7 @@ const prepareStatusCopy = (prepareStatus, prepareVersion) => {
     }
 };
 
-export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrepareOutput, onUpdate, opts = {}) {
+export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrepareOutput, onUpdate, onFork, opts = {}) {
     const showEnvironment = opts.showEnvironment !== false;
     const hasExisting = deployment.existingStatus !== STATUS_NO_DEPLOYMENT;
     const existingColors = hasExisting
@@ -94,11 +94,20 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
         ),
         td(
             {class: "py-3 pl-3 pr-4 align-middle text-right whitespace-nowrap"},
-            button({
-                class: "btn-secondary text-xs leading-none py-0.5 px-2.5 cursor-pointer",
-                onclick: () => onUpdate(deployment),
-                type: "button",
-            }, "Update"),
+            div(
+                {class: "inline-flex items-center justify-end gap-2"},
+                button({
+                    class: "btn-secondary text-xs leading-none py-0.5 px-2.5 cursor-pointer",
+                    onclick: () => onUpdate(deployment),
+                    type: "button",
+                }, "Update"),
+                button({
+                    class: "btn-secondary text-xs leading-none py-0.5 px-2.5 cursor-pointer",
+                    onclick: () => onFork(deployment),
+                    type: "button",
+                    title: "Create a new deployment from this config",
+                }, "Fork"),
+            ),
         ),
     );
 }

@@ -18,10 +18,19 @@ import {DeploymentCreationUpdate, SOURCE_DOCKER_IMAGE, SOURCE_NIX_DOCKER} from "
 
 const { div, span, button, p, label, select, option, input } = van.tags;
 
-export function createOverlay(onClose, onCreated) {
+export function createOverlay(onClose, onCreated, opts = {}) {
     const errorMsg = van.state('');
-    const deploymentUpdate = new DeploymentCreationUpdate();
+    const deploymentUpdate = new DeploymentCreationUpdate({
+        deployment: opts.sourceDeployment || null,
+        deploymentConfig: opts.sourceDeploymentConfig || null,
+    });
     const form = deploymentUpdate.form;
+    if (opts.sourceDeploymentConfig) {
+        form.deploymentId.val = 0;
+        form.name.val = '';
+        form.environment.val = '';
+        form.machine.val = '';
+    }
     const machines = van.state([]);
     const machinesLoaded = van.state(false);
     const assets = van.state([]);
