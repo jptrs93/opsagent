@@ -415,6 +415,7 @@
  * @property {boolean} stop
  * @property {number} version
  * @property {DeploymentSpec} spec
+ * @property {number} spaceId
  */
 /**
  * @typedef {Object} DeploymentCreateRequest
@@ -5693,6 +5694,9 @@ export function writeDeploymentUpdateRequest(message, writer) {
         writeDeploymentSpec(message.spec, writer);
         writer.ldelim();
     }
+    if (message.spaceId !== undefined && message.spaceId !== null) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.spaceId);
+    }
 }
 
 
@@ -5714,7 +5718,7 @@ export function encodeDeploymentUpdateRequest(message) {
  */
 function decodeDeploymentUpdateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, targetVersion: "", stop: false, version: 0, spec: undefined };
+    const message = {deploymentId: 0, targetVersion: "", stop: false, version: 0, spec: undefined, spaceId: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5736,6 +5740,10 @@ function decodeDeploymentUpdateRequestMessage(reader, length) {
             }
             case 6: {
                 message.spec = decodeDeploymentSpecMessage(reader, reader.uint32());
+                break;
+            }
+            case 7: {
+                message.spaceId = reader.int32();
                 break;
             }
             default:

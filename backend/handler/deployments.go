@@ -56,6 +56,23 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 		return nil, MissingKeyErr
 	}
 
+	if req.SpaceID != nil {
+		cfg := h.findConfigByID(req.DeploymentID)
+		if cfg == nil || cfg.Deleted {
+			return nil, DeploymentNotFoundErr
+		}
+		if cfg.ConfigID.SpaceID != *req.SpaceID {
+			nextID := cfg.ConfigID
+			nextID.SpaceID = *req.SpaceID
+			for _, dws := range h.Store.FetchDeploymentSnapshot("") {
+				if dws.Config.ID != req.DeploymentID && dws.Config.ConfigID == nextID && !dws.Config.Deleted {
+					return nil, DuplicateDeploymentErr
+				}
+			}
+			h.Store.MustUpdateDeploymentSpace(ctx, req.DeploymentID, *req.SpaceID)
+		}
+	}
+
 	if !req.Spec.IsZero() {
 		spec, err := h.validateDeploymentSpec(&req.Spec)
 		if err != nil {

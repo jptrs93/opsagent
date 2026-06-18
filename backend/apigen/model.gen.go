@@ -3423,6 +3423,7 @@ type DeploymentUpdateRequest struct {
 	Stop          bool
 	Version       int32
 	Spec          DeploymentSpec
+	SpaceID       *int32
 }
 
 func (m *DeploymentUpdateRequest) Encode() []byte {
@@ -3435,6 +3436,7 @@ func (m *DeploymentUpdateRequest) Encode() []byte {
 		b = AppendTag(b, 6, BytesType)
 		b = AppendBytes(b, m.Spec.Encode())
 	}
+	b = AppendInt32FieldOpt(b, m.SpaceID, 7)
 	return b
 }
 
@@ -3467,6 +3469,8 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 					m.Spec = *item
 				}
 			}
+		case 7:
+			b, m.SpaceID, err = ConsumeVarInt32Opt(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

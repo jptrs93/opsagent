@@ -31,6 +31,7 @@ export class DeploymentCreationUpdate {
         this.form = deploymentConfig ? deploymentConfigToForm(deploymentConfig) : emptyDeploymentForm();
         this.form.deploymentCreationUpdate = this;
         this.initialSpecKey = JSON.stringify(formToSpec(this.form));
+        this.initialSpaceId = Number(this.form.spaceId.val || 0);
         this.initialSourceKey = this.sourceKey();
 
         this.nixDockerBuild = {
@@ -325,6 +326,8 @@ export class DeploymentCreationUpdate {
             const nextSpec = formToSpec(this.form);
             if (JSON.stringify(nextSpec) !== this.initialSpecKey) payload.spec = nextSpec;
         }
+        const nextSpaceId = Number(this.form.spaceId.val || 0);
+        if (nextSpaceId !== this.initialSpaceId) payload.spaceId = nextSpaceId;
         const targetVersion = internalGithubRelease
             ? this.githubRelease.selectedRelease.val.trim()
             : this.selectedTargetVersion();

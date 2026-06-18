@@ -719,6 +719,7 @@ message DeploymentUpdateRequest {
   bool stop = 3;
   int32 version = 4;
   DeploymentSpec spec = 6 [(cp.go_value) = true];  // optional: update deployment spec
+  optional int32 space_id = 7;                     // optional: move deployment to another space
 }
 
 message DeploymentCreateRequest {

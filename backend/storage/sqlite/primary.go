@@ -296,6 +296,71 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 	s.notifyFromCache(deploymentID)
 }
 
+func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymentID int32, spaceID int32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	bgCtx := context.Background()
+	dbID := int64(deploymentID)
+	now := time.Now().UnixMilli()
+	tx, err := s.db.BeginTx(bgCtx, nil)
+	if err != nil {
+		panic(fmt.Sprintf("begin tx: %v", err))
+	}
+	defer tx.Rollback()
+	q := s.q.WithTx(tx)
+
+	userID := int64(0)
+	if ctx.User != nil {
+		userID = int64(ctx.User.ID)
+	}
+
+	existing, err := q.GetDeploymentConfig(bgCtx, dbID)
+	if err != nil {
+		panic(fmt.Sprintf("GetDeploymentConfig: %v", err))
+	}
+	if existing.SpaceID == int64(spaceID) {
+		return
+	}
+
+	newVersion := existing.Version + 1
+	params := UpsertDeploymentConfigParams{
+		DeploymentID:   dbID,
+		SpaceID:        int64(spaceID),
+		Machine:        existing.Machine,
+		Name:           existing.Name,
+		CreatedAt:      existing.CreatedAt,
+		Version:        newVersion,
+		UpdatedAt:      now,
+		UpdatedBy:      userID,
+		SpecBlob:       existing.SpecBlob,
+		DesiredVersion: existing.DesiredVersion,
+		DesiredRunning: existing.DesiredRunning,
+		Deleted:        existing.Deleted,
+	}
+	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
+		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
+	}
+	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
+		DeploymentID:   dbID,
+		Version:        newVersion,
+		UpdatedAt:      now,
+		UpdatedBy:      userID,
+		SpecBlob:       existing.SpecBlob,
+		DesiredVersion: existing.DesiredVersion,
+		DesiredRunning: existing.DesiredRunning,
+		Deleted:        existing.Deleted,
+	}); err != nil {
+		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
+	}
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit: %v", err))
+	}
+
+	s.configCache[deploymentID] = upsertParamsToProto(params)
+	s.notifyFromCache(deploymentID)
+}
+
 // MustCreateDeployment creates a brand-new deployment from a DeploymentIdentifier and spec.
 // It allocates a deployment ID, persists the config, inserts a default status,
 // and returns the resulting DeploymentConfig.

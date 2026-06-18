@@ -83,12 +83,12 @@ export function deploymentForm(form, opts = {}) {
     const machineOptionValues = machineOptions.map(m => typeof m === 'string' ? m : m.name).filter(Boolean);
     const machineOptionsLoaded = opts.machineOptionsLoaded !== false;
     const executionTitle = opts.executionTitle || "Runtime";
-    const showIdentityLockedNotice = () => {
+    const showIdentityLockedNotice = (message) => {
         if (!identityLocked) return;
-        form.identityLockNotice.val = true;
+        form.identityLockNotice.val = message;
         if (form.identityLockNoticeTimer) clearTimeout(form.identityLockNoticeTimer);
         form.identityLockNoticeTimer = setTimeout(() => {
-            form.identityLockNotice.val = false;
+            form.identityLockNotice.val = '';
             form.identityLockNoticeTimer = null;
         }, 5000);
     };
@@ -108,22 +108,21 @@ export function deploymentForm(form, opts = {}) {
                     class: () => textInputClass(false, identityLocked, !identityLocked && nameValid(form)),
                     placeholder: "my-service",
                     oninput: e => { form.name.val = e.target.value; },
-                }), identityLocked, showIdentityLockedNotice),
+                }), identityLocked, () => showIdentityLockedNotice("Name is not currently changeable after creation.")),
                 identityField("Space", select({
                     "data-testid": "deployment-space-select",
                     value: () => String(form.spaceId.val ?? 0),
-                    disabled: identityLocked,
-                    class: textInputClass(false, identityLocked),
+                    class: textInputClass(false, false),
                     onchange: e => { form.spaceId.val = Number(e.target.value || 0); },
-                }, ...spaceOptions.map(space => option({value: String(space.id)}, space.name || `space ${space.id}`))), identityLocked, showIdentityLockedNotice),
+                }, ...spaceOptions.map(space => option({value: String(space.id)}, space.name || `space ${space.id}`))), false),
                 identityField("Machine", machineSelect(form, {
                     identityLocked,
                     machineOptionsLoaded,
                     machineOptionValues,
-                }), identityLocked, showIdentityLockedNotice),
+                }), identityLocked, () => showIdentityLockedNotice("Machine is not currently changeable after creation.")),
             ),
             () => identityLocked && form.identityLockNotice.val
-                ? span({class: "text-xs text-red-400 -mb-2"}, "Deployment identity is fixed after creation.")
+                ? span({class: "text-xs text-red-400 -mb-2"}, form.identityLockNotice.val)
                 : '',
         ),
         opts.hideArtifactSource ? '' : div(
@@ -451,7 +450,7 @@ function makeFormState(values) {
         volumeMounts: van.state(values.volumeMounts || []),
         showSourceOpts: van.state(Boolean(values.showSourceOpts)),
         showExecOpts: van.state(Boolean(values.showExecOpts)),
-        identityLockNotice: van.state(false),
+        identityLockNotice: van.state(''),
         identityLockNoticeTimer: null,
         // Whether the environment-variables editor pane is open in the overlay.
         envPaneOpen: van.state(false),

@@ -7,7 +7,7 @@ import {deployOverlay} from "../components/deployOverlay.js";
 import {createOverlay} from "../components/createOverlay.js";
 import {prepareOutputOverlay} from "../components/prepareOutputOverlay.js";
 
-const { div, p, button, table, thead, tbody, tr, th, span } = van.tags;
+const { div, p, button, table, thead, tbody, tr, th, td, span } = van.tags;
 
 const SIDEBAR_WIDTH_KEY = 'opsagent_sidebar_width';
 const DEFAULT_SIDEBAR_PCT = 50;
@@ -143,7 +143,6 @@ export function statusPage(onOpenLogs = () => {}) {
     const overlayNode = van.state('');
     const createOverlayNode = van.state('');
     const groupBySpace = van.state(true);
-    const collapsedSpaceGroups = van.state({});
 
     const abortActiveSidebar = () => {
         if (activeSidebarAbort) {
@@ -198,12 +197,15 @@ export function statusPage(onOpenLogs = () => {}) {
         createOverlayNode.val = createOverlay(closeCreateOverlay);
     };
 
-    const toggleSpaceGroup = (spaceId) => {
-        collapsedSpaceGroups.val = {
-            ...collapsedSpaceGroups.val,
-            [spaceId]: !collapsedSpaceGroups.val[spaceId],
-        };
-    };
+    const statusRowNode = (deployment, showSpaceColumn) => statusRow(
+        deployment,
+        onShowHistory,
+        onShowRunOutput,
+        onShowPrepareOutput,
+        onUpdate,
+        onFork,
+        {showSpace: showSpaceColumn},
+    );
 
     const deploymentTable = (rows, showSpaceColumn) => table(
         {class: "w-full text-left text-sm"},
@@ -223,15 +225,46 @@ export function statusPage(onOpenLogs = () => {}) {
             ),
         ),
         tbody(
-            ...rows.map(s => statusRow(
-                s,
-                onShowHistory,
-                onShowRunOutput,
-                onShowPrepareOutput,
-                onUpdate,
-                onFork,
-                {showSpace: showSpaceColumn},
-            )),
+            ...rows.map(s => statusRowNode(s, showSpaceColumn)),
+        ),
+    );
+
+    const spaceDividerRow = (space, isFirst) => tr(
+        td(
+            {colSpan: 9, class: `${isFirst ? 'pt-3' : 'pt-8'} pb-2 px-4`},
+            div(
+                {class: "flex items-center gap-3"},
+                div({class: "h-px flex-1 bg-gray-700"}),
+                span({class: "text-xs font-semibold uppercase tracking-wide text-gray-400 whitespace-nowrap"}, spaceLabel(space)),
+                div({class: "h-px flex-1 bg-gray-700"}),
+            ),
+        ),
+    );
+
+    const groupedDeploymentTable = (groups) => table(
+        {class: "w-full text-left text-sm"},
+        thead(
+            tr(
+                {class: "border-b border-gray-700 text-xs uppercase tracking-wide text-gray-500"},
+                tableHeader("Deployment", headerTips.deployment, "py-3 pl-4 pr-3 font-medium"),
+                tableHeader("Machine", headerTips.machine, "py-3 px-3 font-medium"),
+                tableHeader("Status", headerTips.status, "py-3 px-3 font-medium"),
+                tableHeader("Running Version", headerTips.version, "py-3 px-3 font-medium"),
+                tableHeader("Prepare", headerTips.prepare, "py-3 px-3 font-medium"),
+                tableHeader("Restarts", headerTips.restarts, "py-3 px-3 font-medium"),
+                tableHeader("Deployed by", headerTips.deployedBy, "py-3 px-3 font-medium"),
+                tableHeader("Deployed at", headerTips.deployedAt, "py-3 px-3 font-medium"),
+                tableHeader("Actions", headerTips.actions, "py-3 pl-3 pr-4 font-medium text-right", true),
+            ),
+        ),
+        tbody(
+            ...groups.flatMap((group, index) => {
+                const space = (spacesS.val || []).find(s => s.id === group.spaceId) || {id: group.spaceId, name: `space ${group.spaceId}`};
+                return [
+                    spaceDividerRow(space, index === 0),
+                    ...group.rows.map(row => statusRowNode(row, false)),
+                ];
+            }),
         ),
     );
 
@@ -287,10 +320,9 @@ export function statusPage(onOpenLogs = () => {}) {
         );
     };
 
-    const deploymentTableCard = (rows, showSpaceColumn, header = null, collapsed = false) => div(
+    const deploymentTableCard = (tableNode) => div(
         {class: "w-full min-w-0 rounded-lg bg-surface border border-gray-700 p-2"},
-        header,
-        collapsed ? '' : div({class: "w-full overflow-x-auto overflow-y-hidden"}, deploymentTable(rows, showSpaceColumn)),
+        div({class: "w-full overflow-x-auto overflow-y-hidden"}, tableNode),
     );
 
     const mainContent = div(
@@ -348,33 +380,11 @@ export function statusPage(onOpenLogs = () => {}) {
             });
 
             if (!groupBySpace.val) {
-                return deploymentTableCard(sorted, true);
+                return deploymentTableCard(deploymentTable(sorted, true));
             }
 
             const groups = groupDeploymentsBySpace(sorted);
-            const canCollapse = groups.length > 1;
-            return div(
-                {class: "flex flex-col gap-4 w-full min-w-0"},
-                ...groups.map(group => {
-                    const collapsed = canCollapse && Boolean(collapsedSpaceGroups.val[group.spaceId]);
-                    const space = (spacesS.val || []).find(s => s.id === group.spaceId) || {id: group.spaceId, name: `space ${group.spaceId}`};
-                    const header = div(
-                        {class: "flex items-center justify-between px-4 pt-1 pb-2 border-b border-gray-700"},
-                        div(
-                            {class: "flex items-center gap-2"},
-                            div({class: "text-xs font-semibold text-gray-300"}, spaceLabel(space)),
-                            span({class: "text-xs text-gray-500"}, `${group.rows.length} deployment${group.rows.length === 1 ? '' : 's'}`),
-                        ),
-                        canCollapse ? button({
-                            class: "text-xs text-gray-400 hover:text-gray-200 cursor-pointer px-2 py-1 rounded hover:bg-gray-800",
-                            onclick: () => toggleSpaceGroup(group.spaceId),
-                            type: "button",
-                            title: collapsed ? "Expand" : "Collapse",
-                        }, collapsed ? "Expand" : "Collapse") : span(),
-                    );
-                    return deploymentTableCard(group.rows, false, header, collapsed);
-                }),
-            );
+            return deploymentTableCard(groupedDeploymentTable(groups));
         }
     );
 
