@@ -10,11 +10,22 @@ import (
 	"database/sql"
 )
 
+const countDeploymentsForSpace = `-- name: CountDeploymentsForSpace :one
+SELECT COUNT(*) FROM deployment_configs WHERE space_id = ? AND deleted = 0
+`
+
+func (q *Queries) CountDeploymentsForSpace(ctx context.Context, spaceID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countDeploymentsForSpace, spaceID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createDeploymentConfig = `-- name: CreateDeploymentConfig :one
 
-INSERT INTO deployment_configs (environment, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+INSERT INTO deployment_configs (space_id, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(environment, machine, name) DO UPDATE SET
+ON CONFLICT(space_id, machine, name) DO UPDATE SET
     version = excluded.version,
     updated_at = excluded.updated_at,
     updated_by = excluded.updated_by,
@@ -26,7 +37,7 @@ RETURNING deployment_id, created_at
 `
 
 type CreateDeploymentConfigParams struct {
-	Environment    string
+	SpaceID        int64
 	Machine        string
 	Name           string
 	CreatedAt      int64
@@ -46,12 +57,12 @@ type CreateDeploymentConfigRow struct {
 
 // === deployment_configs ===
 // CreateDeploymentConfig inserts a brand-new deployment, auto-allocating the
-// integer deployment_id. On (environment, machine, name) conflict it revives the
+// integer deployment_id. On (space_id, machine, name) conflict it revives the
 // existing row (e.g. a previously soft-deleted one) keeping its original
 // deployment_id and created_at, and returns both.
 func (q *Queries) CreateDeploymentConfig(ctx context.Context, arg CreateDeploymentConfigParams) (CreateDeploymentConfigRow, error) {
 	row := q.db.QueryRowContext(ctx, createDeploymentConfig,
-		arg.Environment,
+		arg.SpaceID,
 		arg.Machine,
 		arg.Name,
 		arg.CreatedAt,
@@ -65,6 +76,18 @@ func (q *Queries) CreateDeploymentConfig(ctx context.Context, arg CreateDeployme
 	)
 	var i CreateDeploymentConfigRow
 	err := row.Scan(&i.DeploymentID, &i.CreatedAt)
+	return i, err
+}
+
+const createSpace = `-- name: CreateSpace :one
+INSERT INTO spaces (name) VALUES (?)
+RETURNING id, name
+`
+
+func (q *Queries) CreateSpace(ctx context.Context, name string) (Space, error) {
+	row := q.db.QueryRowContext(ctx, createSpace, name)
+	var i Space
+	err := row.Scan(&i.ID, &i.Name)
 	return i, err
 }
 
@@ -83,6 +106,15 @@ DELETE FROM secrets WHERE name = ?
 
 func (q *Queries) DeleteSecret(ctx context.Context, name string) error {
 	_, err := q.db.ExecContext(ctx, deleteSecret, name)
+	return err
+}
+
+const deleteSpace = `-- name: DeleteSpace :exec
+DELETE FROM spaces WHERE id = ?
+`
+
+func (q *Queries) DeleteSpace(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteSpace, id)
 	return err
 }
 
@@ -179,7 +211,7 @@ func (q *Queries) GetConfigValue(ctx context.Context, key string) (SystemConfig,
 }
 
 const getDeploymentConfig = `-- name: GetDeploymentConfig :one
-SELECT deployment_id, environment, machine, name, created_at, version, updated_at, updated_by,
+SELECT deployment_id, space_id, machine, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE deployment_id = ?
@@ -190,7 +222,7 @@ func (q *Queries) GetDeploymentConfig(ctx context.Context, deploymentID int64) (
 	var i DeploymentConfig
 	err := row.Scan(
 		&i.DeploymentID,
-		&i.Environment,
+		&i.SpaceID,
 		&i.Machine,
 		&i.Name,
 		&i.CreatedAt,
@@ -485,7 +517,7 @@ func (q *Queries) InsertDeploymentStatusHistory(ctx context.Context, arg InsertD
 }
 
 const listAllDeploymentConfigs = `-- name: ListAllDeploymentConfigs :many
-SELECT deployment_id, environment, machine, name, created_at, version, updated_at, updated_by,
+SELECT deployment_id, space_id, machine, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE deleted = 0
@@ -502,7 +534,7 @@ func (q *Queries) ListAllDeploymentConfigs(ctx context.Context) ([]DeploymentCon
 		var i DeploymentConfig
 		if err := rows.Scan(
 			&i.DeploymentID,
-			&i.Environment,
+			&i.SpaceID,
 			&i.Machine,
 			&i.Name,
 			&i.CreatedAt,
@@ -611,7 +643,7 @@ func (q *Queries) ListDeploymentConfigHistory(ctx context.Context, deploymentID 
 }
 
 const listDeploymentConfigsByMachine = `-- name: ListDeploymentConfigsByMachine :many
-SELECT deployment_id, environment, machine, name, created_at, version, updated_at, updated_by,
+SELECT deployment_id, space_id, machine, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE machine = ? AND deleted = 0
@@ -628,7 +660,7 @@ func (q *Queries) ListDeploymentConfigsByMachine(ctx context.Context, machine st
 		var i DeploymentConfig
 		if err := rows.Scan(
 			&i.DeploymentID,
-			&i.Environment,
+			&i.SpaceID,
 			&i.Machine,
 			&i.Name,
 			&i.CreatedAt,
@@ -906,6 +938,35 @@ func (q *Queries) ListSecrets(ctx context.Context) ([]Secret, error) {
 	return items, nil
 }
 
+const listSpaces = `-- name: ListSpaces :many
+
+SELECT id, name FROM spaces ORDER BY id
+`
+
+// === spaces ===
+func (q *Queries) ListSpaces(ctx context.Context) ([]Space, error) {
+	rows, err := q.db.QueryContext(ctx, listSpaces)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Space
+	for rows.Next() {
+		var i Space
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUserConfigs = `-- name: ListUserConfigs :many
 
 SELECT id, name, config_group, value, created_at, updated_at, updated_by
@@ -996,6 +1057,23 @@ func (q *Queries) UpdateDesiredState(ctx context.Context, arg UpdateDesiredState
 	return err
 }
 
+const updateSpace = `-- name: UpdateSpace :one
+UPDATE spaces SET name = ? WHERE id = ?
+RETURNING id, name
+`
+
+type UpdateSpaceParams struct {
+	Name string
+	ID   int64
+}
+
+func (q *Queries) UpdateSpace(ctx context.Context, arg UpdateSpaceParams) (Space, error) {
+	row := q.db.QueryRowContext(ctx, updateSpace, arg.Name, arg.ID)
+	var i Space
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
+}
+
 const upsertConfigValue = `-- name: UpsertConfigValue :exec
 INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?)
 ON CONFLICT(key) DO UPDATE SET
@@ -1015,10 +1093,10 @@ func (q *Queries) UpsertConfigValue(ctx context.Context, arg UpsertConfigValuePa
 }
 
 const upsertDeploymentConfig = `-- name: UpsertDeploymentConfig :exec
-INSERT INTO deployment_configs (deployment_id, environment, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+INSERT INTO deployment_configs (deployment_id, space_id, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(deployment_id) DO UPDATE SET
-    environment = excluded.environment,
+    space_id = excluded.space_id,
     machine = excluded.machine,
     name = excluded.name,
     created_at = excluded.created_at,
@@ -1033,7 +1111,7 @@ ON CONFLICT(deployment_id) DO UPDATE SET
 
 type UpsertDeploymentConfigParams struct {
 	DeploymentID   int64
-	Environment    string
+	SpaceID        int64
 	Machine        string
 	Name           string
 	CreatedAt      int64
@@ -1049,7 +1127,7 @@ type UpsertDeploymentConfigParams struct {
 func (q *Queries) UpsertDeploymentConfig(ctx context.Context, arg UpsertDeploymentConfigParams) error {
 	_, err := q.db.ExecContext(ctx, upsertDeploymentConfig,
 		arg.DeploymentID,
-		arg.Environment,
+		arg.SpaceID,
 		arg.Machine,
 		arg.Name,
 		arg.CreatedAt,

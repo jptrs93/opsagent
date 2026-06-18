@@ -25,6 +25,7 @@ import {
   decodeSecretRecoveryCodeResponse,
   decodeSecretRevealResponse,
   decodeSecretsStatusResponse,
+  decodeSpace,
   decodeState,
   decodeUserConfig,
   decodeUserConfigList,
@@ -55,6 +56,8 @@ import {
   encodeSecretSetRequest,
   encodeSecretUnlockRequest,
   encodeSecretValue,
+  encodeSpaceDeleteRequest,
+  encodeSpaceSetRequest,
   encodeUserConfigDeleteRequest,
   encodeUserConfigSetRequest,
   encodeValidateSourceRequest,
@@ -368,6 +371,42 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeDeploymentConfig(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {SpaceSetRequest} payload
+   * @returns {Promise<Space>}
+   */
+  async postV1SpacesCreate(payload) {
+    const response = await this.#request("/v1/spaces/create", { method: 'POST', body: encodeSpaceSetRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeSpace(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {SpaceSetRequest} payload
+   * @returns {Promise<Space>}
+   */
+  async postV1SpacesUpdate(payload) {
+    const response = await this.#request("/v1/spaces/update", { method: 'POST', body: encodeSpaceSetRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeSpace(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {SpaceDeleteRequest} payload
+   * @returns {Promise<void>}
+   */
+  async postV1SpacesDelete(payload) {
+    const response = await this.#request("/v1/spaces/delete", { method: 'POST', body: encodeSpaceDeleteRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    await response.arrayBuffer();
   }
 
   /**

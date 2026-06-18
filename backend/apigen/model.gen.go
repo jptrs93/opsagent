@@ -2564,6 +2564,8 @@ type State struct {
 	SecretMetaUpdate         *SecretMeta
 	UserConfigValuesSnapshot *UserConfigList
 	UserConfigValueUpdate    *UserConfig
+	SpacesSnapshot           *SpaceList
+	SpaceUpdate              *Space
 }
 
 func (m *State) Encode() []byte {
@@ -2639,6 +2641,14 @@ func (m *State) Encode() []byte {
 	if m.UserConfigValueUpdate != nil {
 		b = AppendTag(b, 20, BytesType)
 		b = AppendBytes(b, m.UserConfigValueUpdate.Encode())
+	}
+	if m.SpacesSnapshot != nil {
+		b = AppendTag(b, 21, BytesType)
+		b = AppendBytes(b, m.SpacesSnapshot.Encode())
+	}
+	if m.SpaceUpdate != nil {
+		b = AppendTag(b, 22, BytesType)
+		b = AppendBytes(b, m.SpaceUpdate.Encode())
 	}
 	return b
 }
@@ -2810,6 +2820,182 @@ func DecodeState(b []byte) (*State, error) {
 					m.UserConfigValueUpdate = item
 				}
 			}
+		case 21:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SpaceList
+				item, err = DecodeSpaceList(msgBytes)
+				if err == nil {
+					m.SpacesSnapshot = item
+				}
+			}
+		case 22:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Space
+				item, err = DecodeSpace(msgBytes)
+				if err == nil {
+					m.SpaceUpdate = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type Space struct {
+	ID      int32
+	Name    string
+	Deleted bool
+}
+
+func (m *Space) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendStringField(b, m.Name, 2)
+	b = AppendBoolField(b, m.Deleted, 3)
+	return b
+}
+
+func DecodeSpace(b []byte) (*Space, error) {
+	var m Space
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Deleted, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type SpaceList struct {
+	Items []*Space
+}
+
+func (m *SpaceList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeSpaceList(b []byte) (*SpaceList, error) {
+	var m SpaceList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Space
+				item, err = DecodeSpace(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type SpaceSetRequest struct {
+	ID   int32
+	Name string
+}
+
+func (m *SpaceSetRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendStringField(b, m.Name, 2)
+	return b
+}
+
+func DecodeSpaceSetRequest(b []byte) (*SpaceSetRequest, error) {
+	var m SpaceSetRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Name, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type SpaceDeleteRequest struct {
+	ID int32
+}
+
+func (m *SpaceDeleteRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	return b
+}
+
+func DecodeSpaceDeleteRequest(b []byte) (*SpaceDeleteRequest, error) {
+	var m SpaceDeleteRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3675,20 +3861,20 @@ func DecodeLogLineBatch(b []byte) (*LogLineBatch, error) {
 }
 
 type DeploymentIdentifier struct {
-	Environment string
-	Machine     string
-	Name        string
+	SpaceID int32
+	Machine string
+	Name    string
 }
 
 func (m DeploymentIdentifier) IsZero() bool {
-	return m.Environment == "" &&
+	return m.SpaceID == 0 &&
 		m.Machine == "" &&
 		m.Name == ""
 }
 
 func (m *DeploymentIdentifier) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.Environment, 1)
+	b = AppendInt32Field(b, m.SpaceID, 1)
 	b = AppendStringField(b, m.Machine, 2)
 	b = AppendStringField(b, m.Name, 3)
 	return b
@@ -3706,7 +3892,7 @@ func DecodeDeploymentIdentifier(b []byte) (*DeploymentIdentifier, error) {
 		}
 		switch num {
 		case 1:
-			b, m.Environment, err = ConsumeString(b, typ)
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.Machine, err = ConsumeString(b, typ)
 		case 3:

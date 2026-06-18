@@ -14,6 +14,9 @@ export const userConfigRefsS = van.state([]);
 export const secretsStatusS = van.state(null);
 export const secretMetasS = van.state([]);
 export const userConfigsS = van.state([]);
+const SEEDED_SPACES = [{id: 0, name: 'opendeploy'}, {id: 1, name: 'default'}];
+
+export const spacesS = van.state(SEEDED_SPACES);
 export const deploymentsStreamS = van.state({
     status: 'offline',
     sentence: 'offline',
@@ -74,6 +77,7 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
         secretsStatusS.val = null;
         secretMetasS.val = [];
         userConfigsS.val = [];
+        spacesS.val = SEEDED_SPACES;
     }
     setStreamState('offline', 'offline');
 };
@@ -165,9 +169,18 @@ const handleStateMessage = (message) => {
     if (message.userConfigValueUpdate?.id) {
         userConfigsS.val = applyItemUpdate(userConfigsS.val, message.userConfigValueUpdate);
     }
+
+    if (message.spacesSnapshot) {
+        spacesS.val = sortSpaces(message.spacesSnapshot.items || []);
+    }
+
+    if (message.spaceUpdate && message.spaceUpdate.id !== undefined) {
+        spacesS.val = applySpaceUpdate(spacesS.val, message.spaceUpdate);
+    }
 };
 
 const sortByName = (items) => [...items].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+const sortSpaces = (items) => [...items].sort((a, b) => (a.id || 0) - (b.id || 0) || (a.name || '').localeCompare(b.name || ''));
 
 const applyItemUpdate = (items, update) => {
     const next = new Map((items || []).map((item) => [item.id, item]));
@@ -187,6 +200,16 @@ const applyReferenceUpdate = (items, update) => {
         next.set(update.id, update);
     }
     return Array.from(next.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+};
+
+const applySpaceUpdate = (items, update) => {
+    const next = new Map((items || []).map((item) => [item.id, item]));
+    if (update.deleted) {
+        next.delete(update.id);
+    } else {
+        next.set(update.id, update);
+    }
+    return sortSpaces(Array.from(next.values()));
 };
 
 const scheduleReconnect = (generation, lastError) => {

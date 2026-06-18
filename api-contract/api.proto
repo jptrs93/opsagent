@@ -89,6 +89,18 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc PostV1SpacesCreate(SpaceSetRequest) returns (Space) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1SpacesUpdate(SpaceSetRequest) returns (Space) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1SpacesDelete(SpaceDeleteRequest) returns (cp.Empty) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   // Version discovery: fetch available versions for a deployment on demand.
   rpc PostV1DeploymentVersions(DeploymentVersionsRequest) returns (DeploymentVersions) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
@@ -630,6 +642,27 @@ message State {
   SecretMeta secret_meta_update = 18;
   UserConfigList user_config_values_snapshot = 19;
   UserConfig user_config_value_update = 20;
+  SpaceList spaces_snapshot = 21;
+  Space space_update = 22;
+}
+
+message Space {
+  int32 id = 1;
+  string name = 2;
+  bool deleted = 3;
+}
+
+message SpaceList {
+  repeated Space items = 1;
+}
+
+message SpaceSetRequest {
+  int32 id = 1;
+  string name = 2;
+}
+
+message SpaceDeleteRequest {
+  int32 id = 1;
 }
 
 message SecretReference {
@@ -731,7 +764,7 @@ message LogLineBatch {
 
 
 message DeploymentIdentifier {
-  string environment = 1;
+  int32 space_id = 1;
   string machine = 2;
   string name = 3;
 }

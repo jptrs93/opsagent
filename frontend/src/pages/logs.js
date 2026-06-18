@@ -1,12 +1,11 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {loginS} from "../state/login.js";
-import {deploymentsS} from "../state/deployments.js";
+import {deploymentsS, spacesS} from "../state/deployments.js";
 
 const {div, p, select, option, input, button, pre, span, label} = van.tags;
 
 const LEVELS = ['', 'TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'];
-const SYSTEM_ENVIRONMENT = 'OPENDEPLOY';
 const SYSTEM_DEPLOYMENT_NAME = 'opendeploy';
 const DEFAULT_LOG_LINE_LIMIT = 10000;
 
@@ -27,8 +26,8 @@ function deploymentLabel(item) {
     return [cid.machine, cid.name].filter(Boolean).join(' / ') || `#${cfg.id}`;
 }
 
-function deploymentEnvironment(item) {
-    return item?.config?.configId?.environment || '';
+function deploymentSpaceID(item) {
+    return item?.config?.configId?.spaceId || 0;
 }
 
 function selectedDeployment(items, id) {
@@ -37,13 +36,7 @@ function selectedDeployment(items, id) {
 
 function isSystemDeployment(item) {
     const cid = item?.config?.configId || {};
-    return cid.environment === SYSTEM_ENVIRONMENT && cid.name === SYSTEM_DEPLOYMENT_NAME;
-}
-
-function environmentSort(a, b) {
-    if (a === SYSTEM_ENVIRONMENT && b !== SYSTEM_ENVIRONMENT) return 1;
-    if (b === SYSTEM_ENVIRONMENT && a !== SYSTEM_ENVIRONMENT) return -1;
-    return a.localeCompare(b);
+    return cid.name === SYSTEM_DEPLOYMENT_NAME && Boolean(item?.config?.spec?.runner?.systemd);
 }
 
 function formatLogfmtValue(value, forceQuote = false) {
@@ -71,7 +64,7 @@ function formatLine(line) {
 
 export function logsPage(selectedDeploymentId) {
     const now = new Date();
-    const environment = van.state('');
+    const spaceId = van.state('');
     const deploymentId = van.state(selectedDeploymentId.val || 0);
     const timeStart = van.state(toLocalInputValue(new Date(now.getTime() - 24 * 60 * 60 * 1000)));
     const timeEnd = van.state('');
@@ -82,14 +75,14 @@ export function logsPage(selectedDeploymentId) {
     let activeAbort = null;
     let autoSearchedDeploymentId = 0;
 
-    const environmentSelect = select({
-        "data-testid": "logs-environment-select",
+    const spaceSelect = select({
+        "data-testid": "logs-space-select",
         class: "input min-w-48",
         onchange: (e) => {
-            environment.val = e.target.value;
+            spaceId.val = e.target.value;
             const items = (deploymentsS.val || []).filter(item => item.config?.id && !item.config.deleted);
             const current = selectedDeployment(items, Number(deploymentId.val || 0));
-            if (current && environment.val && deploymentEnvironment(current) !== environment.val) {
+            if (current && spaceId.val !== '' && deploymentSpaceID(current) !== Number(spaceId.val)) {
                 deploymentId.val = 0;
             }
         },
@@ -109,17 +102,18 @@ export function logsPage(selectedDeploymentId) {
 
     van.derive(() => {
         const items = (deploymentsS.val || []).filter(item => item.config?.id && !item.config.deleted);
-        const environments = [...new Set(items.map(deploymentEnvironment))].sort(environmentSort);
-        environmentSelect.replaceChildren(
-            option({value: ""}, "All environments"),
-            ...environments.map(env => option({value: env}, env || 'No environment')),
+        const activeSpaceIDs = new Set(items.map(deploymentSpaceID));
+        const spaces = (spacesS.val || []).filter(space => activeSpaceIDs.has(space.id));
+        spaceSelect.replaceChildren(
+            option({value: ""}, "All spaces"),
+            ...spaces.map(space => option({value: String(space.id)}, space.name || `space ${space.id}`)),
         );
-        environmentSelect.value = environment.val;
+        spaceSelect.value = spaceId.val;
     });
 
     van.derive(() => {
         const items = (deploymentsS.val || []).filter(item => item.config?.id && !item.config.deleted);
-        const filtered = environment.val ? items.filter(item => deploymentEnvironment(item) === environment.val) : items;
+        const filtered = spaceId.val !== '' ? items.filter(item => deploymentSpaceID(item) === Number(spaceId.val)) : items;
         if (deploymentId.val && filtered.length > 0 && !selectedDeployment(filtered, Number(deploymentId.val))) {
             deploymentId.val = 0;
         }
@@ -205,7 +199,7 @@ export function logsPage(selectedDeploymentId) {
         {class: "h-full min-h-0 overflow-hidden p-3 flex flex-col gap-2"},
         div(
             {class: "card p-3 flex flex-wrap items-end gap-2"},
-            field("Environment", environmentSelect),
+            field("Space", spaceSelect),
             field("Deployment", deploymentSelect),
             field("Minimum level", select({
                     "data-testid": "logs-level-min-select",

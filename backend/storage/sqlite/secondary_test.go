@@ -16,7 +16,7 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 
 	cfg := &apigen.DeploymentConfig{
 		ID:           7,
-		ConfigID:     apigen.DeploymentIdentifier{Environment: "prod", Machine: "m1", Name: "api"},
+		ConfigID:     apigen.DeploymentIdentifier{SpaceID: 1, Machine: "m1", Name: "api"},
 		Version:      3,
 		UpdatedAt:    time.UnixMilli(1000),
 		Spec:         *nonEmptySpec(),
@@ -38,7 +38,7 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 		t.Fatalf("expected 1 deployment for m1, got %d", len(got))
 	}
 	rc := got[0].Config
-	if rc.Version != 3 || rc.ConfigID.Environment != "prod" || rc.ConfigID.Name != "api" || rc.ConfigID.Machine != "m1" {
+	if rc.Version != 3 || rc.ConfigID.SpaceID != 1 || rc.ConfigID.Name != "api" || rc.ConfigID.Machine != "m1" {
 		t.Fatalf("config not round-tripped: %+v / %+v", rc, rc.ConfigID)
 	}
 	rs := got[0].Status

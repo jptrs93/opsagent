@@ -34,7 +34,7 @@ const prepareStatusCopy = (prepareStatus, prepareVersion) => {
 };
 
 export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrepareOutput, onUpdate, onFork, opts = {}) {
-    const showEnvironment = opts.showEnvironment !== false;
+    const showSpace = opts.showSpace !== false;
     const hasExisting = deployment.existingStatus !== STATUS_NO_DEPLOYMENT;
     const existingColors = hasExisting
         ? (existingStatusLabels[deployment.existingStatus] || existingStatusLabels[0])
@@ -55,7 +55,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
                 }, "history"),
             ),
         ),
-        showEnvironment ? td({class: "py-3 px-3 align-middle text-sm text-gray-300 whitespace-nowrap"}, deployment.environment || '-') : '',
+        showSpace ? td({class: "py-3 px-3 align-middle text-sm text-gray-300 whitespace-nowrap"}, deployment.spaceName || '-') : '',
         td({class: "py-3 px-3 align-middle text-sm text-gray-300 break-words"}, deployment.machine || '-'),
         td(
             {class: "py-3 px-3 align-middle whitespace-nowrap"},

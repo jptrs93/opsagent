@@ -1,10 +1,10 @@
 -- Current config + desired state for each deployment. One row per deployment,
--- keyed by an integer id auto-allocated on first insert. (environment, machine,
+-- keyed by an integer id auto-allocated on first insert. (space_id, machine,
 -- name) is the human-readable identity and is unique; created_at is the
 -- immutable first-seen time of that identity.
 CREATE TABLE IF NOT EXISTS deployment_configs (
     deployment_id   INTEGER PRIMARY KEY,
-    environment     TEXT    NOT NULL DEFAULT '',
+    space_id        INTEGER NOT NULL DEFAULT 1,
     machine         TEXT    NOT NULL DEFAULT '',
     name            TEXT    NOT NULL DEFAULT '',
     created_at      INTEGER NOT NULL DEFAULT 0,  -- epoch ms; first-seen time of this deployment identity
@@ -18,7 +18,15 @@ CREATE TABLE IF NOT EXISTS deployment_configs (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_deployment_configs_identity
-    ON deployment_configs(environment, machine, name);
+    ON deployment_configs(space_id, machine, name);
+
+CREATE TABLE IF NOT EXISTS spaces (
+    id   INTEGER PRIMARY KEY,
+    name TEXT    NOT NULL DEFAULT ''
+);
+
+INSERT INTO spaces (id, name) VALUES (0, 'opendeploy'), (1, 'default')
+ON CONFLICT(id) DO UPDATE SET name = excluded.name;
 
 -- Append-only log of every config mutation.
 CREATE TABLE IF NOT EXISTS deployment_config_history (

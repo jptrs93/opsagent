@@ -16,10 +16,8 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-// SystemEnvironment is the reserved environment name for OpenDeploy's own
-// self-management deployments. It is auto-created for each machine and
-// excluded from the user-config deletion sweep.
-const SystemEnvironment = "OPENDEPLOY"
+const OpendeploySpaceID int32 = 0
+const DefaultSpaceID int32 = 1
 
 type PrimaryStorage struct {
 	*deploymentStore
@@ -29,6 +27,7 @@ type PrimaryStorage struct {
 	secretMetaSubs      *pubsubu.PubSub[apigen.SecretMeta]
 	userConfigSubs      *pubsubu.PubSub[apigen.UserConfigReference]
 	userConfigValueSubs *pubsubu.PubSub[apigen.UserConfig]
+	spaceSubs           *pubsubu.PubSub[apigen.Space]
 	enrollmentSubs      *pubsubu.PubSub[apigen.EnrollmentRequestStatus]
 }
 
@@ -42,6 +41,7 @@ func NewPrimaryStorage(dbPath string) *PrimaryStorage {
 		secretMetaSubs:      &pubsubu.PubSub[apigen.SecretMeta]{},
 		userConfigSubs:      &pubsubu.PubSub[apigen.UserConfigReference]{},
 		userConfigValueSubs: &pubsubu.PubSub[apigen.UserConfig]{},
+		spaceSubs:           &pubsubu.PubSub[apigen.Space]{},
 		enrollmentSubs:      &pubsubu.PubSub[apigen.EnrollmentRequestStatus]{},
 	}
 }
@@ -254,7 +254,7 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 	newVersion := existing.Version + 1
 	params := UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
-		Environment:    existing.Environment,
+		SpaceID:        existing.SpaceID,
 		Machine:        existing.Machine,
 		Name:           existing.Name,
 		CreatedAt:      existing.CreatedAt,
@@ -299,7 +299,7 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 	// Reject if a non-deleted deployment with the same identifier already exists.
 	for _, cfg := range s.configCache {
 		if cfg.ConfigID == *cid && !cfg.Deleted {
-			panic(fmt.Sprintf("deployment %s/%s/%s already exists", cid.Environment, cid.Machine, cid.Name))
+			panic(fmt.Sprintf("deployment %d/%s/%s already exists", cid.SpaceID, cid.Machine, cid.Name))
 		}
 	}
 
@@ -325,15 +325,15 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 	}
 
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
-		Environment: cid.Environment,
-		Machine:     cid.Machine,
-		Name:        cid.Name,
-		CreatedAt:   now,
-		Version:     1,
-		UpdatedAt:   now,
-		UpdatedBy:   userID,
-		SpecBlob:    specBlob,
-		Deleted:     0,
+		SpaceID:   int64(cid.SpaceID),
+		Machine:   cid.Machine,
+		Name:      cid.Name,
+		CreatedAt: now,
+		Version:   1,
+		UpdatedAt: now,
+		UpdatedBy: userID,
+		SpecBlob:  specBlob,
+		Deleted:   0,
 	})
 	if err != nil {
 		panic(fmt.Sprintf("CreateDeploymentConfig: %v", err))
@@ -359,7 +359,7 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 
 	cfg := upsertParamsToProto(UpsertDeploymentConfigParams{
 		DeploymentID: dbID,
-		Environment:  cid.Environment,
+		SpaceID:      int64(cid.SpaceID),
 		Machine:      cid.Machine,
 		Name:         cid.Name,
 		CreatedAt:    row.CreatedAt,
@@ -382,9 +382,9 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersion string) {
 	opendeployVersion = strings.TrimSpace(opendeployVersion)
 	cid := apigen.DeploymentIdentifier{
-		Environment: SystemEnvironment,
-		Machine:     machine,
-		Name:        "opendeploy",
+		SpaceID: OpendeploySpaceID,
+		Machine: machine,
+		Name:    "opendeploy",
 	}
 
 	s.mu.Lock()
@@ -428,7 +428,7 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 	}
 
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
-		Environment:    cid.Environment,
+		SpaceID:        int64(cid.SpaceID),
 		Machine:        cid.Machine,
 		Name:           cid.Name,
 		CreatedAt:      now,
@@ -465,7 +465,7 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 	id := int32(dbID)
 	s.configCache[id] = upsertParamsToProto(UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
-		Environment:    cid.Environment,
+		SpaceID:        int64(cid.SpaceID),
 		Machine:        cid.Machine,
 		Name:           cid.Name,
 		CreatedAt:      row.CreatedAt,
@@ -629,7 +629,7 @@ func configProtoToUpsertParams(cfg *apigen.DeploymentConfig) UpsertDeploymentCon
 	}
 	return UpsertDeploymentConfigParams{
 		DeploymentID:   int64(cfg.ID),
-		Environment:    cfg.ConfigID.Environment,
+		SpaceID:        int64(cfg.ConfigID.SpaceID),
 		Machine:        cfg.ConfigID.Machine,
 		Name:           cfg.ConfigID.Name,
 		CreatedAt:      timeToMillis(cfg.CreatedAt),
@@ -651,9 +651,9 @@ func configRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
 	return &apigen.DeploymentConfig{
 		ID: int32(r.DeploymentID),
 		ConfigID: apigen.DeploymentIdentifier{
-			Environment: r.Environment,
-			Machine:     r.Machine,
-			Name:        r.Name,
+			SpaceID: int32(r.SpaceID),
+			Machine: r.Machine,
+			Name:    r.Name,
 		},
 		CreatedAt: millisToTime(r.CreatedAt),
 		Version:   int32(r.Version),
@@ -676,9 +676,9 @@ func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfi
 	return &apigen.DeploymentConfig{
 		ID: int32(p.DeploymentID),
 		ConfigID: apigen.DeploymentIdentifier{
-			Environment: p.Environment,
-			Machine:     p.Machine,
-			Name:        p.Name,
+			SpaceID: int32(p.SpaceID),
+			Machine: p.Machine,
+			Name:    p.Name,
 		},
 		CreatedAt: millisToTime(p.CreatedAt),
 		Version:   int32(p.Version),
@@ -691,6 +691,10 @@ func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfi
 		},
 		Deleted: p.Deleted != 0,
 	}
+}
+
+func spaceRowToProto(row Space) *apigen.Space {
+	return &apigen.Space{ID: int32(row.ID), Name: row.Name}
 }
 
 // --- auth: users ---
@@ -778,6 +782,55 @@ func (s *PrimaryStorage) SubscribeUserConfigReferenceUpdates() (*pubsubu.Sub[api
 
 func (s *PrimaryStorage) SubscribeUserConfigValueUpdates() (*pubsubu.Sub[apigen.UserConfig], func()) {
 	sub := s.userConfigValueSubs.Subscribe(nil)
+	return sub, sub.UnsubscribeFunc
+}
+
+func (s *PrimaryStorage) ListSpaces() []*apigen.Space {
+	rows, err := s.q.ListSpaces(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("ListSpaces: %v", err))
+	}
+	out := make([]*apigen.Space, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, spaceRowToProto(row))
+	}
+	return out
+}
+
+func (s *PrimaryStorage) CreateSpace(name string) (*apigen.Space, error) {
+	row, err := s.q.CreateSpace(context.Background(), name)
+	if err != nil {
+		return nil, err
+	}
+	space := spaceRowToProto(row)
+	s.spaceSubs.Notify(*space)
+	return space, nil
+}
+
+func (s *PrimaryStorage) UpdateSpace(id int32, name string) (*apigen.Space, error) {
+	row, err := s.q.UpdateSpace(context.Background(), UpdateSpaceParams{Name: name, ID: int64(id)})
+	if err != nil {
+		return nil, err
+	}
+	space := spaceRowToProto(row)
+	s.spaceSubs.Notify(*space)
+	return space, nil
+}
+
+func (s *PrimaryStorage) DeleteSpace(id int32) error {
+	if err := s.q.DeleteSpace(context.Background(), int64(id)); err != nil {
+		return err
+	}
+	s.spaceSubs.Notify(apigen.Space{ID: id, Deleted: true})
+	return nil
+}
+
+func (s *PrimaryStorage) CountDeploymentsForSpace(id int32) (int64, error) {
+	return s.q.CountDeploymentsForSpace(context.Background(), int64(id))
+}
+
+func (s *PrimaryStorage) SubscribeSpaceUpdates() (*pubsubu.Sub[apigen.Space], func()) {
+	sub := s.spaceSubs.Subscribe(nil)
 	return sub, sub.UnsubscribeFunc
 }
 

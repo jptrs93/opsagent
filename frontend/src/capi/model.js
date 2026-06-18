@@ -340,6 +340,27 @@
  * @property {SecretMeta} secretMetaUpdate
  * @property {UserConfigList} userConfigValuesSnapshot
  * @property {UserConfig} userConfigValueUpdate
+ * @property {SpaceList} spacesSnapshot
+ * @property {Space} spaceUpdate
+ */
+/**
+ * @typedef {Object} Space
+ * @property {number} id
+ * @property {string} name
+ * @property {boolean} deleted
+ */
+/**
+ * @typedef {Object} SpaceList
+ * @property {Space[]} items
+ */
+/**
+ * @typedef {Object} SpaceSetRequest
+ * @property {number} id
+ * @property {string} name
+ */
+/**
+ * @typedef {Object} SpaceDeleteRequest
+ * @property {number} id
  */
 /**
  * @typedef {Object} SecretReference
@@ -438,7 +459,7 @@
  */
 /**
  * @typedef {Object} DeploymentIdentifier
- * @property {string} environment
+ * @property {number} spaceId
  * @property {string} machine
  * @property {string} name
  */
@@ -4688,6 +4709,16 @@ export function writeState(message, writer) {
         writeUserConfig(message.userConfigValueUpdate, writer);
         writer.ldelim();
     }
+    if (message.spacesSnapshot !== undefined && message.spacesSnapshot !== null) {
+        writer.uint32(tag(21, WIRE.LDELIM)).fork();
+        writeSpaceList(message.spacesSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.spaceUpdate !== undefined && message.spaceUpdate !== null) {
+        writer.uint32(tag(22, WIRE.LDELIM)).fork();
+        writeSpace(message.spaceUpdate, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -4709,7 +4740,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, machinesSnapshot: undefined, machineUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined };
+    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, machinesSnapshot: undefined, machineUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4785,6 +4816,14 @@ function decodeStateMessage(reader, length) {
                 message.userConfigValueUpdate = decodeUserConfigMessage(reader, reader.uint32());
                 break;
             }
+            case 21: {
+                message.spacesSnapshot = decodeSpaceListMessage(reader, reader.uint32());
+                break;
+            }
+            case 22: {
+                message.spaceUpdate = decodeSpaceMessage(reader, reader.uint32());
+                break;
+            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -4800,6 +4839,255 @@ function decodeStateMessage(reader, length) {
 export function decodeState(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeStateMessage(reader);
+}
+
+
+
+/**
+ * @param {Space} message
+ * @param {Writer} writer
+ */
+export function writeSpace(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.deleted === true) {
+        writer.uint32(tag(3, WIRE.VARINT)).bool(message.deleted);
+    }
+}
+
+
+/**
+ * @param {Space} message
+ * @returns {Uint8Array}
+ */
+export function encodeSpace(message) {
+    const writer = Writer.create();
+    writeSpace(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {Space}
+ */
+function decodeSpaceMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, name: "", deleted: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.name = reader.string();
+                break;
+            }
+            case 3: {
+                message.deleted = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {Space}
+ */
+export function decodeSpace(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSpaceMessage(reader);
+}
+
+
+
+/**
+ * @param {SpaceList} message
+ * @param {Writer} writer
+ */
+export function writeSpaceList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeSpace(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {SpaceList} message
+ * @returns {Uint8Array}
+ */
+export function encodeSpaceList(message) {
+    const writer = Writer.create();
+    writeSpaceList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SpaceList}
+ */
+function decodeSpaceListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeSpaceMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SpaceList}
+ */
+export function decodeSpaceList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSpaceListMessage(reader);
+}
+
+
+
+/**
+ * @param {SpaceSetRequest} message
+ * @param {Writer} writer
+ */
+export function writeSpaceSetRequest(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
+    }
+}
+
+
+/**
+ * @param {SpaceSetRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeSpaceSetRequest(message) {
+    const writer = Writer.create();
+    writeSpaceSetRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SpaceSetRequest}
+ */
+function decodeSpaceSetRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, name: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.name = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SpaceSetRequest}
+ */
+export function decodeSpaceSetRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSpaceSetRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {SpaceDeleteRequest} message
+ * @param {Writer} writer
+ */
+export function writeSpaceDeleteRequest(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+}
+
+
+/**
+ * @param {SpaceDeleteRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeSpaceDeleteRequest(message) {
+    const writer = Writer.create();
+    writeSpaceDeleteRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SpaceDeleteRequest}
+ */
+function decodeSpaceDeleteRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SpaceDeleteRequest}
+ */
+export function decodeSpaceDeleteRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSpaceDeleteRequestMessage(reader);
 }
 
 
@@ -6066,8 +6354,8 @@ export function decodeLogLineBatch(buffer) {
  * @param {Writer} writer
  */
 export function writeDeploymentIdentifier(message, writer) {
-    if (message.environment !== undefined && message.environment !== null && message.environment !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.environment);
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.spaceId);
     }
     if (message.machine !== undefined && message.machine !== null && message.machine !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.machine);
@@ -6096,12 +6384,12 @@ export function encodeDeploymentIdentifier(message) {
  */
 function decodeDeploymentIdentifierMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {environment: "", machine: "", name: "" };
+    const message = {spaceId: 0, machine: "", name: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.environment = reader.string();
+                message.spaceId = reader.int32();
                 break;
             }
             case 2: {

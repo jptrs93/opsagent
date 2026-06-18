@@ -86,6 +86,9 @@ type OpsagentHttpV1Handler interface {
 	PostV1DeploymentPrepareOutput(Context, *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error]
 	GetV1ClusterStatus(Context, *http.Request, http.ResponseWriter) error
 	PostV1DeploymentCreate(Context, *DeploymentCreateRequest) (*DeploymentConfig, error)
+	PostV1SpacesCreate(Context, *SpaceSetRequest) (*Space, error)
+	PostV1SpacesUpdate(Context, *SpaceSetRequest) (*Space, error)
+	PostV1SpacesDelete(Context, *SpaceDeleteRequest) error
 	PostV1DeploymentVersions(Context, *DeploymentVersionsRequest) (*DeploymentVersions, error)
 	PostV1RepoValidate(Context, *ValidateSourceRequest) (*ValidateSourceResponse, error)
 	GetV1Config(Context) (*DynamicConfiguration, error)
@@ -336,6 +339,43 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/deployment/create", buildHandlerFunc(config, verifyAuth, postV1DeploymentCreateAccessPolicy, postAuthHandlerPostV1DeploymentCreate, compressionModeAuto, false))
+	postV1SpacesCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1SpacesCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSpaceSetRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1SpacesCreate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/spaces/create", buildHandlerFunc(config, verifyAuth, postV1SpacesCreateAccessPolicy, postAuthHandlerPostV1SpacesCreate, compressionModeAuto, false))
+	postV1SpacesUpdateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1SpacesUpdate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSpaceSetRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1SpacesUpdate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/spaces/update", buildHandlerFunc(config, verifyAuth, postV1SpacesUpdateAccessPolicy, postAuthHandlerPostV1SpacesUpdate, compressionModeAuto, false))
+	postV1SpacesDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1SpacesDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSpaceDeleteRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1SpacesDelete(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/spaces/delete", buildHandlerFunc(config, verifyAuth, postV1SpacesDeleteAccessPolicy, postAuthHandlerPostV1SpacesDelete, compressionModeAuto, false))
 	postV1DeploymentVersionsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1DeploymentVersions := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentVersionsRequest)

@@ -20,7 +20,7 @@ type Asset struct {
 
 type DeploymentConfig struct {
 	DeploymentID   int64
-	Environment    string
+	SpaceID        int64
 	Machine        string
 	Name           string
 	CreatedAt      int64
@@ -106,6 +106,11 @@ type SecretKeyslot struct {
 	Nonce      []byte
 	KdfSalt    []byte
 	CreatedAt  int64
+}
+
+type Space struct {
+	ID   int64
+	Name string
 }
 
 type SystemConfig struct {

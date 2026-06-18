@@ -26,6 +26,8 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 		defer userConfigUnsub()
 		userConfigValueSub, userConfigValueUnsub := h.Store.SubscribeUserConfigValueUpdates()
 		defer userConfigValueUnsub()
+		spaceSub, spaceUnsub := h.Store.SubscribeSpaceUpdates()
+		defer spaceUnsub()
 		enrollments, enrollmentCh, enrollmentUnsub, err := h.Store.MustFetchEnrollmentSnapshotAndSubscribe()
 		if err != nil {
 			yield(nil, err)
@@ -65,6 +67,7 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 			SecretsStatusSnapshot:    &secretStatus,
 			SecretMetasSnapshot:      &apigen.SecretList{Items: h.listSecretMetas()},
 			UserConfigValuesSnapshot: &apigen.UserConfigList{Items: h.Store.ListUserConfigs()},
+			SpacesSnapshot:           &apigen.SpaceList{Items: h.Store.ListSpaces()},
 		}
 		if !yield(initial, nil) {
 			return
@@ -125,6 +128,13 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 					return
 				}
 				if !yield(&apigen.State{UserConfigValueUpdate: &userConfigValue}, nil) {
+					return
+				}
+			case space, ok := <-spaceSub.Ch:
+				if !ok {
+					return
+				}
+				if !yield(&apigen.State{SpaceUpdate: &space}, nil) {
 					return
 				}
 			case machine, ok := <-machineCh:

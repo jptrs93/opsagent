@@ -2,16 +2,15 @@ import van from "vanjs-core";
 import {X} from "vanjs-feather";
 import {capi} from "../capi/index.js";
 import {referencePicker} from "./referencePicker.js";
-import {secretRefsS, userConfigRefsS} from "../state/deployments.js";
+import {secretRefsS, spacesS, userConfigRefsS} from "../state/deployments.js";
 
-const { div, h3, label, input, select, option, button, p, span, datalist, textarea, table, thead, tbody, tfoot, tr, th, td } = van.tags;
+const { div, h3, label, input, select, option, button, p, span, textarea, table, thead, tbody, tfoot, tr, th, td } = van.tags;
 
 const SOURCE_NIX_DOCKER = 'nixDockerBuild';
 const SOURCE_DOCKER_IMAGE = 'containerImage';
 const RUNNER_CONTAINER = 'container';
 const DEPLOYMENT_VOLUME_HOST_RE = /^\/var\/lib\/opendeploy-volumes\/(\d+)\/var$/;
 
-let nextDatalistID = 1;
 let nextEnvID = 1;
 let nextAssetMountID = 1;
 let nextVolumeMountID = 1;
@@ -20,7 +19,7 @@ export function emptyDeploymentForm() {
     return makeFormState({
         deploymentId: 0,
         name: '',
-        environment: '',
+        spaceId: 1,
         machine: '',
         sourceType: SOURCE_DOCKER_IMAGE,
         nixRepo: '',
@@ -55,7 +54,7 @@ export function deploymentConfigToForm(cfg) {
     return makeFormState({
         deploymentId: cfg.id || 0,
         name: cid.name || '',
-        environment: cid.environment || '',
+        spaceId: cid.spaceId || 0,
         machine: cid.machine || '',
         sourceType: prepare.containerImage ? SOURCE_DOCKER_IMAGE : SOURCE_NIX_DOCKER,
         nixRepo: nixDocker.repo || '',
@@ -78,13 +77,12 @@ export function deploymentConfigToForm(cfg) {
 }
 
 export function deploymentForm(form, opts = {}) {
-    const environmentDatalistID = `deployment-environments-${nextDatalistID++}`;
     const identityLocked = Boolean(opts.identityLocked);
-    const environmentOptions = opts.environmentOptions || [];
+    const spaceOptions = opts.spaceOptions || spacesS.val || [{id: 0, name: 'opendeploy'}, {id: 1, name: 'default'}];
     const machineOptions = opts.machineOptions || [];
     const machineOptionValues = machineOptions.map(m => typeof m === 'string' ? m : m.name).filter(Boolean);
     const machineOptionsLoaded = opts.machineOptionsLoaded !== false;
-    const executionTitle = opts.executionTitle || "Environment";
+    const executionTitle = opts.executionTitle || "Runtime";
     const showIdentityLockedNotice = () => {
         if (!identityLocked) return;
         form.identityLockNotice.val = true;
@@ -111,22 +109,13 @@ export function deploymentForm(form, opts = {}) {
                     placeholder: "my-service",
                     oninput: e => { form.name.val = e.target.value; },
                 }), identityLocked, showIdentityLockedNotice),
-                identityField("Environment (optional)", div(
-                    input({
-                        type: "text",
-                        "data-testid": "deployment-environment-input",
-                        list: environmentDatalistID,
-                        value: form.environment.rawVal,
-                        disabled: identityLocked,
-                        class: textInputClass(false, identityLocked),
-                        placeholder: "PROD",
-                        oninput: e => { form.environment.val = e.target.value; },
-                    }),
-                    datalist(
-                        {id: environmentDatalistID},
-                        ...environmentOptions.map(env => option({value: env}, env)),
-                    ),
-                ), identityLocked, showIdentityLockedNotice),
+                identityField("Space", select({
+                    "data-testid": "deployment-space-select",
+                    value: () => String(form.spaceId.val ?? 0),
+                    disabled: identityLocked,
+                    class: textInputClass(false, identityLocked),
+                    onchange: e => { form.spaceId.val = Number(e.target.value || 0); },
+                }, ...spaceOptions.map(space => option({value: String(space.id)}, space.name || `space ${space.id}`))), identityLocked, showIdentityLockedNotice),
                 identityField("Machine", machineSelect(form, {
                     identityLocked,
                     machineOptionsLoaded,
@@ -176,7 +165,7 @@ export function deploymentForm(form, opts = {}) {
 export function formToDeploymentIdentifier(form) {
     return {
         name: form.name.val.trim(),
-        environment: form.environment.val.trim(),
+        spaceId: Number(form.spaceId.val || 0),
         machine: form.machine.val.trim(),
     };
 }
@@ -447,7 +436,7 @@ function makeFormState(values) {
     return {
         name: van.state(values.name),
         deploymentId: van.state(values.deploymentId || 0),
-        environment: van.state(values.environment),
+        spaceId: van.state(values.spaceId || 0),
         machine: van.state(values.machine),
         sourceType: van.state(values.sourceType),
         nixRepo: van.state(values.nixRepo),
@@ -1216,8 +1205,13 @@ function optionDeployments(opts) {
 
 function deploymentVolumeLabel(deployment) {
     const id = deployment.config?.configId || {};
-    const env = id.environment ? ` (${id.environment})` : '';
-    return `${id.name || `deployment ${deployment.config?.id}`}${env}`;
+    const space = spaceName(id.spaceId);
+    return `${id.name || `deployment ${deployment.config?.id}`} (${space})`;
+}
+
+function spaceName(id) {
+    const space = (spacesS.val || []).find(s => s.id === id);
+    return space?.name || `space ${id || 0}`;
 }
 
 function paneSectionDivider(text) {

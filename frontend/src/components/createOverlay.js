@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {deploymentsS} from "../state/deployments.js";
+import {deploymentsS, spacesS} from "../state/deployments.js";
 import {spinnerButton} from "./spinnerbutton.js";
 import {RefreshCw} from "vanjs-feather";
 import {
@@ -28,7 +28,7 @@ export function createOverlay(onClose, onCreated, opts = {}) {
     if (opts.sourceDeploymentConfig) {
         form.deploymentId.val = 0;
         form.name.val = '';
-        form.environment.val = '';
+        form.spaceId.val = 1;
         form.machine.val = '';
     }
     const machines = van.state([]);
@@ -65,15 +65,6 @@ export function createOverlay(onClose, onCreated, opts = {}) {
 
     loadMachines();
     loadAssets();
-
-    const environmentOptions = () => {
-        const envs = new Set();
-        for (const d of deploymentsS.val || []) {
-            const env = d.config?.configId?.environment;
-            if (env) envs.add(env);
-        }
-        return [...envs].sort();
-    };
 
     const doCreate = async () => {
         errorMsg.val = '';
@@ -117,7 +108,7 @@ export function createOverlay(onClose, onCreated, opts = {}) {
                 div(
                     {class: "flex-1 min-h-0 overflow-auto p-4 flex flex-col gap-5"},
                     () => deploymentForm(form, {
-                        environmentOptions: environmentOptions(),
+                        spaceOptions: spacesS.val,
                         machineOptions: machines.val,
                         machineOptionsLoaded: machinesLoaded.val,
                         assets: assets.val,

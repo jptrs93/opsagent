@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {Info} from "vanjs-feather";
-import {deploymentsS, deploymentsStreamS} from "../state/deployments.js";
+import {deploymentsS, deploymentsStreamS, spacesS} from "../state/deployments.js";
 import {statusRow} from "../components/statusCard.js";
 import {deploymentHistory} from "../components/deploymentHistory.js";
 import {deployOverlay} from "../components/deployOverlay.js";
@@ -34,29 +34,29 @@ const SIDEBAR_HISTORY = 'history';
 
 const formatDeploymentLabel = (deployment) => {
     if (!deployment) return 'unknown deployment';
-    const parts = [deployment.environment, deployment.machine, deployment.name].filter(Boolean);
+    const parts = [deployment.spaceName, deployment.machine, deployment.name].filter(Boolean);
     return parts.length > 0 ? parts.join(' / ') : `#${deployment.id}`;
 };
 
-const environmentLabel = (environment) => environment || 'No environment';
+const spaceLabel = (space) => space?.name || `space ${space?.id ?? 0}`;
 
-const groupDeploymentsByEnvironment = (deployments) => {
+const groupDeploymentsBySpace = (deployments) => {
     const groups = new Map();
     for (const deployment of deployments) {
-        const environment = deployment.environment || '';
-        if (!groups.has(environment)) {
-            groups.set(environment, []);
+        const spaceId = deployment.spaceId || 0;
+        if (!groups.has(spaceId)) {
+            groups.set(spaceId, []);
         }
-        groups.get(environment).push(deployment);
+        groups.get(spaceId).push(deployment);
     }
     return [...groups.entries()]
-        .sort(([a], [b]) => environmentSortRank(a) - environmentSortRank(b) || a.localeCompare(b))
-        .map(([environment, rows]) => ({environment, rows}));
+        .sort(([a], [b]) => a - b)
+        .map(([spaceId, rows]) => ({spaceId, rows}));
 };
 
 const headerTips = {
     deployment: 'Deployment name. Use history to inspect config and status changes.',
-    environment: 'Logical environment for grouping deployments.',
+    space: 'Logical space for grouping deployments.',
     machine: 'Cluster machine where this deployment is reconciled.',
     status: 'Current runner status. Click the badge to view run output.',
     version: 'Currently running commit or GitHub release tag. Orange when it differs from the desired version.',
@@ -67,16 +67,11 @@ const headerTips = {
     actions: 'Open the update overlay to deploy, start, or stop this deployment.',
 };
 
-const environmentSortRank = (environment) => {
-    if (environment === 'PROD') return 0;
-    if (environment === 'STAGING') return 1;
-    return 2;
-};
-
 // mapDeploymentsToView flattens DeploymentWithStatus[] into the shape
 // the status card component expects.
-const mapDeploymentsToView = (deployments) => {
+const mapDeploymentsToView = (deployments, spaces) => {
     if (!Array.isArray(deployments)) return [];
+    const spaceNames = new Map((spaces || []).map(space => [space.id, space.name]));
 
     return deployments.filter(d => d.config && d.config.id && !d.config.deleted).map((d) => {
         const id = d.config.id; // integer
@@ -99,13 +94,15 @@ const mapDeploymentsToView = (deployments) => {
             repo = spec.prepare.containerImage.image || '';
         }
 
-        const runnerType = cid.environment === 'OPENDEPLOY' || spec.runner?.systemd ? 'systemd' : 'container';
+        const runnerType = spec.runner?.systemd ? 'systemd' : 'container';
+        const spaceId = cid.spaceId || 0;
 
         return {
             id,
             name: cid.name || '',
             machine: cid.machine || '',
-            environment: cid.environment || '',
+            spaceId,
+            spaceName: spaceNames.get(spaceId) || `space ${spaceId}`,
             variant,
             repo,
             runnerType,
@@ -145,8 +142,8 @@ export function statusPage(onOpenLogs = () => {}) {
     // the page-level render path.
     const overlayNode = van.state('');
     const createOverlayNode = van.state('');
-    const groupByEnvironment = van.state(true);
-    const collapsedEnvironmentGroups = van.state({});
+    const groupBySpace = van.state(true);
+    const collapsedSpaceGroups = van.state({});
 
     const abortActiveSidebar = () => {
         if (activeSidebarAbort) {
@@ -201,20 +198,20 @@ export function statusPage(onOpenLogs = () => {}) {
         createOverlayNode.val = createOverlay(closeCreateOverlay);
     };
 
-    const toggleEnvironmentGroup = (environment) => {
-        collapsedEnvironmentGroups.val = {
-            ...collapsedEnvironmentGroups.val,
-            [environment]: !collapsedEnvironmentGroups.val[environment],
+    const toggleSpaceGroup = (spaceId) => {
+        collapsedSpaceGroups.val = {
+            ...collapsedSpaceGroups.val,
+            [spaceId]: !collapsedSpaceGroups.val[spaceId],
         };
     };
 
-    const deploymentTable = (rows, showEnvironmentColumn) => table(
+    const deploymentTable = (rows, showSpaceColumn) => table(
         {class: "w-full text-left text-sm"},
         thead(
             tr(
                 {class: "border-b border-gray-700 text-xs uppercase tracking-wide text-gray-500"},
                 tableHeader("Deployment", headerTips.deployment, "py-3 pl-4 pr-3 font-medium"),
-                showEnvironmentColumn ? tableHeader("Environment", headerTips.environment, "py-3 px-3 font-medium") : '',
+                showSpaceColumn ? tableHeader("Space", headerTips.space, "py-3 px-3 font-medium") : '',
                 tableHeader("Machine", headerTips.machine, "py-3 px-3 font-medium"),
                 tableHeader("Status", headerTips.status, "py-3 px-3 font-medium"),
                 tableHeader("Running Version", headerTips.version, "py-3 px-3 font-medium"),
@@ -233,7 +230,7 @@ export function statusPage(onOpenLogs = () => {}) {
                 onShowPrepareOutput,
                 onUpdate,
                 onFork,
-                {showEnvironment: showEnvironmentColumn},
+                {showSpace: showSpaceColumn},
             )),
         ),
     );
@@ -290,10 +287,10 @@ export function statusPage(onOpenLogs = () => {}) {
         );
     };
 
-    const deploymentTableCard = (rows, showEnvironmentColumn, header = null, collapsed = false) => div(
+    const deploymentTableCard = (rows, showSpaceColumn, header = null, collapsed = false) => div(
         {class: "w-full min-w-0 rounded-lg bg-surface border border-gray-700 p-2"},
         header,
-        collapsed ? '' : div({class: "w-full overflow-x-auto overflow-y-hidden"}, deploymentTable(rows, showEnvironmentColumn)),
+        collapsed ? '' : div({class: "w-full overflow-x-auto overflow-y-hidden"}, deploymentTable(rows, showSpaceColumn)),
     );
 
     const mainContent = div(
@@ -303,15 +300,15 @@ export function statusPage(onOpenLogs = () => {}) {
             div(
                 {class: "flex items-center gap-4"},
                 button({
-                    class: () => `flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors cursor-pointer ${groupByEnvironment.val ? 'border-brand bg-brand/20 text-blue-200' : 'border-gray-600 bg-gray-800 text-gray-400'}`,
-                    onclick: () => { groupByEnvironment.val = !groupByEnvironment.val; },
+                    class: () => `flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors cursor-pointer ${groupBySpace.val ? 'border-brand bg-brand/20 text-blue-200' : 'border-gray-600 bg-gray-800 text-gray-400'}`,
+                    onclick: () => { groupBySpace.val = !groupBySpace.val; },
                     type: "button",
-                    title: "Toggle environment grouping",
+                    title: "Toggle space grouping",
                 },
-                    span({class: () => `h-4 w-7 rounded-full relative transition-colors ${groupByEnvironment.val ? 'bg-brand' : 'bg-gray-600'}`},
-                        span({class: () => `absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${groupByEnvironment.val ? 'left-3.5' : 'left-0.5'}`}),
+                    span({class: () => `h-4 w-7 rounded-full relative transition-colors ${groupBySpace.val ? 'bg-brand' : 'bg-gray-600'}`},
+                        span({class: () => `absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${groupBySpace.val ? 'left-3.5' : 'left-0.5'}`}),
                     ),
-                    span("Group by environment"),
+                    span("Group by space"),
                 ),
                 button({
                     "data-testid": "add-deployment-button",
@@ -321,7 +318,7 @@ export function statusPage(onOpenLogs = () => {}) {
             ),
         ),
         () => {
-            const filtered = mapDeploymentsToView(deploymentsS.val);
+            const filtered = mapDeploymentsToView(deploymentsS.val, spacesS.val);
 
             if (deploymentsStreamS.val.status !== 'connected' && filtered.length === 0) {
                 return p({class: "text-gray-400"}, deploymentsStreamS.val.sentence);
@@ -337,39 +334,40 @@ export function statusPage(onOpenLogs = () => {}) {
                 );
             }
 
-            // Sort: OPENDEPLOY last, then by environment, name, machine,
+            // Sort: system deployment last, then by space, name, machine,
             // and finally id so the order is fully deterministic across
             // stream snapshots and reconnects.
             const sorted = [...filtered].sort((a, b) => {
-                const aSystem = a.environment === 'OPENDEPLOY' ? 1 : 0;
-                const bSystem = b.environment === 'OPENDEPLOY' ? 1 : 0;
+                const aSystem = a.runnerType === 'systemd' && a.name === 'opendeploy' ? 1 : 0;
+                const bSystem = b.runnerType === 'systemd' && b.name === 'opendeploy' ? 1 : 0;
                 return aSystem - bSystem
-                    || (a.environment || '').localeCompare(b.environment || '')
+                    || (a.spaceId - b.spaceId)
                     || (a.name || '').localeCompare(b.name || '')
                     || (a.machine || '').localeCompare(b.machine || '')
                     || (a.id - b.id);
             });
 
-            if (!groupByEnvironment.val) {
+            if (!groupBySpace.val) {
                 return deploymentTableCard(sorted, true);
             }
 
-            const groups = groupDeploymentsByEnvironment(sorted);
+            const groups = groupDeploymentsBySpace(sorted);
             const canCollapse = groups.length > 1;
             return div(
                 {class: "flex flex-col gap-4 w-full min-w-0"},
                 ...groups.map(group => {
-                    const collapsed = canCollapse && Boolean(collapsedEnvironmentGroups.val[group.environment]);
+                    const collapsed = canCollapse && Boolean(collapsedSpaceGroups.val[group.spaceId]);
+                    const space = (spacesS.val || []).find(s => s.id === group.spaceId) || {id: group.spaceId, name: `space ${group.spaceId}`};
                     const header = div(
                         {class: "flex items-center justify-between px-4 pt-1 pb-2 border-b border-gray-700"},
                         div(
                             {class: "flex items-center gap-2"},
-                            div({class: "text-xs font-semibold text-gray-300"}, environmentLabel(group.environment)),
+                            div({class: "text-xs font-semibold text-gray-300"}, spaceLabel(space)),
                             span({class: "text-xs text-gray-500"}, `${group.rows.length} deployment${group.rows.length === 1 ? '' : 's'}`),
                         ),
                         canCollapse ? button({
                             class: "text-xs text-gray-400 hover:text-gray-200 cursor-pointer px-2 py-1 rounded hover:bg-gray-800",
-                            onclick: () => toggleEnvironmentGroup(group.environment),
+                            onclick: () => toggleSpaceGroup(group.spaceId),
                             type: "button",
                             title: collapsed ? "Expand" : "Collapse",
                         }, collapsed ? "Expand" : "Collapse") : span(),

@@ -24,7 +24,7 @@ var NoPrepareOutputErr = apigen.NewApiErr("No prepare output found", "prepare_ou
 var InvalidConfigErr = apigen.NewApiErr("", "invalid_config", http.StatusBadRequest)
 var DeploymentNotFoundErr = apigen.NewApiErr("Deployment not found", "deployment_not_found", http.StatusNotFound)
 
-var DuplicateDeploymentErr = apigen.NewApiErr("A deployment with this name, environment, and machine already exists", "duplicate_deployment", http.StatusConflict)
+var DuplicateDeploymentErr = apigen.NewApiErr("A deployment with this name, space, and machine already exists", "duplicate_deployment", http.StatusConflict)
 
 func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentConfig, error) {
 	cid := req.ConfigID

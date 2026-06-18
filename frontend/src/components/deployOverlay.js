@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {deploymentsS} from "../state/deployments.js";
+import {deploymentsS, spacesS} from "../state/deployments.js";
 import {spinnerButton} from "./spinnerbutton.js";
 import {RefreshCw} from "vanjs-feather";
 import {
@@ -47,15 +47,6 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     const isRunning = deployment.existingStatus === STATUS_RUNNING;
     const canManageLifecycle = deployment.runnerType !== 'systemd';
     const canStart = Boolean(deployment.deployedVersion);
-
-    const environmentOptions = () => {
-        const envs = new Set();
-        for (const d of deploymentsS.rawVal || []) {
-            const env = d.config?.configId?.environment;
-            if (env) envs.add(env);
-        }
-        return [...envs].sort();
-    };
 
     const loadVersions = async (branch, opts = {}) => {
         const sourceID = deploymentUpdate.currentSourceID();
@@ -290,7 +281,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                         identityLocked: true,
                         hideArtifactSource: internalGithubRelease,
                         hideExecution: internalGithubRelease,
-                        environmentOptions: environmentOptions(),
+                        spaceOptions: spacesS.val,
                         assets: assets.val,
                         enableAssetEditor: true,
                     }),

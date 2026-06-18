@@ -461,6 +461,59 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentCreate(ctx context.Context, req *De
 	return DecodeDeploymentConfig(body)
 }
 
+func (c *OpsagentHttpV1Capi) PostV1SpacesCreate(ctx context.Context, req *SpaceSetRequest) (*Space, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1SpacesCreate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/spaces/create", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeSpace(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1SpacesUpdate(ctx context.Context, req *SpaceSetRequest) (*Space, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1SpacesUpdate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/spaces/update", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeSpace(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1SpacesDelete(ctx context.Context, req *SpaceDeleteRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1SpacesDelete request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/spaces/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
 func (c *OpsagentHttpV1Capi) PostV1DeploymentVersions(ctx context.Context, req *DeploymentVersionsRequest) (*DeploymentVersions, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1DeploymentVersions request is nil")

@@ -41,12 +41,12 @@ export async function configureGithubToken(page, token) {
 
 export async function expectOpenDeployLogs(page) {
   await byTestId(page, 'nav-logs', page.getByText('Logs')).click();
-  const environmentSelect = page.getByTestId('logs-environment-select');
-  await expect(environmentSelect).toBeVisible();
+  const spaceSelect = page.getByTestId('logs-space-select');
+  await expect(spaceSelect).toBeVisible();
   await expect.poll(async () => {
-    return await environmentSelect.locator('option').evaluateAll(options => options.map(o => o.value));
-  }, {message: 'expected OPENDEPLOY environment option', timeout: LONG_UI_TIMEOUT}).toContain('OPENDEPLOY');
-  await environmentSelect.selectOption('OPENDEPLOY');
+    return await spaceSelect.locator('option').evaluateAll(options => options.map(o => o.value));
+  }, {message: 'expected default space option', timeout: LONG_UI_TIMEOUT}).toContain('0');
+  await spaceSelect.selectOption('0');
 
   const deploymentSelect = page.getByTestId('logs-deployment-select');
   await expect.poll(async () => {
@@ -54,7 +54,7 @@ export async function expectOpenDeployLogs(page) {
       options.map(o => ({value: o.value, text: o.textContent || ''})),
     );
     return options.find(o => o.value && o.text.includes('opendeploy'))?.value || '';
-  }, {message: 'expected OPENDEPLOY opendeploy deployment option', timeout: LONG_UI_TIMEOUT}).not.toBe('');
+  }, {message: 'expected opendeploy deployment option', timeout: LONG_UI_TIMEOUT}).not.toBe('');
   const deploymentValue = await deploymentSelect.locator('option').evaluateAll(options => {
     const match = options.find(o => o.value && (o.textContent || '').includes('opendeploy'));
     return match?.value || '';
@@ -229,7 +229,6 @@ export async function createPostgresClientDeployment(page, {
 
 export async function createConfig(page, {name, value} = {}) {
   await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
-  await expect(page.getByText('Use the deployment environment panel to attach secrets/configs by ID.')).toBeVisible();
   await page.getByRole('button', {name: 'Add config'}).click();
 
   const row = page.locator('tbody tr').last();
@@ -241,7 +240,6 @@ export async function createConfig(page, {name, value} = {}) {
 
 export async function createSecret(page, {name, value} = {}) {
   await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
-  await expect(page.getByText('Use the deployment environment panel to attach secrets/configs by ID.')).toBeVisible();
   await page.getByRole('button', {name: 'Add secret'}).click();
 
   const row = page.locator('tbody tr').last();
@@ -322,7 +320,7 @@ export async function expectDeploymentRestartCount(page, name, count) {
 
 async function upgradeOpenDeployAgent(page, {machine, version}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
-  const row = deploymentRow(page, {name: 'opendeploy', machine, environment: 'OPENDEPLOY'});
+  const row = deploymentRow(page, {name: 'opendeploy', machine});
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await row.getByRole('button', {name: 'Update'}).click();
 
@@ -339,7 +337,7 @@ async function upgradeOpenDeployAgent(page, {machine, version}) {
 
 export async function expectOpenDeployAgentVersion(page, {machine, version}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
-  const row = deploymentRow(page, {name: 'opendeploy', machine, environment: 'OPENDEPLOY'});
+  const row = deploymentRow(page, {name: 'opendeploy', machine});
   await expect(row).toContainText(version, {timeout: UPGRADE_TIMEOUT});
   await expect(row.getByTitle('View run output')).toContainText('Running', {timeout: UPGRADE_TIMEOUT});
 }
@@ -359,15 +357,15 @@ async function expectDeploymentRunning(page, name) {
 async function openDeploymentLogsSearch(page, row) {
   await row.getByTitle('View run output').click();
   await expect(byTestId(page, 'nav-logs', page.getByText('Logs'))).toBeVisible();
-  await expect(page.getByTestId('logs-environment-select')).toBeVisible();
+  await expect(page.getByTestId('logs-space-select')).toBeVisible();
   await expect(page.getByTestId('logs-deployment-select')).not.toHaveValue('');
   await expect(page.getByTestId('logs-output')).toBeVisible();
 }
 
-function deploymentRow(page, {name, machine, environment} = {}) {
+function deploymentRow(page, {name, machine, space} = {}) {
   let row = page.locator('tr').filter({hasText: name});
   if (machine) row = row.filter({hasText: machine});
-  if (environment) row = row.filter({hasText: environment});
+  if (space) row = row.filter({hasText: space});
   return row.first();
 }
 
