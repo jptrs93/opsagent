@@ -150,17 +150,6 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                     }
                     deploymentUpdate.containerImage.selectedTagSourceKey.val = deploymentUpdate.containerImage.selectedTag.val ? sourceKey : '';
                 } else {
-                    const preferredVersion = opts.preferVersion || '';
-                    const loadedCommits = sourceResult.availableCommits?.commits || [];
-                    const loadedBranch = sourceResult.availableCommits?.branch || form.repoCheck.val.branch || '';
-                    if (!branch && preferredVersion && !loadedCommits.some(v => v.id === preferredVersion)) {
-                        const found = await validationForCommitBranch(deploymentUpdate, sourceID, sourceType, sourceKey, form.repoCheck.val.branches || [], loadedBranch, preferredVersion);
-                        if (found && deploymentUpdate.sourceKey() === sourceKey) {
-                            result = found;
-                            sourceResult = deploymentUpdate.validationSourceResult(result);
-                            deploymentUpdate.setRepoCheckFromValidation(result, sourceID, sourceType, sourceKey);
-                        }
-                    }
                     deploymentUpdate.nixDockerBuild.branches.val = form.repoCheck.val.branches || [];
                     const nextBranch = sourceResult.availableCommits?.branch || form.repoCheck.val.branch || deploymentUpdate.currentBranch(form.repoCheck.val, selectedBranch);
                     const commits = deploymentUpdate.commitsForBranch(nextBranch, form.repoCheck.val);
@@ -174,6 +163,8 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                         deploymentUpdate.nixDockerBuild.selectedCommit.val = previous;
                     } else if (previous && previous === deployedId) {
                         deploymentUpdate.nixDockerBuild.selectedCommit.val = previous;
+                    } else if (opts.preserveSelection && deployedId) {
+                        deploymentUpdate.nixDockerBuild.selectedCommit.val = deployedId;
                     } else if (deployedId && commits.some(v => v.id === deployedId)) {
                         deploymentUpdate.nixDockerBuild.selectedCommit.val = deployedId;
                     } else if (!commits.some(v => v.id === deploymentUpdate.nixDockerBuild.selectedCommit.val)) {
@@ -215,7 +206,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     });
 
     if (deployment.variant && (deployment.variant !== 'containerImage' || !deploymentUpdate.hasTrustedSourceValidation())) {
-        loadVersions('', {preserveSelection: true, preferVersion: deployment.deployedVersion || ''});
+        loadVersions('', {preserveSelection: true});
     }
     loadAssets();
 
@@ -517,30 +508,6 @@ function refreshButton(args) {
             title: "Refresh available versions",
         }, RefreshCw({size: 12}), "Refresh"),
     );
-}
-
-async function validationForCommitBranch(deploymentUpdate, sourceID, sourceType, sourceKey, branches, currentBranch, commit) {
-    const form = deploymentUpdate.form;
-    if (!commit || form.sourceType.val !== SOURCE_NIX_DOCKER) return null;
-    for (const candidate of branches) {
-        if (!candidate || candidate === currentBranch) continue;
-        const req = buildValidateSourceRequest(form, {
-            branch: candidate,
-            refreshAvailableBranches: false,
-            refreshAvailableCommits: true,
-            checkFlakePath: Boolean(form.nixFlake.val.trim()),
-        });
-        try {
-            const result = await capi.postV1RepoValidate(req);
-            if (deploymentUpdate.sourceKey() !== sourceKey) return null;
-            deploymentUpdate.updateCachedRepoBranchCommitOptions(result);
-            const sourceResult = deploymentUpdate.validationSourceResult(result);
-            if ((sourceResult.availableCommits?.commits || []).some(v => v.id === commit)) return result;
-        } catch (e) {
-            console.error('[opendeploy] deployment commit branch search failed', {sourceID, sourceType, branch: candidate, request: req, error: e, stack: e?.stack});
-        }
-    }
-    return null;
 }
 
 function selectClass() {

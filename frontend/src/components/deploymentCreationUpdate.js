@@ -17,8 +17,13 @@ export const SOURCE_NIX_DOCKER = 'nixDockerBuild';
 export const SOURCE_DOCKER_IMAGE = 'containerImage';
 export const SOURCE_GITHUB_RELEASE = 'githubRelease';
 
-const idleValidity = () => ({status: 'idle', message: ''});
-const checkingValidity = (message) => ({status: 'checking', message});
+const idleValidity = () => ({status: 'idle', message: '', fieldKey: ''});
+const checkingValidity = (message, fieldKey) => ({status: 'checking', message, fieldKey});
+
+const preserveOkValidity = (previous, next) => {
+    if (previous?.status === 'ok' && previous.fieldKey === next.fieldKey && next.status !== 'ok') return previous;
+    return next;
+};
 
 export class DeploymentCreationUpdate {
     constructor({deployment = null, deploymentConfig = null} = {}) {
@@ -59,6 +64,14 @@ export class DeploymentCreationUpdate {
 
     sourceKey() {
         return sourceValidationKey(this.form);
+    }
+
+    repoValidityKey(sourceType = this.form.sourceType.val, repo = this.currentSourceID()) {
+        return `${sourceType}:${(repo || '').trim()}`;
+    }
+
+    flakeValidityKey(repo = this.form.nixRepo.val, flake = this.form.nixFlake.val) {
+        return `${SOURCE_NIX_DOCKER}:${(repo || '').trim()}:${(flake || '').trim()}`;
     }
 
     currentSourceID() {
@@ -102,12 +115,20 @@ export class DeploymentCreationUpdate {
         const sourceType = this.form.sourceType.val;
         const repo = this.currentSourceID();
         const sourceKey = this.sourceKey();
-        this.form.repoCheck.val = {status: 'checking', message, repo, sourceType, sourceKey};
+        this.form.repoCheck.val = {...(this.form.repoCheck.val || {}), status: 'checking', message, repo, sourceType, sourceKey};
+        const repoKey = this.repoValidityKey(sourceType, repo);
         if (sourceType === SOURCE_DOCKER_IMAGE) {
-            this.imageValid.val = checkingValidity(message);
+            if (!(this.imageValid.val.status === 'ok' && this.imageValid.val.fieldKey === repoKey)) {
+                this.imageValid.val = checkingValidity(message, repoKey);
+            }
         } else {
-            this.repoValid.val = checkingValidity(message);
-            if (this.form.nixFlake.val.trim()) this.flakePathValid.val = checkingValidity('Checking path...');
+            if (!(this.repoValid.val.status === 'ok' && this.repoValid.val.fieldKey === repoKey)) {
+                this.repoValid.val = checkingValidity(message, repoKey);
+            }
+            const flakeKey = this.flakeValidityKey(repo, this.form.nixFlake.val);
+            if (this.form.nixFlake.val.trim() && !(this.flakePathValid.val.status === 'ok' && this.flakePathValid.val.fieldKey === flakeKey)) {
+                this.flakePathValid.val = checkingValidity('Checking path...', flakeKey);
+            }
         }
     }
 
@@ -115,7 +136,7 @@ export class DeploymentCreationUpdate {
         const sourceType = this.form.sourceType.val;
         const repo = this.currentSourceID();
         const sourceKey = this.sourceKey();
-        this.form.repoCheck.val = {status: 'error', message, repo, sourceType, sourceKey};
+        this.form.repoCheck.val = {...(this.form.repoCheck.val || {}), status: 'error', message, repo, sourceType, sourceKey};
         this.updateValidityFromCheck(this.form.repoCheck.val);
     }
 
@@ -136,27 +157,33 @@ export class DeploymentCreationUpdate {
         }
         if (sourceType === SOURCE_DOCKER_IMAGE) {
             const image = check.image || {};
-            this.imageValid.val = {
+            const fieldKey = this.repoValidityKey(sourceType, check.repo);
+            this.imageValid.val = preserveOkValidity(this.imageValid.val, {
                 status: check.status === 'checking' ? 'checking' : (image.ok ? 'ok' : 'error'),
                 message: image.message || check.message || '',
-            };
+                fieldKey,
+            });
             return;
         }
         const gitRepository = check.gitRepository || {};
-        this.repoValid.val = {
+        const repoKey = this.repoValidityKey(sourceType, check.repo);
+        this.repoValid.val = preserveOkValidity(this.repoValid.val, {
             status: check.status === 'checking' ? 'checking' : (gitRepository.ok ? 'ok' : 'error'),
             message: gitRepository.message || check.message || '',
-        };
+            fieldKey: repoKey,
+        });
         const flakePath = this.form.nixFlake.val.trim();
         if (!flakePath) {
             this.flakePathValid.val = idleValidity();
             return;
         }
         const nixFlakeFile = check.nixFlakeFile || {};
-        this.flakePathValid.val = {
+        const flakeKey = this.flakeValidityKey(check.repo, flakePath);
+        this.flakePathValid.val = preserveOkValidity(this.flakePathValid.val, {
             status: check.status === 'checking' ? 'checking' : (nixFlakeFile.ok ? 'ok' : (nixFlakeFile.message ? 'error' : 'idle')),
             message: nixFlakeFile.message || (nixFlakeFile.ok ? 'Path verified' : ''),
-        };
+            fieldKey: flakeKey,
+        });
     }
 
     syncVersionOptionsFromCheck(check, {preserveSelection = true} = {}) {

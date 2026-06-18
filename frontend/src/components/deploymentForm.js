@@ -1318,8 +1318,12 @@ function activeRepoCheck(form, sourceType, repoState) {
     if (form.deploymentCreationUpdate) {
         const sourceID = repoState.val.trim();
         if (!sourceID || form.sourceType.val !== sourceType) return {status: 'idle', message: ''};
-        if (sourceType === SOURCE_DOCKER_IMAGE) return form.deploymentCreationUpdate.imageValid.val;
-        return form.deploymentCreationUpdate.repoValid.val;
+        const validity = sourceType === SOURCE_DOCKER_IMAGE
+            ? form.deploymentCreationUpdate.imageValid.val
+            : form.deploymentCreationUpdate.repoValid.val;
+        return validity.fieldKey === form.deploymentCreationUpdate.repoValidityKey(sourceType, sourceID)
+            ? validity
+            : {status: 'idle', message: ''};
     }
     const c = form.repoCheck.val;
     const repo = repoState.val.trim();
@@ -1334,7 +1338,10 @@ function activeFlakeCheck(form) {
         if (form.sourceType.val !== SOURCE_NIX_DOCKER || !form.nixRepo.val.trim() || !form.nixFlake.val.trim()) {
             return {status: 'idle', message: ''};
         }
-        return form.deploymentCreationUpdate.flakePathValid.val;
+        const validity = form.deploymentCreationUpdate.flakePathValid.val;
+        return validity.fieldKey === form.deploymentCreationUpdate.flakeValidityKey()
+            ? validity
+            : {status: 'idle', message: ''};
     }
     const sourceType = form.sourceType.val;
     if (sourceType !== SOURCE_NIX_DOCKER) {
@@ -1361,7 +1368,10 @@ function activeFlakeCheck(form) {
 function activeImageCheck(form) {
     if (form.deploymentCreationUpdate) {
         if (!form.containerImage.val.trim() || form.sourceType.val !== SOURCE_DOCKER_IMAGE) return {status: 'idle', message: ''};
-        return form.deploymentCreationUpdate.imageValid.val;
+        const validity = form.deploymentCreationUpdate.imageValid.val;
+        return validity.fieldKey === form.deploymentCreationUpdate.repoValidityKey(SOURCE_DOCKER_IMAGE, form.containerImage.val)
+            ? validity
+            : {status: 'idle', message: ''};
     }
     const c = form.repoCheck.val;
     const image = form.containerImage.val.trim();
