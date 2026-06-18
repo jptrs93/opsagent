@@ -137,9 +137,9 @@ export function referencePicker({
                     },
                         span({class: "truncate"}, getLabel(ref) || ''),
                         () => index === clampedHighlight(items)
-                            ? span({class: "shrink-0 text-[10px] uppercase tracking-wide text-blue-300"}, "Enter to select")
+                            ? span({class: "shrink-0 text-[10px] tracking-wide text-blue-300"}, "Enter to select")
                             : refKey(ref) === currentKey()
-                                ? span({class: "shrink-0 text-[10px] uppercase tracking-wide text-gray-400"}, "Selected")
+                                ? span({class: "shrink-0 text-[10px] tracking-wide text-gray-400"}, "Selected")
                                 : '',
                     ))),
             );
