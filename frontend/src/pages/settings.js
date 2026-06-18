@@ -2,8 +2,9 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {referencePicker} from "../components/referencePicker.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
+import {spacesS} from "../state/deployments.js";
 
-const { div, h2, p, pre, span, table, tbody, tr, td, button, code, input, label: labelEl } = van.tags;
+const { div, h2, p, pre, span, table, thead, tbody, tr, th, td, button, code, input, label: labelEl } = van.tags;
 const { svg, path, circle, line } = van.tags("http://www.w3.org/2000/svg");
 
 const boolValue = (value) => value ? "true" : "false";
@@ -54,6 +55,7 @@ const dirtySettingsFor = (draft) => settings
 const inputClass = "w-full min-w-64 bg-transparent px-2 py-1 rounded border border-gray-700 " +
     "hover:border-gray-600 focus:border-brand focus:outline-none";
 const compactButtonClass = "h-8 px-3 py-1 rounded-md text-sm leading-none";
+const defaultSpaceIDs = new Set([0, 1]);
 
 const iconBase = {
     viewBox: "0 0 24 24",
@@ -189,6 +191,11 @@ export function settingsPage() {
     const createSecretName = van.state("");
     const createSecretValue = van.state("");
     const createSecretRevealed = van.state(false);
+    const editingSpaceID = van.state(null);
+    const editingSpaceName = van.state("");
+    const addingSpace = van.state(false);
+    const newSpaceName = van.state("");
+    const spaceSaving = van.state(false);
 
     const setDraft = (next) => {
         draft.val = next;
@@ -330,6 +337,71 @@ export function settingsPage() {
         } catch (e) {
             masterPasswordVerifyResult.val = "Master password did not match.";
             masterPasswordVerifyOK.val = false;
+        }
+    };
+
+    const resetSpaceDraft = () => {
+        editingSpaceID.val = null;
+        editingSpaceName.val = "";
+        addingSpace.val = false;
+        newSpaceName.val = "";
+    };
+
+    const isDefaultSpace = (space) => defaultSpaceIDs.has(Number(space?.id));
+
+    const startRenameSpace = (space) => {
+        if (isDefaultSpace(space) || spaceSaving.val) return;
+        addingSpace.val = false;
+        newSpaceName.val = "";
+        editingSpaceID.val = space.id;
+        editingSpaceName.val = space.name || "";
+    };
+
+    const saveRenamedSpace = async (space) => {
+        const name = editingSpaceName.val.trim();
+        if (!name || isDefaultSpace(space) || spaceSaving.val) return;
+        if (name === (space.name || "")) {
+            resetSpaceDraft();
+            return;
+        }
+        try {
+            spaceSaving.val = true;
+            error.val = null;
+            await capi.postV1SpacesUpdate({id: space.id, name});
+            resetSpaceDraft();
+        } catch (e) {
+            error.val = e.message;
+        } finally {
+            spaceSaving.val = false;
+        }
+    };
+
+    const removeSpace = async (space) => {
+        if (isDefaultSpace(space) || spaceSaving.val) return;
+        try {
+            spaceSaving.val = true;
+            error.val = null;
+            await capi.postV1SpacesDelete({id: space.id});
+            if (editingSpaceID.val === space.id) resetSpaceDraft();
+        } catch (e) {
+            error.val = e.message;
+        } finally {
+            spaceSaving.val = false;
+        }
+    };
+
+    const saveNewSpace = async () => {
+        const name = newSpaceName.val.trim();
+        if (!name || spaceSaving.val) return;
+        try {
+            spaceSaving.val = true;
+            error.val = null;
+            await capi.postV1SpacesCreate({name});
+            resetSpaceDraft();
+        } catch (e) {
+            error.val = e.message;
+        } finally {
+            spaceSaving.val = false;
         }
     };
 
@@ -566,6 +638,117 @@ export function settingsPage() {
         );
     };
 
+    const disabledSpaceButtonClass = `${compactButtonClass} bg-gray-800 text-gray-500 cursor-not-allowed`;
+    const secondarySpaceButtonClass = `${compactButtonClass} bg-gray-700 text-gray-200 hover:bg-gray-600 cursor-pointer`;
+    const dangerSpaceButtonClass = `${compactButtonClass} bg-red-950/60 text-red-200 hover:bg-red-900 cursor-pointer`;
+
+    const spaceRow = (space) => tr(
+        {class: "border-b border-gray-800 last:border-0 align-middle"},
+        td({class: "py-2 pr-3 align-middle"},
+            () => editingSpaceID.val === space.id
+                ? input({
+                    class: `${inputClass} max-w-md`,
+                    disabled: () => spaceSaving.val,
+                    value: editingSpaceName,
+                    oninput: (e) => { editingSpaceName.val = e.target.value; },
+                    onkeydown: (e) => {
+                        if (e.key === "Enter") saveRenamedSpace(space);
+                        if (e.key === "Escape") resetSpaceDraft();
+                    },
+                })
+                : div({class: "flex items-center gap-2"},
+                    span({class: "text-gray-200"}, space.name || `space ${space.id}`),
+                    isDefaultSpace(space) ? span({class: "text-xs text-gray-500"}, "default") : "",
+                ),
+        ),
+        td({class: "py-2 pl-4 text-right whitespace-nowrap align-middle"},
+            () => {
+                if (isDefaultSpace(space)) {
+                    return div({class: "flex items-center justify-end gap-2"},
+                        button({type: "button", disabled: true, class: disabledSpaceButtonClass}, "Rename"),
+                        button({type: "button", disabled: true, class: disabledSpaceButtonClass}, "Remove"),
+                    );
+                }
+                if (editingSpaceID.val === space.id) {
+                    return div({class: "flex items-center justify-end gap-2"},
+                        spinnerButton("Save", () => saveRenamedSpace(space),
+                            `${compactButtonClass} bg-brand text-white hover:bg-blue-600 whitespace-nowrap`,
+                            "button", () => spaceSaving.val || !editingSpaceName.val.trim()),
+                        button({
+                            type: "button",
+                            disabled: () => spaceSaving.val,
+                            class: secondarySpaceButtonClass,
+                            onclick: resetSpaceDraft,
+                        }, "Discard"),
+                    );
+                }
+                return div({class: "flex items-center justify-end gap-2"},
+                    button({
+                        type: "button",
+                        disabled: () => spaceSaving.val,
+                        class: secondarySpaceButtonClass,
+                        onclick: () => startRenameSpace(space),
+                    }, "Rename"),
+                    spinnerButton("Remove", () => removeSpace(space), dangerSpaceButtonClass,
+                        "button", () => spaceSaving.val),
+                );
+            },
+        ),
+    );
+
+    const spacesCard = () => div(
+        {class: "card flex flex-col gap-3"},
+        div({class: "flex flex-col gap-1 pb-2 border-b border-gray-700"},
+            h2({class: "text-base font-semibold"}, "Spaces"),
+            p({class: "text-xs text-gray-400"},
+                "Spaces are predefined deployment groups. The built-in spaces cannot be renamed or removed."),
+        ),
+        () => table(
+            {class: "w-full text-sm"},
+            thead(
+                tr({class: "text-left text-xs uppercase tracking-wide text-gray-500"},
+                    th({class: "pb-2 font-medium"}, "Name"),
+                    th({class: "pb-2 font-medium text-right"}, ""),
+                ),
+            ),
+            tbody(...(spacesS.val || []).map(spaceRow)),
+        ),
+        () => addingSpace.val ? div({class: "flex flex-col sm:flex-row sm:items-center gap-2 pt-1"},
+            input({
+                class: `${inputClass} max-w-md`,
+                disabled: () => spaceSaving.val,
+                placeholder: "New space name",
+                value: newSpaceName,
+                oninput: (e) => { newSpaceName.val = e.target.value; },
+                onkeydown: (e) => {
+                    if (e.key === "Enter") saveNewSpace();
+                    if (e.key === "Escape") resetSpaceDraft();
+                },
+            }),
+            div({class: "flex items-center gap-2"},
+                spinnerButton("Save", saveNewSpace,
+                    `${compactButtonClass} bg-brand text-white hover:bg-blue-600 whitespace-nowrap`,
+                    "button", () => spaceSaving.val || !newSpaceName.val.trim()),
+                button({
+                    type: "button",
+                    disabled: () => spaceSaving.val,
+                    class: secondarySpaceButtonClass,
+                    onclick: resetSpaceDraft,
+                }, "Discard"),
+            ),
+        ) : button({
+            type: "button",
+            disabled: () => spaceSaving.val,
+            class: `${compactButtonClass} self-start bg-gray-700 text-gray-200 hover:bg-gray-600 cursor-pointer`,
+            onclick: () => {
+                editingSpaceID.val = null;
+                editingSpaceName.val = "";
+                addingSpace.val = true;
+                newSpaceName.val = "";
+            },
+        }, "Add space"),
+    );
+
     const rowEl = (setting) => tr(
         {class: "border-b border-gray-800 last:border-0 align-middle"},
         td({class: "py-2 pr-3 whitespace-nowrap align-middle"},
@@ -613,6 +796,7 @@ export function settingsPage() {
         },
         masterPasswordCard,
         recoveryCard,
+        spacesCard,
         masterPasswordVerifyDialog,
         masterPasswordUpdateOverlay,
         createSecretDialog,
