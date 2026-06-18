@@ -119,19 +119,12 @@ func runPrimary() {
 		RenewBefore: 168 * time.Hour,
 	}
 	tlsConfig := certManager.TLSConfig()
-	acmeDebugEnabled := acmedebug.EnableFromEnv(certManager, tlsConfig, acmedebug.Config{
-		CacheDir: certCacheDir,
-		Hosts:    cfg.AcmeHosts,
-		Email:    cfg.AcmeEmail,
-	})
+	acmedebug.Enable(certManager)
 	// TLS-ALPN-01 ACME challenge runs inside the port 443 listener
 	httpsServer := http.Server{
 		Handler:   m,
 		Addr:      cfg.WebListen,
 		TLSConfig: tlsConfig,
-	}
-	if acmeDebugEnabled {
-		httpsServer.ErrorLog = acmedebug.ServerErrorLog()
 	}
 	slog.Info("starting https server", "addr", cfg.WebListen)
 	err = httpsServer.ListenAndServeTLS("", "")

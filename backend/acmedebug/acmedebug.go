@@ -1,84 +1,19 @@
 package acmedebug
 
 import (
-	"context"
-	"crypto/tls"
-	"log"
 	"log/slog"
 	"net/http"
-	"os"
-	"strings"
 	"time"
 
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 )
 
-const (
-	EnvVar           = "OPENDEPLOY_DEBUG_ACME"
-	acmeTLSALPNProto = "acme-tls/1"
-)
-
-type Config struct {
-	CacheDir string
-	Hosts    []string
-	Email    string
-}
-
-func EnabledFromEnv() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvVar))) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
-}
-
-func EnableFromEnv(manager *autocert.Manager, tlsConfig *tls.Config, cfg Config) bool {
-	if !EnabledFromEnv() {
-		return false
-	}
-	Enable(manager, tlsConfig, cfg)
-	return true
-}
-
-func Enable(manager *autocert.Manager, tlsConfig *tls.Config, cfg Config) {
-	if manager == nil || tlsConfig == nil {
+func Enable(manager *autocert.Manager) {
+	if manager == nil {
 		return
 	}
-
-	manager.HostPolicy = loggingAutocertHostPolicy(manager.HostPolicy)
 	manager.Client = loggingACMEClient()
-	tlsConfig.GetCertificate = loggingAutocertGetCertificate(manager.GetCertificate)
-	slog.Info("configured acme certificate manager",
-		"cache_dir", cfg.CacheDir,
-		"hosts", cfg.Hosts,
-		"email", cfg.Email,
-		"next_protos", tlsConfig.NextProtos,
-		"tls_alpn_01_enabled", hasString(tlsConfig.NextProtos, acmeTLSALPNProto),
-	)
-}
-
-func ServerErrorLog() *log.Logger {
-	return slog.NewLogLogger(slog.Default().Handler(), slog.LevelWarn)
-}
-
-func loggingAutocertHostPolicy(next autocert.HostPolicy) autocert.HostPolicy {
-	return func(ctx context.Context, host string) error {
-		if next == nil {
-			slog.InfoContext(ctx, "acme host accepted", "host", host)
-			return nil
-		}
-
-		err := next(ctx, host)
-		if err != nil {
-			slog.WarnContext(ctx, "acme host rejected", "host", host, "err", err)
-			return err
-		}
-
-		slog.InfoContext(ctx, "acme host accepted", "host", host)
-		return nil
-	}
 }
 
 func loggingACMEClient() *acme.Client {
@@ -151,56 +86,4 @@ func sanitizedHTTPURL(req *http.Request) string {
 	u.RawQuery = ""
 	u.Fragment = ""
 	return u.String()
-}
-
-func loggingAutocertGetCertificate(next func(*tls.ClientHelloInfo) (*tls.Certificate, error)) func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-	return func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-		serverName := ""
-		remoteAddr := ""
-		supportedProtos := []string(nil)
-		isACMEChallenge := false
-		if hello != nil {
-			serverName = hello.ServerName
-			supportedProtos = hello.SupportedProtos
-			isACMEChallenge = hasString(hello.SupportedProtos, acmeTLSALPNProto)
-			if hello.Conn != nil {
-				remoteAddr = hello.Conn.RemoteAddr().String()
-			}
-		}
-
-		slog.Info("acme certificate lookup started",
-			"server_name", serverName,
-			"remote_addr", remoteAddr,
-			"supported_protos", supportedProtos,
-			"tls_alpn_01", isACMEChallenge,
-		)
-
-		cert, err := next(hello)
-		if err != nil {
-			slog.Warn("acme certificate lookup failed",
-				"server_name", serverName,
-				"remote_addr", remoteAddr,
-				"supported_protos", supportedProtos,
-				"tls_alpn_01", isACMEChallenge,
-				"err", err,
-			)
-			return nil, err
-		}
-
-		slog.Info("acme certificate lookup succeeded",
-			"server_name", serverName,
-			"remote_addr", remoteAddr,
-			"tls_alpn_01", isACMEChallenge,
-		)
-		return cert, nil
-	}
-}
-
-func hasString(items []string, target string) bool {
-	for _, item := range items {
-		if item == target {
-			return true
-		}
-	}
-	return false
 }
