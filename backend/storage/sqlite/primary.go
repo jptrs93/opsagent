@@ -24,6 +24,8 @@ const SystemEnvironment = "OPENDEPLOY"
 type PrimaryStorage struct {
 	*deploymentStore
 	userSubs       *pubsubu.PubSub[apigen.User]
+	secretSubs     *pubsubu.PubSub[apigen.SecretReference]
+	userConfigSubs *pubsubu.PubSub[apigen.UserConfigReference]
 	enrollmentSubs *pubsubu.PubSub[apigen.EnrollmentRequestStatus]
 }
 
@@ -32,6 +34,8 @@ func NewPrimaryStorage(dbPath string) *PrimaryStorage {
 	return &PrimaryStorage{
 		deploymentStore: newDeploymentStore(db),
 		userSubs:        &pubsubu.PubSub[apigen.User]{},
+		secretSubs:      &pubsubu.PubSub[apigen.SecretReference]{},
+		userConfigSubs:  &pubsubu.PubSub[apigen.UserConfigReference]{},
 		enrollmentSubs:  &pubsubu.PubSub[apigen.EnrollmentRequestStatus]{},
 	}
 }
@@ -389,7 +393,7 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 
 	spec := &apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{
-			GithubRelease: apigen.GithubReleaseConfig{
+			GithubRelease: &apigen.GithubReleaseConfig{
 				Repo:  "github.com/jptrs93/opsagent",
 				Asset: "opendeploy-linux-" + runtime.GOARCH,
 			},
@@ -713,6 +717,38 @@ func (s *PrimaryStorage) ListUsersPublic() []*apigen.User {
 
 func (s *PrimaryStorage) SubscribeUserUpdates() (*pubsubu.Sub[apigen.User], func()) {
 	sub := s.userSubs.Subscribe(nil)
+	return sub, sub.UnsubscribeFunc
+}
+
+func (s *PrimaryStorage) ListSecretReferences() []*apigen.SecretReference {
+	metas := s.ListSecrets()
+	out := make([]*apigen.SecretReference, 0, len(metas))
+	for _, m := range metas {
+		out = append(out, &apigen.SecretReference{ID: m.ID, Name: m.Name})
+	}
+	return out
+}
+
+func (s *PrimaryStorage) NotifySecretReferenceUpdate(ref apigen.SecretReference) {
+	s.secretSubs.Notify(ref)
+}
+
+func (s *PrimaryStorage) SubscribeSecretReferenceUpdates() (*pubsubu.Sub[apigen.SecretReference], func()) {
+	sub := s.secretSubs.Subscribe(nil)
+	return sub, sub.UnsubscribeFunc
+}
+
+func (s *PrimaryStorage) ListUserConfigReferences() []*apigen.UserConfigReference {
+	configs := s.ListUserConfigs()
+	out := make([]*apigen.UserConfigReference, 0, len(configs))
+	for _, cfg := range configs {
+		out = append(out, &apigen.UserConfigReference{ID: cfg.ID, Name: cfg.Name})
+	}
+	return out
+}
+
+func (s *PrimaryStorage) SubscribeUserConfigReferenceUpdates() (*pubsubu.Sub[apigen.UserConfigReference], func()) {
+	sub := s.userConfigSubs.Subscribe(nil)
 	return sub, sub.UnsubscribeFunc
 }
 

@@ -94,15 +94,15 @@ func startFor(store storage.OperatorStore, dep *apigen.DeploymentConfig) Prepare
 }
 
 func hasGithubRelease(dep *apigen.DeploymentConfig) bool {
-	return !dep.Spec.Prepare.GithubRelease.IsZero()
+	return dep.Spec.Prepare.GithubRelease != nil
 }
 
 func hasNixDockerBuild(dep *apigen.DeploymentConfig) bool {
-	return !dep.Spec.Prepare.NixDockerBuild.IsZero()
+	return dep.Spec.Prepare.NixDockerBuild != nil
 }
 
 func hasContainerImage(dep *apigen.DeploymentConfig) bool {
-	return !dep.Spec.Prepare.ContainerImage.IsZero()
+	return dep.Spec.Prepare.ContainerImage != nil
 }
 
 func isSystemdDeployment(dep *apigen.DeploymentConfig) bool {

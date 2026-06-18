@@ -42,7 +42,7 @@ type Handler struct {
 	Github        githubcredentials.Provider
 
 	// Secrets is the primary-only encrypted secrets store. Deployment preparation
-	// decrypts referenced ${s:name} values into an in-memory runner cache.
+	// decrypts referenced secret IDs into an in-memory runner cache.
 	Secrets *secrets.Manager
 
 	// MachineName identifies this node when deciding whether a log request
@@ -124,7 +124,7 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	versionprovider.Git = versionprovider.NewGitVersionProvider(preparer.NixDocker.Git)
 	versionprovider.GHRel = versionprovider.NewGithubReleaseVersionProvider(githubCredentials)
 
-	// Wire prepared in-memory secrets/configs for env expansion.
+	// Wire prepared in-memory secrets/configs for typed env refs.
 	runner.Secrets = secretProvider
 	runner.Configs = configProvider
 

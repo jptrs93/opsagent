@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"iter"
-	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -94,275 +93,60 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 		return nil, DeploymentNotFoundErr
 	}
 
-	provider, err := versionprovider.ForConfig(&cfg.Spec.Prepare)
-	if err != nil {
+	switch {
+	case cfg.Spec.Prepare.NixDockerBuild != nil:
+		if versionprovider.Git == nil {
+			return nil, fmt.Errorf("git version loading is not configured")
+		}
+		repo := cfg.Spec.Prepare.NixDockerBuild.Repo
+		branches, err := versionprovider.Git.ListBranches(ctx, repo)
+		if err != nil {
+			return nil, fmt.Errorf("listing branches: %w", err)
+		}
+		branch := selectedValidationBranch(branches, req.SelectedBranch)
+		commits := []*apigen.Version{}
+		if branch != "" {
+			commits, err = versionprovider.Git.ListCommits(ctx, repo, branch, 25)
+			if err != nil {
+				return nil, fmt.Errorf("listing commits: %w", err)
+			}
+		}
+		return &apigen.DeploymentVersions{
+			DeploymentID: req.DeploymentID,
+			NixDockerBuild: &apigen.DeploymentNixDockerBuildVersions{
+				Branches:       branches,
+				SelectedBranch: branch,
+				Commits:        commits,
+			},
+		}, nil
+	case cfg.Spec.Prepare.GithubRelease != nil:
+		if versionprovider.GHRel == nil {
+			return nil, fmt.Errorf("github release version loading is not configured")
+		}
+		releases, err := versionprovider.GHRel.ListReleases(ctx, cfg.Spec.Prepare.GithubRelease.Repo)
+		if err != nil {
+			return nil, fmt.Errorf("listing releases: %w", err)
+		}
+		return &apigen.DeploymentVersions{
+			DeploymentID:  req.DeploymentID,
+			GithubRelease: &apigen.DeploymentGithubReleaseVersions{Releases: releases},
+		}, nil
+	case cfg.Spec.Prepare.ContainerImage != nil:
+		tags, err := (versionprovider.ContainerImageVersionProvider{}).ListTags(ctx, cfg.Spec.Prepare.ContainerImage.Image)
+		if err != nil {
+			return nil, fmt.Errorf("listing container image tags: %w", err)
+		}
+		return &apigen.DeploymentVersions{
+			DeploymentID:   req.DeploymentID,
+			ContainerImage: &apigen.DeploymentContainerImageVersions{Tags: tags},
+		}, nil
+	default:
 		return nil, DeploymentNotFoundErr
 	}
-
-	scopes, err := provider.ListScopes(ctx, &cfg.Spec.Prepare)
-	if err != nil {
-		return nil, fmt.Errorf("listing scopes: %w", err)
-	}
-
-	versionsByScope := make(map[string]*apigen.ScopedVersions)
-
-	if req.Scope != "" {
-		// Fetch specific scope only.
-		vs, err := provider.ListVersions(ctx, &cfg.Spec.Prepare, req.Scope)
-		if err != nil {
-			return nil, fmt.Errorf("listing versions: %w", err)
-		}
-		versionsByScope[req.Scope] = &apigen.ScopedVersions{Versions: vs}
-	} else if len(scopes) == 0 {
-		// GitHub releases: no scopes, single version list.
-		vs, err := provider.ListVersions(ctx, &cfg.Spec.Prepare, "")
-		if err != nil {
-			return nil, fmt.Errorf("listing versions: %w", err)
-		}
-		versionsByScope[""] = &apigen.ScopedVersions{Versions: vs}
-	} else {
-		// Default to main or first scope.
-		defaultScope := "main"
-		if !containsString(scopes, "main") {
-			defaultScope = scopes[0]
-		}
-		vs, err := provider.ListVersions(ctx, &cfg.Spec.Prepare, defaultScope)
-		if err != nil {
-			return nil, fmt.Errorf("listing versions: %w", err)
-		}
-		versionsByScope[defaultScope] = &apigen.ScopedVersions{Versions: vs}
-	}
-
-	return &apigen.DeploymentVersions{
-		DeploymentID:    req.DeploymentID,
-		Scopes:          scopes,
-		VersionsByScope: versionsByScope,
-	}, nil
-}
-
-var RepoRequiredErr = apigen.NewApiErr("Repository is required", "missing_repo", http.StatusBadRequest)
-var ImageRequiredErr = apigen.NewApiErr("Image is required", "missing_image", http.StatusBadRequest)
-var InvalidSourceTypeErr = apigen.NewApiErr("Invalid source type", "invalid_source_type", http.StatusBadRequest)
-
-type validateSourceInput struct {
-	prepare         *apigen.PrepareConfig
-	source          string
-	repo            string
-	scope           string
-	commit          string
-	flakePath       string
-	refreshScopes   bool
-	refreshVersions bool
-	checkCommit     bool
-	checkFlakePath  bool
-}
-
-// PostV1RepoValidate checks that a binary source is reachable and authorized.
-// It uses remote metadata APIs instead of a full checkout: Git operations for
-// branches, commits, and optional flake path validation; provider-specific APIs
-// remain only for provider-specific source types such as GitHub releases.
-func (h *Handler) PostV1RepoValidate(ctx apigen.Context, req *apigen.ValidateSourceRequest) (*apigen.ValidateSourceResponse, error) {
-	in, err := validateSourceFromRequest(req)
-	if err != nil {
-		return nil, err
-	}
-
-	provider, err := versionprovider.ForConfig(in.prepare)
-	if err != nil {
-		return validationResponse(in, validationErr("Unsupported source type."), validationErr(""), nil, "", nil), nil
-	}
-
-	var scopes []string
-	if in.refreshScopes {
-		var err error
-		scopes, err = provider.ListScopes(ctx, in.prepare)
-		if err != nil {
-			slog.Warn("source validation failed", "repo", in.repo, "err", err)
-			return validationResponse(in, validationErr(sourceAccessErrorMessage(in)), validationErr(""), nil, "", nil), nil
-		}
-	}
-
-	scope := strings.TrimSpace(in.scope)
-	if in.refreshScopes {
-		scope = selectedValidationScope(scopes, in.scope)
-	}
-	var versions []*apigen.Version
-	gitResult := validationErr("")
-	flakeResult := validationErr("")
-	if in.refreshVersions {
-		var err error
-		versions, err = provider.ListVersions(ctx, in.prepare, scope)
-		if err != nil {
-			slog.Warn("source validation failed", "repo", in.repo, "scope", scope, "err", err)
-			return validationResponse(in, validationErr(sourceAccessErrorMessage(in)), validationErr(""), scopes, scope, nil), nil
-		}
-		gitResult = validationOK(sourceAccessOKMessage(in))
-	}
-
-	if in.checkCommit && in.commit != "" {
-		exists, err := versionprovider.Git.CommitExists(ctx, in.repo, in.commit)
-		if err != nil {
-			slog.Warn("source commit validation failed", "repo", in.repo, "commit", in.commit, "err", err)
-			return validationResponse(in, validationErr("Unable to validate selected commit."), flakeResult, scopes, scope, versions), nil
-		}
-		if !exists {
-			return validationResponse(in, validationErr("Selected commit not found."), flakeResult, scopes, scope, versions), nil
-		}
-		gitResult = validationOK(sourceAccessOKMessage(in))
-	}
-
-	if in.checkFlakePath && in.flakePath != "" {
-		ref := in.commit
-		if ref == "" {
-			ref = scope
-		}
-		exists, err := versionprovider.Git.PathExists(ctx, in.repo, in.flakePath, ref)
-		if err != nil {
-			slog.Warn("source flake path validation failed", "repo", in.repo, "flakePath", in.flakePath, "ref", ref, "err", err)
-			return validationResponse(in, gitResult, validationErr("Unable to validate flake path."), scopes, scope, versions), nil
-		}
-		if !exists {
-			return validationResponse(in, gitResult, validationErr("Flake path not found at selected revision."), scopes, scope, versions), nil
-		}
-		gitResult = validationOK(sourceAccessOKMessage(in))
-		flakeResult = validationOK("Path verified")
-	}
-
-	return validationResponse(in, gitResult, flakeResult, scopes, scope, versions), nil
-}
-
-func validationOK(message string) apigen.ValidationResult {
-	return apigen.ValidationResult{Ok: true, Message: message}
-}
-
-func validationErr(message string) apigen.ValidationResult {
-	return apigen.ValidationResult{Ok: false, Message: message}
-}
-
-func sourceAccessOKMessage(in *validateSourceInput) string {
-	if in != nil && in.source == "containerImage" {
-		return "Image accessible: " + containerImageRepoURL(in.repo)
-	}
-	return "Repo accessible."
-}
-
-func sourceAccessErrorMessage(in *validateSourceInput) string {
-	if in != nil && in.source == "containerImage" {
-		return "Image not accessible: " + containerImageRepoURL(in.repo)
-	}
-	return "Git repository not accessible."
-}
-
-func containerImageRepoURL(image string) string {
-	repoURL, err := versionprovider.ContainerImageRepositoryURL(image)
-	if err != nil {
-		return image
-	}
-	return repoURL
-}
-
-func validationResponse(in *validateSourceInput, gitResult apigen.ValidationResult, flakeResult apigen.ValidationResult, scopes []string, scope string, versions []*apigen.Version) *apigen.ValidateSourceResponse {
-	if in == nil {
-		return &apigen.ValidateSourceResponse{}
-	}
-	switch in.source {
-	case "nixDockerBuild":
-		return &apigen.ValidateSourceResponse{NixDockerBuild: apigen.ValidateNixDockerBuildSourceResponse{
-			GitRepository: gitResult,
-			NixFlakeFile:  flakeResult,
-			Scopes:        scopes,
-			Scope:         scope,
-			Versions:      versions,
-		}}
-	case "containerImage":
-		return &apigen.ValidateSourceResponse{ContainerImage: apigen.ValidateContainerImageSourceResponse{Image: gitResult, Versions: versions}}
-	default:
-		return &apigen.ValidateSourceResponse{}
-	}
-}
-
-func validateSourceFromRequest(req *apigen.ValidateSourceRequest) (*validateSourceInput, error) {
-	if req == nil {
-		return nil, InvalidRequestBodyErr
-	}
-	if countValidationSources(req) != 1 {
-		return nil, InvalidSourceTypeErr
-	}
-
-	if !req.NixDockerBuild.IsZero() {
-		repo := strings.TrimSpace(req.NixDockerBuild.RepoUrl)
-		flakePath := strings.TrimSpace(req.NixDockerBuild.FlakePath)
-		commit := strings.TrimSpace(req.NixDockerBuild.Commit)
-		if repo == "" {
-			return nil, RepoRequiredErr
-		}
-		refreshScopes := req.NixDockerBuild.RefreshScopes
-		refreshVersions := req.NixDockerBuild.RefreshVersions
-		checkCommit := req.NixDockerBuild.CheckCommit
-		checkFlakePath := req.NixDockerBuild.CheckFlakePath
-		if !refreshScopes && !refreshVersions && !checkCommit && !checkFlakePath {
-			refreshScopes = true
-			refreshVersions = true
-			checkCommit = commit != ""
-			checkFlakePath = flakePath != ""
-		}
-		return &validateSourceInput{
-			prepare:         &apigen.PrepareConfig{NixDockerBuild: apigen.NixDockerBuildConfig{Repo: repo, Flake: flakePath}},
-			source:          "nixDockerBuild",
-			repo:            repo,
-			scope:           strings.TrimSpace(req.NixDockerBuild.Branch),
-			commit:          commit,
-			flakePath:       flakePath,
-			refreshScopes:   refreshScopes,
-			refreshVersions: refreshVersions,
-			checkCommit:     checkCommit,
-			checkFlakePath:  checkFlakePath,
-		}, nil
-	}
-
-	image := strings.TrimSpace(req.ContainerImage.Image)
-	if image == "" {
-		return nil, ImageRequiredErr
-	}
-	return &validateSourceInput{
-		prepare:         &apigen.PrepareConfig{ContainerImage: apigen.ContainerImageConfig{Image: image}},
-		source:          "containerImage",
-		repo:            image,
-		refreshVersions: true,
-	}, nil
-}
-
-func countValidationSources(req *apigen.ValidateSourceRequest) int {
-	count := 0
-	if !req.NixDockerBuild.IsZero() {
-		count++
-	}
-	if !req.ContainerImage.IsZero() {
-		count++
-	}
-	return count
-}
-
-func selectedValidationScope(scopes []string, requested string) string {
-	scope := strings.TrimSpace(requested)
-	if len(scopes) == 0 {
-		return ""
-	}
-	if scope == "" {
-		scope = "main"
-		if !containsString(scopes, scope) {
-			scope = scopes[0]
-		}
-	}
-	return scope
 }
 
 func (h *Handler) PostV1DeploymentLogSearch(ctx apigen.Context, req *apigen.LogSearchRequest) iter.Seq2[*apigen.LogLineBatch, error] {
 	return func(yield func(*apigen.LogLineBatch, error) bool) {
-		if req == nil {
-			yield(nil, MissingKeyErr)
-			return
-		}
 		if req.TimeStart.IsZero() {
 			yield(nil, invalidConfigErrf("timeStart is required"))
 			return
@@ -733,7 +517,7 @@ type deploymentSecretLister interface {
 }
 
 type deploymentConfigResolver interface {
-	ResolveConfig(name string) (string, bool)
+	ResolveConfig(id int32) (string, bool)
 }
 
 func (h *Handler) validateDeploymentSpec(spec *apigen.DeploymentSpec) (*apigen.DeploymentSpec, error) {
@@ -765,30 +549,30 @@ func validateDeploymentSpecWithResolvers(spec *apigen.DeploymentSpec, assets dep
 }
 
 func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec, secretStore deploymentSecretLister, configs deploymentConfigResolver) error {
-	if spec == nil || spec.Runner.Container.IsZero() || len(spec.Runner.Container.Env) == 0 {
+	if spec == nil || spec.Runner.Container.IsZero() || len(spec.Runner.Container.EnvVars) == 0 {
 		return nil
 	}
 	cfg := &apigen.DeploymentConfig{Spec: *spec}
-	knownSecrets := map[string]bool{}
+	knownSecrets := map[int32]bool{}
 	if secretStore != nil {
 		for _, meta := range secretStore.List() {
-			knownSecrets[meta.Name] = true
+			knownSecrets[meta.ID] = true
 		}
 	}
-	for _, key := range preparer.SecretRefs(cfg) {
+	for _, id := range preparer.SecretRefs(cfg) {
 		if secretStore == nil {
-			return invalidConfigErrf("runner.container.env: secrets cannot be resolved here")
+			return invalidConfigErrf("runner.container.envVars: secrets cannot be resolved here")
 		}
-		if !knownSecrets[key] {
-			return invalidConfigErrf("runner.container.env: unknown secret ${s:%s}", key)
+		if !knownSecrets[id] {
+			return invalidConfigErrf("runner.container.envVars: unknown secret id %d", id)
 		}
 	}
-	for _, key := range preparer.ConfigRefs(cfg) {
+	for _, id := range preparer.ConfigRefs(cfg) {
 		if configs == nil {
-			return invalidConfigErrf("runner.container.env: configs cannot be resolved here")
+			return invalidConfigErrf("runner.container.envVars: configs cannot be resolved here")
 		}
-		if _, ok := configs.ResolveConfig(key); !ok {
-			return invalidConfigErrf("runner.container.env: unknown config ${c:%s}", key)
+		if _, ok := configs.ResolveConfig(id); !ok {
+			return invalidConfigErrf("runner.container.envVars: unknown config id %d", id)
 		}
 	}
 	return nil
@@ -798,9 +582,9 @@ func validatePrepareConfig(prepare *apigen.PrepareConfig) error {
 	if prepare == nil || prepare.IsZero() {
 		return invalidConfigErrf("prepare is required")
 	}
-	hasNixDocker := !prepare.NixDockerBuild.IsZero()
-	hasGH := !prepare.GithubRelease.IsZero()
-	hasContainer := !prepare.ContainerImage.IsZero()
+	hasNixDocker := prepare.NixDockerBuild != nil
+	hasGH := prepare.GithubRelease != nil
+	hasContainer := prepare.ContainerImage != nil
 	set := 0
 	for _, b := range []bool{hasNixDocker, hasGH, hasContainer} {
 		if b {
@@ -851,7 +635,7 @@ func validateRunnerConfig(runner *apigen.RunnerConfig, prepare *apigen.PrepareCo
 		return invalidConfigErrf("runner.systemd is internal-only")
 	}
 	if hasContainer {
-		if err := validateEnvVars("runner.container.env", runner.Container.Env); err != nil {
+		if err := validateEnvVars("runner.container.envVars", runner.Container.EnvVars); err != nil {
 			return err
 		}
 		if err := validateContainerMounts(runner.Container.Mounts); err != nil {
@@ -933,15 +717,13 @@ func resolveAssetMounts(in []*apigen.ContainerAssetMount, assets deploymentAsset
 	return out, nil
 }
 
-// validateEnvVars trims and validates env keys. Duplicate keys are rejected so
-// the resulting process environment is unambiguous.
-func validateEnvVars(scope string, in []*apigen.EnvVar) error {
+// validateEnvVars trims and validates env keys and typed values. Duplicate keys
+// after trimming are rejected so the resulting process environment is unambiguous.
+func validateEnvVars(scope string, in map[string]*apigen.EnvVarValue) error {
 	seen := make(map[string]struct{}, len(in))
-	for _, e := range in {
-		if e == nil {
-			return invalidConfigErrf("%s: key is required", scope)
-		}
-		key := strings.TrimSpace(e.Key)
+	out := make(map[string]*apigen.EnvVarValue, len(in))
+	for rawKey, value := range in {
+		key := strings.TrimSpace(rawKey)
 		if key == "" {
 			return invalidConfigErrf("%s: key is required", scope)
 		}
@@ -949,7 +731,35 @@ func validateEnvVars(scope string, in []*apigen.EnvVar) error {
 			return invalidConfigErrf("%s: duplicate key %q", scope, key)
 		}
 		seen[key] = struct{}{}
-		e.Key = key
+		if value == nil {
+			return invalidConfigErrf("%s.%s: value is required", scope, key)
+		}
+		set := 0
+		if value.Value != nil {
+			set++
+		}
+		if value.SecretID != nil {
+			set++
+			if *value.SecretID <= 0 {
+				return invalidConfigErrf("%s.%s: secretId must be positive", scope, key)
+			}
+		}
+		if value.ConfigID != nil {
+			set++
+			if *value.ConfigID <= 0 {
+				return invalidConfigErrf("%s.%s: configId must be positive", scope, key)
+			}
+		}
+		if set != 1 {
+			return invalidConfigErrf("%s.%s: exactly one of value, secretId, or configId is required", scope, key)
+		}
+		out[key] = value
+	}
+	for key := range in {
+		delete(in, key)
+	}
+	for key, value := range out {
+		in[key] = value
 	}
 	return nil
 }

@@ -1,8 +1,9 @@
 import van from "vanjs-core";
 import {X} from "vanjs-feather";
 import {capi} from "../capi/index.js";
+import {secretRefsS, userConfigRefsS} from "../state/deployments.js";
 
-const { div, h3, label, input, select, option, button, p, span, datalist, textarea } = van.tags;
+const { div, h3, label, input, select, option, button, p, span, datalist, textarea, table, thead, tbody, tfoot, tr, th, td } = van.tags;
 
 const SOURCE_NIX_DOCKER = 'nixDockerBuild';
 const SOURCE_DOCKER_IMAGE = 'containerImage';
@@ -63,7 +64,7 @@ export function deploymentConfigToForm(cfg) {
         containerUser: container.user || '',
         containerDataMountPath: container.dataMountPath || '',
         containerDisableDataVolume: Boolean(container.disableDataVolume),
-        envVars: (container.env || []).map(e => ({id: nextEnvID++, key: e.key || '', value: e.value || ''})),
+        envVars: envVarsToFormRows(container.envVars),
         assetMounts: (container.assetMounts || []).map(m => {
             const row = {id: nextAssetMountID++, assetId: m.assetId || 0, key: m.asset || '', path: m.path || '', version: m.version || 0};
             return {...row, originalAssetId: row.assetId, originalKey: row.key, originalPath: row.path, originalVersion: row.version};
@@ -204,7 +205,7 @@ export function formToSpec(form) {
     const dataMountPath = form.containerDataMountPath.val.trim();
     if (dataMountPath) spec.runner.container.dataMountPath = dataMountPath;
     const env = formEnvVars(form);
-    if (env.length) spec.runner.container.env = env;
+    if (Object.keys(env).length) spec.runner.container.envVars = env;
     const mounts = formVolumeMounts(form);
     if (mounts.length) spec.runner.container.mounts = mounts;
     const assetMounts = formAssetMounts(form);
@@ -223,23 +224,39 @@ export function isFormValid(form, opts = {}) {
     } else if (!form.nixRepo.val.trim() || !form.nixFlake.val.trim()) {
         return false;
     }
-    if (hasInvalidVolumeConfig(form, opts) || hasInvalidAssetMounts(form)) return false;
+    if (hasInvalidEnvVars(form) || hasInvalidVolumeConfig(form, opts) || hasInvalidAssetMounts(form)) return false;
     return true;
 }
 
 export function buildValidateSourceRequest(form, opts = {}) {
     const sourceType = form.sourceType.val;
-    const branch = (opts.scope || '').trim();
+    const branch = (opts.branch || '').trim();
     const commit = (opts.commit || '').trim();
-    const hasExplicitFlags = ['refreshScopes', 'refreshVersions', 'checkCommit', 'checkFlakePath'].some(k => k in opts);
+    const hasExplicitFlags = [
+        'refreshAvailableBranches',
+        'refreshAvailableCommits',
+        'refreshVersions',
+        'checkRepo',
+        'checkBranch',
+        'checkCommit',
+        'checkFlakePath',
+    ].some(k => k in opts);
     if (sourceType === SOURCE_NIX_DOCKER) {
+        const refreshAvailableBranches = hasExplicitFlags
+            ? Boolean(opts.refreshAvailableBranches)
+            : true;
+        const refreshAvailableCommits = hasExplicitFlags
+            ? Boolean(opts.refreshAvailableCommits ?? opts.refreshVersions === true)
+            : Boolean(branch);
         return {nixDockerBuild: {
             repoUrl: form.nixRepo.val.trim(),
-            branch,
-            commit,
-            flakePath: form.nixFlake.val.trim(),
-            refreshScopes: hasExplicitFlags ? Boolean(opts.refreshScopes) : true,
-            refreshVersions: hasExplicitFlags ? Boolean(opts.refreshVersions) : true,
+            selectedBranch: branch,
+            selectedCommit: commit ? {id: commit} : undefined,
+            selectedFlakePath: form.nixFlake.val.trim(),
+            refreshAvailableBranches,
+            refreshAvailableCommits,
+            checkRepo: hasExplicitFlags ? Boolean(opts.checkRepo ?? (refreshAvailableBranches || opts.refreshVersions === true)) : true,
+            checkBranch: hasExplicitFlags ? Boolean(opts.checkBranch) : Boolean(branch),
             checkCommit: hasExplicitFlags ? Boolean(opts.checkCommit) : Boolean(commit),
             checkFlakePath: hasExplicitFlags ? Boolean(opts.checkFlakePath) : Boolean(form.nixFlake.val.trim()),
         }};
@@ -282,34 +299,48 @@ export function validationSourceResult(form, res) {
     }
 }
 
-export function validationVersionsByScope(sourceResult) {
-    return {[sourceResult?.scope || '']: {versions: sourceResult?.versions || []}};
-}
-
 export function sourceCheckFromValidation(form, res, repo, sourceType, sourceKey) {
     const sourceResult = validationSourceResult(form, res);
     const previous = form.repoCheck.val || {};
     const canReusePrevious = previous.sourceKey === sourceKey && previous.sourceType === sourceType && previous.repo === repo;
+
+    if (sourceType === SOURCE_DOCKER_IMAGE) {
+        const image = validationResultOrPrevious(
+            sourceResult.image,
+            canReusePrevious ? previous.image : undefined,
+            {ok: false, message: 'Image not accessible.'},
+        );
+        return {
+            status: image.ok ? 'ok' : 'error',
+            message: image.message || (image.ok ? 'Image accessible.' : 'Image not accessible.'),
+            repo,
+            sourceType,
+            sourceKey,
+            image,
+            tags: (sourceResult.tags || []).length > 0 ? sourceResult.tags : (canReusePrevious ? previous.tags || [] : []),
+        };
+    }
+
     const gitRepository = validationResultOrPrevious(
-        sourceResult.gitRepository || sourceResult.image,
+        sourceResult.gitRepository,
         canReusePrevious ? previous.gitRepository : undefined,
-        {ok: false, message: 'Source not accessible.'},
+        {ok: false, message: 'Git repository not accessible.'},
     );
     const nixFlakeFile = validationResultOrPrevious(
         sourceResult.nixFlakeFile,
         canReusePrevious ? previous.nixFlakeFile : undefined,
         {ok: false, message: ''},
     );
-    const flakeRequired = sourceType === SOURCE_NIX_DOCKER;
-    const ok = Boolean(gitRepository.ok && (!flakeRequired || !form.nixFlake.val.trim() || nixFlakeFile.ok));
-    const versionsByScope = canReusePrevious ? {...(previous.versionsByScope || {})} : {};
-    if ((sourceResult.versions || []).length > 0 || (!canReusePrevious && sourceResult.scope)) {
-        versionsByScope[sourceResult.scope || ''] = {versions: sourceResult.versions || []};
+    const ok = Boolean(gitRepository.ok && (!form.nixFlake.val.trim() || nixFlakeFile.ok));
+    const branches = sourceResult.availableBranches?.loaded
+        ? (sourceResult.availableBranches.branches || [])
+        : (canReusePrevious ? previous.branches || [] : []);
+    const commitsByBranch = canReusePrevious ? {...(previous.commitsByBranch || {})} : {};
+    const activeBranch = sourceResult.availableCommits?.branch || sourceResult.checkedBranch || (canReusePrevious ? previous.branch || '' : '');
+    if (sourceResult.availableCommits?.loaded) {
+        commitsByBranch[activeBranch] = sourceResult.availableCommits?.commits || [];
     }
-    const activeScope = sourceResult.scope || (canReusePrevious ? previous.scope || '' : '');
-    const activeVersions = (sourceResult.versions || []).length > 0
-        ? sourceResult.versions
-        : (versionsByScope[activeScope]?.versions || []);
+    const activeCommits = commitsByBranch[activeBranch] || [];
     return {
         status: ok ? 'ok' : 'error',
         message: gitRepository.message || (gitRepository.ok ? 'Repo accessible.' : 'Source not accessible.'),
@@ -318,15 +349,15 @@ export function sourceCheckFromValidation(form, res, repo, sourceType, sourceKey
         sourceKey,
         gitRepository,
         nixFlakeFile,
-        scopes: (sourceResult.scopes || []).length > 0 ? sourceResult.scopes : (canReusePrevious ? previous.scopes || [] : []),
-        scope: activeScope,
-        versions: activeVersions,
-        versionsByScope,
+        branches,
+        branch: activeBranch,
+        commits: activeCommits,
+        commitsByBranch,
     };
 }
 
 function hasValidationResult(result) {
-    return Boolean(result && (result.ok || result.message));
+    return Boolean(result && (result.checked || result.ok || result.message));
 }
 
 function validationResultOrPrevious(result, previous, fallback) {
@@ -345,12 +376,12 @@ function knownNixSourceCheck(repo, flake) {
         repo: trimmedRepo,
         sourceType: SOURCE_NIX_DOCKER,
         sourceKey,
-        gitRepository: {ok: true, message: 'Repo accessible.'},
-        nixFlakeFile: {ok: true, message: 'Path verified'},
-        scopes: [],
-        scope: '',
-        versions: [],
-        versionsByScope: {},
+        gitRepository: {checked: true, ok: true, message: 'Repo accessible.'},
+        nixFlakeFile: {checked: true, ok: true, message: 'Path verified'},
+        branches: [],
+        branch: '',
+        commits: [],
+        commitsByBranch: {},
     };
 }
 
@@ -363,13 +394,15 @@ function knownContainerImageSourceCheck(image) {
         repo: trimmedImage,
         sourceType: SOURCE_DOCKER_IMAGE,
         sourceKey,
-        gitRepository: {ok: true, message: 'Image accessible.'},
-        versions: [],
-        versionsByScope: {},
+        image: {checked: true, ok: true, message: 'Image accessible.'},
+        tags: [],
     };
 }
 
-export async function validateSelectedCommit(form, scope, commit) {
+export async function validateSelectedCommit(form, branch, commit) {
+    if (form.deploymentCreationUpdate) {
+        return form.deploymentCreationUpdate.validateSelectedCommit(branch, commit);
+    }
     const sourceType = form.sourceType.val;
     if (sourceType !== SOURCE_NIX_DOCKER) return;
     const repo = form.nixRepo.val.trim();
@@ -388,7 +421,7 @@ export async function validateSelectedCommit(form, scope, commit) {
     };
     try {
         const req = buildValidateSourceRequest(form, {
-            scope,
+            branch,
             commit: selectedCommit,
             checkCommit: true,
             checkFlakePath: Boolean(form.nixFlake.val.trim()),
@@ -910,11 +943,16 @@ export function assetEditorPane(form, opts = {}) {
     );
 }
 
-// envVarsPane is the right-hand editor pane: a textarea of KEY=value lines that
-// stays in sync with form.envVars. It is always mounted and toggled via a CSS
-// class (a binding that returns null would be GC'd by VanJS and never re-open).
+// envVarsPane is the right-hand editor pane. It is always mounted and toggled
+// via a CSS class (a binding that returns null would be GC'd by VanJS and never
+// re-open).
 export function envVarsPane(form) {
-    const text = van.state(envVarsToText(form.envVars.rawVal));
+    const secretDatalistID = `deployment-env-secrets-${nextDatalistID++}`;
+    const configDatalistID = `deployment-env-configs-${nextDatalistID++}`;
+    const envRows = tbody();
+    van.derive(() => {
+        envRows.replaceChildren(...(form.envVars.val || []).map(row => envVarRow(form, row, secretDatalistID, configDatalistID)));
+    });
     return div(
         {class: () => form.envPaneOpen.val
             ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
@@ -930,21 +968,109 @@ export function envVarsPane(form) {
             }, X({size: 16})),
         ),
         div(
-            {class: "flex-1 min-h-0 flex flex-col gap-2 p-4"},
-            p({class: "text-[11px] text-gray-500"}, "One variable per line, as KEY=value."),
-            textarea({
-                "data-testid": "deployment-env-vars-textarea",
-                class: "flex-1 min-h-0 w-full resize-none rounded-sm bg-gray-800 text-gray-100 border border-gray-700 px-3 py-2 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand",
-                spellcheck: "false",
-                placeholder: "DATABASE_URL=postgres://...\nLOG_LEVEL=info",
-                value: text.rawVal,
-                oninput: e => {
-                    text.val = e.target.value;
-                    form.envVars.val = textToEnvVars(e.target.value);
-                },
-            }),
+            {class: "flex-1 min-h-0 flex flex-col gap-3 p-4 overflow-auto"},
+            p({class: "text-[11px] text-gray-500"}, "Each variable is a literal value, config reference, or secret reference."),
+            datalist({id: secretDatalistID}, () => (secretRefsS.val || []).map(ref => option({value: ref.name}))),
+            datalist({id: configDatalistID}, () => (userConfigRefsS.val || []).map(ref => option({value: ref.name}))),
+            table({class: "w-full text-xs border-collapse"},
+                thead(
+                    tr({class: "text-left text-gray-400 border-b border-gray-700"},
+                        th({class: "py-2 pr-2 font-medium"}, "Env name"),
+                        th({class: "py-2 px-2 font-medium w-28"}, "Type"),
+                        th({class: "py-2 px-2 font-medium"}, "Value"),
+                        th({class: "py-2 pl-2 font-medium w-20 text-right"}, ""),
+                    ),
+                ),
+                envRows,
+                tfoot(
+                    tr(td({colSpan: 4, class: "pt-3"},
+                        button({
+                            type: "button",
+                            class: "w-full rounded-md border border-dashed border-gray-600 text-gray-300 hover:border-brand hover:text-white py-2 cursor-pointer",
+                            onclick: () => { form.envVars.val = [...(form.envVars.val || []), newEnvRow()]; },
+                        }, "+ Add environment variable"),
+                    )),
+                ),
+            ),
         ),
     );
+}
+
+function envVarRow(form, row, secretDatalistID, configDatalistID) {
+    const type = row.type || 'value';
+    return tr({class: "border-b border-gray-800 last:border-b-0"},
+        td({class: "py-2 pr-2 align-top"},
+            input({
+                type: "text",
+                class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-2 py-1.5 text-gray-100 font-mono focus:outline-none focus:ring-1 focus:ring-brand",
+                placeholder: "DATABASE_URL",
+                value: row.key || '',
+                oninput: e => updateEnvRow(form, row.id, {key: e.target.value}),
+            }),
+        ),
+        td({class: "py-2 px-2 align-top"},
+            select({
+                class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-2 py-1.5 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand",
+                value: type,
+                onchange: e => updateEnvRow(form, row.id, envTypePatch(row, e.target.value)),
+            },
+                option({value: "value"}, "Value"),
+                option({value: "config"}, "Config"),
+                option({value: "secret"}, "Secret"),
+            ),
+        ),
+        td({class: "py-2 px-2 align-top"}, envValueInput(form, row, secretDatalistID, configDatalistID)),
+        td({class: "py-2 pl-2 align-top text-right"},
+            button({
+                type: "button",
+                class: "text-gray-500 hover:text-red-300 cursor-pointer px-2 py-1.5",
+                onclick: () => { form.envVars.val = (form.envVars.val || []).filter(v => v.id !== row.id); },
+            }, "Remove"),
+        ),
+    );
+}
+
+function envValueInput(form, row, secretDatalistID, configDatalistID) {
+    if ((row.type || 'value') === 'value') {
+        return input({
+            type: "text",
+            class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-2 py-1.5 text-gray-100 font-mono focus:outline-none focus:ring-1 focus:ring-brand",
+            placeholder: "inplace env val",
+            value: row.value || '',
+            oninput: e => updateEnvRow(form, row.id, {value: e.target.value}),
+        });
+    }
+    const refs = row.type === 'secret' ? (secretRefsS.val || []) : (userConfigRefsS.val || []);
+    const selectedID = row.type === 'secret' ? Number(row.secretId || 0) : Number(row.configId || 0);
+    const selected = refs.find(ref => ref.id === selectedID);
+    return input({
+        type: "text",
+        list: row.type === 'secret' ? secretDatalistID : configDatalistID,
+        class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-2 py-1.5 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand",
+        placeholder: row.type === 'secret' ? "Search secrets" : "Search configs",
+        value: row.refSearch ?? selected?.name ?? '',
+        oninput: e => {
+            const refSearch = e.target.value;
+            const match = refs.find(ref => ref.name === refSearch);
+            updateEnvRow(form, row.id, row.type === 'secret'
+                ? {refSearch, secretId: match?.id || 0}
+                : {refSearch, configId: match?.id || 0});
+        },
+    });
+}
+
+function newEnvRow(values = {}) {
+    return {id: nextEnvID++, key: '', type: 'value', value: '', secretId: 0, configId: 0, ...values};
+}
+
+function updateEnvRow(form, id, patch) {
+    form.envVars.val = (form.envVars.val || []).map(row => row.id === id ? {...row, ...patch} : row);
+}
+
+function envTypePatch(row, type) {
+    if (type === 'secret') return {type, value: '', configId: 0, refSearch: ''};
+    if (type === 'config') return {type, value: '', secretId: 0, refSearch: ''};
+    return {type: 'value', secretId: 0, configId: 0, refSearch: '', value: row.value || ''};
 }
 
 function envVarCount(arr) {
@@ -952,9 +1078,15 @@ function envVarCount(arr) {
 }
 
 function formEnvVars(form) {
-    return form.envVars.val
-        .map(v => ({key: v.key.trim(), value: v.value}))
-        .filter(v => v.key);
+    return Object.fromEntries((form.envVars.val || [])
+        .map(v => {
+            const key = (v.key || '').trim();
+            if (!key) return null;
+            if (v.type === 'secret') return Number(v.secretId || 0) ? [key, {secretId: Number(v.secretId)}] : null;
+            if (v.type === 'config') return Number(v.configId || 0) ? [key, {configId: Number(v.configId)}] : null;
+            return [key, {value: v.value || ''}];
+        })
+        .filter(Boolean));
 }
 
 function formAssetMounts(form) {
@@ -1000,6 +1132,34 @@ function hasInvalidAssetMounts(form) {
         const path = (m.path || '').trim();
         if (!key) return false;
         return !validAbsolutePath(path);
+    });
+}
+
+function hasInvalidEnvVars(form) {
+    const seen = new Set();
+    for (const row of form.envVars.val || []) {
+        const key = (row.key || '').trim();
+        if (!key) continue;
+        if (seen.has(key)) return true;
+        seen.add(key);
+        if (row.type === 'secret') {
+            if (!Number(row.secretId || 0)) return true;
+            continue;
+        }
+        if (row.type === 'config') {
+            if (!Number(row.configId || 0)) return true;
+            continue;
+        }
+        if (row.type && row.type !== 'value') return true;
+    }
+    return false;
+}
+
+function envVarsToFormRows(envVars) {
+    return Object.entries(envVars || {}).map(([key, value]) => {
+        if (value?.secretId) return newEnvRow({key, type: 'secret', secretId: value.secretId});
+        if (value?.configId) return newEnvRow({key, type: 'config', configId: value.configId});
+        return newEnvRow({key, type: 'value', value: value?.value || ''});
     });
 }
 
@@ -1061,24 +1221,6 @@ function closeRuntimePanes(form, keep) {
     if (keep !== 'assets') form.assetMountsPaneOpen.val = false;
     if (keep !== 'volumes') form.volumeMountsPaneOpen.val = false;
     if (keep !== 'assetEditor') form.assetEditorOpen.val = false;
-}
-
-function envVarsToText(arr) {
-    return (arr || [])
-        .filter(v => v && (v.key || v.value))
-        .map(v => `${v.key || ''}=${v.value || ''}`)
-        .join('\n');
-}
-
-function textToEnvVars(text) {
-    return text.split('\n').reduce((acc, line) => {
-        if (!line.trim()) return acc;
-        const idx = line.indexOf('=');
-        const key = (idx === -1 ? line : line.slice(0, idx)).trim();
-        const value = idx === -1 ? '' : line.slice(idx + 1);
-        if (key || value) acc.push({key, value});
-        return acc;
-    }, []);
 }
 
 // --- Repository field with on-blur accessibility validation ----------------
@@ -1163,6 +1305,12 @@ function dockerImageField(form) {
 // repo and source currently in the field; otherwise it reads as idle so a stale
 // green/red state disappears the moment the user edits or switches source.
 function activeRepoCheck(form, sourceType, repoState) {
+    if (form.deploymentCreationUpdate) {
+        const sourceID = repoState.val.trim();
+        if (!sourceID || form.sourceType.val !== sourceType) return {status: 'idle', message: ''};
+        if (sourceType === SOURCE_DOCKER_IMAGE) return form.deploymentCreationUpdate.imageValid.val;
+        return form.deploymentCreationUpdate.repoValid.val;
+    }
     const c = form.repoCheck.val;
     const repo = repoState.val.trim();
     if (!repo || c.sourceType !== sourceType || c.repo !== repo || c.sourceKey !== sourceValidationKey(form)) {
@@ -1172,6 +1320,12 @@ function activeRepoCheck(form, sourceType, repoState) {
 }
 
 function activeFlakeCheck(form) {
+    if (form.deploymentCreationUpdate) {
+        if (form.sourceType.val !== SOURCE_NIX_DOCKER || !form.nixRepo.val.trim() || !form.nixFlake.val.trim()) {
+            return {status: 'idle', message: ''};
+        }
+        return form.deploymentCreationUpdate.flakePathValid.val;
+    }
     const sourceType = form.sourceType.val;
     if (sourceType !== SOURCE_NIX_DOCKER) {
         return {status: 'idle', message: ''};
@@ -1195,6 +1349,10 @@ function activeFlakeCheck(form) {
 }
 
 function activeImageCheck(form) {
+    if (form.deploymentCreationUpdate) {
+        if (!form.containerImage.val.trim() || form.sourceType.val !== SOURCE_DOCKER_IMAGE) return {status: 'idle', message: ''};
+        return form.deploymentCreationUpdate.imageValid.val;
+    }
     const c = form.repoCheck.val;
     const image = form.containerImage.val.trim();
     if (!image || form.sourceType.val !== SOURCE_DOCKER_IMAGE || c.sourceKey !== sourceValidationKey(form)) {
@@ -1204,6 +1362,9 @@ function activeImageCheck(form) {
 }
 
 async function validateRepo(form) {
+    if (form.deploymentCreationUpdate) {
+        return form.deploymentCreationUpdate.validateRepo();
+    }
     const sourceType = form.sourceType.val;
     const repoState = sourceType === SOURCE_DOCKER_IMAGE ? form.containerImage : form.nixRepo;
     const repo = repoState.val.trim();

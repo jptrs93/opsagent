@@ -20,15 +20,11 @@ const dockerHubRegistry = "registry-1.docker.io"
 // shorthand such as "postgres" and "library/postgres".
 type ContainerImageVersionProvider struct{}
 
-func (ContainerImageVersionProvider) ListScopes(ctx context.Context, cfg *apigen.PrepareConfig) ([]string, error) {
-	return nil, nil
-}
-
-func (ContainerImageVersionProvider) ListVersions(ctx context.Context, cfg *apigen.PrepareConfig, scope string) ([]*apigen.Version, error) {
-	if cfg == nil || cfg.ContainerImage.Image == "" {
-		return nil, fmt.Errorf("container image config missing")
+func (ContainerImageVersionProvider) ListTags(ctx context.Context, image string) ([]*apigen.Version, error) {
+	if strings.TrimSpace(image) == "" {
+		return nil, fmt.Errorf("container image missing")
 	}
-	ref, err := parseImageRepository(cfg.ContainerImage.Image)
+	ref, err := parseImageRepository(image)
 	if err != nil {
 		return nil, err
 	}

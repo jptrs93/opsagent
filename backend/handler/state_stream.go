@@ -16,6 +16,10 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 		defer updatesUnsub()
 		userSub, userUnsub := h.Store.SubscribeUserUpdates()
 		defer userUnsub()
+		secretSub, secretUnsub := h.Store.SubscribeSecretReferenceUpdates()
+		defer secretUnsub()
+		userConfigSub, userConfigUnsub := h.Store.SubscribeUserConfigReferenceUpdates()
+		defer userConfigUnsub()
 		enrollments, enrollmentCh, enrollmentUnsub, err := h.Store.MustFetchEnrollmentSnapshotAndSubscribe()
 		if err != nil {
 			yield(nil, err)
@@ -49,6 +53,8 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 			UsersSnapshot:       h.Store.ListUsersPublic(),
 			MachinesSnapshot:    &apigen.ClusterMachineList{Items: machines},
 			EnrollmentsSnapshot: &apigen.EnrollmentRequestList{Items: enrollments},
+			SecretsSnapshot:     &apigen.SecretReferenceList{Items: h.Store.ListSecretReferences()},
+			UserConfigsSnapshot: &apigen.UserConfigReferenceList{Items: h.Store.ListUserConfigReferences()},
 		}
 		if !yield(initial, nil) {
 			return
@@ -74,6 +80,20 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 					return
 				}
 				if !yield(&apigen.State{UserUpdate: &u}, nil) {
+					return
+				}
+			case secret, ok := <-secretSub.Ch:
+				if !ok {
+					return
+				}
+				if !yield(&apigen.State{SecretUpdate: &secret}, nil) {
+					return
+				}
+			case userConfig, ok := <-userConfigSub.Ch:
+				if !ok {
+					return
+				}
+				if !yield(&apigen.State{UserConfigUpdate: &userConfig}, nil) {
 					return
 				}
 			case machine, ok := <-machineCh:

@@ -33,6 +33,7 @@ func (m *memStore) ListSecrets() []Record {
 	}
 	return out
 }
+func (m *memStore) NextSecretID() int32      { return int32(len(m.records) + 1) }
 func (m *memStore) UpsertSecret(r Record)    { m.records[r.Name] = r }
 func (m *memStore) DeleteSecret(name string) { delete(m.records, name) }
 func (m *memStore) GetSystemSecret(name string) (SystemRecord, bool) {
@@ -55,10 +56,11 @@ func TestSetResolveRoundTrip(t *testing.T) {
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
 
-	if _, err := mgr.Set("staging.db.password", "staging", []byte("hunter2"), 7); err != nil {
+	meta, err := mgr.Set("staging.db.password", "staging", []byte("hunter2"), 7)
+	if err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	got, ok := mgr.Resolve("staging.db.password")
+	got, ok := mgr.Resolve(meta.ID)
 	if !ok || got != "hunter2" {
 		t.Fatalf("Resolve = %q, %v; want hunter2, true", got, ok)
 	}
@@ -74,7 +76,7 @@ func TestSetResolveRoundTrip(t *testing.T) {
 
 	// List returns metadata, never the value.
 	metas := mgr.List()
-	if len(metas) != 1 || metas[0].Name != "staging.db.password" || metas[0].Group != "default" {
+	if len(metas) != 1 || metas[0].ID == 0 || metas[0].Name != "staging.db.password" || metas[0].Group != "default" {
 		t.Fatalf("List = %+v", metas)
 	}
 }
@@ -83,7 +85,8 @@ func TestReopenWithMachineKeyUnlocks(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	if _, err := mgr.Set("k", "", []byte("v"), 0); err != nil {
+	meta, err := mgr.Set("k", "", []byte("v"), 0)
+	if err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
@@ -92,7 +95,7 @@ func TestReopenWithMachineKeyUnlocks(t *testing.T) {
 	if unlocked, _ := mgr2.Status(); !unlocked {
 		t.Fatal("expected reopened store to be unlocked")
 	}
-	if got, ok := mgr2.Resolve("k"); !ok || got != "v" {
+	if got, ok := mgr2.Resolve(meta.ID); !ok || got != "v" {
 		t.Fatalf("Resolve after reopen = %q, %v", got, ok)
 	}
 }
@@ -128,7 +131,7 @@ func TestAADBindingPreventsSwap(t *testing.T) {
 	recB.Nonce = recA.Nonce
 	store.records["b"] = recB
 	mgr2 := mustOpen(t, dir, store)
-	if got, ok := mgr2.Resolve("b"); ok {
+	if got, ok := mgr2.Resolve(recB.ID); ok {
 		t.Fatalf("expected AAD mismatch to fail; got %q", got)
 	}
 }
@@ -150,7 +153,7 @@ func TestSystemSecretsAreSeparateFromUserSecrets(t *testing.T) {
 	if got := mgr.List(); len(got) != 0 {
 		t.Fatalf("List exposed system secret: %+v", got)
 	}
-	if _, ok := mgr.Resolve("opendeploy.cluster.ca.key"); ok {
+	if _, ok := mgr.Resolve(1); ok {
 		t.Fatal("Resolve exposed system secret")
 	}
 	if _, err := mgr.Reveal("opendeploy.cluster.ca.key"); err != ErrNotFound {
@@ -187,7 +190,8 @@ func TestRecoveryUnlockOnFreshMachine(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	if _, err := mgr.Set("k", "", []byte("v"), 0); err != nil {
+	meta, err := mgr.Set("k", "", []byte("v"), 0)
+	if err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 	code, err := mgr.GenerateRecoveryCode()
@@ -205,7 +209,7 @@ func TestRecoveryUnlockOnFreshMachine(t *testing.T) {
 	if unlocked, _ := mgr2.Status(); unlocked {
 		t.Fatal("fresh machine without machine.key should be locked")
 	}
-	if _, ok := mgr2.Resolve("k"); ok {
+	if _, ok := mgr2.Resolve(meta.ID); ok {
 		t.Fatal("locked store must not resolve secrets")
 	}
 	if _, err := mgr2.Set("x", "", []byte("y"), 0); err == nil {
@@ -220,7 +224,7 @@ func TestRecoveryUnlockOnFreshMachine(t *testing.T) {
 	if err := mgr2.Unlock(code); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
-	if got, ok := mgr2.Resolve("k"); !ok || got != "v" {
+	if got, ok := mgr2.Resolve(meta.ID); !ok || got != "v" {
 		t.Fatalf("Resolve after recovery = %q, %v", got, ok)
 	}
 	if _, err := os.Stat(filepath.Join(freshDir, machineKeyFile)); err != nil {

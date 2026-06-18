@@ -7,6 +7,7 @@ const LOG_OUTPUT_TIMEOUT = 120_000;
 const LOG_OUTPUT_POLL_TIMEOUT = 1_500;
 const RESTART_TIMEOUT = 120_000;
 const UPGRADE_TIMEOUT = 180_000;
+const RELEASE_OPTIONS_TIMEOUT = 60_000;
 const STABLE_CHECK_DELAY = 200;
 
 export async function bootstrapFirstUser(page, {username = 'E2E Operator', password = process.env.OPD_SETUP_PASSWORD || 'opendeploy-setup'} = {}) {
@@ -228,7 +229,7 @@ export async function createPostgresClientDeployment(page, {
 
 export async function createConfig(page, {name, value} = {}) {
   await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
-  await expect(page.getByText('Reference secrets as')).toBeVisible();
+  await expect(page.getByText('Use the deployment environment panel to attach secrets/configs by ID.')).toBeVisible();
   await page.getByRole('button', {name: 'Add config'}).click();
 
   const row = page.locator('tbody tr').last();
@@ -240,7 +241,7 @@ export async function createConfig(page, {name, value} = {}) {
 
 export async function createSecret(page, {name, value} = {}) {
   await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
-  await expect(page.getByText('Reference secrets as')).toBeVisible();
+  await expect(page.getByText('Use the deployment environment panel to attach secrets/configs by ID.')).toBeVisible();
   await page.getByRole('button', {name: 'Add secret'}).click();
 
   const row = page.locator('tbody tr').last();
@@ -330,7 +331,7 @@ async function upgradeOpenDeployAgent(page, {machine, version}) {
   const releaseSelect = field(dialog, 'Release').locator('select');
   await expect.poll(async () => {
     return await releaseSelect.locator('option').evaluateAll(options => options.map(o => o.value));
-  }, {message: `expected ${version} release option`, timeout: LONG_UI_TIMEOUT}).toContain(version);
+  }, {message: `expected ${version} release option`, timeout: RELEASE_OPTIONS_TIMEOUT}).toContain(version);
   await releaseSelect.selectOption(version);
   await dialog.getByRole('button', {name: 'Update deployment'}).click();
   await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
@@ -388,7 +389,7 @@ async function waitForHealthyApp(page) {
 }
 
 async function waitForOptionalPathValidation(dialog) {
-  const pathVerified = dialog.getByText('Path verified');
+  const pathVerified = dialog.getByText(/Path verified|Flake path '.+' exists/);
   const validationFailed = dialog.getByText(/Git repository not accessible|Unable to validate flake path|Flake path not found|Selected commit not found/);
   return Promise.race([
     pathVerified.waitFor({state: 'visible', timeout: OPTIONAL_VALIDATION_TIMEOUT}).then(() => true).catch(() => false),
@@ -398,7 +399,7 @@ async function waitForOptionalPathValidation(dialog) {
 
 async function expectPathValidation(dialog) {
   if (await waitForOptionalPathValidation(dialog)) return;
-  await expect(dialog.getByText('Path verified')).toBeVisible({timeout: 1});
+  await expect(dialog.getByText(/Path verified|Flake path '.+' exists/)).toBeVisible({timeout: 1});
 }
 
 function byTestId(root, testID, fallback) {
@@ -410,16 +411,38 @@ async function setDeploymentEnvVars(dialog, env) {
   if (entries.length === 0) return;
 
   await byTestId(dialog, 'deployment-env-vars-toggle', dialog.getByRole('button', {name: 'View / edit'})).click();
-  const text = entries.map(([key, value]) => `${key}=${value}`).join('\n');
-  await dialog.getByTestId('deployment-env-vars-textarea').fill(text);
+  const pane = dialog.getByRole('heading', {name: 'Environment variables'})
+    .locator('xpath=ancestor::div[contains(@class, "border-l")][1]');
+
+  for (const [key, value] of entries) {
+    await pane.getByRole('button', {name: '+ Add environment variable'}).click();
+    const row = pane.locator('tbody tr').last();
+    await row.locator('input').first().fill(key);
+
+    const ref = envVarRef(value);
+    if (ref.type !== 'value') {
+      await row.locator('select').selectOption(ref.type);
+      await row.locator('input').nth(1).fill(ref.name);
+    } else {
+      await row.locator('input').nth(1).fill(ref.value);
+    }
+  }
+
   await expect(dialog.getByText(`${entries.length} environment variables`)).toBeVisible();
+}
+
+function envVarRef(value) {
+  const s = String(value ?? '');
+  const match = /^\$\{([cs]):([^}]+)}$/.exec(s);
+  if (!match) return {type: 'value', value: s};
+  return {type: match[1] === 's' ? 'secret' : 'config', name: match[2]};
 }
 
 async function setDeploymentDataMountPath(dialog, path) {
   await dialog.getByRole('button', {name: 'Click to manage'}).click();
   await expect(dialog.getByRole('heading', {name: 'Mounted volumes'})).toBeVisible();
   const pane = dialog.getByRole('heading', {name: 'Mounted volumes'}).locator('xpath=ancestor::div[contains(@class, "border-l")][1]');
-  await field(pane, 'Container path').getByRole('textbox').fill(path);
+  await field(pane, 'Container mount path').getByRole('textbox').fill(path);
 }
 
 async function setDeploymentAssetMount(dialog, {asset, path}) {

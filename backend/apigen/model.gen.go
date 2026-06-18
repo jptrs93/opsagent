@@ -490,12 +490,12 @@ func DecodeClusterAssetBlob(b []byte) (*ClusterAssetBlob, error) {
 }
 
 type ClusterSecretsRequest struct {
-	Keys []string
+	Ids []int32
 }
 
 func (m *ClusterSecretsRequest) Encode() []byte {
 	var b []byte
-	b = AppendRepeated(b, m.Keys, AppendFieldDecorator(AppendStringField, 1))
+	b = AppendRepeatedCompact(b, m.Ids, 1, AppendCompactDecorator(AppendInt32Compact))
 	return b
 }
 
@@ -511,11 +511,7 @@ func DecodeClusterSecretsRequest(b []byte) (*ClusterSecretsRequest, error) {
 		}
 		switch num {
 		case 1:
-			var item string
-			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
-			if err == nil {
-				m.Keys = append(m.Keys, item)
-			}
+			b, m.Ids, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt32)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -527,13 +523,13 @@ func DecodeClusterSecretsRequest(b []byte) (*ClusterSecretsRequest, error) {
 }
 
 type ClusterSecretValue struct {
-	Key   string
+	ID    int32
 	Value []byte
 }
 
 func (m *ClusterSecretValue) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.Key, 1)
+	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendBytesField(b, m.Value, 2)
 	return b
 }
@@ -550,7 +546,7 @@ func DecodeClusterSecretValue(b []byte) (*ClusterSecretValue, error) {
 		}
 		switch num {
 		case 1:
-			b, m.Key, err = ConsumeString(b, typ)
+			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.Value, err = ConsumeBytesCopy(b, typ)
 		default:
@@ -611,12 +607,12 @@ func DecodeClusterSecretsResponse(b []byte) (*ClusterSecretsResponse, error) {
 }
 
 type ClusterConfigsRequest struct {
-	Keys []string
+	Ids []int32
 }
 
 func (m *ClusterConfigsRequest) Encode() []byte {
 	var b []byte
-	b = AppendRepeated(b, m.Keys, AppendFieldDecorator(AppendStringField, 1))
+	b = AppendRepeatedCompact(b, m.Ids, 1, AppendCompactDecorator(AppendInt32Compact))
 	return b
 }
 
@@ -632,11 +628,7 @@ func DecodeClusterConfigsRequest(b []byte) (*ClusterConfigsRequest, error) {
 		}
 		switch num {
 		case 1:
-			var item string
-			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
-			if err == nil {
-				m.Keys = append(m.Keys, item)
-			}
+			b, m.Ids, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt32)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -648,13 +640,13 @@ func DecodeClusterConfigsRequest(b []byte) (*ClusterConfigsRequest, error) {
 }
 
 type ClusterConfigValue struct {
-	Key   string
+	ID    int32
 	Value string
 }
 
 func (m *ClusterConfigValue) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.Key, 1)
+	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendStringField(b, m.Value, 2)
 	return b
 }
@@ -671,7 +663,7 @@ func DecodeClusterConfigValue(b []byte) (*ClusterConfigValue, error) {
 		}
 		switch num {
 		case 1:
-			b, m.Key, err = ConsumeString(b, typ)
+			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.Value, err = ConsumeString(b, typ)
 		default:
@@ -1223,6 +1215,7 @@ type SecretMeta struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	UpdatedBy int32
+	ID        int32
 }
 
 func (m *SecretMeta) Encode() []byte {
@@ -1232,6 +1225,7 @@ func (m *SecretMeta) Encode() []byte {
 	b = AppendInt64FromTime(b, m.CreatedAt, 3)
 	b = AppendInt64FromTime(b, m.UpdatedAt, 4)
 	b = AppendInt32Field(b, m.UpdatedBy, 5)
+	b = AppendInt32Field(b, m.ID, 6)
 	return b
 }
 
@@ -1256,6 +1250,8 @@ func DecodeSecretMeta(b []byte) (*SecretMeta, error) {
 			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 5:
 			b, m.UpdatedBy, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1563,6 +1559,7 @@ type UserConfig struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	UpdatedBy int32
+	ID        int32
 }
 
 func (m *UserConfig) Encode() []byte {
@@ -1573,6 +1570,7 @@ func (m *UserConfig) Encode() []byte {
 	b = AppendInt64FromTime(b, m.CreatedAt, 4)
 	b = AppendInt64FromTime(b, m.UpdatedAt, 5)
 	b = AppendInt32Field(b, m.UpdatedBy, 6)
+	b = AppendInt32Field(b, m.ID, 7)
 	return b
 }
 
@@ -1599,6 +1597,8 @@ func DecodeUserConfig(b []byte) (*UserConfig, error) {
 			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 6:
 			b, m.UpdatedBy, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -2007,11 +2007,6 @@ type NixDockerBuildConfig struct {
 	Flake string
 }
 
-func (m NixDockerBuildConfig) IsZero() bool {
-	return m.Repo == "" &&
-		m.Flake == ""
-}
-
 func (m *NixDockerBuildConfig) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Repo, 1)
@@ -2049,13 +2044,6 @@ type GithubReleaseConfig struct {
 	Asset          string
 	Tag            string
 	DownloadScript string
-}
-
-func (m GithubReleaseConfig) IsZero() bool {
-	return m.Repo == "" &&
-		m.Asset == "" &&
-		m.Tag == "" &&
-		m.DownloadScript == ""
 }
 
 func (m *GithubReleaseConfig) Encode() []byte {
@@ -2100,10 +2088,6 @@ type ContainerImageConfig struct {
 	Image string
 }
 
-func (m ContainerImageConfig) IsZero() bool {
-	return m.Image == ""
-}
-
 func (m *ContainerImageConfig) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Image, 1)
@@ -2134,28 +2118,28 @@ func DecodeContainerImageConfig(b []byte) (*ContainerImageConfig, error) {
 }
 
 type PrepareConfig struct {
-	GithubRelease  GithubReleaseConfig
-	ContainerImage ContainerImageConfig
-	NixDockerBuild NixDockerBuildConfig
+	GithubRelease  *GithubReleaseConfig
+	ContainerImage *ContainerImageConfig
+	NixDockerBuild *NixDockerBuildConfig
 }
 
 func (m PrepareConfig) IsZero() bool {
-	return m.GithubRelease.IsZero() &&
-		m.ContainerImage.IsZero() &&
-		m.NixDockerBuild.IsZero()
+	return m.GithubRelease == nil &&
+		m.ContainerImage == nil &&
+		m.NixDockerBuild == nil
 }
 
 func (m *PrepareConfig) Encode() []byte {
 	var b []byte
-	if !m.GithubRelease.IsZero() {
+	if m.GithubRelease != nil {
 		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, m.GithubRelease.Encode())
 	}
-	if !m.ContainerImage.IsZero() {
+	if m.ContainerImage != nil {
 		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, m.ContainerImage.Encode())
 	}
-	if !m.NixDockerBuild.IsZero() {
+	if m.NixDockerBuild != nil {
 		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, m.NixDockerBuild.Encode())
 	}
@@ -2180,7 +2164,7 @@ func DecodePrepareConfig(b []byte) (*PrepareConfig, error) {
 				var item *GithubReleaseConfig
 				item, err = DecodeGithubReleaseConfig(msgBytes)
 				if err == nil {
-					m.GithubRelease = *item
+					m.GithubRelease = item
 				}
 			}
 		case 3:
@@ -2189,7 +2173,7 @@ func DecodePrepareConfig(b []byte) (*PrepareConfig, error) {
 				var item *ContainerImageConfig
 				item, err = DecodeContainerImageConfig(msgBytes)
 				if err == nil {
-					m.ContainerImage = *item
+					m.ContainerImage = item
 				}
 			}
 		case 4:
@@ -2198,7 +2182,7 @@ func DecodePrepareConfig(b []byte) (*PrepareConfig, error) {
 				var item *NixDockerBuildConfig
 				item, err = DecodeNixDockerBuildConfig(msgBytes)
 				if err == nil {
-					m.NixDockerBuild = *item
+					m.NixDockerBuild = item
 				}
 			}
 		default:
@@ -2211,20 +2195,22 @@ func DecodePrepareConfig(b []byte) (*PrepareConfig, error) {
 	return &m, nil
 }
 
-type EnvVar struct {
-	Key   string
-	Value string
+type EnvVarValue struct {
+	SecretID *int32
+	ConfigID *int32
+	Value    *string
 }
 
-func (m *EnvVar) Encode() []byte {
+func (m *EnvVarValue) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.Key, 1)
-	b = AppendStringField(b, m.Value, 2)
+	b = AppendInt32FieldOpt(b, m.SecretID, 1)
+	b = AppendInt32FieldOpt(b, m.ConfigID, 2)
+	b = AppendStringFieldOpt(b, m.Value, 3)
 	return b
 }
 
-func DecodeEnvVar(b []byte) (*EnvVar, error) {
-	var m EnvVar
+func DecodeEnvVarValue(b []byte) (*EnvVarValue, error) {
+	var m EnvVarValue
 	var num Number
 	var typ Type
 	var err error
@@ -2235,9 +2221,11 @@ func DecodeEnvVar(b []byte) (*EnvVar, error) {
 		}
 		switch num {
 		case 1:
-			b, m.Key, err = ConsumeString(b, typ)
+			b, m.SecretID, err = ConsumeVarInt32Opt(b, typ)
 		case 2:
-			b, m.Value, err = ConsumeString(b, typ)
+			b, m.ConfigID, err = ConsumeVarInt32Opt(b, typ)
+		case 3:
+			b, m.Value, err = ConsumeStringOpt(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -2382,7 +2370,7 @@ func DecodeContainerAssetMount(b []byte) (*ContainerAssetMount, error) {
 
 type ContainerRunnerConfig struct {
 	User              string
-	Env               []*EnvVar
+	EnvVars           map[string]*EnvVarValue
 	Command           []string
 	WorkingDir        string
 	DataMountPath     string
@@ -2393,7 +2381,7 @@ type ContainerRunnerConfig struct {
 
 func (m ContainerRunnerConfig) IsZero() bool {
 	return m.User == "" &&
-		len(m.Env) == 0 &&
+		len(m.EnvVars) == 0 &&
 		len(m.Command) == 0 &&
 		m.WorkingDir == "" &&
 		m.DataMountPath == "" &&
@@ -2405,13 +2393,7 @@ func (m ContainerRunnerConfig) IsZero() bool {
 func (m *ContainerRunnerConfig) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.User, 1)
-	for _, item := range m.Env {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
+	b = AppendMap(b, m.EnvVars, 2, AppendFieldDecorator(AppendStringField, 1), AppendMessageFieldDecorator[*EnvVarValue](2))
 	b = AppendRepeated(b, m.Command, AppendFieldDecorator(AppendStringField, 3))
 	b = AppendStringField(b, m.WorkingDir, 4)
 	b = AppendStringField(b, m.DataMountPath, 5)
@@ -2448,14 +2430,10 @@ func DecodeContainerRunnerConfig(b []byte) (*ContainerRunnerConfig, error) {
 		case 1:
 			b, m.User, err = ConsumeString(b, typ)
 		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *EnvVar
-				item, err = DecodeEnvVar(msgBytes)
-				if err == nil {
-					m.Env = append(m.Env, item)
-				}
+			if m.EnvVars == nil {
+				m.EnvVars = make(map[string]*EnvVarValue)
 			}
+			b, err = ConsumeMapEntry(b, typ, m.EnvVars, ConsumeString, ConsumeMessageDecorator(DecodeEnvVarValue))
 		case 3:
 			var item string
 			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
@@ -2569,6 +2547,10 @@ type State struct {
 	MachineUpdate       *ClusterMachine
 	EnrollmentsSnapshot *EnrollmentRequestList
 	EnrollmentUpdate    *EnrollmentRequestStatus
+	SecretsSnapshot     *SecretReferenceList
+	SecretUpdate        *SecretReference
+	UserConfigsSnapshot *UserConfigReferenceList
+	UserConfigUpdate    *UserConfigReference
 }
 
 func (m *State) Encode() []byte {
@@ -2608,6 +2590,22 @@ func (m *State) Encode() []byte {
 	if m.EnrollmentUpdate != nil {
 		b = AppendTag(b, 11, BytesType)
 		b = AppendBytes(b, m.EnrollmentUpdate.Encode())
+	}
+	if m.SecretsSnapshot != nil {
+		b = AppendTag(b, 12, BytesType)
+		b = AppendBytes(b, m.SecretsSnapshot.Encode())
+	}
+	if m.SecretUpdate != nil {
+		b = AppendTag(b, 13, BytesType)
+		b = AppendBytes(b, m.SecretUpdate.Encode())
+	}
+	if m.UserConfigsSnapshot != nil {
+		b = AppendTag(b, 14, BytesType)
+		b = AppendBytes(b, m.UserConfigsSnapshot.Encode())
+	}
+	if m.UserConfigUpdate != nil {
+		b = AppendTag(b, 15, BytesType)
+		b = AppendBytes(b, m.UserConfigUpdate.Encode())
 	}
 	return b
 }
@@ -2696,6 +2694,218 @@ func DecodeState(b []byte) (*State, error) {
 				item, err = DecodeEnrollmentRequestStatus(msgBytes)
 				if err == nil {
 					m.EnrollmentUpdate = item
+				}
+			}
+		case 12:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretReferenceList
+				item, err = DecodeSecretReferenceList(msgBytes)
+				if err == nil {
+					m.SecretsSnapshot = item
+				}
+			}
+		case 13:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretReference
+				item, err = DecodeSecretReference(msgBytes)
+				if err == nil {
+					m.SecretUpdate = item
+				}
+			}
+		case 14:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *UserConfigReferenceList
+				item, err = DecodeUserConfigReferenceList(msgBytes)
+				if err == nil {
+					m.UserConfigsSnapshot = item
+				}
+			}
+		case 15:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *UserConfigReference
+				item, err = DecodeUserConfigReference(msgBytes)
+				if err == nil {
+					m.UserConfigUpdate = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type SecretReference struct {
+	ID      int32
+	Name    string
+	Deleted bool
+}
+
+func (m *SecretReference) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendStringField(b, m.Name, 2)
+	b = AppendBoolField(b, m.Deleted, 3)
+	return b
+}
+
+func DecodeSecretReference(b []byte) (*SecretReference, error) {
+	var m SecretReference
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Deleted, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type SecretReferenceList struct {
+	Items []*SecretReference
+}
+
+func (m *SecretReferenceList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeSecretReferenceList(b []byte) (*SecretReferenceList, error) {
+	var m SecretReferenceList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretReference
+				item, err = DecodeSecretReference(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type UserConfigReference struct {
+	ID      int32
+	Name    string
+	Deleted bool
+}
+
+func (m *UserConfigReference) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendStringField(b, m.Name, 2)
+	b = AppendBoolField(b, m.Deleted, 3)
+	return b
+}
+
+func DecodeUserConfigReference(b []byte) (*UserConfigReference, error) {
+	var m UserConfigReference
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Deleted, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type UserConfigReferenceList struct {
+	Items []*UserConfigReference
+}
+
+func (m *UserConfigReferenceList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeUserConfigReferenceList(b []byte) (*UserConfigReferenceList, error) {
+	var m UserConfigReferenceList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *UserConfigReference
+				item, err = DecodeUserConfigReference(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
 				}
 			}
 		default:
@@ -3947,16 +4157,27 @@ func DecodeVersion(b []byte) (*Version, error) {
 }
 
 type DeploymentVersions struct {
-	DeploymentID    int32
-	Scopes          []string
-	VersionsByScope map[string]*ScopedVersions
+	DeploymentID   int32
+	NixDockerBuild *DeploymentNixDockerBuildVersions
+	GithubRelease  *DeploymentGithubReleaseVersions
+	ContainerImage *DeploymentContainerImageVersions
 }
 
 func (m *DeploymentVersions) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentID, 1)
-	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 2))
-	b = AppendMap(b, m.VersionsByScope, 3, AppendFieldDecorator(AppendStringField, 1), AppendMessageFieldDecorator[*ScopedVersions](2))
+	if m.NixDockerBuild != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.NixDockerBuild.Encode())
+	}
+	if m.GithubRelease != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.GithubRelease.Encode())
+	}
+	if m.ContainerImage != nil {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.ContainerImage.Encode())
+	}
 	return b
 }
 
@@ -3965,6 +4186,7 @@ func DecodeDeploymentVersions(b []byte) (*DeploymentVersions, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -3974,16 +4196,32 @@ func DecodeDeploymentVersions(b []byte) (*DeploymentVersions, error) {
 		case 1:
 			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			var item string
-			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				m.Scopes = append(m.Scopes, item)
+				var item *DeploymentNixDockerBuildVersions
+				item, err = DecodeDeploymentNixDockerBuildVersions(msgBytes)
+				if err == nil {
+					m.NixDockerBuild = item
+				}
 			}
 		case 3:
-			if m.VersionsByScope == nil {
-				m.VersionsByScope = make(map[string]*ScopedVersions)
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentGithubReleaseVersions
+				item, err = DecodeDeploymentGithubReleaseVersions(msgBytes)
+				if err == nil {
+					m.GithubRelease = item
+				}
 			}
-			b, err = ConsumeMapEntry(b, typ, m.VersionsByScope, ConsumeString, ConsumeMessageDecorator(DecodeScopedVersions))
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentContainerImageVersions
+				item, err = DecodeDeploymentContainerImageVersions(msgBytes)
+				if err == nil {
+					m.ContainerImage = item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3994,13 +4232,72 @@ func DecodeDeploymentVersions(b []byte) (*DeploymentVersions, error) {
 	return &m, nil
 }
 
-type ScopedVersions struct {
-	Versions []*Version
+type DeploymentNixDockerBuildVersions struct {
+	Branches       []string
+	SelectedBranch string
+	Commits        []*Version
 }
 
-func (m *ScopedVersions) Encode() []byte {
+func (m *DeploymentNixDockerBuildVersions) Encode() []byte {
 	var b []byte
-	for _, item := range m.Versions {
+	b = AppendRepeated(b, m.Branches, AppendFieldDecorator(AppendStringField, 1))
+	b = AppendStringField(b, m.SelectedBranch, 2)
+	for _, item := range m.Commits {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeDeploymentNixDockerBuildVersions(b []byte) (*DeploymentNixDockerBuildVersions, error) {
+	var m DeploymentNixDockerBuildVersions
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Branches = append(m.Branches, item)
+			}
+		case 2:
+			b, m.SelectedBranch, err = ConsumeString(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Version
+				item, err = DecodeVersion(msgBytes)
+				if err == nil {
+					m.Commits = append(m.Commits, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type DeploymentGithubReleaseVersions struct {
+	Releases []*Version
+}
+
+func (m *DeploymentGithubReleaseVersions) Encode() []byte {
+	var b []byte
+	for _, item := range m.Releases {
 		if item == nil {
 			continue
 		}
@@ -4010,8 +4307,8 @@ func (m *ScopedVersions) Encode() []byte {
 	return b
 }
 
-func DecodeScopedVersions(b []byte) (*ScopedVersions, error) {
-	var m ScopedVersions
+func DecodeDeploymentGithubReleaseVersions(b []byte) (*DeploymentGithubReleaseVersions, error) {
+	var m DeploymentGithubReleaseVersions
 	var num Number
 	var typ Type
 	var err error
@@ -4028,7 +4325,54 @@ func DecodeScopedVersions(b []byte) (*ScopedVersions, error) {
 				var item *Version
 				item, err = DecodeVersion(msgBytes)
 				if err == nil {
-					m.Versions = append(m.Versions, item)
+					m.Releases = append(m.Releases, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type DeploymentContainerImageVersions struct {
+	Tags []*Version
+}
+
+func (m *DeploymentContainerImageVersions) Encode() []byte {
+	var b []byte
+	for _, item := range m.Tags {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeDeploymentContainerImageVersions(b []byte) (*DeploymentContainerImageVersions, error) {
+	var m DeploymentContainerImageVersions
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Version
+				item, err = DecodeVersion(msgBytes)
+				if err == nil {
+					m.Tags = append(m.Tags, item)
 				}
 			}
 		default:
@@ -4042,14 +4386,14 @@ func DecodeScopedVersions(b []byte) (*ScopedVersions, error) {
 }
 
 type DeploymentVersionsRequest struct {
-	DeploymentID int32
-	Scope        string
+	DeploymentID   int32
+	SelectedBranch string
 }
 
 func (m *DeploymentVersionsRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentID, 1)
-	b = AppendStringField(b, m.Scope, 2)
+	b = AppendStringField(b, m.SelectedBranch, 2)
 	return b
 }
 
@@ -4067,7 +4411,7 @@ func DecodeDeploymentVersionsRequest(b []byte) (*DeploymentVersionsRequest, erro
 		case 1:
 			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, m.Scope, err = ConsumeString(b, typ)
+			b, m.SelectedBranch, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4079,17 +4423,17 @@ func DecodeDeploymentVersionsRequest(b []byte) (*DeploymentVersionsRequest, erro
 }
 
 type ValidateSourceRequest struct {
-	NixDockerBuild ValidateNixDockerBuildSource
-	ContainerImage ValidateContainerImageSource
+	NixDockerBuild *ValidateNixDockerBuildSource
+	ContainerImage *ValidateContainerImageSource
 }
 
 func (m *ValidateSourceRequest) Encode() []byte {
 	var b []byte
-	if !m.NixDockerBuild.IsZero() {
+	if m.NixDockerBuild != nil {
 		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, m.NixDockerBuild.Encode())
 	}
-	if !m.ContainerImage.IsZero() {
+	if m.ContainerImage != nil {
 		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, m.ContainerImage.Encode())
 	}
@@ -4114,7 +4458,7 @@ func DecodeValidateSourceRequest(b []byte) (*ValidateSourceRequest, error) {
 				var item *ValidateNixDockerBuildSource
 				item, err = DecodeValidateNixDockerBuildSource(msgBytes)
 				if err == nil {
-					m.NixDockerBuild = *item
+					m.NixDockerBuild = item
 				}
 			}
 		case 4:
@@ -4123,7 +4467,7 @@ func DecodeValidateSourceRequest(b []byte) (*ValidateSourceRequest, error) {
 				var item *ValidateContainerImageSource
 				item, err = DecodeValidateContainerImageSource(msgBytes)
 				if err == nil {
-					m.ContainerImage = *item
+					m.ContainerImage = item
 				}
 			}
 		default:
@@ -4137,42 +4481,313 @@ func DecodeValidateSourceRequest(b []byte) (*ValidateSourceRequest, error) {
 }
 
 type ValidateNixDockerBuildSource struct {
-	RepoUrl         string
-	Branch          string
-	Commit          string
-	FlakePath       string
-	RefreshScopes   bool
-	RefreshVersions bool
-	CheckCommit     bool
-	CheckFlakePath  bool
-}
-
-func (m ValidateNixDockerBuildSource) IsZero() bool {
-	return m.RepoUrl == "" &&
-		m.Branch == "" &&
-		m.Commit == "" &&
-		m.FlakePath == "" &&
-		m.RefreshScopes == false &&
-		m.RefreshVersions == false &&
-		m.CheckCommit == false &&
-		m.CheckFlakePath == false
+	RepoUrl                  string
+	SelectedBranch           string
+	SelectedCommit           *Version
+	SelectedFlakePath        string
+	RefreshAvailableBranches bool
+	RefreshAvailableCommits  bool
+	CheckRepo                bool
+	CheckBranch              bool
+	CheckCommit              bool
+	CheckFlakePath           bool
 }
 
 func (m *ValidateNixDockerBuildSource) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.RepoUrl, 1)
-	b = AppendStringField(b, m.Branch, 2)
-	b = AppendStringField(b, m.Commit, 3)
-	b = AppendStringField(b, m.FlakePath, 4)
-	b = AppendBoolField(b, m.RefreshScopes, 5)
-	b = AppendBoolField(b, m.RefreshVersions, 6)
-	b = AppendBoolField(b, m.CheckCommit, 7)
-	b = AppendBoolField(b, m.CheckFlakePath, 8)
+	b = AppendStringField(b, m.SelectedBranch, 2)
+	if m.SelectedCommit != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.SelectedCommit.Encode())
+	}
+	b = AppendStringField(b, m.SelectedFlakePath, 4)
+	b = AppendBoolField(b, m.RefreshAvailableBranches, 5)
+	b = AppendBoolField(b, m.RefreshAvailableCommits, 6)
+	b = AppendBoolField(b, m.CheckRepo, 7)
+	b = AppendBoolField(b, m.CheckBranch, 8)
+	b = AppendBoolField(b, m.CheckCommit, 9)
+	b = AppendBoolField(b, m.CheckFlakePath, 10)
 	return b
 }
 
 func DecodeValidateNixDockerBuildSource(b []byte) (*ValidateNixDockerBuildSource, error) {
 	var m ValidateNixDockerBuildSource
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.RepoUrl, err = ConsumeString(b, typ)
+		case 2:
+			b, m.SelectedBranch, err = ConsumeString(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Version
+				item, err = DecodeVersion(msgBytes)
+				if err == nil {
+					m.SelectedCommit = item
+				}
+			}
+		case 4:
+			b, m.SelectedFlakePath, err = ConsumeString(b, typ)
+		case 5:
+			b, m.RefreshAvailableBranches, err = ConsumeBool(b, typ)
+		case 6:
+			b, m.RefreshAvailableCommits, err = ConsumeBool(b, typ)
+		case 7:
+			b, m.CheckRepo, err = ConsumeBool(b, typ)
+		case 8:
+			b, m.CheckBranch, err = ConsumeBool(b, typ)
+		case 9:
+			b, m.CheckCommit, err = ConsumeBool(b, typ)
+		case 10:
+			b, m.CheckFlakePath, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ValidateNixDockerBuildSourceResponse struct {
+	CheckedRepoUrl    string
+	GitRepository     ValidationResult
+	CheckedBranch     string
+	BranchCheck       ValidationResult
+	CheckedCommit     *Version
+	CommitCheck       ValidationResult
+	CheckedFlakePath  string
+	NixFlakeFile      ValidationResult
+	AvailableBranches AvailableBranches
+	AvailableCommits  AvailableCommits
+}
+
+func (m *ValidateNixDockerBuildSourceResponse) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.CheckedRepoUrl, 1)
+	if !m.GitRepository.IsZero() {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.GitRepository.Encode())
+	}
+	b = AppendStringField(b, m.CheckedBranch, 3)
+	if !m.BranchCheck.IsZero() {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.BranchCheck.Encode())
+	}
+	if m.CheckedCommit != nil {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.CheckedCommit.Encode())
+	}
+	if !m.CommitCheck.IsZero() {
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, m.CommitCheck.Encode())
+	}
+	b = AppendStringField(b, m.CheckedFlakePath, 7)
+	if !m.NixFlakeFile.IsZero() {
+		b = AppendTag(b, 8, BytesType)
+		b = AppendBytes(b, m.NixFlakeFile.Encode())
+	}
+	if !m.AvailableBranches.IsZero() {
+		b = AppendTag(b, 9, BytesType)
+		b = AppendBytes(b, m.AvailableBranches.Encode())
+	}
+	if !m.AvailableCommits.IsZero() {
+		b = AppendTag(b, 10, BytesType)
+		b = AppendBytes(b, m.AvailableCommits.Encode())
+	}
+	return b
+}
+
+func DecodeValidateNixDockerBuildSourceResponse(b []byte) (*ValidateNixDockerBuildSourceResponse, error) {
+	var m ValidateNixDockerBuildSourceResponse
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.CheckedRepoUrl, err = ConsumeString(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidationResult
+				item, err = DecodeValidationResult(msgBytes)
+				if err == nil {
+					m.GitRepository = *item
+				}
+			}
+		case 3:
+			b, m.CheckedBranch, err = ConsumeString(b, typ)
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidationResult
+				item, err = DecodeValidationResult(msgBytes)
+				if err == nil {
+					m.BranchCheck = *item
+				}
+			}
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Version
+				item, err = DecodeVersion(msgBytes)
+				if err == nil {
+					m.CheckedCommit = item
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidationResult
+				item, err = DecodeValidationResult(msgBytes)
+				if err == nil {
+					m.CommitCheck = *item
+				}
+			}
+		case 7:
+			b, m.CheckedFlakePath, err = ConsumeString(b, typ)
+		case 8:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValidationResult
+				item, err = DecodeValidationResult(msgBytes)
+				if err == nil {
+					m.NixFlakeFile = *item
+				}
+			}
+		case 9:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AvailableBranches
+				item, err = DecodeAvailableBranches(msgBytes)
+				if err == nil {
+					m.AvailableBranches = *item
+				}
+			}
+		case 10:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AvailableCommits
+				item, err = DecodeAvailableCommits(msgBytes)
+				if err == nil {
+					m.AvailableCommits = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type AvailableCommits struct {
+	Loaded       bool
+	Branch       string
+	Errormessage *string
+	Commits      []*Version
+}
+
+func (m AvailableCommits) IsZero() bool {
+	return m.Loaded == false &&
+		m.Branch == "" &&
+		m.Errormessage == nil &&
+		len(m.Commits) == 0
+}
+
+func (m *AvailableCommits) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Loaded, 1)
+	b = AppendStringField(b, m.Branch, 2)
+	b = AppendStringFieldOpt(b, m.Errormessage, 3)
+	for _, item := range m.Commits {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeAvailableCommits(b []byte) (*AvailableCommits, error) {
+	var m AvailableCommits
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Loaded, err = ConsumeBool(b, typ)
+		case 2:
+			b, m.Branch, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Errormessage, err = ConsumeStringOpt(b, typ)
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Version
+				item, err = DecodeVersion(msgBytes)
+				if err == nil {
+					m.Commits = append(m.Commits, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type AvailableBranches struct {
+	Loaded       bool
+	Errormessage *string
+	Branches     []string
+}
+
+func (m AvailableBranches) IsZero() bool {
+	return m.Loaded == false &&
+		m.Errormessage == nil &&
+		len(m.Branches) == 0
+}
+
+func (m *AvailableBranches) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Loaded, 1)
+	b = AppendStringFieldOpt(b, m.Errormessage, 2)
+	b = AppendRepeated(b, m.Branches, AppendFieldDecorator(AppendStringField, 3))
+	return b
+}
+
+func DecodeAvailableBranches(b []byte) (*AvailableBranches, error) {
+	var m AvailableBranches
 	var num Number
 	var typ Type
 	var err error
@@ -4183,21 +4798,107 @@ func DecodeValidateNixDockerBuildSource(b []byte) (*ValidateNixDockerBuildSource
 		}
 		switch num {
 		case 1:
-			b, m.RepoUrl, err = ConsumeString(b, typ)
+			b, m.Loaded, err = ConsumeBool(b, typ)
 		case 2:
-			b, m.Branch, err = ConsumeString(b, typ)
+			b, m.Errormessage, err = ConsumeStringOpt(b, typ)
 		case 3:
-			b, m.Commit, err = ConsumeString(b, typ)
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Branches = append(m.Branches, item)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type RepoValidationResult struct {
+	Checked bool
+	RepoUrl string
+	Ok      bool
+	Message string
+}
+
+func (m *RepoValidationResult) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Checked, 1)
+	b = AppendStringField(b, m.RepoUrl, 2)
+	b = AppendBoolField(b, m.Ok, 3)
+	b = AppendStringField(b, m.Message, 4)
+	return b
+}
+
+func DecodeRepoValidationResult(b []byte) (*RepoValidationResult, error) {
+	var m RepoValidationResult
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Checked, err = ConsumeBool(b, typ)
+		case 2:
+			b, m.RepoUrl, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Ok, err = ConsumeBool(b, typ)
 		case 4:
-			b, m.FlakePath, err = ConsumeString(b, typ)
-		case 5:
-			b, m.RefreshScopes, err = ConsumeBool(b, typ)
-		case 6:
-			b, m.RefreshVersions, err = ConsumeBool(b, typ)
-		case 7:
-			b, m.CheckCommit, err = ConsumeBool(b, typ)
-		case 8:
-			b, m.CheckFlakePath, err = ConsumeBool(b, typ)
+			b, m.Message, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+type ValidationResult struct {
+	Checked bool
+	Ok      bool
+	Message string
+}
+
+func (m ValidationResult) IsZero() bool {
+	return m.Checked == false &&
+		m.Ok == false &&
+		m.Message == ""
+}
+
+func (m *ValidationResult) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Checked, 1)
+	b = AppendBoolField(b, m.Ok, 2)
+	b = AppendStringField(b, m.Message, 3)
+	return b
+}
+
+func DecodeValidationResult(b []byte) (*ValidationResult, error) {
+	var m ValidationResult
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Checked, err = ConsumeBool(b, typ)
+		case 2:
+			b, m.Ok, err = ConsumeBool(b, typ)
+		case 3:
+			b, m.Message, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4211,11 +4912,6 @@ func DecodeValidateNixDockerBuildSource(b []byte) (*ValidateNixDockerBuildSource
 type ValidateContainerImageSource struct {
 	Image           string
 	RefreshVersions bool
-}
-
-func (m ValidateContainerImageSource) IsZero() bool {
-	return m.Image == "" &&
-		m.RefreshVersions == false
 }
 
 func (m *ValidateContainerImageSource) Encode() []byte {
@@ -4250,60 +4946,18 @@ func DecodeValidateContainerImageSource(b []byte) (*ValidateContainerImageSource
 	return &m, nil
 }
 
-type ValidationResult struct {
-	Ok      bool
-	Message string
-}
-
-func (m ValidationResult) IsZero() bool {
-	return m.Ok == false &&
-		m.Message == ""
-}
-
-func (m *ValidationResult) Encode() []byte {
-	var b []byte
-	b = AppendBoolField(b, m.Ok, 1)
-	b = AppendStringField(b, m.Message, 2)
-	return b
-}
-
-func DecodeValidationResult(b []byte) (*ValidationResult, error) {
-	var m ValidationResult
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Ok, err = ConsumeBool(b, typ)
-		case 2:
-			b, m.Message, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 type ValidateSourceResponse struct {
-	NixDockerBuild ValidateNixDockerBuildSourceResponse
-	ContainerImage ValidateContainerImageSourceResponse
+	NixDockerBuild *ValidateNixDockerBuildSourceResponse
+	ContainerImage *ValidateContainerImageSourceResponse
 }
 
 func (m *ValidateSourceResponse) Encode() []byte {
 	var b []byte
-	if !m.NixDockerBuild.IsZero() {
+	if m.NixDockerBuild != nil {
 		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, m.NixDockerBuild.Encode())
 	}
-	if !m.ContainerImage.IsZero() {
+	if m.ContainerImage != nil {
 		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, m.ContainerImage.Encode())
 	}
@@ -4328,7 +4982,7 @@ func DecodeValidateSourceResponse(b []byte) (*ValidateSourceResponse, error) {
 				var item *ValidateNixDockerBuildSourceResponse
 				item, err = DecodeValidateNixDockerBuildSourceResponse(msgBytes)
 				if err == nil {
-					m.NixDockerBuild = *item
+					m.NixDockerBuild = item
 				}
 			}
 		case 4:
@@ -4337,102 +4991,7 @@ func DecodeValidateSourceResponse(b []byte) (*ValidateSourceResponse, error) {
 				var item *ValidateContainerImageSourceResponse
 				item, err = DecodeValidateContainerImageSourceResponse(msgBytes)
 				if err == nil {
-					m.ContainerImage = *item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-type ValidateNixDockerBuildSourceResponse struct {
-	GitRepository ValidationResult
-	NixFlakeFile  ValidationResult
-	Scopes        []string
-	Scope         string
-	Versions      []*Version
-}
-
-func (m ValidateNixDockerBuildSourceResponse) IsZero() bool {
-	return m.GitRepository.IsZero() &&
-		m.NixFlakeFile.IsZero() &&
-		len(m.Scopes) == 0 &&
-		m.Scope == "" &&
-		len(m.Versions) == 0
-}
-
-func (m *ValidateNixDockerBuildSourceResponse) Encode() []byte {
-	var b []byte
-	if !m.GitRepository.IsZero() {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.GitRepository.Encode())
-	}
-	if !m.NixFlakeFile.IsZero() {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.NixFlakeFile.Encode())
-	}
-	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 3))
-	b = AppendStringField(b, m.Scope, 4)
-	for _, item := range m.Versions {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 5, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeValidateNixDockerBuildSourceResponse(b []byte) (*ValidateNixDockerBuildSourceResponse, error) {
-	var m ValidateNixDockerBuildSourceResponse
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ValidationResult
-				item, err = DecodeValidationResult(msgBytes)
-				if err == nil {
-					m.GitRepository = *item
-				}
-			}
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ValidationResult
-				item, err = DecodeValidationResult(msgBytes)
-				if err == nil {
-					m.NixFlakeFile = *item
-				}
-			}
-		case 3:
-			var item string
-			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
-			if err == nil {
-				m.Scopes = append(m.Scopes, item)
-			}
-		case 4:
-			b, m.Scope, err = ConsumeString(b, typ)
-		case 5:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *Version
-				item, err = DecodeVersion(msgBytes)
-				if err == nil {
-					m.Versions = append(m.Versions, item)
+					m.ContainerImage = item
 				}
 			}
 		default:
@@ -4446,13 +5005,8 @@ func DecodeValidateNixDockerBuildSourceResponse(b []byte) (*ValidateNixDockerBui
 }
 
 type ValidateContainerImageSourceResponse struct {
-	Image    ValidationResult
-	Versions []*Version
-}
-
-func (m ValidateContainerImageSourceResponse) IsZero() bool {
-	return m.Image.IsZero() &&
-		len(m.Versions) == 0
+	Image ValidationResult
+	Tags  []*Version
 }
 
 func (m *ValidateContainerImageSourceResponse) Encode() []byte {
@@ -4461,7 +5015,7 @@ func (m *ValidateContainerImageSourceResponse) Encode() []byte {
 		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, m.Image.Encode())
 	}
-	for _, item := range m.Versions {
+	for _, item := range m.Tags {
 		if item == nil {
 			continue
 		}
@@ -4498,7 +5052,7 @@ func DecodeValidateContainerImageSourceResponse(b []byte) (*ValidateContainerIma
 				var item *Version
 				item, err = DecodeVersion(msgBytes)
 				if err == nil {
-					m.Versions = append(m.Versions, item)
+					m.Tags = append(m.Tags, item)
 				}
 			}
 		default:

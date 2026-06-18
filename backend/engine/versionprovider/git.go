@@ -10,7 +10,7 @@ import (
 )
 
 // GitVersionProvider lists branches and commits for repos that use Nix Docker
-// image preparation (versions are git commit hashes).
+// image preparation.
 type GitVersionProvider struct {
 	git *preparer.GitManager
 }
@@ -19,20 +19,21 @@ func NewGitVersionProvider(git *preparer.GitManager) *GitVersionProvider {
 	return &GitVersionProvider{git: git}
 }
 
-func (p *GitVersionProvider) ListScopes(ctx context.Context, cfg *apigen.PrepareConfig) ([]string, error) {
-	repo := gitRepo(cfg)
+func (p *GitVersionProvider) ListBranches(ctx context.Context, repo string) ([]string, error) {
 	if repo == "" {
-		return nil, fmt.Errorf("git prepare config missing")
+		return nil, fmt.Errorf("git repo missing")
 	}
 	return p.git.ListBranches(ctx, repo)
 }
 
-func (p *GitVersionProvider) ListVersions(ctx context.Context, cfg *apigen.PrepareConfig, scope string) ([]*apigen.Version, error) {
-	repo := gitRepo(cfg)
+func (p *GitVersionProvider) ListCommits(ctx context.Context, repo string, branch string, limit int) ([]*apigen.Version, error) {
 	if repo == "" {
-		return nil, fmt.Errorf("git prepare config missing")
+		return nil, fmt.Errorf("git repo missing")
 	}
-	commits, err := p.git.GetCommitLog(ctx, repo, scope, 25)
+	if limit <= 0 {
+		limit = 25
+	}
+	commits, err := p.git.GetCommitLog(ctx, repo, branch, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -54,16 +55,6 @@ func (p *GitVersionProvider) CommitExists(ctx context.Context, repo string, comm
 
 func (p *GitVersionProvider) PathExists(ctx context.Context, repo string, repoPath string, ref string) (bool, error) {
 	return p.git.PathExists(ctx, repo, repoPath, ref)
-}
-
-func gitRepo(cfg *apigen.PrepareConfig) string {
-	if cfg == nil {
-		return ""
-	}
-	if !cfg.NixDockerBuild.IsZero() {
-		return cfg.NixDockerBuild.Repo
-	}
-	return ""
 }
 
 func commitSubject(msg string) string {

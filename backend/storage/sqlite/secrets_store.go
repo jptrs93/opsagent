@@ -57,6 +57,7 @@ func (s *PrimaryStorage) ListSecrets() []secrets.Record {
 	out := make([]secrets.Record, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, secrets.Record{
+			ID:         int32(r.ID),
 			Name:       r.Name,
 			Group:      r.SecretGroup,
 			SMKVersion: int32(r.SmkVersion),
@@ -70,8 +71,17 @@ func (s *PrimaryStorage) ListSecrets() []secrets.Record {
 	return out
 }
 
+func (s *PrimaryStorage) NextSecretID() int32 {
+	id, err := s.q.GetNextSecretID(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("GetNextSecretID: %v", err))
+	}
+	return int32(id)
+}
+
 func (s *PrimaryStorage) UpsertSecret(r secrets.Record) {
 	if err := s.q.UpsertSecret(context.Background(), UpsertSecretParams{
+		ID:          int64(r.ID),
 		Name:        r.Name,
 		SecretGroup: r.Group,
 		SmkVersion:  int64(r.SMKVersion),

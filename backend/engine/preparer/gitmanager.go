@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -135,6 +136,9 @@ func (g *GitManager) ListBranches(ctx context.Context, repoURL string) ([]string
 		if len(parts) >= 2 {
 			branches = append(branches, strings.TrimPrefix(parts[1], "refs/heads/"))
 		}
+	}
+	if len(branches) == 0 {
+		return nil, errors.New("git repo exists but there are no branches")
 	}
 	return branches, nil
 }

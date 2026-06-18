@@ -21,21 +21,21 @@ func NewPrimaryConfigProvider(baseURL string, client *http.Client) *PrimaryConfi
 	}
 }
 
-func (p *PrimaryConfigProvider) FetchConfigs(ctx context.Context, keys []string) (map[string]string, error) {
-	resp, err := p.capi.GetV1ClusterConfigs(ctx, &apigen.ClusterConfigsRequest{Keys: keys})
+func (p *PrimaryConfigProvider) FetchConfigs(ctx context.Context, ids []int32) (map[int32]string, error) {
+	resp, err := p.capi.GetV1ClusterConfigs(ctx, &apigen.ClusterConfigsRequest{Ids: ids})
 	if err != nil {
 		return nil, fmt.Errorf("fetching configs from primary: %w", err)
 	}
-	values := make(map[string]string, len(resp.Items))
+	values := make(map[int32]string, len(resp.Items))
 	for _, item := range resp.Items {
 		if item == nil {
 			continue
 		}
-		values[item.Key] = item.Value
+		values[item.ID] = item.Value
 	}
-	for _, key := range keys {
-		if _, ok := values[key]; !ok {
-			return nil, fmt.Errorf("primary did not return config %q", key)
+	for _, id := range ids {
+		if _, ok := values[id]; !ok {
+			return nil, fmt.Errorf("primary did not return config id %d", id)
 		}
 	}
 	p.Store(values)

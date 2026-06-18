@@ -9,28 +9,28 @@ import (
 )
 
 // Cache stores plaintext deployment secrets in memory only. It is populated by
-// the prepare step and read by runners when expanding ${s:name} references.
+// the prepare step and read by runners when resolving typed secret refs.
 type Cache struct {
 	mu     sync.RWMutex
-	values map[string]string
+	values map[int32]string
 }
 
 func NewCache() *Cache {
-	return &Cache{values: make(map[string]string)}
+	return &Cache{values: make(map[int32]string)}
 }
 
-func (c *Cache) Resolve(name string) (string, bool) {
+func (c *Cache) Resolve(id int32) (string, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	value, ok := c.values[name]
+	value, ok := c.values[id]
 	return value, ok
 }
 
-func (c *Cache) Store(values map[string]string) {
+func (c *Cache) Store(values map[int32]string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.values == nil {
-		c.values = make(map[string]string, len(values))
+		c.values = make(map[int32]string, len(values))
 	}
 	for key, value := range values {
 		c.values[key] = value
@@ -48,11 +48,11 @@ func NewPrimaryProvider(manager *secrets.Manager) *PrimaryProvider {
 	return &PrimaryProvider{Cache: NewCache(), manager: manager}
 }
 
-func (p *PrimaryProvider) FetchSecrets(ctx context.Context, keys []string) (map[string]string, error) {
+func (p *PrimaryProvider) FetchSecrets(ctx context.Context, ids []int32) (map[int32]string, error) {
 	if p.manager == nil {
 		return nil, fmt.Errorf("secrets manager is not configured")
 	}
-	values, err := p.manager.ResolveMany(keys)
+	values, err := p.manager.ResolveMany(ids)
 	if err != nil {
 		return nil, err
 	}

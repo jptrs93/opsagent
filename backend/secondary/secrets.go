@@ -21,21 +21,21 @@ func NewPrimarySecretProvider(baseURL string, client *http.Client) *PrimarySecre
 	}
 }
 
-func (p *PrimarySecretProvider) FetchSecrets(ctx context.Context, keys []string) (map[string]string, error) {
-	resp, err := p.capi.GetV1ClusterSecrets(ctx, &apigen.ClusterSecretsRequest{Keys: keys})
+func (p *PrimarySecretProvider) FetchSecrets(ctx context.Context, ids []int32) (map[int32]string, error) {
+	resp, err := p.capi.GetV1ClusterSecrets(ctx, &apigen.ClusterSecretsRequest{Ids: ids})
 	if err != nil {
 		return nil, fmt.Errorf("fetching secrets from primary: %w", err)
 	}
-	values := make(map[string]string, len(resp.Items))
+	values := make(map[int32]string, len(resp.Items))
 	for _, item := range resp.Items {
 		if item == nil {
 			continue
 		}
-		values[item.Key] = string(item.Value)
+		values[item.ID] = string(item.Value)
 	}
-	for _, key := range keys {
-		if _, ok := values[key]; !ok {
-			return nil, fmt.Errorf("primary did not return secret %q", key)
+	for _, id := range ids {
+		if _, ok := values[id]; !ok {
+			return nil, fmt.Errorf("primary did not return secret id %d", id)
 		}
 	}
 	p.Store(values)

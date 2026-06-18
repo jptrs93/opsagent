@@ -88,6 +88,7 @@ type PublicKey struct {
 }
 
 type Secret struct {
+	ID          int64
 	Name        string
 	SecretGroup string
 	SmkVersion  int64
@@ -129,6 +130,7 @@ type User struct {
 }
 
 type UserConfig struct {
+	ID          int64
 	Name        string
 	ConfigGroup string
 	Value       string

@@ -168,16 +168,23 @@ ON CONFLICT(key) DO UPDATE SET
 -- === user_configs ===
 
 -- name: ListUserConfigs :many
-SELECT name, config_group, value, created_at, updated_at, updated_by
+SELECT id, name, config_group, value, created_at, updated_at, updated_by
 FROM user_configs ORDER BY name;
 
 -- name: GetUserConfig :one
-SELECT name, config_group, value, created_at, updated_at, updated_by
+SELECT id, name, config_group, value, created_at, updated_at, updated_by
 FROM user_configs WHERE name = ?;
 
+-- name: GetUserConfigByID :one
+SELECT id, name, config_group, value, created_at, updated_at, updated_by
+FROM user_configs WHERE id = ?;
+
+-- name: GetNextUserConfigID :one
+SELECT COALESCE(MAX(id), 0) + 1 FROM user_configs;
+
 -- name: UpsertUserConfig :exec
-INSERT INTO user_configs (name, config_group, value, created_at, updated_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO user_configs (id, name, config_group, value, created_at, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(name) DO UPDATE SET
     config_group = excluded.config_group,
     value = excluded.value,
@@ -248,12 +255,19 @@ ON CONFLICT(slot) DO UPDATE SET
 -- === secrets ===
 
 -- name: ListSecrets :many
-SELECT name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
+SELECT id, name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
 FROM secrets ORDER BY name;
 
+-- name: GetSecretByID :one
+SELECT id, name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
+FROM secrets WHERE id = ?;
+
+-- name: GetNextSecretID :one
+SELECT COALESCE(MAX(id), 0) + 1 FROM secrets;
+
 -- name: UpsertSecret :exec
-INSERT INTO secrets (name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO secrets (id, name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(name) DO UPDATE SET
     secret_group = excluded.secret_group,
     smk_version = excluded.smk_version,

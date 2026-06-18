@@ -284,8 +284,7 @@ export function secretsPage() {
         lockedSection,
         div({class: "flex flex-wrap items-center justify-between gap-3"},
             p({class: "text-xs text-gray-400"},
-                "Reference secrets as ", code({class: "font-mono text-gray-300"}, "${s:name}"),
-                " and configs as ", code({class: "font-mono text-gray-300"}, "${c:name}"), "."),
+                "Use the deployment environment panel to attach secrets/configs by ID."),
             div({class: "flex flex-wrap items-center gap-2"},
                 input({
                     class: "text-input search-input",

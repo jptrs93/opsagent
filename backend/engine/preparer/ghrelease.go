@@ -98,7 +98,7 @@ func (g *GithubReleaseDownloader) runDownload(ctx context.Context, store storage
 	tag := version
 
 	if script := strings.TrimSpace(gh.DownloadScript); script != "" {
-		return g.runDownloadScript(ctx, gh, ownerRepo, tag, script, logFile, writeLog)
+		return g.runDownloadScript(ctx, *gh, ownerRepo, tag, script, logFile, writeLog)
 	}
 
 	writeLog("fetching release %s tag %s", ownerRepo, tag)

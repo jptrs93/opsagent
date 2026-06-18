@@ -8,46 +8,27 @@ import {
     assetMountsPane,
     buildValidateSourceRequest,
     deploymentForm,
-    emptyDeploymentForm,
     envVarsPane,
-    formToDeploymentIdentifier,
-    formToSpec,
-    hasTrustedSourceValidation,
     imageVersionFromReference,
     isFormValid,
     sectionDivider,
-    sourceCheckFromValidation,
-    sourceValidationKey,
-    validateSelectedCommit,
-    validationSourceResult,
     volumeMountsPane,
 } from "./deploymentForm.js";
+import {DeploymentCreationUpdate, SOURCE_DOCKER_IMAGE, SOURCE_NIX_DOCKER} from "./deploymentCreationUpdate.js";
 
 const { div, span, button, p, label, select, option, input } = van.tags;
 
-const SOURCE_DOCKER_IMAGE = 'containerImage';
-
 export function createOverlay(onClose, onCreated) {
     const errorMsg = van.state('');
-    const form = emptyDeploymentForm();
+    const deploymentUpdate = new DeploymentCreationUpdate();
+    const form = deploymentUpdate.form;
     const machines = van.state([]);
     const machinesLoaded = van.state(false);
     const assets = van.state([]);
-    const selectedScope = van.state('');
-    const selectedVersion = van.state('');
-    const selectedVersionSourceKey = van.state('');
     const loadingVersions = van.state(false);
 
     van.derive(() => {
-        const check = form.repoCheck.val;
-        const key = sourceKey(form);
-        if (check.status !== 'ok' || check.sourceKey !== key) return;
-        const scope = currentScope(check, selectedScope.val);
-        const versions = ((check.versionsByScope || {})[scope]?.versions) || [];
-        if (versions.length === 0) return;
-        if (selectedVersionSourceKey.val === key && versions.some(v => v.id === selectedVersion.val)) return;
-        selectedVersion.val = versions[0].id;
-        selectedVersionSourceKey.val = key;
+        deploymentUpdate.syncVersionOptionsFromCheck(deploymentUpdate.activeRepoCheck());
     });
 
     const loadMachines = async () => {
@@ -94,16 +75,11 @@ export function createOverlay(onClose, onCreated) {
 
         try {
             const cfg = await capi.postV1DeploymentCreate({
-                configId: formToDeploymentIdentifier(form),
-                spec: formToSpec(form),
+                ...deploymentUpdate.toCreatePayload(),
             });
-            const targetVersion = createTargetVersion(form, selectedVersion, selectedVersionSourceKey);
-            if (targetVersion && cfg?.id) {
-                await capi.postV1DeploymentUpdate({
-                    deploymentId: cfg.id,
-                    targetVersion,
-                    version: (cfg.version || 0) + 1,
-                });
+            const updatePayload = deploymentUpdate.toCreateUpdatePayload(cfg);
+            if (updatePayload) {
+                await capi.postV1DeploymentUpdate(updatePayload);
             }
         } catch (e) {
             errorMsg.val = e.message || 'Failed to create deployment';
@@ -140,13 +116,10 @@ export function createOverlay(onClose, onCreated) {
                         showRunnerSummary: false,
                     }),
                     () => createVersionSection({
-                        form,
-                        selectedScope,
-                        selectedVersion,
-                        selectedVersionSourceKey,
+                        deploymentUpdate,
                         loadingVersions,
-                        onScopeChange: (scope) => loadSourceVersions(form, selectedScope, selectedVersion, selectedVersionSourceKey, loadingVersions, scope, {preserveSelection: false}),
-                        onRefresh: () => loadSourceVersions(form, selectedScope, selectedVersion, selectedVersionSourceKey, loadingVersions, selectedScope.val, {refreshScopes: true, preserveSelection: true}),
+                        onBranchChange: (branch) => loadSourceVersions(deploymentUpdate, loadingVersions, branch, {preserveSelection: false}),
+                        onRefresh: () => loadSourceVersions(deploymentUpdate, loadingVersions, deploymentUpdate.nixDockerBuild.selectedBranch.val, {refreshAvailableBranches: true, preserveSelection: true}),
                     }),
                 ),
                 () => {
@@ -175,35 +148,24 @@ export function createOverlay(onClose, onCreated) {
     return div(backdrop, dialog);
 }
 
-function createTargetVersion(form, selectedVersion, selectedVersionSourceKey) {
-    if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
-        const explicitVersion = imageVersionFromReference(form.containerImage.val);
-        if (explicitVersion) return explicitVersion;
-    }
-    const version = selectedVersion.val.trim();
-    if (!version) return '';
-    if (selectedVersionSourceKey.val !== sourceKey(form)) return '';
-    const check = activeRepoCheck(form);
-    if (check.status !== 'ok') return '';
-    const versionsByScope = check.versionsByScope || {};
-    const versions = Object.values(versionsByScope).flatMap(scope => scope?.versions || []);
-    return versions.some(v => v.id === version) ? version : '';
-}
-
 function createVersionSection(args) {
-    const sourceType = args.form.sourceType.val;
+    const deploymentUpdate = args.deploymentUpdate;
+    const form = deploymentUpdate.form;
+    const sourceType = form.sourceType.val;
     if (sourceType === SOURCE_DOCKER_IMAGE) {
-        const imageSet = Boolean(args.form.containerImage.val.trim());
-        const explicitVersion = imageVersionFromReference(args.form.containerImage.val);
-        const check = activeRepoCheck(args.form);
+        const imageSet = Boolean(form.containerImage.val.trim());
+        const explicitVersion = imageVersionFromReference(form.containerImage.val);
+        const check = deploymentUpdate.activeRepoCheck();
         const ready = check.status === 'ok';
-        const versions = check.versions || [];
-        const selectedVersion = args.selectedVersionSourceKey.val === sourceKey(args.form) ? args.selectedVersion.val : '';
+        const tags = deploymentUpdate.containerImage.tags.val;
+        const selectedTag = deploymentUpdate.containerImage.selectedTagSourceKey.val === deploymentUpdate.sourceKey()
+            ? deploymentUpdate.containerImage.selectedTag.val
+            : '';
         if (explicitVersion) {
             return div(
                 {class: "flex flex-col gap-3"},
                 sectionDivider("Version"),
-                versionMessage(imageSet && check.status !== 'idle' ? versionStatusMessage(args.form, check) : (imageSet ? '' : 'Image not set')),
+                versionMessage(imageSet && check.status !== 'idle' ? versionStatusMessage(deploymentUpdate, check) : (imageSet ? '' : 'Image not set')),
                 label(
                     {class: "flex flex-col gap-1 text-xs text-gray-400"},
                     span(explicitVersion.startsWith('sha256:') ? "Digest from image" : "Tag from image"),
@@ -214,7 +176,7 @@ function createVersionSection(args) {
         return div(
             {class: "flex flex-col gap-3"},
             sectionDivider("Version"),
-            versionMessage(imageSet ? versionStatusMessage(args.form, check) : 'Image not set'),
+            versionMessage(imageSet ? versionStatusMessage(deploymentUpdate, check) : 'Image not set'),
             div(
                 {class: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] items-end gap-3"},
                 label(
@@ -222,14 +184,14 @@ function createVersionSection(args) {
                     span("Tag"),
                     select({
                         class: selectClass(),
-                        disabled: !ready || args.loadingVersions.val || versions.length === 0,
+                        disabled: !ready || args.loadingVersions.val || tags.length === 0,
                         onchange: (e) => {
-                            args.selectedVersion.val = e.target.value;
-                            args.selectedVersionSourceKey.val = sourceKey(args.form);
+                            deploymentUpdate.containerImage.selectedTag.val = e.target.value;
+                            deploymentUpdate.containerImage.selectedTagSourceKey.val = deploymentUpdate.sourceKey();
                         },
                     },
-                        option({value: '', disabled: true, selected: !selectedVersion}, versionPlaceholder(ready, args.loadingVersions.val, versions, "Image unavailable")),
-                        ...versions.map(v => option({value: v.id, selected: v.id === selectedVersion}, versionLabel(v))),
+                        option({value: '', disabled: true, selected: !selectedTag}, versionPlaceholder(ready, args.loadingVersions.val, tags, "Image unavailable")),
+                        ...tags.map(v => option({value: v.id, selected: v.id === selectedTag}, versionLabel(v))),
                     ),
                 ),
                 refreshRow(!imageSet || args.loadingVersions.val, args.onRefresh),
@@ -237,18 +199,22 @@ function createVersionSection(args) {
         );
     }
 
-    const check = activeRepoCheck(args.form);
+    const check = deploymentUpdate.activeRepoCheck();
     const ready = check.status === 'ok';
-    const scopes = check.scopes || [];
-    const scope = currentScope(check, args.selectedScope.val);
-    const versions = ((check.versionsByScope || {})[scope]?.versions) || [];
+    const branches = deploymentUpdate.nixDockerBuild.branches.val.length > 0
+        ? deploymentUpdate.nixDockerBuild.branches.val
+        : (check.branches || []);
+    const branch = deploymentUpdate.currentBranch(check, deploymentUpdate.nixDockerBuild.selectedBranch.val);
+    const commits = deploymentUpdate.commitsForBranch(branch, check);
     const sourceLabel = "Commit";
-    const selectedVersion = args.selectedVersionSourceKey.val === sourceKey(args.form) ? args.selectedVersion.val : '';
+    const selectedCommit = deploymentUpdate.nixDockerBuild.selectedCommitSourceKey.val === deploymentUpdate.sourceKey()
+        ? deploymentUpdate.nixDockerBuild.selectedCommit.val
+        : '';
 
     return div(
         {class: "flex flex-col gap-3"},
         sectionDivider("Version"),
-        versionMessage(versionStatusMessage(args.form, check)),
+        versionMessage(versionStatusMessage(deploymentUpdate, check)),
         div(
             {class: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-3"},
             label(
@@ -257,11 +223,14 @@ function createVersionSection(args) {
                 select(
                     {
                         class: selectClass(),
-                        disabled: !ready || scopes.length === 0 || args.loadingVersions.val,
-                        onchange: (e) => args.onScopeChange(e.target.value),
+                        disabled: !ready || branches.length === 0 || args.loadingVersions.val,
+                        onchange: (e) => {
+                            deploymentUpdate.nixDockerBuild.selectedBranch.val = e.target.value;
+                            args.onBranchChange(e.target.value);
+                        },
                     },
-                    option({value: '', selected: !scope}, scopes.length ? "Select a branch..." : "No branches loaded"),
-                    ...scopes.map(s => option({value: s, selected: s === scope}, s)),
+                    option({value: '', selected: !branch}, branches.length ? "Select a branch..." : "No branches loaded"),
+                    ...branches.map(s => option({value: s, selected: s === branch}, s)),
                 ),
             ),
             label(
@@ -270,93 +239,73 @@ function createVersionSection(args) {
                 select(
                     {
                         class: selectClass(),
-                        disabled: !ready || args.loadingVersions.val || versions.length === 0,
+                        disabled: !ready || args.loadingVersions.val || commits.length === 0,
                         onchange: (e) => {
-                            args.selectedVersion.val = e.target.value;
-                            args.selectedVersionSourceKey.val = sourceKey(args.form);
-                            validateSelectedCommit(args.form, scope, e.target.value);
+                            deploymentUpdate.nixDockerBuild.selectedCommit.val = e.target.value;
+                            deploymentUpdate.nixDockerBuild.selectedCommitSourceKey.val = deploymentUpdate.sourceKey();
+                            deploymentUpdate.validateSelectedCommit(branch, e.target.value);
                         },
                     },
-                    option({value: '', disabled: true, selected: !selectedVersion}, versionPlaceholder(ready, args.loadingVersions.val, versions)),
-                    ...versions.map(v => option({value: v.id, selected: v.id === selectedVersion}, versionLabel(v))),
+                    option({value: '', disabled: true, selected: !selectedCommit}, versionPlaceholder(ready, args.loadingVersions.val, commits)),
+                    ...commits.map(v => option({value: v.id, selected: v.id === selectedCommit}, versionLabel(v))),
                 ),
             ),
-            refreshRow(!currentRepo(args.form) || args.loadingVersions.val, args.onRefresh),
+            refreshRow(!deploymentUpdate.currentSourceID() || args.loadingVersions.val, args.onRefresh),
         ),
     );
 }
 
-async function loadSourceVersions(form, selectedScope, selectedVersion, selectedVersionSourceKey, loadingVersions, scope, opts = {}) {
-    const repo = currentRepo(form);
+async function loadSourceVersions(deploymentUpdate, loadingVersions, branch, opts = {}) {
+    const form = deploymentUpdate.form;
+    const repo = deploymentUpdate.currentSourceID();
     if (!repo) return;
     loadingVersions.val = true;
     const sourceType = form.sourceType.val;
-    const sourceKeyValue = sourceValidationKey(form);
-    const trusted = hasTrustedSourceValidation(form);
+    const sourceKeyValue = deploymentUpdate.sourceKey();
+    const trusted = deploymentUpdate.hasTrustedSourceValidation();
+    const selectedBranch = branch || deploymentUpdate.nixDockerBuild.selectedBranch.val || '';
     const req = buildValidateSourceRequest(form, trusted ? {
-        scope: scope || selectedScope.val || '',
-        refreshScopes: opts.refreshScopes ?? !scope,
-        refreshVersions: true,
+        branch: selectedBranch,
+        refreshAvailableBranches: opts.refreshAvailableBranches ?? !branch,
+        refreshAvailableCommits: Boolean(selectedBranch),
         checkFlakePath: Boolean(form.nixFlake.val.trim()),
-    } : {scope: scope || ''});
+    } : {branch: branch || ''});
     let res;
     try {
         res = await capi.postV1RepoValidate(req);
     } catch (e) {
         console.error('[opendeploy] create version refresh request failed', {request: req, error: e, stack: e?.stack});
-        form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType, sourceKey: sourceKeyValue};
+        deploymentUpdate.setRepoCheckError(e.message || 'Validation failed.');
         loadingVersions.val = false;
         return;
     }
     console.log('[opendeploy] create version refresh response', {request: req, response: res});
     try {
-        const sourceResult = validationSourceResult(form, res);
-        form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKeyValue);
+        const sourceResult = deploymentUpdate.validationSourceResult(res);
+        deploymentUpdate.setRepoCheckFromValidation(res, repo, sourceType, sourceKeyValue);
         if (form.repoCheck.val.status === 'ok') {
-            const nextScope = sourceResult.scope || currentScope(form.repoCheck.val, scope || selectedScope.val);
-            selectedScope.val = nextScope;
-            const versions = sourceResult.versions || [];
-            if (!opts.preserveSelection || selectedVersionSourceKey.val !== sourceKeyValue || !versions.some(v => v.id === selectedVersion.val)) {
-                selectedVersion.val = versions[0]?.id || '';
-                selectedVersionSourceKey.val = selectedVersion.val ? sourceKeyValue : '';
+            if (sourceType === SOURCE_NIX_DOCKER) {
+                const nextBranch = sourceResult.availableCommits?.branch || deploymentUpdate.currentBranch(form.repoCheck.val, branch || deploymentUpdate.nixDockerBuild.selectedBranch.val);
+                deploymentUpdate.nixDockerBuild.selectedBranch.val = nextBranch;
+                deploymentUpdate.nixDockerBuild.commits.val = deploymentUpdate.commitsForBranch(nextBranch, form.repoCheck.val);
+            }
+            deploymentUpdate.syncVersionOptionsFromCheck(form.repoCheck.val, {preserveSelection: opts.preserveSelection !== false});
+            if (!opts.preserveSelection && sourceType === SOURCE_NIX_DOCKER) {
+                const commits = deploymentUpdate.nixDockerBuild.commits.val;
+                deploymentUpdate.nixDockerBuild.selectedCommit.val = commits[0]?.id || '';
+                deploymentUpdate.nixDockerBuild.selectedCommitSourceKey.val = deploymentUpdate.nixDockerBuild.selectedCommit.val ? sourceKeyValue : '';
             }
         }
     } catch (e) {
         console.error('[opendeploy] create version refresh client error', {request: req, response: res, error: e, stack: e?.stack});
-        form.repoCheck.val = {status: 'error', message: `Client error after validation: ${e.message || e}`, repo, sourceType, sourceKey: sourceKeyValue};
+        deploymentUpdate.setRepoCheckError(`Client error after validation: ${e.message || e}`);
     }
     loadingVersions.val = false;
 }
 
-function activeRepoCheck(form) {
-    const c = form.repoCheck.val;
-    const repo = currentRepo(form);
-    if (!repo || c.sourceType !== form.sourceType.val || c.repo !== repo || c.sourceKey !== sourceValidationKey(form)) {
-        return {status: repo ? 'idle' : 'empty', message: ''};
-    }
-    return c;
-}
-
-function currentRepo(form) {
-    if (form.sourceType.val === SOURCE_DOCKER_IMAGE) return form.containerImage.val.trim();
-    return form.nixRepo.val.trim();
-}
-
-function sourceKey(form) {
-    return sourceValidationKey(form);
-}
-
-function currentScope(check, selectedScope) {
-    if (check.status !== 'ok') return '';
-    if (selectedScope && (check.versionsByScope || {})[selectedScope]) return selectedScope;
-    const keys = Object.keys(check.versionsByScope || {});
-    if (keys.length > 0) return keys[0];
-    if ((check.scopes || []).includes('main')) return 'main';
-    return (check.scopes || [])[0] || '';
-}
-
-function versionStatusMessage(form, check) {
-    if (!currentRepo(form)) return form.sourceType.val === SOURCE_DOCKER_IMAGE ? 'Image not set' : 'Repository not set';
+function versionStatusMessage(deploymentUpdate, check) {
+    const form = deploymentUpdate.form;
+    if (!deploymentUpdate.currentSourceID()) return form.sourceType.val === SOURCE_DOCKER_IMAGE ? 'Image not set' : 'Repository not set';
     if (check.status === 'checking') return 'Checking repository access...';
     if (check.status !== 'ok') return form.sourceType.val === SOURCE_DOCKER_IMAGE ? 'Unable to list image tags.' : 'Unable to connect to source repository.';
     return '';

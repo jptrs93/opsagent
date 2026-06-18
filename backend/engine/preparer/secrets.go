@@ -4,17 +4,16 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
 type SecretProvider interface {
-	FetchSecrets(ctx context.Context, keys []string) (map[string]string, error)
+	FetchSecrets(ctx context.Context, ids []int32) (map[int32]string, error)
 }
 
 type ConfigProvider interface {
-	FetchConfigs(ctx context.Context, keys []string) (map[string]string, error)
+	FetchConfigs(ctx context.Context, ids []int32) (map[int32]string, error)
 }
 
 var Secrets SecretProvider
@@ -77,88 +76,42 @@ func EnsureConfigsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error
 	return nil
 }
 
-func SecretRefs(cfg *apigen.DeploymentConfig) []string {
+func SecretRefs(cfg *apigen.DeploymentConfig) []int32 {
 	if cfg == nil {
 		return nil
 	}
-	seen := map[string]bool{}
-	addEnvRefs := func(env []*apigen.EnvVar) {
-		for _, item := range env {
-			if item == nil {
-				continue
-			}
-			for _, key := range refsInString(item.Value, "s") {
-				seen[key] = true
-			}
+	seen := map[int32]bool{}
+	for _, item := range cfg.Spec.Runner.Container.EnvVars {
+		if item == nil || item.SecretID == nil || *item.SecretID == 0 {
+			continue
 		}
+		seen[*item.SecretID] = true
 	}
-	addEnvRefs(cfg.Spec.Runner.Container.Env)
 
-	keys := make([]string, 0, len(seen))
-	for key := range seen {
-		keys = append(keys, key)
+	keys := make([]int32, 0, len(seen))
+	for id := range seen {
+		keys = append(keys, id)
 	}
-	sort.Strings(keys)
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
 	return keys
 }
 
-func ConfigRefs(cfg *apigen.DeploymentConfig) []string {
+func ConfigRefs(cfg *apigen.DeploymentConfig) []int32 {
 	if cfg == nil {
 		return nil
 	}
-	seen := map[string]bool{}
-	addEnvRefs := func(env []*apigen.EnvVar) {
-		for _, item := range env {
-			if item == nil {
-				continue
-			}
-			for _, key := range refsInString(item.Value, "c") {
-				seen[key] = true
-			}
+	seen := map[int32]bool{}
+	for _, item := range cfg.Spec.Runner.Container.EnvVars {
+		if item == nil || item.ConfigID == nil || *item.ConfigID == 0 {
+			continue
 		}
+		seen[*item.ConfigID] = true
 	}
-	addEnvRefs(cfg.Spec.Runner.Container.Env)
 
-	keys := make([]string, 0, len(seen))
-	for key := range seen {
-		keys = append(keys, key)
+	keys := make([]int32, 0, len(seen))
+	for id := range seen {
+		keys = append(keys, id)
 	}
-	sort.Strings(keys)
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
 	return keys
-}
-
-func refsInString(s, wantPrefix string) []string {
-	if !strings.Contains(s, "${") {
-		return nil
-	}
-	var refs []string
-	for i := 0; i < len(s); {
-		if s[i] != '$' || i+1 >= len(s) {
-			i++
-			continue
-		}
-		switch s[i+1] {
-		case '$':
-			i += 2
-			continue
-		case '{':
-			end := strings.IndexByte(s[i+2:], '}')
-			if end < 0 {
-				return refs
-			}
-			ref := strings.TrimSpace(s[i+2 : i+2+end])
-			prefix, name, ok := strings.Cut(ref, ":")
-			if ok && strings.TrimSpace(prefix) == wantPrefix {
-				name = strings.TrimSpace(name)
-				if name != "" {
-					refs = append(refs, name)
-				}
-			}
-			i += 2 + end + 1
-			continue
-		default:
-			i++
-		}
-	}
-	return refs
 }

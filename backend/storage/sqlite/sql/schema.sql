@@ -88,7 +88,8 @@ CREATE TABLE IF NOT EXISTS system_config (
 -- Plain user-managed configuration values. These are intentionally not
 -- encrypted at rest; encrypted credentials belong in secrets instead.
 CREATE TABLE IF NOT EXISTS user_configs (
-    name         TEXT PRIMARY KEY,
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT    NOT NULL UNIQUE,
     config_group TEXT    NOT NULL DEFAULT '',
     value        TEXT    NOT NULL DEFAULT '',
     created_at   INTEGER NOT NULL,  -- epoch ms
@@ -136,7 +137,8 @@ CREATE TABLE IF NOT EXISTS secret_keyslots (
 -- so a row cannot be moved to a different name. secret_group is optional and
 -- reserved for grouping secrets in the UI later; it carries no security meaning.
 CREATE TABLE IF NOT EXISTS secrets (
-    name         TEXT PRIMARY KEY,
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT    NOT NULL UNIQUE,
     secret_group TEXT    NOT NULL DEFAULT '',
     smk_version  INTEGER NOT NULL,
     ciphertext   BLOB    NOT NULL,

@@ -45,9 +45,9 @@ type containerRunner struct {
 
 	// derived from the deployment config version; not part of RunnerStatus.
 	user           string
-	env            []string // "KEY=VALUE" entries; ${s:name}/${c:name} refs resolved at start
-	command        []string // argv override; empty = image default
-	cwd            string   // process cwd; empty = image default
+	envVars        map[string]*apigen.EnvVarValue // resolved to "KEY=VALUE" entries at start
+	command        []string                       // argv override; empty = image default
+	cwd            string                         // process cwd; empty = image default
 	mounts         []ctrd.Mount
 	dataVolumeHost string // host dir to create+chown for the default data volume ("" = disabled)
 	dataVolumeUser string // user the data volume should be owned by
@@ -98,7 +98,7 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		deploymentID: dep.ID,
 		containerID:  containerID(dep.ID, configVersion),
 		user:         cfg.User,
-		env:          containerEnv(dep),
+		envVars:      cfg.EnvVars,
 		command:      cfg.Command,
 		cwd:          cfg.WorkingDir,
 	}
@@ -175,9 +175,9 @@ func (r *containerRunner) run() {
 		hadProcess = true
 		r.status.LastRestartAt = time.Now()
 
-		// Resolve ${s:name}/${c:name} references at spawn time (values not
-		// persisted/logged; updates picked up on respawn).
-		env, err := resolveEnv(r.env)
+		// Resolve typed env references at spawn time (values not persisted/logged;
+		// updates picked up on respawn).
+		env, err := resolveEnv(r.envVars)
 		if err != nil {
 			slog.ErrorContext(r.ctx, "resolving env references failed", "err", err)
 			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
@@ -351,22 +351,6 @@ func (r *containerRunner) writeStatus() {
 }
 
 // --- config helpers ---
-
-// containerEnv flattens the configured env vars into "KEY=VALUE" entries.
-func containerEnv(dep *apigen.DeploymentConfig) []string {
-	cfg := dep.Spec.Runner.Container.Env
-	if len(cfg) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(cfg))
-	for _, e := range cfg {
-		if e == nil {
-			continue
-		}
-		out = append(out, e.Key+"="+e.Value)
-	}
-	return out
-}
 
 // containerMounts builds the container's bind mounts: the default per-deployment
 // data volume (unless disabled) followed by any configured mounts. It also

@@ -93,31 +93,31 @@ func (p *Primary) GetV1ClusterSecrets(authCtx apigen.Context, req *apigen.Cluste
 	if p.secrets == nil {
 		return nil, fmt.Errorf("secrets manager is not configured")
 	}
-	if req == nil || len(req.Keys) == 0 {
-		return nil, fmt.Errorf("at least one secret key is required")
+	if req == nil || len(req.Ids) == 0 {
+		return nil, fmt.Errorf("at least one secret id is required")
 	}
-	values, err := p.secrets.ResolveMany(req.Keys)
+	values, err := p.secrets.ResolveMany(req.Ids)
 	if err != nil {
 		return nil, err
 	}
 	items := make([]*apigen.ClusterSecretValue, 0, len(values))
-	for key, value := range values {
-		items = append(items, &apigen.ClusterSecretValue{Key: key, Value: []byte(value)})
+	for id, value := range values {
+		items = append(items, &apigen.ClusterSecretValue{ID: id, Value: []byte(value)})
 	}
 	return &apigen.ClusterSecretsResponse{Items: items}, nil
 }
 
 func (p *Primary) GetV1ClusterConfigs(authCtx apigen.Context, req *apigen.ClusterConfigsRequest) (*apigen.ClusterConfigsResponse, error) {
-	if req == nil || len(req.Keys) == 0 {
-		return nil, fmt.Errorf("at least one config key is required")
+	if req == nil || len(req.Ids) == 0 {
+		return nil, fmt.Errorf("at least one config id is required")
 	}
-	values, err := p.store.ResolveConfigs(req.Keys)
+	values, err := p.store.ResolveConfigs(req.Ids)
 	if err != nil {
 		return nil, err
 	}
 	items := make([]*apigen.ClusterConfigValue, 0, len(values))
-	for key, value := range values {
-		items = append(items, &apigen.ClusterConfigValue{Key: key, Value: value})
+	for id, value := range values {
+		items = append(items, &apigen.ClusterConfigValue{ID: id, Value: value})
 	}
 	return &apigen.ClusterConfigsResponse{Items: items}, nil
 }

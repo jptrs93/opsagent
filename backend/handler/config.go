@@ -41,9 +41,6 @@ func (h *Handler) PostV1ConfigUpdate(ctx apigen.Context, req *apigen.ConfigUpdat
 }
 
 func validateConfigUpdates(req *apigen.ConfigUpdateRequest) ([]config.Update, error) {
-	if req == nil {
-		return nil, fmt.Errorf("request is required")
-	}
 	seen := map[string]bool{}
 	updates := make([]config.Update, 0, len(req.Values))
 	for _, value := range req.Values {

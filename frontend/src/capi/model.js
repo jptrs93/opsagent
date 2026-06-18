@@ -60,11 +60,11 @@
  */
 /**
  * @typedef {Object} ClusterSecretsRequest
- * @property {string[]} keys
+ * @property {number[]} ids
  */
 /**
  * @typedef {Object} ClusterSecretValue
- * @property {string} key
+ * @property {number} id
  * @property {Uint8Array} value
  */
 /**
@@ -73,11 +73,11 @@
  */
 /**
  * @typedef {Object} ClusterConfigsRequest
- * @property {string[]} keys
+ * @property {number[]} ids
  */
 /**
  * @typedef {Object} ClusterConfigValue
- * @property {string} key
+ * @property {number} id
  * @property {string} value
  */
 /**
@@ -155,6 +155,7 @@
  * @property {Date} createdAt
  * @property {Date} updatedAt
  * @property {number} updatedBy
+ * @property {number} id
  */
 /**
  * @typedef {Object} SecretList
@@ -199,6 +200,7 @@
  * @property {Date} createdAt
  * @property {Date} updatedAt
  * @property {number} updatedBy
+ * @property {number} id
  */
 /**
  * @typedef {Object} UserConfigList
@@ -276,8 +278,9 @@
  * @property {NixDockerBuildConfig} nixDockerBuild
  */
 /**
- * @typedef {Object} EnvVar
- * @property {string} key
+ * @typedef {Object} EnvVarValue
+ * @property {number} secretId
+ * @property {number} configId
  * @property {string} value
  */
 /**
@@ -302,7 +305,7 @@
 /**
  * @typedef {Object} ContainerRunnerConfig
  * @property {string} user
- * @property {EnvVar[]} env
+ * @property {Object.<string, EnvVarValue>} envVars
  * @property {string[]} command
  * @property {string} workingDir
  * @property {string} dataMountPath
@@ -326,6 +329,30 @@
  * @property {ClusterMachine} machineUpdate
  * @property {EnrollmentRequestList} enrollmentsSnapshot
  * @property {EnrollmentRequestStatus} enrollmentUpdate
+ * @property {SecretReferenceList} secretsSnapshot
+ * @property {SecretReference} secretUpdate
+ * @property {UserConfigReferenceList} userConfigsSnapshot
+ * @property {UserConfigReference} userConfigUpdate
+ */
+/**
+ * @typedef {Object} SecretReference
+ * @property {number} id
+ * @property {string} name
+ * @property {boolean} deleted
+ */
+/**
+ * @typedef {Object} SecretReferenceList
+ * @property {SecretReference[]} items
+ */
+/**
+ * @typedef {Object} UserConfigReference
+ * @property {number} id
+ * @property {string} name
+ * @property {boolean} deleted
+ */
+/**
+ * @typedef {Object} UserConfigReferenceList
+ * @property {UserConfigReference[]} items
  */
 /**
  * @typedef {Object} DeploymentWithStatusSnapshot
@@ -468,17 +495,28 @@
 /**
  * @typedef {Object} DeploymentVersions
  * @property {number} deploymentId
- * @property {string[]} scopes
- * @property {Object.<string, ScopedVersions>} versionsByScope
+ * @property {DeploymentNixDockerBuildVersions} nixDockerBuild
+ * @property {DeploymentGithubReleaseVersions} githubRelease
+ * @property {DeploymentContainerImageVersions} containerImage
  */
 /**
- * @typedef {Object} ScopedVersions
- * @property {Version[]} versions
+ * @typedef {Object} DeploymentNixDockerBuildVersions
+ * @property {string[]} branches
+ * @property {string} selectedBranch
+ * @property {Version[]} commits
+ */
+/**
+ * @typedef {Object} DeploymentGithubReleaseVersions
+ * @property {Version[]} releases
+ */
+/**
+ * @typedef {Object} DeploymentContainerImageVersions
+ * @property {Version[]} tags
  */
 /**
  * @typedef {Object} DeploymentVersionsRequest
  * @property {number} deploymentId
- * @property {string} scope
+ * @property {string} selectedBranch
  */
 /**
  * @typedef {Object} ValidateSourceRequest
@@ -488,13 +526,54 @@
 /**
  * @typedef {Object} ValidateNixDockerBuildSource
  * @property {string} repoUrl
- * @property {string} branch
- * @property {string} commit
- * @property {string} flakePath
- * @property {boolean} refreshScopes
- * @property {boolean} refreshVersions
+ * @property {string} selectedBranch
+ * @property {Version} selectedCommit
+ * @property {string} selectedFlakePath
+ * @property {boolean} refreshAvailableBranches
+ * @property {boolean} refreshAvailableCommits
+ * @property {boolean} checkRepo
+ * @property {boolean} checkBranch
  * @property {boolean} checkCommit
  * @property {boolean} checkFlakePath
+ */
+/**
+ * @typedef {Object} ValidateNixDockerBuildSourceResponse
+ * @property {string} checkedRepoUrl
+ * @property {ValidationResult} gitRepository
+ * @property {string} checkedBranch
+ * @property {ValidationResult} branchCheck
+ * @property {Version} checkedCommit
+ * @property {ValidationResult} commitCheck
+ * @property {string} checkedFlakePath
+ * @property {ValidationResult} nixFlakeFile
+ * @property {AvailableBranches} availableBranches
+ * @property {AvailableCommits} availableCommits
+ */
+/**
+ * @typedef {Object} AvailableCommits
+ * @property {boolean} loaded
+ * @property {string} branch
+ * @property {string} errormessage
+ * @property {Version[]} commits
+ */
+/**
+ * @typedef {Object} AvailableBranches
+ * @property {boolean} loaded
+ * @property {string} errormessage
+ * @property {string[]} branches
+ */
+/**
+ * @typedef {Object} RepoValidationResult
+ * @property {boolean} checked
+ * @property {string} repoUrl
+ * @property {boolean} ok
+ * @property {string} message
+ */
+/**
+ * @typedef {Object} ValidationResult
+ * @property {boolean} checked
+ * @property {boolean} ok
+ * @property {string} message
  */
 /**
  * @typedef {Object} ValidateContainerImageSource
@@ -502,27 +581,14 @@
  * @property {boolean} refreshVersions
  */
 /**
- * @typedef {Object} ValidationResult
- * @property {boolean} ok
- * @property {string} message
- */
-/**
  * @typedef {Object} ValidateSourceResponse
  * @property {ValidateNixDockerBuildSourceResponse} nixDockerBuild
  * @property {ValidateContainerImageSourceResponse} containerImage
  */
 /**
- * @typedef {Object} ValidateNixDockerBuildSourceResponse
- * @property {ValidationResult} gitRepository
- * @property {ValidationResult} nixFlakeFile
- * @property {string[]} scopes
- * @property {string} scope
- * @property {Version[]} versions
- */
-/**
  * @typedef {Object} ValidateContainerImageSourceResponse
  * @property {ValidationResult} image
- * @property {Version[]} versions
+ * @property {Version[]} tags
  */
 /**
  * @typedef {Object} User
@@ -1306,9 +1372,13 @@ export function decodeClusterAssetBlob(buffer) {
  * @param {Writer} writer
  */
 export function writeClusterSecretsRequest(message, writer) {
-    if (message.keys && message.keys.length > 0) {
-        for (const item of message.keys) {
-            writer.uint32(tag(1, WIRE.LDELIM)).string(item);
+    if (message.ids) {
+        const packedWriter = Writer.create();
+        for (const item of message.ids) {
+            packedWriter.int32(item);
+        }
+        if (packedWriter.len > 0) {
+            writer.uint32(tag(1, WIRE.LDELIM)).bytes(packedWriter.finish());
         }
     }
 }
@@ -1332,12 +1402,15 @@ export function encodeClusterSecretsRequest(message) {
  */
 function decodeClusterSecretsRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {keys: [] };
+    const message = {ids: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.keys.push(reader.string());
+                const end2 = reader.uint32() + reader.pos;
+                while (reader.pos < end2) {
+                    message.ids.push(reader.int32());
+                }
                 break;
             }
             default:
@@ -1364,8 +1437,8 @@ export function decodeClusterSecretsRequest(buffer) {
  * @param {Writer} writer
  */
 export function writeClusterSecretValue(message, writer) {
-    if (message.key !== undefined && message.key !== null && message.key !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
     }
     if (message.value && message.value.length > 0) {
         writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.value);
@@ -1391,12 +1464,12 @@ export function encodeClusterSecretValue(message) {
  */
 function decodeClusterSecretValueMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", value: new Uint8Array(0) };
+    const message = {id: 0, value: new Uint8Array(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.key = reader.string();
+                message.id = reader.int32();
                 break;
             }
             case 2: {
@@ -1487,9 +1560,13 @@ export function decodeClusterSecretsResponse(buffer) {
  * @param {Writer} writer
  */
 export function writeClusterConfigsRequest(message, writer) {
-    if (message.keys && message.keys.length > 0) {
-        for (const item of message.keys) {
-            writer.uint32(tag(1, WIRE.LDELIM)).string(item);
+    if (message.ids) {
+        const packedWriter = Writer.create();
+        for (const item of message.ids) {
+            packedWriter.int32(item);
+        }
+        if (packedWriter.len > 0) {
+            writer.uint32(tag(1, WIRE.LDELIM)).bytes(packedWriter.finish());
         }
     }
 }
@@ -1513,12 +1590,15 @@ export function encodeClusterConfigsRequest(message) {
  */
 function decodeClusterConfigsRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {keys: [] };
+    const message = {ids: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.keys.push(reader.string());
+                const end2 = reader.uint32() + reader.pos;
+                while (reader.pos < end2) {
+                    message.ids.push(reader.int32());
+                }
                 break;
             }
             default:
@@ -1545,8 +1625,8 @@ export function decodeClusterConfigsRequest(buffer) {
  * @param {Writer} writer
  */
 export function writeClusterConfigValue(message, writer) {
-    if (message.key !== undefined && message.key !== null && message.key !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
     }
     if (message.value !== undefined && message.value !== null && message.value !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.value);
@@ -1572,12 +1652,12 @@ export function encodeClusterConfigValue(message) {
  */
 function decodeClusterConfigValueMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", value: "" };
+    const message = {id: 0, value: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.key = reader.string();
+                message.id = reader.int32();
                 break;
             }
             case 2: {
@@ -2451,6 +2531,9 @@ export function writeSecretMeta(message, writer) {
     if (message.updatedBy !== undefined && message.updatedBy !== null && message.updatedBy !== 0) {
         writer.uint32(tag(5, WIRE.VARINT)).int32(message.updatedBy);
     }
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.id);
+    }
 }
 
 
@@ -2472,7 +2555,7 @@ export function encodeSecretMeta(message) {
  */
 function decodeSecretMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", group: "", createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0 };
+    const message = {name: "", group: "", createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0, id: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2494,6 +2577,10 @@ function decodeSecretMetaMessage(reader, length) {
             }
             case 5: {
                 message.updatedBy = reader.int32();
+                break;
+            }
+            case 6: {
+                message.id = reader.int32();
                 break;
             }
             default:
@@ -3011,6 +3098,9 @@ export function writeUserConfig(message, writer) {
     if (message.updatedBy !== undefined && message.updatedBy !== null && message.updatedBy !== 0) {
         writer.uint32(tag(6, WIRE.VARINT)).int32(message.updatedBy);
     }
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.id);
+    }
 }
 
 
@@ -3032,7 +3122,7 @@ export function encodeUserConfig(message) {
  */
 function decodeUserConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", group: "", value: "", createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0 };
+    const message = {name: "", group: "", value: "", createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0, id: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3058,6 +3148,10 @@ function decodeUserConfigMessage(reader, length) {
             }
             case 6: {
                 message.updatedBy = reader.int32();
+                break;
+            }
+            case 7: {
+                message.id = reader.int32();
                 break;
             }
             default:
@@ -3983,26 +4077,29 @@ export function decodePrepareConfig(buffer) {
 
 
 /**
- * @param {EnvVar} message
+ * @param {EnvVarValue} message
  * @param {Writer} writer
  */
-export function writeEnvVar(message, writer) {
-    if (message.key !== undefined && message.key !== null && message.key !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
+export function writeEnvVarValue(message, writer) {
+    if (message.secretId !== undefined && message.secretId !== null) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.secretId);
     }
-    if (message.value !== undefined && message.value !== null && message.value !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.value);
+    if (message.configId !== undefined && message.configId !== null) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.configId);
+    }
+    if (message.value !== undefined && message.value !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
     }
 }
 
 
 /**
- * @param {EnvVar} message
+ * @param {EnvVarValue} message
  * @returns {Uint8Array}
  */
-export function encodeEnvVar(message) {
+export function encodeEnvVarValue(message) {
     const writer = Writer.create();
-    writeEnvVar(message, writer);
+    writeEnvVarValue(message, writer);
     return writer.finish();
 }
 
@@ -4010,19 +4107,23 @@ export function encodeEnvVar(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {EnvVar}
+ * @returns {EnvVarValue}
  */
-function decodeEnvVarMessage(reader, length) {
+function decodeEnvVarValueMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", value: "" };
+    const message = {secretId: undefined, configId: undefined, value: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.key = reader.string();
+                message.secretId = reader.int32();
                 break;
             }
             case 2: {
+                message.configId = reader.int32();
+                break;
+            }
+            case 3: {
                 message.value = reader.string();
                 break;
             }
@@ -4036,11 +4137,11 @@ function decodeEnvVarMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {EnvVar}
+ * @returns {EnvVarValue}
  */
-export function decodeEnvVar(buffer) {
+export function decodeEnvVarValue(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeEnvVarMessage(reader);
+    return decodeEnvVarValueMessage(reader);
 }
 
 
@@ -4270,10 +4371,16 @@ export function writeContainerRunnerConfig(message, writer) {
     if (message.user !== undefined && message.user !== null && message.user !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.user);
     }
-    if (message.env && message.env.length > 0) {
-        for (const item of message.env) {
+    if (message.envVars && Object.keys(message.envVars).length > 0) {
+        for (const [rawKey, value] of Object.entries(message.envVars)) {
+            const key = rawKey;
             writer.uint32(tag(2, WIRE.LDELIM)).fork();
-            writeEnvVar(item, writer);
+            writer.uint32(tag(1, WIRE.LDELIM)).string(key);
+            if (value) {
+                writer.uint32(tag(2, WIRE.LDELIM)).fork();
+                writeEnvVarValue(value, writer);
+                writer.ldelim();
+            }
             writer.ldelim();
         }
     }
@@ -4326,7 +4433,7 @@ export function encodeContainerRunnerConfig(message) {
  */
 function decodeContainerRunnerConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {user: "", env: [], command: [], workingDir: "", dataMountPath: "", disableDataVolume: false, mounts: [], assetMounts: [] };
+    const message = {user: "", envVars: {}, command: [], workingDir: "", dataMountPath: "", disableDataVolume: false, mounts: [], assetMounts: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4335,7 +4442,24 @@ function decodeContainerRunnerConfigMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.env.push(decodeEnvVarMessage(reader, reader.uint32()));
+                const end2 = reader.uint32() + reader.pos;
+                let key = "";
+                let value = undefined;
+                while (reader.pos < end2) {
+                    const tag2 = reader.uint32();
+                    switch (tag2 >>> 3) {
+                        case 1:
+                            key = reader.string();
+                            break;
+                        case 2:
+                            value = decodeEnvVarValueMessage(reader, reader.uint32());
+                            break;
+                        default:
+                            reader.skipType(tag2 & 7);
+                    }
+                }
+                if (!message.envVars) { message.envVars = {}; }
+                message.envVars[String(key)] = value;
                 break;
             }
             case 3: {
@@ -4498,6 +4622,26 @@ export function writeState(message, writer) {
         writeEnrollmentRequestStatus(message.enrollmentUpdate, writer);
         writer.ldelim();
     }
+    if (message.secretsSnapshot !== undefined && message.secretsSnapshot !== null) {
+        writer.uint32(tag(12, WIRE.LDELIM)).fork();
+        writeSecretReferenceList(message.secretsSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.secretUpdate !== undefined && message.secretUpdate !== null) {
+        writer.uint32(tag(13, WIRE.LDELIM)).fork();
+        writeSecretReference(message.secretUpdate, writer);
+        writer.ldelim();
+    }
+    if (message.userConfigsSnapshot !== undefined && message.userConfigsSnapshot !== null) {
+        writer.uint32(tag(14, WIRE.LDELIM)).fork();
+        writeUserConfigReferenceList(message.userConfigsSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.userConfigUpdate !== undefined && message.userConfigUpdate !== null) {
+        writer.uint32(tag(15, WIRE.LDELIM)).fork();
+        writeUserConfigReference(message.userConfigUpdate, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -4519,7 +4663,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, machinesSnapshot: undefined, machineUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined };
+    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, machinesSnapshot: undefined, machineUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4559,6 +4703,22 @@ function decodeStateMessage(reader, length) {
                 message.enrollmentUpdate = decodeEnrollmentRequestStatusMessage(reader, reader.uint32());
                 break;
             }
+            case 12: {
+                message.secretsSnapshot = decodeSecretReferenceListMessage(reader, reader.uint32());
+                break;
+            }
+            case 13: {
+                message.secretUpdate = decodeSecretReferenceMessage(reader, reader.uint32());
+                break;
+            }
+            case 14: {
+                message.userConfigsSnapshot = decodeUserConfigReferenceListMessage(reader, reader.uint32());
+                break;
+            }
+            case 15: {
+                message.userConfigUpdate = decodeUserConfigReferenceMessage(reader, reader.uint32());
+                break;
+            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -4574,6 +4734,266 @@ function decodeStateMessage(reader, length) {
 export function decodeState(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeStateMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretReference} message
+ * @param {Writer} writer
+ */
+export function writeSecretReference(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.deleted === true) {
+        writer.uint32(tag(3, WIRE.VARINT)).bool(message.deleted);
+    }
+}
+
+
+/**
+ * @param {SecretReference} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretReference(message) {
+    const writer = Writer.create();
+    writeSecretReference(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretReference}
+ */
+function decodeSecretReferenceMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, name: "", deleted: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.name = reader.string();
+                break;
+            }
+            case 3: {
+                message.deleted = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretReference}
+ */
+export function decodeSecretReference(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretReferenceMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretReferenceList} message
+ * @param {Writer} writer
+ */
+export function writeSecretReferenceList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeSecretReference(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {SecretReferenceList} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretReferenceList(message) {
+    const writer = Writer.create();
+    writeSecretReferenceList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretReferenceList}
+ */
+function decodeSecretReferenceListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeSecretReferenceMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretReferenceList}
+ */
+export function decodeSecretReferenceList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretReferenceListMessage(reader);
+}
+
+
+
+/**
+ * @param {UserConfigReference} message
+ * @param {Writer} writer
+ */
+export function writeUserConfigReference(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.deleted === true) {
+        writer.uint32(tag(3, WIRE.VARINT)).bool(message.deleted);
+    }
+}
+
+
+/**
+ * @param {UserConfigReference} message
+ * @returns {Uint8Array}
+ */
+export function encodeUserConfigReference(message) {
+    const writer = Writer.create();
+    writeUserConfigReference(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {UserConfigReference}
+ */
+function decodeUserConfigReferenceMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, name: "", deleted: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.name = reader.string();
+                break;
+            }
+            case 3: {
+                message.deleted = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {UserConfigReference}
+ */
+export function decodeUserConfigReference(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeUserConfigReferenceMessage(reader);
+}
+
+
+
+/**
+ * @param {UserConfigReferenceList} message
+ * @param {Writer} writer
+ */
+export function writeUserConfigReferenceList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeUserConfigReference(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {UserConfigReferenceList} message
+ * @returns {Uint8Array}
+ */
+export function encodeUserConfigReferenceList(message) {
+    const writer = Writer.create();
+    writeUserConfigReferenceList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {UserConfigReferenceList}
+ */
+function decodeUserConfigReferenceListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeUserConfigReferenceMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {UserConfigReferenceList}
+ */
+export function decodeUserConfigReferenceList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeUserConfigReferenceListMessage(reader);
 }
 
 
@@ -6296,23 +6716,20 @@ export function writeDeploymentVersions(message, writer) {
     if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
     }
-    if (message.scopes && message.scopes.length > 0) {
-        for (const item of message.scopes) {
-            writer.uint32(tag(2, WIRE.LDELIM)).string(item);
-        }
+    if (message.nixDockerBuild !== undefined && message.nixDockerBuild !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeDeploymentNixDockerBuildVersions(message.nixDockerBuild, writer);
+        writer.ldelim();
     }
-    if (message.versionsByScope && Object.keys(message.versionsByScope).length > 0) {
-        for (const [rawKey, value] of Object.entries(message.versionsByScope)) {
-            const key = rawKey;
-            writer.uint32(tag(3, WIRE.LDELIM)).fork();
-            writer.uint32(tag(1, WIRE.LDELIM)).string(key);
-            if (value) {
-                writer.uint32(tag(2, WIRE.LDELIM)).fork();
-                writeScopedVersions(value, writer);
-                writer.ldelim();
-            }
-            writer.ldelim();
-        }
+    if (message.githubRelease !== undefined && message.githubRelease !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeDeploymentGithubReleaseVersions(message.githubRelease, writer);
+        writer.ldelim();
+    }
+    if (message.containerImage !== undefined && message.containerImage !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeDeploymentContainerImageVersions(message.containerImage, writer);
+        writer.ldelim();
     }
 }
 
@@ -6335,7 +6752,7 @@ export function encodeDeploymentVersions(message) {
  */
 function decodeDeploymentVersionsMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, scopes: [], versionsByScope: {} };
+    const message = {deploymentId: 0, nixDockerBuild: undefined, githubRelease: undefined, containerImage: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6344,28 +6761,15 @@ function decodeDeploymentVersionsMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.scopes.push(reader.string());
+                message.nixDockerBuild = decodeDeploymentNixDockerBuildVersionsMessage(reader, reader.uint32());
                 break;
             }
             case 3: {
-                const end2 = reader.uint32() + reader.pos;
-                let key = "";
-                let value = undefined;
-                while (reader.pos < end2) {
-                    const tag2 = reader.uint32();
-                    switch (tag2 >>> 3) {
-                        case 1:
-                            key = reader.string();
-                            break;
-                        case 2:
-                            value = decodeScopedVersionsMessage(reader, reader.uint32());
-                            break;
-                        default:
-                            reader.skipType(tag2 & 7);
-                    }
-                }
-                if (!message.versionsByScope) { message.versionsByScope = {}; }
-                message.versionsByScope[String(key)] = value;
+                message.githubRelease = decodeDeploymentGithubReleaseVersionsMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.containerImage = decodeDeploymentContainerImageVersionsMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -6388,13 +6792,21 @@ export function decodeDeploymentVersions(buffer) {
 
 
 /**
- * @param {ScopedVersions} message
+ * @param {DeploymentNixDockerBuildVersions} message
  * @param {Writer} writer
  */
-export function writeScopedVersions(message, writer) {
-    if (message.versions && message.versions.length > 0) {
-        for (const item of message.versions) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+export function writeDeploymentNixDockerBuildVersions(message, writer) {
+    if (message.branches && message.branches.length > 0) {
+        for (const item of message.branches) {
+            writer.uint32(tag(1, WIRE.LDELIM)).string(item);
+        }
+    }
+    if (message.selectedBranch !== undefined && message.selectedBranch !== null && message.selectedBranch !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.selectedBranch);
+    }
+    if (message.commits && message.commits.length > 0) {
+        for (const item of message.commits) {
+            writer.uint32(tag(3, WIRE.LDELIM)).fork();
             writeVersion(item, writer);
             writer.ldelim();
         }
@@ -6403,12 +6815,12 @@ export function writeScopedVersions(message, writer) {
 
 
 /**
- * @param {ScopedVersions} message
+ * @param {DeploymentNixDockerBuildVersions} message
  * @returns {Uint8Array}
  */
-export function encodeScopedVersions(message) {
+export function encodeDeploymentNixDockerBuildVersions(message) {
     const writer = Writer.create();
-    writeScopedVersions(message, writer);
+    writeDeploymentNixDockerBuildVersions(message, writer);
     return writer.finish();
 }
 
@@ -6416,16 +6828,24 @@ export function encodeScopedVersions(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {ScopedVersions}
+ * @returns {DeploymentNixDockerBuildVersions}
  */
-function decodeScopedVersionsMessage(reader, length) {
+function decodeDeploymentNixDockerBuildVersionsMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {versions: [] };
+    const message = {branches: [], selectedBranch: "", commits: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.versions.push(decodeVersionMessage(reader, reader.uint32()));
+                message.branches.push(reader.string());
+                break;
+            }
+            case 2: {
+                message.selectedBranch = reader.string();
+                break;
+            }
+            case 3: {
+                message.commits.push(decodeVersionMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -6438,11 +6858,131 @@ function decodeScopedVersionsMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {ScopedVersions}
+ * @returns {DeploymentNixDockerBuildVersions}
  */
-export function decodeScopedVersions(buffer) {
+export function decodeDeploymentNixDockerBuildVersions(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeScopedVersionsMessage(reader);
+    return decodeDeploymentNixDockerBuildVersionsMessage(reader);
+}
+
+
+
+/**
+ * @param {DeploymentGithubReleaseVersions} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentGithubReleaseVersions(message, writer) {
+    if (message.releases && message.releases.length > 0) {
+        for (const item of message.releases) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeVersion(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {DeploymentGithubReleaseVersions} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentGithubReleaseVersions(message) {
+    const writer = Writer.create();
+    writeDeploymentGithubReleaseVersions(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentGithubReleaseVersions}
+ */
+function decodeDeploymentGithubReleaseVersionsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {releases: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.releases.push(decodeVersionMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentGithubReleaseVersions}
+ */
+export function decodeDeploymentGithubReleaseVersions(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentGithubReleaseVersionsMessage(reader);
+}
+
+
+
+/**
+ * @param {DeploymentContainerImageVersions} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentContainerImageVersions(message, writer) {
+    if (message.tags && message.tags.length > 0) {
+        for (const item of message.tags) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeVersion(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {DeploymentContainerImageVersions} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentContainerImageVersions(message) {
+    const writer = Writer.create();
+    writeDeploymentContainerImageVersions(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentContainerImageVersions}
+ */
+function decodeDeploymentContainerImageVersionsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {tags: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.tags.push(decodeVersionMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentContainerImageVersions}
+ */
+export function decodeDeploymentContainerImageVersions(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentContainerImageVersionsMessage(reader);
 }
 
 
@@ -6455,8 +6995,8 @@ export function writeDeploymentVersionsRequest(message, writer) {
     if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
     }
-    if (message.scope !== undefined && message.scope !== null && message.scope !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.scope);
+    if (message.selectedBranch !== undefined && message.selectedBranch !== null && message.selectedBranch !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.selectedBranch);
     }
 }
 
@@ -6479,7 +7019,7 @@ export function encodeDeploymentVersionsRequest(message) {
  */
 function decodeDeploymentVersionsRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, scope: "" };
+    const message = {deploymentId: 0, selectedBranch: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6488,7 +7028,7 @@ function decodeDeploymentVersionsRequestMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.scope = reader.string();
+                message.selectedBranch = reader.string();
                 break;
             }
             default:
@@ -6585,26 +7125,34 @@ export function writeValidateNixDockerBuildSource(message, writer) {
     if (message.repoUrl !== undefined && message.repoUrl !== null && message.repoUrl !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.repoUrl);
     }
-    if (message.branch !== undefined && message.branch !== null && message.branch !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.branch);
+    if (message.selectedBranch !== undefined && message.selectedBranch !== null && message.selectedBranch !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.selectedBranch);
     }
-    if (message.commit !== undefined && message.commit !== null && message.commit !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.commit);
+    if (message.selectedCommit !== undefined && message.selectedCommit !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeVersion(message.selectedCommit, writer);
+        writer.ldelim();
     }
-    if (message.flakePath !== undefined && message.flakePath !== null && message.flakePath !== "") {
-        writer.uint32(tag(4, WIRE.LDELIM)).string(message.flakePath);
+    if (message.selectedFlakePath !== undefined && message.selectedFlakePath !== null && message.selectedFlakePath !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.selectedFlakePath);
     }
-    if (message.refreshScopes === true) {
-        writer.uint32(tag(5, WIRE.VARINT)).bool(message.refreshScopes);
+    if (message.refreshAvailableBranches === true) {
+        writer.uint32(tag(5, WIRE.VARINT)).bool(message.refreshAvailableBranches);
     }
-    if (message.refreshVersions === true) {
-        writer.uint32(tag(6, WIRE.VARINT)).bool(message.refreshVersions);
+    if (message.refreshAvailableCommits === true) {
+        writer.uint32(tag(6, WIRE.VARINT)).bool(message.refreshAvailableCommits);
+    }
+    if (message.checkRepo === true) {
+        writer.uint32(tag(7, WIRE.VARINT)).bool(message.checkRepo);
+    }
+    if (message.checkBranch === true) {
+        writer.uint32(tag(8, WIRE.VARINT)).bool(message.checkBranch);
     }
     if (message.checkCommit === true) {
-        writer.uint32(tag(7, WIRE.VARINT)).bool(message.checkCommit);
+        writer.uint32(tag(9, WIRE.VARINT)).bool(message.checkCommit);
     }
     if (message.checkFlakePath === true) {
-        writer.uint32(tag(8, WIRE.VARINT)).bool(message.checkFlakePath);
+        writer.uint32(tag(10, WIRE.VARINT)).bool(message.checkFlakePath);
     }
 }
 
@@ -6627,7 +7175,7 @@ export function encodeValidateNixDockerBuildSource(message) {
  */
 function decodeValidateNixDockerBuildSourceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {repoUrl: "", branch: "", commit: "", flakePath: "", refreshScopes: false, refreshVersions: false, checkCommit: false, checkFlakePath: false };
+    const message = {repoUrl: "", selectedBranch: "", selectedCommit: undefined, selectedFlakePath: "", refreshAvailableBranches: false, refreshAvailableCommits: false, checkRepo: false, checkBranch: false, checkCommit: false, checkFlakePath: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6636,30 +7184,38 @@ function decodeValidateNixDockerBuildSourceMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.branch = reader.string();
+                message.selectedBranch = reader.string();
                 break;
             }
             case 3: {
-                message.commit = reader.string();
+                message.selectedCommit = decodeVersionMessage(reader, reader.uint32());
                 break;
             }
             case 4: {
-                message.flakePath = reader.string();
+                message.selectedFlakePath = reader.string();
                 break;
             }
             case 5: {
-                message.refreshScopes = reader.bool();
+                message.refreshAvailableBranches = reader.bool();
                 break;
             }
             case 6: {
-                message.refreshVersions = reader.bool();
+                message.refreshAvailableCommits = reader.bool();
                 break;
             }
             case 7: {
-                message.checkCommit = reader.bool();
+                message.checkRepo = reader.bool();
                 break;
             }
             case 8: {
+                message.checkBranch = reader.bool();
+                break;
+            }
+            case 9: {
+                message.checkCommit = reader.bool();
+                break;
+            }
+            case 10: {
                 message.checkFlakePath = reader.bool();
                 break;
             }
@@ -6678,6 +7234,439 @@ function decodeValidateNixDockerBuildSourceMessage(reader, length) {
 export function decodeValidateNixDockerBuildSource(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeValidateNixDockerBuildSourceMessage(reader);
+}
+
+
+
+/**
+ * @param {ValidateNixDockerBuildSourceResponse} message
+ * @param {Writer} writer
+ */
+export function writeValidateNixDockerBuildSourceResponse(message, writer) {
+    if (message.checkedRepoUrl !== undefined && message.checkedRepoUrl !== null && message.checkedRepoUrl !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.checkedRepoUrl);
+    }
+    if (message.gitRepository !== undefined && message.gitRepository !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeValidationResult(message.gitRepository, writer);
+        writer.ldelim();
+    }
+    if (message.checkedBranch !== undefined && message.checkedBranch !== null && message.checkedBranch !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.checkedBranch);
+    }
+    if (message.branchCheck !== undefined && message.branchCheck !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeValidationResult(message.branchCheck, writer);
+        writer.ldelim();
+    }
+    if (message.checkedCommit !== undefined && message.checkedCommit !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeVersion(message.checkedCommit, writer);
+        writer.ldelim();
+    }
+    if (message.commitCheck !== undefined && message.commitCheck !== null) {
+        writer.uint32(tag(6, WIRE.LDELIM)).fork();
+        writeValidationResult(message.commitCheck, writer);
+        writer.ldelim();
+    }
+    if (message.checkedFlakePath !== undefined && message.checkedFlakePath !== null && message.checkedFlakePath !== "") {
+        writer.uint32(tag(7, WIRE.LDELIM)).string(message.checkedFlakePath);
+    }
+    if (message.nixFlakeFile !== undefined && message.nixFlakeFile !== null) {
+        writer.uint32(tag(8, WIRE.LDELIM)).fork();
+        writeValidationResult(message.nixFlakeFile, writer);
+        writer.ldelim();
+    }
+    if (message.availableBranches !== undefined && message.availableBranches !== null) {
+        writer.uint32(tag(9, WIRE.LDELIM)).fork();
+        writeAvailableBranches(message.availableBranches, writer);
+        writer.ldelim();
+    }
+    if (message.availableCommits !== undefined && message.availableCommits !== null) {
+        writer.uint32(tag(10, WIRE.LDELIM)).fork();
+        writeAvailableCommits(message.availableCommits, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {ValidateNixDockerBuildSourceResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeValidateNixDockerBuildSourceResponse(message) {
+    const writer = Writer.create();
+    writeValidateNixDockerBuildSourceResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValidateNixDockerBuildSourceResponse}
+ */
+function decodeValidateNixDockerBuildSourceResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {checkedRepoUrl: "", gitRepository: undefined, checkedBranch: "", branchCheck: undefined, checkedCommit: undefined, commitCheck: undefined, checkedFlakePath: "", nixFlakeFile: undefined, availableBranches: undefined, availableCommits: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.checkedRepoUrl = reader.string();
+                break;
+            }
+            case 2: {
+                message.gitRepository = decodeValidationResultMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.checkedBranch = reader.string();
+                break;
+            }
+            case 4: {
+                message.branchCheck = decodeValidationResultMessage(reader, reader.uint32());
+                break;
+            }
+            case 5: {
+                message.checkedCommit = decodeVersionMessage(reader, reader.uint32());
+                break;
+            }
+            case 6: {
+                message.commitCheck = decodeValidationResultMessage(reader, reader.uint32());
+                break;
+            }
+            case 7: {
+                message.checkedFlakePath = reader.string();
+                break;
+            }
+            case 8: {
+                message.nixFlakeFile = decodeValidationResultMessage(reader, reader.uint32());
+                break;
+            }
+            case 9: {
+                message.availableBranches = decodeAvailableBranchesMessage(reader, reader.uint32());
+                break;
+            }
+            case 10: {
+                message.availableCommits = decodeAvailableCommitsMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValidateNixDockerBuildSourceResponse}
+ */
+export function decodeValidateNixDockerBuildSourceResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValidateNixDockerBuildSourceResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {AvailableCommits} message
+ * @param {Writer} writer
+ */
+export function writeAvailableCommits(message, writer) {
+    if (message.loaded === true) {
+        writer.uint32(tag(1, WIRE.VARINT)).bool(message.loaded);
+    }
+    if (message.branch !== undefined && message.branch !== null && message.branch !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.branch);
+    }
+    if (message.errormessage !== undefined && message.errormessage !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.errormessage);
+    }
+    if (message.commits && message.commits.length > 0) {
+        for (const item of message.commits) {
+            writer.uint32(tag(4, WIRE.LDELIM)).fork();
+            writeVersion(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {AvailableCommits} message
+ * @returns {Uint8Array}
+ */
+export function encodeAvailableCommits(message) {
+    const writer = Writer.create();
+    writeAvailableCommits(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AvailableCommits}
+ */
+function decodeAvailableCommitsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {loaded: false, branch: "", errormessage: undefined, commits: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.loaded = reader.bool();
+                break;
+            }
+            case 2: {
+                message.branch = reader.string();
+                break;
+            }
+            case 3: {
+                message.errormessage = reader.string();
+                break;
+            }
+            case 4: {
+                message.commits.push(decodeVersionMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AvailableCommits}
+ */
+export function decodeAvailableCommits(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAvailableCommitsMessage(reader);
+}
+
+
+
+/**
+ * @param {AvailableBranches} message
+ * @param {Writer} writer
+ */
+export function writeAvailableBranches(message, writer) {
+    if (message.loaded === true) {
+        writer.uint32(tag(1, WIRE.VARINT)).bool(message.loaded);
+    }
+    if (message.errormessage !== undefined && message.errormessage !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.errormessage);
+    }
+    if (message.branches && message.branches.length > 0) {
+        for (const item of message.branches) {
+            writer.uint32(tag(3, WIRE.LDELIM)).string(item);
+        }
+    }
+}
+
+
+/**
+ * @param {AvailableBranches} message
+ * @returns {Uint8Array}
+ */
+export function encodeAvailableBranches(message) {
+    const writer = Writer.create();
+    writeAvailableBranches(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AvailableBranches}
+ */
+function decodeAvailableBranchesMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {loaded: false, errormessage: undefined, branches: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.loaded = reader.bool();
+                break;
+            }
+            case 2: {
+                message.errormessage = reader.string();
+                break;
+            }
+            case 3: {
+                message.branches.push(reader.string());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AvailableBranches}
+ */
+export function decodeAvailableBranches(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAvailableBranchesMessage(reader);
+}
+
+
+
+/**
+ * @param {RepoValidationResult} message
+ * @param {Writer} writer
+ */
+export function writeRepoValidationResult(message, writer) {
+    if (message.checked === true) {
+        writer.uint32(tag(1, WIRE.VARINT)).bool(message.checked);
+    }
+    if (message.repoUrl !== undefined && message.repoUrl !== null && message.repoUrl !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.repoUrl);
+    }
+    if (message.ok === true) {
+        writer.uint32(tag(3, WIRE.VARINT)).bool(message.ok);
+    }
+    if (message.message !== undefined && message.message !== null && message.message !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.message);
+    }
+}
+
+
+/**
+ * @param {RepoValidationResult} message
+ * @returns {Uint8Array}
+ */
+export function encodeRepoValidationResult(message) {
+    const writer = Writer.create();
+    writeRepoValidationResult(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {RepoValidationResult}
+ */
+function decodeRepoValidationResultMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {checked: false, repoUrl: "", ok: false, message: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.checked = reader.bool();
+                break;
+            }
+            case 2: {
+                message.repoUrl = reader.string();
+                break;
+            }
+            case 3: {
+                message.ok = reader.bool();
+                break;
+            }
+            case 4: {
+                message.message = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {RepoValidationResult}
+ */
+export function decodeRepoValidationResult(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeRepoValidationResultMessage(reader);
+}
+
+
+
+/**
+ * @param {ValidationResult} message
+ * @param {Writer} writer
+ */
+export function writeValidationResult(message, writer) {
+    if (message.checked === true) {
+        writer.uint32(tag(1, WIRE.VARINT)).bool(message.checked);
+    }
+    if (message.ok === true) {
+        writer.uint32(tag(2, WIRE.VARINT)).bool(message.ok);
+    }
+    if (message.message !== undefined && message.message !== null && message.message !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.message);
+    }
+}
+
+
+/**
+ * @param {ValidationResult} message
+ * @returns {Uint8Array}
+ */
+export function encodeValidationResult(message) {
+    const writer = Writer.create();
+    writeValidationResult(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValidationResult}
+ */
+function decodeValidationResultMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {checked: false, ok: false, message: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.checked = reader.bool();
+                break;
+            }
+            case 2: {
+                message.ok = reader.bool();
+                break;
+            }
+            case 3: {
+                message.message = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValidationResult}
+ */
+export function decodeValidationResult(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValidationResultMessage(reader);
 }
 
 
@@ -6741,69 +7730,6 @@ function decodeValidateContainerImageSourceMessage(reader, length) {
 export function decodeValidateContainerImageSource(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeValidateContainerImageSourceMessage(reader);
-}
-
-
-
-/**
- * @param {ValidationResult} message
- * @param {Writer} writer
- */
-export function writeValidationResult(message, writer) {
-    if (message.ok === true) {
-        writer.uint32(tag(1, WIRE.VARINT)).bool(message.ok);
-    }
-    if (message.message !== undefined && message.message !== null && message.message !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.message);
-    }
-}
-
-
-/**
- * @param {ValidationResult} message
- * @returns {Uint8Array}
- */
-export function encodeValidationResult(message) {
-    const writer = Writer.create();
-    writeValidationResult(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ValidationResult}
- */
-function decodeValidationResultMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {ok: false, message: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.ok = reader.bool();
-                break;
-            }
-            case 2: {
-                message.message = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ValidationResult}
- */
-export function decodeValidationResult(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeValidationResultMessage(reader);
 }
 
 
@@ -6876,100 +7802,6 @@ export function decodeValidateSourceResponse(buffer) {
 
 
 /**
- * @param {ValidateNixDockerBuildSourceResponse} message
- * @param {Writer} writer
- */
-export function writeValidateNixDockerBuildSourceResponse(message, writer) {
-    if (message.gitRepository !== undefined && message.gitRepository !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeValidationResult(message.gitRepository, writer);
-        writer.ldelim();
-    }
-    if (message.nixFlakeFile !== undefined && message.nixFlakeFile !== null) {
-        writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeValidationResult(message.nixFlakeFile, writer);
-        writer.ldelim();
-    }
-    if (message.scopes && message.scopes.length > 0) {
-        for (const item of message.scopes) {
-            writer.uint32(tag(3, WIRE.LDELIM)).string(item);
-        }
-    }
-    if (message.scope !== undefined && message.scope !== null && message.scope !== "") {
-        writer.uint32(tag(4, WIRE.LDELIM)).string(message.scope);
-    }
-    if (message.versions && message.versions.length > 0) {
-        for (const item of message.versions) {
-            writer.uint32(tag(5, WIRE.LDELIM)).fork();
-            writeVersion(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {ValidateNixDockerBuildSourceResponse} message
- * @returns {Uint8Array}
- */
-export function encodeValidateNixDockerBuildSourceResponse(message) {
-    const writer = Writer.create();
-    writeValidateNixDockerBuildSourceResponse(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ValidateNixDockerBuildSourceResponse}
- */
-function decodeValidateNixDockerBuildSourceResponseMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {gitRepository: undefined, nixFlakeFile: undefined, scopes: [], scope: "", versions: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.gitRepository = decodeValidationResultMessage(reader, reader.uint32());
-                break;
-            }
-            case 2: {
-                message.nixFlakeFile = decodeValidationResultMessage(reader, reader.uint32());
-                break;
-            }
-            case 3: {
-                message.scopes.push(reader.string());
-                break;
-            }
-            case 4: {
-                message.scope = reader.string();
-                break;
-            }
-            case 5: {
-                message.versions.push(decodeVersionMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ValidateNixDockerBuildSourceResponse}
- */
-export function decodeValidateNixDockerBuildSourceResponse(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeValidateNixDockerBuildSourceResponseMessage(reader);
-}
-
-
-
-/**
  * @param {ValidateContainerImageSourceResponse} message
  * @param {Writer} writer
  */
@@ -6979,8 +7811,8 @@ export function writeValidateContainerImageSourceResponse(message, writer) {
         writeValidationResult(message.image, writer);
         writer.ldelim();
     }
-    if (message.versions && message.versions.length > 0) {
-        for (const item of message.versions) {
+    if (message.tags && message.tags.length > 0) {
+        for (const item of message.tags) {
             writer.uint32(tag(2, WIRE.LDELIM)).fork();
             writeVersion(item, writer);
             writer.ldelim();
@@ -7007,7 +7839,7 @@ export function encodeValidateContainerImageSourceResponse(message) {
  */
 function decodeValidateContainerImageSourceResponseMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {image: undefined, versions: [] };
+    const message = {image: undefined, tags: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -7016,7 +7848,7 @@ function decodeValidateContainerImageSourceResponseMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.versions.push(decodeVersionMessage(reader, reader.uint32()));
+                message.tags.push(decodeVersionMessage(reader, reader.uint32()));
                 break;
             }
             default:

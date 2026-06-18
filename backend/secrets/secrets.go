@@ -85,6 +85,7 @@ type Keyslot struct {
 
 // Record is an encrypted secret as persisted in the secrets table.
 type Record struct {
+	ID         int32
 	Name       string
 	Group      string
 	SMKVersion int32
@@ -108,6 +109,7 @@ type SystemRecord struct {
 
 // Meta describes a secret WITHOUT its value, for listing.
 type Meta struct {
+	ID        int32
 	Name      string
 	Group     string
 	CreatedAt time.Time
@@ -123,6 +125,7 @@ type Store interface {
 	ListSecretKeyslots() []Keyslot
 	UpsertSecretKeyslot(Keyslot)
 	ListSecrets() []Record
+	NextSecretID() int32
 	UpsertSecret(Record)
 	DeleteSecret(name string)
 	GetSystemSecret(name string) (SystemRecord, bool)
@@ -202,21 +205,21 @@ func Open(dataDir string, store Store) (*Manager, error) {
 	return m, nil
 }
 
-// Resolve returns the plaintext value for a secret name. It implements the
+// Resolve returns the plaintext value for a secret id. It implements the
 // runner's secret resolver. Returns ("", false) when locked or unknown.
-func (m *Manager) Resolve(name string) (string, bool) {
+func (m *Manager) Resolve(id int32) (string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if m.smk == nil {
 		return "", false
 	}
-	rec, ok := m.cache[name]
+	rec, ok := m.recordByID(id)
 	if !ok {
 		return "", false
 	}
-	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD("user", name))
+	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD("user", rec.Name))
 	if err != nil {
-		slog.Error("decrypting secret failed", "name", name, "err", err)
+		slog.Error("decrypting secret failed", "id", id, "name", rec.Name, "err", err)
 		return "", false
 	}
 	return string(pt), true
@@ -225,32 +228,40 @@ func (m *Manager) Resolve(name string) (string, bool) {
 // ResolveMany decrypts the requested user secrets as one batch. It is used by
 // deployment preparation so workers can fetch all referenced secrets in a
 // single cluster request and keep plaintext only in memory for runner startup.
-func (m *Manager) ResolveMany(names []string) (map[string]string, error) {
+func (m *Manager) ResolveMany(ids []int32) (map[int32]string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if m.smk == nil {
 		return nil, ErrLocked
 	}
-	out := make(map[string]string, len(names))
-	for _, name := range names {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			return nil, fmt.Errorf("secret name is required")
+	out := make(map[int32]string, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			return nil, fmt.Errorf("secret id is required")
 		}
-		if _, ok := out[name]; ok {
+		if _, ok := out[id]; ok {
 			continue
 		}
-		rec, ok := m.cache[name]
+		rec, ok := m.recordByID(id)
 		if !ok {
-			return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
+			return nil, fmt.Errorf("%w: id %d", ErrNotFound, id)
 		}
-		pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD("user", name))
+		pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD("user", rec.Name))
 		if err != nil {
-			return nil, fmt.Errorf("decrypting secret %q: %w", name, err)
+			return nil, fmt.Errorf("decrypting secret id %d: %w", id, err)
 		}
-		out[name] = string(pt)
+		out[id] = string(pt)
 	}
 	return out, nil
+}
+
+func (m *Manager) recordByID(id int32) (Record, bool) {
+	for _, rec := range m.cache {
+		if rec.ID == id {
+			return rec, true
+		}
+	}
+	return Record{}, false
 }
 
 func (m *Manager) HasSecret(name string) (bool, time.Time) {
@@ -342,10 +353,13 @@ func (m *Manager) set(name, group string, value []byte, updatedBy int32) (Meta, 
 	}
 	now := nowMs()
 	createdAt := now
+	id := m.store.NextSecretID()
 	if existing, ok := m.cache[name]; ok {
 		createdAt = existing.CreatedAt
+		id = existing.ID
 	}
 	rec := Record{
+		ID:         id,
 		Name:       name,
 		Group:      defaultUserSecretGroup,
 		SMKVersion: m.version,
@@ -626,6 +640,7 @@ func nowMs() int64 { return time.Now().UnixMilli() }
 
 func (r Record) meta() Meta {
 	return Meta{
+		ID:        r.ID,
 		Name:      r.Name,
 		Group:     defaultUserSecretGroup,
 		CreatedAt: time.UnixMilli(r.CreatedAt),

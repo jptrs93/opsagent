@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -15,6 +14,7 @@ const userConfigDefaultGroup = "default"
 
 func userConfigRowToProto(r UserConfig) *apigen.UserConfig {
 	return &apigen.UserConfig{
+		ID:        int32(r.ID),
 		Name:      r.Name,
 		Group:     userConfigDefaultGroup,
 		Value:     r.Value,
@@ -38,7 +38,9 @@ func (s *PrimaryStorage) ListUserConfigs() []*apigen.UserConfig {
 
 func (s *PrimaryStorage) SetUserConfig(name, group, value string, updatedBy int32) *apigen.UserConfig {
 	now := time.Now().UnixMilli()
+	id := s.nextUserConfigID(name)
 	if err := s.q.UpsertUserConfig(context.Background(), UpsertUserConfigParams{
+		ID:          int64(id),
 		Name:        name,
 		ConfigGroup: userConfigDefaultGroup,
 		Value:       value,
@@ -52,17 +54,41 @@ func (s *PrimaryStorage) SetUserConfig(name, group, value string, updatedBy int3
 	if err != nil {
 		panic(fmt.Sprintf("GetUserConfig after upsert: %v", err))
 	}
-	return userConfigRowToProto(r)
+	cfg := userConfigRowToProto(r)
+	s.userConfigSubs.Notify(apigen.UserConfigReference{ID: cfg.ID, Name: cfg.Name})
+	return cfg
+}
+
+func (s *PrimaryStorage) nextUserConfigID(name string) int32 {
+	if existing, err := s.q.GetUserConfig(context.Background(), name); err == nil {
+		return int32(existing.ID)
+	} else if err != sql.ErrNoRows {
+		panic(fmt.Sprintf("GetUserConfig: %v", err))
+	}
+	id, err := s.q.GetNextUserConfigID(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("GetNextUserConfigID: %v", err))
+	}
+	return int32(id)
 }
 
 func (s *PrimaryStorage) DeleteUserConfig(name string) {
+	var update *apigen.UserConfigReference
+	if r, err := s.q.GetUserConfig(context.Background(), name); err == nil {
+		update = &apigen.UserConfigReference{ID: int32(r.ID), Name: r.Name, Deleted: true}
+	} else if err != sql.ErrNoRows {
+		panic(fmt.Sprintf("GetUserConfig before delete: %v", err))
+	}
 	if err := s.q.DeleteUserConfig(context.Background(), name); err != nil {
 		panic(fmt.Sprintf("DeleteUserConfig: %v", err))
 	}
+	if update != nil {
+		s.userConfigSubs.Notify(*update)
+	}
 }
 
-func (s *PrimaryStorage) ResolveConfig(name string) (string, bool) {
-	r, err := s.q.GetUserConfig(context.Background(), name)
+func (s *PrimaryStorage) ResolveConfig(id int32) (string, bool) {
+	r, err := s.q.GetUserConfigByID(context.Background(), int64(id))
 	if err == sql.ErrNoRows {
 		return "", false
 	}
@@ -72,24 +98,23 @@ func (s *PrimaryStorage) ResolveConfig(name string) (string, bool) {
 	return r.Value, true
 }
 
-func (s *PrimaryStorage) ResolveConfigs(names []string) (map[string]string, error) {
-	out := make(map[string]string, len(names))
-	for _, name := range names {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			return nil, errors.New("config name is required")
+func (s *PrimaryStorage) ResolveConfigs(ids []int32) (map[int32]string, error) {
+	out := make(map[int32]string, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			return nil, errors.New("config id is required")
 		}
-		if _, ok := out[name]; ok {
+		if _, ok := out[id]; ok {
 			continue
 		}
-		r, err := s.q.GetUserConfig(context.Background(), name)
+		r, err := s.q.GetUserConfigByID(context.Background(), int64(id))
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("config not found: %s", name)
+			return nil, fmt.Errorf("config not found: id %d", id)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("GetUserConfig %q: %w", name, err)
+			return nil, fmt.Errorf("GetUserConfigByID %d: %w", id, err)
 		}
-		out[name] = r.Value
+		out[id] = r.Value
 	}
 	return out, nil
 }

@@ -19,6 +19,7 @@ var SecretReservedNameErr = apigen.NewApiErr("Secret name is reserved for OpenDe
 
 func secretMetaToProto(m secrets.Meta) *apigen.SecretMeta {
 	return &apigen.SecretMeta{
+		ID:        m.ID,
 		Name:      m.Name,
 		Group:     m.Group,
 		CreatedAt: m.CreatedAt,
@@ -54,7 +55,9 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 		}
 		return nil, err
 	}
-	return secretMetaToProto(meta), nil
+	proto := secretMetaToProto(meta)
+	h.Store.NotifySecretReferenceUpdate(apigen.SecretReference{ID: proto.ID, Name: proto.Name})
+	return proto, nil
 }
 
 func (h *Handler) PostV1SecretsReveal(ctx apigen.Context, req *apigen.SecretRevealRequest) (*apigen.SecretRevealResponse, error) {
@@ -97,11 +100,22 @@ func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDele
 	if strings.TrimSpace(req.Name) == "" {
 		return SecretNameRequiredErr
 	}
+	name := strings.TrimSpace(req.Name)
+	var deleted *apigen.SecretReference
+	for _, ref := range h.Store.ListSecretReferences() {
+		if ref.Name == name {
+			deleted = &apigen.SecretReference{ID: ref.ID, Name: ref.Name, Deleted: true}
+			break
+		}
+	}
 	if err := h.Secrets.Delete(req.Name); err != nil {
 		if errors.Is(err, secrets.ErrReservedName) {
 			return SecretReservedNameErr
 		}
 		return err
+	}
+	if deleted != nil {
+		h.Store.NotifySecretReferenceUpdate(*deleted)
 	}
 	return nil
 }

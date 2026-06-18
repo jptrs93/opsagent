@@ -9,6 +9,8 @@ export const deploymentsS = van.state([]);
 export const usersMapS = van.state(new Map());
 export const machinesS = van.state([]);
 export const enrollmentsS = van.state([]);
+export const secretRefsS = van.state([]);
+export const userConfigRefsS = van.state([]);
 export const deploymentsStreamS = van.state({
     status: 'offline',
     sentence: 'offline',
@@ -64,6 +66,8 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
         usersMapS.val = new Map();
         machinesS.val = [];
         enrollmentsS.val = [];
+        secretRefsS.val = [];
+        userConfigRefsS.val = [];
     }
     setStreamState('offline', 'offline');
 };
@@ -119,6 +123,32 @@ const handleStateMessage = (message) => {
         next.set(message.enrollmentUpdate.id, message.enrollmentUpdate);
         enrollmentsS.val = Array.from(next.values());
     }
+
+    if (message.secretsSnapshot) {
+        secretRefsS.val = message.secretsSnapshot.items || [];
+    }
+
+    if (message.secretUpdate?.id) {
+        secretRefsS.val = applyReferenceUpdate(secretRefsS.val, message.secretUpdate);
+    }
+
+    if (message.userConfigsSnapshot) {
+        userConfigRefsS.val = message.userConfigsSnapshot.items || [];
+    }
+
+    if (message.userConfigUpdate?.id) {
+        userConfigRefsS.val = applyReferenceUpdate(userConfigRefsS.val, message.userConfigUpdate);
+    }
+};
+
+const applyReferenceUpdate = (items, update) => {
+    const next = new Map((items || []).map((item) => [item.id, item]));
+    if (update.deleted) {
+        next.delete(update.id);
+    } else {
+        next.set(update.id, update);
+    }
+    return Array.from(next.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 };
 
 const scheduleReconnect = (generation, lastError) => {
