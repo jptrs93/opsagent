@@ -192,8 +192,8 @@ export async function createPostgresDeployment(page, {
     machine,
     image: 'docker.io/library/postgres:18',
     env: {
-      POSTGRES_USER: '${s:postgres}',
-      POSTGRES_PASSWORD: '${s:postgrespass}',
+      POSTGRES_USER: {type: 'secret', name: 'postgres'},
+      POSTGRES_PASSWORD: {type: 'secret', name: 'postgrespass'},
       POSTGRES_DB: 'postgres',
     },
     dataMountPath: '/var/lib/postgresql',
@@ -213,8 +213,8 @@ export async function createPostgresClientDeployment(page, {
     env: {
       PGHOST: '127.0.0.1',
       PGPORT: '5432',
-      PGUSER: '${s:postgres}',
-      PGPASSWORD: '${s:postgrespass}',
+      PGUSER: {type: 'secret', name: 'postgres'},
+      PGPASSWORD: {type: 'secret', name: 'postgrespass'},
       PGDATABASE: 'postgres',
     },
     expectedEnv: {},
@@ -432,10 +432,10 @@ async function setDeploymentEnvVars(dialog, env) {
 }
 
 function envVarRef(value) {
-  const s = String(value ?? '');
-  const match = /^\$\{([cs]):([^}]+)}$/.exec(s);
-  if (!match) return {type: 'value', value: s};
-  return {type: match[1] === 's' ? 'secret' : 'config', name: match[2]};
+  if (value && typeof value === 'object' && (value.type === 'secret' || value.type === 'config')) {
+    return {type: value.type, name: value.name || ''};
+  }
+  return {type: 'value', value: String(value ?? '')};
 }
 
 async function setDeploymentDataMountPath(dialog, path) {

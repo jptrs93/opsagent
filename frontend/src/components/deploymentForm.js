@@ -3,7 +3,7 @@ import {X} from "vanjs-feather";
 import {capi} from "../capi/index.js";
 import {secretRefsS, userConfigRefsS} from "../state/deployments.js";
 
-const { div, h3, label, input, select, option, button, p, span, datalist, textarea, table, thead, tbody, tfoot, tr, th, td } = van.tags;
+const { div, h3, label, input, select, option, button, p, span, datalist, textarea, table, thead, tbody, tfoot, tr, th, td, ul, li } = van.tags;
 
 const SOURCE_NIX_DOCKER = 'nixDockerBuild';
 const SOURCE_DOCKER_IMAGE = 'containerImage';
@@ -947,11 +947,18 @@ export function assetEditorPane(form, opts = {}) {
 // via a CSS class (a binding that returns null would be GC'd by VanJS and never
 // re-open).
 export function envVarsPane(form) {
-    const secretDatalistID = `deployment-env-secrets-${nextDatalistID++}`;
-    const configDatalistID = `deployment-env-configs-${nextDatalistID++}`;
     const envRows = tbody();
+    let envRowsSignature = '';
     van.derive(() => {
-        envRows.replaceChildren(...(form.envVars.val || []).map(row => envVarRow(form, row, secretDatalistID, configDatalistID)));
+        const rows = form.envVars.val || [];
+        const signature = [
+            rows.map(row => `${row.id}:${row.type || 'value'}`).join('|'),
+            (secretRefsS.val || []).map(ref => `${ref.id}:${ref.name}`).join('|'),
+            (userConfigRefsS.val || []).map(ref => `${ref.id}:${ref.name}`).join('|'),
+        ].join('::');
+        if (signature === envRowsSignature) return;
+        envRowsSignature = signature;
+        envRows.replaceChildren(...rows.map(row => envVarRow(form, row)));
     });
     return div(
         {class: () => form.envPaneOpen.val
@@ -969,8 +976,6 @@ export function envVarsPane(form) {
         ),
         div(
             {class: "flex-1 min-h-0 flex flex-col p-3 overflow-auto"},
-            datalist({id: secretDatalistID}, () => (secretRefsS.val || []).map(ref => option({value: ref.name}))),
-            datalist({id: configDatalistID}, () => (userConfigRefsS.val || []).map(ref => option({value: ref.name}))),
             table({class: "w-full text-xs border-collapse"},
                 thead(
                     tr({class: "text-left text-gray-400 border-b border-gray-700"},
@@ -995,7 +1000,7 @@ export function envVarsPane(form) {
     );
 }
 
-function envVarRow(form, row, secretDatalistID, configDatalistID) {
+function envVarRow(form, row) {
     const type = row.type || 'value';
     return tr({class: "border-b border-gray-800 last:border-b-0"},
         td({class: "py-1 pr-1.5 align-top"},
@@ -1013,12 +1018,12 @@ function envVarRow(form, row, secretDatalistID, configDatalistID) {
                 value: type,
                 onchange: e => updateEnvRow(form, row.id, envTypePatch(row, e.target.value)),
             },
-                option({value: "value"}, "Value"),
-                option({value: "config"}, "Config"),
-                option({value: "secret"}, "Secret"),
+                option({value: "value", selected: type === 'value'}, "Value"),
+                option({value: "config", selected: type === 'config'}, "Config"),
+                option({value: "secret", selected: type === 'secret'}, "Secret"),
             ),
         ),
-        td({class: "py-1 pl-1.5 pr-0.5 align-top"}, envValueInput(form, row, secretDatalistID, configDatalistID)),
+        td({class: "py-1 pl-1.5 pr-0.5 align-top"}, envValueInput(form, row)),
         td({class: "py-1 pl-0.5 align-top text-right"},
             button({
                 type: "button",
@@ -1029,7 +1034,7 @@ function envVarRow(form, row, secretDatalistID, configDatalistID) {
     );
 }
 
-function envValueInput(form, row, secretDatalistID, configDatalistID) {
+function envValueInput(form, row) {
     if ((row.type || 'value') === 'value') {
         return input({
             type: "text",
@@ -1039,23 +1044,66 @@ function envValueInput(form, row, secretDatalistID, configDatalistID) {
             oninput: e => updateEnvRow(form, row.id, {value: e.target.value}),
         });
     }
-    const refs = row.type === 'secret' ? (secretRefsS.val || []) : (userConfigRefsS.val || []);
-    const selectedID = row.type === 'secret' ? Number(row.secretId || 0) : Number(row.configId || 0);
+    return envReferenceAutocomplete(form, row);
+}
+
+function envReferenceAutocomplete(form, row) {
+    const isSecret = row.type === 'secret';
+    const refs = isSecret ? (secretRefsS.val || []) : (userConfigRefsS.val || []);
+    const selectedID = isSecret ? Number(row.secretId || 0) : Number(row.configId || 0);
     const selected = refs.find(ref => ref.id === selectedID);
-    return input({
-        type: "text",
-        list: row.type === 'secret' ? secretDatalistID : configDatalistID,
-        class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand",
-        placeholder: row.type === 'secret' ? "Search secrets" : "Search configs",
-        value: row.refSearch ?? selected?.name ?? '',
-        oninput: e => {
-            const refSearch = e.target.value;
-            const match = refs.find(ref => ref.name === refSearch);
-            updateEnvRow(form, row.id, row.type === 'secret'
-                ? {refSearch, secretId: match?.id || 0}
-                : {refSearch, configId: match?.id || 0});
+    const search = van.state(row.refSearch ?? selected?.name ?? '');
+    const open = van.state(false);
+    const matches = () => {
+        const query = search.val.trim().toLowerCase();
+        const filtered = query
+            ? refs.filter(ref => ref.name.toLowerCase().includes(query))
+            : refs;
+        return filtered.slice(0, 8);
+    };
+    const applySearch = (refSearch) => {
+        const match = refs.find(ref => ref.name === refSearch);
+        updateEnvRow(form, row.id, isSecret
+            ? {refSearch, secretId: match?.id || 0}
+            : {refSearch, configId: match?.id || 0});
+    };
+    const choose = (ref) => {
+        search.val = ref.name;
+        applySearch(ref.name);
+        open.val = false;
+    };
+    return div({class: "relative"},
+        input({
+            type: "text",
+            class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand",
+            placeholder: isSecret ? "Search secrets" : "Search configs",
+            value: search,
+            autocomplete: "off",
+            onfocus: () => { open.val = true; },
+            onblur: () => { setTimeout(() => { open.val = false; }, 120); },
+            oninput: e => {
+                search.val = e.target.value;
+                open.val = true;
+                applySearch(search.val);
+            },
+        }),
+        () => {
+            if (!open.val) return '';
+            const items = matches();
+            return ul(
+                {class: "absolute z-50 mt-1 max-h-44 w-full overflow-auto rounded-md border border-gray-700 bg-gray-900 shadow-xl"},
+                ...(items.length === 0
+                    ? [li({class: "px-2 py-1.5 text-gray-500"}, `No matching ${isSecret ? 'secrets' : 'configs'}`)]
+                    : items.map(ref => li({
+                    class: () => `cursor-pointer px-2 py-1.5 text-gray-200 hover:bg-gray-800 ${ref.id === selectedID ? 'bg-gray-800' : ''}`,
+                    onmousedown: e => {
+                        e.preventDefault();
+                        choose(ref);
+                    },
+                }, ref.name))),
+            );
         },
-    });
+    );
 }
 
 function newEnvRow(values = {}) {
@@ -1156,8 +1204,10 @@ function hasInvalidEnvVars(form) {
 
 function envVarsToFormRows(envVars) {
     return Object.entries(envVars || {}).map(([key, value]) => {
-        if (value?.secretId) return newEnvRow({key, type: 'secret', secretId: value.secretId});
-        if (value?.configId) return newEnvRow({key, type: 'config', configId: value.configId});
+        const secretId = Number(value?.secretId || 0);
+        const configId = Number(value?.configId || 0);
+        if (secretId) return newEnvRow({key, type: 'secret', secretId});
+        if (configId) return newEnvRow({key, type: 'config', configId});
         return newEnvRow({key, type: 'value', value: value?.value || ''});
     });
 }

@@ -62,10 +62,10 @@ test('bootstrap primary, enroll worker, and create Nix Docker deployment', async
   await createNixDockerDeployment(page, {
     name: 'nixdockerbuild-assets',
     env: {
-      OPENDEPLOY_E2E_MESSAGE: '${c:e2e.config.message}',
-      OPENDEPLOY_E2E_COLOR: '${s:e2e.secret.message}',
-      OPENDEPLOY_E2E_CONFIG: '${c:e2e.config.message}',
-      OPENDEPLOY_E2E_SECRET: '${s:e2e.secret.message}',
+      OPENDEPLOY_E2E_MESSAGE: {type: 'config', name: 'e2e.config.message'},
+      OPENDEPLOY_E2E_COLOR: {type: 'secret', name: 'e2e.secret.message'},
+      OPENDEPLOY_E2E_CONFIG: {type: 'config', name: 'e2e.config.message'},
+      OPENDEPLOY_E2E_SECRET: {type: 'secret', name: 'e2e.secret.message'},
     },
     expectedEnv: {
       OPENDEPLOY_E2E_MESSAGE: 'hello-from-config-page',
