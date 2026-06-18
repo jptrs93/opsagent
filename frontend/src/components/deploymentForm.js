@@ -1,9 +1,10 @@
 import van from "vanjs-core";
 import {X} from "vanjs-feather";
 import {capi} from "../capi/index.js";
+import {referencePicker} from "./referencePicker.js";
 import {secretRefsS, userConfigRefsS} from "../state/deployments.js";
 
-const { div, h3, label, input, select, option, button, p, span, datalist, textarea, table, thead, tbody, tfoot, tr, th, td, ul, li } = van.tags;
+const { div, h3, label, input, select, option, button, p, span, datalist, textarea, table, thead, tbody, tfoot, tr, th, td } = van.tags;
 
 const SOURCE_NIX_DOCKER = 'nixDockerBuild';
 const SOURCE_DOCKER_IMAGE = 'containerImage';
@@ -1049,61 +1050,21 @@ function envValueInput(form, row) {
 
 function envReferenceAutocomplete(form, row) {
     const isSecret = row.type === 'secret';
-    const refs = isSecret ? (secretRefsS.val || []) : (userConfigRefsS.val || []);
     const selectedID = isSecret ? Number(row.secretId || 0) : Number(row.configId || 0);
-    const selected = refs.find(ref => ref.id === selectedID);
-    const search = van.state(row.refSearch ?? selected?.name ?? '');
-    const open = van.state(false);
-    const matches = () => {
-        const query = search.val.trim().toLowerCase();
-        const filtered = query
-            ? refs.filter(ref => ref.name.toLowerCase().includes(query))
-            : refs;
-        return filtered.slice(0, 8);
-    };
-    const applySearch = (refSearch) => {
-        const match = refs.find(ref => ref.name === refSearch);
-        updateEnvRow(form, row.id, isSecret
-            ? {refSearch, secretId: match?.id || 0}
-            : {refSearch, configId: match?.id || 0});
-    };
-    const choose = (ref) => {
-        search.val = ref.name;
-        applySearch(ref.name);
-        open.val = false;
-    };
-    return div({class: "relative"},
-        input({
-            type: "text",
-            class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand",
-            placeholder: isSecret ? "Search secrets" : "Search configs",
-            value: search,
-            autocomplete: "off",
-            onfocus: () => { open.val = true; },
-            onblur: () => { setTimeout(() => { open.val = false; }, 120); },
-            oninput: e => {
-                search.val = e.target.value;
-                open.val = true;
-                applySearch(search.val);
-            },
-        }),
-        () => {
-            if (!open.val) return '';
-            const items = matches();
-            return ul(
-                {class: "absolute z-50 mt-1 max-h-44 w-full overflow-auto rounded-md border border-gray-700 bg-gray-900 shadow-xl"},
-                ...(items.length === 0
-                    ? [li({class: "px-2 py-1.5 text-gray-500"}, `No matching ${isSecret ? 'secrets' : 'configs'}`)]
-                    : items.map(ref => li({
-                    class: () => `cursor-pointer px-2 py-1.5 text-gray-200 hover:bg-gray-800 ${ref.id === selectedID ? 'bg-gray-800' : ''}`,
-                    onmousedown: e => {
-                        e.preventDefault();
-                        choose(ref);
-                    },
-                }, ref.name))),
-            );
+    const selectedKey = van.state(selectedID || '');
+    return referencePicker({
+        refs: () => isSecret ? (secretRefsS.val || []) : (userConfigRefsS.val || []),
+        selectedKey,
+        placeholder: isSecret ? "Search secrets" : "Search configs",
+        noMatchesLabel: `No matching ${isSecret ? 'secrets' : 'configs'}`,
+        emptyLabel: `No ${isSecret ? 'secrets' : 'configs'} available`,
+        onSelect: ref => {
+            selectedKey.val = ref.id;
+            updateEnvRow(form, row.id, isSecret
+                ? {secretId: ref.id}
+                : {configId: ref.id});
         },
-    );
+    });
 }
 
 function newEnvRow(values = {}) {

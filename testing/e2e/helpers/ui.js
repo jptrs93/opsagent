@@ -422,7 +422,9 @@ async function setDeploymentEnvVars(dialog, env) {
     const ref = envVarRef(value);
     if (ref.type !== 'value') {
       await row.locator('select').selectOption(ref.type);
-      await row.locator('input').nth(1).fill(ref.name);
+      const picker = row.locator('input').nth(1);
+      await picker.fill(ref.name);
+      await picker.press('Enter');
     } else {
       await row.locator('input').nth(1).fill(ref.value);
     }

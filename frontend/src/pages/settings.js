@@ -1,8 +1,9 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
+import {referencePicker} from "../components/referencePicker.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 
-const { div, h2, p, pre, span, table, tbody, tr, td, button, code, input, select, option, label: labelEl } = van.tags;
+const { div, h2, p, pre, span, table, tbody, tr, td, button, code, input, label: labelEl } = van.tags;
 const { svg, path, circle, line } = van.tags("http://www.w3.org/2000/svg");
 
 const boolValue = (value) => value ? "true" : "false";
@@ -116,24 +117,21 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
                 error.val = e.message;
             }
         };
-        const options = () => {
-            const current = item()?.value || "";
-            const list = secrets.val || [];
-            if (!current || list.some(s => s.name === current)) return list;
-            return [{name: current}, ...list];
-        };
-
         return div(
             {class: "flex items-center gap-2"},
-            () => select({
-                class: inputClass,
+            referencePicker({
+                refs: secrets,
+                selectedKey: () => item()?.value || "",
+                selectedLabel: () => item()?.value || "",
+                getKey: ref => ref.name,
+                getLabel: ref => ref.name,
+                placeholder: "Search secrets",
+                noMatchesLabel: "No matching secrets",
+                emptyLabel: "No secrets available",
+                inputClass,
                 disabled: () => saving.val,
-                value: () => item()?.value || "",
-                onchange: (e) => patch({value: e.target.value, revealed: false, revealedValue: ""}),
-            },
-                option({value: "", selected: () => !item()?.value}, "No secret selected"),
-                ...options().map(s => option({value: s.name, selected: s.name === item()?.value}, s.name)),
-            ),
+                onSelect: ref => patch({value: ref.name, revealed: false, revealedValue: ""}),
+            }),
             button({
                 type: "button",
                 disabled: () => saving.val,
