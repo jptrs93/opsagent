@@ -156,6 +156,7 @@
  * @property {Date} updatedAt
  * @property {number} updatedBy
  * @property {number} id
+ * @property {boolean} deleted
  */
 /**
  * @typedef {Object} SecretList
@@ -201,6 +202,7 @@
  * @property {Date} updatedAt
  * @property {number} updatedBy
  * @property {number} id
+ * @property {boolean} deleted
  */
 /**
  * @typedef {Object} UserConfigList
@@ -333,6 +335,11 @@
  * @property {SecretReference} secretUpdate
  * @property {UserConfigReferenceList} userConfigsSnapshot
  * @property {UserConfigReference} userConfigUpdate
+ * @property {SecretsStatusResponse} secretsStatusSnapshot
+ * @property {SecretList} secretMetasSnapshot
+ * @property {SecretMeta} secretMetaUpdate
+ * @property {UserConfigList} userConfigValuesSnapshot
+ * @property {UserConfig} userConfigValueUpdate
  */
 /**
  * @typedef {Object} SecretReference
@@ -2534,6 +2541,9 @@ export function writeSecretMeta(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(6, WIRE.VARINT)).int32(message.id);
     }
+    if (message.deleted === true) {
+        writer.uint32(tag(7, WIRE.VARINT)).bool(message.deleted);
+    }
 }
 
 
@@ -2555,7 +2565,7 @@ export function encodeSecretMeta(message) {
  */
 function decodeSecretMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", group: "", createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0, id: 0 };
+    const message = {name: "", group: "", createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0, id: 0, deleted: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2581,6 +2591,10 @@ function decodeSecretMetaMessage(reader, length) {
             }
             case 6: {
                 message.id = reader.int32();
+                break;
+            }
+            case 7: {
+                message.deleted = reader.bool();
                 break;
             }
             default:
@@ -3101,6 +3115,9 @@ export function writeUserConfig(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(7, WIRE.VARINT)).int32(message.id);
     }
+    if (message.deleted === true) {
+        writer.uint32(tag(8, WIRE.VARINT)).bool(message.deleted);
+    }
 }
 
 
@@ -3122,7 +3139,7 @@ export function encodeUserConfig(message) {
  */
 function decodeUserConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", group: "", value: "", createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0, id: 0 };
+    const message = {name: "", group: "", value: "", createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0, id: 0, deleted: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3152,6 +3169,10 @@ function decodeUserConfigMessage(reader, length) {
             }
             case 7: {
                 message.id = reader.int32();
+                break;
+            }
+            case 8: {
+                message.deleted = reader.bool();
                 break;
             }
             default:
@@ -4642,6 +4663,31 @@ export function writeState(message, writer) {
         writeUserConfigReference(message.userConfigUpdate, writer);
         writer.ldelim();
     }
+    if (message.secretsStatusSnapshot !== undefined && message.secretsStatusSnapshot !== null) {
+        writer.uint32(tag(16, WIRE.LDELIM)).fork();
+        writeSecretsStatusResponse(message.secretsStatusSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.secretMetasSnapshot !== undefined && message.secretMetasSnapshot !== null) {
+        writer.uint32(tag(17, WIRE.LDELIM)).fork();
+        writeSecretList(message.secretMetasSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.secretMetaUpdate !== undefined && message.secretMetaUpdate !== null) {
+        writer.uint32(tag(18, WIRE.LDELIM)).fork();
+        writeSecretMeta(message.secretMetaUpdate, writer);
+        writer.ldelim();
+    }
+    if (message.userConfigValuesSnapshot !== undefined && message.userConfigValuesSnapshot !== null) {
+        writer.uint32(tag(19, WIRE.LDELIM)).fork();
+        writeUserConfigList(message.userConfigValuesSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.userConfigValueUpdate !== undefined && message.userConfigValueUpdate !== null) {
+        writer.uint32(tag(20, WIRE.LDELIM)).fork();
+        writeUserConfig(message.userConfigValueUpdate, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -4663,7 +4709,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, machinesSnapshot: undefined, machineUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined };
+    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, machinesSnapshot: undefined, machineUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4717,6 +4763,26 @@ function decodeStateMessage(reader, length) {
             }
             case 15: {
                 message.userConfigUpdate = decodeUserConfigReferenceMessage(reader, reader.uint32());
+                break;
+            }
+            case 16: {
+                message.secretsStatusSnapshot = decodeSecretsStatusResponseMessage(reader, reader.uint32());
+                break;
+            }
+            case 17: {
+                message.secretMetasSnapshot = decodeSecretListMessage(reader, reader.uint32());
+                break;
+            }
+            case 18: {
+                message.secretMetaUpdate = decodeSecretMetaMessage(reader, reader.uint32());
+                break;
+            }
+            case 19: {
+                message.userConfigValuesSnapshot = decodeUserConfigListMessage(reader, reader.uint32());
+                break;
+            }
+            case 20: {
+                message.userConfigValueUpdate = decodeUserConfigMessage(reader, reader.uint32());
                 break;
             }
             default:

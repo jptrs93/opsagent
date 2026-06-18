@@ -16,10 +16,16 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 		defer updatesUnsub()
 		userSub, userUnsub := h.Store.SubscribeUserUpdates()
 		defer userUnsub()
+		secretStatusSub, secretStatusUnsub := h.Store.SubscribeSecretsStatusUpdates()
+		defer secretStatusUnsub()
 		secretSub, secretUnsub := h.Store.SubscribeSecretReferenceUpdates()
 		defer secretUnsub()
+		secretMetaSub, secretMetaUnsub := h.Store.SubscribeSecretMetaUpdates()
+		defer secretMetaUnsub()
 		userConfigSub, userConfigUnsub := h.Store.SubscribeUserConfigReferenceUpdates()
 		defer userConfigUnsub()
+		userConfigValueSub, userConfigValueUnsub := h.Store.SubscribeUserConfigValueUpdates()
+		defer userConfigValueUnsub()
 		enrollments, enrollmentCh, enrollmentUnsub, err := h.Store.MustFetchEnrollmentSnapshotAndSubscribe()
 		if err != nil {
 			yield(nil, err)
@@ -48,13 +54,17 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 		for i := range snapshot {
 			items = append(items, redactDeploymentWithStatus(&snapshot[i]))
 		}
+		secretStatus := h.secretsStatus()
 		initial := &apigen.State{
-			DeploymentsSnapshot: &apigen.DeploymentWithStatusSnapshot{Items: items},
-			UsersSnapshot:       h.Store.ListUsersPublic(),
-			MachinesSnapshot:    &apigen.ClusterMachineList{Items: machines},
-			EnrollmentsSnapshot: &apigen.EnrollmentRequestList{Items: enrollments},
-			SecretsSnapshot:     &apigen.SecretReferenceList{Items: h.Store.ListSecretReferences()},
-			UserConfigsSnapshot: &apigen.UserConfigReferenceList{Items: h.Store.ListUserConfigReferences()},
+			DeploymentsSnapshot:      &apigen.DeploymentWithStatusSnapshot{Items: items},
+			UsersSnapshot:            h.Store.ListUsersPublic(),
+			MachinesSnapshot:         &apigen.ClusterMachineList{Items: machines},
+			EnrollmentsSnapshot:      &apigen.EnrollmentRequestList{Items: enrollments},
+			SecretsSnapshot:          &apigen.SecretReferenceList{Items: h.Store.ListSecretReferences()},
+			UserConfigsSnapshot:      &apigen.UserConfigReferenceList{Items: h.Store.ListUserConfigReferences()},
+			SecretsStatusSnapshot:    &secretStatus,
+			SecretMetasSnapshot:      &apigen.SecretList{Items: h.listSecretMetas()},
+			UserConfigValuesSnapshot: &apigen.UserConfigList{Items: h.Store.ListUserConfigs()},
 		}
 		if !yield(initial, nil) {
 			return
@@ -82,6 +92,13 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 				if !yield(&apigen.State{UserUpdate: &u}, nil) {
 					return
 				}
+			case status, ok := <-secretStatusSub.Ch:
+				if !ok {
+					return
+				}
+				if !yield(&apigen.State{SecretsStatusSnapshot: &status}, nil) {
+					return
+				}
 			case secret, ok := <-secretSub.Ch:
 				if !ok {
 					return
@@ -89,11 +106,25 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 				if !yield(&apigen.State{SecretUpdate: &secret}, nil) {
 					return
 				}
+			case secretMeta, ok := <-secretMetaSub.Ch:
+				if !ok {
+					return
+				}
+				if !yield(&apigen.State{SecretMetaUpdate: &secretMeta}, nil) {
+					return
+				}
 			case userConfig, ok := <-userConfigSub.Ch:
 				if !ok {
 					return
 				}
 				if !yield(&apigen.State{UserConfigUpdate: &userConfig}, nil) {
+					return
+				}
+			case userConfigValue, ok := <-userConfigValueSub.Ch:
+				if !ok {
+					return
+				}
+				if !yield(&apigen.State{UserConfigValueUpdate: &userConfigValue}, nil) {
 					return
 				}
 			case machine, ok := <-machineCh:

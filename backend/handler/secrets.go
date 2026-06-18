@@ -28,13 +28,25 @@ func secretMetaToProto(m secrets.Meta) *apigen.SecretMeta {
 	}
 }
 
-func (h *Handler) PostV1SecretsList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.SecretList, error) {
+func (h *Handler) secretsStatus() apigen.SecretsStatusResponse {
+	unlocked, recoveryConfigured := h.Secrets.Status()
+	return apigen.SecretsStatusResponse{
+		Unlocked:           unlocked,
+		RecoveryConfigured: recoveryConfigured,
+	}
+}
+
+func (h *Handler) listSecretMetas() []*apigen.SecretMeta {
 	metas := h.Secrets.List()
 	items := make([]*apigen.SecretMeta, 0, len(metas))
 	for _, m := range metas {
 		items = append(items, secretMetaToProto(m))
 	}
-	return &apigen.SecretList{Items: items}, nil
+	return items
+}
+
+func (h *Handler) PostV1SecretsList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.SecretList, error) {
+	return &apigen.SecretList{Items: h.listSecretMetas()}, nil
 }
 
 func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequest) (*apigen.SecretMeta, error) {
@@ -57,6 +69,7 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 	}
 	proto := secretMetaToProto(meta)
 	h.Store.NotifySecretReferenceUpdate(apigen.SecretReference{ID: proto.ID, Name: proto.Name})
+	h.Store.NotifySecretMetaUpdate(*proto)
 	return proto, nil
 }
 
@@ -102,9 +115,12 @@ func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDele
 	}
 	name := strings.TrimSpace(req.Name)
 	var deleted *apigen.SecretReference
-	for _, ref := range h.Store.ListSecretReferences() {
-		if ref.Name == name {
-			deleted = &apigen.SecretReference{ID: ref.ID, Name: ref.Name, Deleted: true}
+	var deletedMeta *apigen.SecretMeta
+	for _, meta := range h.listSecretMetas() {
+		if meta.Name == name {
+			deleted = &apigen.SecretReference{ID: meta.ID, Name: meta.Name, Deleted: true}
+			deletedMeta = meta
+			deletedMeta.Deleted = true
 			break
 		}
 	}
@@ -117,15 +133,15 @@ func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDele
 	if deleted != nil {
 		h.Store.NotifySecretReferenceUpdate(*deleted)
 	}
+	if deletedMeta != nil {
+		h.Store.NotifySecretMetaUpdate(*deletedMeta)
+	}
 	return nil
 }
 
 func (h *Handler) PostV1SecretsStatus(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.SecretsStatusResponse, error) {
-	unlocked, recoveryConfigured := h.Secrets.Status()
-	return &apigen.SecretsStatusResponse{
-		Unlocked:           unlocked,
-		RecoveryConfigured: recoveryConfigured,
-	}, nil
+	status := h.secretsStatus()
+	return &status, nil
 }
 
 func (h *Handler) PostV1SecretsGenerateRecoveryCode(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.SecretRecoveryCodeResponse, error) {
@@ -136,6 +152,8 @@ func (h *Handler) PostV1SecretsGenerateRecoveryCode(ctx apigen.Context, req *api
 		}
 		return nil, err
 	}
+	status := h.secretsStatus()
+	h.Store.NotifySecretsStatusUpdate(status)
 	return &apigen.SecretRecoveryCodeResponse{Code: code}, nil
 }
 
@@ -150,9 +168,7 @@ func (h *Handler) PostV1SecretsUnlock(ctx apigen.Context, req *apigen.SecretUnlo
 			return nil, err
 		}
 	}
-	unlocked, recoveryConfigured := h.Secrets.Status()
-	return &apigen.SecretsStatusResponse{
-		Unlocked:           unlocked,
-		RecoveryConfigured: recoveryConfigured,
-	}, nil
+	status := h.secretsStatus()
+	h.Store.NotifySecretsStatusUpdate(status)
+	return &status, nil
 }

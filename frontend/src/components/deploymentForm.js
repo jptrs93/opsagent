@@ -1164,7 +1164,10 @@ function hasInvalidEnvVars(form) {
 }
 
 function envVarsToFormRows(envVars) {
-    return Object.entries(envVars || {}).map(([key, value]) => {
+    return Object.entries(envVars || {})
+        .map(([key, value], index) => ({key, value, index}))
+        .sort((a, b) => a.key.localeCompare(b.key) || a.index - b.index)
+        .map(({key, value}) => {
         const secretId = Number(value?.secretId || 0);
         const configId = Number(value?.configId || 0);
         if (secretId) return newEnvRow({key, type: 'secret', secretId});

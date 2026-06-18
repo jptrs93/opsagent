@@ -1,6 +1,7 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
+import {secretMetasS, secretsStatusS, userConfigsS} from "../state/deployments.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, code } = van.tags;
 const { svg, path, circle, line } = van.tags("http://www.w3.org/2000/svg");
@@ -10,6 +11,7 @@ const svgBase = {
     "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round",
     class: "w-4 h-4",
 };
+const DEFAULT_SECRET_MASK = "••••••••••••••••";
 
 const eyeOpenIcon = () => svg(svgBase,
     path({d: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"}),
@@ -48,10 +50,12 @@ const actionButton = (text, onclick, cls = "bg-gray-700 text-gray-200 hover:bg-g
 }, plusIcon(), text);
 
 export function secretsPage() {
-    const status = van.state(null);
     const rows = van.state(null);
     const error = van.state(null);
     const search = van.state("");
+    const sort = van.state({key: "name", dir: "asc"});
+    let localRows = null;
+    let streamSignature = '';
 
     const errorBanner = () => error.val ? p({class: "text-red-400 text-sm"}, `Error: ${error.val}`) : "";
 
@@ -85,46 +89,89 @@ export function secretsPage() {
         ? row.isNew || row.name.val !== row.orig.name || row.value.val !== row.orig.value
         : row.isNew || row.name.val !== row.orig.name || row.valueDirty.val;
 
-    const loadStatus = async () => { status.val = await capi.postV1SecretsStatus({}); };
-
-    const reloadRows = async () => {
-        const pending = (rows.val || []).filter(r => r.isNew && !r._saved);
-        const configsRes = await capi.postV1UserConfigsList({});
-        const configRows = (configsRes.items || []).map(makeConfigRow);
-        let secretRows = [];
-        if (status.val && status.val.unlocked) {
-            const secretsRes = await capi.postV1SecretsList({});
-            secretRows = (secretsRes.items || []).map(makeSecretRow);
-        }
-        rows.val = [...secretRows, ...configRows, ...pending];
+    const setRows = (next) => {
+        localRows = next;
+        rows.val = next;
     };
 
-    const reload = async () => {
-        try {
-            error.val = null;
-            await loadStatus();
-            await reloadRows();
-        } catch (e) {
-            error.val = e.message;
-        }
+    const rowKey = (row) => `${row.type}:${row.orig.name}`;
+
+    const syncRowsFromUniverse = () => {
+        const status = secretsStatusS.val;
+        if (!status) return;
+        const existing = new Map((localRows || [])
+            .filter(row => !row.isNew && row.orig.name)
+            .map(row => [rowKey(row), row]));
+        const preserveOrMake = (key, make) => {
+            const current = existing.get(key);
+            return current && isDirty(current) ? current : make();
+        };
+        const secretRows = status.unlocked
+            ? (secretMetasS.val || []).map(meta => preserveOrMake(`secret:${meta.name}`, () => makeSecretRow(meta)))
+            : [];
+        const configRows = (userConfigsS.val || []).map(config => preserveOrMake(`config:${config.name}`, () => makeConfigRow(config)));
+        const pending = (localRows || []).filter(row => row.isNew && !row._saved);
+        setRows([...secretRows, ...configRows, ...pending]);
     };
 
-    reload();
+    van.derive(() => {
+        const status = secretsStatusS.val;
+        const signature = JSON.stringify({
+            status,
+            secrets: (secretMetasS.val || []).map(item => [item.id, item.name, item.group, item.updatedAt, item.updatedBy]),
+            configs: (userConfigsS.val || []).map(item => [item.id, item.name, item.group, item.value, item.updatedAt, item.updatedBy]),
+        });
+        if (signature === streamSignature) return;
+        streamSignature = signature;
+        syncRowsFromUniverse();
+    });
 
-    const addRow = (type) => { rows.val = [...(rows.val || []), type === "secret" ? makeSecretRow(null) : makeConfigRow(null)]; };
-    const removeRow = (row) => { rows.val = rows.val.filter(r => r !== row); };
+    const addRow = (type) => { setRows([...(rows.val || []), type === "secret" ? makeSecretRow(null) : makeConfigRow(null)]); };
+    const removeRow = (row) => { setRows((rows.val || []).filter(r => r !== row)); };
+    const sortValue = (row, key) => {
+        if (key === "type") return row.type;
+        if (key === "value") return row.type === "config" ? row.value.val : "";
+        return row.name.val;
+    };
+
+    const sortRows = (items) => {
+        const {key, dir} = sort.val;
+        const direction = dir === "desc" ? -1 : 1;
+        return [...items].sort((a, b) => {
+            const av = sortValue(a, key).toLowerCase();
+            const bv = sortValue(b, key).toLowerCase();
+            const cmp = av.localeCompare(bv) || a.name.val.localeCompare(b.name.val) || a.type.localeCompare(b.type);
+            return cmp * direction;
+        });
+    };
+
+    const setSort = (key) => {
+        const current = sort.val;
+        sort.val = current.key === key
+            ? {key, dir: current.dir === "asc" ? "desc" : "asc"}
+            : {key, dir: "asc"};
+    };
+
     const filteredRows = () => {
         if (!rows.val) return rows.val;
         const query = search.val.trim().toLowerCase();
-        if (!query) return rows.val;
-        return rows.val.filter(row =>
+        const filtered = query ? rows.val.filter(row =>
             row.type.includes(query) ||
             row.name.val.toLowerCase().includes(query) ||
-            (row.type === "config" && row.value.val.toLowerCase().includes(query)));
+            (row.type === "config" && row.value.val.toLowerCase().includes(query))) : rows.val;
+        return sortRows(filtered);
     };
 
     const toggleReveal = async (row) => {
-        if (row.revealed.val) { row.revealed.val = false; return; }
+        if (row.revealed.val) {
+            row.revealed.val = false;
+            if (!row.isNew && !row.valueDirty.val) {
+                row.value.val = "";
+                row.orig.value = "";
+                row.loaded.val = false;
+            }
+            return;
+        }
         if (!row.loaded.val && !row.isNew) {
             try {
                 error.val = null;
@@ -174,7 +221,6 @@ export function secretsPage() {
             if (row.type === "secret") await saveSecretRow(row, name);
             else await saveConfigRow(row, name);
             row._saved = true;
-            await reloadRows();
         } catch (e) {
             error.val = e.message;
         }
@@ -197,7 +243,6 @@ export function secretsPage() {
             error.val = null;
             if (row.type === "secret") await capi.postV1SecretsDelete({name: row.orig.name});
             else await capi.postV1UserConfigsDelete({name: row.orig.name});
-            await reloadRows();
         } catch (e) {
             error.val = e.message;
         }
@@ -209,13 +254,12 @@ export function secretsPage() {
             error.val = null;
             await capi.postV1SecretsUnlock({code: unlockCode.val});
             unlockCode.val = "";
-            await reload();
         } catch (e) {
             error.val = e.message;
         }
     };
 
-    const lockedSection = () => status.val && !status.val.unlocked ? div(
+    const lockedSection = () => secretsStatusS.val && !secretsStatusS.val.unlocked ? div(
         {class: "rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 flex flex-col gap-3 max-w-2xl"},
         h2({class: "text-sm font-semibold text-amber-300"}, "Secrets store is locked"),
         p({class: "text-sm text-gray-400"},
@@ -256,9 +300,14 @@ export function secretsPage() {
             type: "text",
             autocomplete: "off",
             style: () => row.revealed.val ? "" : "-webkit-text-security: disc;",
-            placeholder: row.isNew ? "value" : "••••••••",
-            value: row.value,
-            oninput: (e) => { row.value.val = e.target.value; row.valueDirty.val = true; },
+            readonly: () => !row.isNew && !row.revealed.val,
+            placeholder: row.isNew ? "value" : DEFAULT_SECRET_MASK,
+            value: () => row.isNew || row.revealed.val ? row.value.val : "",
+            oninput: (e) => {
+                if (!row.isNew && !row.revealed.val) return;
+                row.value.val = e.target.value;
+                row.valueDirty.val = true;
+            },
         }),
         iconButton(() => row.revealed.val ? eyeOffIcon() : eyeOpenIcon(),
             () => toggleReveal(row)),
@@ -278,23 +327,28 @@ export function secretsPage() {
                 : iconButton(trashIcon(), () => deleteRow(row), "hover:text-red-400")),
     );
 
+    const sortableHeader = (key, label, cls = "") => th({class: `pb-2 pr-3 font-medium ${cls}`},
+        button({
+            type: "button",
+            class: "inline-flex items-center gap-1 text-gray-400 hover:text-gray-100 cursor-pointer",
+            onclick: () => setSort(key),
+        }, label, () => sort.val.key === key ? (sort.val.dir === "asc" ? " ^" : " v") : ""));
+
     const contentTable = () => div(
         {class: "card h-full min-h-0 flex flex-col gap-3"},
         errorBanner,
         lockedSection,
         div({class: "flex flex-wrap items-center justify-between gap-3"},
-            p({class: "text-xs text-gray-400"},
-                "Use the deployment environment panel to attach secrets/configs by ID."),
+            input({
+                class: "text-input search-input",
+                type: "search",
+                placeholder: "Search secrets / configs",
+                value: search,
+                oninput: (e) => search.val = e.target.value,
+            }),
             div({class: "flex flex-wrap items-center gap-2"},
-                input({
-                    class: "text-input search-input",
-                    type: "search",
-                    placeholder: "Search secrets / configs",
-                    value: search,
-                    oninput: (e) => search.val = e.target.value,
-                }),
                 actionButton("Add secret", () => addRow("secret"), "bg-gray-700 text-gray-200 hover:bg-gray-600",
-                    () => !status.val || !status.val.unlocked),
+                    () => !secretsStatusS.val || !secretsStatusS.val.unlocked),
                 actionButton("Add config", () => addRow("config")))),
         div({class: "flex-1 min-h-0 overflow-auto"}, () => {
             if (rows.val === null) return p({class: "text-gray-400 text-sm"}, "Loading...");
@@ -309,9 +363,9 @@ export function secretsPage() {
                 {class: "w-full text-sm"},
                 thead(
                     tr({class: "text-left text-gray-400 border-b border-gray-700"},
-                        th({class: "pb-2 pr-3 font-medium w-px"}, "Type"),
-                        th({class: "pb-2 pr-3 font-medium"}, "Name"),
-                        th({class: "pb-2 pr-3 font-medium"}, "Value"),
+                        sortableHeader("type", "Type", "w-px"),
+                        sortableHeader("name", "Name"),
+                        sortableHeader("value", "Value"),
                         th({class: "pb-2 w-px"}, ""),
                     )),
                 tbody(...visibleRows.map(rowEl)),

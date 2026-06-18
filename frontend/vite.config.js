@@ -12,7 +12,7 @@ export default defineConfig({
     server: {
         proxy: {
             '/v1': {
-                target: 'https://opendeploy.d.flippingcopilot.com',
+                target: 'http://localhost:8080',
                 changeOrigin: true,
             }
         }

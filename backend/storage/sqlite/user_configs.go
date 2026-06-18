@@ -56,6 +56,7 @@ func (s *PrimaryStorage) SetUserConfig(name, group, value string, updatedBy int3
 	}
 	cfg := userConfigRowToProto(r)
 	s.userConfigSubs.Notify(apigen.UserConfigReference{ID: cfg.ID, Name: cfg.Name})
+	s.userConfigValueSubs.Notify(*cfg)
 	return cfg
 }
 
@@ -74,8 +75,11 @@ func (s *PrimaryStorage) nextUserConfigID(name string) int32 {
 
 func (s *PrimaryStorage) DeleteUserConfig(name string) {
 	var update *apigen.UserConfigReference
+	var valueUpdate *apigen.UserConfig
 	if r, err := s.q.GetUserConfig(context.Background(), name); err == nil {
 		update = &apigen.UserConfigReference{ID: int32(r.ID), Name: r.Name, Deleted: true}
+		valueUpdate = userConfigRowToProto(r)
+		valueUpdate.Deleted = true
 	} else if err != sql.ErrNoRows {
 		panic(fmt.Sprintf("GetUserConfig before delete: %v", err))
 	}
@@ -84,6 +88,9 @@ func (s *PrimaryStorage) DeleteUserConfig(name string) {
 	}
 	if update != nil {
 		s.userConfigSubs.Notify(*update)
+	}
+	if valueUpdate != nil {
+		s.userConfigValueSubs.Notify(*valueUpdate)
 	}
 }
 

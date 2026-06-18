@@ -23,20 +23,26 @@ const SystemEnvironment = "OPENDEPLOY"
 
 type PrimaryStorage struct {
 	*deploymentStore
-	userSubs       *pubsubu.PubSub[apigen.User]
-	secretSubs     *pubsubu.PubSub[apigen.SecretReference]
-	userConfigSubs *pubsubu.PubSub[apigen.UserConfigReference]
-	enrollmentSubs *pubsubu.PubSub[apigen.EnrollmentRequestStatus]
+	userSubs            *pubsubu.PubSub[apigen.User]
+	secretStatusSubs    *pubsubu.PubSub[apigen.SecretsStatusResponse]
+	secretSubs          *pubsubu.PubSub[apigen.SecretReference]
+	secretMetaSubs      *pubsubu.PubSub[apigen.SecretMeta]
+	userConfigSubs      *pubsubu.PubSub[apigen.UserConfigReference]
+	userConfigValueSubs *pubsubu.PubSub[apigen.UserConfig]
+	enrollmentSubs      *pubsubu.PubSub[apigen.EnrollmentRequestStatus]
 }
 
 func NewPrimaryStorage(dbPath string) *PrimaryStorage {
 	db := mustInitPrimary(dbPath)
 	return &PrimaryStorage{
-		deploymentStore: newDeploymentStore(db),
-		userSubs:        &pubsubu.PubSub[apigen.User]{},
-		secretSubs:      &pubsubu.PubSub[apigen.SecretReference]{},
-		userConfigSubs:  &pubsubu.PubSub[apigen.UserConfigReference]{},
-		enrollmentSubs:  &pubsubu.PubSub[apigen.EnrollmentRequestStatus]{},
+		deploymentStore:     newDeploymentStore(db),
+		userSubs:            &pubsubu.PubSub[apigen.User]{},
+		secretStatusSubs:    &pubsubu.PubSub[apigen.SecretsStatusResponse]{},
+		secretSubs:          &pubsubu.PubSub[apigen.SecretReference]{},
+		secretMetaSubs:      &pubsubu.PubSub[apigen.SecretMeta]{},
+		userConfigSubs:      &pubsubu.PubSub[apigen.UserConfigReference]{},
+		userConfigValueSubs: &pubsubu.PubSub[apigen.UserConfig]{},
+		enrollmentSubs:      &pubsubu.PubSub[apigen.EnrollmentRequestStatus]{},
 	}
 }
 
@@ -733,8 +739,26 @@ func (s *PrimaryStorage) NotifySecretReferenceUpdate(ref apigen.SecretReference)
 	s.secretSubs.Notify(ref)
 }
 
+func (s *PrimaryStorage) NotifySecretsStatusUpdate(status apigen.SecretsStatusResponse) {
+	s.secretStatusSubs.Notify(status)
+}
+
+func (s *PrimaryStorage) SubscribeSecretsStatusUpdates() (*pubsubu.Sub[apigen.SecretsStatusResponse], func()) {
+	sub := s.secretStatusSubs.Subscribe(nil)
+	return sub, sub.UnsubscribeFunc
+}
+
+func (s *PrimaryStorage) NotifySecretMetaUpdate(meta apigen.SecretMeta) {
+	s.secretMetaSubs.Notify(meta)
+}
+
 func (s *PrimaryStorage) SubscribeSecretReferenceUpdates() (*pubsubu.Sub[apigen.SecretReference], func()) {
 	sub := s.secretSubs.Subscribe(nil)
+	return sub, sub.UnsubscribeFunc
+}
+
+func (s *PrimaryStorage) SubscribeSecretMetaUpdates() (*pubsubu.Sub[apigen.SecretMeta], func()) {
+	sub := s.secretMetaSubs.Subscribe(nil)
 	return sub, sub.UnsubscribeFunc
 }
 
@@ -749,6 +773,11 @@ func (s *PrimaryStorage) ListUserConfigReferences() []*apigen.UserConfigReferenc
 
 func (s *PrimaryStorage) SubscribeUserConfigReferenceUpdates() (*pubsubu.Sub[apigen.UserConfigReference], func()) {
 	sub := s.userConfigSubs.Subscribe(nil)
+	return sub, sub.UnsubscribeFunc
+}
+
+func (s *PrimaryStorage) SubscribeUserConfigValueUpdates() (*pubsubu.Sub[apigen.UserConfig], func()) {
+	sub := s.userConfigValueSubs.Subscribe(nil)
 	return sub, sub.UnsubscribeFunc
 }
 

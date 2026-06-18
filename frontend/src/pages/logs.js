@@ -105,11 +105,6 @@ export function logsPage(selectedDeploymentId) {
         if (selectedDeploymentId.val && selectedDeploymentId.val !== deploymentId.val) {
             deploymentId.val = selectedDeploymentId.val;
         }
-        const items = (deploymentsS.val || []).filter(item => item.config?.id && !item.config.deleted);
-        const selected = selectedDeployment(items, Number(deploymentId.val || 0));
-        if (selected && environment.val !== deploymentEnvironment(selected)) {
-            environment.val = deploymentEnvironment(selected);
-        }
     });
 
     van.derive(() => {

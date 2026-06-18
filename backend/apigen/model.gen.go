@@ -1216,6 +1216,7 @@ type SecretMeta struct {
 	UpdatedAt time.Time
 	UpdatedBy int32
 	ID        int32
+	Deleted   bool
 }
 
 func (m *SecretMeta) Encode() []byte {
@@ -1226,6 +1227,7 @@ func (m *SecretMeta) Encode() []byte {
 	b = AppendInt64FromTime(b, m.UpdatedAt, 4)
 	b = AppendInt32Field(b, m.UpdatedBy, 5)
 	b = AppendInt32Field(b, m.ID, 6)
+	b = AppendBoolField(b, m.Deleted, 7)
 	return b
 }
 
@@ -1252,6 +1254,8 @@ func DecodeSecretMeta(b []byte) (*SecretMeta, error) {
 			b, m.UpdatedBy, err = ConsumeVarInt32(b, typ)
 		case 6:
 			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.Deleted, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1560,6 +1564,7 @@ type UserConfig struct {
 	UpdatedAt time.Time
 	UpdatedBy int32
 	ID        int32
+	Deleted   bool
 }
 
 func (m *UserConfig) Encode() []byte {
@@ -1571,6 +1576,7 @@ func (m *UserConfig) Encode() []byte {
 	b = AppendInt64FromTime(b, m.UpdatedAt, 5)
 	b = AppendInt32Field(b, m.UpdatedBy, 6)
 	b = AppendInt32Field(b, m.ID, 7)
+	b = AppendBoolField(b, m.Deleted, 8)
 	return b
 }
 
@@ -1599,6 +1605,8 @@ func DecodeUserConfig(b []byte) (*UserConfig, error) {
 			b, m.UpdatedBy, err = ConsumeVarInt32(b, typ)
 		case 7:
 			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 8:
+			b, m.Deleted, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -2538,19 +2546,24 @@ func DecodeRunnerConfig(b []byte) (*RunnerConfig, error) {
 }
 
 type State struct {
-	Heartbeat           bool
-	DeploymentsSnapshot *DeploymentWithStatusSnapshot
-	DeploymentUpdate    *DeploymentWithStatus
-	UsersSnapshot       []*User
-	UserUpdate          *User
-	MachinesSnapshot    *ClusterMachineList
-	MachineUpdate       *ClusterMachine
-	EnrollmentsSnapshot *EnrollmentRequestList
-	EnrollmentUpdate    *EnrollmentRequestStatus
-	SecretsSnapshot     *SecretReferenceList
-	SecretUpdate        *SecretReference
-	UserConfigsSnapshot *UserConfigReferenceList
-	UserConfigUpdate    *UserConfigReference
+	Heartbeat                bool
+	DeploymentsSnapshot      *DeploymentWithStatusSnapshot
+	DeploymentUpdate         *DeploymentWithStatus
+	UsersSnapshot            []*User
+	UserUpdate               *User
+	MachinesSnapshot         *ClusterMachineList
+	MachineUpdate            *ClusterMachine
+	EnrollmentsSnapshot      *EnrollmentRequestList
+	EnrollmentUpdate         *EnrollmentRequestStatus
+	SecretsSnapshot          *SecretReferenceList
+	SecretUpdate             *SecretReference
+	UserConfigsSnapshot      *UserConfigReferenceList
+	UserConfigUpdate         *UserConfigReference
+	SecretsStatusSnapshot    *SecretsStatusResponse
+	SecretMetasSnapshot      *SecretList
+	SecretMetaUpdate         *SecretMeta
+	UserConfigValuesSnapshot *UserConfigList
+	UserConfigValueUpdate    *UserConfig
 }
 
 func (m *State) Encode() []byte {
@@ -2606,6 +2619,26 @@ func (m *State) Encode() []byte {
 	if m.UserConfigUpdate != nil {
 		b = AppendTag(b, 15, BytesType)
 		b = AppendBytes(b, m.UserConfigUpdate.Encode())
+	}
+	if m.SecretsStatusSnapshot != nil {
+		b = AppendTag(b, 16, BytesType)
+		b = AppendBytes(b, m.SecretsStatusSnapshot.Encode())
+	}
+	if m.SecretMetasSnapshot != nil {
+		b = AppendTag(b, 17, BytesType)
+		b = AppendBytes(b, m.SecretMetasSnapshot.Encode())
+	}
+	if m.SecretMetaUpdate != nil {
+		b = AppendTag(b, 18, BytesType)
+		b = AppendBytes(b, m.SecretMetaUpdate.Encode())
+	}
+	if m.UserConfigValuesSnapshot != nil {
+		b = AppendTag(b, 19, BytesType)
+		b = AppendBytes(b, m.UserConfigValuesSnapshot.Encode())
+	}
+	if m.UserConfigValueUpdate != nil {
+		b = AppendTag(b, 20, BytesType)
+		b = AppendBytes(b, m.UserConfigValueUpdate.Encode())
 	}
 	return b
 }
@@ -2730,6 +2763,51 @@ func DecodeState(b []byte) (*State, error) {
 				item, err = DecodeUserConfigReference(msgBytes)
 				if err == nil {
 					m.UserConfigUpdate = item
+				}
+			}
+		case 16:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretsStatusResponse
+				item, err = DecodeSecretsStatusResponse(msgBytes)
+				if err == nil {
+					m.SecretsStatusSnapshot = item
+				}
+			}
+		case 17:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretList
+				item, err = DecodeSecretList(msgBytes)
+				if err == nil {
+					m.SecretMetasSnapshot = item
+				}
+			}
+		case 18:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretMeta
+				item, err = DecodeSecretMeta(msgBytes)
+				if err == nil {
+					m.SecretMetaUpdate = item
+				}
+			}
+		case 19:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *UserConfigList
+				item, err = DecodeUserConfigList(msgBytes)
+				if err == nil {
+					m.UserConfigValuesSnapshot = item
+				}
+			}
+		case 20:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *UserConfig
+				item, err = DecodeUserConfig(msgBytes)
+				if err == nil {
+					m.UserConfigValueUpdate = item
 				}
 			}
 		default:

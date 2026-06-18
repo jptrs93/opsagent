@@ -409,6 +409,7 @@ message SecretMeta {
   int64 updated_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int32 updated_by = 5;
   int32 id = 6;
+  bool deleted = 7;
 }
 
 message SecretList {
@@ -456,6 +457,7 @@ message UserConfig {
   int64 updated_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int32 updated_by = 6;
   int32 id = 7;
+  bool deleted = 8;
 }
 
 message UserConfigList {
@@ -623,6 +625,11 @@ message State {
   SecretReference secret_update = 13;
   UserConfigReferenceList user_configs_snapshot = 14;
   UserConfigReference user_config_update = 15;
+  SecretsStatusResponse secrets_status_snapshot = 16;
+  SecretList secret_metas_snapshot = 17;
+  SecretMeta secret_meta_update = 18;
+  UserConfigList user_config_values_snapshot = 19;
+  UserConfig user_config_value_update = 20;
 }
 
 message SecretReference {

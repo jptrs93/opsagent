@@ -11,6 +11,9 @@ export const machinesS = van.state([]);
 export const enrollmentsS = van.state([]);
 export const secretRefsS = van.state([]);
 export const userConfigRefsS = van.state([]);
+export const secretsStatusS = van.state(null);
+export const secretMetasS = van.state([]);
+export const userConfigsS = van.state([]);
 export const deploymentsStreamS = van.state({
     status: 'offline',
     sentence: 'offline',
@@ -68,6 +71,9 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
         enrollmentsS.val = [];
         secretRefsS.val = [];
         userConfigRefsS.val = [];
+        secretsStatusS.val = null;
+        secretMetasS.val = [];
+        userConfigsS.val = [];
     }
     setStreamState('offline', 'offline');
 };
@@ -139,6 +145,38 @@ const handleStateMessage = (message) => {
     if (message.userConfigUpdate?.id) {
         userConfigRefsS.val = applyReferenceUpdate(userConfigRefsS.val, message.userConfigUpdate);
     }
+
+    if (message.secretsStatusSnapshot) {
+        secretsStatusS.val = message.secretsStatusSnapshot;
+    }
+
+    if (message.secretMetasSnapshot) {
+        secretMetasS.val = sortByName(message.secretMetasSnapshot.items || []);
+    }
+
+    if (message.secretMetaUpdate?.id) {
+        secretMetasS.val = applyItemUpdate(secretMetasS.val, message.secretMetaUpdate);
+    }
+
+    if (message.userConfigValuesSnapshot) {
+        userConfigsS.val = sortByName(message.userConfigValuesSnapshot.items || []);
+    }
+
+    if (message.userConfigValueUpdate?.id) {
+        userConfigsS.val = applyItemUpdate(userConfigsS.val, message.userConfigValueUpdate);
+    }
+};
+
+const sortByName = (items) => [...items].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+const applyItemUpdate = (items, update) => {
+    const next = new Map((items || []).map((item) => [item.id, item]));
+    if (update.deleted) {
+        next.delete(update.id);
+    } else {
+        next.set(update.id, update);
+    }
+    return sortByName(Array.from(next.values()));
 };
 
 const applyReferenceUpdate = (items, update) => {
