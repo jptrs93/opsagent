@@ -19,6 +19,13 @@ import (
 const OpendeploySpaceID int32 = 0
 const DefaultSpaceID int32 = 1
 
+func normalizedUserSpaceID(spaceID int32) int32 {
+	if spaceID <= 0 {
+		return DefaultSpaceID
+	}
+	return spaceID
+}
+
 type PrimaryStorage struct {
 	*deploymentStore
 	userSubs            *pubsubu.PubSub[apigen.User]
@@ -734,7 +741,7 @@ func (s *PrimaryStorage) ListSecretReferences() []*apigen.SecretReference {
 	metas := s.ListSecrets()
 	out := make([]*apigen.SecretReference, 0, len(metas))
 	for _, m := range metas {
-		out = append(out, &apigen.SecretReference{ID: m.ID, Name: m.Name})
+		out = append(out, &apigen.SecretReference{ID: m.ID, Name: m.Name, SpaceID: m.SpaceID})
 	}
 	return out
 }
@@ -770,7 +777,7 @@ func (s *PrimaryStorage) ListUserConfigReferences() []*apigen.UserConfigReferenc
 	configs := s.ListUserConfigs()
 	out := make([]*apigen.UserConfigReference, 0, len(configs))
 	for _, cfg := range configs {
-		out = append(out, &apigen.UserConfigReference{ID: cfg.ID, Name: cfg.Name})
+		out = append(out, &apigen.UserConfigReference{ID: cfg.ID, Name: cfg.Name, SpaceID: cfg.SpaceID})
 	}
 	return out
 }

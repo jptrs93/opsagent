@@ -187,24 +187,25 @@ ON CONFLICT(key) DO UPDATE SET
 -- === user_configs ===
 
 -- name: ListUserConfigs :many
-SELECT id, name, config_group, value, created_at, updated_at, updated_by
+SELECT id, name, space_id, config_group, value, created_at, updated_at, updated_by
 FROM user_configs ORDER BY name;
 
 -- name: GetUserConfig :one
-SELECT id, name, config_group, value, created_at, updated_at, updated_by
+SELECT id, name, space_id, config_group, value, created_at, updated_at, updated_by
 FROM user_configs WHERE name = ?;
 
 -- name: GetUserConfigByID :one
-SELECT id, name, config_group, value, created_at, updated_at, updated_by
+SELECT id, name, space_id, config_group, value, created_at, updated_at, updated_by
 FROM user_configs WHERE id = ?;
 
 -- name: GetNextUserConfigID :one
 SELECT COALESCE(MAX(id), 0) + 1 FROM user_configs;
 
 -- name: UpsertUserConfig :exec
-INSERT INTO user_configs (id, name, config_group, value, created_at, updated_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO user_configs (id, name, space_id, config_group, value, created_at, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(name) DO UPDATE SET
+    space_id = excluded.space_id,
     config_group = excluded.config_group,
     value = excluded.value,
     updated_at = excluded.updated_at,
@@ -216,7 +217,7 @@ DELETE FROM user_configs WHERE name = ?;
 -- === assets ===
 
 -- name: ListLatestAssets :many
-SELECT a.id, a.key, a.created_at, a.version, a.format, a.location, length(a.blob) AS size_bytes
+SELECT a.id, a.key, a.space_id, a.created_at, a.version, a.format, a.location, length(a.blob) AS size_bytes
 FROM assets a
 JOIN (
     SELECT key, MAX(version) AS version
@@ -226,19 +227,19 @@ JOIN (
 ORDER BY a.key;
 
 -- name: GetLatestAsset :one
-SELECT id, key, created_at, version, format, location, blob
+SELECT id, key, space_id, created_at, version, format, location, blob
 FROM assets
 WHERE key = ?
 ORDER BY version DESC
 LIMIT 1;
 
 -- name: GetAssetVersion :one
-SELECT id, key, created_at, version, format, location, blob
+SELECT id, key, space_id, created_at, version, format, location, blob
 FROM assets
 WHERE key = ? AND version = ?;
 
 -- name: GetAssetByIDVersion :one
-SELECT id, key, created_at, version, format, location, blob
+SELECT id, key, space_id, created_at, version, format, location, blob
 FROM assets
 WHERE id = ? AND version = ?;
 
@@ -248,9 +249,9 @@ FROM assets
 WHERE key = ?;
 
 -- name: InsertAsset :one
-INSERT INTO assets (key, created_at, version, format, location, blob)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, key, created_at, version, format, location, blob;
+INSERT INTO assets (key, space_id, created_at, version, format, location, blob)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING id, key, space_id, created_at, version, format, location, blob;
 
 -- name: DeleteAsset :exec
 DELETE FROM assets WHERE key = ?;
@@ -274,20 +275,21 @@ ON CONFLICT(slot) DO UPDATE SET
 -- === secrets ===
 
 -- name: ListSecrets :many
-SELECT id, name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
+SELECT id, name, space_id, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
 FROM secrets ORDER BY name;
 
 -- name: GetSecretByID :one
-SELECT id, name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
+SELECT id, name, space_id, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
 FROM secrets WHERE id = ?;
 
 -- name: GetNextSecretID :one
 SELECT COALESCE(MAX(id), 0) + 1 FROM secrets;
 
 -- name: UpsertSecret :exec
-INSERT INTO secrets (id, name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO secrets (id, name, space_id, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(name) DO UPDATE SET
+    space_id = excluded.space_id,
     secret_group = excluded.secret_group,
     smk_version = excluded.smk_version,
     ciphertext = excluded.ciphertext,

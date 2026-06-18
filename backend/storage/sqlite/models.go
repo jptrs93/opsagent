@@ -11,6 +11,7 @@ import (
 type Asset struct {
 	ID        int64
 	Key       string
+	SpaceID   int64
 	CreatedAt int64
 	Version   int64
 	Format    string
@@ -90,6 +91,7 @@ type PublicKey struct {
 type Secret struct {
 	ID          int64
 	Name        string
+	SpaceID     int64
 	SecretGroup string
 	SmkVersion  int64
 	Ciphertext  []byte
@@ -137,6 +139,7 @@ type User struct {
 type UserConfig struct {
 	ID          int64
 	Name        string
+	SpaceID     int64
 	ConfigGroup string
 	Value       string
 	CreatedAt   int64

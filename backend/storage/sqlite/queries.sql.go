@@ -128,7 +128,7 @@ func (q *Queries) DeleteUserConfig(ctx context.Context, name string) error {
 }
 
 const getAssetByIDVersion = `-- name: GetAssetByIDVersion :one
-SELECT id, key, created_at, version, format, location, blob
+SELECT id, key, space_id, created_at, version, format, location, blob
 FROM assets
 WHERE id = ? AND version = ?
 `
@@ -144,6 +144,7 @@ func (q *Queries) GetAssetByIDVersion(ctx context.Context, arg GetAssetByIDVersi
 	err := row.Scan(
 		&i.ID,
 		&i.Key,
+		&i.SpaceID,
 		&i.CreatedAt,
 		&i.Version,
 		&i.Format,
@@ -154,7 +155,7 @@ func (q *Queries) GetAssetByIDVersion(ctx context.Context, arg GetAssetByIDVersi
 }
 
 const getAssetVersion = `-- name: GetAssetVersion :one
-SELECT id, key, created_at, version, format, location, blob
+SELECT id, key, space_id, created_at, version, format, location, blob
 FROM assets
 WHERE key = ? AND version = ?
 `
@@ -170,6 +171,7 @@ func (q *Queries) GetAssetVersion(ctx context.Context, arg GetAssetVersionParams
 	err := row.Scan(
 		&i.ID,
 		&i.Key,
+		&i.SpaceID,
 		&i.CreatedAt,
 		&i.Version,
 		&i.Format,
@@ -238,7 +240,7 @@ func (q *Queries) GetDeploymentConfig(ctx context.Context, deploymentID int64) (
 }
 
 const getLatestAsset = `-- name: GetLatestAsset :one
-SELECT id, key, created_at, version, format, location, blob
+SELECT id, key, space_id, created_at, version, format, location, blob
 FROM assets
 WHERE key = ?
 ORDER BY version DESC
@@ -251,6 +253,7 @@ func (q *Queries) GetLatestAsset(ctx context.Context, key string) (Asset, error)
 	err := row.Scan(
 		&i.ID,
 		&i.Key,
+		&i.SpaceID,
 		&i.CreatedAt,
 		&i.Version,
 		&i.Format,
@@ -309,7 +312,7 @@ func (q *Queries) GetPublicKey(ctx context.Context, kid string) (PublicKey, erro
 }
 
 const getSecretByID = `-- name: GetSecretByID :one
-SELECT id, name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
+SELECT id, name, space_id, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
 FROM secrets WHERE id = ?
 `
 
@@ -319,6 +322,7 @@ func (q *Queries) GetSecretByID(ctx context.Context, id int64) (Secret, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
+		&i.SpaceID,
 		&i.SecretGroup,
 		&i.SmkVersion,
 		&i.Ciphertext,
@@ -366,7 +370,7 @@ func (q *Queries) GetUser(ctx context.Context, id int64) (User, error) {
 }
 
 const getUserConfig = `-- name: GetUserConfig :one
-SELECT id, name, config_group, value, created_at, updated_at, updated_by
+SELECT id, name, space_id, config_group, value, created_at, updated_at, updated_by
 FROM user_configs WHERE name = ?
 `
 
@@ -376,6 +380,7 @@ func (q *Queries) GetUserConfig(ctx context.Context, name string) (UserConfig, e
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
+		&i.SpaceID,
 		&i.ConfigGroup,
 		&i.Value,
 		&i.CreatedAt,
@@ -386,7 +391,7 @@ func (q *Queries) GetUserConfig(ctx context.Context, name string) (UserConfig, e
 }
 
 const getUserConfigByID = `-- name: GetUserConfigByID :one
-SELECT id, name, config_group, value, created_at, updated_at, updated_by
+SELECT id, name, space_id, config_group, value, created_at, updated_at, updated_by
 FROM user_configs WHERE id = ?
 `
 
@@ -396,6 +401,7 @@ func (q *Queries) GetUserConfigByID(ctx context.Context, id int64) (UserConfig, 
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
+		&i.SpaceID,
 		&i.ConfigGroup,
 		&i.Value,
 		&i.CreatedAt,
@@ -406,13 +412,14 @@ func (q *Queries) GetUserConfigByID(ctx context.Context, id int64) (UserConfig, 
 }
 
 const insertAsset = `-- name: InsertAsset :one
-INSERT INTO assets (key, created_at, version, format, location, blob)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, key, created_at, version, format, location, blob
+INSERT INTO assets (key, space_id, created_at, version, format, location, blob)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING id, key, space_id, created_at, version, format, location, blob
 `
 
 type InsertAssetParams struct {
 	Key       string
+	SpaceID   int64
 	CreatedAt int64
 	Version   int64
 	Format    string
@@ -423,6 +430,7 @@ type InsertAssetParams struct {
 func (q *Queries) InsertAsset(ctx context.Context, arg InsertAssetParams) (Asset, error) {
 	row := q.db.QueryRowContext(ctx, insertAsset,
 		arg.Key,
+		arg.SpaceID,
 		arg.CreatedAt,
 		arg.Version,
 		arg.Format,
@@ -433,6 +441,7 @@ func (q *Queries) InsertAsset(ctx context.Context, arg InsertAssetParams) (Asset
 	err := row.Scan(
 		&i.ID,
 		&i.Key,
+		&i.SpaceID,
 		&i.CreatedAt,
 		&i.Version,
 		&i.Format,
@@ -782,7 +791,7 @@ func (q *Queries) ListDeploymentStatusHistorySince(ctx context.Context, arg List
 
 const listLatestAssets = `-- name: ListLatestAssets :many
 
-SELECT a.id, a.key, a.created_at, a.version, a.format, a.location, length(a.blob) AS size_bytes
+SELECT a.id, a.key, a.space_id, a.created_at, a.version, a.format, a.location, length(a.blob) AS size_bytes
 FROM assets a
 JOIN (
     SELECT key, MAX(version) AS version
@@ -795,6 +804,7 @@ ORDER BY a.key
 type ListLatestAssetsRow struct {
 	ID        int64
 	Key       string
+	SpaceID   int64
 	CreatedAt int64
 	Version   int64
 	Format    string
@@ -815,6 +825,7 @@ func (q *Queries) ListLatestAssets(ctx context.Context) ([]ListLatestAssetsRow, 
 		if err := rows.Scan(
 			&i.ID,
 			&i.Key,
+			&i.SpaceID,
 			&i.CreatedAt,
 			&i.Version,
 			&i.Format,
@@ -900,7 +911,7 @@ func (q *Queries) ListSecretKeyslots(ctx context.Context) ([]SecretKeyslot, erro
 
 const listSecrets = `-- name: ListSecrets :many
 
-SELECT id, name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
+SELECT id, name, space_id, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
 FROM secrets ORDER BY name
 `
 
@@ -917,6 +928,7 @@ func (q *Queries) ListSecrets(ctx context.Context) ([]Secret, error) {
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
+			&i.SpaceID,
 			&i.SecretGroup,
 			&i.SmkVersion,
 			&i.Ciphertext,
@@ -969,7 +981,7 @@ func (q *Queries) ListSpaces(ctx context.Context) ([]Space, error) {
 
 const listUserConfigs = `-- name: ListUserConfigs :many
 
-SELECT id, name, config_group, value, created_at, updated_at, updated_by
+SELECT id, name, space_id, config_group, value, created_at, updated_at, updated_by
 FROM user_configs ORDER BY name
 `
 
@@ -986,6 +998,7 @@ func (q *Queries) ListUserConfigs(ctx context.Context) ([]UserConfig, error) {
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
+			&i.SpaceID,
 			&i.ConfigGroup,
 			&i.Value,
 			&i.CreatedAt,
@@ -1211,9 +1224,10 @@ func (q *Queries) UpsertPublicKey(ctx context.Context, arg UpsertPublicKeyParams
 }
 
 const upsertSecret = `-- name: UpsertSecret :exec
-INSERT INTO secrets (id, name, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO secrets (id, name, space_id, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(name) DO UPDATE SET
+    space_id = excluded.space_id,
     secret_group = excluded.secret_group,
     smk_version = excluded.smk_version,
     ciphertext = excluded.ciphertext,
@@ -1225,6 +1239,7 @@ ON CONFLICT(name) DO UPDATE SET
 type UpsertSecretParams struct {
 	ID          int64
 	Name        string
+	SpaceID     int64
 	SecretGroup string
 	SmkVersion  int64
 	Ciphertext  []byte
@@ -1238,6 +1253,7 @@ func (q *Queries) UpsertSecret(ctx context.Context, arg UpsertSecretParams) erro
 	_, err := q.db.ExecContext(ctx, upsertSecret,
 		arg.ID,
 		arg.Name,
+		arg.SpaceID,
 		arg.SecretGroup,
 		arg.SmkVersion,
 		arg.Ciphertext,
@@ -1329,9 +1345,10 @@ func (q *Queries) UpsertUser(ctx context.Context, arg UpsertUserParams) error {
 }
 
 const upsertUserConfig = `-- name: UpsertUserConfig :exec
-INSERT INTO user_configs (id, name, config_group, value, created_at, updated_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO user_configs (id, name, space_id, config_group, value, created_at, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(name) DO UPDATE SET
+    space_id = excluded.space_id,
     config_group = excluded.config_group,
     value = excluded.value,
     updated_at = excluded.updated_at,
@@ -1341,6 +1358,7 @@ ON CONFLICT(name) DO UPDATE SET
 type UpsertUserConfigParams struct {
 	ID          int64
 	Name        string
+	SpaceID     int64
 	ConfigGroup string
 	Value       string
 	CreatedAt   int64
@@ -1352,6 +1370,7 @@ func (q *Queries) UpsertUserConfig(ctx context.Context, arg UpsertUserConfigPara
 	_, err := q.db.ExecContext(ctx, upsertUserConfig,
 		arg.ID,
 		arg.Name,
+		arg.SpaceID,
 		arg.ConfigGroup,
 		arg.Value,
 		arg.CreatedAt,

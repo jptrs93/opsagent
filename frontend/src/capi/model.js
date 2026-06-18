@@ -157,6 +157,7 @@
  * @property {number} updatedBy
  * @property {number} id
  * @property {boolean} deleted
+ * @property {number} spaceId
  */
 /**
  * @typedef {Object} SecretList
@@ -167,6 +168,7 @@
  * @property {string} name
  * @property {string} group
  * @property {Uint8Array} value
+ * @property {number} spaceId
  */
 /**
  * @typedef {Object} SecretDeleteRequest
@@ -203,6 +205,7 @@
  * @property {number} updatedBy
  * @property {number} id
  * @property {boolean} deleted
+ * @property {number} spaceId
  */
 /**
  * @typedef {Object} UserConfigList
@@ -213,6 +216,7 @@
  * @property {string} name
  * @property {string} group
  * @property {string} value
+ * @property {number} spaceId
  */
 /**
  * @typedef {Object} UserConfigDeleteRequest
@@ -227,6 +231,7 @@
  * @property {string} location
  * @property {number} sizeBytes
  * @property {number} id
+ * @property {number} spaceId
  */
 /**
  * @typedef {Object} Asset
@@ -237,6 +242,7 @@
  * @property {string} location
  * @property {Uint8Array} blob
  * @property {number} id
+ * @property {number} spaceId
  */
 /**
  * @typedef {Object} AssetList
@@ -252,6 +258,7 @@
  * @property {string} key
  * @property {string} format
  * @property {Uint8Array} blob
+ * @property {number} spaceId
  */
 /**
  * @typedef {Object} AssetDeleteRequest
@@ -367,6 +374,7 @@
  * @property {number} id
  * @property {string} name
  * @property {boolean} deleted
+ * @property {number} spaceId
  */
 /**
  * @typedef {Object} SecretReferenceList
@@ -377,6 +385,7 @@
  * @property {number} id
  * @property {string} name
  * @property {boolean} deleted
+ * @property {number} spaceId
  */
 /**
  * @typedef {Object} UserConfigReferenceList
@@ -2565,6 +2574,9 @@ export function writeSecretMeta(message, writer) {
     if (message.deleted === true) {
         writer.uint32(tag(7, WIRE.VARINT)).bool(message.deleted);
     }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).int32(message.spaceId);
+    }
 }
 
 
@@ -2586,7 +2598,7 @@ export function encodeSecretMeta(message) {
  */
 function decodeSecretMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", group: "", createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0, id: 0, deleted: false };
+    const message = {name: "", group: "", createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0, id: 0, deleted: false, spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2616,6 +2628,10 @@ function decodeSecretMetaMessage(reader, length) {
             }
             case 7: {
                 message.deleted = reader.bool();
+                break;
+            }
+            case 8: {
+                message.spaceId = reader.int32();
                 break;
             }
             default:
@@ -2711,6 +2727,9 @@ export function writeSecretSetRequest(message, writer) {
     if (message.value && message.value.length > 0) {
         writer.uint32(tag(3, WIRE.LDELIM)).bytes(message.value);
     }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.spaceId);
+    }
 }
 
 
@@ -2732,7 +2751,7 @@ export function encodeSecretSetRequest(message) {
  */
 function decodeSecretSetRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", group: "", value: new Uint8Array(0) };
+    const message = {name: "", group: "", value: new Uint8Array(0), spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2746,6 +2765,10 @@ function decodeSecretSetRequestMessage(reader, length) {
             }
             case 3: {
                 message.value = reader.bytes();
+                break;
+            }
+            case 4: {
+                message.spaceId = reader.int32();
                 break;
             }
             default:
@@ -3139,6 +3162,9 @@ export function writeUserConfig(message, writer) {
     if (message.deleted === true) {
         writer.uint32(tag(8, WIRE.VARINT)).bool(message.deleted);
     }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(9, WIRE.VARINT)).int32(message.spaceId);
+    }
 }
 
 
@@ -3160,7 +3186,7 @@ export function encodeUserConfig(message) {
  */
 function decodeUserConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", group: "", value: "", createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0, id: 0, deleted: false };
+    const message = {name: "", group: "", value: "", createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0, id: 0, deleted: false, spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3194,6 +3220,10 @@ function decodeUserConfigMessage(reader, length) {
             }
             case 8: {
                 message.deleted = reader.bool();
+                break;
+            }
+            case 9: {
+                message.spaceId = reader.int32();
                 break;
             }
             default:
@@ -3289,6 +3319,9 @@ export function writeUserConfigSetRequest(message, writer) {
     if (message.value !== undefined && message.value !== null && message.value !== "") {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
     }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.spaceId);
+    }
 }
 
 
@@ -3310,7 +3343,7 @@ export function encodeUserConfigSetRequest(message) {
  */
 function decodeUserConfigSetRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", group: "", value: "" };
+    const message = {name: "", group: "", value: "", spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3324,6 +3357,10 @@ function decodeUserConfigSetRequestMessage(reader, length) {
             }
             case 3: {
                 message.value = reader.string();
+                break;
+            }
+            case 4: {
+                message.spaceId = reader.int32();
                 break;
             }
             default:
@@ -3427,6 +3464,9 @@ export function writeAssetMeta(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(7, WIRE.VARINT)).int32(message.id);
     }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).int32(message.spaceId);
+    }
 }
 
 
@@ -3448,7 +3488,7 @@ export function encodeAssetMeta(message) {
  */
 function decodeAssetMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", createdAt: new Date(0), version: 0, format: "", location: "", sizeBytes: 0, id: 0 };
+    const message = {key: "", createdAt: new Date(0), version: 0, format: "", location: "", sizeBytes: 0, id: 0, spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3478,6 +3518,10 @@ function decodeAssetMetaMessage(reader, length) {
             }
             case 7: {
                 message.id = reader.int32();
+                break;
+            }
+            case 8: {
+                message.spaceId = reader.int32();
                 break;
             }
             default:
@@ -3525,6 +3569,9 @@ export function writeAsset(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(7, WIRE.VARINT)).int32(message.id);
     }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).int32(message.spaceId);
+    }
 }
 
 
@@ -3546,7 +3593,7 @@ export function encodeAsset(message) {
  */
 function decodeAssetMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", createdAt: new Date(0), version: 0, format: "", location: "", blob: new Uint8Array(0), id: 0 };
+    const message = {key: "", createdAt: new Date(0), version: 0, format: "", location: "", blob: new Uint8Array(0), id: 0, spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3576,6 +3623,10 @@ function decodeAssetMessage(reader, length) {
             }
             case 7: {
                 message.id = reader.int32();
+                break;
+            }
+            case 8: {
+                message.spaceId = reader.int32();
                 break;
             }
             default:
@@ -3734,6 +3785,9 @@ export function writeAssetSetRequest(message, writer) {
     if (message.blob && message.blob.length > 0) {
         writer.uint32(tag(3, WIRE.LDELIM)).bytes(message.blob);
     }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.spaceId);
+    }
 }
 
 
@@ -3755,7 +3809,7 @@ export function encodeAssetSetRequest(message) {
  */
 function decodeAssetSetRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", format: "", blob: new Uint8Array(0) };
+    const message = {key: "", format: "", blob: new Uint8Array(0), spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3769,6 +3823,10 @@ function decodeAssetSetRequestMessage(reader, length) {
             }
             case 3: {
                 message.blob = reader.bytes();
+                break;
+            }
+            case 4: {
+                message.spaceId = reader.int32();
                 break;
             }
             default:
@@ -5106,6 +5164,9 @@ export function writeSecretReference(message, writer) {
     if (message.deleted === true) {
         writer.uint32(tag(3, WIRE.VARINT)).bool(message.deleted);
     }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.spaceId);
+    }
 }
 
 
@@ -5127,7 +5188,7 @@ export function encodeSecretReference(message) {
  */
 function decodeSecretReferenceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", deleted: false };
+    const message = {id: 0, name: "", deleted: false, spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5141,6 +5202,10 @@ function decodeSecretReferenceMessage(reader, length) {
             }
             case 3: {
                 message.deleted = reader.bool();
+                break;
+            }
+            case 4: {
+                message.spaceId = reader.int32();
                 break;
             }
             default:
@@ -5236,6 +5301,9 @@ export function writeUserConfigReference(message, writer) {
     if (message.deleted === true) {
         writer.uint32(tag(3, WIRE.VARINT)).bool(message.deleted);
     }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.spaceId);
+    }
 }
 
 
@@ -5257,7 +5325,7 @@ export function encodeUserConfigReference(message) {
  */
 function decodeUserConfigReferenceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", deleted: false };
+    const message = {id: 0, name: "", deleted: false, spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5271,6 +5339,10 @@ function decodeUserConfigReferenceMessage(reader, length) {
             }
             case 3: {
                 message.deleted = reader.bool();
+                break;
+            }
+            case 4: {
+                message.spaceId = reader.int32();
                 break;
             }
             default:

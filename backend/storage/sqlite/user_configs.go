@@ -16,6 +16,7 @@ func userConfigRowToProto(r UserConfig) *apigen.UserConfig {
 	return &apigen.UserConfig{
 		ID:        int32(r.ID),
 		Name:      r.Name,
+		SpaceID:   int32(r.SpaceID),
 		Group:     userConfigDefaultGroup,
 		Value:     r.Value,
 		CreatedAt: time.UnixMilli(r.CreatedAt),
@@ -36,12 +37,14 @@ func (s *PrimaryStorage) ListUserConfigs() []*apigen.UserConfig {
 	return out
 }
 
-func (s *PrimaryStorage) SetUserConfig(name, group, value string, updatedBy int32) *apigen.UserConfig {
+func (s *PrimaryStorage) SetUserConfig(name, group, value string, updatedBy int32, spaceID int32) *apigen.UserConfig {
 	now := time.Now().UnixMilli()
+	spaceID = normalizedUserSpaceID(spaceID)
 	id := s.nextUserConfigID(name)
 	if err := s.q.UpsertUserConfig(context.Background(), UpsertUserConfigParams{
 		ID:          int64(id),
 		Name:        name,
+		SpaceID:     int64(spaceID),
 		ConfigGroup: userConfigDefaultGroup,
 		Value:       value,
 		CreatedAt:   now,
@@ -55,7 +58,7 @@ func (s *PrimaryStorage) SetUserConfig(name, group, value string, updatedBy int3
 		panic(fmt.Sprintf("GetUserConfig after upsert: %v", err))
 	}
 	cfg := userConfigRowToProto(r)
-	s.userConfigSubs.Notify(apigen.UserConfigReference{ID: cfg.ID, Name: cfg.Name})
+	s.userConfigSubs.Notify(apigen.UserConfigReference{ID: cfg.ID, Name: cfg.Name, SpaceID: cfg.SpaceID})
 	s.userConfigValueSubs.Notify(*cfg)
 	return cfg
 }
@@ -77,7 +80,7 @@ func (s *PrimaryStorage) DeleteUserConfig(name string) {
 	var update *apigen.UserConfigReference
 	var valueUpdate *apigen.UserConfig
 	if r, err := s.q.GetUserConfig(context.Background(), name); err == nil {
-		update = &apigen.UserConfigReference{ID: int32(r.ID), Name: r.Name, Deleted: true}
+		update = &apigen.UserConfigReference{ID: int32(r.ID), Name: r.Name, SpaceID: int32(r.SpaceID), Deleted: true}
 		valueUpdate = userConfigRowToProto(r)
 		valueUpdate.Deleted = true
 	} else if err != sql.ErrNoRows {

@@ -59,6 +59,7 @@ func (s *PrimaryStorage) ListSecrets() []secrets.Record {
 		out = append(out, secrets.Record{
 			ID:         int32(r.ID),
 			Name:       r.Name,
+			SpaceID:    int32(r.SpaceID),
 			Group:      r.SecretGroup,
 			SMKVersion: int32(r.SmkVersion),
 			Ciphertext: r.Ciphertext,
@@ -83,6 +84,7 @@ func (s *PrimaryStorage) UpsertSecret(r secrets.Record) {
 	if err := s.q.UpsertSecret(context.Background(), UpsertSecretParams{
 		ID:          int64(r.ID),
 		Name:        r.Name,
+		SpaceID:     int64(normalizedUserSpaceID(r.SpaceID)),
 		SecretGroup: r.Group,
 		SmkVersion:  int64(r.SMKVersion),
 		Ciphertext:  r.Ciphertext,

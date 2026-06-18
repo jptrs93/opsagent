@@ -9,8 +9,8 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 
 	v1 := store.SetAsset("nginx.conf", "nginx", []byte("events {}\n"))
-	if v1.ID == 0 || v1.Version != 1 {
-		t.Fatalf("first asset = id %d version %d, want nonzero id version 1", v1.ID, v1.Version)
+	if v1.ID == 0 || v1.Version != 1 || v1.SpaceID != DefaultSpaceID {
+		t.Fatalf("first asset = id %d version %d space %d, want nonzero id version 1 space %d", v1.ID, v1.Version, v1.SpaceID, DefaultSpaceID)
 	}
 	v2 := store.SetAsset("nginx.conf", "nginx", []byte("events {}\nhttp {}\n"))
 	if v2.ID == 0 || v2.ID == v1.ID || v2.Version != 2 {
@@ -21,7 +21,7 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	if !ok {
 		t.Fatal("latest asset not found")
 	}
-	if latest.ID != v2.ID || latest.Version != 2 || string(latest.Blob) != "events {}\nhttp {}\n" {
+	if latest.ID != v2.ID || latest.Version != 2 || latest.SpaceID != DefaultSpaceID || string(latest.Blob) != "events {}\nhttp {}\n" {
 		t.Fatalf("latest asset = v%d %q", latest.Version, latest.Blob)
 	}
 	byID, ok := store.GetAssetByIDVersion(v2.ID, v2.Version)
@@ -41,7 +41,7 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("asset list length = %d, want 1", len(items))
 	}
-	if items[0].ID != v2.ID || items[0].Key != "nginx.conf" || items[0].Version != 2 || items[0].SizeBytes != int32(len("events {}\nhttp {}\n")) {
+	if items[0].ID != v2.ID || items[0].Key != "nginx.conf" || items[0].SpaceID != DefaultSpaceID || items[0].Version != 2 || items[0].SizeBytes != int32(len("events {}\nhttp {}\n")) {
 		t.Fatalf("asset meta = %+v", items[0])
 	}
 

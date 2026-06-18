@@ -1217,6 +1217,7 @@ type SecretMeta struct {
 	UpdatedBy int32
 	ID        int32
 	Deleted   bool
+	SpaceID   int32
 }
 
 func (m *SecretMeta) Encode() []byte {
@@ -1228,6 +1229,7 @@ func (m *SecretMeta) Encode() []byte {
 	b = AppendInt32Field(b, m.UpdatedBy, 5)
 	b = AppendInt32Field(b, m.ID, 6)
 	b = AppendBoolField(b, m.Deleted, 7)
+	b = AppendInt32Field(b, m.SpaceID, 8)
 	return b
 }
 
@@ -1256,6 +1258,8 @@ func DecodeSecretMeta(b []byte) (*SecretMeta, error) {
 			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 7:
 			b, m.Deleted, err = ConsumeBool(b, typ)
+		case 8:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1314,9 +1318,10 @@ func DecodeSecretList(b []byte) (*SecretList, error) {
 }
 
 type SecretSetRequest struct {
-	Name  string
-	Group string
-	Value []byte
+	Name    string
+	Group   string
+	Value   []byte
+	SpaceID int32
 }
 
 func (m *SecretSetRequest) Encode() []byte {
@@ -1324,6 +1329,7 @@ func (m *SecretSetRequest) Encode() []byte {
 	b = AppendStringField(b, m.Name, 1)
 	b = AppendStringField(b, m.Group, 2)
 	b = AppendBytesField(b, m.Value, 3)
+	b = AppendInt32Field(b, m.SpaceID, 4)
 	return b
 }
 
@@ -1344,6 +1350,8 @@ func DecodeSecretSetRequest(b []byte) (*SecretSetRequest, error) {
 			b, m.Group, err = ConsumeString(b, typ)
 		case 3:
 			b, m.Value, err = ConsumeBytesCopy(b, typ)
+		case 4:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1565,6 +1573,7 @@ type UserConfig struct {
 	UpdatedBy int32
 	ID        int32
 	Deleted   bool
+	SpaceID   int32
 }
 
 func (m *UserConfig) Encode() []byte {
@@ -1577,6 +1586,7 @@ func (m *UserConfig) Encode() []byte {
 	b = AppendInt32Field(b, m.UpdatedBy, 6)
 	b = AppendInt32Field(b, m.ID, 7)
 	b = AppendBoolField(b, m.Deleted, 8)
+	b = AppendInt32Field(b, m.SpaceID, 9)
 	return b
 }
 
@@ -1607,6 +1617,8 @@ func DecodeUserConfig(b []byte) (*UserConfig, error) {
 			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 8:
 			b, m.Deleted, err = ConsumeBool(b, typ)
+		case 9:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1665,9 +1677,10 @@ func DecodeUserConfigList(b []byte) (*UserConfigList, error) {
 }
 
 type UserConfigSetRequest struct {
-	Name  string
-	Group string
-	Value string
+	Name    string
+	Group   string
+	Value   string
+	SpaceID int32
 }
 
 func (m *UserConfigSetRequest) Encode() []byte {
@@ -1675,6 +1688,7 @@ func (m *UserConfigSetRequest) Encode() []byte {
 	b = AppendStringField(b, m.Name, 1)
 	b = AppendStringField(b, m.Group, 2)
 	b = AppendStringField(b, m.Value, 3)
+	b = AppendInt32Field(b, m.SpaceID, 4)
 	return b
 }
 
@@ -1695,6 +1709,8 @@ func DecodeUserConfigSetRequest(b []byte) (*UserConfigSetRequest, error) {
 			b, m.Group, err = ConsumeString(b, typ)
 		case 3:
 			b, m.Value, err = ConsumeString(b, typ)
+		case 4:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1746,6 +1762,7 @@ type AssetMeta struct {
 	Location  string
 	SizeBytes int32
 	ID        int32
+	SpaceID   int32
 }
 
 func (m *AssetMeta) Encode() []byte {
@@ -1757,6 +1774,7 @@ func (m *AssetMeta) Encode() []byte {
 	b = AppendStringField(b, m.Location, 5)
 	b = AppendInt32Field(b, m.SizeBytes, 6)
 	b = AppendInt32Field(b, m.ID, 7)
+	b = AppendInt32Field(b, m.SpaceID, 8)
 	return b
 }
 
@@ -1785,6 +1803,8 @@ func DecodeAssetMeta(b []byte) (*AssetMeta, error) {
 			b, m.SizeBytes, err = ConsumeVarInt32(b, typ)
 		case 7:
 			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 8:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1803,6 +1823,7 @@ type Asset struct {
 	Location  string
 	Blob      []byte
 	ID        int32
+	SpaceID   int32
 }
 
 func (m *Asset) Encode() []byte {
@@ -1814,6 +1835,7 @@ func (m *Asset) Encode() []byte {
 	b = AppendStringField(b, m.Location, 5)
 	b = AppendBytesField(b, m.Blob, 6)
 	b = AppendInt32Field(b, m.ID, 7)
+	b = AppendInt32Field(b, m.SpaceID, 8)
 	return b
 }
 
@@ -1842,6 +1864,8 @@ func DecodeAsset(b []byte) (*Asset, error) {
 			b, m.Blob, err = ConsumeBytesCopy(b, typ)
 		case 7:
 			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 8:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1937,9 +1961,10 @@ func DecodeAssetGetRequest(b []byte) (*AssetGetRequest, error) {
 }
 
 type AssetSetRequest struct {
-	Key    string
-	Format string
-	Blob   []byte
+	Key     string
+	Format  string
+	Blob    []byte
+	SpaceID int32
 }
 
 func (m *AssetSetRequest) Encode() []byte {
@@ -1947,6 +1972,7 @@ func (m *AssetSetRequest) Encode() []byte {
 	b = AppendStringField(b, m.Key, 1)
 	b = AppendStringField(b, m.Format, 2)
 	b = AppendBytesField(b, m.Blob, 3)
+	b = AppendInt32Field(b, m.SpaceID, 4)
 	return b
 }
 
@@ -1967,6 +1993,8 @@ func DecodeAssetSetRequest(b []byte) (*AssetSetRequest, error) {
 			b, m.Format, err = ConsumeString(b, typ)
 		case 3:
 			b, m.Blob, err = ConsumeBytesCopy(b, typ)
+		case 4:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3010,6 +3038,7 @@ type SecretReference struct {
 	ID      int32
 	Name    string
 	Deleted bool
+	SpaceID int32
 }
 
 func (m *SecretReference) Encode() []byte {
@@ -3017,6 +3046,7 @@ func (m *SecretReference) Encode() []byte {
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendStringField(b, m.Name, 2)
 	b = AppendBoolField(b, m.Deleted, 3)
+	b = AppendInt32Field(b, m.SpaceID, 4)
 	return b
 }
 
@@ -3037,6 +3067,8 @@ func DecodeSecretReference(b []byte) (*SecretReference, error) {
 			b, m.Name, err = ConsumeString(b, typ)
 		case 3:
 			b, m.Deleted, err = ConsumeBool(b, typ)
+		case 4:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3098,6 +3130,7 @@ type UserConfigReference struct {
 	ID      int32
 	Name    string
 	Deleted bool
+	SpaceID int32
 }
 
 func (m *UserConfigReference) Encode() []byte {
@@ -3105,6 +3138,7 @@ func (m *UserConfigReference) Encode() []byte {
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendStringField(b, m.Name, 2)
 	b = AppendBoolField(b, m.Deleted, 3)
+	b = AppendInt32Field(b, m.SpaceID, 4)
 	return b
 }
 
@@ -3125,6 +3159,8 @@ func DecodeUserConfigReference(b []byte) (*UserConfigReference, error) {
 			b, m.Name, err = ConsumeString(b, typ)
 		case 3:
 			b, m.Deleted, err = ConsumeBool(b, typ)
+		case 4:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

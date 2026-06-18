@@ -87,6 +87,7 @@ type Keyslot struct {
 type Record struct {
 	ID         int32
 	Name       string
+	SpaceID    int32
 	Group      string
 	SMKVersion int32
 	Ciphertext []byte
@@ -111,6 +112,7 @@ type SystemRecord struct {
 type Meta struct {
 	ID        int32
 	Name      string
+	SpaceID   int32
 	Group     string
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -118,6 +120,7 @@ type Meta struct {
 }
 
 const defaultUserSecretGroup = "default"
+const defaultUserSpaceID int32 = 1
 
 // Store is the persistence the Manager needs. The sqlite StorageAdapter
 // implements it. Writes follow opendeploy's panic-on-failure convention.
@@ -294,7 +297,7 @@ func (m *Manager) Reveal(name string) ([]byte, error) {
 
 // Set creates or updates a secret. value is encrypted under the SMK before it
 // touches disk. Returns the secret's metadata (never its value).
-func (m *Manager) Set(name, group string, value []byte, updatedBy int32) (Meta, error) {
+func (m *Manager) Set(name, group string, value []byte, updatedBy int32, spaceIDs ...int32) (Meta, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Meta{}, errors.New("secret name is required")
@@ -302,7 +305,11 @@ func (m *Manager) Set(name, group string, value []byte, updatedBy int32) (Meta, 
 	if isReservedInternalName(name) {
 		return Meta{}, ErrReservedName
 	}
-	return m.set(name, group, value, updatedBy)
+	spaceID := defaultUserSpaceID
+	if len(spaceIDs) > 0 && spaceIDs[0] > 0 {
+		spaceID = spaceIDs[0]
+	}
+	return m.set(name, group, value, updatedBy, spaceID)
 }
 
 // SetInternal creates or updates an OpenDeploy-managed internal secret. Internal
@@ -341,7 +348,7 @@ func (m *Manager) SetInternal(name string, value []byte) error {
 	return nil
 }
 
-func (m *Manager) set(name, group string, value []byte, updatedBy int32) (Meta, error) {
+func (m *Manager) set(name, group string, value []byte, updatedBy int32, spaceID int32) (Meta, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.smk == nil {
@@ -361,6 +368,7 @@ func (m *Manager) set(name, group string, value []byte, updatedBy int32) (Meta, 
 	rec := Record{
 		ID:         id,
 		Name:       name,
+		SpaceID:    spaceID,
 		Group:      defaultUserSecretGroup,
 		SMKVersion: m.version,
 		Ciphertext: ct,
@@ -642,6 +650,7 @@ func (r Record) meta() Meta {
 	return Meta{
 		ID:        r.ID,
 		Name:      r.Name,
+		SpaceID:   r.SpaceID,
 		Group:     defaultUserSecretGroup,
 		CreatedAt: time.UnixMilli(r.CreatedAt),
 		UpdatedAt: time.UnixMilli(r.UpdatedAt),

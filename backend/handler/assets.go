@@ -43,7 +43,7 @@ func (h *Handler) PostV1AssetsSet(ctx apigen.Context, req *apigen.AssetSetReques
 	if format == "" {
 		format = "text"
 	}
-	return h.Store.SetAsset(key, format, req.Blob), nil
+	return h.Store.SetAsset(key, format, req.Blob, req.SpaceID), nil
 }
 
 func (h *Handler) PostV1AssetsDelete(ctx apigen.Context, req *apigen.AssetDeleteRequest) error {

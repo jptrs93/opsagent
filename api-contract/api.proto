@@ -422,6 +422,7 @@ message SecretMeta {
   int32 updated_by = 5;
   int32 id = 6;
   bool deleted = 7;
+  int32 space_id = 8;
 }
 
 message SecretList {
@@ -432,6 +433,7 @@ message SecretSetRequest {
   string name = 1;
   string group = 2;
   bytes value = 3;         // plaintext secret value; encrypted at rest, never returned
+  int32 space_id = 4;
 }
 
 message SecretDeleteRequest {
@@ -470,6 +472,7 @@ message UserConfig {
   int32 updated_by = 6;
   int32 id = 7;
   bool deleted = 8;
+  int32 space_id = 9;
 }
 
 message UserConfigList {
@@ -480,6 +483,7 @@ message UserConfigSetRequest {
   string name = 1;
   string group = 2;
   string value = 3;
+  int32 space_id = 4;
 }
 
 message UserConfigDeleteRequest {
@@ -496,6 +500,7 @@ message AssetMeta {
   string location = 5;     // empty for inline blob-backed assets
   int32 size_bytes = 6;
   int32 id = 7;
+  int32 space_id = 8;
 }
 
 message Asset {
@@ -506,6 +511,7 @@ message Asset {
   string location = 5;
   bytes blob = 6;
   int32 id = 7;
+  int32 space_id = 8;
 }
 
 message AssetList {
@@ -521,6 +527,7 @@ message AssetSetRequest {
   string key = 1;
   string format = 2;
   bytes blob = 3;
+  int32 space_id = 4;
 }
 
 message AssetDeleteRequest {
@@ -669,6 +676,7 @@ message SecretReference {
   int32 id = 1;
   string name = 2;
   bool deleted = 3;
+  int32 space_id = 4;
 }
 
 message SecretReferenceList {
@@ -679,6 +687,7 @@ message UserConfigReference {
   int32 id = 1;
   string name = 2;
   bool deleted = 3;
+  int32 space_id = 4;
 }
 
 message UserConfigReferenceList {

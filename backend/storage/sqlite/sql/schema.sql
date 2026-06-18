@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS system_config (
 CREATE TABLE IF NOT EXISTS user_configs (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     name         TEXT    NOT NULL UNIQUE,
+    space_id     INTEGER NOT NULL DEFAULT 1,
     config_group TEXT    NOT NULL DEFAULT '',
     value        TEXT    NOT NULL DEFAULT '',
     created_at   INTEGER NOT NULL,  -- epoch ms
@@ -111,6 +112,7 @@ CREATE TABLE IF NOT EXISTS user_configs (
 CREATE TABLE IF NOT EXISTS assets (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     key         TEXT    NOT NULL,
+    space_id    INTEGER NOT NULL DEFAULT 1,
     created_at  INTEGER NOT NULL,  -- epoch ms; creation time of this version
     version     INTEGER NOT NULL,
     format      TEXT    NOT NULL DEFAULT '',
@@ -147,6 +149,7 @@ CREATE TABLE IF NOT EXISTS secret_keyslots (
 CREATE TABLE IF NOT EXISTS secrets (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     name         TEXT    NOT NULL UNIQUE,
+    space_id     INTEGER NOT NULL DEFAULT 1,
     secret_group TEXT    NOT NULL DEFAULT '',
     smk_version  INTEGER NOT NULL,
     ciphertext   BLOB    NOT NULL,

@@ -21,6 +21,7 @@ func secretMetaToProto(m secrets.Meta) *apigen.SecretMeta {
 	return &apigen.SecretMeta{
 		ID:        m.ID,
 		Name:      m.Name,
+		SpaceID:   m.SpaceID,
 		Group:     m.Group,
 		CreatedAt: m.CreatedAt,
 		UpdatedAt: m.UpdatedAt,
@@ -57,7 +58,7 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 	if ctx.User != nil {
 		updatedBy = ctx.User.ID
 	}
-	meta, err := h.Secrets.Set(req.Name, req.Group, req.Value, updatedBy)
+	meta, err := h.Secrets.Set(req.Name, req.Group, req.Value, updatedBy, req.SpaceID)
 	if err != nil {
 		if errors.Is(err, secrets.ErrLocked) {
 			return nil, SecretsLockedErr
@@ -68,7 +69,7 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 		return nil, err
 	}
 	proto := secretMetaToProto(meta)
-	h.Store.NotifySecretReferenceUpdate(apigen.SecretReference{ID: proto.ID, Name: proto.Name})
+	h.Store.NotifySecretReferenceUpdate(apigen.SecretReference{ID: proto.ID, Name: proto.Name, SpaceID: proto.SpaceID})
 	h.Store.NotifySecretMetaUpdate(*proto)
 	return proto, nil
 }
@@ -118,7 +119,7 @@ func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDele
 	var deletedMeta *apigen.SecretMeta
 	for _, meta := range h.listSecretMetas() {
 		if meta.Name == name {
-			deleted = &apigen.SecretReference{ID: meta.ID, Name: meta.Name, Deleted: true}
+			deleted = &apigen.SecretReference{ID: meta.ID, Name: meta.Name, SpaceID: meta.SpaceID, Deleted: true}
 			deletedMeta = meta
 			deletedMeta.Deleted = true
 			break

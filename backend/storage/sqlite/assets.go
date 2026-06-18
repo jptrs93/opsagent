@@ -13,6 +13,7 @@ func assetRowToProto(r Asset) *apigen.Asset {
 	return &apigen.Asset{
 		ID:        int32(r.ID),
 		Key:       r.Key,
+		SpaceID:   int32(r.SpaceID),
 		CreatedAt: time.UnixMilli(r.CreatedAt),
 		Version:   int32(r.Version),
 		Format:    r.Format,
@@ -29,6 +30,7 @@ func assetRowToMeta(r ListLatestAssetsRow) *apigen.AssetMeta {
 	return &apigen.AssetMeta{
 		ID:        int32(r.ID),
 		Key:       r.Key,
+		SpaceID:   int32(r.SpaceID),
 		CreatedAt: time.UnixMilli(r.CreatedAt),
 		Version:   int32(r.Version),
 		Format:    r.Format,
@@ -96,9 +98,13 @@ func (s *PrimaryStorage) FetchAsset(ctx context.Context, assetID, version int32)
 	}, nil
 }
 
-func (s *PrimaryStorage) SetAsset(key, format string, blob []byte) *apigen.Asset {
+func (s *PrimaryStorage) SetAsset(key, format string, blob []byte, spaceIDs ...int32) *apigen.Asset {
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
+	spaceID := DefaultSpaceID
+	if len(spaceIDs) > 0 {
+		spaceID = normalizedUserSpaceID(spaceIDs[0])
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -116,6 +122,7 @@ func (s *PrimaryStorage) SetAsset(key, format string, blob []byte) *apigen.Asset
 	}
 	r, err := q.InsertAsset(ctx, InsertAssetParams{
 		Key:       key,
+		SpaceID:   int64(spaceID),
 		CreatedAt: now,
 		Version:   version,
 		Format:    format,

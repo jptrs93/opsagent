@@ -24,3 +24,7 @@ ALTER TABLE deployment_configs ADD COLUMN space_id INTEGER NOT NULL DEFAULT 1;
 UPDATE deployment_configs SET space_id = 0 WHERE name = 'opendeploy';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_deployment_configs_identity
     ON deployment_configs(space_id, machine, name);
+
+ALTER TABLE assets ADD COLUMN space_id INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE user_configs ADD COLUMN space_id INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE secrets ADD COLUMN space_id INTEGER NOT NULL DEFAULT 1;
