@@ -26,6 +26,7 @@ import (
 	"net/http"
 
 	"github.com/jptrs93/opsagent/backend/handler"
+	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 )
 
@@ -117,6 +118,7 @@ func runPrimary() {
 		Prompt:      autocert.AcceptTOS,
 		Cache:       autocert.DirCache(certCacheDir),
 		HostPolicy:  loggingAutocertHostPolicy(autocert.HostWhitelist(cfg.AcmeHosts...)),
+		Client:      loggingACMEClient(),
 		Email:       cfg.AcmeEmail,
 		RenewBefore: 168 * time.Hour,
 	}
@@ -154,6 +156,78 @@ func loggingAutocertHostPolicy(next autocert.HostPolicy) autocert.HostPolicy {
 	}
 }
 
+func loggingACMEClient() *acme.Client {
+	return &acme.Client{
+		DirectoryURL: autocert.DefaultACMEDirectory,
+		HTTPClient: &http.Client{
+			Transport: loggingACMETransport{next: http.DefaultTransport},
+		},
+	}
+}
+
+type loggingACMETransport struct {
+	next http.RoundTripper
+}
+
+func (t loggingACMETransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	start := time.Now()
+	next := t.next
+	if next == nil {
+		next = http.DefaultTransport
+	}
+
+	method := ""
+	url := ""
+	if req != nil {
+		method = req.Method
+		url = sanitizedHTTPURL(req)
+	}
+	slog.Info("acme http request started", "method", method, "url", url)
+
+	resp, err := next.RoundTrip(req)
+	if err != nil {
+		slog.Warn("acme http request failed",
+			"method", method,
+			"url", url,
+			"duration", time.Since(start),
+			"err", err,
+		)
+		return nil, err
+	}
+
+	attrs := []any{
+		"method", method,
+		"url", url,
+		"status", resp.Status,
+		"status_code", resp.StatusCode,
+		"duration", time.Since(start),
+	}
+	if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
+		attrs = append(attrs, "retry_after", retryAfter)
+	}
+	if resp.Header.Get("Replay-Nonce") != "" {
+		attrs = append(attrs, "replay_nonce", "present")
+	}
+
+	if resp.StatusCode >= 400 {
+		slog.Warn("acme http request completed", attrs...)
+	} else {
+		slog.Info("acme http request completed", attrs...)
+	}
+	return resp, nil
+}
+
+func sanitizedHTTPURL(req *http.Request) string {
+	if req == nil || req.URL == nil {
+		return ""
+	}
+	u := *req.URL
+	u.User = nil
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
+}
+
 func loggingAutocertGetCertificate(next func(*tls.ClientHelloInfo) (*tls.Certificate, error)) func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 	return func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 		serverName := ""
@@ -169,13 +243,12 @@ func loggingAutocertGetCertificate(next func(*tls.ClientHelloInfo) (*tls.Certifi
 			}
 		}
 
-		if isACMEChallenge {
-			slog.Info("acme tls-alpn-01 certificate lookup",
-				"server_name", serverName,
-				"remote_addr", remoteAddr,
-				"supported_protos", supportedProtos,
-			)
-		}
+		slog.Info("acme certificate lookup started",
+			"server_name", serverName,
+			"remote_addr", remoteAddr,
+			"supported_protos", supportedProtos,
+			"tls_alpn_01", isACMEChallenge,
+		)
 
 		cert, err := next(hello)
 		if err != nil {
@@ -189,12 +262,11 @@ func loggingAutocertGetCertificate(next func(*tls.ClientHelloInfo) (*tls.Certifi
 			return nil, err
 		}
 
-		if isACMEChallenge {
-			slog.Info("acme tls-alpn-01 certificate lookup succeeded",
-				"server_name", serverName,
-				"remote_addr", remoteAddr,
-			)
-		}
+		slog.Info("acme certificate lookup succeeded",
+			"server_name", serverName,
+			"remote_addr", remoteAddr,
+			"tls_alpn_01", isACMEChallenge,
+		)
 		return cert, nil
 	}
 }
