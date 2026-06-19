@@ -41,7 +41,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
         : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'};
     const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
     const menuOpen = van.state(false);
-    const actionButtonClass = "btn-secondary text-xs leading-none py-0.5 px-1.5 cursor-pointer";
+    const actionButtonClass = "btn-secondary text-xs leading-none py-0.5 px-0.5 cursor-pointer";
 
     return tr(
         {class: "border-b border-gray-800 last:border-0 hover:bg-gray-800/60 transition-colors", "data-testid": `deployment-row-${deployment.name || deployment.id}`},
@@ -87,9 +87,9 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
             formatMaybeDate(deployment.deployedAt, 'unknown'),
         ),
         td(
-            {class: "py-3 pl-3 pr-4 align-middle text-right whitespace-nowrap"},
+            {class: "py-3 pl-3 pr-1 align-middle text-right whitespace-nowrap"},
             div(
-                {class: "inline-flex items-center justify-end gap-2"},
+                {class: "inline-flex items-center justify-end gap-1"},
                 button({
                     class: actionButtonClass,
                     onclick: () => onShowHistory(deployment),
@@ -103,7 +103,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
                 div(
                     {class: "relative"},
                     button({
-                        class: "btn-secondary text-xs leading-none py-0.5 px-2 cursor-pointer",
+                        class: actionButtonClass,
                         onclick: () => { menuOpen.val = !menuOpen.val; },
                         type: "button",
                         title: "More actions",
