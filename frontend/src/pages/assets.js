@@ -63,17 +63,37 @@ async function uploadAssetFile(file, onProgress) {
     });
 }
 
+async function renameUploadedAsset(key, name) {
+    const params = new URLSearchParams({key, name});
+    const headers = {"Accept": "application/x-protobuf"};
+    const token = loginS.val?.token;
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const response = await fetch(`/v1/assets/rename?${params}`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+    });
+    if (!response.ok) {
+        return handleErr(response);
+    }
+    return decodeAsset(await response.arrayBuffer());
+}
+
 export function assetsPage() {
     const rows = van.state(null);
     const error = van.state(null);
     const search = van.state("");
     const selected = van.state(null);
     const loadingAsset = van.state(false);
+    const uploadOverlayOpen = van.state(false);
     const uploadSaving = van.state(false);
+    const uploadRenameSaving = van.state(false);
     const uploadProgressStatus = van.state("");
     const uploadProgressName = van.state("");
     const uploadProgressLoaded = van.state(0);
     const uploadProgressTotal = van.state(0);
+    const uploadedAssetKey = van.state("");
+    const uploadedAssetName = van.state("");
 
     const draftKey = van.state("");
     const draftContent = van.state("");
@@ -159,11 +179,15 @@ export function assetsPage() {
         if (!file) { error.val = "Choose a file to upload"; return; }
         try {
             error.val = null;
+            uploadOverlayOpen.val = true;
             uploadSaving.val = true;
+            uploadRenameSaving.val = false;
             uploadProgressStatus.val = "Uploading";
             uploadProgressName.val = file.name;
             uploadProgressLoaded.val = 0;
             uploadProgressTotal.val = file.size;
+            uploadedAssetKey.val = "";
+            uploadedAssetName.val = "";
             const asset = await uploadAssetFile(file, (loaded, total) => {
                 uploadProgressLoaded.val = loaded;
                 uploadProgressTotal.val = total || file.size;
@@ -172,11 +196,32 @@ export function assetsPage() {
             setDraft(asset);
             await reloadRows();
             uploadProgressStatus.val = "Uploaded";
+            uploadedAssetKey.val = asset.key;
+            uploadedAssetName.val = asset.key;
         } catch (e) {
             uploadProgressStatus.val = "Upload failed";
             error.val = e.message;
         } finally {
             uploadSaving.val = false;
+        }
+    };
+
+    const saveUploadedAssetName = async () => {
+        const name = uploadedAssetName.val.trim();
+        if (!name) { error.val = "Asset name is required"; return; }
+        try {
+            error.val = null;
+            uploadRenameSaving.val = true;
+            const asset = await renameUploadedAsset(uploadedAssetKey.val, name);
+            selected.val = asset.key;
+            setDraft(asset);
+            await reloadRows();
+            uploadedAssetKey.val = asset.key;
+            uploadedAssetName.val = asset.key;
+        } catch (e) {
+            error.val = e.message;
+        } finally {
+            uploadRenameSaving.val = false;
         }
     };
 
@@ -229,6 +274,8 @@ export function assetsPage() {
         return `${Math.min(100, Math.round((uploadProgressLoaded.val / total) * 100))}%`;
     };
 
+    const uploadNameDirty = () => uploadedAssetName.val.trim() !== uploadedAssetKey.val;
+
     const assetActionClass = "flex items-center gap-1 whitespace-nowrap text-sm px-3 py-1.5 rounded-lg bg-gray-700 " +
         "text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer";
 
@@ -254,11 +301,6 @@ export function assetsPage() {
                     class: () => `${assetActionClass} ${uploadSaving.val ? "opacity-50 cursor-not-allowed" : ""}`,
                     onclick: () => { if (!uploadSaving.val) uploadPicker.click(); },
                 }, "Upload asset"))),
-        () => uploadProgressName.val ? div({class: "flex flex-col gap-1 rounded-lg border border-gray-800 bg-surface/60 p-2"},
-            p({class: "text-xs text-gray-400"}, uploadProgressText),
-            div({class: "h-1.5 overflow-hidden rounded-full bg-gray-800"},
-                div({class: "h-full rounded-full bg-brand transition-all", style: () => `width:${uploadProgressPct()}`})),
-        ) : "",
         div({class: "flex-1 min-h-0 overflow-auto"}, () => {
             if (rows.val === null) return p({class: "text-gray-400 text-sm"}, "Loading...");
             const visibleRows = filteredRows();
@@ -361,11 +403,45 @@ export function assetsPage() {
         },
     });
 
+    const uploadOverlay = () => uploadOverlayOpen.val ? div(
+        {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"},
+        div({class: "card w-full max-w-lg flex flex-col gap-4 shadow-2xl"},
+            () => uploadedAssetKey.val && !uploadSaving.val && uploadProgressStatus.val === "Uploaded"
+                ? p({class: "text-sm font-medium text-green-300"}, "Upload successful. Asset created.")
+                : "",
+            div({class: "flex flex-col gap-2"},
+                p({class: "text-xs text-gray-400"}, uploadProgressText),
+                div({class: "h-2 overflow-hidden rounded-full bg-gray-800"},
+                    div({class: "h-full rounded-full bg-brand transition-all", style: () => `width:${uploadProgressPct()}`})),
+            ),
+            () => uploadedAssetKey.val && !uploadSaving.val ? labelField("Name", input({
+                class: "text-input font-mono",
+                value: uploadedAssetName,
+                disabled: uploadRenameSaving,
+                oninput: (e) => uploadedAssetName.val = e.target.value,
+            })) : "",
+            () => uploadedAssetKey.val && !uploadSaving.val && uploadNameDirty() ? div({class: "flex items-center justify-end gap-2"},
+                smallBtn("Discard", () => { uploadedAssetName.val = uploadedAssetKey.val; }, "bg-gray-700 text-gray-200 hover:bg-gray-600", () => uploadRenameSaving.val),
+                smallBtn("Save", saveUploadedAssetName, "bg-brand text-white hover:bg-blue-600", () => uploadRenameSaving.val || !uploadedAssetName.val.trim()),
+            ) : "",
+            () => !uploadSaving.val ? div({class: "flex justify-end pt-1"},
+                button({
+                    type: "button",
+                    disabled: uploadRenameSaving,
+                    class: () => `text-sm px-3 py-1.5 rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors ${
+                        uploadRenameSaving.val ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`,
+                    onclick: () => { uploadOverlayOpen.val = false; },
+                }, "Close"),
+            ) : "",
+        ),
+    ) : "";
+
     return div(
         {class: "h-full min-h-0 overflow-hidden p-3 flex flex-col gap-3"},
         () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : "",
         uploadPicker,
         div({class: "flex-1 flex flex-col lg:flex-row gap-3 min-h-0"}, leftPane, () => selected.val === null ? "" : editorPanel()),
+        uploadOverlay,
     );
 }
 

@@ -493,6 +493,10 @@ export async function uploadAsset(page, {key, content, fileName = key} = {}) {
     mimeType: 'application/octet-stream',
     buffer: Buffer.from(content),
   });
+  const overlay = page.locator('.fixed.inset-0.z-50').filter({hasText: 'Upload successful. Asset created.'}).last();
+  await expect(overlay).toBeVisible({timeout: ASSET_UPLOAD_TIMEOUT});
+  await overlay.getByRole('button', {name: 'Close'}).click();
+  await expect(overlay).toBeHidden({timeout: LONG_UI_TIMEOUT});
   await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(fileName))})).toBeVisible({timeout: ASSET_UPLOAD_TIMEOUT});
   await expect(page.locator('p').filter({hasText: /MiB stored externally/})).toBeVisible({timeout: LONG_UI_TIMEOUT});
 }

@@ -163,6 +163,34 @@ func (s *PrimaryStorage) UpdateAssetLocation(id int32, location string) *apigen.
 	return assetRowToProto(r)
 }
 
+func (s *PrimaryStorage) RenameAsset(oldKey, newKey string) (*apigen.Asset, bool) {
+	if oldKey == newKey {
+		return s.GetAsset(oldKey, 0)
+	}
+
+	ctx := context.Background()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	res, err := s.db.ExecContext(ctx, `UPDATE assets SET key = ? WHERE key = ?`, newKey, oldKey)
+	if err != nil {
+		panic(fmt.Sprintf("RenameAsset: %v", err))
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		panic(fmt.Sprintf("RenameAsset rows affected: %v", err))
+	}
+	if rows == 0 {
+		return nil, false
+	}
+
+	r, err := s.q.GetLatestAsset(ctx, newKey)
+	if err != nil {
+		panic(fmt.Sprintf("RenameAsset latest: %v", err))
+	}
+	return assetRowToProto(r), true
+}
+
 func (s *PrimaryStorage) DeleteAssetVersionByID(id int32) {
 	if err := s.q.DeleteAssetVersionByID(context.Background(), int64(id)); err != nil {
 		panic(fmt.Sprintf("DeleteAssetVersionByID: %v", err))

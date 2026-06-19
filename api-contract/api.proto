@@ -198,6 +198,12 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc PostV1AssetsRename(cp.Empty) returns (Asset) {
+    option (cp.url) = "/v1/assets/rename";
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   rpc PostV1AssetsDelete(AssetDeleteRequest) returns (cp.Empty) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }

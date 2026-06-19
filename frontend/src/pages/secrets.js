@@ -36,6 +36,8 @@ export function secretsPage() {
     const error = van.state(null);
     const search = van.state("");
     const sort = van.state({key: "name", dir: "asc"});
+    const deleteTarget = van.state(null);
+    const deleteSaving = van.state(false);
     let localRows = null;
     let streamSignature = '';
 
@@ -233,9 +235,29 @@ export function secretsPage() {
             error.val = null;
             if (row.type === "secret") await capi.postV1SecretsDelete({name: row.orig.name});
             else await capi.postV1UserConfigsDelete({name: row.orig.name});
+            return true;
         } catch (e) {
             error.val = e.message;
+            return false;
         }
+    };
+
+    const requestDeleteRow = (row) => {
+        deleteTarget.val = row;
+    };
+
+    const cancelDelete = () => {
+        if (deleteSaving.val) return;
+        deleteTarget.val = null;
+    };
+
+    const confirmDelete = async () => {
+        const row = deleteTarget.val;
+        if (!row || deleteSaving.val) return;
+        deleteSaving.val = true;
+        const deleted = await deleteRow(row);
+        deleteSaving.val = false;
+        if (deleted) deleteTarget.val = null;
     };
 
     const unlockCode = van.state("");
@@ -314,8 +336,28 @@ export function secretsPage() {
                     smallBtn("Save", () => saveRow(row), "bg-brand text-white hover:bg-blue-600",
                         () => !row.name.val.trim()),
                     smallBtn("Discard", () => discardRow(row), "bg-gray-700 text-gray-200 hover:bg-gray-600"))
-                : iconButton(trashIcon(), () => deleteRow(row), "hover:text-red-400")),
+                : iconButton(trashIcon(), () => requestDeleteRow(row), "hover:text-red-400")),
     );
+
+    const deleteOverlay = () => {
+        const row = deleteTarget.val;
+        if (!row) return "";
+        const typeLabel = row.type === "secret" ? "secret" : "config";
+        return div(
+            {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"},
+            div(
+                {class: "card w-full max-w-md flex flex-col gap-4 shadow-2xl"},
+                h2({class: "text-base font-semibold"}, "Confirm delete"),
+                p({class: "text-sm text-gray-300"}, `Are you sure you want to delete ${typeLabel} ${row.orig.name}?`),
+                div({class: "flex items-center justify-end gap-2"},
+                    smallBtn("Cancel", cancelDelete, "bg-gray-700 text-gray-200 hover:bg-gray-600", () => deleteSaving.val),
+                    spinnerButton("Confirm", confirmDelete,
+                        "text-xs px-3 py-1 rounded-md font-medium bg-red-600 text-white hover:bg-red-500",
+                        "button", () => deleteSaving.val),
+                ),
+            ),
+        );
+    };
 
     const sortableHeader = (key, label, cls = "") => th({class: `pb-2 pr-3 font-medium ${cls}`},
         button({
@@ -366,5 +408,6 @@ export function secretsPage() {
     return div(
         {class: "h-full min-h-0 overflow-hidden p-3"},
         contentTable,
+        deleteOverlay,
     );
 }

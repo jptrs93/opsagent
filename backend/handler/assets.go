@@ -28,13 +28,13 @@ func validateUploadAssetName(raw string) (string, error) {
 	return name, nil
 }
 
-func (h *Handler) uniqueUploadAssetName(name string) string {
-	if _, ok := h.Store.GetAsset(name, 0); !ok {
+func (h *Handler) uniqueAssetName(name, allowedExistingKey string) string {
+	if _, ok := h.Store.GetAsset(name, 0); !ok || name == allowedExistingKey {
 		return name
 	}
 	for suffix := 1; ; suffix++ {
 		candidate := name + strconv.Itoa(suffix)
-		if _, ok := h.Store.GetAsset(candidate, 0); !ok {
+		if _, ok := h.Store.GetAsset(candidate, 0); !ok || candidate == allowedExistingKey {
 			return candidate
 		}
 	}
@@ -94,7 +94,7 @@ func (h *Handler) PostV1AssetsUpload(ctx apigen.Context, request *http.Request, 
 	if err != nil {
 		return err
 	}
-	key := h.uniqueUploadAssetName(name)
+	key := h.uniqueAssetName(name, "")
 	format := strings.TrimSpace(query.Get("format"))
 	if format == "" {
 		format = "text"
@@ -116,6 +116,25 @@ func (h *Handler) PostV1AssetsUpload(ctx apigen.Context, request *http.Request, 
 	asset, err := h.Assets.SetAssetFromReader(ctx, key, format, request.ContentLength, request.Body, spaceID)
 	if err != nil {
 		return mapAssetStoreErr(err)
+	}
+	apigen.Respond(ctx, request, writer, asset, nil)
+	return nil
+}
+
+func (h *Handler) PostV1AssetsRename(ctx apigen.Context, request *http.Request, writer http.ResponseWriter) error {
+	query := request.URL.Query()
+	key := strings.TrimSpace(query.Get("key"))
+	if key == "" {
+		return AssetKeyRequiredErr
+	}
+	name, err := validateUploadAssetName(query.Get("name"))
+	if err != nil {
+		return err
+	}
+	newKey := h.uniqueAssetName(name, key)
+	asset, ok := h.Store.RenameAsset(key, newKey)
+	if !ok {
+		return AssetNotFoundErr
 	}
 	apigen.Respond(ctx, request, writer, asset, nil)
 	return nil
