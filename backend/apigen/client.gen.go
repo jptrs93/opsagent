@@ -845,6 +845,22 @@ func (c *OpsagentHttpV1Capi) PostV1AssetsSet(ctx context.Context, req *AssetSetR
 	return DecodeAsset(body)
 }
 
+func (c *OpsagentHttpV1Capi) PostV1AssetsUpload(ctx context.Context) (*Asset, error) {
+	resp, err := c.do(ctx, "POST", "/v1/assets/upload", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAsset(body)
+}
+
 func (c *OpsagentHttpV1Capi) PostV1AssetsDelete(ctx context.Context, req *AssetDeleteRequest) error {
 	if req == nil {
 		return fmt.Errorf("PostV1AssetsDelete request is nil")

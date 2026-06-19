@@ -625,6 +625,17 @@ export class Capi {
   }
 
   /**
+   * @returns {Promise<Asset>}
+   */
+  async postV1AssetsUpload() {
+    const response = await this.#request("/v1/assets/upload", { method: 'POST' });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeAsset(await response.arrayBuffer());
+  }
+
+  /**
    * @param {AssetDeleteRequest} payload
    * @returns {Promise<void>}
    */

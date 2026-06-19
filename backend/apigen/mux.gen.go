@@ -107,6 +107,7 @@ type OpsagentHttpV1Handler interface {
 	PostV1AssetsList(Context, *EmptyRequest) (*AssetList, error)
 	PostV1AssetsGet(Context, *AssetGetRequest) (*Asset, error)
 	PostV1AssetsSet(Context, *AssetSetRequest) (*Asset, error)
+	PostV1AssetsUpload(Context, *http.Request, http.ResponseWriter) error
 	PostV1AssetsDelete(Context, *AssetDeleteRequest) error
 	PostV1EnrollmentList(Context) (*EnrollmentRequestList, error)
 	PostV1EnrollmentAccept(Context, *EnrollmentAcceptRequest) (*EnrollmentRequestStatus, error)
@@ -577,6 +578,15 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/assets/set", buildHandlerFunc(config, verifyAuth, postV1AssetsSetAccessPolicy, postAuthHandlerPostV1AssetsSet, compressionModeAuto, false))
+	postV1AssetsUploadAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AssetsUpload := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		err := h.PostV1AssetsUpload(authCtx, r, w)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+	}
+	m.HandleFunc("POST /v1/assets/upload", buildHandlerFunc(config, verifyAuth, postV1AssetsUploadAccessPolicy, postAuthHandlerPostV1AssetsUpload, compressionModeAuto, false))
 	postV1AssetsDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1AssetsDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetDeleteRequest)

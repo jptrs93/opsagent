@@ -4,6 +4,7 @@
 
 - Clean up Git repository, branch, commit, and flake path validation. The current implementation is overcomplicated.
 - Separate HTTPS and HTTP servers into independently configurable settings rather than linking them as one-or-the-other modes.
+- Improve validation on resource create and update operations so the system strictly controls data validity at all times.
 - Optimize internal asset storage. Consider content hashes and compression.
 - Add a log housekeeper that compresses and backs up workload logs. Show total log space used.
 - Review the system design for immutability and versioning of assets, configs, and secrets. Define the behavior for auto-upgrading deployments that depend on changed assets, configs, or secrets.

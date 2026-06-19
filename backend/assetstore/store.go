@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 
@@ -36,23 +37,44 @@ func (s *Store) GetAssetForPreview(key string, version int32) (*apigen.Asset, bo
 }
 
 func (s *Store) SetAsset(ctx context.Context, key, format string, blob []byte, spaceID int32) (*apigen.Asset, error) {
-	if len(blob) <= InlineThresholdBytes {
+	return s.SetAssetFromReader(ctx, key, format, int64(len(blob)), bytes.NewReader(blob), spaceID)
+}
+
+func (s *Store) SetAssetFromReader(ctx context.Context, key, format string, sizeBytes int64, r io.Reader, spaceID int32) (*apigen.Asset, error) {
+	if sizeBytes < 0 {
+		return nil, fmt.Errorf("asset upload requires a content length")
+	}
+	if sizeBytes > math.MaxInt32 {
+		return nil, fmt.Errorf("asset upload is too large: maximum supported size is %d bytes", math.MaxInt32)
+	}
+	if sizeBytes <= InlineThresholdBytes {
+		blob, err := io.ReadAll(io.LimitReader(r, InlineThresholdBytes+1))
+		if err != nil {
+			return nil, fmt.Errorf("read inline asset upload: %w", err)
+		}
+		if int64(len(blob)) != sizeBytes {
+			return nil, fmt.Errorf("asset upload size changed while reading")
+		}
 		return s.DB.SetAsset(key, format, blob, spaceID), nil
 	}
+	return s.setLargeAssetFromReader(ctx, key, format, sizeBytes, r, spaceID)
+}
 
+func (s *Store) setLargeAssetFromReader(ctx context.Context, key, format string, sizeBytes int64, r io.Reader, spaceID int32) (*apigen.Asset, error) {
 	cfg := s.Config()
 	client, bucket, err := s.s3Client(cfg, true)
 	if err != nil {
 		return nil, err
 	}
 
-	asset := s.DB.SetAssetStored(key, format, "", int64(len(blob)), []byte{}, spaceID)
+	asset := s.DB.SetAssetStored(key, format, "", sizeBytes, []byte{}, spaceID)
 	objectKey := objectKey(cfg.LargeAssetS3Path, asset.ID)
 	location := "s3://" + bucket + "/" + objectKey
 	if _, err := client.PutObject(ctx, &awss3.PutObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(objectKey),
-		Body:   bytes.NewReader(blob),
+		Bucket:        aws.String(bucket),
+		Key:           aws.String(objectKey),
+		Body:          r,
+		ContentLength: aws.Int64(sizeBytes),
 	}); err != nil {
 		s.DB.DeleteAssetVersionByID(asset.ID)
 		return nil, fmt.Errorf("write large asset to s3: %w", err)

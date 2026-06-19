@@ -178,9 +178,8 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  // Versioned user-managed file assets. The first implementation stores small
-  // text assets directly in the blob field; location is reserved for future
-  // disk/S3-backed assets.
+  // Versioned user-managed file assets. Small assets are stored inline; large
+  // uploads are streamed to configured S3 storage and referenced by location.
   rpc PostV1AssetsList(EmptyRequest) returns (AssetList) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -190,6 +189,12 @@ service OpsagentHttpV1 {
   }
 
   rpc PostV1AssetsSet(AssetSetRequest) returns (Asset) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AssetsUpload(cp.Empty) returns (Asset) {
+    option (cp.url) = "/v1/assets/upload";
+    option (cp.go_custom) = true;
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 

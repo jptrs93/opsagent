@@ -94,6 +94,7 @@ Key generated files:
 | POST | `/v1/assets/list` | `EmptyRequest` | `AssetList` | ANY_OF default |
 | POST | `/v1/assets/get` | `AssetGetRequest` | `Asset` | ANY_OF default |
 | POST | `/v1/assets/set` | `AssetSetRequest` | `Asset` | ANY_OF default |
+| POST | `/v1/assets/upload` | raw file body, `key`/`format` query params | `Asset` | ANY_OF default |
 | POST | `/v1/assets/delete` | `AssetDeleteRequest` | — | ANY_OF default |
 
 User-managed configs are plaintext values stored in `user_configs` and referenced from deployment env as `${c:name}`. Encrypted secrets are referenced as `${s:name}`. Deployment preparation batches referenced secret and config keys; secondaries fetch them over the mTLS cluster secrets/configs endpoints into memory only.
