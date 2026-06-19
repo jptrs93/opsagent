@@ -1,9 +1,11 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -90,21 +92,16 @@ func (s *PrimaryStorage) ListAssetVersionsByKey(key string) []*apigen.Asset {
 	return out
 }
 
-func (s *PrimaryStorage) FetchAsset(ctx context.Context, assetID, version int32) (*apigen.ClusterAssetBlob, error) {
+func (s *PrimaryStorage) OpenAsset(ctx context.Context, assetID, version int32) (*apigen.Asset, io.ReadCloser, error) {
 	r, err := s.q.GetAssetByIDVersion(ctx, GetAssetByIDVersionParams{ID: int64(assetID), Version: int64(version)})
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("asset %d version %d not found", assetID, version)
+		return nil, nil, fmt.Errorf("asset %d version %d not found", assetID, version)
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return &apigen.ClusterAssetBlob{
-		AssetID: int32(r.ID),
-		Key:     r.Key,
-		Version: int32(r.Version),
-		Format:  r.Format,
-		Blob:    r.Blob,
-	}, nil
+	asset := assetRowToProto(r)
+	return asset, io.NopCloser(bytes.NewReader(asset.Blob)), nil
 }
 
 func (s *PrimaryStorage) SetAsset(key, format string, blob []byte, spaceIDs ...int32) *apigen.Asset {

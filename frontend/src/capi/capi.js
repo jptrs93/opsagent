@@ -3,7 +3,6 @@
 import {
   decodeAsset,
   decodeAssetList,
-  decodeClusterAssetBlob,
   decodeClusterConfigsResponse,
   decodeClusterSecretsResponse,
   decodeClusterStatusResponse,
@@ -35,7 +34,6 @@ import {
   encodeAssetDeleteRequest,
   encodeAssetGetRequest,
   encodeAssetSetRequest,
-  encodeClusterAssetRequest,
   encodeClusterConfigsRequest,
   encodeClusterSecretsRequest,
   encodeConfigUpdateRequest,
@@ -706,15 +704,14 @@ export class Capi {
   }
 
   /**
-   * @param {ClusterAssetRequest} payload
-   * @returns {Promise<ClusterAssetBlob>}
+   * @returns {Promise<void>}
    */
-  async getV1ClusterAsset(payload) {
-    const response = await this.#request("/v1/cluster/asset", { method: 'GET', body: encodeClusterAssetRequest(payload) });
+  async getV1ClusterAsset() {
+    const response = await this.#request("/v1/cluster/asset", { method: 'GET' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeClusterAssetBlob(await response.arrayBuffer());
+    await response.arrayBuffer();
   }
 
   /**

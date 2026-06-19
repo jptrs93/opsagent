@@ -33,8 +33,8 @@ Current semantics:
 
 - Resolve `version: 0` when the deployment config is created or updated, then store the resolved key, numeric asset id, version, format, and mount path in config history. Asset content is not embedded in deployment configs.
 - During preparation, call `preparer.EnsureAssetsReady` before the deployment reaches READY.
-- On the primary, the asset provider loads inline blobs from the primary DB and large blobs from S3.
-- On a secondary, the asset provider downloads the blob on demand from the primary over the mTLS cluster endpoint `/v1/cluster/asset`.
+- On the primary, the asset provider streams inline blobs from the primary DB and large blobs from S3.
+- On a secondary, the asset provider streams the blob on demand from the primary over the mTLS cluster endpoint `/v1/cluster/asset?asset_id=<id>&version=<version>`.
 - Materialize/cache assets on each target machine at `/var/lib/opendeploy-assets/<asset-id>_<version>`.
 - Mount materialized files read-only into the container.
 - Reject paths that are empty, relative, directories, or dangerous container destinations.
@@ -44,5 +44,4 @@ Current semantics:
 
 Open questions before implementation:
 
-- Whether large future `location` assets should be streamed to workers through the cluster transport or fetched directly by workers from object storage.
 - Whether an asset mount can set file mode/owner. First pass uses read-only bind mounts with default materialized file permissions.

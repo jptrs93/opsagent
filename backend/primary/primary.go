@@ -11,7 +11,10 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"log/slog"
 	"net/http"
+	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -63,7 +66,7 @@ type Primary struct {
 }
 
 type assetProvider interface {
-	FetchAsset(ctx context.Context, assetID, version int32) (*apigen.ClusterAssetBlob, error)
+	OpenAsset(ctx context.Context, assetID, version int32) (*apigen.Asset, io.ReadCloser, error)
 }
 
 // New creates a Primary. The mTLS HTTP/2 listener that drives it is created by
@@ -88,11 +91,43 @@ func (p *Primary) GetV1ClusterGithubCredentials(authCtx apigen.Context) (*apigen
 	return &apigen.GithubCredentials{Token: creds.Token, ChangedAt: creds.ChangedAt}, nil
 }
 
-func (p *Primary) GetV1ClusterAsset(authCtx apigen.Context, req *apigen.ClusterAssetRequest) (*apigen.ClusterAssetBlob, error) {
-	if req == nil || req.AssetID == 0 || req.Version == 0 {
-		return nil, fmt.Errorf("asset_id and version are required")
+func (p *Primary) GetV1ClusterAsset(authCtx apigen.Context, r *http.Request, w http.ResponseWriter) error {
+	assetID, err := int32QueryParam(r, "asset_id")
+	if err != nil {
+		return err
 	}
-	return p.assets.FetchAsset(authCtx, req.AssetID, req.Version)
+	version, err := int32QueryParam(r, "version")
+	if err != nil {
+		return err
+	}
+	asset, body, err := p.assets.OpenAsset(authCtx, assetID, version)
+	if err != nil {
+		return err
+	}
+	defer body.Close()
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.Itoa(int(asset.SizeBytes)))
+	w.Header().Set("X-Opsagent-Asset-ID", strconv.Itoa(int(asset.ID)))
+	w.Header().Set("X-Opsagent-Asset-Key", url.QueryEscape(asset.Key))
+	w.Header().Set("X-Opsagent-Asset-Version", strconv.Itoa(int(asset.Version)))
+	w.Header().Set("X-Opsagent-Asset-Format", asset.Format)
+	if _, err := io.Copy(w, body); err != nil {
+		slog.ErrorContext(authCtx, "stream cluster asset", "asset_id", assetID, "version", version, "err", err)
+	}
+	return nil
+}
+
+func int32QueryParam(r *http.Request, name string) (int32, error) {
+	raw := r.URL.Query().Get(name)
+	if raw == "" {
+		return 0, fmt.Errorf("%s is required", name)
+	}
+	value, err := strconv.ParseInt(raw, 10, 32)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("%s must be a positive int32", name)
+	}
+	return int32(value), nil
 }
 
 func (p *Primary) GetV1ClusterSecrets(authCtx apigen.Context, req *apigen.ClusterSecretsRequest) (*apigen.ClusterSecretsResponse, error) {

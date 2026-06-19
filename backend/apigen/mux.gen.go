@@ -646,7 +646,7 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 
 type OpsagentClusterV1Handler interface {
 	GetV1ClusterGithubCredentials(Context) (*GithubCredentials, error)
-	GetV1ClusterAsset(Context, *ClusterAssetRequest) (*ClusterAssetBlob, error)
+	GetV1ClusterAsset(Context, *http.Request, http.ResponseWriter) error
 	GetV1ClusterSecrets(Context, *ClusterSecretsRequest) (*ClusterSecretsResponse, error)
 	GetV1ClusterConfigs(Context, *ClusterConfigsRequest) (*ClusterConfigsResponse, error)
 	PostV1ClusterConnect(Context, iter.Seq2[*MsgToMaster, error]) iter.Seq2[*MsgToWorker, error]
@@ -672,15 +672,13 @@ func CreateOpsagentClusterV1Mux(h OpsagentClusterV1Handler, config *MuxConfig) *
 	m.HandleFunc("GET /v1/cluster/github-credentials", buildHandlerFunc(config, verifyAuth, getV1ClusterGithubCredentialsAccessPolicy, postAuthHandlerGetV1ClusterGithubCredentials, compressionModeAuto, false))
 	getV1ClusterAssetAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
 	postAuthHandlerGetV1ClusterAsset := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeClusterAssetRequest)
+		err := h.GetV1ClusterAsset(authCtx, r, w)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
-		res, err := h.GetV1ClusterAsset(authCtx, req)
-		Respond(authCtx, r, w, res, err)
 	}
-	m.HandleFunc("GET /v1/cluster/asset", buildHandlerFunc(config, verifyAuth, getV1ClusterAssetAccessPolicy, postAuthHandlerGetV1ClusterAsset, compressionModeAuto, false))
+	m.HandleFunc("GET /v1/cluster/asset", buildHandlerFunc(config, verifyAuth, getV1ClusterAssetAccessPolicy, postAuthHandlerGetV1ClusterAsset, compressionModeNever, false))
 	getV1ClusterSecretsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
 	postAuthHandlerGetV1ClusterSecrets := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeClusterSecretsRequest)

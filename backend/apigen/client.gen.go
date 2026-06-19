@@ -1031,23 +1031,16 @@ func (c *OpsagentClusterV1Capi) GetV1ClusterGithubCredentials(ctx context.Contex
 	return DecodeGithubCredentials(body)
 }
 
-func (c *OpsagentClusterV1Capi) GetV1ClusterAsset(ctx context.Context, req *ClusterAssetRequest) (*ClusterAssetBlob, error) {
-	if req == nil {
-		return nil, fmt.Errorf("GetV1ClusterAsset request is nil")
-	}
-	resp, err := c.do(ctx, "GET", "/v1/cluster/asset", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *OpsagentClusterV1Capi) GetV1ClusterAsset(ctx context.Context) error {
+	resp, err := c.do(ctx, "GET", "/v1/cluster/asset", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
+		return c.ErrorHandler(ctx, resp)
 	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeClusterAssetBlob(body)
+	return nil
 }
 
 func (c *OpsagentClusterV1Capi) GetV1ClusterSecrets(ctx context.Context, req *ClusterSecretsRequest) (*ClusterSecretsResponse, error) {

@@ -41,7 +41,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
         : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'};
     const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
     const menuOpen = van.state(false);
-    const actionButtonClass = "btn-secondary text-xs leading-none py-0.5 px-0.5 cursor-pointer";
+    const actionButtonClass = "rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-xs leading-none py-0.5 px-0.5 cursor-pointer";
 
     return tr(
         {class: "border-b border-gray-800 last:border-0 hover:bg-gray-800/60 transition-colors", "data-testid": `deployment-row-${deployment.name || deployment.id}`},

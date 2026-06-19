@@ -236,9 +236,11 @@ service OpsagentClusterV1 {
     option (cp.policy) = { policy_type: NO_AUTH };
   }
 
-  rpc GetV1ClusterAsset(ClusterAssetRequest) returns (ClusterAssetBlob) {
+  rpc GetV1ClusterAsset(cp.Empty) returns (cp.Empty) {
     option (cp.url) = "/v1/cluster/asset";
+    option (cp.go_custom) = true;
     option (cp.policy) = { policy_type: NO_AUTH };
+    option (cp.compression) = COMPRESSION_MODE_NEVER;
   }
 
   rpc GetV1ClusterSecrets(ClusterSecretsRequest) returns (ClusterSecretsResponse) {
@@ -316,19 +318,6 @@ message EnrollmentAccepted {
 message GithubCredentials {
   string token = 1;
   int64 changed_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-}
-
-message ClusterAssetRequest {
-  int32 asset_id = 1;
-  int32 version = 2;
-}
-
-message ClusterAssetBlob {
-  int32 asset_id = 1;
-  string key = 2;
-  int32 version = 3;
-  string format = 4;
-  bytes blob = 5;
 }
 
 message ClusterSecretsRequest {

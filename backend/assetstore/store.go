@@ -99,26 +99,19 @@ func (s *Store) setLargeAssetFromReader(ctx context.Context, key, format string,
 	return asset, nil
 }
 
-func (s *Store) FetchAsset(ctx context.Context, assetID, version int32) (*apigen.ClusterAssetBlob, error) {
+func (s *Store) OpenAsset(ctx context.Context, assetID, version int32) (*apigen.Asset, io.ReadCloser, error) {
 	asset, ok := s.DB.GetAssetByIDVersion(assetID, version)
 	if !ok {
-		return nil, fmt.Errorf("asset %d version %d not found", assetID, version)
+		return nil, nil, fmt.Errorf("asset %d version %d not found", assetID, version)
 	}
-	blob := asset.Blob
 	if asset.Location != "" {
-		var err error
-		blob, err = s.fetchS3Asset(ctx, asset.Location)
+		body, err := s.openS3Asset(ctx, asset.Location)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+		return asset, body, nil
 	}
-	return &apigen.ClusterAssetBlob{
-		AssetID: asset.ID,
-		Key:     asset.Key,
-		Version: asset.Version,
-		Format:  asset.Format,
-		Blob:    blob,
-	}, nil
+	return asset, io.NopCloser(bytes.NewReader(asset.Blob)), nil
 }
 
 func (s *Store) DeleteAsset(ctx context.Context, key string) error {
@@ -149,7 +142,7 @@ func (s *Store) deleteS3Asset(ctx context.Context, location string) error {
 	return nil
 }
 
-func (s *Store) fetchS3Asset(ctx context.Context, location string) ([]byte, error) {
+func (s *Store) openS3Asset(ctx context.Context, location string) (io.ReadCloser, error) {
 	bucket, key, err := parseS3Location(location)
 	if err != nil {
 		return nil, err
@@ -162,12 +155,7 @@ func (s *Store) fetchS3Asset(ctx context.Context, location string) ([]byte, erro
 	if err != nil {
 		return nil, fmt.Errorf("read large asset from s3: %w", err)
 	}
-	defer res.Body.Close()
-	blob, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read large asset body: %w", err)
-	}
-	return blob, nil
+	return res.Body, nil
 }
 
 func (s *Store) s3Client(cfg ainit.DynamicConfiguration, requireEnabled bool) (*awss3.Client, string, error) {

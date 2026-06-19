@@ -78,7 +78,7 @@ Key generated files:
 |--------|------|---------|----------|--------|
 | GET | `/v1/cluster/status` | — | `ClusterStatusResponse` | ANY_OF default |
 | GET | `/v1/cluster/github-credentials` | — | `GithubCredentials` | NO_AUTH over mTLS cluster listener |
-| GET | `/v1/cluster/asset` | `ClusterAssetRequest` | `ClusterAssetBlob` | NO_AUTH over mTLS cluster listener |
+| GET | `/v1/cluster/asset?asset_id=<id>&version=<version>` | query params | raw asset bytes with `X-Opsagent-Asset-*` headers | NO_AUTH over mTLS cluster listener |
 | GET | `/v1/cluster/secrets` | `ClusterSecretsRequest` | `ClusterSecretsResponse` | NO_AUTH over mTLS cluster listener |
 | GET | `/v1/cluster/configs` | `ClusterConfigsRequest` | `ClusterConfigsResponse` | NO_AUTH over mTLS cluster listener |
 
@@ -99,7 +99,7 @@ Key generated files:
 
 User-managed configs are plaintext values stored in `user_configs` and referenced from deployment env as `${c:name}`. Encrypted secrets are referenced as `${s:name}`. Deployment preparation batches referenced secret and config keys; secondaries fetch them over the mTLS cluster secrets/configs endpoints into memory only.
 
-Assets are versioned plaintext file blobs stored in `assets`. Rows are immutable; setting an existing key creates a new version with a numeric asset id. Blobs up to 10 MiB are stored inline; larger blobs are stored in the configured large-asset S3 bucket and referenced by `location`. Workers download required asset blobs on demand over the mTLS cluster asset endpoint during preparation.
+Assets are versioned plaintext file blobs stored in `assets`. Rows are immutable; setting an existing key creates a new version with a numeric asset id. Blobs up to 10 MiB are stored inline; larger blobs are stored in the configured large-asset S3 bucket and referenced by `location`. Workers stream required asset blobs on demand over the mTLS cluster asset endpoint during preparation.
 
 ### Enrollment
 | Method | Path | Request | Response | Policy |

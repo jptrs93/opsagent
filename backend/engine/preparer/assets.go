@@ -3,6 +3,7 @@ package preparer
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,7 +14,7 @@ import (
 )
 
 type AssetProvider interface {
-	FetchAsset(ctx context.Context, assetID, version int32) (*apigen.ClusterAssetBlob, error)
+	OpenAsset(ctx context.Context, assetID, version int32) (*apigen.Asset, io.ReadCloser, error)
 }
 
 var Assets AssetProvider
@@ -45,16 +46,34 @@ func EnsureAssetsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error 
 		} else if err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("checking asset cache %s: %w", path, err)
 		}
-		asset, err := Assets.FetchAsset(ctx, ref.AssetID, ref.Version)
+		asset, body, err := Assets.OpenAsset(ctx, ref.AssetID, ref.Version)
 		if err != nil {
 			return fmt.Errorf("fetching asset %d version %d: %w", ref.AssetID, ref.Version, err)
 		}
-		if asset.AssetID != ref.AssetID || asset.Version != ref.Version {
-			return fmt.Errorf("primary returned wrong asset: got %d version %d", asset.AssetID, asset.Version)
+		if asset.ID != ref.AssetID || asset.Version != ref.Version {
+			_ = body.Close()
+			return fmt.Errorf("primary returned wrong asset: got %d version %d", asset.ID, asset.Version)
 		}
 		tmp := path + ".tmp"
-		if err := os.WriteFile(tmp, asset.Blob, 0o644); err != nil {
+		out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			_ = body.Close()
 			return fmt.Errorf("writing asset cache %s: %w", tmp, err)
+		}
+		if _, err := io.Copy(out, body); err != nil {
+			_ = out.Close()
+			_ = body.Close()
+			_ = os.Remove(tmp)
+			return fmt.Errorf("writing asset cache %s: %w", tmp, err)
+		}
+		if err := body.Close(); err != nil {
+			_ = out.Close()
+			_ = os.Remove(tmp)
+			return fmt.Errorf("reading asset %d version %d: %w", ref.AssetID, ref.Version, err)
+		}
+		if err := out.Close(); err != nil {
+			_ = os.Remove(tmp)
+			return fmt.Errorf("closing asset cache %s: %w", tmp, err)
 		}
 		if err := os.Rename(tmp, path); err != nil {
 			_ = os.Remove(tmp)
