@@ -62,6 +62,7 @@ const settingsSections = [
 ];
 
 const settings = settingsSections.flatMap((section) => section.settings);
+const settingLabelColumnWidth = `${Math.max(...settings.map((setting) => setting.label.length)) + 6}ch`;
 
 const draftValue = (setting, cfg) => {
     if (setting.type === "secret") {
@@ -779,7 +780,7 @@ export function settingsPage() {
 
     const rowEl = (setting) => tr(
         {class: "border-b border-gray-800 last:border-0 align-middle"},
-        td({class: "py-2 pr-3 whitespace-nowrap align-middle"},
+        td({class: "py-2 pr-3 whitespace-nowrap align-middle", style: `width:${settingLabelColumnWidth};min-width:${settingLabelColumnWidth}`},
             span({class: "text-gray-200"}, setting.label),
         ),
         td({class: "py-2 text-white"}, valueInput(setting, draft, error, patchDraft, saving, secrets, openCreateSecret)),

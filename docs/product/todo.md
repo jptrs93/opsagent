@@ -14,3 +14,4 @@
 - Major feature: add resource monitoring for workloads.
 - Add resource requests and limits to deployment configuration.
 - Major feature: allow deployments to be defined without specifying a machine. Add a scheduler that automatically schedules deployments onto machines.
+- Review Litestream behavior when an existing remote backup is ahead of the local primary database. Define how OpenDeploy should detect, warn, block, or recover before a stale local database can publish a newer backup snapshot.

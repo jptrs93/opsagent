@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"strconv"
 	"strings"
 
@@ -66,6 +67,20 @@ func (s *Store) setLargeAssetFromReader(ctx context.Context, key, format string,
 	if err != nil {
 		return nil, err
 	}
+	tmp, err := os.CreateTemp("", "opendeploy-large-asset-*")
+	if err != nil {
+		return nil, fmt.Errorf("stage large asset upload: %w", err)
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+	if written, err := io.Copy(tmp, r); err != nil {
+		return nil, fmt.Errorf("stage large asset upload: %w", err)
+	} else if written != sizeBytes {
+		return nil, fmt.Errorf("asset upload size changed while reading")
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("stage large asset upload: %w", err)
+	}
 
 	asset := s.DB.SetAssetStored(key, format, "", sizeBytes, []byte{}, spaceID)
 	objectKey := objectKey(cfg.LargeAssetS3Path, asset.ID)
@@ -73,7 +88,7 @@ func (s *Store) setLargeAssetFromReader(ctx context.Context, key, format string,
 	if _, err := client.PutObject(ctx, &awss3.PutObjectInput{
 		Bucket:        aws.String(bucket),
 		Key:           aws.String(objectKey),
-		Body:          r,
+		Body:          tmp,
 		ContentLength: aws.Int64(sizeBytes),
 	}); err != nil {
 		s.DB.DeleteAssetVersionByID(asset.ID)

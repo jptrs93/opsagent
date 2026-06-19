@@ -13,6 +13,7 @@ const UPGRADE_TIMEOUT = 180_000;
 const RELEASE_OPTIONS_TIMEOUT = 60_000;
 const BACKUP_RESTORE_TIMEOUT = 120_000;
 const ASSET_UPLOAD_TIMEOUT = 120_000;
+const MINIO_BUCKET_SETUP_DELAY = 8_000;
 const STABLE_CHECK_DELAY = 200;
 
 const BACKUP_RESTORE_DEFAULTS = {
@@ -265,6 +266,8 @@ export async function configureLargeAssetStorage(page, opts = {}) {
 
   await ensureE2EObjectStorage(page, cfg);
   await byTestId(page, 'nav-settings', page.getByText('Settings')).click();
+  await expect(settingRow(page, 'Large asset S3 enabled')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await setSettingBool(page, 'Large asset S3 enabled', true);
   await expect(settingRow(page, 'Large asset S3 access key ID')).toBeVisible({timeout: LONG_UI_TIMEOUT});
 
   await setSettingText(page, 'Large asset S3 access key ID', cfg.minioRootUser);
@@ -273,7 +276,6 @@ export async function configureLargeAssetStorage(page, opts = {}) {
   await setSettingText(page, 'Large asset S3 path', cfg.largeAssetPath);
   await setSettingText(page, 'Large asset S3 region', cfg.region);
   await setSettingText(page, 'Large asset S3 endpoint', cfg.endpoint);
-  await setSettingBool(page, 'Large asset S3 enabled', true);
 
   await page.getByRole('button', {name: 'Save changes'}).click();
   await expect(page.getByText('Unsaved changes')).toBeHidden({timeout: LONG_UI_TIMEOUT});
@@ -302,6 +304,7 @@ async function ensureE2EObjectStorage(page, cfg) {
   });
   await expectDeploymentRunning(page, cfg.minioDeploymentName);
   await waitForHTTPReady(cfg.minioReadyURL, 'MinIO readiness endpoint');
+  await page.waitForTimeout(MINIO_BUCKET_SETUP_DELAY);
   e2eObjectStorageReady = true;
 }
 
@@ -338,6 +341,8 @@ function editableSecretConfigRow(page, typeLabel) {
 
 async function configureBackupSettings(page, cfg) {
   await byTestId(page, 'nav-settings', page.getByText('Settings')).click();
+  await expect(settingRow(page, 'Backup enabled')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await setSettingBool(page, 'Backup enabled', true);
   await expect(settingRow(page, 'Backup S3 access key ID')).toBeVisible({timeout: LONG_UI_TIMEOUT});
 
   await setSettingText(page, 'Backup S3 access key ID', cfg.minioRootUser);
@@ -346,7 +351,6 @@ async function configureBackupSettings(page, cfg) {
   await setSettingText(page, 'Backup S3 path', cfg.path);
   await setSettingText(page, 'Backup S3 region', cfg.region);
   await setSettingText(page, 'Backup S3 endpoint', cfg.endpoint);
-  await setSettingBool(page, 'Backup enabled', true);
 
   await page.getByRole('button', {name: 'Save changes'}).click();
   await expect(page.getByText('Unsaved changes')).toBeHidden({timeout: LONG_UI_TIMEOUT});
@@ -492,10 +496,10 @@ export async function uploadAsset(page, {key, content, fileName = key, format = 
     mimeType: 'application/octet-stream',
     buffer: Buffer.from(content),
   });
-  await dialog.getByRole('button', {name: 'Upload'}).click();
+  await dialog.getByRole('button', {name: 'Upload', exact: true}).click();
   await expect(dialog).toBeHidden({timeout: ASSET_UPLOAD_TIMEOUT});
   await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(key))})).toBeVisible({timeout: LONG_UI_TIMEOUT});
-  await expect(page.getByText('stored externally')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await expect(page.locator('p').filter({hasText: /MiB stored externally/})).toBeVisible({timeout: LONG_UI_TIMEOUT});
 }
 
 export async function expectDeploymentOutput(page, name, expectedLines) {

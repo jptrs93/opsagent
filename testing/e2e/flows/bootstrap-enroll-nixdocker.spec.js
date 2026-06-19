@@ -100,19 +100,6 @@ test('bootstrap primary, enroll worker, and create Nix Docker deployment', async
     'nixdockerbuild1 asset content opendeploy-e2e-asset.txt=hello-from-asset-page',
   ]);
 
-  await createNixDockerCrasherDeployment(page);
-  await createSecret(page, {
-    name: 'postgres',
-    value: 'postgres',
-  });
-  await createSecret(page, {
-    name: 'postgrespass',
-    value: 'postgrespass',
-  });
-  await upgradeOpenDeployAgents(page, {version: process.env.OPD_UPGRADE_VERSION || 'v0.0.173'});
-  await createPostgresDeployment(page);
-  await createPostgresClientDeployment(page);
-
   await configureLargeAssetStorage(page);
   const largeAsset = generateLargeAsset();
   console.log(`[opendeploy-e2e] large asset ${LARGE_ASSET_KEY} sha256=${largeAsset.sha256}`);
@@ -139,6 +126,19 @@ test('bootstrap primary, enroll worker, and create Nix Docker deployment', async
     `largeassetverify asset sha256=${largeAsset.sha256}`,
     'largeassetverify asset verified true',
   ]);
+
+  await createNixDockerCrasherDeployment(page);
+  await createSecret(page, {
+    name: 'postgres',
+    value: 'postgres',
+  });
+  await createSecret(page, {
+    name: 'postgrespass',
+    value: 'postgrespass',
+  });
+  await upgradeOpenDeployAgents(page, {version: process.env.OPD_UPGRADE_VERSION || 'v0.0.173'});
+  await createPostgresDeployment(page);
+  await createPostgresClientDeployment(page);
 
   if (process.env.OPD_BACKUP_RESTORE === 'true') {
     await runBackupRestoreSetup(page);

@@ -104,7 +104,7 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	if err := configService.EnsureInitialMasterPasswordHashPersisted(); err != nil {
 		return nil, err
 	}
-	configSub := configService.SnapshotAndSubscribe()
+	configSub := configService.SnapshotAndSubscribe(nil)
 	cfg := configSub.InitialValue
 	assetStore := &assetstore.Store{
 		DB: store,

@@ -62,14 +62,14 @@ const (
 	legacyBackupS3SecretAccessKeyName     = "config.backup_s3_secret_access_key"
 )
 
-func (s *Service) SnapshotAndSubscribe() *pubsubu.Sub[ainit.DynamicConfiguration] {
+func (s *Service) SnapshotAndSubscribe(filter func(ainit.DynamicConfiguration) bool) *pubsubu.Sub[ainit.DynamicConfiguration] {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.subs == nil {
 		s.subs = &pubsubu.PubSub[ainit.DynamicConfiguration]{}
 	}
 	s.subs.Notify(s.snapshot())
-	return s.subs.Subscribe(nil)
+	return s.subs.Subscribe(filter)
 }
 
 func (s *Service) Snapshot() ainit.DynamicConfiguration {

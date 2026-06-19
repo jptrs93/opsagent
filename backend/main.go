@@ -89,7 +89,7 @@ func runPrimary() {
 	if err != nil {
 		panic(fmt.Sprintf("creating handler: %v", err))
 	}
-	backup.MustRestoreAndStartReplicationIfEnabled(h.ConfigService)
+	backup.StartReplication(h.ConfigService)
 	cfg := h.Config
 	clusterMaterial, err := cluster.BootstrapPrimary(h.Secrets, machineName)
 	if err != nil {
