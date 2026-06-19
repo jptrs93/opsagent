@@ -18,8 +18,6 @@ import {DeploymentCreationUpdate, SOURCE_DOCKER_IMAGE, SOURCE_NIX_DOCKER} from "
 
 const { div, span, select, option, button, p, label, input } = van.tags;
 
-const STATUS_RUNNING = 2;
-
 const versionLabel = (v) => {
     const date = v.time instanceof Date && v.time.getTime() > 0
         ? v.time.toISOString().substring(0, 10)
@@ -45,7 +43,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     const versionError = van.state('');
     const errorMsg = van.state('');
     const assets = van.state([]);
-    const isRunning = deployment.existingStatus === STATUS_RUNNING;
+    const canStop = Boolean(deployment.desiredRunning);
     const canManageLifecycle = deployment.runnerType !== 'systemd';
     const canStart = Boolean(deployment.deployedVersion);
     let requestSeq = 0;
@@ -343,7 +341,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                         }, "Cancel"),
                         lifecycleButton({
                             canManageLifecycle,
-                            isRunning,
+                            canStop,
                             canStart,
                             doStop,
                             doStart,
@@ -364,7 +362,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
 
 function lifecycleButton(args) {
     if (!args.canManageLifecycle) return span();
-    if (args.isRunning) {
+    if (args.canStop) {
         return spinnerButton(
             "Stop deployment",
             args.doStop,

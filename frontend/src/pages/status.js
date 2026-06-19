@@ -114,6 +114,7 @@ const mapDeploymentsToView = (deployments, spaces) => {
             deployedBy: d.config.updatedBy || 0,
             deployedAt: d.config.updatedAt,
             deployedVersion: desired.version || '',
+            desiredRunning: Boolean(desired.running),
             prepareStatus: prep.status || 0,
             prepareVersion: desired.version || '',
             currentVersion: d.config.version || 0,
