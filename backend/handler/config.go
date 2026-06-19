@@ -100,6 +100,23 @@ func validateConfigUpdate(key, value string) (config.Update, error) {
 		return config.Update{Key: config.BackupS3Region, Value: strings.TrimSpace(value)}, nil
 	case "BACKUP_S3_ENDPOINT":
 		return config.Update{Key: config.BackupS3Endpoint, Value: strings.TrimSpace(value)}, nil
+	case "LARGE_ASSET_S3_ENABLED":
+		if _, err := strconv.ParseBool(strings.TrimSpace(value)); err != nil {
+			return config.Update{}, fmt.Errorf("LARGE_ASSET_S3_ENABLED must be true or false")
+		}
+		return config.Update{Key: config.LargeAssetS3Enabled, Value: strings.TrimSpace(value)}, nil
+	case "LARGE_ASSET_S3_ACCESS_KEY_ID":
+		return config.Update{Key: config.LargeAssetS3AccessKeyID, Value: strings.TrimSpace(value)}, nil
+	case "LARGE_ASSET_S3_SECRET_ACCESS_KEY":
+		return config.Update{Key: config.LargeAssetS3SecretAccessKey, Value: strings.TrimSpace(value)}, nil
+	case "LARGE_ASSET_S3_BUCKET":
+		return config.Update{Key: config.LargeAssetS3Bucket, Value: strings.TrimSpace(value)}, nil
+	case "LARGE_ASSET_S3_PATH":
+		return config.Update{Key: config.LargeAssetS3Path, Value: strings.TrimSpace(value)}, nil
+	case "LARGE_ASSET_S3_REGION":
+		return config.Update{Key: config.LargeAssetS3Region, Value: strings.TrimSpace(value)}, nil
+	case "LARGE_ASSET_S3_ENDPOINT":
+		return config.Update{Key: config.LargeAssetS3Endpoint, Value: strings.TrimSpace(value)}, nil
 	default:
 		return config.Update{}, fmt.Errorf("unknown config key %q", key)
 	}
@@ -130,20 +147,27 @@ func parseConfigList(value string) []string {
 
 func dynamicConfigToProto(cfg ainit.DynamicConfiguration) *apigen.DynamicConfiguration {
 	return &apigen.DynamicConfiguration{
-		WebListen:               cfg.WebListen,
-		WebHttpOnly:             cfg.WebHTTPOnly,
-		ClusterListen:           cfg.ClusterListen,
-		EnrollmentListen:        cfg.EnrollmentListen,
-		AcmeHosts:               cfg.AcmeHosts,
-		AcmeEmail:               cfg.AcmeEmail,
-		GithubToken:             secretValueToProto(cfg.GithubToken),
-		BackupEnabled:           cfg.BackupEnabled,
-		BackupS3AccessKeyID:     cfg.BackupS3AccessKeyID,
-		BackupS3SecretAccessKey: secretValueToProto(cfg.BackupS3SecretAccessKey),
-		BackupS3Bucket:          cfg.BackupS3Bucket,
-		BackupS3Path:            cfg.BackupS3Path,
-		BackupS3Region:          cfg.BackupS3Region,
-		BackupS3Endpoint:        cfg.BackupS3Endpoint,
+		WebListen:                   cfg.WebListen,
+		WebHttpOnly:                 cfg.WebHTTPOnly,
+		ClusterListen:               cfg.ClusterListen,
+		EnrollmentListen:            cfg.EnrollmentListen,
+		AcmeHosts:                   cfg.AcmeHosts,
+		AcmeEmail:                   cfg.AcmeEmail,
+		GithubToken:                 secretValueToProto(cfg.GithubToken),
+		BackupEnabled:               cfg.BackupEnabled,
+		BackupS3AccessKeyID:         cfg.BackupS3AccessKeyID,
+		BackupS3SecretAccessKey:     secretValueToProto(cfg.BackupS3SecretAccessKey),
+		BackupS3Bucket:              cfg.BackupS3Bucket,
+		BackupS3Path:                cfg.BackupS3Path,
+		BackupS3Region:              cfg.BackupS3Region,
+		BackupS3Endpoint:            cfg.BackupS3Endpoint,
+		LargeAssetS3Enabled:         cfg.LargeAssetS3Enabled,
+		LargeAssetS3AccessKeyID:     cfg.LargeAssetS3AccessKeyID,
+		LargeAssetS3SecretAccessKey: secretValueToProto(cfg.LargeAssetS3SecretAccessKey),
+		LargeAssetS3Bucket:          cfg.LargeAssetS3Bucket,
+		LargeAssetS3Path:            cfg.LargeAssetS3Path,
+		LargeAssetS3Region:          cfg.LargeAssetS3Region,
+		LargeAssetS3Endpoint:        cfg.LargeAssetS3Endpoint,
 	}
 }
 

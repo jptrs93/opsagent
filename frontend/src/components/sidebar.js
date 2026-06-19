@@ -25,7 +25,7 @@ export function sidebar(activePage) {
     };
 
     return div(
-        {class: "w-56 bg-sidebar border-r border-gray-800 flex flex-col min-h-dvh"},
+        {class: "w-56 shrink-0 h-full min-h-0 bg-sidebar border-r border-gray-800 flex flex-col overflow-hidden"},
         div(
             {class: "p-4 border-b border-gray-800"},
             h2({class: "text-lg font-bold text-white"}, "OpenDeploy"),

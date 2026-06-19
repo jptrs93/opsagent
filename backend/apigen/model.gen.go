@@ -757,20 +757,27 @@ func DecodeSecretValue(b []byte) (*SecretValue, error) {
 }
 
 type DynamicConfiguration struct {
-	WebListen               string
-	WebHttpOnly             bool
-	ClusterListen           string
-	EnrollmentListen        string
-	AcmeHosts               []string
-	AcmeEmail               string
-	GithubToken             *SecretValue
-	BackupS3AccessKeyID     string
-	BackupS3SecretAccessKey *SecretValue
-	BackupS3Bucket          string
-	BackupS3Path            string
-	BackupS3Region          string
-	BackupS3Endpoint        string
-	BackupEnabled           bool
+	WebListen                   string
+	WebHttpOnly                 bool
+	ClusterListen               string
+	EnrollmentListen            string
+	AcmeHosts                   []string
+	AcmeEmail                   string
+	GithubToken                 *SecretValue
+	BackupS3AccessKeyID         string
+	BackupS3SecretAccessKey     *SecretValue
+	BackupS3Bucket              string
+	BackupS3Path                string
+	BackupS3Region              string
+	BackupS3Endpoint            string
+	BackupEnabled               bool
+	LargeAssetS3Enabled         bool
+	LargeAssetS3AccessKeyID     string
+	LargeAssetS3SecretAccessKey *SecretValue
+	LargeAssetS3Bucket          string
+	LargeAssetS3Path            string
+	LargeAssetS3Region          string
+	LargeAssetS3Endpoint        string
 }
 
 func (m *DynamicConfiguration) Encode() []byte {
@@ -795,6 +802,16 @@ func (m *DynamicConfiguration) Encode() []byte {
 	b = AppendStringField(b, m.BackupS3Region, 12)
 	b = AppendStringField(b, m.BackupS3Endpoint, 13)
 	b = AppendBoolField(b, m.BackupEnabled, 14)
+	b = AppendBoolField(b, m.LargeAssetS3Enabled, 15)
+	b = AppendStringField(b, m.LargeAssetS3AccessKeyID, 16)
+	if m.LargeAssetS3SecretAccessKey != nil {
+		b = AppendTag(b, 17, BytesType)
+		b = AppendBytes(b, m.LargeAssetS3SecretAccessKey.Encode())
+	}
+	b = AppendStringField(b, m.LargeAssetS3Bucket, 18)
+	b = AppendStringField(b, m.LargeAssetS3Path, 19)
+	b = AppendStringField(b, m.LargeAssetS3Region, 20)
+	b = AppendStringField(b, m.LargeAssetS3Endpoint, 21)
 	return b
 }
 
@@ -856,6 +873,27 @@ func DecodeDynamicConfiguration(b []byte) (*DynamicConfiguration, error) {
 			b, m.BackupS3Endpoint, err = ConsumeString(b, typ)
 		case 14:
 			b, m.BackupEnabled, err = ConsumeBool(b, typ)
+		case 15:
+			b, m.LargeAssetS3Enabled, err = ConsumeBool(b, typ)
+		case 16:
+			b, m.LargeAssetS3AccessKeyID, err = ConsumeString(b, typ)
+		case 17:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretValue
+				item, err = DecodeSecretValue(msgBytes)
+				if err == nil {
+					m.LargeAssetS3SecretAccessKey = item
+				}
+			}
+		case 18:
+			b, m.LargeAssetS3Bucket, err = ConsumeString(b, typ)
+		case 19:
+			b, m.LargeAssetS3Path, err = ConsumeString(b, typ)
+		case 20:
+			b, m.LargeAssetS3Region, err = ConsumeString(b, typ)
+		case 21:
+			b, m.LargeAssetS3Endpoint, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1824,6 +1862,7 @@ type Asset struct {
 	Blob      []byte
 	ID        int32
 	SpaceID   int32
+	SizeBytes int32
 }
 
 func (m *Asset) Encode() []byte {
@@ -1836,6 +1875,7 @@ func (m *Asset) Encode() []byte {
 	b = AppendBytesField(b, m.Blob, 6)
 	b = AppendInt32Field(b, m.ID, 7)
 	b = AppendInt32Field(b, m.SpaceID, 8)
+	b = AppendInt32Field(b, m.SizeBytes, 9)
 	return b
 }
 
@@ -1866,6 +1906,8 @@ func DecodeAsset(b []byte) (*Asset, error) {
 			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 8:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 9:
+			b, m.SizeBytes, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

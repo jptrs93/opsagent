@@ -107,8 +107,8 @@ CREATE TABLE IF NOT EXISTS user_configs (
 );
 
 -- Versioned user-managed file assets. Rows are immutable: editing an asset
--- appends a new version for the same key. For now blob holds small assets
--- inline; location is reserved for future disk/S3-backed storage.
+-- appends a new version for the same key. Small assets are stored inline in
+-- blob; large assets store their object reference in location.
 CREATE TABLE IF NOT EXISTS assets (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     key         TEXT    NOT NULL,
@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS assets (
     version     INTEGER NOT NULL,
     format      TEXT    NOT NULL DEFAULT '',
     location    TEXT    NOT NULL DEFAULT '',
+    size_bytes  INTEGER NOT NULL DEFAULT 0,
     blob        BLOB    NOT NULL,
     UNIQUE (key, version)
 );

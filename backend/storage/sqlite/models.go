@@ -16,6 +16,7 @@ type Asset struct {
 	Version   int64
 	Format    string
 	Location  string
+	SizeBytes int64
 	Blob      []byte
 }
 

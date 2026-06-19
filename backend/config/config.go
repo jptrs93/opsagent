@@ -17,21 +17,28 @@ import (
 type ConfigKey string
 
 const (
-	WebListen               ConfigKey = "WEB_LISTEN"
-	WebHTTPOnly             ConfigKey = "WEB_HTTP_ONLY"
-	ClusterListen           ConfigKey = "CLUSTER_LISTEN"
-	EnrollmentListen        ConfigKey = "ENROLLMENT_LISTEN"
-	AcmeHosts               ConfigKey = "ACME_HOSTS"
-	AcmeEmail               ConfigKey = "ACME_EMAIL"
-	MasterPasswordHash      ConfigKey = "MASTER_PASSWORD_HASH"
-	GithubToken             ConfigKey = "GITHUB_TOKEN"
-	BackupEnabled           ConfigKey = "BACKUP_ENABLED"
-	BackupS3AccessKeyID     ConfigKey = "BACKUP_S3_ACCESS_KEY_ID"
-	BackupS3SecretAccessKey ConfigKey = "BACKUP_S3_SECRET_ACCESS_KEY"
-	BackupS3Bucket          ConfigKey = "BACKUP_S3_BUCKET"
-	BackupS3Path            ConfigKey = "BACKUP_S3_PATH"
-	BackupS3Region          ConfigKey = "BACKUP_S3_REGION"
-	BackupS3Endpoint        ConfigKey = "BACKUP_S3_ENDPOINT"
+	WebListen                   ConfigKey = "WEB_LISTEN"
+	WebHTTPOnly                 ConfigKey = "WEB_HTTP_ONLY"
+	ClusterListen               ConfigKey = "CLUSTER_LISTEN"
+	EnrollmentListen            ConfigKey = "ENROLLMENT_LISTEN"
+	AcmeHosts                   ConfigKey = "ACME_HOSTS"
+	AcmeEmail                   ConfigKey = "ACME_EMAIL"
+	MasterPasswordHash          ConfigKey = "MASTER_PASSWORD_HASH"
+	GithubToken                 ConfigKey = "GITHUB_TOKEN"
+	BackupEnabled               ConfigKey = "BACKUP_ENABLED"
+	BackupS3AccessKeyID         ConfigKey = "BACKUP_S3_ACCESS_KEY_ID"
+	BackupS3SecretAccessKey     ConfigKey = "BACKUP_S3_SECRET_ACCESS_KEY"
+	BackupS3Bucket              ConfigKey = "BACKUP_S3_BUCKET"
+	BackupS3Path                ConfigKey = "BACKUP_S3_PATH"
+	BackupS3Region              ConfigKey = "BACKUP_S3_REGION"
+	BackupS3Endpoint            ConfigKey = "BACKUP_S3_ENDPOINT"
+	LargeAssetS3Enabled         ConfigKey = "LARGE_ASSET_S3_ENABLED"
+	LargeAssetS3AccessKeyID     ConfigKey = "LARGE_ASSET_S3_ACCESS_KEY_ID"
+	LargeAssetS3SecretAccessKey ConfigKey = "LARGE_ASSET_S3_SECRET_ACCESS_KEY"
+	LargeAssetS3Bucket          ConfigKey = "LARGE_ASSET_S3_BUCKET"
+	LargeAssetS3Path            ConfigKey = "LARGE_ASSET_S3_PATH"
+	LargeAssetS3Region          ConfigKey = "LARGE_ASSET_S3_REGION"
+	LargeAssetS3Endpoint        ConfigKey = "LARGE_ASSET_S3_ENDPOINT"
 )
 
 type Service struct {
@@ -48,10 +55,11 @@ type Update struct {
 }
 
 const (
-	githubTokenSecretName             = "opendeploy.config.github_token"
-	backupS3SecretAccessKeySecretName = "opendeploy.config.backup_s3_secret_access_key"
-	legacyGithubTokenSecretName       = "config.github_token"
-	legacyBackupS3SecretAccessKeyName = "config.backup_s3_secret_access_key"
+	githubTokenSecretName                 = "opendeploy.config.github_token"
+	backupS3SecretAccessKeySecretName     = "opendeploy.config.backup_s3_secret_access_key"
+	largeAssetS3SecretAccessKeySecretName = "opendeploy.config.large_asset_s3_secret_access_key"
+	legacyGithubTokenSecretName           = "config.github_token"
+	legacyBackupS3SecretAccessKeyName     = "config.backup_s3_secret_access_key"
 )
 
 func (s *Service) SnapshotAndSubscribe() *pubsubu.Sub[ainit.DynamicConfiguration] {
@@ -85,6 +93,23 @@ func (s *Service) GetMasterPasswordHash() (string, error) {
 	return ainit.StaticConfig.InitialMasterPasswordHash, nil
 }
 
+func (s *Service) EnsureInitialMasterPasswordHashPersisted() error {
+	if ainit.StaticConfig.InitialMasterPasswordHash == "" {
+		return nil
+	}
+	_, configured, err := s.Storage.FetchConfigValue(string(MasterPasswordHash))
+	if err != nil {
+		return fmt.Errorf("FetchConfigValue %s: %w", MasterPasswordHash, err)
+	}
+	if configured {
+		return nil
+	}
+	if err := s.Storage.SetConfigValue(string(MasterPasswordHash), ainit.StaticConfig.InitialMasterPasswordHash); err != nil {
+		return fmt.Errorf("SetConfigValue %s: %w", MasterPasswordHash, err)
+	}
+	return nil
+}
+
 func (s *Service) SetMasterPasswordHash(hash string) error {
 	if err := s.Storage.SetConfigValue(string(MasterPasswordHash), hash); err != nil {
 		return fmt.Errorf("SetConfigValue %s: %w", MasterPasswordHash, err)
@@ -110,7 +135,7 @@ func (s *Service) updateValueWithoutNotify(key ConfigKey, value string) error {
 }
 
 func IsSecretConfigKey(key ConfigKey) bool {
-	return key == GithubToken || key == BackupS3SecretAccessKey
+	return key == GithubToken || key == BackupS3SecretAccessKey || key == LargeAssetS3SecretAccessKey
 }
 
 func (s *Service) notify() {
@@ -124,20 +149,27 @@ func (s *Service) notify() {
 func (s *Service) snapshot() ainit.DynamicConfiguration {
 	static := ainit.StaticConfig
 	return ainit.DynamicConfiguration{
-		WebListen:               ptru.NonNil(s.mustLoadValue(WebListen), static.InitialWebListen),
-		WebHTTPOnly:             parseBool(ptru.NonNil(s.mustLoadValue(WebHTTPOnly), strconv.FormatBool(static.InitialWebHTTPOnly)), WebHTTPOnly),
-		ClusterListen:           ptru.NonNil(s.mustLoadValue(ClusterListen), static.InitialClusterListen),
-		EnrollmentListen:        ptru.NonNil(s.mustLoadValue(EnrollmentListen), static.InitialEnrollmentListen),
-		AcmeHosts:               parseStringList(ptru.NonNil(s.mustLoadValue(AcmeHosts), strings.Join(static.InitialAcmeHosts, ","))),
-		AcmeEmail:               ptru.NonNil(s.mustLoadValue(AcmeEmail), static.InitialAcmeEmail),
-		GithubToken:             s.loadGithubToken(),
-		BackupEnabled:           parseBool(ptru.NonNil(s.mustLoadValue(BackupEnabled), "false"), BackupEnabled),
-		BackupS3AccessKeyID:     ptru.SafeDref(s.mustLoadValue(BackupS3AccessKeyID)),
-		BackupS3SecretAccessKey: s.loadBackupS3SecretAccessKey(),
-		BackupS3Bucket:          ptru.SafeDref(s.mustLoadValue(BackupS3Bucket)),
-		BackupS3Path:            ptru.NonNil(s.mustLoadValue(BackupS3Path), "opendeploy/primary"),
-		BackupS3Region:          ptru.NonNil(s.mustLoadValue(BackupS3Region), "us-east-1"),
-		BackupS3Endpoint:        ptru.SafeDref(s.mustLoadValue(BackupS3Endpoint)),
+		WebListen:                   ptru.NonNil(s.mustLoadValue(WebListen), static.InitialWebListen),
+		WebHTTPOnly:                 parseBool(ptru.NonNil(s.mustLoadValue(WebHTTPOnly), strconv.FormatBool(static.InitialWebHTTPOnly)), WebHTTPOnly),
+		ClusterListen:               ptru.NonNil(s.mustLoadValue(ClusterListen), static.InitialClusterListen),
+		EnrollmentListen:            ptru.NonNil(s.mustLoadValue(EnrollmentListen), static.InitialEnrollmentListen),
+		AcmeHosts:                   parseStringList(ptru.NonNil(s.mustLoadValue(AcmeHosts), strings.Join(static.InitialAcmeHosts, ","))),
+		AcmeEmail:                   ptru.NonNil(s.mustLoadValue(AcmeEmail), static.InitialAcmeEmail),
+		GithubToken:                 s.loadGithubToken(),
+		BackupEnabled:               parseBool(ptru.NonNil(s.mustLoadValue(BackupEnabled), "false"), BackupEnabled),
+		BackupS3AccessKeyID:         ptru.SafeDref(s.mustLoadValue(BackupS3AccessKeyID)),
+		BackupS3SecretAccessKey:     s.loadBackupS3SecretAccessKey(),
+		BackupS3Bucket:              ptru.SafeDref(s.mustLoadValue(BackupS3Bucket)),
+		BackupS3Path:                ptru.NonNil(s.mustLoadValue(BackupS3Path), "opendeploy/primary"),
+		BackupS3Region:              ptru.NonNil(s.mustLoadValue(BackupS3Region), "us-east-1"),
+		BackupS3Endpoint:            ptru.SafeDref(s.mustLoadValue(BackupS3Endpoint)),
+		LargeAssetS3Enabled:         parseBool(ptru.NonNil(s.mustLoadValue(LargeAssetS3Enabled), "false"), LargeAssetS3Enabled),
+		LargeAssetS3AccessKeyID:     ptru.SafeDref(s.mustLoadValue(LargeAssetS3AccessKeyID)),
+		LargeAssetS3SecretAccessKey: s.loadLargeAssetS3SecretAccessKey(),
+		LargeAssetS3Bucket:          ptru.SafeDref(s.mustLoadValue(LargeAssetS3Bucket)),
+		LargeAssetS3Path:            ptru.NonNil(s.mustLoadValue(LargeAssetS3Path), "opendeploy/assets"),
+		LargeAssetS3Region:          ptru.NonNil(s.mustLoadValue(LargeAssetS3Region), "us-east-1"),
+		LargeAssetS3Endpoint:        ptru.SafeDref(s.mustLoadValue(LargeAssetS3Endpoint)),
 	}
 }
 
@@ -158,6 +190,10 @@ func (s *Service) loadGithubToken() secretu.SecretValue {
 
 func (s *Service) loadBackupS3SecretAccessKey() secretu.SecretValue {
 	return s.loadConfigSecretRef(BackupS3SecretAccessKey, legacyBackupS3SecretAccessKeyName)
+}
+
+func (s *Service) loadLargeAssetS3SecretAccessKey() secretu.SecretValue {
+	return s.loadConfigSecretRef(LargeAssetS3SecretAccessKey, largeAssetS3SecretAccessKeySecretName)
 }
 
 func (s *Service) loadConfigSecretRef(key ConfigKey, legacySecretName string) secretu.SecretValue {

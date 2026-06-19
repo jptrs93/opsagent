@@ -50,8 +50,8 @@ export async function signOutAndLoginWithPasskey(page) {
 export async function configureGithubToken(page, token) {
   if (!token) return;
   await byTestId(page, 'nav-settings', page.getByText('Settings')).click();
-  await expect(page.getByRole('heading', {name: 'General settings'})).toBeVisible();
   const row = page.getByRole('row', {name: /GitHub token/});
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await row.getByRole('textbox').fill(token);
   await page.getByRole('button', {name: 'Save changes'}).click();
   await expect(page.getByText('Unsaved changes')).toBeHidden({timeout: LONG_UI_TIMEOUT});
@@ -307,7 +307,7 @@ function editableSecretConfigRow(page, typeLabel) {
 
 async function configureBackupSettings(page, cfg) {
   await byTestId(page, 'nav-settings', page.getByText('Settings')).click();
-  await expect(page.getByRole('heading', {name: 'General settings'})).toBeVisible();
+  await expect(settingRow(page, 'Backup S3 access key ID')).toBeVisible({timeout: LONG_UI_TIMEOUT});
 
   await setSettingText(page, 'Backup S3 access key ID', cfg.minioRootUser);
   await setSettingSecret(page, 'Backup S3 secret access key', cfg.minioRootPasswordSecret);
@@ -351,9 +351,13 @@ async function setSettingSecret(page, label, secretName) {
 }
 
 async function setSettingBool(page, label, enabled) {
-  const checkbox = settingRow(page, label).locator('input[type="checkbox"]');
-  if (enabled) await checkbox.check({force: true});
-  else await checkbox.uncheck({force: true});
+  const row = settingRow(page, label);
+  const checkbox = row.locator('input[type="checkbox"]');
+  if (await checkbox.isChecked() !== enabled) {
+    await row.locator('label').click();
+  }
+  if (enabled) await expect(checkbox).toBeChecked({timeout: LONG_UI_TIMEOUT});
+  else await expect(checkbox).not.toBeChecked({timeout: LONG_UI_TIMEOUT});
 }
 
 function settingRow(page, label) {

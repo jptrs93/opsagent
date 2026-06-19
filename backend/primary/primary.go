@@ -52,6 +52,7 @@ func machineFromContext(ctx context.Context) string {
 // generated mux invokes PostV1ClusterConnect once per worker connection.
 type Primary struct {
 	store             *sqlite.PrimaryStorage
+	assets            assetProvider
 	githubCredentials githubcredentials.Provider
 	secrets           *secrets.Manager
 
@@ -61,11 +62,16 @@ type Primary struct {
 	machineSubs *pubsubu.PubSub[apigen.ClusterMachine]
 }
 
+type assetProvider interface {
+	FetchAsset(ctx context.Context, assetID, version int32) (*apigen.ClusterAssetBlob, error)
+}
+
 // New creates a Primary. The mTLS HTTP/2 listener that drives it is created by
 // the caller, which mounts CreateOpsagentClusterV1Mux(p, ...) on a server.
-func New(store *sqlite.PrimaryStorage, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager) *Primary {
+func New(store *sqlite.PrimaryStorage, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager) *Primary {
 	return &Primary{
 		store:             store,
+		assets:            assets,
 		githubCredentials: githubCredentials,
 		secrets:           secretsMgr,
 		sessions:          make(map[string]*Session),
@@ -86,7 +92,7 @@ func (p *Primary) GetV1ClusterAsset(authCtx apigen.Context, req *apigen.ClusterA
 	if req == nil || req.AssetID == 0 || req.Version == 0 {
 		return nil, fmt.Errorf("asset_id and version are required")
 	}
-	return p.store.FetchAsset(authCtx, req.AssetID, req.Version)
+	return p.assets.FetchAsset(authCtx, req.AssetID, req.Version)
 }
 
 func (p *Primary) GetV1ClusterSecrets(authCtx apigen.Context, req *apigen.ClusterSecretsRequest) (*apigen.ClusterSecretsResponse, error) {

@@ -112,4 +112,12 @@ type DynamicConfiguration struct {
 	BackupS3Path            string
 	BackupS3Region          string
 	BackupS3Endpoint        string
+
+	LargeAssetS3Enabled         bool
+	LargeAssetS3AccessKeyID     string
+	LargeAssetS3SecretAccessKey secretu.SecretValue
+	LargeAssetS3Bucket          string
+	LargeAssetS3Path            string
+	LargeAssetS3Region          string
+	LargeAssetS3Endpoint        string
 }

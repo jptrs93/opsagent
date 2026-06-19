@@ -90,12 +90,9 @@ export function clusterPage() {
                 div(
                     {class: "card"},
                     div(
-                        {class: "flex flex-col gap-3 mb-4"},
-                        div(
-                            h2({class: "font-semibold mb-2"}, "Enrollment requests"),
-                            p({class: "text-sm text-gray-400"}, "Accept a waiting worker to issue its cluster client certificate."),
-                        ),
-                        secondaryInstallPanel(config, configError, copied, copyInstallCommand),
+                        {class: "mb-4"},
+                        h2({class: "font-semibold mb-2"}, "Enrollment requests"),
+                        p({class: "text-sm text-gray-400"}, "Accept a waiting worker to issue its cluster client certificate."),
                     ),
                     pending.length === 0
                         ? p({class: "text-gray-400 text-sm"}, "No pending enrollment requests.")
@@ -110,7 +107,8 @@ export function clusterPage() {
                                 )
                             ),
                             tbody(...pending.map(req => enrollmentRow(req)))
-                        )
+                        ),
+                    secondaryInstallPanel(config, configError, copied, copyInstallCommand),
                 )
             );
         }
@@ -119,16 +117,10 @@ export function clusterPage() {
 
 function secondaryInstallPanel(config, configError, copied, onCopy) {
     return div(
-        {class: "rounded-lg border border-gray-700 bg-gray-900/50 p-3"},
+        {class: "mt-4 pt-4 border-t border-gray-700"},
         div(
-            {class: "flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"},
-            div(
-                {class: "min-w-0 flex-1"},
-                div({class: "text-sm font-medium text-gray-200 mb-1"}, "Install secondary"),
-                () => configError.val
-                    ? p({class: "text-xs text-red-400"}, configError.val)
-                    : installCommandBlock(secondaryInstallCommand(config.val)),
-            ),
+            {class: "flex items-center justify-between gap-3 mb-2"},
+            div({class: "text-sm font-medium text-gray-200"}, "Install secondary command"),
             button(
                 {
                     type: "button",
@@ -139,6 +131,9 @@ function secondaryInstallPanel(config, configError, copied, onCopy) {
                 () => copied.val ? "Copied" : "Copy",
             ),
         ),
+        () => configError.val
+            ? p({class: "text-xs text-red-400"}, configError.val)
+            : installCommandBlock(secondaryInstallCommand(config.val)),
     );
 }
 

@@ -18,15 +18,12 @@ func assetRowToProto(r Asset) *apigen.Asset {
 		Version:   int32(r.Version),
 		Format:    r.Format,
 		Location:  r.Location,
+		SizeBytes: int32(r.SizeBytes),
 		Blob:      r.Blob,
 	}
 }
 
 func assetRowToMeta(r ListLatestAssetsRow) *apigen.AssetMeta {
-	sizeBytes := int32(0)
-	if r.SizeBytes.Valid {
-		sizeBytes = int32(r.SizeBytes.Int64)
-	}
 	return &apigen.AssetMeta{
 		ID:        int32(r.ID),
 		Key:       r.Key,
@@ -35,7 +32,7 @@ func assetRowToMeta(r ListLatestAssetsRow) *apigen.AssetMeta {
 		Version:   int32(r.Version),
 		Format:    r.Format,
 		Location:  r.Location,
-		SizeBytes: sizeBytes,
+		SizeBytes: int32(r.SizeBytes),
 	}
 }
 
@@ -81,6 +78,18 @@ func (s *PrimaryStorage) GetAssetByIDVersion(assetID, version int32) (*apigen.As
 	return assetRowToProto(r), true
 }
 
+func (s *PrimaryStorage) ListAssetVersionsByKey(key string) []*apigen.Asset {
+	rows, err := s.q.ListAssetVersionsByKey(context.Background(), key)
+	if err != nil {
+		panic(fmt.Sprintf("ListAssetVersionsByKey: %v", err))
+	}
+	out := make([]*apigen.Asset, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, assetRowToProto(r))
+	}
+	return out
+}
+
 func (s *PrimaryStorage) FetchAsset(ctx context.Context, assetID, version int32) (*apigen.ClusterAssetBlob, error) {
 	r, err := s.q.GetAssetByIDVersion(ctx, GetAssetByIDVersionParams{ID: int64(assetID), Version: int64(version)})
 	if err == sql.ErrNoRows {
@@ -99,8 +108,15 @@ func (s *PrimaryStorage) FetchAsset(ctx context.Context, assetID, version int32)
 }
 
 func (s *PrimaryStorage) SetAsset(key, format string, blob []byte, spaceIDs ...int32) *apigen.Asset {
+	return s.SetAssetStored(key, format, "", int64(len(blob)), blob, spaceIDs...)
+}
+
+func (s *PrimaryStorage) SetAssetStored(key, format, location string, sizeBytes int64, blob []byte, spaceIDs ...int32) *apigen.Asset {
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
+	if blob == nil {
+		blob = []byte{}
+	}
 	spaceID := DefaultSpaceID
 	if len(spaceIDs) > 0 {
 		spaceID = normalizedUserSpaceID(spaceIDs[0])
@@ -126,7 +142,8 @@ func (s *PrimaryStorage) SetAsset(key, format string, blob []byte, spaceIDs ...i
 		CreatedAt: now,
 		Version:   version,
 		Format:    format,
-		Location:  "",
+		Location:  location,
+		SizeBytes: sizeBytes,
 		Blob:      blob,
 	})
 	if err != nil {
@@ -136,6 +153,20 @@ func (s *PrimaryStorage) SetAsset(key, format string, blob []byte, spaceIDs ...i
 		panic(fmt.Sprintf("commit asset: %v", err))
 	}
 	return assetRowToProto(r)
+}
+
+func (s *PrimaryStorage) UpdateAssetLocation(id int32, location string) *apigen.Asset {
+	r, err := s.q.UpdateAssetLocation(context.Background(), UpdateAssetLocationParams{ID: int64(id), Location: location})
+	if err != nil {
+		panic(fmt.Sprintf("UpdateAssetLocation: %v", err))
+	}
+	return assetRowToProto(r)
+}
+
+func (s *PrimaryStorage) DeleteAssetVersionByID(id int32) {
+	if err := s.q.DeleteAssetVersionByID(context.Background(), int64(id)); err != nil {
+		panic(fmt.Sprintf("DeleteAssetVersionByID: %v", err))
+	}
 }
 
 func (s *PrimaryStorage) DeleteAsset(key string) {

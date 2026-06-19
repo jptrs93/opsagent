@@ -10,22 +10,58 @@ const { svg, path, circle, line } = van.tags("http://www.w3.org/2000/svg");
 const boolValue = (value) => value ? "true" : "false";
 const listValue = (value) => value && value.length ? value.join(", ") : "";
 
-const settings = [
-    {label: "Web UI server listen", key: "WEB_LISTEN", type: "text", value: (cfg) => cfg.webListen},
-    {label: "Web UI disable HTTPS", key: "WEB_HTTP_ONLY", type: "bool", value: (cfg) => boolValue(cfg.webHttpOnly)},
-    {label: "Web UI ACME hosts", key: "ACME_HOSTS", type: "text", value: (cfg) => listValue(cfg.acmeHosts)},
-    {label: "Web UI email", key: "ACME_EMAIL", type: "text", value: (cfg) => cfg.acmeEmail},
-    {label: "Cluster listen", key: "CLUSTER_LISTEN", type: "text", value: (cfg) => cfg.clusterListen},
-    {label: "Cluster enrollment listen", key: "ENROLLMENT_LISTEN", type: "text", value: (cfg) => cfg.enrollmentListen},
-    {label: "GitHub token", key: "GITHUB_TOKEN", type: "secret", secret: (cfg) => cfg.githubToken, defaultSecretName: "opendeploy.config.github_token"},
-    {label: "Backup enabled", key: "BACKUP_ENABLED", type: "bool", value: (cfg) => boolValue(cfg.backupEnabled)},
-    {label: "Backup S3 access key ID", key: "BACKUP_S3_ACCESS_KEY_ID", type: "text", value: (cfg) => cfg.backupS3AccessKeyId},
-    {label: "Backup S3 secret access key", key: "BACKUP_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.backupS3SecretAccessKey, defaultSecretName: "opendeploy.config.backup_s3_secret_access_key"},
-    {label: "Backup S3 bucket", key: "BACKUP_S3_BUCKET", type: "text", value: (cfg) => cfg.backupS3Bucket},
-    {label: "Backup S3 path", key: "BACKUP_S3_PATH", type: "text", value: (cfg) => cfg.backupS3Path},
-    {label: "Backup S3 region", key: "BACKUP_S3_REGION", type: "text", value: (cfg) => cfg.backupS3Region},
-    {label: "Backup S3 endpoint", key: "BACKUP_S3_ENDPOINT", type: "text", value: (cfg) => cfg.backupS3Endpoint},
+const settingsSections = [
+    {
+        title: "Web UI",
+        settings: [
+            {label: "Web UI server listen", key: "WEB_LISTEN", type: "text", value: (cfg) => cfg.webListen},
+            {label: "Web UI disable HTTPS", key: "WEB_HTTP_ONLY", type: "bool", value: (cfg) => boolValue(cfg.webHttpOnly)},
+            {label: "Web UI ACME hosts", key: "ACME_HOSTS", type: "text", value: (cfg) => listValue(cfg.acmeHosts)},
+            {label: "Web UI email", key: "ACME_EMAIL", type: "text", value: (cfg) => cfg.acmeEmail},
+        ],
+    },
+    {
+        title: "Cluster details",
+        settings: [
+            {label: "Cluster listen", key: "CLUSTER_LISTEN", type: "text", value: (cfg) => cfg.clusterListen},
+            {label: "Cluster enrollment listen", key: "ENROLLMENT_LISTEN", type: "text", value: (cfg) => cfg.enrollmentListen},
+        ],
+    },
+    {
+        title: "Repository credentials",
+        settings: [
+            {label: "GitHub token", key: "GITHUB_TOKEN", type: "secret", secret: (cfg) => cfg.githubToken, defaultSecretName: "opendeploy.config.github_token"},
+        ],
+    },
+    {
+        title: "Backup",
+        enabledKey: "BACKUP_ENABLED",
+        settings: [
+            {label: "Backup enabled", key: "BACKUP_ENABLED", type: "bool", value: (cfg) => boolValue(cfg.backupEnabled)},
+            {label: "Backup S3 access key ID", key: "BACKUP_S3_ACCESS_KEY_ID", type: "text", value: (cfg) => cfg.backupS3AccessKeyId},
+            {label: "Backup S3 secret access key", key: "BACKUP_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.backupS3SecretAccessKey, defaultSecretName: "opendeploy.config.backup_s3_secret_access_key"},
+            {label: "Backup S3 bucket", key: "BACKUP_S3_BUCKET", type: "text", value: (cfg) => cfg.backupS3Bucket},
+            {label: "Backup S3 path", key: "BACKUP_S3_PATH", type: "text", value: (cfg) => cfg.backupS3Path},
+            {label: "Backup S3 region", key: "BACKUP_S3_REGION", type: "text", value: (cfg) => cfg.backupS3Region},
+            {label: "Backup S3 endpoint", key: "BACKUP_S3_ENDPOINT", type: "text", value: (cfg) => cfg.backupS3Endpoint},
+        ],
+    },
+    {
+        title: "Large assets",
+        enabledKey: "LARGE_ASSET_S3_ENABLED",
+        settings: [
+            {label: "Large asset S3 enabled", key: "LARGE_ASSET_S3_ENABLED", type: "bool", value: (cfg) => boolValue(cfg.largeAssetS3Enabled)},
+            {label: "Large asset S3 access key ID", key: "LARGE_ASSET_S3_ACCESS_KEY_ID", type: "text", value: (cfg) => cfg.largeAssetS3AccessKeyId},
+            {label: "Large asset S3 secret access key", key: "LARGE_ASSET_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.largeAssetS3SecretAccessKey, defaultSecretName: "opendeploy.config.large_asset_s3_secret_access_key"},
+            {label: "Large asset S3 bucket", key: "LARGE_ASSET_S3_BUCKET", type: "text", value: (cfg) => cfg.largeAssetS3Bucket},
+            {label: "Large asset S3 path", key: "LARGE_ASSET_S3_PATH", type: "text", value: (cfg) => cfg.largeAssetS3Path},
+            {label: "Large asset S3 region", key: "LARGE_ASSET_S3_REGION", type: "text", value: (cfg) => cfg.largeAssetS3Region},
+            {label: "Large asset S3 endpoint", key: "LARGE_ASSET_S3_ENDPOINT", type: "text", value: (cfg) => cfg.largeAssetS3Endpoint},
+        ],
+    },
 ];
+
+const settings = settingsSections.flatMap((section) => section.settings);
 
 const draftValue = (setting, cfg) => {
     if (setting.type === "secret") {
@@ -741,8 +777,11 @@ export function settingsPage() {
         }, "Add space"),
     );
 
-    const rowEl = (setting) => tr(
-        {class: "border-b border-gray-800 last:border-0 align-middle"},
+    const rowEl = (setting, visible = true) => tr(
+        {
+            class: `border-b border-gray-800 last:border-0 align-middle ${visible ? "" : "invisible pointer-events-none select-none"}`,
+            "aria-hidden": visible ? "false" : "true",
+        },
         td({class: "py-2 pr-3 whitespace-nowrap align-middle"},
             span({class: "text-gray-200"}, setting.label),
         ),
@@ -755,35 +794,48 @@ export function settingsPage() {
         ),
     );
 
+    const sectionHeader = (title, right = "") => div(
+        {class: "flex items-center justify-between gap-3 pb-2 border-b border-gray-700"},
+        h2({class: "text-sm font-semibold text-blue-300"}, title),
+        right,
+    );
+
+    const isSectionSettingVisible = (section, setting) => !section.enabledKey
+        || setting.key === section.enabledKey
+        || draft.val?.[section.enabledKey]?.value === "true";
+
+    const settingsTable = (section) => div(
+        {class: "settings-scroll overflow-x-auto"},
+        table(
+            {class: "w-full text-sm"},
+            tbody(...section.settings.map((setting) => rowEl(setting, isSectionSettingVisible(section, setting)))),
+        ),
+    );
+
+    const dirtyActions = () => dirtyCount.val ? div({class: "flex items-center gap-2"},
+        span({class: "text-sm font-medium text-amber-300"}, "Unsaved changes"),
+        button({
+            type: "button",
+            disabled: () => saving.val,
+            class: `${compactButtonClass} bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer whitespace-nowrap`,
+            onclick: resetChanges,
+        }, "Reset changes"),
+        spinnerButton("Save changes", saveChanges,
+            `${compactButtonClass} bg-brand text-white hover:bg-blue-600 whitespace-nowrap`,
+            "button", () => saving.val),
+    ) : "";
+
     return div(
-        {class: "settings-scroll h-full min-h-0 overflow-y-auto p-3 flex flex-col gap-3"},
+        {class: "settings-scroll h-full min-h-0 overflow-y-auto overflow-x-hidden p-3 flex flex-col gap-3"},
         () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : "",
         () => {
             if (!loaded.val) return p({class: "text-gray-400"}, "Loading...");
             return div(
                 {class: "card flex flex-col gap-3"},
-                div({class: "flex items-center justify-between gap-3 pb-2 border-b border-gray-700"},
-                    h2({class: "text-base font-semibold"}, "General settings"),
-                    () => dirtyCount.val ? div({class: "flex items-center gap-2"},
-                        span({class: "text-sm font-medium text-amber-300"}, "Unsaved changes"),
-                        button({
-                            type: "button",
-                            disabled: () => saving.val,
-                            class: `${compactButtonClass} bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer whitespace-nowrap`,
-                            onclick: resetChanges,
-                        }, "Reset changes"),
-                        spinnerButton("Save changes", saveChanges,
-                            `${compactButtonClass} bg-brand text-white hover:bg-blue-600 whitespace-nowrap`,
-                            "button", () => saving.val),
-                    ) : "",
-                ),
-                div(
-                    {class: "settings-scroll overflow-x-auto"},
-                    table(
-                        {class: "w-full text-sm"},
-                        tbody(...settings.map(rowEl)),
-                    ),
-                ),
+                ...settingsSections.flatMap((section, index) => [
+                    sectionHeader(section.title, index === 0 ? dirtyActions : ""),
+                    settingsTable(section),
+                ]),
             );
         },
         masterPasswordCard,

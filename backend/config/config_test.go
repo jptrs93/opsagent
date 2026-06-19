@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
@@ -30,6 +31,41 @@ func TestMasterPasswordHashRoundTrip(t *testing.T) {
 	}
 	if hash != "hash-1" {
 		t.Fatalf("expected persisted hash-1, got %q", hash)
+	}
+}
+
+func TestEnsureInitialMasterPasswordHashPersisted(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "primary.db")
+	store := sqlite.NewPrimaryStorage(dbPath)
+	service := &Service{Storage: store}
+	old := ainit.StaticConfig.InitialMasterPasswordHash
+	t.Cleanup(func() { ainit.StaticConfig.InitialMasterPasswordHash = old })
+	ainit.StaticConfig.InitialMasterPasswordHash = "initial-hash"
+
+	if err := service.EnsureInitialMasterPasswordHashPersisted(); err != nil {
+		t.Fatalf("EnsureInitialMasterPasswordHashPersisted: %v", err)
+	}
+	value, configured, err := store.FetchConfigValue(string(MasterPasswordHash))
+	if err != nil {
+		t.Fatalf("FetchConfigValue: %v", err)
+	}
+	if !configured || value != "initial-hash" {
+		t.Fatalf("persisted value = %q configured=%t, want initial-hash true", value, configured)
+	}
+
+	if err := service.SetMasterPasswordHash("changed-hash"); err != nil {
+		t.Fatalf("SetMasterPasswordHash: %v", err)
+	}
+	ainit.StaticConfig.InitialMasterPasswordHash = "new-initial-hash"
+	if err := service.EnsureInitialMasterPasswordHashPersisted(); err != nil {
+		t.Fatalf("EnsureInitialMasterPasswordHashPersisted after set: %v", err)
+	}
+	value, configured, err = store.FetchConfigValue(string(MasterPasswordHash))
+	if err != nil {
+		t.Fatalf("FetchConfigValue after set: %v", err)
+	}
+	if !configured || value != "changed-hash" {
+		t.Fatalf("persisted value after set = %q configured=%t, want changed-hash true", value, configured)
 	}
 }
 

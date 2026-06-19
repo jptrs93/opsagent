@@ -1,6 +1,13 @@
 @import "tailwindcss" source("..");
 
 @layer base {
+    html,
+    body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+    }
+
     body {
         @apply text-gray-100 bg-gray-950;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;

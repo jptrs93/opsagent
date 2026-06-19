@@ -104,6 +104,13 @@
  * @property {string} backupS3Region
  * @property {string} backupS3Endpoint
  * @property {boolean} backupEnabled
+ * @property {boolean} largeAssetS3Enabled
+ * @property {string} largeAssetS3AccessKeyId
+ * @property {SecretValue} largeAssetS3SecretAccessKey
+ * @property {string} largeAssetS3Bucket
+ * @property {string} largeAssetS3Path
+ * @property {string} largeAssetS3Region
+ * @property {string} largeAssetS3Endpoint
  */
 /**
  * @typedef {Object} ConfigUpdateRequest
@@ -243,6 +250,7 @@
  * @property {Uint8Array} blob
  * @property {number} id
  * @property {number} spaceId
+ * @property {number} sizeBytes
  */
 /**
  * @typedef {Object} AssetList
@@ -1890,6 +1898,29 @@ export function writeDynamicConfiguration(message, writer) {
     if (message.backupEnabled === true) {
         writer.uint32(tag(14, WIRE.VARINT)).bool(message.backupEnabled);
     }
+    if (message.largeAssetS3Enabled === true) {
+        writer.uint32(tag(15, WIRE.VARINT)).bool(message.largeAssetS3Enabled);
+    }
+    if (message.largeAssetS3AccessKeyId !== undefined && message.largeAssetS3AccessKeyId !== null && message.largeAssetS3AccessKeyId !== "") {
+        writer.uint32(tag(16, WIRE.LDELIM)).string(message.largeAssetS3AccessKeyId);
+    }
+    if (message.largeAssetS3SecretAccessKey !== undefined && message.largeAssetS3SecretAccessKey !== null) {
+        writer.uint32(tag(17, WIRE.LDELIM)).fork();
+        writeSecretValue(message.largeAssetS3SecretAccessKey, writer);
+        writer.ldelim();
+    }
+    if (message.largeAssetS3Bucket !== undefined && message.largeAssetS3Bucket !== null && message.largeAssetS3Bucket !== "") {
+        writer.uint32(tag(18, WIRE.LDELIM)).string(message.largeAssetS3Bucket);
+    }
+    if (message.largeAssetS3Path !== undefined && message.largeAssetS3Path !== null && message.largeAssetS3Path !== "") {
+        writer.uint32(tag(19, WIRE.LDELIM)).string(message.largeAssetS3Path);
+    }
+    if (message.largeAssetS3Region !== undefined && message.largeAssetS3Region !== null && message.largeAssetS3Region !== "") {
+        writer.uint32(tag(20, WIRE.LDELIM)).string(message.largeAssetS3Region);
+    }
+    if (message.largeAssetS3Endpoint !== undefined && message.largeAssetS3Endpoint !== null && message.largeAssetS3Endpoint !== "") {
+        writer.uint32(tag(21, WIRE.LDELIM)).string(message.largeAssetS3Endpoint);
+    }
 }
 
 
@@ -1911,7 +1942,7 @@ export function encodeDynamicConfiguration(message) {
  */
 function decodeDynamicConfigurationMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {webListen: "", webHttpOnly: false, clusterListen: "", enrollmentListen: "", acmeHosts: [], acmeEmail: "", githubToken: undefined, backupS3AccessKeyId: "", backupS3SecretAccessKey: undefined, backupS3Bucket: "", backupS3Path: "", backupS3Region: "", backupS3Endpoint: "", backupEnabled: false };
+    const message = {webListen: "", webHttpOnly: false, clusterListen: "", enrollmentListen: "", acmeHosts: [], acmeEmail: "", githubToken: undefined, backupS3AccessKeyId: "", backupS3SecretAccessKey: undefined, backupS3Bucket: "", backupS3Path: "", backupS3Region: "", backupS3Endpoint: "", backupEnabled: false, largeAssetS3Enabled: false, largeAssetS3AccessKeyId: "", largeAssetS3SecretAccessKey: undefined, largeAssetS3Bucket: "", largeAssetS3Path: "", largeAssetS3Region: "", largeAssetS3Endpoint: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1969,6 +2000,34 @@ function decodeDynamicConfigurationMessage(reader, length) {
             }
             case 14: {
                 message.backupEnabled = reader.bool();
+                break;
+            }
+            case 15: {
+                message.largeAssetS3Enabled = reader.bool();
+                break;
+            }
+            case 16: {
+                message.largeAssetS3AccessKeyId = reader.string();
+                break;
+            }
+            case 17: {
+                message.largeAssetS3SecretAccessKey = decodeSecretValueMessage(reader, reader.uint32());
+                break;
+            }
+            case 18: {
+                message.largeAssetS3Bucket = reader.string();
+                break;
+            }
+            case 19: {
+                message.largeAssetS3Path = reader.string();
+                break;
+            }
+            case 20: {
+                message.largeAssetS3Region = reader.string();
+                break;
+            }
+            case 21: {
+                message.largeAssetS3Endpoint = reader.string();
                 break;
             }
             default:
@@ -3573,6 +3632,9 @@ export function writeAsset(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(8, WIRE.VARINT)).int32(message.spaceId);
     }
+    if (message.sizeBytes !== undefined && message.sizeBytes !== null && message.sizeBytes !== 0) {
+        writer.uint32(tag(9, WIRE.VARINT)).int32(message.sizeBytes);
+    }
 }
 
 
@@ -3594,7 +3656,7 @@ export function encodeAsset(message) {
  */
 function decodeAssetMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", createdAt: new Date(0), version: 0, format: "", location: "", blob: new Uint8Array(0), id: 0, spaceId: 0 };
+    const message = {key: "", createdAt: new Date(0), version: 0, format: "", location: "", blob: new Uint8Array(0), id: 0, spaceId: 0, sizeBytes: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3628,6 +3690,10 @@ function decodeAssetMessage(reader, length) {
             }
             case 8: {
                 message.spaceId = reader.int32();
+                break;
+            }
+            case 9: {
+                message.sizeBytes = reader.int32();
                 break;
             }
             default:

@@ -183,7 +183,7 @@ func workerTLSMaterialExists(paths ...string) bool {
 func startPrimaryCluster(h *handler.Handler, material *cluster.Material, cfg ainit.DynamicConfiguration) {
 	tlsCfg := certu.MustLoadTLSConfigFromPEM(material.CACert, material.PrimaryCert, material.PrimaryKey)
 
-	p := primary.New(h.Store, h.Github, h.Secrets)
+	p := primary.New(h.Store, h.Assets, h.Github, h.Secrets)
 	h.ClusterPrimary = p
 
 	// The cluster transport is a separate mTLS HTTP/2-only listener, distinct

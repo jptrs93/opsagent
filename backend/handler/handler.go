@@ -13,6 +13,7 @@ import (
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/assetstore"
 	"github.com/jptrs93/opsagent/backend/config"
 	"github.com/jptrs93/opsagent/backend/engine"
 	"github.com/jptrs93/opsagent/backend/engine/configdist"
@@ -37,6 +38,7 @@ type Handler struct {
 	// Store is the primary-side storage adapter. Handles both deployment
 	// state and auth (users + JWT keys).
 	Store         *sqlite.PrimaryStorage
+	Assets        *assetstore.Store
 	ConfigService *config.Service
 	Config        ainit.DynamicConfiguration
 	Github        githubcredentials.Provider
@@ -99,8 +101,17 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 		return nil, err
 	}
 	configService := &config.Service{Storage: store, Secrets: secretsMgr}
+	if err := configService.EnsureInitialMasterPasswordHashPersisted(); err != nil {
+		return nil, err
+	}
 	configSub := configService.SnapshotAndSubscribe()
 	cfg := configSub.InitialValue
+	assetStore := &assetstore.Store{
+		DB: store,
+		Config: func() ainit.DynamicConfiguration {
+			return configService.Snapshot()
+		},
+	}
 	githubCredentials := githubcredentials.SecretProvider{
 		Value: func(context.Context) secretu.SecretValue {
 			return configService.Snapshot().GithubToken
@@ -114,7 +125,7 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	ctrdClient := ctrd.Connect(ainit.StaticConfig.ContainerdAddress, ainit.StaticConfig.ContainerdNamespace)
 	preparer.NixDocker = preparer.NewNixDockerBuilder(ainit.StaticConfig.DataDir, githubCredentials, ctrdClient)
 	preparer.ContainerImg = preparer.NewContainerImagePuller(ctrdClient)
-	preparer.Assets = store
+	preparer.Assets = assetStore
 	secretProvider := secretdist.NewPrimaryProvider(secretsMgr)
 	preparer.Secrets = secretProvider
 	configProvider := configdist.NewPrimaryProvider(store)
@@ -131,6 +142,7 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 	h := &Handler{
 		staticFS:           staticFS,
 		Store:              store,
+		Assets:             assetStore,
 		ConfigService:      configService,
 		Config:             cfg,
 		Github:             githubCredentials,

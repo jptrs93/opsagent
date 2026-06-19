@@ -49,12 +49,15 @@ export function assetsPage() {
     const draftContent = van.state("");
     const draftVersion = van.state(0);
     const draftCreatedAt = van.state(null);
-    const original = {key: "", format: "", content: "", version: 0};
+    const draftLarge = van.state(false);
+    const draftSizeBytes = van.state(0);
+    const original = {key: "", format: "", content: "", version: 0, large: false};
 
     const setOriginal = (asset) => {
         original.key = asset.key || "";
         original.format = asset.format || "text";
-        original.content = decoder.decode(asset.blob || new Uint8Array());
+        original.large = !!asset.location;
+        original.content = original.large ? "" : decoder.decode(asset.blob || new Uint8Array());
         original.version = asset.version || 0;
     };
 
@@ -65,6 +68,8 @@ export function assetsPage() {
         draftContent.val = original.content;
         draftVersion.val = original.version;
         draftCreatedAt.val = asset.createdAt || null;
+        draftLarge.val = original.large;
+        draftSizeBytes.val = asset.sizeBytes || (asset.blob ? asset.blob.length : 0);
     };
 
     const clearDraft = () => {
@@ -73,16 +78,21 @@ export function assetsPage() {
         original.format = "text";
         original.content = "";
         original.version = 0;
+        original.large = false;
         draftKey.val = "";
         draftFormat.val = "text";
         draftContent.val = "";
         draftVersion.val = 0;
         draftCreatedAt.val = null;
+        draftLarge.val = false;
+        draftSizeBytes.val = 0;
     };
 
-    const isDirty = () => draftKey.val.trim() !== original.key
+    const isDirty = () => !draftLarge.val && (
+        draftKey.val.trim() !== original.key
         || draftFormat.val.trim() !== original.format
-        || draftContent.val !== original.content;
+        || draftContent.val !== original.content
+    );
 
     const reloadRows = async () => {
         const res = await capi.postV1AssetsList({});
@@ -240,7 +250,13 @@ export function assetsPage() {
                 value: draftFormat,
                 oninput: (e) => draftFormat.val = e.target.value,
             }))),
-        textarea({
+        () => draftLarge.val ? div(
+            {class: "text-input flex-1 min-h-0 flex items-center justify-center text-center text-sm text-gray-400"},
+            div(
+                p({class: "font-medium text-gray-300"}, "This asset is too large to show."),
+                p({class: "text-xs text-gray-500 mt-1"}, "Large asset content is stored externally and is still available for deployment mounts."),
+            ),
+        ) : textarea({
             class: "text-input font-mono text-sm flex-1 min-h-0 resize-none leading-relaxed",
             spellcheck: "false",
             placeholder: "Paste config file contents here",
@@ -248,7 +264,9 @@ export function assetsPage() {
             oninput: (e) => draftContent.val = e.target.value,
         }),
         div({class: "flex items-center justify-between gap-3"},
-            p({class: "text-xs text-gray-500"}, () => `${encoder.encode(draftContent.val).length} bytes inline`),
+            p({class: "text-xs text-gray-500"}, () => draftLarge.val
+                ? `${fmtSize(draftSizeBytes.val)} stored externally`
+                : `${encoder.encode(draftContent.val).length} bytes inline`),
             div({class: "flex items-center gap-2"},
                 smallBtn("Discard", () => {
                     if (original.key) {

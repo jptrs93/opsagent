@@ -21,6 +21,7 @@ docs/                Project documentation.
 - [docs/engineering/engine.md](docs/engineering/engine.md) — Deployment operator, preparers (nix build, github release, container image), runners (os process, systemd, container).
 - [docs/engineering/secrets.md](docs/engineering/secrets.md) — Encrypted secrets store, key hierarchy, `${s:name}` env resolution, and the machine-key boundary (incl. Phase 2/3 plans).
 - [docs/product/deployments.md](docs/product/deployments.md) — Deployment config, lifecycle state, and deploy workflow.
+- [docs/product/todo.md](docs/product/todo.md) — Product and engineering backlog items.
 
 ## Commands
 

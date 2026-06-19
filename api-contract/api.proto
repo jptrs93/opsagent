@@ -364,6 +364,14 @@ message DynamicConfiguration {
   string backup_s3_region = 12;
   string backup_s3_endpoint = 13;
   bool backup_enabled = 14;
+
+  bool large_asset_s3_enabled = 15;
+  string large_asset_s3_access_key_id = 16;
+  SecretValue large_asset_s3_secret_access_key = 17;
+  string large_asset_s3_bucket = 18;
+  string large_asset_s3_path = 19;
+  string large_asset_s3_region = 20;
+  string large_asset_s3_endpoint = 21;
 }
 
 message ConfigUpdateRequest {
@@ -512,6 +520,7 @@ message Asset {
   bytes blob = 6;
   int32 id = 7;
   int32 space_id = 8;
+  int32 size_bytes = 9;
 }
 
 message AssetList {

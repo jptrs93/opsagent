@@ -217,7 +217,7 @@ DELETE FROM user_configs WHERE name = ?;
 -- === assets ===
 
 -- name: ListLatestAssets :many
-SELECT a.id, a.key, a.space_id, a.created_at, a.version, a.format, a.location, length(a.blob) AS size_bytes
+SELECT a.id, a.key, a.space_id, a.created_at, a.version, a.format, a.location, a.size_bytes
 FROM assets a
 JOIN (
     SELECT key, MAX(version) AS version
@@ -227,19 +227,25 @@ JOIN (
 ORDER BY a.key;
 
 -- name: GetLatestAsset :one
-SELECT id, key, space_id, created_at, version, format, location, blob
+SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
 FROM assets
 WHERE key = ?
 ORDER BY version DESC
 LIMIT 1;
 
 -- name: GetAssetVersion :one
-SELECT id, key, space_id, created_at, version, format, location, blob
+SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
 FROM assets
 WHERE key = ? AND version = ?;
 
+-- name: ListAssetVersionsByKey :many
+SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
+FROM assets
+WHERE key = ?
+ORDER BY version ASC;
+
 -- name: GetAssetByIDVersion :one
-SELECT id, key, space_id, created_at, version, format, location, blob
+SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
 FROM assets
 WHERE id = ? AND version = ?;
 
@@ -249,9 +255,18 @@ FROM assets
 WHERE key = ?;
 
 -- name: InsertAsset :one
-INSERT INTO assets (key, space_id, created_at, version, format, location, blob)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-RETURNING id, key, space_id, created_at, version, format, location, blob;
+INSERT INTO assets (key, space_id, created_at, version, format, location, size_bytes, blob)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, key, space_id, created_at, version, format, location, size_bytes, blob;
+
+-- name: UpdateAssetLocation :one
+UPDATE assets
+SET location = ?
+WHERE id = ?
+RETURNING id, key, space_id, created_at, version, format, location, size_bytes, blob;
+
+-- name: DeleteAssetVersionByID :exec
+DELETE FROM assets WHERE id = ?;
 
 -- name: DeleteAsset :exec
 DELETE FROM assets WHERE key = ?;
