@@ -41,7 +41,27 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
         : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'};
     const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
     const menuOpen = van.state(false);
-    const actionButtonClass = "rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-xs leading-none py-0.5 px-0.5 cursor-pointer";
+    const actionButtonClass = "rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-xs leading-none py-0.5 px-[6px] cursor-pointer";
+    let offMenuClick = null;
+
+    const closeMenu = () => {
+        menuOpen.val = false;
+        if (offMenuClick) {
+            document.removeEventListener('mousedown', offMenuClick);
+            offMenuClick = null;
+        }
+    };
+
+    const toggleMenu = (e) => {
+        e.stopPropagation();
+        if (menuOpen.val) {
+            closeMenu();
+            return;
+        }
+        menuOpen.val = true;
+        offMenuClick = () => closeMenu();
+        setTimeout(() => document.addEventListener('mousedown', offMenuClick), 0);
+    };
 
     return tr(
         {class: "border-b border-gray-800 last:border-0 hover:bg-gray-800/60 transition-colors", "data-testid": `deployment-row-${deployment.name || deployment.id}`},
@@ -104,16 +124,16 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
                     {class: "relative"},
                     button({
                         class: actionButtonClass,
-                        onclick: () => { menuOpen.val = !menuOpen.val; },
+                        onclick: toggleMenu,
                         type: "button",
                         title: "More actions",
                     }, ".."),
                     () => menuOpen.val ? div(
-                        {class: "absolute right-0 top-full z-20 mt-1 min-w-28 overflow-hidden rounded-lg border border-gray-700 bg-gray-900 py-1 text-left shadow-xl"},
+                        {class: "absolute right-0 top-full z-20 mt-1 min-w-28 overflow-hidden rounded-lg border border-gray-700 bg-gray-900 py-1 text-left shadow-xl", onmousedown: (e) => e.stopPropagation()},
                         button({
                             class: "block w-full px-3 py-1.5 text-left text-xs text-gray-200 hover:bg-gray-800 cursor-pointer",
                             onclick: () => {
-                                menuOpen.val = false;
+                                closeMenu();
                                 onFork(deployment);
                             },
                             type: "button",
