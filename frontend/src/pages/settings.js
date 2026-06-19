@@ -811,10 +811,15 @@ export function settingsPage() {
         ),
     );
 
-    const settingsSectionCard = (section) => div(
-        {class: "card flex flex-col gap-3"},
+    const settingsSection = (section) => div(
+        {class: "flex flex-col gap-3"},
         sectionHeader(section.title),
         settingsTable(section),
+    );
+
+    const settingsCard = () => div(
+        {class: "card flex flex-col gap-5"},
+        ...settingsSections.map(settingsSection),
     );
 
     const dirtyActions = () => dirtyCount.val ? div({class: "flex items-center gap-2"},
@@ -847,7 +852,7 @@ export function settingsPage() {
             return div(
                 {class: "flex flex-col gap-3"},
                 pageHeader(),
-                ...settingsSections.map(settingsSectionCard),
+                settingsCard(),
             );
         },
         masterPasswordCard,
