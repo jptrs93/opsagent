@@ -92,7 +92,7 @@ func restorePrimaryBackup(opts restoreOptions, own owner) error {
 	}
 
 	if err := unlockRestoredSecrets(dbPath, opts.RecoveryCode, own); err != nil {
-		return err
+		return fmt.Errorf("%w; delete %s, %s, %s, and %s before trying install recovery again", err, dbPath, dbPath+"-wal", dbPath+"-shm", filepath.Join(dataDir, "machine.key"))
 	}
 	info("restored primary database and re-established local machine key")
 	return nil
@@ -101,7 +101,7 @@ func restorePrimaryBackup(opts restoreOptions, own owner) error {
 func ensureNoExistingPrimaryDB(dbPath string) error {
 	for _, path := range sqliteArtifactPaths(dbPath) {
 		if pathExists(path) {
-			return fmt.Errorf("refusing to restore backup because %s already exists", path)
+			return fmt.Errorf("refusing to restore backup because %s already exists; delete %s, %s, %s, and %s before trying install recovery again", path, dbPath, dbPath+"-wal", dbPath+"-shm", filepath.Join(dataDir, "machine.key"))
 		}
 	}
 	return nil
@@ -119,14 +119,18 @@ func sqliteArtifactPaths(dbPath string) []string {
 
 func unlockRestoredSecrets(dbPath, recoveryCode string, own owner) error {
 	store := sqlite.NewPrimaryStorage(dbPath)
-	defer store.Close()
 
 	mgr, err := secrets.Open(dataDir, store)
 	if err != nil {
+		_ = store.Close()
 		return fmt.Errorf("open restored secrets store: %w", err)
 	}
 	if err := mgr.Unlock(recoveryCode); err != nil {
+		_ = store.Close()
 		return fmt.Errorf("unlock restored secrets store: %w", err)
+	}
+	if err := store.Close(); err != nil {
+		return fmt.Errorf("close restored primary database: %w", err)
 	}
 	for _, path := range append(sqliteArtifactPaths(dbPath), filepath.Join(dataDir, "machine.key")) {
 		if err := chownIfExists(path, own); err != nil {
