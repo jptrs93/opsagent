@@ -40,20 +40,14 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
         ? (existingStatusLabels[deployment.existingStatus] || existingStatusLabels[0])
         : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'};
     const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
+    const menuOpen = van.state(false);
+    const actionButtonClass = "btn-secondary text-xs leading-none py-0.5 px-1.5 cursor-pointer";
 
     return tr(
         {class: "border-b border-gray-800 last:border-0 hover:bg-gray-800/60 transition-colors", "data-testid": `deployment-row-${deployment.name || deployment.id}`},
         td(
             {class: "py-3 pl-4 pr-3 align-middle min-w-32"},
-            div(
-                {class: "inline-flex items-baseline gap-2 max-w-full"},
-                span({class: "font-medium text-sm text-white break-words"}, deployment.name || `#${deployment.id}`),
-                button({
-                    class: "shrink-0 text-xs text-gray-500 hover:text-gray-300 underline cursor-pointer p-0",
-                    onclick: () => onShowHistory(deployment),
-                    type: "button",
-                }, "history"),
-            ),
+            span({class: "font-medium text-sm text-white break-words"}, deployment.name || `#${deployment.id}`),
         ),
         showSpace ? td({class: "py-3 px-3 align-middle text-sm text-gray-300 whitespace-nowrap"}, deployment.spaceName || '-') : '',
         td({class: "py-3 px-3 align-middle text-sm text-gray-300 break-words"}, deployment.machine || '-'),
@@ -97,16 +91,35 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
             div(
                 {class: "inline-flex items-center justify-end gap-2"},
                 button({
-                    class: "btn-secondary text-xs leading-none py-0.5 px-2.5 cursor-pointer",
+                    class: actionButtonClass,
+                    onclick: () => onShowHistory(deployment),
+                    type: "button",
+                }, "History"),
+                button({
+                    class: actionButtonClass,
                     onclick: () => onUpdate(deployment),
                     type: "button",
                 }, "Update"),
-                button({
-                    class: "btn-secondary text-xs leading-none py-0.5 px-2.5 cursor-pointer",
-                    onclick: () => onFork(deployment),
-                    type: "button",
-                    title: "Create a new deployment from this config",
-                }, "Fork"),
+                div(
+                    {class: "relative"},
+                    button({
+                        class: "btn-secondary text-xs leading-none py-0.5 px-2 cursor-pointer",
+                        onclick: () => { menuOpen.val = !menuOpen.val; },
+                        type: "button",
+                        title: "More actions",
+                    }, ".."),
+                    () => menuOpen.val ? div(
+                        {class: "absolute right-0 top-full z-20 mt-1 min-w-28 overflow-hidden rounded-lg border border-gray-700 bg-gray-900 py-1 text-left shadow-xl"},
+                        button({
+                            class: "block w-full px-3 py-1.5 text-left text-xs text-gray-200 hover:bg-gray-800 cursor-pointer",
+                            onclick: () => {
+                                menuOpen.val = false;
+                                onFork(deployment);
+                            },
+                            type: "button",
+                        }, "Fork"),
+                    ) : '',
+                ),
             ),
         ),
     );
