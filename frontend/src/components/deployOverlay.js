@@ -352,7 +352,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                     ),
                 ),
             ),
-            envVarsPane(form),
+            () => envVarsPane(form, {assets: assets.val}),
             volumeMountsPane(form, {deployments: deploymentsS}),
             () => assetMountsPane(form, {assets: assets.val, enableAssetEditor: true}),
             assetEditorPane(form, {onSaved: loadAssets}),

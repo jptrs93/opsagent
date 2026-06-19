@@ -62,7 +62,6 @@ const settingsSections = [
 ];
 
 const settings = settingsSections.flatMap((section) => section.settings);
-const settingLabelColumnWidth = `${Math.max(...settings.map((setting) => setting.label.length)) + 6}ch`;
 
 const draftValue = (setting, cfg) => {
     if (setting.type === "secret") {
@@ -131,7 +130,7 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
             }
         };
         return div(
-            {class: "flex items-center gap-2"},
+            {class: "flex flex-wrap items-center gap-2"},
             referencePicker({
                 refs: secrets,
                 selectedKey: () => item()?.value || "",
@@ -142,6 +141,7 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
                 noMatchesLabel: "No matching secrets",
                 emptyLabel: "No secrets available",
                 inputClass,
+                containerClass: "relative min-w-64 flex-1",
                 disabled: () => saving.val,
                 onSelect: ref => patch({value: ref.name, revealed: false, revealedValue: ""}),
             }),
@@ -752,15 +752,15 @@ export function settingsPage() {
         }, "Add space"),
     );
 
-    const rowEl = (section, setting) => tr(
+    const rowEl = (section, setting) => div(
         {class: () => isSectionSettingVisible(section, setting)
-            ? "border-b border-gray-800 last:border-0 align-middle"
+            ? "flex flex-col gap-1 border-b border-gray-800 py-2 last:border-0 sm:flex-row sm:items-center"
             : "hidden"},
-        td({class: "py-2 pr-3 whitespace-nowrap align-middle", style: `width:${settingLabelColumnWidth};min-width:${settingLabelColumnWidth}`},
+        div({class: "whitespace-nowrap pr-3 sm:w-80 sm:min-w-80"},
             span({class: "text-gray-200"}, setting.label),
         ),
-        td({class: "py-2 text-white"}, valueInput(setting, draft, error, patchDraft, saving, secrets, openCreateSecret)),
-        td({class: "py-2 pl-4 text-right w-20 whitespace-nowrap align-middle"},
+        div({class: "min-w-0 flex-1 text-white"}, valueInput(setting, draft, error, patchDraft, saving, secrets, openCreateSecret)),
+        div({class: "w-20 whitespace-nowrap text-right sm:pl-4"},
             () => {
                 const item = draft.val?.[setting.key];
                 return span({class: () => `inline-block w-16 text-xs ${item && isDirty(setting, item) ? "text-blue-300" : "invisible"}`}, "changed");
@@ -778,18 +778,15 @@ export function settingsPage() {
         || setting.key === section.enabledKey
         || draft.val?.[section.enabledKey]?.value === "true";
 
-    const settingsTable = (section) => div(
-        {class: "overflow-x-auto"},
-        table(
-            {class: "w-full text-sm"},
-            tbody(...section.settings.map(setting => rowEl(section, setting))),
-        ),
+    const settingsItems = (section) => div(
+        {class: "flex flex-col text-sm"},
+        ...section.settings.map(setting => rowEl(section, setting)),
     );
 
     const settingsSection = (section, index) => div(
         {class: "flex flex-col gap-3"},
         sectionHeader(section.title, index === 0 ? dirtyActions : ""),
-        settingsTable(section),
+        settingsItems(section),
     );
 
     const settingsCard = () => div(

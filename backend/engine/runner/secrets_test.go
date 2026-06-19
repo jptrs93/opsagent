@@ -28,12 +28,14 @@ func TestResolveEnv(t *testing.T) {
 			"DB_PASS": {SecretID: ptrInt32(1)},
 			"TOKEN":   {SecretID: ptrInt32(2)},
 			"HOST":    {ConfigID: ptrInt32(3)},
+			"CONFIG":  {Asset: "app.conf", AssetID: 12, Version: 4},
 		}
 		out, err := resolveEnv(in)
 		if err != nil {
 			t.Fatalf("resolveEnv: %v", err)
 		}
 		want := []string{
+			"CONFIG=/var/lib/opendeploy-implicit-assets/12_4",
 			"DB_PASS=s3cret",
 			"HOST=db.local",
 			"PLAIN=value",
@@ -79,6 +81,33 @@ func TestResolveEnvNoResolverFailsClosed(t *testing.T) {
 func TestResolveEnvRejectsAmbiguousValue(t *testing.T) {
 	if _, err := resolveEnv(map[string]*apigen.EnvVarValue{"X": {Value: ptrString("plain"), SecretID: ptrInt32(1)}}); err == nil {
 		t.Fatal("expected error for ambiguous env value")
+	}
+}
+
+func TestResolveEnvRejectsUnresolvedAsset(t *testing.T) {
+	if _, err := resolveEnv(map[string]*apigen.EnvVarValue{"X": {Asset: "app.conf"}}); err == nil {
+		t.Fatal("expected error for unresolved asset")
+	}
+}
+
+func TestContainerMountsIncludesImplicitAssetEnvMount(t *testing.T) {
+	dep := &apigen.DeploymentConfig{
+		Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{
+				DisableDataVolume: true,
+				EnvVars: map[string]*apigen.EnvVarValue{
+					"APP_CONFIG":   {Asset: "app.conf", AssetID: 12, Version: 4},
+					"APP_CONFIG_2": {Asset: "app.conf", AssetID: 12, Version: 4},
+				},
+			},
+		}},
+	}
+	mounts, _ := containerMounts(dep)
+	if len(mounts) != 1 {
+		t.Fatalf("mounts len = %d; want 1", len(mounts))
+	}
+	if mounts[0].Dest != "/var/lib/opendeploy-implicit-assets/12_4" || !mounts[0].ReadOnly {
+		t.Fatalf("implicit mount = %+v", mounts[0])
 	}
 }
 

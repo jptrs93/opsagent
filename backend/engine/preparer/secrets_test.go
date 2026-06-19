@@ -66,6 +66,29 @@ func TestConfigRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 	}
 }
 
+func TestRequiredAssetRefsIncludesExplicitAndEnvAssets(t *testing.T) {
+	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
+		Container: apigen.ContainerRunnerConfig{
+			AssetMounts: []*apigen.ContainerAssetMount{{Asset: "explicit.conf", AssetID: 8, Version: 2}},
+			EnvVars: map[string]*apigen.EnvVarValue{
+				"APP_CONFIG": {Asset: "implicit.conf", AssetID: 12, Version: 4},
+				"PLAIN":      {Value: ptrString("value")},
+			},
+		},
+	}}}
+
+	refs := RequiredAssetRefs(dep)
+	if len(refs) != 2 {
+		t.Fatalf("refs len = %d; want 2", len(refs))
+	}
+	if refs[0].AssetID != 8 || refs[0].Version != 2 || refs[0].Label != `asset mount "explicit.conf"` {
+		t.Fatalf("refs[0] = %+v", refs[0])
+	}
+	if refs[1].AssetID != 12 || refs[1].Version != 4 || refs[1].Label != `asset env var "APP_CONFIG"` {
+		t.Fatalf("refs[1] = %+v", refs[1])
+	}
+}
+
 func TestEnsureSecretsReadyFetchesBatch(t *testing.T) {
 	prev := Secrets
 	fake := &fakeSecretProvider{}
@@ -110,4 +133,5 @@ func TestEnsureConfigsReadyFetchesBatch(t *testing.T) {
 	}
 }
 
-func ptrInt32(v int32) *int32 { return &v }
+func ptrInt32(v int32) *int32    { return &v }
+func ptrString(v string) *string { return &v }

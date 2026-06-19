@@ -937,19 +937,21 @@ export function assetEditorPane(form, opts = {}) {
 // envVarsPane is the right-hand editor pane. It is always mounted and toggled
 // via a CSS class (a binding that returns null would be GC'd by VanJS and never
 // re-open).
-export function envVarsPane(form) {
+export function envVarsPane(form, opts = {}) {
+    const assets = opts.assets || [];
     const envRows = tbody();
     let envRowsSignature = '';
     van.derive(() => {
         const rows = form.envVars.val || [];
         const signature = [
-            rows.map(row => `${row.id}:${row.type || 'value'}`).join('|'),
+            rows.map(row => `${row.id}:${row.type || 'value'}:${row.asset || ''}:${row.assetId || 0}:${row.version || 0}`).join('|'),
             (secretRefsS.val || []).map(ref => `${ref.id}:${ref.name}`).join('|'),
             (userConfigRefsS.val || []).map(ref => `${ref.id}:${ref.name}`).join('|'),
+            assets.map(asset => `${asset.id}:${asset.key}:${asset.version}`).join('|'),
         ].join('::');
         if (signature === envRowsSignature) return;
         envRowsSignature = signature;
-        envRows.replaceChildren(...rows.map(row => envVarRow(form, row)));
+        envRows.replaceChildren(...rows.map(row => envVarRow(form, row, assets)));
     });
     return div(
         {class: () => form.envPaneOpen.val
@@ -991,7 +993,7 @@ export function envVarsPane(form) {
     );
 }
 
-function envVarRow(form, row) {
+function envVarRow(form, row, assets) {
     const type = row.type || 'value';
     return tr({class: "border-b border-gray-800 last:border-b-0"},
         td({class: "py-1 pr-1.5 align-top"},
@@ -1012,9 +1014,10 @@ function envVarRow(form, row) {
                 option({value: "value", selected: type === 'value'}, "Value"),
                 option({value: "config", selected: type === 'config'}, "Config"),
                 option({value: "secret", selected: type === 'secret'}, "Secret"),
+                option({value: "asset", selected: type === 'asset'}, "Asset"),
             ),
         ),
-        td({class: "py-1 pl-1.5 pr-0.5 align-top"}, envValueInput(form, row)),
+        td({class: "py-1 pl-1.5 pr-0.5 align-top"}, envValueInput(form, row, assets)),
         td({class: "py-1 pl-0.5 align-top text-right"},
             button({
                 type: "button",
@@ -1025,7 +1028,7 @@ function envVarRow(form, row) {
     );
 }
 
-function envValueInput(form, row) {
+function envValueInput(form, row, assets) {
     if ((row.type || 'value') === 'value') {
         return input({
             type: "text",
@@ -1035,7 +1038,23 @@ function envValueInput(form, row) {
             oninput: e => updateEnvRow(form, row.id, {value: e.target.value}),
         });
     }
+    if (row.type === 'asset') {
+        return select({
+            class: `w-full rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand ${assets.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`,
+            disabled: assets.length === 0,
+            value: row.asset || '',
+            onchange: e => updateEnvAssetRow(form, row, assets, e.target.value),
+        },
+            option({value: '', disabled: true, selected: !row.asset || assets.length === 0}, assets.length ? "Select an asset..." : "No assets defined"),
+            ...assets.map(asset => option({value: asset.key, selected: asset.key === row.asset}, `${asset.key} v${asset.version}`)),
+        );
+    }
     return envReferenceAutocomplete(form, row);
+}
+
+function updateEnvAssetRow(form, row, assets, value) {
+    const match = assets.find(asset => asset.key === value);
+    updateEnvRow(form, row.id, {asset: value, assetId: match?.id || 0, version: match?.version || 0});
 }
 
 function envReferenceAutocomplete(form, row) {
@@ -1058,7 +1077,7 @@ function envReferenceAutocomplete(form, row) {
 }
 
 function newEnvRow(values = {}) {
-    return {id: nextEnvID++, key: '', type: 'value', value: '', secretId: 0, configId: 0, ...values};
+    return {id: nextEnvID++, key: '', type: 'value', value: '', secretId: 0, configId: 0, asset: '', assetId: 0, version: 0, ...values};
 }
 
 function updateEnvRow(form, id, patch) {
@@ -1066,9 +1085,10 @@ function updateEnvRow(form, id, patch) {
 }
 
 function envTypePatch(row, type) {
-    if (type === 'secret') return {type, value: '', configId: 0, refSearch: ''};
-    if (type === 'config') return {type, value: '', secretId: 0, refSearch: ''};
-    return {type: 'value', secretId: 0, configId: 0, refSearch: '', value: row.value || ''};
+    if (type === 'secret') return {type, value: '', configId: 0, asset: '', assetId: 0, version: 0, refSearch: ''};
+    if (type === 'config') return {type, value: '', secretId: 0, asset: '', assetId: 0, version: 0, refSearch: ''};
+    if (type === 'asset') return {type, value: '', secretId: 0, configId: 0, refSearch: ''};
+    return {type: 'value', secretId: 0, configId: 0, asset: '', assetId: 0, version: 0, refSearch: '', value: row.value || ''};
 }
 
 function envVarCount(arr) {
@@ -1082,6 +1102,7 @@ function formEnvVars(form) {
             if (!key) return null;
             if (v.type === 'secret') return Number(v.secretId || 0) ? [key, {secretId: Number(v.secretId)}] : null;
             if (v.type === 'config') return Number(v.configId || 0) ? [key, {configId: Number(v.configId)}] : null;
+            if (v.type === 'asset') return (v.asset || '').trim() ? [key, {asset: v.asset.trim(), version: Number(v.version || 0)}] : null;
             return [key, {value: v.value || ''}];
         })
         .filter(Boolean));
@@ -1148,6 +1169,10 @@ function hasInvalidEnvVars(form) {
             if (!Number(row.configId || 0)) return true;
             continue;
         }
+        if (row.type === 'asset') {
+            if (!(row.asset || '').trim()) return true;
+            continue;
+        }
         if (row.type && row.type !== 'value') return true;
     }
     return false;
@@ -1160,8 +1185,11 @@ function envVarsToFormRows(envVars) {
         .map(({key, value}) => {
         const secretId = Number(value?.secretId || 0);
         const configId = Number(value?.configId || 0);
+        const assetId = Number(value?.assetId || 0);
+        const version = Number(value?.version || 0);
         if (secretId) return newEnvRow({key, type: 'secret', secretId});
         if (configId) return newEnvRow({key, type: 'config', configId});
+        if ((value?.asset || '').trim()) return newEnvRow({key, type: 'asset', asset: value.asset, assetId, version});
         return newEnvRow({key, type: 'value', value: value?.value || ''});
     });
 }

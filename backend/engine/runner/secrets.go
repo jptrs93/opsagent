@@ -3,9 +3,12 @@ package runner
 import (
 	"fmt"
 	"sort"
+	"strconv"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
+
+const implicitAssetContainerDir = "/var/lib/opendeploy-implicit-assets"
 
 // SecretResolver resolves a secret id to its plaintext value. It is set at
 // startup (on the primary) to the secrets manager.
@@ -33,7 +36,7 @@ func resolveEnv(env map[string]*apigen.EnvVarValue) ([]string, error) {
 	sort.Strings(keys)
 	out := make([]string, 0, len(keys))
 	for _, key := range keys {
-		val, err := resolveEnvValue(env[key])
+		val, err := resolveEnvValue(key, env[key])
 		if err != nil {
 			return nil, fmt.Errorf("env %s: %w", key, err)
 		}
@@ -42,7 +45,7 @@ func resolveEnv(env map[string]*apigen.EnvVarValue) ([]string, error) {
 	return out, nil
 }
 
-func resolveEnvValue(v *apigen.EnvVarValue) (string, error) {
+func resolveEnvValue(key string, v *apigen.EnvVarValue) (string, error) {
 	if v == nil {
 		return "", fmt.Errorf("value is required")
 	}
@@ -56,8 +59,11 @@ func resolveEnvValue(v *apigen.EnvVarValue) (string, error) {
 	if v.ConfigID != nil {
 		set++
 	}
+	if v.Asset != "" {
+		set++
+	}
 	if set != 1 {
-		return "", fmt.Errorf("exactly one of value, secretId, or configId is required")
+		return "", fmt.Errorf("exactly one of value, secretId, configId, or asset is required")
 	}
 	if v.Value != nil {
 		return *v.Value, nil
@@ -65,7 +71,17 @@ func resolveEnvValue(v *apigen.EnvVarValue) (string, error) {
 	if v.SecretID != nil {
 		return resolveSecretRef(*v.SecretID)
 	}
+	if v.Asset != "" {
+		if v.AssetID <= 0 || v.Version <= 0 {
+			return "", fmt.Errorf("asset env var %q has unresolved asset id/version", key)
+		}
+		return implicitAssetContainerPath(v.AssetID, v.Version), nil
+	}
 	return resolveConfigRef(*v.ConfigID)
+}
+
+func implicitAssetContainerPath(assetID, version int32) string {
+	return implicitAssetContainerDir + "/" + strconv.Itoa(int(assetID)) + "_" + strconv.Itoa(int(version))
 }
 
 func resolveSecretRef(id int32) (string, error) {

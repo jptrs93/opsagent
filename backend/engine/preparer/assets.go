@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 
 	"github.com/jptrs93/opsagent/backend/ainit"
@@ -17,8 +18,15 @@ type AssetProvider interface {
 
 var Assets AssetProvider
 
+type requiredAssetRef struct {
+	Label   string
+	AssetID int32
+	Version int32
+}
+
 func EnsureAssetsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
-	if cfg == nil || len(cfg.Spec.Runner.Container.AssetMounts) == 0 {
+	refs := RequiredAssetRefs(cfg)
+	if len(refs) == 0 {
 		return nil
 	}
 	if Assets == nil {
@@ -27,24 +35,21 @@ func EnsureAssetsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error 
 	if err := os.MkdirAll(AssetCacheDir(), 0o755); err != nil {
 		return fmt.Errorf("creating asset cache dir: %w", err)
 	}
-	for _, m := range cfg.Spec.Runner.Container.AssetMounts {
-		if m == nil {
-			continue
+	for _, ref := range refs {
+		if ref.AssetID == 0 || ref.Version == 0 {
+			return fmt.Errorf("%s has unresolved asset id/version", ref.Label)
 		}
-		if m.AssetID == 0 || m.Version == 0 {
-			return fmt.Errorf("asset mount %q has unresolved asset id/version", m.Asset)
-		}
-		path := AssetCachePath(m.AssetID, m.Version)
+		path := AssetCachePath(ref.AssetID, ref.Version)
 		if _, err := os.Stat(path); err == nil {
 			continue
 		} else if err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("checking asset cache %s: %w", path, err)
 		}
-		asset, err := Assets.FetchAsset(ctx, m.AssetID, m.Version)
+		asset, err := Assets.FetchAsset(ctx, ref.AssetID, ref.Version)
 		if err != nil {
-			return fmt.Errorf("fetching asset %d version %d: %w", m.AssetID, m.Version, err)
+			return fmt.Errorf("fetching asset %d version %d: %w", ref.AssetID, ref.Version, err)
 		}
-		if asset.AssetID != m.AssetID || asset.Version != m.Version {
+		if asset.AssetID != ref.AssetID || asset.Version != ref.Version {
 			return fmt.Errorf("primary returned wrong asset: got %d version %d", asset.AssetID, asset.Version)
 		}
 		tmp := path + ".tmp"
@@ -57,6 +62,40 @@ func EnsureAssetsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error 
 		}
 	}
 	return nil
+}
+
+func RequiredAssetRefs(cfg *apigen.DeploymentConfig) []requiredAssetRef {
+	if cfg == nil {
+		return nil
+	}
+	container := cfg.Spec.Runner.Container
+	refs := make([]requiredAssetRef, 0, len(container.AssetMounts)+len(container.EnvVars))
+	for _, m := range container.AssetMounts {
+		if m == nil {
+			continue
+		}
+		refs = append(refs, requiredAssetRef{
+			Label:   fmt.Sprintf("asset mount %q", m.Asset),
+			AssetID: m.AssetID,
+			Version: m.Version,
+		})
+	}
+	for key, value := range container.EnvVars {
+		if value == nil || value.Asset == "" {
+			continue
+		}
+		refs = append(refs, requiredAssetRef{
+			Label:   fmt.Sprintf("asset env var %q", key),
+			AssetID: value.AssetID,
+			Version: value.Version,
+		})
+	}
+	sort.Slice(refs, func(i, j int) bool {
+		return refs[i].AssetID < refs[j].AssetID ||
+			(refs[i].AssetID == refs[j].AssetID && refs[i].Version < refs[j].Version) ||
+			(refs[i].AssetID == refs[j].AssetID && refs[i].Version == refs[j].Version && refs[i].Label < refs[j].Label)
+	})
+	return refs
 }
 
 func AssetCacheDir() string {

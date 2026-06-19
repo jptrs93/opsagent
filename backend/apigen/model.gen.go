@@ -2310,6 +2310,9 @@ type EnvVarValue struct {
 	SecretID *int32
 	ConfigID *int32
 	Value    *string
+	Asset    string
+	AssetID  int32
+	Version  int32
 }
 
 func (m *EnvVarValue) Encode() []byte {
@@ -2317,6 +2320,9 @@ func (m *EnvVarValue) Encode() []byte {
 	b = AppendInt32FieldOpt(b, m.SecretID, 1)
 	b = AppendInt32FieldOpt(b, m.ConfigID, 2)
 	b = AppendStringFieldOpt(b, m.Value, 3)
+	b = AppendStringField(b, m.Asset, 4)
+	b = AppendInt32Field(b, m.AssetID, 5)
+	b = AppendInt32Field(b, m.Version, 6)
 	return b
 }
 
@@ -2337,6 +2343,12 @@ func DecodeEnvVarValue(b []byte) (*EnvVarValue, error) {
 			b, m.ConfigID, err = ConsumeVarInt32Opt(b, typ)
 		case 3:
 			b, m.Value, err = ConsumeStringOpt(b, typ)
+		case 4:
+			b, m.Asset, err = ConsumeString(b, typ)
+		case 5:
+			b, m.AssetID, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

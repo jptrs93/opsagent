@@ -100,6 +100,53 @@ func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
 	}
 }
 
+func TestValidateDeploymentSpecResolvesEnvAssetRefs(t *testing.T) {
+	assets := fakeAssetResolver{
+		"app.conf": {
+			ID:      51,
+			Key:     "app.conf",
+			Version: 7,
+		},
+	}
+	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: &apigen.ContainerImageConfig{Image: "nginx:latest"},
+		},
+		Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{
+				EnvVars: map[string]*apigen.EnvVarValue{
+					"APP_CONFIG": {Asset: " app.conf "},
+				},
+			},
+		},
+	}, assets)
+	if err != nil {
+		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
+	}
+	value := spec.Runner.Container.EnvVars["APP_CONFIG"]
+	if value.Asset != "app.conf" || value.AssetID != 51 || value.Version != 7 {
+		t.Fatalf("env asset ref not resolved: %+v", value)
+	}
+}
+
+func TestValidateDeploymentSpecRejectsUnknownEnvAssetRef(t *testing.T) {
+	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: &apigen.ContainerImageConfig{Image: "nginx:latest"},
+		},
+		Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{
+				EnvVars: map[string]*apigen.EnvVarValue{
+					"APP_CONFIG": {Asset: "missing.conf"},
+				},
+			},
+		},
+	}, fakeAssetResolver{})
+	if err == nil || !strings.Contains(err.Error(), `asset "missing.conf" not found`) {
+		t.Fatalf("err = %v, want unknown asset", err)
+	}
+}
+
 func TestValidateDeploymentSpecAcceptsHostMounts(t *testing.T) {
 	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{

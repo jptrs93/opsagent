@@ -655,6 +655,9 @@ func validateRunnerConfig(runner *apigen.RunnerConfig, prepare *apigen.PrepareCo
 		if err := validateEnvVars("runner.container.envVars", runner.Container.EnvVars); err != nil {
 			return err
 		}
+		if err := resolveEnvAssetRefs("runner.container.envVars", runner.Container.EnvVars, assets); err != nil {
+			return err
+		}
 		if err := validateContainerMounts(runner.Container.Mounts); err != nil {
 			return err
 		}
@@ -734,6 +737,29 @@ func resolveAssetMounts(in []*apigen.ContainerAssetMount, assets deploymentAsset
 	return out, nil
 }
 
+func resolveEnvAssetRefs(scope string, env map[string]*apigen.EnvVarValue, assets deploymentAssetResolver) error {
+	for key, value := range env {
+		assetKey := strings.TrimSpace(value.Asset)
+		if assetKey == "" {
+			continue
+		}
+		if assets == nil {
+			return invalidConfigErrf("%s.%s: assets cannot be resolved here", scope, key)
+		}
+		asset, ok := assets.GetAsset(assetKey, value.Version)
+		if !ok {
+			if value.Version > 0 {
+				return invalidConfigErrf("%s.%s: asset %q version %d not found", scope, key, assetKey, value.Version)
+			}
+			return invalidConfigErrf("%s.%s: asset %q not found", scope, key, assetKey)
+		}
+		value.Asset = asset.Key
+		value.AssetID = asset.ID
+		value.Version = asset.Version
+	}
+	return nil
+}
+
 // validateEnvVars trims and validates env keys and typed values. Duplicate keys
 // after trimming are rejected so the resulting process environment is unambiguous.
 func validateEnvVars(scope string, in map[string]*apigen.EnvVarValue) error {
@@ -767,8 +793,11 @@ func validateEnvVars(scope string, in map[string]*apigen.EnvVarValue) error {
 				return invalidConfigErrf("%s.%s: configId must be positive", scope, key)
 			}
 		}
+		if strings.TrimSpace(value.Asset) != "" {
+			set++
+		}
 		if set != 1 {
-			return invalidConfigErrf("%s.%s: exactly one of value, secretId, or configId is required", scope, key)
+			return invalidConfigErrf("%s.%s: exactly one of value, secretId, configId, or asset is required", scope, key)
 		}
 		out[key] = value
 	}

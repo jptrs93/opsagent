@@ -26,6 +26,7 @@ export function referencePicker({
     noMatchesLabel = 'No matches',
     emptyLabel = 'No options available',
     inputClass = defaultInputClass,
+    containerClass = "relative",
     disabled = false,
     maxMatches = 8,
 }) {
@@ -65,7 +66,7 @@ export function referencePicker({
         open.val = false;
     };
 
-    return div({class: "relative"},
+    return div({class: containerClass},
         input({
             type: "text",
             class: inputClass,

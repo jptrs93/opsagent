@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -379,6 +380,24 @@ func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd.Mount, string) {
 		}
 		hostPath := preparer.AssetCachePath(m.AssetID, m.Version)
 		mounts = append(mounts, ctrd.Mount{Source: hostPath, Dest: m.Path, ReadOnly: true})
+	}
+	implicitMounted := map[string]bool{}
+	envKeys := make([]string, 0, len(cfg.EnvVars))
+	for key := range cfg.EnvVars {
+		envKeys = append(envKeys, key)
+	}
+	sort.Strings(envKeys)
+	for _, key := range envKeys {
+		value := cfg.EnvVars[key]
+		if value == nil || value.Asset == "" || value.AssetID <= 0 || value.Version <= 0 {
+			continue
+		}
+		dest := implicitAssetContainerPath(value.AssetID, value.Version)
+		if implicitMounted[dest] {
+			continue
+		}
+		implicitMounted[dest] = true
+		mounts = append(mounts, ctrd.Mount{Source: preparer.AssetCachePath(value.AssetID, value.Version), Dest: dest, ReadOnly: true})
 	}
 	return mounts, dataHost
 }
