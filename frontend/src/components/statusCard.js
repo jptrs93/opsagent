@@ -41,7 +41,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
         : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'};
     const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
     const menuOpen = van.state(false);
-    const actionButtonClass = "rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-xs leading-none py-0.5 px-[6px] cursor-pointer";
+    const actionButtonClass = "rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-xs leading-none p-2 cursor-pointer";
     let offMenuClick = null;
 
     const closeMenu = () => {
