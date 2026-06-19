@@ -988,6 +988,39 @@ func DecodeConfigValueUpdate(b []byte) (*ConfigValueUpdate, error) {
 	return &m, nil
 }
 
+type ExportedConfigBlob struct {
+	Blob []byte
+}
+
+func (m *ExportedConfigBlob) Encode() []byte {
+	var b []byte
+	b = AppendBytesField(b, m.Blob, 1)
+	return b
+}
+
+func DecodeExportedConfigBlob(b []byte) (*ExportedConfigBlob, error) {
+	var m ExportedConfigBlob
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Blob, err = ConsumeBytesCopy(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type EmptyRequest struct {
 }
 

@@ -122,6 +122,10 @@
  * @property {string} value
  */
 /**
+ * @typedef {Object} ExportedConfigBlob
+ * @property {Uint8Array} blob
+ */
+/**
  * @typedef {Object} EmptyRequest
  */
 /**
@@ -2168,6 +2172,62 @@ function decodeConfigValueUpdateMessage(reader, length) {
 export function decodeConfigValueUpdate(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeConfigValueUpdateMessage(reader);
+}
+
+
+
+/**
+ * @param {ExportedConfigBlob} message
+ * @param {Writer} writer
+ */
+export function writeExportedConfigBlob(message, writer) {
+    if (message.blob && message.blob.length > 0) {
+        writer.uint32(tag(1, WIRE.LDELIM)).bytes(message.blob);
+    }
+}
+
+
+/**
+ * @param {ExportedConfigBlob} message
+ * @returns {Uint8Array}
+ */
+export function encodeExportedConfigBlob(message) {
+    const writer = Writer.create();
+    writeExportedConfigBlob(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ExportedConfigBlob}
+ */
+function decodeExportedConfigBlobMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {blob: new Uint8Array(0) };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.blob = reader.bytes();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ExportedConfigBlob}
+ */
+export function decodeExportedConfigBlob(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeExportedConfigBlobMessage(reader);
 }
 
 

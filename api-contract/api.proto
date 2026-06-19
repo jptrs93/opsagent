@@ -122,6 +122,11 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc PostV1GenerateExportedConfig(EmptyRequest) returns (ExportedConfigBlob) {
+    option (cp.url) = "/v1/generate-exported-config";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   rpc PostV1SecretValueReveal(SecretValue) returns (SecretRevealResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -392,6 +397,10 @@ message ConfigUpdateRequest {
 message ConfigValueUpdate {
   string key = 1;
   string value = 2;
+}
+
+message ExportedConfigBlob {
+  bytes blob = 1;
 }
 
 // === Auth messages ===

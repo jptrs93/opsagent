@@ -93,6 +93,7 @@ type OpsagentHttpV1Handler interface {
 	PostV1RepoValidate(Context, *ValidateSourceRequest) (*ValidateSourceResponse, error)
 	GetV1Config(Context) (*DynamicConfiguration, error)
 	PostV1ConfigUpdate(Context, *ConfigUpdateRequest) (*DynamicConfiguration, error)
+	PostV1GenerateExportedConfig(Context, *EmptyRequest) (*ExportedConfigBlob, error)
 	PostV1SecretValueReveal(Context, *SecretValue) (*SecretRevealResponse, error)
 	PostV1SecretsList(Context, *EmptyRequest) (*SecretList, error)
 	PostV1SecretsSet(Context, *SecretSetRequest) (*SecretMeta, error)
@@ -417,6 +418,17 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/config/update", buildHandlerFunc(config, verifyAuth, postV1ConfigUpdateAccessPolicy, postAuthHandlerPostV1ConfigUpdate, compressionModeAuto, false))
+	postV1GenerateExportedConfigAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1GenerateExportedConfig := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1GenerateExportedConfig(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/generate-exported-config", buildHandlerFunc(config, verifyAuth, postV1GenerateExportedConfigAccessPolicy, postAuthHandlerPostV1GenerateExportedConfig, compressionModeAuto, false))
 	postV1SecretValueRevealAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1SecretValueReveal := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretValue)

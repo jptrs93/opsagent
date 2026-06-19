@@ -15,6 +15,7 @@ import {
   decodeEnrollmentPrimaryMsg,
   decodeEnrollmentRequestList,
   decodeEnrollmentRequestStatus,
+  decodeExportedConfigBlob,
   decodeGithubCredentials,
   decodeLogLineBatch,
   decodeLoginResponse,
@@ -457,6 +458,18 @@ export class Capi {
   }
 
   /**
+   * @param {EmptyRequest} payload
+   * @returns {Promise<ExportedConfigBlob>}
+   */
+  async postV1GenerateExportedConfig(payload) {
+    const response = await this.#request("/v1/generate-exported-config", { method: 'POST', body: encodeEmptyRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeExportedConfigBlob(await response.arrayBuffer());
+  }
+
+  /**
    * @param {SecretValue} payload
    * @returns {Promise<SecretRevealResponse>}
    */
@@ -629,6 +642,17 @@ export class Capi {
    */
   async postV1AssetsUpload() {
     const response = await this.#request("/v1/assets/upload", { method: 'POST' });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeAsset(await response.arrayBuffer());
+  }
+
+  /**
+   * @returns {Promise<Asset>}
+   */
+  async postV1AssetsRename() {
+    const response = await this.#request("/v1/assets/rename", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }

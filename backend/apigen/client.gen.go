@@ -587,6 +587,25 @@ func (c *OpsagentHttpV1Capi) PostV1ConfigUpdate(ctx context.Context, req *Config
 	return DecodeDynamicConfiguration(body)
 }
 
+func (c *OpsagentHttpV1Capi) PostV1GenerateExportedConfig(ctx context.Context, req *EmptyRequest) (*ExportedConfigBlob, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1GenerateExportedConfig request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/generate-exported-config", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeExportedConfigBlob(body)
+}
+
 func (c *OpsagentHttpV1Capi) PostV1SecretValueReveal(ctx context.Context, req *SecretValue) (*SecretRevealResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretValueReveal request is nil")
@@ -847,6 +866,22 @@ func (c *OpsagentHttpV1Capi) PostV1AssetsSet(ctx context.Context, req *AssetSetR
 
 func (c *OpsagentHttpV1Capi) PostV1AssetsUpload(ctx context.Context) (*Asset, error) {
 	resp, err := c.do(ctx, "POST", "/v1/assets/upload", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAsset(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1AssetsRename(ctx context.Context) (*Asset, error) {
+	resp, err := c.do(ctx, "POST", "/v1/assets/rename", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}

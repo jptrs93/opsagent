@@ -245,17 +245,17 @@ export function secretsPage() {
     };
 
     const saveSecretRow = async (row, name) => {
-        let value;
         const oldKey = `secret:${row.orig.name}`;
         const renamed = !row.isNew && row.orig.name !== name;
         if (renamed) pendingDeletes.add(oldKey);
-        if (row.loaded.val || row.valueDirty.val) {
-            value = row.value.val;
-        } else {
-            const res = await capi.postV1SecretsReveal({name: row.orig.name});
-            value = new TextDecoder().decode(res.value);
-        }
         try {
+            let value;
+            if (row.loaded.val || row.valueDirty.val) {
+                value = row.value.val;
+            } else {
+                const res = await capi.postV1SecretsReveal({name: row.orig.name});
+                value = new TextDecoder().decode(res.value);
+            }
             await capi.postV1SecretsSet({
                 name,
                 group: "default",
