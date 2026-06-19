@@ -13,9 +13,9 @@ const decoder = new TextDecoder();
 const fmtDate = (d) => d instanceof Date && !Number.isNaN(d.getTime()) ? d.toLocaleString() : "";
 const fmtSize = (n) => {
     if (!n) return "0 B";
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`;
-    return `${(n / 1024 / 1024).toFixed(2)} MiB`;
+    if (n < 1000) return `${n} B`;
+    if (n < 1000 * 1000) return `${(n / 1000).toFixed(1)} KB`;
+    return `${(n / 1000 / 1000).toFixed(2)} MB`;
 };
 
 const smallBtn = (text, onclick, cls, disabledWhen) => button({
@@ -192,8 +192,6 @@ export function assetsPage() {
                 uploadProgressLoaded.val = loaded;
                 uploadProgressTotal.val = total || file.size;
             });
-            selected.val = asset.key;
-            setDraft(asset);
             await reloadRows();
             uploadProgressStatus.val = "Uploaded";
             uploadedAssetKey.val = asset.key;
@@ -213,8 +211,6 @@ export function assetsPage() {
             error.val = null;
             uploadRenameSaving.val = true;
             const asset = await renameUploadedAsset(uploadedAssetKey.val, name);
-            selected.val = asset.key;
-            setDraft(asset);
             await reloadRows();
             uploadedAssetKey.val = asset.key;
             uploadedAssetName.val = asset.key;
@@ -265,8 +261,10 @@ export function assetsPage() {
     const uploadProgressText = () => {
         const total = uploadProgressTotal.val || 0;
         const loaded = Math.min(uploadProgressLoaded.val, total || uploadProgressLoaded.val);
-        return `${uploadProgressStatus.val} ${uploadProgressName.val}: ${loaded.toLocaleString()} / ${total.toLocaleString()} bytes`;
+        return `${uploadProgressStatus.val} ${uploadProgressName.val}: ${fmtSize(loaded)} / ${fmtSize(total)}`;
     };
+
+    const uploadSuccessText = () => `Upload successful. Asset created. Size ${fmtSize(uploadProgressTotal.val)}.`;
 
     const uploadProgressPct = () => {
         const total = uploadProgressTotal.val || 0;
@@ -407,9 +405,9 @@ export function assetsPage() {
         {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"},
         div({class: "card w-full max-w-lg flex flex-col gap-4 shadow-2xl"},
             () => uploadedAssetKey.val && !uploadSaving.val && uploadProgressStatus.val === "Uploaded"
-                ? p({class: "text-sm font-medium text-green-300"}, "Upload successful. Asset created.")
+                ? p({class: "text-sm font-medium text-green-300"}, uploadSuccessText)
                 : "",
-            div({class: "flex flex-col gap-2"},
+            () => uploadedAssetKey.val && !uploadSaving.val && uploadProgressStatus.val === "Uploaded" ? "" : div({class: "flex flex-col gap-2"},
                 p({class: "text-xs text-gray-400"}, uploadProgressText),
                 div({class: "h-2 overflow-hidden rounded-full bg-gray-800"},
                     div({class: "h-full rounded-full bg-brand transition-all", style: () => `width:${uploadProgressPct()}`})),

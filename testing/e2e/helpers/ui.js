@@ -58,7 +58,16 @@ export async function configureGithubToken(page, token) {
   await byTestId(page, 'nav-settings', page.getByText('Settings')).click();
   const row = page.getByRole('row', {name: /GitHub token/});
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
-  await row.getByRole('textbox').fill(token);
+  await row.getByRole('button', {name: 'Create secret'}).click();
+
+  const dialog = page.locator('.fixed').filter({hasText: 'Create a secret, then reference it from this setting.'});
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel('Secret name').fill('opendeploy.config.github_token');
+  await dialog.getByLabel('Secret value').fill(token);
+  await dialog.getByRole('button', {name: 'Create secret'}).click();
+
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  await expect(page.getByText('Unsaved changes')).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await page.getByRole('button', {name: 'Save changes'}).click();
   await expect(page.getByText('Unsaved changes')).toBeHidden({timeout: LONG_UI_TIMEOUT});
 }
@@ -498,7 +507,7 @@ export async function uploadAsset(page, {key, content, fileName = key} = {}) {
   await overlay.getByRole('button', {name: 'Close'}).click();
   await expect(overlay).toBeHidden({timeout: LONG_UI_TIMEOUT});
   await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(fileName))})).toBeVisible({timeout: ASSET_UPLOAD_TIMEOUT});
-  await expect(page.locator('p').filter({hasText: /MiB stored externally/})).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await expect(page.locator('p').filter({hasText: /stored externally/})).toBeVisible({timeout: LONG_UI_TIMEOUT});
 }
 
 export async function expectDeploymentOutput(page, name, expectedLines) {

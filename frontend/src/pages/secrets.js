@@ -311,7 +311,7 @@ export function secretsPage() {
                 "hover:border-gray-700 focus:border-brand focus:outline-none font-mono",
             type: "text",
             autocomplete: "off",
-            readonly: () => !(row.isNew || row.revealed.val),
+            readOnly: () => !(row.isNew || row.revealed.val),
             style: () => row.revealed.val ? "" : "-webkit-text-security: disc;",
             placeholder: row.isNew ? "value" : DEFAULT_SECRET_MASK,
             value: () => row.isNew || row.revealed.val ? row.value.val : "",
