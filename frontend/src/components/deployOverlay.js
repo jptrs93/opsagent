@@ -138,7 +138,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
             console.log('[opendeploy] deployment repo refresh response', {request: req, response: result});
             try {
                 let sourceResult = deploymentUpdate.validationSourceResult(result);
-                deploymentUpdate.setRepoCheckFromValidation(result, sourceID, sourceType, sourceKey);
+                deploymentUpdate.setRepoCheckFromValidation(result, sourceID, sourceType, sourceKey, {syncVersionOptions: false});
                 if (form.repoCheck.val.status !== 'ok') {
                     versionError.val = form.repoCheck.val.message || 'Unable to connect to source repository.';
                     deploymentUpdate.nixDockerBuild.branches.val = form.repoCheck.val.branches || [];
@@ -169,7 +169,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                         const previous = deploymentUpdate.nixDockerBuild.selectedCommit.val;
                         const deployedId = deployment.deployedVersion || '';
                         if (!opts.preserveSelection) {
-                            deploymentUpdate.nixDockerBuild.selectedCommit.val = commits[0]?.id || '';
+                            deploymentUpdate.nixDockerBuild.selectedCommit.val = deployedId || commits[0]?.id || '';
                         } else if (previous && commits.some(v => v.id === previous)) {
                             deploymentUpdate.nixDockerBuild.selectedCommit.val = previous;
                         } else if (previous && previous === deployedId) {
@@ -322,10 +322,6 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                         versionError,
                         deployedVersion: deployment.deployedVersion || '',
                         onBranchChange,
-                        onVersionChange: (version) => withRequest(
-                            'Validating selected commit.',
-                            () => deploymentUpdate.validateSelectedCommit(deploymentUpdate.nixDockerBuild.selectedBranch.val, version),
-                        ),
                         onRefresh: () => loadVersions(deploymentUpdate.nixDockerBuild.selectedBranch.val, {refreshAvailableBranches: true, preserveSelection: true}),
                     }) : '',
                 ),

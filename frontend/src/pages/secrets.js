@@ -220,7 +220,15 @@ export function secretsPage() {
             error.val = null;
             if (row.type === "secret") await saveSecretRow(row, name);
             else await saveConfigRow(row, name);
+            row.isNew = false;
             row._saved = true;
+            row.orig.name = name;
+            if (row.type === "config") {
+                row.orig.value = row.value.val;
+            } else {
+                row.valueDirty.val = false;
+            }
+            syncRowsFromUniverse();
         } catch (e) {
             error.val = e.message;
         }
@@ -294,21 +302,24 @@ export function secretsPage() {
     const configValueInput = (row) => cellInput(row.value, "value", true);
 
     const secretValueInput = (row) => div({class: "flex items-center gap-1"},
-        input({
-            class: "flex-1 min-w-0 bg-transparent px-2 py-1 rounded border border-transparent " +
-                "hover:border-gray-700 focus:border-brand focus:outline-none font-mono",
-            type: "text",
-            autocomplete: "off",
-            style: () => row.revealed.val ? "" : "-webkit-text-security: disc;",
-            readonly: () => !row.isNew && !row.revealed.val,
-            placeholder: row.isNew ? "value" : DEFAULT_SECRET_MASK,
-            value: () => row.isNew || row.revealed.val ? row.value.val : "",
-            oninput: (e) => {
-                if (!row.isNew && !row.revealed.val) return;
-                row.value.val = e.target.value;
-                row.valueDirty.val = true;
-            },
-        }),
+        () => {
+            const editable = row.isNew || row.revealed.val;
+            return input({
+                class: "flex-1 min-w-0 bg-transparent px-2 py-1 rounded border border-transparent " +
+                    "hover:border-gray-700 focus:border-brand focus:outline-none font-mono",
+                type: "text",
+                autocomplete: "off",
+                style: row.revealed.val ? "" : "-webkit-text-security: disc;",
+                ...(editable ? {} : {readonly: true}),
+                placeholder: row.isNew ? "value" : DEFAULT_SECRET_MASK,
+                value: editable ? row.value.val : "",
+                oninput: (e) => {
+                    if (!row.isNew && !row.revealed.val) return;
+                    row.value.val = e.target.value;
+                    row.valueDirty.val = true;
+                },
+            });
+        },
         iconButton(() => row.revealed.val ? eyeOffIcon() : eyeOpenIcon(),
             () => toggleReveal(row)),
     );

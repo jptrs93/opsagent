@@ -90,7 +90,7 @@ test('bootstrap primary, enroll worker, and create Nix Docker deployment', async
     name: 'postgrespass',
     value: 'postgrespass',
   });
-  await upgradeOpenDeployAgents(page, {version: 'v0.0.160'});
+  await upgradeOpenDeployAgents(page, {version: process.env.OPD_UPGRADE_VERSION || 'v0.0.173'});
   await createPostgresDeployment(page);
   await createPostgresClientDeployment(page);
 });

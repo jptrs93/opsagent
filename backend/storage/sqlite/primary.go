@@ -53,6 +53,10 @@ func NewPrimaryStorage(dbPath string) *PrimaryStorage {
 	}
 }
 
+func (s *PrimaryStorage) Close() error {
+	return s.db.Close()
+}
+
 // ListActiveDeploymentConfigs returns all non-deleted configs from the cache.
 func (s *PrimaryStorage) ListActiveDeploymentConfigs() []*apigen.DeploymentConfig {
 	s.mu.Lock()

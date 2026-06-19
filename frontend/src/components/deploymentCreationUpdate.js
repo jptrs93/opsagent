@@ -143,11 +143,11 @@ export class DeploymentCreationUpdate {
         this.updateValidityFromCheck(this.form.repoCheck.val);
     }
 
-    setRepoCheckFromValidation(validateResult, repo = this.currentSourceID(), sourceType = this.form.sourceType.val, sourceKey = this.sourceKey()) {
+    setRepoCheckFromValidation(validateResult, repo = this.currentSourceID(), sourceType = this.form.sourceType.val, sourceKey = this.sourceKey(), opts = {}) {
         this.form.repoCheck.val = sourceCheckFromValidation(this.form, validateResult, repo, sourceType, sourceKey);
         this.updateCachedRepoBranchCommitOptions(validateResult);
         this.updateValidityFromCheck(this.form.repoCheck.val);
-        this.syncVersionOptionsFromCheck(this.form.repoCheck.val);
+        if (opts.syncVersionOptions !== false) this.syncVersionOptionsFromCheck(this.form.repoCheck.val);
     }
 
     updateValidityFromCheck(check) {

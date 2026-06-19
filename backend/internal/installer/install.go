@@ -46,6 +46,7 @@ type installOptions struct {
 	clusterAddr      *string
 	enrollmentAddr   *string
 	primaryName      *string
+	restore          *restoreOptions
 }
 
 func (o installOptions) hasEnvOverrides() bool {

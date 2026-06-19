@@ -171,7 +171,7 @@ export async function createNixDockerCrasherDeployment(page, {
   ]);
 }
 
-export async function upgradeOpenDeployAgents(page, {version = 'v0.0.136', workerName = 'worker-1'} = {}) {
+export async function upgradeOpenDeployAgents(page, {version = process.env.OPD_UPGRADE_VERSION || 'v0.0.173', workerName = 'worker-1'} = {}) {
   await upgradeOpenDeployAgent(page, {machine: workerName, version});
   await expectOpenDeployAgentVersion(page, {machine: workerName, version});
   await expectMachineConnected(page, workerName);
@@ -231,10 +231,11 @@ export async function createConfig(page, {name, value} = {}) {
   await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
   await page.getByRole('button', {name: 'Add config'}).click();
 
-  const row = page.locator('tbody tr').last();
+  const row = editableSecretConfigRow(page, 'Config');
   await row.locator('input').nth(0).fill(name);
   await row.locator('input').nth(1).fill(value);
   await row.getByRole('button', {name: 'Save'}).click();
+  await expect(row.getByRole('button', {name: 'Save'})).toBeHidden({timeout: LONG_UI_TIMEOUT});
   await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(name))})).toBeVisible();
 }
 
@@ -242,11 +243,19 @@ export async function createSecret(page, {name, value} = {}) {
   await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
   await page.getByRole('button', {name: 'Add secret'}).click();
 
-  const row = page.locator('tbody tr').last();
+  const row = editableSecretConfigRow(page, 'Secret');
   await row.locator('input').nth(0).fill(name);
   await row.locator('input').nth(1).fill(value);
   await row.getByRole('button', {name: 'Save'}).click();
+  await expect(row.getByRole('button', {name: 'Save'})).toBeHidden({timeout: LONG_UI_TIMEOUT});
   await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(name))})).toBeVisible();
+}
+
+function editableSecretConfigRow(page, typeLabel) {
+  return page.locator('tbody tr')
+    .filter({hasText: typeLabel})
+    .filter({has: page.getByRole('button', {name: 'Save'})})
+    .first();
 }
 
 async function createContainerImageDeployment(page, {
@@ -420,9 +429,7 @@ async function setDeploymentEnvVars(dialog, env) {
     const ref = envVarRef(value);
     if (ref.type !== 'value') {
       await row.locator('select').selectOption(ref.type);
-      const picker = row.locator('input').nth(1);
-      await picker.fill(ref.name);
-      await picker.press('Enter');
+      await selectEnvReference(row, ref.name);
     } else {
       await row.locator('input').nth(1).fill(ref.value);
     }
@@ -436,6 +443,14 @@ function envVarRef(value) {
     return {type: value.type, name: value.name || ''};
   }
   return {type: 'value', value: String(value ?? '')};
+}
+
+async function selectEnvReference(row, name) {
+  const picker = row.locator('input').nth(1);
+  await picker.fill(name);
+  await expect(row.locator('li').filter({hasText: name}).first()).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await picker.press('Enter');
+  await expect(picker).toHaveValue(name, {timeout: LONG_UI_TIMEOUT});
 }
 
 async function setDeploymentDataMountPath(dialog, path) {
