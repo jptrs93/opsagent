@@ -55,6 +55,9 @@ func (o installOptions) hasEnvOverrides() bool {
 
 func doInstall(version string, opts installOptions) error {
 	upgrade := pathExists(serviceUnitPath)
+	if opts.restore != nil && upgrade {
+		return fmt.Errorf("backup restore is only supported for fresh primary installs")
+	}
 
 	arch, err := hostArch()
 	if err != nil {
@@ -287,6 +290,12 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 	if err := ensureDir(dataDir, 0o750, own); err != nil {
 		return err
 	}
+	if opts.restore != nil {
+		step("Restoring primary database")
+		if err := restorePrimaryBackup(*opts.restore, own); err != nil {
+			return err
+		}
+	}
 	// Sibling dirs outside the private data dir. Release artifacts are reachable by
 	// a different runAs user (0755); logs stay private to opendeploy (0750).
 	if err := ensureDir(releasesDir, 0o755, own); err != nil {
@@ -373,6 +382,9 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 
 func generateBootstrapCredentials(opts installOptions) (*bootstrapCredentials, error) {
 	if opts.role != "primary" {
+		return nil, nil
+	}
+	if opts.restore != nil {
 		return nil, nil
 	}
 	n, err := rand.Int(rand.Reader, big.NewInt(10000))

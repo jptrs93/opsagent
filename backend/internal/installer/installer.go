@@ -3,10 +3,11 @@
 // subcommands of the main binary.
 //
 // It is deliberately self-contained: it does NOT import ainit, the server
-// config, or any other backend package, and keeps its own copy of every path,
-// pinned version, and checksum (see config.go). The only coupling to the rest
-// of the binary is a guard in ainit.init() that skips server bootstrap when an
-// installer subcommand is detected — the installer itself stays ignorant of it.
+// config, and keeps its own copy of every path, pinned version, and checksum
+// (see config.go). Restore unlock reuses the storage and secrets packages so it
+// can rewrite the local machine key before first boot. The runtime coupling is a
+// guard in ainit.init() that skips server bootstrap when an installer subcommand
+// is detected.
 //
 // The embedded systemd units, env template, and sudoers drop-in (assets/) make
 // the binary self-installing — nothing is fetched from GitHub except the
@@ -92,11 +93,22 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 	enrollmentListenRaw := fs.String("enrollment-listen", "", "set OPENDEPLOY_INITIAL_ENROLLMENT_LISTEN (for example :9444)")
 	acmeHostsRaw := fs.String("acme-hosts", "", "set OPENDEPLOY_INITIAL_ACME_HOSTS (comma-separated hostnames)")
 	primaryNameRaw := fs.String("primary-name", "", "set OPENDEPLOY_PRIMARY_NAME for the primary certificate/machine name")
+	restoreBackupRaw := fs.String("restore-backup", "", "restore primary.db from S3 before first boot (true or false)")
+	restoreS3AccessKeyIDRaw := fs.String("restore-s3-access-key-id", "", "S3 access key id for backup restore")
+	restoreS3SecretAccessKeyRaw := fs.String("restore-s3-secret-access-key", "", "S3 secret access key for backup restore")
+	restoreS3BucketRaw := fs.String("restore-s3-bucket", "", "S3 bucket for backup restore")
+	restoreS3PathRaw := fs.String("restore-s3-path", "", "S3 path/prefix for backup restore")
+	restoreS3RegionRaw := fs.String("restore-s3-region", "", "S3 region for backup restore")
+	restoreS3EndpointRaw := fs.String("restore-s3-endpoint", "", "optional S3 endpoint for backup restore")
+	recoveryCodeRaw := fs.String("recovery-code", "", "secrets recovery code used to unlock the restored database")
 	fs.BoolVar(&dryRun, "dry-run", false, "print the actions that would be taken without performing them")
 	_ = fs.Parse(args)
 
 	opts := installOptions{role: "primary", useSelf: *useSelf}
 	var parseErr error
+	restoreBackupSet := false
+	restoreBackup := false
+	restoreValuesSet := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "http-only":
@@ -141,10 +153,38 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 				return
 			}
 			opts.primaryName = &v
+		case "restore-backup":
+			restoreBackupSet = true
+			v, err := strconv.ParseBool(*restoreBackupRaw)
+			if err != nil && parseErr == nil {
+				parseErr = fmt.Errorf("invalid --restore-backup value %q: use true or false", *restoreBackupRaw)
+				return
+			}
+			restoreBackup = v
+		case "restore-s3-access-key-id", "restore-s3-secret-access-key", "restore-s3-bucket", "restore-s3-path", "restore-s3-region", "restore-s3-endpoint", "recovery-code":
+			restoreValuesSet[f.Name] = true
 		}
 	})
 	if parseErr != nil {
 		return "", installOptions{}, parseErr
+	}
+	if restoreBackup || len(restoreValuesSet) > 0 {
+		if !restoreBackupSet || !restoreBackup {
+			return "", installOptions{}, fmt.Errorf("restore options require --restore-backup true")
+		}
+		restore := &restoreOptions{
+			AccessKeyID:     strings.TrimSpace(*restoreS3AccessKeyIDRaw),
+			SecretAccessKey: strings.TrimSpace(*restoreS3SecretAccessKeyRaw),
+			Bucket:          strings.TrimSpace(*restoreS3BucketRaw),
+			Path:            strings.TrimSpace(*restoreS3PathRaw),
+			Region:          strings.TrimSpace(*restoreS3RegionRaw),
+			Endpoint:        strings.TrimSpace(*restoreS3EndpointRaw),
+			RecoveryCode:    strings.TrimSpace(*recoveryCodeRaw),
+		}
+		if err := restore.validate(); err != nil {
+			return "", installOptions{}, err
+		}
+		opts.restore = restore
 	}
 	return *version, opts, nil
 }
@@ -209,7 +249,7 @@ func usage(prog string) {
 	fmt.Fprintf(os.Stderr, `%[1]s install / uninstall — provision, upgrade, and remove opendeploy
 
 Usage:
-  %[1]s install primary [--version vX.Y.Z] [--use-self] [--http-only true] [--web-listen :8080] [--cluster-listen :9443] [--enrollment-listen :9444] [--acme-hosts host1,host2] [--primary-name primary] [--dry-run]
+  %[1]s install primary [--version vX.Y.Z] [--use-self] [--http-only true] [--web-listen :8080] [--cluster-listen :9443] [--enrollment-listen :9444] [--acme-hosts host1,host2] [--primary-name primary] [--restore-backup true --restore-s3-access-key-id ... --restore-s3-secret-access-key ... --restore-s3-bucket ... --restore-s3-path ... --restore-s3-region ... --recovery-code ...] [--dry-run]
   %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 [--version vX.Y.Z] [--use-self] [--primary-name primary] [--dry-run]
   %[1]s uninstall [--purge] [--yes] [--dry-run]
 
