@@ -6,6 +6,7 @@ import {deploymentHistory} from "../components/deploymentHistory.js";
 import {deployOverlay} from "../components/deployOverlay.js";
 import {createOverlay} from "../components/createOverlay.js";
 import {prepareOutputOverlay} from "../components/prepareOutputOverlay.js";
+import {exportConfigOverlay} from "../components/exportConfigOverlay.js";
 
 const { div, p, button, input, table, thead, tbody, tr, th, td, span } = van.tags;
 
@@ -198,6 +199,10 @@ export function statusPage(onOpenLogs = () => {}) {
         createOverlayNode.val = createOverlay(closeCreateOverlay);
     };
 
+    const openExportOverlay = () => {
+        overlayNode.val = exportConfigOverlay(closeOverlay);
+    };
+
     const statusRowNode = (deployment, showSpaceColumn) => statusRow(
         deployment,
         onShowHistory,
@@ -339,6 +344,9 @@ export function statusPage(onOpenLogs = () => {}) {
         div({class: "w-full overflow-x-auto overflow-y-hidden"}, tableNode),
     );
 
+    const deploymentSecondaryActionClass = "flex items-center gap-1 whitespace-nowrap text-sm px-3 py-1.5 rounded-lg bg-gray-700 " +
+        "text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer";
+
     const mainContent = div(
         {class: "flex flex-col gap-3 w-full min-w-0"},
         div(
@@ -368,6 +376,11 @@ export function statusPage(onOpenLogs = () => {}) {
                     class: "btn-primary text-sm py-1.5 px-4 cursor-pointer",
                     onclick: openCreateOverlay,
                 }, "Add deployment"),
+                button({
+                    type: "button",
+                    class: deploymentSecondaryActionClass,
+                    onclick: openExportOverlay,
+                }, "Export"),
             ),
         ),
         () => {
