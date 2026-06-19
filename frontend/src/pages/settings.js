@@ -88,7 +88,7 @@ const dirtySettingsFor = (draft) => settings
     .map((setting) => ({setting, item: draft?.[setting.key]}))
     .filter(({setting, item}) => item && isDirty(setting, item));
 
-const inputClass = "w-full min-w-64 bg-transparent px-2 py-1 rounded border border-gray-700 " +
+const inputClass = "w-full min-w-64 bg-transparent px-2 py-1 rounded-[0.3rem] border border-gray-700 " +
     "hover:border-gray-600 focus:border-brand focus:outline-none";
 const compactButtonClass = "h-8 px-3 py-1 rounded-md text-sm leading-none";
 const defaultSpaceIDs = new Set([0, 1]);

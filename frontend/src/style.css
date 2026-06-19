@@ -27,7 +27,7 @@
 }
 
 .search-input {
-    @apply w-56 py-1.5 text-sm;
+    @apply w-56 py-1.5 text-sm rounded-[0.3rem];
 }
 
 .search-input::placeholder {

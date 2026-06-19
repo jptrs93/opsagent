@@ -2,7 +2,7 @@ import van from "vanjs-core";
 
 const {div, input, ul, li, span} = van.tags;
 
-const defaultInputClass = "w-full rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand";
+const defaultInputClass = "w-full rounded-[0.3rem] bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand";
 
 function valueOf(value) {
     if (typeof value === 'function') return value();

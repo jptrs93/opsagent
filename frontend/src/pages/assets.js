@@ -3,6 +3,7 @@ import {capi} from "../capi/index.js";
 import {handleErr} from "../capi/err.js";
 import {decodeAsset} from "../capi/model.js";
 import {closeIcon, trashIcon} from "../lib/icons.js";
+import {spinnerButton} from "../components/spinnerbutton.js";
 import {loginS} from "../state/login.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, textarea } = van.tags;
@@ -94,6 +95,8 @@ export function assetsPage() {
     const uploadProgressTotal = van.state(0);
     const uploadedAssetKey = van.state("");
     const uploadedAssetName = van.state("");
+    const deleteTarget = van.state(null);
+    const deleteSaving = van.state(false);
 
     const draftKey = van.state("");
     const draftContent = van.state("");
@@ -239,14 +242,29 @@ export function assetsPage() {
         }
     };
 
-    const deleteAsset = async (key) => {
+    const requestDeleteAsset = (asset) => {
+        deleteTarget.val = asset;
+    };
+
+    const cancelDeleteAsset = () => {
+        if (deleteSaving.val) return;
+        deleteTarget.val = null;
+    };
+
+    const confirmDeleteAsset = async () => {
+        const target = deleteTarget.val;
+        if (!target || deleteSaving.val) return;
         try {
+            deleteSaving.val = true;
             error.val = null;
-            await capi.postV1AssetsDelete({key});
-            if (selected.val === key) clearDraft();
+            await capi.postV1AssetsDelete({key: target.key});
+            if (selected.val === target.key) clearDraft();
             await reloadRows();
+            deleteTarget.val = null;
         } catch (e) {
             error.val = e.message;
+        } finally {
+            deleteSaving.val = false;
         }
     };
 
@@ -325,12 +343,31 @@ export function assetsPage() {
                         button({
                             type: "button",
                             class: "p-1.5 rounded text-gray-400 hover:text-red-400 hover:bg-surface transition-colors cursor-pointer",
-                            onclick: async (e) => { e.stopPropagation(); await deleteAsset(row.key); },
+                            onclick: (e) => { e.stopPropagation(); requestDeleteAsset(row); },
                         }, trashIcon())),
                 ))),
             );
         }),
     );
+
+    const deleteOverlay = () => {
+        const target = deleteTarget.val;
+        if (!target) return "";
+        return div(
+            {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"},
+            div(
+                {class: "card w-full max-w-md flex flex-col gap-4 shadow-2xl"},
+                h2({class: "text-base font-semibold"}, "Confirm delete"),
+                p({class: "text-sm text-gray-300"}, `Are you sure you want to delete asset ${target.key}?`),
+                div({class: "flex items-center justify-end gap-2"},
+                    smallBtn("Cancel", cancelDeleteAsset, "bg-gray-700 text-gray-200 hover:bg-gray-600", () => deleteSaving.val),
+                    spinnerButton("Confirm", confirmDeleteAsset,
+                        "text-xs px-3 py-1 rounded-md font-medium bg-red-600 text-white hover:bg-red-500",
+                        "button", () => deleteSaving.val),
+                ),
+            ),
+        );
+    };
 
     const editorPanel = () => div(
         {class: "card flex-1 min-w-0 min-h-0 self-stretch flex flex-col gap-4"},
@@ -440,6 +477,7 @@ export function assetsPage() {
         uploadPicker,
         div({class: "flex-1 flex flex-col lg:flex-row gap-3 min-h-0"}, leftPane, () => selected.val === null ? "" : editorPanel()),
         uploadOverlay,
+        deleteOverlay,
     );
 }
 
