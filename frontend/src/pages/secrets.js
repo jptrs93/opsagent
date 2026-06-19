@@ -40,12 +40,15 @@ export function secretsPage() {
     const deleteSaving = van.state(false);
     let localRows = null;
     let streamSignature = '';
+    let nextLocalKey = 1;
+    const pendingDeletes = new Set();
 
     const errorBanner = () => error.val ? p({class: "text-red-400 text-sm"}, `Error: ${error.val}`) : "";
 
     const makeConfigRow = (config) => {
         const isNew = !config;
         return {
+            localKey: `local:${nextLocalKey++}`,
             type: "config", isNew, _saved: false,
             name: van.state(config ? config.name : ""),
             value: van.state(config ? config.value : ""),
@@ -59,6 +62,7 @@ export function secretsPage() {
     const makeSecretRow = (meta) => {
         const isNew = !meta;
         return {
+            localKey: `local:${nextLocalKey++}`,
             type: "secret", meta, isNew, _saved: false,
             name: van.state(meta ? meta.name : ""),
             value: van.state(""),
@@ -73,45 +77,9 @@ export function secretsPage() {
         ? row.isNew || row.name.val !== row.orig.name || row.value.val !== row.orig.value
         : row.isNew || row.name.val !== row.orig.name || row.valueDirty.val;
 
-    const setRows = (next) => {
-        localRows = next;
-        rows.val = next;
-    };
+    const rowKey = (row) => row.orig.name ? `${row.type}:${row.orig.name}` : row.localKey;
+    const itemKey = (type, item) => `${type}:${item.name}`;
 
-    const rowKey = (row) => `${row.type}:${row.orig.name}`;
-
-    const syncRowsFromUniverse = () => {
-        const status = secretsStatusS.val;
-        if (!status) return;
-        const existing = new Map((localRows || [])
-            .filter(row => !row.isNew && row.orig.name)
-            .map(row => [rowKey(row), row]));
-        const preserveOrMake = (key, make) => {
-            const current = existing.get(key);
-            return current && isDirty(current) ? current : make();
-        };
-        const secretRows = status.unlocked
-            ? (secretMetasS.val || []).map(meta => preserveOrMake(`secret:${meta.name}`, () => makeSecretRow(meta)))
-            : [];
-        const configRows = (userConfigsS.val || []).map(config => preserveOrMake(`config:${config.name}`, () => makeConfigRow(config)));
-        const pending = (localRows || []).filter(row => row.isNew && !row._saved);
-        setRows([...secretRows, ...configRows, ...pending]);
-    };
-
-    van.derive(() => {
-        const status = secretsStatusS.val;
-        const signature = JSON.stringify({
-            status,
-            secrets: (secretMetasS.val || []).map(item => [item.id, item.name, item.group, item.updatedAt, item.updatedBy]),
-            configs: (userConfigsS.val || []).map(item => [item.id, item.name, item.group, item.value, item.updatedAt, item.updatedBy]),
-        });
-        if (signature === streamSignature) return;
-        streamSignature = signature;
-        syncRowsFromUniverse();
-    });
-
-    const addRow = (type) => { setRows([...(rows.val || []), type === "secret" ? makeSecretRow(null) : makeConfigRow(null)]); };
-    const removeRow = (row) => { setRows((rows.val || []).filter(r => r !== row)); };
     const sortValue = (row, key) => {
         if (key === "type") return row.type;
         if (key === "value") return row.type === "config" ? rawStateValue(row.value) : "";
@@ -129,21 +97,109 @@ export function secretsPage() {
         });
     };
 
+    const matchesSearch = (row, query) => !query ||
+        row.type.includes(query) ||
+        rawStateValue(row.name).toLowerCase().includes(query) ||
+        (row.type === "config" && rawStateValue(row.value).toLowerCase().includes(query));
+
+    const filteredAndSortedRows = (items) => {
+        const query = search.val.trim().toLowerCase();
+        return sortRows(query ? items.filter(row => matchesSearch(row, query)) : items);
+    };
+
+    const reconcileVisibleRows = (visible, nextAll) => {
+        const query = search.val.trim().toLowerCase();
+        const nextByKey = new Map(nextAll.map(row => [rowKey(row), row]));
+        const displayed = new Set();
+        const nextVisible = [];
+        for (const row of visible || []) {
+            const key = rowKey(row);
+            const next = nextByKey.get(key);
+            if (!next) continue;
+            displayed.add(key);
+            nextVisible.push(next);
+        }
+        for (const row of nextAll) {
+            const key = rowKey(row);
+            if (displayed.has(key)) continue;
+            if (row.isNew || matchesSearch(row, query)) {
+                displayed.add(key);
+                nextVisible.push(row);
+            }
+        }
+        return nextVisible;
+    };
+
+    const setLocalRows = (next, refreshVisible = false) => {
+        localRows = next;
+        rows.val = refreshVisible || rows.val === null
+            ? filteredAndSortedRows(next)
+            : reconcileVisibleRows(rows.val, next);
+    };
+
+    const syncRowsFromUniverse = () => {
+        const status = secretsStatusS.val;
+        if (!status) return;
+        const currentRows = localRows || [];
+        const existing = new Map(currentRows
+            .filter(row => !row.isNew && row.orig.name)
+            .map(row => [rowKey(row), row]));
+        const streamKeys = new Set([
+            ...(status.unlocked ? (secretMetasS.val || []).map(meta => itemKey("secret", meta)) : []),
+            ...(userConfigsS.val || []).map(config => itemKey("config", config)),
+        ]);
+        for (const key of pendingDeletes) {
+            if (!streamKeys.has(key)) pendingDeletes.delete(key);
+        }
+        const preserveOrMake = (key, make, confirmsSaved = () => false) => {
+            const current = existing.get(key);
+            if (!current) return make();
+            if (current._saved && confirmsSaved(current)) current._saved = false;
+            return (isDirty(current) || current._saved) ? current : make();
+        };
+        const secretRows = status.unlocked
+            ? (secretMetasS.val || [])
+                .filter(meta => !pendingDeletes.has(itemKey("secret", meta)))
+                .map(meta => preserveOrMake(itemKey("secret", meta), () => makeSecretRow(meta), row => row.name.val.trim() === meta.name))
+            : [];
+        const configRows = (userConfigsS.val || [])
+            .filter(config => !pendingDeletes.has(itemKey("config", config)))
+            .map(config => preserveOrMake(itemKey("config", config), () => makeConfigRow(config), row => row.name.val.trim() === config.name && row.value.val === config.value));
+        const carried = currentRows.filter(row => {
+            if (row.isNew && !row._saved) return true;
+            return row._saved && row.orig.name && !streamKeys.has(rowKey(row));
+        });
+        setLocalRows([...secretRows, ...configRows, ...carried]);
+    };
+
+    van.derive(() => {
+        const status = secretsStatusS.val;
+        const signature = JSON.stringify({
+            status,
+            secrets: (secretMetasS.val || []).map(item => [item.id, item.name, item.group, item.updatedAt, item.updatedBy]),
+            configs: (userConfigsS.val || []).map(item => [item.id, item.name, item.group, item.value, item.updatedAt, item.updatedBy]),
+        });
+        if (signature === streamSignature) return;
+        streamSignature = signature;
+        syncRowsFromUniverse();
+    });
+
+    const addRow = (type) => {
+        const row = type === "secret" ? makeSecretRow(null) : makeConfigRow(null);
+        localRows = [...(localRows || []), row];
+        rows.val = [...(rows.val || []), row];
+    };
+    const removeRow = (row) => {
+        localRows = (localRows || []).filter(r => r !== row);
+        rows.val = (rows.val || []).filter(r => r !== row);
+    };
+
     const setSort = (key) => {
         const current = sort.val;
         sort.val = current.key === key
             ? {key, dir: current.dir === "asc" ? "desc" : "asc"}
             : {key, dir: "asc"};
-    };
-
-    const filteredRows = () => {
-        if (!rows.val) return rows.val;
-        const query = search.val.trim().toLowerCase();
-        const filtered = query ? rows.val.filter(row =>
-            row.type.includes(query) ||
-            rawStateValue(row.name).toLowerCase().includes(query) ||
-            (row.type === "config" && rawStateValue(row.value).toLowerCase().includes(query))) : rows.val;
-        return sortRows(filtered);
+        rows.val = filteredAndSortedRows(localRows || []);
     };
 
     const toggleReveal = async (row) => {
@@ -169,31 +225,48 @@ export function secretsPage() {
     };
 
     const saveConfigRow = async (row, name) => {
-        await capi.postV1UserConfigsSet({
-            name,
-            group: "default",
-            value: row.value.val,
-        });
-        if (!row.isNew && row.orig.name !== name) {
-            await capi.postV1UserConfigsDelete({name: row.orig.name});
+        const oldKey = `config:${row.orig.name}`;
+        const renamed = !row.isNew && row.orig.name !== name;
+        if (renamed) pendingDeletes.add(oldKey);
+        try {
+            const saved = await capi.postV1UserConfigsSet({
+                name,
+                group: "default",
+                value: row.value.val,
+            });
+            if (renamed) {
+                await capi.postV1UserConfigsDelete({name: row.orig.name});
+            }
+            return saved;
+        } catch (e) {
+            if (renamed) pendingDeletes.delete(oldKey);
+            throw e;
         }
     };
 
     const saveSecretRow = async (row, name) => {
         let value;
+        const oldKey = `secret:${row.orig.name}`;
+        const renamed = !row.isNew && row.orig.name !== name;
+        if (renamed) pendingDeletes.add(oldKey);
         if (row.loaded.val || row.valueDirty.val) {
             value = row.value.val;
         } else {
             const res = await capi.postV1SecretsReveal({name: row.orig.name});
             value = new TextDecoder().decode(res.value);
         }
-        await capi.postV1SecretsSet({
-            name,
-            group: "default",
-            value: new TextEncoder().encode(value),
-        });
-        if (!row.isNew && row.orig.name !== name) {
-            await capi.postV1SecretsDelete({name: row.orig.name});
+        try {
+            await capi.postV1SecretsSet({
+                name,
+                group: "default",
+                value: new TextEncoder().encode(value),
+            });
+            if (renamed) {
+                await capi.postV1SecretsDelete({name: row.orig.name});
+            }
+        } catch (e) {
+            if (renamed) pendingDeletes.delete(oldKey);
+            throw e;
         }
     };
 
@@ -235,6 +308,7 @@ export function secretsPage() {
             error.val = null;
             if (row.type === "secret") await capi.postV1SecretsDelete({name: row.orig.name});
             else await capi.postV1UserConfigsDelete({name: row.orig.name});
+            pendingDeletes.add(rowKey(row));
             return true;
         } catch (e) {
             error.val = e.message;
@@ -376,7 +450,10 @@ export function secretsPage() {
                 type: "search",
                 placeholder: "Search secrets / configs",
                 value: search,
-                oninput: (e) => search.val = e.target.value,
+                oninput: (e) => {
+                    search.val = e.target.value;
+                    rows.val = filteredAndSortedRows(localRows || []);
+                },
             }),
             div({class: "flex flex-wrap items-center gap-2"},
                 actionButton("Add secret", () => addRow("secret"), "bg-gray-700 text-gray-200 hover:bg-gray-600",
@@ -387,7 +464,7 @@ export function secretsPage() {
             if (rows.val.length === 0) {
                 return p({class: "text-gray-400 text-sm"}, "No secrets or configs yet.");
             }
-            const visibleRows = filteredRows();
+            const visibleRows = rows.val;
             if (visibleRows.length === 0) {
                 return p({class: "text-gray-400 text-sm"}, "No secrets or configs match your search.");
             }

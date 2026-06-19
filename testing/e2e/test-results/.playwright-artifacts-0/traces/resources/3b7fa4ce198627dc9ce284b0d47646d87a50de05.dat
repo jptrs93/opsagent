@@ -1,7 +1,0 @@
-
-worker-1minio-backup’
-(&
-$docker.io/bitnamilegacy/minio:latestfd
-MINIO_ROOT_USER
-MINIO_ROOT_PASSWORD0
-MINIO_DEFAULT_BUCKETSopendeploy-e2e-backup

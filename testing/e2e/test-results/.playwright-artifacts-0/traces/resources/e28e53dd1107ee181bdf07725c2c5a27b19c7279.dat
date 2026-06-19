@@ -1,99 +1,0 @@
-װ
-‡¹ת™מם3INFOstore: notifyFromCache"
-id1"
-name0:primary:opendeploy"
-configSeqNo1"
-hasPreparerfalse"
-	hasRunnertrue
-7´ת™מם3INFOstarting http-only server"
-addr:8080
-9´ת™מם3INFOstarting primary enrollment"
-addr:9444
-6³ת™מם3INFOstarting primary cluster"
-addr:9443
-¿²ת™מם3INFOrunner.ReAttach: reattaching"
-	prevSeqNo1"
-
-prevStatusRUNNING"
-prevPid221"[
-prevArtifactK/var/lib/opendeploy-releases/jptrs93/opsagent/v0.0.0/opendeploy-linux-arm64
-Ý²ת™מם3INFORun: reattaching runner"
-dep0:primary:opendeploy"…
-runnerStatususeqNo=1 status=RUNNING pid=221 artifact="/var/lib/opendeploy-releases/jptrs93/opsagent/v0.0.0/opendeploy-linux-arm64""
-configSeqNo1
-’²ת™מם3INFOKpreparer.ReAttach: systemd deployment already installed, returning finished"
-deploymentConfigVersion1"
-desiredVersionv0.0.0
-p²ת™מם3INFORun: reattaching preparer"
-dep0:primary:opendeploy"
-preparerStatus<nil>"
-configSeqNo1
-G±ת™מם3INFOdeployment operator started"
-dep0:primary:opendeploy
-ֵ±ת™מם3INFO(RunAll: launching operator from snapshot"
-	hasRunnertrue"
-id1"
-desiredRunningtrue"
-name0:primary:opendeploy"
-
-seqNo1"
-desiredVersionv0.0.0"
-hasPreparerfalse
-F±ת™מם3INFORunAll: snapshot loaded"
-
-count1"
-machineprimary
-x¯ת™מם3WARNisecrets recovery code not configured ג€” generate one so secrets can be recovered if this machine is lost
-%¯ת™מם3INFOsecrets store unlocked
-I®ת™מם3INFO:opendeploy starting primary version=v0.0.0 machine=primary
-‡ÿר™מם3INFOstore: notifyFromCache"
-hasPreparerfalse"
-	hasRunnertrue"
-id1"
-name0:primary:opendeploy"
-configSeqNo1
-7קר™מם3INFOstarting http-only server"
-addr:8080
-9קר™מם3INFOstarting primary enrollment"
-addr:9444
-6צר™מם3INFOstarting primary cluster"
-addr:9443
-^סר™מם3INFOOrunner.ReAttach: observing existing systemd unit without previous runner status
-lסר™מם3INFORun: reattaching runner"
-configSeqNo1"
-dep0:primary:opendeploy"
-runnerStatus<nil>
-’סר™מם3INFOKpreparer.ReAttach: systemd deployment already installed, returning finished"
-deploymentConfigVersion1"
-desiredVersionv0.0.0
-pסר™מם3INFORun: reattaching preparer"
-dep0:primary:opendeploy"
-preparerStatus<nil>"
-configSeqNo1
-Gסר™מם3INFOdeployment operator started"
-dep0:primary:opendeploy
-ֶסר™מם3INFO(RunAll: launching operator from snapshot"
-id1"
-name0:primary:opendeploy"
-
-seqNo1"
-desiredRunningtrue"
-desiredVersionv0.0.0"
-hasPreparerfalse"
-	hasRunnerfalse
-Fסר™מם3INFORunAll: snapshot loaded"
-
-count1"
-machineprimary
-Oןר™מם3INFOcreated system deployment"
-versionv0.0.0"
-machineprimary
-ˆןר™מם3INFOstore: notifyFromCache"
-hasPreparerfalse"
-	hasRunnerfalse"
-id1"
-name0:primary:opendeploy"
-configSeqNo1
-xכר™מם3WARNisecrets recovery code not configured ג€” generate one so secrets can be recovered if this machine is lost
-(כר™מם3INFOsecrets store initialized
-Iּר™מם3INFO:opendeploy starting primary version=v0.0.0 machine=primary

@@ -1,15 +1,0 @@
-є
-U‘ъќон3ERROR1nixdockerbuild1 count=1 time=2026-06-19T02:48:18Z"
-fmtunformatted
-pЏъќон3ERRORLnixdockerbuild1 asset content opendeploy-e2e-asset.txt=hello-from-asset-page"
-fmtunformatted
-WЏъќон3ERROR3nixdockerbuild1 asset file opendeploy-e2e-asset.txt"
-fmtunformatted
-dЏъќон3ERROR@nixdockerbuild1 env OPENDEPLOY_E2E_SECRET=hello-from-secret-page"
-fmtunformatted
-dЏъќон3ERROR@nixdockerbuild1 env OPENDEPLOY_E2E_CONFIG=hello-from-config-page"
-fmtunformatted
-cЏъќон3ERROR?nixdockerbuild1 env OPENDEPLOY_E2E_COLOR=hello-from-secret-page"
-fmtunformatted
-eЏъќон3ERRORAnixdockerbuild1 env OPENDEPLOY_E2E_MESSAGE=hello-from-config-page"
-fmtunformatted

@@ -175,6 +175,8 @@ export async function createNixDockerDeployment(page, {
   let row = byTestId(page, `deployment-row-${name}`, page.locator('tr').filter({hasText: name}).filter({hasText: machine}));
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
   if (!verifyLogs) return;
+  await expectDeploymentRunning(page, name);
+  row = byTestId(page, `deployment-row-${name}`, page.locator('tr').filter({hasText: name}).filter({hasText: machine}));
   await openDeploymentLogsSearch(page, row);
   for (const [key, value] of Object.entries(expectedEnv || {})) {
     await expectOutputText(page, `nixdockerbuild1 env ${key}=${value}`);
@@ -506,8 +508,10 @@ export async function uploadAsset(page, {key, content, fileName = key} = {}) {
   await expect(overlay).toBeVisible({timeout: ASSET_UPLOAD_TIMEOUT});
   await overlay.getByRole('button', {name: 'Close'}).click();
   await expect(overlay).toBeHidden({timeout: LONG_UI_TIMEOUT});
-  await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(fileName))})).toBeVisible({timeout: ASSET_UPLOAD_TIMEOUT});
-  await expect(page.locator('p').filter({hasText: /stored externally/})).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  const assetRow = page.getByRole('row', {name: new RegExp(escapeRegExp(fileName))});
+  await expect(assetRow).toBeVisible({timeout: ASSET_UPLOAD_TIMEOUT});
+  await assetRow.click();
+  await expect(page.getByText(/[0-9.]+ (B|KB|MB|GB|TB) stored externally/)).toBeVisible({timeout: LONG_UI_TIMEOUT});
 }
 
 export async function expectDeploymentOutput(page, name, expectedLines) {

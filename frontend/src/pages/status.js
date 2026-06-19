@@ -7,7 +7,7 @@ import {deployOverlay} from "../components/deployOverlay.js";
 import {createOverlay} from "../components/createOverlay.js";
 import {prepareOutputOverlay} from "../components/prepareOutputOverlay.js";
 
-const { div, p, button, table, thead, tbody, tr, th, td, span } = van.tags;
+const { div, p, button, input, table, thead, tbody, tr, th, td, span } = van.tags;
 
 const SIDEBAR_WIDTH_KEY = 'opsagent_sidebar_width';
 const DEFAULT_SIDEBAR_PCT = 50;
@@ -143,6 +143,7 @@ export function statusPage(onOpenLogs = () => {}) {
     const overlayNode = van.state('');
     const createOverlayNode = van.state('');
     const groupBySpace = van.state(true);
+    const search = van.state('');
 
     const abortActiveSidebar = () => {
         if (activeSidebarAbort) {
@@ -207,6 +208,20 @@ export function statusPage(onOpenLogs = () => {}) {
         {showSpace: showSpaceColumn},
     );
 
+    const filterDeployments = (rows) => {
+        const query = search.val.trim().toLowerCase();
+        if (!query) return rows;
+        return rows.filter(row => [
+            row.name,
+            row.machine,
+            row.spaceName,
+            row.repo,
+            row.runnerType,
+            row.existingVersion,
+            row.deployedVersion,
+        ].some(value => String(value || '').toLowerCase().includes(query)));
+    };
+
     const deploymentTable = (rows, showSpaceColumn) => table(
         {class: "w-full text-left text-sm"},
         thead(
@@ -231,10 +246,9 @@ export function statusPage(onOpenLogs = () => {}) {
 
     const spaceDividerRow = (space, isFirst) => tr(
         td(
-            {colSpan: 9, class: `${isFirst ? 'pt-3' : 'pt-8'} pb-2 px-4`},
+            {colSpan: 9, class: `${isFirst ? 'pt-3' : 'pt-8'} pb-2 px-0`},
             div(
                 {class: "flex items-center gap-3"},
-                div({class: "h-px flex-1 bg-gray-700"}),
                 span({class: "text-xs font-semibold uppercase tracking-wide text-gray-400 whitespace-nowrap"}, spaceLabel(space)),
                 div({class: "h-px flex-1 bg-gray-700"}),
             ),
@@ -328,7 +342,14 @@ export function statusPage(onOpenLogs = () => {}) {
     const mainContent = div(
         {class: "flex flex-col gap-3 w-full min-w-0"},
         div(
-            {class: "flex items-center justify-end"},
+            {class: "flex flex-wrap items-center justify-between gap-3"},
+            input({
+                class: "text-input search-input",
+                type: "search",
+                placeholder: "Search deployments",
+                value: search,
+                oninput: (e) => search.val = e.target.value,
+            }),
             div(
                 {class: "flex items-center gap-4"},
                 button({
@@ -350,19 +371,27 @@ export function statusPage(onOpenLogs = () => {}) {
             ),
         ),
         () => {
-            const filtered = mapDeploymentsToView(deploymentsS.val, spacesS.val);
+            const allRows = mapDeploymentsToView(deploymentsS.val, spacesS.val);
+            const filtered = filterDeployments(allRows);
 
-            if (deploymentsStreamS.val.status !== 'connected' && filtered.length === 0) {
+            if (deploymentsStreamS.val.status !== 'connected' && allRows.length === 0) {
                 return p({class: "text-gray-400"}, deploymentsStreamS.val.sentence);
             }
 
-            if (filtered.length === 0) {
+            if (allRows.length === 0) {
                 return div(
                     {class: "card"},
                     p(
                         {class: "text-gray-400"},
                         "No deployments configured. Create a deployment config first."
                     )
+                );
+            }
+
+            if (filtered.length === 0) {
+                return div(
+                    {class: "card"},
+                    p({class: "text-gray-400"}, "No deployments match your search.")
                 );
             }
 
