@@ -778,8 +778,10 @@ export function settingsPage() {
         }, "Add space"),
     );
 
-    const rowEl = (setting) => tr(
-        {class: "border-b border-gray-800 last:border-0 align-middle"},
+    const rowEl = (section, setting) => tr(
+        {class: () => isSectionSettingVisible(section, setting)
+            ? "border-b border-gray-800 last:border-0 align-middle"
+            : "hidden"},
         td({class: "py-2 pr-3 whitespace-nowrap align-middle", style: `width:${settingLabelColumnWidth};min-width:${settingLabelColumnWidth}`},
             span({class: "text-gray-200"}, setting.label),
         ),
@@ -802,13 +804,11 @@ export function settingsPage() {
         || setting.key === section.enabledKey
         || draft.val?.[section.enabledKey]?.value === "true";
 
-    const visibleSettingsFor = (section) => section.settings.filter((setting) => isSectionSettingVisible(section, setting));
-
     const settingsTable = (section) => div(
         {class: "overflow-x-auto"},
         table(
             {class: "w-full text-sm"},
-            tbody(...visibleSettingsFor(section).map(rowEl)),
+            tbody(...section.settings.map(setting => rowEl(section, setting))),
         ),
     );
 
@@ -839,13 +839,11 @@ export function settingsPage() {
     return div(
         {class: "settings-scroll h-full min-h-0 overflow-y-auto overflow-x-hidden p-3 flex flex-col gap-3"},
         () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : "",
-        () => {
-            if (!loaded.val) return p({class: "text-gray-400"}, "Loading...");
-            return div(
-                {class: "flex flex-col gap-3"},
-                settingsCard(),
-            );
-        },
+        p({class: () => loaded.val ? "hidden" : "text-gray-400"}, "Loading..."),
+        div(
+            {class: () => loaded.val ? "flex flex-col gap-3" : "hidden"},
+            settingsCard(),
+        ),
         masterPasswordCard,
         recoveryCard,
         spacesCard,

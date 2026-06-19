@@ -16,7 +16,6 @@ const svgBase = {
     class: "w-4 h-4",
 };
 
-const plusIcon = () => svg(svgBase, line({x1: "12", y1: "5", x2: "12", y2: "19"}), line({x1: "5", y1: "12", x2: "19", y2: "12"}));
 const closeIcon = () => svg(svgBase, line({x1: "18", y1: "6", x2: "6", y2: "18"}), line({x1: "6", y1: "6", x2: "18", y2: "18"}));
 const trashIcon = () => svg(svgBase,
     path({d: "M3 6h18"}),
@@ -228,29 +227,28 @@ export function assetsPage() {
             (row.format || "").toLowerCase().includes(query));
     };
 
+    const assetActionClass = "flex items-center gap-1 whitespace-nowrap text-sm px-3 py-1.5 rounded-lg bg-gray-700 " +
+        "text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer";
+
     const listPanel = () => div(
         {class: "card flex-1 flex flex-col gap-3 min-w-0 min-h-0"},
         div({class: "flex flex-wrap items-center justify-between gap-3"},
-            p({class: "text-xs text-gray-400"},
-                "Assets are immutable config files for future read-only container mounts. Saving creates a new version."),
+            input({
+                class: "text-input search-input",
+                type: "search",
+                placeholder: "Search assets",
+                value: search,
+                oninput: (e) => search.val = e.target.value,
+            }),
             div({class: "flex items-center gap-2"},
-                input({
-                    class: "text-input search-input",
-                    type: "search",
-                    placeholder: "Search assets",
-                    value: search,
-                    oninput: (e) => search.val = e.target.value,
-                }),
                 button({
                     type: "button",
-                    class: "flex items-center gap-1 whitespace-nowrap text-sm px-3 py-1.5 rounded-lg bg-gray-700 " +
-                        "text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer",
+                    class: assetActionClass,
                     onclick: addAsset,
-                }, plusIcon(), "Add asset"),
+                }, "Add asset"),
                 button({
                     type: "button",
-                    class: "flex items-center gap-1 whitespace-nowrap text-sm px-3 py-1.5 rounded-lg bg-brand " +
-                        "text-white hover:bg-blue-600 transition-colors cursor-pointer",
+                    class: assetActionClass,
                     onclick: openUpload,
                 }, "Upload asset"))),
         div({class: "flex-1 min-h-0 overflow-auto"}, () => {

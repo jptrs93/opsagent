@@ -27,6 +27,8 @@ const trashIcon = () => svg(svgBase,
     path({d: "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}));
 const plusIcon = () => svg(svgBase, line({x1: "12", y1: "5", x2: "12", y2: "19"}), line({x1: "5", y1: "12", x2: "19", y2: "12"}));
 
+const rawStateValue = (state) => state.rawVal ?? state.val ?? "";
+
 const iconButton = (child, onclick, cls = "") => button({
     type: "button",
     class: `p-1.5 rounded text-gray-400 hover:text-gray-100 hover:bg-surface-hover transition-colors cursor-pointer ${cls}`,
@@ -130,8 +132,8 @@ export function secretsPage() {
     const removeRow = (row) => { setRows((rows.val || []).filter(r => r !== row)); };
     const sortValue = (row, key) => {
         if (key === "type") return row.type;
-        if (key === "value") return row.type === "config" ? row.value.val : "";
-        return row.name.val;
+        if (key === "value") return row.type === "config" ? rawStateValue(row.value) : "";
+        return rawStateValue(row.name);
     };
 
     const sortRows = (items) => {
@@ -140,7 +142,7 @@ export function secretsPage() {
         return [...items].sort((a, b) => {
             const av = sortValue(a, key).toLowerCase();
             const bv = sortValue(b, key).toLowerCase();
-            const cmp = av.localeCompare(bv) || a.name.val.localeCompare(b.name.val) || a.type.localeCompare(b.type);
+            const cmp = av.localeCompare(bv) || rawStateValue(a.name).localeCompare(rawStateValue(b.name)) || a.type.localeCompare(b.type);
             return cmp * direction;
         });
     };
@@ -157,8 +159,8 @@ export function secretsPage() {
         const query = search.val.trim().toLowerCase();
         const filtered = query ? rows.val.filter(row =>
             row.type.includes(query) ||
-            row.name.val.toLowerCase().includes(query) ||
-            (row.type === "config" && row.value.val.toLowerCase().includes(query))) : rows.val;
+            rawStateValue(row.name).toLowerCase().includes(query) ||
+            (row.type === "config" && rawStateValue(row.value).toLowerCase().includes(query))) : rows.val;
         return sortRows(filtered);
     };
 
@@ -302,24 +304,21 @@ export function secretsPage() {
     const configValueInput = (row) => cellInput(row.value, "value", true);
 
     const secretValueInput = (row) => div({class: "flex items-center gap-1"},
-        () => {
-            const editable = row.isNew || row.revealed.val;
-            return input({
-                class: "flex-1 min-w-0 bg-transparent px-2 py-1 rounded border border-transparent " +
-                    "hover:border-gray-700 focus:border-brand focus:outline-none font-mono",
-                type: "text",
-                autocomplete: "off",
-                style: row.revealed.val ? "" : "-webkit-text-security: disc;",
-                ...(editable ? {} : {readonly: true}),
-                placeholder: row.isNew ? "value" : DEFAULT_SECRET_MASK,
-                value: editable ? row.value.val : "",
-                oninput: (e) => {
-                    if (!row.isNew && !row.revealed.val) return;
-                    row.value.val = e.target.value;
-                    row.valueDirty.val = true;
-                },
-            });
-        },
+        input({
+            class: "flex-1 min-w-0 bg-transparent px-2 py-1 rounded border border-transparent " +
+                "hover:border-gray-700 focus:border-brand focus:outline-none font-mono",
+            type: "text",
+            autocomplete: "off",
+            readonly: () => !(row.isNew || row.revealed.val),
+            style: () => row.revealed.val ? "" : "-webkit-text-security: disc;",
+            placeholder: row.isNew ? "value" : DEFAULT_SECRET_MASK,
+            value: () => row.isNew || row.revealed.val ? row.value.val : "",
+            oninput: (e) => {
+                if (!row.isNew && !row.revealed.val) return;
+                row.value.val = e.target.value;
+                row.valueDirty.val = true;
+            },
+        }),
         iconButton(() => row.revealed.val ? eyeOffIcon() : eyeOpenIcon(),
             () => toggleReveal(row)),
     );
