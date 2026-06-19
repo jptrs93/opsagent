@@ -1,4 +1,5 @@
 import {expect} from '@playwright/test';
+import {Buffer} from 'node:buffer';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -11,6 +12,7 @@ const RESTART_TIMEOUT = 120_000;
 const UPGRADE_TIMEOUT = 180_000;
 const RELEASE_OPTIONS_TIMEOUT = 60_000;
 const BACKUP_RESTORE_TIMEOUT = 120_000;
+const ASSET_UPLOAD_TIMEOUT = 120_000;
 const STABLE_CHECK_DELAY = 200;
 
 const BACKUP_RESTORE_DEFAULTS = {
@@ -22,11 +24,14 @@ const BACKUP_RESTORE_DEFAULTS = {
   minioRootPassword: 'opendeploy-minio-password',
   bucket: 'opendeploy-e2e-backup',
   path: 'opendeploy/e2e-primary',
+  largeAssetPath: 'opendeploy/e2e-assets',
   region: 'us-east-1',
   endpoint: 'http://opendeploy-install-secondary:9000',
   minioReadyURL: 'http://opendeploy-install-secondary:9000/minio/health/ready',
   statePath: process.env.OPD_BACKUP_RESTORE_STATE || '/e2e/test-results/backup-restore.env',
 };
+
+let e2eObjectStorageReady = false;
 
 export async function bootstrapFirstUser(page, {username = 'E2E Operator', password = process.env.OPD_SETUP_PASSWORD || 'opendeploy-setup'} = {}) {
   await page.goto('/bootstrap');
@@ -248,6 +253,35 @@ export async function createPostgresClientDeployment(page, {
 export async function runBackupRestoreSetup(page, opts = {}) {
   const cfg = {...BACKUP_RESTORE_DEFAULTS, ...opts};
 
+  await ensureE2EObjectStorage(page, cfg);
+
+  await configureBackupSettings(page, cfg);
+  const recoveryCode = await generateRecoveryCode(page);
+  writeBackupRestoreState(cfg, recoveryCode);
+}
+
+export async function configureLargeAssetStorage(page, opts = {}) {
+  const cfg = {...BACKUP_RESTORE_DEFAULTS, ...opts};
+
+  await ensureE2EObjectStorage(page, cfg);
+  await byTestId(page, 'nav-settings', page.getByText('Settings')).click();
+  await expect(settingRow(page, 'Large asset S3 access key ID')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+
+  await setSettingText(page, 'Large asset S3 access key ID', cfg.minioRootUser);
+  await setSettingSecret(page, 'Large asset S3 secret access key', cfg.minioRootPasswordSecret);
+  await setSettingText(page, 'Large asset S3 bucket', cfg.bucket);
+  await setSettingText(page, 'Large asset S3 path', cfg.largeAssetPath);
+  await setSettingText(page, 'Large asset S3 region', cfg.region);
+  await setSettingText(page, 'Large asset S3 endpoint', cfg.endpoint);
+  await setSettingBool(page, 'Large asset S3 enabled', true);
+
+  await page.getByRole('button', {name: 'Save changes'}).click();
+  await expect(page.getByText('Unsaved changes')).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
+async function ensureE2EObjectStorage(page, cfg) {
+  if (e2eObjectStorageReady) return;
+
   await createSecret(page, {
     name: cfg.minioRootUserSecret,
     value: cfg.minioRootUser,
@@ -268,10 +302,7 @@ export async function runBackupRestoreSetup(page, opts = {}) {
   });
   await expectDeploymentRunning(page, cfg.minioDeploymentName);
   await waitForHTTPReady(cfg.minioReadyURL, 'MinIO readiness endpoint');
-
-  await configureBackupSettings(page, cfg);
-  const recoveryCode = await generateRecoveryCode(page);
-  writeBackupRestoreState(cfg, recoveryCode);
+  e2eObjectStorageReady = true;
 }
 
 export async function createConfig(page, {name, value} = {}) {
@@ -445,6 +476,26 @@ export async function createAsset(page, {key, content, format = 'text'} = {}) {
   await page.getByPlaceholder('Paste config file contents here').fill(content);
   await page.getByRole('button', {name: 'Save new version'}).click();
   await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(key))})).toBeVisible();
+}
+
+export async function uploadAsset(page, {key, content, fileName = key, format = 'binary'} = {}) {
+  await byTestId(page, 'nav-assets', page.getByText('Assets')).click();
+  await expect(page.getByPlaceholder('Search assets')).toBeVisible();
+  await page.getByRole('button', {name: 'Upload asset'}).click();
+
+  const dialog = page.locator('.fixed.inset-0.z-50').filter({hasText: 'Upload asset'}).last();
+  await expect(dialog).toBeVisible();
+  await dialog.locator('input').nth(0).fill(key);
+  await dialog.locator('input').nth(1).fill(format);
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: fileName,
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.from(content),
+  });
+  await dialog.getByRole('button', {name: 'Upload'}).click();
+  await expect(dialog).toBeHidden({timeout: ASSET_UPLOAD_TIMEOUT});
+  await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(key))})).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await expect(page.getByText('stored externally')).toBeVisible({timeout: LONG_UI_TIMEOUT});
 }
 
 export async function expectDeploymentOutput(page, name, expectedLines) {

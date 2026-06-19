@@ -1,8 +1,11 @@
 import {test} from '@playwright/test';
+import {Buffer} from 'node:buffer';
+import crypto from 'node:crypto';
 import {installVirtualAuthenticator} from '../helpers/webauthn.js';
 import {
   acceptFirstWaitingWorker,
   bootstrapFirstUser,
+  configureLargeAssetStorage,
   configureGithubToken,
   createAsset,
   createNixDockerCrasherDeployment,
@@ -17,8 +20,23 @@ import {
   expectPrepareOutput,
   runBackupRestoreSetup,
   signOutAndLoginWithPasskey,
+  uploadAsset,
   upgradeOpenDeployAgents,
 } from '../helpers/ui.js';
+
+const LARGE_ASSET_KEY = 'e2e-large-asset.bin';
+const LARGE_ASSET_PATH = '/tmp/opendeploy-e2e-large-asset.bin';
+
+function generateLargeAsset() {
+  const content = Buffer.allocUnsafe(11 * 1024 * 1024);
+  for (let i = 0; i < content.length; i += 1) {
+    content[i] = (i * 31 + 17) % 251;
+  }
+  return {
+    content,
+    sha256: crypto.createHash('sha256').update(content).digest('hex'),
+  };
+}
 
 test('bootstrap primary, enroll worker, and create Nix Docker deployment', async ({page}) => {
   await installVirtualAuthenticator(page);
@@ -94,6 +112,33 @@ test('bootstrap primary, enroll worker, and create Nix Docker deployment', async
   await upgradeOpenDeployAgents(page, {version: process.env.OPD_UPGRADE_VERSION || 'v0.0.173'});
   await createPostgresDeployment(page);
   await createPostgresClientDeployment(page);
+
+  await configureLargeAssetStorage(page);
+  const largeAsset = generateLargeAsset();
+  console.log(`[opendeploy-e2e] large asset ${LARGE_ASSET_KEY} sha256=${largeAsset.sha256}`);
+  await uploadAsset(page, {
+    key: LARGE_ASSET_KEY,
+    content: largeAsset.content,
+    fileName: LARGE_ASSET_KEY,
+  });
+  await createNixDockerDeployment(page, {
+    name: 'largeassetverify',
+    flake: 'testexamples/largeassetverify/flake.nix',
+    env: {
+      OPENDEPLOY_E2E_ASSET_PATH: LARGE_ASSET_PATH,
+      OPENDEPLOY_E2E_ASSET_SHA256: largeAsset.sha256,
+    },
+    expectedEnv: {},
+    assetMount: {
+      asset: LARGE_ASSET_KEY,
+      path: LARGE_ASSET_PATH,
+    },
+  });
+  await expectDeploymentOutput(page, 'largeassetverify', [
+    `largeassetverify asset read path=${LARGE_ASSET_PATH} bytes=${largeAsset.content.length}`,
+    `largeassetverify asset sha256=${largeAsset.sha256}`,
+    'largeassetverify asset verified true',
+  ]);
 
   if (process.env.OPD_BACKUP_RESTORE === 'true') {
     await runBackupRestoreSetup(page);

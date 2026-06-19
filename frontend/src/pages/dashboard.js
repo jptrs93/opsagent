@@ -29,7 +29,7 @@ export function dashboard() {
         {class: "h-dvh min-h-dvh w-dvw flex overflow-hidden"},
         sidebar(activePage),
         div(
-            {class: "flex-1 min-w-0 min-h-0 overflow-hidden"},
+            {class: "h-full flex-1 min-w-0 min-h-0 overflow-hidden"},
             () => {
                 if (activePage.val === 'status') return statusPage(openLogsForDeployment);
                 if (activePage.val === 'logs') return logsPage(selectedLogDeploymentId);

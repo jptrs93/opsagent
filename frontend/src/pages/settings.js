@@ -777,11 +777,8 @@ export function settingsPage() {
         }, "Add space"),
     );
 
-    const rowEl = (setting, visible = true) => tr(
-        {
-            class: `border-b border-gray-800 last:border-0 align-middle ${visible ? "" : "invisible pointer-events-none select-none"}`,
-            "aria-hidden": visible ? "false" : "true",
-        },
+    const rowEl = (setting) => tr(
+        {class: "border-b border-gray-800 last:border-0 align-middle"},
         td({class: "py-2 pr-3 whitespace-nowrap align-middle"},
             span({class: "text-gray-200"}, setting.label),
         ),
@@ -794,22 +791,29 @@ export function settingsPage() {
         ),
     );
 
-    const sectionHeader = (title, right = "") => div(
-        {class: "flex items-center justify-between gap-3 pb-2 border-b border-gray-700"},
+    const sectionHeader = (title) => div(
+        {class: "pb-2 border-b border-gray-700"},
         h2({class: "text-sm font-semibold text-blue-300"}, title),
-        right,
     );
 
     const isSectionSettingVisible = (section, setting) => !section.enabledKey
         || setting.key === section.enabledKey
         || draft.val?.[section.enabledKey]?.value === "true";
 
+    const visibleSettingsFor = (section) => section.settings.filter((setting) => isSectionSettingVisible(section, setting));
+
     const settingsTable = (section) => div(
-        {class: "settings-scroll overflow-x-auto"},
+        {class: "overflow-x-auto"},
         table(
             {class: "w-full text-sm"},
-            tbody(...section.settings.map((setting) => rowEl(setting, isSectionSettingVisible(section, setting)))),
+            tbody(...visibleSettingsFor(section).map(rowEl)),
         ),
+    );
+
+    const settingsSectionCard = (section) => div(
+        {class: "card flex flex-col gap-3"},
+        sectionHeader(section.title),
+        settingsTable(section),
     );
 
     const dirtyActions = () => dirtyCount.val ? div({class: "flex items-center gap-2"},
@@ -825,17 +829,24 @@ export function settingsPage() {
             "button", () => saving.val),
     ) : "";
 
+    const pageHeader = () => div(
+        {class: "card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"},
+        div({class: "flex flex-col gap-1"},
+            h2({class: "text-base font-semibold"}, "Settings"),
+            p({class: "text-xs text-gray-400"}, "Configure server, credentials, backups, large asset storage, and spaces."),
+        ),
+        dirtyActions,
+    );
+
     return div(
         {class: "settings-scroll h-full min-h-0 overflow-y-auto overflow-x-hidden p-3 flex flex-col gap-3"},
         () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : "",
         () => {
             if (!loaded.val) return p({class: "text-gray-400"}, "Loading...");
             return div(
-                {class: "card flex flex-col gap-3"},
-                ...settingsSections.flatMap((section, index) => [
-                    sectionHeader(section.title, index === 0 ? dirtyActions : ""),
-                    settingsTable(section),
-                ]),
+                {class: "flex flex-col gap-3"},
+                pageHeader(),
+                ...settingsSections.map(settingsSectionCard),
             );
         },
         masterPasswordCard,
