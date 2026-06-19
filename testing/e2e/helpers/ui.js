@@ -1,4 +1,6 @@
 import {expect} from '@playwright/test';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const LONG_UI_TIMEOUT = 15_000;
 const OPTIONAL_VALIDATION_TIMEOUT = LONG_UI_TIMEOUT;
@@ -8,7 +10,23 @@ const LOG_OUTPUT_POLL_TIMEOUT = 1_500;
 const RESTART_TIMEOUT = 120_000;
 const UPGRADE_TIMEOUT = 180_000;
 const RELEASE_OPTIONS_TIMEOUT = 60_000;
+const BACKUP_RESTORE_TIMEOUT = 120_000;
 const STABLE_CHECK_DELAY = 200;
+
+const BACKUP_RESTORE_DEFAULTS = {
+  minioDeploymentName: 'minio-backup',
+  minioImage: 'docker.io/bitnamilegacy/minio:latest',
+  minioRootUserSecret: 'minio-root-user',
+  minioRootPasswordSecret: 'minio-root-password',
+  minioRootUser: 'opendeploy',
+  minioRootPassword: 'opendeploy-minio-password',
+  bucket: 'opendeploy-e2e-backup',
+  path: 'opendeploy/e2e-primary',
+  region: 'us-east-1',
+  endpoint: 'http://opendeploy-install-secondary:9000',
+  minioReadyURL: 'http://opendeploy-install-secondary:9000/minio/health/ready',
+  statePath: process.env.OPD_BACKUP_RESTORE_STATE || '/e2e/test-results/backup-restore.env',
+};
 
 export async function bootstrapFirstUser(page, {username = 'E2E Operator', password = process.env.OPD_SETUP_PASSWORD || 'opendeploy-setup'} = {}) {
   await page.goto('/bootstrap');
@@ -227,6 +245,35 @@ export async function createPostgresClientDeployment(page, {
   ]);
 }
 
+export async function runBackupRestoreSetup(page, opts = {}) {
+  const cfg = {...BACKUP_RESTORE_DEFAULTS, ...opts};
+
+  await createSecret(page, {
+    name: cfg.minioRootUserSecret,
+    value: cfg.minioRootUser,
+  });
+  await createSecret(page, {
+    name: cfg.minioRootPasswordSecret,
+    value: cfg.minioRootPassword,
+  });
+  await createContainerImageDeployment(page, {
+    name: cfg.minioDeploymentName,
+    machine: 'worker-1',
+    image: cfg.minioImage,
+    env: {
+      MINIO_ROOT_USER: {type: 'secret', name: cfg.minioRootUserSecret},
+      MINIO_ROOT_PASSWORD: {type: 'secret', name: cfg.minioRootPasswordSecret},
+      MINIO_DEFAULT_BUCKETS: cfg.bucket,
+    },
+  });
+  await expectDeploymentRunning(page, cfg.minioDeploymentName);
+  await waitForHTTPReady(cfg.minioReadyURL, 'MinIO readiness endpoint');
+
+  await configureBackupSettings(page, cfg);
+  const recoveryCode = await generateRecoveryCode(page);
+  writeBackupRestoreState(cfg, recoveryCode);
+}
+
 export async function createConfig(page, {name, value} = {}) {
   await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
   await page.getByRole('button', {name: 'Add config'}).click();
@@ -256,6 +303,107 @@ function editableSecretConfigRow(page, typeLabel) {
     .filter({hasText: typeLabel})
     .filter({has: page.getByRole('button', {name: 'Save'})})
     .first();
+}
+
+async function configureBackupSettings(page, cfg) {
+  await byTestId(page, 'nav-settings', page.getByText('Settings')).click();
+  await expect(page.getByRole('heading', {name: 'General settings'})).toBeVisible();
+
+  await setSettingText(page, 'Backup S3 access key ID', cfg.minioRootUser);
+  await setSettingSecret(page, 'Backup S3 secret access key', cfg.minioRootPasswordSecret);
+  await setSettingText(page, 'Backup S3 bucket', cfg.bucket);
+  await setSettingText(page, 'Backup S3 path', cfg.path);
+  await setSettingText(page, 'Backup S3 region', cfg.region);
+  await setSettingText(page, 'Backup S3 endpoint', cfg.endpoint);
+  await setSettingBool(page, 'Backup enabled', true);
+
+  await page.getByRole('button', {name: 'Save changes'}).click();
+  await expect(page.getByText('Unsaved changes')).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
+async function generateRecoveryCode(page) {
+  await byTestId(page, 'nav-settings', page.getByText('Settings')).click();
+  const button = page.getByRole('button', {name: /Generate recovery code|Regenerate recovery code/});
+  await expect(button).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await button.click();
+
+  const card = page.locator('.card').filter({hasText: 'Save your recovery code'}).last();
+  await expect(card).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  const code = ((await card.locator('pre').textContent()) || '').trim();
+  expect(code).not.toBe('');
+  await card.getByRole('button', {name: "I've saved it"}).click();
+  await expect(card).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  return code;
+}
+
+async function setSettingText(page, label, value) {
+  const row = settingRow(page, label);
+  await row.getByRole('textbox').fill(value);
+}
+
+async function setSettingSecret(page, label, secretName) {
+  const row = settingRow(page, label);
+  const picker = row.getByRole('textbox');
+  await picker.fill(secretName);
+  await expect(row.locator('li').filter({hasText: secretName}).first()).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await picker.press('Enter');
+  await expect(picker).toHaveValue(secretName, {timeout: LONG_UI_TIMEOUT});
+}
+
+async function setSettingBool(page, label, enabled) {
+  const checkbox = settingRow(page, label).locator('input[type="checkbox"]');
+  if (enabled) await checkbox.check({force: true});
+  else await checkbox.uncheck({force: true});
+}
+
+function settingRow(page, label) {
+  return page.getByRole('row', {name: new RegExp(escapeRegExp(label))});
+}
+
+async function waitForHTTPReady(url, label) {
+  await expect.poll(async () => {
+    try {
+      const res = await fetch(url);
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }, {message: `expected ${label} to become ready`, timeout: BACKUP_RESTORE_TIMEOUT}).toBe(true);
+}
+
+function writeBackupRestoreState(cfg, recoveryCode) {
+  fs.mkdirSync(path.dirname(cfg.statePath), {recursive: true});
+  const values = {
+    OPD_RESTORE_S3_ACCESS_KEY_ID: cfg.minioRootUser,
+    OPD_RESTORE_S3_SECRET_ACCESS_KEY: cfg.minioRootPassword,
+    OPD_RESTORE_S3_BUCKET: cfg.bucket,
+    OPD_RESTORE_S3_PATH: cfg.path,
+    OPD_RESTORE_S3_REGION: cfg.region,
+    OPD_RESTORE_S3_ENDPOINT: cfg.endpoint,
+    OPD_RESTORE_RECOVERY_CODE: recoveryCode,
+  };
+  const args = [
+    '--restore-backup true',
+    `--restore-s3-access-key-id ${shellQuote(values.OPD_RESTORE_S3_ACCESS_KEY_ID)}`,
+    `--restore-s3-secret-access-key ${shellQuote(values.OPD_RESTORE_S3_SECRET_ACCESS_KEY)}`,
+    `--restore-s3-bucket ${shellQuote(values.OPD_RESTORE_S3_BUCKET)}`,
+    `--restore-s3-path ${shellQuote(values.OPD_RESTORE_S3_PATH)}`,
+    `--restore-s3-region ${shellQuote(values.OPD_RESTORE_S3_REGION)}`,
+    `--restore-s3-endpoint ${shellQuote(values.OPD_RESTORE_S3_ENDPOINT)}`,
+    `--recovery-code ${shellQuote(values.OPD_RESTORE_RECOVERY_CODE)}`,
+  ].join(' ');
+  const lines = [
+    '# Generated by the optional OPD_BACKUP_RESTORE E2E extension.',
+    ...Object.entries(values).map(([key, value]) => `${key}=${shellQuote(value)}`),
+    `OPD_RESTORE_INSTALL_ARGS=${shellQuote(args)}`,
+    '',
+  ];
+  fs.writeFileSync(cfg.statePath, lines.join('\n'));
+  console.log(`[opendeploy-e2e] backup restore args: ${args}`);
+}
+
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", `'\\''`)}'`;
 }
 
 async function createContainerImageDeployment(page, {

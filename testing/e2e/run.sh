@@ -12,6 +12,9 @@ RESET=${RESET:-true}
 FLOWS=${FLOWS:-bootstrap-enroll-nixdocker}
 STATE_ENV=${STATE_ENV:-../.tmp/e2e.env}
 RELEASE_REPO=${RELEASE_REPO:-jptrs93/opsagent}
+BACKUP_RESTORE=${OPD_BACKUP_RESTORE:-false}
+BACKUP_RESTORE_STATE_HOST=${OPD_BACKUP_RESTORE_STATE_HOST:-$(pwd)/test-results/backup-restore.env}
+BACKUP_RESTORE_STATE_CONTAINER=${OPD_BACKUP_RESTORE_STATE:-/e2e/test-results/backup-restore.env}
 
 resolve_upgrade_version() {
   if [[ -n "${OPD_UPGRADE_VERSION:-}" ]]; then
@@ -50,6 +53,10 @@ fi
 
 OPD_UPGRADE_VERSION=$(resolve_upgrade_version)
 echo "==> Upgrade target version: ${OPD_UPGRADE_VERSION}"
+mkdir -p test-results
+if [[ "$BACKUP_RESTORE" == "true" ]]; then
+  rm -f "$BACKUP_RESTORE_STATE_HOST"
+fi
 
 echo "==> Building Playwright image"
 docker build -t "$IMG" .
@@ -74,7 +81,16 @@ docker run --rm \
   -e OPD_SETUP_PASSWORD="${OPD_SETUP_PASSWORD:-}" \
   -e OPD_INSTALL_VERSION="${OPD_INSTALL_VERSION:-}" \
   -e OPD_UPGRADE_VERSION="$OPD_UPGRADE_VERSION" \
+  -e OPD_BACKUP_RESTORE="$BACKUP_RESTORE" \
+  -e OPD_BACKUP_RESTORE_STATE="$BACKUP_RESTORE_STATE_CONTAINER" \
   -e OPENDEPLOY_GITHUB_TOKEN="${OPENDEPLOY_GITHUB_TOKEN:-}" \
   -v "$(pwd)/test-results:/e2e/test-results" \
   -v "$(pwd)/playwright-report:/e2e/playwright-report" \
   "$IMG" npx playwright test "${flow_args[@]}"
+
+if [[ "$BACKUP_RESTORE" == "true" ]]; then
+  echo "==> Running backup restore extension"
+  OPD_BACKUP_RESTORE_STATE_HOST="$BACKUP_RESTORE_STATE_HOST" \
+    OPD_UPGRADE_VERSION="$OPD_UPGRADE_VERSION" \
+    bash backup_restore.sh
+fi

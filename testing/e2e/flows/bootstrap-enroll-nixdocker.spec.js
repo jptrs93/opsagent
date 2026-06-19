@@ -15,6 +15,7 @@ import {
   expectOpenDeployAgentVersion,
   expectOpenDeployLogs,
   expectPrepareOutput,
+  runBackupRestoreSetup,
   signOutAndLoginWithPasskey,
   upgradeOpenDeployAgents,
 } from '../helpers/ui.js';
@@ -93,4 +94,8 @@ test('bootstrap primary, enroll worker, and create Nix Docker deployment', async
   await upgradeOpenDeployAgents(page, {version: process.env.OPD_UPGRADE_VERSION || 'v0.0.173'});
   await createPostgresDeployment(page);
   await createPostgresClientDeployment(page);
+
+  if (process.env.OPD_BACKUP_RESTORE === 'true') {
+    await runBackupRestoreSetup(page);
+  }
 });
