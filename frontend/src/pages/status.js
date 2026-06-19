@@ -251,11 +251,11 @@ export function statusPage(onOpenLogs = () => {}) {
 
     const spaceDividerRow = (space, isFirst) => tr(
         td(
-            {colSpan: 9, class: `${isFirst ? 'pt-3' : 'pt-8'} pb-2 px-0`},
+            {colSpan: 9, class: `${isFirst ? 'pt-3 pb-4' : 'py-4'} px-0`},
             div(
                 {class: "flex items-center gap-3"},
-                span({class: "text-xs font-semibold uppercase tracking-wide text-gray-400 whitespace-nowrap"}, spaceLabel(space)),
-                div({class: "h-px flex-1 bg-gray-700"}),
+                span({class: "text-xs font-semibold tracking-wide text-blue-300 whitespace-nowrap"}, spaceLabel(space)),
+                div({class: "h-px flex-1 bg-gradient-to-r from-gray-600/80 to-transparent"}),
             ),
         ),
     );
@@ -373,7 +373,7 @@ export function statusPage(onOpenLogs = () => {}) {
                 ),
                 button({
                     "data-testid": "add-deployment-button",
-                    class: "btn-primary text-sm py-1.5 px-4 cursor-pointer",
+                    class: "btn-primary text-sm py-1.5 px-3 cursor-pointer",
                     onclick: openCreateOverlay,
                 }, "Add deployment"),
                 button({
