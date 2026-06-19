@@ -470,35 +470,30 @@ async function createContainerImageDeployment(page, {
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
 }
 
-export async function createAsset(page, {key, content, format = 'text'} = {}) {
+export async function createAsset(page, {key, content} = {}) {
   await byTestId(page, 'nav-assets', page.getByText('Assets')).click();
   await expect(page.getByPlaceholder('Search assets')).toBeVisible();
   await page.getByRole('button', {name: 'Add asset'}).click();
 
   await page.getByPlaceholder('nginx.conf').fill(key);
-  await page.getByPlaceholder('text').fill(format);
   await page.getByPlaceholder('Paste config file contents here').fill(content);
   await page.getByRole('button', {name: 'Save new version'}).click();
   await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(key))})).toBeVisible();
 }
 
-export async function uploadAsset(page, {key, content, fileName = key, format = 'binary'} = {}) {
+export async function uploadAsset(page, {key, content, fileName = key} = {}) {
   await byTestId(page, 'nav-assets', page.getByText('Assets')).click();
   await expect(page.getByPlaceholder('Search assets')).toBeVisible();
+  const fileChooserPromise = page.waitForEvent('filechooser');
   await page.getByRole('button', {name: 'Upload asset'}).click();
 
-  const dialog = page.locator('.fixed.inset-0.z-50').filter({hasText: 'Upload asset'}).last();
-  await expect(dialog).toBeVisible();
-  await dialog.locator('input').nth(0).fill(key);
-  await dialog.locator('input').nth(1).fill(format);
-  await dialog.locator('input[type="file"]').setInputFiles({
+  const fileChooser = await fileChooserPromise;
+  await fileChooser.setFiles({
     name: fileName,
     mimeType: 'application/octet-stream',
     buffer: Buffer.from(content),
   });
-  await dialog.getByRole('button', {name: 'Upload', exact: true}).click();
-  await expect(dialog).toBeHidden({timeout: ASSET_UPLOAD_TIMEOUT});
-  await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(key))})).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(fileName))})).toBeVisible({timeout: ASSET_UPLOAD_TIMEOUT});
   await expect(page.locator('p').filter({hasText: /MiB stored externally/})).toBeVisible({timeout: LONG_UI_TIMEOUT});
 }
 

@@ -2,26 +2,13 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {handleErr} from "../capi/err.js";
 import {decodeAsset} from "../capi/model.js";
+import {closeIcon, trashIcon} from "../lib/icons.js";
 import {loginS} from "../state/login.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, textarea } = van.tags;
-const { svg, path, line } = van.tags("http://www.w3.org/2000/svg");
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-
-const svgBase = {
-    viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
-    "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round",
-    class: "w-4 h-4",
-};
-
-const closeIcon = () => svg(svgBase, line({x1: "18", y1: "6", x2: "6", y2: "18"}), line({x1: "6", y1: "6", x2: "18", y2: "18"}));
-const trashIcon = () => svg(svgBase,
-    path({d: "M3 6h18"}),
-    path({d: "M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"}),
-    path({d: "M10 11v6M14 11v6"}),
-    path({d: "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}));
 
 const fmtDate = (d) => d instanceof Date && !Number.isNaN(d.getTime()) ? d.toLocaleString() : "";
 const fmtSize = (n) => {
@@ -39,21 +26,41 @@ const smallBtn = (text, onclick, cls, disabledWhen) => button({
     onclick: async (e) => { if (disabledWhen && disabledWhen()) return; await onclick(e); },
 }, text);
 
-async function uploadAssetFile(key, format, file) {
-    const params = new URLSearchParams({key, format});
-    const headers = {"Accept": "application/x-protobuf", "Content-Type": "application/octet-stream"};
-    const token = loginS.val?.token;
-    if (token) headers.Authorization = `Bearer ${token}`;
-    const response = await fetch(`/v1/assets/upload?${params}`, {
-        method: "POST",
-        headers,
-        body: file,
-        credentials: "include",
+async function uploadAssetFile(file, onProgress) {
+    const params = new URLSearchParams({name: file.name});
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `/v1/assets/upload?${params}`);
+        xhr.withCredentials = true;
+        xhr.responseType = "arraybuffer";
+        xhr.setRequestHeader("Accept", "application/x-protobuf");
+        xhr.setRequestHeader("Content-Type", "application/octet-stream");
+        const token = loginS.val?.token;
+        if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+
+        xhr.upload.onprogress = (event) => {
+            onProgress(event.loaded, event.lengthComputable ? event.total : file.size);
+        };
+        xhr.onload = async () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                onProgress(file.size, file.size);
+                resolve(decodeAsset(xhr.response));
+                return;
+            }
+            try {
+                await handleErr({
+                    ok: false,
+                    status: xhr.status,
+                    arrayBuffer: async () => xhr.response || new ArrayBuffer(0),
+                });
+            } catch (e) {
+                reject(e);
+            }
+        };
+        xhr.onerror = () => reject(new Error("Asset upload failed"));
+        xhr.onabort = () => reject(new Error("Asset upload cancelled"));
+        xhr.send(file);
     });
-    if (!response.ok) {
-        return handleErr(response);
-    }
-    return decodeAsset(await response.arrayBuffer());
 }
 
 export function assetsPage() {
@@ -62,24 +69,22 @@ export function assetsPage() {
     const search = van.state("");
     const selected = van.state(null);
     const loadingAsset = van.state(false);
-    const uploadOpen = van.state(false);
-    const uploadKey = van.state("");
-    const uploadFormat = van.state("text");
-    const uploadFile = van.state(null);
     const uploadSaving = van.state(false);
+    const uploadProgressStatus = van.state("");
+    const uploadProgressName = van.state("");
+    const uploadProgressLoaded = van.state(0);
+    const uploadProgressTotal = van.state(0);
 
     const draftKey = van.state("");
-    const draftFormat = van.state("text");
     const draftContent = van.state("");
     const draftVersion = van.state(0);
     const draftCreatedAt = van.state(null);
     const draftLarge = van.state(false);
     const draftSizeBytes = van.state(0);
-    const original = {key: "", format: "", content: "", version: 0, large: false};
+    const original = {key: "", content: "", version: 0, large: false};
 
     const setOriginal = (asset) => {
         original.key = asset.key || "";
-        original.format = asset.format || "text";
         original.large = !!asset.location;
         original.content = original.large ? "" : decoder.decode(asset.blob || new Uint8Array());
         original.version = asset.version || 0;
@@ -88,7 +93,6 @@ export function assetsPage() {
     const setDraft = (asset) => {
         setOriginal(asset);
         draftKey.val = original.key;
-        draftFormat.val = original.format;
         draftContent.val = original.content;
         draftVersion.val = original.version;
         draftCreatedAt.val = asset.createdAt || null;
@@ -99,12 +103,10 @@ export function assetsPage() {
     const clearDraft = () => {
         selected.val = null;
         original.key = "";
-        original.format = "text";
         original.content = "";
         original.version = 0;
         original.large = false;
         draftKey.val = "";
-        draftFormat.val = "text";
         draftContent.val = "";
         draftVersion.val = 0;
         draftCreatedAt.val = null;
@@ -114,7 +116,6 @@ export function assetsPage() {
 
     const isDirty = () => !draftLarge.val && (
         draftKey.val.trim() !== original.key
-        || draftFormat.val.trim() !== original.format
         || draftContent.val !== original.content
     );
 
@@ -154,35 +155,25 @@ export function assetsPage() {
         selected.val = "";
     };
 
-    const resetUpload = () => {
-        uploadOpen.val = false;
-        uploadKey.val = "";
-        uploadFormat.val = "text";
-        uploadFile.val = null;
-        uploadSaving.val = false;
-    };
-
-    const openUpload = () => {
-        uploadKey.val = "";
-        uploadFormat.val = "text";
-        uploadFile.val = null;
-        uploadOpen.val = true;
-    };
-
-    const uploadAsset = async () => {
-        const file = uploadFile.val;
-        const key = uploadKey.val.trim();
-        if (!key) { error.val = "Asset key is required"; return; }
+    const uploadAsset = async (file) => {
         if (!file) { error.val = "Choose a file to upload"; return; }
         try {
             error.val = null;
             uploadSaving.val = true;
-            const asset = await uploadAssetFile(key, uploadFormat.val.trim() || "text", file);
+            uploadProgressStatus.val = "Uploading";
+            uploadProgressName.val = file.name;
+            uploadProgressLoaded.val = 0;
+            uploadProgressTotal.val = file.size;
+            const asset = await uploadAssetFile(file, (loaded, total) => {
+                uploadProgressLoaded.val = loaded;
+                uploadProgressTotal.val = total || file.size;
+            });
             selected.val = asset.key;
             setDraft(asset);
             await reloadRows();
-            resetUpload();
+            uploadProgressStatus.val = "Uploaded";
         } catch (e) {
+            uploadProgressStatus.val = "Upload failed";
             error.val = e.message;
         } finally {
             uploadSaving.val = false;
@@ -196,7 +187,7 @@ export function assetsPage() {
             error.val = null;
             const asset = await capi.postV1AssetsSet({
                 key,
-                format: draftFormat.val.trim() || "text",
+                format: "text",
                 blob: encoder.encode(draftContent.val),
             });
             selected.val = asset.key;
@@ -223,8 +214,19 @@ export function assetsPage() {
         const query = search.val.trim().toLowerCase();
         if (!query) return rows.val;
         return rows.val.filter(row =>
-            row.key.toLowerCase().includes(query) ||
-            (row.format || "").toLowerCase().includes(query));
+            row.key.toLowerCase().includes(query));
+    };
+
+    const uploadProgressText = () => {
+        const total = uploadProgressTotal.val || 0;
+        const loaded = Math.min(uploadProgressLoaded.val, total || uploadProgressLoaded.val);
+        return `${uploadProgressStatus.val} ${uploadProgressName.val}: ${loaded.toLocaleString()} / ${total.toLocaleString()} bytes`;
+    };
+
+    const uploadProgressPct = () => {
+        const total = uploadProgressTotal.val || 0;
+        if (!total) return "0%";
+        return `${Math.min(100, Math.round((uploadProgressLoaded.val / total) * 100))}%`;
     };
 
     const assetActionClass = "flex items-center gap-1 whitespace-nowrap text-sm px-3 py-1.5 rounded-lg bg-gray-700 " +
@@ -248,9 +250,15 @@ export function assetsPage() {
                 }, "Add asset"),
                 button({
                     type: "button",
-                    class: assetActionClass,
-                    onclick: openUpload,
+                    disabled: uploadSaving,
+                    class: () => `${assetActionClass} ${uploadSaving.val ? "opacity-50 cursor-not-allowed" : ""}`,
+                    onclick: () => { if (!uploadSaving.val) uploadPicker.click(); },
                 }, "Upload asset"))),
+        () => uploadProgressName.val ? div({class: "flex flex-col gap-1 rounded-lg border border-gray-800 bg-surface/60 p-2"},
+            p({class: "text-xs text-gray-400"}, uploadProgressText),
+            div({class: "h-1.5 overflow-hidden rounded-full bg-gray-800"},
+                div({class: "h-full rounded-full bg-brand transition-all", style: () => `width:${uploadProgressPct()}`})),
+        ) : "",
         div({class: "flex-1 min-h-0 overflow-auto"}, () => {
             if (rows.val === null) return p({class: "text-gray-400 text-sm"}, "Loading...");
             const visibleRows = filteredRows();
@@ -270,8 +278,7 @@ export function assetsPage() {
                         onclick: () => loadAsset(row.key),
                     },
                     td({class: "py-2 pr-3 min-w-0"},
-                        div({class: "font-mono text-gray-100 truncate"}, row.key),
-                        div({class: "text-xs text-gray-500 truncate"}, row.format || "text")),
+                        div({class: "font-mono text-gray-100 truncate"}, row.key)),
                     td({class: "py-2 pr-3 text-gray-300"}, `v${row.version}`),
                     td({class: "py-2 pr-3 text-gray-400 whitespace-nowrap"}, fmtSize(row.sizeBytes || 0)),
                     td({class: "py-2 pl-2 text-right whitespace-nowrap w-px"},
@@ -289,7 +296,7 @@ export function assetsPage() {
         {class: "card flex-1 min-w-0 min-h-0 self-stretch flex flex-col gap-4"},
         div({class: "flex items-start justify-between gap-3"},
             div({class: "min-w-0"},
-                h2({class: "text-base font-semibold"}, () => draftVersion.val ? `Editing ${draftKey.val}` : "New asset"),
+                () => draftVersion.val ? h2({class: "text-base font-semibold"}, `Editing ${draftKey.val}`) : "",
                 () => draftVersion.val
                     ? p({class: "text-xs text-gray-400"}, `Version ${draftVersion.val} created ${fmtDate(draftCreatedAt.val)}. Saving creates version ${draftVersion.val + 1}.`)
                     : ""),
@@ -301,18 +308,12 @@ export function assetsPage() {
                     class: "p-1.5 rounded text-gray-400 hover:text-gray-100 hover:bg-surface transition-colors cursor-pointer",
                     onclick: clearDraft,
                 }, closeIcon()))),
-        div({class: "grid grid-cols-1 md:grid-cols-[1fr_12rem] gap-3"},
+        div({class: "grid grid-cols-1 gap-3"},
             labelField("Key", input({
                 class: "text-input font-mono",
                 placeholder: "nginx.conf",
                 value: draftKey,
                 oninput: (e) => draftKey.val = e.target.value,
-            })),
-            labelField("Format", input({
-                class: "text-input font-mono",
-                placeholder: "text",
-                value: draftFormat,
-                oninput: (e) => draftFormat.val = e.target.value,
             }))),
         () => draftLarge.val ? div(
             {class: "text-input flex-1 min-h-0 flex items-center justify-center text-center text-sm text-gray-400"},
@@ -335,7 +336,6 @@ export function assetsPage() {
                 smallBtn("Discard", () => {
                     if (original.key) {
                         draftKey.val = original.key;
-                        draftFormat.val = original.format;
                         draftContent.val = original.content;
                     } else {
                         clearDraft();
@@ -351,62 +351,21 @@ export function assetsPage() {
         listPanel,
     );
 
-    const uploadOverlay = () => uploadOpen.val ? div(
-        {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"},
-        div(
-            {class: "card w-full max-w-lg flex flex-col gap-4 shadow-2xl"},
-            div({class: "flex items-start justify-between gap-3"},
-                div(
-                    h2({class: "text-base font-semibold"}, "Upload asset"),
-                    p({class: "text-xs text-gray-400 mt-1"}, "The file is streamed to the server; large files are stored in S3 when configured."),
-                ),
-                button({
-                    type: "button",
-                    title: "Close upload",
-                    disabled: () => uploadSaving.val,
-                    class: "p-1.5 rounded text-gray-400 hover:text-gray-100 hover:bg-surface transition-colors cursor-pointer",
-                    onclick: resetUpload,
-                }, closeIcon()),
-            ),
-            labelField("Name", input({
-                class: "text-input font-mono",
-                placeholder: "nginx.conf",
-                disabled: () => uploadSaving.val,
-                value: uploadKey,
-                oninput: (e) => uploadKey.val = e.target.value,
-            })),
-            labelField("Format", input({
-                class: "text-input font-mono",
-                placeholder: "text",
-                disabled: () => uploadSaving.val,
-                value: uploadFormat,
-                oninput: (e) => uploadFormat.val = e.target.value,
-            })),
-            labelField("File", input({
-                class: "text-input cursor-pointer",
-                type: "file",
-                disabled: () => uploadSaving.val,
-                onchange: (e) => {
-                    const file = e.target.files?.[0] || null;
-                    uploadFile.val = file;
-                    if (file && !uploadKey.val.trim()) {
-                        uploadKey.val = file.name;
-                    }
-                },
-            })),
-            p({class: "text-xs text-gray-500"}, () => uploadFile.val ? `${uploadFile.val.name} (${fmtSize(uploadFile.val.size)})` : "No file selected"),
-            div({class: "flex items-center justify-end gap-2"},
-                smallBtn("Cancel", resetUpload, "bg-gray-700 text-gray-200 hover:bg-gray-600", () => uploadSaving.val),
-                smallBtn("Upload", uploadAsset, "bg-brand text-white hover:bg-blue-600", () => uploadSaving.val || !uploadKey.val.trim() || !uploadFile.val),
-            ),
-        ),
-    ) : "";
+    const uploadPicker = input({
+        class: "hidden",
+        type: "file",
+        onchange: async (e) => {
+            const file = e.target.files?.[0] || null;
+            e.target.value = "";
+            await uploadAsset(file);
+        },
+    });
 
     return div(
         {class: "h-full min-h-0 overflow-hidden p-3 flex flex-col gap-3"},
         () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : "",
+        uploadPicker,
         div({class: "flex-1 flex flex-col lg:flex-row gap-3 min-h-0"}, leftPane, () => selected.val === null ? "" : editorPanel()),
-        uploadOverlay,
     );
 }
 

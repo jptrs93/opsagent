@@ -2,10 +2,10 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {referencePicker} from "../components/referencePicker.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
+import {copyIcon, eyeOffIcon, eyeOpenIcon} from "../lib/icons.js";
 import {spacesS} from "../state/deployments.js";
 
 const { div, h2, p, pre, span, table, tbody, tr, td, button, code, input, label: labelEl } = van.tags;
-const { svg, path, circle, line } = van.tags("http://www.w3.org/2000/svg");
 
 const boolValue = (value) => value ? "true" : "false";
 const listValue = (value) => value && value.length ? value.join(", ") : "";
@@ -94,32 +94,6 @@ const inputClass = "w-full min-w-64 bg-transparent px-2 py-1 rounded border bord
 const compactButtonClass = "h-8 px-3 py-1 rounded-md text-sm leading-none";
 const defaultSpaceIDs = new Set([0, 1]);
 
-const iconBase = {
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    "stroke-width": "2",
-    "stroke-linecap": "round",
-    "stroke-linejoin": "round",
-    class: "w-4 h-4",
-};
-
-const eyeIcon = () => svg(iconBase,
-    path({d: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"}),
-    circle({cx: "12", cy: "12", r: "3"}),
-);
-
-const eyeOffIcon = () => svg(iconBase,
-    path({d: "M9.9 4.24A9.1 9.1 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"}),
-    path({d: "M6.61 6.61A18.5 18.5 0 0 0 2 12s3 8 10 8a9.1 9.1 0 0 0 5.39-1.61"}),
-    line({x1: "2", y1: "2", x2: "22", y2: "22"}),
-);
-
-const copyIcon = () => svg(iconBase,
-    path({d: "M8 8h11a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"}),
-    path({d: "M4 16c-.55 0-1-.45-1-1V4c0-.55.45-1 1-1h11c.55 0 1 .45 1 1"}),
-);
-
 function valueInput(setting, draft, error, patchDraft, saving, secrets, openCreateSecret) {
     const item = () => draft.val?.[setting.key];
     const patch = (next) => patchDraft(setting.key, next);
@@ -184,7 +158,7 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
                 disabled: () => saving.val,
                 class: "p-1.5 rounded text-gray-300 bg-gray-700 hover:bg-gray-600 cursor-pointer",
                 onclick: revealSecret,
-            }, () => item().revealed ? eyeOffIcon() : eyeIcon()) : "",
+            }, () => item().revealed ? eyeOffIcon() : eyeOpenIcon()) : "",
             () => item()?.value ? button({
                 type: "button",
                 disabled: () => saving.val,
@@ -552,7 +526,7 @@ export function settingsPage() {
                     class: () => `absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded text-gray-300 ` +
                         `hover:bg-gray-700 cursor-pointer ${newMasterPassword.val ? "" : "invisible"}`,
                     onclick: () => { newMasterPasswordRevealed.val = !newMasterPasswordRevealed.val; },
-                }, () => newMasterPasswordRevealed.val ? eyeOffIcon() : eyeIcon()),
+                }, () => newMasterPasswordRevealed.val ? eyeOffIcon() : eyeOpenIcon()),
             ),
             div({class: "flex items-center justify-between gap-2"},
                 button({
@@ -611,7 +585,7 @@ export function settingsPage() {
                         class: () => `absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded text-gray-300 ` +
                             `hover:bg-gray-700 cursor-pointer ${createSecretValue.val ? "" : "invisible"}`,
                         onclick: () => { createSecretRevealed.val = !createSecretRevealed.val; },
-                    }, () => createSecretRevealed.val ? eyeOffIcon() : eyeIcon()),
+                    }, () => createSecretRevealed.val ? eyeOffIcon() : eyeOpenIcon()),
                 ),
             ),
             div({class: "flex items-center justify-end gap-2"},

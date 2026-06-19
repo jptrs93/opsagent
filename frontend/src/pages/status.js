@@ -1,5 +1,5 @@
 import van from "vanjs-core";
-import {Info} from "vanjs-feather";
+import {infoIcon} from "../lib/icons.js";
 import {deploymentsS, deploymentsStreamS, spacesS} from "../state/deployments.js";
 import {statusRow} from "../components/statusCard.js";
 import {deploymentHistory} from "../components/deploymentHistory.js";
@@ -305,7 +305,7 @@ export function statusPage(onOpenLogs = () => {}) {
 
         return span(
             {class: "relative group inline-flex normal-case tracking-normal"},
-            Info({
+            infoIcon({
                 class: "icon hover:text-gray-300 text-gray-600 w-3.5 h-3.5 cursor-pointer",
                 onmousedown: toggle,
             }),

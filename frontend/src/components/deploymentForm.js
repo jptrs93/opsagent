@@ -1,6 +1,6 @@
 import van from "vanjs-core";
-import {X} from "vanjs-feather";
 import {capi} from "../capi/index.js";
+import {xIcon} from "../lib/icons.js";
 import {referencePicker} from "./referencePicker.js";
 import {secretRefsS, spacesS, userConfigRefsS} from "../state/deployments.js";
 
@@ -708,7 +708,7 @@ export function assetMountsPane(form, opts = {}) {
                 class: "text-gray-500 hover:text-gray-200 cursor-pointer",
                 title: "Close",
                 onclick: () => { form.assetMountsPaneOpen.val = false; },
-            }, X({size: 16})),
+            }, xIcon({size: 16})),
         ),
         div(
             {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-4"},
@@ -834,7 +834,7 @@ export function volumeMountsPane(form, opts = {}) {
                 class: "text-gray-500 hover:text-gray-200 cursor-pointer",
                 title: "Close",
                 onclick: () => { form.volumeMountsPaneOpen.val = false; },
-            }, X({size: 16})),
+            }, xIcon({size: 16})),
         ),
         div(
             {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-4"},
@@ -899,7 +899,7 @@ export function assetEditorPane(form, opts = {}) {
                 class: "text-gray-500 hover:text-gray-200 cursor-pointer",
                 title: "Close",
                 onclick: () => { form.assetEditorOpen.val = false; },
-            }, X({size: 16})),
+            }, xIcon({size: 16})),
         ),
         div(
             {class: "flex-1 min-h-0 flex flex-col gap-3 p-4"},
@@ -963,7 +963,7 @@ export function envVarsPane(form) {
                 class: "text-gray-500 hover:text-gray-200 cursor-pointer",
                 title: "Close",
                 onclick: () => { form.envPaneOpen.val = false; },
-            }, X({size: 16})),
+            }, xIcon({size: 16})),
         ),
         div(
             {class: "flex-1 min-h-0 flex flex-col p-3 overflow-auto"},

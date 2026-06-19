@@ -17,6 +17,29 @@ var (
 	AssetNotFoundErr    = apigen.NewApiErr("Asset not found", "asset_not_found", http.StatusNotFound)
 )
 
+func validateUploadAssetName(raw string) (string, error) {
+	name := strings.TrimSpace(raw)
+	if name == "" {
+		return "", apigen.NewApiErr("Asset name is required", "asset_name_required", http.StatusBadRequest)
+	}
+	if name == "." || name == ".." || strings.ContainsAny(name, "/\\\x00") {
+		return "", apigen.NewApiErr("Asset name is invalid", "asset_name_invalid", http.StatusBadRequest)
+	}
+	return name, nil
+}
+
+func (h *Handler) uniqueUploadAssetName(name string) string {
+	if _, ok := h.Store.GetAsset(name, 0); !ok {
+		return name
+	}
+	for suffix := 1; ; suffix++ {
+		candidate := name + strconv.Itoa(suffix)
+		if _, ok := h.Store.GetAsset(candidate, 0); !ok {
+			return candidate
+		}
+	}
+}
+
 func mapAssetStoreErr(err error) error {
 	if errors.Is(err, secrets.ErrLocked) {
 		return SecretsLockedErr
@@ -64,10 +87,14 @@ func (h *Handler) PostV1AssetsSet(ctx apigen.Context, req *apigen.AssetSetReques
 
 func (h *Handler) PostV1AssetsUpload(ctx apigen.Context, request *http.Request, writer http.ResponseWriter) error {
 	query := request.URL.Query()
-	key := strings.TrimSpace(query.Get("key"))
-	if key == "" {
-		return AssetKeyRequiredErr
+	name, err := validateUploadAssetName(query.Get("name"))
+	if err != nil && strings.TrimSpace(query.Get("key")) != "" {
+		name, err = validateUploadAssetName(query.Get("key"))
 	}
+	if err != nil {
+		return err
+	}
+	key := h.uniqueUploadAssetName(name)
 	format := strings.TrimSpace(query.Get("format"))
 	if format == "" {
 		format = "text"

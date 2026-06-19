@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {deploymentsS, spacesS} from "../state/deployments.js";
 import {spinnerButton} from "./spinnerbutton.js";
-import {RefreshCw} from "vanjs-feather";
+import {refreshIcon} from "../lib/icons.js";
 import {
     assetEditorPane,
     assetMountsPane,
@@ -548,7 +548,7 @@ function refreshButton(args) {
             onclick: args.onRefresh,
             type: "button",
             title: "Refresh available versions",
-        }, RefreshCw({size: 12}), "Refresh"),
+        }, refreshIcon({size: 12}), "Refresh"),
     );
 }
 
