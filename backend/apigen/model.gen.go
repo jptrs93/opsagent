@@ -14,6 +14,14 @@ const (
 	ContainerUpgradeStrategy_ROLLOVER                               ContainerUpgradeStrategy = 2
 )
 
+type ContainerLogConsumer int32
+
+const (
+	ContainerLogConsumer_CONTAINER_LOG_CONSUMER_UNSPECIFIED ContainerLogConsumer = 0
+	ContainerLogConsumer_STANDARD                           ContainerLogConsumer = 1
+	ContainerLogConsumer_JSON                               ContainerLogConsumer = 2
+)
+
 type RunningStatus int32
 
 const (
@@ -2457,6 +2465,7 @@ type ContainerRunnerConfig struct {
 	AssetMounts       []*ContainerAssetMount
 	UpgradeStrategy   ContainerUpgradeStrategy
 	ReadinessSignal   *ContainerReadinessSignal
+	LogConsumer       ContainerLogConsumer
 }
 
 func (m ContainerRunnerConfig) IsZero() bool {
@@ -2469,7 +2478,8 @@ func (m ContainerRunnerConfig) IsZero() bool {
 		len(m.Mounts) == 0 &&
 		len(m.AssetMounts) == 0 &&
 		m.UpgradeStrategy == 0 &&
-		m.ReadinessSignal == nil
+		m.ReadinessSignal == nil &&
+		m.LogConsumer == 0
 }
 
 func (m *ContainerRunnerConfig) Encode() []byte {
@@ -2499,6 +2509,7 @@ func (m *ContainerRunnerConfig) Encode() []byte {
 		b = AppendTag(b, 10, BytesType)
 		b = AppendBytes(b, m.ReadinessSignal.Encode())
 	}
+	b = AppendInt32Field(b, int32(m.LogConsumer), 11)
 	return b
 }
 
@@ -2565,6 +2576,12 @@ func DecodeContainerRunnerConfig(b []byte) (*ContainerRunnerConfig, error) {
 				if err == nil {
 					m.ReadinessSignal = item
 				}
+			}
+		case 11:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.LogConsumer = ContainerLogConsumer(raw)
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)

@@ -11,6 +11,8 @@ const SOURCE_DOCKER_IMAGE = 'containerImage';
 const RUNNER_CONTAINER = 'container';
 const CONTAINER_UPGRADE_RECREATE = 1;
 const CONTAINER_UPGRADE_ROLLOVER = 2;
+const CONTAINER_LOG_STANDARD = 1;
+const CONTAINER_LOG_JSON = 2;
 const DEFAULT_READINESS_TIMEOUT_SECONDS = 600;
 const DEPLOYMENT_VOLUME_HOST_RE = /^\/var\/lib\/opendeploy-volumes\/(\d+)\/var$/;
 const DEFAULT_SPACE_ID = 1;
@@ -35,6 +37,7 @@ export function emptyDeploymentForm() {
         containerDataMountPath: '',
         containerDisableDataVolume: false,
         containerUpgradeStrategy: String(CONTAINER_UPGRADE_RECREATE),
+        containerLogConsumer: String(CONTAINER_LOG_STANDARD),
         containerReadinessTimeoutSeconds: DEFAULT_READINESS_TIMEOUT_SECONDS,
         assetMounts: [],
         volumeMounts: [],
@@ -72,6 +75,7 @@ export function deploymentConfigToForm(cfg) {
         containerDataMountPath: container.dataMountPath || '',
         containerDisableDataVolume: Boolean(container.disableDataVolume),
         containerUpgradeStrategy: String(container.upgradeStrategy || CONTAINER_UPGRADE_RECREATE),
+        containerLogConsumer: String(container.logConsumer || CONTAINER_LOG_STANDARD),
         containerReadinessTimeoutSeconds: container.readinessSignal?.timeoutSeconds || DEFAULT_READINESS_TIMEOUT_SECONDS,
         envVars: envVarsToFormRows(container.envVars),
         assetMounts: (container.assetMounts || []).map(m => {
@@ -199,6 +203,7 @@ export function formToSpec(form) {
     spec.runner.container = {
         disableDataVolume: Boolean(form.containerDisableDataVolume.val),
         upgradeStrategy: Number(form.containerUpgradeStrategy.val || CONTAINER_UPGRADE_RECREATE),
+        logConsumer: Number(form.containerLogConsumer.val || CONTAINER_LOG_STANDARD),
     };
     if (Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER) {
         spec.runner.container.readinessSignal = {timeoutSeconds: Number(form.containerReadinessTimeoutSeconds.val || 0)};
@@ -460,6 +465,7 @@ function makeFormState(values) {
         containerDataMountPath: van.state(values.containerDataMountPath || ''),
         containerDisableDataVolume: van.state(Boolean(values.containerDisableDataVolume)),
         containerUpgradeStrategy: van.state(String(values.containerUpgradeStrategy || CONTAINER_UPGRADE_RECREATE)),
+        containerLogConsumer: van.state(String(values.containerLogConsumer || CONTAINER_LOG_STANDARD)),
         containerReadinessTimeoutSeconds: van.state(values.containerReadinessTimeoutSeconds ?? DEFAULT_READINESS_TIMEOUT_SECONDS),
         envVars: van.state(values.envVars || []),
         assetMounts: van.state(values.assetMounts || []),
@@ -628,7 +634,12 @@ function upgradeStrategySummary(form) {
 }
 
 function upgradeStrategyLabel(form) {
-    return Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER ? "Rollover" : "Re-create";
+    const strategy = Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER ? "Rollover" : "Re-create";
+    return `${strategy}; logs: ${logConsumerLabel(form)}`;
+}
+
+function logConsumerLabel(form) {
+    return Number(form.containerLogConsumer.val) === CONTAINER_LOG_JSON ? "JSON" : "Standard";
 }
 
 export function upgradeStrategyPane(form) {
@@ -652,6 +663,11 @@ export function upgradeStrategyPane(form) {
                 {value: String(CONTAINER_UPGRADE_RECREATE), label: "Re-create"},
                 {value: String(CONTAINER_UPGRADE_ROLLOVER), label: "Rollover"},
             ], "w-full"),
+            selectField("Log consumer", form.containerLogConsumer, [
+                {value: String(CONTAINER_LOG_STANDARD), label: "Standard logfmt"},
+                {value: String(CONTAINER_LOG_JSON), label: "JSON to logfmt"},
+            ], "w-full"),
+            p({class: "text-xs leading-relaxed text-gray-500"}, "Standard preserves logfmt lines and wraps other output as unformatted. JSON parses each line as JSON and flattens top-level fields one level deep."),
             () => Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER
                 ? field("Readiness timeout", input({
                     type: "number",

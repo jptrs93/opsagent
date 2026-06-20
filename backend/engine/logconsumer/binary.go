@@ -22,3 +22,17 @@ func NewBinaryV2(basePath string) (cio.Creator, error) {
 	}
 	return cio.LogURI(uri), nil
 }
+
+// NewJSONV2 returns a containerd logging URI creator that starts this same
+// opendeploy binary in v2 json-log-consumer mode.
+func NewJSONV2(basePath string) (cio.Creator, error) {
+	binary, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	uri, err := cio.LogURIGenerator("binary", binary, map[string]string{processlog.JSONCommandName: basePath})
+	if err != nil {
+		return nil, err
+	}
+	return cio.LogURI(uri), nil
+}

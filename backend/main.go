@@ -66,6 +66,12 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	case ainit.CommandJSONLogConsumer:
+		if err := logconsumer.RunJSONProcess(os.Args); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	case ainit.CommandPrimary:
 		runPrimary()
 		return

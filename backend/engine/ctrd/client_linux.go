@@ -12,6 +12,7 @@ import (
 	"time"
 
 	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/jptrs93/opsagent/backend/engine/logconsumer"
@@ -170,7 +171,7 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 	}
 	logContainerSpec(ctx, container, spec)
 
-	ioCreator, err := logconsumer.NewBinaryV2(spec.Output)
+	ioCreator, err := newLogConsumer(spec)
 	if err != nil {
 		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
 		return nil, err
@@ -186,6 +187,13 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 		return nil, fmt.Errorf("starting task: %w", err)
 	}
 	return &Task{client: c, container: container, task: task}, nil
+}
+
+func newLogConsumer(spec ContainerSpec) (cio.Creator, error) {
+	if spec.LogConsumer == LogConsumerJSON {
+		return logconsumer.NewJSONV2(spec.Output)
+	}
+	return logconsumer.NewBinaryV2(spec.Output)
 }
 
 func logContainerSpec(ctx context.Context, container containerd.Container, spec ContainerSpec) {
@@ -217,6 +225,7 @@ func logContainerSpec(ctx context.Context, container containerd.Container, spec 
 		"env_count", len(spec.Env),
 		"mounts", logMounts(runtimeSpec.Mounts),
 		"output", spec.Output,
+		"log_consumer", spec.LogConsumer,
 	)
 }
 

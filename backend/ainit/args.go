@@ -12,12 +12,13 @@ import (
 type Command string
 
 const (
-	CommandPrimary     Command = "primary"
-	CommandSecondary   Command = "secondary"
-	CommandInstall     Command = "install"
-	CommandUninstall   Command = "uninstall"
-	CommandLogConsumer Command = logconsumer.CommandName
-	commandTest        Command = "test"
+	CommandPrimary         Command = "primary"
+	CommandSecondary       Command = "secondary"
+	CommandInstall         Command = "install"
+	CommandUninstall       Command = "uninstall"
+	CommandLogConsumer     Command = logconsumer.CommandName
+	CommandJSONLogConsumer Command = logconsumer.JSONCommandName
+	commandTest            Command = "test"
 )
 
 type Arguments struct {
@@ -52,6 +53,8 @@ func initArgs() {
 		Args.Installer = true
 	case CommandLogConsumer:
 		Args.Command = CommandLogConsumer
+	case CommandJSONLogConsumer:
+		Args.Command = CommandJSONLogConsumer
 	default:
 		usage(os.Stderr, Args.Program)
 		fmt.Fprintf(os.Stderr, "\nunknown command: %s\n", os.Args[1])

@@ -616,6 +616,12 @@ enum ContainerUpgradeStrategy {
   ROLLOVER = 2;
 }
 
+enum ContainerLogConsumer {
+  CONTAINER_LOG_CONSUMER_UNSPECIFIED = 0;
+  STANDARD = 1;
+  JSON = 2;
+}
+
 message ContainerReadinessSignal {
   int32 timeout_seconds = 1; // 0 = default timeout
 }
@@ -631,6 +637,7 @@ message ContainerRunnerConfig {
   repeated ContainerAssetMount asset_mounts = 8; // OpenDeploy-managed readonly asset file mounts
   ContainerUpgradeStrategy upgrade_strategy = 9; // default/unspecified = RECREATE
   ContainerReadinessSignal readiness_signal = 10; // used by ROLLOVER
+  ContainerLogConsumer log_consumer = 11; // default/unspecified = STANDARD
 }
 
 message RunnerConfig {

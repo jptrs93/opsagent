@@ -248,6 +248,56 @@ func TestDeploymentUpdateRejectsSystemDeploymentSpecUpdate(t *testing.T) {
 	}
 }
 
+func TestValidateDeploymentSpecDefaultsContainerLogConsumer(t *testing.T) {
+	spec := &apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"},
+		},
+		Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{User: "1000"}},
+	}
+	out, err := validateDeploymentSpecWithResolvers(spec, nil, fakeSecretResolver{}, fakeConfigResolver{})
+	if err != nil {
+		t.Fatalf("validateDeploymentSpecWithResolvers failed: %v", err)
+	}
+	if out.Runner.Container.LogConsumer != apigen.ContainerLogConsumer_STANDARD {
+		t.Fatalf("log consumer = %v, want STANDARD", out.Runner.Container.LogConsumer)
+	}
+}
+
+func TestValidateDeploymentSpecAcceptsJSONContainerLogConsumer(t *testing.T) {
+	spec := &apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"},
+		},
+		Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
+			User:        "1000",
+			LogConsumer: apigen.ContainerLogConsumer_JSON,
+		}},
+	}
+	out, err := validateDeploymentSpecWithResolvers(spec, nil, fakeSecretResolver{}, fakeConfigResolver{})
+	if err != nil {
+		t.Fatalf("validateDeploymentSpecWithResolvers failed: %v", err)
+	}
+	if out.Runner.Container.LogConsumer != apigen.ContainerLogConsumer_JSON {
+		t.Fatalf("log consumer = %v, want JSON", out.Runner.Container.LogConsumer)
+	}
+}
+
+func TestValidateDeploymentSpecRejectsUnknownContainerLogConsumer(t *testing.T) {
+	_, err := validateDeploymentSpecWithResolvers(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"},
+		},
+		Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
+			User:        "1000",
+			LogConsumer: apigen.ContainerLogConsumer(99),
+		}},
+	}, nil, fakeSecretResolver{}, fakeConfigResolver{})
+	if err == nil || !strings.Contains(err.Error(), "runner.container.logConsumer") {
+		t.Fatalf("err = %v, want logConsumer rejection", err)
+	}
+}
+
 func TestValidateDeploymentSpecAcceptsKnownEnvRefs(t *testing.T) {
 	_, err := validateDeploymentSpecWithResolvers(&apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{

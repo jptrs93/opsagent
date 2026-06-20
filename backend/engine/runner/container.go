@@ -131,6 +131,13 @@ func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Durati
 	return containerReadinessDefaultTimeout
 }
 
+func containerLogConsumer(consumer apigen.ContainerLogConsumer) ctrd.LogConsumer {
+	if consumer == apigen.ContainerLogConsumer_JSON {
+		return ctrd.LogConsumerJSON
+	}
+	return ctrd.LogConsumerStandard
+}
+
 func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
 	cfg := dep.Spec.Runner.Container
 	r := &containerRunner{

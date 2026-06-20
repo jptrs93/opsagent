@@ -69,7 +69,7 @@ type Runner interface {
 }
 ```
 
-Public deployments run through `containerRunner`. It creates one deterministic containerd container per deployment config version (`opendeploy-{deploymentID}-v{version}`), starts a task with host networking, wires stdout/stderr through the internal `opendeploy log-consumer` binary, normalizes unstructured output into logfmt error entries, writes hourly files under `{RunOutputDir}/{deploymentID}/{version}/{run}/{YYYYMMDD}_{HH}.logbin`, waits for task exit, and respawns with exponential backoff on crashes.
+Public deployments run through `containerRunner`. It creates one deterministic containerd container per deployment config version (`opendeploy-{deploymentID}-v{version}`), starts a task with host networking, wires stdout/stderr through the configured internal log consumer (`STANDARD`/`opendeploy log-consumer` by default, or `JSON`/`opendeploy json-log-consumer`), writes hourly files under `{RunOutputDir}/{deploymentID}/{version}/{run}/{YYYYMMDD}_{HH}.logbin`, waits for task exit, and respawns with exponential backoff on crashes.
 
 Run-log reads go through `engine/logreader`. It identifies all candidate run directories for a deployment, turns each run into a chronological `LogLine` stream, and merges those streams by timestamp for historical searches. It only scans existing files and does not tail active writes.
 

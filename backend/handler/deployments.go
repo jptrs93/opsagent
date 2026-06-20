@@ -669,6 +669,9 @@ func validateRunnerConfig(runner *apigen.RunnerConfig, prepare *apigen.PrepareCo
 		if err := validateContainerUpgrade(&runner.Container); err != nil {
 			return err
 		}
+		if err := validateContainerLogConsumer(&runner.Container); err != nil {
+			return err
+		}
 		if err := resolveEnvAssetRefs("runner.container.envVars", runner.Container.EnvVars, assets); err != nil {
 			return err
 		}
@@ -707,6 +710,20 @@ func validateContainerUpgrade(cfg *apigen.ContainerRunnerConfig) error {
 		}
 	default:
 		return invalidConfigErrf("runner.container.upgradeStrategy: unsupported value %d", cfg.UpgradeStrategy)
+	}
+	return nil
+}
+
+func validateContainerLogConsumer(cfg *apigen.ContainerRunnerConfig) error {
+	if cfg == nil {
+		return nil
+	}
+	switch cfg.LogConsumer {
+	case apigen.ContainerLogConsumer_CONTAINER_LOG_CONSUMER_UNSPECIFIED:
+		cfg.LogConsumer = apigen.ContainerLogConsumer_STANDARD
+	case apigen.ContainerLogConsumer_STANDARD, apigen.ContainerLogConsumer_JSON:
+	default:
+		return invalidConfigErrf("runner.container.logConsumer: unsupported value %d", cfg.LogConsumer)
 	}
 	return nil
 }
