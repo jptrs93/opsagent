@@ -692,6 +692,42 @@ function defaultVolumeCard(form) {
     );
 }
 
+function assetOptionValue(asset) {
+    const id = Number(asset?.id || 0);
+    const version = Number(asset?.version || 0);
+    return id && version ? `${id}:${version}` : (asset?.key || '');
+}
+
+function rowAssetOptionValue(row) {
+    const id = Number(row?.assetId || 0);
+    const version = Number(row?.version || 0);
+    return id && version ? `${id}:${version}` : (row?.key || row?.asset || '');
+}
+
+function assetOptionLabel(asset) {
+    const suffix = asset.selectedOnly ? ' (selected)' : '';
+    return `${asset.key} v${asset.version || '?'}${suffix}`;
+}
+
+function assetOptionsForRow(assets, row) {
+    const options = (assets || []).map(asset => ({
+        id: Number(asset.id || 0),
+        key: asset.key || '',
+        version: Number(asset.version || 0),
+        selectedOnly: false,
+    }));
+    const selected = {
+        id: Number(row?.assetId || 0),
+        key: row?.key || row?.asset || '',
+        version: Number(row?.version || 0),
+        selectedOnly: true,
+    };
+    if (selected.id && selected.key && selected.version && !options.some(option => assetOptionValue(option) === assetOptionValue(selected))) {
+        options.unshift(selected);
+    }
+    return options;
+}
+
 export function assetMountsPane(form, opts = {}) {
     const assets = opts.assets || [];
     const enableAssetEditor = Boolean(opts.enableAssetEditor);
@@ -724,24 +760,27 @@ export function assetMountsPane(form, opts = {}) {
         closeRuntimePanes(form, 'assetEditor');
     };
     const onAssetSelect = (row, value) => {
-        const match = assets.find(a => a.key === value);
-        updateMount(row, {key: value, assetId: match?.id || 0, version: match?.version || 0});
+        const match = assetOptionsForRow(assets, row).find(a => assetOptionValue(a) === value);
+        updateMount(row, {key: match?.key || '', assetId: match?.id || 0, version: match?.version || 0});
     };
 
     const rows = () => form.assetMounts.val || [];
-    const rowEl = (row) => div(
-        {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
-        div(
-            {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
-            field("Asset", select({
-                class: `${selectClass()} ${assets.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`,
-                disabled: assets.length === 0,
-                value: row.key,
-                onchange: e => onAssetSelect(row, e.target.value),
-            },
-                option({value: '', disabled: true, selected: !row.key || assets.length === 0}, assets.length ? "Select an asset..." : "No assets defined"),
-                ...assets.map(a => option({value: a.key, selected: a.key === row.key}, `${a.key} v${a.version}`)),
-            )),
+    const rowEl = (row) => {
+        const assetOptions = assetOptionsForRow(assets, row);
+        const selectedValue = rowAssetOptionValue(row);
+        return div(
+            {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
+            div(
+                {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
+                field("Asset", select({
+                    class: `${selectClass()} ${assetOptions.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`,
+                    disabled: assetOptions.length === 0,
+                    value: selectedValue,
+                    onchange: e => onAssetSelect(row, e.target.value),
+                },
+                    option({value: '', disabled: true, selected: !selectedValue || assetOptions.length === 0}, assetOptions.length ? "Select an asset..." : "No assets defined"),
+                    ...assetOptions.map(a => option({value: assetOptionValue(a), selected: assetOptionValue(a) === selectedValue}, assetOptionLabel(a))),
+                )),
             field("Container path", input({
                 class: textInputClass(true),
                 placeholder: "/etc/nginx/nginx.conf",
@@ -767,7 +806,8 @@ export function assetMountsPane(form, opts = {}) {
                 }, "Remove"),
             ),
         ),
-    );
+        );
+    };
     return div(
         {class: () => form.assetMountsPaneOpen.val
             ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
@@ -811,7 +851,8 @@ function savedAssetMountEdited(row) {
 
 function newInvalidAssetMount(row, assets) {
     if (row.originalKey !== undefined) return false;
-    return !assets.some(a => a.key === row.key);
+    const selectedValue = rowAssetOptionValue(row);
+    return !assetOptionsForRow(assets, row).some(asset => assetOptionValue(asset) === selectedValue);
 }
 
 export function volumeMountsPane(form, opts = {}) {
@@ -1111,22 +1152,24 @@ function envValueInput(form, row, assets) {
         });
     }
     if (row.type === 'asset') {
+        const assetOptions = assetOptionsForRow(assets, row);
+        const selectedValue = rowAssetOptionValue(row);
         return select({
-            class: `w-full rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand ${assets.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`,
-            disabled: assets.length === 0,
-            value: row.asset || '',
+            class: `w-full rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand ${assetOptions.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`,
+            disabled: assetOptions.length === 0,
+            value: selectedValue,
             onchange: e => updateEnvAssetRow(form, row, assets, e.target.value),
         },
-            option({value: '', disabled: true, selected: !row.asset || assets.length === 0}, assets.length ? "Select an asset..." : "No assets defined"),
-            ...assets.map(asset => option({value: asset.key, selected: asset.key === row.asset}, `${asset.key} v${asset.version}`)),
+            option({value: '', disabled: true, selected: !selectedValue || assetOptions.length === 0}, assetOptions.length ? "Select an asset..." : "No assets defined"),
+            ...assetOptions.map(asset => option({value: assetOptionValue(asset), selected: assetOptionValue(asset) === selectedValue}, assetOptionLabel(asset))),
         );
     }
     return envReferenceAutocomplete(form, row);
 }
 
 function updateEnvAssetRow(form, row, assets, value) {
-    const match = assets.find(asset => asset.key === value);
-    updateEnvRow(form, row.id, {asset: value, assetId: match?.id || 0, version: match?.version || 0});
+    const match = assetOptionsForRow(assets, row).find(asset => assetOptionValue(asset) === value);
+    updateEnvRow(form, row.id, {asset: match?.key || '', assetId: match?.id || 0, version: match?.version || 0});
 }
 
 function envReferenceAutocomplete(form, row) {
