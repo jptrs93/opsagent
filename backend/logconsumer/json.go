@@ -125,6 +125,8 @@ func formatJSONLogLine(t time.Time, line []byte) string {
 	}
 	if !ok {
 		level = "WARN"
+	} else {
+		level = strings.ToUpper(level)
 	}
 
 	var b strings.Builder

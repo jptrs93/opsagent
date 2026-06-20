@@ -20,7 +20,7 @@ const productionDataDir = "/var/lib/opendeploy"
 
 func init() {
 	initArgs()
-	if Args.Installer || Args.Command == CommandLogConsumer {
+	if Args.Installer || Args.Command == CommandLogConsumer || Args.Command == CommandJSONLogConsumer {
 		return
 	}
 	StaticConfig = envu.MustParse[StaticConfiguration](os.LookupEnv)

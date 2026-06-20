@@ -28,11 +28,11 @@ type Mount struct {
 	ReadOnly bool
 }
 
-type LogConsumer int
+type LogConsumer string
 
 const (
-	LogConsumerStandard LogConsumer = iota
-	LogConsumerJSON
+	LogConsumerStandard LogConsumer = "standard"
+	LogConsumerJSON     LogConsumer = "json"
 )
 
 // ContainerSpec describes a container to create and start. The default data

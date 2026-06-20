@@ -8,7 +8,7 @@ import (
 
 func TestProcessJSONLinesTransformsJSONToLogfmt(t *testing.T) {
 	now := time.Date(2026, 6, 15, 14, 30, 0, 0, time.UTC)
-	input := `{"time":"2026-06-15T14:30:01Z","level":"INFO","msg":"ready","service":"api","count":3,"ok":true,"meta":{"host":"a","attempt":2},"tags":["x"]}` + "\n"
+	input := `{"time":"2026-06-15T14:30:01Z","level":"info","msg":"ready","service":"api","count":3,"ok":true,"meta":{"host":"a","attempt":2},"tags":["x"]}` + "\n"
 	lines := processJSONLinesForTest(t, input, now)
 
 	want := `time=2026-06-15T14:30:01Z level=INFO msg=ready count=3 meta.attempt=2 meta.host=a ok=true service=api tags="[\"x\"]"` + "\n"

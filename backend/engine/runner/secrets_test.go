@@ -1,10 +1,12 @@
 package runner
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/engine/ctrd"
 )
 
 type fakeResolver map[int32]string
@@ -108,6 +110,25 @@ func TestContainerMountsIncludesImplicitAssetEnvMount(t *testing.T) {
 	}
 	if mounts[0].Dest != "/var/lib/opendeploy-implicit-assets/12_4" || !mounts[0].ReadOnly {
 		t.Fatalf("implicit mount = %+v", mounts[0])
+	}
+}
+
+func TestBuildContainerRunnerUsesConfiguredLogConsumer(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dep := &apigen.DeploymentConfig{
+		ID: 7,
+		Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{
+				DisableDataVolume: true,
+				LogConsumer:       apigen.ContainerLogConsumer_JSON,
+			},
+		}},
+	}
+
+	r := buildContainerRunner(ctx, cancel, nil, dep, 26)
+	if r.logConsumer != ctrd.LogConsumerJSON {
+		t.Fatalf("log consumer = %v, want %v", r.logConsumer, ctrd.LogConsumerJSON)
 	}
 }
 

@@ -4,6 +4,7 @@ package ctrd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -215,18 +216,33 @@ func logContainerSpec(ctx context.Context, container containerd.Container, spec 
 		}
 	}
 
-	slog.InfoContext(ctx, "containerd task starting",
+	details := map[string]any{
+		"id":           spec.ID,
+		"image":        spec.Image,
+		"args":         args,
+		"cwd":          cwd,
+		"user":         user,
+		"host_network": true,
+		"env_count":    len(spec.Env),
+		"mounts":       logMounts(runtimeSpec.Mounts),
+		"output":       spec.Output,
+		"log_consumer": spec.LogConsumer,
+	}
+	detailsJSON, err := json.Marshal(details)
+	if err != nil {
+		slog.WarnContext(ctx, "serializing containerd start spec failed", "id", spec.ID, "err", err)
+	}
+
+	attrs := []any{
 		"id", spec.ID,
 		"image", spec.Image,
-		"args", args,
-		"cwd", cwd,
-		"user", user,
-		"host_network", true,
-		"env_count", len(spec.Env),
-		"mounts", logMounts(runtimeSpec.Mounts),
 		"output", spec.Output,
 		"log_consumer", spec.LogConsumer,
-	)
+	}
+	if len(detailsJSON) > 0 {
+		attrs = append(attrs, "spec", string(detailsJSON))
+	}
+	slog.InfoContext(ctx, "containerd task starting", attrs...)
 }
 
 func logMounts(mounts []specs.Mount) []map[string]any {

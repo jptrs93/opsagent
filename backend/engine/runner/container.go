@@ -58,6 +58,7 @@ type containerRunner struct {
 	command        []string                       // argv override; empty = image default
 	cwd            string                         // process cwd; empty = image default
 	mounts         []ctrd.Mount
+	logConsumer    ctrd.LogConsumer
 	dataVolumeHost string // host dir to create+chown for the default data volume ("" = disabled)
 	dataVolumeUser string // user the data volume should be owned by
 	readiness      *readinessConfig
@@ -151,6 +152,7 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		envVars:      cfg.EnvVars,
 		command:      cfg.Command,
 		cwd:          cfg.WorkingDir,
+		logConsumer:  containerLogConsumer(cfg.LogConsumer),
 	}
 	r.mounts, r.dataVolumeHost = containerMounts(dep)
 	r.dataVolumeUser = cfg.User
@@ -289,14 +291,15 @@ func (r *containerRunner) run() {
 		}
 
 		spec := ctrd.ContainerSpec{
-			ID:     r.containerID,
-			Image:  r.status.RunningArtifact,
-			User:   r.user,
-			Env:    env,
-			Args:   r.command,
-			Cwd:    r.cwd,
-			Mounts: mounts,
-			Output: outputPath,
+			ID:          r.containerID,
+			Image:       r.status.RunningArtifact,
+			User:        r.user,
+			Env:         env,
+			Args:        r.command,
+			Cwd:         r.cwd,
+			Mounts:      mounts,
+			Output:      outputPath,
+			LogConsumer: r.logConsumer,
 		}
 		task, err := Containerd.RunTask(r.ctx, spec)
 		if err != nil {
