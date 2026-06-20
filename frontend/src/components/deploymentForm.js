@@ -164,7 +164,7 @@ export function deploymentForm(form, opts = {}) {
                     envSummary(form),
                     volumeMountsSummary(form),
                     assetMountsSection(form, opts),
-                    upgradeStrategySection(form),
+                    upgradeStrategySummary(form),
                 ),
             ),
         ),
@@ -472,6 +472,7 @@ function makeFormState(values) {
         envPaneOpen: van.state(false),
         assetMountsPaneOpen: van.state(false),
         volumeMountsPaneOpen: van.state(false),
+        upgradeStrategyPaneOpen: van.state(false),
         assetEditorOpen: van.state(false),
         assetEditorMountID: van.state(0),
         assetEditorError: van.state(''),
@@ -611,26 +612,60 @@ function volumeMountsSummary(form) {
     );
 }
 
-function upgradeStrategySection(form) {
+function upgradeStrategySummary(form) {
     return div(
-        {class: "grid grid-cols-1 md:grid-cols-[auto_12rem_minmax(0,1fr)] gap-3 items-end"},
-        selectField("Strategy", form.containerUpgradeStrategy, [
-            {value: String(CONTAINER_UPGRADE_RECREATE), label: "Re-create"},
-            {value: String(CONTAINER_UPGRADE_ROLLOVER), label: "Rollover"},
-        ], "w-44"),
-        () => Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER
-            ? field("Readiness timeout", input({
-                type: "number",
-                min: "0",
-                step: "1",
-                value: form.containerReadinessTimeoutSeconds.rawVal,
-                class: textInputClass(false, false, !hasInvalidUpgradeStrategy(form)),
-                oninput: e => { form.containerReadinessTimeoutSeconds.val = e.target.value; },
-            }), "seconds; 0 uses server default")
-            : '',
-        () => Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER
-            ? span({class: "text-xs text-gray-500 pb-2"}, "Container receives OPENDEPLOY_READINESS_SOCK_PATH and must write ready to it after warmup.")
-            : span({class: "text-xs text-gray-500 pb-2"}, "Stops the current container before starting the new version."),
+        {class: "flex items-center justify-between gap-3"},
+        span({class: "text-xs text-gray-400"}, () => `Upgrade strategy: ${upgradeStrategyLabel(form)}`),
+        button({
+            type: "button",
+            class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
+            onclick: () => {
+                form.upgradeStrategyPaneOpen.val = !form.upgradeStrategyPaneOpen.val;
+                if (form.upgradeStrategyPaneOpen.val) closeRuntimePanes(form, 'strategy');
+            },
+        }, () => form.upgradeStrategyPaneOpen.val ? "Close" : "Configure"),
+    );
+}
+
+function upgradeStrategyLabel(form) {
+    return Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER ? "Rollover" : "Re-create";
+}
+
+export function upgradeStrategyPane(form) {
+    return div(
+        {class: () => form.upgradeStrategyPaneOpen.val
+            ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
+            : "hidden"},
+        div(
+            {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
+            h3({class: "text-sm font-semibold text-gray-200"}, "Upgrade strategy"),
+            button({
+                type: "button",
+                class: "text-gray-500 hover:text-gray-200 cursor-pointer",
+                title: "Close",
+                onclick: () => { form.upgradeStrategyPaneOpen.val = false; },
+            }, xIcon({size: 16})),
+        ),
+        div(
+            {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-4 p-4"},
+            selectField("Strategy", form.containerUpgradeStrategy, [
+                {value: String(CONTAINER_UPGRADE_RECREATE), label: "Re-create"},
+                {value: String(CONTAINER_UPGRADE_ROLLOVER), label: "Rollover"},
+            ], "w-full"),
+            () => Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER
+                ? field("Readiness timeout", input({
+                    type: "number",
+                    min: "0",
+                    step: "1",
+                    value: form.containerReadinessTimeoutSeconds.rawVal,
+                    class: textInputClass(false, false, !hasInvalidUpgradeStrategy(form)),
+                    oninput: e => { form.containerReadinessTimeoutSeconds.val = e.target.value; },
+                }), "seconds; 0 uses server default")
+                : '',
+            () => Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER
+                ? p({class: "text-xs leading-relaxed text-gray-500"}, "OpenDeploy starts the new container beside the old one and waits for it to write ready to OPENDEPLOY_READINESS_SOCK_PATH. After the signal, OpenDeploy stops the old container; the app should then wait for its port to be free before serving.")
+                : p({class: "text-xs leading-relaxed text-gray-500"}, "OpenDeploy stops the current container before starting the new version."),
+        ),
     );
 }
 
@@ -1301,6 +1336,7 @@ function closeRuntimePanes(form, keep) {
     if (keep !== 'env') form.envPaneOpen.val = false;
     if (keep !== 'assets') form.assetMountsPaneOpen.val = false;
     if (keep !== 'volumes') form.volumeMountsPaneOpen.val = false;
+    if (keep !== 'strategy') form.upgradeStrategyPaneOpen.val = false;
     if (keep !== 'assetEditor') form.assetEditorOpen.val = false;
 }
 

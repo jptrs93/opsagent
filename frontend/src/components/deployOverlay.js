@@ -12,6 +12,7 @@ import {
     imageVersionFromReference,
     isFormValid,
     sectionDivider,
+    upgradeStrategyPane,
     volumeMountsPane,
 } from "./deploymentForm.js";
 import {DeploymentCreationUpdate, SOURCE_DOCKER_IMAGE, SOURCE_NIX_DOCKER} from "./deploymentCreationUpdate.js";
@@ -298,7 +299,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         {class: "fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 pointer-events-none"},
         div(
             {class: "bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-row overflow-hidden pointer-events-auto",
-             style: () => `width: ${form.envPaneOpen.val || form.assetMountsPaneOpen.val || form.volumeMountsPaneOpen.val || form.assetEditorOpen.val ? 1560 : 1120}px; max-width: calc(100vw - 1rem); max-height: 88vh;`,
+             style: () => `width: ${form.envPaneOpen.val || form.assetMountsPaneOpen.val || form.volumeMountsPaneOpen.val || form.upgradeStrategyPaneOpen.val || form.assetEditorOpen.val ? 1560 : 1120}px; max-width: calc(100vw - 1rem); max-height: 88vh;`,
              onclick: (e) => e.stopPropagation()},
             div(
                 {class: "flex-1 min-w-0 flex flex-col"},
@@ -353,6 +354,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
             () => envVarsPane(form, {assets: assets.val}),
             volumeMountsPane(form, {deployments: deploymentsS}),
             () => assetMountsPane(form, {assets: assets.val, enableAssetEditor: true}),
+            upgradeStrategyPane(form),
             assetEditorPane(form, {onSaved: loadAssets}),
         ),
     );

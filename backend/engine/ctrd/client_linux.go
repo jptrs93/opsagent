@@ -5,6 +5,7 @@ package ctrd
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 	"syscall"
@@ -167,6 +168,7 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 	if err != nil {
 		return nil, fmt.Errorf("creating container: %w", err)
 	}
+	logContainerSpec(ctx, container, spec)
 
 	ioCreator, err := logconsumer.NewBinaryV2(spec.Output)
 	if err != nil {
@@ -184,6 +186,51 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 		return nil, fmt.Errorf("starting task: %w", err)
 	}
 	return &Task{client: c, container: container, task: task}, nil
+}
+
+func logContainerSpec(ctx context.Context, container containerd.Container, spec ContainerSpec) {
+	runtimeSpec, err := container.Spec(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "reading containerd spec for logging failed", "id", spec.ID, "err", err)
+		return
+	}
+
+	var args []string
+	var cwd string
+	var user string
+	if runtimeSpec.Process != nil {
+		args = runtimeSpec.Process.Args
+		cwd = runtimeSpec.Process.Cwd
+		user = runtimeSpec.Process.User.Username
+		if user == "" {
+			user = fmt.Sprintf("%d:%d", runtimeSpec.Process.User.UID, runtimeSpec.Process.User.GID)
+		}
+	}
+
+	slog.InfoContext(ctx, "containerd task starting",
+		"id", spec.ID,
+		"image", spec.Image,
+		"args", args,
+		"cwd", cwd,
+		"user", user,
+		"host_network", true,
+		"env_count", len(spec.Env),
+		"mounts", logMounts(runtimeSpec.Mounts),
+		"output", spec.Output,
+	)
+}
+
+func logMounts(mounts []specs.Mount) []map[string]any {
+	logged := make([]map[string]any, 0, len(mounts))
+	for _, mount := range mounts {
+		logged = append(logged, map[string]any{
+			"source":      mount.Source,
+			"destination": mount.Destination,
+			"type":        mount.Type,
+			"options":     mount.Options,
+		})
+	}
+	return logged
 }
 
 // LoadTask reconnects to a running container/task by id for reattach after an
