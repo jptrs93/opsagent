@@ -21,9 +21,9 @@ type LogLine struct {
 	Props map[string]string
 }
 
-func StreamLogs(deploymentID int, since time.Time, till *time.Time) iter.Seq2[LogLine, error] {
+func StreamLogs(deploymentID int, configVersion int, since time.Time, till *time.Time) iter.Seq2[LogLine, error] {
 	return func(yield func(LogLine, error) bool) {
-		runDirs, err := candidateRunDirs(deploymentID)
+		runDirs, err := candidateRunDirs(deploymentID, configVersion)
 		if err != nil {
 			yield(LogLine{}, err)
 			return
@@ -43,7 +43,7 @@ func StreamLogs(deploymentID int, since time.Time, till *time.Time) iter.Seq2[Lo
 	}
 }
 
-func candidateRunDirs(deploymentID int) ([]string, error) {
+func candidateRunDirs(deploymentID int, configVersion int) ([]string, error) {
 	root := filepath.Join(ainit.StaticConfig.RunOutputDir, fmt.Sprintf("%d", deploymentID))
 	versions, err := os.ReadDir(root)
 	if err != nil {
@@ -55,6 +55,9 @@ func candidateRunDirs(deploymentID int) ([]string, error) {
 	var dirs []string
 	for _, version := range versions {
 		if !version.IsDir() {
+			continue
+		}
+		if configVersion > 0 && version.Name() != fmt.Sprintf("%d", configVersion) {
 			continue
 		}
 		versionDir := filepath.Join(root, version.Name())

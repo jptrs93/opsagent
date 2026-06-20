@@ -16,6 +16,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
 	"github.com/jptrs93/opsagent/backend/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/secrets"
+	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
 var InvalidRequestBodyErr = apigen.NewApiErr("Invalid request body", "invalid_request_body", http.StatusBadRequest)
@@ -55,12 +56,18 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr
 	}
-
-	if req.SpaceID != nil {
-		cfg := h.findConfigByID(req.DeploymentID)
+	var cfg *apigen.DeploymentConfig
+	if req.SpaceID != nil || !req.Spec.IsZero() {
+		cfg = h.findConfigByID(req.DeploymentID)
 		if cfg == nil || cfg.Deleted {
 			return nil, DeploymentNotFoundErr
 		}
+		if sqlite.IsSystemDeploymentConfig(cfg) {
+			return nil, invalidConfigErrf("opendeploy system deployment identity and spec are internal-only")
+		}
+	}
+
+	if req.SpaceID != nil {
 		if cfg.ConfigID.SpaceID != *req.SpaceID {
 			nextID := cfg.ConfigID
 			nextID.SpaceID = *req.SpaceID
@@ -168,6 +175,10 @@ func (h *Handler) PostV1DeploymentLogSearch(ctx apigen.Context, req *apigen.LogS
 			yield(nil, invalidConfigErrf("timeStart is required"))
 			return
 		}
+		if req.ConfigVersion < 0 {
+			yield(nil, invalidConfigErrf("configVersion must not be negative"))
+			return
+		}
 		var till *time.Time
 		if !req.TimeEnd.IsZero() {
 			till = &req.TimeEnd
@@ -260,7 +271,7 @@ func streamLocalLogSearch(req *apigen.LogSearchRequest, till *time.Time, yield f
 		batch = make([]*apigen.LogLine, 0, logSearchBatchSize)
 		return yield(&apigen.LogLineBatch{Lines: lines}, nil)
 	}
-	for line, err := range logreader.StreamLogs(int(req.DeploymentID), req.TimeStart, till) {
+	for line, err := range logreader.StreamLogs(int(req.DeploymentID), int(req.ConfigVersion), req.TimeStart, till) {
 		if err != nil {
 			yield(nil, err)
 			return

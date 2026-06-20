@@ -393,7 +393,7 @@ func streamLogSearch(ctx context.Context, out *outbox, req *apigen.LogSearchRequ
 		batch = make([]*apigen.LogLine, 0, logSearchBatchSize)
 		return out.Send(&apigen.MsgToMaster{LogLines: apigen.LogLineBatch{Lines: lines}, LogRequestID: requestID})
 	}
-	for line, err := range logreader.StreamLogs(int(req.DeploymentID), req.TimeStart, till) {
+	for line, err := range logreader.StreamLogs(int(req.DeploymentID), int(req.ConfigVersion), req.TimeStart, till) {
 		if err != nil {
 			slog.Error("failed searching run logs", "deploymentID", req.DeploymentID, "err", err)
 			return

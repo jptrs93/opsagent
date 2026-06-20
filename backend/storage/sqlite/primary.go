@@ -19,11 +19,53 @@ import (
 const OpendeploySpaceID int32 = 0
 const DefaultSpaceID int32 = 1
 
+const systemDeploymentName = "opendeploy"
+const systemDeploymentRepo = "github.com/jptrs93/opsagent"
+const systemDeploymentBinPath = "/var/lib/opendeploy/bin/opendeploy"
+
 func normalizedUserSpaceID(spaceID int32) int32 {
 	if spaceID <= 0 {
 		return DefaultSpaceID
 	}
 	return spaceID
+}
+
+func IsSystemDeploymentIdentifier(cid apigen.DeploymentIdentifier) bool {
+	return cid.SpaceID == OpendeploySpaceID && cid.Name == systemDeploymentName
+}
+
+func IsSystemDeploymentConfig(cfg *apigen.DeploymentConfig) bool {
+	return cfg != nil && IsSystemDeploymentIdentifier(cfg.ConfigID)
+}
+
+func SystemDeploymentSpec() *apigen.DeploymentSpec {
+	return &apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			GithubRelease: &apigen.GithubReleaseConfig{
+				Repo:  systemDeploymentRepo,
+				Asset: "opendeploy-linux-" + runtime.GOARCH,
+			},
+		},
+		Runner: apigen.RunnerConfig{
+			Systemd: apigen.SystemdRunnerConfig{
+				Name:    systemDeploymentName,
+				BinPath: systemDeploymentBinPath,
+			},
+		},
+	}
+}
+
+func isSystemDeploymentSpec(spec *apigen.DeploymentSpec) bool {
+	if spec == nil {
+		return false
+	}
+	gh := spec.Prepare.GithubRelease
+	sys := spec.Runner.Systemd
+	return gh != nil &&
+		gh.Repo == systemDeploymentRepo &&
+		gh.Asset == "opendeploy-linux-"+runtime.GOARCH &&
+		sys.Name == systemDeploymentName &&
+		sys.BinPath == systemDeploymentBinPath
 }
 
 type PrimaryStorage struct {
@@ -460,7 +502,7 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 	cid := apigen.DeploymentIdentifier{
 		SpaceID: OpendeploySpaceID,
 		Machine: machine,
-		Name:    "opendeploy",
+		Name:    systemDeploymentName,
 	}
 
 	s.mu.Lock()
@@ -469,24 +511,15 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 	// Check if it already exists.
 	for _, cfg := range s.configCache {
 		if cfg.ConfigID == cid && !cfg.Deleted {
+			if !isSystemDeploymentSpec(&cfg.Spec) {
+				slog.Warn("repairing system deployment spec", "machine", machine, "deploymentID", cfg.ID)
+				s.repairSystemDeploymentLocked(cfg.ID)
+			}
 			return
 		}
 	}
 
-	spec := &apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{
-			GithubRelease: &apigen.GithubReleaseConfig{
-				Repo:  "github.com/jptrs93/opsagent",
-				Asset: "opendeploy-linux-" + runtime.GOARCH,
-			},
-		},
-		Runner: apigen.RunnerConfig{
-			Systemd: apigen.SystemdRunnerConfig{
-				Name:    "opendeploy",
-				BinPath: "/var/lib/opendeploy/bin/opendeploy",
-			},
-		},
-	}
+	spec := SystemDeploymentSpec()
 	specBlob := spec.Encode()
 
 	bgCtx := context.Background()
@@ -554,6 +587,60 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 	})
 	s.notifyFromCache(id)
 	slog.Info("created system deployment", "machine", machine, "version", opendeployVersion)
+}
+
+func (s *PrimaryStorage) repairSystemDeploymentLocked(deploymentID int32) {
+	bgCtx := context.Background()
+	dbID := int64(deploymentID)
+	now := time.Now().UnixMilli()
+	tx, err := s.db.BeginTx(bgCtx, nil)
+	if err != nil {
+		panic(fmt.Sprintf("begin tx: %v", err))
+	}
+	defer tx.Rollback()
+	q := s.q.WithTx(tx)
+
+	existing, err := q.GetDeploymentConfig(bgCtx, dbID)
+	if err != nil {
+		panic(fmt.Sprintf("GetDeploymentConfig (system repair): %v", err))
+	}
+	specBlob := SystemDeploymentSpec().Encode()
+	newVersion := existing.Version + 1
+	params := UpsertDeploymentConfigParams{
+		DeploymentID:   dbID,
+		SpaceID:        existing.SpaceID,
+		Machine:        existing.Machine,
+		Name:           existing.Name,
+		CreatedAt:      existing.CreatedAt,
+		Version:        newVersion,
+		UpdatedAt:      now,
+		UpdatedBy:      0,
+		SpecBlob:       specBlob,
+		DesiredVersion: existing.DesiredVersion,
+		DesiredRunning: existing.DesiredRunning,
+		Deleted:        existing.Deleted,
+	}
+	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
+		panic(fmt.Sprintf("UpsertDeploymentConfig (system repair): %v", err))
+	}
+	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
+		DeploymentID:   dbID,
+		Version:        newVersion,
+		UpdatedAt:      now,
+		UpdatedBy:      0,
+		SpecBlob:       specBlob,
+		DesiredVersion: existing.DesiredVersion,
+		DesiredRunning: existing.DesiredRunning,
+		Deleted:        existing.Deleted,
+	}); err != nil {
+		panic(fmt.Sprintf("InsertDeploymentConfigHistory (system repair): %v", err))
+	}
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit: %v", err))
+	}
+
+	s.configCache[deploymentID] = upsertParamsToProto(params)
+	s.notifyFromCache(deploymentID)
 }
 
 // --- row <-> proto conversions ---

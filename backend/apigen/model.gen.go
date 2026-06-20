@@ -3808,13 +3808,14 @@ func DecodeDeploymentLogRequest(b []byte) (*DeploymentLogRequest, error) {
 }
 
 type LogSearchRequest struct {
-	DeploymentID int32
-	TimeStart    time.Time
-	TimeEnd      time.Time
-	LevelMin     string
-	SearchKeys   map[string]string
-	RequestID    string
-	LogLineLimit int32
+	DeploymentID  int32
+	TimeStart     time.Time
+	TimeEnd       time.Time
+	LevelMin      string
+	SearchKeys    map[string]string
+	RequestID     string
+	LogLineLimit  int32
+	ConfigVersion int32
 }
 
 func (m *LogSearchRequest) Encode() []byte {
@@ -3826,6 +3827,7 @@ func (m *LogSearchRequest) Encode() []byte {
 	b = AppendMap(b, m.SearchKeys, 5, AppendFieldDecorator(AppendStringField, 1), AppendFieldDecorator(AppendStringField, 2))
 	b = AppendStringField(b, m.RequestID, 6)
 	b = AppendInt32Field(b, m.LogLineLimit, 7)
+	b = AppendInt32Field(b, m.ConfigVersion, 8)
 	return b
 }
 
@@ -3857,6 +3859,8 @@ func DecodeLogSearchRequest(b []byte) (*LogSearchRequest, error) {
 			b, m.RequestID, err = ConsumeString(b, typ)
 		case 7:
 			b, m.LogLineLimit, err = ConsumeVarInt32(b, typ)
+		case 8:
+			b, m.ConfigVersion, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

@@ -1,12 +1,14 @@
 package handler
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	secretspkg "github.com/jptrs93/opsagent/backend/secrets"
+	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
 func TestValidateDeploymentSpecNixDockerBuild(t *testing.T) {
@@ -216,6 +218,33 @@ func TestValidateDeploymentSpecRejectsSystemdRunner(t *testing.T) {
 	}, nil)
 	if err == nil {
 		t.Fatal("expected validateDeploymentSpecWithAssets to reject systemd runner")
+	}
+}
+
+func TestDeploymentUpdateRejectsSystemDeploymentSpecUpdate(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	store.EnsureSystemDeployment("primary", "v0.0.194")
+	var system *apigen.DeploymentConfig
+	for _, cfg := range store.ListActiveDeploymentConfigs() {
+		if sqlite.IsSystemDeploymentConfig(cfg) {
+			system = cfg
+			break
+		}
+	}
+	if system == nil {
+		t.Fatal("system deployment not found")
+	}
+
+	h := &Handler{Store: store}
+	_, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID: system.ID,
+		Spec: apigen.DeploymentSpec{
+			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+			Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{UpgradeStrategy: apigen.ContainerUpgradeStrategy_RECREATE}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "internal-only") {
+		t.Fatalf("err = %v, want internal-only rejection", err)
 	}
 }
 

@@ -9,6 +9,7 @@ const LEVELS = ['', 'TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'];
 const SYSTEM_SPACE_ID = 0;
 const SYSTEM_DEPLOYMENT_NAME = 'opendeploy';
 const DEFAULT_LOG_LINE_LIMIT = 10000;
+const MAX_CONFIG_VERSION_OPTIONS = 20;
 
 function toLocalInputValue(date) {
     const pad = (n) => String(n).padStart(2, '0');
@@ -40,6 +41,21 @@ function isSystemDeployment(item) {
     return cid.name === SYSTEM_DEPLOYMENT_NAME && (
         deploymentSpaceID(item) === SYSTEM_SPACE_ID || Boolean(item?.config?.spec?.runner?.systemd)
     );
+}
+
+function deploymentConfigVersion(item) {
+    return Number(item?.config?.version || 0);
+}
+
+function configVersionOptions(item) {
+    const current = deploymentConfigVersion(item);
+    if (!current) return [];
+    const min = Math.max(1, current - MAX_CONFIG_VERSION_OPTIONS + 1);
+    const versions = [];
+    for (let version = current; version >= min; version--) {
+        versions.push(version);
+    }
+    return versions;
 }
 
 function formatLogfmtValue(value, forceQuote = false) {
@@ -93,6 +109,7 @@ export function logsPage(selectedDeploymentId) {
     const now = new Date();
     const spaceId = van.state('');
     const deploymentId = van.state(selectedDeploymentId.val || 0);
+    const configVersion = van.state(0);
     const timeStart = van.state(toLocalInputValue(new Date(now.getTime() - 24 * 60 * 60 * 1000)));
     const timeEnd = van.state('');
     const levelMin = van.state('');
@@ -112,6 +129,7 @@ export function logsPage(selectedDeploymentId) {
             const current = selectedDeployment(items, Number(deploymentId.val || 0));
             if (current && spaceId.val !== '' && deploymentSpaceID(current) !== Number(spaceId.val)) {
                 deploymentId.val = 0;
+                configVersion.val = 0;
             }
         },
     });
@@ -119,12 +137,22 @@ export function logsPage(selectedDeploymentId) {
     const deploymentSelect = select({
         "data-testid": "logs-deployment-select",
         class: "input min-w-72",
-        onchange: (e) => { deploymentId.val = Number(e.target.value || 0); },
+        onchange: (e) => {
+            deploymentId.val = Number(e.target.value || 0);
+            configVersion.val = 0;
+        },
+    });
+
+    const configVersionSelect = select({
+        "data-testid": "logs-config-version-select",
+        class: "input min-w-36",
+        onchange: (e) => { configVersion.val = Number(e.target.value || 0); },
     });
 
     van.derive(() => {
         if (selectedDeploymentId.val && selectedDeploymentId.val !== deploymentId.val) {
             deploymentId.val = selectedDeploymentId.val;
+            configVersion.val = 0;
         }
     });
 
@@ -144,12 +172,29 @@ export function logsPage(selectedDeploymentId) {
         const filtered = spaceId.val !== '' ? items.filter(item => deploymentSpaceID(item) === Number(spaceId.val)) : items;
         if (deploymentId.val && filtered.length > 0 && !selectedDeployment(filtered, Number(deploymentId.val))) {
             deploymentId.val = 0;
+            configVersion.val = 0;
         }
         deploymentSelect.replaceChildren(
             option({value: ""}, "Select deployment"),
             ...filtered.map(item => option({value: String(item.config.id)}, deploymentLabel(item))),
         );
         deploymentSelect.value = String(deploymentId.val || '');
+    });
+
+    van.derive(() => {
+        const items = (deploymentsS.val || []).filter(item => item.config?.id && !item.config.deleted);
+        const selected = selectedDeployment(items, Number(deploymentId.val || 0));
+        const systemDeployment = isSystemDeployment(selected);
+        const versions = systemDeployment ? [] : configVersionOptions(selected);
+        if (configVersion.val && !versions.includes(Number(configVersion.val))) {
+            configVersion.val = 0;
+        }
+        configVersionSelect.replaceChildren(
+            option({value: ""}, systemDeployment ? "All system versions" : "All versions"),
+            ...versions.map(version => option({value: String(version)}, `Config v${version}`)),
+        );
+        configVersionSelect.value = String(configVersion.val || '');
+        configVersionSelect.disabled = !selected || systemDeployment;
     });
 
     const runSearch = async () => {
@@ -172,6 +217,7 @@ export function logsPage(selectedDeploymentId) {
             const selectedLabel = deploymentLabel(selected);
             const systemDeployment = isSystemDeployment(selected);
             const machine = selected?.config?.configId?.machine || '';
+            const selectedConfigVersion = systemDeployment ? 0 : Number(configVersion.val || 0);
             const payload = {
                 deploymentId: systemDeployment ? 0 : id,
                 timeStart: start,
@@ -179,6 +225,7 @@ export function logsPage(selectedDeploymentId) {
                 levelMin: levelMin.val,
                 searchKeys: systemDeployment ? {machine} : undefined,
                 logLineLimit: DEFAULT_LOG_LINE_LIMIT,
+                configVersion: selectedConfigVersion,
             };
             for await (const batch of capi.postV1DeploymentLogSearch(payload, {signal: activeAbort.signal})) {
                 const lines = batch.lines || [];
@@ -191,6 +238,7 @@ export function logsPage(selectedDeploymentId) {
             const refreshedAt = new Date();
             lastSearch.val = {
                 deploymentName: selectedLabel,
+                configVersion: selectedConfigVersion,
                 start,
                 end: end || refreshedAt,
                 count,
@@ -237,7 +285,8 @@ export function logsPage(selectedDeploymentId) {
         const search = lastSearch.val;
         if (!search) return 'No logs search made.';
         const lineWord = search.count === 1 ? 'log line' : 'log lines';
-        return `Showing logs for ${search.deploymentName} from ${formatSummaryDate(search.start)} to ${formatSummaryDate(search.end)}. Result ${search.count.toLocaleString()} ${lineWord}. Refreshed ${durationAgo(search.refreshedAt)}.`;
+        const versionText = search.configVersion ? ` config v${search.configVersion}` : ' all versions';
+        return `Showing${versionText} logs for ${search.deploymentName} from ${formatSummaryDate(search.start)} to ${formatSummaryDate(search.end)}. Result ${search.count.toLocaleString()} ${lineWord}. Refreshed ${durationAgo(search.refreshedAt)}.`;
     };
 
     return div(
@@ -246,6 +295,7 @@ export function logsPage(selectedDeploymentId) {
             {class: "card p-3 flex flex-wrap items-end gap-2"},
             field("Space", spaceSelect),
             field("Deployment", deploymentSelect),
+            field("Version", configVersionSelect),
             field("Minimum level", select({
                     "data-testid": "logs-level-min-select",
                     class: "input",

@@ -792,6 +792,7 @@ message LogSearchRequest {
   map<string, string> search_keys = 5;
   string request_id = 6;  // Internal: multiplexes worker log-search streams.
   int32 log_line_limit = 7;
+  int32 config_version = 8;  // Deployment config version to search (0 = all versions).
 }
 
 message LogLine {

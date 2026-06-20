@@ -39,7 +39,7 @@ func TestStreamLogsMergesRunDirsByTimestamp(t *testing.T) {
 
 	since := mustTime("2026-06-15T14:29:00Z")
 	var got []string
-	for line, err := range StreamLogs(42, since, nil) {
+	for line, err := range StreamLogs(42, 0, since, nil) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -64,13 +64,36 @@ func TestStreamLogsFiltersTimeRange(t *testing.T) {
 	since := mustTime("2026-06-15T14:00:00Z")
 	till := mustTime("2026-06-15T15:00:00Z")
 	var got []string
-	for line, err := range StreamLogs(42, since, &till) {
+	for line, err := range StreamLogs(42, 0, since, &till) {
 		if err != nil {
 			t.Fatal(err)
 		}
 		got = append(got, line.Msg)
 	}
 	want := []string{"inside"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("messages = %#v, want %#v", got, want)
+	}
+}
+
+func TestStreamLogsFiltersConfigVersion(t *testing.T) {
+	base := t.TempDir()
+	old := ainit.StaticConfig.RunOutputDir
+	ainit.StaticConfig.RunOutputDir = base
+	t.Cleanup(func() { ainit.StaticConfig.RunOutputDir = old })
+
+	writeLog(t, base, 42, 1, 1, "20260615_14.logbin", "time=2026-06-15T14:30:00Z level=INFO msg=old\n")
+	writeLog(t, base, 42, 2, 1, "20260615_14.logbin", "time=2026-06-15T14:30:01Z level=INFO msg=current\n")
+
+	since := mustTime("2026-06-15T14:00:00Z")
+	var got []string
+	for line, err := range StreamLogs(42, 2, since, nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, line.Msg)
+	}
+	want := []string{"current"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("messages = %#v, want %#v", got, want)
 	}
