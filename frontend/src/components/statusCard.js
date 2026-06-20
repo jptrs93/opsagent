@@ -35,6 +35,7 @@ const prepareStatusCopy = (prepareStatus, prepareVersion) => {
 
 export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrepareOutput, onUpdate, onFork, opts = {}) {
     const showSpace = opts.showSpace !== false;
+    const onViewJson = opts.onViewJson || (() => {});
     const hasExisting = deployment.existingStatus !== STATUS_NO_DEPLOYMENT;
     const existingColors = hasExisting
         ? (existingStatusLabels[deployment.existingStatus] || existingStatusLabels[0])
@@ -130,6 +131,14 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
                     }, ".."),
                     () => menuOpen.val ? div(
                         {class: "absolute right-0 top-full z-20 mt-1 min-w-28 overflow-hidden rounded-lg border border-gray-700 bg-gray-900 py-1 text-left shadow-xl", onmousedown: (e) => e.stopPropagation()},
+                        button({
+                            class: "block w-full px-3 py-1.5 text-left text-xs text-gray-200 hover:bg-gray-800 cursor-pointer",
+                            onclick: () => {
+                                closeMenu();
+                                onViewJson(deployment);
+                            },
+                            type: "button",
+                        }, "View JSON"),
                         button({
                             class: "block w-full px-3 py-1.5 text-left text-xs text-gray-200 hover:bg-gray-800 cursor-pointer",
                             onclick: () => {
