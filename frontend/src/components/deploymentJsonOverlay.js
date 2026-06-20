@@ -7,9 +7,29 @@ function currentDeploymentConfig(deploymentId) {
     return (deploymentsS.val || []).find(item => item.config?.id === deploymentId)?.config || null;
 }
 
+function omitZeroValues(value) {
+    if (Array.isArray(value)) {
+        const items = value.map(omitZeroValues).filter(item => item !== undefined);
+        return items.length ? items : undefined;
+    }
+
+    if (value && typeof value === 'object') {
+        const entries = Object.entries(value)
+            .map(([key, item]) => [key, omitZeroValues(item)])
+            .filter(([, item]) => item !== undefined);
+        return entries.length ? Object.fromEntries(entries) : undefined;
+    }
+
+    if (value === '' || value === 0 || value === false || value === null || value === undefined) {
+        return undefined;
+    }
+
+    return value;
+}
+
 function deploymentConfigJson(deploymentId) {
     const config = currentDeploymentConfig(deploymentId);
-    return JSON.stringify(config || {error: "deployment config not found", deploymentId}, null, 2);
+    return JSON.stringify(omitZeroValues(config) || {error: "deployment config not found", deploymentId}, null, 2);
 }
 
 export function deploymentJsonOverlay(deploymentId, deploymentLabel, onClose) {

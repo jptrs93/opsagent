@@ -43,7 +43,9 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
     const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
     const menuOpen = van.state(false);
     const actionButtonClass = "rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-xs leading-none p-2 cursor-pointer";
+    let menuEl = null;
     let offMenuClick = null;
+    let offViewportHandlers = null;
 
     const closeMenu = () => {
         menuOpen.val = false;
@@ -51,6 +53,69 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
             document.removeEventListener('mousedown', offMenuClick);
             offMenuClick = null;
         }
+        if (offViewportHandlers) {
+            offViewportHandlers();
+            offViewportHandlers = null;
+        }
+        if (menuEl) {
+            menuEl.remove();
+            menuEl = null;
+        }
+    };
+
+    const positionMenu = (anchor) => {
+        if (!menuEl) return;
+
+        const rect = anchor.getBoundingClientRect();
+        const gap = 4;
+        const edgePadding = 8;
+        const menuWidth = menuEl.offsetWidth;
+        const menuHeight = menuEl.offsetHeight;
+        const left = Math.max(edgePadding, Math.min(window.innerWidth - menuWidth - edgePadding, rect.right - menuWidth));
+        let top = rect.bottom + gap;
+
+        if (top + menuHeight > window.innerHeight - edgePadding) {
+            top = Math.max(edgePadding, rect.top - menuHeight - gap);
+        }
+
+        menuEl.style.left = `${left}px`;
+        menuEl.style.top = `${top}px`;
+        menuEl.style.visibility = 'visible';
+    };
+
+    const menuAction = (label, onClick) => button({
+        class: "block w-full px-3 py-1.5 text-left text-xs text-gray-200 hover:bg-gray-800 cursor-pointer",
+        onclick: () => {
+            closeMenu();
+            onClick();
+        },
+        type: "button",
+    }, label);
+
+    const openMenu = (anchor) => {
+        menuOpen.val = true;
+        menuEl = div(
+            {
+                class: "fixed z-50 min-w-28 overflow-hidden rounded-lg border border-gray-700 bg-gray-900 py-1 text-left shadow-xl",
+                onmousedown: (e) => e.stopPropagation(),
+                style: "visibility:hidden",
+            },
+            menuAction("View JSON", () => onViewJson(deployment)),
+            menuAction("Fork", () => onFork(deployment)),
+        );
+        document.body.appendChild(menuEl);
+        positionMenu(anchor);
+
+        offMenuClick = () => closeMenu();
+        setTimeout(() => document.addEventListener('mousedown', offMenuClick), 0);
+
+        const closeOnViewportChange = () => closeMenu();
+        window.addEventListener('resize', closeOnViewportChange);
+        window.addEventListener('scroll', closeOnViewportChange, true);
+        offViewportHandlers = () => {
+            window.removeEventListener('resize', closeOnViewportChange);
+            window.removeEventListener('scroll', closeOnViewportChange, true);
+        };
     };
 
     const toggleMenu = (e) => {
@@ -59,9 +124,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
             closeMenu();
             return;
         }
-        menuOpen.val = true;
-        offMenuClick = () => closeMenu();
-        setTimeout(() => document.addEventListener('mousedown', offMenuClick), 0);
+        openMenu(e.currentTarget);
     };
 
     return tr(
@@ -121,34 +184,13 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
                     onclick: () => onUpdate(deployment),
                     type: "button",
                 }, "Update"),
-                div(
-                    {class: "relative"},
-                    button({
-                        class: actionButtonClass,
-                        onclick: toggleMenu,
-                        type: "button",
-                        title: "More actions",
-                    }, ".."),
-                    () => menuOpen.val ? div(
-                        {class: "absolute right-0 top-full z-20 mt-1 min-w-28 overflow-hidden rounded-lg border border-gray-700 bg-gray-900 py-1 text-left shadow-xl", onmousedown: (e) => e.stopPropagation()},
-                        button({
-                            class: "block w-full px-3 py-1.5 text-left text-xs text-gray-200 hover:bg-gray-800 cursor-pointer",
-                            onclick: () => {
-                                closeMenu();
-                                onViewJson(deployment);
-                            },
-                            type: "button",
-                        }, "View JSON"),
-                        button({
-                            class: "block w-full px-3 py-1.5 text-left text-xs text-gray-200 hover:bg-gray-800 cursor-pointer",
-                            onclick: () => {
-                                closeMenu();
-                                onFork(deployment);
-                            },
-                            type: "button",
-                        }, "Fork"),
-                    ) : '',
-                ),
+                button({
+                    class: actionButtonClass,
+                    onmousedown: (e) => e.stopPropagation(),
+                    onclick: toggleMenu,
+                    type: "button",
+                    title: "More actions",
+                }, ".."),
             ),
         ),
     );
