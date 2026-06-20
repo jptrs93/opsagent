@@ -62,7 +62,7 @@ self-deployment. Public create/update validation rejects it.
 
 | Variant | Fields | Description |
 |---|---|---|
-| `container` | `user`, `env`, `command`, `workingDir`, `dataMountPath`, `disableDataVolume`, `mounts` | Runs the prepared image as a container via containerd (host networking, OpenDeploy-supervised crash/backoff loop). Every container gets a default per-deployment host data volume bind-mounted at `/var` (or `/home/<user>/var` when `user` is set; override with `dataMountPath`, opt out with `disableDataVolume`). `mounts` bind existing absolute host paths from the target machine into absolute container paths, read/write by default or read-only with `readonly: true`. `user` maps to the in-container OS user. Requires the `containerImage` or `nixDockerBuild` prepare. Linux only. |
+| `container` | `user`, `env`, `command`, `workingDir`, `dataMountPath`, `disableDataVolume`, `mounts`, `upgradeStrategy`, `readinessSignal` | Runs the prepared image as a container via containerd (host networking, OpenDeploy-supervised crash/backoff loop). Every container gets a default per-deployment host data volume bind-mounted at `/var` (or `/home/<user>/var` when `user` is set; override with `dataMountPath`, opt out with `disableDataVolume`). `mounts` bind existing absolute host paths from the target machine into absolute container paths, read/write by default or read-only with `readonly: true`. `upgradeStrategy` defaults to `RECREATE`; `ROLLOVER` starts a candidate container, waits for its Unix-socket readiness signal, then stops the old container. `user` maps to the in-container OS user. Requires the `containerImage` or `nixDockerBuild` prepare. Linux only. |
 
 `systemd` remains as an internal-only runner for the `OPENDEPLOY`
 self-deployment. Public create/update validation rejects it, and public state
@@ -129,6 +129,8 @@ card carries a per-environment tinted background and displays:
    `PreparerStatus.Status = READY`.
 7. The operator creates a runner, which writes `RunnerStatus.Status =
    STARTING` then `RUNNING` with the PID.
+
+For container deployments with `upgradeStrategy = ROLLOVER`, step 7 starts a candidate container before stopping the old one. The candidate receives `OPENDEPLOY_READINESS_SOCK_PATH=/run/opendeploy/readiness.sock`; once warmup is complete it writes `ready\n` to that Unix socket. OpenDeploy then stops the old container and promotes the candidate. Because current containers use host networking, rollover apps should not bind the public port before signaling readiness; after signaling, they should wait until the port is free and then start serving.
 
 ## Crash recovery
 

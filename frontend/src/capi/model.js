@@ -314,6 +314,10 @@
  * @property {number} assetId
  */
 /**
+ * @typedef {Object} ContainerReadinessSignal
+ * @property {number} timeoutSeconds
+ */
+/**
  * @typedef {Object} ContainerRunnerConfig
  * @property {string} user
  * @property {Object.<string, EnvVarValue>} envVars
@@ -323,6 +327,8 @@
  * @property {boolean} disableDataVolume
  * @property {ContainerMount[]} mounts
  * @property {ContainerAssetMount[]} assetMounts
+ * @property {number} upgradeStrategy
+ * @property {ContainerReadinessSignal} readinessSignal
  */
 /**
  * @typedef {Object} RunnerConfig
@@ -4455,6 +4461,62 @@ export function decodeContainerAssetMount(buffer) {
 
 
 /**
+ * @param {ContainerReadinessSignal} message
+ * @param {Writer} writer
+ */
+export function writeContainerReadinessSignal(message, writer) {
+    if (message.timeoutSeconds !== undefined && message.timeoutSeconds !== null && message.timeoutSeconds !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.timeoutSeconds);
+    }
+}
+
+
+/**
+ * @param {ContainerReadinessSignal} message
+ * @returns {Uint8Array}
+ */
+export function encodeContainerReadinessSignal(message) {
+    const writer = Writer.create();
+    writeContainerReadinessSignal(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ContainerReadinessSignal}
+ */
+function decodeContainerReadinessSignalMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {timeoutSeconds: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.timeoutSeconds = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ContainerReadinessSignal}
+ */
+export function decodeContainerReadinessSignal(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeContainerReadinessSignalMessage(reader);
+}
+
+
+
+/**
  * @param {ContainerRunnerConfig} message
  * @param {Writer} writer
  */
@@ -4503,6 +4565,14 @@ export function writeContainerRunnerConfig(message, writer) {
             writer.ldelim();
         }
     }
+    if (message.upgradeStrategy !== undefined && message.upgradeStrategy !== null && message.upgradeStrategy !== 0) {
+        writer.uint32(tag(9, WIRE.VARINT)).int32(message.upgradeStrategy);
+    }
+    if (message.readinessSignal !== undefined && message.readinessSignal !== null) {
+        writer.uint32(tag(10, WIRE.LDELIM)).fork();
+        writeContainerReadinessSignal(message.readinessSignal, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -4524,7 +4594,7 @@ export function encodeContainerRunnerConfig(message) {
  */
 function decodeContainerRunnerConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {user: "", envVars: {}, command: [], workingDir: "", dataMountPath: "", disableDataVolume: false, mounts: [], assetMounts: [] };
+    const message = {user: "", envVars: {}, command: [], workingDir: "", dataMountPath: "", disableDataVolume: false, mounts: [], assetMounts: [], upgradeStrategy: 0, readinessSignal: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4575,6 +4645,14 @@ function decodeContainerRunnerConfigMessage(reader, length) {
             }
             case 8: {
                 message.assetMounts.push(decodeContainerAssetMountMessage(reader, reader.uint32()));
+                break;
+            }
+            case 9: {
+                message.upgradeStrategy = reader.int32();
+                break;
+            }
+            case 10: {
+                message.readinessSignal = decodeContainerReadinessSignalMessage(reader, reader.uint32());
                 break;
             }
             default:

@@ -655,6 +655,9 @@ func validateRunnerConfig(runner *apigen.RunnerConfig, prepare *apigen.PrepareCo
 		if err := validateEnvVars("runner.container.envVars", runner.Container.EnvVars); err != nil {
 			return err
 		}
+		if err := validateContainerUpgrade(&runner.Container); err != nil {
+			return err
+		}
 		if err := resolveEnvAssetRefs("runner.container.envVars", runner.Container.EnvVars, assets); err != nil {
 			return err
 		}
@@ -666,6 +669,33 @@ func validateRunnerConfig(runner *apigen.RunnerConfig, prepare *apigen.PrepareCo
 			return err
 		}
 		runner.Container.AssetMounts = assetMounts
+	}
+	return nil
+}
+
+func validateContainerUpgrade(cfg *apigen.ContainerRunnerConfig) error {
+	if cfg == nil {
+		return nil
+	}
+	switch cfg.UpgradeStrategy {
+	case apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED:
+		cfg.UpgradeStrategy = apigen.ContainerUpgradeStrategy_RECREATE
+	case apigen.ContainerUpgradeStrategy_RECREATE:
+		cfg.ReadinessSignal = nil
+	case apigen.ContainerUpgradeStrategy_ROLLOVER:
+		if cfg.EnvVars != nil {
+			if _, ok := cfg.EnvVars["OPENDEPLOY_READINESS_SOCK_PATH"]; ok {
+				return invalidConfigErrf("runner.container.envVars: OPENDEPLOY_READINESS_SOCK_PATH is reserved for rollover readiness")
+			}
+		}
+		if cfg.ReadinessSignal == nil {
+			cfg.ReadinessSignal = &apigen.ContainerReadinessSignal{}
+		}
+		if cfg.ReadinessSignal.TimeoutSeconds < 0 {
+			return invalidConfigErrf("runner.container.readinessSignal.timeoutSeconds must be non-negative")
+		}
+	default:
+		return invalidConfigErrf("runner.container.upgradeStrategy: unsupported value %d", cfg.UpgradeStrategy)
 	}
 	return nil
 }

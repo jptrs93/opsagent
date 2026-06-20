@@ -6,6 +6,14 @@ import (
 	"time"
 )
 
+type ContainerUpgradeStrategy int32
+
+const (
+	ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED ContainerUpgradeStrategy = 0
+	ContainerUpgradeStrategy_RECREATE                               ContainerUpgradeStrategy = 1
+	ContainerUpgradeStrategy_ROLLOVER                               ContainerUpgradeStrategy = 2
+)
+
 type RunningStatus int32
 
 const (
@@ -2405,6 +2413,39 @@ func DecodeContainerAssetMount(b []byte) (*ContainerAssetMount, error) {
 	return &m, nil
 }
 
+type ContainerReadinessSignal struct {
+	TimeoutSeconds int32
+}
+
+func (m *ContainerReadinessSignal) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.TimeoutSeconds, 1)
+	return b
+}
+
+func DecodeContainerReadinessSignal(b []byte) (*ContainerReadinessSignal, error) {
+	var m ContainerReadinessSignal
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.TimeoutSeconds, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type ContainerRunnerConfig struct {
 	User              string
 	EnvVars           map[string]*EnvVarValue
@@ -2414,6 +2455,8 @@ type ContainerRunnerConfig struct {
 	DisableDataVolume bool
 	Mounts            []*ContainerMount
 	AssetMounts       []*ContainerAssetMount
+	UpgradeStrategy   ContainerUpgradeStrategy
+	ReadinessSignal   *ContainerReadinessSignal
 }
 
 func (m ContainerRunnerConfig) IsZero() bool {
@@ -2424,7 +2467,9 @@ func (m ContainerRunnerConfig) IsZero() bool {
 		m.DataMountPath == "" &&
 		m.DisableDataVolume == false &&
 		len(m.Mounts) == 0 &&
-		len(m.AssetMounts) == 0
+		len(m.AssetMounts) == 0 &&
+		m.UpgradeStrategy == 0 &&
+		m.ReadinessSignal == nil
 }
 
 func (m *ContainerRunnerConfig) Encode() []byte {
@@ -2448,6 +2493,11 @@ func (m *ContainerRunnerConfig) Encode() []byte {
 		}
 		b = AppendTag(b, 8, BytesType)
 		b = AppendBytes(b, item.Encode())
+	}
+	b = AppendInt32Field(b, int32(m.UpgradeStrategy), 9)
+	if m.ReadinessSignal != nil {
+		b = AppendTag(b, 10, BytesType)
+		b = AppendBytes(b, m.ReadinessSignal.Encode())
 	}
 	return b
 }
@@ -2499,6 +2549,21 @@ func DecodeContainerRunnerConfig(b []byte) (*ContainerRunnerConfig, error) {
 				item, err = DecodeContainerAssetMount(msgBytes)
 				if err == nil {
 					m.AssetMounts = append(m.AssetMounts, item)
+				}
+			}
+		case 9:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.UpgradeStrategy = ContainerUpgradeStrategy(raw)
+			}
+		case 10:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ContainerReadinessSignal
+				item, err = DecodeContainerReadinessSignal(msgBytes)
+				if err == nil {
+					m.ReadinessSignal = item
 				}
 			}
 		default:

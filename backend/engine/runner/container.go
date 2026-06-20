@@ -2,8 +2,10 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -30,6 +32,12 @@ const (
 	containerMinBackoff      = 1 * time.Second
 	containerMaxBackoff      = 30 * time.Second
 	containerStableRunWindow = 15 * time.Second
+
+	containerReadinessDefaultTimeout = 10 * time.Minute
+	containerReadinessEnvKey         = "OPENDEPLOY_READINESS_SOCK_PATH"
+	containerReadinessContainerDir   = "/run/opendeploy"
+	containerReadinessSocketName     = "readiness.sock"
+	containerReadinessContainerPath  = containerReadinessContainerDir + "/" + containerReadinessSocketName
 )
 
 // containerRunner owns the create/start/monitor/respawn/backoff lifecycle of a
@@ -52,13 +60,22 @@ type containerRunner struct {
 	mounts         []ctrd.Mount
 	dataVolumeHost string // host dir to create+chown for the default data volume ("" = disabled)
 	dataVolumeUser string // user the data volume should be owned by
+	readiness      *readinessConfig
 
 	status apigen.RunnerStatus
 
 	stopping atomic.Bool
+	publish  atomic.Bool
 
 	taskMu sync.Mutex
 	task   *ctrd.Task
+
+	readyOnce sync.Once
+	readyCh   chan error
+}
+
+type readinessConfig struct {
+	timeout time.Duration
 }
 
 // containerID is the deterministic containerd id for a deployment config version.
@@ -70,6 +87,7 @@ func newContainerRunner(store storage.OperatorStore, dep *apigen.DeploymentConfi
 	ctx, cancel := context.WithCancel(context.Background())
 	configVersion := preparerStatus.DeploymentConfigVersion
 	r := buildContainerRunner(ctx, cancel, store, dep, configVersion)
+	r.publish.Store(true)
 	r.status = apigen.RunnerStatus{
 		DeploymentConfigVersion: configVersion,
 		RunningArtifact:         preparerStatus.Artifact,
@@ -81,12 +99,36 @@ func newContainerRunner(store storage.OperatorStore, dep *apigen.DeploymentConfi
 	return r
 }
 
+func newRolloverContainerRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
+	ctx, cancel := context.WithCancel(context.Background())
+	configVersion := preparerStatus.DeploymentConfigVersion
+	r := buildContainerRunner(ctx, cancel, store, dep, configVersion)
+	r.readiness = &readinessConfig{timeout: containerReadinessTimeout(dep.Spec.Runner.Container.ReadinessSignal)}
+	r.readyCh = make(chan error, 1)
+	r.status = apigen.RunnerStatus{
+		DeploymentConfigVersion: configVersion,
+		RunningArtifact:         preparerStatus.Artifact,
+		Status:                  apigen.RunningStatus_STARTING,
+		LastRestartAt:           time.Now(),
+	}
+	go r.run()
+	return r
+}
+
 func reAttachContainerRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := buildContainerRunner(ctx, cancel, store, dep, prev.DeploymentConfigVersion)
+	r.publish.Store(true)
 	r.status = prev
 	go r.run()
 	return r
+}
+
+func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Duration {
+	if sig != nil && sig.TimeoutSeconds > 0 {
+		return time.Duration(sig.TimeoutSeconds) * time.Second
+	}
+	return containerReadinessDefaultTimeout
 }
 
 func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
@@ -110,11 +152,28 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 
 func (r *containerRunner) Version() int32 { return r.status.DeploymentConfigVersion }
 
+func (r *containerRunner) WaitReady() error {
+	if r.readyCh == nil {
+		return nil
+	}
+	err, ok := <-r.readyCh
+	if !ok {
+		return nil
+	}
+	return err
+}
+
+func (r *containerRunner) Promote() {
+	r.publish.Store(true)
+	r.writeStatus()
+}
+
 func (r *containerRunner) Stop() {
 	if !r.stopping.CompareAndSwap(false, true) {
 		<-r.done
 		return
 	}
+	r.notifyReady(context.Canceled)
 
 	task := r.getTask()
 	if task != nil {
@@ -204,6 +263,24 @@ func (r *containerRunner) run() {
 			continue
 		}
 
+		mounts := r.mounts
+		readinessActive := r.readiness != nil && !r.publish.Load()
+		var ready <-chan error
+		var closeReady func()
+		if readinessActive {
+			listener, err := r.startReadinessListener(runNumber)
+			if err != nil {
+				slog.ErrorContext(r.ctx, "starting readiness listener failed", "err", err)
+				r.notifyReady(fmt.Errorf("starting readiness listener: %w", err))
+				r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+				return
+			}
+			ready = listener.ready
+			closeReady = listener.close
+			mounts = append(append([]ctrd.Mount{}, mounts...), ctrd.Mount{Source: listener.dir, Dest: containerReadinessContainerDir})
+			env = append(env, containerReadinessEnvKey+"="+containerReadinessContainerPath)
+		}
+
 		spec := ctrd.ContainerSpec{
 			ID:     r.containerID,
 			Image:  r.status.RunningArtifact,
@@ -211,13 +288,20 @@ func (r *containerRunner) run() {
 			Env:    env,
 			Args:   r.command,
 			Cwd:    r.cwd,
-			Mounts: r.mounts,
+			Mounts: mounts,
 			Output: outputPath,
 		}
 		task, err := Containerd.RunTask(r.ctx, spec)
 		if err != nil {
+			if closeReady != nil {
+				closeReady()
+			}
 			slog.ErrorContext(r.ctx, "starting container failed", "err", err, "image", spec.Image, "id", r.containerID)
 			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+			if readinessActive {
+				r.notifyReady(fmt.Errorf("starting container: %w", err))
+				return
+			}
 			crashCount++
 			if !r.sleepBackoff(crashCount) {
 				r.updateStatus(apigen.RunningStatus_STOPPED, 0)
@@ -231,7 +315,27 @@ func (r *containerRunner) run() {
 		r.updateStatus(apigen.RunningStatus_RUNNING, int32(task.Pid()))
 		startedAt := time.Now()
 
-		r.monitorTask(task)
+		exitDone := make(chan struct{})
+		go func() {
+			r.monitorTask(task)
+			close(exitDone)
+		}()
+
+		if readinessActive {
+			readyOK, taskExited := r.waitForReadiness(ready, closeReady, exitDone)
+			if !readyOK {
+				if !taskExited {
+					_ = task.Kill(context.Background(), syscall.SIGTERM)
+				}
+				r.deleteTask(task)
+				return
+			}
+		}
+
+		<-exitDone
+		if closeReady != nil {
+			closeReady()
+		}
 
 		if r.stopping.Load() {
 			// Stop() owns the kill + delete; just record STOPPED and exit.
@@ -276,6 +380,112 @@ func (r *containerRunner) sleepBackoff(crashCount int) bool {
 	case <-time.After(delay):
 		return true
 	}
+}
+
+type readinessListener struct {
+	dir   string
+	ready <-chan error
+	close func()
+}
+
+func (r *containerRunner) startReadinessListener(runNumber int32) (*readinessListener, error) {
+	dir := filepath.Join(ainit.StaticConfig.DataDir, "readiness", strconv.Itoa(int(r.deploymentID)), strconv.Itoa(int(r.status.DeploymentConfigVersion)), strconv.Itoa(int(runNumber)))
+	if err := os.RemoveAll(dir); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(dir, 0o777); err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(dir, 0o777); err != nil {
+		return nil, err
+	}
+	sockPath := filepath.Join(dir, containerReadinessSocketName)
+	listener, err := net.Listen("unix", sockPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(sockPath, 0o666); err != nil {
+		_ = listener.Close()
+		return nil, err
+	}
+	ready := make(chan error, 1)
+	go func() {
+		defer close(ready)
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				select {
+				case <-r.ctx.Done():
+					ready <- r.ctx.Err()
+				default:
+					if !errors.Is(err, net.ErrClosed) {
+						ready <- err
+					}
+				}
+				return
+			}
+			if readinessMessage(conn) {
+				ready <- nil
+				return
+			}
+		}
+	}()
+	return &readinessListener{
+		dir:   dir,
+		ready: ready,
+		close: func() { _ = listener.Close() },
+	}, nil
+}
+
+func readinessMessage(conn net.Conn) bool {
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	buf := make([]byte, 64)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(buf[:n])) == "ready"
+}
+
+func (r *containerRunner) waitForReadiness(ready <-chan error, closeReady func(), exitDone <-chan struct{}) (bool, bool) {
+	defer closeReady()
+	timer := time.NewTimer(r.readiness.timeout)
+	defer timer.Stop()
+	select {
+	case err, ok := <-ready:
+		if !ok {
+			err = fmt.Errorf("readiness listener closed before signal")
+		}
+		if err != nil {
+			r.notifyReady(fmt.Errorf("readiness signal failed: %w", err))
+			return false, false
+		}
+		slog.InfoContext(r.ctx, "container readiness signal received", "id", r.containerID)
+		r.notifyReady(nil)
+		return true, false
+	case <-exitDone:
+		err := fmt.Errorf("container exited before readiness signal")
+		r.notifyReady(err)
+		return false, true
+	case <-timer.C:
+		err := fmt.Errorf("timed out after %s waiting for readiness signal", r.readiness.timeout)
+		r.notifyReady(err)
+		return false, false
+	case <-r.ctx.Done():
+		r.notifyReady(r.ctx.Err())
+		return false, false
+	}
+}
+
+func (r *containerRunner) notifyReady(err error) {
+	if r.readyCh == nil {
+		return
+	}
+	r.readyOnce.Do(func() {
+		r.readyCh <- err
+		close(r.readyCh)
+	})
 }
 
 func computeContainerBackoff(crashCount int) time.Duration {
@@ -339,6 +549,9 @@ func (r *containerRunner) updateStatus(status apigen.RunningStatus, pid int32) {
 }
 
 func (r *containerRunner) writeStatus() {
+	if !r.publish.Load() {
+		return
+	}
 	r.store.MustWriteDeploymentStatus(r.deploymentID, func(s *apigen.DeploymentStatus) bool {
 		if !s.Runner.IsZero() && s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion {
 			slog.InfoContext(r.ctx, "discarding status update from superseded container runner")

@@ -9,6 +9,9 @@ const { div, h3, label, input, select, option, button, p, span, textarea, table,
 const SOURCE_NIX_DOCKER = 'nixDockerBuild';
 const SOURCE_DOCKER_IMAGE = 'containerImage';
 const RUNNER_CONTAINER = 'container';
+const CONTAINER_UPGRADE_RECREATE = 1;
+const CONTAINER_UPGRADE_ROLLOVER = 2;
+const DEFAULT_READINESS_TIMEOUT_SECONDS = 600;
 const DEPLOYMENT_VOLUME_HOST_RE = /^\/var\/lib\/opendeploy-volumes\/(\d+)\/var$/;
 const DEFAULT_SPACE_ID = 1;
 const INTERNAL_SPACE_ID = 0;
@@ -31,6 +34,8 @@ export function emptyDeploymentForm() {
         containerUser: '',
         containerDataMountPath: '',
         containerDisableDataVolume: false,
+        containerUpgradeStrategy: String(CONTAINER_UPGRADE_RECREATE),
+        containerReadinessTimeoutSeconds: DEFAULT_READINESS_TIMEOUT_SECONDS,
         assetMounts: [],
         volumeMounts: [],
     });
@@ -66,6 +71,8 @@ export function deploymentConfigToForm(cfg) {
         containerUser: container.user || '',
         containerDataMountPath: container.dataMountPath || '',
         containerDisableDataVolume: Boolean(container.disableDataVolume),
+        containerUpgradeStrategy: String(container.upgradeStrategy || CONTAINER_UPGRADE_RECREATE),
+        containerReadinessTimeoutSeconds: container.readinessSignal?.timeoutSeconds || DEFAULT_READINESS_TIMEOUT_SECONDS,
         envVars: envVarsToFormRows(container.envVars),
         assetMounts: (container.assetMounts || []).map(m => {
             const row = {id: nextAssetMountID++, assetId: m.assetId || 0, key: m.asset || '', path: m.path || '', version: m.version || 0};
@@ -157,6 +164,7 @@ export function deploymentForm(form, opts = {}) {
                     envSummary(form),
                     volumeMountsSummary(form),
                     assetMountsSection(form, opts),
+                    upgradeStrategySection(form),
                 ),
             ),
         ),
@@ -190,7 +198,11 @@ export function formToSpec(form) {
 
     spec.runner.container = {
         disableDataVolume: Boolean(form.containerDisableDataVolume.val),
+        upgradeStrategy: Number(form.containerUpgradeStrategy.val || CONTAINER_UPGRADE_RECREATE),
     };
+    if (Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER) {
+        spec.runner.container.readinessSignal = {timeoutSeconds: Number(form.containerReadinessTimeoutSeconds.val || 0)};
+    }
     const user = form.containerUser.val.trim();
     if (user) spec.runner.container.user = user;
     const dataMountPath = form.containerDataMountPath.val.trim();
@@ -215,7 +227,7 @@ export function isFormValid(form, opts = {}) {
     } else if (!form.nixRepo.val.trim() || !form.nixFlake.val.trim()) {
         return false;
     }
-    if (hasInvalidEnvVars(form) || hasInvalidVolumeConfig(form, opts) || hasInvalidAssetMounts(form)) return false;
+    if (hasInvalidEnvVars(form) || hasInvalidVolumeConfig(form, opts) || hasInvalidAssetMounts(form) || hasInvalidUpgradeStrategy(form)) return false;
     return true;
 }
 
@@ -447,6 +459,8 @@ function makeFormState(values) {
         containerUser: van.state(values.containerUser || ''),
         containerDataMountPath: van.state(values.containerDataMountPath || ''),
         containerDisableDataVolume: van.state(Boolean(values.containerDisableDataVolume)),
+        containerUpgradeStrategy: van.state(String(values.containerUpgradeStrategy || CONTAINER_UPGRADE_RECREATE)),
+        containerReadinessTimeoutSeconds: van.state(values.containerReadinessTimeoutSeconds ?? DEFAULT_READINESS_TIMEOUT_SECONDS),
         envVars: van.state(values.envVars || []),
         assetMounts: van.state(values.assetMounts || []),
         volumeMounts: van.state(values.volumeMounts || []),
@@ -594,6 +608,29 @@ function volumeMountsSummary(form) {
                 if (form.volumeMountsPaneOpen.val) closeRuntimePanes(form, 'volumes');
             },
         }, () => form.volumeMountsPaneOpen.val ? "Close" : "Click to manage"),
+    );
+}
+
+function upgradeStrategySection(form) {
+    return div(
+        {class: "grid grid-cols-1 md:grid-cols-[auto_12rem_minmax(0,1fr)] gap-3 items-end"},
+        selectField("Strategy", form.containerUpgradeStrategy, [
+            {value: String(CONTAINER_UPGRADE_RECREATE), label: "Re-create"},
+            {value: String(CONTAINER_UPGRADE_ROLLOVER), label: "Rollover"},
+        ], "w-44"),
+        () => Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER
+            ? field("Readiness timeout", input({
+                type: "number",
+                min: "0",
+                step: "1",
+                value: form.containerReadinessTimeoutSeconds.rawVal,
+                class: textInputClass(false, false, !hasInvalidUpgradeStrategy(form)),
+                oninput: e => { form.containerReadinessTimeoutSeconds.val = e.target.value; },
+            }), "seconds; 0 uses server default")
+            : '',
+        () => Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER
+            ? span({class: "text-xs text-gray-500 pb-2"}, "Container receives OPENDEPLOY_READINESS_SOCK_PATH and must write ready to it after warmup.")
+            : span({class: "text-xs text-gray-500 pb-2"}, "Stops the current container before starting the new version."),
     );
 }
 
@@ -1152,6 +1189,14 @@ function hasInvalidAssetMounts(form) {
         if (!key) return false;
         return !validAbsolutePath(path);
     });
+}
+
+function hasInvalidUpgradeStrategy(form) {
+    const strategy = Number(form.containerUpgradeStrategy.val || CONTAINER_UPGRADE_RECREATE);
+    if (strategy !== CONTAINER_UPGRADE_RECREATE && strategy !== CONTAINER_UPGRADE_ROLLOVER) return true;
+    if (strategy !== CONTAINER_UPGRADE_ROLLOVER) return false;
+    const timeout = Number(form.containerReadinessTimeoutSeconds.val || 0);
+    return !Number.isFinite(timeout) || timeout < 0;
 }
 
 function hasInvalidEnvVars(form) {

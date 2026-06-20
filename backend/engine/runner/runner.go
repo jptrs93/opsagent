@@ -20,6 +20,12 @@ type Runner interface {
 	Version() int32
 }
 
+type RolloverCandidate interface {
+	Runner
+	WaitReady() error
+	Promote()
+}
+
 // Create picks the correct runner variant for the deployment and starts it.
 // The artifact to execute is taken from status.Preparer.Artifact — the
 // operator only calls Create once the preparer has reached READY for
@@ -35,6 +41,15 @@ func Create(store storage.OperatorStore, dep *apigen.DeploymentConfig, status *a
 		return newSystemdRunnerWithRestart(store, dep, preparer)
 	}
 	return newContainerRunner(store, dep, preparer)
+}
+
+func CreateRolloverCandidate(store storage.OperatorStore, dep *apigen.DeploymentConfig, status *apigen.DeploymentStatus) RolloverCandidate {
+	var preparer apigen.PreparerStatus
+	if status != nil {
+		preparer = status.Preparer
+	}
+	slog.Info("runner.CreateRolloverCandidate", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion)
+	return newRolloverContainerRunner(store, dep, preparer)
 }
 
 // ReAttach resumes supervision of a deployment that was already running

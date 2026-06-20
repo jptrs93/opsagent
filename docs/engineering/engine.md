@@ -46,6 +46,8 @@ Decision flow:
 
 `Stop()` is synchronous. The operator waits until the runner has stopped and written terminal status before moving on.
 
+Container deployments can opt into `runner.container.upgradeStrategy = ROLLOVER`. In that mode the operator starts an unpublished candidate runner for the prepared config version, waits for its readiness signal, then promotes it and stops the old runner. If the candidate exits, times out, or fails before readiness, the operator stops the candidate and keeps the old runner active. The default/unspecified strategy is `RECREATE`, which preserves the stop-then-start behavior above.
+
 ## Preparers
 
 `NixDockerBuilder` asks `GitManager` to prepare a local checkout of the configured Git repo at `DesiredState.Version`, verifies the configured `flake.nix` path exists in that checked-out tree, runs `nix build --no-update-lock-file --no-link --print-out-paths -L` in the configured flake directory, executes the resulting image stream, and pipes it into `ctrd.Client.Import`. The imported image is tagged as `opendeploy.local/nix-docker-build/{deploymentID}:{version}`. Validation and version discovery use Git-native remote/ref operations plus a bare partial metadata cache under the data directory, avoiding GitHub API dependency for Nix/Git sources.
@@ -76,6 +78,7 @@ Container runner behavior:
 - Env refs `${s:name}` and `${c:name}` are prepared by the preparer and resolved at start time.
 - Default data volume is created under `{dataDir}-volumes/` and mounted at `/var` for root containers or `/home/<user>/var` for non-root containers, unless disabled.
 - Additional host mounts and OpenDeploy-managed asset mounts are translated to containerd bind mounts.
+- Rollover candidates get a per-run Unix socket directory mounted at `/run/opendeploy` and `OPENDEPLOY_READINESS_SOCK_PATH=/run/opendeploy/readiness.sock`. The app signals readiness by writing `ready\n` to that socket after warmup. OpenDeploy then stops the old runner; with host networking, the app should wait for its required port to become bindable before starting its server.
 - Reattach uses `ctrd.LoadTask` by deterministic id; if no running task exists, the runner starts fresh.
 - Stop sends SIGTERM, waits up to 3 seconds, sends SIGKILL if needed, then deletes the task/container/snapshot.
 
