@@ -36,7 +36,7 @@ func RunOpenObserveProcess(args []string) error {
 	if err != nil {
 		return err
 	}
-	runOpenObserveLogger(cfg.BasePath, cfg.URL, cfg.Stream, cfg.IngestionToken)
+	runOpenObserveLogger(cfg.BasePath, cfg.URL, cfg.Stream, cfg.IngestionToken, cfg.Svc, cfg.Version)
 	return nil
 }
 
@@ -45,9 +45,11 @@ type OpenObserveConfig struct {
 	URL            string `json:"url"`
 	Stream         string `json:"stream"`
 	IngestionToken string `json:"ingestion_token"`
+	Svc            string `json:"svc"`
+	Version        int    `json:"version"`
 }
 
-func WriteOpenObserveConfig(basePath, openObserveURL, stream, token string) (string, error) {
+func WriteOpenObserveConfig(basePath, openObserveURL, stream, token, svc string, version int) (string, error) {
 	path, err := OpenObserveConfigPath(basePath)
 	if err != nil {
 		return "", err
@@ -60,6 +62,8 @@ func WriteOpenObserveConfig(basePath, openObserveURL, stream, token string) (str
 		URL:            openObserveURL,
 		Stream:         stream,
 		IngestionToken: token,
+		Svc:            svc,
+		Version:        version,
 	})
 	if err != nil {
 		return "", err
@@ -85,15 +89,19 @@ func LoadOpenObserveConfig(path string) (OpenObserveConfig, error) {
 	if err := json.Unmarshal(b, &cfg); err != nil {
 		return OpenObserveConfig{}, fmt.Errorf("parse openobserve log consumer config: %w", err)
 	}
-	if cfg.BasePath == "" || cfg.URL == "" || cfg.Stream == "" || cfg.IngestionToken == "" {
-		return OpenObserveConfig{}, fmt.Errorf("openobserve log consumer config requires base_path, url, stream, and ingestion_token")
+	if cfg.BasePath == "" || cfg.URL == "" || cfg.Stream == "" || cfg.IngestionToken == "" || cfg.Svc == "" || cfg.Version == 0 {
+		return OpenObserveConfig{}, fmt.Errorf("openobserve log consumer config requires base_path, url, stream, ingestion_token, svc, and version")
 	}
 	return cfg, nil
 }
 
-func runOpenObserveLogger(basePath, openObserveURL, space, token string) {
+func runOpenObserveLogger(basePath, openObserveURL, space, token, svc string, version int) {
 	logging.Run(func(ctx context.Context, cfg *logging.Config, ready func() error) error {
 		sink, err := newOpenObserveSink(basePath, openObserveURL, space, token)
+		if err != nil {
+			return err
+		}
+		formatter, err := newOpenObserveRecordFormatter(svc, version)
 		if err != nil {
 			return err
 		}
@@ -107,8 +115,12 @@ func runOpenObserveLogger(basePath, openObserveURL, space, token string) {
 			closeReader(cfg.Stderr)
 		})
 
-		wg.Go(func() { stdoutErr = processOpenObserveLinesWithClock(cfg.Stdout, "stdout", outlines, time.Now) })
-		wg.Go(func() { stderrErr = processOpenObserveLinesWithClock(cfg.Stderr, "stderr", outlines, time.Now) })
+		wg.Go(func() {
+			stdoutErr = processOpenObserveLinesWithClock(cfg.Stdout, "stdout", outlines, time.Now, formatter)
+		})
+		wg.Go(func() {
+			stderrErr = processOpenObserveLinesWithClock(cfg.Stderr, "stderr", outlines, time.Now, formatter)
+		})
 
 		go func() {
 			<-ctx.Done()
@@ -179,12 +191,12 @@ func runOpenObserveLogger(basePath, openObserveURL, space, token string) {
 	})
 }
 
-func processOpenObserveLinesWithClock(r io.Reader, stream string, ch chan<- []byte, now func() time.Time) error {
+func processOpenObserveLinesWithClock(r io.Reader, stream string, ch chan<- []byte, now func() time.Time, formatter openObserveRecordFormatter) error {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 64*1024), maxUnformattedBlockBytes)
 	for scanner.Scan() {
 		line := bytes.Clone(scanner.Bytes())
-		record, err := openObserveRecord(now(), stream, line)
+		record, err := formatter.record(now(), stream, line)
 		if err != nil {
 			return err
 		}
@@ -193,25 +205,49 @@ func processOpenObserveLinesWithClock(r io.Reader, stream string, ch chan<- []by
 	return scanner.Err()
 }
 
-func openObserveRecord(t time.Time, stream string, line []byte) ([]byte, error) {
+type openObserveRecordFormatter struct {
+	svc              string
+	version          int
+	objectSuffix     []byte
+	emptyObjectBytes []byte
+}
+
+func newOpenObserveRecordFormatter(svc string, version int) (openObserveRecordFormatter, error) {
+	fields, err := json.Marshal(struct {
+		Svc     string `json:"svc"`
+		Version int    `json:"version"`
+	}{Svc: svc, Version: version})
+	if err != nil {
+		return openObserveRecordFormatter{}, err
+	}
+	return openObserveRecordFormatter{
+		svc:              svc,
+		version:          version,
+		objectSuffix:     append([]byte{','}, fields[1:]...),
+		emptyObjectBytes: fields,
+	}, nil
+}
+
+func (f openObserveRecordFormatter) record(t time.Time, stream string, line []byte) ([]byte, error) {
+	trimmed := bytes.TrimSpace(line)
+	if json.Valid(trimmed) && len(trimmed) > 0 && trimmed[len(trimmed)-1] == '}' {
+		if len(bytes.TrimSpace(trimmed[1:len(trimmed)-1])) == 0 {
+			return bytes.Clone(f.emptyObjectBytes), nil
+		}
+		record := make([]byte, 0, len(trimmed)-1+len(f.objectSuffix))
+		record = append(record, trimmed[:len(trimmed)-1]...)
+		record = append(record, f.objectSuffix...)
+		return record, nil
+	}
+	return f.wrapPlainLine(t, stream, line)
+}
+
+func (f openObserveRecordFormatter) wrapPlainLine(t time.Time, stream string, line []byte) ([]byte, error) {
 	record := map[string]any{
 		"_timestamp": t.UTC().Format(time.RFC3339Nano),
 		"stream":     stream,
-	}
-	if json.Valid(line) {
-		var fields map[string]any
-		if err := json.Unmarshal(line, &fields); err == nil && fields != nil {
-			for k, v := range fields {
-				record[k] = v
-			}
-			if _, ok := record["_timestamp"]; !ok {
-				record["_timestamp"] = t.UTC().Format(time.RFC3339Nano)
-			}
-			if _, ok := record["stream"]; !ok {
-				record["stream"] = stream
-			}
-			return json.Marshal(record)
-		}
+		"svc":        f.svc,
+		"version":    f.version,
 	}
 	record["message"] = string(line)
 	return json.Marshal(record)

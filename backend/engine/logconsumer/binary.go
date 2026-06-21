@@ -39,12 +39,12 @@ func NewJSONV2(basePath string) (cio.Creator, error) {
 
 // NewOpenObserveV2 returns a containerd logging URI creator that starts this
 // same opendeploy binary in v2 openobserve-log-consumer mode.
-func NewOpenObserveV2(basePath, openObserveURL, space, token string) (cio.Creator, error) {
+func NewOpenObserveV2(basePath, openObserveURL, space, token, svc string, version int) (cio.Creator, error) {
 	binary, err := os.Executable()
 	if err != nil {
 		return nil, err
 	}
-	configPath, err := processlog.WriteOpenObserveConfig(basePath, openObserveURL, space, token)
+	configPath, err := processlog.WriteOpenObserveConfig(basePath, openObserveURL, space, token, svc, version)
 	if err != nil {
 		return nil, err
 	}

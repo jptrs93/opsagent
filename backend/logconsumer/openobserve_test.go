@@ -48,7 +48,7 @@ func TestOpenObserveConfigPath(t *testing.T) {
 
 func TestWriteAndLoadOpenObserveConfig(t *testing.T) {
 	basePath := filepath.Join(t.TempDir(), "10", "2", "1")
-	path, err := WriteOpenObserveConfig(basePath, "https://logs.example.com", "default", "token")
+	path, err := WriteOpenObserveConfig(basePath, "https://logs.example.com", "default", "token", "api", 3)
 	if err != nil {
 		t.Fatalf("WriteOpenObserveConfig: %v", err)
 	}
@@ -63,23 +63,57 @@ func TestWriteAndLoadOpenObserveConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadOpenObserveConfig: %v", err)
 	}
-	if cfg.BasePath != basePath || cfg.URL != "https://logs.example.com" || cfg.Stream != "default" || cfg.IngestionToken != "token" {
+	if cfg.BasePath != basePath || cfg.URL != "https://logs.example.com" || cfg.Stream != "default" || cfg.IngestionToken != "token" || cfg.Svc != "api" || cfg.Version != 3 {
 		t.Fatalf("config = %#v", cfg)
 	}
 }
 
 func TestOpenObserveRecordWrapsPlainLine(t *testing.T) {
 	now := time.Date(2026, 6, 21, 10, 11, 12, 13, time.UTC)
-	record, err := openObserveRecord(now, "stdout", []byte("hello"))
+	formatter, err := newOpenObserveRecordFormatter("api", 3)
 	if err != nil {
-		t.Fatalf("openObserveRecord: %v", err)
+		t.Fatalf("newOpenObserveRecordFormatter: %v", err)
+	}
+	record, err := formatter.record(now, "stdout", []byte("hello"))
+	if err != nil {
+		t.Fatalf("record: %v", err)
 	}
 	var got map[string]any
 	if err := json.Unmarshal(record, &got); err != nil {
 		t.Fatalf("unmarshal record: %v", err)
 	}
-	if got["message"] != "hello" || got["stream"] != "stdout" || got["_timestamp"] != now.Format(time.RFC3339Nano) {
+	if got["message"] != "hello" || got["stream"] != "stdout" || got["_timestamp"] != now.Format(time.RFC3339Nano) || got["svc"] != "api" || got["version"] != float64(3) {
 		t.Fatalf("record = %#v", got)
+	}
+}
+
+func TestOpenObserveRecordInjectsFieldsIntoValidJSONLine(t *testing.T) {
+	formatter, err := newOpenObserveRecordFormatter("api", 3)
+	if err != nil {
+		t.Fatalf("newOpenObserveRecordFormatter: %v", err)
+	}
+	record, err := formatter.record(time.Now(), "stdout", []byte(`{"msg":"ok"}`))
+	if err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	want := `{"msg":"ok","svc":"api","version":3}`
+	if string(record) != want {
+		t.Fatalf("record = %s, want %s", record, want)
+	}
+}
+
+func TestOpenObserveRecordInjectsFieldsIntoEmptyJSONObject(t *testing.T) {
+	formatter, err := newOpenObserveRecordFormatter("api", 3)
+	if err != nil {
+		t.Fatalf("newOpenObserveRecordFormatter: %v", err)
+	}
+	record, err := formatter.record(time.Now(), "stdout", []byte(`{}`))
+	if err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	want := `{"svc":"api","version":3}`
+	if string(record) != want {
+		t.Fatalf("record = %s, want %s", record, want)
 	}
 }
 

@@ -51,6 +51,8 @@ type ContainerSpec struct {
 	OpenObserveURL            string
 	OpenObserveStream         string
 	OpenObserveIngestionToken string
+	OpenObserveSvc            string
+	OpenObserveVersion        int
 }
 
 // ImageStream is an OCI/Docker image tar stream to import into containerd.

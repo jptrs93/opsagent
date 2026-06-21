@@ -60,6 +60,8 @@ type containerRunner struct {
 	mounts         []ctrd.Mount
 	logConsumer    ctrd.LogConsumer
 	openObserve    *apigen.OpenObserveConsumerConfig
+	openObserveSvc string
+	configVersion  int32
 	dataVolumeHost string // host dir to create+chown for the default data volume ("" = disabled)
 	dataVolumeUser string // user the data volume should be owned by
 	readiness      *readinessConfig
@@ -146,18 +148,20 @@ func containerLogConsumer(consumer apigen.ContainerLogConsumer) ctrd.LogConsumer
 func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
 	cfg := dep.Spec.Runner.Container
 	r := &containerRunner{
-		ctx:          ctx,
-		cancel:       cancel,
-		done:         make(chan struct{}),
-		store:        store,
-		deploymentID: dep.ID,
-		containerID:  containerID(dep.ID, configVersion),
-		user:         cfg.User,
-		envVars:      cfg.EnvVars,
-		command:      cfg.Command,
-		cwd:          cfg.WorkingDir,
-		logConsumer:  containerLogConsumer(cfg.LogConsumer),
-		openObserve:  cfg.OpenobserveConsumer,
+		ctx:            ctx,
+		cancel:         cancel,
+		done:           make(chan struct{}),
+		store:          store,
+		deploymentID:   dep.ID,
+		containerID:    containerID(dep.ID, configVersion),
+		configVersion:  configVersion,
+		user:           cfg.User,
+		envVars:        cfg.EnvVars,
+		command:        cfg.Command,
+		cwd:            cfg.WorkingDir,
+		logConsumer:    containerLogConsumer(cfg.LogConsumer),
+		openObserve:    cfg.OpenobserveConsumer,
+		openObserveSvc: dep.ConfigID.Name,
 	}
 	r.mounts, r.dataVolumeHost = containerMounts(dep)
 	r.dataVolumeUser = cfg.User
@@ -336,6 +340,8 @@ func (r *containerRunner) run() {
 			OpenObserveURL:            openObserveURL(r.openObserve),
 			OpenObserveStream:         openObserveStream(r.openObserve),
 			OpenObserveIngestionToken: openObserveToken,
+			OpenObserveSvc:            r.openObserveSvc,
+			OpenObserveVersion:        int(r.configVersion),
 		}
 		task, err := Containerd.RunTask(r.ctx, spec)
 		if err != nil {
