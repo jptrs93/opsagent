@@ -145,6 +145,7 @@ func TestBuildContainerRunnerKeepsOpenObserveConfig(t *testing.T) {
 					Url:           "https://logs.example.com",
 					Stream:        "api",
 					TokenSecretID: 12,
+					SaEmail:       "ingestor@example.com",
 				},
 			},
 		}},

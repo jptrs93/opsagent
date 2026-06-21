@@ -51,6 +51,7 @@ type ContainerSpec struct {
 	OpenObserveURL            string
 	OpenObserveStream         string
 	OpenObserveIngestionToken string
+	OpenObserveSAEmail        string
 	OpenObserveSvc            string
 	OpenObserveVersion        int
 }

@@ -322,6 +322,7 @@
  * @property {string} url
  * @property {string} stream
  * @property {number} tokenSecretId
+ * @property {string} saEmail
  */
 /**
  * @typedef {Object} ContainerRunnerConfig
@@ -4539,6 +4540,9 @@ export function writeOpenObserveConsumerConfig(message, writer) {
     if (message.tokenSecretId !== undefined && message.tokenSecretId !== null && message.tokenSecretId !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int32(message.tokenSecretId);
     }
+    if (message.saEmail !== undefined && message.saEmail !== null && message.saEmail !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.saEmail);
+    }
 }
 
 
@@ -4560,7 +4564,7 @@ export function encodeOpenObserveConsumerConfig(message) {
  */
 function decodeOpenObserveConsumerConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {url: "", stream: "", tokenSecretId: 0 };
+    const message = {url: "", stream: "", tokenSecretId: 0, saEmail: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4574,6 +4578,10 @@ function decodeOpenObserveConsumerConfigMessage(reader, length) {
             }
             case 3: {
                 message.tokenSecretId = reader.int32();
+                break;
+            }
+            case 4: {
+                message.saEmail = reader.string();
                 break;
             }
             default:

@@ -2,6 +2,7 @@ package logconsumer
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -48,7 +49,7 @@ func TestOpenObserveConfigPath(t *testing.T) {
 
 func TestWriteAndLoadOpenObserveConfig(t *testing.T) {
 	basePath := filepath.Join(t.TempDir(), "10", "2", "1")
-	path, err := WriteOpenObserveConfig(basePath, "https://logs.example.com", "default", "token", "api", 3)
+	path, err := WriteOpenObserveConfig(basePath, "https://logs.example.com", "default", "token", "ingestor@example.com", "api", 3)
 	if err != nil {
 		t.Fatalf("WriteOpenObserveConfig: %v", err)
 	}
@@ -63,7 +64,7 @@ func TestWriteAndLoadOpenObserveConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadOpenObserveConfig: %v", err)
 	}
-	if cfg.BasePath != basePath || cfg.URL != "https://logs.example.com" || cfg.Stream != "default" || cfg.IngestionToken != "token" || cfg.Svc != "api" || cfg.Version != 3 {
+	if cfg.BasePath != basePath || cfg.URL != "https://logs.example.com" || cfg.Stream != "default" || cfg.IngestionToken != "token" || cfg.SAEmail != "ingestor@example.com" || cfg.Svc != "api" || cfg.Version != 3 {
 		t.Fatalf("config = %#v", cfg)
 	}
 }
@@ -119,7 +120,7 @@ func TestOpenObserveRecordInjectsFieldsIntoEmptyJSONObject(t *testing.T) {
 
 func TestOpenObserveSpoolDrainSkipsLockedFile(t *testing.T) {
 	basePath := filepath.Join(t.TempDir(), "10", "2", "1")
-	sink, err := newOpenObserveSink(basePath, "https://logs.example.com", "default", "token")
+	sink, err := newOpenObserveSink(basePath, "https://logs.example.com", "default", "token", "ingestor@example.com")
 	if err != nil {
 		t.Fatalf("newOpenObserveSink: %v", err)
 	}
@@ -152,7 +153,8 @@ func TestOpenObserveSpoolDrainPostsAndRemoves(t *testing.T) {
 		if r.URL.Path != "/api/default/default/_json" {
 			t.Fatalf("path = %q", r.URL.Path)
 		}
-		if r.Header.Get("Authorization") != "Basic token" {
+		wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("ingestor@example.com:token"))
+		if r.Header.Get("Authorization") != wantAuth {
 			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
 		}
 		w.WriteHeader(http.StatusOK)
@@ -160,7 +162,7 @@ func TestOpenObserveSpoolDrainPostsAndRemoves(t *testing.T) {
 	defer server.Close()
 
 	basePath := filepath.Join(t.TempDir(), "10", "2", "1")
-	sink, err := newOpenObserveSink(basePath, server.URL, "default", "token")
+	sink, err := newOpenObserveSink(basePath, server.URL, "default", "token", "ingestor@example.com")
 	if err != nil {
 		t.Fatalf("newOpenObserveSink: %v", err)
 	}

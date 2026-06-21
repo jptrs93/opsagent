@@ -41,6 +41,7 @@ export function emptyDeploymentForm() {
         containerLogConsumer: String(CONTAINER_LOG_STANDARD),
         openObserveUrl: '',
         openObserveStream: '',
+        openObserveSAEmail: '',
         openObserveTokenSecretId: 0,
         containerReadinessTimeoutSeconds: DEFAULT_READINESS_TIMEOUT_SECONDS,
         assetMounts: [],
@@ -83,6 +84,7 @@ export function deploymentConfigToForm(cfg) {
         containerLogConsumer: String(container.logConsumer || CONTAINER_LOG_STANDARD),
         openObserveUrl: openobserve.url || '',
         openObserveStream: openobserve.stream || '',
+        openObserveSAEmail: openobserve.saEmail || '',
         openObserveTokenSecretId: openobserve.tokenSecretId || 0,
         containerReadinessTimeoutSeconds: container.readinessSignal?.timeoutSeconds || DEFAULT_READINESS_TIMEOUT_SECONDS,
         envVars: envVarsToFormRows(container.envVars),
@@ -217,6 +219,7 @@ export function formToSpec(form) {
         spec.runner.container.openobserveConsumer = {
             url: form.openObserveUrl.val.trim(),
             stream: form.openObserveStream.val.trim(),
+            saEmail: form.openObserveSAEmail.val.trim(),
             tokenSecretId: Number(form.openObserveTokenSecretId.val || 0),
         };
     }
@@ -483,6 +486,7 @@ function makeFormState(values) {
         containerLogConsumer: van.state(String(values.containerLogConsumer || CONTAINER_LOG_STANDARD)),
         openObserveUrl: van.state(values.openObserveUrl || ''),
         openObserveStream: van.state(values.openObserveStream || ''),
+        openObserveSAEmail: van.state(values.openObserveSAEmail || ''),
         openObserveTokenSecretId: van.state(values.openObserveTokenSecretId || 0),
         containerReadinessTimeoutSeconds: van.state(values.containerReadinessTimeoutSeconds ?? DEFAULT_READINESS_TIMEOUT_SECONDS),
         envVars: van.state(values.envVars || []),
@@ -724,6 +728,13 @@ function openObserveFields(form) {
             class: textInputClass(false, false, true),
             placeholder: "api",
             oninput: e => { form.openObserveStream.val = e.target.value; },
+        })),
+        field("Service account email", input({
+            type: "email",
+            value: form.openObserveSAEmail.rawVal,
+            class: textInputClass(false, false, true),
+            placeholder: "ingestor@example.com",
+            oninput: e => { form.openObserveSAEmail.val = e.target.value; },
         })),
         field("Ingestion token secret", referencePicker({
             refs: () => secretRefsS.val || [],

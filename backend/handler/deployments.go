@@ -741,6 +741,9 @@ func validateContainerLogConsumer(cfg *apigen.ContainerRunnerConfig) error {
 		if strings.TrimSpace(cfg.OpenobserveConsumer.Stream) == "" {
 			return invalidConfigErrf("runner.container.openobserveConsumer.stream is required")
 		}
+		if strings.TrimSpace(cfg.OpenobserveConsumer.SaEmail) == "" {
+			return invalidConfigErrf("runner.container.openobserveConsumer.saEmail is required")
+		}
 		if cfg.OpenobserveConsumer.TokenSecretID <= 0 {
 			return invalidConfigErrf("runner.container.openobserveConsumer.tokenSecretId must be positive")
 		}

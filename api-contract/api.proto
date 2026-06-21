@@ -631,6 +631,7 @@ message OpenObserveConsumerConfig {
   string url = 1;
   string stream = 2;
   int32 token_secret_id = 3;
+  string sa_email = 4;
 }
 
 message ContainerRunnerConfig {

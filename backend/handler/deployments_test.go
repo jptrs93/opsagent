@@ -297,6 +297,7 @@ func TestValidateDeploymentSpecAcceptsOpenObserveContainerLogConsumer(t *testing
 				Url:           "https://logs.example.com",
 				Stream:        "api",
 				TokenSecretID: 7,
+				SaEmail:       "ingestor@example.com",
 			},
 		}},
 	}

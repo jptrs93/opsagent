@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,7 +37,7 @@ func RunOpenObserveProcess(args []string) error {
 	if err != nil {
 		return err
 	}
-	runOpenObserveLogger(cfg.BasePath, cfg.URL, cfg.Stream, cfg.IngestionToken, cfg.Svc, cfg.Version)
+	runOpenObserveLogger(cfg.BasePath, cfg.URL, cfg.Stream, cfg.IngestionToken, cfg.SAEmail, cfg.Svc, cfg.Version)
 	return nil
 }
 
@@ -45,11 +46,12 @@ type OpenObserveConfig struct {
 	URL            string `json:"url"`
 	Stream         string `json:"stream"`
 	IngestionToken string `json:"ingestion_token"`
+	SAEmail        string `json:"sa_email"`
 	Svc            string `json:"svc"`
 	Version        int    `json:"version"`
 }
 
-func WriteOpenObserveConfig(basePath, openObserveURL, stream, token, svc string, version int) (string, error) {
+func WriteOpenObserveConfig(basePath, openObserveURL, stream, token, saEmail, svc string, version int) (string, error) {
 	path, err := OpenObserveConfigPath(basePath)
 	if err != nil {
 		return "", err
@@ -62,6 +64,7 @@ func WriteOpenObserveConfig(basePath, openObserveURL, stream, token, svc string,
 		URL:            openObserveURL,
 		Stream:         stream,
 		IngestionToken: token,
+		SAEmail:        saEmail,
 		Svc:            svc,
 		Version:        version,
 	})
@@ -89,15 +92,15 @@ func LoadOpenObserveConfig(path string) (OpenObserveConfig, error) {
 	if err := json.Unmarshal(b, &cfg); err != nil {
 		return OpenObserveConfig{}, fmt.Errorf("parse openobserve log consumer config: %w", err)
 	}
-	if cfg.BasePath == "" || cfg.URL == "" || cfg.Stream == "" || cfg.IngestionToken == "" || cfg.Svc == "" || cfg.Version == 0 {
-		return OpenObserveConfig{}, fmt.Errorf("openobserve log consumer config requires base_path, url, stream, ingestion_token, svc, and version")
+	if cfg.BasePath == "" || cfg.URL == "" || cfg.Stream == "" || cfg.IngestionToken == "" || cfg.SAEmail == "" || cfg.Svc == "" || cfg.Version == 0 {
+		return OpenObserveConfig{}, fmt.Errorf("openobserve log consumer config requires base_path, url, stream, ingestion_token, sa_email, svc, and version")
 	}
 	return cfg, nil
 }
 
-func runOpenObserveLogger(basePath, openObserveURL, space, token, svc string, version int) {
+func runOpenObserveLogger(basePath, openObserveURL, stream, token, saEmail, svc string, version int) {
 	logging.Run(func(ctx context.Context, cfg *logging.Config, ready func() error) error {
-		sink, err := newOpenObserveSink(basePath, openObserveURL, space, token)
+		sink, err := newOpenObserveSink(basePath, openObserveURL, stream, token, saEmail)
 		if err != nil {
 			return err
 		}
@@ -256,14 +259,15 @@ func (f openObserveRecordFormatter) wrapPlainLine(t time.Time, stream string, li
 type openObserveSink struct {
 	endpoint string
 	token    string
+	saEmail  string
 	client   *http.Client
 	spoolDir string
 	pid      int
 	seq      uint64
 }
 
-func newOpenObserveSink(basePath, openObserveURL, space, token string) (*openObserveSink, error) {
-	endpoint, err := openObserveEndpoint(openObserveURL, space)
+func newOpenObserveSink(basePath, openObserveURL, stream, token, saEmail string) (*openObserveSink, error) {
+	endpoint, err := openObserveEndpoint(openObserveURL, stream)
 	if err != nil {
 		return nil, err
 	}
@@ -277,20 +281,21 @@ func newOpenObserveSink(basePath, openObserveURL, space, token string) (*openObs
 	return &openObserveSink{
 		endpoint: endpoint,
 		token:    token,
+		saEmail:  saEmail,
 		client:   &http.Client{Timeout: openObserveHTTPTimeout},
 		spoolDir: spoolDir,
 		pid:      os.Getpid(),
 	}, nil
 }
 
-func openObserveEndpoint(base, space string) (string, error) {
+func openObserveEndpoint(base, stream string) (string, error) {
 	base = strings.TrimSpace(base)
-	space = strings.TrimSpace(space)
+	stream = strings.TrimSpace(stream)
 	if base == "" {
 		return "", fmt.Errorf("openobserve url is required")
 	}
-	if space == "" {
-		return "", fmt.Errorf("openobserve space is required")
+	if stream == "" {
+		return "", fmt.Errorf("openobserve stream is required")
 	}
 	u, err := url.Parse(base)
 	if err != nil {
@@ -299,7 +304,7 @@ func openObserveEndpoint(base, space string) (string, error) {
 	if u.Scheme == "" || u.Host == "" {
 		return "", fmt.Errorf("openobserve url must include scheme and host")
 	}
-	u.Path = strings.TrimRight(u.Path, "/") + "/api/default/" + url.PathEscape(space) + "/_json"
+	u.Path = strings.TrimRight(u.Path, "/") + "/api/default/" + url.PathEscape(stream) + "/_json"
 	u.RawQuery = ""
 	u.Fragment = ""
 	return u.String(), nil
@@ -351,7 +356,7 @@ func (s *openObserveSink) sendBatch(ctx context.Context, batch [][]byte) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if s.token != "" {
-		req.Header.Set("Authorization", openObserveAuthorization(s.token))
+		req.Header.Set("Authorization", openObserveAuthorization(s.saEmail, s.token))
 	}
 	res, err := s.client.Do(req)
 	if err != nil {
@@ -364,13 +369,14 @@ func (s *openObserveSink) sendBatch(ctx context.Context, batch [][]byte) error {
 	return nil
 }
 
-func openObserveAuthorization(token string) string {
+func openObserveAuthorization(saEmail, token string) string {
 	token = strings.TrimSpace(token)
 	lower := strings.ToLower(token)
 	if strings.HasPrefix(lower, "basic ") || strings.HasPrefix(lower, "bearer ") {
 		return token
 	}
-	return "Basic " + token
+	saEmail = strings.TrimSpace(saEmail)
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(saEmail+":"+token))
 }
 
 func (s *openObserveSink) spoolBatch(batch [][]byte) error {

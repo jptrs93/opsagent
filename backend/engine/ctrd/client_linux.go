@@ -192,7 +192,7 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 
 func newLogConsumer(spec ContainerSpec) (cio.Creator, error) {
 	if spec.LogConsumer == LogConsumerOpenObserve {
-		return logconsumer.NewOpenObserveV2(spec.Output, spec.OpenObserveURL, spec.OpenObserveStream, spec.OpenObserveIngestionToken, spec.OpenObserveSvc, spec.OpenObserveVersion)
+		return logconsumer.NewOpenObserveV2(spec.Output, spec.OpenObserveURL, spec.OpenObserveStream, spec.OpenObserveIngestionToken, spec.OpenObserveSAEmail, spec.OpenObserveSvc, spec.OpenObserveVersion)
 	}
 	if spec.LogConsumer == LogConsumerJSON {
 		return logconsumer.NewJSONV2(spec.Output)

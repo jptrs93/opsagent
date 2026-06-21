@@ -182,6 +182,13 @@ func openObserveStream(cfg *apigen.OpenObserveConsumerConfig) string {
 	return cfg.Stream
 }
 
+func openObserveSAEmail(cfg *apigen.OpenObserveConsumerConfig) string {
+	if cfg == nil {
+		return ""
+	}
+	return cfg.SaEmail
+}
+
 func (r *containerRunner) Version() int32 { return r.status.DeploymentConfigVersion }
 
 func (r *containerRunner) WaitReady() error {
@@ -340,6 +347,7 @@ func (r *containerRunner) run() {
 			OpenObserveURL:            openObserveURL(r.openObserve),
 			OpenObserveStream:         openObserveStream(r.openObserve),
 			OpenObserveIngestionToken: openObserveToken,
+			OpenObserveSAEmail:        openObserveSAEmail(r.openObserve),
 			OpenObserveSvc:            r.openObserveSvc,
 			OpenObserveVersion:        int(r.configVersion),
 		}
