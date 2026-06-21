@@ -5,6 +5,8 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"net/http/httputil"
+	"net/url"
 	"path/filepath"
 	"time"
 
@@ -105,10 +107,11 @@ func runPrimary() {
 	// Primary cluster and enrollment listeners start for every primary.
 	startPrimaryCluster(h, clusterMaterial, cfg)
 	startPrimaryEnrollment(h, clusterMaterial, cfg)
-	m := apigen.CreateOpsagentHttpV1Mux(h, &apigen.MuxConfig{
+	var m http.Handler = apigen.CreateOpsagentHttpV1Mux(h, &apigen.MuxConfig{
 		VerifyAuth:         h.VerifyAuth,
 		MaxRequestBodySize: 20_000_000,
 	})
+	m = withOpenObserveProxy(m)
 	if cfg.WebHTTPOnly {
 		httpServer := http.Server{Handler: m, Addr: cfg.WebListen}
 		slog.Info("starting http-only server", "addr", httpServer.Addr)
@@ -135,6 +138,21 @@ func runPrimary() {
 	slog.Info("starting https server", "addr", cfg.WebListen)
 	err = httpsServer.ListenAndServeTLS("", "")
 	panic(fmt.Sprintf("https server ended: %v", err))
+}
+
+func withOpenObserveProxy(next http.Handler) http.Handler {
+	target, err := url.Parse("http://127.0.0.1:8080")
+	if err != nil {
+		panic(fmt.Sprintf("parsing openobserve proxy target: %v", err))
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/openobserve", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/openobserve/", http.StatusTemporaryRedirect)
+	})
+	mux.Handle("/openobserve/", proxy)
+	mux.Handle("/", next)
+	return mux
 }
 
 func runSecondary() {
