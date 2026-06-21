@@ -297,7 +297,7 @@ func TestValidateDeploymentSpecAcceptsOpenObserveContainerLogConsumer(t *testing
 				Url:           "https://logs.example.com",
 				Stream:        "api",
 				TokenSecretID: 7,
-				SaEmail:       "ingestor@example.com",
+				SaEmailValue:  &apigen.EnvVarValue{Value: ptrString("ingestor@example.com")},
 			},
 		}},
 	}

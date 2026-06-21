@@ -741,14 +741,56 @@ func validateContainerLogConsumer(cfg *apigen.ContainerRunnerConfig) error {
 		if strings.TrimSpace(cfg.OpenobserveConsumer.Stream) == "" {
 			return invalidConfigErrf("runner.container.openobserveConsumer.stream is required")
 		}
-		if strings.TrimSpace(cfg.OpenobserveConsumer.SaEmail) == "" {
-			return invalidConfigErrf("runner.container.openobserveConsumer.saEmail is required")
+		if err := validateOpenObserveSAEmail(cfg.OpenobserveConsumer); err != nil {
+			return err
 		}
 		if cfg.OpenobserveConsumer.TokenSecretID <= 0 {
 			return invalidConfigErrf("runner.container.openobserveConsumer.tokenSecretId must be positive")
 		}
 	default:
 		return invalidConfigErrf("runner.container.logConsumer: unsupported value %d", cfg.LogConsumer)
+	}
+	return nil
+}
+
+func validateOpenObserveSAEmail(cfg *apigen.OpenObserveConsumerConfig) error {
+	hasLegacy := strings.TrimSpace(cfg.SaEmail) != ""
+	hasValue := cfg.SaEmailValue != nil
+	if hasLegacy && hasValue {
+		return invalidConfigErrf("runner.container.openobserveConsumer.saEmailValue cannot be set with deprecated saEmail")
+	}
+	if hasLegacy {
+		return nil
+	}
+	if !hasValue {
+		return invalidConfigErrf("runner.container.openobserveConsumer.saEmail is required")
+	}
+	v := cfg.SaEmailValue
+	set := 0
+	if v.Value != nil {
+		set++
+		if strings.TrimSpace(*v.Value) == "" {
+			return invalidConfigErrf("runner.container.openobserveConsumer.saEmail.value is required")
+		}
+	}
+	if v.SecretID != nil {
+		set++
+		if *v.SecretID <= 0 {
+			return invalidConfigErrf("runner.container.openobserveConsumer.saEmail.secretId must be positive")
+		}
+	}
+	if v.ConfigID != nil {
+		set++
+		if *v.ConfigID <= 0 {
+			return invalidConfigErrf("runner.container.openobserveConsumer.saEmail.configId must be positive")
+		}
+	}
+	if strings.TrimSpace(v.Asset) != "" {
+		set++
+		return invalidConfigErrf("runner.container.openobserveConsumer.saEmail does not support asset refs")
+	}
+	if set != 1 {
+		return invalidConfigErrf("runner.container.openobserveConsumer.saEmail exactly one of value, secretId, or configId is required")
 	}
 	return nil
 }

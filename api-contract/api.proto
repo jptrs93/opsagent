@@ -631,7 +631,9 @@ message OpenObserveConsumerConfig {
   string url = 1;
   string stream = 2;
   int32 token_secret_id = 3;
+  // Deprecated: use sa_email_value. Kept so recently persisted configs can decode.
   string sa_email = 4;
+  EnvVarValue sa_email_value = 5;
 }
 
 message ContainerRunnerConfig {

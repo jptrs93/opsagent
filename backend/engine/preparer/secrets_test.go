@@ -43,11 +43,11 @@ func TestSecretRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 				"TOKEN": {SecretID: ptrInt32(2)},
 				"DUP":   {SecretID: ptrInt32(6)},
 			},
-			OpenobserveConsumer: &apigen.OpenObserveConsumerConfig{TokenSecretID: 4},
+			OpenobserveConsumer: &apigen.OpenObserveConsumerConfig{TokenSecretID: 4, SaEmailValue: &apigen.EnvVarValue{SecretID: ptrInt32(7)}},
 		},
 	}}}
 
-	want := []int32{2, 4, 6}
+	want := []int32{2, 4, 6, 7}
 	if got := SecretRefs(dep); !reflect.DeepEqual(got, want) {
 		t.Fatalf("SecretRefs() = %#v; want %#v", got, want)
 	}
@@ -55,15 +55,18 @@ func TestSecretRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 
 func TestConfigRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-		Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
-			"URL":    {ConfigID: ptrInt32(18)},
-			"DUP":    {ConfigID: ptrInt32(18)},
-			"OTHER":  {ConfigID: ptrInt32(2)},
-			"SECRET": {SecretID: ptrInt32(9)},
-		}},
+		Container: apigen.ContainerRunnerConfig{
+			EnvVars: map[string]*apigen.EnvVarValue{
+				"URL":    {ConfigID: ptrInt32(18)},
+				"DUP":    {ConfigID: ptrInt32(18)},
+				"OTHER":  {ConfigID: ptrInt32(2)},
+				"SECRET": {SecretID: ptrInt32(9)},
+			},
+			OpenobserveConsumer: &apigen.OpenObserveConsumerConfig{SaEmailValue: &apigen.EnvVarValue{ConfigID: ptrInt32(33)}},
+		},
 	}}}
 
-	want := []int32{2, 18}
+	want := []int32{2, 18, 33}
 	if got := ConfigRefs(dep); !reflect.DeepEqual(got, want) {
 		t.Fatalf("ConfigRefs() = %#v; want %#v", got, want)
 	}

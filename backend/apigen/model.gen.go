@@ -2460,6 +2460,7 @@ type OpenObserveConsumerConfig struct {
 	Stream        string
 	TokenSecretID int32
 	SaEmail       string
+	SaEmailValue  *EnvVarValue
 }
 
 func (m *OpenObserveConsumerConfig) Encode() []byte {
@@ -2468,6 +2469,10 @@ func (m *OpenObserveConsumerConfig) Encode() []byte {
 	b = AppendStringField(b, m.Stream, 2)
 	b = AppendInt32Field(b, m.TokenSecretID, 3)
 	b = AppendStringField(b, m.SaEmail, 4)
+	if m.SaEmailValue != nil {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.SaEmailValue.Encode())
+	}
 	return b
 }
 
@@ -2476,6 +2481,7 @@ func DecodeOpenObserveConsumerConfig(b []byte) (*OpenObserveConsumerConfig, erro
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -2490,6 +2496,15 @@ func DecodeOpenObserveConsumerConfig(b []byte) (*OpenObserveConsumerConfig, erro
 			b, m.TokenSecretID, err = ConsumeVarInt32(b, typ)
 		case 4:
 			b, m.SaEmail, err = ConsumeString(b, typ)
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *EnvVarValue
+				item, err = DecodeEnvVarValue(msgBytes)
+				if err == nil {
+					m.SaEmailValue = item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

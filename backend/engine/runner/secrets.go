@@ -102,6 +102,19 @@ func resolveOpenObserveToken(cfg *apigen.OpenObserveConsumerConfig) (string, err
 	return resolveSecretRef(cfg.TokenSecretID)
 }
 
+func resolveOpenObserveSAEmail(cfg *apigen.OpenObserveConsumerConfig) (string, error) {
+	if cfg == nil {
+		return "", fmt.Errorf("openobserve consumer config is required")
+	}
+	if cfg.SaEmailValue != nil {
+		return resolveEnvValue("openobserve saEmail", cfg.SaEmailValue)
+	}
+	if cfg.SaEmail != "" {
+		return cfg.SaEmail, nil
+	}
+	return "", fmt.Errorf("openobserve saEmail is required")
+}
+
 func resolveConfigRef(id int32) (string, error) {
 	if Configs == nil {
 		return "", fmt.Errorf("unknown config id %d: no config store on this node", id)

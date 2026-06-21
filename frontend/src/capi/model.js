@@ -323,6 +323,7 @@
  * @property {string} stream
  * @property {number} tokenSecretId
  * @property {string} saEmail
+ * @property {EnvVarValue} saEmailValue
  */
 /**
  * @typedef {Object} ContainerRunnerConfig
@@ -4543,6 +4544,11 @@ export function writeOpenObserveConsumerConfig(message, writer) {
     if (message.saEmail !== undefined && message.saEmail !== null && message.saEmail !== "") {
         writer.uint32(tag(4, WIRE.LDELIM)).string(message.saEmail);
     }
+    if (message.saEmailValue !== undefined && message.saEmailValue !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeEnvVarValue(message.saEmailValue, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -4564,7 +4570,7 @@ export function encodeOpenObserveConsumerConfig(message) {
  */
 function decodeOpenObserveConsumerConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {url: "", stream: "", tokenSecretId: 0, saEmail: "" };
+    const message = {url: "", stream: "", tokenSecretId: 0, saEmail: "", saEmailValue: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4582,6 +4588,10 @@ function decodeOpenObserveConsumerConfigMessage(reader, length) {
             }
             case 4: {
                 message.saEmail = reader.string();
+                break;
+            }
+            case 5: {
+                message.saEmailValue = decodeEnvVarValueMessage(reader, reader.uint32());
                 break;
             }
             default:

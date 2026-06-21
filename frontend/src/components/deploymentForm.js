@@ -41,7 +41,7 @@ export function emptyDeploymentForm() {
         containerLogConsumer: String(CONTAINER_LOG_STANDARD),
         openObserveUrl: '',
         openObserveStream: '',
-        openObserveSAEmail: '',
+        openObserveSAEmail: {type: 'value', value: '', secretId: 0, configId: 0},
         openObserveTokenSecretId: 0,
         containerReadinessTimeoutSeconds: DEFAULT_READINESS_TIMEOUT_SECONDS,
         assetMounts: [],
@@ -84,7 +84,7 @@ export function deploymentConfigToForm(cfg) {
         containerLogConsumer: String(container.logConsumer || CONTAINER_LOG_STANDARD),
         openObserveUrl: openobserve.url || '',
         openObserveStream: openobserve.stream || '',
-        openObserveSAEmail: openobserve.saEmail || '',
+        openObserveSAEmail: openObserveSAEmailToFormValue(openobserve),
         openObserveTokenSecretId: openobserve.tokenSecretId || 0,
         containerReadinessTimeoutSeconds: container.readinessSignal?.timeoutSeconds || DEFAULT_READINESS_TIMEOUT_SECONDS,
         envVars: envVarsToFormRows(container.envVars),
@@ -219,7 +219,7 @@ export function formToSpec(form) {
         spec.runner.container.openobserveConsumer = {
             url: form.openObserveUrl.val.trim(),
             stream: form.openObserveStream.val.trim(),
-            saEmail: form.openObserveSAEmail.val.trim(),
+            saEmailValue: formOpenObserveSAEmailValue(form),
             tokenSecretId: Number(form.openObserveTokenSecretId.val || 0),
         };
     }
@@ -250,6 +250,7 @@ export function isFormValid(form, opts = {}) {
     } else if (!form.nixRepo.val.trim() || !form.nixFlake.val.trim()) {
         return false;
     }
+    if (Number(form.containerLogConsumer.val) === CONTAINER_LOG_OPENOBSERVE && hasInvalidOpenObserveConfig(form)) return false;
     if (hasInvalidEnvVars(form) || hasInvalidVolumeConfig(form, opts) || hasInvalidAssetMounts(form) || hasInvalidUpgradeStrategy(form)) return false;
     return true;
 }
@@ -486,7 +487,7 @@ function makeFormState(values) {
         containerLogConsumer: van.state(String(values.containerLogConsumer || CONTAINER_LOG_STANDARD)),
         openObserveUrl: van.state(values.openObserveUrl || ''),
         openObserveStream: van.state(values.openObserveStream || ''),
-        openObserveSAEmail: van.state(values.openObserveSAEmail || ''),
+        openObserveSAEmail: van.state(openObserveSAEmailFormValue(values.openObserveSAEmail)),
         openObserveTokenSecretId: van.state(values.openObserveTokenSecretId || 0),
         containerReadinessTimeoutSeconds: van.state(values.containerReadinessTimeoutSeconds ?? DEFAULT_READINESS_TIMEOUT_SECONDS),
         envVars: van.state(values.envVars || []),
@@ -729,13 +730,7 @@ function openObserveFields(form) {
             placeholder: "api",
             oninput: e => { form.openObserveStream.val = e.target.value; },
         })),
-        field("Service account email", input({
-            type: "email",
-            value: form.openObserveSAEmail.rawVal,
-            class: textInputClass(false, false, true),
-            placeholder: "ingestor@example.com",
-            oninput: e => { form.openObserveSAEmail.val = e.target.value; },
-        })),
+        field("Service account email", openObserveSAEmailField(form)),
         field("Ingestion token secret", referencePicker({
             refs: () => secretRefsS.val || [],
             selectedKey,
@@ -748,6 +743,82 @@ function openObserveFields(form) {
             },
         })),
     );
+}
+
+function openObserveSAEmailField(form) {
+    return div({class: "grid grid-cols-1 md:grid-cols-[8rem_1fr] gap-2"},
+        select({
+            class: textInputClass(false, false, true),
+            value: () => openObserveSAEmailFormValue(form.openObserveSAEmail.val).type,
+            onchange: e => { form.openObserveSAEmail.val = openObserveSAEmailTypePatch(form.openObserveSAEmail.val, e.target.value); },
+        },
+            option({value: "value"}, "Value"),
+            option({value: "secret"}, "Secret"),
+            option({value: "config"}, "Config"),
+        ),
+        () => openObserveSAEmailValueField(form),
+    );
+}
+
+function openObserveSAEmailValueField(form) {
+    const row = openObserveSAEmailFormValue(form.openObserveSAEmail.val);
+    if (row.type === 'secret' || row.type === 'config') {
+        const isSecret = row.type === 'secret';
+        const selectedKey = van.state((isSecret ? row.secretId : row.configId) || '');
+        return referencePicker({
+            refs: () => isSecret ? (secretRefsS.val || []) : (userConfigRefsS.val || []),
+            selectedKey,
+            placeholder: isSecret ? "Search secrets" : "Search configs",
+            noMatchesLabel: `No matching ${isSecret ? 'secrets' : 'configs'}`,
+            emptyLabel: `No ${isSecret ? 'secrets' : 'configs'} available`,
+            onSelect: ref => {
+                selectedKey.val = ref.id;
+                form.openObserveSAEmail.val = isSecret
+                    ? {...openObserveSAEmailFormValue(form.openObserveSAEmail.val), secretId: ref.id}
+                    : {...openObserveSAEmailFormValue(form.openObserveSAEmail.val), configId: ref.id};
+            },
+        });
+    }
+    return input({
+        type: "email",
+        value: row.value || '',
+        class: textInputClass(false, false, true),
+        placeholder: "ingestor@example.com",
+        oninput: e => { form.openObserveSAEmail.val = {...openObserveSAEmailFormValue(form.openObserveSAEmail.val), value: e.target.value}; },
+    });
+}
+
+function openObserveSAEmailToFormValue(openobserve) {
+    return envValueToOpenObserveSAEmailFormValue(openobserve?.saEmailValue) || openObserveSAEmailFormValue({value: openobserve?.saEmail || ''});
+}
+
+function envValueToOpenObserveSAEmailFormValue(value) {
+    const secretId = Number(value?.secretId || 0);
+    const configId = Number(value?.configId || 0);
+    if (secretId) return {type: 'secret', value: '', secretId, configId: 0};
+    if (configId) return {type: 'config', value: '', secretId: 0, configId};
+    if (value?.value !== undefined) return {type: 'value', value: value.value || '', secretId: 0, configId: 0};
+    return null;
+}
+
+function openObserveSAEmailFormValue(value) {
+    if (!value || typeof value !== 'object') return {type: 'value', value: value || '', secretId: 0, configId: 0};
+    const type = ['value', 'secret', 'config'].includes(value.type) ? value.type : 'value';
+    return {type, value: value.value || '', secretId: Number(value.secretId || 0), configId: Number(value.configId || 0)};
+}
+
+function openObserveSAEmailTypePatch(value, type) {
+    const row = openObserveSAEmailFormValue(value);
+    if (type === 'secret') return {type, value: '', secretId: row.secretId || 0, configId: 0};
+    if (type === 'config') return {type, value: '', secretId: 0, configId: row.configId || 0};
+    return {type: 'value', value: row.value || '', secretId: 0, configId: 0};
+}
+
+function formOpenObserveSAEmailValue(form) {
+    const row = openObserveSAEmailFormValue(form.openObserveSAEmail.val);
+    if (row.type === 'secret') return {secretId: Number(row.secretId || 0)};
+    if (row.type === 'config') return {configId: Number(row.configId || 0)};
+    return {value: row.value || ''};
 }
 
 function defaultVolumeCard(form) {
@@ -1356,6 +1427,15 @@ function hasInvalidUpgradeStrategy(form) {
     if (strategy !== CONTAINER_UPGRADE_ROLLOVER) return false;
     const timeout = Number(form.containerReadinessTimeoutSeconds.val || 0);
     return !Number.isFinite(timeout) || timeout < 0;
+}
+
+function hasInvalidOpenObserveConfig(form) {
+    if (!form.openObserveUrl.val.trim() || !form.openObserveStream.val.trim()) return true;
+    if (!Number(form.openObserveTokenSecretId.val || 0)) return true;
+    const row = openObserveSAEmailFormValue(form.openObserveSAEmail.val);
+    if (row.type === 'secret') return !Number(row.secretId || 0);
+    if (row.type === 'config') return !Number(row.configId || 0);
+    return !String(row.value || '').trim();
 }
 
 function hasInvalidEnvVars(form) {

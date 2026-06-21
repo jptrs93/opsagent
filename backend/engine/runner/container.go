@@ -182,13 +182,6 @@ func openObserveStream(cfg *apigen.OpenObserveConsumerConfig) string {
 	return cfg.Stream
 }
 
-func openObserveSAEmail(cfg *apigen.OpenObserveConsumerConfig) string {
-	if cfg == nil {
-		return ""
-	}
-	return cfg.SaEmail
-}
-
 func (r *containerRunner) Version() int32 { return r.status.DeploymentConfigVersion }
 
 func (r *containerRunner) WaitReady() error {
@@ -288,10 +281,22 @@ func (r *containerRunner) run() {
 			continue
 		}
 		openObserveToken := ""
+		openObserveSAEmail := ""
 		if r.logConsumer == ctrd.LogConsumerOpenObserve {
 			openObserveToken, err = resolveOpenObserveToken(r.openObserve)
 			if err != nil {
 				slog.ErrorContext(r.ctx, "resolving openobserve token failed", "err", err)
+				r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+				crashCount++
+				if !r.sleepBackoff(crashCount) {
+					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+					return
+				}
+				continue
+			}
+			openObserveSAEmail, err = resolveOpenObserveSAEmail(r.openObserve)
+			if err != nil {
+				slog.ErrorContext(r.ctx, "resolving openobserve service account email failed", "err", err)
 				r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 				crashCount++
 				if !r.sleepBackoff(crashCount) {
@@ -347,7 +352,7 @@ func (r *containerRunner) run() {
 			OpenObserveURL:            openObserveURL(r.openObserve),
 			OpenObserveStream:         openObserveStream(r.openObserve),
 			OpenObserveIngestionToken: openObserveToken,
-			OpenObserveSAEmail:        openObserveSAEmail(r.openObserve),
+			OpenObserveSAEmail:        openObserveSAEmail,
 			OpenObserveSvc:            r.openObserveSvc,
 			OpenObserveVersion:        int(r.configVersion),
 		}
