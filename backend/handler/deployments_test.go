@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -238,6 +239,7 @@ func TestDeploymentUpdateRejectsSystemDeploymentSpecUpdate(t *testing.T) {
 	h := &Handler{Store: store}
 	_, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
 		DeploymentID: system.ID,
+		Version:      system.Version + 1,
 		Spec: apigen.DeploymentSpec{
 			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 			Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{UpgradeStrategy: apigen.ContainerUpgradeStrategy_RECREATE}},
@@ -360,6 +362,80 @@ func TestValidateDeploymentSpecAcceptsLiteralEnvValues(t *testing.T) {
 	}, nil, fakeSecretResolver{}, fakeConfigResolver{})
 	if err != nil {
 		t.Fatalf("validateDeploymentSpecWithResolvers failed: %v", err)
+	}
+}
+
+func TestDeploymentUpdateCombinesSpaceAndDesiredStateInSingleConfigVersion(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+	})
+	h := &Handler{Store: store}
+
+	spaceID := int32(2)
+	_, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID:  created.ID,
+		Version:       created.Version + 1,
+		SpaceID:       &spaceID,
+		TargetVersion: "1.25",
+	})
+	if err != nil {
+		t.Fatalf("PostV1DeploymentUpdate failed: %v", err)
+	}
+
+	cfg := h.findConfigByID(created.ID)
+	if cfg == nil {
+		t.Fatal("updated deployment not found")
+	}
+	if cfg.Version != created.Version+1 {
+		t.Fatalf("version = %d, want %d", cfg.Version, created.Version+1)
+	}
+	if cfg.ConfigID.SpaceID != spaceID {
+		t.Fatalf("space = %d, want %d", cfg.ConfigID.SpaceID, spaceID)
+	}
+	if cfg.DesiredState.Version != "1.25" || !cfg.DesiredState.Running {
+		t.Fatalf("desired state = %+v, want running 1.25", cfg.DesiredState)
+	}
+	if history := store.MustFetchDeploymentHistory(created.ID); len(history) != 2 {
+		t.Fatalf("history len = %d, want create + one combined update", len(history))
+	}
+}
+
+func TestDeploymentUpdateRejectsStaleExpectedVersion(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+	})
+	h := &Handler{Store: store}
+
+	_, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID:  created.ID,
+		Version:       created.Version,
+		TargetVersion: "1.25",
+	})
+	apiErr, ok := err.(apigen.ApiErr)
+	if !ok || apiErr.Code != http.StatusBadRequest || !strings.Contains(apiErr.Error(), "version mismatch") {
+		t.Fatalf("err = %#v, want 400 version mismatch", err)
+	}
+}
+
+func TestDeploymentUpdateRequiresExpectedVersion(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+	})
+	h := &Handler{Store: store}
+
+	_, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID:  created.ID,
+		TargetVersion: "1.25",
+	})
+	apiErr, ok := err.(apigen.ApiErr)
+	if !ok || apiErr.Code != http.StatusBadRequest || !strings.Contains(apiErr.Error(), "version mismatch") {
+		t.Fatalf("err = %#v, want 400 version mismatch", err)
 	}
 }
 

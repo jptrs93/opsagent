@@ -56,17 +56,18 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr
 	}
-	var cfg *apigen.DeploymentConfig
-	if req.SpaceID != nil || !req.Spec.IsZero() {
-		cfg = h.findConfigByID(req.DeploymentID)
-		if cfg == nil || cfg.Deleted {
-			return nil, DeploymentNotFoundErr
-		}
-		if sqlite.IsSystemDeploymentConfig(cfg) {
-			return nil, invalidConfigErrf("opendeploy system deployment identity and spec are internal-only")
-		}
+	cfg := h.findConfigByID(req.DeploymentID)
+	if cfg == nil || cfg.Deleted {
+		return nil, DeploymentNotFoundErr
+	}
+	if req.Version != cfg.Version+1 {
+		return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
+	}
+	if (req.SpaceID != nil || !req.Spec.IsZero()) && sqlite.IsSystemDeploymentConfig(cfg) {
+		return nil, invalidConfigErrf("opendeploy system deployment identity and spec are internal-only")
 	}
 
+	var spec *apigen.DeploymentSpec
 	if req.SpaceID != nil {
 		if cfg.ConfigID.SpaceID != *req.SpaceID {
 			nextID := cfg.ConfigID
@@ -76,32 +77,40 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 					return nil, DuplicateDeploymentErr
 				}
 			}
-			h.Store.MustUpdateDeploymentSpace(ctx, req.DeploymentID, *req.SpaceID)
 		}
 	}
 
 	if !req.Spec.IsZero() {
-		spec, err := h.validateDeploymentSpec(&req.Spec)
+		validated, err := h.validateDeploymentSpec(&req.Spec)
 		if err != nil {
 			return nil, err
 		}
-		h.Store.MustUpdateDeploymentSpec(ctx, req.DeploymentID, spec)
+		spec = validated
 	}
 
 	desired := apigen.DesiredState{}
+	var desiredUpdate *apigen.DesiredState
 	if req.Stop {
 		desired.Running = false
 		// Preserve the existing version so a subsequent "start" can reuse it.
-		if cfg := h.findConfigByID(req.DeploymentID); cfg != nil {
-			desired.Version = cfg.DesiredState.Version
-		}
+		desired.Version = cfg.DesiredState.Version
+		desiredUpdate = &desired
 	} else if req.TargetVersion != "" {
 		desired.Version = req.TargetVersion
 		desired.Running = true
+		desiredUpdate = &desired
 	}
 
-	if req.TargetVersion != "" || req.Stop {
-		h.Store.MustSetDeploymentDesiredState(ctx, req.DeploymentID, desired)
+	if req.SpaceID != nil || spec != nil || desiredUpdate != nil {
+		current, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, sqlite.DeploymentConfigUpdate{
+			ExpectedVersion: req.Version,
+			SpaceID:         req.SpaceID,
+			Spec:            spec,
+			DesiredState:    desiredUpdate,
+		})
+		if !versionOK {
+			return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, current.Version+1)
+		}
 	}
 
 	return &desired, nil

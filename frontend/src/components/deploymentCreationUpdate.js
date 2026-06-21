@@ -334,7 +334,9 @@ export class DeploymentCreationUpdate {
         const targetVersion = internalGithubRelease
             ? this.githubRelease.selectedRelease.val.trim()
             : this.selectedTargetVersion();
-        if (targetVersion) payload.targetVersion = targetVersion;
+        if (targetVersion && (targetVersion !== (this.existingState.deployedVersion || '') || !this.existingState.desiredRunning)) {
+            payload.targetVersion = targetVersion;
+        }
         return payload;
     }
 }

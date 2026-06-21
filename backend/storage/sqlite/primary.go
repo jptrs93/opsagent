@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -219,6 +220,107 @@ func (s *PrimaryStorage) MustFetchDeploymentStatusHistory(deploymentID int32) []
 }
 
 // --- desired state ---
+
+type DeploymentConfigUpdate struct {
+	ExpectedVersion int32
+	SpaceID         *int32
+	Spec            *apigen.DeploymentSpec
+	DesiredState    *apigen.DesiredState
+}
+
+func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID int32, update DeploymentConfigUpdate) (*apigen.DeploymentConfig, bool, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	bgCtx := context.Background()
+	dbID := int64(deploymentID)
+	now := time.Now().UnixMilli()
+	tx, err := s.db.BeginTx(bgCtx, nil)
+	if err != nil {
+		panic(fmt.Sprintf("begin tx: %v", err))
+	}
+	defer tx.Rollback()
+	q := s.q.WithTx(tx)
+
+	userID := int64(0)
+	if ctx.User != nil {
+		userID = int64(ctx.User.ID)
+	}
+
+	existing, err := q.GetDeploymentConfig(bgCtx, dbID)
+	if err != nil {
+		panic(fmt.Sprintf("GetDeploymentConfig: %v", err))
+	}
+	if update.ExpectedVersion != int32(existing.Version+1) {
+		if err := tx.Commit(); err != nil {
+			panic(fmt.Sprintf("commit: %v", err))
+		}
+		return configRowToProto(existing), false, false
+	}
+
+	specBlob := existing.SpecBlob
+	if update.Spec != nil {
+		specBlob = update.Spec.Encode()
+	}
+	spaceID := existing.SpaceID
+	if update.SpaceID != nil {
+		spaceID = int64(*update.SpaceID)
+	}
+	desiredVersion := existing.DesiredVersion
+	desiredRunning := existing.DesiredRunning
+	if update.DesiredState != nil {
+		desiredVersion = update.DesiredState.Version
+		desiredRunning = boolToInt(update.DesiredState.Running)
+	}
+
+	if spaceID == existing.SpaceID &&
+		bytes.Equal(specBlob, existing.SpecBlob) &&
+		desiredVersion == existing.DesiredVersion &&
+		desiredRunning == existing.DesiredRunning {
+		if err := tx.Commit(); err != nil {
+			panic(fmt.Sprintf("commit: %v", err))
+		}
+		return configRowToProto(existing), false, true
+	}
+
+	params := UpsertDeploymentConfigParams{
+		DeploymentID:   dbID,
+		SpaceID:        spaceID,
+		Machine:        existing.Machine,
+		Name:           existing.Name,
+		CreatedAt:      existing.CreatedAt,
+		Version:        existing.Version + 1,
+		UpdatedAt:      now,
+		UpdatedBy:      userID,
+		SpecBlob:       specBlob,
+		DesiredVersion: desiredVersion,
+		DesiredRunning: desiredRunning,
+		Deleted:        existing.Deleted,
+	}
+	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
+		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
+	}
+	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
+		DeploymentID:   dbID,
+		Version:        params.Version,
+		UpdatedAt:      params.UpdatedAt,
+		UpdatedBy:      params.UpdatedBy,
+		SpecBlob:       params.SpecBlob,
+		DesiredVersion: params.DesiredVersion,
+		DesiredRunning: params.DesiredRunning,
+		Deleted:        params.Deleted,
+	}); err != nil {
+		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
+	}
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit: %v", err))
+	}
+
+	cfg := upsertParamsToProto(params)
+	s.configCache[deploymentID] = cfg
+	s.notifyFromCache(deploymentID)
+	return cfg, true, true
+}
 
 func (s *PrimaryStorage) MustSetDeploymentDesiredState(ctx apigen.Context, deploymentID int32, desired apigen.DesiredState) {
 	s.mu.Lock()
