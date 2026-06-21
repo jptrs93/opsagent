@@ -36,15 +36,18 @@ func (f *fakeConfigProvider) FetchConfigs(ctx context.Context, keys []int32) (ma
 
 func TestSecretRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-		Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
-			"DB":    {SecretID: ptrInt32(6)},
-			"MIX":   {ConfigID: ptrInt32(3)},
-			"TOKEN": {SecretID: ptrInt32(2)},
-			"DUP":   {SecretID: ptrInt32(6)},
-		}},
+		Container: apigen.ContainerRunnerConfig{
+			EnvVars: map[string]*apigen.EnvVarValue{
+				"DB":    {SecretID: ptrInt32(6)},
+				"MIX":   {ConfigID: ptrInt32(3)},
+				"TOKEN": {SecretID: ptrInt32(2)},
+				"DUP":   {SecretID: ptrInt32(6)},
+			},
+			OpenobserveConsumer: &apigen.OpenObserveConsumerConfig{TokenSecretID: 4},
+		},
 	}}}
 
-	want := []int32{2, 6}
+	want := []int32{2, 4, 6}
 	if got := SecretRefs(dep); !reflect.DeepEqual(got, want) {
 		t.Fatalf("SecretRefs() = %#v; want %#v", got, want)
 	}

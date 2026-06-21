@@ -132,5 +132,32 @@ func TestBuildContainerRunnerUsesConfiguredLogConsumer(t *testing.T) {
 	}
 }
 
+func TestBuildContainerRunnerKeepsOpenObserveConfig(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dep := &apigen.DeploymentConfig{
+		ID: 7,
+		Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{
+				DisableDataVolume: true,
+				LogConsumer:       apigen.ContainerLogConsumer_OPENOBSERVE,
+				OpenobserveConsumer: &apigen.OpenObserveConsumerConfig{
+					Url:           "https://logs.example.com",
+					Stream:        "api",
+					TokenSecretID: 12,
+				},
+			},
+		}},
+	}
+
+	r := buildContainerRunner(ctx, cancel, nil, dep, 26)
+	if r.logConsumer != ctrd.LogConsumerOpenObserve {
+		t.Fatalf("log consumer = %v, want %v", r.logConsumer, ctrd.LogConsumerOpenObserve)
+	}
+	if r.openObserve == nil || r.openObserve.TokenSecretID != 12 {
+		t.Fatalf("openobserve config = %#v", r.openObserve)
+	}
+}
+
 func ptrString(v string) *string { return &v }
 func ptrInt32(v int32) *int32    { return &v }

@@ -13,6 +13,7 @@ const CONTAINER_UPGRADE_RECREATE = 1;
 const CONTAINER_UPGRADE_ROLLOVER = 2;
 const CONTAINER_LOG_STANDARD = 1;
 const CONTAINER_LOG_JSON = 2;
+const CONTAINER_LOG_OPENOBSERVE = 3;
 const DEFAULT_READINESS_TIMEOUT_SECONDS = 600;
 const DEPLOYMENT_VOLUME_HOST_RE = /^\/var\/lib\/opendeploy-volumes\/(\d+)\/var$/;
 const DEFAULT_SPACE_ID = 1;
@@ -38,6 +39,9 @@ export function emptyDeploymentForm() {
         containerDisableDataVolume: false,
         containerUpgradeStrategy: String(CONTAINER_UPGRADE_RECREATE),
         containerLogConsumer: String(CONTAINER_LOG_STANDARD),
+        openObserveUrl: '',
+        openObserveStream: '',
+        openObserveTokenSecretId: 0,
         containerReadinessTimeoutSeconds: DEFAULT_READINESS_TIMEOUT_SECONDS,
         assetMounts: [],
         volumeMounts: [],
@@ -52,6 +56,7 @@ export function deploymentConfigToForm(cfg) {
     const nixDocker = prepare.nixDockerBuild || {};
     const containerImage = prepare.containerImage || {};
     const container = runner.container || {};
+    const openobserve = container.openobserveConsumer || {};
 
     // Reveal a section's additional options up-front when the existing config
     // already sets one of them, so they aren't hidden on edit.
@@ -76,6 +81,9 @@ export function deploymentConfigToForm(cfg) {
         containerDisableDataVolume: Boolean(container.disableDataVolume),
         containerUpgradeStrategy: String(container.upgradeStrategy || CONTAINER_UPGRADE_RECREATE),
         containerLogConsumer: String(container.logConsumer || CONTAINER_LOG_STANDARD),
+        openObserveUrl: openobserve.url || '',
+        openObserveStream: openobserve.stream || '',
+        openObserveTokenSecretId: openobserve.tokenSecretId || 0,
         containerReadinessTimeoutSeconds: container.readinessSignal?.timeoutSeconds || DEFAULT_READINESS_TIMEOUT_SECONDS,
         envVars: envVarsToFormRows(container.envVars),
         assetMounts: (container.assetMounts || []).map(m => {
@@ -205,6 +213,13 @@ export function formToSpec(form) {
         upgradeStrategy: Number(form.containerUpgradeStrategy.val || CONTAINER_UPGRADE_RECREATE),
         logConsumer: Number(form.containerLogConsumer.val || CONTAINER_LOG_STANDARD),
     };
+    if (Number(form.containerLogConsumer.val) === CONTAINER_LOG_OPENOBSERVE) {
+        spec.runner.container.openobserveConsumer = {
+            url: form.openObserveUrl.val.trim(),
+            stream: form.openObserveStream.val.trim(),
+            tokenSecretId: Number(form.openObserveTokenSecretId.val || 0),
+        };
+    }
     if (Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER) {
         spec.runner.container.readinessSignal = {timeoutSeconds: Number(form.containerReadinessTimeoutSeconds.val || 0)};
     }
@@ -466,6 +481,9 @@ function makeFormState(values) {
         containerDisableDataVolume: van.state(Boolean(values.containerDisableDataVolume)),
         containerUpgradeStrategy: van.state(String(values.containerUpgradeStrategy || CONTAINER_UPGRADE_RECREATE)),
         containerLogConsumer: van.state(String(values.containerLogConsumer || CONTAINER_LOG_STANDARD)),
+        openObserveUrl: van.state(values.openObserveUrl || ''),
+        openObserveStream: van.state(values.openObserveStream || ''),
+        openObserveTokenSecretId: van.state(values.openObserveTokenSecretId || 0),
         containerReadinessTimeoutSeconds: van.state(values.containerReadinessTimeoutSeconds ?? DEFAULT_READINESS_TIMEOUT_SECONDS),
         envVars: van.state(values.envVars || []),
         assetMounts: van.state(values.assetMounts || []),
@@ -639,6 +657,7 @@ function upgradeStrategyLabel(form) {
 }
 
 function logConsumerLabel(form) {
+    if (Number(form.containerLogConsumer.val) === CONTAINER_LOG_OPENOBSERVE) return "OpenObserve";
     return Number(form.containerLogConsumer.val) === CONTAINER_LOG_JSON ? "JSON" : "Standard";
 }
 
@@ -666,8 +685,12 @@ export function upgradeStrategyPane(form) {
             selectField("Log consumer", form.containerLogConsumer, [
                 {value: String(CONTAINER_LOG_STANDARD), label: "Standard logfmt"},
                 {value: String(CONTAINER_LOG_JSON), label: "JSON to logfmt"},
+                {value: String(CONTAINER_LOG_OPENOBSERVE), label: "OpenObserve"},
             ], "w-full"),
-            p({class: "text-xs leading-relaxed text-gray-500"}, "Standard preserves logfmt lines and wraps other output as unformatted. JSON parses each line as JSON and flattens top-level fields one level deep."),
+            p({class: "text-xs leading-relaxed text-gray-500"}, "Standard preserves logfmt lines and wraps other output as unformatted. JSON parses each line as JSON and flattens top-level fields one level deep. OpenObserve posts batches directly and spools failed batches on disk."),
+            () => Number(form.containerLogConsumer.val) === CONTAINER_LOG_OPENOBSERVE
+                ? openObserveFields(form)
+                : '',
             () => Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER
                 ? field("Readiness timeout", input({
                     type: "number",
@@ -682,6 +705,37 @@ export function upgradeStrategyPane(form) {
                 ? p({class: "text-xs leading-relaxed text-gray-500"}, "OpenDeploy starts the new container beside the old one and waits for it to write ready to OPENDEPLOY_READINESS_SOCK_PATH. After the signal, OpenDeploy stops the old container; the app should then wait for its port to be free before serving.")
                 : p({class: "text-xs leading-relaxed text-gray-500"}, "OpenDeploy stops the current container before starting the new version."),
         ),
+    );
+}
+
+function openObserveFields(form) {
+    const selectedKey = van.state(form.openObserveTokenSecretId.val || '');
+    return div({class: "flex flex-col gap-3 rounded-lg border border-gray-700 bg-gray-900/40 p-3"},
+        field("OpenObserve URL", input({
+            type: "text",
+            value: form.openObserveUrl.rawVal,
+            class: textInputClass(false, false, true),
+            placeholder: "https://openobserve.example.com",
+            oninput: e => { form.openObserveUrl.val = e.target.value; },
+        })),
+        field("OpenObserve stream", input({
+            type: "text",
+            value: form.openObserveStream.rawVal,
+            class: textInputClass(false, false, true),
+            placeholder: "api",
+            oninput: e => { form.openObserveStream.val = e.target.value; },
+        })),
+        field("Ingestion token secret", referencePicker({
+            refs: () => secretRefsS.val || [],
+            selectedKey,
+            placeholder: "Search secrets",
+            noMatchesLabel: "No matching secrets",
+            emptyLabel: "No secrets available",
+            onSelect: ref => {
+                selectedKey.val = ref.id;
+                form.openObserveTokenSecretId.val = ref.id;
+            },
+        })),
     );
 }
 

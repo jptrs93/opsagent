@@ -318,6 +318,12 @@
  * @property {number} timeoutSeconds
  */
 /**
+ * @typedef {Object} OpenObserveConsumerConfig
+ * @property {string} url
+ * @property {string} stream
+ * @property {number} tokenSecretId
+ */
+/**
  * @typedef {Object} ContainerRunnerConfig
  * @property {string} user
  * @property {Object.<string, EnvVarValue>} envVars
@@ -330,6 +336,7 @@
  * @property {number} upgradeStrategy
  * @property {ContainerReadinessSignal} readinessSignal
  * @property {number} logConsumer
+ * @property {OpenObserveConsumerConfig} openobserveConsumer
  */
 /**
  * @typedef {Object} RunnerConfig
@@ -4519,6 +4526,76 @@ export function decodeContainerReadinessSignal(buffer) {
 
 
 /**
+ * @param {OpenObserveConsumerConfig} message
+ * @param {Writer} writer
+ */
+export function writeOpenObserveConsumerConfig(message, writer) {
+    if (message.url !== undefined && message.url !== null && message.url !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.url);
+    }
+    if (message.stream !== undefined && message.stream !== null && message.stream !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.stream);
+    }
+    if (message.tokenSecretId !== undefined && message.tokenSecretId !== null && message.tokenSecretId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.tokenSecretId);
+    }
+}
+
+
+/**
+ * @param {OpenObserveConsumerConfig} message
+ * @returns {Uint8Array}
+ */
+export function encodeOpenObserveConsumerConfig(message) {
+    const writer = Writer.create();
+    writeOpenObserveConsumerConfig(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {OpenObserveConsumerConfig}
+ */
+function decodeOpenObserveConsumerConfigMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {url: "", stream: "", tokenSecretId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.url = reader.string();
+                break;
+            }
+            case 2: {
+                message.stream = reader.string();
+                break;
+            }
+            case 3: {
+                message.tokenSecretId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {OpenObserveConsumerConfig}
+ */
+export function decodeOpenObserveConsumerConfig(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeOpenObserveConsumerConfigMessage(reader);
+}
+
+
+
+/**
  * @param {ContainerRunnerConfig} message
  * @param {Writer} writer
  */
@@ -4578,6 +4655,11 @@ export function writeContainerRunnerConfig(message, writer) {
     if (message.logConsumer !== undefined && message.logConsumer !== null && message.logConsumer !== 0) {
         writer.uint32(tag(11, WIRE.VARINT)).int32(message.logConsumer);
     }
+    if (message.openobserveConsumer !== undefined && message.openobserveConsumer !== null) {
+        writer.uint32(tag(12, WIRE.LDELIM)).fork();
+        writeOpenObserveConsumerConfig(message.openobserveConsumer, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -4599,7 +4681,7 @@ export function encodeContainerRunnerConfig(message) {
  */
 function decodeContainerRunnerConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {user: "", envVars: {}, command: [], workingDir: "", dataMountPath: "", disableDataVolume: false, mounts: [], assetMounts: [], upgradeStrategy: 0, readinessSignal: undefined, logConsumer: 0 };
+    const message = {user: "", envVars: {}, command: [], workingDir: "", dataMountPath: "", disableDataVolume: false, mounts: [], assetMounts: [], upgradeStrategy: 0, readinessSignal: undefined, logConsumer: 0, openobserveConsumer: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4662,6 +4744,10 @@ function decodeContainerRunnerConfigMessage(reader, length) {
             }
             case 11: {
                 message.logConsumer = reader.int32();
+                break;
+            }
+            case 12: {
+                message.openobserveConsumer = decodeOpenObserveConsumerConfigMessage(reader, reader.uint32());
                 break;
             }
             default:

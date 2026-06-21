@@ -20,6 +20,7 @@ const (
 	ContainerLogConsumer_CONTAINER_LOG_CONSUMER_UNSPECIFIED ContainerLogConsumer = 0
 	ContainerLogConsumer_STANDARD                           ContainerLogConsumer = 1
 	ContainerLogConsumer_JSON                               ContainerLogConsumer = 2
+	ContainerLogConsumer_OPENOBSERVE                        ContainerLogConsumer = 3
 )
 
 type RunningStatus int32
@@ -2454,18 +2455,60 @@ func DecodeContainerReadinessSignal(b []byte) (*ContainerReadinessSignal, error)
 	return &m, nil
 }
 
+type OpenObserveConsumerConfig struct {
+	Url           string
+	Stream        string
+	TokenSecretID int32
+}
+
+func (m *OpenObserveConsumerConfig) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Url, 1)
+	b = AppendStringField(b, m.Stream, 2)
+	b = AppendInt32Field(b, m.TokenSecretID, 3)
+	return b
+}
+
+func DecodeOpenObserveConsumerConfig(b []byte) (*OpenObserveConsumerConfig, error) {
+	var m OpenObserveConsumerConfig
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Url, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Stream, err = ConsumeString(b, typ)
+		case 3:
+			b, m.TokenSecretID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type ContainerRunnerConfig struct {
-	User              string
-	EnvVars           map[string]*EnvVarValue
-	Command           []string
-	WorkingDir        string
-	DataMountPath     string
-	DisableDataVolume bool
-	Mounts            []*ContainerMount
-	AssetMounts       []*ContainerAssetMount
-	UpgradeStrategy   ContainerUpgradeStrategy
-	ReadinessSignal   *ContainerReadinessSignal
-	LogConsumer       ContainerLogConsumer
+	User                string
+	EnvVars             map[string]*EnvVarValue
+	Command             []string
+	WorkingDir          string
+	DataMountPath       string
+	DisableDataVolume   bool
+	Mounts              []*ContainerMount
+	AssetMounts         []*ContainerAssetMount
+	UpgradeStrategy     ContainerUpgradeStrategy
+	ReadinessSignal     *ContainerReadinessSignal
+	LogConsumer         ContainerLogConsumer
+	OpenobserveConsumer *OpenObserveConsumerConfig
 }
 
 func (m ContainerRunnerConfig) IsZero() bool {
@@ -2479,7 +2522,8 @@ func (m ContainerRunnerConfig) IsZero() bool {
 		len(m.AssetMounts) == 0 &&
 		m.UpgradeStrategy == 0 &&
 		m.ReadinessSignal == nil &&
-		m.LogConsumer == 0
+		m.LogConsumer == 0 &&
+		m.OpenobserveConsumer == nil
 }
 
 func (m *ContainerRunnerConfig) Encode() []byte {
@@ -2510,6 +2554,10 @@ func (m *ContainerRunnerConfig) Encode() []byte {
 		b = AppendBytes(b, m.ReadinessSignal.Encode())
 	}
 	b = AppendInt32Field(b, int32(m.LogConsumer), 11)
+	if m.OpenobserveConsumer != nil {
+		b = AppendTag(b, 12, BytesType)
+		b = AppendBytes(b, m.OpenobserveConsumer.Encode())
+	}
 	return b
 }
 
@@ -2582,6 +2630,15 @@ func DecodeContainerRunnerConfig(b []byte) (*ContainerRunnerConfig, error) {
 			b, raw, err = ConsumeVarInt32(b, typ)
 			if err == nil {
 				m.LogConsumer = ContainerLogConsumer(raw)
+			}
+		case 12:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *OpenObserveConsumerConfig
+				item, err = DecodeOpenObserveConsumerConfig(msgBytes)
+				if err == nil {
+					m.OpenobserveConsumer = item
+				}
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)

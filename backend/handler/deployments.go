@@ -731,6 +731,19 @@ func validateContainerLogConsumer(cfg *apigen.ContainerRunnerConfig) error {
 	case apigen.ContainerLogConsumer_CONTAINER_LOG_CONSUMER_UNSPECIFIED:
 		cfg.LogConsumer = apigen.ContainerLogConsumer_STANDARD
 	case apigen.ContainerLogConsumer_STANDARD, apigen.ContainerLogConsumer_JSON:
+	case apigen.ContainerLogConsumer_OPENOBSERVE:
+		if cfg.OpenobserveConsumer == nil {
+			return invalidConfigErrf("runner.container.openobserveConsumer is required when logConsumer is OPENOBSERVE")
+		}
+		if strings.TrimSpace(cfg.OpenobserveConsumer.Url) == "" {
+			return invalidConfigErrf("runner.container.openobserveConsumer.url is required")
+		}
+		if strings.TrimSpace(cfg.OpenobserveConsumer.Stream) == "" {
+			return invalidConfigErrf("runner.container.openobserveConsumer.stream is required")
+		}
+		if cfg.OpenobserveConsumer.TokenSecretID <= 0 {
+			return invalidConfigErrf("runner.container.openobserveConsumer.tokenSecretId must be positive")
+		}
 	default:
 		return invalidConfigErrf("runner.container.logConsumer: unsupported value %d", cfg.LogConsumer)
 	}

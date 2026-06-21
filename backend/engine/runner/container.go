@@ -59,6 +59,7 @@ type containerRunner struct {
 	cwd            string                         // process cwd; empty = image default
 	mounts         []ctrd.Mount
 	logConsumer    ctrd.LogConsumer
+	openObserve    *apigen.OpenObserveConsumerConfig
 	dataVolumeHost string // host dir to create+chown for the default data volume ("" = disabled)
 	dataVolumeUser string // user the data volume should be owned by
 	readiness      *readinessConfig
@@ -133,6 +134,9 @@ func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Durati
 }
 
 func containerLogConsumer(consumer apigen.ContainerLogConsumer) ctrd.LogConsumer {
+	if consumer == apigen.ContainerLogConsumer_OPENOBSERVE {
+		return ctrd.LogConsumerOpenObserve
+	}
 	if consumer == apigen.ContainerLogConsumer_JSON {
 		return ctrd.LogConsumerJSON
 	}
@@ -153,10 +157,25 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		command:      cfg.Command,
 		cwd:          cfg.WorkingDir,
 		logConsumer:  containerLogConsumer(cfg.LogConsumer),
+		openObserve:  cfg.OpenobserveConsumer,
 	}
 	r.mounts, r.dataVolumeHost = containerMounts(dep)
 	r.dataVolumeUser = cfg.User
 	return r
+}
+
+func openObserveURL(cfg *apigen.OpenObserveConsumerConfig) string {
+	if cfg == nil {
+		return ""
+	}
+	return cfg.Url
+}
+
+func openObserveStream(cfg *apigen.OpenObserveConsumerConfig) string {
+	if cfg == nil {
+		return ""
+	}
+	return cfg.Stream
 }
 
 func (r *containerRunner) Version() int32 { return r.status.DeploymentConfigVersion }
@@ -257,6 +276,20 @@ func (r *containerRunner) run() {
 			}
 			continue
 		}
+		openObserveToken := ""
+		if r.logConsumer == ctrd.LogConsumerOpenObserve {
+			openObserveToken, err = resolveOpenObserveToken(r.openObserve)
+			if err != nil {
+				slog.ErrorContext(r.ctx, "resolving openobserve token failed", "err", err)
+				r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+				crashCount++
+				if !r.sleepBackoff(crashCount) {
+					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+					return
+				}
+				continue
+			}
+		}
 
 		r.ensureDataVolume()
 		runNumber := r.status.NumberOfRestarts + 1
@@ -291,15 +324,18 @@ func (r *containerRunner) run() {
 		}
 
 		spec := ctrd.ContainerSpec{
-			ID:          r.containerID,
-			Image:       r.status.RunningArtifact,
-			User:        r.user,
-			Env:         env,
-			Args:        r.command,
-			Cwd:         r.cwd,
-			Mounts:      mounts,
-			Output:      outputPath,
-			LogConsumer: r.logConsumer,
+			ID:                        r.containerID,
+			Image:                     r.status.RunningArtifact,
+			User:                      r.user,
+			Env:                       env,
+			Args:                      r.command,
+			Cwd:                       r.cwd,
+			Mounts:                    mounts,
+			Output:                    outputPath,
+			LogConsumer:               r.logConsumer,
+			OpenObserveURL:            openObserveURL(r.openObserve),
+			OpenObserveStream:         openObserveStream(r.openObserve),
+			OpenObserveIngestionToken: openObserveToken,
 		}
 		task, err := Containerd.RunTask(r.ctx, spec)
 		if err != nil {

@@ -87,6 +87,9 @@ func SecretRefs(cfg *apigen.DeploymentConfig) []int32 {
 		}
 		seen[*item.SecretID] = true
 	}
+	if oo := cfg.Spec.Runner.Container.OpenobserveConsumer; oo != nil && oo.TokenSecretID != 0 {
+		seen[oo.TokenSecretID] = true
+	}
 
 	keys := make([]int32, 0, len(seen))
 	for id := range seen {

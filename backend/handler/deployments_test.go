@@ -285,6 +285,45 @@ func TestValidateDeploymentSpecAcceptsJSONContainerLogConsumer(t *testing.T) {
 	}
 }
 
+func TestValidateDeploymentSpecAcceptsOpenObserveContainerLogConsumer(t *testing.T) {
+	spec := &apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"},
+		},
+		Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
+			User:        "1000",
+			LogConsumer: apigen.ContainerLogConsumer_OPENOBSERVE,
+			OpenobserveConsumer: &apigen.OpenObserveConsumerConfig{
+				Url:           "https://logs.example.com",
+				Stream:        "api",
+				TokenSecretID: 7,
+			},
+		}},
+	}
+	out, err := validateDeploymentSpecWithResolvers(spec, nil, fakeSecretResolver{7: "token"}, fakeConfigResolver{})
+	if err != nil {
+		t.Fatalf("validateDeploymentSpecWithResolvers failed: %v", err)
+	}
+	if out.Runner.Container.OpenobserveConsumer == nil || out.Runner.Container.OpenobserveConsumer.TokenSecretID != 7 {
+		t.Fatalf("openobserve consumer = %#v", out.Runner.Container.OpenobserveConsumer)
+	}
+}
+
+func TestValidateDeploymentSpecRejectsOpenObserveWithoutConfig(t *testing.T) {
+	_, err := validateDeploymentSpecWithResolvers(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"},
+		},
+		Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
+			User:        "1000",
+			LogConsumer: apigen.ContainerLogConsumer_OPENOBSERVE,
+		}},
+	}, nil, fakeSecretResolver{}, fakeConfigResolver{})
+	if err == nil || !strings.Contains(err.Error(), "openobserveConsumer is required") {
+		t.Fatalf("err = %v, want openobserveConsumer rejection", err)
+	}
+}
+
 func TestValidateDeploymentSpecRejectsUnknownContainerLogConsumer(t *testing.T) {
 	_, err := validateDeploymentSpecWithResolvers(&apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{

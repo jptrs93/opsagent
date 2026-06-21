@@ -72,6 +72,12 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	case ainit.CommandOpenObserveLogConsumer:
+		if err := logconsumer.RunOpenObserveProcess(os.Args); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	case ainit.CommandPrimary:
 		runPrimary()
 		return

@@ -620,10 +620,17 @@ enum ContainerLogConsumer {
   CONTAINER_LOG_CONSUMER_UNSPECIFIED = 0;
   STANDARD = 1;
   JSON = 2;
+  OPENOBSERVE = 3;
 }
 
 message ContainerReadinessSignal {
   int32 timeout_seconds = 1; // 0 = default timeout
+}
+
+message OpenObserveConsumerConfig {
+  string url = 1;
+  string stream = 2;
+  int32 token_secret_id = 3;
 }
 
 message ContainerRunnerConfig {
@@ -638,6 +645,7 @@ message ContainerRunnerConfig {
   ContainerUpgradeStrategy upgrade_strategy = 9; // default/unspecified = RECREATE
   ContainerReadinessSignal readiness_signal = 10; // used by ROLLOVER
   ContainerLogConsumer log_consumer = 11; // default/unspecified = STANDARD
+  OpenObserveConsumerConfig openobserve_consumer = 12;
 }
 
 message RunnerConfig {
