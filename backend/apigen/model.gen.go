@@ -3641,8 +3641,9 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 }
 
 type DeploymentCreateRequest struct {
-	ConfigID DeploymentIdentifier
-	Spec     DeploymentSpec
+	ConfigID     DeploymentIdentifier
+	Spec         DeploymentSpec
+	DesiredState DesiredState
 }
 
 func (m *DeploymentCreateRequest) Encode() []byte {
@@ -3654,6 +3655,10 @@ func (m *DeploymentCreateRequest) Encode() []byte {
 	if !m.Spec.IsZero() {
 		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, m.Spec.Encode())
+	}
+	if !m.DesiredState.IsZero() {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.DesiredState.Encode())
 	}
 	return b
 }
@@ -3686,6 +3691,15 @@ func DecodeDeploymentCreateRequest(b []byte) (*DeploymentCreateRequest, error) {
 				item, err = DecodeDeploymentSpec(msgBytes)
 				if err == nil {
 					m.Spec = *item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DesiredState
+				item, err = DecodeDesiredState(msgBytes)
+				if err == nil {
+					m.DesiredState = *item
 				}
 			}
 		default:

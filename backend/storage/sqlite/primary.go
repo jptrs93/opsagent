@@ -512,7 +512,7 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymen
 // MustCreateDeployment creates a brand-new deployment from a DeploymentIdentifier and spec.
 // It allocates a deployment ID, persists the config, inserts a default status,
 // and returns the resulting DeploymentConfig.
-func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.DeploymentIdentifier, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
+func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.DeploymentIdentifier, spec *apigen.DeploymentSpec, desired apigen.DesiredState) *apigen.DeploymentConfig {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -545,15 +545,17 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 	}
 
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
-		SpaceID:   int64(cid.SpaceID),
-		Machine:   cid.Machine,
-		Name:      cid.Name,
-		CreatedAt: now,
-		Version:   1,
-		UpdatedAt: now,
-		UpdatedBy: userID,
-		SpecBlob:  specBlob,
-		Deleted:   0,
+		SpaceID:        int64(cid.SpaceID),
+		Machine:        cid.Machine,
+		Name:           cid.Name,
+		CreatedAt:      now,
+		Version:        1,
+		UpdatedAt:      now,
+		UpdatedBy:      userID,
+		SpecBlob:       specBlob,
+		DesiredVersion: desired.Version,
+		DesiredRunning: boolToInt(desired.Running),
+		Deleted:        0,
 	})
 	if err != nil {
 		panic(fmt.Sprintf("CreateDeploymentConfig: %v", err))
@@ -561,12 +563,14 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 	dbID := row.DeploymentID
 
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
-		DeploymentID: dbID,
-		Version:      1,
-		UpdatedAt:    now,
-		UpdatedBy:    userID,
-		SpecBlob:     specBlob,
-		Deleted:      0,
+		DeploymentID:   dbID,
+		Version:        1,
+		UpdatedAt:      now,
+		UpdatedBy:      userID,
+		SpecBlob:       specBlob,
+		DesiredVersion: desired.Version,
+		DesiredRunning: boolToInt(desired.Running),
+		Deleted:        0,
 	}); err != nil {
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory (create): %v", err))
 	}
@@ -578,16 +582,18 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 	}
 
 	cfg := upsertParamsToProto(UpsertDeploymentConfigParams{
-		DeploymentID: dbID,
-		SpaceID:      int64(cid.SpaceID),
-		Machine:      cid.Machine,
-		Name:         cid.Name,
-		CreatedAt:    row.CreatedAt,
-		Version:      1,
-		UpdatedAt:    now,
-		UpdatedBy:    userID,
-		SpecBlob:     specBlob,
-		Deleted:      0,
+		DeploymentID:   dbID,
+		SpaceID:        int64(cid.SpaceID),
+		Machine:        cid.Machine,
+		Name:           cid.Name,
+		CreatedAt:      row.CreatedAt,
+		Version:        1,
+		UpdatedAt:      now,
+		UpdatedBy:      userID,
+		SpecBlob:       specBlob,
+		DesiredVersion: desired.Version,
+		DesiredRunning: boolToInt(desired.Running),
+		Deleted:        0,
 	})
 	id := int32(dbID)
 	s.configCache[id] = cfg

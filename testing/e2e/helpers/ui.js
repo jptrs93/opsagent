@@ -407,7 +407,8 @@ async function setSettingBool(page, label, enabled) {
 }
 
 function settingRow(page, label) {
-  return page.getByRole('row', {name: new RegExp(escapeRegExp(label))});
+  return page.getByText(label, {exact: true})
+    .locator('xpath=ancestor::div[contains(@class, "py-2")][1]');
 }
 
 async function waitForHTTPReady(url, label) {
@@ -683,7 +684,10 @@ async function setDeploymentAssetMount(dialog, {asset, path}) {
   await dialog.getByRole('button', {name: 'Click to mount assets'}).click();
   await expect(dialog.getByRole('heading', {name: 'Mounted assets'})).toBeVisible();
   const pane = dialog.getByRole('heading', {name: 'Mounted assets'}).locator('xpath=ancestor::div[contains(@class, "border-l")][1]');
-  await field(pane, 'Asset').locator('select').selectOption(asset);
+  const assetSelect = field(pane, 'Asset').locator('select');
+  const assetOption = assetSelect.locator('option').filter({hasText: asset}).first();
+  await expect(assetOption).toBeAttached({timeout: LONG_UI_TIMEOUT});
+  await assetSelect.selectOption(await assetOption.getAttribute('value'));
   await field(pane, 'Container path').getByRole('textbox').fill(path);
   await expect(dialog.getByText('1 mounted asset')).toBeVisible();
 }

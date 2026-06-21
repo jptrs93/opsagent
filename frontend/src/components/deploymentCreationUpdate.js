@@ -30,6 +30,7 @@ export class DeploymentCreationUpdate {
         this.existingState = deployment;
         this.form = deploymentConfig ? deploymentConfigToForm(deploymentConfig) : emptyDeploymentForm();
         this.form.deploymentCreationUpdate = this;
+        this.desiredRunning = van.state(deployment ? Boolean(deployment.desiredRunning) : true);
         this.initialSpecKey = JSON.stringify(formToSpec(this.form));
         this.initialSpaceId = Number(this.form.spaceId.val || 0);
         this.initialSourceKey = this.sourceKey();
@@ -301,21 +302,20 @@ export class DeploymentCreationUpdate {
         return this.githubRelease.selectedRelease.val.trim();
     }
 
+    createDesiredVersion() {
+        return this.selectedTargetVersion()
+            || (this.existingState?.deployedVersion && this.sourceKey() === this.initialSourceKey ? this.existingState.deployedVersion : '');
+    }
+
     toCreatePayload() {
+        const targetVersion = this.createDesiredVersion();
         return {
             configId: formToDeploymentIdentifier(this.form),
             spec: formToSpec(this.form),
-        };
-    }
-
-    toCreateUpdatePayload(createdConfig) {
-        const targetVersion = this.selectedTargetVersion()
-            || (this.existingState?.deployedVersion && this.sourceKey() === this.initialSourceKey ? this.existingState.deployedVersion : '');
-        if (!targetVersion || !createdConfig?.id) return null;
-        return {
-            deploymentId: createdConfig.id,
-            targetVersion,
-            version: (createdConfig.version || 0) + 1,
+            desiredState: {
+                version: targetVersion,
+                running: this.desiredRunning.val,
+            },
         };
     }
 

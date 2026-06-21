@@ -73,15 +73,16 @@ export function createOverlay(onClose, onCreated, opts = {}) {
             errorMsg.val = 'Name, machine, artifact source, and required execution fields must be set.';
             throw new Error(errorMsg.val);
         }
+        if (deploymentUpdate.desiredRunning.val && !deploymentUpdate.createDesiredVersion()) {
+            errorMsg.val = 'Select a version before creating a running deployment, or choose Stopped.';
+            throw new Error(errorMsg.val);
+        }
 
         try {
             const cfg = await capi.postV1DeploymentCreate({
                 ...deploymentUpdate.toCreatePayload(),
             });
-            const updatePayload = deploymentUpdate.toCreateUpdatePayload(cfg);
-            if (updatePayload) {
-                await capi.postV1DeploymentUpdate(updatePayload);
-            }
+            if (!cfg?.id) throw new Error('Create response did not include a deployment ID');
         } catch (e) {
             errorMsg.val = e.message || 'Failed to create deployment';
             throw e;
@@ -90,7 +91,7 @@ export function createOverlay(onClose, onCreated, opts = {}) {
         onClose();
     };
 
-    const createButton = spinnerButton("Create", doCreate, "btn-primary text-sm py-1.5 px-4", "button", () => !isFormValid(form, {machineOptions: machines.val, deployments: deploymentsS.val}));
+    const createButton = spinnerButton("Create", doCreate, "btn-primary text-sm py-1.5 px-4", "button", () => !isCreateValid(deploymentUpdate, machines.val));
     createButton.dataset.testid = "create-deployment-submit";
 
     const backdrop = div({
@@ -122,6 +123,7 @@ export function createOverlay(onClose, onCreated, opts = {}) {
                         onBranchChange: (branch) => loadSourceVersions(deploymentUpdate, loadingVersions, branch, {preserveSelection: false}),
                         onRefresh: () => loadSourceVersions(deploymentUpdate, loadingVersions, deploymentUpdate.nixDockerBuild.selectedBranch.val, {refreshAvailableBranches: true, preserveSelection: true}),
                     }),
+                    () => createInitialStateSection(deploymentUpdate),
                 ),
                 () => {
                     if (!errorMsg.val) return span();
@@ -148,6 +150,43 @@ export function createOverlay(onClose, onCreated, opts = {}) {
     );
 
     return div(backdrop, dialog);
+}
+
+function isCreateValid(deploymentUpdate, machineOptions) {
+    const form = deploymentUpdate.form;
+    if (!isFormValid(form, {machineOptions, deployments: deploymentsS.val})) return false;
+    return !deploymentUpdate.desiredRunning.val || Boolean(deploymentUpdate.createDesiredVersion());
+}
+
+function createInitialStateSection(deploymentUpdate) {
+    return div(
+        {class: "flex flex-col gap-3"},
+        sectionDivider("Initial State"),
+        div(
+            {class: "rounded-lg border border-gray-700 bg-gray-900/50 p-3 flex flex-col gap-3"},
+            div(
+                {class: "inline-flex w-fit rounded-lg border border-gray-700 bg-gray-950/60 p-1"},
+                stateToggleButton(deploymentUpdate, true, "Running"),
+                stateToggleButton(deploymentUpdate, false, "Stopped"),
+            ),
+            p(
+                {class: "text-xs text-gray-500 leading-relaxed"},
+                () => deploymentUpdate.desiredRunning.val
+                    ? "Create the deployment and immediately reconcile it to the selected version."
+                    : "Create the deployment stopped, while saving the selected version as the desired version for a later start.",
+            ),
+        ),
+    );
+}
+
+function stateToggleButton(deploymentUpdate, running, labelText) {
+    return button({
+        type: "button",
+        "data-testid": running ? "create-desired-running" : "create-desired-stopped",
+        "aria-pressed": () => String(deploymentUpdate.desiredRunning.val === running),
+        class: () => `px-3 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer ${deploymentUpdate.desiredRunning.val === running ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'}`,
+        onclick: () => { deploymentUpdate.desiredRunning.val = running; },
+    }, labelText);
 }
 
 function createVersionSection(args) {

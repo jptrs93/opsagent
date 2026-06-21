@@ -405,12 +405,40 @@ func TestValidateDeploymentSpecAcceptsLiteralEnvValues(t *testing.T) {
 	}
 }
 
+func TestDeploymentCreatePersistsInitialStoppedDesiredState(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	h := &Handler{Store: store}
+
+	cfg, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"},
+		Spec: apigen.DeploymentSpec{
+			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+			Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+		},
+		DesiredState: apigen.DesiredState{Version: "1.25", Running: false},
+	})
+	if err != nil {
+		t.Fatalf("PostV1DeploymentCreate failed: %v", err)
+	}
+	if cfg.Version != 1 {
+		t.Fatalf("version = %d, want initial config version 1", cfg.Version)
+	}
+	if cfg.DesiredState.Version != "1.25" || cfg.DesiredState.Running {
+		t.Fatalf("desired state = %+v, want stopped 1.25", cfg.DesiredState)
+	}
+	if history := store.MustFetchDeploymentHistory(cfg.ID); len(history) != 1 {
+		t.Fatalf("history len = %d, want create only", len(history))
+	} else if history[0].DesiredState.Version != "1.25" || history[0].DesiredState.Running {
+		t.Fatalf("history desired state = %+v, want stopped 1.25", history[0].DesiredState)
+	}
+}
+
 func TestDeploymentUpdateCombinesSpaceAndDesiredStateInSingleConfigVersion(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-	})
+	}, apigen.DesiredState{})
 	h := &Handler{Store: store}
 
 	spaceID := int32(2)
@@ -447,7 +475,7 @@ func TestDeploymentUpdateRejectsStaleExpectedVersion(t *testing.T) {
 	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-	})
+	}, apigen.DesiredState{})
 	h := &Handler{Store: store}
 
 	_, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
@@ -466,7 +494,7 @@ func TestDeploymentUpdateRequiresExpectedVersion(t *testing.T) {
 	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-	})
+	}, apigen.DesiredState{})
 	h := &Handler{Store: store}
 
 	_, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{

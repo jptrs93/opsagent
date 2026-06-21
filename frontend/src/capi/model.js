@@ -439,6 +439,7 @@
  * @typedef {Object} DeploymentCreateRequest
  * @property {DeploymentIdentifier} configId
  * @property {DeploymentSpec} spec
+ * @property {DesiredState} desiredState
  */
 /**
  * @typedef {Object} DeploymentHistoryRequest
@@ -5961,6 +5962,11 @@ export function writeDeploymentCreateRequest(message, writer) {
         writeDeploymentSpec(message.spec, writer);
         writer.ldelim();
     }
+    if (message.desiredState !== undefined && message.desiredState !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeDesiredState(message.desiredState, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -5982,7 +5988,7 @@ export function encodeDeploymentCreateRequest(message) {
  */
 function decodeDeploymentCreateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {configId: undefined, spec: undefined };
+    const message = {configId: undefined, spec: undefined, desiredState: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5992,6 +5998,10 @@ function decodeDeploymentCreateRequestMessage(reader, length) {
             }
             case 2: {
                 message.spec = decodeDeploymentSpecMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.desiredState = decodeDesiredStateMessage(reader, reader.uint32());
                 break;
             }
             default:

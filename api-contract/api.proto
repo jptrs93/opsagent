@@ -776,6 +776,7 @@ message DeploymentUpdateRequest {
 message DeploymentCreateRequest {
   DeploymentIdentifier config_id = 1 [(cp.go_value) = true];
   DeploymentSpec spec = 2 [(cp.go_value) = true];
+  DesiredState desired_state = 3 [(cp.go_value) = true];
 }
 
 message DeploymentHistoryRequest {

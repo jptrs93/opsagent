@@ -48,7 +48,7 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 		}
 	}
 
-	cfg := h.Store.MustCreateDeployment(ctx, &cid, spec)
+	cfg := h.Store.MustCreateDeployment(ctx, &cid, spec, req.DesiredState)
 	return cfg, nil
 }
 

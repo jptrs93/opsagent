@@ -114,6 +114,7 @@ export function secretsPage() {
         const nextVisible = [];
         for (const row of visible || []) {
             const key = rowKey(row);
+            if (displayed.has(key)) continue;
             const next = nextByKey.get(key);
             if (!next) continue;
             displayed.add(key);

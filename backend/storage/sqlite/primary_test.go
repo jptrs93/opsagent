@@ -13,7 +13,7 @@ func TestEnsureSystemDeploymentRepairsExistingSpec(t *testing.T) {
 	created := store.MustCreateDeployment(apigen.Context{}, cid, &apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-	})
+	}, apigen.DesiredState{})
 	store.MustSetDeploymentDesiredState(apigen.Context{}, created.ID, apigen.DesiredState{Version: "v0.0.194", Running: true})
 
 	store.EnsureSystemDeployment("primary", "v0.0.195")
