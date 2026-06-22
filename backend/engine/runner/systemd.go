@@ -27,7 +27,6 @@ type systemdRunner struct {
 
 	unitName    string
 	unitBinPath string
-	outputPath  string // this is the output file for commands to switch over and restart the systemd service not for the service application logs
 }
 
 // reAttachSystemdRunner creates a monitor-only runner. Used by ReAttach.
@@ -42,7 +41,6 @@ func reAttachSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentCo
 		deploymentID: dep.ID,
 		status:       runnerStatus,
 		unitName:     normalizeUnit(sys.Name),
-		outputPath:   dep.RunOutputPath(),
 	}
 	go r.monitor()
 	return r
@@ -65,8 +63,7 @@ func observeExistingSystemdRunner(store storage.OperatorStore, dep *apigen.Deplo
 			RunningArtifact:         resolveSystemdRunnerArtifact(sys.BinPath),
 			Status:                  apigen.RunningStatus_STARTING,
 		},
-		unitName:   normalizeUnit(sys.Name),
-		outputPath: dep.RunOutputPath(),
+		unitName: normalizeUnit(sys.Name),
 	}
 	go r.monitor()
 	return r
@@ -95,7 +92,6 @@ func newSystemdRunnerWithRestart(store storage.OperatorStore, dep *apigen.Deploy
 		},
 		unitName:    normalizeUnit(sys.Name),
 		unitBinPath: sys.BinPath,
-		outputPath:  dep.RunOutputPath(),
 	}
 	r.writeStatus()
 	go r.installAndMonitor()
@@ -115,20 +111,18 @@ func (r *systemdRunner) installAndMonitor() {
 
 	if err := atomicSymlink(r.status.RunningArtifact, r.unitBinPath); err != nil {
 		slog.ErrorContext(r.ctx, "symlinking artifact failed", "err", err)
-		r.appendOutput("symlink failed: %s\n", err)
 		r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 		return
 	}
-	r.appendOutput("symlinked %s -> %s\n", r.unitBinPath, r.status.RunningArtifact)
+	slog.InfoContext(r.ctx, "systemd runner symlinked artifact", "binPath", r.unitBinPath, "artifact", r.status.RunningArtifact)
 
 	out, err := systemctlRestart(r.ctx, r.unitName)
 	if err != nil {
-		slog.ErrorContext(r.ctx, "systemctl restart failed", "err", err, "unitName", r.unitName)
-		r.appendOutput("restart failed: %s\n%s\n", err, out)
+		slog.ErrorContext(r.ctx, "systemctl restart failed", "err", err, "unitName", r.unitName, "output", out)
 		r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 		return
 	}
-	r.appendOutput("restart issued\n")
+	slog.InfoContext(r.ctx, "systemd runner restart issued", "unitName", r.unitName)
 
 	r.monitorLoop()
 }
@@ -192,19 +186,6 @@ func (r *systemdRunner) writeStatus() {
 		s.Runner = r.status
 		return true
 	})
-}
-
-func (r *systemdRunner) appendOutput(format string, args ...any) {
-	if r.outputPath == "" {
-		return
-	}
-	_ = os.MkdirAll(filepath.Dir(r.outputPath), 0o750)
-	f, err := os.OpenFile(r.outputPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o640)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	fmt.Fprintf(f, format, args...)
 }
 
 // --- helpers ---
