@@ -31,14 +31,16 @@ type Mount struct {
 // ContainerSpec describes a container to create and start. The default data
 // volume (if any) is already resolved into Mounts by the caller.
 type ContainerSpec struct {
-	ID     string   // deterministic container id (one per deployment config version)
-	Image  string   // resolved image ref to run (as stored by Pull)
-	User   string   // OCI process.user (uid, uid:gid, or name); empty = image default
-	Env    []string // KEY=VALUE entries
-	Args   []string // argv override (entrypoint+cmd); empty = image default
-	Cwd    string   // process cwd; empty = image default
-	Mounts []Mount  // host bind mounts
-	Output string   // stdout/stderr log base directory
+	ID            string   // deterministic container id (one per deployment config version)
+	Image         string   // resolved image ref to run (as stored by Pull)
+	User          string   // OCI process.user (uid, uid:gid, or name); empty = image default
+	Env           []string // KEY=VALUE entries
+	Args          []string // argv override (entrypoint+cmd); empty = image default
+	Cwd           string   // process cwd; empty = image default
+	Mounts        []Mount  // host bind mounts
+	Output        string   // stdout/stderr deployment log directory
+	OutputVersion int32    // deployment config version for stdout/stderr records
+	OutputRun     int32    // deployment run number for stdout/stderr records
 }
 
 // ImageStream is an OCI/Docker image tar stream to import into containerd.

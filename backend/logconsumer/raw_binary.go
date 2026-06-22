@@ -4,13 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"time"
 
@@ -18,6 +18,21 @@ import (
 )
 
 const RawBinaryCommandName = "raw-binary-log-consumer"
+
+type rawBinaryConfig struct {
+	DeploymentDir string `json:"deployment_dir"`
+	Version       int32  `json:"version"`
+	Run           int32  `json:"run"`
+}
+
+func RawBinaryConfigArg(deploymentDir string, version int32, run int32) (string, error) {
+	cfg := rawBinaryConfig{DeploymentDir: deploymentDir, Version: version, Run: run}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
 
 type rawBinaryLogLine struct {
 	t      time.Time
@@ -27,15 +42,19 @@ type rawBinaryLogLine struct {
 
 func RunRawBinaryProcess(args []string) error {
 	if len(args) != 3 || args[1] != RawBinaryCommandName || args[2] == "" {
-		return fmt.Errorf("usage: %s %s <base-path>", args[0], RawBinaryCommandName)
+		return fmt.Errorf("usage: %s %s <config-json>", args[0], RawBinaryCommandName)
 	}
-	runRawBinaryLogger(args[2])
+	cfg, err := parseRawBinaryConfigArg(args[2])
+	if err != nil {
+		return err
+	}
+	runRawBinaryLogger(cfg)
 	return nil
 }
 
-func runRawBinaryLogger(basePath string) {
+func runRawBinaryLogger(rawCfg rawBinaryConfig) {
 	logging.Run(func(ctx context.Context, cfg *logging.Config, ready func() error) error {
-		writer, err := newRawBinaryWriter(basePath)
+		writer, err := newRawBinaryWriter(rawCfg.DeploymentDir, rawCfg.Version, rawCfg.Run)
 		if err != nil {
 			return err
 		}
@@ -125,10 +144,9 @@ type rawBinaryWriter struct {
 	file          *os.File
 }
 
-func newRawBinaryWriter(basePath string) (*rawBinaryWriter, error) {
-	deploymentDir, version, run, err := rawBinaryPathParts(basePath)
-	if err != nil {
-		return nil, err
+func newRawBinaryWriter(deploymentDir string, version int32, run int32) (*rawBinaryWriter, error) {
+	if deploymentDir == "" {
+		return nil, fmt.Errorf("raw binary log deployment dir is empty")
 	}
 	w := &rawBinaryWriter{deploymentDir: deploymentDir, version: version, run: run}
 	if err := os.MkdirAll(deploymentDir, 0o750); err != nil {
@@ -187,29 +205,13 @@ func (w *rawBinaryWriter) Close() error {
 	return err
 }
 
-func rawBinaryPathParts(basePath string) (string, int32, int32, error) {
-	runPart := filepath.Base(basePath)
-	versionDir := filepath.Dir(basePath)
-	versionPart := filepath.Base(versionDir)
-	deploymentDir := filepath.Dir(versionDir)
-	if deploymentDir == "." || deploymentDir == string(filepath.Separator) {
-		return "", 0, 0, fmt.Errorf("raw binary log base path %q is not a run output path", basePath)
+func parseRawBinaryConfigArg(arg string) (rawBinaryConfig, error) {
+	var cfg rawBinaryConfig
+	if err := json.Unmarshal([]byte(arg), &cfg); err != nil {
+		return rawBinaryConfig{}, fmt.Errorf("parsing raw binary log config: %w", err)
 	}
-	version, err := parseRawBinaryPathInt(versionPart, "version")
-	if err != nil {
-		return "", 0, 0, err
+	if cfg.DeploymentDir == "" {
+		return rawBinaryConfig{}, fmt.Errorf("raw binary log config deployment_dir is empty")
 	}
-	run, err := parseRawBinaryPathInt(runPart, "run")
-	if err != nil {
-		return "", 0, 0, err
-	}
-	return deploymentDir, version, run, nil
-}
-
-func parseRawBinaryPathInt(value string, label string) (int32, error) {
-	parsed, err := strconv.ParseInt(value, 10, 32)
-	if err != nil || value == "" {
-		return 0, fmt.Errorf("raw binary log base path has invalid %s %q", label, value)
-	}
-	return int32(parsed), nil
+	return cfg, nil
 }

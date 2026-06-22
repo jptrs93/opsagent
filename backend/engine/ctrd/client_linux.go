@@ -191,7 +191,7 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 }
 
 func newLogConsumer(spec ContainerSpec) (cio.Creator, error) {
-	return logconsumer.NewRawBinaryV2(spec.Output)
+	return logconsumer.NewRawBinaryV2(spec.Output, spec.OutputVersion, spec.OutputRun)
 }
 
 func logContainerSpec(ctx context.Context, container containerd.Container, spec ContainerSpec) {
@@ -214,15 +214,17 @@ func logContainerSpec(ctx context.Context, container containerd.Container, spec 
 	}
 
 	details := map[string]any{
-		"id":           spec.ID,
-		"image":        spec.Image,
-		"args":         args,
-		"cwd":          cwd,
-		"user":         user,
-		"host_network": true,
-		"env_count":    len(spec.Env),
-		"mounts":       logMounts(runtimeSpec.Mounts),
-		"output":       spec.Output,
+		"id":             spec.ID,
+		"image":          spec.Image,
+		"args":           args,
+		"cwd":            cwd,
+		"user":           user,
+		"host_network":   true,
+		"env_count":      len(spec.Env),
+		"mounts":         logMounts(runtimeSpec.Mounts),
+		"output":         spec.Output,
+		"output_version": spec.OutputVersion,
+		"output_run":     spec.OutputRun,
 	}
 	detailsJSON, err := json.Marshal(details)
 	if err != nil {
@@ -233,6 +235,8 @@ func logContainerSpec(ctx context.Context, container containerd.Container, spec 
 		"id", spec.ID,
 		"image", spec.Image,
 		"output", spec.Output,
+		"output_version", spec.OutputVersion,
+		"output_run", spec.OutputRun,
 	}
 	if len(detailsJSON) > 0 {
 		attrs = append(attrs, "spec", string(detailsJSON))

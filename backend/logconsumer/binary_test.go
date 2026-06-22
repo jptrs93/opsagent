@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-func TestSystemLogBasePathUsesDeploymentZeroRunPath(t *testing.T) {
+func TestSystemLogBasePathUsesDeploymentZeroDir(t *testing.T) {
 	got := SystemLogBasePath("/var/lib/opendeploy-run-logs")
-	want := filepath.Join("/var/lib/opendeploy-run-logs", "0", "0", "1")
+	want := filepath.Join("/var/lib/opendeploy-run-logs", "0")
 	if got != want {
 		t.Fatalf("SystemLogBasePath = %q, want %q", got, want)
 	}

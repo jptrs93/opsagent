@@ -252,7 +252,6 @@ func (r *containerRunner) run() {
 		}
 		r.ensureDataVolume()
 		runNumber := r.status.NumberOfRestarts + 1
-		outputPath := apigen.RunOutputRunDir(r.deploymentID, r.status.DeploymentConfigVersion, runNumber)
 		outputDir := apigen.RunOutputDeploymentDir(r.deploymentID)
 		if err := os.MkdirAll(outputDir, 0o750); err != nil {
 			slog.ErrorContext(r.ctx, "creating run log dir failed", "err", err, "path", outputDir)
@@ -284,14 +283,16 @@ func (r *containerRunner) run() {
 		}
 
 		spec := ctrd.ContainerSpec{
-			ID:     r.containerID,
-			Image:  r.status.RunningArtifact,
-			User:   r.user,
-			Env:    env,
-			Args:   r.command,
-			Cwd:    r.cwd,
-			Mounts: mounts,
-			Output: outputPath,
+			ID:            r.containerID,
+			Image:         r.status.RunningArtifact,
+			User:          r.user,
+			Env:           env,
+			Args:          r.command,
+			Cwd:           r.cwd,
+			Mounts:        mounts,
+			Output:        outputDir,
+			OutputVersion: r.status.DeploymentConfigVersion,
+			OutputRun:     runNumber,
 		}
 		task, err := Containerd.RunTask(r.ctx, spec)
 		if err != nil {

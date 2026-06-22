@@ -30,7 +30,7 @@ const logOutputQueueSize = 5_000
 const maxUnformattedBlockBytes = 256 * 1024
 
 func SystemLogBasePath(runOutputDir string) string {
-	return filepath.Join(runOutputDir, fmt.Sprintf("%d", SystemLogDeploymentID), fmt.Sprintf("%d", SystemLogConfigVersion), fmt.Sprintf("%d", SystemLogRunNumber))
+	return filepath.Join(runOutputDir, fmt.Sprintf("%d", SystemLogDeploymentID))
 }
 
 func NewSystemLogWriter(basePath string) (io.WriteCloser, error) {
@@ -38,7 +38,7 @@ func NewSystemLogWriter(basePath string) (io.WriteCloser, error) {
 }
 
 func newSystemLogWriterWithClock(basePath string, now func() time.Time) (*systemLogWriter, error) {
-	out, err := newRawBinaryWriter(basePath)
+	out, err := newRawBinaryWriter(basePath, SystemLogConfigVersion, SystemLogRunNumber)
 	if err != nil {
 		return nil, err
 	}
