@@ -521,16 +521,8 @@ func waitForLatestRunLogFile(ctx context.Context, req *apigen.RunOutputRequest) 
 	if err == nil {
 		return path, f, nil
 	}
-	legacyPath := req.OutputPath()
-	f, legacyErr := os.Open(legacyPath)
-	if legacyErr == nil {
-		return legacyPath, f, nil
-	}
 	if !os.IsNotExist(err) && err != filepath.ErrBadPattern {
 		return "", nil, err
-	}
-	if !os.IsNotExist(legacyErr) {
-		return "", nil, legacyErr
 	}
 
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -547,15 +539,8 @@ func waitForLatestRunLogFile(ctx context.Context, req *apigen.RunOutputRequest) 
 			if err == nil {
 				return path, f, nil
 			}
-			f, legacyErr = os.Open(legacyPath)
-			if legacyErr == nil {
-				return legacyPath, f, nil
-			}
 			if !os.IsNotExist(err) && err != filepath.ErrBadPattern {
 				return "", nil, err
-			}
-			if !os.IsNotExist(legacyErr) {
-				return "", nil, legacyErr
 			}
 		}
 	}
@@ -563,15 +548,6 @@ func waitForLatestRunLogFile(ctx context.Context, req *apigen.RunOutputRequest) 
 
 func latestRunLogFile(deploymentID int32, version int32) (string, error) {
 	pattern := filepath.Join(apigen.RunOutputDeploymentDir(deploymentID), fmt.Sprintf("*_%d_*.logbin", version))
-	latest, err := latestMatchingLogFile(pattern)
-	if err == nil {
-		return latest, nil
-	}
-	if err != nil && err != os.ErrNotExist && err != filepath.ErrBadPattern {
-		return "", err
-	}
-
-	pattern = filepath.Join(apigen.RunOutputBaseDir(deploymentID, version), "*", "*.logbin")
 	return latestMatchingLogFile(pattern)
 }
 

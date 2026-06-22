@@ -18,6 +18,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/backup"
 	"github.com/jptrs93/opsagent/backend/cluster"
 	"github.com/jptrs93/opsagent/backend/internal/installer"
+	"github.com/jptrs93/opsagent/backend/logcollector"
 	"github.com/jptrs93/opsagent/backend/logconsumer"
 	"github.com/jptrs93/opsagent/backend/primary"
 	"github.com/jptrs93/opsagent/backend/secondary"
@@ -89,10 +90,9 @@ func main() {
 func runPrimary() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	// Log collector is parked; do not run its legacy logbin cleanup.
-	// if err := logcollector.DeleteLegacyLogbinOnce(); err != nil {
-	// 	panic(fmt.Sprintf("deleting legacy logbin files: %v", err))
-	// }
+	if err := logcollector.DeleteLegacyRunLogDirsOnce(); err != nil {
+		panic(fmt.Sprintf("deleting legacy run log directories: %v", err))
+	}
 	subFS, err := fs.Sub(fsys, "web/dist")
 	if err != nil {
 		panic(fmt.Sprintf("creating embedded sub fs: %v", err))
@@ -149,10 +149,9 @@ func runSecondary() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	cfg := ainit.StaticConfig
-	// Log collector is parked; do not run its legacy logbin cleanup.
-	// if err := logcollector.DeleteLegacyLogbinOnce(); err != nil {
-	// 	panic(fmt.Sprintf("deleting legacy logbin files: %v", err))
-	// }
+	if err := logcollector.DeleteLegacyRunLogDirsOnce(); err != nil {
+		panic(fmt.Sprintf("deleting legacy run log directories: %v", err))
+	}
 	if cfg.PrimaryClusterAddr == "" {
 		panic("OPENDEPLOY_PRIMARY_CLUSTER_ADDR must be set when running secondary")
 	}

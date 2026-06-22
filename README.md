@@ -79,7 +79,7 @@ After the first primary install, edit `/etc/opendeploy/env`:
 For diagnostics, inspect the printed OpenDeploy service log file first. It is under:
 
 ```bash
-/var/lib/opendeploy-run-logs/0/<version>/opendeploy/YYYYMMDD_HH.logbin
+/var/lib/opendeploy-run-logs/0/YYYYMMDD_HHMM_0_1.logbin
 ```
 
 Use `sudo journalctl -u opendeploy -f` as a fallback when the service does not start far enough to create runtime logs.

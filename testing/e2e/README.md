@@ -20,7 +20,7 @@ The reset step captures the installer's generated temporary setup password in
 
 When diagnosing Playwright failures, check the OpenDeploy service `.logbin` file
 printed by `testing/run.sh` first, for example
-`/var/lib/opendeploy-run-logs/0/v0.0.0/opendeploy/YYYYMMDD_HH.logbin` inside the
+`/var/lib/opendeploy-run-logs/0/YYYYMMDD_HHMM_0_1.logbin` inside the
 primary container. Use `journalctl` mainly when the service fails before runtime
 logging starts.
 

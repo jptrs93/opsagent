@@ -24,33 +24,41 @@ import (
 )
 
 const (
-	cleanupMarkerName = ".split-log-migration-v2"
-	collectInterval   = 2 * time.Second
+	legacyRunLogDirCleanupMarkerName = ".flat-run-log-dir-cleanup-v1"
+	collectInterval                  = 2 * time.Second
 )
 
-func DeleteLegacyLogbinOnce() error {
-	marker := filepath.Join(ainit.StaticConfig.RunOutputDir, cleanupMarkerName)
+func DeleteLegacyRunLogDirsOnce() error {
+	marker := filepath.Join(ainit.StaticConfig.RunOutputDir, legacyRunLogDirCleanupMarkerName)
 	if _, err := os.Stat(marker); err == nil {
 		return nil
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if err := filepath.WalkDir(ainit.StaticConfig.RunOutputDir, func(path string, d fs.DirEntry, err error) error {
+	entries, err := os.ReadDir(ainit.StaticConfig.RunOutputDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		deploymentDir := filepath.Join(ainit.StaticConfig.RunOutputDir, entry.Name())
+		children, err := os.ReadDir(deploymentDir)
 		if err != nil {
 			return err
 		}
-		if d.IsDir() {
-			if path != ainit.StaticConfig.RunOutputDir && filepath.Base(path) == "0" && filepath.Dir(path) == ainit.StaticConfig.RunOutputDir {
-				return filepath.SkipDir
+		for _, child := range children {
+			if !child.IsDir() {
+				continue
 			}
-			return nil
+			if err := os.RemoveAll(filepath.Join(deploymentDir, child.Name())); err != nil {
+				return err
+			}
 		}
-		if filepath.Ext(path) == ".logbin" {
-			return os.Remove(path)
-		}
-		return nil
-	}); err != nil && !os.IsNotExist(err) {
-		return err
 	}
 	return os.WriteFile(marker, []byte(time.Now().UTC().Format(time.RFC3339Nano)+"\n"), 0o600)
 }

@@ -376,7 +376,7 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 		return err
 	}
 
-	printInstallComplete(version, opts, bootstrap, wrote)
+	printInstallComplete(opts, bootstrap, wrote)
 	return nil
 }
 
@@ -492,8 +492,8 @@ func updateServiceUnitForUpgrade(opts installOptions) error {
 	return nil
 }
 
-func printInstallComplete(version string, opts installOptions, bootstrap *bootstrapCredentials, wroteEnv bool) {
-	logDir, logFile := serviceLogPaths(version, time.Now().UTC())
+func printInstallComplete(opts installOptions, bootstrap *bootstrapCredentials, wroteEnv bool) {
+	logDir, logFile := serviceLogPaths(time.Now().UTC())
 	if opts.role == "secondary" {
 		fmt.Print("\nInstall complete. opendeploy.service is enabled and started.\n")
 		printServiceLogDetails(logDir, logFile)
@@ -520,9 +520,19 @@ func printServiceLogDetails(logDir, logFile string) {
 	fmt.Printf("  Journal fallback: sudo journalctl -u %s -f\n", serviceName)
 }
 
-func serviceLogPaths(version string, now time.Time) (string, string) {
-	logDir := filepath.Join(runLogsDir, "0", version, "opendeploy")
-	return logDir, filepath.Join(logDir, now.UTC().Format("20060102_15")+".logbin")
+func serviceLogPaths(now time.Time) (string, string) {
+	logDir := filepath.Join(runLogsDir, "0")
+	bucket := splitLogBucket(now.UTC())
+	return logDir, filepath.Join(logDir, bucket.Format("20060102_1504")+"_0_1.logbin")
+}
+
+func splitLogBucket(t time.Time) time.Time {
+	t = t.UTC()
+	minute := 0
+	if t.Minute() >= 30 {
+		minute = 30
+	}
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), minute, 0, 0, time.UTC)
 }
 
 func webUIAddrs(opts installOptions) []string {
