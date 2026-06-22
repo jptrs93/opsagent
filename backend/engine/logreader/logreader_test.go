@@ -19,9 +19,9 @@ func TestStreamLogsReadsMergedRecordsNewestFirst(t *testing.T) {
 	t.Cleanup(func() { ainit.StaticConfig.RunOutputDir = old })
 
 	writeMergedLog(t, base, 42, "20260615_1430_1_1.logbin",
+		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T14:30:01Z"), 1, 2, logconsumer.SplitStreamStdout, []byte("second\n")),
 		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T14:30:02Z"), 1, 1, logconsumer.SplitStreamStdout, []byte("third\n")),
 		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T14:30:03Z"), 1, 1, logconsumer.SplitStreamStderr, []byte("fourth\n")),
-		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T14:30:01Z"), 1, 2, logconsumer.SplitStreamStdout, []byte("second\n")),
 	)
 	writeMergedLog(t, base, 42, "20260615_1330_2_1.logbin",
 		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T13:59:59Z"), 2, 1, logconsumer.SplitStreamStdout, []byte("first\n")),
@@ -29,6 +29,34 @@ func TestStreamLogsReadsMergedRecordsNewestFirst(t *testing.T) {
 
 	var got []string
 	for line, err := range StreamLogs(42, 0, mustTime("2026-06-15T13:00:00Z"), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, string(line.Line))
+	}
+	want := []string{"fourth\n", "third\n", "second\n", "first\n"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("lines = %#v, want %#v", got, want)
+	}
+}
+
+func TestStreamLogsMergesSameBucketReadersByNewestPeek(t *testing.T) {
+	base := t.TempDir()
+	old := ainit.StaticConfig.RunOutputDir
+	ainit.StaticConfig.RunOutputDir = base
+	t.Cleanup(func() { ainit.StaticConfig.RunOutputDir = old })
+
+	writeMergedLog(t, base, 42, "20260615_1430_1_1.logbin",
+		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T14:30:01Z"), 1, 1, logconsumer.SplitStreamStdout, []byte("first\n")),
+		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T14:30:04Z"), 1, 1, logconsumer.SplitStreamStdout, []byte("fourth\n")),
+	)
+	writeMergedLog(t, base, 42, "20260615_1430_1_2.logbin",
+		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T14:30:02Z"), 1, 2, logconsumer.SplitStreamStdout, []byte("second\n")),
+		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T14:30:03Z"), 1, 2, logconsumer.SplitStreamStdout, []byte("third\n")),
+	)
+
+	var got []string
+	for line, err := range StreamLogs(42, 0, mustTime("2026-06-15T14:30:00Z"), nil) {
 		if err != nil {
 			t.Fatal(err)
 		}

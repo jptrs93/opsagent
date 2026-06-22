@@ -36,21 +36,7 @@ func StreamLogs(deploymentID int, configVersion int, since time.Time, till *time
 			yield(LogLine{}, err)
 			return
 		}
-		var lines []LogLine
-		for _, path := range files {
-			items, err := readLogFile(path, configVersion, since, till)
-			if err != nil {
-				yield(LogLine{}, err)
-				return
-			}
-			lines = append(lines, items...)
-		}
-		sort.SliceStable(lines, func(i, j int) bool { return lines[i].Time > lines[j].Time })
-		for _, line := range lines {
-			if !yield(line, nil) {
-				return
-			}
-		}
+		streamBackwardLogFiles(files, configVersion, since, till, yield)
 	}
 }
 
@@ -61,18 +47,27 @@ func streamSystemLogs(configVersion int, since time.Time, till *time.Time, yield
 		yield(LogLine{}, err)
 		return
 	}
-	var lines []LogLine
-	for _, path := range files {
-		items, err := readLogFile(path, configVersion, since, till)
-		if err != nil {
-			yield(LogLine{}, err)
-			return
-		}
-		lines = append(lines, items...)
-	}
 	legacyFiles, err := candidateSystemLogFiles(since, till)
 	if err != nil {
 		yield(LogLine{}, err)
+		return
+	}
+	if len(legacyFiles) == 0 {
+		streamBackwardLogFiles(files, configVersion, since, till, yield)
+		return
+	}
+	var lines []LogLine
+	failed := false
+	streamBackwardLogFiles(files, configVersion, since, till, func(line LogLine, err error) bool {
+		if err != nil {
+			failed = true
+			yield(LogLine{}, err)
+			return false
+		}
+		lines = append(lines, line)
+		return true
+	})
+	if failed {
 		return
 	}
 	for _, path := range legacyFiles {
@@ -89,6 +84,82 @@ func streamSystemLogs(configVersion int, since time.Time, till *time.Time, yield
 			return
 		}
 	}
+}
+
+func streamBackwardLogFiles(paths []string, configVersion int, since time.Time, till *time.Time, yield func(LogLine, error) bool) {
+	for i := 0; i < len(paths); {
+		bucket, _, _, ok := parseLogFileName(filepath.Base(paths[i]))
+		if !ok {
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(paths) {
+			nextBucket, _, _, ok := parseLogFileName(filepath.Base(paths[j]))
+			if !ok || !nextBucket.Equal(bucket) {
+				break
+			}
+			j++
+		}
+		if !streamBackwardLogFileGroup(paths[i:j], configVersion, since, till, yield) {
+			return
+		}
+		i = j
+	}
+}
+
+type backwardLogLineReaderState struct {
+	reader *BackwardLogLineReader
+	line   LogLine
+}
+
+func streamBackwardLogFileGroup(paths []string, configVersion int, since time.Time, till *time.Time, yield func(LogLine, error) bool) bool {
+	states := make([]backwardLogLineReaderState, 0, len(paths))
+	closeAll := func() {
+		for _, state := range states {
+			_ = state.reader.Close()
+		}
+	}
+	for _, path := range paths {
+		reader, err := NewBackwardLogLineReader(path, configVersion, since, till)
+		if err != nil {
+			closeAll()
+			return yield(LogLine{}, err)
+		}
+		line, err := reader.Next()
+		if err != nil {
+			_ = reader.Close()
+			if errors.Is(err, io.EOF) {
+				continue
+			}
+			closeAll()
+			return yield(LogLine{}, err)
+		}
+		states = append(states, backwardLogLineReaderState{reader: reader, line: line})
+	}
+	defer closeAll()
+	for len(states) > 0 {
+		newest := 0
+		for i := 1; i < len(states); i++ {
+			if states[i].line.Time > states[newest].line.Time {
+				newest = i
+			}
+		}
+		if !yield(states[newest].line, nil) {
+			return false
+		}
+		line, err := states[newest].reader.Next()
+		if err != nil {
+			_ = states[newest].reader.Close()
+			if !errors.Is(err, io.EOF) {
+				return yield(LogLine{}, err)
+			}
+			states = append(states[:newest], states[newest+1:]...)
+			continue
+		}
+		states[newest].line = line
+	}
+	return true
 }
 
 func candidateSystemLogFiles(since time.Time, till *time.Time) ([]string, error) {
