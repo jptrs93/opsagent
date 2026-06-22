@@ -70,7 +70,7 @@ func Run(ctx context.Context, cfg Config) {
 	// go logcollector.RunAll(ctx, store, cfg.MachineName)
 	go engine.DeploymentOperator{Store: store}.RunAll(cfg.MachineName)
 
-	runPrimaryConnLoop(cfg, store, primaryHTTPClient)
+	runPrimaryConnLoop(ctx, cfg, store, primaryHTTPClient)
 }
 
 // newPrimaryHTTPClient builds the HTTP/2-only client a worker uses to dial the
@@ -100,7 +100,7 @@ func newPrimaryHTTPClient(tlsConfig *tls.Config, serverName string) *http.Client
 	}
 }
 
-func runPrimaryConnLoop(cfg Config, store *sqlite.SecondaryStorage, primaryHTTPClient *http.Client) {
+func runPrimaryConnLoop(ctx context.Context, cfg Config, store *sqlite.SecondaryStorage, primaryHTTPClient *http.Client) {
 	capi := apigen.NewOpsagentClusterV1Capi(
 		"https://"+cfg.PrimaryClusterAddr,
 		apigen.WithOpsagentClusterV1CapiHTTPClient(primaryHTTPClient),
@@ -108,9 +108,12 @@ func runPrimaryConnLoop(cfg Config, store *sqlite.SecondaryStorage, primaryHTTPC
 
 	backoff := time.Second
 	const maxBackoff = 30 * time.Second
-	for {
+	for ctx.Err() == nil {
 		connectedAt := time.Now()
-		err := runSession(capi, store, cfg.MachineName)
+		err := runSession(ctx, capi, store, cfg.MachineName)
+		if ctx.Err() != nil {
+			return
+		}
 		if time.Since(connectedAt) > maxBackoff {
 			// A long-lived session that just dropped: reset backoff so a
 			// transient blip reconnects promptly.
@@ -123,7 +126,11 @@ func runPrimaryConnLoop(cfg Config, store *sqlite.SecondaryStorage, primaryHTTPC
 			"retry_in", backoff,
 			"err", err)
 
-		time.Sleep(backoff)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
 		backoff *= 2
 		if backoff > maxBackoff {
 			backoff = maxBackoff
@@ -172,8 +179,8 @@ func (t *logStreamTracker) remove(requestID string) {
 // the primary's messages (snapshot, config updates, log requests) from the
 // response stream, applying them to the local store. Returns when the stream
 // ends (error or clean EOF).
-func runSession(capi *apigen.OpsagentClusterV1Capi, store *sqlite.SecondaryStorage, machine string) error {
-	sessCtx, cancel := context.WithCancel(context.Background())
+func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *sqlite.SecondaryStorage, machine string) error {
+	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	out := &outbox{ch: make(chan *apigen.MsgToMaster, 64), ctx: sessCtx}

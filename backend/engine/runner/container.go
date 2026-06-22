@@ -48,9 +48,10 @@ type containerRunner struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 
-	store        storage.OperatorStore
-	deploymentID int32
-	containerID  string
+	store          storage.OperatorStore
+	deploymentID   int32
+	deploymentName string
+	containerID    string
 
 	// derived from the deployment config version; not part of RunnerStatus.
 	user           string
@@ -145,21 +146,32 @@ func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Durati
 func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
 	cfg := dep.Spec.Runner.Container
 	r := &containerRunner{
-		ctx:           ctx,
-		cancel:        cancel,
-		done:          make(chan struct{}),
-		store:         store,
-		deploymentID:  dep.ID,
-		containerID:   containerID(dep.ID, configVersion),
-		configVersion: configVersion,
-		user:          cfg.User,
-		envVars:       cfg.EnvVars,
-		command:       cfg.Command,
-		cwd:           cfg.WorkingDir,
+		ctx:            ctx,
+		cancel:         cancel,
+		done:           make(chan struct{}),
+		store:          store,
+		deploymentID:   dep.ID,
+		deploymentName: containerDeploymentName(dep),
+		containerID:    containerID(dep.ID, configVersion),
+		configVersion:  configVersion,
+		user:           cfg.User,
+		envVars:        cfg.EnvVars,
+		command:        cfg.Command,
+		cwd:            cfg.WorkingDir,
 	}
 	r.mounts, r.dataVolumeHost = containerMounts(dep)
 	r.dataVolumeUser = cfg.User
 	return r
+}
+
+func containerDeploymentName(dep *apigen.DeploymentConfig) string {
+	if dep == nil {
+		return "<nil>"
+	}
+	if !dep.ConfigID.IsZero() {
+		return fmt.Sprintf("%d:%s:%s", dep.ConfigID.SpaceID, dep.ConfigID.Machine, dep.ConfigID.Name)
+	}
+	return fmt.Sprintf("id=%d", dep.ID)
 }
 
 func (r *containerRunner) Version() int32 { return r.status.DeploymentConfigVersion }
@@ -189,6 +201,7 @@ func (r *containerRunner) Stop() {
 
 	task := r.getTask()
 	if task != nil {
+		r.logContainerEvent("stop", r.currentRunNumber(), r.mounts)
 		// Graceful: SIGTERM, give the container time to exit (the run loop's
 		// monitor wakes on real exit and writes STOPPED), then SIGKILL.
 		if err := task.Kill(context.Background(), syscall.SIGTERM); err != nil {
@@ -222,7 +235,7 @@ func (r *containerRunner) run() {
 	// Reattach: reconcile any existing containerd task for this deterministic id.
 	if r.startupMode == containerStartupReattachRunning || r.startupMode == containerStartupReattachStopped {
 		if task, err := Containerd.LoadTask(r.ctx, r.containerID); err == nil {
-			slog.InfoContext(r.ctx, "adopting existing container", "id", r.containerID, "pid", task.Pid())
+			r.logContainerEvent("re-attach", r.currentRunNumber(), r.mounts)
 			r.setTask(task)
 			if r.startupMode == containerStartupReattachStopped {
 				r.stopAdoptedTask(task)
@@ -237,7 +250,7 @@ func (r *containerRunner) run() {
 				r.updateStatus(apigen.RunningStatus_CRASHED, int32(task.Pid()))
 			}
 		} else {
-			slog.InfoContext(r.ctx, "no running container to adopt", "id", r.containerID)
+			r.logContainerEvent("re-attach-miss", r.currentRunNumber(), r.mounts)
 			if r.startupMode == containerStartupReattachStopped {
 				if r.shouldPublishStopped() {
 					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
@@ -339,7 +352,7 @@ func (r *containerRunner) run() {
 		}
 
 		r.setTask(task)
-		slog.InfoContext(r.ctx, "container started", "id", r.containerID, "pid", task.Pid(), "image", spec.Image)
+		r.logContainerEvent("start", runNumber, mounts)
 		r.updateStatus(apigen.RunningStatus_RUNNING, int32(task.Pid()))
 		startedAt := time.Now()
 
@@ -403,6 +416,7 @@ func (r *containerRunner) stopAdoptedTask(task *ctrd.Task) {
 	if task == nil {
 		return
 	}
+	r.logContainerEvent("stop", r.currentRunNumber(), r.mounts)
 	if err := task.Kill(context.Background(), syscall.SIGTERM); err != nil {
 		slog.WarnContext(r.ctx, "sending SIGTERM to adopted container failed", "id", r.containerID, "err", err)
 	}
@@ -433,6 +447,70 @@ func (r *containerRunner) shouldPublishStopped() bool {
 	default:
 		return true
 	}
+}
+
+func (r *containerRunner) logContainerEvent(action string, runNumber int32, mounts []ctrd.Mount) {
+	counts := countEnvVars(r.envVars)
+	slog.Info(fmt.Sprintf(
+		"container %s deployment=%q config_version=%d run_number=%d mount_paths=%q env_plain_count=%d env_config_count=%d env_secret_count=%d env_asset_count=%d",
+		action,
+		r.deploymentName,
+		r.configVersion,
+		runNumber,
+		formatMountPaths(mounts),
+		counts.plain,
+		counts.config,
+		counts.secret,
+		counts.asset,
+	))
+}
+
+func (r *containerRunner) currentRunNumber() int32 {
+	return r.status.NumberOfRestarts + 1
+}
+
+type envVarCounts struct {
+	plain  int
+	config int
+	secret int
+	asset  int
+}
+
+func countEnvVars(env map[string]*apigen.EnvVarValue) envVarCounts {
+	var counts envVarCounts
+	for _, value := range env {
+		if value == nil {
+			continue
+		}
+		if value.Value != nil {
+			counts.plain++
+		}
+		if value.ConfigID != nil {
+			counts.config++
+		}
+		if value.SecretID != nil {
+			counts.secret++
+		}
+		if value.Asset != "" {
+			counts.asset++
+		}
+	}
+	return counts
+}
+
+func formatMountPaths(mounts []ctrd.Mount) string {
+	if len(mounts) == 0 {
+		return "-"
+	}
+	paths := make([]string, 0, len(mounts))
+	for _, mount := range mounts {
+		mode := "rw"
+		if mount.ReadOnly {
+			mode = "ro"
+		}
+		paths = append(paths, fmt.Sprintf("%s->%s(%s)", mount.Source, mount.Dest, mode))
+	}
+	return strings.Join(paths, ";")
 }
 
 func (r *containerRunner) sleepBackoff(crashCount int) bool {

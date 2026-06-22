@@ -4,9 +4,7 @@ package ctrd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"sync"
 	"syscall"
@@ -170,7 +168,6 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 	if err != nil {
 		return nil, fmt.Errorf("creating container: %w", err)
 	}
-	logContainerSpec(ctx, container, spec)
 
 	ioCreator, err := newLogConsumer(spec)
 	if err != nil {
@@ -192,69 +189,6 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 
 func newLogConsumer(spec ContainerSpec) (cio.Creator, error) {
 	return logconsumer.NewRawBinaryV2(spec.Output, spec.OutputVersion, spec.OutputRun)
-}
-
-func logContainerSpec(ctx context.Context, container containerd.Container, spec ContainerSpec) {
-	runtimeSpec, err := container.Spec(ctx)
-	if err != nil {
-		slog.WarnContext(ctx, "reading containerd spec for logging failed", "id", spec.ID, "err", err)
-		return
-	}
-
-	var args []string
-	var cwd string
-	var user string
-	if runtimeSpec.Process != nil {
-		args = runtimeSpec.Process.Args
-		cwd = runtimeSpec.Process.Cwd
-		user = runtimeSpec.Process.User.Username
-		if user == "" {
-			user = fmt.Sprintf("%d:%d", runtimeSpec.Process.User.UID, runtimeSpec.Process.User.GID)
-		}
-	}
-
-	details := map[string]any{
-		"id":             spec.ID,
-		"image":          spec.Image,
-		"args":           args,
-		"cwd":            cwd,
-		"user":           user,
-		"host_network":   true,
-		"env_count":      len(spec.Env),
-		"mounts":         logMounts(runtimeSpec.Mounts),
-		"output":         spec.Output,
-		"output_version": spec.OutputVersion,
-		"output_run":     spec.OutputRun,
-	}
-	detailsJSON, err := json.Marshal(details)
-	if err != nil {
-		slog.WarnContext(ctx, "serializing containerd start spec failed", "id", spec.ID, "err", err)
-	}
-
-	attrs := []any{
-		"id", spec.ID,
-		"image", spec.Image,
-		"output", spec.Output,
-		"output_version", spec.OutputVersion,
-		"output_run", spec.OutputRun,
-	}
-	if len(detailsJSON) > 0 {
-		attrs = append(attrs, "spec", string(detailsJSON))
-	}
-	slog.InfoContext(ctx, "containerd task starting", attrs...)
-}
-
-func logMounts(mounts []specs.Mount) []map[string]any {
-	logged := make([]map[string]any, 0, len(mounts))
-	for _, mount := range mounts {
-		logged = append(logged, map[string]any{
-			"source":      mount.Source,
-			"destination": mount.Destination,
-			"type":        mount.Type,
-			"options":     mount.Options,
-		})
-	}
-	return logged
 }
 
 // LoadTask reconnects to a running container/task by id for reattach after an

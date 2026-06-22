@@ -103,11 +103,6 @@ func runPrimary() {
 	if err != nil {
 		panic(fmt.Sprintf("creating handler: %v", err))
 	}
-	defer func() {
-		if err := h.Store.Close(); err != nil {
-			slog.Error("close primary store", "err", err)
-		}
-	}()
 	backupDone := backup.StartReplication(ctx, h.ConfigService)
 	defer func() {
 		stop()
