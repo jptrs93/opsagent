@@ -88,18 +88,31 @@ func (op DeploymentOperator) Run(
 	sub := subs.Subscribe(func(dws apigen.DeploymentWithStatus) bool {
 		return dws.Config.ID == id
 	})
-	slog.Info("Run: reattaching preparer",
-		"dep", depName,
-		"preparerStatus", fmtPreparerStatus(status.Preparer),
-		"configSeqNo", config.Version,
-	)
-	var currentPreparer preparer.Preparer = preparer.ReAttach(op.Store, config, status.Preparer)
-	slog.Info("Run: reattaching runner",
-		"dep", depName,
-		"runnerStatus", fmtRunnerStatus(status.Runner),
-		"configSeqNo", config.Version,
-	)
-	var currentRunner runner.Runner = runner.ReAttach(op.Store, config, status.Runner)
+	var currentPreparer preparer.Preparer
+	var currentRunner runner.Runner
+	if config.DesiredState.Running {
+		slog.Info("Run: reattaching running preparer",
+			"dep", depName,
+			"preparerStatus", fmtPreparerStatus(status.Preparer),
+			"configSeqNo", config.Version,
+		)
+		currentPreparer = preparer.ReAttach(op.Store, config, status.Preparer)
+		slog.Info("Run: reattaching running runner",
+			"dep", depName,
+			"runnerStatus", fmtRunnerStatus(status.Runner),
+			"configSeqNo", config.Version,
+		)
+		currentRunner = runner.ReAttachRunning(op.Store, config, status.Runner)
+	} else {
+		slog.Info("Run: initializing stopped deployment",
+			"dep", depName,
+			"preparerStatus", fmtPreparerStatus(status.Preparer),
+			"runnerStatus", fmtRunnerStatus(status.Runner),
+			"configSeqNo", config.Version,
+		)
+		currentPreparer = preparer.Idle(config.Version)
+		currentRunner = runner.ReAttachStopped(op.Store, config, status.Runner)
+	}
 	var candidate runner.RolloverCandidate
 	var candidateReady <-chan rolloverCandidateResult
 

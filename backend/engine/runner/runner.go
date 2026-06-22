@@ -52,26 +52,44 @@ func CreateRolloverCandidate(store storage.OperatorStore, dep *apigen.Deployment
 	return newRolloverContainerRunner(store, dep, preparer)
 }
 
-// ReAttach resumes supervision of a deployment that was already running
-// before opendeploy restarted. Container runners reattach to a running task by
-// id. Systemd runners start a monitor-only loop — no install or restart.
-func ReAttach(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
+// ReAttachRunning resumes supervision for a deployment whose desired state is
+// running. Container runners adopt an existing task by id, or start a fresh task
+// when there is nothing to adopt. Systemd runners start a monitor-only loop — no
+// install or restart.
+func ReAttachRunning(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
 	if prev.IsZero() {
-		if useSystemd(dep) && dep.DesiredState.Running {
-			slog.Info("runner.ReAttach: observing existing systemd unit without previous runner status")
+		if useSystemd(dep) {
+			slog.Info("runner.ReAttachRunning: observing existing systemd unit without previous runner status")
 			return observeExistingSystemdRunner(store, dep)
 		}
-		slog.Info("runner.ReAttach: no previous runner, returning stopped")
+		slog.Info("runner.ReAttachRunning: no previous runner, returning stopped")
 		return Stopped()
 	}
-	slog.Info("runner.ReAttach: reattaching",
+	slog.Info("runner.ReAttachRunning: reattaching",
 		"prevStatus", prev.Status, "prevPid", prev.RunningPid,
 		"prevArtifact", prev.RunningArtifact, "prevSeqNo", prev.DeploymentConfigVersion)
 	switch {
 	case useSystemd(dep):
 		return reAttachSystemdRunner(store, dep, prev)
 	}
-	return reAttachContainerRunner(store, dep, prev)
+	return reAttachContainerRunner(store, dep, prev, containerStartupReattachRunning)
+}
+
+// ReAttachStopped reconciles runtime leftovers for a deployment whose desired
+// state is stopped. Container runners may adopt an existing task only to stop
+// and delete it; they never start a fresh task from this path.
+func ReAttachStopped(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
+	if prev.IsZero() {
+		slog.Info("runner.ReAttachStopped: no previous runner, returning stopped")
+		return Stopped()
+	}
+	slog.Info("runner.ReAttachStopped: reconciling stopped deployment",
+		"prevStatus", prev.Status, "prevPid", prev.RunningPid,
+		"prevArtifact", prev.RunningArtifact, "prevSeqNo", prev.DeploymentConfigVersion)
+	if useSystemd(dep) {
+		return Stopped()
+	}
+	return reAttachContainerRunner(store, dep, prev, containerStartupReattachStopped)
 }
 
 // Stopped returns a no-op Runner sentinel used when no process is running.

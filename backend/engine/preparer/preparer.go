@@ -41,6 +41,12 @@ func StartPrepare(store storage.OperatorStore, dep *apigen.DeploymentConfig) Pre
 	return startFor(store, dep)
 }
 
+// Idle returns a no-op preparer handle for a deployment that should not be
+// preparing on process startup, usually because its desired state is stopped.
+func Idle(version int32) Preparer {
+	return &finishedPreparer{deploymentConfigVersion: version}
+}
+
 // ReAttach resumes observation of a preparation that was in flight before
 // opendeploy last shut down. Preparations are not resumable: if the previous
 // run reached READY for this SeqNo we return a no-op handle, otherwise we

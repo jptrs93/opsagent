@@ -62,6 +62,7 @@ type containerRunner struct {
 	dataVolumeHost string // host dir to create+chown for the default data volume ("" = disabled)
 	dataVolumeUser string // user the data volume should be owned by
 	readiness      *readinessConfig
+	startupMode    containerStartupMode
 
 	status apigen.RunnerStatus
 
@@ -78,6 +79,14 @@ type containerRunner struct {
 type readinessConfig struct {
 	timeout time.Duration
 }
+
+type containerStartupMode int
+
+const (
+	containerStartupStartFresh containerStartupMode = iota
+	containerStartupReattachRunning
+	containerStartupReattachStopped
+)
 
 // containerID is the deterministic containerd id for a deployment config version.
 func containerID(deploymentID int32, configVersion int32) string {
@@ -116,11 +125,12 @@ func newRolloverContainerRunner(store storage.OperatorStore, dep *apigen.Deploym
 	return r
 }
 
-func reAttachContainerRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) *containerRunner {
+func reAttachContainerRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := buildContainerRunner(ctx, cancel, store, dep, prev.DeploymentConfigVersion)
 	r.publish.Store(true)
 	r.status = prev
+	r.startupMode = mode
 	go r.run()
 	return r
 }
@@ -209,19 +219,34 @@ func (r *containerRunner) run() {
 	crashCount := 0
 	hadProcess := false
 
-	// Reattach: if a container for this deployment is still running, adopt it.
-	if !r.status.IsZero() && (r.status.RunningPid != 0 || r.status.Status == apigen.RunningStatus_RUNNING) {
+	// Reattach: reconcile any existing containerd task for this deterministic id.
+	if r.startupMode == containerStartupReattachRunning || r.startupMode == containerStartupReattachStopped {
 		if task, err := Containerd.LoadTask(r.ctx, r.containerID); err == nil {
-			slog.InfoContext(r.ctx, "adopting running container", "id", r.containerID, "pid", task.Pid())
+			slog.InfoContext(r.ctx, "adopting existing container", "id", r.containerID, "pid", task.Pid())
 			r.setTask(task)
+			if r.startupMode == containerStartupReattachStopped {
+				r.stopAdoptedTask(task)
+				if r.shouldPublishStopped() {
+					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+				}
+				return
+			}
 			r.monitorTask(task)
 			hadProcess = true
 			if !r.stopping.Load() {
 				r.updateStatus(apigen.RunningStatus_CRASHED, int32(task.Pid()))
 			}
 		} else {
-			slog.InfoContext(r.ctx, "no running container to adopt, spawning fresh", "id", r.containerID)
-			hadProcess = true
+			slog.InfoContext(r.ctx, "no running container to adopt", "id", r.containerID)
+			if r.startupMode == containerStartupReattachStopped {
+				if r.shouldPublishStopped() {
+					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+				}
+				return
+			}
+			hadProcess = r.status.RunningPid != 0 ||
+				r.status.Status == apigen.RunningStatus_RUNNING ||
+				r.status.Status == apigen.RunningStatus_STARTING
 		}
 	}
 
@@ -371,6 +396,42 @@ func (r *containerRunner) monitorTask(task *ctrd.Task) {
 	select {
 	case <-exitCh:
 	case <-r.ctx.Done():
+	}
+}
+
+func (r *containerRunner) stopAdoptedTask(task *ctrd.Task) {
+	if task == nil {
+		return
+	}
+	if err := task.Kill(context.Background(), syscall.SIGTERM); err != nil {
+		slog.WarnContext(r.ctx, "sending SIGTERM to adopted container failed", "id", r.containerID, "err", err)
+	}
+	exitDone := make(chan struct{})
+	go func() {
+		r.monitorTask(task)
+		close(exitDone)
+	}()
+	select {
+	case <-exitDone:
+	case <-time.After(3 * time.Second):
+		if err := task.Kill(context.Background(), syscall.SIGKILL); err != nil {
+			slog.WarnContext(r.ctx, "sending SIGKILL to adopted container failed", "id", r.containerID, "err", err)
+		}
+		select {
+		case <-exitDone:
+		case <-time.After(5 * time.Second):
+		}
+	}
+	r.deleteTask(task)
+	r.setTask(nil)
+}
+
+func (r *containerRunner) shouldPublishStopped() bool {
+	switch r.status.Status {
+	case apigen.RunningStatus_STOPPED, apigen.RunningStatus_NO_DEPLOYMENT:
+		return r.status.RunningPid != 0
+	default:
+		return true
 	}
 }
 
