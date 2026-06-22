@@ -1,96 +1,55 @@
 package logreader
 
 import (
-	"bytes"
+	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"iter"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/jptrs93/opsagent/backend/ainit"
+	"github.com/jptrs93/opsagent/backend/logconsumer"
 )
 
 type LogLine struct {
-	Time  time.Time
-	Level string
-	Msg   string
-	Props map[string]string
+	Time    int64
+	Version int32
+	Run     int32
+	Stream  int8
+	Line    []byte
 }
 
 func StreamLogs(deploymentID int, configVersion int, since time.Time, till *time.Time) iter.Seq2[LogLine, error] {
 	return func(yield func(LogLine, error) bool) {
-		runDirs, err := candidateRunDirs(deploymentID, configVersion)
+		files, err := candidateLogFiles(filepath.Join(ainit.StaticConfig.RunOutputDir, fmt.Sprintf("%d", deploymentID)), configVersion, since, till)
 		if err != nil {
 			yield(LogLine{}, err)
 			return
 		}
-		streams := make([]iter.Seq2[LogLine, error], 0, len(runDirs))
-		for _, dir := range runDirs {
-			streams = append(streams, streamRunDir(dir, since, till))
-		}
-		for line, err := range mergeStreams(streams...) {
-			if !yield(line, err) {
-				return
-			}
-			if err != nil {
-				return
-			}
-		}
-	}
-}
-
-func candidateRunDirs(deploymentID int, configVersion int) ([]string, error) {
-	root := filepath.Join(ainit.StaticConfig.RunOutputDir, fmt.Sprintf("%d", deploymentID))
-	versions, err := os.ReadDir(root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var dirs []string
-	for _, version := range versions {
-		if !version.IsDir() {
-			continue
-		}
-		if configVersion > 0 && version.Name() != fmt.Sprintf("%d", configVersion) {
-			continue
-		}
-		versionDir := filepath.Join(root, version.Name())
-		runs, err := os.ReadDir(versionDir)
-		if err != nil {
-			return nil, err
-		}
-		for _, run := range runs {
-			if run.IsDir() {
-				dirs = append(dirs, filepath.Join(versionDir, run.Name()))
-			}
-		}
-	}
-	sort.Strings(dirs)
-	return dirs, nil
-}
-
-func streamRunDir(dir string, since time.Time, till *time.Time) iter.Seq2[LogLine, error] {
-	return func(yield func(LogLine, error) bool) {
-		files, err := candidateLogFiles(dir, since, till)
-		if err != nil {
-			yield(LogLine{}, err)
-			return
-		}
+		var lines []LogLine
 		for _, path := range files {
-			if !streamLogFile(path, since, till, yield) {
+			items, err := readLogFile(path, configVersion, since, till)
+			if err != nil {
+				yield(LogLine{}, err)
+				return
+			}
+			lines = append(lines, items...)
+		}
+		sort.SliceStable(lines, func(i, j int) bool { return lines[i].Time > lines[j].Time })
+		for _, line := range lines {
+			if !yield(line, nil) {
 				return
 			}
 		}
 	}
 }
 
-func candidateLogFiles(dir string, since time.Time, till *time.Time) ([]string, error) {
+func candidateLogFiles(dir string, configVersion int, since time.Time, till *time.Time) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -103,11 +62,14 @@ func candidateLogFiles(dir string, since time.Time, till *time.Time) ([]string, 
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".logbin" {
 			continue
 		}
-		bucket, ok := parseBucket(entry.Name())
+		bucket, version, _, ok := parseLogFileName(entry.Name())
 		if !ok {
 			continue
 		}
-		bucketEnd := bucket.Add(time.Hour)
+		if configVersion > 0 && version != int32(configVersion) {
+			continue
+		}
+		bucketEnd := bucket.Add(30 * time.Minute)
 		if bucketEnd.Before(since) || bucketEnd.Equal(since) {
 			continue
 		}
@@ -120,209 +82,101 @@ func candidateLogFiles(dir string, since time.Time, till *time.Time) ([]string, 
 	return files, nil
 }
 
-func parseBucket(name string) (time.Time, bool) {
+func parseLogFileName(name string) (time.Time, int32, int32, bool) {
 	base := strings.TrimSuffix(name, ".logbin")
-	t, err := time.ParseInLocation("20060102_15", base, time.UTC)
-	return t, err == nil
+	parts := strings.Split(base, "_")
+	if len(parts) != 4 {
+		return time.Time{}, 0, 0, false
+	}
+	t, err := time.ParseInLocation("20060102_1504", parts[0]+"_"+parts[1], time.UTC)
+	if err != nil {
+		return time.Time{}, 0, 0, false
+	}
+	version, err := parseFileNameInt(parts[2])
+	if err != nil {
+		return time.Time{}, 0, 0, false
+	}
+	run, err := parseFileNameInt(parts[3])
+	if err != nil {
+		return time.Time{}, 0, 0, false
+	}
+	return t, version, run, true
 }
 
-func streamLogFile(path string, since time.Time, till *time.Time, yield func(LogLine, error) bool) bool {
+func parseFileNameInt(value string) (int32, error) {
+	var parsed int64
+	for i := 0; i < len(value); i++ {
+		if value[i] < '0' || value[i] > '9' {
+			return 0, fmt.Errorf("invalid integer %q", value)
+		}
+		parsed = parsed*10 + int64(value[i]-'0')
+	}
+	if value == "" {
+		return 0, fmt.Errorf("empty integer")
+	}
+	return int32(parsed), nil
+}
+
+func readLogFile(path string, configVersion int, since time.Time, till *time.Time) ([]LogLine, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return yield(LogLine{}, err)
+		return nil, err
 	}
 	defer f.Close()
-
-	info, err := f.Stat()
-	if err != nil {
-		return yield(LogLine{}, err)
-	}
-
-	const chunkSize = 64 * 1024
-	var remainder []byte
-	for offset := info.Size(); offset > 0; {
-		readSize := int64(chunkSize)
-		if offset < readSize {
-			readSize = offset
+	var lines []LogLine
+	for {
+		line, err := readRecord(f)
+		if err != nil {
+			if err == io.EOF {
+				return lines, nil
+			}
+			return nil, fmt.Errorf("read %s: %w", path, err)
 		}
-		offset -= readSize
-
-		buf := make([]byte, readSize+int64(len(remainder)))
-		if _, err := f.ReadAt(buf[:readSize], offset); err != nil {
-			return yield(LogLine{}, err)
+		if configVersion > 0 && line.Version != int32(configVersion) {
+			continue
 		}
-		copy(buf[readSize:], remainder)
-		end := len(buf)
-		for end > 0 {
-			idx := bytes.LastIndexByte(buf[:end], '\n')
-			if idx == -1 {
-				break
-			}
-			if idx+1 < end && !yieldParsedLogLine(path, buf[idx+1:end], since, till, yield) {
-				return false
-			}
-			end = idx
+		t := time.Unix(0, line.Time).UTC()
+		if t.Before(since) {
+			continue
 		}
-		remainder = append(remainder[:0], buf[:end]...)
-	}
-	if len(remainder) > 0 {
-		return yieldParsedLogLine(path, remainder, since, till, yield)
-	}
-	return true
-}
-
-func yieldParsedLogLine(path string, raw []byte, since time.Time, till *time.Time, yield func(LogLine, error) bool) bool {
-	line, err := ParseLogfmtLine(string(raw))
-	if err != nil {
-		return yield(LogLine{}, fmt.Errorf("parse %s: %w", path, err))
-	}
-	if line.Time.Before(since) {
-		return true
-	}
-	if till != nil && !line.Time.Before(*till) {
-		return true
-	}
-	return yield(line, nil)
-}
-
-func mergeStreams(streams ...iter.Seq2[LogLine, error]) iter.Seq2[LogLine, error] {
-	type streamState struct {
-		next func() (LogLine, error, bool)
-		stop func()
-		line LogLine
-		err  error
-		ok   bool
-	}
-	return func(yield func(LogLine, error) bool) {
-		states := make([]streamState, 0, len(streams))
-		defer func() {
-			for i := range states {
-				states[i].stop()
-			}
-		}()
-		for _, stream := range streams {
-			next, stop := iter.Pull2(stream)
-			line, err, ok := next()
-			if ok {
-				states = append(states, streamState{next: next, stop: stop, line: line, err: err, ok: ok})
-			} else {
-				stop()
-			}
+		if till != nil && !t.Before(*till) {
+			continue
 		}
-
-		for len(states) > 0 {
-			maxIdx := 0
-			for i := 1; i < len(states); i++ {
-				if states[maxIdx].line.Time.Before(states[i].line.Time) {
-					maxIdx = i
-				}
-			}
-			state := &states[maxIdx]
-			if !yield(state.line, state.err) || state.err != nil {
-				return
-			}
-			line, err, ok := state.next()
-			if ok {
-				state.line = line
-				state.err = err
-				continue
-			}
-			state.stop()
-			states = append(states[:maxIdx], states[maxIdx+1:]...)
-		}
+		lines = append(lines, line)
 	}
 }
 
-func ParseLogfmtLine(line string) (LogLine, error) {
-	fields, err := parseLogfmt(line)
-	if err != nil {
+func readRecord(r io.Reader) (LogLine, error) {
+	var prefix [4]byte
+	if _, err := io.ReadFull(r, prefix[:]); err != nil {
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return LogLine{}, io.EOF
+		}
 		return LogLine{}, err
 	}
-	value, ok := fields["time"]
-	if !ok || value == "" {
-		return LogLine{}, fmt.Errorf("missing time")
+	length := int32(binary.BigEndian.Uint32(prefix[:]))
+	if length < logconsumer.SplitRecordPayloadLen {
+		return LogLine{}, fmt.Errorf("invalid record length %d", length)
 	}
-	ts, err := time.Parse(time.RFC3339Nano, value)
-	if err != nil {
-		return LogLine{}, fmt.Errorf("invalid time %q: %w", value, err)
+	payload := make([]byte, length)
+	if _, err := io.ReadFull(r, payload); err != nil {
+		return LogLine{}, err
 	}
-	msg := fields["msg"]
-	if msg == "" {
-		msg = fields["message"]
+	var suffix [4]byte
+	if _, err := io.ReadFull(r, suffix[:]); err != nil {
+		return LogLine{}, err
 	}
-	props := make(map[string]string)
-	for k, v := range fields {
-		switch k {
-		case "time", "level", "msg", "message":
-			continue
-		default:
-			props[k] = v
-		}
+	if binary.BigEndian.Uint32(suffix[:]) != uint32(length) {
+		return LogLine{}, fmt.Errorf("record length suffix mismatch")
 	}
-	return LogLine{Time: ts.UTC(), Level: fields["level"], Msg: msg, Props: props}, nil
-}
-
-func parseLogfmt(line string) (map[string]string, error) {
-	fields := make(map[string]string)
-	for i := 0; i < len(line); {
-		for i < len(line) && unicode.IsSpace(rune(line[i])) {
-			i++
-		}
-		if i >= len(line) {
-			break
-		}
-		keyStart := i
-		for i < len(line) && line[i] != '=' && !unicode.IsSpace(rune(line[i])) {
-			i++
-		}
-		if keyStart == i || i >= len(line) || line[i] != '=' {
-			return nil, fmt.Errorf("invalid token near %q", line[keyStart:])
-		}
-		key := line[keyStart:i]
-		i++
-		value, next, err := parseLogfmtValue(line, i)
-		if err != nil {
-			return nil, err
-		}
-		fields[key] = value
-		i = next
+	if binary.BigEndian.Uint64(payload[:8]) == 0 {
+		return LogLine{}, io.EOF
 	}
-	return fields, nil
-}
-
-func parseLogfmtValue(line string, i int) (string, int, error) {
-	if i < len(line) && line[i] == '"' {
-		var b strings.Builder
-		i++
-		for i < len(line) {
-			switch line[i] {
-			case '"':
-				return b.String(), i + 1, nil
-			case '\\':
-				i++
-				if i >= len(line) {
-					return "", i, fmt.Errorf("unterminated escape")
-				}
-				switch line[i] {
-				case 'n':
-					b.WriteByte('\n')
-				case 'r':
-					b.WriteByte('\r')
-				case 't':
-					b.WriteByte('\t')
-				default:
-					b.WriteByte(line[i])
-				}
-			default:
-				b.WriteByte(line[i])
-			}
-			i++
-		}
-		return "", i, fmt.Errorf("unterminated quoted value")
-	}
-	start := i
-	for i < len(line) && !unicode.IsSpace(rune(line[i])) {
-		i++
-	}
-	return line[start:i], i, nil
+	return LogLine{
+		Time:    int64(binary.BigEndian.Uint64(payload[:8])),
+		Version: int32(binary.BigEndian.Uint32(payload[8:12])),
+		Run:     int32(binary.BigEndian.Uint32(payload[12:16])),
+		Stream:  int8(payload[16]),
+		Line:    append([]byte(nil), payload[17:]...),
+	}, nil
 }

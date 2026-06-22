@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/jptrs93/opsagent/backend/acmedebug"
 	"github.com/jptrs93/opsagent/backend/ainit"
@@ -60,20 +62,14 @@ func main() {
 			os.Exit(1)
 		}
 		return
-	case ainit.CommandLogConsumer:
-		if err := logconsumer.RunBinaryProcess(os.Args); err != nil {
+	case ainit.CommandSplitLogConsumer:
+		if err := logconsumer.RunSplitProcess(os.Args); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
 			os.Exit(1)
 		}
 		return
-	case ainit.CommandJSONLogConsumer:
-		if err := logconsumer.RunJSONProcess(os.Args); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	case ainit.CommandOpenObserveLogConsumer:
-		if err := logconsumer.RunOpenObserveProcess(os.Args); err != nil {
+	case ainit.CommandRawLogConsumer:
+		if err := logconsumer.RunRawBinaryProcess(os.Args); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
 			os.Exit(1)
 		}
@@ -91,13 +87,19 @@ func main() {
 }
 
 func runPrimary() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	// Log collector is parked; do not run its legacy logbin cleanup.
+	// if err := logcollector.DeleteLegacyLogbinOnce(); err != nil {
+	// 	panic(fmt.Sprintf("deleting legacy logbin files: %v", err))
+	// }
 	subFS, err := fs.Sub(fsys, "web/dist")
 	if err != nil {
 		panic(fmt.Sprintf("creating embedded sub fs: %v", err))
 	}
 	machineName := ainit.StaticConfig.PrimaryName
 	slog.Info(fmt.Sprintf("opendeploy starting primary version=%v machine=%v", version.Version, machineName))
-	h, err := handler.New(subFS, machineName)
+	h, err := handler.New(ctx, subFS, machineName)
 	if err != nil {
 		panic(fmt.Sprintf("creating handler: %v", err))
 	}
@@ -144,7 +146,13 @@ func runPrimary() {
 }
 
 func runSecondary() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	cfg := ainit.StaticConfig
+	// Log collector is parked; do not run its legacy logbin cleanup.
+	// if err := logcollector.DeleteLegacyLogbinOnce(); err != nil {
+	// 	panic(fmt.Sprintf("deleting legacy logbin files: %v", err))
+	// }
 	if cfg.PrimaryClusterAddr == "" {
 		panic("OPENDEPLOY_PRIMARY_CLUSTER_ADDR must be set when running secondary")
 	}
@@ -169,7 +177,7 @@ func runSecondary() {
 	tlsCfg := certu.MustLoadTLSConfig(caPath, certPath, keyPath)
 	machineName := certu.MustCertLoadCommonName(certPath)
 	slog.Info(fmt.Sprintf("opendeploy starting secondary version=%v machine=%v clusterAddr=%v primaryName=%v", version.Version, machineName, cfg.PrimaryClusterAddr, cfg.PrimaryName))
-	secondary.Run(secondary.Config{
+	secondary.Run(ctx, secondary.Config{
 		TLS:                tlsCfg,
 		PrimaryClusterAddr: cfg.PrimaryClusterAddr,
 		PrimaryName:        cfg.PrimaryName,

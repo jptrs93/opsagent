@@ -92,7 +92,7 @@ func (h *Handler) GetV1Healthz(ctx apigen.Context, request *http.Request, writer
 	return err
 }
 
-func New(staticFS fs.FS, machineName string) (*Handler, error) {
+func New(ctx context.Context, staticFS fs.FS, machineName string) (*Handler, error) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(ainit.StaticConfig.DataDir, "primary.db"))
 	// Open the primary-only secrets store before config snapshotting. Config-owned
 	// secret values such as GitHub/S3 credentials are resolved through it.
@@ -172,6 +172,9 @@ func New(staticFS fs.FS, machineName string) (*Handler, error) {
 
 	// Ensure the system self-management deployment exists for the primary.
 	h.Store.EnsureSystemDeployment(machineName, version.Version)
+
+	// Log collector is parked while container logging writes merged binary files directly.
+	// go logcollector.RunAll(ctx, h.Store, machineName)
 
 	// Kick off the deployment operator for this machine. RunAll pulls the
 	// current snapshot from the store and spawns a per-deployment reconciler

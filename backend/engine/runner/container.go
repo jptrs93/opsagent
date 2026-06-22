@@ -58,9 +58,6 @@ type containerRunner struct {
 	command        []string                       // argv override; empty = image default
 	cwd            string                         // process cwd; empty = image default
 	mounts         []ctrd.Mount
-	logConsumer    ctrd.LogConsumer
-	openObserve    *apigen.OpenObserveConsumerConfig
-	openObserveSvc string
 	configVersion  int32
 	dataVolumeHost string // host dir to create+chown for the default data volume ("" = disabled)
 	dataVolumeUser string // user the data volume should be owned by
@@ -135,51 +132,24 @@ func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Durati
 	return containerReadinessDefaultTimeout
 }
 
-func containerLogConsumer(consumer apigen.ContainerLogConsumer) ctrd.LogConsumer {
-	if consumer == apigen.ContainerLogConsumer_OPENOBSERVE {
-		return ctrd.LogConsumerOpenObserve
-	}
-	if consumer == apigen.ContainerLogConsumer_JSON {
-		return ctrd.LogConsumerJSON
-	}
-	return ctrd.LogConsumerStandard
-}
-
 func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
 	cfg := dep.Spec.Runner.Container
 	r := &containerRunner{
-		ctx:            ctx,
-		cancel:         cancel,
-		done:           make(chan struct{}),
-		store:          store,
-		deploymentID:   dep.ID,
-		containerID:    containerID(dep.ID, configVersion),
-		configVersion:  configVersion,
-		user:           cfg.User,
-		envVars:        cfg.EnvVars,
-		command:        cfg.Command,
-		cwd:            cfg.WorkingDir,
-		logConsumer:    containerLogConsumer(cfg.LogConsumer),
-		openObserve:    cfg.OpenobserveConsumer,
-		openObserveSvc: dep.ConfigID.Name,
+		ctx:           ctx,
+		cancel:        cancel,
+		done:          make(chan struct{}),
+		store:         store,
+		deploymentID:  dep.ID,
+		containerID:   containerID(dep.ID, configVersion),
+		configVersion: configVersion,
+		user:          cfg.User,
+		envVars:       cfg.EnvVars,
+		command:       cfg.Command,
+		cwd:           cfg.WorkingDir,
 	}
 	r.mounts, r.dataVolumeHost = containerMounts(dep)
 	r.dataVolumeUser = cfg.User
 	return r
-}
-
-func openObserveURL(cfg *apigen.OpenObserveConsumerConfig) string {
-	if cfg == nil {
-		return ""
-	}
-	return cfg.Url
-}
-
-func openObserveStream(cfg *apigen.OpenObserveConsumerConfig) string {
-	if cfg == nil {
-		return ""
-	}
-	return cfg.Stream
 }
 
 func (r *containerRunner) Version() int32 { return r.status.DeploymentConfigVersion }
@@ -280,33 +250,6 @@ func (r *containerRunner) run() {
 			}
 			continue
 		}
-		openObserveToken := ""
-		openObserveSAEmail := ""
-		if r.logConsumer == ctrd.LogConsumerOpenObserve {
-			openObserveToken, err = resolveOpenObserveToken(r.openObserve)
-			if err != nil {
-				slog.ErrorContext(r.ctx, "resolving openobserve token failed", "err", err)
-				r.updateStatus(apigen.RunningStatus_CRASHED, 0)
-				crashCount++
-				if !r.sleepBackoff(crashCount) {
-					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
-					return
-				}
-				continue
-			}
-			openObserveSAEmail, err = resolveOpenObserveSAEmail(r.openObserve)
-			if err != nil {
-				slog.ErrorContext(r.ctx, "resolving openobserve service account email failed", "err", err)
-				r.updateStatus(apigen.RunningStatus_CRASHED, 0)
-				crashCount++
-				if !r.sleepBackoff(crashCount) {
-					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
-					return
-				}
-				continue
-			}
-		}
-
 		r.ensureDataVolume()
 		runNumber := r.status.NumberOfRestarts + 1
 		outputPath := apigen.RunOutputRunDir(r.deploymentID, r.status.DeploymentConfigVersion, runNumber)
@@ -340,21 +283,14 @@ func (r *containerRunner) run() {
 		}
 
 		spec := ctrd.ContainerSpec{
-			ID:                        r.containerID,
-			Image:                     r.status.RunningArtifact,
-			User:                      r.user,
-			Env:                       env,
-			Args:                      r.command,
-			Cwd:                       r.cwd,
-			Mounts:                    mounts,
-			Output:                    outputPath,
-			LogConsumer:               r.logConsumer,
-			OpenObserveURL:            openObserveURL(r.openObserve),
-			OpenObserveStream:         openObserveStream(r.openObserve),
-			OpenObserveIngestionToken: openObserveToken,
-			OpenObserveSAEmail:        openObserveSAEmail,
-			OpenObserveSvc:            r.openObserveSvc,
-			OpenObserveVersion:        int(r.configVersion),
+			ID:     r.containerID,
+			Image:  r.status.RunningArtifact,
+			User:   r.user,
+			Env:    env,
+			Args:   r.command,
+			Cwd:    r.cwd,
+			Mounts: mounts,
+			Output: outputPath,
 		}
 		task, err := Containerd.RunTask(r.ctx, spec)
 		if err != nil {

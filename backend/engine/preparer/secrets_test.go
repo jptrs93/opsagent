@@ -36,18 +36,15 @@ func (f *fakeConfigProvider) FetchConfigs(ctx context.Context, keys []int32) (ma
 
 func TestSecretRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-		Container: apigen.ContainerRunnerConfig{
-			EnvVars: map[string]*apigen.EnvVarValue{
-				"DB":    {SecretID: ptrInt32(6)},
-				"MIX":   {ConfigID: ptrInt32(3)},
-				"TOKEN": {SecretID: ptrInt32(2)},
-				"DUP":   {SecretID: ptrInt32(6)},
-			},
-			OpenobserveConsumer: &apigen.OpenObserveConsumerConfig{TokenSecretID: 4, SaEmailValue: &apigen.EnvVarValue{SecretID: ptrInt32(7)}},
-		},
+		Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
+			"DB":    {SecretID: ptrInt32(6)},
+			"MIX":   {ConfigID: ptrInt32(3)},
+			"TOKEN": {SecretID: ptrInt32(2)},
+			"DUP":   {SecretID: ptrInt32(6)},
+		}},
 	}}}
 
-	want := []int32{2, 4, 6, 7}
+	want := []int32{2, 6}
 	if got := SecretRefs(dep); !reflect.DeepEqual(got, want) {
 		t.Fatalf("SecretRefs() = %#v; want %#v", got, want)
 	}
@@ -55,18 +52,15 @@ func TestSecretRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 
 func TestConfigRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-		Container: apigen.ContainerRunnerConfig{
-			EnvVars: map[string]*apigen.EnvVarValue{
-				"URL":    {ConfigID: ptrInt32(18)},
-				"DUP":    {ConfigID: ptrInt32(18)},
-				"OTHER":  {ConfigID: ptrInt32(2)},
-				"SECRET": {SecretID: ptrInt32(9)},
-			},
-			OpenobserveConsumer: &apigen.OpenObserveConsumerConfig{SaEmailValue: &apigen.EnvVarValue{ConfigID: ptrInt32(33)}},
-		},
+		Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
+			"URL":    {ConfigID: ptrInt32(18)},
+			"DUP":    {ConfigID: ptrInt32(18)},
+			"OTHER":  {ConfigID: ptrInt32(2)},
+			"SECRET": {SecretID: ptrInt32(9)},
+		}},
 	}}}
 
-	want := []int32{2, 18, 33}
+	want := []int32{2, 18}
 	if got := ConfigRefs(dep); !reflect.DeepEqual(got, want) {
 		t.Fatalf("ConfigRefs() = %#v; want %#v", got, want)
 	}

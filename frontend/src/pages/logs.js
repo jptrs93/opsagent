@@ -5,11 +5,11 @@ import {deploymentsS, spacesS} from "../state/deployments.js";
 
 const {div, p, select, option, input, button, pre, span, label} = van.tags;
 
-const LEVELS = ['', 'TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'];
 const SYSTEM_SPACE_ID = 0;
 const SYSTEM_DEPLOYMENT_NAME = 'opendeploy';
 const DEFAULT_LOG_LINE_LIMIT = 10000;
 const MAX_CONFIG_VERSION_OPTIONS = 20;
+const textDecoder = new TextDecoder();
 
 function toLocalInputValue(date) {
     const pad = (n) => String(n).padStart(2, '0');
@@ -58,27 +58,9 @@ function configVersionOptions(item) {
     return versions;
 }
 
-function formatLogfmtValue(value, forceQuote = false) {
-    const s = String(value);
-    if (!forceQuote && /^[^\s"=\\]+$/.test(s)) return s;
-    return JSON.stringify(s)
-        .replace(/</g, '\\u003c')
-        .replace(/>/g, '\\u003e')
-        .replace(/&/g, '\\u0026');
-}
-
 function formatLine(line) {
-    const time = line.time instanceof Date ? line.time.toISOString() : '';
-    const props = Object.entries(line.props || {})
-        .map(([k, v]) => `${k}=${formatLogfmtValue(v)}`)
-        .join(' ');
-    const fields = [
-        `time=${formatLogfmtValue(time)}`,
-        `level=${formatLogfmtValue(line.level || '')}`,
-    ];
-    if (line.msg) fields.push(`msg=${formatLogfmtValue(line.msg, true)}`);
-    if (props) fields.push(props);
-    return fields.join(' ');
+    if (line.line instanceof Uint8Array) return textDecoder.decode(line.line);
+    return String(line.line || '');
 }
 
 function formatSummaryDate(date) {
@@ -112,7 +94,6 @@ export function logsPage(selectedDeploymentId) {
     const configVersion = van.state(0);
     const timeStart = van.state(toLocalInputValue(new Date(now.getTime() - 24 * 60 * 60 * 1000)));
     const timeEnd = van.state('');
-    const levelMin = van.state('');
     const output = van.state('');
     const status = van.state('Choose filters, then search.');
     const lastSearch = van.state(null);
@@ -222,7 +203,6 @@ export function logsPage(selectedDeploymentId) {
                 deploymentId: systemDeployment ? 0 : id,
                 timeStart: start,
                 timeEnd: end || undefined,
-                levelMin: levelMin.val,
                 searchKeys: systemDeployment ? {machine} : undefined,
                 logLineLimit: DEFAULT_LOG_LINE_LIMIT,
                 configVersion: selectedConfigVersion,
@@ -230,7 +210,7 @@ export function logsPage(selectedDeploymentId) {
             for await (const batch of capi.postV1DeploymentLogSearch(payload, {signal: activeAbort.signal})) {
                 const lines = batch.lines || [];
                 count += lines.length;
-                output.val += lines.map(line => `${formatLine(line)}\n`).join('');
+                output.val += lines.map(formatLine).join('');
             }
             status.val = count >= DEFAULT_LOG_LINE_LIMIT
                 ? `Showing newest ${DEFAULT_LOG_LINE_LIMIT.toLocaleString()} log lines.`
@@ -296,14 +276,6 @@ export function logsPage(selectedDeploymentId) {
             field("Space", spaceSelect),
             field("Deployment", deploymentSelect),
             field("Version", configVersionSelect),
-            field("Minimum level", select({
-                    "data-testid": "logs-level-min-select",
-                    class: "input",
-                    value: () => levelMin.val,
-                    onchange: (e) => { levelMin.val = e.target.value; },
-                },
-                ...LEVELS.map(level => option({value: level}, level || 'Any')),
-            )),
             field("From", input({
                 "data-testid": "logs-time-start-input",
                 class: "input",

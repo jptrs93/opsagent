@@ -87,13 +87,6 @@ func SecretRefs(cfg *apigen.DeploymentConfig) []int32 {
 		}
 		seen[*item.SecretID] = true
 	}
-	if oo := cfg.Spec.Runner.Container.OpenobserveConsumer; oo != nil && oo.TokenSecretID != 0 {
-		seen[oo.TokenSecretID] = true
-		if oo.SaEmailValue != nil && oo.SaEmailValue.SecretID != nil && *oo.SaEmailValue.SecretID != 0 {
-			seen[*oo.SaEmailValue.SecretID] = true
-		}
-	}
-
 	keys := make([]int32, 0, len(seen))
 	for id := range seen {
 		keys = append(keys, id)
@@ -113,10 +106,6 @@ func ConfigRefs(cfg *apigen.DeploymentConfig) []int32 {
 		}
 		seen[*item.ConfigID] = true
 	}
-	if oo := cfg.Spec.Runner.Container.OpenobserveConsumer; oo != nil && oo.SaEmailValue != nil && oo.SaEmailValue.ConfigID != nil && *oo.SaEmailValue.ConfigID != 0 {
-		seen[*oo.SaEmailValue.ConfigID] = true
-	}
-
 	keys := make([]int32, 0, len(seen))
 	for id := range seen {
 		keys = append(keys, id)

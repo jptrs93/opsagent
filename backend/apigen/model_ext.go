@@ -40,6 +40,10 @@ func RunOutputRunDir(deploymentID int32, version int32, run int32) string {
 	return filepath.Join(RunOutputBaseDir(deploymentID, version), fmt.Sprintf("%d", run))
 }
 
+func RunProcessedOutputDir(deploymentID int32) string {
+	return filepath.Join(ainit.StaticConfig.RunOutputDir, fmt.Sprintf("%d", deploymentID), "processed")
+}
+
 func (d *DeploymentConfig) PrepareOutputPath() string {
 	return prepareOutputFile(d.ID, d.Version)
 }

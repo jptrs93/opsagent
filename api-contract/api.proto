@@ -616,27 +616,12 @@ enum ContainerUpgradeStrategy {
   ROLLOVER = 2;
 }
 
-enum ContainerLogConsumer {
-  CONTAINER_LOG_CONSUMER_UNSPECIFIED = 0;
-  STANDARD = 1;
-  JSON = 2;
-  OPENOBSERVE = 3;
-}
-
 message ContainerReadinessSignal {
   int32 timeout_seconds = 1; // 0 = default timeout
 }
 
-message OpenObserveConsumerConfig {
-  string url = 1;
-  string stream = 2;
-  int32 token_secret_id = 3;
-  // Deprecated: use sa_email_value. Kept so recently persisted configs can decode.
-  string sa_email = 4;
-  EnvVarValue sa_email_value = 5;
-}
-
 message ContainerRunnerConfig {
+  reserved 11, 12;
   string user = 1;             // OCI process.user (uid, uid:gid, or name); empty = image default
   map<string, EnvVarValue> env_vars = 2; // env vars; values can be literal, secret ref, or config ref
   repeated string command = 3; // optional argv override (entrypoint+cmd); empty = image default
@@ -647,8 +632,6 @@ message ContainerRunnerConfig {
   repeated ContainerAssetMount asset_mounts = 8; // OpenDeploy-managed readonly asset file mounts
   ContainerUpgradeStrategy upgrade_strategy = 9; // default/unspecified = RECREATE
   ContainerReadinessSignal readiness_signal = 10; // used by ROLLOVER
-  ContainerLogConsumer log_consumer = 11; // default/unspecified = STANDARD
-  OpenObserveConsumerConfig openobserve_consumer = 12;
 }
 
 message RunnerConfig {
@@ -815,10 +798,11 @@ message LogSearchRequest {
 }
 
 message LogLine {
-  int64 time = 1 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  string level = 2;
-  string msg = 3;
-  map<string, string> props = 4;
+  int64 time = 1;     // Unix nanoseconds.
+  int32 version = 2;  // Deployment config version.
+  int32 run = 3;      // Run/restart number.
+  int32 stream = 4;   // 0 = stdout, 1 = stderr.
+  bytes line = 5;     // Raw log line bytes.
 }
 
 message LogLineBatch {

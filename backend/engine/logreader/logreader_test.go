@@ -9,103 +9,76 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/ainit"
+	"github.com/jptrs93/opsagent/backend/logconsumer"
 )
 
-func TestParseLogfmtLine(t *testing.T) {
-	line, err := ParseLogfmtLine(`time=2026-06-15T14:30:00.123Z level=ERROR fmt=unformatted message="bad \"thing\"" service=api`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if line.Level != "ERROR" || line.Msg != `bad "thing"` {
-		t.Fatalf("unexpected line: %#v", line)
-	}
-	if got := line.Props["fmt"]; got != "unformatted" {
-		t.Fatalf("fmt prop = %q", got)
-	}
-	if got := line.Props["service"]; got != "api" {
-		t.Fatalf("service prop = %q", got)
-	}
-}
-
-func TestStreamLogsMergesRunDirsByTimestamp(t *testing.T) {
+func TestStreamLogsReadsMergedRecordsNewestFirst(t *testing.T) {
 	base := t.TempDir()
 	old := ainit.StaticConfig.RunOutputDir
 	ainit.StaticConfig.RunOutputDir = base
 	t.Cleanup(func() { ainit.StaticConfig.RunOutputDir = old })
 
-	writeLog(t, base, 42, 1, 1, "20260615_14.logbin", "time=2026-06-15T14:30:02Z level=INFO msg=third run=1\ntime=2026-06-15T14:30:03Z level=INFO msg=fourth run=1\n")
-	writeLog(t, base, 42, 1, 2, "20260615_14.logbin", "time=2026-06-15T14:30:01Z level=INFO msg=second run=2\n")
-	writeLog(t, base, 42, 2, 1, "20260615_14.logbin", "time=2026-06-15T14:30:00Z level=INFO msg=first run=3\n")
+	writeMergedLog(t, base, 42, "20260615_1430_1_1.logbin",
+		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T14:30:02Z"), 1, 1, logconsumer.SplitStreamStdout, []byte("third\n")),
+		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T14:30:03Z"), 1, 1, logconsumer.SplitStreamStderr, []byte("fourth\n")),
+		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T14:30:01Z"), 1, 2, logconsumer.SplitStreamStdout, []byte("second\n")),
+	)
+	writeMergedLog(t, base, 42, "20260615_1330_2_1.logbin",
+		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T13:59:59Z"), 2, 1, logconsumer.SplitStreamStdout, []byte("first\n")),
+	)
 
-	since := mustTime("2026-06-15T14:29:00Z")
 	var got []string
-	for line, err := range StreamLogs(42, 0, since, nil) {
+	for line, err := range StreamLogs(42, 0, mustTime("2026-06-15T13:00:00Z"), nil) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got = append(got, line.Msg)
+		got = append(got, string(line.Line))
 	}
-	want := []string{"fourth", "third", "second", "first"}
+	want := []string{"fourth\n", "third\n", "second\n", "first\n"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("messages = %#v, want %#v", got, want)
+		t.Fatalf("lines = %#v, want %#v", got, want)
 	}
 }
 
-func TestStreamLogsFiltersTimeRange(t *testing.T) {
+func TestStreamLogsFiltersTimeRangeAndConfigVersion(t *testing.T) {
 	base := t.TempDir()
 	old := ainit.StaticConfig.RunOutputDir
 	ainit.StaticConfig.RunOutputDir = base
 	t.Cleanup(func() { ainit.StaticConfig.RunOutputDir = old })
 
-	writeLog(t, base, 42, 1, 1, "20260615_13.logbin", "time=2026-06-15T13:59:59Z level=INFO msg=before\n")
-	writeLog(t, base, 42, 1, 1, "20260615_14.logbin", "time=2026-06-15T14:00:00Z level=INFO msg=inside\n")
-	writeLog(t, base, 42, 1, 1, "20260615_15.logbin", "time=2026-06-15T15:00:00Z level=INFO msg=after\n")
+	writeMergedLog(t, base, 42, "20260615_1400_1_1.logbin",
+		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T14:00:00Z"), 1, 1, logconsumer.SplitStreamStdout, []byte("old\n")),
+	)
+	writeMergedLog(t, base, 42, "20260615_1430_2_1.logbin",
+		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T14:30:00Z"), 2, 1, logconsumer.SplitStreamStdout, []byte("current\n")),
+		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T14:59:59Z"), 2, 1, logconsumer.SplitStreamStdout, []byte("late\n")),
+	)
 
-	since := mustTime("2026-06-15T14:00:00Z")
-	till := mustTime("2026-06-15T15:00:00Z")
+	till := mustTime("2026-06-15T14:59:00Z")
 	var got []string
-	for line, err := range StreamLogs(42, 0, since, &till) {
+	for line, err := range StreamLogs(42, 2, mustTime("2026-06-15T14:00:00Z"), &till) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got = append(got, line.Msg)
+		got = append(got, string(line.Line))
 	}
-	want := []string{"inside"}
+	want := []string{"current\n"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("messages = %#v, want %#v", got, want)
+		t.Fatalf("lines = %#v, want %#v", got, want)
 	}
 }
 
-func TestStreamLogsFiltersConfigVersion(t *testing.T) {
-	base := t.TempDir()
-	old := ainit.StaticConfig.RunOutputDir
-	ainit.StaticConfig.RunOutputDir = base
-	t.Cleanup(func() { ainit.StaticConfig.RunOutputDir = old })
-
-	writeLog(t, base, 42, 1, 1, "20260615_14.logbin", "time=2026-06-15T14:30:00Z level=INFO msg=old\n")
-	writeLog(t, base, 42, 2, 1, "20260615_14.logbin", "time=2026-06-15T14:30:01Z level=INFO msg=current\n")
-
-	since := mustTime("2026-06-15T14:00:00Z")
-	var got []string
-	for line, err := range StreamLogs(42, 2, since, nil) {
-		if err != nil {
-			t.Fatal(err)
-		}
-		got = append(got, line.Msg)
-	}
-	want := []string{"current"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("messages = %#v, want %#v", got, want)
-	}
-}
-
-func writeLog(t *testing.T, base string, deploymentID, version, run int, name string, content string) {
+func writeMergedLog(t *testing.T, base string, deploymentID int, name string, records ...[]byte) {
 	t.Helper()
-	dir := filepath.Join(base, intName(deploymentID), intName(version), intName(run))
+	dir := filepath.Join(base, intName(deploymentID))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+	var data []byte
+	for _, record := range records {
+		data = append(data, record...)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

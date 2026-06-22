@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -46,7 +45,7 @@ func (o *outbox) Send(msg *apigen.MsgToMaster) bool {
 // Run boots the local store, starts the deployment operator, and then maintains
 // a persistent connection to the primary. It intentionally runs forever; fatal
 // failures should panic and let the service manager restart the process.
-func Run(cfg Config) {
+func Run(ctx context.Context, cfg Config) {
 	store := sqlite.NewSecondaryStorage(filepath.Join(cfg.DataDir, "secondary.db"))
 	primaryHTTPClient := newPrimaryHTTPClient(cfg.TLS, cfg.PrimaryName)
 	primaryURL := "https://" + cfg.PrimaryClusterAddr
@@ -66,6 +65,8 @@ func Run(cfg Config) {
 	runner.Configs = configProvider
 	runner.Containerd = ctrdClient
 
+	// Log collector is parked while container logging writes merged binary files directly.
+	// go logcollector.RunAll(ctx, store, cfg.MachineName)
 	go engine.DeploymentOperator{Store: store}.RunAll(cfg.MachineName)
 
 	runPrimaryConnLoop(cfg, store, primaryHTTPClient)
@@ -403,10 +404,7 @@ func streamLogSearch(ctx context.Context, out *outbox, req *apigen.LogSearchRequ
 			return
 		default:
 		}
-		if !matchesLogSearch(line, req) {
-			continue
-		}
-		batch = append(batch, &apigen.LogLine{Time: line.Time, Level: line.Level, Msg: line.Msg, Props: line.Props})
+		batch = append(batch, &apigen.LogLine{Time: line.Time, Version: line.Version, Run: line.Run, Stream: int32(line.Stream), Line: line.Line})
 		if len(batch) >= logSearchBatchSize && !flush() {
 			return
 		}
@@ -426,53 +424,6 @@ func logSearchLimit(req *apigen.LogSearchRequest) int {
 		return 0
 	}
 	return int(req.LogLineLimit)
-}
-
-func matchesLogSearch(line logreader.LogLine, req *apigen.LogSearchRequest) bool {
-	if req.LevelMin != "" && levelRank(line.Level) < levelRank(req.LevelMin) {
-		return false
-	}
-	for key, want := range req.SearchKeys {
-		if req.DeploymentID == 0 && key == "machine" {
-			continue
-		}
-		if logSearchValue(line, key) != want {
-			return false
-		}
-	}
-	return true
-}
-
-func logSearchValue(line logreader.LogLine, key string) string {
-	switch key {
-	case "time":
-		return line.Time.Format(time.RFC3339Nano)
-	case "level":
-		return line.Level
-	case "msg", "message":
-		return line.Msg
-	default:
-		return line.Props[key]
-	}
-}
-
-func levelRank(level string) int {
-	switch strings.ToUpper(level) {
-	case "TRACE":
-		return 1
-	case "DEBUG":
-		return 2
-	case "INFO":
-		return 3
-	case "WARN", "WARNING":
-		return 4
-	case "ERROR":
-		return 5
-	case "FATAL", "PANIC":
-		return 6
-	default:
-		return 0
-	}
 }
 
 // streamPrepareLog reads a prepare output file and sends it back to the primary

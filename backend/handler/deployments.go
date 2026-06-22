@@ -285,9 +285,6 @@ func streamLocalLogSearch(req *apigen.LogSearchRequest, till *time.Time, yield f
 			yield(nil, err)
 			return
 		}
-		if !matchesLogSearch(line, req) {
-			continue
-		}
 		apiLine := toAPILogLine(line)
 		batch = append(batch, apiLine)
 		if len(batch) >= logSearchBatchSize && !flush() {
@@ -458,59 +455,13 @@ func waitForPrepareOutputFile(ctx context.Context, path string) (*os.File, error
 	}
 }
 
-func matchesLogSearch(line logreader.LogLine, req *apigen.LogSearchRequest) bool {
-	if req.LevelMin != "" && levelRank(line.Level) < levelRank(req.LevelMin) {
-		return false
-	}
-	for key, want := range req.SearchKeys {
-		if req.DeploymentID == 0 && key == "machine" {
-			continue
-		}
-		if logSearchValue(line, key) != want {
-			return false
-		}
-	}
-	return true
-}
-
-func logSearchValue(line logreader.LogLine, key string) string {
-	switch key {
-	case "time":
-		return line.Time.Format(time.RFC3339Nano)
-	case "level":
-		return line.Level
-	case "msg", "message":
-		return line.Msg
-	default:
-		return line.Props[key]
-	}
-}
-
-func levelRank(level string) int {
-	switch strings.ToUpper(level) {
-	case "TRACE":
-		return 1
-	case "DEBUG":
-		return 2
-	case "INFO":
-		return 3
-	case "WARN", "WARNING":
-		return 4
-	case "ERROR":
-		return 5
-	case "FATAL", "PANIC":
-		return 6
-	default:
-		return 0
-	}
-}
-
 func toAPILogLine(line logreader.LogLine) *apigen.LogLine {
 	return &apigen.LogLine{
-		Time:  line.Time,
-		Level: line.Level,
-		Msg:   line.Msg,
-		Props: line.Props,
+		Time:    line.Time,
+		Version: line.Version,
+		Run:     line.Run,
+		Stream:  int32(line.Stream),
+		Line:    line.Line,
 	}
 }
 
@@ -678,9 +629,6 @@ func validateRunnerConfig(runner *apigen.RunnerConfig, prepare *apigen.PrepareCo
 		if err := validateContainerUpgrade(&runner.Container); err != nil {
 			return err
 		}
-		if err := validateContainerLogConsumer(&runner.Container); err != nil {
-			return err
-		}
 		if err := resolveEnvAssetRefs("runner.container.envVars", runner.Container.EnvVars, assets); err != nil {
 			return err
 		}
@@ -719,78 +667,6 @@ func validateContainerUpgrade(cfg *apigen.ContainerRunnerConfig) error {
 		}
 	default:
 		return invalidConfigErrf("runner.container.upgradeStrategy: unsupported value %d", cfg.UpgradeStrategy)
-	}
-	return nil
-}
-
-func validateContainerLogConsumer(cfg *apigen.ContainerRunnerConfig) error {
-	if cfg == nil {
-		return nil
-	}
-	switch cfg.LogConsumer {
-	case apigen.ContainerLogConsumer_CONTAINER_LOG_CONSUMER_UNSPECIFIED:
-		cfg.LogConsumer = apigen.ContainerLogConsumer_STANDARD
-	case apigen.ContainerLogConsumer_STANDARD, apigen.ContainerLogConsumer_JSON:
-	case apigen.ContainerLogConsumer_OPENOBSERVE:
-		if cfg.OpenobserveConsumer == nil {
-			return invalidConfigErrf("runner.container.openobserveConsumer is required when logConsumer is OPENOBSERVE")
-		}
-		if strings.TrimSpace(cfg.OpenobserveConsumer.Url) == "" {
-			return invalidConfigErrf("runner.container.openobserveConsumer.url is required")
-		}
-		if strings.TrimSpace(cfg.OpenobserveConsumer.Stream) == "" {
-			return invalidConfigErrf("runner.container.openobserveConsumer.stream is required")
-		}
-		if err := validateOpenObserveSAEmail(cfg.OpenobserveConsumer); err != nil {
-			return err
-		}
-		if cfg.OpenobserveConsumer.TokenSecretID <= 0 {
-			return invalidConfigErrf("runner.container.openobserveConsumer.tokenSecretId must be positive")
-		}
-	default:
-		return invalidConfigErrf("runner.container.logConsumer: unsupported value %d", cfg.LogConsumer)
-	}
-	return nil
-}
-
-func validateOpenObserveSAEmail(cfg *apigen.OpenObserveConsumerConfig) error {
-	hasLegacy := strings.TrimSpace(cfg.SaEmail) != ""
-	hasValue := cfg.SaEmailValue != nil
-	if hasLegacy && hasValue {
-		return invalidConfigErrf("runner.container.openobserveConsumer.saEmailValue cannot be set with deprecated saEmail")
-	}
-	if hasLegacy {
-		return nil
-	}
-	if !hasValue {
-		return invalidConfigErrf("runner.container.openobserveConsumer.saEmail is required")
-	}
-	v := cfg.SaEmailValue
-	set := 0
-	if v.Value != nil {
-		set++
-		if strings.TrimSpace(*v.Value) == "" {
-			return invalidConfigErrf("runner.container.openobserveConsumer.saEmail.value is required")
-		}
-	}
-	if v.SecretID != nil {
-		set++
-		if *v.SecretID <= 0 {
-			return invalidConfigErrf("runner.container.openobserveConsumer.saEmail.secretId must be positive")
-		}
-	}
-	if v.ConfigID != nil {
-		set++
-		if *v.ConfigID <= 0 {
-			return invalidConfigErrf("runner.container.openobserveConsumer.saEmail.configId must be positive")
-		}
-	}
-	if strings.TrimSpace(v.Asset) != "" {
-		set++
-		return invalidConfigErrf("runner.container.openobserveConsumer.saEmail does not support asset refs")
-	}
-	if set != 1 {
-		return invalidConfigErrf("runner.container.openobserveConsumer.saEmail exactly one of value, secretId, or configId is required")
 	}
 	return nil
 }

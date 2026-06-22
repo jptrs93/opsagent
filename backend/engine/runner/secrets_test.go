@@ -1,12 +1,10 @@
 package runner
 
 import (
-	"context"
 	"reflect"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/engine/ctrd"
 )
 
 type fakeResolver map[int32]string
@@ -111,77 +109,6 @@ func TestContainerMountsIncludesImplicitAssetEnvMount(t *testing.T) {
 	if mounts[0].Dest != "/var/lib/opendeploy-implicit-assets/12_4" || !mounts[0].ReadOnly {
 		t.Fatalf("implicit mount = %+v", mounts[0])
 	}
-}
-
-func TestBuildContainerRunnerUsesConfiguredLogConsumer(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	dep := &apigen.DeploymentConfig{
-		ID: 7,
-		Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{
-				DisableDataVolume: true,
-				LogConsumer:       apigen.ContainerLogConsumer_JSON,
-			},
-		}},
-	}
-
-	r := buildContainerRunner(ctx, cancel, nil, dep, 26)
-	if r.logConsumer != ctrd.LogConsumerJSON {
-		t.Fatalf("log consumer = %v, want %v", r.logConsumer, ctrd.LogConsumerJSON)
-	}
-}
-
-func TestBuildContainerRunnerKeepsOpenObserveConfig(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	dep := &apigen.DeploymentConfig{
-		ID: 7,
-		Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{
-				DisableDataVolume: true,
-				LogConsumer:       apigen.ContainerLogConsumer_OPENOBSERVE,
-				OpenobserveConsumer: &apigen.OpenObserveConsumerConfig{
-					Url:           "https://logs.example.com",
-					Stream:        "api",
-					TokenSecretID: 12,
-					SaEmailValue:  &apigen.EnvVarValue{Value: ptrString("ingestor@example.com")},
-				},
-			},
-		}},
-	}
-
-	r := buildContainerRunner(ctx, cancel, nil, dep, 26)
-	if r.logConsumer != ctrd.LogConsumerOpenObserve {
-		t.Fatalf("log consumer = %v, want %v", r.logConsumer, ctrd.LogConsumerOpenObserve)
-	}
-	if r.openObserve == nil || r.openObserve.TokenSecretID != 12 {
-		t.Fatalf("openobserve config = %#v", r.openObserve)
-	}
-}
-
-func TestResolveOpenObserveSAEmail(t *testing.T) {
-	withResolvers(fakeResolver{1: "secret@example.com"}, fakeResolver{2: "config@example.com"}, func() {
-		for name, tc := range map[string]struct {
-			cfg  *apigen.OpenObserveConsumerConfig
-			want string
-		}{
-			"value":  {cfg: &apigen.OpenObserveConsumerConfig{SaEmailValue: &apigen.EnvVarValue{Value: ptrString("value@example.com")}}, want: "value@example.com"},
-			"secret": {cfg: &apigen.OpenObserveConsumerConfig{SaEmailValue: &apigen.EnvVarValue{SecretID: ptrInt32(1)}}, want: "secret@example.com"},
-			"config": {cfg: &apigen.OpenObserveConsumerConfig{SaEmailValue: &apigen.EnvVarValue{ConfigID: ptrInt32(2)}}, want: "config@example.com"},
-			"legacy": {cfg: &apigen.OpenObserveConsumerConfig{SaEmail: "legacy@example.com"}, want: "legacy@example.com"},
-		} {
-			t.Run(name, func(t *testing.T) {
-				got, err := resolveOpenObserveSAEmail(tc.cfg)
-				if err != nil {
-					t.Fatalf("resolveOpenObserveSAEmail: %v", err)
-				}
-				if got != tc.want {
-					t.Fatalf("email = %q, want %q", got, tc.want)
-				}
-			})
-		}
-	})
 }
 
 func ptrString(v string) *string { return &v }

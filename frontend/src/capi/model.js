@@ -318,14 +318,6 @@
  * @property {number} timeoutSeconds
  */
 /**
- * @typedef {Object} OpenObserveConsumerConfig
- * @property {string} url
- * @property {string} stream
- * @property {number} tokenSecretId
- * @property {string} saEmail
- * @property {EnvVarValue} saEmailValue
- */
-/**
  * @typedef {Object} ContainerRunnerConfig
  * @property {string} user
  * @property {Object.<string, EnvVarValue>} envVars
@@ -337,8 +329,6 @@
  * @property {ContainerAssetMount[]} assetMounts
  * @property {number} upgradeStrategy
  * @property {ContainerReadinessSignal} readinessSignal
- * @property {number} logConsumer
- * @property {OpenObserveConsumerConfig} openobserveConsumer
  */
 /**
  * @typedef {Object} RunnerConfig
@@ -478,10 +468,11 @@
  */
 /**
  * @typedef {Object} LogLine
- * @property {Date} time
- * @property {string} level
- * @property {string} msg
- * @property {Object.<string, string>} props
+ * @property {number} time
+ * @property {number} version
+ * @property {number} run
+ * @property {number} stream
+ * @property {Uint8Array} line
  */
 /**
  * @typedef {Object} LogLineBatch
@@ -4529,92 +4520,6 @@ export function decodeContainerReadinessSignal(buffer) {
 
 
 /**
- * @param {OpenObserveConsumerConfig} message
- * @param {Writer} writer
- */
-export function writeOpenObserveConsumerConfig(message, writer) {
-    if (message.url !== undefined && message.url !== null && message.url !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.url);
-    }
-    if (message.stream !== undefined && message.stream !== null && message.stream !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.stream);
-    }
-    if (message.tokenSecretId !== undefined && message.tokenSecretId !== null && message.tokenSecretId !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.tokenSecretId);
-    }
-    if (message.saEmail !== undefined && message.saEmail !== null && message.saEmail !== "") {
-        writer.uint32(tag(4, WIRE.LDELIM)).string(message.saEmail);
-    }
-    if (message.saEmailValue !== undefined && message.saEmailValue !== null) {
-        writer.uint32(tag(5, WIRE.LDELIM)).fork();
-        writeEnvVarValue(message.saEmailValue, writer);
-        writer.ldelim();
-    }
-}
-
-
-/**
- * @param {OpenObserveConsumerConfig} message
- * @returns {Uint8Array}
- */
-export function encodeOpenObserveConsumerConfig(message) {
-    const writer = Writer.create();
-    writeOpenObserveConsumerConfig(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {OpenObserveConsumerConfig}
- */
-function decodeOpenObserveConsumerConfigMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {url: "", stream: "", tokenSecretId: 0, saEmail: "", saEmailValue: undefined };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.url = reader.string();
-                break;
-            }
-            case 2: {
-                message.stream = reader.string();
-                break;
-            }
-            case 3: {
-                message.tokenSecretId = reader.int32();
-                break;
-            }
-            case 4: {
-                message.saEmail = reader.string();
-                break;
-            }
-            case 5: {
-                message.saEmailValue = decodeEnvVarValueMessage(reader, reader.uint32());
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {OpenObserveConsumerConfig}
- */
-export function decodeOpenObserveConsumerConfig(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeOpenObserveConsumerConfigMessage(reader);
-}
-
-
-
-/**
  * @param {ContainerRunnerConfig} message
  * @param {Writer} writer
  */
@@ -4671,14 +4576,6 @@ export function writeContainerRunnerConfig(message, writer) {
         writeContainerReadinessSignal(message.readinessSignal, writer);
         writer.ldelim();
     }
-    if (message.logConsumer !== undefined && message.logConsumer !== null && message.logConsumer !== 0) {
-        writer.uint32(tag(11, WIRE.VARINT)).int32(message.logConsumer);
-    }
-    if (message.openobserveConsumer !== undefined && message.openobserveConsumer !== null) {
-        writer.uint32(tag(12, WIRE.LDELIM)).fork();
-        writeOpenObserveConsumerConfig(message.openobserveConsumer, writer);
-        writer.ldelim();
-    }
 }
 
 
@@ -4700,7 +4597,7 @@ export function encodeContainerRunnerConfig(message) {
  */
 function decodeContainerRunnerConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {user: "", envVars: {}, command: [], workingDir: "", dataMountPath: "", disableDataVolume: false, mounts: [], assetMounts: [], upgradeStrategy: 0, readinessSignal: undefined, logConsumer: 0, openobserveConsumer: undefined };
+    const message = {user: "", envVars: {}, command: [], workingDir: "", dataMountPath: "", disableDataVolume: false, mounts: [], assetMounts: [], upgradeStrategy: 0, readinessSignal: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4759,14 +4656,6 @@ function decodeContainerRunnerConfigMessage(reader, length) {
             }
             case 10: {
                 message.readinessSignal = decodeContainerReadinessSignalMessage(reader, reader.uint32());
-                break;
-            }
-            case 11: {
-                message.logConsumer = reader.int32();
-                break;
-            }
-            case 12: {
-                message.openobserveConsumer = decodeOpenObserveConsumerConfigMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -6470,25 +6359,20 @@ export function decodeLogSearchRequest(buffer) {
  * @param {Writer} writer
  */
 export function writeLogLine(message, writer) {
-    if (message.time instanceof Date && message.time.getTime() !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int64(Math.trunc(message.time.getTime()));
+    if (message.time !== undefined && message.time !== null && message.time !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.time);
     }
-    if (message.level !== undefined && message.level !== null && message.level !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.level);
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
     }
-    if (message.msg !== undefined && message.msg !== null && message.msg !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.msg);
+    if (message.run !== undefined && message.run !== null && message.run !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.run);
     }
-    if (message.props && Object.keys(message.props).length > 0) {
-        for (const [rawKey, value] of Object.entries(message.props)) {
-            const key = rawKey;
-            writer.uint32(tag(4, WIRE.LDELIM)).fork();
-            writer.uint32(tag(1, WIRE.LDELIM)).string(key);
-            if (value !== undefined && value !== null && value !== "") {
-                writer.uint32(tag(2, WIRE.LDELIM)).string(value);
-            }
-            writer.ldelim();
-        }
+    if (message.stream !== undefined && message.stream !== null && message.stream !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.stream);
+    }
+    if (message.line && message.line.length > 0) {
+        writer.uint32(tag(5, WIRE.LDELIM)).bytes(message.line);
     }
 }
 
@@ -6511,41 +6395,28 @@ export function encodeLogLine(message) {
  */
 function decodeLogLineMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {time: new Date(0), level: "", msg: "", props: {} };
+    const message = {time: 0, version: 0, run: 0, stream: 0, line: new Uint8Array(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.time = new Date(readInt64(reader, "int64"));
+                message.time = readInt64(reader, "int64");
                 break;
             }
             case 2: {
-                message.level = reader.string();
+                message.version = reader.int32();
                 break;
             }
             case 3: {
-                message.msg = reader.string();
+                message.run = reader.int32();
                 break;
             }
             case 4: {
-                const end2 = reader.uint32() + reader.pos;
-                let key = "";
-                let value = "";
-                while (reader.pos < end2) {
-                    const tag2 = reader.uint32();
-                    switch (tag2 >>> 3) {
-                        case 1:
-                            key = reader.string();
-                            break;
-                        case 2:
-                            value = reader.string();
-                            break;
-                        default:
-                            reader.skipType(tag2 & 7);
-                    }
-                }
-                if (!message.props) { message.props = {}; }
-                message.props[String(key)] = value;
+                message.stream = reader.int32();
+                break;
+            }
+            case 5: {
+                message.line = reader.bytes();
                 break;
             }
             default:
