@@ -1,5 +1,7 @@
 package installer
 
+import "github.com/jptrs93/opsagent/backend/localtest"
+
 // This file is the single source of truth for every path, version, and checksum
 // the installer touches. In the shell installer these were scattered across
 // top-of-file constants and inline strings; here they live in one typed place
@@ -66,6 +68,10 @@ var containerdDep = runtimeDep{
 	version: "2.0.5",
 	url: func(arch string) string {
 		v := "2.0.5"
+		if localtest.Enabled() {
+			return localtest.DownloadURL("/containerd/containerd/releases/download/v" + v +
+				"/containerd-" + v + "-linux-" + arch + ".tar.gz")
+		}
 		return "https://github.com/containerd/containerd/releases/download/v" + v +
 			"/containerd-" + v + "-linux-" + arch + ".tar.gz"
 	},
@@ -82,6 +88,9 @@ var runcDep = runtimeDep{
 	name:    "runc",
 	version: "1.2.6",
 	url: func(arch string) string {
+		if localtest.Enabled() {
+			return localtest.DownloadURL("/opencontainers/runc/releases/download/v1.2.6/runc." + arch)
+		}
 		return "https://github.com/opencontainers/runc/releases/download/v1.2.6/runc." + arch
 	},
 	sha256: map[string]string{

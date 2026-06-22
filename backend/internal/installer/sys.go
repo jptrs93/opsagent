@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jptrs93/opsagent/backend/localtest"
 )
 
 // dryRun, when set via --dry-run, makes every mutating helper log the action it
@@ -369,6 +371,9 @@ func lookupOwner() (owner, error) {
 // resolveLatestTag queries the GitHub releases API for the newest release tag.
 func resolveLatestTag() (string, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+	if localtest.Enabled() {
+		url = localtest.APIURL(fmt.Sprintf("/repos/%s/releases/latest", repo))
+	}
 	req, _ := http.NewRequest(http.MethodGet, url, nil)
 	req.Header.Set("User-Agent", "opendeploy-installer")
 	req.Header.Set("Accept", "application/vnd.github+json")

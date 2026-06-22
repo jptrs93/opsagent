@@ -10,6 +10,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
+	"github.com/jptrs93/opsagent/backend/localtest"
 	"github.com/jptrs93/opsagent/backend/repo/githubcredentials"
 )
 
@@ -61,6 +62,9 @@ type ghRelease struct {
 
 func (p *GithubReleaseVersionProvider) fetchReleases(ctx context.Context, ownerRepo string, limit int) ([]ghRelease, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=%d", ownerRepo, limit)
+	if localtest.Enabled() {
+		url = localtest.APIURL(fmt.Sprintf("/repos/%s/releases?per_page=%d", ownerRepo, limit))
+	}
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err

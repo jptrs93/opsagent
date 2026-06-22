@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jptrs93/opsagent/backend/localtest"
 	"github.com/jptrs93/opsagent/backend/repo/githubcredentials"
 )
 
@@ -60,6 +61,9 @@ func resolveCloneURL(repoURL string, githubToken string) (string, error) {
 	}
 	if _, err := os.Stat(repoURL); err == nil {
 		return repoURL, nil
+	}
+	if rewritten, ok := localtest.RewriteGithubRepoURL(repoURL); ok {
+		return rewritten, nil
 	}
 
 	if strings.HasPrefix(repoURL, "git@") {

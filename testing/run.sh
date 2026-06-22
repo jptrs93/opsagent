@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Spin up systemd containers and run `opendeploy install`. By default this uses a
-# GitHub release binary. Set USE_SELF=true to build the local checkout, copy that
-# binary into each container, and install it as v0.0.0 with `--use-self`.
+# GitHub release binary and remote GitHub/runtime downloads. Set
+# OPENDEPLOY_LOCAL_TEST=true to build the local checkout, copy that binary into
+# each container, install it as v0.0.0 with `--use-self`, and route GitHub/runtime
+# downloads through the local repo container.
 #
 # Usage:
 #   ./run.sh
@@ -24,8 +26,8 @@ PRIMARY_VOLUME=opendeploy-primary-containerd
 SECONDARY_VOLUME=opendeploy-secondary-containerd
 REPO=jptrs93/opsagent
 VERSION=v0.0.160
-USE_SELF=${USE_SELF:-false}
 SELF_VERSION=v0.0.0
+LOCAL_TEST=${OPENDEPLOY_LOCAL_TEST:-false}
 STATE_DIR="$(pwd)/.tmp"
 E2E_ENV_FILE="$STATE_DIR/e2e.env"
 
@@ -46,7 +48,7 @@ esac
 SELF_BIN="$(pwd)/.tmp/opendeploy-linux-${ARCH}"
 
 build_self_opendeploy() {
-	if [[ "$USE_SELF" != "true" ]]; then
+	if [[ "$LOCAL_TEST" != "true" ]]; then
 		return
 	fi
 
@@ -71,7 +73,7 @@ echo "==> Resetting test containers"
 docker rm -f "$PRIMARY_NAME" "$SECONDARY_NAME" >/dev/null 2>&1 || true
 docker volume rm "$PRIMARY_VOLUME" "$SECONDARY_VOLUME" >/dev/null 2>&1 || true
 docker network rm "$NETWORK" >/dev/null 2>&1 || true
-docker network create "$NETWORK" >/dev/null
+docker network create "$NETWORK" >/dev/null 2>&1 || true
 mkdir -p "$STATE_DIR"
 rm -f "$E2E_ENV_FILE"
 
@@ -121,7 +123,7 @@ wait_for_systemd "$SECONDARY_NAME"
 
 download_opendeploy() {
 	local name=$1
-	if [[ "$USE_SELF" == "true" ]]; then
+	if [[ "$LOCAL_TEST" == "true" ]]; then
 		echo "==> Copying local opendeploy ${SELF_VERSION} for linux/${ARCH} into ${name}"
 		docker cp "$SELF_BIN" "$name:/usr/local/bin/opendeploy"
 		docker exec "$name" chmod 0755 /usr/local/bin/opendeploy
@@ -132,9 +134,14 @@ download_opendeploy() {
 		-e OPD_REPO="$REPO" \
 		-e OPD_VERSION="$VERSION" \
 		-e OPD_ARCH="$ARCH" \
+		-e OPENDEPLOY_LOCAL_TEST="$LOCAL_TEST" \
 		"$name" bash -lc '
 			set -euo pipefail
-			url="https://github.com/${OPD_REPO}/releases/download/${OPD_VERSION}/opendeploy-linux-${OPD_ARCH}"
+			if [[ "$OPENDEPLOY_LOCAL_TEST" == "true" ]]; then
+				url="http://opendeploy-local-repo:8080/${OPD_REPO}/releases/download/${OPD_VERSION}/opendeploy-linux-${OPD_ARCH}"
+			else
+				url="https://github.com/${OPD_REPO}/releases/download/${OPD_VERSION}/opendeploy-linux-${OPD_ARCH}"
+			fi
 			curl -fsSL "$url" -o /usr/local/bin/opendeploy
 			chmod 0755 /usr/local/bin/opendeploy
 		'
@@ -143,21 +150,22 @@ download_opendeploy() {
 install_primary() {
 	download_opendeploy "$PRIMARY_NAME"
 	local install_output
-	if [[ "$USE_SELF" == "true" ]]; then
-		if ! install_output=$(docker exec "$PRIMARY_NAME" opendeploy install primary --use-self --http-only true --web-listen :8080 2>&1); then
+	if [[ "$LOCAL_TEST" == "true" ]]; then
+		if ! install_output=$(docker exec -e OPENDEPLOY_LOCAL_TEST="$LOCAL_TEST" "$PRIMARY_NAME" opendeploy install primary --use-self --http-only true --web-listen :8080 2>&1); then
 			printf '%s\n' "$install_output" >&2
 			exit 1
 		fi
 	else
-		if ! install_output=$(docker exec "$PRIMARY_NAME" opendeploy install primary --version "$VERSION" --http-only true --web-listen :8080 2>&1); then
+		if ! install_output=$(docker exec -e OPENDEPLOY_LOCAL_TEST="$LOCAL_TEST" "$PRIMARY_NAME" opendeploy install primary --version "$VERSION" --http-only true --web-listen :8080 2>&1); then
 			printf '%s\n' "$install_output" >&2
 			exit 1
 		fi
 	fi
 	printf '%s\n' "$install_output"
+	configure_local_test "$PRIMARY_NAME"
 	if [[ "$install_output" =~ Temporary[[:space:]]setup[[:space:]]password:[[:space:]]([^[:space:]]+) ]]; then
 		local install_version="$VERSION"
-		if [[ "$USE_SELF" == "true" ]]; then
+		if [[ "$LOCAL_TEST" == "true" ]]; then
 			install_version="$SELF_VERSION"
 		fi
 		printf 'OPD_SETUP_PASSWORD=%q\nOPD_INSTALL_VERSION=%q\n' "${BASH_REMATCH[1]}" "$install_version" > "$E2E_ENV_FILE"
@@ -174,11 +182,12 @@ install_primary() {
 
 install_secondary() {
 	download_opendeploy "$SECONDARY_NAME"
-	if [[ "$USE_SELF" == "true" ]]; then
-		docker exec "$SECONDARY_NAME" opendeploy install secondary --use-self --cluster-addr "$PRIMARY_NAME:9443" --enrollment-addr "$PRIMARY_NAME:9444"
+	if [[ "$LOCAL_TEST" == "true" ]]; then
+		docker exec -e OPENDEPLOY_LOCAL_TEST="$LOCAL_TEST" "$SECONDARY_NAME" opendeploy install secondary --use-self --cluster-addr "$PRIMARY_NAME:9443" --enrollment-addr "$PRIMARY_NAME:9444"
 	else
-		docker exec "$SECONDARY_NAME" opendeploy install secondary --version "$VERSION" --cluster-addr "$PRIMARY_NAME:9443" --enrollment-addr "$PRIMARY_NAME:9444"
+		docker exec -e OPENDEPLOY_LOCAL_TEST="$LOCAL_TEST" "$SECONDARY_NAME" opendeploy install secondary --version "$VERSION" --cluster-addr "$PRIMARY_NAME:9443" --enrollment-addr "$PRIMARY_NAME:9444"
 	fi
+	configure_local_test "$SECONDARY_NAME"
 	configure_github_token "$SECONDARY_NAME"
 	# Ubuntu's Nix daemon socket directory is restricted to nix-users.
 	docker exec "$SECONDARY_NAME" usermod -aG nix-users opendeploy
@@ -208,6 +217,17 @@ configure_github_token() {
 	docker exec -e OPENDEPLOY_GITHUB_TOKEN="$OPENDEPLOY_GITHUB_TOKEN" "$name" bash -lc '
 		set -euo pipefail
 		printf "\nOPENDEPLOY_GITHUB_TOKEN=%q\n" "$OPENDEPLOY_GITHUB_TOKEN" >> /etc/opendeploy/env
+	'
+}
+
+configure_local_test() {
+	local name=$1
+	if [[ "$LOCAL_TEST" != "true" ]]; then
+		return
+	fi
+	docker exec "$name" bash -lc '
+		set -euo pipefail
+		grep -q "^OPENDEPLOY_LOCAL_TEST=" /etc/opendeploy/env 2>/dev/null || printf "\nOPENDEPLOY_LOCAL_TEST=true\n" >> /etc/opendeploy/env
 	'
 }
 

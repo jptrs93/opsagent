@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/goutil/authu"
+	"github.com/jptrs93/opsagent/backend/localtest"
 )
 
 type bootstrapCredentials struct {
@@ -176,6 +177,9 @@ func preflight(upgrade bool) error {
 // release's sha256sums.txt, returning its temp path.
 func stageAgent(version, arch, tmp string) (string, error) {
 	baseURL := fmt.Sprintf("https://github.com/%s/releases/download/%s", repo, version)
+	if localtest.Enabled() {
+		baseURL = localtest.DownloadURL(fmt.Sprintf("/%s/releases/download/%s", repo, version))
+	}
 	binFile := "opendeploy-linux-" + arch
 
 	binDst := filepath.Join(tmp, binFile)

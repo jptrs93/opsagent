@@ -30,20 +30,26 @@ Select one or more flow files with a comma-separated list:
 FLOWS=bootstrap-enroll-nixdocker RESET=false bash testing/e2e/run.sh
 ```
 
-To test local backend/frontend changes without publishing a release first, pass
-`USE_SELF=true`. The install harness builds the local checkout, copies it into
-the test containers, and installs it as `v0.0.0` with `opendeploy install
---use-self`:
-
-```sh
-USE_SELF=true bash testing/e2e/run.sh
-```
-
 If `OPENDEPLOY_GITHUB_TOKEN` is set in the host environment, the install harness
 adds it to both test containers' `/etc/opendeploy/env` files, and the browser
 flow saves it through Settings as the runtime `GITHUB_TOKEN` config value. This
 keeps source validation and Nix/GitHub preparers on authenticated GitHub API
 limits.
+
+To test local backend/frontend changes without publishing a release first, start
+the local repo container and enable local-test mode:
+
+```sh
+bash testing/localrepocontainer/run.sh
+OPENDEPLOY_LOCAL_TEST=true bash testing/e2e/run.sh
+```
+
+Local-test mode builds the local checkout, copies that binary into the test
+containers, installs it as `v0.0.0` with `opendeploy install --use-self`, and
+routes GitHub/release/runtime downloads through the fixture. The fixture is
+served as `http://opendeploy-local-repo:8080` on the install-test Docker network.
+It provides Git smart HTTP, OpenDeploy release metadata/assets, and the pinned
+containerd/runc runtime artifacts used by the installer.
 
 Flows run in the primary container's network namespace by default and target
 `http://localhost:8080`. This keeps WebAuthn on the same origin the HTTP-only

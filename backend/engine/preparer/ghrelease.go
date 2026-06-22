@@ -17,6 +17,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/localtest"
 	"github.com/jptrs93/opsagent/backend/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
@@ -303,6 +304,9 @@ var releaseNotFoundErr = errors.New("release not found")
 
 func (g *GithubReleaseDownloader) fetchReleaseByTag(ctx context.Context, ownerRepo, tag string) (*ghRelease, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", ownerRepo, tag)
+	if localtest.Enabled() {
+		url = localtest.APIURL(fmt.Sprintf("/repos/%s/releases/tags/%s", ownerRepo, tag))
+	}
 	var r ghRelease
 	if err := g.doGithubJSON(ctx, url, "application/vnd.github+json", &r); err != nil {
 		return nil, err
@@ -315,6 +319,9 @@ func (g *GithubReleaseDownloader) fetchReleases(ctx context.Context, ownerRepo s
 		limit = 30
 	}
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=%d", ownerRepo, limit)
+	if localtest.Enabled() {
+		url = localtest.APIURL(fmt.Sprintf("/repos/%s/releases?per_page=%d", ownerRepo, limit))
+	}
 	var rs []ghRelease
 	if err := g.doGithubJSON(ctx, url, "application/vnd.github+json", &rs); err != nil {
 		return nil, err

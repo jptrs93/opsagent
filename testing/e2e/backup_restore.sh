@@ -14,6 +14,7 @@ REPO=${RELEASE_REPO:-jptrs93/opsagent}
 STATE_FILE=${OPD_BACKUP_RESTORE_STATE_HOST:-$(pwd)/test-results/backup-restore.env}
 RESTORE_WAIT_SECONDS=${OPD_BACKUP_RESTORE_WAIT_SECONDS:-20}
 RESTORE_INSTALL_VERSION=${OPD_RESTORE_INSTALL_VERSION:-${OPD_UPGRADE_VERSION:-${OPD_INSTALL_VERSION:-v0.0.173}}}
+LOCAL_TEST=${OPENDEPLOY_LOCAL_TEST:-false}
 
 if [[ ! -f "$STATE_FILE" ]]; then
   echo "backup restore state file not found: $STATE_FILE" >&2
@@ -100,7 +101,7 @@ wait_for_healthz() {
 }
 
 download_opendeploy() {
-  if [[ "${USE_SELF:-false}" == "true" ]]; then
+  if [[ "$LOCAL_TEST" == "true" ]]; then
     if [[ ! -f "$SELF_BIN" ]]; then
       echo "local opendeploy binary not found: $SELF_BIN" >&2
       exit 1
@@ -116,9 +117,14 @@ download_opendeploy() {
     -e OPD_REPO="$REPO" \
     -e OPD_VERSION="$RESTORE_INSTALL_VERSION" \
     -e OPD_ARCH="$ARCH" \
+    -e OPENDEPLOY_LOCAL_TEST="$LOCAL_TEST" \
     "$PRIMARY_NAME" bash -lc '
       set -euo pipefail
-      url="https://github.com/${OPD_REPO}/releases/download/${OPD_VERSION}/opendeploy-linux-${OPD_ARCH}"
+      if [[ "$OPENDEPLOY_LOCAL_TEST" == "true" ]]; then
+        url="http://opendeploy-local-repo:8080/${OPD_REPO}/releases/download/${OPD_VERSION}/opendeploy-linux-${OPD_ARCH}"
+      else
+        url="https://github.com/${OPD_REPO}/releases/download/${OPD_VERSION}/opendeploy-linux-${OPD_ARCH}"
+      fi
       curl -fsSL "$url" -o /usr/local/bin/opendeploy
       chmod 0755 /usr/local/bin/opendeploy
     '
@@ -150,14 +156,20 @@ install_restored_primary() {
     --restore-s3-endpoint "$OPD_RESTORE_S3_ENDPOINT"
     --recovery-code "$OPD_RESTORE_RECOVERY_CODE"
   )
-  if [[ "${USE_SELF:-false}" == "true" ]]; then
+  if [[ "$LOCAL_TEST" == "true" ]]; then
     cmd+=(--use-self)
   else
     cmd+=(--version "$RESTORE_INSTALL_VERSION")
   fi
 
   echo "==> Installing restored primary"
-  docker exec "$PRIMARY_NAME" "${cmd[@]}"
+  docker exec -e OPENDEPLOY_LOCAL_TEST="$LOCAL_TEST" "$PRIMARY_NAME" "${cmd[@]}"
+  if [[ "$LOCAL_TEST" == "true" ]]; then
+    docker exec "$PRIMARY_NAME" bash -lc '
+      set -euo pipefail
+      grep -q "^OPENDEPLOY_LOCAL_TEST=" /etc/opendeploy/env 2>/dev/null || printf "\nOPENDEPLOY_LOCAL_TEST=true\n" >> /etc/opendeploy/env
+    '
+  fi
   docker exec "$PRIMARY_NAME" usermod -aG nix-users opendeploy
   docker exec "$PRIMARY_NAME" systemctl restart opendeploy.service
   wait_for_service "$PRIMARY_NAME" opendeploy.service
