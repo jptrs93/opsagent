@@ -31,7 +31,7 @@ resolve_upgrade_version() {
   local tag=""
   local release_url="https://api.github.com/repos/${RELEASE_REPO}/releases/latest"
   if [[ "$LOCAL_TEST" == "true" ]]; then
-    release_url="http://opendeploy-local-repo:8080/repos/${RELEASE_REPO}/releases/latest"
+    release_url="http://localhost:${OPD_LOCAL_REPO_HOST_PORT:-8081}/repos/${RELEASE_REPO}/releases/latest"
   fi
   if tag=$(curl -fsSL "${headers[@]}" "$release_url" \
     | python3 -c 'import json, sys; print(json.load(sys.stdin).get("tag_name", ""))' 2>/dev/null); then

@@ -1,6 +1,8 @@
-FROM python:3.13-alpine
+FROM python:3.13-slim
 
-RUN apk add --no-cache bash ca-certificates curl git tar gzip
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash ca-certificates curl git tar gzip \
+    && rm -rf /var/lib/apt/lists/*
 
 ARG OPD_RELEASES="v0.0.160 v0.0.222"
 ARG OPD_LATEST_RELEASE="v0.0.222"

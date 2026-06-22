@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import gzip
 import json
 import os
 import pathlib
@@ -137,10 +138,13 @@ class Handler(BaseHTTPRequestHandler):
         self.serve_file(release_dir(owner, repo, tag) / name)
 
     def handle_git(self, parsed):
-        body = b''
-        if self.command == 'POST':
-            length = int(self.headers.get('Content-Length', '0') or '0')
-            body = self.rfile.read(length)
+        body = self.read_request_body()
+        if body is None:
+            return
+        if self.headers.get('Content-Encoding', '').lower() == 'gzip':
+            body = gzip.decompress(body)
+        git_protocol = self.headers.get('Git-Protocol', '')
+        remote_addr = self.client_address[0] if self.client_address else ''
         env = os.environ.copy()
         env.update({
             'GIT_PROJECT_ROOT': str(GIT_ROOT),
@@ -148,9 +152,11 @@ class Handler(BaseHTTPRequestHandler):
             'REQUEST_METHOD': self.command,
             'PATH_INFO': parsed.path,
             'QUERY_STRING': parsed.query,
+            'REMOTE_ADDR': remote_addr,
             'REMOTE_USER': '',
             'CONTENT_TYPE': self.headers.get('Content-Type', ''),
             'CONTENT_LENGTH': str(len(body)),
+            'HTTP_GIT_PROTOCOL': git_protocol,
         })
         proc = subprocess.run(['git', 'http-backend'], input=body, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
         if proc.returncode != 0:
@@ -176,6 +182,26 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(response_body)))
         self.end_headers()
         self.wfile.write(response_body)
+
+    def read_request_body(self):
+        if self.command == 'POST':
+            if self.headers.get('Transfer-Encoding', '').lower() == 'chunked':
+                body = bytearray()
+                while True:
+                    line = self.rfile.readline().strip()
+                    if not line:
+                        self.send_error(400, 'bad chunked body')
+                        return None
+                    size = int(line.split(b';', 1)[0], 16)
+                    if size == 0:
+                        self.rfile.readline()
+                        return bytes(body)
+                    body.extend(self.rfile.read(size))
+                    self.rfile.read(2)
+            
+            length = int(self.headers.get('Content-Length', '0') or '0')
+            return self.rfile.read(length)
+        return b''
 
     def serve_file(self, path):
         path = path.resolve()

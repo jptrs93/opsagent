@@ -46,9 +46,11 @@ OPENDEPLOY_LOCAL_TEST=true bash testing/e2e/run.sh
 
 Local-test mode builds the local checkout, copies that binary into the test
 containers, installs it as `v0.0.0` with `opendeploy install --use-self`, and
-routes GitHub/release/runtime downloads through the fixture. The fixture is
-served as `http://opendeploy-local-repo:8080` on the install-test Docker network.
-It provides Git smart HTTP, OpenDeploy release metadata/assets, and the pinned
+publishes the same binary into the fixture as the `v0.0.0` OpenDeploy release so
+upgrade tests stay on the local build. It also routes GitHub/release/runtime
+downloads through the fixture. The fixture is served as
+`http://opendeploy-local-repo:8080` on the install-test Docker network. It
+provides Git smart HTTP, OpenDeploy release metadata/assets, and the pinned
 containerd/runc runtime artifacts used by the installer.
 
 Flows run in the primary container's network namespace by default and target

@@ -28,6 +28,7 @@ REPO=jptrs93/opsagent
 VERSION=v0.0.160
 SELF_VERSION=v0.0.0
 LOCAL_TEST=${OPENDEPLOY_LOCAL_TEST:-false}
+LOCAL_REPO_NAME=${OPD_LOCAL_REPO_CONTAINER:-opendeploy-local-repo}
 STATE_DIR="$(pwd)/.tmp"
 E2E_ENV_FILE="$STATE_DIR/e2e.env"
 
@@ -64,7 +65,34 @@ build_self_opendeploy() {
 	)
 }
 
+publish_self_to_local_repo() {
+	if [[ "$LOCAL_TEST" != "true" ]]; then
+		return
+	fi
+	if ! docker inspect "$LOCAL_REPO_NAME" >/dev/null 2>&1; then
+		echo "local repo container ${LOCAL_REPO_NAME} is not running; start it with testing/localrepocontainer/run.sh" >&2
+		exit 1
+	fi
+	local release_dir="/srv/releases/${REPO}/${SELF_VERSION}"
+	local sum
+	sum=$(shasum -a 256 "$SELF_BIN" | cut -d ' ' -f 1)
+	echo "==> Publishing local opendeploy ${SELF_VERSION} to ${LOCAL_REPO_NAME}"
+	docker exec \
+		-e OPD_RELEASE_DIR="$release_dir" \
+		-e OPD_VERSION="$SELF_VERSION" \
+		-e OPD_ARCH="$ARCH" \
+		-e OPD_SHA256="$sum" \
+		"$LOCAL_REPO_NAME" bash -lc '
+			set -euo pipefail
+			mkdir -p "$OPD_RELEASE_DIR"
+			printf "%s  opendeploy-linux-%s\n" "$OPD_SHA256" "$OPD_ARCH" > "$OPD_RELEASE_DIR/sha256sums.txt"
+			printf "%s\n" "$OPD_VERSION" > /srv/releases/jptrs93/opsagent/latest
+		'
+	docker cp "$SELF_BIN" "$LOCAL_REPO_NAME:${release_dir}/opendeploy-linux-${ARCH}"
+}
+
 build_self_opendeploy
+publish_self_to_local_repo
 
 echo "==> Building systemd container image"
 docker build -t "$IMG" .
