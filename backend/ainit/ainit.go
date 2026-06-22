@@ -11,7 +11,6 @@ import (
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/logconsumer"
 	"github.com/jptrs93/opsagent/backend/util/secretu"
-	"github.com/jptrs93/opsagent/backend/version"
 )
 
 var StaticConfig StaticConfiguration
@@ -42,8 +41,8 @@ func init() {
 	mustCreateDir(StaticConfig.RunOutputDir, 0o750)
 	mustCreateDir(StaticConfig.VolumesDir, 0o755)
 	mustCreateDir(StaticConfig.ReleasesDir, 0o755)
-	basePath := logconsumer.SystemLogBasePath(StaticConfig.RunOutputDir, version.Version)
-	w, err := logconsumer.NewHourlyWriter(basePath)
+	basePath := logconsumer.SystemLogBasePath(StaticConfig.RunOutputDir)
+	w, err := logconsumer.NewSystemLogWriter(basePath)
 	if err != nil {
 		panic(fmt.Sprintf("opening service log writer: %v", err))
 	}

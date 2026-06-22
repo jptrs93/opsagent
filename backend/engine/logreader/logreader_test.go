@@ -68,6 +68,30 @@ func TestStreamLogsFiltersTimeRangeAndConfigVersion(t *testing.T) {
 	}
 }
 
+func TestStreamLogsReadsDeploymentZeroMergedRecords(t *testing.T) {
+	base := t.TempDir()
+	old := ainit.StaticConfig.RunOutputDir
+	ainit.StaticConfig.RunOutputDir = base
+	t.Cleanup(func() { ainit.StaticConfig.RunOutputDir = old })
+
+	writeMergedLog(t, base, 0, "20260615_1430_0_1.logbin",
+		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T14:30:02Z"), 0, 1, logconsumer.SplitStreamStdout, []byte("third\n")),
+		logconsumer.EncodeSplitRecord(mustTime("2026-06-15T14:30:03Z"), 0, 1, logconsumer.SplitStreamStdout, []byte("fourth\n")),
+	)
+
+	var got []string
+	for line, err := range StreamLogs(0, 0, mustTime("2026-06-15T13:00:00Z"), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, string(line.Line))
+	}
+	want := []string{"fourth\n", "third\n"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("lines = %#v, want %#v", got, want)
+	}
+}
+
 func writeMergedLog(t *testing.T, base string, deploymentID int, name string, records ...[]byte) {
 	t.Helper()
 	dir := filepath.Join(base, intName(deploymentID))

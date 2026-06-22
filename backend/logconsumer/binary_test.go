@@ -8,6 +8,75 @@ import (
 	"time"
 )
 
+func TestSystemLogBasePathUsesDeploymentZeroRunPath(t *testing.T) {
+	got := SystemLogBasePath("/var/lib/opendeploy-run-logs")
+	want := filepath.Join("/var/lib/opendeploy-run-logs", "0", "0", "1")
+	if got != want {
+		t.Fatalf("SystemLogBasePath = %q, want %q", got, want)
+	}
+}
+
+func TestSystemLogWriterWritesMergedBinaryRecords(t *testing.T) {
+	base := t.TempDir()
+	first := time.Date(2026, 6, 15, 14, 29, 59, 123456789, time.UTC)
+	now := first
+	w, err := newSystemLogWriterWithClock(SystemLogBasePath(base), func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("first\n")); err != nil {
+		t.Fatalf("write first: %v", err)
+	}
+	second := time.Date(2026, 6, 15, 14, 30, 0, 987654321, time.UTC)
+	now = second
+	if _, err := w.Write([]byte("second\n")); err != nil {
+		t.Fatalf("write second: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	assertSplitRecords(t, filepath.Join(base, "0", "20260615_1400_0_1.logbin"), []splitRecord{{time: first.UnixNano(), version: 0, run: 1, stream: SplitStreamStdout, line: "first\n"}})
+	assertSplitRecords(t, filepath.Join(base, "0", "20260615_1430_0_1.logbin"), []splitRecord{{time: second.UnixNano(), version: 0, run: 1, stream: SplitStreamStdout, line: "second\n"}})
+}
+
+func TestSystemLogWriterCombinesPartialWrites(t *testing.T) {
+	base := t.TempDir()
+	now := time.Date(2026, 6, 15, 14, 30, 0, 0, time.UTC)
+	w, err := newSystemLogWriterWithClock(SystemLogBasePath(base), func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("line")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte(" ends\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertSplitRecords(t, filepath.Join(base, "0", "20260615_1430_0_1.logbin"), []splitRecord{{time: now.UnixNano(), version: 0, run: 1, stream: SplitStreamStdout, line: "line ends\n"}})
+}
+
+func TestSystemLogWriterFlushesPartialLineOnClose(t *testing.T) {
+	base := t.TempDir()
+	now := time.Date(2026, 6, 15, 14, 30, 0, 0, time.UTC)
+	w, err := newSystemLogWriterWithClock(SystemLogBasePath(base), func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("partial")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertSplitRecords(t, filepath.Join(base, "0", "20260615_1430_0_1.logbin"), []splitRecord{{time: now.UnixNano(), version: 0, run: 1, stream: SplitStreamStdout, line: "partial"}})
+}
+
 func TestHourlyWriterRotatesByUTCHour(t *testing.T) {
 	base := filepath.Join(t.TempDir(), "12", "34", "1")
 	if err := os.MkdirAll(base, 0o750); err != nil {
