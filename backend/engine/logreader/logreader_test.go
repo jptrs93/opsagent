@@ -68,6 +68,63 @@ func TestStreamLogsFiltersTimeRangeAndConfigVersion(t *testing.T) {
 	}
 }
 
+func TestStreamLogsReadsSystemLogs(t *testing.T) {
+	base := t.TempDir()
+	old := ainit.StaticConfig.RunOutputDir
+	ainit.StaticConfig.RunOutputDir = base
+	t.Cleanup(func() { ainit.StaticConfig.RunOutputDir = old })
+
+	writeSystemLog(t, base, "v0.0.54", "20260615_14.logbin",
+		"time=2026-06-15T14:30:02Z level=INFO msg=third\n",
+		"time=2026-06-15T14:30:03Z level=ERROR msg=fourth\n",
+	)
+	writeSystemLog(t, base, "v0.0.55", "20260615_13.logbin",
+		"time=2026-06-15T13:59:59Z level=INFO msg=first\n",
+	)
+
+	var got []string
+	for line, err := range StreamLogs(0, 0, mustTime("2026-06-15T13:00:00Z"), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, string(line.Line))
+	}
+	want := []string{
+		"time=2026-06-15T14:30:03Z level=ERROR msg=fourth\n",
+		"time=2026-06-15T14:30:02Z level=INFO msg=third\n",
+		"time=2026-06-15T13:59:59Z level=INFO msg=first\n",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("lines = %#v, want %#v", got, want)
+	}
+}
+
+func TestStreamLogsFiltersSystemLogsByTime(t *testing.T) {
+	base := t.TempDir()
+	old := ainit.StaticConfig.RunOutputDir
+	ainit.StaticConfig.RunOutputDir = base
+	t.Cleanup(func() { ainit.StaticConfig.RunOutputDir = old })
+
+	writeSystemLog(t, base, "v0.0.54", "20260615_14.logbin",
+		"time=2026-06-15T14:00:00Z level=INFO msg=old\n",
+		"time=2026-06-15T14:30:00Z level=INFO msg=current\n",
+		"time=2026-06-15T14:59:59Z level=INFO msg=late\n",
+	)
+
+	till := mustTime("2026-06-15T14:59:00Z")
+	var got []string
+	for line, err := range StreamLogs(0, 0, mustTime("2026-06-15T14:30:00Z"), &till) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, string(line.Line))
+	}
+	want := []string{"time=2026-06-15T14:30:00Z level=INFO msg=current\n"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("lines = %#v, want %#v", got, want)
+	}
+}
+
 func TestStreamLogsReadsDeploymentZeroMergedRecords(t *testing.T) {
 	base := t.TempDir()
 	old := ainit.StaticConfig.RunOutputDir
@@ -101,6 +158,21 @@ func writeMergedLog(t *testing.T, base string, deploymentID int, name string, re
 	var data []byte
 	for _, record := range records {
 		data = append(data, record...)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeSystemLog(t *testing.T, base string, version string, name string, lines ...string) {
+	t.Helper()
+	dir := filepath.Join(base, "0", version, "opendeploy")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var data []byte
+	for _, line := range lines {
+		data = append(data, []byte(line)...)
 	}
 	if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
 		t.Fatal(err)
