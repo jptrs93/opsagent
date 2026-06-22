@@ -12,6 +12,7 @@ import (
 
 type BackwardLogLineReader struct {
 	file          *os.File
+	buf           *BackwardBufferedReader
 	path          string
 	offset        int64
 	configVersion int
@@ -31,6 +32,7 @@ func NewBackwardLogLineReader(path string, configVersion int, since time.Time, t
 	}
 	return &BackwardLogLineReader{
 		file:          f,
+		buf:           NewBackwardBufferedReader(f),
 		path:          path,
 		offset:        info.Size(),
 		configVersion: configVersion,
@@ -77,7 +79,7 @@ func (r *BackwardLogLineReader) readPreviousRecord() (LogLine, error) {
 		return LogLine{}, fmt.Errorf("read %s: truncated record trailer", r.path)
 	}
 	var suffix [logconsumer.SplitRecordTrailerLen]byte
-	if _, err := r.file.ReadAt(suffix[:], r.offset-logconsumer.SplitRecordTrailerLen); err != nil {
+	if err := r.buf.ReadAt(suffix[:], r.offset-logconsumer.SplitRecordTrailerLen); err != nil {
 		return LogLine{}, fmt.Errorf("read %s: %w", r.path, err)
 	}
 	length := int64(binary.BigEndian.Uint32(suffix[:]))
@@ -89,14 +91,14 @@ func (r *BackwardLogLineReader) readPreviousRecord() (LogLine, error) {
 		return LogLine{}, fmt.Errorf("read %s: truncated record length %d", r.path, length)
 	}
 	var prefix [logconsumer.SplitRecordLengthLen]byte
-	if _, err := r.file.ReadAt(prefix[:], recordStart); err != nil {
+	if err := r.buf.ReadAt(prefix[:], recordStart); err != nil {
 		return LogLine{}, fmt.Errorf("read %s: %w", r.path, err)
 	}
 	if binary.BigEndian.Uint32(prefix[:]) != uint32(length) {
 		return LogLine{}, fmt.Errorf("read %s: record length prefix mismatch", r.path)
 	}
 	payload := make([]byte, length)
-	if _, err := r.file.ReadAt(payload, recordStart+logconsumer.SplitRecordLengthLen); err != nil {
+	if err := r.buf.ReadAt(payload, recordStart+logconsumer.SplitRecordLengthLen); err != nil {
 		return LogLine{}, fmt.Errorf("read %s: %w", r.path, err)
 	}
 	r.offset = recordStart
