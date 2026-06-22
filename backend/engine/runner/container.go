@@ -253,8 +253,9 @@ func (r *containerRunner) run() {
 		r.ensureDataVolume()
 		runNumber := r.status.NumberOfRestarts + 1
 		outputPath := apigen.RunOutputRunDir(r.deploymentID, r.status.DeploymentConfigVersion, runNumber)
-		if err := os.MkdirAll(outputPath, 0o750); err != nil {
-			slog.ErrorContext(r.ctx, "creating run log dir failed", "err", err, "path", outputPath)
+		outputDir := apigen.RunOutputDeploymentDir(r.deploymentID)
+		if err := os.MkdirAll(outputDir, 0o750); err != nil {
+			slog.ErrorContext(r.ctx, "creating run log dir failed", "err", err, "path", outputDir)
 			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 			crashCount++
 			if !r.sleepBackoff(crashCount) {

@@ -15,6 +15,7 @@ const SIDEBAR_WIDTH_KEY = 'opsagent_sidebar_width';
 const DEFAULT_SIDEBAR_PCT = 50;
 const MIN_SIDEBAR_PCT = 20;
 const MAX_SIDEBAR_PCT = 80;
+const OPENDEPLOY_SPACE_ID = 0;
 
 function loadSidebarWidth() {
     try {
@@ -146,6 +147,7 @@ export function statusPage(onOpenLogs = () => {}) {
     const overlayNode = van.state('');
     const createOverlayNode = van.state('');
     const groupBySpace = van.state(true);
+    const showOpendeploy = van.state(false);
     const search = van.state('');
 
     const abortActiveSidebar = () => {
@@ -232,6 +234,10 @@ export function statusPage(onOpenLogs = () => {}) {
             row.deployedVersion,
         ].some(value => String(value || '').toLowerCase().includes(query)));
     };
+
+    const filterOpendeployDeployments = (rows) => showOpendeploy.val
+        ? rows
+        : rows.filter(row => row.spaceId !== OPENDEPLOY_SPACE_ID);
 
     const deploymentTable = (rows, showSpaceColumn) => table(
         {class: "w-full text-left text-sm"},
@@ -380,6 +386,17 @@ export function statusPage(onOpenLogs = () => {}) {
                     span("Group by space"),
                 ),
                 button({
+                    class: () => `flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors cursor-pointer ${showOpendeploy.val ? 'border-brand bg-brand/20 text-blue-200' : 'border-gray-600 bg-gray-800 text-gray-400'}`,
+                    onclick: () => { showOpendeploy.val = !showOpendeploy.val; },
+                    type: "button",
+                    title: "Toggle opendeploy internal deployments",
+                },
+                    span({class: () => `h-4 w-7 rounded-full relative transition-colors ${showOpendeploy.val ? 'bg-brand' : 'bg-gray-600'}`},
+                        span({class: () => `absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${showOpendeploy.val ? 'left-3.5' : 'left-0.5'}`}),
+                    ),
+                    span("Show opendeploy"),
+                ),
+                button({
                     "data-testid": "add-deployment-button",
                     class: deploymentToolbarPrimaryButtonClass,
                     onclick: openCreateOverlay,
@@ -393,7 +410,8 @@ export function statusPage(onOpenLogs = () => {}) {
         ),
         () => {
             const allRows = mapDeploymentsToView(deploymentsS.val, spacesS.val);
-            const filtered = filterDeployments(allRows);
+            const visibleRows = filterOpendeployDeployments(allRows);
+            const filtered = filterDeployments(visibleRows);
 
             if (deploymentsStreamS.val.status !== 'connected' && allRows.length === 0) {
                 return p({class: "text-gray-400"}, deploymentsStreamS.val.sentence);
@@ -406,6 +424,13 @@ export function statusPage(onOpenLogs = () => {}) {
                         {class: "text-gray-400"},
                         "No deployments configured. Create a deployment config first."
                     )
+                );
+            }
+
+            if (visibleRows.length === 0) {
+                return div(
+                    {class: "card"},
+                    p({class: "text-gray-400"}, "Only opendeploy deployments are configured. Enable Show opendeploy to display them."),
                 );
             }
 

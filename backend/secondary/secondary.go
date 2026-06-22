@@ -3,6 +3,7 @@ package secondary
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -561,7 +562,20 @@ func waitForLatestRunLogFile(ctx context.Context, req *apigen.RunOutputRequest) 
 }
 
 func latestRunLogFile(deploymentID int32, version int32) (string, error) {
-	pattern := filepath.Join(apigen.RunOutputBaseDir(deploymentID, version), "*", "*.logbin")
+	pattern := filepath.Join(apigen.RunOutputDeploymentDir(deploymentID), fmt.Sprintf("*_%d_*.logbin", version))
+	latest, err := latestMatchingLogFile(pattern)
+	if err == nil {
+		return latest, nil
+	}
+	if err != nil && err != os.ErrNotExist && err != filepath.ErrBadPattern {
+		return "", err
+	}
+
+	pattern = filepath.Join(apigen.RunOutputBaseDir(deploymentID, version), "*", "*.logbin")
+	return latestMatchingLogFile(pattern)
+}
+
+func latestMatchingLogFile(pattern string) (string, error) {
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return "", err
