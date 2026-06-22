@@ -549,6 +549,7 @@ export async function expectDeploymentRestartCount(page, name, count) {
 
 async function upgradeOpenDeployAgent(page, {machine, version}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  await showOpendeployDeployments(page);
   const row = deploymentRow(page, {name: 'opendeploy', machine});
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await row.getByRole('button', {name: 'Update'}).click();
@@ -566,6 +567,7 @@ async function upgradeOpenDeployAgent(page, {machine, version}) {
 
 export async function expectOpenDeployAgentVersion(page, {machine, version}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  await showOpendeployDeployments(page);
   const row = deploymentRow(page, {name: 'opendeploy', machine});
   await expect(row).toContainText(version, {timeout: UPGRADE_TIMEOUT});
   await expect(row.getByTitle('View run output')).toContainText('Running', {timeout: UPGRADE_TIMEOUT});
@@ -589,6 +591,14 @@ async function openDeploymentLogsSearch(page, row) {
   await expect(page.getByTestId('logs-space-select')).toBeVisible();
   await expect(page.getByTestId('logs-deployment-select')).not.toHaveValue('');
   await expect(page.getByTestId('logs-output')).toBeVisible();
+}
+
+async function showOpendeployDeployments(page) {
+  const toggle = page.getByRole('button', {name: 'Show opendeploy'});
+  if (await toggle.count() === 0) return;
+  if (await toggle.getAttribute('aria-pressed') !== 'true') {
+    await toggle.click();
+  }
 }
 
 function deploymentRow(page, {name, machine, space} = {}) {
