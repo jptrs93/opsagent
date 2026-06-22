@@ -32,8 +32,12 @@ func RunOutputFile(deploymentID int32, version int32) string {
 	return filepath.Join(ainit.StaticConfig.RunOutputDir, fmt.Sprintf("%d", deploymentID), fmt.Sprintf("%d.log", version))
 }
 
+func RunOutputDeploymentDir(deploymentID int32) string {
+	return filepath.Join(ainit.StaticConfig.RunOutputDir, fmt.Sprintf("%d", deploymentID))
+}
+
 func RunOutputBaseDir(deploymentID int32, version int32) string {
-	return filepath.Join(ainit.StaticConfig.RunOutputDir, fmt.Sprintf("%d", deploymentID), fmt.Sprintf("%d", version))
+	return filepath.Join(RunOutputDeploymentDir(deploymentID), fmt.Sprintf("%d", version))
 }
 
 func RunOutputRunDir(deploymentID int32, version int32, run int32) string {

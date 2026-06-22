@@ -3935,11 +3935,13 @@ func DecodeLogLine(b []byte) (*LogLine, error) {
 }
 
 type LogLineBatch struct {
-	Lines []*LogLine
+	Lines  []*LogLine
+	LogDir string
 }
 
 func (m LogLineBatch) IsZero() bool {
-	return len(m.Lines) == 0
+	return len(m.Lines) == 0 &&
+		m.LogDir == ""
 }
 
 func (m *LogLineBatch) Encode() []byte {
@@ -3951,6 +3953,7 @@ func (m *LogLineBatch) Encode() []byte {
 		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
+	b = AppendStringField(b, m.LogDir, 2)
 	return b
 }
 
@@ -3975,6 +3978,8 @@ func DecodeLogLineBatch(b []byte) (*LogLineBatch, error) {
 					m.Lines = append(m.Lines, item)
 				}
 			}
+		case 2:
+			b, m.LogDir, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

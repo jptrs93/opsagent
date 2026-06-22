@@ -217,17 +217,25 @@ export function formToSpec(form) {
 }
 
 export function isFormValid(form, opts = {}) {
-    if (!nameValid(form) || !form.machine.val.trim()) return false;
+    return !formInvalidReason(form, opts);
+}
+
+export function formInvalidReason(form, opts = {}) {
+    if (!nameValid(form)) return 'Deployment name is required.';
+    if (!form.machine.val.trim()) return 'Machine is required.';
     const machineOptions = opts.machineOptions || [];
     const machineOptionValues = machineOptions.map(m => typeof m === 'string' ? m : m.name).filter(Boolean);
-    if (machineOptionValues.length > 0 && !machineOptionValues.includes(form.machine.val.trim())) return false;
+    if (machineOptionValues.length > 0 && !machineOptionValues.includes(form.machine.val.trim())) return 'Select a registered machine.';
     if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
-        if (!form.containerImage.val.trim()) return false;
+        if (!form.containerImage.val.trim()) return 'Container image is required.';
     } else if (!form.nixRepo.val.trim() || !form.nixFlake.val.trim()) {
-        return false;
+        return 'Repository and flake path are required.';
     }
-    if (hasInvalidEnvVars(form) || hasInvalidVolumeConfig(form, opts) || hasInvalidAssetMounts(form) || hasInvalidUpgradeStrategy(form)) return false;
-    return true;
+    return invalidEnvVarsReason(form)
+        || invalidVolumeConfigReason(form, opts)
+        || invalidAssetMountsReason(form)
+        || invalidUpgradeStrategyReason(form)
+        || '';
 }
 
 export function buildValidateSourceRequest(form, opts = {}) {
@@ -1153,23 +1161,26 @@ function envValueInput(form, row, assets) {
     }
     if (row.type === 'asset') {
         const assetOptions = assetOptionsForRow(assets, row);
-        const selectedValue = rowAssetOptionValue(row);
-        return select({
-            class: `w-full rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand ${assetOptions.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`,
-            disabled: assetOptions.length === 0,
-            value: selectedValue,
-            onchange: e => updateEnvAssetRow(form, row, assets, e.target.value),
-        },
-            option({value: '', disabled: true, selected: !selectedValue || assetOptions.length === 0}, assetOptions.length ? "Select an asset..." : "No assets defined"),
-            ...assetOptions.map(asset => option({value: assetOptionValue(asset), selected: assetOptionValue(asset) === selectedValue}, assetOptionLabel(asset))),
-        );
+        const selectedKey = van.state(rowAssetOptionValue(row));
+        return referencePicker({
+            refs: assetOptions,
+            selectedKey,
+            placeholder: "Search assets",
+            noMatchesLabel: "No matching assets",
+            emptyLabel: "No assets defined",
+            getKey: assetOptionValue,
+            getLabel: assetOptionLabel,
+            onSelect: asset => {
+                selectedKey.val = assetOptionValue(asset);
+                updateEnvAssetRow(form, row, asset);
+            },
+        });
     }
     return envReferenceAutocomplete(form, row);
 }
 
-function updateEnvAssetRow(form, row, assets, value) {
-    const match = assetOptionsForRow(assets, row).find(asset => assetOptionValue(asset) === value);
-    updateEnvRow(form, row.id, {asset: match?.key || '', assetId: match?.id || 0, version: match?.version || 0});
+function updateEnvAssetRow(form, row, asset) {
+    updateEnvRow(form, row.id, {asset: asset?.key || '', assetId: asset?.id || 0, version: asset?.version || 0});
 }
 
 function envReferenceAutocomplete(form, row) {
@@ -1217,7 +1228,7 @@ function formEnvVars(form) {
             if (!key) return null;
             if (v.type === 'secret') return Number(v.secretId || 0) ? [key, {secretId: Number(v.secretId)}] : null;
             if (v.type === 'config') return Number(v.configId || 0) ? [key, {configId: Number(v.configId)}] : null;
-            if (v.type === 'asset') return (v.asset || '').trim() ? [key, {asset: v.asset.trim(), version: Number(v.version || 0)}] : null;
+            if (v.type === 'asset') return (v.asset || '').trim() ? [key, {asset: v.asset.trim(), assetId: Number(v.assetId || 0), version: Number(v.version || 0)}] : null;
             return [key, {value: v.value || ''}];
         })
         .filter(Boolean));
@@ -1247,58 +1258,77 @@ function defaultVolumeFallbackContainerPath(form) {
 }
 
 function hasInvalidVolumeConfig(form, opts = {}) {
+    return Boolean(invalidVolumeConfigReason(form, opts));
+}
+
+function invalidVolumeConfigReason(form, opts = {}) {
     const path = form.containerDataMountPath.val.trim();
-    if (path && !validAbsolutePath(path)) return true;
+    if (path && !validAbsolutePath(path)) return 'Data mount path must be an absolute path without trailing slash or dot segments.';
     const deploymentOptions = deploymentVolumeOptions(optionDeployments(opts), form);
-    return (form.volumeMounts.val || []).some(m => {
+    for (const m of form.volumeMounts.val || []) {
         const deploymentId = Number(m.deploymentId || 0);
         const host = (m.kind === 'deployment' && deploymentId) ? defaultVolumeHostPath(deploymentId) : (m.host || '').trim();
         const container = (m.container || '').trim();
-        if (!host && !container && !deploymentId) return false;
-        if (m.kind === 'deployment' && !deploymentOptions.some(d => d.config?.id === deploymentId)) return true;
-        return !validAbsolutePath(host) || !validAbsolutePath(container);
-    });
+        if (!host && !container && !deploymentId) continue;
+        if (m.kind === 'deployment' && !deploymentOptions.some(d => d.config?.id === deploymentId)) return 'Select a deployment volume source.';
+        if (!validAbsolutePath(host)) return 'Volume host path must be an absolute path without trailing slash or dot segments.';
+        if (!validAbsolutePath(container)) return 'Volume container path must be an absolute path without trailing slash or dot segments.';
+    }
+    return '';
 }
 
 function hasInvalidAssetMounts(form) {
-    return (form.assetMounts.val || []).some(m => {
+    return Boolean(invalidAssetMountsReason(form));
+}
+
+function invalidAssetMountsReason(form) {
+    for (const m of form.assetMounts.val || []) {
         const key = (m.key || '').trim();
         const path = (m.path || '').trim();
-        if (!key) return false;
-        return !validAbsolutePath(path);
-    });
+        if (!key) continue;
+        if (!validAbsolutePath(path)) return 'Asset mount path must be an absolute file path without trailing slash or dot segments.';
+    }
+    return '';
 }
 
 function hasInvalidUpgradeStrategy(form) {
+    return Boolean(invalidUpgradeStrategyReason(form));
+}
+
+function invalidUpgradeStrategyReason(form) {
     const strategy = Number(form.containerUpgradeStrategy.val || CONTAINER_UPGRADE_RECREATE);
-    if (strategy !== CONTAINER_UPGRADE_RECREATE && strategy !== CONTAINER_UPGRADE_ROLLOVER) return true;
-    if (strategy !== CONTAINER_UPGRADE_ROLLOVER) return false;
+    if (strategy !== CONTAINER_UPGRADE_RECREATE && strategy !== CONTAINER_UPGRADE_ROLLOVER) return 'Select a valid upgrade strategy.';
+    if (strategy !== CONTAINER_UPGRADE_ROLLOVER) return '';
     const timeout = Number(form.containerReadinessTimeoutSeconds.val || 0);
-    return !Number.isFinite(timeout) || timeout < 0;
+    return !Number.isFinite(timeout) || timeout < 0 ? 'Readiness timeout must be zero or greater.' : '';
 }
 
 function hasInvalidEnvVars(form) {
+    return Boolean(invalidEnvVarsReason(form));
+}
+
+function invalidEnvVarsReason(form) {
     const seen = new Set();
     for (const row of form.envVars.val || []) {
         const key = (row.key || '').trim();
         if (!key) continue;
-        if (seen.has(key)) return true;
+        if (seen.has(key)) return `Environment variable "${key}" is duplicated.`;
         seen.add(key);
         if (row.type === 'secret') {
-            if (!Number(row.secretId || 0)) return true;
+            if (!Number(row.secretId || 0)) return `Select a secret for environment variable "${key}".`;
             continue;
         }
         if (row.type === 'config') {
-            if (!Number(row.configId || 0)) return true;
+            if (!Number(row.configId || 0)) return `Select a config for environment variable "${key}".`;
             continue;
         }
         if (row.type === 'asset') {
-            if (!(row.asset || '').trim()) return true;
+            if (!(row.asset || '').trim()) return `Select an asset for environment variable "${key}".`;
             continue;
         }
-        if (row.type && row.type !== 'value') return true;
+        if (row.type && row.type !== 'value') return `Select a valid type for environment variable "${key}".`;
     }
-    return false;
+    return '';
 }
 
 function envVarsToFormRows(envVars) {

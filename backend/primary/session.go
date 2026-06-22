@@ -48,9 +48,10 @@ type Session struct {
 }
 
 type logChunk struct {
-	data  []byte
-	lines []*apigen.LogLine
-	end   bool
+	data   []byte
+	lines  []*apigen.LogLine
+	logDir string
+	end    bool
 }
 
 func newSession(sessCtx context.Context, cancel context.CancelFunc, machine string, store *sqlite.PrimaryStorage) *Session {
@@ -156,7 +157,7 @@ func (s *Session) handleIncoming(msg *apigen.MsgToMaster) {
 	case len(msg.LogData) > 0:
 		s.routeLogChunk(msg.LogRequestID, logChunk{data: msg.LogData})
 	case !msg.LogLines.IsZero():
-		s.routeLogChunk(msg.LogRequestID, logChunk{lines: msg.LogLines.Lines})
+		s.routeLogChunk(msg.LogRequestID, logChunk{lines: msg.LogLines.Lines, logDir: msg.LogLines.LogDir})
 	case msg.LogEnd:
 		s.routeLogChunk(msg.LogRequestID, logChunk{end: true})
 	}
@@ -278,7 +279,7 @@ func (r *LogSearchStream) Seq() iter.Seq2[*apigen.LogLineBatch, error] {
 					return
 				}
 				batch := r.drainBatch(chunk)
-				if len(batch.Lines) > 0 && !yield(batch, nil) {
+				if !batch.IsZero() && !yield(batch, nil) {
 					return
 				}
 				if r.done {
@@ -298,6 +299,7 @@ func (r *LogSearchStream) Seq() iter.Seq2[*apigen.LogLineBatch, error] {
 func (r *LogSearchStream) drainBatch(first logChunk) *apigen.LogLineBatch {
 	batch := &apigen.LogLineBatch{}
 	batch.Lines = append(batch.Lines, first.lines...)
+	batch.LogDir = first.logDir
 	for {
 		select {
 		case chunk, ok := <-r.ch:
@@ -306,6 +308,9 @@ func (r *LogSearchStream) drainBatch(first logChunk) *apigen.LogLineBatch {
 				return batch
 			}
 			batch.Lines = append(batch.Lines, chunk.lines...)
+			if batch.LogDir == "" {
+				batch.LogDir = chunk.logDir
+			}
 		default:
 			return batch
 		}

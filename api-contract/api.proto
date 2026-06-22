@@ -807,6 +807,7 @@ message LogLine {
 
 message LogLineBatch {
   repeated LogLine lines = 1;
+  string log_dir = 2;  // Absolute worker path to this deployment's run log directory.
 }
 
 

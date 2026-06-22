@@ -1,5 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
+import {copyIcon} from "../lib/icons.js";
 import {loginS} from "../state/login.js";
 import {deploymentsS, spacesS} from "../state/deployments.js";
 
@@ -98,6 +99,7 @@ export function logsPage(selectedDeploymentId) {
     const status = van.state('Choose filters, then search.');
     const lastSearch = van.state(null);
     const loading = van.state(false);
+    const logDirCopied = van.state(false);
     let activeAbort = null;
     let autoSearchedDeploymentId = 0;
 
@@ -181,6 +183,8 @@ export function logsPage(selectedDeploymentId) {
     const runSearch = async () => {
         if (activeAbort) activeAbort.abort();
         output.val = '';
+        lastSearch.val = null;
+        logDirCopied.val = false;
         const id = Number(deploymentId.val || 0);
         const start = fromLocalInputValue(timeStart.val);
         const end = fromLocalInputValue(timeEnd.val);
@@ -192,6 +196,7 @@ export function logsPage(selectedDeploymentId) {
         loading.val = true;
         status.val = 'Searching logs...';
         let count = 0;
+        let logDir = '';
         try {
             const items = (deploymentsS.val || []).filter(item => item.config?.id && !item.config.deleted);
             const selected = selectedDeployment(items, id);
@@ -208,6 +213,9 @@ export function logsPage(selectedDeploymentId) {
                 configVersion: selectedConfigVersion,
             };
             for await (const batch of capi.postV1DeploymentLogSearch(payload, {signal: activeAbort.signal})) {
+                if (batch.logDir) {
+                    logDir = batch.logDir;
+                }
                 const lines = batch.lines || [];
                 count += lines.length;
                 output.val += lines.map(formatLine).join('');
@@ -223,6 +231,7 @@ export function logsPage(selectedDeploymentId) {
                 end: end || refreshedAt,
                 count,
                 refreshedAt,
+                logDir,
             };
         } catch (e) {
             if (e.name !== 'AbortError') {
@@ -269,6 +278,31 @@ export function logsPage(selectedDeploymentId) {
         return `Showing${versionText} logs for ${search.deploymentName} from ${formatSummaryDate(search.start)} to ${formatSummaryDate(search.end)}. Result ${search.count.toLocaleString()} ${lineWord}. Refreshed ${durationAgo(search.refreshedAt)}.`;
     };
 
+    const copyLogDir = async () => {
+        const logDir = lastSearch.val?.logDir;
+        if (!logDir) return;
+        await navigator.clipboard.writeText(logDir);
+        logDirCopied.val = true;
+        setTimeout(() => { logDirCopied.val = false; }, 1500);
+    };
+
+    const logDirLine = () => {
+        const logDir = lastSearch.val?.logDir;
+        if (!logDir) return '';
+        return div(
+            {class: "flex min-w-0 max-w-full items-center gap-1.5 justify-self-end text-gray-400 sm:max-w-[45vw]"},
+            span({class: "whitespace-nowrap"}, "Log dir:"),
+            span({class: "truncate font-mono text-gray-300", title: logDir}, logDir),
+            button({
+                type: "button",
+                class: "rounded p-1 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 cursor-pointer",
+                title: () => logDirCopied.val ? "Copied" : "Copy log directory",
+                "aria-label": "Copy log directory",
+                onclick: copyLogDir,
+            }, () => logDirCopied.val ? span({class: "text-[11px] text-green-400"}, "Copied") : copyIcon({class: "w-3.5 h-3.5"})),
+        );
+    };
+
     return div(
         {class: "h-full min-h-0 overflow-hidden p-3 flex flex-col gap-2"},
         div(
@@ -305,7 +339,11 @@ export function logsPage(selectedDeploymentId) {
                 onclick: runSearch,
             }, () => loading.val ? 'Searching...' : 'Search'),
         ),
-        p({class: "px-1 text-xs text-gray-400"}, summaryLine),
+        div(
+            {class: "px-1 grid grid-cols-1 items-center gap-x-4 gap-y-1 text-xs sm:grid-cols-[minmax(0,1fr)_auto]"},
+            p({class: "min-w-0 text-gray-400"}, summaryLine),
+            logDirLine,
+        ),
         p({class: "sr-only", "aria-live": "polite"}, () => status.val),
         pre(
             {"data-testid": "logs-output", class: "rounded-lg bg-gray-950 border border-gray-800 p-3 overflow-auto flex-1 min-h-0 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},

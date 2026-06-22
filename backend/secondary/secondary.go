@@ -379,6 +379,9 @@ func streamLogSearch(ctx context.Context, out *outbox, req *apigen.LogSearchRequ
 	if req.TimeStart.IsZero() {
 		return
 	}
+	if !out.Send(&apigen.MsgToMaster{LogLines: apigen.LogLineBatch{LogDir: apigen.RunOutputDeploymentDir(req.DeploymentID)}, LogRequestID: requestID}) {
+		return
+	}
 	var till *time.Time
 	if !req.TimeEnd.IsZero() {
 		till = &req.TimeEnd

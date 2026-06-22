@@ -248,7 +248,13 @@ func streamRemoteLogSearch(seq iter.Seq2[*apigen.LogLineBatch, error], req *apig
 			yield(nil, err)
 			return
 		}
-		if batch == nil || len(batch.Lines) == 0 {
+		if batch == nil || (len(batch.Lines) == 0 && batch.LogDir == "") {
+			continue
+		}
+		if len(batch.Lines) == 0 {
+			if !yield(batch, nil) {
+				return
+			}
 			continue
 		}
 		if limit > 0 && count+len(batch.Lines) > limit {
@@ -271,6 +277,9 @@ func streamRemoteLogSearch(seq iter.Seq2[*apigen.LogLineBatch, error], req *apig
 func streamLocalLogSearch(req *apigen.LogSearchRequest, till *time.Time, yield func(*apigen.LogLineBatch, error) bool) {
 	count := 0
 	limit := logSearchLimit(req)
+	if !yield(&apigen.LogLineBatch{LogDir: apigen.RunOutputDeploymentDir(req.DeploymentID)}, nil) {
+		return
+	}
 	batch := make([]*apigen.LogLine, 0, logSearchBatchSize)
 	flush := func() bool {
 		if len(batch) == 0 {

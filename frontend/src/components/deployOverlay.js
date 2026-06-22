@@ -9,6 +9,7 @@ import {
     buildValidateSourceRequest,
     deploymentForm,
     envVarsPane,
+    formInvalidReason,
     imageVersionFromReference,
     isFormValid,
     sectionDivider,
@@ -289,6 +290,8 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         });
     };
 
+    const updateInvalidReason = () => internalGithubRelease ? '' : formInvalidReason(form, {deployments: deploymentsS.val});
+
     const backdrop = div({
         class: "fixed inset-0 bg-black/60 z-40",
         onclick: onClose,
@@ -332,23 +335,29 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                     );
                 },
                 div(
-                    {class: "flex items-center justify-between gap-3 px-4 py-3 border-t border-gray-700"},
-                    requestStatus(requestDescription),
+                    {class: "flex flex-col gap-1 px-4 py-3 border-t border-gray-700"},
                     div(
-                        {class: "flex items-center gap-2"},
-                        button({
-                            class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5",
-                            onclick: onClose,
-                        }, "Cancel"),
-                        lifecycleButton({
-                            canManageLifecycle,
-                            canStop,
-                            canStart,
-                            doStop,
-                            doStart,
-                        }),
-                        spinnerButton("Update deployment", doDeploy, "btn-primary text-sm py-1.5 px-4", "button", () => !internalGithubRelease && !isFormValid(form, {deployments: deploymentsS.val})),
+                        {class: "flex items-center justify-between gap-3"},
+                        requestStatus(requestDescription),
+                        div(
+                            {class: "flex items-center gap-2"},
+                            button({
+                                class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5",
+                                onclick: onClose,
+                            }, "Cancel"),
+                            lifecycleButton({
+                                canManageLifecycle,
+                                canStop,
+                                canStart,
+                                doStop,
+                                doStart,
+                            }),
+                            spinnerButton("Update deployment", doDeploy, "btn-primary text-sm py-1.5 px-4", "button", () => Boolean(updateInvalidReason())),
+                        ),
                     ),
+                    () => updateInvalidReason()
+                        ? p({class: "text-right text-xs text-amber-400"}, updateInvalidReason())
+                        : '',
                 ),
             ),
             () => envVarsPane(form, {assets: assets.val}),

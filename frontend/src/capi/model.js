@@ -477,6 +477,7 @@
 /**
  * @typedef {Object} LogLineBatch
  * @property {LogLine[]} lines
+ * @property {string} logDir
  */
 /**
  * @typedef {Object} DeploymentIdentifier
@@ -6450,6 +6451,9 @@ export function writeLogLineBatch(message, writer) {
             writer.ldelim();
         }
     }
+    if (message.logDir !== undefined && message.logDir !== null && message.logDir !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.logDir);
+    }
 }
 
 
@@ -6471,12 +6475,16 @@ export function encodeLogLineBatch(message) {
  */
 function decodeLogLineBatchMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {lines: [] };
+    const message = {lines: [], logDir: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.lines.push(decodeLogLineMessage(reader, reader.uint32()));
+                break;
+            }
+            case 2: {
+                message.logDir = reader.string();
                 break;
             }
             default:
