@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"path/filepath"
 	"time"
 
@@ -34,6 +36,8 @@ import (
 //go:generate sh -c "cd ../frontend && pnpm install && pnpm run build"
 //go:embed web/dist
 var fsys embed.FS
+
+const primaryServerShutdownTimeout = 20 * time.Second
 
 // Storage failure policy
 //
@@ -99,25 +103,43 @@ func runPrimary() {
 	if err != nil {
 		panic(fmt.Sprintf("creating handler: %v", err))
 	}
-	backup.StartReplication(h.ConfigService)
+	defer func() {
+		if err := h.Store.Close(); err != nil {
+			slog.Error("close primary store", "err", err)
+		}
+	}()
+	backupDone := backup.StartReplication(ctx, h.ConfigService)
+	defer func() {
+		stop()
+		<-backupDone
+	}()
 	cfg := h.Config
 	clusterMaterial, err := cluster.BootstrapPrimary(h.Secrets, machineName)
 	if err != nil {
 		panic(fmt.Sprintf("bootstrapping cluster TLS material: %v", err))
 	}
 
+	serverErrCh := make(chan error, 3)
+	serverCount := 0
+
 	// Primary cluster and enrollment listeners start for every primary.
-	startPrimaryCluster(h, clusterMaterial, cfg)
-	startPrimaryEnrollment(h, clusterMaterial, cfg)
+	startPrimaryCluster(ctx, h, clusterMaterial, cfg, serverErrCh)
+	serverCount++
+	startPrimaryEnrollment(ctx, h, clusterMaterial, cfg, serverErrCh)
+	serverCount++
 	m := apigen.CreateOpsagentHttpV1Mux(h, &apigen.MuxConfig{
 		VerifyAuth:         h.VerifyAuth,
 		MaxRequestBodySize: 20_000_000,
 	})
 	if cfg.WebHTTPOnly {
-		httpServer := http.Server{Handler: m, Addr: cfg.WebListen}
+		httpServer := http.Server{Handler: m, Addr: cfg.WebListen, BaseContext: primaryServerBaseContext(ctx)}
 		slog.Info("starting http-only server", "addr", httpServer.Addr)
-		err := httpServer.ListenAndServe()
-		panic(fmt.Sprintf("http-only server ended: %v", err))
+		startManagedPrimaryServer(ctx, "web-http", &httpServer, httpServer.ListenAndServe, serverErrCh)
+		serverCount++
+		if err := waitForPrimaryServers(ctx, stop, serverErrCh, serverCount); err != nil {
+			panic(err)
+		}
+		return
 	}
 
 	certCacheDir := filepath.Join(ainit.StaticConfig.DataDir, ".certs")
@@ -132,13 +154,19 @@ func runPrimary() {
 	acmedebug.Enable(certManager)
 	// TLS-ALPN-01 ACME challenge runs inside the port 443 listener
 	httpsServer := http.Server{
-		Handler:   m,
-		Addr:      cfg.WebListen,
-		TLSConfig: tlsConfig,
+		Handler:     m,
+		Addr:        cfg.WebListen,
+		TLSConfig:   tlsConfig,
+		BaseContext: primaryServerBaseContext(ctx),
 	}
 	slog.Info("starting https server", "addr", cfg.WebListen)
-	err = httpsServer.ListenAndServeTLS("", "")
-	panic(fmt.Sprintf("https server ended: %v", err))
+	startManagedPrimaryServer(ctx, "web-https", &httpsServer, func() error {
+		return httpsServer.ListenAndServeTLS("", "")
+	}, serverErrCh)
+	serverCount++
+	if err := waitForPrimaryServers(ctx, stop, serverErrCh, serverCount); err != nil {
+		panic(err)
+	}
 }
 
 func runSecondary() {
@@ -192,7 +220,7 @@ func workerTLSMaterialExists(paths ...string) bool {
 	return true
 }
 
-func startPrimaryCluster(h *handler.Handler, material *cluster.Material, cfg ainit.DynamicConfiguration) {
+func startPrimaryCluster(ctx context.Context, h *handler.Handler, material *cluster.Material, cfg ainit.DynamicConfiguration, errCh chan<- error) {
 	tlsCfg := certu.MustLoadTLSConfigFromPEM(material.CACert, material.PrimaryCert, material.PrimaryKey)
 
 	p := primary.New(h.Store, h.Assets, h.Github, h.Secrets)
@@ -208,23 +236,23 @@ func startPrimaryCluster(h *handler.Handler, material *cluster.Material, cfg ain
 	protocols := new(http.Protocols)
 	protocols.SetHTTP2(true)
 	srv := &http.Server{
-		Addr:      cfg.ClusterListen,
-		Handler:   clusterMux,
-		TLSConfig: tlsCfg,
-		Protocols: protocols,
+		Addr:        cfg.ClusterListen,
+		Handler:     clusterMux,
+		TLSConfig:   tlsCfg,
+		Protocols:   protocols,
+		BaseContext: primaryServerBaseContext(ctx),
 		HTTP2: &http.HTTP2Config{
 			SendPingTimeout: 5 * time.Second,  // PING a silent worker after 5s idle
 			PingTimeout:     10 * time.Second, // tear down if no ACK within 10s (~15s total to detect a dead worker)
 		},
 	}
 	slog.Info("starting primary cluster", "addr", cfg.ClusterListen)
-	go func() {
-		err := srv.ListenAndServeTLS("", "")
-		panic(fmt.Sprintf("cluster server ended: %v", err))
-	}()
+	startManagedPrimaryServer(ctx, "cluster", srv, func() error {
+		return srv.ListenAndServeTLS("", "")
+	}, errCh)
 }
 
-func startPrimaryEnrollment(h *handler.Handler, material *cluster.Material, cfg ainit.DynamicConfiguration) {
+func startPrimaryEnrollment(ctx context.Context, h *handler.Handler, material *cluster.Material, cfg ainit.DynamicConfiguration, errCh chan<- error) {
 	mux := apigen.CreateEnrollmentV1Mux(h, &apigen.MuxConfig{
 		VerifyAuth:         h.VerifyEnrollmentRequest,
 		MaxRequestBodySize: 1 * 1024 * 1024,
@@ -238,13 +266,59 @@ func startPrimaryEnrollment(h *handler.Handler, material *cluster.Material, cfg 
 		},
 	})
 	srv := &http.Server{
-		Addr:      cfg.EnrollmentListen,
-		Handler:   mux,
-		TLSConfig: certu.MustLoadServerTLSConfigFromPEM(material.PrimaryCert, material.PrimaryKey),
+		Addr:        cfg.EnrollmentListen,
+		Handler:     mux,
+		TLSConfig:   certu.MustLoadServerTLSConfigFromPEM(material.PrimaryCert, material.PrimaryKey),
+		BaseContext: primaryServerBaseContext(ctx),
 	}
 	slog.Info("starting primary enrollment", "addr", cfg.EnrollmentListen)
+	startManagedPrimaryServer(ctx, "enrollment", srv, func() error {
+		return srv.ListenAndServeTLS("", "")
+	}, errCh)
+}
+
+func startManagedPrimaryServer(ctx context.Context, name string, srv *http.Server, serve func() error, errCh chan<- error) {
 	go func() {
-		err := srv.ListenAndServeTLS("", "")
-		panic(fmt.Sprintf("enrollment server ended: %v", err))
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), primaryServerShutdownTimeout)
+		defer cancel()
+		slog.Info("stopping primary server", "server", name)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			slog.Warn("primary server graceful shutdown failed; closing", "server", name, "err", err)
+			_ = srv.Close()
+		}
 	}()
+	go func() {
+		err := serve()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- fmt.Errorf("%s server ended: %w", name, err)
+			return
+		}
+		if ctx.Err() == nil {
+			errCh <- fmt.Errorf("%s server ended unexpectedly", name)
+			return
+		}
+		errCh <- nil
+	}()
+}
+
+func primaryServerBaseContext(ctx context.Context) func(net.Listener) context.Context {
+	return func(net.Listener) context.Context { return ctx }
+}
+
+func waitForPrimaryServers(ctx context.Context, stop context.CancelFunc, errCh <-chan error, count int) error {
+	var firstErr error
+	for i := 0; i < count; i++ {
+		if err := <-errCh; err != nil && firstErr == nil {
+			firstErr = err
+			stop()
+		}
+	}
+	if firstErr != nil {
+		return firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		slog.Info("opendeploy primary stopped", "reason", err)
+	}
+	return nil
 }

@@ -30,44 +30,58 @@ type backupConfig struct {
 	Endpoint        string
 }
 
-func StartReplication(configService *config.Service) {
+func StartReplication(ctx context.Context, configService *config.Service) <-chan struct{} {
+	done := make(chan struct{})
 	filter := newBackupConfigFilter()
 	sub := configService.SnapshotAndSubscribe(filter.Filter)
 	filter.SetInitial(sub.InitialValue)
 	go func() {
+		defer close(done)
+		defer sub.UnsubscribeFunc()
 		var cancel context.CancelFunc
-		var done chan struct{}
-		apply := func(cfg ainit.DynamicConfiguration) {
+		var currentDone chan struct{}
+		stopCurrent := func() {
 			if cancel != nil {
 				cancel()
-				<-done
+				<-currentDone
 				cancel = nil
-				done = nil
+				currentDone = nil
 			}
+		}
+		apply := func(cfg ainit.DynamicConfiguration) {
+			stopCurrent()
 			if !configured(cfg) {
 				if err := stopReplication(context.Background()); err != nil {
 					slog.Error("stop backup replication", "err", err)
 				}
 				return
 			}
-			ctx, c := context.WithCancel(context.Background())
+			runCtx, c := context.WithCancel(ctx)
 			cancel = c
-			done = make(chan struct{})
+			done := make(chan struct{})
+			currentDone = done
 			go func() {
 				defer close(done)
-				runReplication(ctx, cfg)
+				runReplication(runCtx, cfg)
 			}()
 		}
 
 		apply(sub.InitialValue)
-		for cfg := range sub.Ch {
-			apply(cfg)
-		}
-		if cancel != nil {
-			cancel()
-			<-done
+		for {
+			select {
+			case <-ctx.Done():
+				stopCurrent()
+				return
+			case cfg, ok := <-sub.Ch:
+				if !ok {
+					stopCurrent()
+					return
+				}
+				apply(cfg)
+			}
 		}
 	}()
+	return done
 }
 
 type backupConfigFilter struct {
