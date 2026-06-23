@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const crashCountPath = "/var/crashcount.txt"
+const crashCountPath = "/data/crashcount.txt"
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))

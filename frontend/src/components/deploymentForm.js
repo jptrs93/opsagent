@@ -1250,11 +1250,8 @@ function formVolumeMounts(form) {
         .filter(m => m.host && m.container);
 }
 
-function defaultVolumeFallbackContainerPath(form) {
-    const user = form.containerUser.val.trim();
-    if (!user || user === 'root' || user === '0') return '/var';
-    const name = user.includes(':') ? user.slice(0, user.indexOf(':')) : user;
-    return `/home/${name}/var`;
+function defaultVolumeFallbackContainerPath() {
+    return '/data';
 }
 
 function hasInvalidVolumeConfig(form, opts = {}) {

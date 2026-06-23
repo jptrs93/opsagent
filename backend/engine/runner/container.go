@@ -765,20 +765,12 @@ func defaultVolumeHostDir(deploymentID int32) string {
 }
 
 // defaultVolumeDest is the in-container mount point for the default data volume:
-// the explicit override if set, else /var for a root container, else
-// /home/<user>/var.
-func defaultVolumeDest(usr, override string) string {
+// the explicit override if set, else /data.
+func defaultVolumeDest(_ string, override string) string {
 	if override != "" {
 		return override
 	}
-	if usr == "" || usr == "root" || usr == "0" {
-		return "/var"
-	}
-	name := usr
-	if i := strings.IndexByte(name, ':'); i >= 0 {
-		name = name[:i]
-	}
-	return "/home/" + name + "/var"
+	return "/data"
 }
 
 // chownToUser chowns path to the host uid/gid for usr. usr may be "", "root", a

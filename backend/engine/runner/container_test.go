@@ -88,3 +88,25 @@ func TestFormatMountPaths(t *testing.T) {
 		t.Fatalf("formatMountPaths() = %q, want %q", got, want)
 	}
 }
+
+func TestDefaultVolumeDest(t *testing.T) {
+	tests := []struct {
+		name     string
+		user     string
+		override string
+		want     string
+	}{
+		{name: "root", user: "", want: "/data"},
+		{name: "named user", user: "app", want: "/data"},
+		{name: "numeric user", user: "1000:1000", want: "/data"},
+		{name: "override", user: "app", override: "/srv/data", want: "/srv/data"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := defaultVolumeDest(tt.user, tt.override); got != tt.want {
+				t.Fatalf("defaultVolumeDest(%q, %q) = %q, want %q", tt.user, tt.override, got, tt.want)
+			}
+		})
+	}
+}
