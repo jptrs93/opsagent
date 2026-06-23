@@ -5,11 +5,20 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/benbjohnson/litestream"
 	"github.com/benbjohnson/litestream/s3"
 	"github.com/jptrs93/opsagent/backend/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+)
+
+const (
+	primaryConfigWebListen        = "WEB_LISTEN"
+	primaryConfigWebHTTPOnly      = "WEB_HTTP_ONLY"
+	primaryConfigClusterListen    = "CLUSTER_LISTEN"
+	primaryConfigEnrollmentListen = "ENROLLMENT_LISTEN"
+	primaryConfigAcmeHosts        = "ACME_HOSTS"
 )
 
 type restoreOptions struct {
@@ -50,11 +59,14 @@ func (o restoreOptions) validate() error {
 	return nil
 }
 
-func restorePrimaryBackup(opts restoreOptions, own owner) error {
+func restorePrimaryBackup(opts restoreOptions, install installOptions, own owner) error {
 	dbPath := filepath.Join(dataDir, "primary.db")
 	if dryRun {
 		planned("restore primary database from s3://%s/%s to %s", opts.Bucket, opts.Path, dbPath)
 		planned("unlock restored secrets store and write new local machine key")
+		for _, override := range restoredPrimaryConfigOverrides(install) {
+			planned("set restored primary config %s=%s", override.key, override.value)
+		}
 		return nil
 	}
 
@@ -94,7 +106,59 @@ func restorePrimaryBackup(opts restoreOptions, own owner) error {
 	if err := unlockRestoredSecrets(dbPath, opts.RecoveryCode, own); err != nil {
 		return fmt.Errorf("%w; delete %s, %s, %s, and %s before trying install recovery again", err, dbPath, dbPath+"-wal", dbPath+"-shm", filepath.Join(dataDir, "machine.key"))
 	}
+	if err := applyRestoredPrimaryConfigOverrides(dbPath, install, own); err != nil {
+		return err
+	}
 	info("restored primary database and re-established local machine key")
+	return nil
+}
+
+type restoredPrimaryConfigOverride struct {
+	key   string
+	value string
+}
+
+func restoredPrimaryConfigOverrides(opts installOptions) []restoredPrimaryConfigOverride {
+	overrides := []restoredPrimaryConfigOverride{}
+	if opts.webListen != nil {
+		overrides = append(overrides, restoredPrimaryConfigOverride{key: primaryConfigWebListen, value: *opts.webListen})
+	}
+	if opts.httpOnly != nil {
+		overrides = append(overrides, restoredPrimaryConfigOverride{key: primaryConfigWebHTTPOnly, value: strconv.FormatBool(*opts.httpOnly)})
+	}
+	if opts.clusterListen != nil {
+		overrides = append(overrides, restoredPrimaryConfigOverride{key: primaryConfigClusterListen, value: *opts.clusterListen})
+	}
+	if opts.enrollmentListen != nil {
+		overrides = append(overrides, restoredPrimaryConfigOverride{key: primaryConfigEnrollmentListen, value: *opts.enrollmentListen})
+	}
+	if opts.acmeHosts != nil {
+		overrides = append(overrides, restoredPrimaryConfigOverride{key: primaryConfigAcmeHosts, value: *opts.acmeHosts})
+	}
+	return overrides
+}
+
+func applyRestoredPrimaryConfigOverrides(dbPath string, opts installOptions, own owner) error {
+	overrides := restoredPrimaryConfigOverrides(opts)
+	if len(overrides) == 0 {
+		return nil
+	}
+	store := sqlite.NewPrimaryStorage(dbPath)
+	for _, override := range overrides {
+		if err := store.SetConfigValue(override.key, override.value); err != nil {
+			_ = store.Close()
+			return fmt.Errorf("set restored primary config %s: %w", override.key, err)
+		}
+	}
+	if err := store.Close(); err != nil {
+		return fmt.Errorf("close restored primary database after config overrides: %w", err)
+	}
+	for _, path := range sqliteArtifactPaths(dbPath) {
+		if err := chownIfExists(path, own); err != nil {
+			return err
+		}
+	}
+	info("updated restored primary listener config")
 	return nil
 }
 

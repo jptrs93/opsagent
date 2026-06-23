@@ -9,6 +9,12 @@ const { div, h2, p, pre, span, table, tbody, tr, td, button, code, input, label:
 
 const boolValue = (value) => value ? "true" : "false";
 const listValue = (value) => value && value.length ? value.join(", ") : "";
+const shellQuote = (value) => {
+    const s = String(value ?? "");
+    if (!s) return "''";
+    if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)) return s;
+    return `'${s.replace(/'/g, `'"'"'`)}'`;
+};
 
 const settingsSections = [
     {
@@ -189,6 +195,7 @@ export function settingsPage() {
     const secrets = van.state([]);
     const recoveryStatus = van.state(null);
     const recoveryCode = van.state("");
+    const recoveryExampleOpen = van.state(false);
     const masterPasswordVerifyValue = van.state("");
     const masterPasswordVerifyResult = van.state("");
     const masterPasswordVerifyOK = van.state(false);
@@ -308,6 +315,26 @@ export function settingsPage() {
         } catch (e) {
             error.val = e.message;
         }
+    };
+
+    const recoveryInstallExample = () => {
+        const cfg = config.val || {};
+        const args = [
+            ["--restore-backup", "true"],
+            ["--restore-s3-access-key-id", cfg.backupS3AccessKeyId || "<S3_ACCESS_KEY_ID>"],
+            ["--restore-s3-secret-access-key", "<S3_SECRET_ACCESS_KEY>"],
+            ["--restore-s3-bucket", cfg.backupS3Bucket || "<S3_BUCKET>"],
+            ["--restore-s3-path", cfg.backupS3Path || "opendeploy/primary"],
+            ["--restore-s3-region", cfg.backupS3Region || "us-east-1"],
+            ["--recovery-code", "<RECOVERY_CODE>"],
+            ["--http-only", boolValue(cfg.webHttpOnly)],
+            ["--web-listen", cfg.webListen || ":443"],
+            ["--cluster-listen", cfg.clusterListen || ":9443"],
+            ["--enrollment-listen", cfg.enrollmentListen || ":9444"],
+        ];
+        if (cfg.backupS3Endpoint) args.splice(6, 0, ["--restore-s3-endpoint", cfg.backupS3Endpoint]);
+        if ((cfg.acmeHosts || []).length) args.push(["--acme-hosts", cfg.acmeHosts.join(",")]);
+        return ["sudo opendeploy install primary", ...args.map(([flag, value]) => `  ${flag} ${shellQuote(value)}`)].join(" \\\n");
     };
 
     const generateMasterPassword = () => {
@@ -645,6 +672,20 @@ export function settingsPage() {
                     `${compactButtonClass} whitespace-nowrap ${configured
                         ? "bg-gray-700 text-gray-200 hover:bg-gray-600"
                         : "bg-brand text-white hover:bg-blue-600"}`),
+            ),
+            div({class: "border-t border-gray-800 pt-2 mt-1 flex flex-col gap-2"},
+                div({class: "flex items-center justify-between gap-3"},
+                    p({class: "text-xs text-gray-400"},
+                        "Use this when restoring the primary on a new machine. Replace placeholder values before running."),
+                    button({
+                        type: "button",
+                        class: `${compactButtonClass} whitespace-nowrap bg-gray-700 text-gray-200 hover:bg-gray-600 cursor-pointer`,
+                        onclick: () => { recoveryExampleOpen.val = !recoveryExampleOpen.val; },
+                    }, () => recoveryExampleOpen.val ? "Hide example" : "Show example"),
+                ),
+                () => recoveryExampleOpen.val ? pre({
+                    class: "bg-gray-950 rounded-lg p-3 text-gray-200 font-mono text-xs whitespace-pre-wrap break-words overflow-x-auto",
+                }, recoveryInstallExample()) : "",
             ),
         );
     };

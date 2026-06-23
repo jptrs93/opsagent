@@ -296,7 +296,7 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 	}
 	if opts.restore != nil {
 		step("Restoring primary database")
-		if err := restorePrimaryBackup(*opts.restore, own); err != nil {
+		if err := restorePrimaryBackup(*opts.restore, opts, own); err != nil {
 			return err
 		}
 	}
