@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine/ctrd"
+	"github.com/jptrs93/opsagent/backend/engine/imageref"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
@@ -56,7 +56,11 @@ func (p *ContainerImagePuller) start(store storage.OperatorStore, dep *apigen.De
 
 func (p *ContainerImagePuller) runPull(ctx context.Context, store storage.OperatorStore, dep *apigen.DeploymentConfig, version string) (string, apigen.PreparationStatus) {
 	logPath := dep.PrepareOutputPath()
-	ref := imageRef(dep.Spec.Prepare.ContainerImage.Image, version)
+	ref, err := imageref.Ref(dep.Spec.Prepare.ContainerImage.Image, version)
+	if err != nil {
+		slog.ErrorContext(ctx, "container image ref invalid", "image", dep.Spec.Prepare.ContainerImage.Image, "err", err)
+		return "", apigen.PreparationStatus_FAILED
+	}
 	slog.InfoContext(ctx, "image pull starting", "ref", ref, "log_path", logPath)
 
 	logFile, logPath, err := createPrepareLog(dep)
@@ -86,27 +90,4 @@ func (p *ContainerImagePuller) runPull(ctx context.Context, store storage.Operat
 	}
 	fmt.Fprintf(logFile, "Pulled %s\n", resolved)
 	return resolved, apigen.PreparationStatus_READY
-}
-
-// imageRef joins the configured image repository with the desired version. A
-// version that looks like a digest is appended with '@'; otherwise it is treated
-// as a ':tag'.
-func imageRef(image, version string) string {
-	image = stripImageTagOrDigest(image)
-	if strings.HasPrefix(version, "sha256:") {
-		return image + "@" + version
-	}
-	return image + ":" + version
-}
-
-func stripImageTagOrDigest(image string) string {
-	if idx := strings.IndexByte(image, '@'); idx >= 0 {
-		return image[:idx]
-	}
-	lastSlash := strings.LastIndexByte(image, '/')
-	lastColon := strings.LastIndexByte(image, ':')
-	if lastColon > lastSlash {
-		return image[:lastColon]
-	}
-	return image
 }

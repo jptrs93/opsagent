@@ -183,9 +183,9 @@ func (h *Handler) validateContainerImageSource(ctx apigen.Context, src *apigen.V
 	tags, err := (versionprovider.ContainerImageVersionProvider{}).ListTags(ctx, image)
 	if err != nil {
 		slog.Warn("container image validation failed", "image", image, "err", err)
-		return &apigen.ValidateSourceResponse{ContainerImage: &apigen.ValidateContainerImageSourceResponse{Image: validationErr("Image not accessible: " + containerImageRepoURL(image))}}, nil
+		return &apigen.ValidateSourceResponse{ContainerImage: &apigen.ValidateContainerImageSourceResponse{Image: validationErr("Image not accessible: " + containerImageRef(image))}}, nil
 	}
-	res := apigen.ValidateContainerImageSourceResponse{Image: validationOK("Image accessible: " + containerImageRepoURL(image))}
+	res := apigen.ValidateContainerImageSourceResponse{Image: validationOK("Image accessible: " + containerImageRef(image))}
 	if src.RefreshVersions {
 		res.Tags = tags
 	}
@@ -224,12 +224,12 @@ func hasTrimmedWhitespace(s string) bool {
 	return s != strings.TrimSpace(s)
 }
 
-func containerImageRepoURL(image string) string {
-	repoURL, err := versionprovider.ContainerImageRepositoryURL(image)
+func containerImageRef(image string) string {
+	repo, err := versionprovider.ContainerImageRepositoryRef(image)
 	if err != nil {
 		return image
 	}
-	return repoURL
+	return repo
 }
 
 func countValidationSources(req *apigen.ValidateSourceRequest) int {

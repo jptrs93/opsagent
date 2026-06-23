@@ -193,12 +193,12 @@ func Open(dataDir string, store Store) (*Manager, error) {
 			slog.Warn("secrets recovery code not configured — generate one so secrets can be recovered if this machine is lost")
 			return m, nil
 		}
-		slog.Error("secrets store has no machine keyslot; locked until recovery unlock")
+		slog.Warn("secrets store has no machine keyslot; locked until recovery unlock")
 		return m, nil
 	}
 
 	if err := m.unlockWithMachineKey(slots); err != nil {
-		slog.Error("secrets store locked: could not unlock with machine key; use the recovery code to unlock", "err", err)
+		slog.Warn("secrets store locked: could not unlock with machine key; use the recovery code to unlock", "err", err)
 		return m, nil
 	}
 	slog.Info("secrets store unlocked")

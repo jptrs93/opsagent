@@ -11,9 +11,8 @@ import (
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/engine/imageref"
 )
-
-const dockerHubRegistry = "registry-1.docker.io"
 
 // ContainerImageVersionProvider lists public image tags via the Docker Registry
 // HTTP API. It supports Kubernetes-style image names, including Docker Hub
@@ -24,19 +23,19 @@ func (ContainerImageVersionProvider) ListTags(ctx context.Context, image string)
 	if strings.TrimSpace(image) == "" {
 		return nil, fmt.Errorf("container image missing")
 	}
-	ref, err := parseImageRepository(image)
+	ref, err := imageref.Parse(image)
 	if err != nil {
 		return nil, err
 	}
-	if ref.version != "" {
+	if ref.Version != "" {
 		ok, err := imageVersionExists(ctx, ref)
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
-			return nil, fmt.Errorf("image version %q not found", ref.version)
+			return nil, fmt.Errorf("image version %q not found", ref.Version)
 		}
-		return []*apigen.Version{{ID: ref.version, Label: ref.version}}, nil
+		return []*apigen.Version{{ID: ref.Version, Label: ref.Version}}, nil
 	}
 	tags, err := listImageTags(ctx, ref)
 	if err != nil {
@@ -49,86 +48,21 @@ func (ContainerImageVersionProvider) ListTags(ctx context.Context, image string)
 	return versions, nil
 }
 
-type imageRepository struct {
-	registry string
-	name     string
-	version  string
-}
-
 func ContainerImageRepositoryURL(raw string) (string, error) {
-	ref, err := parseImageRepository(raw)
-	if err != nil {
-		return "", err
-	}
-	return ref.repositoryURL(), nil
+	return imageref.RepositoryURL(raw)
 }
 
-func (r imageRepository) repositoryURL() string {
-	return fmt.Sprintf("https://%s/v2/%s", r.registry, r.name)
+func ContainerImageRepositoryRef(raw string) (string, error) {
+	return imageref.RepositoryRef(raw)
 }
 
-func parseImageRepository(raw string) (imageRepository, error) {
-	image := strings.TrimSpace(raw)
-	if image == "" {
-		return imageRepository{}, fmt.Errorf("image is required")
-	}
-	image = strings.TrimPrefix(image, "docker://")
-	image = strings.TrimPrefix(image, "https://")
-	image = strings.TrimPrefix(image, "http://")
-	image = strings.TrimSuffix(image, "/")
-	version := imageTagOrDigest(image)
-	image = stripImageTagOrDigest(image)
-	parts := strings.Split(image, "/")
-	if len(parts) == 0 || parts[0] == "" {
-		return imageRepository{}, fmt.Errorf("invalid image")
-	}
-
-	registry := dockerHubRegistry
-	nameParts := parts
-	if looksLikeRegistry(parts[0]) {
-		registry = parts[0]
-		nameParts = parts[1:]
-	}
-	if len(nameParts) == 0 || nameParts[0] == "" {
-		return imageRepository{}, fmt.Errorf("invalid image repository")
-	}
-	if registry == dockerHubRegistry && len(nameParts) == 1 {
-		nameParts = append([]string{"library"}, nameParts...)
-	}
-	return imageRepository{registry: registry, name: strings.Join(nameParts, "/"), version: version}, nil
+func ContainerImageRef(raw, version string) (string, error) {
+	return imageref.Ref(raw, version)
 }
 
-func imageTagOrDigest(image string) string {
-	if idx := strings.IndexByte(image, '@'); idx >= 0 {
-		return image[idx+1:]
-	}
-	lastSlash := strings.LastIndexByte(image, '/')
-	lastColon := strings.LastIndexByte(image, ':')
-	if lastColon > lastSlash {
-		return image[lastColon+1:]
-	}
-	return ""
-}
-
-func stripImageTagOrDigest(image string) string {
-	if idx := strings.IndexByte(image, '@'); idx >= 0 {
-		return image[:idx]
-	}
-	lastSlash := strings.LastIndexByte(image, '/')
-	lastColon := strings.LastIndexByte(image, ':')
-	if lastColon > lastSlash {
-		return image[:lastColon]
-	}
-	return image
-}
-
-func looksLikeRegistry(first string) bool {
-	return strings.Contains(first, ".") || strings.Contains(first, ":") || first == "localhost"
-}
-
-func listImageTags(ctx context.Context, ref imageRepository) ([]string, error) {
+func listImageTags(ctx context.Context, ref imageref.Repository) ([]string, error) {
 	client := http.DefaultClient
-	nextURL := fmt.Sprintf("%s/tags/list?n=100", ref.repositoryURL())
+	nextURL := fmt.Sprintf("%s/tags/list?n=100", ref.URL())
 	var token string
 	var tags []string
 
@@ -176,9 +110,9 @@ func listImageTags(ctx context.Context, ref imageRepository) ([]string, error) {
 	return tags, nil
 }
 
-func imageVersionExists(ctx context.Context, ref imageRepository) (bool, error) {
+func imageVersionExists(ctx context.Context, ref imageref.Repository) (bool, error) {
 	client := http.DefaultClient
-	manifestURL := fmt.Sprintf("%s/manifests/%s", ref.repositoryURL(), url.PathEscape(ref.version))
+	manifestURL := fmt.Sprintf("%s/manifests/%s", ref.URL(), url.PathEscape(ref.Version))
 	var token string
 	for attempt := 0; attempt < 2; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
