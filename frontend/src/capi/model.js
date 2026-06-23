@@ -497,6 +497,11 @@
  * @property {boolean} running
  */
 /**
+ * @typedef {Object} DeploymentDeleteRequest
+ * @property {number} deploymentId
+ * @property {number} version
+ */
+/**
  * @typedef {Object} DeploymentConfig
  * @property {number} id
  * @property {DeploymentIdentifier} configId
@@ -6710,6 +6715,69 @@ function decodeDesiredStateMessage(reader, length) {
 export function decodeDesiredState(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeDesiredStateMessage(reader);
+}
+
+
+
+/**
+ * @param {DeploymentDeleteRequest} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentDeleteRequest(message, writer) {
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
+    }
+}
+
+
+/**
+ * @param {DeploymentDeleteRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentDeleteRequest(message) {
+    const writer = Writer.create();
+    writeDeploymentDeleteRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentDeleteRequest}
+ */
+function decodeDeploymentDeleteRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {deploymentId: 0, version: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.deploymentId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.version = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentDeleteRequest}
+ */
+export function decodeDeploymentDeleteRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentDeleteRequestMessage(reader);
 }
 
 

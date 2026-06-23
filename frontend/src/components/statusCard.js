@@ -14,6 +14,7 @@ const existingStatusLabels = {
 };
 
 const STATUS_NO_DEPLOYMENT = 1;
+const STATUS_STOPPED = 3;
 
 const prepareStatusCopy = (prepareStatus, prepareVersion) => {
     if (!prepareVersion) return null;
@@ -36,7 +37,9 @@ const prepareStatusCopy = (prepareStatus, prepareVersion) => {
 export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrepareOutput, onUpdate, onFork, opts = {}) {
     const showSpace = opts.showSpace !== false;
     const onViewJson = opts.onViewJson || (() => {});
+    const onDelete = opts.onDelete || (() => {});
     const hasExisting = deployment.existingStatus !== STATUS_NO_DEPLOYMENT;
+    const canDelete = deployment.existingStatus === STATUS_STOPPED;
     const existingColors = hasExisting
         ? (existingStatusLabels[deployment.existingStatus] || existingStatusLabels[0])
         : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'};
@@ -102,6 +105,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
             },
             menuAction("View JSON", () => onViewJson(deployment)),
             menuAction("Fork", () => onFork(deployment)),
+            canDelete ? menuAction("Delete", () => onDelete(deployment)) : '',
         );
         document.body.appendChild(menuEl);
         positionMenu(anchor);

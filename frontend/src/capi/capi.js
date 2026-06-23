@@ -38,6 +38,7 @@ import {
   encodeClusterSecretsRequest,
   encodeConfigUpdateRequest,
   encodeDeploymentCreateRequest,
+  encodeDeploymentDeleteRequest,
   encodeDeploymentHistoryRequest,
   encodeDeploymentUpdateRequest,
   encodeDeploymentVersionsRequest,
@@ -299,6 +300,18 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeDesiredState(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {DeploymentDeleteRequest} payload
+   * @returns {Promise<void>}
+   */
+  async postV1DeploymentDelete(payload) {
+    const response = await this.#request("/v1/deployment/delete", { method: 'POST', body: encodeDeploymentDeleteRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    await response.arrayBuffer();
   }
 
   /**

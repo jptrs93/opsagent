@@ -4146,6 +4146,43 @@ func DecodeDesiredState(b []byte) (*DesiredState, error) {
 	return &m, nil
 }
 
+type DeploymentDeleteRequest struct {
+	DeploymentID int32
+	Version      int32
+}
+
+func (m *DeploymentDeleteRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DeploymentID, 1)
+	b = AppendInt32Field(b, m.Version, 2)
+	return b
+}
+
+func DecodeDeploymentDeleteRequest(b []byte) (*DeploymentDeleteRequest, error) {
+	var m DeploymentDeleteRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 type DeploymentConfig struct {
 	ID           int32
 	ConfigID     DeploymentIdentifier

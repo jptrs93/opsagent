@@ -8,8 +8,9 @@ import {createOverlay} from "../components/createOverlay.js";
 import {prepareOutputOverlay} from "../components/prepareOutputOverlay.js";
 import {exportConfigOverlay} from "../components/exportConfigOverlay.js";
 import {deploymentJsonOverlay} from "../components/deploymentJsonOverlay.js";
+import {capi} from "../capi/index.js";
 
-const { div, p, button, input, table, thead, tbody, tr, th, td, span } = van.tags;
+const { div, h2, p, button, input, table, thead, tbody, tr, th, td, span } = van.tags;
 
 const SIDEBAR_WIDTH_KEY = 'opsagent_sidebar_width';
 const SHOW_OPENDEPLOY_KEY = 'opsagent_show_opendeploy';
@@ -17,6 +18,7 @@ const DEFAULT_SIDEBAR_PCT = 50;
 const MIN_SIDEBAR_PCT = 20;
 const MAX_SIDEBAR_PCT = 80;
 const OPENDEPLOY_SPACE_ID = 0;
+const STATUS_STOPPED = 3;
 
 function loadSidebarWidth() {
     try {
@@ -50,6 +52,53 @@ const formatDeploymentLabel = (deployment) => {
     const parts = [deployment.spaceName, deployment.machine, deployment.name].filter(Boolean);
     return parts.length > 0 ? parts.join(' / ') : `#${deployment.id}`;
 };
+
+function deleteDeploymentOverlay(deployment, close) {
+    const saving = van.state(false);
+    const error = van.state('');
+    const label = formatDeploymentLabel(deployment);
+
+    const confirmDelete = async () => {
+        if (saving.val) return;
+        error.val = '';
+        saving.val = true;
+        try {
+            await capi.postV1DeploymentDelete({
+                deploymentId: deployment.id,
+                version: (deployment.currentVersion || 0) + 1,
+            });
+            close();
+        } catch (e) {
+            error.val = e?.message || 'Deleting deployment failed.';
+        } finally {
+            saving.val = false;
+        }
+    };
+
+    return div(
+        {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4", "data-testid": "deployment-delete-overlay"},
+        div(
+            {class: "card w-full max-w-md flex flex-col gap-4 shadow-2xl"},
+            h2({class: "text-base font-semibold"}, "Delete deployment"),
+            p({class: "text-sm text-gray-300"}, `Are you sure you want to delete ${label}? This removes it from the deployment list.`),
+            () => error.val ? p({class: "text-sm text-red-400"}, error.val) : '',
+            div({class: "flex items-center justify-end gap-2"},
+                button({
+                    type: "button",
+                    class: "text-xs px-3 py-1 rounded-md font-medium bg-gray-700 text-gray-200 hover:bg-gray-600 disabled:opacity-60 cursor-pointer",
+                    disabled: () => saving.val,
+                    onclick: close,
+                }, "Cancel"),
+                button({
+                    type: "button",
+                    class: "text-xs px-3 py-1 rounded-md font-medium bg-red-600 text-white hover:bg-red-500 disabled:opacity-60 cursor-pointer",
+                    disabled: () => saving.val,
+                    onclick: confirmDelete,
+                }, () => saving.val ? "Deleting..." : "Delete"),
+            ),
+        ),
+    );
+}
 
 const spaceLabel = (space) => space?.name || `space ${space?.id ?? 0}`;
 
@@ -209,6 +258,11 @@ export function statusPage(onOpenLogs = () => {}) {
         overlayNode.val = deploymentJsonOverlay(deployment.id, formatDeploymentLabel(deployment), closeOverlay);
     };
 
+    const onDelete = (deployment) => {
+        if (deployment.existingStatus !== STATUS_STOPPED) return;
+        overlayNode.val = deleteDeploymentOverlay(deployment, closeOverlay);
+    };
+
     const closeCreateOverlay = () => {
         createOverlayNode.val = '';
     };
@@ -228,7 +282,7 @@ export function statusPage(onOpenLogs = () => {}) {
         onShowPrepareOutput,
         onUpdate,
         onFork,
-        {showSpace: showSpaceColumn, onViewJson},
+        {showSpace: showSpaceColumn, onViewJson, onDelete},
     );
 
     const filterDeployments = (rows) => {

@@ -226,6 +226,7 @@ type DeploymentConfigUpdate struct {
 	SpaceID         *int32
 	Spec            *apigen.DeploymentSpec
 	DesiredState    *apigen.DesiredState
+	Deleted         *bool
 }
 
 func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID int32, update DeploymentConfigUpdate) (*apigen.DeploymentConfig, bool, bool) {
@@ -272,11 +273,16 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 		desiredVersion = update.DesiredState.Version
 		desiredRunning = boolToInt(update.DesiredState.Running)
 	}
+	deleted := existing.Deleted
+	if update.Deleted != nil {
+		deleted = boolToInt(*update.Deleted)
+	}
 
 	if spaceID == existing.SpaceID &&
 		bytes.Equal(specBlob, existing.SpecBlob) &&
 		desiredVersion == existing.DesiredVersion &&
-		desiredRunning == existing.DesiredRunning {
+		desiredRunning == existing.DesiredRunning &&
+		deleted == existing.Deleted {
 		if err := tx.Commit(); err != nil {
 			panic(fmt.Sprintf("commit: %v", err))
 		}
@@ -295,7 +301,7 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 		SpecBlob:       specBlob,
 		DesiredVersion: desiredVersion,
 		DesiredRunning: desiredRunning,
-		Deleted:        existing.Deleted,
+		Deleted:        deleted,
 	}
 	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
 		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))

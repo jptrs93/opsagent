@@ -331,6 +331,21 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentUpdate(ctx context.Context, req *De
 	return DecodeDesiredState(body)
 }
 
+func (c *OpsagentHttpV1Capi) PostV1DeploymentDelete(ctx context.Context, req *DeploymentDeleteRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1DeploymentDelete request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/deployment/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
 func (c *OpsagentHttpV1Capi) PostV1DeploymentHistory(ctx context.Context, req *DeploymentHistoryRequest) (*DeploymentHistory, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1DeploymentHistory request is nil")

@@ -64,6 +64,10 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc PostV1DeploymentDelete(DeploymentDeleteRequest) returns (cp.Empty) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   rpc PostV1DeploymentHistory(DeploymentHistoryRequest) returns (DeploymentHistory) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -826,6 +830,11 @@ message DeploymentSpec {
 message DesiredState {
   string version = 1;
   bool running = 2;
+}
+
+message DeploymentDeleteRequest {
+  int32 deployment_id = 1;
+  int32 version = 2; // expected next config version
 }
 
 message DeploymentConfig {

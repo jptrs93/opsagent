@@ -116,6 +116,37 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 	return &desired, nil
 }
 
+func (h *Handler) PostV1DeploymentDelete(ctx apigen.Context, req *apigen.DeploymentDeleteRequest) error {
+	if req.DeploymentID == 0 {
+		return MissingKeyErr
+	}
+	cfg := h.findConfigByID(req.DeploymentID)
+	if cfg == nil || cfg.Deleted {
+		return DeploymentNotFoundErr
+	}
+	if sqlite.IsSystemDeploymentConfig(cfg) {
+		return invalidConfigErrf("opendeploy system deployment is internal-only")
+	}
+	if req.Version != cfg.Version+1 {
+		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
+	}
+	status := h.Store.FetchDeploymentStatus(req.DeploymentID)
+	if status == nil || status.Runner.Status != apigen.RunningStatus_STOPPED {
+		return invalidConfigErrf("deployment must be stopped before deletion")
+	}
+	deleted := true
+	desired := apigen.DesiredState{Version: cfg.DesiredState.Version, Running: false}
+	_, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, sqlite.DeploymentConfigUpdate{
+		ExpectedVersion: req.Version,
+		DesiredState:    &desired,
+		Deleted:         &deleted,
+	})
+	if !versionOK {
+		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
+	}
+	return nil
+}
+
 func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.DeploymentVersionsRequest) (*apigen.DeploymentVersions, error) {
 	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr

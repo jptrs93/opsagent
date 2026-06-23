@@ -364,6 +364,65 @@ func TestDeploymentCreatePersistsInitialStoppedDesiredState(t *testing.T) {
 	}
 }
 
+func TestDeploymentDeleteRequiresStoppedDeployment(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+	}, apigen.DesiredState{Version: "1.25", Running: false})
+	store.MustWriteDeploymentStatus(created.ID, func(s *apigen.DeploymentStatus) bool {
+		s.Runner.Status = apigen.RunningStatus_RUNNING
+		return true
+	})
+	h := &Handler{Store: store}
+
+	_, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID:  created.ID,
+		Version:       created.Version + 1,
+		TargetVersion: "1.26",
+	})
+	if err != nil {
+		t.Fatalf("PostV1DeploymentUpdate setup failed: %v", err)
+	}
+	cfg := h.findConfigByID(created.ID)
+	if cfg == nil {
+		t.Fatal("deployment not found")
+	}
+	err = h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.ID, Version: cfg.Version + 1})
+	if err == nil || !strings.Contains(err.Error(), "must be stopped") {
+		t.Fatalf("err = %v, want stopped-only rejection", err)
+	}
+}
+
+func TestDeploymentDeleteSoftDeletesStoppedDeployment(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+	}, apigen.DesiredState{Version: "1.25", Running: false})
+	store.MustWriteDeploymentStatus(created.ID, func(s *apigen.DeploymentStatus) bool {
+		s.Runner.Status = apigen.RunningStatus_STOPPED
+		return true
+	})
+	h := &Handler{Store: store}
+
+	err := h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.ID, Version: created.Version + 1})
+	if err != nil {
+		t.Fatalf("PostV1DeploymentDelete failed: %v", err)
+	}
+	if cfg := h.findConfigByID(created.ID); cfg != nil {
+		t.Fatalf("deleted deployment still active: %+v", cfg)
+	}
+	history := store.MustFetchDeploymentHistory(created.ID)
+	if len(history) != 2 {
+		t.Fatalf("history len = %d, want 2", len(history))
+	}
+	deleted := history[len(history)-1]
+	if !deleted.Deleted || deleted.DesiredState.Running || deleted.DesiredState.Version != "1.25" {
+		t.Fatalf("deleted history entry = %+v", deleted)
+	}
+}
+
 func TestDeploymentUpdateCombinesSpaceAndDesiredStateInSingleConfigVersion(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
