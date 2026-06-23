@@ -12,6 +12,7 @@ const listValue = (value) => value && value.length ? value.join(", ") : "";
 const shellQuote = (value) => {
     const s = String(value ?? "");
     if (!s) return "''";
+    if (/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(s)) return s;
     if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)) return s;
     return `'${s.replace(/'/g, `'"'"'`)}'`;
 };
@@ -321,12 +322,12 @@ export function settingsPage() {
         const cfg = config.val || {};
         const args = [
             ["--restore-backup", "true"],
-            ["--restore-s3-access-key-id", cfg.backupS3AccessKeyId || "<S3_ACCESS_KEY_ID>"],
-            ["--restore-s3-secret-access-key", "<S3_SECRET_ACCESS_KEY>"],
-            ["--restore-s3-bucket", cfg.backupS3Bucket || "<S3_BUCKET>"],
+            ["--restore-s3-access-key-id", cfg.backupS3AccessKeyId || "$S3_ACCESS_KEY_ID"],
+            ["--restore-s3-secret-access-key", "$S3_SECRET_ACCESS_KEY"],
+            ["--restore-s3-bucket", cfg.backupS3Bucket || "$S3_BUCKET"],
             ["--restore-s3-path", cfg.backupS3Path || "opendeploy/primary"],
             ["--restore-s3-region", cfg.backupS3Region || "us-east-1"],
-            ["--recovery-code", "<RECOVERY_CODE>"],
+            ["--recovery-code", "$RECOVERY_CODE"],
             ["--http-only", boolValue(cfg.webHttpOnly)],
             ["--web-listen", cfg.webListen || ":443"],
             ["--cluster-listen", cfg.clusterListen || ":9443"],
