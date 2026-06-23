@@ -632,6 +632,7 @@ func validateRunnerConfig(runner *apigen.RunnerConfig, prepare *apigen.PrepareCo
 		return invalidConfigErrf("runner.systemd is internal-only")
 	}
 	if hasContainer {
+		validateContainerCommand(&runner.Container)
 		if err := validateEnvVars("runner.container.envVars", runner.Container.EnvVars); err != nil {
 			return err
 		}
@@ -651,6 +652,20 @@ func validateRunnerConfig(runner *apigen.RunnerConfig, prepare *apigen.PrepareCo
 		runner.Container.AssetMounts = assetMounts
 	}
 	return nil
+}
+
+func validateContainerCommand(cfg *apigen.ContainerRunnerConfig) {
+	if cfg == nil || len(cfg.Command) == 0 {
+		return
+	}
+	out := make([]string, 0, len(cfg.Command))
+	for _, arg := range cfg.Command {
+		arg = strings.TrimSpace(arg)
+		if arg != "" {
+			out = append(out, arg)
+		}
+	}
+	cfg.Command = out
 }
 
 func validateContainerUpgrade(cfg *apigen.ContainerRunnerConfig) error {
@@ -737,11 +752,12 @@ func resolveAssetMounts(in []*apigen.ContainerAssetMount, assets deploymentAsset
 			return nil, invalidConfigErrf("runner.container.assetMounts: asset %q not found", key)
 		}
 		out = append(out, &apigen.ContainerAssetMount{
-			Asset:   asset.Key,
-			Version: asset.Version,
-			Path:    cleanPath,
-			Format:  asset.Format,
-			AssetID: asset.ID,
+			Asset:      asset.Key,
+			Version:    asset.Version,
+			Path:       cleanPath,
+			Format:     asset.Format,
+			AssetID:    asset.ID,
+			Executable: m.Executable,
 		})
 	}
 	return out, nil

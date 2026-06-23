@@ -27,6 +27,9 @@ runner:
       - asset: site.conf
         version: 3
         path: /etc/nginx/conf.d/site.conf
+      - asset: init.sh
+        path: /docker-entrypoint-initdb.d/init.sh
+        executable: true  # read-only mount with execute bits enabled
 ```
 
 Current semantics:
@@ -35,13 +38,9 @@ Current semantics:
 - During preparation, call `preparer.EnsureAssetsReady` before the deployment reaches READY.
 - On the primary, the asset provider streams inline blobs from the primary DB and large blobs from S3.
 - On a secondary, the asset provider streams the blob on demand from the primary over the mTLS cluster endpoint `/v1/cluster/asset?asset_id=<id>&version=<version>`.
-- Materialize/cache assets on each target machine at `/var/lib/opendeploy-assets/<asset-id>_<version>`.
-- Mount materialized files read-only into the container.
+- Materialize/cache assets on each target machine at `/var/lib/opendeploy-assets/<asset-id>_<version>` or `/var/lib/opendeploy-assets/<asset-id>_<version>_x` for executable mounts.
+- Mount materialized files read-only into the container. Explicit asset mounts may set `executable: true` to enable execute bits; implicit env asset mounts are always read-only/non-executable.
 - Reject paths that are empty, relative, directories, or dangerous container destinations.
 - Fail deployment preparation if an asset key/version no longer exists.
 - Keep existing `runner.container.mounts` for raw host bind mounts; use `assetMounts` only for OpenDeploy-managed config files.
-- In the UI, use the compact Assets section under environment variables to select key/path or create a new asset in the side pane.
-
-Open questions before implementation:
-
-- Whether an asset mount can set file mode/owner. First pass uses read-only bind mounts with default materialized file permissions.
+- In the UI, use the compact Assets section under environment variables to select key/path/mode or create a new asset in the side pane.

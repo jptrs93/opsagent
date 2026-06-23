@@ -85,8 +85,9 @@ func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
 		Runner: apigen.RunnerConfig{
 			Container: apigen.ContainerRunnerConfig{
 				AssetMounts: []*apigen.ContainerAssetMount{{
-					Asset: "nginx.conf",
-					Path:  "/etc/nginx/nginx.conf",
+					Asset:      "nginx.conf",
+					Path:       "/etc/nginx/nginx.conf",
+					Executable: true,
 				}},
 			},
 		},
@@ -98,7 +99,7 @@ func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
 	if len(mounts) != 1 {
 		t.Fatalf("asset mounts len = %d", len(mounts))
 	}
-	if mounts[0].AssetID != 42 || mounts[0].Asset != "nginx.conf" || mounts[0].Version != 3 || mounts[0].Path != "/etc/nginx/nginx.conf" || mounts[0].Format != "nginx" {
+	if mounts[0].AssetID != 42 || mounts[0].Asset != "nginx.conf" || mounts[0].Version != 3 || mounts[0].Path != "/etc/nginx/nginx.conf" || mounts[0].Format != "nginx" || !mounts[0].Executable {
 		t.Fatalf("asset mount not resolved: %+v", mounts[0])
 	}
 }
@@ -171,6 +172,26 @@ func TestValidateDeploymentSpecAcceptsHostMounts(t *testing.T) {
 	mount := spec.Runner.Container.Mounts[0]
 	if mount.Host != "/home/ubuntu/coflip-server/data" || mount.Container != "/data" || mount.Readonly {
 		t.Fatalf("mount not normalized: %+v", mount)
+	}
+}
+
+func TestValidateDeploymentSpecNormalizesContainerCommand(t *testing.T) {
+	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: &apigen.ContainerImageConfig{Image: "nginx:latest"},
+		},
+		Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{
+				Command: []string{" /app/server ", "", " --listen ", " :8080 ", "   "},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
+	}
+	want := []string{"/app/server", "--listen", ":8080"}
+	if got := spec.Runner.Container.Command; strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("command = %#v, want %#v", got, want)
 	}
 }
 

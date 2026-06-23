@@ -5,6 +5,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine/ctrd"
+	"github.com/jptrs93/opsagent/backend/engine/preparer"
 )
 
 func TestContainerRunnerShouldPublishStopped(t *testing.T) {
@@ -108,5 +109,32 @@ func TestDefaultVolumeDest(t *testing.T) {
 				t.Fatalf("defaultVolumeDest(%q, %q) = %q, want %q", tt.user, tt.override, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
+	dep := &apigen.DeploymentConfig{
+		ID: 7,
+		Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
+			DisableDataVolume: true,
+			AssetMounts: []*apigen.ContainerAssetMount{
+				{AssetID: 8, Version: 2, Path: "/etc/app.conf"},
+				{AssetID: 9, Version: 3, Path: "/docker-entrypoint-initdb.d/init.sh", Executable: true},
+			},
+		}}},
+	}
+
+	mounts, dataHost := containerMounts(dep)
+	if dataHost != "" {
+		t.Fatalf("dataHost = %q, want empty", dataHost)
+	}
+	if len(mounts) != 2 {
+		t.Fatalf("mounts len = %d, want 2", len(mounts))
+	}
+	if mounts[0].Source != preparer.AssetCachePathWithMode(8, 2, false) || !mounts[0].ReadOnly {
+		t.Fatalf("readonly asset mount = %+v", mounts[0])
+	}
+	if mounts[1].Source != preparer.AssetCachePathWithMode(9, 3, true) || !mounts[1].ReadOnly {
+		t.Fatalf("executable asset mount = %+v", mounts[1])
 	}
 }

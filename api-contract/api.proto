@@ -608,6 +608,7 @@ message ContainerAssetMount {
   string path = 3;      // destination file path inside the container
   string format = 4;    // copied from the resolved asset for display/debugging
   int32 asset_id = 5;   // resolved asset row id, used for local cache/downloads
+  bool executable = 6;  // mount read-only with execute bits enabled
 }
 
 enum ContainerUpgradeStrategy {

@@ -312,6 +312,7 @@
  * @property {string} path
  * @property {string} format
  * @property {number} assetId
+ * @property {boolean} executable
  */
 /**
  * @typedef {Object} ContainerReadinessSignal
@@ -4400,6 +4401,9 @@ export function writeContainerAssetMount(message, writer) {
     if (message.assetId !== undefined && message.assetId !== null && message.assetId !== 0) {
         writer.uint32(tag(5, WIRE.VARINT)).int32(message.assetId);
     }
+    if (message.executable === true) {
+        writer.uint32(tag(6, WIRE.VARINT)).bool(message.executable);
+    }
 }
 
 
@@ -4421,7 +4425,7 @@ export function encodeContainerAssetMount(message) {
  */
 function decodeContainerAssetMountMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {asset: "", version: 0, path: "", format: "", assetId: 0 };
+    const message = {asset: "", version: 0, path: "", format: "", assetId: 0, executable: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4443,6 +4447,10 @@ function decodeContainerAssetMountMessage(reader, length) {
             }
             case 5: {
                 message.assetId = reader.int32();
+                break;
+            }
+            case 6: {
+                message.executable = reader.bool();
                 break;
             }
             default:

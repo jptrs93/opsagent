@@ -2365,11 +2365,12 @@ func DecodeContainerMount(b []byte) (*ContainerMount, error) {
 }
 
 type ContainerAssetMount struct {
-	Asset   string
-	Version int32
-	Path    string
-	Format  string
-	AssetID int32
+	Asset      string
+	Version    int32
+	Path       string
+	Format     string
+	AssetID    int32
+	Executable bool
 }
 
 func (m *ContainerAssetMount) Encode() []byte {
@@ -2379,6 +2380,7 @@ func (m *ContainerAssetMount) Encode() []byte {
 	b = AppendStringField(b, m.Path, 3)
 	b = AppendStringField(b, m.Format, 4)
 	b = AppendInt32Field(b, m.AssetID, 5)
+	b = AppendBoolField(b, m.Executable, 6)
 	return b
 }
 
@@ -2403,6 +2405,8 @@ func DecodeContainerAssetMount(b []byte) (*ContainerAssetMount, error) {
 			b, m.Format, err = ConsumeString(b, typ)
 		case 5:
 			b, m.AssetID, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.Executable, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

@@ -32,6 +32,7 @@ export function emptyDeploymentForm() {
         containerImage: '',
         runnerType: RUNNER_CONTAINER,
         containerUser: '',
+        containerCommand: '',
         containerDataMountPath: '',
         containerDisableDataVolume: false,
         containerUpgradeStrategy: String(CONTAINER_UPGRADE_RECREATE),
@@ -52,7 +53,7 @@ export function deploymentConfigToForm(cfg) {
     // Reveal a section's additional options up-front when the existing config
     // already sets one of them, so they aren't hidden on edit.
     const showSourceOpts = false;
-    const showExecOpts = false;
+    const showExecOpts = (container.command || []).length > 0;
     const repoCheck = prepare.containerImage && containerImage.image
         ? knownContainerImageSourceCheck(containerImage.image)
         : (nixDocker.repo && nixDocker.flake ? knownNixSourceCheck(nixDocker.repo, nixDocker.flake) : undefined);
@@ -68,14 +69,15 @@ export function deploymentConfigToForm(cfg) {
         containerImage: containerImage.image || '',
         runnerType: RUNNER_CONTAINER,
         containerUser: container.user || '',
+        containerCommand: (container.command || []).join('\n'),
         containerDataMountPath: container.dataMountPath || '',
         containerDisableDataVolume: Boolean(container.disableDataVolume),
         containerUpgradeStrategy: String(container.upgradeStrategy || CONTAINER_UPGRADE_RECREATE),
         containerReadinessTimeoutSeconds: container.readinessSignal?.timeoutSeconds || DEFAULT_READINESS_TIMEOUT_SECONDS,
         envVars: envVarsToFormRows(container.envVars),
         assetMounts: (container.assetMounts || []).map(m => {
-            const row = {id: nextAssetMountID++, assetId: m.assetId || 0, key: m.asset || '', path: m.path || '', version: m.version || 0};
-            return {...row, originalAssetId: row.assetId, originalKey: row.key, originalPath: row.path, originalVersion: row.version};
+            const row = {id: nextAssetMountID++, assetId: m.assetId || 0, key: m.asset || '', path: m.path || '', version: m.version || 0, executable: Boolean(m.executable)};
+            return {...row, originalAssetId: row.assetId, originalKey: row.key, originalPath: row.path, originalVersion: row.version, originalExecutable: row.executable};
         }),
         volumeMounts: (container.mounts || []).map(m => mountToFormRow(m)),
         showSourceOpts,
@@ -161,6 +163,8 @@ export function deploymentForm(form, opts = {}) {
                 div(
                     {class: "flex flex-col gap-3"},
                     envSummary(form),
+                    commandSummary(form),
+                    () => commandOptions(form),
                     volumeMountsSummary(form),
                     assetMountsSection(form, opts),
                     upgradeStrategySummary(form),
@@ -204,6 +208,8 @@ export function formToSpec(form) {
     }
     const user = form.containerUser.val.trim();
     if (user) spec.runner.container.user = user;
+    const command = formCommand(form);
+    if (command.length) spec.runner.container.command = command;
     const dataMountPath = form.containerDataMountPath.val.trim();
     if (dataMountPath) spec.runner.container.dataMountPath = dataMountPath;
     const env = formEnvVars(form);
@@ -232,6 +238,7 @@ export function formInvalidReason(form, opts = {}) {
         return 'Repository and flake path are required.';
     }
     return invalidEnvVarsReason(form)
+        || invalidCommandReason(form)
         || invalidVolumeConfigReason(form, opts)
         || invalidAssetMountsReason(form)
         || invalidUpgradeStrategyReason(form)
@@ -464,6 +471,7 @@ function makeFormState(values) {
         containerImage: van.state(values.containerImage || ''),
         runnerType: van.state(values.runnerType),
         containerUser: van.state(values.containerUser || ''),
+        containerCommand: van.state(values.containerCommand || ''),
         containerDataMountPath: van.state(values.containerDataMountPath || ''),
         containerDisableDataVolume: van.state(Boolean(values.containerDisableDataVolume)),
         containerUpgradeStrategy: van.state(String(values.containerUpgradeStrategy || CONTAINER_UPGRADE_RECREATE)),
@@ -573,6 +581,35 @@ function envSummary(form) {
                 if (form.envPaneOpen.val) closeRuntimePanes(form, 'env');
             },
         }, () => form.envPaneOpen.val ? "Close" : "View / edit"),
+    );
+}
+
+function commandSummary(form) {
+    return div(
+        {class: "flex items-center justify-between gap-3"},
+        span({class: "text-xs text-gray-400"}, () => {
+            const command = formCommand(form);
+            return command.length === 0 ? "Image default command" : `${command.length} command argument${command.length === 1 ? '' : 's'}`;
+        }),
+        button({
+            type: "button",
+            class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
+            onclick: () => { form.showExecOpts.val = !form.showExecOpts.val; },
+        }, () => form.showExecOpts.val ? "Close" : "Override"),
+    );
+}
+
+function commandOptions(form) {
+    return div(
+        {class: () => form.showExecOpts.val ? "flex flex-col gap-2 rounded-lg border border-gray-700 bg-gray-900/60 p-3" : "hidden"},
+        field("Command argv", textarea({
+            "data-testid": "deployment-container-command-textarea",
+            rows: 4,
+            class: `${textInputClass()} font-mono text-xs`,
+            placeholder: "/app/server\n--listen\n:8080",
+            value: form.containerCommand.rawVal,
+            oninput: e => { form.containerCommand.val = e.target.value; },
+        }), "One argument per line. Leave blank to use the image default entrypoint/cmd."),
     );
 }
 
@@ -740,7 +777,7 @@ export function assetMountsPane(form, opts = {}) {
     const assets = opts.assets || [];
     const enableAssetEditor = Boolean(opts.enableAssetEditor);
     const addMount = () => {
-        const row = {id: nextAssetMountID++, assetId: 0, key: '', path: '', version: 0};
+        const row = {id: nextAssetMountID++, assetId: 0, key: '', path: '', version: 0, executable: false};
         form.assetMounts.val = [...(form.assetMounts.val || []), row];
         return row;
     };
@@ -756,6 +793,7 @@ export function assetMountsPane(form, opts = {}) {
             key: row.originalKey || '',
             path: row.originalPath || '',
             version: row.originalVersion || 0,
+            executable: Boolean(row.originalExecutable),
         });
     };
     const openAssetEditor = (row) => {
@@ -779,7 +817,7 @@ export function assetMountsPane(form, opts = {}) {
         return div(
             {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
             div(
-                {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
+                {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
                 field("Asset", select({
                     class: `${selectClass()} ${assetOptions.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`,
                     disabled: assetOptions.length === 0,
@@ -795,6 +833,14 @@ export function assetMountsPane(form, opts = {}) {
                 value: row.path,
                 oninput: e => updateMount(row, {path: e.target.value}),
             })),
+            field("Mode", select({
+                class: selectClass(),
+                value: row.executable ? 'executable' : 'readonly',
+                onchange: e => updateMount(row, {executable: e.target.value === 'executable'}),
+            },
+                option({value: 'readonly', selected: !row.executable}, "Read-only"),
+                option({value: 'executable', selected: Boolean(row.executable)}, "Read + execute"),
+            )),
         ),
         div({class: "flex items-center justify-between gap-2"},
             span({class: () => newInvalidAssetMount(row, assets) ? "text-[11px] text-amber-400" : "text-[11px] text-gray-500"}, () => {
@@ -854,7 +900,8 @@ function savedAssetMountEdited(row) {
     return (row.assetId || 0) !== (row.originalAssetId || 0)
         || (row.key || '') !== (row.originalKey || '')
         || (row.path || '') !== (row.originalPath || '')
-        || (row.version || 0) !== (row.originalVersion || 0);
+        || (row.version || 0) !== (row.originalVersion || 0)
+        || Boolean(row.executable) !== Boolean(row.originalExecutable);
 }
 
 function newInvalidAssetMount(row, assets) {
@@ -1000,7 +1047,7 @@ export function assetEditorPane(form, opts = {}) {
                     ? {...m, assetId: asset.id, key: asset.key, version: asset.version}
                     : m);
             } else if (!form.assetMounts.val.some(m => m.key === asset.key)) {
-                form.assetMounts.val = [...form.assetMounts.val, {id: nextAssetMountID++, assetId: asset.id, key: asset.key, version: asset.version, path: ''}];
+                form.assetMounts.val = [...form.assetMounts.val, {id: nextAssetMountID++, assetId: asset.id, key: asset.key, version: asset.version, path: '', executable: false}];
             }
             form.assetEditorOpen.val = false;
             form.assetMountsPaneOpen.val = true;
@@ -1234,9 +1281,23 @@ function formEnvVars(form) {
         .filter(Boolean));
 }
 
+function formCommand(form) {
+    return (form.containerCommand.val || '')
+        .replace(/\r/g, '')
+        .split('\n')
+        .map(arg => arg.trim())
+        .filter(Boolean);
+}
+
+function invalidCommandReason(form) {
+    const raw = form.containerCommand.val || '';
+    if (raw.includes('\0')) return 'Command arguments cannot contain NUL bytes.';
+    return '';
+}
+
 function formAssetMounts(form) {
     return (form.assetMounts.val || [])
-        .map(m => ({asset: (m.key || '').trim(), version: m.version || 0, path: (m.path || '').trim()}))
+        .map(m => ({asset: (m.key || '').trim(), version: m.version || 0, path: (m.path || '').trim(), executable: Boolean(m.executable)}))
         .filter(m => m.asset && m.path);
 }
 

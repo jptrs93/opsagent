@@ -733,7 +733,7 @@ func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd.Mount, string) {
 		if m == nil {
 			continue
 		}
-		hostPath := preparer.AssetCachePath(m.AssetID, m.Version)
+		hostPath := preparer.AssetCachePathWithMode(m.AssetID, m.Version, m.Executable)
 		mounts = append(mounts, ctrd.Mount{Source: hostPath, Dest: m.Path, ReadOnly: true})
 	}
 	implicitMounted := map[string]bool{}
