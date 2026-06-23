@@ -13,6 +13,8 @@ const existingStatusLabels = {
     5: {bg: 'bg-red-600', text: 'text-red-300', label: 'Crashed'},
 };
 
+const missingMachineStatusLabel = {bg: 'bg-yellow-600', text: 'text-yellow-300', label: 'Unknown'};
+
 const STATUS_NO_DEPLOYMENT = 1;
 const STATUS_STOPPED = 3;
 
@@ -41,7 +43,9 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
     const hasExisting = deployment.existingStatus !== STATUS_NO_DEPLOYMENT;
     const canDelete = deployment.existingStatus === STATUS_STOPPED;
     const existingColors = hasExisting
-        ? (existingStatusLabels[deployment.existingStatus] || existingStatusLabels[0])
+        ? (deployment.machineMissing && deployment.existingStatus === 0
+            ? missingMachineStatusLabel
+            : (existingStatusLabels[deployment.existingStatus] || existingStatusLabels[0]))
         : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'};
     const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
     const menuOpen = van.state(false);

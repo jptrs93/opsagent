@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {infoIcon} from "../lib/icons.js";
-import {deploymentsS, deploymentsStreamS, spacesS} from "../state/deployments.js";
+import {deploymentsS, deploymentsStreamS, machinesS, spacesS} from "../state/deployments.js";
 import {statusRow} from "../components/statusCard.js";
 import {deploymentHistory} from "../components/deploymentHistory.js";
 import {deployOverlay} from "../components/deployOverlay.js";
@@ -18,6 +18,7 @@ const DEFAULT_SIDEBAR_PCT = 50;
 const MIN_SIDEBAR_PCT = 20;
 const MAX_SIDEBAR_PCT = 80;
 const OPENDEPLOY_SPACE_ID = 0;
+const STATUS_RUNNING = 2;
 const STATUS_STOPPED = 3;
 
 function loadSidebarWidth() {
@@ -131,9 +132,10 @@ const headerTips = {
 
 // mapDeploymentsToView flattens DeploymentWithStatus[] into the shape
 // the status card component expects.
-const mapDeploymentsToView = (deployments, spaces) => {
+const mapDeploymentsToView = (deployments, spaces, machines) => {
     if (!Array.isArray(deployments)) return [];
     const spaceNames = new Map((spaces || []).map(space => [space.id, space.name]));
+    const machineNames = new Set((machines || []).map(machine => machine.name).filter(Boolean));
 
     return deployments.filter(d => d.config && d.config.id && !d.config.deleted).map((d) => {
         const id = d.config.id; // integer
@@ -158,17 +160,21 @@ const mapDeploymentsToView = (deployments, spaces) => {
 
         const runnerType = spec.runner?.systemd ? 'systemd' : 'container';
         const spaceId = cid.spaceId || 0;
+        const machine = cid.machine || '';
+        const machineMissing = Boolean(machine) && !machineNames.has(machine);
+        const existingStatus = runner.status || 0;
 
         return {
             id,
             name: cid.name || '',
-            machine: cid.machine || '',
+            machine,
             spaceId,
             spaceName: spaceNames.get(spaceId) || `space ${spaceId}`,
             variant,
             repo,
             runnerType,
-            existingStatus: runner.status || 0,
+            existingStatus: machineMissing && existingStatus === STATUS_RUNNING ? 0 : existingStatus,
+            machineMissing,
             existingVersion: runner.runningVersion || '',
             numberOfRestarts: runner.numberOfRestarts || 0,
             lastRestartAt: runner.lastRestartAt,
@@ -478,7 +484,7 @@ export function statusPage(onOpenLogs = () => {}) {
             ),
         ),
         () => {
-            const allRows = mapDeploymentsToView(deploymentsS.val, spacesS.val);
+            const allRows = mapDeploymentsToView(deploymentsS.val, spacesS.val, machinesS.val);
             const visibleRows = filterOpendeployDeployments(allRows);
             const filtered = filterDeployments(visibleRows);
 
