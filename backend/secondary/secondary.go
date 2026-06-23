@@ -16,6 +16,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/engine"
 	"github.com/jptrs93/opsagent/backend/engine/ctrd"
+	"github.com/jptrs93/opsagent/backend/engine/logfilter"
 	"github.com/jptrs93/opsagent/backend/engine/logreader"
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
 	"github.com/jptrs93/opsagent/backend/engine/runner"
@@ -414,6 +415,9 @@ func streamLogSearch(ctx context.Context, out *outbox, req *apigen.LogSearchRequ
 		case <-ctx.Done():
 			return
 		default:
+		}
+		if !logfilter.Match(line.Line, req.SearchStr, req.LevelMin) {
+			continue
 		}
 		batch = append(batch, &apigen.LogLine{Time: line.Time, Version: line.Version, Run: line.Run, Stream: int32(line.Stream), Line: line.Line})
 		if len(batch) >= logSearchBatchSize && !flush() {

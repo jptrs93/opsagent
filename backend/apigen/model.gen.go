@@ -3834,6 +3834,7 @@ type LogSearchRequest struct {
 	RequestID     string
 	LogLineLimit  int32
 	ConfigVersion int32
+	SearchStr     string
 }
 
 func (m *LogSearchRequest) Encode() []byte {
@@ -3846,6 +3847,7 @@ func (m *LogSearchRequest) Encode() []byte {
 	b = AppendStringField(b, m.RequestID, 6)
 	b = AppendInt32Field(b, m.LogLineLimit, 7)
 	b = AppendInt32Field(b, m.ConfigVersion, 8)
+	b = AppendStringField(b, m.SearchStr, 9)
 	return b
 }
 
@@ -3879,6 +3881,8 @@ func DecodeLogSearchRequest(b []byte) (*LogSearchRequest, error) {
 			b, m.LogLineLimit, err = ConsumeVarInt32(b, typ)
 		case 8:
 			b, m.ConfigVersion, err = ConsumeVarInt32(b, typ)
+		case 9:
+			b, m.SearchStr, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

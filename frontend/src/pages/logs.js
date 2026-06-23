@@ -10,6 +10,7 @@ const SYSTEM_SPACE_ID = 0;
 const SYSTEM_DEPLOYMENT_NAME = 'opendeploy';
 const DEFAULT_LOG_LINE_LIMIT = 10000;
 const MAX_CONFIG_VERSION_OPTIONS = 20;
+const LOG_LEVELS = ['DEBUG', 'INFO', 'WARN', 'ERROR'];
 const textDecoder = new TextDecoder();
 
 function toLocalInputValue(date) {
@@ -93,6 +94,9 @@ export function logsPage(selectedDeploymentId) {
     const spaceId = van.state('');
     const deploymentId = van.state(selectedDeploymentId.val || 0);
     const configVersion = van.state(0);
+    const levelMin = van.state('');
+    const searchStr = van.state('');
+    const resultSearchStr = van.state('');
     const timeStart = van.state(toLocalInputValue(new Date(now.getTime() - 24 * 60 * 60 * 1000)));
     const timeEnd = van.state('');
     const output = van.state('');
@@ -131,6 +135,15 @@ export function logsPage(selectedDeploymentId) {
         class: "input min-w-36",
         onchange: (e) => { configVersion.val = Number(e.target.value || 0); },
     });
+
+    const levelSelect = select({
+        "data-testid": "logs-level-select",
+        class: "input min-w-36",
+        onchange: (e) => { levelMin.val = e.target.value; },
+    },
+        option({value: ""}, "All levels"),
+        ...LOG_LEVELS.map(level => option({value: level}, level)),
+    );
 
     van.derive(() => {
         if (selectedDeploymentId.val && selectedDeploymentId.val !== deploymentId.val) {
@@ -211,6 +224,8 @@ export function logsPage(selectedDeploymentId) {
                 searchKeys: systemDeployment ? {machine} : undefined,
                 logLineLimit: DEFAULT_LOG_LINE_LIMIT,
                 configVersion: selectedConfigVersion,
+                levelMin: levelMin.val || undefined,
+                searchStr: searchStr.val || undefined,
             };
             for await (const batch of capi.postV1DeploymentLogSearch(payload, {signal: activeAbort.signal})) {
                 if (batch.logDir) {
@@ -252,8 +267,8 @@ export function logsPage(selectedDeploymentId) {
     });
 
     const field = (caption, node) => label(
-        {class: "flex flex-col gap-1 text-xs uppercase tracking-wide text-gray-500"},
-        span(caption),
+        {class: "flex flex-col gap-0 text-[11px] tracking-wide text-gray-500"},
+        span(String(caption).toLowerCase()),
         node,
     );
 
@@ -268,6 +283,13 @@ export function logsPage(selectedDeploymentId) {
         class: "whitespace-nowrap rounded-lg bg-gray-700 px-2.5 py-1.5 text-xs text-gray-200 transition-colors cursor-pointer hover:bg-gray-600",
         onclick: () => setQuickRange(durationMs),
     }, text);
+
+    const filteredOutput = () => {
+        const search = resultSearchStr.val;
+        if (!search) return output.val;
+        const lines = output.val.match(/[^\n]*\n|[^\n]+/g) || [];
+        return lines.filter(line => line.includes(search)).join('');
+    };
 
     const summaryLine = () => {
         if (loading.val) return 'Searching logs...';
@@ -306,30 +328,54 @@ export function logsPage(selectedDeploymentId) {
     return div(
         {class: "h-full min-h-0 overflow-hidden p-3 flex flex-col gap-2"},
         div(
-            {class: "card p-3 flex flex-wrap items-end gap-2"},
-            field("Space", spaceSelect),
-            field("Deployment", deploymentSelect),
-            field("Version", configVersionSelect),
-            field("From", input({
-                "data-testid": "logs-time-start-input",
-                class: "input",
-                type: "datetime-local",
-                value: () => timeStart.val,
-                oninput: (e) => { timeStart.val = e.target.value; },
-            })),
-            field("To", input({
-                "data-testid": "logs-time-end-input",
-                class: "input",
-                type: "datetime-local",
-                value: () => timeEnd.val,
-                oninput: (e) => { timeEnd.val = e.target.value; },
-            })),
+            {class: "card p-2 flex flex-wrap items-stretch gap-2"},
             div(
-                {class: "flex flex-wrap items-center gap-1.5 pb-0.5"},
-                quickRangeButton("Last 10min", 10 * 60 * 1000),
-                quickRangeButton("Last hour", 60 * 60 * 1000),
-                quickRangeButton("Last day", 24 * 60 * 60 * 1000),
-                quickRangeButton("Last 3 days", 3 * 24 * 60 * 60 * 1000),
+                {class: "flex flex-col gap-1"},
+                field("space", spaceSelect),
+                field("deployment", deploymentSelect),
+            ),
+            div(
+                {class: "flex flex-col gap-1"},
+                field("version", configVersionSelect),
+                field("level", levelSelect),
+            ),
+            div(
+                {class: "flex flex-col gap-1"},
+                field("from", input({
+                    "data-testid": "logs-time-start-input",
+                    class: "input",
+                    type: "datetime-local",
+                    value: () => timeStart.val,
+                    oninput: (e) => { timeStart.val = e.target.value; },
+                })),
+                field("to", input({
+                    "data-testid": "logs-time-end-input",
+                    class: "input",
+                    type: "datetime-local",
+                    value: () => timeEnd.val,
+                    oninput: (e) => { timeEnd.val = e.target.value; },
+                })),
+            ),
+            div(
+                {class: "flex flex-col justify-end gap-1"},
+                div({class: "flex gap-1.5"},
+                    quickRangeButton("Last 10min", 10 * 60 * 1000),
+                    quickRangeButton("Last hour", 60 * 60 * 1000),
+                ),
+                div({class: "flex gap-1.5"},
+                    quickRangeButton("Last day", 24 * 60 * 60 * 1000),
+                    quickRangeButton("Last 3 days", 3 * 24 * 60 * 60 * 1000),
+                ),
+            ),
+            div(
+                {class: "flex items-center"},
+                field("search", input({
+                    "data-testid": "logs-search-str-input",
+                    class: "input min-w-56",
+                    placeholder: "case-sensitive line match",
+                    value: () => searchStr.val,
+                    oninput: (e) => { searchStr.val = e.target.value; },
+                })),
             ),
             div({class: "flex-1"}),
             button({
@@ -340,14 +386,21 @@ export function logsPage(selectedDeploymentId) {
             }, () => loading.val ? 'Searching...' : 'Search'),
         ),
         div(
-            {class: "px-1 grid grid-cols-1 items-center gap-x-4 gap-y-1 text-xs sm:grid-cols-[minmax(0,1fr)_auto]"},
+            {class: "px-1 grid grid-cols-1 items-center gap-x-4 gap-y-1 text-xs md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"},
             p({class: "min-w-0 text-gray-400"}, summaryLine),
+            input({
+                "data-testid": "logs-result-filter-input",
+                class: "input h-7 w-full px-2 py-1 text-xs md:w-64",
+                placeholder: "filter returned lines",
+                value: () => resultSearchStr.val,
+                oninput: (e) => { resultSearchStr.val = e.target.value; },
+            }),
             logDirLine,
         ),
         p({class: "sr-only", "aria-live": "polite"}, () => status.val),
         pre(
             {"data-testid": "logs-output", class: "rounded-lg bg-gray-950 border border-gray-800 p-3 overflow-auto flex-1 min-h-0 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
-            () => output.val,
+            filteredOutput,
         ),
     );
 }

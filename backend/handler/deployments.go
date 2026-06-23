@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/engine/logfilter"
 	"github.com/jptrs93/opsagent/backend/engine/logreader"
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
 	"github.com/jptrs93/opsagent/backend/engine/versionprovider"
@@ -288,6 +289,10 @@ func streamRemoteLogSearch(seq iter.Seq2[*apigen.LogLineBatch, error], req *apig
 			}
 			continue
 		}
+		batch = filterLogLineBatch(batch, req)
+		if len(batch.Lines) == 0 {
+			continue
+		}
 		if limit > 0 && count+len(batch.Lines) > limit {
 			remaining := limit - count
 			if remaining <= 0 {
@@ -325,6 +330,9 @@ func streamLocalLogSearch(req *apigen.LogSearchRequest, till *time.Time, yield f
 			yield(nil, err)
 			return
 		}
+		if !logfilter.Match(line.Line, req.SearchStr, req.LevelMin) {
+			continue
+		}
 		apiLine := toAPILogLine(line)
 		batch = append(batch, apiLine)
 		if len(batch) >= logSearchBatchSize && !flush() {
@@ -337,6 +345,19 @@ func streamLocalLogSearch(req *apigen.LogSearchRequest, till *time.Time, yield f
 		}
 	}
 	flush()
+}
+
+func filterLogLineBatch(batch *apigen.LogLineBatch, req *apigen.LogSearchRequest) *apigen.LogLineBatch {
+	if req == nil || (req.SearchStr == "" && req.LevelMin == "") || batch == nil || len(batch.Lines) == 0 {
+		return batch
+	}
+	lines := make([]*apigen.LogLine, 0, len(batch.Lines))
+	for _, line := range batch.Lines {
+		if line != nil && logfilter.Match(line.Line, req.SearchStr, req.LevelMin) {
+			lines = append(lines, line)
+		}
+	}
+	return &apigen.LogLineBatch{Lines: lines, LogDir: batch.LogDir}
 }
 
 const logSearchBatchSize = 256

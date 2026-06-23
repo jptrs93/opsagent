@@ -800,6 +800,7 @@ message LogSearchRequest {
   string request_id = 6;  // Internal: multiplexes worker log-search streams.
   int32 log_line_limit = 7;
   int32 config_version = 8;  // Deployment config version to search (0 = all versions).
+  string search_str = 9;     // Exact case-sensitive substring filter applied per log line.
 }
 
 message LogLine {

@@ -466,6 +466,7 @@
  * @property {string} requestId
  * @property {number} logLineLimit
  * @property {number} configVersion
+ * @property {string} searchStr
  */
 /**
  * @typedef {Object} LogLine
@@ -6275,6 +6276,9 @@ export function writeLogSearchRequest(message, writer) {
     if (message.configVersion !== undefined && message.configVersion !== null && message.configVersion !== 0) {
         writer.uint32(tag(8, WIRE.VARINT)).int32(message.configVersion);
     }
+    if (message.searchStr !== undefined && message.searchStr !== null && message.searchStr !== "") {
+        writer.uint32(tag(9, WIRE.LDELIM)).string(message.searchStr);
+    }
 }
 
 
@@ -6296,7 +6300,7 @@ export function encodeLogSearchRequest(message) {
  */
 function decodeLogSearchRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, timeStart: new Date(0), timeEnd: new Date(0), levelMin: "", searchKeys: {}, requestId: "", logLineLimit: 0, configVersion: 0 };
+    const message = {deploymentId: 0, timeStart: new Date(0), timeEnd: new Date(0), levelMin: "", searchKeys: {}, requestId: "", logLineLimit: 0, configVersion: 0, searchStr: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6347,6 +6351,10 @@ function decodeLogSearchRequestMessage(reader, length) {
             }
             case 8: {
                 message.configVersion = reader.int32();
+                break;
+            }
+            case 9: {
+                message.searchStr = reader.string();
                 break;
             }
             default:
