@@ -12,7 +12,7 @@ const RUNNER_CONTAINER = 'container';
 const CONTAINER_UPGRADE_RECREATE = 1;
 const CONTAINER_UPGRADE_ROLLOVER = 2;
 const DEFAULT_READINESS_TIMEOUT_SECONDS = 600;
-const DEPLOYMENT_VOLUME_HOST_RE = /^\/var\/lib\/opendeploy-volumes\/(\d+)\/var$/;
+const DEPLOYMENT_VOLUME_HOST_RE = /^\/var\/lib\/opendeploy-volumes\/(\d+)\/default$/;
 const DEFAULT_SPACE_ID = 1;
 const INTERNAL_SPACE_ID = 0;
 
@@ -1368,7 +1368,7 @@ function mountToFormRow(m) {
 }
 
 function defaultVolumeHostPath(deploymentID) {
-    return `/var/lib/opendeploy-volumes/${deploymentID}/var`;
+    return `/var/lib/opendeploy-volumes/${deploymentID}/default`;
 }
 
 function deploymentVolumeOptions(deployments, form) {

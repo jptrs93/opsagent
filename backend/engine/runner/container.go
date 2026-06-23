@@ -761,7 +761,7 @@ func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd.Mount, string) {
 // container's default data volume. A sibling of the data dir (world-traversable,
 // 0755), like release artifacts, so the in-container user can reach it.
 func defaultVolumeHostDir(deploymentID int32) string {
-	return filepath.Join(ainit.StaticConfig.VolumesDir, strconv.Itoa(int(deploymentID)), "var")
+	return filepath.Join(ainit.StaticConfig.VolumesDir, strconv.Itoa(int(deploymentID)), "default")
 }
 
 // defaultVolumeDest is the in-container mount point for the default data volume:

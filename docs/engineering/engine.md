@@ -76,7 +76,7 @@ Run-log reads go through `engine/logreader`. It identifies all candidate run dir
 Container runner behavior:
 
 - Env refs `${s:name}` and `${c:name}` are prepared by the preparer and resolved at start time.
-- Default data volume is created under `{dataDir}-volumes/` and mounted at `/var` for root containers or `/home/<user>/var` for non-root containers, unless disabled.
+- Default data volume is created under `{dataDir}-volumes/{deploymentID}/default` and mounted at `/var` for root containers or `/home/<user>/var` for non-root containers, unless disabled or overridden with `dataMountPath`.
 - Additional host mounts and OpenDeploy-managed asset mounts are translated to containerd bind mounts.
 - Rollover candidates get a per-run Unix socket directory mounted at `/run/opendeploy` and `OPENDEPLOY_READINESS_SOCK_PATH=/run/opendeploy/readiness.sock`. The app signals readiness by writing `ready\n` to that socket after warmup. OpenDeploy then stops the old runner; with host networking, the app should wait for its required port to become bindable before starting its server.
 - Reattach uses `ctrd.LoadTask` by deterministic id; if no running task exists, the runner starts fresh.

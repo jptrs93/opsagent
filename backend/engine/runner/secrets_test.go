@@ -35,7 +35,7 @@ func TestResolveEnv(t *testing.T) {
 			t.Fatalf("resolveEnv: %v", err)
 		}
 		want := []string{
-			"CONFIG=/var/lib/opendeploy-implicit-assets/12_4",
+			"CONFIG=/opendeploy-env-assets/12_4",
 			"DB_PASS=s3cret",
 			"HOST=db.local",
 			"PLAIN=value",
@@ -106,7 +106,7 @@ func TestContainerMountsIncludesImplicitAssetEnvMount(t *testing.T) {
 	if len(mounts) != 1 {
 		t.Fatalf("mounts len = %d; want 1", len(mounts))
 	}
-	if mounts[0].Dest != "/var/lib/opendeploy-implicit-assets/12_4" || !mounts[0].ReadOnly {
+	if mounts[0].Dest != "/opendeploy-env-assets/12_4" || !mounts[0].ReadOnly {
 		t.Fatalf("implicit mount = %+v", mounts[0])
 	}
 }

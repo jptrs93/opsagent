@@ -8,7 +8,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-const implicitAssetContainerDir = "/var/lib/opendeploy-implicit-assets"
+const implicitAssetContainerDir = "/opendeploy-env-assets"
 
 // SecretResolver resolves a secret id to its plaintext value. It is set at
 // startup (on the primary) to the secrets manager.
