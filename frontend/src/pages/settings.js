@@ -335,39 +335,15 @@ export function settingsPage() {
         ];
         if (cfg.backupS3Endpoint) args.splice(args.length - 1, 0, ["--restore-s3-endpoint", cfg.backupS3Endpoint]);
         if ((cfg.acmeHosts || []).length) args.push(["--acme-hosts", cfg.acmeHosts.join(",")]);
-        const invocation = ["./restore-primary.sh", ...args.map(([flag, value]) => `  ${flag} ${shellQuote(value)}`)].join(" \\\n");
+        const invocation = [
+            "curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/restore_primary.sh | bash -s --",
+            ...args.map(([flag, value]) => `  ${flag} ${shellQuote(value)}`),
+        ].join(" \\\n");
         return [
-            "#!/usr/bin/env sh",
-            "# Save as restore-primary.sh, then run the example command below.",
             "# Set S3_SECRET_ACCESS_KEY and RECOVERY_CODE before running it.",
             "# OPENDEPLOY_VERSION defaults to the latest GitHub release; set it to vX.Y.Z to pin a version.",
-            "#",
-            "# Example:",
-            ...invocation.split("\n").map(line => `# ${line}`),
             "",
-            "set -eu",
-            "repo=${OPENDEPLOY_REPO:-jptrs93/opsagent}",
-            "version=${OPENDEPLOY_VERSION:-latest}",
-            "",
-            "arch=$(uname -m)",
-            "case \"$arch\" in",
-            "  x86_64|amd64) arch=amd64 ;;",
-            "  aarch64|arm64) arch=arm64 ;;",
-            "  *) echo \"unsupported architecture: $arch\" >&2; exit 1 ;;",
-            "esac",
-            "",
-            "if [ \"$version\" = latest ]; then",
-            "  version=$(curl -fsSL \"https://api.github.com/repos/$repo/releases/latest\" | sed -n 's/.*\"tag_name\": *\"\\([^\"]*\\)\".*/\\1/p' | sed -n '1p')",
-            "fi",
-            "if [ -z \"$version\" ]; then",
-            "  echo \"could not resolve latest OpenDeploy version\" >&2",
-            "  exit 1",
-            "fi",
-            "",
-            "tmp=${TMPDIR:-/tmp}/opendeploy-linux-$arch",
-            "curl -fsSL \"https://github.com/$repo/releases/download/$version/opendeploy-linux-$arch\" -o \"$tmp\"",
-            "chmod 0755 \"$tmp\"",
-            "exec sudo \"$tmp\" install primary \"$@\"",
+            invocation,
         ].join("\n");
     };
 

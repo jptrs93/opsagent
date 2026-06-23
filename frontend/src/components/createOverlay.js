@@ -123,7 +123,6 @@ export function createOverlay(onClose, onCreated, opts = {}) {
                         onBranchChange: (branch) => loadSourceVersions(deploymentUpdate, loadingVersions, branch, {preserveSelection: false}),
                         onRefresh: () => loadSourceVersions(deploymentUpdate, loadingVersions, deploymentUpdate.nixDockerBuild.selectedBranch.val, {refreshAvailableBranches: true, preserveSelection: true}),
                     }),
-                    () => createInitialStateSection(deploymentUpdate),
                 ),
                 () => {
                     if (!errorMsg.val) return span();
@@ -158,23 +157,14 @@ function isCreateValid(deploymentUpdate, machineOptions) {
     return !deploymentUpdate.desiredRunning.val || Boolean(deploymentUpdate.createDesiredVersion());
 }
 
-function createInitialStateSection(deploymentUpdate) {
-    return div(
-        {class: "flex flex-col gap-3"},
-        sectionDivider("Initial State"),
+function createInitialStateField(deploymentUpdate) {
+    return label(
+        {class: "flex flex-col gap-1 text-xs text-gray-400"},
+        span("Initial state"),
         div(
-            {class: "rounded-lg border border-gray-700 bg-gray-900/50 p-3 flex flex-col gap-3"},
-            div(
-                {class: "inline-flex w-fit rounded-lg border border-gray-700 bg-gray-950/60 p-1"},
-                stateToggleButton(deploymentUpdate, true, "Running"),
-                stateToggleButton(deploymentUpdate, false, "Stopped"),
-            ),
-            p(
-                {class: "text-xs text-gray-500 leading-relaxed"},
-                () => deploymentUpdate.desiredRunning.val
-                    ? "Create the deployment and immediately reconcile it to the selected version."
-                    : "Create the deployment stopped, while saving the selected version as the desired version for a later start.",
-            ),
+            {class: "inline-flex h-9 w-fit rounded-lg border border-gray-700 bg-gray-950/60 p-1"},
+            stateToggleButton(deploymentUpdate, true, "Running"),
+            stateToggleButton(deploymentUpdate, false, "Stopped"),
         ),
     );
 }
@@ -207,10 +197,14 @@ function createVersionSection(args) {
                 {class: "flex flex-col gap-3"},
                 sectionDivider("Version"),
                 versionMessage(imageSet && check.status !== 'idle' ? versionStatusMessage(deploymentUpdate, check) : (imageSet ? '' : 'Image not set')),
-                label(
-                    {class: "flex flex-col gap-1 text-xs text-gray-400"},
-                    span(explicitVersion.startsWith('sha256:') ? "Digest from image" : "Tag from image"),
-                    input({class: selectClass(), disabled: true, value: explicitVersion}),
+                div(
+                    {class: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] items-end gap-3"},
+                    label(
+                        {class: "flex flex-col gap-1 text-xs text-gray-400"},
+                        span(explicitVersion.startsWith('sha256:') ? "Digest from image" : "Tag from image"),
+                        input({class: selectClass(), disabled: true, value: explicitVersion}),
+                    ),
+                    createInitialStateField(deploymentUpdate),
                 ),
             );
         }
@@ -219,7 +213,7 @@ function createVersionSection(args) {
             sectionDivider("Version"),
             versionMessage(imageSet ? versionStatusMessage(deploymentUpdate, check) : 'Image not set'),
             div(
-                {class: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] items-end gap-3"},
+                {class: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-3"},
                 label(
                     {class: "flex flex-col gap-1 text-xs text-gray-400"},
                     span("Tag"),
@@ -235,6 +229,7 @@ function createVersionSection(args) {
                         ...tags.map(v => option({value: v.id, selected: v.id === selectedTag}, versionLabel(v))),
                     ),
                 ),
+                createInitialStateField(deploymentUpdate),
                 refreshRow(!imageSet || args.loadingVersions.val, args.onRefresh),
             ),
         );
@@ -257,7 +252,7 @@ function createVersionSection(args) {
         sectionDivider("Version"),
         versionMessage(versionStatusMessage(deploymentUpdate, check)),
         div(
-            {class: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-3"},
+            {class: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] items-end gap-3"},
             label(
                 {class: "flex flex-col gap-1 text-xs text-gray-400"},
                 span("Branch"),
@@ -291,6 +286,7 @@ function createVersionSection(args) {
                     ...commits.map(v => option({value: v.id, selected: v.id === selectedCommit}, versionLabel(v))),
                 ),
             ),
+            createInitialStateField(deploymentUpdate),
             refreshRow(!deploymentUpdate.currentSourceID() || args.loadingVersions.val, args.onRefresh),
         ),
     );
