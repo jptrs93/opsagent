@@ -12,6 +12,7 @@ import {deploymentJsonOverlay} from "../components/deploymentJsonOverlay.js";
 const { div, p, button, input, table, thead, tbody, tr, th, td, span } = van.tags;
 
 const SIDEBAR_WIDTH_KEY = 'opsagent_sidebar_width';
+const SHOW_OPENDEPLOY_KEY = 'opsagent_show_opendeploy';
 const DEFAULT_SIDEBAR_PCT = 50;
 const MIN_SIDEBAR_PCT = 20;
 const MAX_SIDEBAR_PCT = 80;
@@ -27,6 +28,15 @@ function loadSidebarWidth() {
 
 function saveSidebarWidth(pct) {
     try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(pct)); } catch {}
+}
+
+function loadShowOpendeploy() {
+    try { return localStorage.getItem(SHOW_OPENDEPLOY_KEY) === 'true'; } catch {}
+    return false;
+}
+
+function saveShowOpendeploy(value) {
+    try { localStorage.setItem(SHOW_OPENDEPLOY_KEY, value ? 'true' : 'false'); } catch {}
 }
 
 // Sidebar modes
@@ -147,7 +157,7 @@ export function statusPage(onOpenLogs = () => {}) {
     const overlayNode = van.state('');
     const createOverlayNode = van.state('');
     const groupBySpace = van.state(true);
-    const showOpendeploy = van.state(false);
+    const showOpendeploy = van.state(loadShowOpendeploy());
     const search = van.state('');
 
     const abortActiveSidebar = () => {
@@ -388,7 +398,10 @@ export function statusPage(onOpenLogs = () => {}) {
                 ),
                 button({
                     class: () => `flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors cursor-pointer ${showOpendeploy.val ? 'border-brand bg-brand/20 text-blue-200' : 'border-gray-600 bg-gray-800 text-gray-400'}`,
-                    onclick: () => { showOpendeploy.val = !showOpendeploy.val; },
+                    onclick: () => {
+                        showOpendeploy.val = !showOpendeploy.val;
+                        saveShowOpendeploy(showOpendeploy.val);
+                    },
                     type: "button",
                     "aria-pressed": () => showOpendeploy.val ? "true" : "false",
                     title: "Toggle opendeploy internal deployments",

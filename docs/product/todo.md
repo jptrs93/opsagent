@@ -15,3 +15,4 @@
 - Add resource requests and limits to deployment configuration.
 - Major feature: allow deployments to be defined without specifying a machine. Add a scheduler that automatically schedules deployments onto machines.
 - Review Litestream behavior when an existing remote backup is ahead of the local primary database. Define how OpenDeploy should detect, warn, block, or recover before a stale local database can publish a newer backup snapshot.
+- Make primary backup restore version-aware. Today `install primary --restore-backup true` installs the selected/latest OpenDeploy binary and then restores the DB; it does not inspect backup-visible state to restore or warn about the OpenDeploy version that produced the backup.

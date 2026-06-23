@@ -82,7 +82,7 @@ Container runner behavior:
 - Reattach uses `ctrd.LoadTask` by deterministic id; if no running task exists, the runner starts fresh.
 - Stop sends SIGTERM, waits up to 3 seconds, sends SIGKILL if needed, then deletes the task/container/snapshot.
 
-`systemdRunner` is internal-only for the OpenDeploy self-deployment. It symlinks the downloaded binary to the configured bin path, restarts the systemd unit, and polls `systemctl is-active` for status. Public API validation rejects systemd runner config.
+`systemdRunner` is internal-only for the OpenDeploy self-deployment. It symlinks the downloaded binary to the configured bin path, writes `STARTING`, and asks systemd to restart the unit. The old process does not poll systemd after requesting restart; the restarted process marks itself `RUNNING` when the operator reattaches. Public API validation rejects systemd runner config.
 
 ## Containerd Runtime
 

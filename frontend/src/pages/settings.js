@@ -321,6 +321,10 @@ export function settingsPage() {
     const recoveryInstallExample = () => {
         const cfg = config.val || {};
         const args = [
+            ["--http-only", boolValue(cfg.webHttpOnly)],
+            ["--web-listen", cfg.webListen || ":443"],
+            ["--cluster-listen", cfg.clusterListen || ":9443"],
+            ["--enrollment-listen", cfg.enrollmentListen || ":9444"],
             ["--restore-backup", "true"],
             ["--restore-s3-access-key-id", cfg.backupS3AccessKeyId || "$S3_ACCESS_KEY_ID"],
             ["--restore-s3-secret-access-key", "$S3_SECRET_ACCESS_KEY"],
@@ -328,14 +332,43 @@ export function settingsPage() {
             ["--restore-s3-path", cfg.backupS3Path || "opendeploy/primary"],
             ["--restore-s3-region", cfg.backupS3Region || "us-east-1"],
             ["--recovery-code", "$RECOVERY_CODE"],
-            ["--http-only", boolValue(cfg.webHttpOnly)],
-            ["--web-listen", cfg.webListen || ":443"],
-            ["--cluster-listen", cfg.clusterListen || ":9443"],
-            ["--enrollment-listen", cfg.enrollmentListen || ":9444"],
         ];
-        if (cfg.backupS3Endpoint) args.splice(6, 0, ["--restore-s3-endpoint", cfg.backupS3Endpoint]);
+        if (cfg.backupS3Endpoint) args.splice(args.length - 1, 0, ["--restore-s3-endpoint", cfg.backupS3Endpoint]);
         if ((cfg.acmeHosts || []).length) args.push(["--acme-hosts", cfg.acmeHosts.join(",")]);
-        return ["sudo opendeploy install primary", ...args.map(([flag, value]) => `  ${flag} ${shellQuote(value)}`)].join(" \\\n");
+        const invocation = ["./restore-primary.sh", ...args.map(([flag, value]) => `  ${flag} ${shellQuote(value)}`)].join(" \\\n");
+        return [
+            "#!/usr/bin/env sh",
+            "# Save as restore-primary.sh, then run the example command below.",
+            "# Set S3_SECRET_ACCESS_KEY and RECOVERY_CODE before running it.",
+            "# OPENDEPLOY_VERSION defaults to the latest GitHub release; set it to vX.Y.Z to pin a version.",
+            "#",
+            "# Example:",
+            ...invocation.split("\n").map(line => `# ${line}`),
+            "",
+            "set -eu",
+            "repo=${OPENDEPLOY_REPO:-jptrs93/opsagent}",
+            "version=${OPENDEPLOY_VERSION:-latest}",
+            "",
+            "arch=$(uname -m)",
+            "case \"$arch\" in",
+            "  x86_64|amd64) arch=amd64 ;;",
+            "  aarch64|arm64) arch=arm64 ;;",
+            "  *) echo \"unsupported architecture: $arch\" >&2; exit 1 ;;",
+            "esac",
+            "",
+            "if [ \"$version\" = latest ]; then",
+            "  version=$(curl -fsSL \"https://api.github.com/repos/$repo/releases/latest\" | sed -n 's/.*\"tag_name\": *\"\\([^\"]*\\)\".*/\\1/p' | sed -n '1p')",
+            "fi",
+            "if [ -z \"$version\" ]; then",
+            "  echo \"could not resolve latest OpenDeploy version\" >&2",
+            "  exit 1",
+            "fi",
+            "",
+            "tmp=${TMPDIR:-/tmp}/opendeploy-linux-$arch",
+            "curl -fsSL \"https://github.com/$repo/releases/download/$version/opendeploy-linux-$arch\" -o \"$tmp\"",
+            "chmod 0755 \"$tmp\"",
+            "exec sudo \"$tmp\" install primary \"$@\"",
+        ].join("\n");
     };
 
     const generateMasterPassword = () => {

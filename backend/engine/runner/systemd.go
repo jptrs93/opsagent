@@ -14,7 +14,10 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
-// systemdRunner monitors a systemd unitName by polling `systemctl is-active`.
+// systemdRunner is the internal OpenDeploy self-deployment runner. It installs
+// a prepared binary, asks systemd to restart this service, and then stops
+// writing status from the old process. The restarted process marks itself
+// RUNNING on reattach.
 type systemdRunner struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -29,10 +32,17 @@ type systemdRunner struct {
 	unitBinPath string
 }
 
-// reAttachSystemdRunner creates a monitor-only runner. Used by ReAttach.
+var systemctlRestartCommand = systemctlRestart
+
+// reAttachSystemdRunner publishes the current process as the running systemd
+// deployment. For OpenDeploy self-management, reaching this code proves the
+// service is running; polling systemd only adds transient restart-state races.
 func reAttachSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig, runnerStatus apigen.RunnerStatus) *systemdRunner {
 	ctx, cancel := context.WithCancel(context.Background())
 	sys := dep.Spec.Runner.Systemd
+	runnerStatus.RunningArtifact = resolveSystemdRunnerArtifact(sys.BinPath)
+	runnerStatus.RunningPid = int32(os.Getpid())
+	runnerStatus.Status = apigen.RunningStatus_RUNNING
 	r := &systemdRunner{
 		ctx:          ctx,
 		cancel:       cancel,
@@ -42,13 +52,14 @@ func reAttachSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentCo
 		status:       runnerStatus,
 		unitName:     normalizeUnit(sys.Name),
 	}
-	go r.monitor()
+	close(r.done)
+	r.writeStatus()
 	return r
 }
 
 // observeExistingSystemdRunner is the first-install path for OpenDeploy's own
-// systemd deployment. It does not restart or install anything; it only observes
-// the already-running unit and publishes the first real status from systemd.
+// systemd deployment. It does not restart or install anything; it publishes the
+// already-running current process.
 func observeExistingSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig) *systemdRunner {
 	ctx, cancel := context.WithCancel(context.Background())
 	sys := dep.Spec.Runner.Systemd
@@ -60,17 +71,20 @@ func observeExistingSystemdRunner(store storage.OperatorStore, dep *apigen.Deplo
 		deploymentID: dep.ID,
 		status: apigen.RunnerStatus{
 			DeploymentConfigVersion: dep.Version,
+			RunningPid:              int32(os.Getpid()),
 			RunningArtifact:         resolveSystemdRunnerArtifact(sys.BinPath),
-			Status:                  apigen.RunningStatus_STARTING,
+			Status:                  apigen.RunningStatus_RUNNING,
 		},
 		unitName: normalizeUnit(sys.Name),
 	}
-	go r.monitor()
+	close(r.done)
+	r.writeStatus()
 	return r
 }
 
 // newSystemdRunnerWithRestart installs the prepared artifact, issues a
-// systemd restart, writes the new status, then enters the monitor loop.
+// systemd restart, and leaves the runner in STARTING until the restarted
+// process reattaches and publishes RUNNING.
 // Called only from runner.Create when the operator has a new artifact ready.
 // No retries — if install or restart fails, it writes CRASHED and exits.
 func newSystemdRunnerWithRestart(store storage.OperatorStore, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *systemdRunner {
@@ -94,19 +108,19 @@ func newSystemdRunnerWithRestart(store storage.OperatorStore, dep *apigen.Deploy
 		unitBinPath: sys.BinPath,
 	}
 	r.writeStatus()
-	go r.installAndMonitor()
+	go r.installAndRestart()
 	return r
 }
 
 func (r *systemdRunner) Version() int32 { return r.status.DeploymentConfigVersion }
 
-// Stop cancels the monitor goroutine. It does NOT stop the systemd unitName.
+// Stop cancels any in-flight install/restart. It does NOT stop the systemd unit.
 func (r *systemdRunner) Stop() {
 	r.cancel()
 	<-r.done
 }
 
-func (r *systemdRunner) installAndMonitor() {
+func (r *systemdRunner) installAndRestart() {
 	defer close(r.done)
 
 	if err := atomicSymlink(r.status.RunningArtifact, r.unitBinPath); err != nil {
@@ -116,50 +130,13 @@ func (r *systemdRunner) installAndMonitor() {
 	}
 	slog.InfoContext(r.ctx, "systemd runner symlinked artifact", "binPath", r.unitBinPath, "artifact", r.status.RunningArtifact)
 
-	out, err := systemctlRestart(r.ctx, r.unitName)
+	out, err := systemctlRestartCommand(r.ctx, r.unitName)
 	if err != nil {
 		slog.ErrorContext(r.ctx, "systemctl restart failed", "err", err, "unitName", r.unitName, "output", out)
 		r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 		return
 	}
 	slog.InfoContext(r.ctx, "systemd runner restart issued", "unitName", r.unitName)
-
-	r.monitorLoop()
-}
-
-func (r *systemdRunner) monitor() {
-	defer close(r.done)
-	r.monitorLoop()
-}
-
-func (r *systemdRunner) monitorLoop() {
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	var last apigen.RunningStatus
-	poll := func() {
-		active, err := systemctlIsActive(r.ctx, r.unitName)
-		if err != nil {
-			slog.WarnContext(r.ctx, "systemctl is-active failed", "unitName", r.unitName, "err", err)
-			return
-		}
-		status := mapActiveState(active)
-		if status == last {
-			return
-		}
-		last = status
-		pid, _ := systemctlMainPID(r.ctx, r.unitName)
-		r.updateStatus(status, int32(pid))
-	}
-	poll()
-	for {
-		select {
-		case <-r.ctx.Done():
-			return
-		case <-ticker.C:
-			poll()
-		}
-	}
 }
 
 func resolveSystemdRunnerArtifact(binPath string) string {
@@ -223,56 +200,4 @@ func systemctlRestart(ctx context.Context, unit string) (string, error) {
 			fmt.Errorf("sudo systemd-run restart %s: %w: %s", unit, err, strings.TrimSpace(string(out)))
 	}
 	return strings.TrimSpace(string(out)), nil
-}
-
-func systemctl(ctx context.Context, args ...string) (string, error) {
-	sudoArgs := append([]string{"-n", "/usr/bin/systemctl"}, args...)
-	cmd := exec.CommandContext(ctx, "sudo", sudoArgs...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return strings.TrimSpace(string(out)),
-			fmt.Errorf("systemctl %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-func systemctlIsActive(ctx context.Context, unit string) (string, error) {
-	out, err := exec.CommandContext(ctx, "systemctl", "is-active", unit).Output()
-	state := strings.TrimSpace(string(out))
-	if err != nil {
-		// systemctl is-active returns exit code 3 for "inactive"/"failed" but
-		// still writes the state to stdout. Only return error when we got no
-		// usable output.
-		if state == "" {
-			return "", err
-		}
-	}
-	return state, nil
-}
-
-func systemctlMainPID(ctx context.Context, unit string) (int, error) {
-	out, err := exec.CommandContext(ctx, "systemctl", "show", unit, "--property=MainPID", "--value").Output()
-	if err != nil {
-		return 0, err
-	}
-	var pid int
-	if _, err := fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &pid); err != nil {
-		return 0, err
-	}
-	return pid, nil
-}
-
-func mapActiveState(state string) apigen.RunningStatus {
-	switch state {
-	case "active", "reloading":
-		return apigen.RunningStatus_RUNNING
-	case "activating":
-		return apigen.RunningStatus_STARTING
-	case "deactivating", "inactive":
-		return apigen.RunningStatus_STOPPED
-	case "failed":
-		return apigen.RunningStatus_CRASHED
-	default:
-		return apigen.RunningStatus_CRASHED
-	}
 }

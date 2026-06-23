@@ -54,8 +54,8 @@ func CreateRolloverCandidate(store storage.OperatorStore, dep *apigen.Deployment
 
 // ReAttachRunning resumes supervision for a deployment whose desired state is
 // running. Container runners adopt an existing task by id, or start a fresh task
-// when there is nothing to adopt. Systemd runners start a monitor-only loop — no
-// install or restart.
+// when there is nothing to adopt. Systemd runners publish the current
+// OpenDeploy process as RUNNING — no install or restart.
 func ReAttachRunning(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
 	if prev.IsZero() {
 		if useSystemd(dep) {
