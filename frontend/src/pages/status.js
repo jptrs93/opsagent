@@ -163,6 +163,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
         const machine = cid.machine || '';
         const machineMissing = Boolean(machine) && !machineNames.has(machine);
         const existingStatus = runner.status || 0;
+        const uiExistingStatus = machineMissing && existingStatus === STATUS_RUNNING ? 0 : existingStatus;
 
         return {
             id,
@@ -173,7 +174,8 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             variant,
             repo,
             runnerType,
-            existingStatus: machineMissing && existingStatus === STATUS_RUNNING ? 0 : existingStatus,
+            existingStatus: uiExistingStatus,
+            canDelete: uiExistingStatus === STATUS_STOPPED || (machineMissing && uiExistingStatus === 0),
             machineMissing,
             existingVersion: runner.runningVersion || '',
             numberOfRestarts: runner.numberOfRestarts || 0,

@@ -132,7 +132,7 @@ func (h *Handler) PostV1DeploymentDelete(ctx apigen.Context, req *apigen.Deploym
 		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
 	}
 	status := h.Store.FetchDeploymentStatus(req.DeploymentID)
-	if status == nil || status.Runner.Status != apigen.RunningStatus_STOPPED {
+	if !h.canDeleteDeployment(cfg, status) {
 		return invalidConfigErrf("deployment must be stopped before deletion")
 	}
 	deleted := true
@@ -146,6 +146,27 @@ func (h *Handler) PostV1DeploymentDelete(ctx apigen.Context, req *apigen.Deploym
 		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
 	}
 	return nil
+}
+
+func (h *Handler) canDeleteDeployment(cfg *apigen.DeploymentConfig, status *apigen.DeploymentStatus) bool {
+	if status == nil {
+		return false
+	}
+	if status.Runner.Status == apigen.RunningStatus_STOPPED {
+		return true
+	}
+	if status.Runner.Status != apigen.RunningStatus_RUNNING && status.Runner.Status != apigen.RunningStatus_DEPLOYMENT_STATUS_UNKNOWN {
+		return false
+	}
+	machine := cfg.ConfigID.Machine
+	if machine == "" || h.MachineName == "" || machine == h.MachineName {
+		return false
+	}
+	if h.ClusterPrimary == nil {
+		return true
+	}
+	_, connected := h.ClusterPrimary.ConnectedMachines()[machine]
+	return !connected
 }
 
 func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.DeploymentVersionsRequest) (*apigen.DeploymentVersions, error) {

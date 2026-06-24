@@ -394,6 +394,27 @@ func TestDeploymentDeleteRequiresStoppedDeployment(t *testing.T) {
 	}
 }
 
+func TestDeploymentDeleteAllowsRunningMissingMachineDeployment(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "worker-a", Name: "web"}, &apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+	}, apigen.DesiredState{Version: "1.25", Running: true})
+	store.MustWriteDeploymentStatus(created.ID, func(s *apigen.DeploymentStatus) bool {
+		s.Runner.Status = apigen.RunningStatus_RUNNING
+		return true
+	})
+	h := &Handler{Store: store, MachineName: "primary"}
+
+	err := h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.ID, Version: created.Version + 1})
+	if err != nil {
+		t.Fatalf("PostV1DeploymentDelete failed: %v", err)
+	}
+	if cfg := h.findConfigByID(created.ID); cfg != nil {
+		t.Fatalf("deleted deployment still active: %+v", cfg)
+	}
+}
+
 func TestDeploymentDeleteSoftDeletesStoppedDeployment(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{

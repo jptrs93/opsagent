@@ -41,7 +41,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
     const onViewJson = opts.onViewJson || (() => {});
     const onDelete = opts.onDelete || (() => {});
     const hasExisting = deployment.existingStatus !== STATUS_NO_DEPLOYMENT;
-    const canDelete = deployment.existingStatus === STATUS_STOPPED;
+    const canDelete = deployment.canDelete ?? deployment.existingStatus === STATUS_STOPPED;
     const existingColors = hasExisting
         ? (deployment.machineMissing && deployment.existingStatus === 0
             ? missingMachineStatusLabel
