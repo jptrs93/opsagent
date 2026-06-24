@@ -13,6 +13,7 @@ const CONTAINER_UPGRADE_RECREATE = 1;
 const CONTAINER_UPGRADE_ROLLOVER = 2;
 const DEFAULT_READINESS_TIMEOUT_SECONDS = 600;
 const DEPLOYMENT_VOLUME_HOST_RE = /^\/var\/lib\/opendeploy-volumes\/(\d+)\/default$/;
+const BINARY_SIZE_RE = /^([1-9][0-9]*)(Ki|Mi|Gi|Ti)$/;
 const DEFAULT_SPACE_ID = 1;
 const INTERNAL_SPACE_ID = 0;
 
@@ -35,6 +36,7 @@ export function emptyDeploymentForm() {
         containerCommand: '',
         containerDataMountPath: '',
         containerDisableDataVolume: false,
+        containerDevShmSizeLimit: '',
         containerUpgradeStrategy: String(CONTAINER_UPGRADE_RECREATE),
         containerReadinessTimeoutSeconds: DEFAULT_READINESS_TIMEOUT_SECONDS,
         assetMounts: [],
@@ -72,6 +74,7 @@ export function deploymentConfigToForm(cfg) {
         containerCommand: (container.command || []).join('\n'),
         containerDataMountPath: container.dataMountPath || '',
         containerDisableDataVolume: Boolean(container.disableDataVolume),
+        containerDevShmSizeLimit: container.devShmSizeLimit || '',
         containerUpgradeStrategy: String(container.upgradeStrategy || CONTAINER_UPGRADE_RECREATE),
         containerReadinessTimeoutSeconds: container.readinessSignal?.timeoutSeconds || DEFAULT_READINESS_TIMEOUT_SECONDS,
         envVars: envVarsToFormRows(container.envVars),
@@ -168,6 +171,7 @@ export function deploymentForm(form, opts = {}) {
                     volumeMountsSummary(form),
                     assetMountsSection(form, opts),
                     upgradeStrategySummary(form),
+                    devShmSummary(form),
                 ),
             ),
         ),
@@ -212,6 +216,8 @@ export function formToSpec(form) {
     if (command.length) spec.runner.container.command = command;
     const dataMountPath = form.containerDataMountPath.val.trim();
     if (dataMountPath) spec.runner.container.dataMountPath = dataMountPath;
+    const devShmSizeLimit = form.containerDevShmSizeLimit.val.trim();
+    if (devShmSizeLimit) spec.runner.container.devShmSizeLimit = devShmSizeLimit;
     const env = formEnvVars(form);
     if (Object.keys(env).length) spec.runner.container.envVars = env;
     const mounts = formVolumeMounts(form);
@@ -242,6 +248,7 @@ export function formInvalidReason(form, opts = {}) {
         || invalidVolumeConfigReason(form, opts)
         || invalidAssetMountsReason(form)
         || invalidUpgradeStrategyReason(form)
+        || invalidDevShmReason(form)
         || '';
 }
 
@@ -474,6 +481,7 @@ function makeFormState(values) {
         containerCommand: van.state(values.containerCommand || ''),
         containerDataMountPath: van.state(values.containerDataMountPath || ''),
         containerDisableDataVolume: van.state(Boolean(values.containerDisableDataVolume)),
+        containerDevShmSizeLimit: van.state(values.containerDevShmSizeLimit || ''),
         containerUpgradeStrategy: van.state(String(values.containerUpgradeStrategy || CONTAINER_UPGRADE_RECREATE)),
         containerReadinessTimeoutSeconds: van.state(values.containerReadinessTimeoutSeconds ?? DEFAULT_READINESS_TIMEOUT_SECONDS),
         envVars: van.state(values.envVars || []),
@@ -488,6 +496,7 @@ function makeFormState(values) {
         assetMountsPaneOpen: van.state(false),
         volumeMountsPaneOpen: van.state(false),
         upgradeStrategyPaneOpen: van.state(false),
+        devShmPaneOpen: van.state(false),
         assetEditorOpen: van.state(false),
         assetEditorMountID: van.state(0),
         assetEditorError: van.state(''),
@@ -671,6 +680,24 @@ function upgradeStrategySummary(form) {
     );
 }
 
+function devShmSummary(form) {
+	return div(
+		{class: "flex items-center justify-between gap-3"},
+		span({class: "text-xs text-gray-400"}, () => {
+			const limit = form.containerDevShmSizeLimit.val.trim();
+			return `Shared /dev/shm: ${limit || 'container default (64MiB)'}`;
+		}),
+		button({
+			type: "button",
+			class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
+			onclick: () => {
+				form.devShmPaneOpen.val = !form.devShmPaneOpen.val;
+				if (form.devShmPaneOpen.val) closeRuntimePanes(form, 'devShm');
+			},
+		}, () => form.devShmPaneOpen.val ? "Close" : "Configure"),
+	);
+}
+
 function upgradeStrategyLabel(form) {
     const strategy = Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER ? "Rollover" : "Re-create";
     return strategy;
@@ -712,6 +739,37 @@ export function upgradeStrategyPane(form) {
                 : p({class: "text-xs leading-relaxed text-gray-500"}, "OpenDeploy stops the current container before starting the new version."),
         ),
     );
+}
+
+export function devShmPane(form) {
+	return div(
+		{class: () => form.devShmPaneOpen.val
+			? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
+			: "hidden"},
+		div(
+			{class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
+			h3({class: "text-sm font-semibold text-gray-200"}, "Shared /dev/shm"),
+			button({
+				type: "button",
+				class: "text-gray-500 hover:text-gray-200 cursor-pointer",
+				title: "Close",
+				onclick: () => { form.devShmPaneOpen.val = false; },
+			}, xIcon({size: 16})),
+		),
+		div(
+			{class: "flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-4"},
+			field("Size limit", input({
+				type: "text",
+				class: textInputClass(false, false, !invalidDevShmReason(form)),
+				placeholder: "1Gi",
+				value: form.containerDevShmSizeLimit.rawVal,
+				oninput: e => { form.containerDevShmSizeLimit.val = e.target.value; },
+			}), "Leave blank to use the container default (64MiB). Use a binary size like 64Mi or 1Gi."),
+			() => invalidDevShmReason(form)
+				? p({class: "text-xs text-amber-400"}, invalidDevShmReason(form))
+				: p({class: "text-xs leading-relaxed text-gray-500"}, "This resizes the container's /dev/shm tmpfs. Useful for PostgreSQL, browser automation, and other shared-memory-heavy workloads."),
+		),
+	);
 }
 
 function defaultVolumeCard(form) {
@@ -1353,6 +1411,12 @@ function hasInvalidUpgradeStrategy(form) {
     return Boolean(invalidUpgradeStrategyReason(form));
 }
 
+function invalidDevShmReason(form) {
+	const limit = form.containerDevShmSizeLimit.val.trim();
+	if (!limit) return '';
+	return BINARY_SIZE_RE.test(limit) ? '' : 'Shared /dev/shm size must use a binary size like 64Mi or 1Gi.';
+}
+
 function invalidUpgradeStrategyReason(form) {
     const strategy = Number(form.containerUpgradeStrategy.val || CONTAINER_UPGRADE_RECREATE);
     if (strategy !== CONTAINER_UPGRADE_RECREATE && strategy !== CONTAINER_UPGRADE_ROLLOVER) return 'Select a valid upgrade strategy.';
@@ -1468,6 +1532,7 @@ function closeRuntimePanes(form, keep) {
     if (keep !== 'assets') form.assetMountsPaneOpen.val = false;
     if (keep !== 'volumes') form.volumeMountsPaneOpen.val = false;
     if (keep !== 'strategy') form.upgradeStrategyPaneOpen.val = false;
+    if (keep !== 'devShm') form.devShmPaneOpen.val = false;
     if (keep !== 'assetEditor') form.assetEditorOpen.val = false;
 }
 

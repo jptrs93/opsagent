@@ -18,6 +18,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/util/sizeu"
 )
 
 var InvalidRequestBodyErr = apigen.NewApiErr("Invalid request body", "invalid_request_body", http.StatusBadRequest)
@@ -712,6 +713,9 @@ func validateRunnerConfig(runner *apigen.RunnerConfig, prepare *apigen.PrepareCo
 		if err := validateContainerUpgrade(&runner.Container); err != nil {
 			return err
 		}
+		if err := validateContainerDevShmSizeLimit(&runner.Container); err != nil {
+			return err
+		}
 		if err := resolveEnvAssetRefs("runner.container.envVars", runner.Container.EnvVars, assets); err != nil {
 			return err
 		}
@@ -765,6 +769,18 @@ func validateContainerUpgrade(cfg *apigen.ContainerRunnerConfig) error {
 	default:
 		return invalidConfigErrf("runner.container.upgradeStrategy: unsupported value %d", cfg.UpgradeStrategy)
 	}
+	return nil
+}
+
+func validateContainerDevShmSizeLimit(cfg *apigen.ContainerRunnerConfig) error {
+	if cfg == nil || strings.TrimSpace(cfg.DevShmSizeLimit) == "" {
+		return nil
+	}
+	limit := strings.TrimSpace(cfg.DevShmSizeLimit)
+	if _, err := sizeu.ParseBinaryBytes(limit); err != nil {
+		return invalidConfigErrf("runner.container.devShmSizeLimit: %v", err)
+	}
+	cfg.DevShmSizeLimit = limit
 	return nil
 }
 

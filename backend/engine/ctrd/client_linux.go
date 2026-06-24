@@ -157,6 +157,9 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 	if len(spec.Args) > 0 {
 		specOpts = append(specOpts, oci.WithProcessArgs(spec.Args...))
 	}
+	if spec.DevShmSizeKB > 0 {
+		specOpts = append(specOpts, oci.WithDevShmSize(spec.DevShmSizeKB))
+	}
 	if len(mounts) > 0 {
 		specOpts = append(specOpts, oci.WithMounts(mounts))
 	}

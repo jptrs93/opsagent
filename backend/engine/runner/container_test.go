@@ -138,3 +138,15 @@ func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 		t.Fatalf("executable asset mount = %+v", mounts[1])
 	}
 }
+
+func TestContainerDevShmSizeKB(t *testing.T) {
+	if got := containerDevShmSizeKB(""); got != 0 {
+		t.Fatalf("containerDevShmSizeKB(empty) = %d, want 0", got)
+	}
+	if got := containerDevShmSizeKB("1Gi"); got != 1<<20 {
+		t.Fatalf("containerDevShmSizeKB(1Gi) = %d, want %d", got, int64(1<<20))
+	}
+	if got := containerDevShmSizeKB("1G"); got != 0 {
+		t.Fatalf("containerDevShmSizeKB(invalid) = %d, want 0", got)
+	}
+}

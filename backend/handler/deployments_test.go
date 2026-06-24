@@ -195,6 +195,41 @@ func TestValidateDeploymentSpecNormalizesContainerCommand(t *testing.T) {
 	}
 }
 
+func TestValidateDeploymentSpecAcceptsDevShmSizeLimit(t *testing.T) {
+	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"},
+		},
+		Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{
+				DevShmSizeLimit: " 1Gi ",
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
+	}
+	if spec.Runner.Container.DevShmSizeLimit != "1Gi" {
+		t.Fatalf("devShmSizeLimit = %q, want 1Gi", spec.Runner.Container.DevShmSizeLimit)
+	}
+}
+
+func TestValidateDeploymentSpecRejectsInvalidDevShmSizeLimit(t *testing.T) {
+	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"},
+		},
+		Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{
+				DevShmSizeLimit: "1G",
+			},
+		},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "devShmSizeLimit") {
+		t.Fatalf("err = %v, want invalid devShmSizeLimit", err)
+	}
+}
+
 func TestValidateDeploymentSpecRejectsInvalidHostMounts(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

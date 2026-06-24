@@ -22,6 +22,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/engine/ctrd"
 	"github.com/jptrs93/opsagent/backend/engine/preparer"
 	"github.com/jptrs93/opsagent/backend/storage"
+	"github.com/jptrs93/opsagent/backend/util/sizeu"
 )
 
 // Containerd is the process-wide containerd client, wired by the bootstrap. It
@@ -59,6 +60,7 @@ type containerRunner struct {
 	command        []string                       // argv override; empty = image default
 	cwd            string                         // process cwd; empty = image default
 	mounts         []ctrd.Mount
+	devShmSizeKB   int64
 	configVersion  int32
 	dataVolumeHost string // host dir to create+chown for the default data volume ("" = disabled)
 	dataVolumeUser string // user the data volume should be owned by
@@ -160,6 +162,7 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		cwd:            cfg.WorkingDir,
 	}
 	r.mounts, r.dataVolumeHost = containerMounts(dep)
+	r.devShmSizeKB = containerDevShmSizeKB(cfg.DevShmSizeLimit)
 	r.dataVolumeUser = cfg.User
 	return r
 }
@@ -327,6 +330,7 @@ func (r *containerRunner) run() {
 			Env:           env,
 			Args:          r.command,
 			Cwd:           r.cwd,
+			DevShmSizeKB:  r.devShmSizeKB,
 			Mounts:        mounts,
 			Output:        outputDir,
 			OutputVersion: r.status.DeploymentConfigVersion,
@@ -397,6 +401,17 @@ func (r *containerRunner) run() {
 			return
 		}
 	}
+}
+
+func containerDevShmSizeKB(limit string) int64 {
+	if strings.TrimSpace(limit) == "" {
+		return 0
+	}
+	kb, err := sizeu.ParseBinaryKilobytes(limit)
+	if err != nil {
+		return 0
+	}
+	return kb
 }
 
 // monitorTask blocks until the task exits or the runner context is cancelled.

@@ -37,6 +37,7 @@ type ContainerSpec struct {
 	Env           []string // KEY=VALUE entries
 	Args          []string // argv override (entrypoint+cmd); empty = image default
 	Cwd           string   // process cwd; empty = image default
+	DevShmSizeKB  int64    // optional /dev/shm tmpfs size override in KiB
 	Mounts        []Mount  // host bind mounts
 	Output        string   // stdout/stderr deployment log directory
 	OutputVersion int32    // deployment config version for stdout/stderr records
