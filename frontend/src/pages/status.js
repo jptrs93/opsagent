@@ -267,7 +267,7 @@ export function statusPage(onOpenLogs = () => {}) {
     };
 
     const onDelete = (deployment) => {
-        if (deployment.existingStatus !== STATUS_STOPPED) return;
+        if (!deployment.canDelete && deployment.existingStatus !== STATUS_STOPPED) return;
         overlayNode.val = deleteDeploymentOverlay(deployment, closeOverlay);
     };
 
