@@ -2461,7 +2461,7 @@ type ContainerRunnerConfig struct {
 	AssetMounts       []*ContainerAssetMount
 	UpgradeStrategy   ContainerUpgradeStrategy
 	ReadinessSignal   *ContainerReadinessSignal
-	DevShmSizeLimit   string
+	DevShmSizeKb      int32
 }
 
 func (m ContainerRunnerConfig) IsZero() bool {
@@ -2475,7 +2475,7 @@ func (m ContainerRunnerConfig) IsZero() bool {
 		len(m.AssetMounts) == 0 &&
 		m.UpgradeStrategy == 0 &&
 		m.ReadinessSignal == nil &&
-		m.DevShmSizeLimit == ""
+		m.DevShmSizeKb == 0
 }
 
 func (m *ContainerRunnerConfig) Encode() []byte {
@@ -2505,7 +2505,7 @@ func (m *ContainerRunnerConfig) Encode() []byte {
 		b = AppendTag(b, 10, BytesType)
 		b = AppendBytes(b, m.ReadinessSignal.Encode())
 	}
-	b = AppendStringField(b, m.DevShmSizeLimit, 13)
+	b = AppendInt32Field(b, m.DevShmSizeKb, 13)
 	return b
 }
 
@@ -2574,7 +2574,7 @@ func DecodeContainerRunnerConfig(b []byte) (*ContainerRunnerConfig, error) {
 				}
 			}
 		case 13:
-			b, m.DevShmSizeLimit, err = ConsumeString(b, typ)
+			b, m.DevShmSizeKb, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

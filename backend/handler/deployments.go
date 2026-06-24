@@ -18,7 +18,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
-	"github.com/jptrs93/opsagent/backend/util/sizeu"
 )
 
 var InvalidRequestBodyErr = apigen.NewApiErr("Invalid request body", "invalid_request_body", http.StatusBadRequest)
@@ -713,7 +712,7 @@ func validateRunnerConfig(runner *apigen.RunnerConfig, prepare *apigen.PrepareCo
 		if err := validateContainerUpgrade(&runner.Container); err != nil {
 			return err
 		}
-		if err := validateContainerDevShmSizeLimit(&runner.Container); err != nil {
+		if err := validateContainerDevShmSizeKb(&runner.Container); err != nil {
 			return err
 		}
 		if err := resolveEnvAssetRefs("runner.container.envVars", runner.Container.EnvVars, assets); err != nil {
@@ -772,15 +771,13 @@ func validateContainerUpgrade(cfg *apigen.ContainerRunnerConfig) error {
 	return nil
 }
 
-func validateContainerDevShmSizeLimit(cfg *apigen.ContainerRunnerConfig) error {
-	if cfg == nil || strings.TrimSpace(cfg.DevShmSizeLimit) == "" {
+func validateContainerDevShmSizeKb(cfg *apigen.ContainerRunnerConfig) error {
+	if cfg == nil || cfg.DevShmSizeKb == 0 {
 		return nil
 	}
-	limit := strings.TrimSpace(cfg.DevShmSizeLimit)
-	if _, err := sizeu.ParseBinaryBytes(limit); err != nil {
-		return invalidConfigErrf("runner.container.devShmSizeLimit: %v", err)
+	if cfg.DevShmSizeKb < 0 {
+		return invalidConfigErrf("runner.container.devShmSizeKb must be non-negative")
 	}
-	cfg.DevShmSizeLimit = limit
 	return nil
 }
 

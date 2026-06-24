@@ -195,38 +195,38 @@ func TestValidateDeploymentSpecNormalizesContainerCommand(t *testing.T) {
 	}
 }
 
-func TestValidateDeploymentSpecAcceptsDevShmSizeLimit(t *testing.T) {
+func TestValidateDeploymentSpecAcceptsDevShmSizeKb(t *testing.T) {
 	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{
 			ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"},
 		},
 		Runner: apigen.RunnerConfig{
 			Container: apigen.ContainerRunnerConfig{
-				DevShmSizeLimit: " 1Gi ",
+				DevShmSizeKb: 65536,
 			},
 		},
 	}, nil)
 	if err != nil {
 		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
 	}
-	if spec.Runner.Container.DevShmSizeLimit != "1Gi" {
-		t.Fatalf("devShmSizeLimit = %q, want 1Gi", spec.Runner.Container.DevShmSizeLimit)
+	if spec.Runner.Container.DevShmSizeKb != 65536 {
+		t.Fatalf("devShmSizeKb = %d, want 65536", spec.Runner.Container.DevShmSizeKb)
 	}
 }
 
-func TestValidateDeploymentSpecRejectsInvalidDevShmSizeLimit(t *testing.T) {
+func TestValidateDeploymentSpecRejectsInvalidDevShmSizeKb(t *testing.T) {
 	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{
 			ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"},
 		},
 		Runner: apigen.RunnerConfig{
 			Container: apigen.ContainerRunnerConfig{
-				DevShmSizeLimit: "1G",
+				DevShmSizeKb: -1,
 			},
 		},
 	}, nil)
-	if err == nil || !strings.Contains(err.Error(), "devShmSizeLimit") {
-		t.Fatalf("err = %v, want invalid devShmSizeLimit", err)
+	if err == nil || !strings.Contains(err.Error(), "devShmSizeKb") {
+		t.Fatalf("err = %v, want invalid devShmSizeKb", err)
 	}
 }
 

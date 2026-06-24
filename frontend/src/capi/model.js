@@ -330,7 +330,7 @@
  * @property {ContainerAssetMount[]} assetMounts
  * @property {number} upgradeStrategy
  * @property {ContainerReadinessSignal} readinessSignal
- * @property {string} devShmSizeLimit
+ * @property {number} devShmSizeKb
  */
 /**
  * @typedef {Object} RunnerConfig
@@ -4592,8 +4592,8 @@ export function writeContainerRunnerConfig(message, writer) {
         writeContainerReadinessSignal(message.readinessSignal, writer);
         writer.ldelim();
     }
-    if (message.devShmSizeLimit !== undefined && message.devShmSizeLimit !== null && message.devShmSizeLimit !== "") {
-        writer.uint32(tag(13, WIRE.LDELIM)).string(message.devShmSizeLimit);
+    if (message.devShmSizeKb !== undefined && message.devShmSizeKb !== null && message.devShmSizeKb !== 0) {
+        writer.uint32(tag(13, WIRE.VARINT)).int32(message.devShmSizeKb);
     }
 }
 
@@ -4616,7 +4616,7 @@ export function encodeContainerRunnerConfig(message) {
  */
 function decodeContainerRunnerConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {user: "", envVars: {}, command: [], workingDir: "", dataMountPath: "", disableDataVolume: false, mounts: [], assetMounts: [], upgradeStrategy: 0, readinessSignal: undefined, devShmSizeLimit: "" };
+    const message = {user: "", envVars: {}, command: [], workingDir: "", dataMountPath: "", disableDataVolume: false, mounts: [], assetMounts: [], upgradeStrategy: 0, readinessSignal: undefined, devShmSizeKb: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4678,7 +4678,7 @@ function decodeContainerRunnerConfigMessage(reader, length) {
                 break;
             }
             case 13: {
-                message.devShmSizeLimit = reader.string();
+                message.devShmSizeKb = reader.int32();
                 break;
             }
             default:

@@ -637,7 +637,7 @@ message ContainerRunnerConfig {
   repeated ContainerAssetMount asset_mounts = 8; // OpenDeploy-managed readonly asset file mounts
   ContainerUpgradeStrategy upgrade_strategy = 9; // default/unspecified = RECREATE
   ContainerReadinessSignal readiness_signal = 10; // used by ROLLOVER
-  string dev_shm_size_limit = 13; // optional /dev/shm tmpfs size, e.g. "1Gi"
+  int32 dev_shm_size_kb = 13; // optional /dev/shm tmpfs size override in KiB
 }
 
 message RunnerConfig {

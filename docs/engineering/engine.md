@@ -78,7 +78,7 @@ Container runner behavior:
 - Env refs `${s:name}` and `${c:name}` are prepared by the preparer and resolved at start time.
 - Default data volume is created under `{dataDir}-volumes/{deploymentID}/default` and mounted at `/data`, unless disabled or overridden with `dataMountPath`.
 - Additional host mounts and OpenDeploy-managed asset mounts are translated to containerd bind mounts.
-- `devShmSizeLimit` optionally resizes the container's default `/dev/shm` tmpfs from containerd's default 64 MiB using a binary size like `64Mi` or `1Gi`.
+- `devShmSizeKb` optionally resizes the container's default `/dev/shm` tmpfs from containerd's default 64 MiB using a KiB value.
 - Rollover candidates get a per-run Unix socket directory mounted at `/run/opendeploy` and `OPENDEPLOY_READINESS_SOCK_PATH=/run/opendeploy/readiness.sock`. The app signals readiness by writing `ready\n` to that socket after warmup. OpenDeploy then stops the old runner; with host networking, the app should wait for its required port to become bindable before starting its server.
 - Reattach uses `ctrd.LoadTask` by deterministic id; if no running task exists, the runner starts fresh.
 - Stop sends SIGTERM, waits up to 3 seconds, sends SIGKILL if needed, then deletes the task/container/snapshot.
