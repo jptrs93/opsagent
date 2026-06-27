@@ -791,7 +791,11 @@ export function resourcesPane(form) {
                         checked: () => form.containerDevShmOverride.val,
                         onchange: e => {
                             form.containerDevShmOverride.val = e.target.checked;
-                            if (e.target.checked) ensureDevShmOverrideValue(form);
+                            if (e.target.checked) {
+                                ensureDevShmOverrideValue(form);
+                            } else {
+                                resetDevShmOverrideValue(form);
+                            }
                         },
                     }),
                     span("Override shared memory size"),
@@ -803,13 +807,13 @@ export function resourcesPane(form) {
                         min: "1",
                         step: "1",
                         disabled: () => !form.containerDevShmOverride.val,
-                        class: () => textInputClass(false, !form.containerDevShmOverride.val, !invalidDevShmReason(form)),
+                        class: () => `${textInputClass(false, !form.containerDevShmOverride.val)} text-sm`,
                         value: () => form.containerDevShmOverride.val ? form.containerDevShmSizeValue.rawVal : DEV_SHM_DEFAULT_VALUE,
                         oninput: e => { form.containerDevShmSizeValue.val = e.target.value; },
                     }),
                     select({
                         disabled: () => !form.containerDevShmOverride.val,
-                        class: () => `${selectClass()} ${!form.containerDevShmOverride.val ? 'opacity-70 cursor-not-allowed pointer-events-none' : ''}`,
+                        class: () => `${selectClass()} text-sm ${!form.containerDevShmOverride.val ? 'opacity-70 cursor-not-allowed pointer-events-none' : ''}`,
                         value: () => selectedDevShmUnit(form),
                         onchange: e => { form.containerDevShmSizeUnit.val = e.target.value; },
                     }, ...DEV_SHM_UNITS.map(unit => option({value: unit.value, selected: () => unit.value === selectedDevShmUnit(form)}, unit.label))),
@@ -828,7 +832,11 @@ export function resourcesPane(form) {
                         checked: () => form.containerFileDescriptorLimitOverride.val,
                         onchange: e => {
                             form.containerFileDescriptorLimitOverride.val = e.target.checked;
-                            if (e.target.checked) ensureFileDescriptorLimitOverrideValue(form);
+                            if (e.target.checked) {
+                                ensureFileDescriptorLimitOverrideValue(form);
+                            } else {
+                                resetFileDescriptorLimitOverrideValue(form);
+                            }
                         },
                     }),
                     span("Override file descriptor limit"),
@@ -838,7 +846,7 @@ export function resourcesPane(form) {
                     min: "1",
                     step: "1",
                     disabled: () => !form.containerFileDescriptorLimitOverride.val,
-                    class: () => textInputClass(false, !form.containerFileDescriptorLimitOverride.val, !invalidFileDescriptorLimitReason(form)),
+                    class: () => `${textInputClass(false, !form.containerFileDescriptorLimitOverride.val)} text-sm`,
                     value: () => form.containerFileDescriptorLimitOverride.val ? form.containerFileDescriptorLimit.rawVal : FILE_DESCRIPTOR_LIMIT_DEFAULT,
                     oninput: e => { form.containerFileDescriptorLimit.val = e.target.value; },
                 }),
@@ -1061,6 +1069,9 @@ export function volumeMountsPane(form, opts = {}) {
     const updateMount = (row, patch) => {
         form.volumeMounts.val = rows().map(m => m.id === row.id ? {...m, ...patch} : m);
     };
+    const mutateMount = (row, patch) => {
+        Object.assign(row, patch);
+    };
     const removeMount = (row) => {
         form.volumeMounts.val = rows().filter(m => m.id !== row.id);
     };
@@ -1084,7 +1095,7 @@ export function volumeMountsPane(form, opts = {}) {
                 class: textInputClass(true),
                 placeholder: "/mnt/other-data",
                 value: row.container || '',
-                oninput: e => updateMount(row, {container: e.target.value}),
+                oninput: e => mutateMount(row, {container: e.target.value}),
             })),
         ),
         div({class: "flex justify-end"},
@@ -1103,13 +1114,13 @@ export function volumeMountsPane(form, opts = {}) {
                 class: textInputClass(true),
                 placeholder: "/home/ubuntu/coflip-server/data",
                 value: row.host || '',
-                oninput: e => updateMount(row, {host: e.target.value}),
+                oninput: e => mutateMount(row, {host: e.target.value}),
             }), "Must already exist on the target machine."),
             field("Container mount path", input({
                 class: textInputClass(true),
                 placeholder: "/data",
                 value: row.container || '',
-                oninput: e => updateMount(row, {container: e.target.value}),
+                oninput: e => mutateMount(row, {container: e.target.value}),
             })),
         ),
         div({class: "flex items-center justify-between gap-2"},
@@ -1695,6 +1706,15 @@ function ensureFileDescriptorLimitOverrideValue(form) {
 	if (!form.containerFileDescriptorLimit.val.trim()) {
 		form.containerFileDescriptorLimit.val = FILE_DESCRIPTOR_LIMIT_DEFAULT;
 	}
+}
+
+function resetDevShmOverrideValue(form) {
+	form.containerDevShmSizeValue.val = DEV_SHM_DEFAULT_VALUE;
+	form.containerDevShmSizeUnit.val = DEV_SHM_DEFAULT_UNIT;
+}
+
+function resetFileDescriptorLimitOverrideValue(form) {
+	form.containerFileDescriptorLimit.val = FILE_DESCRIPTOR_LIMIT_DEFAULT;
 }
 
 // --- Repository field with on-blur accessibility validation ----------------
