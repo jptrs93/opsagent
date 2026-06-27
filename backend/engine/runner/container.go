@@ -60,6 +60,7 @@ type containerRunner struct {
 	cwd            string                         // process cwd; empty = image default
 	mounts         []ctrd.Mount
 	devShmSizeKB   int64
+	fileDescLimit  int64
 	configVersion  int32
 	dataVolumeHost string // host dir to create+chown for the default data volume ("" = disabled)
 	dataVolumeUser string // user the data volume should be owned by
@@ -162,6 +163,7 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 	}
 	r.mounts, r.dataVolumeHost = containerMounts(dep)
 	r.devShmSizeKB = int64(cfg.DevShmSizeKb)
+	r.fileDescLimit = int64(cfg.FileDescriptorLimit)
 	r.dataVolumeUser = cfg.User
 	return r
 }
@@ -330,6 +332,7 @@ func (r *containerRunner) run() {
 			Args:          r.command,
 			Cwd:           r.cwd,
 			DevShmSizeKB:  r.devShmSizeKB,
+			FileDescLimit: r.fileDescLimit,
 			Mounts:        mounts,
 			Output:        outputDir,
 			OutputVersion: r.status.DeploymentConfigVersion,

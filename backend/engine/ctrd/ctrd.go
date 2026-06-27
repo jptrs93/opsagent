@@ -28,6 +28,8 @@ type Mount struct {
 	ReadOnly bool
 }
 
+const DefaultFileDescriptorLimit = 2048
+
 // ContainerSpec describes a container to create and start. The default data
 // volume (if any) is already resolved into Mounts by the caller.
 type ContainerSpec struct {
@@ -38,6 +40,7 @@ type ContainerSpec struct {
 	Args          []string // argv override (entrypoint+cmd); empty = image default
 	Cwd           string   // process cwd; empty = image default
 	DevShmSizeKB  int64    // optional /dev/shm tmpfs size override in KiB
+	FileDescLimit int64    // optional RLIMIT_NOFILE override; 0 uses DefaultFileDescriptorLimit
 	Mounts        []Mount  // host bind mounts
 	Output        string   // stdout/stderr deployment log directory
 	OutputVersion int32    // deployment config version for stdout/stderr records

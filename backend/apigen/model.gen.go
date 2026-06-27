@@ -2451,17 +2451,18 @@ func DecodeContainerReadinessSignal(b []byte) (*ContainerReadinessSignal, error)
 }
 
 type ContainerRunnerConfig struct {
-	User              string
-	EnvVars           map[string]*EnvVarValue
-	Command           []string
-	WorkingDir        string
-	DataMountPath     string
-	DisableDataVolume bool
-	Mounts            []*ContainerMount
-	AssetMounts       []*ContainerAssetMount
-	UpgradeStrategy   ContainerUpgradeStrategy
-	ReadinessSignal   *ContainerReadinessSignal
-	DevShmSizeKb      int32
+	User                string
+	EnvVars             map[string]*EnvVarValue
+	Command             []string
+	WorkingDir          string
+	DataMountPath       string
+	DisableDataVolume   bool
+	Mounts              []*ContainerMount
+	AssetMounts         []*ContainerAssetMount
+	UpgradeStrategy     ContainerUpgradeStrategy
+	ReadinessSignal     *ContainerReadinessSignal
+	DevShmSizeKb        int32
+	FileDescriptorLimit int32
 }
 
 func (m ContainerRunnerConfig) IsZero() bool {
@@ -2475,7 +2476,8 @@ func (m ContainerRunnerConfig) IsZero() bool {
 		len(m.AssetMounts) == 0 &&
 		m.UpgradeStrategy == 0 &&
 		m.ReadinessSignal == nil &&
-		m.DevShmSizeKb == 0
+		m.DevShmSizeKb == 0 &&
+		m.FileDescriptorLimit == 0
 }
 
 func (m *ContainerRunnerConfig) Encode() []byte {
@@ -2506,6 +2508,7 @@ func (m *ContainerRunnerConfig) Encode() []byte {
 		b = AppendBytes(b, m.ReadinessSignal.Encode())
 	}
 	b = AppendInt32Field(b, m.DevShmSizeKb, 13)
+	b = AppendInt32Field(b, m.FileDescriptorLimit, 14)
 	return b
 }
 
@@ -2575,6 +2578,8 @@ func DecodeContainerRunnerConfig(b []byte) (*ContainerRunnerConfig, error) {
 			}
 		case 13:
 			b, m.DevShmSizeKb, err = ConsumeVarInt32(b, typ)
+		case 14:
+			b, m.FileDescriptorLimit, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

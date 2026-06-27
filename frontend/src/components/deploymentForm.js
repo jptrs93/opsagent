@@ -13,6 +13,8 @@ const CONTAINER_UPGRADE_RECREATE = 1;
 const CONTAINER_UPGRADE_ROLLOVER = 2;
 const DEFAULT_READINESS_TIMEOUT_SECONDS = 600;
 const DEPLOYMENT_VOLUME_HOST_RE = /^\/var\/lib\/opendeploy-volumes\/(\d+)\/default$/;
+const FILE_DESCRIPTOR_LIMIT_DEFAULT = '2048';
+const FILE_DESCRIPTOR_LIMIT_MAX = 2147483647;
 const DEV_SHM_UNITS = [
     {value: 'KB', label: 'KB', factorKB: 1},
     {value: 'MB', label: 'MB', factorKB: 1024},
@@ -44,8 +46,11 @@ export function emptyDeploymentForm() {
         containerCommand: '',
         containerDataMountPath: '',
         containerDisableDataVolume: false,
+        containerDevShmOverride: false,
         containerDevShmSizeValue: '',
         containerDevShmSizeUnit: DEV_SHM_DEFAULT_UNIT,
+        containerFileDescriptorLimitOverride: false,
+        containerFileDescriptorLimit: '',
         containerUpgradeStrategy: String(CONTAINER_UPGRADE_RECREATE),
         containerReadinessTimeoutSeconds: DEFAULT_READINESS_TIMEOUT_SECONDS,
         assetMounts: [],
@@ -62,6 +67,7 @@ export function deploymentConfigToForm(cfg) {
     const containerImage = prepare.containerImage || {};
     const container = runner.container || {};
     const devShm = devShmFormState(container.devShmSizeKb || 0);
+    const fileDescriptorLimit = Number(container.fileDescriptorLimit || 0);
     // Reveal a section's additional options up-front when the existing config
     // already sets one of them, so they aren't hidden on edit.
     const showSourceOpts = false;
@@ -84,8 +90,11 @@ export function deploymentConfigToForm(cfg) {
         containerCommand: (container.command || []).join('\n'),
         containerDataMountPath: container.dataMountPath || '',
         containerDisableDataVolume: Boolean(container.disableDataVolume),
+        containerDevShmOverride: Number(container.devShmSizeKb || 0) > 0,
         containerDevShmSizeValue: devShm.value,
         containerDevShmSizeUnit: devShm.unit,
+        containerFileDescriptorLimitOverride: fileDescriptorLimit > 0,
+        containerFileDescriptorLimit: fileDescriptorLimit > 0 ? String(fileDescriptorLimit) : '',
         containerUpgradeStrategy: String(container.upgradeStrategy || CONTAINER_UPGRADE_RECREATE),
         containerReadinessTimeoutSeconds: container.readinessSignal?.timeoutSeconds || DEFAULT_READINESS_TIMEOUT_SECONDS,
         envVars: envVarsToFormRows(container.envVars),
@@ -182,7 +191,7 @@ export function deploymentForm(form, opts = {}) {
                     volumeMountsSummary(form),
                     assetMountsSection(form, opts),
                     upgradeStrategySummary(form),
-                    devShmSummary(form),
+                    resourcesSummary(form),
                 ),
             ),
         ),
@@ -229,6 +238,8 @@ export function formToSpec(form) {
     if (dataMountPath) spec.runner.container.dataMountPath = dataMountPath;
     const devShmSizeKb = devShmSizeKbForForm(form);
     if (devShmSizeKb > 0) spec.runner.container.devShmSizeKb = devShmSizeKb;
+    const fileDescriptorLimit = fileDescriptorLimitForForm(form);
+    if (fileDescriptorLimit > 0) spec.runner.container.fileDescriptorLimit = fileDescriptorLimit;
     const env = formEnvVars(form);
     if (Object.keys(env).length) spec.runner.container.envVars = env;
     const mounts = formVolumeMounts(form);
@@ -260,6 +271,7 @@ export function formInvalidReason(form, opts = {}) {
         || invalidAssetMountsReason(form)
         || invalidUpgradeStrategyReason(form)
         || invalidDevShmReason(form)
+        || invalidFileDescriptorLimitReason(form)
         || '';
 }
 
@@ -492,8 +504,11 @@ function makeFormState(values) {
         containerCommand: van.state(values.containerCommand || ''),
         containerDataMountPath: van.state(values.containerDataMountPath || ''),
         containerDisableDataVolume: van.state(Boolean(values.containerDisableDataVolume)),
+        containerDevShmOverride: van.state(Boolean(values.containerDevShmOverride)),
         containerDevShmSizeValue: van.state(values.containerDevShmSizeValue || ''),
         containerDevShmSizeUnit: van.state(values.containerDevShmSizeUnit || DEV_SHM_DEFAULT_UNIT),
+        containerFileDescriptorLimitOverride: van.state(Boolean(values.containerFileDescriptorLimitOverride)),
+        containerFileDescriptorLimit: van.state(values.containerFileDescriptorLimit || ''),
         containerUpgradeStrategy: van.state(String(values.containerUpgradeStrategy || CONTAINER_UPGRADE_RECREATE)),
         containerReadinessTimeoutSeconds: van.state(values.containerReadinessTimeoutSeconds ?? DEFAULT_READINESS_TIMEOUT_SECONDS),
         envVars: van.state(values.envVars || []),
@@ -508,14 +523,13 @@ function makeFormState(values) {
         assetMountsPaneOpen: van.state(false),
         volumeMountsPaneOpen: van.state(false),
         upgradeStrategyPaneOpen: van.state(false),
-        devShmPaneOpen: van.state(false),
+        resourcesPaneOpen: van.state(false),
         assetEditorOpen: van.state(false),
         assetEditorMountID: van.state(0),
         assetEditorError: van.state(''),
         assetEditorKey: van.state(''),
         assetEditorFormat: van.state('text'),
         assetEditorContent: van.state(''),
-        devShmDefaultsApplied: Boolean((values.containerDevShmSizeValue || '').toString().trim()),
         // Transient repo-accessibility check; tracks the repo/source it applies
         // to so a stale result is hidden once the inputs change.
         repoCheck: van.state(values.repoCheck || {status: 'idle', message: '', repo: '', sourceType: '', sourceKey: ''}),
@@ -693,22 +707,19 @@ function upgradeStrategySummary(form) {
     );
 }
 
-function devShmSummary(form) {
+function resourcesSummary(form) {
     return div(
         {class: "flex items-center justify-between gap-3"},
-        span({class: "text-xs text-gray-400"}, () => `Shared /dev/shm: ${devShmSummaryText(form)}`),
+        span({class: "text-xs text-gray-400"}, () => `Resources: /dev/shm ${devShmSummaryText(form)}, file descriptors ${fileDescriptorLimitSummaryText(form)}`),
         button({
             type: "button",
             class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
             onclick: () => {
-                const opening = !form.devShmPaneOpen.val;
-                if (opening) {
-                    ensureDevShmDefaults(form);
-                    closeRuntimePanes(form, 'devShm');
-                }
-                form.devShmPaneOpen.val = opening;
+                const opening = !form.resourcesPaneOpen.val;
+                if (opening) closeRuntimePanes(form, 'resources');
+                form.resourcesPaneOpen.val = opening;
             },
-        }, () => form.devShmPaneOpen.val ? "Close" : "Configure"),
+        }, () => form.resourcesPaneOpen.val ? "Close" : "Configure"),
     );
 }
 
@@ -755,43 +766,88 @@ export function upgradeStrategyPane(form) {
     );
 }
 
-export function devShmPane(form) {
+export function resourcesPane(form) {
     return div(
-        {class: () => form.devShmPaneOpen.val
+        {class: () => form.resourcesPaneOpen.val
             ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
             : "hidden"},
         div(
             {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
-            h3({class: "text-sm font-semibold text-gray-200"}, "Shared /dev/shm"),
+            h3({class: "text-sm font-semibold text-gray-200"}, "Resources"),
             button({
                 type: "button",
                 class: "text-gray-500 hover:text-gray-200 cursor-pointer",
                 title: "Close",
-                onclick: () => { form.devShmPaneOpen.val = false; },
+                onclick: () => { form.resourcesPaneOpen.val = false; },
             }, xIcon({size: 16})),
         ),
         div(
-            {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-4"},
-            field("Size override", div(
-                {class: "grid grid-cols-[minmax(0,1fr)_8rem] gap-3"},
+            {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-4 p-4"},
+            div(
+                {class: "flex flex-col gap-3 rounded-sm border border-gray-700 bg-gray-900/40 p-4"},
+                label({class: "flex items-center gap-2 text-sm text-gray-200"},
+                    input({
+                        type: "checkbox",
+                        checked: () => form.containerDevShmOverride.val,
+                        onchange: e => {
+                            form.containerDevShmOverride.val = e.target.checked;
+                            if (e.target.checked) ensureDevShmOverrideValue(form);
+                        },
+                    }),
+                    span("Override shared memory size"),
+                ),
+                div(
+                    {class: "grid grid-cols-[minmax(0,1fr)_8rem] gap-3"},
+                    input({
+                        type: "number",
+                        min: "1",
+                        step: "1",
+                        disabled: () => !form.containerDevShmOverride.val,
+                        class: () => textInputClass(false, !form.containerDevShmOverride.val, !invalidDevShmReason(form)),
+                        value: () => form.containerDevShmOverride.val ? form.containerDevShmSizeValue.rawVal : DEV_SHM_DEFAULT_VALUE,
+                        oninput: e => { form.containerDevShmSizeValue.val = e.target.value; },
+                    }),
+                    select({
+                        disabled: () => !form.containerDevShmOverride.val,
+                        class: () => `${selectClass()} ${!form.containerDevShmOverride.val ? 'opacity-70 cursor-not-allowed pointer-events-none' : ''}`,
+                        value: () => selectedDevShmUnit(form),
+                        onchange: e => { form.containerDevShmSizeUnit.val = e.target.value; },
+                    }, ...DEV_SHM_UNITS.map(unit => option({value: unit.value, selected: () => unit.value === selectedDevShmUnit(form)}, unit.label))),
+                ),
+                () => invalidDevShmReason(form)
+                    ? p({class: "text-xs text-amber-400"}, invalidDevShmReason(form))
+                    : p({class: "text-xs leading-relaxed text-gray-500"}, form.containerDevShmOverride.val
+                        ? `Computed API value: ${devShmSizeKbForForm(form)} KiB. Useful for PostgreSQL, browser automation, and other shared-memory-heavy workloads.`
+                        : "Unchecked leaves this field out of the deployment config and uses the OpenDeploy default of 64 MiB."),
+            ),
+            div(
+                {class: "flex flex-col gap-3 rounded-sm border border-gray-700 bg-gray-900/40 p-4"},
+                label({class: "flex items-center gap-2 text-sm text-gray-200"},
+                    input({
+                        type: "checkbox",
+                        checked: () => form.containerFileDescriptorLimitOverride.val,
+                        onchange: e => {
+                            form.containerFileDescriptorLimitOverride.val = e.target.checked;
+                            if (e.target.checked) ensureFileDescriptorLimitOverrideValue(form);
+                        },
+                    }),
+                    span("Override file descriptor limit"),
+                ),
                 input({
                     type: "number",
                     min: "1",
                     step: "1",
-                    class: textInputClass(false, false, !invalidDevShmReason(form)),
-                    placeholder: DEV_SHM_DEFAULT_VALUE,
-                    value: form.containerDevShmSizeValue.rawVal,
-                    oninput: e => { form.containerDevShmSizeValue.val = e.target.value; },
+                    disabled: () => !form.containerFileDescriptorLimitOverride.val,
+                    class: () => textInputClass(false, !form.containerFileDescriptorLimitOverride.val, !invalidFileDescriptorLimitReason(form)),
+                    value: () => form.containerFileDescriptorLimitOverride.val ? form.containerFileDescriptorLimit.rawVal : FILE_DESCRIPTOR_LIMIT_DEFAULT,
+                    oninput: e => { form.containerFileDescriptorLimit.val = e.target.value; },
                 }),
-                select({
-                    class: selectClass(),
-                    value: form.containerDevShmSizeUnit.rawVal,
-                    onchange: e => { form.containerDevShmSizeUnit.val = e.target.value; },
-                }, ...DEV_SHM_UNITS.map(unit => option({value: unit.value, selected: unit.value === form.containerDevShmSizeUnit.val}, unit.label))),
-            ), "Leave blank to use the container default (64MiB). The frontend converts this to KiB for the API."),
-            () => invalidDevShmReason(form)
-                ? p({class: "text-xs text-amber-400"}, invalidDevShmReason(form))
-                : p({class: "text-xs leading-relaxed text-gray-500"}, `Computed API value: ${devShmSizeKbForForm(form)} KiB. Useful for PostgreSQL, browser automation, and other shared-memory-heavy workloads.`),
+                () => invalidFileDescriptorLimitReason(form)
+                    ? p({class: "text-xs text-amber-400"}, invalidFileDescriptorLimitReason(form))
+                    : p({class: "text-xs leading-relaxed text-gray-500"}, form.containerFileDescriptorLimitOverride.val
+                        ? "OpenDeploy sets both the soft and hard RLIMIT_NOFILE values to this override."
+                        : `Unchecked leaves this field out of the deployment config and uses the OpenDeploy default of ${FILE_DESCRIPTOR_LIMIT_DEFAULT}.`),
+            ),
         ),
     );
 }
@@ -1436,8 +1492,9 @@ function hasInvalidUpgradeStrategy(form) {
 }
 
 function invalidDevShmReason(form) {
+	if (!form.containerDevShmOverride.val) return '';
 	const raw = form.containerDevShmSizeValue.val.trim();
-	if (!raw) return '';
+	if (!raw) return 'Shared /dev/shm override is required when enabled.';
 	if (!/^[0-9]+$/.test(raw)) return 'Shared /dev/shm size must be a whole number.';
 	const value = Number(raw);
 	if (!Number.isSafeInteger(value) || value <= 0) return 'Shared /dev/shm size must be greater than zero.';
@@ -1445,6 +1502,17 @@ function invalidDevShmReason(form) {
 	if (!factor) return 'Select a valid shared /dev/shm unit.';
 	const kb = value * factor;
 	if (!Number.isSafeInteger(kb) || kb > DEV_SHM_MAX_KB) return `Shared /dev/shm size must be ${DEV_SHM_MAX_KB} KiB or less.`;
+	return '';
+}
+
+function invalidFileDescriptorLimitReason(form) {
+	if (!form.containerFileDescriptorLimitOverride.val) return '';
+	const raw = form.containerFileDescriptorLimit.val.trim();
+	if (!raw) return 'File descriptor limit override is required when enabled.';
+	if (!/^[0-9]+$/.test(raw)) return 'File descriptor limit must be a whole number.';
+	const value = Number(raw);
+	if (!Number.isSafeInteger(value) || value <= 0) return 'File descriptor limit must be greater than zero.';
+	if (value > FILE_DESCRIPTOR_LIMIT_MAX) return `File descriptor limit must be ${FILE_DESCRIPTOR_LIMIT_MAX} or less.`;
 	return '';
 }
 
@@ -1563,7 +1631,7 @@ function closeRuntimePanes(form, keep) {
     if (keep !== 'assets') form.assetMountsPaneOpen.val = false;
     if (keep !== 'volumes') form.volumeMountsPaneOpen.val = false;
     if (keep !== 'strategy') form.upgradeStrategyPaneOpen.val = false;
-    if (keep !== 'devShm') form.devShmPaneOpen.val = false;
+    if (keep !== 'resources') form.resourcesPaneOpen.val = false;
     if (keep !== 'assetEditor') form.assetEditorOpen.val = false;
 }
 
@@ -1589,21 +1657,44 @@ function devShmSizeKbForForm(form) {
     return Number(raw) * devShmUnitFactorKB(form.containerDevShmSizeUnit.val);
 }
 
-function devShmSummaryText(form) {
-    const raw = form.containerDevShmSizeValue.val.trim();
-    if (!raw) return 'container default (64MiB)';
-    return `${raw} ${form.containerDevShmSizeUnit.val}`;
+function fileDescriptorLimitForForm(form) {
+    if (invalidFileDescriptorLimitReason(form)) return 0;
+    const raw = form.containerFileDescriptorLimit.val.trim();
+    if (!raw) return 0;
+    return Number(raw);
 }
 
-function ensureDevShmDefaults(form) {
-    if (form.devShmDefaultsApplied) return;
-    form.devShmDefaultsApplied = true;
-    if (!form.containerDevShmSizeValue.val.trim()) {
-        form.containerDevShmSizeValue.val = DEV_SHM_DEFAULT_VALUE;
-    }
-    if (!devShmUnitFactorKB(form.containerDevShmSizeUnit.val)) {
-        form.containerDevShmSizeUnit.val = DEV_SHM_DEFAULT_UNIT;
-    }
+function devShmSummaryText(form) {
+	if (!form.containerDevShmOverride.val) return `${DEV_SHM_DEFAULT_VALUE} ${DEV_SHM_DEFAULT_UNIT}`;
+	const raw = form.containerDevShmSizeValue.val.trim();
+	if (!raw) return `${DEV_SHM_DEFAULT_VALUE} ${DEV_SHM_DEFAULT_UNIT}`;
+	return `${raw} ${form.containerDevShmSizeUnit.val}`;
+}
+
+function fileDescriptorLimitSummaryText(form) {
+	if (!form.containerFileDescriptorLimitOverride.val) return FILE_DESCRIPTOR_LIMIT_DEFAULT;
+	const raw = form.containerFileDescriptorLimit.val.trim();
+	if (!raw) return FILE_DESCRIPTOR_LIMIT_DEFAULT;
+	return raw;
+}
+
+function selectedDevShmUnit(form) {
+	return form.containerDevShmOverride.val ? form.containerDevShmSizeUnit.val : DEV_SHM_DEFAULT_UNIT;
+}
+
+function ensureDevShmOverrideValue(form) {
+	if (!form.containerDevShmSizeValue.val.trim()) {
+		form.containerDevShmSizeValue.val = DEV_SHM_DEFAULT_VALUE;
+	}
+	if (!devShmUnitFactorKB(form.containerDevShmSizeUnit.val)) {
+		form.containerDevShmSizeUnit.val = DEV_SHM_DEFAULT_UNIT;
+	}
+}
+
+function ensureFileDescriptorLimitOverrideValue(form) {
+	if (!form.containerFileDescriptorLimit.val.trim()) {
+		form.containerFileDescriptorLimit.val = FILE_DESCRIPTOR_LIMIT_DEFAULT;
+	}
 }
 
 // --- Repository field with on-blur accessibility validation ----------------

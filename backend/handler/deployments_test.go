@@ -230,6 +230,41 @@ func TestValidateDeploymentSpecRejectsInvalidDevShmSizeKb(t *testing.T) {
 	}
 }
 
+func TestValidateDeploymentSpecAcceptsFileDescriptorLimit(t *testing.T) {
+	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: &apigen.ContainerImageConfig{Image: "nginx:latest"},
+		},
+		Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{
+				FileDescriptorLimit: 4096,
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
+	}
+	if spec.Runner.Container.FileDescriptorLimit != 4096 {
+		t.Fatalf("fileDescriptorLimit = %d, want 4096", spec.Runner.Container.FileDescriptorLimit)
+	}
+}
+
+func TestValidateDeploymentSpecRejectsInvalidFileDescriptorLimit(t *testing.T) {
+	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{
+			ContainerImage: &apigen.ContainerImageConfig{Image: "nginx:latest"},
+		},
+		Runner: apigen.RunnerConfig{
+			Container: apigen.ContainerRunnerConfig{
+				FileDescriptorLimit: -1,
+			},
+		},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "fileDescriptorLimit") {
+		t.Fatalf("err = %v, want invalid fileDescriptorLimit", err)
+	}
+}
+
 func TestValidateDeploymentSpecRejectsInvalidHostMounts(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

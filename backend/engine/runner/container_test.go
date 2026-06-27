@@ -139,15 +139,19 @@ func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 	}
 }
 
-func TestBuildContainerRunnerUsesDevShmSizeKb(t *testing.T) {
+func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	r := buildContainerRunner(nil, nil, nil, &apigen.DeploymentConfig{
 		ID: 7,
 		Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
-			DisableDataVolume: true,
-			DevShmSizeKb:      65536,
+			DisableDataVolume:   true,
+			DevShmSizeKb:        65536,
+			FileDescriptorLimit: 4096,
 		}}},
 	}, 3)
 	if r.devShmSizeKB != 65536 {
 		t.Fatalf("devShmSizeKB = %d, want 65536", r.devShmSizeKB)
+	}
+	if r.fileDescLimit != 4096 {
+		t.Fatalf("fileDescLimit = %d, want 4096", r.fileDescLimit)
 	}
 }

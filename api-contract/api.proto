@@ -638,6 +638,7 @@ message ContainerRunnerConfig {
   ContainerUpgradeStrategy upgrade_strategy = 9; // default/unspecified = RECREATE
   ContainerReadinessSignal readiness_signal = 10; // used by ROLLOVER
   int32 dev_shm_size_kb = 13; // optional /dev/shm tmpfs size override in KiB
+  int32 file_descriptor_limit = 14; // optional RLIMIT_NOFILE override; unset uses the OpenDeploy default
 }
 
 message RunnerConfig {

@@ -160,6 +160,15 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 	if spec.DevShmSizeKB > 0 {
 		specOpts = append(specOpts, oci.WithDevShmSize(spec.DevShmSizeKB))
 	}
+	fileDescLimit := spec.FileDescLimit
+	if fileDescLimit <= 0 {
+		fileDescLimit = DefaultFileDescriptorLimit
+	}
+	specOpts = append(specOpts, oci.WithRlimit(&specs.POSIXRlimit{
+		Type: "RLIMIT_NOFILE",
+		Soft: uint64(fileDescLimit),
+		Hard: uint64(fileDescLimit),
+	}))
 	if len(mounts) > 0 {
 		specOpts = append(specOpts, oci.WithMounts(mounts))
 	}

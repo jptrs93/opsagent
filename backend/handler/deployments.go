@@ -715,6 +715,9 @@ func validateRunnerConfig(runner *apigen.RunnerConfig, prepare *apigen.PrepareCo
 		if err := validateContainerDevShmSizeKb(&runner.Container); err != nil {
 			return err
 		}
+		if err := validateContainerFileDescriptorLimit(&runner.Container); err != nil {
+			return err
+		}
 		if err := resolveEnvAssetRefs("runner.container.envVars", runner.Container.EnvVars, assets); err != nil {
 			return err
 		}
@@ -777,6 +780,16 @@ func validateContainerDevShmSizeKb(cfg *apigen.ContainerRunnerConfig) error {
 	}
 	if cfg.DevShmSizeKb < 0 {
 		return invalidConfigErrf("runner.container.devShmSizeKb must be non-negative")
+	}
+	return nil
+}
+
+func validateContainerFileDescriptorLimit(cfg *apigen.ContainerRunnerConfig) error {
+	if cfg == nil || cfg.FileDescriptorLimit == 0 {
+		return nil
+	}
+	if cfg.FileDescriptorLimit < 0 {
+		return invalidConfigErrf("runner.container.fileDescriptorLimit must be non-negative")
 	}
 	return nil
 }

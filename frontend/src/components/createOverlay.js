@@ -7,11 +7,11 @@ import {
     assetEditorPane,
     assetMountsPane,
     buildValidateSourceRequest,
-    devShmPane,
     deploymentForm,
     envVarsPane,
     imageVersionFromReference,
     isFormValid,
+    resourcesPane,
     sectionDivider,
     upgradeStrategyPane,
     volumeMountsPane,
@@ -104,7 +104,7 @@ export function createOverlay(onClose, onCreated, opts = {}) {
         {class: "fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 pointer-events-none", "data-testid": "create-deployment-dialog"},
         div(
             {class: "bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-row overflow-hidden pointer-events-auto",
-             style: () => `width: ${form.envPaneOpen.val || form.assetMountsPaneOpen.val || form.volumeMountsPaneOpen.val || form.upgradeStrategyPaneOpen.val || form.devShmPaneOpen.val || form.assetEditorOpen.val ? 1560 : 1120}px; max-width: calc(100vw - 1rem); max-height: 88vh;`,
+             style: () => `width: ${form.envPaneOpen.val || form.assetMountsPaneOpen.val || form.volumeMountsPaneOpen.val || form.upgradeStrategyPaneOpen.val || form.resourcesPaneOpen.val || form.assetEditorOpen.val ? 1560 : 1120}px; max-width: calc(100vw - 1rem); max-height: 88vh;`,
              onclick: (e) => e.stopPropagation()},
             div(
                 {class: "flex-1 min-w-0 flex flex-col"},
@@ -145,7 +145,7 @@ export function createOverlay(onClose, onCreated, opts = {}) {
             volumeMountsPane(form, {deployments: deploymentsS}),
             () => assetMountsPane(form, {assets: assets.val, enableAssetEditor: true}),
             upgradeStrategyPane(form),
-            devShmPane(form),
+            resourcesPane(form),
             assetEditorPane(form, {onSaved: loadAssets}),
         ),
     );
