@@ -38,6 +38,7 @@ const (
 	containerReadinessContainerDir   = "/run/opendeploy"
 	containerReadinessSocketName     = "readiness.sock"
 	containerReadinessContainerPath  = containerReadinessContainerDir + "/" + containerReadinessSocketName
+	containerDefaultDevShmSizeKB     = 64 * 1024
 )
 
 // containerRunner owns the create/start/monitor/respawn/backoff lifecycle of a
@@ -458,12 +459,14 @@ func (r *containerRunner) shouldPublishStopped() bool {
 func (r *containerRunner) logContainerEvent(action string, runNumber int32, mounts []ctrd.Mount) {
 	counts := countEnvVars(r.envVars)
 	slog.Info(fmt.Sprintf(
-		"container %s deployment=%q config_version=%d run_number=%d mount_paths=%q env_plain_count=%d env_config_count=%d env_secret_count=%d env_asset_count=%d",
+		"container %s deployment='%s' config_version=%d run_number=%d mount_paths='%s' dev_shm_size_kb=%d file_descriptor_limit=%d env_plain_count=%d env_config_count=%d env_secret_count=%d env_asset_count=%d",
 		action,
 		r.deploymentName,
 		r.configVersion,
 		runNumber,
 		formatMountPaths(mounts),
+		r.effectiveDevShmSizeKB(),
+		r.effectiveFileDescLimit(),
 		counts.plain,
 		counts.config,
 		counts.secret,
@@ -473,6 +476,20 @@ func (r *containerRunner) logContainerEvent(action string, runNumber int32, moun
 
 func (r *containerRunner) currentRunNumber() int32 {
 	return r.status.NumberOfRestarts + 1
+}
+
+func (r *containerRunner) effectiveDevShmSizeKB() int64 {
+	if r.devShmSizeKB > 0 {
+		return r.devShmSizeKB
+	}
+	return containerDefaultDevShmSizeKB
+}
+
+func (r *containerRunner) effectiveFileDescLimit() int64 {
+	if r.fileDescLimit > 0 {
+		return r.fileDescLimit
+	}
+	return ctrd.DefaultFileDescriptorLimit
 }
 
 type envVarCounts struct {
