@@ -10,10 +10,11 @@ require (
 	github.com/containerd/containerd/v2 v2.3.1
 	github.com/go-webauthn/webauthn v0.16.3
 	github.com/google/uuid v1.6.0
-	github.com/jptrs93/goutil v0.18.0
+	github.com/jptrs93/goutil v0.20.1
 	github.com/jptrs93/sjson v0.0.0-20250815001024-e33b017420b9
 	github.com/opencontainers/runtime-spec v1.3.0
 	golang.org/x/crypto v0.49.0
+	golang.org/x/time v0.15.0
 	modernc.org/sqlite v1.51.0
 )
 

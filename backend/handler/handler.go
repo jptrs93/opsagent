@@ -64,6 +64,7 @@ func (h *Handler) Get(ctx apigen.Context, request *http.Request, writer http.Res
 	if h.staticFS == nil {
 		return errors.New("static fs is not configured")
 	}
+	setStaticSecurityHeaders(request, writer)
 	assetPath := strings.TrimPrefix(request.URL.Path, "/")
 	if assetPath == "" {
 		assetPath = "index.html"
@@ -84,6 +85,18 @@ func (h *Handler) Get(ctx apigen.Context, request *http.Request, writer http.Res
 	}
 	_, err = writer.Write(b)
 	return err
+}
+
+func setStaticSecurityHeaders(request *http.Request, writer http.ResponseWriter) {
+	h := writer.Header()
+	h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("Referrer-Policy", "no-referrer")
+	h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()")
+	if request.TLS != nil {
+		h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+	}
 }
 
 func (h *Handler) GetV1Healthz(ctx apigen.Context, request *http.Request, writer http.ResponseWriter) error {

@@ -228,6 +228,7 @@ function versionLink(deployment) {
             class: `font-mono ${color} underline hover:text-white`,
             href: `https://${deployment.repo}/commit/${running}`,
             target: "_blank",
+            rel: "noopener noreferrer",
             title,
         }, short);
     }
@@ -236,6 +237,7 @@ function versionLink(deployment) {
             class: `font-mono ${color} underline hover:text-white`,
             href: `https://${deployment.repo}/releases/tag/${running}`,
             target: "_blank",
+            rel: "noopener noreferrer",
             title,
         }, short);
     }

@@ -29,6 +29,8 @@ import (
 // machineCtxKey keys the worker's certificate CN in the request context.
 type machineCtxKey struct{}
 
+var clusterForbiddenErr = apigen.NewApiErr("Forbidden", "cluster_request_not_authorized", http.StatusForbidden)
+
 // VerifyClusterPeer is the MuxConfig.VerifyAuth hook for the cluster mux. The
 // worker is already authenticated by mTLS (the listener requires and verifies a
 // client cert); this lifts the verified CN into the auth context so the handler
@@ -48,6 +50,14 @@ func VerifyClusterPeer(ctx context.Context, _ http.ResponseWriter, r *http.Reque
 func machineFromContext(ctx context.Context) string {
 	name, _ := ctx.Value(machineCtxKey{}).(string)
 	return name
+}
+
+func requireMachine(ctx context.Context) (string, error) {
+	machine := machineFromContext(ctx)
+	if machine == "" {
+		return "", fmt.Errorf("cluster request missing machine identity")
+	}
+	return machine, nil
 }
 
 // Primary manages worker sessions and forwards state between the local store
@@ -84,6 +94,13 @@ func New(store *sqlite.PrimaryStorage, assets assetProvider, githubCredentials g
 }
 
 func (p *Primary) GetV1ClusterGithubCredentials(authCtx apigen.Context) (*apigen.GithubCredentials, error) {
+	machine, err := requireMachine(authCtx)
+	if err != nil {
+		return nil, err
+	}
+	if !p.allowedRefsForMachine(machine).usesGithub {
+		return nil, clusterForbiddenErr
+	}
 	creds, err := p.githubCredentials.LoadCredentials(authCtx)
 	if err != nil {
 		return nil, err
@@ -99,6 +116,13 @@ func (p *Primary) GetV1ClusterAsset(authCtx apigen.Context, r *http.Request, w h
 	version, err := int32QueryParam(r, "version")
 	if err != nil {
 		return err
+	}
+	machine, err := requireMachine(authCtx)
+	if err != nil {
+		return err
+	}
+	if !p.allowedRefsForMachine(machine).assetAllowed(assetID, version) {
+		return clusterForbiddenErr
 	}
 	asset, body, err := p.assets.OpenAsset(authCtx, assetID, version)
 	if err != nil {
@@ -130,12 +154,106 @@ func int32QueryParam(r *http.Request, name string) (int32, error) {
 	return int32(value), nil
 }
 
+type clusterAllowedRefs struct {
+	deploymentIDs map[int32]struct{}
+	secretIDs     map[int32]struct{}
+	configIDs     map[int32]struct{}
+	assetRefs     map[clusterAssetRef]struct{}
+	usesGithub    bool
+}
+
+type clusterAssetRef struct {
+	assetID int32
+	version int32
+}
+
+func (p *Primary) allowedRefsForMachine(machine string) clusterAllowedRefs {
+	return buildAllowedRefs(p.store.FetchDeploymentSnapshot(machine))
+}
+
+func buildAllowedRefs(snapshot []apigen.DeploymentWithStatus) clusterAllowedRefs {
+	refs := clusterAllowedRefs{
+		deploymentIDs: make(map[int32]struct{}),
+		secretIDs:     make(map[int32]struct{}),
+		configIDs:     make(map[int32]struct{}),
+		assetRefs:     make(map[clusterAssetRef]struct{}),
+	}
+	for _, dws := range snapshot {
+		cfg := dws.Config
+		if cfg.ID != 0 {
+			refs.deploymentIDs[cfg.ID] = struct{}{}
+		}
+		if cfg.Spec.Prepare.NixDockerBuild != nil || cfg.Spec.Prepare.GithubRelease != nil {
+			refs.usesGithub = true
+		}
+		container := cfg.Spec.Runner.Container
+		for _, value := range container.EnvVars {
+			if value == nil {
+				continue
+			}
+			if value.SecretID != nil && *value.SecretID > 0 {
+				refs.secretIDs[*value.SecretID] = struct{}{}
+			}
+			if value.ConfigID != nil && *value.ConfigID > 0 {
+				refs.configIDs[*value.ConfigID] = struct{}{}
+			}
+			if value.AssetID > 0 && value.Version > 0 {
+				refs.assetRefs[clusterAssetRef{assetID: value.AssetID, version: value.Version}] = struct{}{}
+			}
+		}
+		for _, mount := range container.AssetMounts {
+			if mount == nil || mount.AssetID <= 0 || mount.Version <= 0 {
+				continue
+			}
+			refs.assetRefs[clusterAssetRef{assetID: mount.AssetID, version: mount.Version}] = struct{}{}
+		}
+	}
+	return refs
+}
+
+func (r clusterAllowedRefs) deploymentAllowed(id int32) bool {
+	_, ok := r.deploymentIDs[id]
+	return ok
+}
+
+func (r clusterAllowedRefs) allSecretsAllowed(ids []int32) bool {
+	return allInt32RefsAllowed(ids, r.secretIDs)
+}
+
+func (r clusterAllowedRefs) allConfigsAllowed(ids []int32) bool {
+	return allInt32RefsAllowed(ids, r.configIDs)
+}
+
+func (r clusterAllowedRefs) assetAllowed(assetID, version int32) bool {
+	_, ok := r.assetRefs[clusterAssetRef{assetID: assetID, version: version}]
+	return ok
+}
+
+func allInt32RefsAllowed(ids []int32, allowed map[int32]struct{}) bool {
+	for _, id := range ids {
+		if id <= 0 {
+			return false
+		}
+		if _, ok := allowed[id]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func (p *Primary) GetV1ClusterSecrets(authCtx apigen.Context, req *apigen.ClusterSecretsRequest) (*apigen.ClusterSecretsResponse, error) {
 	if p.secrets == nil {
 		return nil, fmt.Errorf("secrets manager is not configured")
 	}
 	if req == nil || len(req.Ids) == 0 {
 		return nil, fmt.Errorf("at least one secret id is required")
+	}
+	machine, err := requireMachine(authCtx)
+	if err != nil {
+		return nil, err
+	}
+	if !p.allowedRefsForMachine(machine).allSecretsAllowed(req.Ids) {
+		return nil, clusterForbiddenErr
 	}
 	values, err := p.secrets.ResolveMany(req.Ids)
 	if err != nil {
@@ -151,6 +269,13 @@ func (p *Primary) GetV1ClusterSecrets(authCtx apigen.Context, req *apigen.Cluste
 func (p *Primary) GetV1ClusterConfigs(authCtx apigen.Context, req *apigen.ClusterConfigsRequest) (*apigen.ClusterConfigsResponse, error) {
 	if req == nil || len(req.Ids) == 0 {
 		return nil, fmt.Errorf("at least one config id is required")
+	}
+	machine, err := requireMachine(authCtx)
+	if err != nil {
+		return nil, err
+	}
+	if !p.allowedRefsForMachine(machine).allConfigsAllowed(req.Ids) {
+		return nil, clusterForbiddenErr
 	}
 	values, err := p.store.ResolveConfigs(req.Ids)
 	if err != nil {

@@ -813,10 +813,48 @@ func validateContainerMounts(mounts []*apigen.ContainerMount) error {
 		if filepath.Clean(container) != container || container == "/" {
 			return invalidConfigErrf("runner.container.mounts: container path must be a clean absolute path")
 		}
+		if containerHostMountDenied(host) {
+			return invalidConfigErrf("runner.container.mounts: host path %q is not allowed", host)
+		}
 		m.Host = host
 		m.Container = container
 	}
 	return nil
+}
+
+var deniedContainerHostMountRoots = []string{
+	"/boot",
+	"/dev",
+	"/etc",
+	"/proc",
+	"/root",
+	"/run",
+	"/sys",
+	"/var/run",
+	"/var/lib/containerd",
+	"/var/lib/docker",
+	"/var/lib/opendeploy",
+	"/var/lib/opendeploy-assets",
+	"/var/lib/opendeploy-build-logs",
+	"/var/lib/opendeploy-containerd",
+	"/var/lib/opendeploy-releases",
+	"/var/lib/opendeploy-run-logs",
+	"/var/lib/opendeploy-volumes",
+}
+
+func containerHostMountDenied(host string) bool {
+	host = filepath.Clean(host)
+	for _, root := range deniedContainerHostMountRoots {
+		if pathEqualOrUnder(host, root) {
+			return true
+		}
+	}
+	return false
+}
+
+func pathEqualOrUnder(path, root string) bool {
+	root = filepath.Clean(root)
+	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
 }
 
 func resolveAssetMounts(in []*apigen.ContainerAssetMount, assets deploymentAssetResolver) ([]*apigen.ContainerAssetMount, error) {

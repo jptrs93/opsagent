@@ -182,8 +182,8 @@ github.com/hashicorp/golang-lru/v2 v2.0.7 h1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs
 github.com/hashicorp/golang-lru/v2 v2.0.7/go.mod h1:QeFd9opnmA6QUJc5vARoKUSoFhyfM2/ZepoAG6RGpeM=
 github.com/jalaali/go-jalaali v0.0.0-20210801064154-80525e88d958 h1:qxLoi6CAcXVzjfvu+KXIXJOAsQB62LXjsfbOaErsVzE=
 github.com/jalaali/go-jalaali v0.0.0-20210801064154-80525e88d958/go.mod h1:Wqfu7mjUHj9WDzSSPI5KfBclTTEnLveRUFr/ujWnTgE=
-github.com/jptrs93/goutil v0.18.0 h1:K8vFprrwXjZtjNacQHp0zG4CyvHgCNq6RIO1NZ7Pgh4=
-github.com/jptrs93/goutil v0.18.0/go.mod h1:jbGbwA/V/eRePJCj0AX7/BL5pNVccYcn4GmDf6Dnpi0=
+github.com/jptrs93/goutil v0.20.1 h1:SYo1vCg4999kD8ePQo6Ho0SRUrnNHknHTtmMIWNuSbQ=
+github.com/jptrs93/goutil v0.20.1/go.mod h1:jbGbwA/V/eRePJCj0AX7/BL5pNVccYcn4GmDf6Dnpi0=
 github.com/jptrs93/sjson v0.0.0-20250815001024-e33b017420b9 h1:B/eBFKJNQGlAb/uNmEAO1e7YLZFHU7bFeYOO/YBK1YI=
 github.com/jptrs93/sjson v0.0.0-20250815001024-e33b017420b9/go.mod h1:eYBGCag91x39aCeNikjMuhUiAOsBR1sFajZgZx6Yf9c=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=

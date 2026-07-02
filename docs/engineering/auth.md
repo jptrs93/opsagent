@@ -15,7 +15,7 @@ OpenDeploy is a single-admin tool. The `User` proto exposes `{id, name}` to the 
 
 ## Master password bootstrap
 
-The initial master password is provisioned via the `OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH` environment variable, which holds an argon2id hash produced by `authu.HashPassword`. Fresh installs default this hash to the password `opendeploy-setup`. It is used only to obtain a short-lived token for passkey registration.
+The initial master password is provisioned via the `OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH` environment variable, which holds an argon2id hash produced by `authu.HashPassword`. Fresh primary installs generate a high-entropy temporary password, write its hash to `/etc/opendeploy/env`, and print the password once. It is used only to obtain a short-lived token for passkey registration.
 
 If `system_config.MASTER_PASSWORD_HASH` exists in SQLite, that config value is authoritative and the initial env hash is ignored. It is owned by the config service but is not editable through the general config update endpoint.
 
@@ -31,7 +31,7 @@ An authenticated default-session user can save a replacement master password. Th
 
 `POST /v1/auth/master/password/verify` checks a supplied password against the current configured hash without issuing a bootstrap token.
 
-After registering a passkey, the initial master password is no longer needed. It can be removed from the environment.
+After registering a passkey, the initial master password is no longer needed for normal operation. It remains configured until rotated through the authenticated master-password endpoint.
 
 ## JWT tokens
 
@@ -43,7 +43,7 @@ Tokens are signed with RSA-256 (RS256) via `github.com/jptrs93/goutil/authu`. Ea
 
 Two token types exist:
 - **Bootstrap token**: scopes `["passkey:create"]`, 10-minute expiry. Issued by master password exchange.
-- **Session token**: scopes `["default"]`, 7-day expiry. Issued by passkey registration or login.
+- **Session token**: scopes `["default"]`, 2-day expiry. Issued by passkey registration or login.
 
 `GET /v1/auth/current/session` is an authenticated validation endpoint that echoes the caller's current bearer token without minting a new one. The frontend uses it on app startup to confirm persisted auth state and to force re-login on `401`.
 
@@ -51,7 +51,7 @@ Public keys are persisted in the SQLite `public_keys` table keyed by `kid`. Key 
 
 ## WebAuthn passkeys
 
-Passkeys use the FIDO2/WebAuthn standard via `github.com/go-webauthn/webauthn`. Discoverable resident keys are required. User verification is preferred.
+Passkeys use the FIDO2/WebAuthn standard via `github.com/go-webauthn/webauthn`. Discoverable resident keys and user verification are required.
 
 ### Relying party configuration
 

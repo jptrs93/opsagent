@@ -1,9 +1,7 @@
 package installer
 
 import (
-	"crypto/rand"
 	"fmt"
-	"math/big"
 	"net"
 	"os"
 	"path/filepath"
@@ -391,11 +389,11 @@ func generateBootstrapCredentials(opts installOptions) (*bootstrapCredentials, e
 	if opts.restore != nil {
 		return nil, nil
 	}
-	n, err := rand.Int(rand.Reader, big.NewInt(10000))
+	token, err := authu.GenerateRandomToken(32)
 	if err != nil {
 		return nil, fmt.Errorf("generating setup password: %w", err)
 	}
-	password := fmt.Sprintf("opendeploy%04d", n.Int64())
+	password := "opendeploy-" + token
 	hash, err := authu.HashPassword(password)
 	if err != nil {
 		return nil, fmt.Errorf("hashing setup password: %w", err)

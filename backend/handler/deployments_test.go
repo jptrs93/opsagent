@@ -277,6 +277,12 @@ func TestValidateDeploymentSpecRejectsInvalidHostMounts(t *testing.T) {
 		{name: "root container", host: "/srv/data", container: "/"},
 		{name: "unclean host", host: "/srv/../data", container: "/data"},
 		{name: "unclean container", host: "/srv/data", container: "/var/../data"},
+		{name: "opendeploy data", host: "/var/lib/opendeploy", container: "/data"},
+		{name: "opendeploy tls", host: "/var/lib/opendeploy/tls", container: "/data"},
+		{name: "opendeploy runtime socket", host: "/run/opendeploy/containerd.sock", container: "/data"},
+		{name: "containerd state", host: "/var/lib/containerd", container: "/data"},
+		{name: "system config", host: "/etc/opendeploy", container: "/data"},
+		{name: "systemd unit dir", host: "/etc/systemd/system", container: "/data"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{

@@ -71,7 +71,7 @@ curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/unins
 
 After the first primary install, edit `/etc/opendeploy/env`:
 
-1. **Initial setup password** — fresh primary installs print a temporary password like `opendeploy1234`. Use it only to register the first passkey.
+1. **Initial setup password** — fresh primary installs print a high-entropy temporary password like `opendeploy-...`. Use it only to register the first passkey.
 2. **Primary vs. worker node** — install primaries with `opendeploy install primary`; install workers with `opendeploy install secondary --cluster-addr host:9443 --enrollment-addr host:9444`.
 3. **Cluster mTLS** — primary cluster (`:9443`) and HTTPS enrollment (`:9444`) listeners start by default. Set `--cluster-listen` and `--enrollment-listen` during primary install to bind them to specific addresses. Primary CA/server key material is generated automatically and stored encrypted in the primary secrets store. Workers use `OPENDEPLOY_PRIMARY_CLUSTER_ADDR` for mTLS traffic and `OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR` for bootstrap enrollment. During enrollment the worker generates its private key locally, sends a CSR, and caches the received `ca.crt` / `node.crt` plus its local `node.key` under `/var/lib/opendeploy/tls/`.
 4. **ACME / TLS** — set `OPENDEPLOY_INITIAL_ACME_HOSTS` and `OPENDEPLOY_INITIAL_ACME_EMAIL` to your public hostname and contact email.

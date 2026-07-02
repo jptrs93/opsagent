@@ -14,6 +14,8 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
+const defaultSessionTokenTTL = 2 * 24 * time.Hour
+
 func credentialIDMatcher(credentialID []byte) func(user *apigen.InternalUser) bool {
 	return func(u *apigen.InternalUser) bool {
 		for _, j := range u.Credentials {
@@ -36,7 +38,7 @@ func (h *Handler) initPasskeyService() error {
 		RPOrigins:     h.passkeyOrigins(),
 		AuthenticatorSelection: protocol.AuthenticatorSelection{
 			ResidentKey:      protocol.ResidentKeyRequirementRequired,
-			UserVerification: protocol.VerificationPreferred,
+			UserVerification: protocol.VerificationRequired,
 		},
 		Timeouts: webauthn.TimeoutsConfig{
 			Login:        webauthn.TimeoutConfig{Enforce: true, Timeout: 5 * time.Minute},
@@ -109,8 +111,8 @@ func (h *Handler) PostV1AuthPasskeyRegisterFinish(ctx apigen.Context, req *apige
 	if err != nil {
 		return nil, apigen.NewApiErr("bad credentials", fmt.Sprintf("err=%v", err), http.StatusBadRequest)
 	}
-	expiry := time.Now().Add(7 * 24 * time.Hour)
-	token, err := h.jwtAuth.GenerateTokenWith(ctx.User.ID, []string{"default"}, 7*24*time.Hour)
+	expiry := time.Now().Add(defaultSessionTokenTTL)
+	token, err := h.jwtAuth.GenerateTokenWith(ctx.User.ID, []string{"default"}, defaultSessionTokenTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -130,8 +132,8 @@ func (h *Handler) PostV1AuthPasskeyLoginFinish(ctx apigen.Context, req *apigen.W
 	if err != nil {
 		return nil, apigen.NewApiErr("bad credentials", fmt.Sprintf("err=%v", err), http.StatusBadRequest)
 	}
-	expiry := time.Now().Add(7 * 24 * time.Hour)
-	token, err := h.jwtAuth.GenerateTokenWith(user.ID, []string{"default"}, 7*24*time.Hour)
+	expiry := time.Now().Add(defaultSessionTokenTTL)
+	token, err := h.jwtAuth.GenerateTokenWith(user.ID, []string{"default"}, defaultSessionTokenTTL)
 	if err != nil {
 		return nil, err
 	}
