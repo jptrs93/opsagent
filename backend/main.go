@@ -86,6 +86,7 @@ func main() {
 			} else {
 				slog.Error("opendeploy primary stopped with error", "err", err)
 			}
+			os.Exit(1)
 		}
 		return
 	case ainit.CommandSecondary:

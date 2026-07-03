@@ -67,3 +67,10 @@ func TestRenderEnvTemplateWritesSplitWebSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderOpenDeployUnitUsesRestartAlways(t *testing.T) {
+	unit := renderOpenDeployUnit(installOptions{role: "primary"})
+	if !strings.Contains(string(unit), "Restart=always") {
+		t.Fatalf("unit missing Restart=always:\n%s", unit)
+	}
+}
