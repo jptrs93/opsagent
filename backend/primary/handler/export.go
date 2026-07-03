@@ -8,12 +8,12 @@ import (
 )
 
 type exportedConfigBundle struct {
-	Deployments []*apigen.DeploymentConfig   `json:"deployments"`
-	Configs     []*apigen.UserConfig         `json:"configs"`
-	Secrets     []*apigen.SecretMeta         `json:"secrets"`
-	Assets      []*apigen.AssetMeta          `json:"assets"`
-	Spaces      []*apigen.Space              `json:"spaces"`
-	Settings    *apigen.DynamicConfiguration `json:"settings"`
+	Deployments []*apigen.DeploymentConfig `json:"deployments"`
+	Configs     []*apigen.UserConfig       `json:"configs"`
+	Secrets     []*apigen.SecretMeta       `json:"secrets"`
+	Assets      []*apigen.AssetMeta        `json:"assets"`
+	Spaces      []*apigen.Space            `json:"spaces"`
+	Settings    apigen.Settings            `json:"settings"`
 }
 
 func (h *Handler) PostV1GenerateExportedConfig(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ExportedConfigBlob, error) {
@@ -22,7 +22,8 @@ func (h *Handler) PostV1GenerateExportedConfig(ctx apigen.Context, req *apigen.E
 	secrets := h.listSecretMetas()
 	assets := h.Store.ListAssets()
 	spaces := h.Store.ListSpaces()
-	settings := dynamicConfigToProto(h.ConfigService.Snapshot())
+	storedSettings := h.ConfigService.Snapshot().Settings
+	settings := storedSettings
 
 	sort.Slice(deployments, func(i, j int) bool { return deployments[i].ID < deployments[j].ID })
 	sort.Slice(configs, func(i, j int) bool { return configs[i].Name < configs[j].Name })

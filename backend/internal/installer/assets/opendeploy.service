@@ -19,7 +19,9 @@ Environment=PATH=/nix/var/nix/profiles/default/bin:/usr/local/sbin:/usr/local/bi
 # opendeploy restarts — opendeploy reattaches to them on startup via PID polling.
 KillMode=process
 
-Restart=on-failure
+# OpenDeploy can exit cleanly for managed lifecycle events, such as applying
+# listener config changes by starting again from a fresh config snapshot.
+Restart=always
 RestartSec=5
 
 # Hardening

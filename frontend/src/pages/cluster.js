@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {deploymentsStreamS, enrollmentsS, machinesS} from "../state/deployments.js";
+import {deploymentsStreamS, enrollmentsS, machinesS, userConfigsS} from "../state/deployments.js";
 
 const { button, code, div, h2, input, p, span, table, tbody, td, th, thead, tr } = van.tags;
 
@@ -19,7 +19,7 @@ export function clusterPage() {
     const loadConfig = async () => {
         try {
             configError.val = null;
-            config.val = await capi.getV1Config();
+            config.val = await capi.getV1Settings();
         } catch (e) {
             configError.val = e.message || "Failed to load cluster config";
         }
@@ -145,13 +145,23 @@ function installCommandBlock(command) {
 }
 
 function secondaryInstallCommand(config) {
-    if (!config?.clusterListen || !config?.enrollmentListen) return "";
-    const clusterAddr = dialAddress(config.clusterListen);
-    const enrollmentAddr = dialAddress(config.enrollmentListen);
+    const clusterListen = resolveStringSetting(config?.cluster?.listen);
+    const enrollmentListen = resolveStringSetting(config?.cluster?.enrollmentListen);
+    if (!clusterListen || !enrollmentListen) return "";
+    const clusterAddr = dialAddress(clusterListen);
+    const enrollmentAddr = dialAddress(enrollmentListen);
     if (!clusterAddr || !enrollmentAddr) return "";
     return `curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/install_secondary.sh | bash -s -- \\
   --cluster-addr "${clusterAddr}" \\
   --enrollment-addr "${enrollmentAddr}"`;
+}
+
+function resolveStringSetting(setting) {
+    if (!setting) return "";
+    const refKey = setting.configRef?.key || "";
+    if (!refKey) return (setting.value || "").trim();
+    const item = (userConfigsS.val || []).find(cfg => cfg.name === refKey);
+    return (item?.value || "").trim();
 }
 
 function dialAddress(listen) {

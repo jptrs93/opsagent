@@ -12,6 +12,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/util/stringu"
 )
 
 const defaultSessionTokenTTL = 2 * 24 * time.Hour
@@ -32,10 +33,18 @@ func userIDMatcher(userWebAuthnID []byte) func(user *apigen.InternalUser) bool {
 
 func (h *Handler) initPasskeyService() error {
 
+	rpID, err := h.passkeyRPID()
+	if err != nil {
+		return err
+	}
+	origins, err := h.passkeyOrigins()
+	if err != nil {
+		return err
+	}
 	service, err := authu.NewPasskeyService[*apigen.InternalUser](&webauthn.Config{
 		RPDisplayName: "Opsagent",
-		RPID:          h.passkeyRPID(),
-		RPOrigins:     h.passkeyOrigins(),
+		RPID:          rpID,
+		RPOrigins:     origins,
 		AuthenticatorSelection: protocol.AuthenticatorSelection{
 			ResidentKey:      protocol.ResidentKeyRequirementRequired,
 			UserVerification: protocol.VerificationRequired,
@@ -70,22 +79,30 @@ func (h *Handler) initPasskeyService() error {
 	return nil
 }
 
-func (h *Handler) passkeyRPID() string {
-	if h.Config.WebHTTPOnly {
-		return "localhost"
+func (h *Handler) passkeyRPID() (string, error) {
+	httpEnabled := h.ConfigService.MustLoadConfigBoolValue(h.Config.HttpWeb.Enabled)
+	httpsEnabled := h.ConfigService.MustLoadConfigBoolValue(h.Config.HttpsWeb.Enabled)
+	if httpEnabled && !httpsEnabled {
+		return "localhost", nil
 	}
-	if len(h.Config.AcmeHosts) == 0 || strings.TrimSpace(h.Config.AcmeHosts[0]) == "" {
-		return "opendeploy.dev"
+	hostsValue := h.ConfigService.MustLoadConfigStringValue(h.Config.HttpsWeb.AcmeHosts)
+	hosts := stringu.ParseStringList(hostsValue)
+	if len(hosts) == 0 || strings.TrimSpace(hosts[0]) == "" {
+		return "opendeploy.dev", nil
 	}
-	return strings.TrimSpace(h.Config.AcmeHosts[0])
+	return strings.TrimSpace(hosts[0]), nil
 }
 
-func (h *Handler) passkeyOrigins() []string {
-	if h.Config.WebHTTPOnly {
-		return []string{"http://localhost:8080", "http://localhost:5173"}
+func (h *Handler) passkeyOrigins() ([]string, error) {
+	httpEnabled := h.ConfigService.MustLoadConfigBoolValue(h.Config.HttpWeb.Enabled)
+	httpsEnabled := h.ConfigService.MustLoadConfigBoolValue(h.Config.HttpsWeb.Enabled)
+	if httpEnabled && !httpsEnabled {
+		return []string{"http://localhost:8080", "http://localhost:5173"}, nil
 	}
-	origins := make([]string, 0, len(h.Config.AcmeHosts))
-	for _, host := range h.Config.AcmeHosts {
+	hostsValue := h.ConfigService.MustLoadConfigStringValue(h.Config.HttpsWeb.AcmeHosts)
+	hosts := stringu.ParseStringList(hostsValue)
+	origins := make([]string, 0, len(hosts))
+	for _, host := range hosts {
 		host = strings.TrimSpace(host)
 		if host == "" {
 			continue
@@ -93,9 +110,9 @@ func (h *Handler) passkeyOrigins() []string {
 		origins = append(origins, "https://"+host)
 	}
 	if len(origins) == 0 {
-		return []string{"https://opendeploy.dev"}
+		return []string{"https://opendeploy.dev"}, nil
 	}
-	return origins
+	return origins, nil
 }
 
 func (h *Handler) PostV1AuthPasskeyRegisterStart(ctx apigen.Context, _ *apigen.EmptyRequest) (*apigen.WebAuthNOptionsResponse, error) {

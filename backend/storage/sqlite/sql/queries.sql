@@ -173,17 +173,6 @@ ON CONFLICT(kid) DO UPDATE SET key_bytes = excluded.key_bytes;
 -- name: ListPublicKeys :many
 SELECT kid, key_bytes FROM public_keys ORDER BY kid;
 
--- === system_config ===
-
--- name: GetConfigValue :one
-SELECT key, value, updated_at FROM system_config WHERE key = ?;
-
--- name: UpsertConfigValue :exec
-INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?)
-ON CONFLICT(key) DO UPDATE SET
-    value = excluded.value,
-    updated_at = excluded.updated_at;
-
 -- === user_configs ===
 
 -- name: ListUserConfigs :many
@@ -330,3 +319,7 @@ ON CONFLICT(name) DO UPDATE SET
     ciphertext = excluded.ciphertext,
     nonce = excluded.nonce,
     updated_at = excluded.updated_at;
+
+
+-- name: GetLatestConfig :one
+select * from opendeploy_config order by id desc limit 1;

@@ -10,7 +10,6 @@ import {
   decodeDeploymentHistory,
   decodeDeploymentVersions,
   decodeDesiredState,
-  decodeDynamicConfiguration,
   decodeEnrollmentPrimaryMsg,
   decodeEnrollmentRequestList,
   decodeEnrollmentRequestStatus,
@@ -25,6 +24,7 @@ import {
   decodeSecretRecoveryCodeResponse,
   decodeSecretRevealResponse,
   decodeSecretsStatusResponse,
+  decodeSettings,
   decodeSpace,
   decodeState,
   decodeUserConfig,
@@ -36,7 +36,6 @@ import {
   encodeAssetSetRequest,
   encodeClusterConfigsRequest,
   encodeClusterSecretsRequest,
-  encodeConfigUpdateRequest,
   encodeDeploymentCreateRequest,
   encodeDeploymentDeleteRequest,
   encodeDeploymentHistoryRequest,
@@ -56,6 +55,7 @@ import {
   encodeSecretSetRequest,
   encodeSecretUnlockRequest,
   encodeSecretValue,
+  encodeSettings,
   encodeSpaceDeleteRequest,
   encodeSpaceSetRequest,
   encodeUserConfigDeleteRequest,
@@ -446,26 +446,26 @@ export class Capi {
   }
 
   /**
-   * @returns {Promise<DynamicConfiguration>}
+   * @returns {Promise<Settings>}
    */
-  async getV1Config() {
-    const response = await this.#request("/v1/config", { method: 'GET' });
+  async getV1Settings() {
+    const response = await this.#request("/v1/settings", { method: 'GET' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeDynamicConfiguration(await response.arrayBuffer());
+    return decodeSettings(await response.arrayBuffer());
   }
 
   /**
-   * @param {ConfigUpdateRequest} payload
-   * @returns {Promise<DynamicConfiguration>}
+   * @param {Settings} payload
+   * @returns {Promise<Settings>}
    */
-  async postV1ConfigUpdate(payload) {
-    const response = await this.#request("/v1/config/update", { method: 'POST', body: encodeConfigUpdateRequest(payload) });
+  async putV1Settings(payload) {
+    const response = await this.#request("/v1/settings", { method: 'PUT', body: encodeSettings(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeDynamicConfiguration(await response.arrayBuffer());
+    return decodeSettings(await response.arrayBuffer());
   }
 
   /**

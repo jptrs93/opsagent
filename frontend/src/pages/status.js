@@ -372,7 +372,7 @@ export function statusPage(onOpenLogs = () => {}) {
     );
 
     const tableHeader = (text, tip, classes, alignRight = false) => th(
-        {class: classes},
+        {class: `${classes} sticky top-0 z-10 bg-surface`},
         span(
             {class: `inline-flex items-center gap-1.5 ${alignRight ? 'justify-end' : ''}`},
             text,
@@ -424,8 +424,8 @@ export function statusPage(onOpenLogs = () => {}) {
     };
 
     const deploymentTableCard = (tableNode) => div(
-        {class: "w-full min-w-0 rounded-lg bg-surface border border-gray-700 p-2"},
-        div({class: "w-full overflow-x-auto overflow-y-hidden"}, tableNode),
+        {class: "w-full min-w-0 min-h-0 flex-1 rounded-lg bg-surface border border-gray-700 p-2 flex flex-col"},
+        div({class: "w-full min-h-0 flex-1 overflow-auto"}, tableNode),
     );
 
     const deploymentToolbarButtonBase = "inline-flex items-center justify-center whitespace-nowrap rounded-lg px-3 py-1.5 " +
@@ -434,7 +434,7 @@ export function statusPage(onOpenLogs = () => {}) {
     const deploymentToolbarSecondaryButtonClass = `${deploymentToolbarButtonBase} bg-gray-700 text-gray-200 hover:bg-gray-600`;
 
     const mainContent = div(
-        {class: "flex flex-col gap-3 w-full min-w-0"},
+        {class: "flex flex-col gap-3 w-full min-w-0 min-h-0 flex-1"},
         div(
             {class: "flex flex-wrap items-center justify-between gap-3"},
             input({
@@ -545,7 +545,7 @@ export function statusPage(onOpenLogs = () => {}) {
     // Persistent DOM nodes — widths are updated directly during drag
     // so VanJS doesn't rebuild the sidebar on every mouse move.
     const mainPane = div(
-        {class: "min-w-0 min-h-0 overflow-y-auto overflow-x-hidden p-3 flex flex-col gap-6", style: "width:100%"},
+        {class: "min-w-0 min-h-0 overflow-hidden p-3 flex flex-col gap-6", style: "width:100%"},
         mainContent,
     );
 

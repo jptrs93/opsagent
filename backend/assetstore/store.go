@@ -14,8 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/config"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
@@ -24,8 +24,14 @@ const InlineThresholdBytes = 10 * 1024 * 1024
 var ErrLargeAssetS3Config = errors.New("large asset S3 settings are not configured")
 
 type Store struct {
-	DB     *sqlite.PrimaryStorage
-	Config func() ainit.DynamicConfiguration
+	DB      *sqlite.PrimaryStorage
+	Config  func() *apigen.Settings
+	Loader  config.Loader
+	Secrets secretStore
+}
+
+type secretStore interface {
+	Reveal(name string) ([]byte, error)
 }
 
 func (s *Store) GetAssetForPreview(key string, version int32) (*apigen.Asset, bool, error) {
@@ -83,7 +89,8 @@ func (s *Store) setLargeAssetFromReader(ctx context.Context, key, format string,
 	}
 
 	asset := s.DB.SetAssetStored(key, format, "", sizeBytes, []byte{}, spaceID)
-	objectKey := objectKey(cfg.LargeAssetS3Path, asset.ID)
+	prefix := s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Path)
+	objectKey := objectKey(prefix, asset.ID)
 	location := "s3://" + bucket + "/" + objectKey
 	if _, err := client.PutObject(ctx, &awss3.PutObjectInput{
 		Bucket:        aws.String(bucket),
@@ -158,28 +165,35 @@ func (s *Store) openS3Asset(ctx context.Context, location string) (io.ReadCloser
 	return res.Body, nil
 }
 
-func (s *Store) s3Client(cfg ainit.DynamicConfiguration, requireEnabled bool) (*awss3.Client, string, error) {
-	if requireEnabled && !cfg.LargeAssetS3Enabled {
-		return nil, "", fmt.Errorf("%w: large asset S3 settings must be enabled before storing or reading large assets", ErrLargeAssetS3Config)
+func (s *Store) s3Client(cfg *apigen.Settings, requireEnabled bool) (*awss3.Client, string, error) {
+	if requireEnabled {
+		enabled := s.Loader.MustLoadConfigBoolValue(cfg.LargeAssets.S3Enabled)
+		if !enabled {
+			return nil, "", fmt.Errorf("%w: large asset S3 settings must be enabled before storing or reading large assets", ErrLargeAssetS3Config)
+		}
 	}
-	secretAccessKey, err := revealSecretValue(cfg.LargeAssetS3SecretAccessKey)
+	secretAccessKey, err := revealSecretRef(s.Secrets, cfg.LargeAssets.S3SecretAccessKey)
 	if err != nil {
 		return nil, "", fmt.Errorf("reveal large asset S3 secret access key: %w", err)
 	}
-	if cfg.LargeAssetS3AccessKeyID == "" || secretAccessKey == "" || cfg.LargeAssetS3Bucket == "" || cfg.LargeAssetS3Region == "" {
+	accessKeyID := s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3AccessKeyID)
+	bucket := s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Bucket)
+	region := s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Region)
+	endpoint := s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Endpoint)
+	if accessKeyID == "" || secretAccessKey == "" || bucket == "" || region == "" {
 		return nil, "", fmt.Errorf("%w: access key ID, secret access key, bucket, and region are required", ErrLargeAssetS3Config)
 	}
 	awsCfg := aws.Config{
-		Region:      cfg.LargeAssetS3Region,
-		Credentials: credentials.NewStaticCredentialsProvider(cfg.LargeAssetS3AccessKeyID, secretAccessKey, ""),
+		Region:      region,
+		Credentials: credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, ""),
 	}
 	client := awss3.NewFromConfig(awsCfg, func(o *awss3.Options) {
-		if cfg.LargeAssetS3Endpoint != "" {
-			o.BaseEndpoint = aws.String(cfg.LargeAssetS3Endpoint)
+		if endpoint != "" {
+			o.BaseEndpoint = aws.String(endpoint)
 			o.UsePathStyle = true
 		}
 	})
-	return client, cfg.LargeAssetS3Bucket, nil
+	return client, bucket, nil
 }
 
 func objectKey(prefix string, assetID int32) string {
@@ -203,11 +217,13 @@ func parseS3Location(location string) (string, string, error) {
 	return parts[0], parts[1], nil
 }
 
-func revealSecretValue(value interface {
-	Reveal() (string, error)
-}) (string, error) {
-	if value == nil {
+func revealSecretRef(secrets secretStore, ref apigen.SecretRef) (string, error) {
+	if secrets == nil || ref.Key == "" {
 		return "", nil
 	}
-	return value.Reveal()
+	value, err := secrets.Reveal(ref.Key)
+	if err != nil {
+		return "", err
+	}
+	return string(value), nil
 }

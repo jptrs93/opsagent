@@ -1,231 +1,184 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 
-	"github.com/jptrs93/goutil/ptru"
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/pubsubu"
 	"github.com/jptrs93/opsagent/backend/ainit"
-	"github.com/jptrs93/opsagent/backend/secrets"
+	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
-	"github.com/jptrs93/opsagent/backend/util/secretu"
-)
-
-type ConfigKey string
-
-const (
-	WebListen                   ConfigKey = "WEB_LISTEN"
-	WebHTTPOnly                 ConfigKey = "WEB_HTTP_ONLY"
-	ClusterListen               ConfigKey = "CLUSTER_LISTEN"
-	EnrollmentListen            ConfigKey = "ENROLLMENT_LISTEN"
-	AcmeHosts                   ConfigKey = "ACME_HOSTS"
-	AcmeEmail                   ConfigKey = "ACME_EMAIL"
-	MasterPasswordHash          ConfigKey = "MASTER_PASSWORD_HASH"
-	GithubToken                 ConfigKey = "GITHUB_TOKEN"
-	BackupEnabled               ConfigKey = "BACKUP_ENABLED"
-	BackupS3AccessKeyID         ConfigKey = "BACKUP_S3_ACCESS_KEY_ID"
-	BackupS3SecretAccessKey     ConfigKey = "BACKUP_S3_SECRET_ACCESS_KEY"
-	BackupS3Bucket              ConfigKey = "BACKUP_S3_BUCKET"
-	BackupS3Path                ConfigKey = "BACKUP_S3_PATH"
-	BackupS3Region              ConfigKey = "BACKUP_S3_REGION"
-	BackupS3Endpoint            ConfigKey = "BACKUP_S3_ENDPOINT"
-	LargeAssetS3Enabled         ConfigKey = "LARGE_ASSET_S3_ENABLED"
-	LargeAssetS3AccessKeyID     ConfigKey = "LARGE_ASSET_S3_ACCESS_KEY_ID"
-	LargeAssetS3SecretAccessKey ConfigKey = "LARGE_ASSET_S3_SECRET_ACCESS_KEY"
-	LargeAssetS3Bucket          ConfigKey = "LARGE_ASSET_S3_BUCKET"
-	LargeAssetS3Path            ConfigKey = "LARGE_ASSET_S3_PATH"
-	LargeAssetS3Region          ConfigKey = "LARGE_ASSET_S3_REGION"
-	LargeAssetS3Endpoint        ConfigKey = "LARGE_ASSET_S3_ENDPOINT"
 )
 
 type Service struct {
 	Storage *sqlite.PrimaryStorage
-	Secrets *secrets.Manager
-
-	mu   sync.Mutex
-	subs *pubsubu.PubSub[ainit.DynamicConfiguration]
+	Subs    *pubsubu.PubSub[apigen.Config]
 }
 
-type Update struct {
-	Key   ConfigKey
-	Value string
+type Loader interface {
+	MustLoadConfigStringValue(v apigen.StringSetting) string
+	MustLoadConfigBoolValue(v apigen.BoolSetting) bool
 }
 
-const (
-	githubTokenSecretName                 = "opendeploy.config.github_token"
-	backupS3SecretAccessKeySecretName     = "opendeploy.config.backup_s3_secret_access_key"
-	largeAssetS3SecretAccessKeySecretName = "opendeploy.config.large_asset_s3_secret_access_key"
-	legacyGithubTokenSecretName           = "config.github_token"
-	legacyBackupS3SecretAccessKeyName     = "config.backup_s3_secret_access_key"
-)
-
-func (s *Service) SnapshotAndSubscribe(filter func(ainit.DynamicConfiguration) bool) *pubsubu.Sub[ainit.DynamicConfiguration] {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.subs == nil {
-		s.subs = &pubsubu.PubSub[ainit.DynamicConfiguration]{}
+func DefaultSettings(static ainit.StaticConfiguration) *apigen.Settings {
+	return &apigen.Settings{
+		HttpWeb: apigen.HttpWebSettings{
+			Enabled: apigen.BoolSetting{Value: static.InitialWebHTTPEnabled},
+			Listen:  apigen.StringSetting{Value: static.InitialWebHTTPListen},
+		},
+		HttpsWeb: apigen.HttpsWebSettings{
+			Enabled:        apigen.BoolSetting{Value: static.InitialWebHTTPSEnabled},
+			Listen:         apigen.StringSetting{Value: static.InitialWebHTTPSListen},
+			TlsSelfManaged: apigen.BoolSetting{Value: static.InitialWebTLSSelfManaged},
+			TlsCertPem:     apigen.SecretRef{},
+			AcmeHosts:      apigen.StringSetting{Value: strings.Join(static.InitialAcmeHosts, ",")},
+			AcmeEmail:      apigen.StringSetting{Value: static.InitialAcmeEmail},
+		},
+		Cluster: apigen.ClusterSettings{
+			Listen:           apigen.StringSetting{Value: static.InitialClusterListen},
+			EnrollmentListen: apigen.StringSetting{Value: static.InitialEnrollmentListen},
+		},
+		Repo: apigen.RepoSettings{
+			GithubToken: apigen.SecretRef{},
+		},
+		Backup: apigen.BackupSettings{
+			Enabled:           apigen.BoolSetting{Value: false},
+			S3AccessKeyID:     apigen.StringSetting{Value: ""},
+			S3SecretAccessKey: apigen.SecretRef{},
+			S3Bucket:          apigen.StringSetting{Value: ""},
+			S3Path:            apigen.StringSetting{Value: "opendeploy/primary"},
+			S3Region:          apigen.StringSetting{Value: "us-east-1"},
+			S3Endpoint:        apigen.StringSetting{Value: ""},
+		},
+		LargeAssets: apigen.LargeAssetsSettings{
+			S3Enabled:         apigen.BoolSetting{Value: false},
+			S3AccessKeyID:     apigen.StringSetting{Value: ""},
+			S3SecretAccessKey: apigen.SecretRef{},
+			S3Bucket:          apigen.StringSetting{Value: ""},
+			S3Path:            apigen.StringSetting{Value: "opendeploy/assets"},
+			S3Region:          apigen.StringSetting{Value: "us-east-1"},
+			S3Endpoint:        apigen.StringSetting{Value: ""},
+		},
 	}
-	s.subs.Notify(s.snapshot())
-	return s.subs.Subscribe(filter)
 }
 
-func (s *Service) Snapshot() ainit.DynamicConfiguration {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.snapshot()
+func NormalizeSettings(settings apigen.Settings) apigen.Settings {
+	return settings
 }
 
-func (s *Service) UpdateValue(key ConfigKey, value string) error {
-	return s.UpdateValues([]Update{{Key: key, Value: value}})
+func normalizeConfig(cfg apigen.Config) apigen.Config {
+	cfg.Settings = NormalizeSettings(cfg.Settings)
+	return cfg
+}
+
+func DefaultConfig(static ainit.StaticConfiguration) *apigen.Config {
+	return &apigen.Config{
+		Settings:           *DefaultSettings(static),
+		MasterPasswordHash: static.InitialMasterPasswordHash,
+	}
+}
+
+func NewService(store *sqlite.PrimaryStorage) (*Service, error) {
+	s := &Service{Storage: store, Subs: &pubsubu.PubSub[apigen.Config]{}}
+	cfg, err := s.loadOrInitConfig()
+	if err != nil {
+		return nil, err
+	}
+	s.Subs.Notify(cfg)
+	return s, nil
+}
+
+func (s *Service) SnapshotAndSubscribe(filter func(a, b apigen.Config) bool) *pubsubu.Sub[apigen.Config] {
+	return s.Subs.Subscribe(filter)
+}
+
+func (s *Service) Snapshot() apigen.Config {
+	return s.Subs.Value()
+}
+
+func (s *Service) loadOrInitConfig() (apigen.Config, error) {
+	var res apigen.Config
+	r, err := s.Storage.FetchLatestOpenDeployConfig()
+	if err != nil {
+		if errors.Is(err, sqlite.ErrNotFound) {
+			cfg := DefaultConfig(ainit.StaticConfig)
+			if _, err := s.Storage.AppendOpenDeploySettings(cfg.Encode()); err != nil {
+				return res, fmt.Errorf("AppendOpenDeploySettings: %w", err)
+			}
+			return normalizeConfig(*cfg), nil
+		} else {
+			return res, fmt.Errorf("FetchLatestOpenDeployConfig: %w", err)
+		}
+	}
+	cfg, err := apigen.DecodeConfig(r.ConfigBlob)
+	if err != nil {
+		return res, fmt.Errorf("DecodeConfig: %w", err)
+	}
+	return normalizeConfig(*cfg), nil
+}
+
+func (s *Service) UpdateSettings(settings apigen.Settings) error {
+	settings = NormalizeSettings(settings)
+	current := s.Snapshot()
+	cfg := apigen.Config{Settings: settings, MasterPasswordHash: current.MasterPasswordHash}
+	return s.saveAndNotify(cfg)
+}
+
+func (s *Service) saveAndNotify(cfg apigen.Config) error {
+	cfg = normalizeConfig(cfg)
+	if _, err := s.Storage.AppendOpenDeploySettings(cfg.Encode()); err != nil {
+		return fmt.Errorf("AppendOpenDeploySettings: %w", err)
+	}
+	s.Subs.Notify(cfg)
+	return nil
 }
 
 func (s *Service) GetMasterPasswordHash() (string, error) {
-	value, configured, err := s.Storage.FetchConfigValue(string(MasterPasswordHash))
-	if err != nil {
-		return "", fmt.Errorf("FetchConfigValue %s: %w", MasterPasswordHash, err)
-	}
-	if configured {
-		return value, nil
-	}
-	return ainit.StaticConfig.InitialMasterPasswordHash, nil
-}
-
-func (s *Service) EnsureInitialMasterPasswordHashPersisted() error {
-	if ainit.StaticConfig.InitialMasterPasswordHash == "" {
-		return nil
-	}
-	_, configured, err := s.Storage.FetchConfigValue(string(MasterPasswordHash))
-	if err != nil {
-		return fmt.Errorf("FetchConfigValue %s: %w", MasterPasswordHash, err)
-	}
-	if configured {
-		return nil
-	}
-	if err := s.Storage.SetConfigValue(string(MasterPasswordHash), ainit.StaticConfig.InitialMasterPasswordHash); err != nil {
-		return fmt.Errorf("SetConfigValue %s: %w", MasterPasswordHash, err)
-	}
-	return nil
+	return s.Snapshot().MasterPasswordHash, nil
 }
 
 func (s *Service) SetMasterPasswordHash(hash string) error {
-	if err := s.Storage.SetConfigValue(string(MasterPasswordHash), hash); err != nil {
-		return fmt.Errorf("SetConfigValue %s: %w", MasterPasswordHash, err)
+	cfg := s.Snapshot()
+	cfg.MasterPasswordHash = hash
+	return s.saveAndNotify(cfg)
+}
+
+func (s *Service) MustLoadConfigStringValue(v apigen.StringSetting) string {
+	return erru.Must(s.LoadConfigStringValue(v))
+}
+
+func (s *Service) MustLoadConfigBoolValue(v apigen.BoolSetting) bool {
+	return erru.Must(s.LoadConfigBoolValue(v))
+}
+
+func (s *Service) LoadConfigStringValue(v apigen.StringSetting) (string, error) {
+	if strings.TrimSpace(v.ConfigRef.Key) == "" {
+		return v.Value, nil
 	}
-	return nil
-}
-
-func (s *Service) UpdateValues(updates []Update) error {
-	for _, update := range updates {
-		if err := s.updateValueWithoutNotify(update.Key, update.Value); err != nil {
-			return err
-		}
+	if s == nil || s.Storage == nil {
+		return "", fmt.Errorf("config storage is not configured")
 	}
-	s.notify()
-	return nil
-}
-
-func (s *Service) updateValueWithoutNotify(key ConfigKey, value string) error {
-	if err := s.Storage.SetConfigValue(string(key), value); err != nil {
-		return fmt.Errorf("SetConfigValue %s: %w", key, err)
+	value, ok := s.Storage.ResolveConfigByName(strings.TrimSpace(v.ConfigRef.Key))
+	if !ok {
+		return "", fmt.Errorf("config ref %q was not found", v.ConfigRef.Key)
 	}
-	return nil
+	return value, nil
 }
 
-func IsSecretConfigKey(key ConfigKey) bool {
-	return key == GithubToken || key == BackupS3SecretAccessKey || key == LargeAssetS3SecretAccessKey
-}
-
-func (s *Service) notify() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.subs != nil {
-		s.subs.Notify(s.snapshot())
+func (s *Service) LoadConfigBoolValue(v apigen.BoolSetting) (bool, error) {
+	if strings.TrimSpace(v.ConfigRef.Key) == "" {
+		return v.Value, nil
 	}
-}
-
-func (s *Service) snapshot() ainit.DynamicConfiguration {
-	static := ainit.StaticConfig
-	return ainit.DynamicConfiguration{
-		WebListen:                   ptru.NonNil(s.mustLoadValue(WebListen), static.InitialWebListen),
-		WebHTTPOnly:                 parseBool(ptru.NonNil(s.mustLoadValue(WebHTTPOnly), strconv.FormatBool(static.InitialWebHTTPOnly)), WebHTTPOnly),
-		ClusterListen:               ptru.NonNil(s.mustLoadValue(ClusterListen), static.InitialClusterListen),
-		EnrollmentListen:            ptru.NonNil(s.mustLoadValue(EnrollmentListen), static.InitialEnrollmentListen),
-		AcmeHosts:                   parseStringList(ptru.NonNil(s.mustLoadValue(AcmeHosts), strings.Join(static.InitialAcmeHosts, ","))),
-		AcmeEmail:                   ptru.NonNil(s.mustLoadValue(AcmeEmail), static.InitialAcmeEmail),
-		GithubToken:                 s.loadGithubToken(),
-		BackupEnabled:               parseBool(ptru.NonNil(s.mustLoadValue(BackupEnabled), "false"), BackupEnabled),
-		BackupS3AccessKeyID:         ptru.SafeDref(s.mustLoadValue(BackupS3AccessKeyID)),
-		BackupS3SecretAccessKey:     s.loadBackupS3SecretAccessKey(),
-		BackupS3Bucket:              ptru.SafeDref(s.mustLoadValue(BackupS3Bucket)),
-		BackupS3Path:                ptru.NonNil(s.mustLoadValue(BackupS3Path), "opendeploy/primary"),
-		BackupS3Region:              ptru.NonNil(s.mustLoadValue(BackupS3Region), "us-east-1"),
-		BackupS3Endpoint:            ptru.SafeDref(s.mustLoadValue(BackupS3Endpoint)),
-		LargeAssetS3Enabled:         parseBool(ptru.NonNil(s.mustLoadValue(LargeAssetS3Enabled), "false"), LargeAssetS3Enabled),
-		LargeAssetS3AccessKeyID:     ptru.SafeDref(s.mustLoadValue(LargeAssetS3AccessKeyID)),
-		LargeAssetS3SecretAccessKey: s.loadLargeAssetS3SecretAccessKey(),
-		LargeAssetS3Bucket:          ptru.SafeDref(s.mustLoadValue(LargeAssetS3Bucket)),
-		LargeAssetS3Path:            ptru.NonNil(s.mustLoadValue(LargeAssetS3Path), "opendeploy/assets"),
-		LargeAssetS3Region:          ptru.NonNil(s.mustLoadValue(LargeAssetS3Region), "us-east-1"),
-		LargeAssetS3Endpoint:        ptru.SafeDref(s.mustLoadValue(LargeAssetS3Endpoint)),
-	}
-}
-
-func (s *Service) mustLoadValue(key ConfigKey) *string {
-	value, configured, err := s.Storage.FetchConfigValue(string(key))
+	value, err := s.LoadConfigStringValue(apigen.StringSetting{ConfigRef: v.ConfigRef})
 	if err != nil {
-		panic(fmt.Sprintf("FetchConfigValue %s: %v", key, err))
+		return false, err
 	}
-	if !configured {
-		return nil
-	}
-	return &value
-}
-
-func (s *Service) loadGithubToken() secretu.SecretValue {
-	return s.loadConfigSecretRef(GithubToken, legacyGithubTokenSecretName)
-}
-
-func (s *Service) loadBackupS3SecretAccessKey() secretu.SecretValue {
-	return s.loadConfigSecretRef(BackupS3SecretAccessKey, legacyBackupS3SecretAccessKeyName)
-}
-
-func (s *Service) loadLargeAssetS3SecretAccessKey() secretu.SecretValue {
-	return s.loadConfigSecretRef(LargeAssetS3SecretAccessKey, largeAssetS3SecretAccessKeySecretName)
-}
-
-func (s *Service) loadConfigSecretRef(key ConfigKey, legacySecretName string) secretu.SecretValue {
-	if s.Secrets == nil {
-		return secretu.PlainSecretValue{}
-	}
-	if ref := strings.TrimSpace(ptru.SafeDref(s.mustLoadValue(key))); ref != "" {
-		_, t := s.Secrets.HasSecret(ref)
-		return secretu.StoredSecretValue{K: ref, Revealer: s.Secrets, UpdatedAt: t}
-	}
-	if ok, t := s.Secrets.HasSecret(legacySecretName); ok {
-		return secretu.StoredSecretValue{K: legacySecretName, Revealer: s.Secrets, UpdatedAt: t}
-	}
-	return secretu.PlainSecretValue{}
-}
-
-func parseBool(value string, key ConfigKey) bool {
 	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
 	if err != nil {
-		panic(fmt.Sprintf("parse config value %s as bool: %v", key, err))
+		return false, fmt.Errorf("config ref %q must resolve to true or false", v.ConfigRef.Key)
 	}
-	return parsed
-}
-
-func parseStringList(value string) []string {
-	parts := strings.Split(value, ",")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			out = append(out, part)
-		}
-	}
-	return out
+	return parsed, nil
 }

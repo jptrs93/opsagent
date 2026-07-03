@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -89,6 +90,81 @@ func GenerateNodeCertificate(caCertPEM, caKeyPEM []byte, nodeName string) (certP
 		return nil, nil, err
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}), keyPEM, nil
+}
+
+func GenerateSelfSignedServerCertificate(names []string) (certPEM, keyPEM []byte, err error) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating server key: %w", err)
+	}
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, nil, err
+	}
+	dnsNames, ipAddresses := serverCertificateNames(names)
+	commonName := "opendeploy"
+	if len(dnsNames) > 0 {
+		commonName = dnsNames[0]
+	} else if len(ipAddresses) > 0 {
+		commonName = ipAddresses[0].String()
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName: commonName,
+		},
+		DNSNames:              dnsNames,
+		IPAddresses:           ipAddresses,
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(2 * 365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, priv)
+	if err != nil {
+		return nil, nil, fmt.Errorf("signing self-signed server certificate: %w", err)
+	}
+	keyPEM, err = marshalPrivateKey(priv)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}), keyPEM, nil
+}
+
+func serverCertificateNames(names []string) ([]string, []net.IP) {
+	dnsSeen := map[string]bool{}
+	ipSeen := map[string]bool{}
+	dnsNames := []string{}
+	ipAddresses := []net.IP{}
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" || name == "0.0.0.0" || name == "::" {
+			return
+		}
+		if host, _, err := net.SplitHostPort(name); err == nil {
+			name = strings.Trim(host, "[]")
+		}
+		if ip := net.ParseIP(name); ip != nil {
+			key := ip.String()
+			if !ipSeen[key] {
+				ipSeen[key] = true
+				ipAddresses = append(ipAddresses, ip)
+			}
+			return
+		}
+		if !dnsSeen[name] {
+			dnsSeen[name] = true
+			dnsNames = append(dnsNames, name)
+		}
+	}
+	for _, name := range names {
+		add(name)
+	}
+	add("localhost")
+	add("127.0.0.1")
+	add("::1")
+	return dnsNames, ipAddresses
 }
 
 func GenerateWorkerCertificateRequest(requestingMachineID string) (csrPEM, keyPEM []byte, err error) {

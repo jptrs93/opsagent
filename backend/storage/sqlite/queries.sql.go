@@ -210,19 +210,6 @@ func (q *Queries) GetConfigHistoryDesiredVersion(ctx context.Context, arg GetCon
 	return desired_version, err
 }
 
-const getConfigValue = `-- name: GetConfigValue :one
-
-SELECT key, value, updated_at FROM system_config WHERE key = ?
-`
-
-// === system_config ===
-func (q *Queries) GetConfigValue(ctx context.Context, key string) (SystemConfig, error) {
-	row := q.db.QueryRowContext(ctx, getConfigValue, key)
-	var i SystemConfig
-	err := row.Scan(&i.Key, &i.Value, &i.UpdatedAt)
-	return i, err
-}
-
 const getDeploymentConfig = `-- name: GetDeploymentConfig :one
 SELECT deployment_id, space_id, machine, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
@@ -272,6 +259,17 @@ func (q *Queries) GetLatestAsset(ctx context.Context, key string) (Asset, error)
 		&i.SizeBytes,
 		&i.Blob,
 	)
+	return i, err
+}
+
+const getLatestConfig = `-- name: GetLatestConfig :one
+select id, updated_at, config_blob from opendeploy_config order by id desc limit 1
+`
+
+func (q *Queries) GetLatestConfig(ctx context.Context) (OpendeployConfig, error) {
+	row := q.db.QueryRowContext(ctx, getLatestConfig)
+	var i OpendeployConfig
+	err := row.Scan(&i.ID, &i.UpdatedAt, &i.ConfigBlob)
 	return i, err
 }
 
@@ -1169,24 +1167,6 @@ func (q *Queries) UpdateSpace(ctx context.Context, arg UpdateSpaceParams) (Space
 	var i Space
 	err := row.Scan(&i.ID, &i.Name)
 	return i, err
-}
-
-const upsertConfigValue = `-- name: UpsertConfigValue :exec
-INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?)
-ON CONFLICT(key) DO UPDATE SET
-    value = excluded.value,
-    updated_at = excluded.updated_at
-`
-
-type UpsertConfigValueParams struct {
-	Key       string
-	Value     string
-	UpdatedAt int64
-}
-
-func (q *Queries) UpsertConfigValue(ctx context.Context, arg UpsertConfigValueParams) error {
-	_, err := q.db.ExecContext(ctx, upsertConfigValue, arg.Key, arg.Value, arg.UpdatedAt)
-	return err
 }
 
 const upsertDeploymentConfig = `-- name: UpsertDeploymentConfig :exec

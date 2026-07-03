@@ -55,8 +55,8 @@ Passkeys use the FIDO2/WebAuthn standard via `github.com/go-webauthn/webauthn`. 
 
 ### Relying party configuration
 
-- `OPENDEPLOY_INITIAL_WEB_HTTP_ONLY=true`: RPID is `localhost`, origins are `http://localhost:8080` and `http://localhost:5173`.
-- Otherwise, RPID is the first value from `OPENDEPLOY_INITIAL_ACME_HOSTS` (default `opendeploy.dev`), origins are HTTPS versions of all configured hosts.
+- When HTTPS Web UI is enabled, RPID is the first configured Web UI host from `ACME_HOSTS` (default `opendeploy.dev`) and origins are HTTPS versions of the configured hosts.
+- When only HTTP Web UI is enabled, RPID is `localhost` and origins are `http://localhost:8080` and `http://localhost:5173`.
 
 ### Registration flow
 

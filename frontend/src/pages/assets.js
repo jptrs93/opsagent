@@ -3,7 +3,9 @@ import {capi} from "../capi/index.js";
 import {handleErr} from "../capi/err.js";
 import {decodeAsset} from "../capi/model.js";
 import {closeIcon, trashIcon} from "../lib/icons.js";
+import {formatDateTime} from "../lib/date.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
+import {deploymentsS} from "../state/deployments.js";
 import {loginS} from "../state/login.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, textarea } = van.tags;
@@ -17,6 +19,14 @@ const fmtSize = (n) => {
     if (n < 1000) return `${n} B`;
     if (n < 1000 * 1000) return `${(n / 1000).toFixed(1)} KB`;
     return `${(n / 1000 / 1000).toFixed(2)} MB`;
+};
+
+const assetRefMatches = (asset, ref) => {
+    if (!ref) return false;
+    const assetId = Number(asset.id || 0);
+    const refAssetId = Number(ref.assetId || 0);
+    if (assetId && refAssetId && assetId === refAssetId) return true;
+    return Boolean(asset.key && ref.asset === asset.key);
 };
 
 const smallBtn = (text, onclick, cls, disabledWhen) => button({
@@ -276,6 +286,17 @@ export function assetsPage() {
             row.key.toLowerCase().includes(query));
     };
 
+    const deploymentUsesAsset = (deployment, asset) => {
+        const cfg = deployment?.config;
+        if (!cfg || cfg.deleted) return false;
+        const container = cfg.spec?.runner?.container || {};
+        const envRefs = Object.values(container.envVars || {});
+        const mountRefs = container.assetMounts || [];
+        return envRefs.some(ref => assetRefMatches(asset, ref)) || mountRefs.some(ref => assetRefMatches(asset, ref));
+    };
+
+    const inUseCount = (asset) => (deploymentsS.val || []).filter(deployment => deploymentUsesAsset(deployment, asset)).length;
+
     const uploadProgressText = () => {
         const total = uploadProgressTotal.val || 0;
         const loaded = Math.min(uploadProgressLoaded.val, total || uploadProgressLoaded.val);
@@ -326,6 +347,8 @@ export function assetsPage() {
                 {class: "w-full text-sm"},
                 thead(tr({class: "text-left text-gray-400 border-b border-gray-700"},
                     th({class: "pb-2 pr-3 font-medium"}, "Key"),
+                    th({class: "pb-2 pr-3 font-medium"}, "Created"),
+                    th({class: "pb-2 pr-3 font-medium"}, "In use by"),
                     th({class: "pb-2 pr-3 font-medium"}, "Version"),
                     th({class: "pb-2 pr-3 font-medium"}, "Size"),
                     th({class: "pb-2 w-px"}, ""))),
@@ -337,6 +360,8 @@ export function assetsPage() {
                     },
                     td({class: "py-2 pr-3 min-w-0"},
                         div({class: "font-mono text-gray-100 truncate"}, row.key)),
+                    td({class: "py-2 pr-3 text-gray-400 whitespace-nowrap"}, formatDateTime(row.createdAt, "-")),
+                    td({class: "py-2 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => inUseCount(row)),
                     td({class: "py-2 pr-3 text-gray-300"}, `v${row.version}`),
                     td({class: "py-2 pr-3 text-gray-400 whitespace-nowrap"}, fmtSize(row.sizeBytes || 0)),
                     td({class: "py-2 pl-2 text-right whitespace-nowrap w-px"},

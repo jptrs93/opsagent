@@ -108,6 +108,17 @@ func (s *PrimaryStorage) ResolveConfig(id int32) (string, bool) {
 	return r.Value, true
 }
 
+func (s *PrimaryStorage) ResolveConfigByName(name string) (string, bool) {
+	r, err := s.q.GetUserConfig(context.Background(), name)
+	if err == sql.ErrNoRows {
+		return "", false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetUserConfig: %v", err))
+	}
+	return r.Value, true
+}
+
 func (s *PrimaryStorage) ResolveConfigs(ids []int32) (map[int32]string, error) {
 	out := make(map[int32]string, len(ids))
 	for _, id := range ids {

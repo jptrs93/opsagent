@@ -15,6 +15,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/assetstore"
 	"github.com/jptrs93/opsagent/backend/config"
+	"github.com/jptrs93/opsagent/backend/configmigration"
 	"github.com/jptrs93/opsagent/backend/engine"
 	"github.com/jptrs93/opsagent/backend/engine/configdist"
 	"github.com/jptrs93/opsagent/backend/engine/ctrd"
@@ -22,11 +23,10 @@ import (
 	"github.com/jptrs93/opsagent/backend/engine/runner"
 	"github.com/jptrs93/opsagent/backend/engine/secretdist"
 	"github.com/jptrs93/opsagent/backend/engine/versionprovider"
-	"github.com/jptrs93/opsagent/backend/primary"
+	"github.com/jptrs93/opsagent/backend/primary/clusterserver"
 	"github.com/jptrs93/opsagent/backend/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
-	"github.com/jptrs93/opsagent/backend/util/secretu"
 	"github.com/jptrs93/opsagent/backend/version"
 )
 
@@ -40,7 +40,7 @@ type Handler struct {
 	Store         *sqlite.PrimaryStorage
 	Assets        *assetstore.Store
 	ConfigService *config.Service
-	Config        ainit.DynamicConfiguration
+	Config        *apigen.Settings
 	Github        githubcredentials.Provider
 
 	// Secrets is the primary-only encrypted secrets store. Deployment preparation
@@ -54,7 +54,7 @@ type Handler struct {
 	// ClusterPrimary is set when running in primary cluster mode. Used by
 	// handlers to proxy log requests to remote workers. Nil in standalone
 	// or slave mode.
-	ClusterPrimary *primary.Primary
+	ClusterPrimary *clusterserver.Primary
 
 	enrollmentMu       sync.Mutex
 	enrollmentSessions map[int32]*enrollmentSession
@@ -107,27 +107,34 @@ func (h *Handler) GetV1Healthz(ctx apigen.Context, request *http.Request, writer
 
 func New(ctx context.Context, staticFS fs.FS, machineName string) (*Handler, error) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(ainit.StaticConfig.DataDir, "primary.db"))
-	// Open the primary-only secrets store before config snapshotting. Config-owned
-	// secret values such as GitHub/S3 credentials are resolved through it.
+	if err := configmigration.MigrateOldConfig(store); err != nil {
+		return nil, err
+	}
+	// Open the primary-only secrets store before config snapshotting so legacy
+	// fixed secret references can be detected without revealing plaintext.
 	secretsMgr, err := secrets.Open(ainit.StaticConfig.DataDir, store)
 	if err != nil {
 		return nil, err
 	}
-	configService := &config.Service{Storage: store, Secrets: secretsMgr}
-	if err := configService.EnsureInitialMasterPasswordHashPersisted(); err != nil {
+	configService, err := config.NewService(store)
+	if err != nil {
 		return nil, err
 	}
-	configSub := configService.SnapshotAndSubscribe(nil)
-	cfg := configSub.InitialValue
+	snapshot := configService.Snapshot()
+	cfg := &snapshot.Settings
 	assetStore := &assetstore.Store{
-		DB: store,
-		Config: func() ainit.DynamicConfiguration {
-			return configService.Snapshot()
+		DB:      store,
+		Secrets: secretsMgr,
+		Loader:  configService,
+		Config: func() *apigen.Settings {
+			snapshot := configService.Snapshot()
+			return &snapshot.Settings
 		},
 	}
 	githubCredentials := githubcredentials.SecretProvider{
-		Value: func(context.Context) secretu.SecretValue {
-			return configService.Snapshot().GithubToken
+		Secrets: secretsMgr,
+		SecretRef: func(context.Context) apigen.SecretRef {
+			return configService.Snapshot().Settings.Repo.GithubToken
 		},
 	}
 

@@ -1,8 +1,9 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
+import {formatDateTime} from "../lib/date.js";
 import {eyeOffIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
-import {secretMetasS, secretsStatusS, userConfigsS} from "../state/deployments.js";
+import {deploymentsS, secretMetasS, secretsStatusS, userConfigsS} from "../state/deployments.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td } = van.tags;
 const DEFAULT_SECRET_MASK = "••••••••••••••••";
@@ -34,6 +35,7 @@ const actionButton = (text, onclick, cls = "bg-gray-700 text-gray-200 hover:bg-g
 export function secretsPage() {
     const rows = van.state(null);
     const error = van.state(null);
+    const settingsSnapshot = van.state(null);
     const search = van.state("");
     const sort = van.state({key: "name", dir: "asc"});
     const deleteTarget = van.state(null);
@@ -50,8 +52,10 @@ export function secretsPage() {
         return {
             localKey: `local:${nextLocalKey++}`,
             type: "config", isNew, _saved: false,
+            referenceId: config ? config.id : 0,
             name: van.state(config ? config.name : ""),
             value: van.state(config ? config.value : ""),
+            createdAt: config ? config.createdAt : null,
             orig: {
                 name: config ? config.name : "",
                 value: config ? config.value : "",
@@ -64,8 +68,10 @@ export function secretsPage() {
         return {
             localKey: `local:${nextLocalKey++}`,
             type: "secret", meta, isNew, _saved: false,
+            referenceId: meta ? meta.id : 0,
             name: van.state(meta ? meta.name : ""),
             value: van.state(""),
+            createdAt: meta ? meta.createdAt : null,
             revealed: van.state(false),
             loaded: van.state(isNew),
             valueDirty: van.state(false),
@@ -79,10 +85,58 @@ export function secretsPage() {
 
     const rowKey = (row) => row.orig.name ? `${row.type}:${row.orig.name}` : row.localKey;
     const itemKey = (type, item) => `${type}:${item.name}`;
+    const settingConfigRefKeys = (settings) => [
+        settings?.httpWeb?.enabled?.configRef?.key,
+        settings?.httpWeb?.listen?.configRef?.key,
+        settings?.httpsWeb?.enabled?.configRef?.key,
+        settings?.httpsWeb?.listen?.configRef?.key,
+        settings?.httpsWeb?.tlsSelfManaged?.configRef?.key,
+        settings?.httpsWeb?.acmeHosts?.configRef?.key,
+        settings?.httpsWeb?.acmeEmail?.configRef?.key,
+        settings?.cluster?.listen?.configRef?.key,
+        settings?.cluster?.enrollmentListen?.configRef?.key,
+        settings?.backup?.enabled?.configRef?.key,
+        settings?.backup?.s3AccessKeyId?.configRef?.key,
+        settings?.backup?.s3Bucket?.configRef?.key,
+        settings?.backup?.s3Path?.configRef?.key,
+        settings?.backup?.s3Region?.configRef?.key,
+        settings?.backup?.s3Endpoint?.configRef?.key,
+        settings?.largeAssets?.s3Enabled?.configRef?.key,
+        settings?.largeAssets?.s3AccessKeyId?.configRef?.key,
+        settings?.largeAssets?.s3Bucket?.configRef?.key,
+        settings?.largeAssets?.s3Path?.configRef?.key,
+        settings?.largeAssets?.s3Region?.configRef?.key,
+        settings?.largeAssets?.s3Endpoint?.configRef?.key,
+    ].filter(Boolean);
+    const settingSecretRefKeys = (settings) => [
+        settings?.httpsWeb?.tlsCertPem?.key,
+        settings?.repo?.githubToken?.key,
+        settings?.backup?.s3SecretAccessKey?.key,
+        settings?.largeAssets?.s3SecretAccessKey?.key,
+    ].filter(Boolean);
+    const settingsUseCount = (row) => {
+        const name = row.orig.name || rawStateValue(row.name).trim();
+        if (!name) return 0;
+        const keys = row.type === "secret"
+            ? settingSecretRefKeys(settingsSnapshot.val)
+            : settingConfigRefKeys(settingsSnapshot.val);
+        return keys.filter(key => key === name).length;
+    };
+    const deploymentUsesItem = (deployment, row) => {
+        const referenceId = Number(row.referenceId || 0);
+        if (!referenceId) return false;
+        const cfg = deployment?.config;
+        if (!cfg || cfg.deleted) return false;
+        const envVars = cfg.spec?.runner?.container?.envVars || {};
+        return Object.values(envVars).some(value => Number(value?.[row.type === "secret" ? "secretId" : "configId"] || 0) === referenceId);
+    };
+    const inUseCount = (row) => settingsUseCount(row) + (deploymentsS.val || []).filter(deployment => deploymentUsesItem(deployment, row)).length;
 
     const sortValue = (row, key) => {
         if (key === "type") return row.type;
         if (key === "value") return row.type === "config" ? rawStateValue(row.value) : "";
+        if (key === "created") return String(row.createdAt?.getTime() || 0).padStart(13, "0");
+        if (key === "inUse") return String(inUseCount(row)).padStart(10, "0");
         return rawStateValue(row.name);
     };
 
@@ -106,6 +160,16 @@ export function secretsPage() {
         const query = search.val.trim().toLowerCase();
         return sortRows(query ? items.filter(row => matchesSearch(row, query)) : items);
     };
+
+    const loadSettings = async () => {
+        try {
+            settingsSnapshot.val = await capi.getV1Settings();
+            if (sort.val.key === "inUse") rows.val = filteredAndSortedRows(localRows || []);
+        } catch (e) {
+            error.val = e.message;
+        }
+    };
+    loadSettings();
 
     const reconcileVisibleRows = (visible, nextAll) => {
         const query = search.val.trim().toLowerCase();
@@ -138,7 +202,7 @@ export function secretsPage() {
             : reconcileVisibleRows(rows.val, next);
     };
 
-    const syncRowsFromUniverse = () => {
+    const syncRowsFromUniverse = (refreshVisible = false) => {
         const status = secretsStatusS.val;
         if (!status) return;
         const currentRows = localRows || [];
@@ -170,19 +234,20 @@ export function secretsPage() {
             if (row.isNew && !row._saved) return true;
             return row._saved && row.orig.name && !streamKeys.has(rowKey(row));
         });
-        setLocalRows([...secretRows, ...configRows, ...carried]);
+        setLocalRows([...secretRows, ...configRows, ...carried], refreshVisible);
     };
 
     van.derive(() => {
         const status = secretsStatusS.val;
         const signature = JSON.stringify({
             status,
-            secrets: (secretMetasS.val || []).map(item => [item.id, item.name, item.group, item.updatedAt, item.updatedBy]),
-            configs: (userConfigsS.val || []).map(item => [item.id, item.name, item.group, item.value, item.updatedAt, item.updatedBy]),
+            secrets: (secretMetasS.val || []).map(item => [item.id, item.name, item.group, item.createdAt, item.updatedAt, item.updatedBy]),
+            configs: (userConfigsS.val || []).map(item => [item.id, item.name, item.group, item.value, item.createdAt, item.updatedAt, item.updatedBy]),
+            deploymentRefs: (deploymentsS.val || []).map(item => [item.config?.id, item.config?.version, item.config?.deleted, item.config?.spec?.runner?.container?.envVars]),
         });
         if (signature === streamSignature) return;
         streamSignature = signature;
-        syncRowsFromUniverse();
+        syncRowsFromUniverse(sort.val.key === "inUse");
     });
 
     const addRow = (type) => {
@@ -404,6 +469,8 @@ export function secretsPage() {
         {class: "border-b border-gray-800 last:border-0 align-middle"},
         td({class: "py-1 pr-3 w-px whitespace-nowrap"}, typeBadge(row.type)),
         td({class: "py-1 pr-3 w-1/3"}, cellInput(row.name, "name", true)),
+        td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap"}, formatDateTime(row.createdAt, "-")),
+        td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => inUseCount(row)),
         td({class: "py-1 pr-3"}, row.type === "secret" ? secretValueInput(row) : configValueInput(row)),
         td({class: "py-1 pl-2 text-right whitespace-nowrap w-px"},
             () => isDirty(row)
@@ -475,6 +542,8 @@ export function secretsPage() {
                     tr({class: "text-left text-gray-400 border-b border-gray-700"},
                         sortableHeader("type", "Type", "w-px"),
                         sortableHeader("name", "Name"),
+                        sortableHeader("created", "Created"),
+                        sortableHeader("inUse", "In use by"),
                         sortableHeader("value", "Value"),
                         th({class: "pb-2 w-px"}, ""),
                     )),

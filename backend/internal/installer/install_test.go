@@ -39,3 +39,31 @@ func TestGenerateBootstrapCredentialsSkippedForSecondary(t *testing.T) {
 		t.Fatal("secondary install should not generate bootstrap credentials")
 	}
 }
+
+func TestRenderEnvTemplateWritesSplitWebSettings(t *testing.T) {
+	httpOnly := true
+	webListen := ":8080"
+	env := string(renderEnvTemplate(installOptions{
+		httpOnly:  &httpOnly,
+		webListen: &webListen,
+	}, nil))
+
+	for _, want := range []string{
+		"OPENDEPLOY_INITIAL_WEB_HTTP_ENABLED=true",
+		"OPENDEPLOY_INITIAL_WEB_HTTP_LISTEN=:8080",
+		"OPENDEPLOY_INITIAL_WEB_HTTPS_ENABLED=false",
+		"OPENDEPLOY_INITIAL_WEB_HTTPS_LISTEN=:8080",
+	} {
+		if !strings.Contains(env, want) {
+			t.Fatalf("env missing %q:\n%s", want, env)
+		}
+	}
+	for _, oldKey := range []string{
+		"OPENDEPLOY_INITIAL_WEB_HTTP_ONLY=",
+		"OPENDEPLOY_INITIAL_WEB_LISTEN=",
+	} {
+		if strings.Contains(env, oldKey) {
+			t.Fatalf("env contains old key %q:\n%s", oldKey, env)
+		}
+	}
+}

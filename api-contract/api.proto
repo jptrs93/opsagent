@@ -116,13 +116,14 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  // Runtime configuration snapshot. Secret-valued fields carry only a secret
-  // key; use PostV1SecretValueReveal to reveal the plaintext explicitly.
-  rpc GetV1Config(cp.Empty) returns (DynamicConfiguration) {
+  // Settings document. Secret refs carry only a secret key and future version;
+  // use PostV1SecretsReveal to reveal plaintext explicitly.
+  rpc GetV1Settings(cp.Empty) returns (Settings) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1ConfigUpdate(ConfigUpdateRequest) returns (DynamicConfiguration) {
+  rpc PutV1Settings(Settings) returns (Settings) {
+    option (cp.url) = "/v1/settings";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -356,40 +357,81 @@ message SecretValue {
   string key = 1;
 }
 
-message DynamicConfiguration {
-  string web_listen = 1;
-  bool web_http_only = 2;
-  string cluster_listen = 3;
-  string enrollment_listen = 4;
-  repeated string acme_hosts = 5;
-  string acme_email = 6;
-
-  SecretValue github_token = 7;
-
-  string backup_s3_access_key_id = 8;
-  SecretValue backup_s3_secret_access_key = 9;
-  string backup_s3_bucket = 10;
-  string backup_s3_path = 11;
-  string backup_s3_region = 12;
-  string backup_s3_endpoint = 13;
-  bool backup_enabled = 14;
-
-  bool large_asset_s3_enabled = 15;
-  string large_asset_s3_access_key_id = 16;
-  SecretValue large_asset_s3_secret_access_key = 17;
-  string large_asset_s3_bucket = 18;
-  string large_asset_s3_path = 19;
-  string large_asset_s3_region = 20;
-  string large_asset_s3_endpoint = 21;
-}
-
-message ConfigUpdateRequest {
-  repeated ConfigValueUpdate values = 1;
-}
-
-message ConfigValueUpdate {
+message SecretRef {
   string key = 1;
-  string value = 2;
+  int32 version = 2;
+}
+
+message ConfigRef {
+  string key = 1;
+  int32 version = 2;
+}
+
+message StringSetting {
+  string value = 1;
+  ConfigRef config_ref = 2 [(cp.go_value) = true];
+}
+
+message BoolSetting {
+  bool value = 1;
+  ConfigRef config_ref = 2 [(cp.go_value) = true];
+}
+
+message Config {
+  Settings settings = 1 [(cp.go_value) = true];
+  string master_password_hash = 2;
+}
+
+message Settings {
+  HttpWebSettings http_web = 1 [(cp.go_value) = true];
+  HttpsWebSettings https_web = 2 [(cp.go_value) = true];
+  ClusterSettings cluster = 3 [(cp.go_value) = true];
+  RepoSettings repo = 4 [(cp.go_value) = true];
+  BackupSettings backup = 5 [(cp.go_value) = true];
+  LargeAssetsSettings large_assets = 6 [(cp.go_value) = true];
+}
+
+message HttpWebSettings {
+  BoolSetting enabled = 1 [(cp.go_value) = true];
+  StringSetting listen = 2 [(cp.go_value) = true];
+}
+
+message HttpsWebSettings {
+  BoolSetting enabled = 1 [(cp.go_value) = true];
+  StringSetting listen = 2 [(cp.go_value) = true];
+  BoolSetting tls_self_managed = 3 [(cp.go_value) = true];
+  SecretRef tls_cert_pem = 4 [(cp.go_value) = true];
+  StringSetting acme_hosts = 5 [(cp.go_value) = true];
+  StringSetting acme_email = 6 [(cp.go_value) = true];
+}
+
+message ClusterSettings {
+  StringSetting listen = 1 [(cp.go_value) = true];
+  StringSetting enrollment_listen = 2 [(cp.go_value) = true];
+}
+
+message RepoSettings {
+  SecretRef github_token = 1 [(cp.go_value) = true];
+}
+
+message BackupSettings {
+  BoolSetting enabled = 1 [(cp.go_value) = true];
+  StringSetting s3_access_key_id = 2 [(cp.go_value) = true];
+  SecretRef s3_secret_access_key = 3 [(cp.go_value) = true];
+  StringSetting s3_bucket = 4 [(cp.go_value) = true];
+  StringSetting s3_path = 5 [(cp.go_value) = true];
+  StringSetting s3_region = 6 [(cp.go_value) = true];
+  StringSetting s3_endpoint = 7 [(cp.go_value) = true];
+}
+
+message LargeAssetsSettings {
+  BoolSetting s3_enabled = 1 [(cp.go_value) = true];
+  StringSetting s3_access_key_id = 2 [(cp.go_value) = true];
+  SecretRef s3_secret_access_key = 3 [(cp.go_value) = true];
+  StringSetting s3_bucket = 4 [(cp.go_value) = true];
+  StringSetting s3_path = 5 [(cp.go_value) = true];
+  StringSetting s3_region = 6 [(cp.go_value) = true];
+  StringSetting s3_endpoint = 7 [(cp.go_value) = true];
 }
 
 message ExportedConfigBlob {

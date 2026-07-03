@@ -76,37 +76,81 @@
  * @property {string} key
  */
 /**
- * @typedef {Object} DynamicConfiguration
- * @property {string} webListen
- * @property {boolean} webHttpOnly
- * @property {string} clusterListen
- * @property {string} enrollmentListen
- * @property {string[]} acmeHosts
- * @property {string} acmeEmail
- * @property {SecretValue} githubToken
- * @property {string} backupS3AccessKeyId
- * @property {SecretValue} backupS3SecretAccessKey
- * @property {string} backupS3Bucket
- * @property {string} backupS3Path
- * @property {string} backupS3Region
- * @property {string} backupS3Endpoint
- * @property {boolean} backupEnabled
- * @property {boolean} largeAssetS3Enabled
- * @property {string} largeAssetS3AccessKeyId
- * @property {SecretValue} largeAssetS3SecretAccessKey
- * @property {string} largeAssetS3Bucket
- * @property {string} largeAssetS3Path
- * @property {string} largeAssetS3Region
- * @property {string} largeAssetS3Endpoint
- */
-/**
- * @typedef {Object} ConfigUpdateRequest
- * @property {ConfigValueUpdate[]} values
- */
-/**
- * @typedef {Object} ConfigValueUpdate
+ * @typedef {Object} SecretRef
  * @property {string} key
+ * @property {number} version
+ */
+/**
+ * @typedef {Object} ConfigRef
+ * @property {string} key
+ * @property {number} version
+ */
+/**
+ * @typedef {Object} StringSetting
  * @property {string} value
+ * @property {ConfigRef} configRef
+ */
+/**
+ * @typedef {Object} BoolSetting
+ * @property {boolean} value
+ * @property {ConfigRef} configRef
+ */
+/**
+ * @typedef {Object} Config
+ * @property {Settings} settings
+ * @property {string} masterPasswordHash
+ */
+/**
+ * @typedef {Object} Settings
+ * @property {HttpWebSettings} httpWeb
+ * @property {HttpsWebSettings} httpsWeb
+ * @property {ClusterSettings} cluster
+ * @property {RepoSettings} repo
+ * @property {BackupSettings} backup
+ * @property {LargeAssetsSettings} largeAssets
+ */
+/**
+ * @typedef {Object} HttpWebSettings
+ * @property {BoolSetting} enabled
+ * @property {StringSetting} listen
+ */
+/**
+ * @typedef {Object} HttpsWebSettings
+ * @property {BoolSetting} enabled
+ * @property {StringSetting} listen
+ * @property {BoolSetting} tlsSelfManaged
+ * @property {SecretRef} tlsCertPem
+ * @property {StringSetting} acmeHosts
+ * @property {StringSetting} acmeEmail
+ */
+/**
+ * @typedef {Object} ClusterSettings
+ * @property {StringSetting} listen
+ * @property {StringSetting} enrollmentListen
+ */
+/**
+ * @typedef {Object} RepoSettings
+ * @property {SecretRef} githubToken
+ */
+/**
+ * @typedef {Object} BackupSettings
+ * @property {BoolSetting} enabled
+ * @property {StringSetting} s3AccessKeyId
+ * @property {SecretRef} s3SecretAccessKey
+ * @property {StringSetting} s3Bucket
+ * @property {StringSetting} s3Path
+ * @property {StringSetting} s3Region
+ * @property {StringSetting} s3Endpoint
+ */
+/**
+ * @typedef {Object} LargeAssetsSettings
+ * @property {BoolSetting} s3Enabled
+ * @property {StringSetting} s3AccessKeyId
+ * @property {SecretRef} s3SecretAccessKey
+ * @property {StringSetting} s3Bucket
+ * @property {StringSetting} s3Path
+ * @property {StringSetting} s3Region
+ * @property {StringSetting} s3Endpoint
  */
 /**
  * @typedef {Object} ExportedConfigBlob
@@ -1712,290 +1756,26 @@ export function decodeSecretValue(buffer) {
 
 
 /**
- * @param {DynamicConfiguration} message
+ * @param {SecretRef} message
  * @param {Writer} writer
  */
-export function writeDynamicConfiguration(message, writer) {
-    if (message.webListen !== undefined && message.webListen !== null && message.webListen !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.webListen);
-    }
-    if (message.webHttpOnly === true) {
-        writer.uint32(tag(2, WIRE.VARINT)).bool(message.webHttpOnly);
-    }
-    if (message.clusterListen !== undefined && message.clusterListen !== null && message.clusterListen !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.clusterListen);
-    }
-    if (message.enrollmentListen !== undefined && message.enrollmentListen !== null && message.enrollmentListen !== "") {
-        writer.uint32(tag(4, WIRE.LDELIM)).string(message.enrollmentListen);
-    }
-    if (message.acmeHosts && message.acmeHosts.length > 0) {
-        for (const item of message.acmeHosts) {
-            writer.uint32(tag(5, WIRE.LDELIM)).string(item);
-        }
-    }
-    if (message.acmeEmail !== undefined && message.acmeEmail !== null && message.acmeEmail !== "") {
-        writer.uint32(tag(6, WIRE.LDELIM)).string(message.acmeEmail);
-    }
-    if (message.githubToken !== undefined && message.githubToken !== null) {
-        writer.uint32(tag(7, WIRE.LDELIM)).fork();
-        writeSecretValue(message.githubToken, writer);
-        writer.ldelim();
-    }
-    if (message.backupS3AccessKeyId !== undefined && message.backupS3AccessKeyId !== null && message.backupS3AccessKeyId !== "") {
-        writer.uint32(tag(8, WIRE.LDELIM)).string(message.backupS3AccessKeyId);
-    }
-    if (message.backupS3SecretAccessKey !== undefined && message.backupS3SecretAccessKey !== null) {
-        writer.uint32(tag(9, WIRE.LDELIM)).fork();
-        writeSecretValue(message.backupS3SecretAccessKey, writer);
-        writer.ldelim();
-    }
-    if (message.backupS3Bucket !== undefined && message.backupS3Bucket !== null && message.backupS3Bucket !== "") {
-        writer.uint32(tag(10, WIRE.LDELIM)).string(message.backupS3Bucket);
-    }
-    if (message.backupS3Path !== undefined && message.backupS3Path !== null && message.backupS3Path !== "") {
-        writer.uint32(tag(11, WIRE.LDELIM)).string(message.backupS3Path);
-    }
-    if (message.backupS3Region !== undefined && message.backupS3Region !== null && message.backupS3Region !== "") {
-        writer.uint32(tag(12, WIRE.LDELIM)).string(message.backupS3Region);
-    }
-    if (message.backupS3Endpoint !== undefined && message.backupS3Endpoint !== null && message.backupS3Endpoint !== "") {
-        writer.uint32(tag(13, WIRE.LDELIM)).string(message.backupS3Endpoint);
-    }
-    if (message.backupEnabled === true) {
-        writer.uint32(tag(14, WIRE.VARINT)).bool(message.backupEnabled);
-    }
-    if (message.largeAssetS3Enabled === true) {
-        writer.uint32(tag(15, WIRE.VARINT)).bool(message.largeAssetS3Enabled);
-    }
-    if (message.largeAssetS3AccessKeyId !== undefined && message.largeAssetS3AccessKeyId !== null && message.largeAssetS3AccessKeyId !== "") {
-        writer.uint32(tag(16, WIRE.LDELIM)).string(message.largeAssetS3AccessKeyId);
-    }
-    if (message.largeAssetS3SecretAccessKey !== undefined && message.largeAssetS3SecretAccessKey !== null) {
-        writer.uint32(tag(17, WIRE.LDELIM)).fork();
-        writeSecretValue(message.largeAssetS3SecretAccessKey, writer);
-        writer.ldelim();
-    }
-    if (message.largeAssetS3Bucket !== undefined && message.largeAssetS3Bucket !== null && message.largeAssetS3Bucket !== "") {
-        writer.uint32(tag(18, WIRE.LDELIM)).string(message.largeAssetS3Bucket);
-    }
-    if (message.largeAssetS3Path !== undefined && message.largeAssetS3Path !== null && message.largeAssetS3Path !== "") {
-        writer.uint32(tag(19, WIRE.LDELIM)).string(message.largeAssetS3Path);
-    }
-    if (message.largeAssetS3Region !== undefined && message.largeAssetS3Region !== null && message.largeAssetS3Region !== "") {
-        writer.uint32(tag(20, WIRE.LDELIM)).string(message.largeAssetS3Region);
-    }
-    if (message.largeAssetS3Endpoint !== undefined && message.largeAssetS3Endpoint !== null && message.largeAssetS3Endpoint !== "") {
-        writer.uint32(tag(21, WIRE.LDELIM)).string(message.largeAssetS3Endpoint);
-    }
-}
-
-
-/**
- * @param {DynamicConfiguration} message
- * @returns {Uint8Array}
- */
-export function encodeDynamicConfiguration(message) {
-    const writer = Writer.create();
-    writeDynamicConfiguration(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {DynamicConfiguration}
- */
-function decodeDynamicConfigurationMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {webListen: "", webHttpOnly: false, clusterListen: "", enrollmentListen: "", acmeHosts: [], acmeEmail: "", githubToken: undefined, backupS3AccessKeyId: "", backupS3SecretAccessKey: undefined, backupS3Bucket: "", backupS3Path: "", backupS3Region: "", backupS3Endpoint: "", backupEnabled: false, largeAssetS3Enabled: false, largeAssetS3AccessKeyId: "", largeAssetS3SecretAccessKey: undefined, largeAssetS3Bucket: "", largeAssetS3Path: "", largeAssetS3Region: "", largeAssetS3Endpoint: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.webListen = reader.string();
-                break;
-            }
-            case 2: {
-                message.webHttpOnly = reader.bool();
-                break;
-            }
-            case 3: {
-                message.clusterListen = reader.string();
-                break;
-            }
-            case 4: {
-                message.enrollmentListen = reader.string();
-                break;
-            }
-            case 5: {
-                message.acmeHosts.push(reader.string());
-                break;
-            }
-            case 6: {
-                message.acmeEmail = reader.string();
-                break;
-            }
-            case 7: {
-                message.githubToken = decodeSecretValueMessage(reader, reader.uint32());
-                break;
-            }
-            case 8: {
-                message.backupS3AccessKeyId = reader.string();
-                break;
-            }
-            case 9: {
-                message.backupS3SecretAccessKey = decodeSecretValueMessage(reader, reader.uint32());
-                break;
-            }
-            case 10: {
-                message.backupS3Bucket = reader.string();
-                break;
-            }
-            case 11: {
-                message.backupS3Path = reader.string();
-                break;
-            }
-            case 12: {
-                message.backupS3Region = reader.string();
-                break;
-            }
-            case 13: {
-                message.backupS3Endpoint = reader.string();
-                break;
-            }
-            case 14: {
-                message.backupEnabled = reader.bool();
-                break;
-            }
-            case 15: {
-                message.largeAssetS3Enabled = reader.bool();
-                break;
-            }
-            case 16: {
-                message.largeAssetS3AccessKeyId = reader.string();
-                break;
-            }
-            case 17: {
-                message.largeAssetS3SecretAccessKey = decodeSecretValueMessage(reader, reader.uint32());
-                break;
-            }
-            case 18: {
-                message.largeAssetS3Bucket = reader.string();
-                break;
-            }
-            case 19: {
-                message.largeAssetS3Path = reader.string();
-                break;
-            }
-            case 20: {
-                message.largeAssetS3Region = reader.string();
-                break;
-            }
-            case 21: {
-                message.largeAssetS3Endpoint = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {DynamicConfiguration}
- */
-export function decodeDynamicConfiguration(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDynamicConfigurationMessage(reader);
-}
-
-
-
-/**
- * @param {ConfigUpdateRequest} message
- * @param {Writer} writer
- */
-export function writeConfigUpdateRequest(message, writer) {
-    if (message.values && message.values.length > 0) {
-        for (const item of message.values) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeConfigValueUpdate(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {ConfigUpdateRequest} message
- * @returns {Uint8Array}
- */
-export function encodeConfigUpdateRequest(message) {
-    const writer = Writer.create();
-    writeConfigUpdateRequest(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ConfigUpdateRequest}
- */
-function decodeConfigUpdateRequestMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {values: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.values.push(decodeConfigValueUpdateMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ConfigUpdateRequest}
- */
-export function decodeConfigUpdateRequest(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeConfigUpdateRequestMessage(reader);
-}
-
-
-
-/**
- * @param {ConfigValueUpdate} message
- * @param {Writer} writer
- */
-export function writeConfigValueUpdate(message, writer) {
+export function writeSecretRef(message, writer) {
     if (message.key !== undefined && message.key !== null && message.key !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
     }
-    if (message.value !== undefined && message.value !== null && message.value !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.value);
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
     }
 }
 
 
 /**
- * @param {ConfigValueUpdate} message
+ * @param {SecretRef} message
  * @returns {Uint8Array}
  */
-export function encodeConfigValueUpdate(message) {
+export function encodeSecretRef(message) {
     const writer = Writer.create();
-    writeConfigValueUpdate(message, writer);
+    writeSecretRef(message, writer);
     return writer.finish();
 }
 
@@ -2003,11 +1783,11 @@ export function encodeConfigValueUpdate(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {ConfigValueUpdate}
+ * @returns {SecretRef}
  */
-function decodeConfigValueUpdateMessage(reader, length) {
+function decodeSecretRefMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", value: "" };
+    const message = {key: "", version: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2016,7 +1796,7 @@ function decodeConfigValueUpdateMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.value = reader.string();
+                message.version = reader.int32();
                 break;
             }
             default:
@@ -2029,11 +1809,891 @@ function decodeConfigValueUpdateMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {ConfigValueUpdate}
+ * @returns {SecretRef}
  */
-export function decodeConfigValueUpdate(buffer) {
+export function decodeSecretRef(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeConfigValueUpdateMessage(reader);
+    return decodeSecretRefMessage(reader);
+}
+
+
+
+/**
+ * @param {ConfigRef} message
+ * @param {Writer} writer
+ */
+export function writeConfigRef(message, writer) {
+    if (message.key !== undefined && message.key !== null && message.key !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
+    }
+}
+
+
+/**
+ * @param {ConfigRef} message
+ * @returns {Uint8Array}
+ */
+export function encodeConfigRef(message) {
+    const writer = Writer.create();
+    writeConfigRef(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ConfigRef}
+ */
+function decodeConfigRefMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {key: "", version: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.key = reader.string();
+                break;
+            }
+            case 2: {
+                message.version = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ConfigRef}
+ */
+export function decodeConfigRef(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeConfigRefMessage(reader);
+}
+
+
+
+/**
+ * @param {StringSetting} message
+ * @param {Writer} writer
+ */
+export function writeStringSetting(message, writer) {
+    if (message.value !== undefined && message.value !== null && message.value !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.value);
+    }
+    if (message.configRef !== undefined && message.configRef !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeConfigRef(message.configRef, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {StringSetting} message
+ * @returns {Uint8Array}
+ */
+export function encodeStringSetting(message) {
+    const writer = Writer.create();
+    writeStringSetting(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {StringSetting}
+ */
+function decodeStringSettingMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {value: "", configRef: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.value = reader.string();
+                break;
+            }
+            case 2: {
+                message.configRef = decodeConfigRefMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {StringSetting}
+ */
+export function decodeStringSetting(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeStringSettingMessage(reader);
+}
+
+
+
+/**
+ * @param {BoolSetting} message
+ * @param {Writer} writer
+ */
+export function writeBoolSetting(message, writer) {
+    if (message.value === true) {
+        writer.uint32(tag(1, WIRE.VARINT)).bool(message.value);
+    }
+    if (message.configRef !== undefined && message.configRef !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeConfigRef(message.configRef, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {BoolSetting} message
+ * @returns {Uint8Array}
+ */
+export function encodeBoolSetting(message) {
+    const writer = Writer.create();
+    writeBoolSetting(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {BoolSetting}
+ */
+function decodeBoolSettingMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {value: false, configRef: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.value = reader.bool();
+                break;
+            }
+            case 2: {
+                message.configRef = decodeConfigRefMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {BoolSetting}
+ */
+export function decodeBoolSetting(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeBoolSettingMessage(reader);
+}
+
+
+
+/**
+ * @param {Config} message
+ * @param {Writer} writer
+ */
+export function writeConfig(message, writer) {
+    if (message.settings !== undefined && message.settings !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeSettings(message.settings, writer);
+        writer.ldelim();
+    }
+    if (message.masterPasswordHash !== undefined && message.masterPasswordHash !== null && message.masterPasswordHash !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.masterPasswordHash);
+    }
+}
+
+
+/**
+ * @param {Config} message
+ * @returns {Uint8Array}
+ */
+export function encodeConfig(message) {
+    const writer = Writer.create();
+    writeConfig(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {Config}
+ */
+function decodeConfigMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {settings: undefined, masterPasswordHash: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.settings = decodeSettingsMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.masterPasswordHash = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {Config}
+ */
+export function decodeConfig(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeConfigMessage(reader);
+}
+
+
+
+/**
+ * @param {Settings} message
+ * @param {Writer} writer
+ */
+export function writeSettings(message, writer) {
+    if (message.httpWeb !== undefined && message.httpWeb !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeHttpWebSettings(message.httpWeb, writer);
+        writer.ldelim();
+    }
+    if (message.httpsWeb !== undefined && message.httpsWeb !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeHttpsWebSettings(message.httpsWeb, writer);
+        writer.ldelim();
+    }
+    if (message.cluster !== undefined && message.cluster !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeClusterSettings(message.cluster, writer);
+        writer.ldelim();
+    }
+    if (message.repo !== undefined && message.repo !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeRepoSettings(message.repo, writer);
+        writer.ldelim();
+    }
+    if (message.backup !== undefined && message.backup !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeBackupSettings(message.backup, writer);
+        writer.ldelim();
+    }
+    if (message.largeAssets !== undefined && message.largeAssets !== null) {
+        writer.uint32(tag(6, WIRE.LDELIM)).fork();
+        writeLargeAssetsSettings(message.largeAssets, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {Settings} message
+ * @returns {Uint8Array}
+ */
+export function encodeSettings(message) {
+    const writer = Writer.create();
+    writeSettings(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {Settings}
+ */
+function decodeSettingsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {httpWeb: undefined, httpsWeb: undefined, cluster: undefined, repo: undefined, backup: undefined, largeAssets: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.httpWeb = decodeHttpWebSettingsMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.httpsWeb = decodeHttpsWebSettingsMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.cluster = decodeClusterSettingsMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.repo = decodeRepoSettingsMessage(reader, reader.uint32());
+                break;
+            }
+            case 5: {
+                message.backup = decodeBackupSettingsMessage(reader, reader.uint32());
+                break;
+            }
+            case 6: {
+                message.largeAssets = decodeLargeAssetsSettingsMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {Settings}
+ */
+export function decodeSettings(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSettingsMessage(reader);
+}
+
+
+
+/**
+ * @param {HttpWebSettings} message
+ * @param {Writer} writer
+ */
+export function writeHttpWebSettings(message, writer) {
+    if (message.enabled !== undefined && message.enabled !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeBoolSetting(message.enabled, writer);
+        writer.ldelim();
+    }
+    if (message.listen !== undefined && message.listen !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeStringSetting(message.listen, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {HttpWebSettings} message
+ * @returns {Uint8Array}
+ */
+export function encodeHttpWebSettings(message) {
+    const writer = Writer.create();
+    writeHttpWebSettings(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {HttpWebSettings}
+ */
+function decodeHttpWebSettingsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {enabled: undefined, listen: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.enabled = decodeBoolSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.listen = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {HttpWebSettings}
+ */
+export function decodeHttpWebSettings(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeHttpWebSettingsMessage(reader);
+}
+
+
+
+/**
+ * @param {HttpsWebSettings} message
+ * @param {Writer} writer
+ */
+export function writeHttpsWebSettings(message, writer) {
+    if (message.enabled !== undefined && message.enabled !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeBoolSetting(message.enabled, writer);
+        writer.ldelim();
+    }
+    if (message.listen !== undefined && message.listen !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeStringSetting(message.listen, writer);
+        writer.ldelim();
+    }
+    if (message.tlsSelfManaged !== undefined && message.tlsSelfManaged !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeBoolSetting(message.tlsSelfManaged, writer);
+        writer.ldelim();
+    }
+    if (message.tlsCertPem !== undefined && message.tlsCertPem !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeSecretRef(message.tlsCertPem, writer);
+        writer.ldelim();
+    }
+    if (message.acmeHosts !== undefined && message.acmeHosts !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeStringSetting(message.acmeHosts, writer);
+        writer.ldelim();
+    }
+    if (message.acmeEmail !== undefined && message.acmeEmail !== null) {
+        writer.uint32(tag(6, WIRE.LDELIM)).fork();
+        writeStringSetting(message.acmeEmail, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {HttpsWebSettings} message
+ * @returns {Uint8Array}
+ */
+export function encodeHttpsWebSettings(message) {
+    const writer = Writer.create();
+    writeHttpsWebSettings(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {HttpsWebSettings}
+ */
+function decodeHttpsWebSettingsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {enabled: undefined, listen: undefined, tlsSelfManaged: undefined, tlsCertPem: undefined, acmeHosts: undefined, acmeEmail: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.enabled = decodeBoolSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.listen = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.tlsSelfManaged = decodeBoolSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.tlsCertPem = decodeSecretRefMessage(reader, reader.uint32());
+                break;
+            }
+            case 5: {
+                message.acmeHosts = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 6: {
+                message.acmeEmail = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {HttpsWebSettings}
+ */
+export function decodeHttpsWebSettings(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeHttpsWebSettingsMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterSettings} message
+ * @param {Writer} writer
+ */
+export function writeClusterSettings(message, writer) {
+    if (message.listen !== undefined && message.listen !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeStringSetting(message.listen, writer);
+        writer.ldelim();
+    }
+    if (message.enrollmentListen !== undefined && message.enrollmentListen !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeStringSetting(message.enrollmentListen, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {ClusterSettings} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterSettings(message) {
+    const writer = Writer.create();
+    writeClusterSettings(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterSettings}
+ */
+function decodeClusterSettingsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {listen: undefined, enrollmentListen: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.listen = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.enrollmentListen = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterSettings}
+ */
+export function decodeClusterSettings(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterSettingsMessage(reader);
+}
+
+
+
+/**
+ * @param {RepoSettings} message
+ * @param {Writer} writer
+ */
+export function writeRepoSettings(message, writer) {
+    if (message.githubToken !== undefined && message.githubToken !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeSecretRef(message.githubToken, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {RepoSettings} message
+ * @returns {Uint8Array}
+ */
+export function encodeRepoSettings(message) {
+    const writer = Writer.create();
+    writeRepoSettings(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {RepoSettings}
+ */
+function decodeRepoSettingsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {githubToken: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.githubToken = decodeSecretRefMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {RepoSettings}
+ */
+export function decodeRepoSettings(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeRepoSettingsMessage(reader);
+}
+
+
+
+/**
+ * @param {BackupSettings} message
+ * @param {Writer} writer
+ */
+export function writeBackupSettings(message, writer) {
+    if (message.enabled !== undefined && message.enabled !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeBoolSetting(message.enabled, writer);
+        writer.ldelim();
+    }
+    if (message.s3AccessKeyId !== undefined && message.s3AccessKeyId !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeStringSetting(message.s3AccessKeyId, writer);
+        writer.ldelim();
+    }
+    if (message.s3SecretAccessKey !== undefined && message.s3SecretAccessKey !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeSecretRef(message.s3SecretAccessKey, writer);
+        writer.ldelim();
+    }
+    if (message.s3Bucket !== undefined && message.s3Bucket !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeStringSetting(message.s3Bucket, writer);
+        writer.ldelim();
+    }
+    if (message.s3Path !== undefined && message.s3Path !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeStringSetting(message.s3Path, writer);
+        writer.ldelim();
+    }
+    if (message.s3Region !== undefined && message.s3Region !== null) {
+        writer.uint32(tag(6, WIRE.LDELIM)).fork();
+        writeStringSetting(message.s3Region, writer);
+        writer.ldelim();
+    }
+    if (message.s3Endpoint !== undefined && message.s3Endpoint !== null) {
+        writer.uint32(tag(7, WIRE.LDELIM)).fork();
+        writeStringSetting(message.s3Endpoint, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {BackupSettings} message
+ * @returns {Uint8Array}
+ */
+export function encodeBackupSettings(message) {
+    const writer = Writer.create();
+    writeBackupSettings(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {BackupSettings}
+ */
+function decodeBackupSettingsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {enabled: undefined, s3AccessKeyId: undefined, s3SecretAccessKey: undefined, s3Bucket: undefined, s3Path: undefined, s3Region: undefined, s3Endpoint: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.enabled = decodeBoolSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.s3AccessKeyId = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.s3SecretAccessKey = decodeSecretRefMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.s3Bucket = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 5: {
+                message.s3Path = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 6: {
+                message.s3Region = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 7: {
+                message.s3Endpoint = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {BackupSettings}
+ */
+export function decodeBackupSettings(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeBackupSettingsMessage(reader);
+}
+
+
+
+/**
+ * @param {LargeAssetsSettings} message
+ * @param {Writer} writer
+ */
+export function writeLargeAssetsSettings(message, writer) {
+    if (message.s3Enabled !== undefined && message.s3Enabled !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeBoolSetting(message.s3Enabled, writer);
+        writer.ldelim();
+    }
+    if (message.s3AccessKeyId !== undefined && message.s3AccessKeyId !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeStringSetting(message.s3AccessKeyId, writer);
+        writer.ldelim();
+    }
+    if (message.s3SecretAccessKey !== undefined && message.s3SecretAccessKey !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeSecretRef(message.s3SecretAccessKey, writer);
+        writer.ldelim();
+    }
+    if (message.s3Bucket !== undefined && message.s3Bucket !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeStringSetting(message.s3Bucket, writer);
+        writer.ldelim();
+    }
+    if (message.s3Path !== undefined && message.s3Path !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeStringSetting(message.s3Path, writer);
+        writer.ldelim();
+    }
+    if (message.s3Region !== undefined && message.s3Region !== null) {
+        writer.uint32(tag(6, WIRE.LDELIM)).fork();
+        writeStringSetting(message.s3Region, writer);
+        writer.ldelim();
+    }
+    if (message.s3Endpoint !== undefined && message.s3Endpoint !== null) {
+        writer.uint32(tag(7, WIRE.LDELIM)).fork();
+        writeStringSetting(message.s3Endpoint, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {LargeAssetsSettings} message
+ * @returns {Uint8Array}
+ */
+export function encodeLargeAssetsSettings(message) {
+    const writer = Writer.create();
+    writeLargeAssetsSettings(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {LargeAssetsSettings}
+ */
+function decodeLargeAssetsSettingsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {s3Enabled: undefined, s3AccessKeyId: undefined, s3SecretAccessKey: undefined, s3Bucket: undefined, s3Path: undefined, s3Region: undefined, s3Endpoint: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.s3Enabled = decodeBoolSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.s3AccessKeyId = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.s3SecretAccessKey = decodeSecretRefMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.s3Bucket = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 5: {
+                message.s3Path = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 6: {
+                message.s3Region = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 7: {
+                message.s3Endpoint = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {LargeAssetsSettings}
+ */
+export function decodeLargeAssetsSettings(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeLargeAssetsSettingsMessage(reader);
 }
 
 
