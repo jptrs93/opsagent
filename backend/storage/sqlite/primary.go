@@ -1156,23 +1156,61 @@ func (s *PrimaryStorage) UserCount() int {
 	return len(rows)
 }
 
-func (s *PrimaryStorage) FetchConfigValue(key string) (value string, configured bool, err error) {
-	row, err := s.q.GetConfigValue(context.Background(), key)
-	if errors.Is(err, sql.ErrNoRows) {
+func (s *PrimaryStorage) FetchLegacySystemConfigValue(key string) (value string, configured bool, err error) {
+	row := s.db.QueryRowContext(context.Background(), `
+SELECT value
+FROM system_config
+WHERE key = ?
+`, key)
+	if err := row.Scan(&value); errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
-	}
-	if err != nil {
+	} else if err != nil {
+		if strings.Contains(err.Error(), "no such table: system_config") {
+			return "", false, nil
+		}
 		return "", false, err
 	}
-	return row.Value, true, nil
+	return value, true, nil
 }
 
-func (s *PrimaryStorage) SetConfigValue(key, value string) error {
-	return s.q.UpsertConfigValue(context.Background(), UpsertConfigValueParams{
-		Key:       key,
-		Value:     value,
-		UpdatedAt: time.Now().UnixMilli(),
-	})
+func (s *PrimaryStorage) SetLegacySystemConfigValue(key, value string) error {
+	_, err := s.db.ExecContext(context.Background(), `
+CREATE TABLE IF NOT EXISTS system_config (
+    key        TEXT PRIMARY KEY,
+    value      TEXT    NOT NULL,
+    updated_at INTEGER NOT NULL DEFAULT 0
+)
+`)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(context.Background(), `
+INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?)
+ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+`, key, value, time.Now().UnixMilli())
+	return err
+}
+
+func (s *PrimaryStorage) FetchLatestOpenDeployConfig() (OpendeployConfig, error) {
+	r, err := s.q.GetLatestConfig(context.Background())
+	if errors.Is(err, sql.ErrNoRows) {
+		return OpendeployConfig{}, ErrNotFound
+	}
+	return r, err
+}
+
+func (s *PrimaryStorage) AppendOpenDeploySettings(blob []byte) (int64, error) {
+	res, err := s.db.ExecContext(context.Background(), `
+INSERT INTO opendeploy_config (updated_at, config_blob) VALUES (?, ?)
+`, time.Now().UnixMilli(), blob)
+	if err != nil {
+		return 0, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 // --- auth: public keys ---

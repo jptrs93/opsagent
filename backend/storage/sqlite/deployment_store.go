@@ -202,11 +202,11 @@ func (s *deploymentStore) withRunningVersion(cfg *apigen.DeploymentConfig, st ap
 	return st
 }
 
-func deploymentFilter(machine string) func(apigen.DeploymentWithStatus) bool {
+func deploymentFilter(machine string) func(apigen.DeploymentWithStatus, apigen.DeploymentWithStatus) bool {
 	if machine == "" {
 		return nil
 	}
-	return func(dws apigen.DeploymentWithStatus) bool {
+	return func(prev, dws apigen.DeploymentWithStatus) bool {
 		return deploymentMatchesMachine(&dws.Config, machine)
 	}
 }

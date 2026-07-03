@@ -92,8 +92,8 @@ type OpsagentHttpV1Handler interface {
 	PostV1SpacesDelete(Context, *SpaceDeleteRequest) error
 	PostV1DeploymentVersions(Context, *DeploymentVersionsRequest) (*DeploymentVersions, error)
 	PostV1RepoValidate(Context, *ValidateSourceRequest) (*ValidateSourceResponse, error)
-	GetV1Config(Context) (*DynamicConfiguration, error)
-	PostV1ConfigUpdate(Context, *ConfigUpdateRequest) (*DynamicConfiguration, error)
+	GetV1Settings(Context) (*Settings, error)
+	PutV1Settings(Context, *Settings) (*Settings, error)
 	PostV1GenerateExportedConfig(Context, *EmptyRequest) (*ExportedConfigBlob, error)
 	PostV1SecretValueReveal(Context, *SecretValue) (*SecretRevealResponse, error)
 	PostV1SecretsList(Context, *EmptyRequest) (*SecretList, error)
@@ -417,23 +417,23 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/repo/validate", buildHandlerFunc(config, verifyAuth, postV1RepoValidateAccessPolicy, postAuthHandlerPostV1RepoValidate, compressionModeAuto, false))
-	getV1ConfigAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
-	postAuthHandlerGetV1Config := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		res, err := h.GetV1Config(authCtx)
+	getV1SettingsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerGetV1Settings := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		res, err := h.GetV1Settings(authCtx)
 		Respond(authCtx, r, w, res, err)
 	}
-	m.HandleFunc("GET /v1/config", buildHandlerFunc(config, verifyAuth, getV1ConfigAccessPolicy, postAuthHandlerGetV1Config, compressionModeAuto, false))
-	postV1ConfigUpdateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
-	postAuthHandlerPostV1ConfigUpdate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeConfigUpdateRequest)
+	m.HandleFunc("GET /v1/settings", buildHandlerFunc(config, verifyAuth, getV1SettingsAccessPolicy, postAuthHandlerGetV1Settings, compressionModeAuto, false))
+	putV1SettingsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPutV1Settings := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSettings)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
-		res, err := h.PostV1ConfigUpdate(authCtx, req)
+		res, err := h.PutV1Settings(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
-	m.HandleFunc("POST /v1/config/update", buildHandlerFunc(config, verifyAuth, postV1ConfigUpdateAccessPolicy, postAuthHandlerPostV1ConfigUpdate, compressionModeAuto, false))
+	m.HandleFunc("PUT /v1/settings", buildHandlerFunc(config, verifyAuth, putV1SettingsAccessPolicy, postAuthHandlerPutV1Settings, compressionModeAuto, false))
 	postV1GenerateExportedConfigAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1GenerateExportedConfig := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)

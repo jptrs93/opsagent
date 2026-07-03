@@ -84,6 +84,12 @@ type EnrollmentRequest struct {
 	Status              string
 }
 
+type OpendeployConfig struct {
+	ID         int64
+	UpdatedAt  int64
+	ConfigBlob []byte
+}
+
 type PublicKey struct {
 	Kid      string
 	KeyBytes []byte
@@ -114,12 +120,6 @@ type SecretKeyslot struct {
 type Space struct {
 	ID   int64
 	Name string
-}
-
-type SystemConfig struct {
-	Key       string
-	Value     string
-	UpdatedAt int64
 }
 
 type SystemSecret struct {

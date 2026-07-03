@@ -85,7 +85,7 @@ func (op DeploymentOperator) Run(
 	depName := configName(config)
 	slog.Info("deployment operator started", "dep", depName)
 
-	sub := subs.Subscribe(func(dws apigen.DeploymentWithStatus) bool {
+	sub := subs.Subscribe(func(prev, dws apigen.DeploymentWithStatus) bool {
 		return dws.Config.ID == id
 	})
 	var currentPreparer preparer.Preparer

@@ -10,7 +10,6 @@ import (
 	"github.com/jptrs93/goutil/envu"
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/logconsumer"
-	"github.com/jptrs93/opsagent/backend/util/secretu"
 )
 
 var StaticConfig StaticConfiguration
@@ -85,38 +84,15 @@ type StaticConfiguration struct {
 	PrimaryEnrollmentAddr string `env:"OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR,"` // secondaries only: primary's unauthenticated enrollment address
 	PrimaryName           string `env:"OPENDEPLOY_PRIMARY_NAME,primary"`     // primary cert DNS name; secondaries use it for TLS verification when dialing by IP
 
-	InitialWebListen          string   `env:"OPENDEPLOY_INITIAL_WEB_LISTEN,:443"`
-	InitialWebHTTPOnly        bool     `env:"OPENDEPLOY_INITIAL_WEB_HTTP_ONLY,false"` // serve the primary API over plain HTTP on port 8080 instead of ACME TLS on port 443
+	InitialWebHTTPEnabled     bool     `env:"OPENDEPLOY_INITIAL_WEB_HTTP_ENABLED,false"`
+	InitialWebHTTPListen      string   `env:"OPENDEPLOY_INITIAL_WEB_HTTP_LISTEN,:8080"`
+	InitialWebHTTPSEnabled    bool     `env:"OPENDEPLOY_INITIAL_WEB_HTTPS_ENABLED,true"`
+	InitialWebHTTPSListen     string   `env:"OPENDEPLOY_INITIAL_WEB_HTTPS_LISTEN,:443"`
+	InitialWebTLSSelfManaged  bool     `env:"OPENDEPLOY_INITIAL_WEB_TLS_SELF_MANAGED,false"`
+	InitialWebTLSCertPEM      string   `env:"OPENDEPLOY_INITIAL_WEB_TLS_CERT_PEM,"`
 	InitialMasterPasswordHash string   `env:"OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH,"`
 	InitialClusterListen      string   `env:"OPENDEPLOY_INITIAL_CLUSTER_LISTEN,:9443"`    // mTLS listen address
 	InitialEnrollmentListen   string   `env:"OPENDEPLOY_INITIAL_ENROLLMENT_LISTEN,:9444"` // HTTPS worker enrollment listen address
 	InitialAcmeHosts          []string `env:"OPENDEPLOY_INITIAL_ACME_HOSTS,opendeploy.dev"`
 	InitialAcmeEmail          string   `env:"OPENDEPLOY_INITIAL_ACME_EMAIL,"`
-}
-
-type DynamicConfiguration struct {
-	WebListen        string
-	WebHTTPOnly      bool
-	ClusterListen    string
-	EnrollmentListen string
-	AcmeHosts        []string
-	AcmeEmail        string
-
-	GithubToken secretu.SecretValue
-
-	BackupEnabled           bool
-	BackupS3AccessKeyID     string
-	BackupS3SecretAccessKey secretu.SecretValue
-	BackupS3Bucket          string
-	BackupS3Path            string
-	BackupS3Region          string
-	BackupS3Endpoint        string
-
-	LargeAssetS3Enabled         bool
-	LargeAssetS3AccessKeyID     string
-	LargeAssetS3SecretAccessKey secretu.SecretValue
-	LargeAssetS3Bucket          string
-	LargeAssetS3Path            string
-	LargeAssetS3Region          string
-	LargeAssetS3Endpoint        string
 }

@@ -567,8 +567,8 @@ func (c *OpsagentHttpV1Capi) PostV1RepoValidate(ctx context.Context, req *Valida
 	return DecodeValidateSourceResponse(body)
 }
 
-func (c *OpsagentHttpV1Capi) GetV1Config(ctx context.Context) (*DynamicConfiguration, error) {
-	resp, err := c.do(ctx, "GET", "/v1/config", nil, "application/protobuf", "application/protobuf")
+func (c *OpsagentHttpV1Capi) GetV1Settings(ctx context.Context) (*Settings, error) {
+	resp, err := c.do(ctx, "GET", "/v1/settings", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -580,14 +580,14 @@ func (c *OpsagentHttpV1Capi) GetV1Config(ctx context.Context) (*DynamicConfigura
 	if err != nil {
 		return nil, err
 	}
-	return DecodeDynamicConfiguration(body)
+	return DecodeSettings(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1ConfigUpdate(ctx context.Context, req *ConfigUpdateRequest) (*DynamicConfiguration, error) {
+func (c *OpsagentHttpV1Capi) PutV1Settings(ctx context.Context, req *Settings) (*Settings, error) {
 	if req == nil {
-		return nil, fmt.Errorf("PostV1ConfigUpdate request is nil")
+		return nil, fmt.Errorf("PutV1Settings request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/config/update", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "PUT", "/v1/settings", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -599,7 +599,7 @@ func (c *OpsagentHttpV1Capi) PostV1ConfigUpdate(ctx context.Context, req *Config
 	if err != nil {
 		return nil, err
 	}
-	return DecodeDynamicConfiguration(body)
+	return DecodeSettings(body)
 }
 
 func (c *OpsagentHttpV1Capi) PostV1GenerateExportedConfig(ctx context.Context, req *EmptyRequest) (*ExportedConfigBlob, error) {

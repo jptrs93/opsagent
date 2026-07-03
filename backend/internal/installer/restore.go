@@ -9,6 +9,8 @@ import (
 
 	"github.com/benbjohnson/litestream"
 	"github.com/benbjohnson/litestream/s3"
+	"github.com/jptrs93/opsagent/backend/config"
+	"github.com/jptrs93/opsagent/backend/configmigration"
 	"github.com/jptrs93/opsagent/backend/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
@@ -144,11 +146,34 @@ func applyRestoredPrimaryConfigOverrides(dbPath string, opts installOptions, own
 		return nil
 	}
 	store := sqlite.NewPrimaryStorage(dbPath)
+	service, err := config.NewService(store)
+	if err != nil {
+		_ = store.Close()
+		return fmt.Errorf("init config service: %w", err)
+	}
+	settings := service.Snapshot().Settings
+	updates := make([]configmigration.Update, 0, len(overrides))
 	for _, override := range overrides {
-		if err := store.SetConfigValue(override.key, override.value); err != nil {
-			_ = store.Close()
-			return fmt.Errorf("set restored primary config %s: %w", override.key, err)
+		switch override.key {
+		case primaryConfigWebListen:
+			updates = append(updates,
+				configmigration.Update{Key: configmigration.WebHTTPListen, Value: configmigration.LiteralValue(override.value)},
+				configmigration.Update{Key: configmigration.WebHTTPSListen, Value: configmigration.LiteralValue(override.value)},
+			)
+		case primaryConfigWebHTTPOnly:
+			httpOnly, _ := strconv.ParseBool(override.value)
+			updates = append(updates,
+				configmigration.Update{Key: configmigration.WebHTTPEnabled, Value: configmigration.LiteralValue(strconv.FormatBool(httpOnly))},
+				configmigration.Update{Key: configmigration.WebHTTPSEnabled, Value: configmigration.LiteralValue(strconv.FormatBool(!httpOnly))},
+			)
+		default:
+			updates = append(updates, configmigration.Update{Key: configmigration.ConfigKey(override.key), Value: configmigration.LiteralValue(override.value)})
 		}
+	}
+	configmigration.ApplyUpdates(&settings, updates)
+	if err := service.UpdateSettings(settings); err != nil {
+		_ = store.Close()
+		return fmt.Errorf("set restored primary config overrides: %w", err)
 	}
 	if err := store.Close(); err != nil {
 		return fmt.Errorf("close restored primary database after config overrides: %w", err)

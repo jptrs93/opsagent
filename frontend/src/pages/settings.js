@@ -3,12 +3,11 @@ import {capi} from "../capi/index.js";
 import {referencePicker} from "../components/referencePicker.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {copyIcon, eyeOffIcon, eyeOpenIcon} from "../lib/icons.js";
-import {spacesS} from "../state/deployments.js";
+import {spacesS, userConfigRefsS, userConfigsS} from "../state/deployments.js";
 
-const { div, h2, p, pre, span, table, tbody, tr, td, button, code, input, label: labelEl } = van.tags;
+const { div, h2, p, pre, span, table, tbody, tr, td, button, code, input, select, option, label: labelEl } = van.tags;
 
 const boolValue = (value) => value ? "true" : "false";
-const listValue = (value) => value && value.length ? value.join(", ") : "";
 const shellQuote = (value) => {
     const s = String(value ?? "");
     if (!s) return "''";
@@ -17,58 +16,134 @@ const shellQuote = (value) => {
     return `'${s.replace(/'/g, `'"'"'`)}'`;
 };
 
+const configRefKey = (ref) => ref?.key || "";
+const deepClone = (value) => JSON.parse(JSON.stringify(value));
+const stringSetting = (value = "") => ({value, configRef: undefined});
+const boolSetting = (value = false) => ({value, configRef: undefined});
+const secretSetting = (key = "") => (key ? {key, version: 0} : {});
+const emptySettings = () => ({
+    httpWeb: {
+        enabled: boolSetting(false),
+        listen: stringSetting(":8080"),
+    },
+    httpsWeb: {
+        enabled: boolSetting(true),
+        listen: stringSetting(":443"),
+        tlsSelfManaged: boolSetting(false),
+        tlsCertPem: secretSetting(),
+        acmeHosts: stringSetting("opendeploy.dev"),
+        acmeEmail: stringSetting(""),
+    },
+    cluster: {
+        listen: stringSetting(":9443"),
+        enrollmentListen: stringSetting(":9444"),
+    },
+    repo: {
+        githubToken: secretSetting(),
+    },
+    backup: {
+        enabled: boolSetting(false),
+        s3AccessKeyId: stringSetting(""),
+        s3SecretAccessKey: secretSetting(),
+        s3Bucket: stringSetting(""),
+        s3Path: stringSetting("opendeploy/primary"),
+        s3Region: stringSetting("us-east-1"),
+        s3Endpoint: stringSetting(""),
+    },
+    largeAssets: {
+        s3Enabled: boolSetting(false),
+        s3AccessKeyId: stringSetting(""),
+        s3SecretAccessKey: secretSetting(),
+        s3Bucket: stringSetting(""),
+        s3Path: stringSetting("opendeploy/assets"),
+        s3Region: stringSetting("us-east-1"),
+        s3Endpoint: stringSetting(""),
+    },
+});
+
+const resolvedConfigValue = (refKey) => {
+    const key = (refKey || "").trim();
+    if (!key) return "";
+    const item = (userConfigsS.val || []).find(cfg => cfg.name === key);
+    return item?.value || "";
+};
+
+const effectiveStringSettingValue = (setting, fallback = "") => {
+    if (!setting) return fallback;
+    const key = configRefKey(setting.configRef);
+    if (key) return resolvedConfigValue(key) || fallback;
+    return setting.value ?? fallback;
+};
+
+const effectiveBoolSettingValue = (setting, fallback = false) => {
+    if (!setting) return fallback;
+    const key = configRefKey(setting.configRef);
+    if (key) {
+        const resolved = resolvedConfigValue(key).trim().toLowerCase();
+        if (resolved === "true") return true;
+        if (resolved === "false") return false;
+        return fallback;
+    }
+    return Boolean(setting.value);
+};
+
 const settingsSections = [
     {
         title: "Web UI",
         settings: [
-            {label: "Web UI server listen", key: "WEB_LISTEN", type: "text", value: (cfg) => cfg.webListen},
-            {label: "Web UI disable HTTPS", key: "WEB_HTTP_ONLY", type: "bool", value: (cfg) => boolValue(cfg.webHttpOnly)},
-            {label: "Web UI ACME hosts", key: "ACME_HOSTS", type: "text", value: (cfg) => listValue(cfg.acmeHosts)},
-            {label: "Web UI email", key: "ACME_EMAIL", type: "text", value: (cfg) => cfg.acmeEmail},
+            {label: "Web UI HTTPS enabled", key: "WEB_HTTPS_ENABLED", type: "bool", setting: (cfg) => cfg.httpsWeb?.enabled, apply: (doc, item) => { doc.httpsWeb.enabled = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value === "true"}; }},
+            {label: "Web UI HTTPS listen", key: "WEB_HTTPS_LISTEN", type: "text", setting: (cfg) => cfg.httpsWeb?.listen, apply: (doc, item) => { doc.httpsWeb.listen = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value}; }},
+            {label: "Web UI HTTP enabled", key: "WEB_HTTP_ENABLED", type: "bool", setting: (cfg) => cfg.httpWeb?.enabled, apply: (doc, item) => { doc.httpWeb.enabled = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value === "true"}; }},
+            {label: "Web UI HTTP listen", key: "WEB_HTTP_LISTEN", type: "text", setting: (cfg) => cfg.httpWeb?.listen, apply: (doc, item) => { doc.httpWeb.listen = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value}; }},
+            {label: "Web UI use self managed TLS cert", key: "WEB_TLS_SELF_MANAGED", type: "bool", setting: (cfg) => cfg.httpsWeb?.tlsSelfManaged, apply: (doc, item) => { doc.httpsWeb.tlsSelfManaged = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value === "true"}; }},
+            {label: "Web UI TLS cert PEM", key: "WEB_TLS_CERT_PEM", type: "secret", secret: (cfg) => cfg.httpsWeb?.tlsCertPem, apply: (doc, item) => { doc.httpsWeb.tlsCertPem = item.value ? {key: item.value, version: 0} : {}; }, defaultSecretName: "opendeploy.config.web_tls_cert_pem", visible: (draft) => draft?.WEB_TLS_SELF_MANAGED?.value === "true"},
+            {label: "Web UI ACME hosts", key: "ACME_HOSTS", type: "text", setting: (cfg) => cfg.httpsWeb?.acmeHosts, apply: (doc, item) => { doc.httpsWeb.acmeHosts = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value}; }},
+            {label: "Web UI ACME email", key: "ACME_EMAIL", type: "text", setting: (cfg) => cfg.httpsWeb?.acmeEmail, apply: (doc, item) => { doc.httpsWeb.acmeEmail = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value}; }},
         ],
     },
     {
         title: "Cluster details",
         settings: [
-            {label: "Cluster listen", key: "CLUSTER_LISTEN", type: "text", value: (cfg) => cfg.clusterListen},
-            {label: "Cluster enrollment listen", key: "ENROLLMENT_LISTEN", type: "text", value: (cfg) => cfg.enrollmentListen},
+            {label: "Cluster listen", key: "CLUSTER_LISTEN", type: "text", setting: (cfg) => cfg.cluster?.listen, apply: (doc, item) => { doc.cluster.listen = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value}; }},
+            {label: "Cluster enrollment listen", key: "ENROLLMENT_LISTEN", type: "text", setting: (cfg) => cfg.cluster?.enrollmentListen, apply: (doc, item) => { doc.cluster.enrollmentListen = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value}; }},
         ],
     },
     {
         title: "Repository credentials",
         settings: [
-            {label: "GitHub token", key: "GITHUB_TOKEN", type: "secret", secret: (cfg) => cfg.githubToken, defaultSecretName: "opendeploy.config.github_token"},
+            {label: "GitHub token", key: "GITHUB_TOKEN", type: "secret", secret: (cfg) => cfg.repo?.githubToken, apply: (doc, item) => { doc.repo.githubToken = item.value ? {key: item.value, version: 0} : {}; }, defaultSecretName: "opendeploy.config.github_token"},
         ],
     },
     {
         title: "Backup",
         enabledKey: "BACKUP_ENABLED",
         settings: [
-            {label: "Backup enabled", key: "BACKUP_ENABLED", type: "bool", value: (cfg) => boolValue(cfg.backupEnabled)},
-            {label: "Backup S3 access key ID", key: "BACKUP_S3_ACCESS_KEY_ID", type: "text", value: (cfg) => cfg.backupS3AccessKeyId},
-            {label: "Backup S3 secret access key", key: "BACKUP_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.backupS3SecretAccessKey, defaultSecretName: "opendeploy.config.backup_s3_secret_access_key"},
-            {label: "Backup S3 bucket", key: "BACKUP_S3_BUCKET", type: "text", value: (cfg) => cfg.backupS3Bucket},
-            {label: "Backup S3 path", key: "BACKUP_S3_PATH", type: "text", value: (cfg) => cfg.backupS3Path},
-            {label: "Backup S3 region", key: "BACKUP_S3_REGION", type: "text", value: (cfg) => cfg.backupS3Region},
-            {label: "Backup S3 endpoint", key: "BACKUP_S3_ENDPOINT", type: "text", value: (cfg) => cfg.backupS3Endpoint},
+            {label: "Backup enabled", key: "BACKUP_ENABLED", type: "bool", setting: (cfg) => cfg.backup?.enabled, apply: (doc, item) => { doc.backup.enabled = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value === "true"}; }},
+            {label: "Backup S3 access key ID", key: "BACKUP_S3_ACCESS_KEY_ID", type: "text", setting: (cfg) => cfg.backup?.s3AccessKeyId, apply: (doc, item) => { doc.backup.s3AccessKeyId = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value}; }},
+            {label: "Backup S3 secret access key", key: "BACKUP_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.backup?.s3SecretAccessKey, apply: (doc, item) => { doc.backup.s3SecretAccessKey = item.value ? {key: item.value, version: 0} : {}; }, defaultSecretName: "opendeploy.config.backup_s3_secret_access_key"},
+            {label: "Backup S3 bucket", key: "BACKUP_S3_BUCKET", type: "text", setting: (cfg) => cfg.backup?.s3Bucket, apply: (doc, item) => { doc.backup.s3Bucket = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value}; }},
+            {label: "Backup S3 path", key: "BACKUP_S3_PATH", type: "text", setting: (cfg) => cfg.backup?.s3Path, apply: (doc, item) => { doc.backup.s3Path = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value}; }},
+            {label: "Backup S3 region", key: "BACKUP_S3_REGION", type: "text", setting: (cfg) => cfg.backup?.s3Region, apply: (doc, item) => { doc.backup.s3Region = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value}; }},
+            {label: "Backup S3 endpoint", key: "BACKUP_S3_ENDPOINT", type: "text", setting: (cfg) => cfg.backup?.s3Endpoint, apply: (doc, item) => { doc.backup.s3Endpoint = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value}; }},
         ],
     },
     {
         title: "Large assets",
         enabledKey: "LARGE_ASSET_S3_ENABLED",
         settings: [
-            {label: "Large asset S3 enabled", key: "LARGE_ASSET_S3_ENABLED", type: "bool", value: (cfg) => boolValue(cfg.largeAssetS3Enabled)},
-            {label: "Large asset S3 access key ID", key: "LARGE_ASSET_S3_ACCESS_KEY_ID", type: "text", value: (cfg) => cfg.largeAssetS3AccessKeyId},
-            {label: "Large asset S3 secret access key", key: "LARGE_ASSET_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.largeAssetS3SecretAccessKey, defaultSecretName: "opendeploy.config.large_asset_s3_secret_access_key"},
-            {label: "Large asset S3 bucket", key: "LARGE_ASSET_S3_BUCKET", type: "text", value: (cfg) => cfg.largeAssetS3Bucket},
-            {label: "Large asset S3 path", key: "LARGE_ASSET_S3_PATH", type: "text", value: (cfg) => cfg.largeAssetS3Path},
-            {label: "Large asset S3 region", key: "LARGE_ASSET_S3_REGION", type: "text", value: (cfg) => cfg.largeAssetS3Region},
-            {label: "Large asset S3 endpoint", key: "LARGE_ASSET_S3_ENDPOINT", type: "text", value: (cfg) => cfg.largeAssetS3Endpoint},
+            {label: "Large asset S3 enabled", key: "LARGE_ASSET_S3_ENABLED", type: "bool", setting: (cfg) => cfg.largeAssets?.s3Enabled, apply: (doc, item) => { doc.largeAssets.s3Enabled = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value === "true"}; }},
+            {label: "Large asset S3 access key ID", key: "LARGE_ASSET_S3_ACCESS_KEY_ID", type: "text", setting: (cfg) => cfg.largeAssets?.s3AccessKeyId, apply: (doc, item) => { doc.largeAssets.s3AccessKeyId = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value}; }},
+            {label: "Large asset S3 secret access key", key: "LARGE_ASSET_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.largeAssets?.s3SecretAccessKey, apply: (doc, item) => { doc.largeAssets.s3SecretAccessKey = item.value ? {key: item.value, version: 0} : {}; }, defaultSecretName: "opendeploy.config.large_asset_s3_secret_access_key"},
+            {label: "Large asset S3 bucket", key: "LARGE_ASSET_S3_BUCKET", type: "text", setting: (cfg) => cfg.largeAssets?.s3Bucket, apply: (doc, item) => { doc.largeAssets.s3Bucket = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value}; }},
+            {label: "Large asset S3 path", key: "LARGE_ASSET_S3_PATH", type: "text", setting: (cfg) => cfg.largeAssets?.s3Path, apply: (doc, item) => { doc.largeAssets.s3Path = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value}; }},
+            {label: "Large asset S3 region", key: "LARGE_ASSET_S3_REGION", type: "text", setting: (cfg) => cfg.largeAssets?.s3Region, apply: (doc, item) => { doc.largeAssets.s3Region = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value}; }},
+            {label: "Large asset S3 endpoint", key: "LARGE_ASSET_S3_ENDPOINT", type: "text", setting: (cfg) => cfg.largeAssets?.s3Endpoint, apply: (doc, item) => { doc.largeAssets.s3Endpoint = item.mode === "config" ? {configRef: {key: item.configRefKey, version: 0}} : {value: item.value}; }},
         ],
     },
 ];
 
 const settings = settingsSections.flatMap((section) => section.settings);
+const settingUsesConfigRef = (setting) => setting.type !== "secret";
 
 const draftValue = (setting, cfg) => {
     if (setting.type === "secret") {
@@ -81,46 +156,96 @@ const draftValue = (setting, cfg) => {
             revealedValue: "",
         };
     }
-    const original = setting.value(cfg) || "";
-    return {value: original, original};
+    const current = setting.setting(cfg) || {};
+    const refKey = configRefKey(current.configRef);
+    const original = setting.type === "bool"
+        ? boolValue(current.value)
+        : (current.value || "");
+    return {
+        value: original,
+        original,
+        mode: refKey ? "config" : "value",
+        originalMode: refKey ? "config" : "value",
+        configRefKey: refKey,
+        originalConfigRefKey: refKey,
+    };
 };
 
 const configDraft = (cfg) => Object.fromEntries(settings.map((setting) => [setting.key, draftValue(setting, cfg)]));
 
-const isDirty = (setting, item) => setting.type === "secret"
-    ? item.value !== item.original
-    : item.value !== item.original;
+const isDirty = (setting, item) => {
+    if (setting.type === "secret") return item.value !== item.original;
+    if (item.mode !== item.originalMode) return true;
+    if (item.mode === "config") return item.configRefKey !== item.originalConfigRefKey;
+    return item.value !== item.original;
+};
 
 const dirtySettingsFor = (draft) => settings
     .map((setting) => ({setting, item: draft?.[setting.key]}))
     .filter(({setting, item}) => item && isDirty(setting, item));
 
-const inputClass = "w-full min-w-64 bg-transparent px-2 py-1 rounded-[0.3rem] border border-gray-700 " +
-    "hover:border-gray-600 focus:border-brand focus:outline-none";
+const inputClass = "w-full min-w-64 rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-xs text-gray-100 " +
+    "focus:outline-none focus:ring-1 focus:ring-brand";
 const compactButtonClass = "h-8 px-3 py-1 rounded-md text-sm leading-none";
 const defaultSpaceIDs = new Set([0, 1]);
+let settingsPageNode = null;
 
 function valueInput(setting, draft, error, patchDraft, saving, secrets, openCreateSecret) {
     const item = () => draft.val?.[setting.key];
     const patch = (next) => patchDraft(setting.key, next);
+    const mode = () => item()?.mode || "value";
+    const modeSelector = settingUsesConfigRef(setting)
+        ? select({
+            class: "w-20 rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand",
+            disabled: () => saving.val,
+            value: () => mode(),
+            onchange: (e) => patch({mode: e.target.value}),
+        },
+        option({value: "value"}, "value"),
+        option({value: "config"}, "config"))
+        : "";
+
+    const configPicker = () => div(
+        {class: "flex items-center gap-1.5 w-full"},
+        modeSelector,
+        referencePicker({
+            refs: userConfigRefsS,
+            selectedKey: () => item()?.configRefKey || "",
+            selectedLabel: () => item()?.configRefKey || "",
+            getKey: ref => ref.name,
+            getLabel: ref => ref.name,
+            placeholder: "Search configs",
+            noMatchesLabel: "No matching configs",
+            emptyLabel: "No configs available",
+            inputClass,
+            containerClass: "relative min-w-64 flex-1",
+            disabled: () => saving.val,
+            onSelect: ref => patch({configRefKey: ref.name}),
+        }),
+    );
 
     if (setting.type === "bool") {
-        return labelEl(
-            {class: "inline-flex items-center gap-3 cursor-pointer select-none"},
-            input({
-                class: "sr-only peer",
-                type: "checkbox",
-                disabled: () => saving.val,
-                checked: () => item()?.value === "true",
-                onchange: (e) => patch({value: e.target.checked ? "true" : "false"}),
-            }),
-            span({
-                class: () => `relative h-6 w-11 rounded-full transition-colors ${
-                    item()?.value === "true" ? "bg-brand" : "bg-gray-700"
-                } before:absolute before:left-1 before:top-1 before:h-4 before:w-4 before:rounded-full ` +
-                    `before:bg-white before:transition-transform ${item()?.value === "true" ? "before:translate-x-5" : ""}`,
-            }),
-            span({class: "text-sm text-gray-300"}, () => item()?.value === "true" ? "true" : "false"),
+        if (settingUsesConfigRef(setting) && mode() === "config") return configPicker();
+        return div(
+            {class: "inline-flex items-center gap-2"},
+            modeSelector,
+            labelEl(
+                {class: "inline-flex items-center gap-2 cursor-pointer select-none"},
+                input({
+                    class: "sr-only peer",
+                    type: "checkbox",
+                    disabled: () => saving.val,
+                    checked: () => item()?.value === "true",
+                    onchange: (e) => patch({value: e.target.checked ? "true" : "false"}),
+                }),
+                span({
+                    class: () => `relative h-5 w-9 rounded-full transition-colors ${
+                        item()?.value === "true" ? "bg-brand" : "bg-gray-700"
+                    } before:absolute before:left-0.5 before:top-0.5 before:h-4 before:w-4 before:rounded-full ` +
+                        `before:bg-white before:transition-transform ${item()?.value === "true" ? "before:translate-x-4" : ""}`,
+                }),
+                span({class: "text-xs text-gray-300"}, () => item()?.value === "true" ? "true" : "false"),
+            ),
         );
     }
     if (setting.type === "secret") {
@@ -130,14 +255,14 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
             if (current.revealed) { patch({revealed: false, revealedValue: ""}); return; }
             try {
                 error.val = null;
-                const res = await capi.postV1SecretValueReveal({key: current.value});
+                const res = await capi.postV1SecretsReveal({name: current.value});
                 patch({revealed: true, revealedValue: new TextDecoder().decode(res.value)});
             } catch (e) {
                 error.val = e.message;
             }
         };
         return div(
-            {class: "flex flex-wrap items-center gap-2"},
+            {class: "flex flex-wrap items-center gap-1.5"},
             referencePicker({
                 refs: secrets,
                 selectedKey: () => item()?.value || "",
@@ -155,7 +280,7 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
             button({
                 type: "button",
                 disabled: () => saving.val,
-                class: "text-xs px-3 py-1 rounded-md font-medium text-gray-200 bg-gray-700 hover:bg-gray-600 cursor-pointer whitespace-nowrap",
+                class: "text-xs px-2 py-1 rounded-md font-medium text-gray-200 bg-gray-700 hover:bg-gray-600 cursor-pointer whitespace-nowrap",
                 onclick: () => openCreateSecret(setting),
             }, "Create secret"),
             () => item()?.value ? button({
@@ -163,13 +288,13 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
                 title: () => item().revealed ? "Hide saved secret" : "Reveal saved secret",
                 "aria-label": () => item().revealed ? "Hide saved secret" : "Reveal saved secret",
                 disabled: () => saving.val,
-                class: "p-1.5 rounded text-gray-300 bg-gray-700 hover:bg-gray-600 cursor-pointer",
+                class: "p-1 rounded text-gray-300 bg-gray-700 hover:bg-gray-600 cursor-pointer",
                 onclick: revealSecret,
             }, () => item().revealed ? eyeOffIcon() : eyeOpenIcon()) : "",
             () => item()?.value ? button({
                 type: "button",
                 disabled: () => saving.val,
-                class: "text-xs px-3 py-1 rounded-md font-medium text-gray-200 bg-gray-700 hover:bg-gray-600 cursor-pointer whitespace-nowrap",
+                class: "text-xs px-2 py-1 rounded-md font-medium text-gray-200 bg-gray-700 hover:bg-gray-600 cursor-pointer whitespace-nowrap",
                 onclick: () => patch({value: "", revealed: false, revealedValue: ""}),
             }, "Clear") : "",
             () => item()?.revealed ? code({
@@ -178,15 +303,22 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
             }, item().revealedValue) : "",
         );
     }
-    return input({
-        class: inputClass,
-        disabled: () => saving.val,
-        value: () => item()?.value || "",
-        oninput: (e) => patch({value: e.target.value}),
-    });
+    if (settingUsesConfigRef(setting) && mode() === "config") return configPicker();
+    return div(
+        {class: "flex items-center gap-1.5 w-full"},
+        modeSelector,
+        input({
+            class: inputClass,
+            disabled: () => saving.val,
+            value: () => item()?.value || "",
+            oninput: (e) => patch({value: e.target.value}),
+        }),
+    );
 }
 
 export function settingsPage() {
+    if (settingsPageNode) return settingsPageNode;
+
     const config = van.state(null);
     const draft = van.state(null);
     const dirtyCount = van.state(0);
@@ -231,7 +363,7 @@ export function settingsPage() {
         try {
             error.val = null;
             const [cfg, secretsStatus] = await Promise.all([
-                capi.getV1Config(),
+                capi.getV1Settings(),
                 capi.postV1SecretsStatus({}),
             ]);
             config.val = cfg;
@@ -243,7 +375,7 @@ export function settingsPage() {
             error.val = e.message;
         }
     };
-    load();
+    setTimeout(load, 0);
 
     const dirtySettings = () => dirtySettingsFor(draft.val);
 
@@ -295,9 +427,9 @@ export function settingsPage() {
         try {
             saving.val = true;
             error.val = null;
-            const res = await capi.postV1ConfigUpdate({
-                values: dirtySettings().map(({setting, item}) => ({key: setting.key, value: item.value})),
-            });
+            const payload = deepClone(config.val || emptySettings());
+            dirtySettings().forEach(({setting, item}) => setting.apply(payload, item));
+            const res = await capi.putV1Settings(payload);
             config.val = res;
             setDraft(configDraft(res));
         } catch (e) {
@@ -318,23 +450,32 @@ export function settingsPage() {
         }
     };
 
-    const recoveryInstallExample = () => {
-        const cfg = config.val || {};
+	const recoveryInstallExample = () => {
+		const cfg = config.val || {};
+		const httpWeb = cfg.httpWeb || {};
+		const httpsWeb = cfg.httpsWeb || {};
+		const backup = cfg.backup || {};
+		const httpOnly = effectiveBoolSettingValue(httpWeb.enabled, false) && !effectiveBoolSettingValue(httpsWeb.enabled, true);
+		const webListen = httpOnly
+			? effectiveStringSettingValue(httpWeb.listen, ":8080")
+			: effectiveStringSettingValue(httpsWeb.listen, ":443");
         const args = [
-            ["--http-only", boolValue(cfg.webHttpOnly)],
-            ["--web-listen", cfg.webListen || ":443"],
-            ["--cluster-listen", cfg.clusterListen || ":9443"],
-            ["--enrollment-listen", cfg.enrollmentListen || ":9444"],
+            ["--http-only", boolValue(httpOnly)],
+            ["--web-listen", webListen || ":443"],
+            ["--cluster-listen", effectiveStringSettingValue(cfg.cluster?.listen, ":9443")],
+            ["--enrollment-listen", effectiveStringSettingValue(cfg.cluster?.enrollmentListen, ":9444")],
             ["--restore-backup", "true"],
-            ["--restore-s3-access-key-id", cfg.backupS3AccessKeyId || "$S3_ACCESS_KEY_ID"],
+            ["--restore-s3-access-key-id", effectiveStringSettingValue(backup.s3AccessKeyId, "$S3_ACCESS_KEY_ID")],
             ["--restore-s3-secret-access-key", "$S3_SECRET_ACCESS_KEY"],
-            ["--restore-s3-bucket", cfg.backupS3Bucket || "$S3_BUCKET"],
-            ["--restore-s3-path", cfg.backupS3Path || "opendeploy/primary"],
-            ["--restore-s3-region", cfg.backupS3Region || "us-east-1"],
+            ["--restore-s3-bucket", effectiveStringSettingValue(backup.s3Bucket, "$S3_BUCKET")],
+            ["--restore-s3-path", effectiveStringSettingValue(backup.s3Path, "opendeploy/primary")],
+            ["--restore-s3-region", effectiveStringSettingValue(backup.s3Region, "us-east-1")],
             ["--recovery-code", "$RECOVERY_CODE"],
         ];
-        if (cfg.backupS3Endpoint) args.splice(args.length - 1, 0, ["--restore-s3-endpoint", cfg.backupS3Endpoint]);
-        if ((cfg.acmeHosts || []).length) args.push(["--acme-hosts", cfg.acmeHosts.join(",")]);
+        const s3Endpoint = effectiveStringSettingValue(backup.s3Endpoint, "");
+        if (s3Endpoint) args.splice(args.length - 1, 0, ["--restore-s3-endpoint", s3Endpoint]);
+		const acmeHosts = effectiveStringSettingValue(httpsWeb.acmeHosts, "");
+        if (acmeHosts) args.push(["--acme-hosts", acmeHosts]);
         const invocation = [
             "curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/restore_primary.sh | bash -s --",
             ...args.map(([flag, value]) => `  ${flag} ${shellQuote(value)}`),
@@ -805,10 +946,10 @@ export function settingsPage() {
 
     const rowEl = (section, setting) => div(
         {class: () => isSectionSettingVisible(section, setting)
-            ? "flex flex-col gap-1 border-b border-gray-800 py-2 last:border-0 sm:flex-row sm:items-center"
+            ? "flex flex-col gap-1 border-b border-gray-800 py-1 last:border-0 sm:flex-row sm:items-center"
             : "hidden"},
         div({class: "whitespace-nowrap pr-3 sm:w-80 sm:min-w-80"},
-            span({class: "text-gray-200"}, setting.label),
+            span({class: "text-xs text-gray-200"}, setting.label),
         ),
         div({class: "min-w-0 flex-1 text-white"}, valueInput(setting, draft, error, patchDraft, saving, secrets, openCreateSecret)),
         div({class: "w-20 whitespace-nowrap text-right sm:pl-4"},
@@ -825,23 +966,29 @@ export function settingsPage() {
         right,
     );
 
-    const isSectionSettingVisible = (section, setting) => !section.enabledKey
-        || setting.key === section.enabledKey
-        || draft.val?.[section.enabledKey]?.value === "true";
+    const isSectionSettingVisible = (section, setting) => {
+        if (setting.visible && !setting.visible(draft.val)) return false;
+        if (section.title === "Web UI" && ["ACME_HOSTS", "ACME_EMAIL"].includes(setting.key)) {
+            return draft.val?.WEB_TLS_SELF_MANAGED?.value !== "true";
+        }
+        return !section.enabledKey
+            || setting.key === section.enabledKey
+            || draft.val?.[section.enabledKey]?.value === "true";
+    };
 
     const settingsItems = (section) => div(
-        {class: "flex flex-col text-sm"},
+        {class: "flex flex-col text-xs"},
         ...section.settings.map(setting => rowEl(section, setting)),
     );
 
     const settingsSection = (section, index) => div(
-        {class: "flex flex-col gap-3"},
+        {class: "flex flex-col gap-2"},
         sectionHeader(section.title, index === 0 ? dirtyActions : ""),
         settingsItems(section),
     );
 
     const settingsCard = () => div(
-        {class: "card flex flex-col gap-5"},
+        {class: "card flex flex-col gap-4"},
         ...settingsSections.map(settingsSection),
     );
 
@@ -858,7 +1005,7 @@ export function settingsPage() {
             "button", () => saving.val),
     ) : "";
 
-    return div(
+    settingsPageNode = div(
         {class: "settings-scroll h-full min-h-0 overflow-y-auto overflow-x-hidden p-3 flex flex-col gap-3"},
         () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : "",
         p({class: () => loaded.val ? "hidden" : "text-gray-400"}, "Loading..."),
@@ -873,4 +1020,5 @@ export function settingsPage() {
         masterPasswordUpdateOverlay,
         createSecretDialog,
     );
+    return settingsPageNode;
 }

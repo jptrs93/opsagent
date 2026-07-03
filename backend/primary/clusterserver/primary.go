@@ -4,7 +4,7 @@
 // snapshot, forwards ongoing config updates, and handles incoming status writes
 // and log proxy requests. Peer identity is the worker's client-cert CN, lifted
 // into the request context by VerifyClusterPeer.
-package primary
+package clusterserver
 
 import (
 	"context"
@@ -79,8 +79,8 @@ type assetProvider interface {
 	OpenAsset(ctx context.Context, assetID, version int32) (*apigen.Asset, io.ReadCloser, error)
 }
 
-// New creates a Primary. The mTLS HTTP/2 listener that drives it is created by
-// the caller, which mounts CreateOpsagentClusterV1Mux(p, ...) on a server.
+// New creates a Primary. RunPrimary mounts it on the mTLS HTTP/2 cluster
+// listener.
 func New(store *sqlite.PrimaryStorage, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager) *Primary {
 	return &Primary{
 		store:             store,

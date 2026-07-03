@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/jptrs93/opsagent/backend/util/secretu"
+	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
 type Provider interface {
@@ -17,20 +17,27 @@ type GithubCredentials struct {
 }
 
 type SecretProvider struct {
-	Value func(context.Context) secretu.SecretValue
+	SecretRef func(context.Context) apigen.SecretRef
+	Secrets   secretStore
+}
+
+type secretStore interface {
+	HasSecret(name string) (bool, time.Time)
+	Reveal(name string) ([]byte, error)
 }
 
 func (p SecretProvider) LoadCredentials(ctx context.Context) (*GithubCredentials, error) {
-	if p.Value == nil {
+	if p.SecretRef == nil {
 		return &GithubCredentials{}, nil
 	}
-	value := p.Value(ctx)
-	if value == nil {
+	ref := p.SecretRef(ctx)
+	if ref.Key == "" || p.Secrets == nil {
 		return &GithubCredentials{}, nil
 	}
-	token, err := value.Reveal()
+	token, err := p.Secrets.Reveal(ref.Key)
 	if err != nil {
 		return nil, err
 	}
-	return &GithubCredentials{Token: token, ChangedAt: value.Updated()}, nil
+	_, changedAt := p.Secrets.HasSecret(ref.Key)
+	return &GithubCredentials{Token: string(token), ChangedAt: changedAt}, nil
 }

@@ -85,12 +85,10 @@ CREATE TABLE IF NOT EXISTS public_keys (
     key_bytes BLOB NOT NULL
 );
 
--- Runtime system configuration values. Absence of a row means the corresponding
--- OPENDEPLOY_INITIAL_* or install-time default is still in effect.
-CREATE TABLE IF NOT EXISTS system_config (
-    key        TEXT PRIMARY KEY,
-    value      TEXT    NOT NULL,
-    updated_at INTEGER NOT NULL DEFAULT 0  -- epoch ms
+CREATE TABLE IF NOT EXISTS opendeploy_config (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    updated_at  INTEGER NOT NULL,
+    config_blob BLOB    NOT NULL
 );
 
 -- Plain user-managed configuration values. These are intentionally not
