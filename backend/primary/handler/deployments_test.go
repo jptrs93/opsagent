@@ -8,9 +8,21 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/primary/clusterserver"
 	secretspkg "github.com/jptrs93/opsagent/backend/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
+
+func findSystemDeployment(t *testing.T, store *sqlite.PrimaryStorage, machine string) *apigen.DeploymentConfig {
+	t.Helper()
+	for _, cfg := range store.ListActiveDeploymentConfigs() {
+		if sqlite.IsSystemDeploymentConfig(cfg) && cfg.ConfigID.Machine == machine {
+			return cfg
+		}
+	}
+	t.Fatalf("system deployment for %s not found", machine)
+	return nil
+}
 
 func TestValidateDeploymentSpecNixDockerBuild(t *testing.T) {
 	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
@@ -488,6 +500,51 @@ func TestDeploymentDeleteAllowsRunningMissingMachineDeployment(t *testing.T) {
 	}
 	if cfg := h.findConfigByID(created.ID); cfg != nil {
 		t.Fatalf("deleted deployment still active: %+v", cfg)
+	}
+}
+
+func TestDeploymentDeleteAllowsStaleDisconnectedSystemDeployment(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	store.EnsureSystemDeployment("worker-a", "v0.0.194")
+	system := findSystemDeployment(t, store, "worker-a")
+	store.MustWriteDeploymentStatus(system.ID, func(s *apigen.DeploymentStatus) bool {
+		// The node is disconnected, so this status is stale metadata and should not
+		// block cleanup.
+		s.Runner.Status = apigen.RunningStatus_CRASHED
+		return true
+	})
+	h := &Handler{
+		Store:          store,
+		MachineName:    "primary",
+		ClusterPrimary: clusterserver.New(store, nil, nil, nil),
+	}
+
+	err := h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: system.ID, Version: system.Version + 1})
+	if err != nil {
+		t.Fatalf("PostV1DeploymentDelete failed: %v", err)
+	}
+	if cfg := h.findConfigByID(system.ID); cfg != nil {
+		t.Fatalf("deleted system deployment still active: %+v", cfg)
+	}
+}
+
+func TestDeploymentDeleteRejectsPrimarySystemDeployment(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	store.EnsureSystemDeployment("primary", "v0.0.194")
+	system := findSystemDeployment(t, store, "primary")
+	store.MustWriteDeploymentStatus(system.ID, func(s *apigen.DeploymentStatus) bool {
+		s.Runner.Status = apigen.RunningStatus_STOPPED
+		return true
+	})
+	h := &Handler{
+		Store:          store,
+		MachineName:    "primary",
+		ClusterPrimary: clusterserver.New(store, nil, nil, nil),
+	}
+
+	err := h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: system.ID, Version: system.Version + 1})
+	if err == nil || !strings.Contains(err.Error(), "internal-only") {
+		t.Fatalf("err = %v, want internal-only rejection", err)
 	}
 }
 

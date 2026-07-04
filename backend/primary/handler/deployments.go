@@ -125,14 +125,15 @@ func (h *Handler) PostV1DeploymentDelete(ctx apigen.Context, req *apigen.Deploym
 	if cfg == nil || cfg.Deleted {
 		return DeploymentNotFoundErr
 	}
-	if sqlite.IsSystemDeploymentConfig(cfg) {
-		return invalidConfigErrf("opendeploy system deployment is internal-only")
-	}
 	if req.Version != cfg.Version+1 {
 		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
 	}
 	status := h.Store.FetchDeploymentStatus(req.DeploymentID)
-	if !h.canDeleteDeployment(cfg, status) {
+	if sqlite.IsSystemDeploymentConfig(cfg) {
+		if !h.canDeleteStaleDisconnectedSystemDeployment(cfg) {
+			return invalidConfigErrf("opendeploy system deployment is internal-only")
+		}
+	} else if !h.canDeleteDeployment(cfg, status) {
 		return invalidConfigErrf("deployment must be stopped before deletion")
 	}
 	deleted := true
@@ -146,6 +147,15 @@ func (h *Handler) PostV1DeploymentDelete(ctx apigen.Context, req *apigen.Deploym
 		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
 	}
 	return nil
+}
+
+func (h *Handler) canDeleteStaleDisconnectedSystemDeployment(cfg *apigen.DeploymentConfig) bool {
+	machine := cfg.ConfigID.Machine
+	if machine == "" || h.MachineName == "" || machine == h.MachineName || h.ClusterPrimary == nil {
+		return false
+	}
+	_, connected := h.ClusterPrimary.ConnectedMachines()[machine]
+	return !connected
 }
 
 func (h *Handler) canDeleteDeployment(cfg *apigen.DeploymentConfig, status *apigen.DeploymentStatus) bool {
