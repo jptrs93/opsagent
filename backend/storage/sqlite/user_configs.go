@@ -110,6 +110,17 @@ func (s *PrimaryStorage) GetLatestUserConfig(name string) (*apigen.UserConfig, b
 	return userConfigRowToProto(r), true
 }
 
+func (s *PrimaryStorage) GetUserConfigByID(id int32) (*apigen.UserConfig, bool) {
+	r, err := s.q.GetUserConfigByID(context.Background(), int64(id))
+	if err == sql.ErrNoRows {
+		return nil, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetUserConfigByID: %v", err))
+	}
+	return userConfigRowToProto(r), true
+}
+
 func (s *PrimaryStorage) UserConfigIDsByName(name string) []int32 {
 	rows, err := s.q.ListUserConfigVersionsByName(context.Background(), name)
 	if err != nil {

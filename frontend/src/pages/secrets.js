@@ -5,7 +5,7 @@ import {formatDateTime} from "../lib/date.js";
 import {eyeOffIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
 import {deploymentsS, secretMetasS, secretsStatusS, userConfigsS} from "../state/deployments.js";
 
-const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td } = van.tags;
+const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
 const DEFAULT_SECRET_MASK = "••••••••••••••••";
 
 const rawStateValue = (state) => state.rawVal ?? state.val ?? "";
@@ -97,42 +97,46 @@ export function secretsPage() {
         }
         return Array.from(latest.values());
     };
-    const settingConfigRefKeys = (settings) => [
-        settings?.httpWeb?.enabled?.configRef?.key,
-        settings?.httpWeb?.listen?.configRef?.key,
-        settings?.httpsWeb?.enabled?.configRef?.key,
-        settings?.httpsWeb?.listen?.configRef?.key,
-        settings?.httpsWeb?.tlsSelfManaged?.configRef?.key,
-        settings?.httpsWeb?.acmeHosts?.configRef?.key,
-        settings?.httpsWeb?.acmeEmail?.configRef?.key,
-        settings?.cluster?.listen?.configRef?.key,
-        settings?.cluster?.enrollmentListen?.configRef?.key,
-        settings?.backup?.enabled?.configRef?.key,
-        settings?.backup?.s3AccessKeyId?.configRef?.key,
-        settings?.backup?.s3Bucket?.configRef?.key,
-        settings?.backup?.s3Path?.configRef?.key,
-        settings?.backup?.s3Region?.configRef?.key,
-        settings?.backup?.s3Endpoint?.configRef?.key,
-        settings?.largeAssets?.s3Enabled?.configRef?.key,
-        settings?.largeAssets?.s3AccessKeyId?.configRef?.key,
-        settings?.largeAssets?.s3Bucket?.configRef?.key,
-        settings?.largeAssets?.s3Path?.configRef?.key,
-        settings?.largeAssets?.s3Region?.configRef?.key,
-        settings?.largeAssets?.s3Endpoint?.configRef?.key,
-    ].filter(Boolean);
-    const settingSecretRefKeys = (settings) => [
-        settings?.httpsWeb?.tlsCertPem?.key,
-        settings?.repo?.githubToken?.key,
-        settings?.backup?.s3SecretAccessKey?.key,
-        settings?.largeAssets?.s3SecretAccessKey?.key,
-    ].filter(Boolean);
+    const settingConfigRefIDs = (settings) => [
+        settings?.httpWeb?.enabled?.configRef?.id,
+        settings?.httpWeb?.listen?.configRef?.id,
+        settings?.httpsWeb?.enabled?.configRef?.id,
+        settings?.httpsWeb?.listen?.configRef?.id,
+        settings?.httpsWeb?.tlsSelfManaged?.configRef?.id,
+        settings?.httpsWeb?.acmeHosts?.configRef?.id,
+        settings?.httpsWeb?.acmeEmail?.configRef?.id,
+        settings?.cluster?.listen?.configRef?.id,
+        settings?.cluster?.enrollmentListen?.configRef?.id,
+        settings?.backup?.enabled?.configRef?.id,
+        settings?.backup?.s3AccessKeyId?.configRef?.id,
+        settings?.backup?.s3Bucket?.configRef?.id,
+        settings?.backup?.s3Path?.configRef?.id,
+        settings?.backup?.s3Region?.configRef?.id,
+        settings?.backup?.s3Endpoint?.configRef?.id,
+        settings?.largeAssets?.s3Enabled?.configRef?.id,
+        settings?.largeAssets?.s3AccessKeyId?.configRef?.id,
+        settings?.largeAssets?.s3Bucket?.configRef?.id,
+        settings?.largeAssets?.s3Path?.configRef?.id,
+        settings?.largeAssets?.s3Region?.configRef?.id,
+        settings?.largeAssets?.s3Endpoint?.configRef?.id,
+    ].map(Number).filter(Boolean);
+    const settingSecretRefIDs = (settings) => [
+        settings?.httpsWeb?.tlsCertPem?.id,
+        settings?.repo?.githubToken?.id,
+        settings?.backup?.s3SecretAccessKey?.id,
+        settings?.largeAssets?.s3SecretAccessKey?.id,
+    ].map(Number).filter(Boolean);
     const settingsUseCount = (row) => {
         const name = row.orig.name || rawStateValue(row.name).trim();
         if (!name) return 0;
-        const keys = row.type === "secret"
-            ? settingSecretRefKeys(settingsSnapshot.val)
-            : settingConfigRefKeys(settingsSnapshot.val);
-        return keys.filter(key => key === name).length;
+        const idsForName = new Set((row.type === "secret" ? (secretMetasS.val || []) : (userConfigsS.val || []))
+            .filter(item => item?.name === name)
+            .map(item => Number(item.id || 0))
+            .filter(Boolean));
+        const ids = row.type === "secret"
+            ? settingSecretRefIDs(settingsSnapshot.val)
+            : settingConfigRefIDs(settingsSnapshot.val);
+        return ids.filter(id => idsForName.has(id)).length;
     };
     const deploymentUsesItem = (deployment, row) => {
         const referenceId = Number(row.referenceId || 0);
@@ -484,7 +488,7 @@ export function secretsPage() {
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap"}, formatDateTime(row.createdAt, "-")),
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => inUseCount(row)),
         td({class: "py-1 pr-3"}, row.type === "secret" ? secretValueInput(row) : configValueInput(row)),
-        td({class: "py-1 pl-2 text-right whitespace-nowrap w-px"},
+        td({class: "py-1 pl-2 pr-5 text-right whitespace-nowrap w-px"},
             () => isDirty(row)
                 ? div({class: "flex items-center justify-end gap-2"},
                     smallBtn("Save", () => saveRow(row), "bg-brand text-white hover:bg-blue-600",
@@ -513,12 +517,45 @@ export function secretsPage() {
         );
     };
 
+    const tableClass = "w-full min-w-[82rem] table-fixed text-sm";
+
+    const tableCols = () => colgroup(
+        col({style: "width:7rem"}),
+        col({style: "width:18rem"}),
+        col({style: "width:7rem"}),
+        col({style: "width:12rem"}),
+        col({style: "width:8rem"}),
+        col({style: "width:22rem"}),
+        col({style: "width:8rem"}),
+    );
+
     const sortableHeader = (key, label, cls = "") => th({class: `pb-2 pr-3 font-medium ${cls}`},
         button({
             type: "button",
             class: "inline-flex items-center gap-1 text-gray-400 hover:text-gray-100 cursor-pointer",
             onclick: () => setSort(key),
         }, label, () => sort.val.key === key ? (sort.val.dir === "asc" ? " ^" : " v") : ""));
+
+    const tableHeader = () => table(
+        {class: tableClass},
+        tableCols(),
+        thead(
+            tr({class: "text-left text-gray-400 border-b border-gray-700"},
+                sortableHeader("type", "Type", "w-px"),
+                sortableHeader("name", "Name"),
+                sortableHeader("version", "Version"),
+                sortableHeader("created", "Created"),
+                sortableHeader("inUse", "In use by"),
+                sortableHeader("value", "Value"),
+                th({class: "pb-2 pr-5 w-px"}, ""),
+            )),
+    );
+
+    const tableBody = (visibleRows) => table(
+        {class: tableClass},
+        tableCols(),
+        tbody(...visibleRows.map(rowEl)),
+    );
 
     const contentTable = () => div(
         {class: "card h-full min-h-0 flex flex-col gap-3"},
@@ -539,7 +576,7 @@ export function secretsPage() {
                 actionButton("Add secret", () => addRow("secret"), "bg-gray-700 text-gray-200 hover:bg-gray-600",
                     () => !secretsStatusS.val || !secretsStatusS.val.unlocked),
                 actionButton("Add config", () => addRow("config")))),
-        div({class: "flex-1 min-h-0 overflow-auto"}, () => {
+        div({class: "flex-1 min-h-0 overflow-hidden"}, () => {
             if (rows.val === null) return p({class: "text-gray-400 text-sm"}, "Loading...");
             if (rows.val.length === 0) {
                 return p({class: "text-gray-400 text-sm"}, "No secrets or configs yet.");
@@ -548,19 +585,13 @@ export function secretsPage() {
             if (visibleRows.length === 0) {
                 return p({class: "text-gray-400 text-sm"}, "No secrets or configs match your search.");
             }
-            return table(
-                {class: "w-full text-sm"},
-                thead(
-                    tr({class: "text-left text-gray-400 border-b border-gray-700"},
-                        sortableHeader("type", "Type", "w-px"),
-                        sortableHeader("name", "Name"),
-                        sortableHeader("version", "Version"),
-                        sortableHeader("created", "Created"),
-                        sortableHeader("inUse", "In use by"),
-                        sortableHeader("value", "Value"),
-                        th({class: "pb-2 w-px"}, ""),
-                    )),
-                tbody(...visibleRows.map(rowEl)),
+            return div(
+                {class: "h-full min-h-0 overflow-x-auto overflow-y-hidden"},
+                div(
+                    {class: "h-full min-h-0 flex flex-col"},
+                    div({class: "flex-none pr-3"}, tableHeader()),
+                    div({class: "deployment-table-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-3"}, tableBody(visibleRows)),
+                ),
             );
         }),
     );

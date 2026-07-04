@@ -47,12 +47,9 @@ func (m *memStore) InsertSecret(r Record) Record {
 	m.records[r.ID] = r
 	return r
 }
-func (m *memStore) RenameSecret(name, newName string) {
-	for id, r := range m.records {
-		if r.Name == name {
-			r.Name = newName
-			m.records[id] = r
-		}
+func (m *memStore) RenameSecretRecords(name, newName string, records []Record) {
+	for _, r := range records {
+		m.records[r.ID] = r
 	}
 }
 func (m *memStore) DeleteSecret(name string) {
@@ -168,6 +165,38 @@ func TestAADBindingPreventsSwap(t *testing.T) {
 	mgr2 := mustOpen(t, dir, store)
 	if got, ok := mgr2.Resolve(recB.ID); ok {
 		t.Fatalf("expected AAD mismatch to fail; got %q", got)
+	}
+}
+
+func TestRenameReencryptsVersions(t *testing.T) {
+	dir := t.TempDir()
+	store := newMemStore()
+	mgr := mustOpen(t, dir, store)
+	first, err := mgr.Set("db.password", "", []byte("one"), 0)
+	if err != nil {
+		t.Fatalf("Set first: %v", err)
+	}
+	second, err := mgr.Set("db.password", "", []byte("two"), 0)
+	if err != nil {
+		t.Fatalf("Set second: %v", err)
+	}
+
+	if _, err := mgr.Rename("db.password", "prod.db.password"); err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+	if got, ok := mgr.Resolve(first.ID); !ok || got != "one" {
+		t.Fatalf("Resolve first after rename = %q, %v; want one, true", got, ok)
+	}
+	if got, ok := mgr.Resolve(second.ID); !ok || got != "two" {
+		t.Fatalf("Resolve second after rename = %q, %v; want two, true", got, ok)
+	}
+
+	mgr2 := mustOpen(t, dir, store)
+	if got, ok := mgr2.Resolve(first.ID); !ok || got != "one" {
+		t.Fatalf("Resolve first after reopen = %q, %v; want one, true", got, ok)
+	}
+	if got, ok := mgr2.Resolve(second.ID); !ok || got != "two" {
+		t.Fatalf("Resolve second after reopen = %q, %v; want two, true", got, ok)
 	}
 }
 

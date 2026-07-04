@@ -48,7 +48,8 @@ func (h *Handler) PostV1UserConfigsDelete(ctx apigen.Context, req *apigen.UserCo
 	if name == "" {
 		return UserConfigNameRequiredErr
 	}
-	if h.settingsUseConfig(name) || h.deploymentUsesConfigID(int32Set(h.Store.UserConfigIDsByName(name))) {
+	ids := int32Set(h.Store.UserConfigIDsByName(name))
+	if h.settingsUseConfigID(ids) || h.deploymentUsesConfigID(ids) {
 		return ReferenceInUseErr
 	}
 	h.Store.DeleteUserConfig(name)

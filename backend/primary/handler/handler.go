@@ -112,7 +112,7 @@ func New(ctx context.Context, staticFS fs.FS, machineName string) (*Handler, err
 	if err != nil {
 		return nil, err
 	}
-	configService, err := config.NewService(store)
+	configService, err := config.NewService(store, secretsMgr)
 	if err != nil {
 		return nil, err
 	}

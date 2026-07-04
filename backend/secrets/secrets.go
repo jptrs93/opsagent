@@ -130,7 +130,7 @@ type Store interface {
 	ListSecrets() []Record
 	NextSecretVersion(name string) int32
 	InsertSecret(Record) Record
-	RenameSecret(name, newName string)
+	RenameSecretRecords(name, newName string, records []Record)
 	DeleteSecret(name string)
 	GetSystemSecret(name string) (SystemRecord, bool)
 	UpsertSystemSecret(SystemRecord)
@@ -229,6 +229,23 @@ func (m *Manager) Resolve(id int32) (string, bool) {
 	return string(pt), true
 }
 
+func (m *Manager) RevealByID(id int32) ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.smk == nil {
+		return nil, ErrLocked
+	}
+	rec, ok := m.recordByID(id)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD("user", rec.Name))
+	if err != nil {
+		return nil, fmt.Errorf("decrypting secret id %d: %w", id, err)
+	}
+	return pt, nil
+}
+
 // ResolveMany decrypts the requested user secrets as one batch. It is used by
 // deployment preparation so workers can fetch all referenced secrets in a
 // single cluster request and keep plaintext only in memory for runner startup.
@@ -277,6 +294,23 @@ func (m *Manager) latestRecordByName(name string) (Record, bool) {
 		}
 	}
 	return latest, found
+}
+
+func (m *Manager) LatestSecretIDByName(name string) (int32, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	rec, ok := m.latestRecordByName(name)
+	return rec.ID, ok
+}
+
+func (m *Manager) MetaByID(id int32) (Meta, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	rec, ok := m.recordByID(id)
+	if !ok {
+		return Meta{}, false
+	}
+	return rec.meta(), true
 }
 
 func (m *Manager) IDsByName(name string) []int32 {
@@ -437,15 +471,30 @@ func (m *Manager) Rename(name, newName string) (Meta, error) {
 	if _, ok := m.latestRecordByName(name); !ok {
 		return Meta{}, ErrNotFound
 	}
-	m.store.RenameSecret(name, newName)
-	slog.Info("renamed secret group", "name", name, "newName", newName)
-	var latest Record
-	for id, rec := range m.cache {
+	renamed := make([]Record, 0)
+	for _, rec := range m.cache {
 		if rec.Name != name {
 			continue
 		}
+		pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD("user", name))
+		if err != nil {
+			return Meta{}, fmt.Errorf("decrypting secret %q version %d: %w", name, rec.Version, err)
+		}
+		ct, nonce, err := aeadSeal(m.smk, pt, secretAAD("user", newName))
+		if err != nil {
+			return Meta{}, err
+		}
 		rec.Name = newName
-		m.cache[id] = rec
+		rec.SMKVersion = m.version
+		rec.Ciphertext = ct
+		rec.Nonce = nonce
+		renamed = append(renamed, rec)
+	}
+	m.store.RenameSecretRecords(name, newName, renamed)
+	slog.Info("renamed secret group", "name", name, "newName", newName)
+	var latest Record
+	for _, rec := range renamed {
+		m.cache[rec.ID] = rec
 		if latest.ID == 0 || rec.Version > latest.Version {
 			latest = rec
 		}
@@ -504,7 +553,9 @@ func (m *Manager) List() []Meta {
 	for _, rec := range latest {
 		out = append(out, rec.meta())
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name || (out[i].Name == out[j].Name && out[i].Version < out[j].Version) })
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name || (out[i].Name == out[j].Name && out[i].Version < out[j].Version)
+	})
 	return out
 }
 
@@ -517,7 +568,9 @@ func (m *Manager) ListAll() []Meta {
 	for _, rec := range m.cache {
 		out = append(out, rec.meta())
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name || (out[i].Name == out[j].Name && out[i].Version < out[j].Version) })
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name || (out[i].Name == out[j].Name && out[i].Version < out[j].Version)
+	})
 	return out
 }
 

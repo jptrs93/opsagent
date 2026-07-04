@@ -14,6 +14,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/config"
+	"github.com/jptrs93/opsagent/backend/secrets"
 )
 
 var (
@@ -32,8 +33,8 @@ type resolvedBackupConfig struct {
 }
 
 type secretStore interface {
-	HasSecret(name string) (bool, time.Time)
-	Reveal(name string) ([]byte, error)
+	MetaByID(id int32) (secrets.Meta, bool)
+	RevealByID(id int32) ([]byte, error)
 }
 
 func StartReplication(ctx context.Context, configService *config.Service, secrets secretStore) <-chan struct{} {
@@ -101,7 +102,7 @@ type backupConfigFilter struct {
 type backupConfigSignal struct {
 	Enabled         bool
 	AccessKeyID     string
-	SecretKey       string
+	SecretID        int32
 	SecretUpdatedAt time.Time
 	Bucket          string
 	Path            string
@@ -141,10 +142,11 @@ func backupConfigSignalFromDynamic(loader config.Loader, cfg *apigen.Settings, s
 	}
 	signal.AccessKeyID = loader.MustLoadConfigStringValue(cfg.Backup.S3AccessKeyID)
 	secretRef := cfg.Backup.S3SecretAccessKey
-	signal.SecretKey = secretRef.Key
-	if secrets != nil && signal.SecretKey != "" {
-		_, updated := secrets.HasSecret(signal.SecretKey)
-		signal.SecretUpdatedAt = updated
+	signal.SecretID = secretRef.ID
+	if secrets != nil && signal.SecretID != 0 {
+		if meta, ok := secrets.MetaByID(signal.SecretID); ok {
+			signal.SecretUpdatedAt = meta.CreatedAt
+		}
 	}
 	signal.Bucket = loader.MustLoadConfigStringValue(cfg.Backup.S3Bucket)
 	signal.Path = loader.MustLoadConfigStringValue(cfg.Backup.S3Path)
@@ -291,10 +293,10 @@ func validateConfig(cfg resolvedBackupConfig) error {
 }
 
 func revealSecretRef(secrets secretStore, ref apigen.SecretRef) (string, error) {
-	if secrets == nil || ref.Key == "" {
+	if secrets == nil || ref.ID == 0 {
 		return "", nil
 	}
-	value, err := secrets.Reveal(ref.Key)
+	value, err := secrets.RevealByID(ref.ID)
 	if err != nil {
 		return "", err
 	}

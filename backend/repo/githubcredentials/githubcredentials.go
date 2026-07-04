@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/secrets"
 )
 
 type Provider interface {
@@ -22,8 +23,8 @@ type SecretProvider struct {
 }
 
 type secretStore interface {
-	HasSecret(name string) (bool, time.Time)
-	Reveal(name string) ([]byte, error)
+	MetaByID(id int32) (secrets.Meta, bool)
+	RevealByID(id int32) ([]byte, error)
 }
 
 func (p SecretProvider) LoadCredentials(ctx context.Context) (*GithubCredentials, error) {
@@ -31,13 +32,14 @@ func (p SecretProvider) LoadCredentials(ctx context.Context) (*GithubCredentials
 		return &GithubCredentials{}, nil
 	}
 	ref := p.SecretRef(ctx)
-	if ref.Key == "" || p.Secrets == nil {
+	if ref.ID == 0 || p.Secrets == nil {
 		return &GithubCredentials{}, nil
 	}
-	token, err := p.Secrets.Reveal(ref.Key)
+	token, err := p.Secrets.RevealByID(ref.ID)
 	if err != nil {
 		return nil, err
 	}
-	_, changedAt := p.Secrets.HasSecret(ref.Key)
+	meta, _ := p.Secrets.MetaByID(ref.ID)
+	changedAt := meta.CreatedAt
 	return &GithubCredentials{Token: string(token), ChangedAt: changedAt}, nil
 }

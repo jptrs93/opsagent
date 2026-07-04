@@ -147,8 +147,8 @@ func selfManagedWebUITLSConfig(store *secrets.Manager, loader config.Loader, cfg
 }
 
 func webUITLSBundle(store *secrets.Manager, loader config.Loader, cfg *apigen.Settings) ([]byte, error) {
-	if key := strings.TrimSpace(cfg.HttpsWeb.TlsCertPem.Key); key != "" {
-		value, err := store.Reveal(key)
+	if id := cfg.HttpsWeb.TlsCertPem.ID; id != 0 {
+		value, err := store.RevealByID(id)
 		if err != nil {
 			return nil, err
 		}

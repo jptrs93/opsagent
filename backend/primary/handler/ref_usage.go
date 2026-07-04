@@ -36,18 +36,25 @@ func (h *Handler) deploymentUsesConfigID(ids map[int32]struct{}) bool {
 	return false
 }
 
-func (h *Handler) settingsUseSecret(name string) bool {
+func (h *Handler) settingsUseSecretID(ids map[int32]struct{}) bool {
 	if h.ConfigService == nil {
 		return false
 	}
 	settings := h.ConfigService.Snapshot().Settings
-	return settings.HttpsWeb.TlsCertPem.Key == name ||
-		settings.Repo.GithubToken.Key == name ||
-		settings.Backup.S3SecretAccessKey.Key == name ||
-		settings.LargeAssets.S3SecretAccessKey.Key == name
+	for _, id := range []int32{
+		settings.HttpsWeb.TlsCertPem.ID,
+		settings.Repo.GithubToken.ID,
+		settings.Backup.S3SecretAccessKey.ID,
+		settings.LargeAssets.S3SecretAccessKey.ID,
+	} {
+		if _, ok := ids[id]; ok {
+			return true
+		}
+	}
+	return false
 }
 
-func (h *Handler) settingsUseConfig(name string) bool {
+func (h *Handler) settingsUseConfigID(ids map[int32]struct{}) bool {
 	if h.ConfigService == nil {
 		return false
 	}
@@ -76,7 +83,7 @@ func (h *Handler) settingsUseConfig(name string) bool {
 		settings.LargeAssets.S3Endpoint.ConfigRef,
 	}
 	for _, ref := range refs {
-		if ref.Key == name {
+		if _, ok := ids[ref.ID]; ok {
 			return true
 		}
 	}

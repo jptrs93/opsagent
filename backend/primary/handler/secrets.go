@@ -109,10 +109,16 @@ func (h *Handler) PostV1SecretsRename(ctx apigen.Context, req *apigen.SecretRena
 }
 
 func (h *Handler) PostV1SecretsReveal(ctx apigen.Context, req *apigen.SecretRevealRequest) (*apigen.SecretRevealResponse, error) {
-	if strings.TrimSpace(req.Name) == "" {
+	if req.ID == 0 && strings.TrimSpace(req.Name) == "" {
 		return nil, SecretNameRequiredErr
 	}
-	value, err := h.Secrets.Reveal(req.Name)
+	var value []byte
+	var err error
+	if req.ID != 0 {
+		value, err = h.Secrets.RevealByID(req.ID)
+	} else {
+		value, err = h.Secrets.Reveal(req.Name)
+	}
 	if err != nil {
 		switch {
 		case errors.Is(err, secrets.ErrLocked):
@@ -149,7 +155,8 @@ func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDele
 		return SecretNameRequiredErr
 	}
 	name := strings.TrimSpace(req.Name)
-	if h.settingsUseSecret(name) || h.deploymentUsesSecretID(int32Set(h.Secrets.IDsByName(name))) {
+	ids := int32Set(h.Secrets.IDsByName(name))
+	if h.settingsUseSecretID(ids) || h.deploymentUsesSecretID(ids) {
 		return ReferenceInUseErr
 	}
 	deletedMetas := h.Secrets.MetasByName(name)

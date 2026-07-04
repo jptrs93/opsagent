@@ -158,9 +158,9 @@ function secondaryInstallCommand(config) {
 
 function resolveStringSetting(setting) {
     if (!setting) return "";
-    const refKey = setting.configRef?.key || "";
-    if (!refKey) return (setting.value || "").trim();
-    const item = (userConfigsS.val || []).find(cfg => cfg.name === refKey);
+    const refID = Number(setting.configRef?.id || 0);
+    if (!refID) return (setting.value || "").trim();
+    const item = (userConfigsS.val || []).find(cfg => Number(cfg.id || 0) === refID);
     return (item?.value || "").trim();
 }
 

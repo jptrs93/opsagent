@@ -31,7 +31,7 @@ type Store struct {
 }
 
 type secretStore interface {
-	Reveal(name string) ([]byte, error)
+	RevealByID(id int32) ([]byte, error)
 }
 
 func (s *Store) GetAssetForPreview(key string, version int32) (*apigen.Asset, bool, error) {
@@ -218,10 +218,10 @@ func parseS3Location(location string) (string, string, error) {
 }
 
 func revealSecretRef(secrets secretStore, ref apigen.SecretRef) (string, error) {
-	if secrets == nil || ref.Key == "" {
+	if secrets == nil || ref.ID == 0 {
 		return "", nil
 	}
-	value, err := secrets.Reveal(ref.Key)
+	value, err := secrets.RevealByID(ref.ID)
 	if err != nil {
 		return "", err
 	}

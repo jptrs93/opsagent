@@ -560,12 +560,14 @@ func DecodeSecretValue(b []byte) (*SecretValue, error) {
 }
 
 func (m SecretRef) IsZero() bool {
-	return m.Key == ""
+	return m.Key == "" &&
+		m.ID == 0
 }
 
 func (m *SecretRef) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Key, 1)
+	b = AppendInt32Field(b, m.ID, 3)
 	return b
 }
 
@@ -582,6 +584,8 @@ func DecodeSecretRef(b []byte) (*SecretRef, error) {
 		switch num {
 		case 1:
 			b, m.Key, err = ConsumeString(b, typ)
+		case 3:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -593,12 +597,14 @@ func DecodeSecretRef(b []byte) (*SecretRef, error) {
 }
 
 func (m ConfigRef) IsZero() bool {
-	return m.Key == ""
+	return m.Key == "" &&
+		m.ID == 0
 }
 
 func (m *ConfigRef) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Key, 1)
+	b = AppendInt32Field(b, m.ID, 3)
 	return b
 }
 
@@ -615,6 +621,8 @@ func DecodeConfigRef(b []byte) (*ConfigRef, error) {
 		switch num {
 		case 1:
 			b, m.Key, err = ConsumeString(b, typ)
+		case 3:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1851,6 +1859,7 @@ func DecodeSecretDeleteRequest(b []byte) (*SecretDeleteRequest, error) {
 func (m *SecretRevealRequest) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Name, 1)
+	b = AppendInt32Field(b, m.ID, 2)
 	return b
 }
 
@@ -1867,6 +1876,8 @@ func DecodeSecretRevealRequest(b []byte) (*SecretRevealRequest, error) {
 		switch num {
 		case 1:
 			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

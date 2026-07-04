@@ -123,10 +123,12 @@ type SecretValue struct {
 
 type SecretRef struct {
 	Key string
+	ID  int32
 }
 
 type ConfigRef struct {
 	Key string
+	ID  int32
 }
 
 type StringSetting struct {
@@ -265,6 +267,7 @@ type SecretDeleteRequest struct {
 
 type SecretRevealRequest struct {
 	Name string
+	ID   int32
 }
 
 type SecretRevealResponse struct {

@@ -24,25 +24,34 @@ func (h *Handler) PutV1Settings(ctx apigen.Context, req *apigen.Settings) (*apig
 		if ref == nil {
 			return "", false, nil
 		}
-		value, ok := h.Store.ResolveConfigByName(strings.TrimSpace(ref.Key))
+		if ref.ID == 0 && strings.TrimSpace(ref.Key) != "" {
+			cfg, ok := h.Store.GetLatestUserConfig(strings.TrimSpace(ref.Key))
+			if !ok {
+				return "", false, nil
+			}
+			ref.ID = cfg.ID
+			ref.Key = cfg.Name
+		}
+		if ref.ID == 0 {
+			return "", false, nil
+		}
+		cfg, ok := h.Store.GetUserConfigByID(ref.ID)
+		if !ok {
+			return "", false, nil
+		}
+		ref.Key = cfg.Name
+		value := cfg.Value
 		return value, ok, nil
 	})
 	if err != nil {
 		return nil, apigen.NewApiErr(err.Error(), "settings_invalid", http.StatusBadRequest)
 	}
-	for _, key := range []string{
-		stored.HttpsWeb.TlsCertPem.Key,
-		stored.Repo.GithubToken.Key,
-		stored.Backup.S3SecretAccessKey.Key,
-		stored.LargeAssets.S3SecretAccessKey.Key,
-	} {
-		if strings.TrimSpace(key) == "" {
-			continue
-		}
-		if ok, _ := h.Secrets.HasSecret(strings.TrimSpace(key)); !ok {
-			return nil, SecretNotFoundErr
+	for _, ref := range settingsSecretRefs(stored) {
+		if err := h.hydrateSecretRef(ref); err != nil {
+			return nil, err
 		}
 	}
+	resolved.HttpsWeb.TlsCertPem = stored.HttpsWeb.TlsCertPem
 	if err := h.validateWebTLSCert(resolved); err != nil {
 		if errors.Is(err, secrets.ErrLocked) {
 			return nil, SecretsLockedErr
@@ -138,7 +147,7 @@ func resolveStringInPlace(stored, resolved *apigen.StringSetting, field string, 
 	if stored == nil || resolved == nil {
 		return fmt.Errorf("%s is required", field)
 	}
-	if strings.TrimSpace(stored.ConfigRef.Key) == "" {
+	if stored.ConfigRef.ID == 0 && strings.TrimSpace(stored.ConfigRef.Key) == "" {
 		return nil
 	}
 	value, ok, err := resolveRef(&stored.ConfigRef)
@@ -146,7 +155,7 @@ func resolveStringInPlace(stored, resolved *apigen.StringSetting, field string, 
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("%s config ref %q was not found", field, stored.ConfigRef.Key)
+		return fmt.Errorf("%s config ref was not found", field)
 	}
 	resolved.Value = value
 	return nil
@@ -156,7 +165,7 @@ func resolveBoolInPlace(stored, resolved *apigen.BoolSetting, field string, reso
 	if stored == nil || resolved == nil {
 		return fmt.Errorf("%s is required", field)
 	}
-	if strings.TrimSpace(stored.ConfigRef.Key) == "" {
+	if stored.ConfigRef.ID == 0 && strings.TrimSpace(stored.ConfigRef.Key) == "" {
 		return nil
 	}
 	value, ok, err := resolveRef(&stored.ConfigRef)
@@ -164,7 +173,7 @@ func resolveBoolInPlace(stored, resolved *apigen.BoolSetting, field string, reso
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("%s config ref %q was not found", field, stored.ConfigRef.Key)
+		return fmt.Errorf("%s config ref was not found", field)
 	}
 	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
 	if err != nil {
@@ -217,16 +226,44 @@ func validateListenValue(field, value string) error {
 
 func (h *Handler) validateWebTLSCert(settings *apigen.Settings) error {
 	tlsSelfManaged := settings.HttpsWeb.TlsSelfManaged.Value
-	key := settings.HttpsWeb.TlsCertPem.Key
-	if !tlsSelfManaged || strings.TrimSpace(key) == "" {
+	id := settings.HttpsWeb.TlsCertPem.ID
+	if !tlsSelfManaged || id == 0 {
 		return nil
 	}
-	bundle, err := h.Secrets.Reveal(key)
+	bundle, err := h.Secrets.RevealByID(id)
 	if err != nil {
 		return err
 	}
 	if _, err := tls.X509KeyPair(bundle, bundle); err != nil {
 		return fmt.Errorf("https_web.tls_cert_pem must contain a PEM certificate chain and private key: %w", err)
 	}
+	return nil
+}
+
+func settingsSecretRefs(settings *apigen.Settings) []*apigen.SecretRef {
+	return []*apigen.SecretRef{
+		&settings.HttpsWeb.TlsCertPem,
+		&settings.Repo.GithubToken,
+		&settings.Backup.S3SecretAccessKey,
+		&settings.LargeAssets.S3SecretAccessKey,
+	}
+}
+
+func (h *Handler) hydrateSecretRef(ref *apigen.SecretRef) error {
+	if ref == nil || (ref.ID == 0 && strings.TrimSpace(ref.Key) == "") {
+		return nil
+	}
+	if ref.ID == 0 {
+		id, ok := h.Secrets.LatestSecretIDByName(strings.TrimSpace(ref.Key))
+		if !ok {
+			return SecretNotFoundErr
+		}
+		ref.ID = id
+	}
+	meta, ok := h.Secrets.MetaByID(ref.ID)
+	if !ok {
+		return SecretNotFoundErr
+	}
+	ref.Key = meta.Name
 	return nil
 }

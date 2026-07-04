@@ -3,7 +3,7 @@ import {capi} from "../capi/index.js";
 import {referencePicker} from "../components/referencePicker.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {copyIcon, eyeOffIcon, eyeOpenIcon} from "../lib/icons.js";
-import {spacesS, userConfigRefsS, userConfigsS} from "../state/deployments.js";
+import {secretRefsS, spacesS, userConfigRefsS, userConfigsS} from "../state/deployments.js";
 
 const { div, h2, p, pre, span, table, tbody, tr, td, button, code, input, select, option, label: labelEl } = van.tags;
 
@@ -16,21 +16,30 @@ const shellQuote = (value) => {
     return `'${s.replace(/'/g, `'"'"'`)}'`;
 };
 
+const refID = (ref) => Number(ref?.id || 0);
 const configRefKey = (ref) => ref?.key || "";
 const deepClone = (value) => JSON.parse(JSON.stringify(value));
 const stringSetting = (value = "") => ({value, configRef: undefined});
 const boolSetting = (value = false) => ({value, configRef: undefined});
-const secretSetting = (key = "") => (key ? {key} : {});
-const latestRefs = (refs) => {
+const secretSetting = (id = 0, key = "") => (id ? {id, key} : {});
+const latestRefs = (refs, selectedID = 0) => {
     const latest = new Map();
+    const byID = new Map();
     for (const ref of refs || []) {
         const name = ref?.name || "";
-        if (!name) continue;
+        if (!name || !ref?.id) continue;
+        byID.set(Number(ref.id), ref);
         const current = latest.get(name);
         if (!current || Number(ref.version || 0) > Number(current.version || 0)) latest.set(name, ref);
     }
-    return Array.from(latest.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    const options = Array.from(latest.values());
+    const selected = byID.get(Number(selectedID || 0));
+    if (selected && !options.some(ref => Number(ref.id) === Number(selected.id))) options.push(selected);
+    return options.sort((a, b) => (a.name || "").localeCompare(b.name || "") || Number(a.version || 0) - Number(b.version || 0));
 };
+const refLabel = (ref) => `${ref.name} v${ref.version || 0}`;
+const configRefPayload = (item) => ({id: Number(item.configRefID || 0), key: item.configRefKey || ""});
+const secretRefPayload = (item) => ({id: Number(item.secretId || 0), key: item.value || ""});
 const emptySettings = () => ({
     httpWeb: {
         enabled: boolSetting(false),
@@ -71,25 +80,25 @@ const emptySettings = () => ({
     },
 });
 
-const resolvedConfigValue = (refKey) => {
-    const key = (refKey || "").trim();
-    if (!key) return "";
-    const item = (userConfigsS.val || []).find(cfg => cfg.name === key);
+const resolvedConfigValue = (id) => {
+    id = Number(id || 0);
+    if (!id) return "";
+    const item = (userConfigsS.val || []).find(cfg => Number(cfg.id || 0) === id);
     return item?.value || "";
 };
 
 const effectiveStringSettingValue = (setting, fallback = "") => {
     if (!setting) return fallback;
-    const key = configRefKey(setting.configRef);
-    if (key) return resolvedConfigValue(key) || fallback;
+    const id = refID(setting.configRef);
+    if (id) return resolvedConfigValue(id) || fallback;
     return setting.value ?? fallback;
 };
 
 const effectiveBoolSettingValue = (setting, fallback = false) => {
     if (!setting) return fallback;
-    const key = configRefKey(setting.configRef);
-    if (key) {
-        const resolved = resolvedConfigValue(key).trim().toLowerCase();
+    const id = refID(setting.configRef);
+    if (id) {
+        const resolved = resolvedConfigValue(id).trim().toLowerCase();
         if (resolved === "true") return true;
         if (resolved === "false") return false;
         return fallback;
@@ -101,53 +110,53 @@ const settingsSections = [
     {
         title: "Web UI",
         settings: [
-            {label: "Web UI HTTPS enabled", key: "WEB_HTTPS_ENABLED", type: "bool", setting: (cfg) => cfg.httpsWeb?.enabled, apply: (doc, item) => { doc.httpsWeb.enabled = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value === "true"}; }},
-            {label: "Web UI HTTPS listen", key: "WEB_HTTPS_LISTEN", type: "text", setting: (cfg) => cfg.httpsWeb?.listen, apply: (doc, item) => { doc.httpsWeb.listen = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value}; }},
-            {label: "Web UI use self managed TLS cert", key: "WEB_TLS_SELF_MANAGED", type: "bool", setting: (cfg) => cfg.httpsWeb?.tlsSelfManaged, apply: (doc, item) => { doc.httpsWeb.tlsSelfManaged = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value === "true"}; }},
-            {label: "Web UI TLS cert PEM", key: "WEB_TLS_CERT_PEM", type: "secret", secret: (cfg) => cfg.httpsWeb?.tlsCertPem, apply: (doc, item) => { doc.httpsWeb.tlsCertPem = item.value ? {key: item.value} : {}; }, defaultSecretName: "opendeploy.config.web_tls_cert_pem", visible: (draft) => draft?.WEB_TLS_SELF_MANAGED?.value === "true"},
-            {label: "Web UI ACME hosts", key: "ACME_HOSTS", type: "text", setting: (cfg) => cfg.httpsWeb?.acmeHosts, apply: (doc, item) => { doc.httpsWeb.acmeHosts = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value}; }},
-            {label: "Web UI ACME email", key: "ACME_EMAIL", type: "text", setting: (cfg) => cfg.httpsWeb?.acmeEmail, apply: (doc, item) => { doc.httpsWeb.acmeEmail = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value}; }},
-            {label: "Web UI HTTP enabled", key: "WEB_HTTP_ENABLED", type: "bool", setting: (cfg) => cfg.httpWeb?.enabled, apply: (doc, item) => { doc.httpWeb.enabled = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value === "true"}; }},
-            {label: "Web UI HTTP listen", key: "WEB_HTTP_LISTEN", type: "text", setting: (cfg) => cfg.httpWeb?.listen, apply: (doc, item) => { doc.httpWeb.listen = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value}; }},
+            {label: "Web UI HTTPS enabled", key: "WEB_HTTPS_ENABLED", type: "bool", setting: (cfg) => cfg.httpsWeb?.enabled, apply: (doc, item) => { doc.httpsWeb.enabled = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value === "true"}; }},
+            {label: "Web UI HTTPS listen", key: "WEB_HTTPS_LISTEN", type: "text", setting: (cfg) => cfg.httpsWeb?.listen, apply: (doc, item) => { doc.httpsWeb.listen = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
+            {label: "Web UI use self managed TLS cert", key: "WEB_TLS_SELF_MANAGED", type: "bool", setting: (cfg) => cfg.httpsWeb?.tlsSelfManaged, apply: (doc, item) => { doc.httpsWeb.tlsSelfManaged = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value === "true"}; }},
+            {label: "Web UI TLS cert PEM", key: "WEB_TLS_CERT_PEM", type: "secret", secret: (cfg) => cfg.httpsWeb?.tlsCertPem, apply: (doc, item) => { doc.httpsWeb.tlsCertPem = item.secretId ? secretRefPayload(item) : {}; }, defaultSecretName: "opendeploy.config.web_tls_cert_pem", visible: (draft) => draft?.WEB_TLS_SELF_MANAGED?.value === "true"},
+            {label: "Web UI ACME hosts", key: "ACME_HOSTS", type: "text", setting: (cfg) => cfg.httpsWeb?.acmeHosts, apply: (doc, item) => { doc.httpsWeb.acmeHosts = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
+            {label: "Web UI ACME email", key: "ACME_EMAIL", type: "text", setting: (cfg) => cfg.httpsWeb?.acmeEmail, apply: (doc, item) => { doc.httpsWeb.acmeEmail = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
+            {label: "Web UI HTTP enabled", key: "WEB_HTTP_ENABLED", type: "bool", setting: (cfg) => cfg.httpWeb?.enabled, apply: (doc, item) => { doc.httpWeb.enabled = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value === "true"}; }},
+            {label: "Web UI HTTP listen", key: "WEB_HTTP_LISTEN", type: "text", setting: (cfg) => cfg.httpWeb?.listen, apply: (doc, item) => { doc.httpWeb.listen = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
         ],
     },
     {
         title: "Cluster details",
         settings: [
-            {label: "Cluster listen", key: "CLUSTER_LISTEN", type: "text", setting: (cfg) => cfg.cluster?.listen, apply: (doc, item) => { doc.cluster.listen = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value}; }},
-            {label: "Cluster enrollment listen", key: "ENROLLMENT_LISTEN", type: "text", setting: (cfg) => cfg.cluster?.enrollmentListen, apply: (doc, item) => { doc.cluster.enrollmentListen = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value}; }},
+            {label: "Cluster listen", key: "CLUSTER_LISTEN", type: "text", setting: (cfg) => cfg.cluster?.listen, apply: (doc, item) => { doc.cluster.listen = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
+            {label: "Cluster enrollment listen", key: "ENROLLMENT_LISTEN", type: "text", setting: (cfg) => cfg.cluster?.enrollmentListen, apply: (doc, item) => { doc.cluster.enrollmentListen = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
         ],
     },
     {
         title: "Repository credentials",
         settings: [
-            {label: "GitHub token", key: "GITHUB_TOKEN", type: "secret", secret: (cfg) => cfg.repo?.githubToken, apply: (doc, item) => { doc.repo.githubToken = item.value ? {key: item.value} : {}; }, defaultSecretName: "opendeploy.config.github_token"},
+            {label: "GitHub token", key: "GITHUB_TOKEN", type: "secret", secret: (cfg) => cfg.repo?.githubToken, apply: (doc, item) => { doc.repo.githubToken = item.secretId ? secretRefPayload(item) : {}; }, defaultSecretName: "opendeploy.config.github_token"},
         ],
     },
     {
         title: "Backup",
         enabledKey: "BACKUP_ENABLED",
         settings: [
-            {label: "Backup enabled", key: "BACKUP_ENABLED", type: "bool", setting: (cfg) => cfg.backup?.enabled, apply: (doc, item) => { doc.backup.enabled = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value === "true"}; }},
-            {label: "Backup S3 access key ID", key: "BACKUP_S3_ACCESS_KEY_ID", type: "text", setting: (cfg) => cfg.backup?.s3AccessKeyId, apply: (doc, item) => { doc.backup.s3AccessKeyId = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value}; }},
-            {label: "Backup S3 secret access key", key: "BACKUP_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.backup?.s3SecretAccessKey, apply: (doc, item) => { doc.backup.s3SecretAccessKey = item.value ? {key: item.value} : {}; }, defaultSecretName: "opendeploy.config.backup_s3_secret_access_key"},
-            {label: "Backup S3 bucket", key: "BACKUP_S3_BUCKET", type: "text", setting: (cfg) => cfg.backup?.s3Bucket, apply: (doc, item) => { doc.backup.s3Bucket = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value}; }},
-            {label: "Backup S3 path", key: "BACKUP_S3_PATH", type: "text", setting: (cfg) => cfg.backup?.s3Path, apply: (doc, item) => { doc.backup.s3Path = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value}; }},
-            {label: "Backup S3 region", key: "BACKUP_S3_REGION", type: "text", setting: (cfg) => cfg.backup?.s3Region, apply: (doc, item) => { doc.backup.s3Region = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value}; }},
-            {label: "Backup S3 endpoint", key: "BACKUP_S3_ENDPOINT", type: "text", setting: (cfg) => cfg.backup?.s3Endpoint, apply: (doc, item) => { doc.backup.s3Endpoint = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value}; }},
+            {label: "Backup enabled", key: "BACKUP_ENABLED", type: "bool", setting: (cfg) => cfg.backup?.enabled, apply: (doc, item) => { doc.backup.enabled = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value === "true"}; }},
+            {label: "Backup S3 access key ID", key: "BACKUP_S3_ACCESS_KEY_ID", type: "text", setting: (cfg) => cfg.backup?.s3AccessKeyId, apply: (doc, item) => { doc.backup.s3AccessKeyId = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
+            {label: "Backup S3 secret access key", key: "BACKUP_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.backup?.s3SecretAccessKey, apply: (doc, item) => { doc.backup.s3SecretAccessKey = item.secretId ? secretRefPayload(item) : {}; }, defaultSecretName: "opendeploy.config.backup_s3_secret_access_key"},
+            {label: "Backup S3 bucket", key: "BACKUP_S3_BUCKET", type: "text", setting: (cfg) => cfg.backup?.s3Bucket, apply: (doc, item) => { doc.backup.s3Bucket = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
+            {label: "Backup S3 path", key: "BACKUP_S3_PATH", type: "text", setting: (cfg) => cfg.backup?.s3Path, apply: (doc, item) => { doc.backup.s3Path = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
+            {label: "Backup S3 region", key: "BACKUP_S3_REGION", type: "text", setting: (cfg) => cfg.backup?.s3Region, apply: (doc, item) => { doc.backup.s3Region = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
+            {label: "Backup S3 endpoint", key: "BACKUP_S3_ENDPOINT", type: "text", setting: (cfg) => cfg.backup?.s3Endpoint, apply: (doc, item) => { doc.backup.s3Endpoint = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
         ],
     },
     {
         title: "Large assets",
         enabledKey: "LARGE_ASSET_S3_ENABLED",
         settings: [
-            {label: "Large asset S3 enabled", key: "LARGE_ASSET_S3_ENABLED", type: "bool", setting: (cfg) => cfg.largeAssets?.s3Enabled, apply: (doc, item) => { doc.largeAssets.s3Enabled = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value === "true"}; }},
-            {label: "Large asset S3 access key ID", key: "LARGE_ASSET_S3_ACCESS_KEY_ID", type: "text", setting: (cfg) => cfg.largeAssets?.s3AccessKeyId, apply: (doc, item) => { doc.largeAssets.s3AccessKeyId = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value}; }},
-            {label: "Large asset S3 secret access key", key: "LARGE_ASSET_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.largeAssets?.s3SecretAccessKey, apply: (doc, item) => { doc.largeAssets.s3SecretAccessKey = item.value ? {key: item.value} : {}; }, defaultSecretName: "opendeploy.config.large_asset_s3_secret_access_key"},
-            {label: "Large asset S3 bucket", key: "LARGE_ASSET_S3_BUCKET", type: "text", setting: (cfg) => cfg.largeAssets?.s3Bucket, apply: (doc, item) => { doc.largeAssets.s3Bucket = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value}; }},
-            {label: "Large asset S3 path", key: "LARGE_ASSET_S3_PATH", type: "text", setting: (cfg) => cfg.largeAssets?.s3Path, apply: (doc, item) => { doc.largeAssets.s3Path = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value}; }},
-            {label: "Large asset S3 region", key: "LARGE_ASSET_S3_REGION", type: "text", setting: (cfg) => cfg.largeAssets?.s3Region, apply: (doc, item) => { doc.largeAssets.s3Region = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value}; }},
-            {label: "Large asset S3 endpoint", key: "LARGE_ASSET_S3_ENDPOINT", type: "text", setting: (cfg) => cfg.largeAssets?.s3Endpoint, apply: (doc, item) => { doc.largeAssets.s3Endpoint = item.mode === "config" ? {configRef: {key: item.configRefKey}} : {value: item.value}; }},
+            {label: "Large asset S3 enabled", key: "LARGE_ASSET_S3_ENABLED", type: "bool", setting: (cfg) => cfg.largeAssets?.s3Enabled, apply: (doc, item) => { doc.largeAssets.s3Enabled = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value === "true"}; }},
+            {label: "Large asset S3 access key ID", key: "LARGE_ASSET_S3_ACCESS_KEY_ID", type: "text", setting: (cfg) => cfg.largeAssets?.s3AccessKeyId, apply: (doc, item) => { doc.largeAssets.s3AccessKeyId = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
+            {label: "Large asset S3 secret access key", key: "LARGE_ASSET_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.largeAssets?.s3SecretAccessKey, apply: (doc, item) => { doc.largeAssets.s3SecretAccessKey = item.secretId ? secretRefPayload(item) : {}; }, defaultSecretName: "opendeploy.config.large_asset_s3_secret_access_key"},
+            {label: "Large asset S3 bucket", key: "LARGE_ASSET_S3_BUCKET", type: "text", setting: (cfg) => cfg.largeAssets?.s3Bucket, apply: (doc, item) => { doc.largeAssets.s3Bucket = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
+            {label: "Large asset S3 path", key: "LARGE_ASSET_S3_PATH", type: "text", setting: (cfg) => cfg.largeAssets?.s3Path, apply: (doc, item) => { doc.largeAssets.s3Path = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
+            {label: "Large asset S3 region", key: "LARGE_ASSET_S3_REGION", type: "text", setting: (cfg) => cfg.largeAssets?.s3Region, apply: (doc, item) => { doc.largeAssets.s3Region = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
+            {label: "Large asset S3 endpoint", key: "LARGE_ASSET_S3_ENDPOINT", type: "text", setting: (cfg) => cfg.largeAssets?.s3Endpoint, apply: (doc, item) => { doc.largeAssets.s3Endpoint = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
         ],
     },
 ];
@@ -160,13 +169,16 @@ const draftValue = (setting, cfg) => {
         const secret = setting.secret(cfg);
         return {
             value: secret?.key || "",
+            secretId: refID(secret),
             original: secret?.key || "",
+            originalSecretId: refID(secret),
             cleared: false,
             revealed: false,
             revealedValue: "",
         };
     }
     const current = setting.setting(cfg) || {};
+    const refId = refID(current.configRef);
     const refKey = configRefKey(current.configRef);
     const original = setting.type === "bool"
         ? boolValue(current.value)
@@ -174,8 +186,10 @@ const draftValue = (setting, cfg) => {
     return {
         value: original,
         original,
-        mode: refKey ? "config" : "value",
-        originalMode: refKey ? "config" : "value",
+        mode: refId ? "config" : "value",
+        originalMode: refId ? "config" : "value",
+        configRefID: refId,
+        originalConfigRefID: refId,
         configRefKey: refKey,
         originalConfigRefKey: refKey,
     };
@@ -184,9 +198,9 @@ const draftValue = (setting, cfg) => {
 const configDraft = (cfg) => Object.fromEntries(settings.map((setting) => [setting.key, draftValue(setting, cfg)]));
 
 const isDirty = (setting, item) => {
-    if (setting.type === "secret") return item.value !== item.original;
+    if (setting.type === "secret") return Number(item.secretId || 0) !== Number(item.originalSecretId || 0);
     if (item.mode !== item.originalMode) return true;
-    if (item.mode === "config") return item.configRefKey !== item.originalConfigRefKey;
+    if (item.mode === "config") return Number(item.configRefID || 0) !== Number(item.originalConfigRefID || 0);
     return item.value !== item.original;
 };
 
@@ -219,18 +233,18 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
         {class: "flex items-center gap-1.5 w-full"},
         modeSelector,
         referencePicker({
-            refs: () => latestRefs(userConfigRefsS.val || []),
-            selectedKey: () => item()?.configRefKey || "",
+            refs: () => latestRefs(userConfigRefsS.val || [], item()?.configRefID || 0),
+            selectedKey: () => item()?.configRefID || "",
             selectedLabel: () => item()?.configRefKey || "",
-            getKey: ref => ref.name,
-            getLabel: ref => ref.name,
+            getKey: ref => ref.id,
+            getLabel: refLabel,
             placeholder: "Search configs",
             noMatchesLabel: "No matching configs",
             emptyLabel: "No configs available",
             inputClass,
             containerClass: "relative min-w-64 flex-1",
             disabled: () => saving.val,
-            onSelect: ref => patch({configRefKey: ref.name}),
+            onSelect: ref => patch({configRefID: ref.id, configRefKey: ref.name}),
         }),
     );
 
@@ -265,7 +279,7 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
             if (current.revealed) { patch({revealed: false, revealedValue: ""}); return; }
             try {
                 error.val = null;
-                const res = await capi.postV1SecretsReveal({name: current.value});
+                const res = await capi.postV1SecretsReveal({id: current.secretId});
                 patch({revealed: true, revealedValue: new TextDecoder().decode(res.value)});
             } catch (e) {
                 error.val = e.message;
@@ -274,18 +288,18 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
         return div(
             {class: "flex flex-wrap items-center gap-1.5"},
             referencePicker({
-                refs: secrets,
-                selectedKey: () => item()?.value || "",
+                refs: () => latestRefs(secretRefsS.val?.length ? secretRefsS.val : secrets.val, item()?.secretId || 0),
+                selectedKey: () => item()?.secretId || "",
                 selectedLabel: () => item()?.value || "",
-                getKey: ref => ref.name,
-                getLabel: ref => ref.name,
+                getKey: ref => ref.id,
+                getLabel: refLabel,
                 placeholder: "Search secrets",
                 noMatchesLabel: "No matching secrets",
                 emptyLabel: "No secrets available",
                 inputClass,
                 containerClass: "relative min-w-64 flex-1",
                 disabled: () => saving.val,
-                onSelect: ref => patch({value: ref.name, revealed: false, revealedValue: ""}),
+                onSelect: ref => patch({secretId: ref.id, value: ref.name, revealed: false, revealedValue: ""}),
             }),
             button({
                 type: "button",
@@ -305,7 +319,7 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
                 type: "button",
                 disabled: () => saving.val,
                 class: "text-xs px-2 py-1 rounded-md font-medium text-gray-200 bg-gray-700 hover:bg-gray-600 cursor-pointer whitespace-nowrap",
-                onclick: () => patch({value: "", revealed: false, revealedValue: ""}),
+                onclick: () => patch({secretId: 0, value: "", revealed: false, revealedValue: ""}),
             }, "Clear") : "",
             () => item()?.revealed ? code({
                 class: "text-xs text-amber-200 bg-amber-950/40 px-2 py-1 rounded truncate max-w-64",
@@ -419,12 +433,12 @@ export function settingsPage() {
         try {
             error.val = null;
             const name = createSecretName.val.trim();
-            await capi.postV1SecretsSet({
+            const saved = await capi.postV1SecretsSet({
                 name,
                 value: new TextEncoder().encode(createSecretValue.val),
             });
             await reloadSecrets();
-            patchDraft(createSecretSettingKey.val, {value: name, revealed: false, revealedValue: ""});
+            patchDraft(createSecretSettingKey.val, {secretId: saved.id, value: saved.name, revealed: false, revealedValue: ""});
             closeCreateSecret();
         } catch (e) {
             error.val = e.message;

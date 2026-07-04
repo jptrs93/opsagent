@@ -84,7 +84,7 @@ func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 	if _, err := secretMgr.Set("opendeploy.config.github_token", "config", []byte("ghp_test"), 0); err != nil {
 		t.Fatalf("Set secret: %v", err)
 	}
-	service, err := NewService(store)
+	service, err := NewService(store, secretMgr)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -96,6 +96,9 @@ func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 	}
 
 	cfg := service.Snapshot()
+	if cfg.Settings.Repo.GithubToken.ID == 0 {
+		t.Fatal("GithubTokenSecretRef ID = 0, want hydrated ID")
+	}
 	if cfg.Settings.Repo.GithubToken.Key != "opendeploy.config.github_token" {
 		t.Fatalf("GithubTokenSecretRef key = %q", cfg.Settings.Repo.GithubToken.Key)
 	}
@@ -142,6 +145,41 @@ func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 	}
 	if cfg.Settings.Cluster.Listen.ConfigRef.Key != "shared.cluster.listen" {
 		t.Fatalf("Cluster.Listen.ConfigRef.Key = %q", cfg.Settings.Cluster.Listen.ConfigRef.Key)
+	}
+	if cfg.Settings.Cluster.Listen.ConfigRef.ID == 0 {
+		t.Fatal("Cluster.Listen.ConfigRef.ID = 0, want hydrated ID")
+	}
+}
+
+func TestStoredKeyOnlyRefsMigrateToIDsOnStartup(t *testing.T) {
+	dir := t.TempDir()
+	store := sqlite.NewPrimaryStorage(filepath.Join(dir, "primary.db"))
+	secretMgr, err := secrets.Open(dir, store)
+	if err != nil {
+		t.Fatalf("secrets.Open: %v", err)
+	}
+	secretMeta, err := secretMgr.Set("opendeploy.config.github_token", "config", []byte("ghp_test"), 0)
+	if err != nil {
+		t.Fatalf("Set secret: %v", err)
+	}
+	cfg := DefaultConfig(ainit.StaticConfig)
+	cfg.Settings.Repo.GithubToken = apigen.SecretRef{Key: "opendeploy.config.github_token"}
+	userCfg := store.SetUserConfig("shared.cluster.listen", "default", ":9555", 0, 1)
+	cfg.Settings.Cluster.Listen = apigen.StringSetting{ConfigRef: apigen.ConfigRef{Key: "shared.cluster.listen"}}
+	if _, err := store.AppendOpenDeploySettings(cfg.Encode()); err != nil {
+		t.Fatalf("AppendOpenDeploySettings: %v", err)
+	}
+
+	service, err := NewService(store, secretMgr)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	migrated := service.Snapshot()
+	if migrated.Settings.Repo.GithubToken.ID != secretMeta.ID {
+		t.Fatalf("GithubToken ID = %d, want %d", migrated.Settings.Repo.GithubToken.ID, secretMeta.ID)
+	}
+	if migrated.Settings.Cluster.Listen.ConfigRef.ID != userCfg.ID {
+		t.Fatalf("Cluster.Listen config ref ID = %d, want %d", migrated.Settings.Cluster.Listen.ConfigRef.ID, userCfg.ID)
 	}
 }
 
