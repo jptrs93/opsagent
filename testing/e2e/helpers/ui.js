@@ -393,7 +393,7 @@ async function setSettingSecret(page, label, secretName) {
   await picker.fill(secretName);
   await expect(row.locator('li').filter({hasText: secretName}).first()).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await picker.press('Enter');
-  await expect(picker).toHaveValue(secretName, {timeout: LONG_UI_TIMEOUT});
+  await expect(picker).toHaveValue(versionedReferenceValue(secretName), {timeout: LONG_UI_TIMEOUT});
 }
 
 async function setSettingBool(page, label, enabled) {
@@ -408,7 +408,12 @@ async function setSettingBool(page, label, enabled) {
 
 function settingRow(page, label) {
   return page.getByText(label, {exact: true})
-    .locator('xpath=ancestor::div[contains(@class, "py-2")][1]');
+    .locator('xpath=ancestor::div[contains(@class, "sm:flex-row")][1]');
+}
+
+function versionedReferenceValue(name) {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^${escapedName}( v\\d+)?$`);
 }
 
 async function waitForHTTPReady(url, label) {
@@ -476,7 +481,9 @@ async function createContainerImageDeployment(page, {
   await byTestId(dialog, 'deployment-container-image-input', textField(dialog, 'Image')).fill(image);
   await setDeploymentEnvVars(dialog, env);
   if (dataMountPath) await setDeploymentDataMountPath(dialog, dataMountPath);
-  await byTestId(dialog, 'create-deployment-submit', dialog.getByRole('button', {name: 'Create'})).click();
+  const submit = byTestId(dialog, 'create-deployment-submit', dialog.getByRole('button', {name: 'Create'}));
+  await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
+  await submit.click();
 
   const row = deploymentRow(page, {name, machine});
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
@@ -680,7 +687,7 @@ async function selectEnvReference(row, name) {
   await picker.fill(name);
   await expect(row.locator('li').filter({hasText: name}).first()).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await picker.press('Enter');
-  await expect(picker).toHaveValue(name, {timeout: LONG_UI_TIMEOUT});
+  await expect(picker).toHaveValue(versionedReferenceValue(name), {timeout: LONG_UI_TIMEOUT});
 }
 
 async function setDeploymentDataMountPath(dialog, path) {
