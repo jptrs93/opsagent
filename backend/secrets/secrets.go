@@ -73,7 +73,7 @@ var ErrNotFound = errors.New("secret not found")
 // reserved internal secret namespace.
 var ErrReservedName = errors.New("secret name is reserved for internal use")
 
-// ErrAlreadyExists is returned when renaming a secret to an existing group name.
+// ErrAlreadyExists is returned when renaming a secret to an existing name.
 var ErrAlreadyExists = errors.New("secret name already exists")
 
 // Keyslot is a wrapped copy of the SMK as persisted in secret_keyslots.
@@ -355,7 +355,7 @@ func (m *Manager) Reveal(name string) ([]byte, error) {
 
 // Set creates or updates a secret. value is encrypted under the SMK before it
 // touches disk. Returns the secret's metadata (never its value).
-func (m *Manager) Set(name, group string, value []byte, updatedBy int32, spaceIDs ...int32) (Meta, error) {
+func (m *Manager) Set(name string, value []byte, updatedBy int32, spaceIDs ...int32) (Meta, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Meta{}, errors.New("secret name is required")
@@ -477,7 +477,7 @@ func (m *Manager) Rename(name, newName string) (Meta, error) {
 		renamed = append(renamed, rec)
 	}
 	m.store.RenameSecretRecords(name, newName, renamed)
-	slog.Info("renamed secret group", "name", name, "newName", newName)
+	slog.Info("renamed secret", "name", name, "newName", newName)
 	var latest Record
 	for _, rec := range renamed {
 		m.cache[rec.ID] = rec

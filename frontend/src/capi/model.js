@@ -72,10 +72,6 @@
  * @property {ClusterConfigValue[]} items
  */
 /**
- * @typedef {Object} SecretValue
- * @property {string} key
- */
-/**
  * @typedef {Object} SecretRef
  * @property {number} id
  */
@@ -1702,62 +1698,6 @@ function decodeClusterConfigsResponseMessage(reader, length) {
 export function decodeClusterConfigsResponse(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeClusterConfigsResponseMessage(reader);
-}
-
-
-
-/**
- * @param {SecretValue} message
- * @param {Writer} writer
- */
-export function writeSecretValue(message, writer) {
-    if (message.key !== undefined && message.key !== null && message.key !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
-    }
-}
-
-
-/**
- * @param {SecretValue} message
- * @returns {Uint8Array}
- */
-export function encodeSecretValue(message) {
-    const writer = Writer.create();
-    writeSecretValue(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {SecretValue}
- */
-function decodeSecretValueMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.key = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {SecretValue}
- */
-export function decodeSecretValue(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeSecretValueMessage(reader);
 }
 
 

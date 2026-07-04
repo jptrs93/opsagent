@@ -20,11 +20,6 @@ type Preparer interface {
 	Version() int32
 }
 
-// PrepareWrapper is a transitional placeholder kept solely so that the
-// in-progress operator.go still type-checks for the unused PrepareFunc type
-// declaration. The old wrapper's real fields are gone; nothing reads them.
-type PrepareWrapper struct{}
-
 // Package-level variants, wired by the process bootstrap before any operator
 // starts. StartPrepare dispatches through them so the operator does not need
 // to hold references to the variant instances.

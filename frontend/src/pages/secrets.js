@@ -300,7 +300,7 @@ export function secretsPage() {
         if (!row.loaded.val && !row.isNew) {
             try {
                 error.val = null;
-                const res = await capi.postV1SecretsReveal({name: row.orig.name});
+                const res = await capi.postV1SecretsReveal({id: row.referenceId});
                 row.value.val = new TextDecoder().decode(res.value);
                 row.orig.value = row.value.val;
                 row.loaded.val = true;

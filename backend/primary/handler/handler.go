@@ -106,8 +106,6 @@ func (h *Handler) GetV1Healthz(ctx apigen.Context, request *http.Request, writer
 
 func New(ctx context.Context, staticFS fs.FS, machineName string) (*Handler, error) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(ainit.StaticConfig.DataDir, "primary.db"))
-	// Open the primary-only secrets store before config snapshotting so legacy
-	// fixed secret references can be detected without revealing plaintext.
 	secretsMgr, err := secrets.Open(ainit.StaticConfig.DataDir, store)
 	if err != nil {
 		return nil, err

@@ -12,7 +12,7 @@ Required environment variables:
 ```text
 PGHOST=127.0.0.1
 PGPORT=5432
-PGUSER=${s:postgres}
-PGPASSWORD=${s:postgrespass}
+PGUSER=<secret ref: postgres>
+PGPASSWORD=<secret ref: postgrespass>
 PGDATABASE=postgres
 ```

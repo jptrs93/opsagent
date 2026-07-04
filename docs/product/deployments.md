@@ -35,7 +35,11 @@ A deployment is created by posting a `DeploymentCreateRequest` to
     "runner": {
       "container": {
         "user": "1000",
-        "env": [{"key": "LOG_LEVEL", "value": "info"}],
+        "envVars": {
+          "LOG_LEVEL": {"value": "info"},
+          "DATABASE_URL": {"configId": 42},
+          "DB_PASSWORD": {"secretId": 99}
+        },
         "devShmSizeKb": 65536,
         "mounts": [{"host": "/home/ubuntu/coflip-server/data", "container": "/data"}]
       }
@@ -63,7 +67,7 @@ self-deployment. Public create/update validation rejects it.
 
 | Variant | Fields | Description |
 |---|---|---|
-| `container` | `user`, `env`, `command`, `workingDir`, `dataMountPath`, `disableDataVolume`, `mounts`, `assetMounts`, `upgradeStrategy`, `readinessSignal`, `devShmSizeKb`, `fileDescriptorLimit` | Runs the prepared image as a container via containerd (host networking, OpenDeploy-supervised crash/backoff loop). Every container gets a default per-deployment host data volume at `/var/lib/opendeploy-volumes/{deploymentID}/default`, bind-mounted at `/data` (override with `dataMountPath`, opt out with `disableDataVolume`). `mounts` bind existing absolute host paths from the target machine into absolute container paths, read/write by default or read-only with `readonly: true`. `assetMounts` bind OpenDeploy-managed asset files read-only; set `executable: true` for read+execute script mounts. `upgradeStrategy` defaults to `RECREATE`; `ROLLOVER` starts a candidate container, waits for its Unix-socket readiness signal, then stops the old container. `devShmSizeKb` optionally resizes the container's `/dev/shm` tmpfs in KiB; `fileDescriptorLimit` optionally overrides `RLIMIT_NOFILE`, with OpenDeploy otherwise defaulting containers to `2048` for both soft and hard limits. Stdout/stderr logging is always handled by OpenDeploy's split binary log consumer. `user` maps to the in-container OS user. Requires the `containerImage` or `nixDockerBuild` prepare. Linux only. |
+| `container` | `user`, `envVars`, `command`, `workingDir`, `dataMountPath`, `disableDataVolume`, `mounts`, `assetMounts`, `upgradeStrategy`, `readinessSignal`, `devShmSizeKb`, `fileDescriptorLimit` | Runs the prepared image as a container via containerd (host networking, OpenDeploy-supervised crash/backoff loop). `envVars` is a map from env var name to an `EnvVarValue` with exactly one of literal `value`, pinned `secretId`, pinned `configId`, or asset ref. Every container gets a default per-deployment host data volume at `/var/lib/opendeploy-volumes/{deploymentID}/default`, bind-mounted at `/data` (override with `dataMountPath`, opt out with `disableDataVolume`). `mounts` bind existing absolute host paths from the target machine into absolute container paths, read/write by default or read-only with `readonly: true`. `assetMounts` bind OpenDeploy-managed asset files read-only; set `executable: true` for read+execute script mounts. `upgradeStrategy` defaults to `RECREATE`; `ROLLOVER` starts a candidate container, waits for its Unix-socket readiness signal, then stops the old container. `devShmSizeKb` optionally resizes the container's `/dev/shm` tmpfs in KiB; `fileDescriptorLimit` optionally overrides `RLIMIT_NOFILE`, with OpenDeploy otherwise defaulting containers to `2048` for both soft and hard limits. Stdout/stderr logging is always handled by OpenDeploy's split binary log consumer. `user` maps to the in-container OS user. Requires the `containerImage` or `nixDockerBuild` prepare. Linux only. |
 
 `systemd` remains as an internal-only runner for the `OPENDEPLOY`
 self-deployment. Public create/update validation rejects it, and public state

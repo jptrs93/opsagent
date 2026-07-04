@@ -9,27 +9,27 @@ import (
 )
 
 type fakeSecretProvider struct {
-	keys []int32
+	ids []int32
 }
 
 type fakeConfigProvider struct {
-	keys []int32
+	ids []int32
 }
 
-func (f *fakeSecretProvider) FetchSecrets(ctx context.Context, keys []int32) (map[int32]string, error) {
-	f.keys = append([]int32(nil), keys...)
-	values := make(map[int32]string, len(keys))
-	for _, key := range keys {
-		values[key] = "value"
+func (f *fakeSecretProvider) FetchSecrets(ctx context.Context, ids []int32) (map[int32]string, error) {
+	f.ids = append([]int32(nil), ids...)
+	values := make(map[int32]string, len(ids))
+	for _, id := range ids {
+		values[id] = "value"
 	}
 	return values, nil
 }
 
-func (f *fakeConfigProvider) FetchConfigs(ctx context.Context, keys []int32) (map[int32]string, error) {
-	f.keys = append([]int32(nil), keys...)
-	values := make(map[int32]string, len(keys))
-	for _, key := range keys {
-		values[key] = "value"
+func (f *fakeConfigProvider) FetchConfigs(ctx context.Context, ids []int32) (map[int32]string, error) {
+	f.ids = append([]int32(nil), ids...)
+	values := make(map[int32]string, len(ids))
+	for _, id := range ids {
+		values[id] = "value"
 	}
 	return values, nil
 }
@@ -120,8 +120,8 @@ func TestEnsureSecretsReadyFetchesBatch(t *testing.T) {
 		t.Fatalf("EnsureSecretsReady: %v", err)
 	}
 	want := []int32{1, 2}
-	if !reflect.DeepEqual(fake.keys, want) {
-		t.Fatalf("fetched keys = %#v; want %#v", fake.keys, want)
+	if !reflect.DeepEqual(fake.ids, want) {
+		t.Fatalf("fetched ids = %#v; want %#v", fake.ids, want)
 	}
 }
 
@@ -142,8 +142,8 @@ func TestEnsureConfigsReadyFetchesBatch(t *testing.T) {
 		t.Fatalf("EnsureConfigsReady: %v", err)
 	}
 	want := []int32{1, 2}
-	if !reflect.DeepEqual(fake.keys, want) {
-		t.Fatalf("fetched keys = %#v; want %#v", fake.keys, want)
+	if !reflect.DeepEqual(fake.ids, want) {
+		t.Fatalf("fetched ids = %#v; want %#v", fake.ids, want)
 	}
 }
 

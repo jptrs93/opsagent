@@ -6,7 +6,7 @@
 - Improve validation on resource create and update operations so the system strictly controls data validity at all times.
 - Optimize internal asset storage. Consider content hashes and compression.
 - Add a log housekeeper that compresses and backs up workload logs. Show total log space used.
-- Review the system design for immutability and versioning of assets, configs, and secrets. Define the behavior for auto-upgrading deployments that depend on changed assets, configs, or secrets.
+- Define the behavior for auto-upgrading deployments that depend on changed assets, configs, or secrets.
 - Add "used by" information for assets, configs, secrets, and spaces. Show how many deployments use each item and which deployments use it.
 - Expand the machines page to show more machine details, including network interfaces, IP addresses, CPU cores, architecture, RAM, and disk space.
 - Major feature: evaluate how to integrate networking, VPN, and service mesh capabilities.

@@ -75,17 +75,6 @@ export async function initLoginState() {
         }
         return;
     }
-
-    const legacyToken = localStorage.getItem('authToken');
-    if (legacyToken) {
-        setLoginState({
-            token: legacyToken,
-            userId: 0,
-            name: '',
-            expiry: new Date(Date.now() + 5 * 60 * 1000),
-            scopes: [],
-        })
-    }
 }
 
 export function onLogout(handler) {
@@ -103,7 +92,6 @@ export function clearLoginState() {
         }
     }
     localStorage.removeItem('authSession')
-    localStorage.removeItem('authToken')
     loginS.val = null
 }
 
@@ -118,8 +106,7 @@ export function setLoginFromResponse(response) {
         token: nextState.token,
         userId: nextState.userId,
         name: nextState.name,
-        expiry: nextState.expiry.toISOString(),
-        scopes: nextState.scopes,
-    }))
-    localStorage.removeItem('authToken')
+		expiry: nextState.expiry.toISOString(),
+		scopes: nextState.scopes,
+	}))
 }

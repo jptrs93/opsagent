@@ -141,10 +141,9 @@ CREATE TABLE IF NOT EXISTS secret_keyslots (
     created_at  INTEGER NOT NULL          -- epoch ms
 );
 
--- Encrypted user secret values, keyed by a plaintext name (e.g. 'staging.db.password').
--- The value is AEAD-sealed under the SMK with the name bound as associated data
--- so a row cannot be moved to a different name. secret_group is optional and
--- reserved for grouping secrets in the UI later; it carries no security meaning.
+-- Encrypted user secret values, keyed by plaintext name and immutable version
+-- (e.g. 'staging.db.password' v1). The value is AEAD-sealed under the SMK with
+-- the name bound as associated data, so rename must re-encrypt every version.
 CREATE TABLE IF NOT EXISTS secrets (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     name         TEXT    NOT NULL,

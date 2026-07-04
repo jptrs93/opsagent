@@ -67,7 +67,7 @@ Key generated files:
 | POST | `/v1/deployment/prepare-output` | `PrepareOutputRequest` | stream `PrepareOutputChunk` | ANY_OF default |
 | POST | `/v1/deployment/versions` | `DeploymentVersionsRequest` | `DeploymentVersions` | ANY_OF default |
 
-`/v1/state/stream` is the UI's live state source. Its initial `State` message includes deployment, user, connected-machine, and enrollment snapshots; subsequent messages carry deployment, user, machine, and enrollment updates plus heartbeats.
+`/v1/state/stream` is the UI's live state source. Its initial `State` message includes deployment, user, connected-machine, enrollment, secrets status, secret/config reference, secret/config value, and space snapshots; subsequent messages carry matching incremental updates plus heartbeats.
 
 `/v1/deployment/log-search` streams historical run logs as typed `LogLine` protobuf frames. It scans existing `.logbin` files for the requested deployment and time range; it does not tail the currently active log file.
 
@@ -82,22 +82,38 @@ Key generated files:
 | GET | `/v1/cluster/secrets` | `ClusterSecretsRequest` | `ClusterSecretsResponse` | NO_AUTH over mTLS cluster listener |
 | GET | `/v1/cluster/configs` | `ClusterConfigsRequest` | `ClusterConfigsResponse` | NO_AUTH over mTLS cluster listener |
 
-### Config
+Cluster secrets/configs requests carry immutable row IDs. The primary authorizes those IDs against the deployment refs allowed for the requesting worker, decrypts/fetches only those rows, and the worker keeps the plaintext values in memory.
+
+### Settings, Secrets, Configs, Assets, Spaces
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
-| GET | `/v1/config` | — | `DynamicConfiguration` | ANY_OF default |
-| POST | `/v1/config/update` | `ConfigUpdateRequest` | `DynamicConfiguration` | ANY_OF default |
-| POST | `/v1/secret/value/reveal` | `SecretValue` | `SecretRevealResponse` | ANY_OF default |
+| GET | `/v1/settings` | — | `Settings` | ANY_OF default |
+| PUT | `/v1/settings` | `Settings` | `Settings` | ANY_OF default |
+| POST | `/v1/secrets/list` | `EmptyRequest` | `SecretList` | ANY_OF default |
+| POST | `/v1/secrets/set` | `SecretSetRequest` | `SecretMeta` | ANY_OF default |
+| POST | `/v1/secrets/rename` | `SecretRenameRequest` | `SecretMeta` | ANY_OF default |
+| POST | `/v1/secrets/reveal` | `SecretRevealRequest` | `SecretRevealResponse` | ANY_OF default |
+| POST | `/v1/secrets/delete` | `SecretDeleteRequest` | — | ANY_OF default |
+| POST | `/v1/secrets/status` | `EmptyRequest` | `SecretsStatusResponse` | ANY_OF default |
+| POST | `/v1/secrets/generate-recovery-code` | `EmptyRequest` | `SecretRecoveryCodeResponse` | ANY_OF default |
+| POST | `/v1/secrets/unlock` | `SecretUnlockRequest` | `SecretsStatusResponse` | ANY_OF default |
 | POST | `/v1/user/configs/list` | `EmptyRequest` | `UserConfigList` | ANY_OF default |
 | POST | `/v1/user/configs/set` | `UserConfigSetRequest` | `UserConfig` | ANY_OF default |
+| POST | `/v1/user/configs/rename` | `UserConfigRenameRequest` | `UserConfig` | ANY_OF default |
 | POST | `/v1/user/configs/delete` | `UserConfigDeleteRequest` | — | ANY_OF default |
 | POST | `/v1/assets/list` | `EmptyRequest` | `AssetList` | ANY_OF default |
 | POST | `/v1/assets/get` | `AssetGetRequest` | `Asset` | ANY_OF default |
 | POST | `/v1/assets/set` | `AssetSetRequest` | `Asset` | ANY_OF default |
 | POST | `/v1/assets/upload` | raw file body, `key`/`format` query params | `Asset` | ANY_OF default |
+| POST | `/v1/assets/rename` | `key`/`name` query params | `Asset` | ANY_OF default |
 | POST | `/v1/assets/delete` | `AssetDeleteRequest` | — | ANY_OF default |
+| POST | `/v1/spaces/create` | `SpaceSetRequest` | `Space` | ANY_OF default |
+| POST | `/v1/spaces/update` | `SpaceSetRequest` | `Space` | ANY_OF default |
+| POST | `/v1/spaces/delete` | `SpaceDeleteRequest` | — | ANY_OF default |
 
-User-managed configs are plaintext values stored in `user_configs` and referenced from deployment env as `${c:name}`. Encrypted secrets are referenced as `${s:name}`. Deployment preparation batches referenced secret and config keys; secondaries fetch them over the mTLS cluster secrets/configs endpoints into memory only.
+User-managed configs and encrypted secrets are immutable versioned rows. Saving an existing name appends version `vN` with a new numeric row ID; settings refs and deployment env refs pin exact rows with `ConfigRef.id`, `SecretRef.id`, `EnvVarValue.configId`, and `EnvVarValue.secretId`. Rename changes the display name for all versions of a secret/config group without creating a new version. Delete hard-deletes the whole group and is rejected while any settings or deployment config still references one of its row IDs.
+
+`POST /v1/secrets/reveal` is the only user-facing API that returns decrypted secret plaintext. It accepts `SecretRevealRequest.id` for exact-version reveal; list/state APIs return metadata only.
 
 Assets are versioned plaintext file blobs stored in `assets`. Rows are immutable; setting an existing key creates a new version with a numeric asset id. Blobs up to 10 MiB are stored inline; larger blobs are stored in the configured large-asset S3 bucket and referenced by `location`. Workers stream required asset blobs on demand over the mTLS cluster asset endpoint during preparation.
 

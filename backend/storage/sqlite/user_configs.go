@@ -47,7 +47,7 @@ func (s *PrimaryStorage) ListAllUserConfigs() []*apigen.UserConfig {
 	return out
 }
 
-func (s *PrimaryStorage) SetUserConfig(name, group, value string, updatedBy int32, spaceID int32) *apigen.UserConfig {
+func (s *PrimaryStorage) SetUserConfig(name, value string, updatedBy int32, spaceID int32) *apigen.UserConfig {
 	now := time.Now().UnixMilli()
 	spaceID = normalizedUserSpaceID(spaceID)
 	version, err := s.q.GetNextUserConfigVersion(context.Background(), name)
@@ -88,7 +88,7 @@ func (s *PrimaryStorage) RenameUserConfig(name, newName string) (*apigen.UserCon
 	if err := s.q.RenameUserConfig(context.Background(), RenameUserConfigParams{Name: newName, Name_2: name}); err != nil {
 		panic(fmt.Sprintf("RenameUserConfig: %v", err))
 	}
-	slog.Info("renamed user config group", "name", name, "newName", newName)
+	slog.Info("renamed user config", "name", name, "newName", newName)
 	cfg, ok := s.GetLatestUserConfig(newName)
 	if ok {
 		for _, ref := range s.UserConfigReferencesByName(newName) {

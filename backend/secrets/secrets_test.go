@@ -88,7 +88,7 @@ func TestSetResolveRoundTrip(t *testing.T) {
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
 
-	meta, err := mgr.Set("staging.db.password", "staging", []byte("hunter2"), 7)
+	meta, err := mgr.Set("staging.db.password", []byte("hunter2"), 7)
 	if err != nil {
 		t.Fatalf("Set: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestReopenWithMachineKeyUnlocks(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	meta, err := mgr.Set("k", "", []byte("v"), 0)
+	meta, err := mgr.Set("k", []byte("v"), 0)
 	if err != nil {
 		t.Fatalf("Set: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestCiphertextAtRestNotPlaintext(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	if _, err := mgr.Set("k", "", []byte("super-secret-value"), 0); err != nil {
+	if _, err := mgr.Set("k", []byte("super-secret-value"), 0); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 	rec := store.recordByName("k")
@@ -149,10 +149,10 @@ func TestAADBindingPreventsSwap(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	if _, err := mgr.Set("a", "", []byte("value-a"), 0); err != nil {
+	if _, err := mgr.Set("a", []byte("value-a"), 0); err != nil {
 		t.Fatalf("Set a: %v", err)
 	}
-	if _, err := mgr.Set("b", "", []byte("value-b"), 0); err != nil {
+	if _, err := mgr.Set("b", []byte("value-b"), 0); err != nil {
 		t.Fatalf("Set b: %v", err)
 	}
 	// Move a's ciphertext onto b's name: decryption must fail (name is AAD), so
@@ -172,11 +172,11 @@ func TestRenameReencryptsVersions(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	first, err := mgr.Set("db.password", "", []byte("one"), 0)
+	first, err := mgr.Set("db.password", []byte("one"), 0)
 	if err != nil {
 		t.Fatalf("Set first: %v", err)
 	}
-	second, err := mgr.Set("db.password", "", []byte("two"), 0)
+	second, err := mgr.Set("db.password", []byte("two"), 0)
 	if err != nil {
 		t.Fatalf("Set second: %v", err)
 	}
@@ -227,10 +227,10 @@ func TestSystemSecretsAreSeparateFromUserSecrets(t *testing.T) {
 	if err != nil || string(got) != "ca-key" {
 		t.Fatalf("RevealInternal = %q, %v; want ca-key, nil", got, err)
 	}
-	if _, err := mgr.Set("opendeploy.cluster.ca.key", "", []byte("user"), 0); err != ErrReservedName {
+	if _, err := mgr.Set("opendeploy.cluster.ca.key", []byte("user"), 0); err != ErrReservedName {
 		t.Fatalf("Set reserved name err = %v; want ErrReservedName", err)
 	}
-	if _, err := mgr.Set("opendeploy.config.github_token", "config", []byte("user"), 0); err != nil {
+	if _, err := mgr.Set("opendeploy.config.github_token", []byte("user"), 0); err != nil {
 		t.Fatalf("Set opendeploy config secret err = %v; want nil", err)
 	}
 }
@@ -254,7 +254,7 @@ func TestRecoveryUnlockOnFreshMachine(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	meta, err := mgr.Set("k", "", []byte("v"), 0)
+	meta, err := mgr.Set("k", []byte("v"), 0)
 	if err != nil {
 		t.Fatalf("Set: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestRecoveryUnlockOnFreshMachine(t *testing.T) {
 	if _, ok := mgr2.Resolve(meta.ID); ok {
 		t.Fatal("locked store must not resolve secrets")
 	}
-	if _, err := mgr2.Set("x", "", []byte("y"), 0); err == nil {
+	if _, err := mgr2.Set("x", []byte("y"), 0); err == nil {
 		t.Fatal("locked store must reject Set")
 	}
 
@@ -306,7 +306,7 @@ func TestCodeFormattingTolerated(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	_, _ = mgr.Set("k", "", []byte("v"), 0)
+	_, _ = mgr.Set("k", []byte("v"), 0)
 	code, err := mgr.GenerateRecoveryCode()
 	if err != nil {
 		t.Fatalf("GenerateRecoveryCode: %v", err)

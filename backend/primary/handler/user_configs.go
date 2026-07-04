@@ -24,7 +24,7 @@ func (h *Handler) PostV1UserConfigsSet(ctx apigen.Context, req *apigen.UserConfi
 	if ctx.User != nil {
 		updatedBy = ctx.User.ID
 	}
-	return h.Store.SetUserConfig(name, "", req.Value, updatedBy, req.SpaceID), nil
+	return h.Store.SetUserConfig(name, req.Value, updatedBy, req.SpaceID), nil
 }
 
 func (h *Handler) PostV1UserConfigsRename(ctx apigen.Context, req *apigen.UserConfigRenameRequest) (*apigen.UserConfig, error) {

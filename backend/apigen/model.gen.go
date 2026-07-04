@@ -117,10 +117,6 @@ type ClusterConfigsResponse struct {
 	Items []*ClusterConfigValue
 }
 
-type SecretValue struct {
-	Key string
-}
-
 type SecretRef struct {
 	ID int32
 }

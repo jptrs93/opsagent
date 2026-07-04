@@ -530,35 +530,6 @@ func DecodeClusterConfigsResponse(b []byte) (*ClusterConfigsResponse, error) {
 	return &m, nil
 }
 
-func (m *SecretValue) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Key, 1)
-	return b
-}
-
-func DecodeSecretValue(b []byte) (*SecretValue, error) {
-	var m SecretValue
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Key, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 func (m SecretRef) IsZero() bool {
 	return m.ID == 0
 }

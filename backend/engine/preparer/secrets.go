@@ -20,20 +20,20 @@ var Secrets SecretProvider
 var Configs ConfigProvider
 
 func EnsureSecretsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
-	keys := SecretRefs(cfg)
-	if len(keys) == 0 {
+	ids := SecretRefs(cfg)
+	if len(ids) == 0 {
 		return nil
 	}
 	if Secrets == nil {
 		return fmt.Errorf("secret provider is not configured")
 	}
-	values, err := Secrets.FetchSecrets(ctx, keys)
+	values, err := Secrets.FetchSecrets(ctx, ids)
 	if err != nil {
 		return fmt.Errorf("fetching secrets: %w", err)
 	}
-	for _, key := range keys {
-		if _, ok := values[key]; !ok {
-			return fmt.Errorf("secret provider did not return %q", key)
+	for _, id := range ids {
+		if _, ok := values[id]; !ok {
+			return fmt.Errorf("secret provider did not return id %d", id)
 		}
 	}
 	return nil
@@ -57,20 +57,20 @@ func EnsureRuntimeRefsReady(ctx context.Context, cfg *apigen.DeploymentConfig) e
 }
 
 func EnsureConfigsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
-	keys := ConfigRefs(cfg)
-	if len(keys) == 0 {
+	ids := ConfigRefs(cfg)
+	if len(ids) == 0 {
 		return nil
 	}
 	if Configs == nil {
 		return fmt.Errorf("config provider is not configured")
 	}
-	values, err := Configs.FetchConfigs(ctx, keys)
+	values, err := Configs.FetchConfigs(ctx, ids)
 	if err != nil {
 		return fmt.Errorf("fetching configs: %w", err)
 	}
-	for _, key := range keys {
-		if _, ok := values[key]; !ok {
-			return fmt.Errorf("config provider did not return %q", key)
+	for _, id := range ids {
+		if _, ok := values[id]; !ok {
+			return fmt.Errorf("config provider did not return id %d", id)
 		}
 	}
 	return nil
@@ -87,12 +87,12 @@ func SecretRefs(cfg *apigen.DeploymentConfig) []int32 {
 		}
 		seen[*item.SecretID] = true
 	}
-	keys := make([]int32, 0, len(seen))
+	ids := make([]int32, 0, len(seen))
 	for id := range seen {
-		keys = append(keys, id)
+		ids = append(ids, id)
 	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
-	return keys
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
 }
 
 func ConfigRefs(cfg *apigen.DeploymentConfig) []int32 {
@@ -106,10 +106,10 @@ func ConfigRefs(cfg *apigen.DeploymentConfig) []int32 {
 		}
 		seen[*item.ConfigID] = true
 	}
-	keys := make([]int32, 0, len(seen))
+	ids := make([]int32, 0, len(seen))
 	for id := range seen {
-		keys = append(keys, id)
+		ids = append(ids, id)
 	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
-	return keys
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
 }

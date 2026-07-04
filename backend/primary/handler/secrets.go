@@ -10,7 +10,6 @@ import (
 )
 
 var SecretNameRequiredErr = apigen.NewApiErr("Secret name is required", "secret_name_required", http.StatusBadRequest)
-var SecretKeyRequiredErr = apigen.NewApiErr("Secret key is required", "secret_key_required", http.StatusBadRequest)
 var SecretsLockedErr = apigen.NewApiErr("Secrets store is locked; unlock with the recovery code", "secrets_locked", http.StatusServiceUnavailable)
 var InvalidRecoveryCodeErr = apigen.NewApiErr("Invalid recovery code", "secret_invalid_recovery_code", http.StatusBadRequest)
 var NoRecoveryCodeErr = apigen.NewApiErr("No recovery code configured", "secret_no_recovery_code", http.StatusBadRequest)
@@ -67,7 +66,7 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 	if ctx.User != nil {
 		updatedBy = ctx.User.ID
 	}
-	meta, err := h.Secrets.Set(req.Name, "", req.Value, updatedBy, req.SpaceID)
+	meta, err := h.Secrets.Set(req.Name, req.Value, updatedBy, req.SpaceID)
 	if err != nil {
 		if errors.Is(err, secrets.ErrLocked) {
 			return nil, SecretsLockedErr
@@ -119,24 +118,6 @@ func (h *Handler) PostV1SecretsReveal(ctx apigen.Context, req *apigen.SecretReve
 	} else {
 		value, err = h.Secrets.Reveal(req.Name)
 	}
-	if err != nil {
-		switch {
-		case errors.Is(err, secrets.ErrLocked):
-			return nil, SecretsLockedErr
-		case errors.Is(err, secrets.ErrNotFound):
-			return nil, SecretNotFoundErr
-		default:
-			return nil, err
-		}
-	}
-	return &apigen.SecretRevealResponse{Value: value}, nil
-}
-
-func (h *Handler) PostV1SecretValueReveal(ctx apigen.Context, req *apigen.SecretValue) (*apigen.SecretRevealResponse, error) {
-	if strings.TrimSpace(req.Key) == "" {
-		return nil, SecretKeyRequiredErr
-	}
-	value, err := h.Secrets.Reveal(req.Key)
 	if err != nil {
 		switch {
 		case errors.Is(err, secrets.ErrLocked):

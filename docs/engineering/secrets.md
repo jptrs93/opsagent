@@ -2,19 +2,22 @@
 
 ## Overview
 
-The secrets store lets operators save encrypted key/value pairs and reference
-them from a deployment's environment as `${s:name}` (e.g.
-`DB_PASS=${s:staging.db.password}`). Values are decrypted during deployment
-preparation, cached in memory on the node that runs the deployment, and expanded
-at process spawn time. They never appear in stored config, the UI state stream,
-the cluster replication feed, or logs.
+The secrets store lets operators save encrypted secret values as immutable,
+versioned rows. Saving an existing name appends the next version (`v1`, `v2`,
+...) with a new numeric row ID. Deployment environment variables and settings
+reference exact versions by `secretId` / `SecretRef.id`; plain user configs use
+the same immutable row model with `configId` / `ConfigRef.id`. Values are
+decrypted during deployment preparation, cached in memory on the node that runs
+the deployment, and expanded at process spawn time. They never appear in stored
+deployment config, the UI state stream, the cluster replication feed, or logs.
 
 A signed-in operator can also decrypt a single value on demand via the explicit
 `PostV1SecretsReveal` endpoint (surfaced as the per-row "Reveal" button in the
 UI). This is the **only** API path that returns a plaintext value — `List`
-returns metadata only, and `Set` is write-only. A value is decrypted into a
-response solely on this explicit request; it is still never logged, replicated,
-or persisted outside the encrypted store.
+returns metadata only, and `Set` is write-only. Reveal requests use the immutable
+secret row ID for exact-version reads. A value is decrypted into a response
+solely on this explicit request; it is still never logged, replicated, or
+persisted outside the encrypted store.
 
 It is **primary-only**: the encrypted store and its keys live on the primary and
 are never replicated to secondaries.
@@ -25,12 +28,12 @@ Key files:
 - `backend/storage/sqlite/secrets_store.go` — `secrets.Store` on the primary
   `StorageAdapter` (DB passthrough for the `secret_keyslots`, `secrets`, and
   `system_secrets` tables).
-- `backend/engine/preparer/secrets.go` — finds `${s:name}` references and fetches
-  all needed secrets as one preparation batch.
+- `backend/engine/preparer/secrets.go` — finds typed `secretId` / `configId`
+  refs and fetches all needed values as one preparation batch.
 - `backend/engine/secretdist/secretdist.go` — primary-side prepared secret cache.
 - `backend/secondary/secrets.go` — secondary-side mTLS batch fetcher and in-memory
   cache.
-- `backend/engine/runner/secrets.go` — `SecretResolver` and `${s:name}` expansion
+- `backend/engine/runner/secrets.go` — typed secret/config env ref expansion
   from the prepared in-memory cache at spawn time.
 - `backend/handler/secrets.go` — the CRUD / status / recovery endpoints.
 - `frontend/src/pages/secrets.js` — the Secrets page.
@@ -73,7 +76,7 @@ without either the on-box machine KEK or the recovery code.
 |---|---|
 | DB backup / replicated copy | Safe — no keyslot is decryptable |
 | A secondary node / `secondary.db` | Safe — secrets never reach a secondary |
-| UI stream / logs | Safe — only `${...}` placeholders and key names appear; plaintext is returned only by an explicit, authenticated `Reveal` request |
+| UI stream / logs | Safe — only names, metadata, and numeric refs appear; plaintext is returned only by an explicit, authenticated `Reveal` request |
 | Root on the primary | Game over (true of any host-side secrets manager; Phase 3 narrows the *stolen-disk / offline* case) |
 
 ## Lifecycle
@@ -94,22 +97,22 @@ without either the on-box machine KEK or the recovery code.
 
 ## Prepare-time distribution and spawn-time expansion
 
-`${s:name}` placeholders are discovered during deployment preparation
-(`backend/engine/preparer/secrets.go`). `${c:name}` user config placeholders are
-discovered the same way. The preparer requests all referenced secret keys as one
-batch through `SecretProvider.FetchSecrets` and all referenced config keys as one
-batch through `ConfigProvider.FetchConfigs`; this is the same prepare-time
-readiness boundary used for asset materialization.
+Typed `secretId` and `configId` env refs are discovered during deployment
+preparation (`backend/engine/preparer/secrets.go`). The preparer requests all
+referenced secret IDs as one batch through `SecretProvider.FetchSecrets` and all
+referenced config IDs as one batch through `ConfigProvider.FetchConfigs`; this is
+the same prepare-time readiness boundary used for asset materialization.
 
 On the primary, the provider decrypts from `secrets.Manager` and stores the
-plaintext values in an in-memory runner cache. On a secondary, the provider calls
-the primary over the mTLS cluster endpoint `GET /v1/cluster/secrets` with a
-`ClusterSecretsRequest{keys}` payload, then stores the returned plaintext values
-in an internal in-memory cache. Secrets are never written to `secondary.db`.
+plaintext values in an in-memory runner cache keyed by row ID. On a secondary,
+the provider calls the primary over the mTLS cluster endpoint
+`GET /v1/cluster/secrets` with a `ClusterSecretsRequest{ids}` payload, then
+stores the returned plaintext values in an internal in-memory cache. Secrets are
+never written to `secondary.db`.
 
-At process spawn time (`backend/engine/runner/secrets.go`), `${s:name}` and
-`${c:name}` are expanded from prepared in-memory caches. Plain `user_configs`
-values are not encrypted at rest. `$$` escapes a literal `$`. Unknown
+At process spawn time (`backend/engine/runner/secrets.go`), `EnvVarValue`
+entries with `secretId` or `configId` are expanded from prepared in-memory
+caches. Plain `user_configs` values are not encrypted at rest. Unknown
 references, locked secrets, missing primary connectivity during prepare, or no
 resolver on the node are **fail-closed** errors.
 
@@ -135,10 +138,10 @@ data dir).
 
 ## Secondary secret distribution
 
-Deployments running on a secondary can reference `${s:name}`. The secondary does
-not receive the encrypted secrets table or SMK; it fetches only the plaintext
-keys needed by the deployment currently being prepared, over the cluster mTLS
-listener, and keeps them in process memory only.
+Deployments running on a secondary can reference secrets by `secretId`. The
+secondary does not receive the encrypted secrets table or SMK; it fetches only
+the plaintext IDs needed by the deployment currently being prepared, over the
+cluster mTLS listener, and keeps them in process memory only.
 
 Tradeoff: a secondary cannot cold-start a deployment while the primary is
 unreachable. If that resilience is needed, an at-rest cache wrapped by a

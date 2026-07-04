@@ -169,17 +169,7 @@ func (s *Session) routeLogChunk(requestID string, chunk logChunk) {
 	ch, ok := s.logStreams[requestID]
 	s.logMu.Unlock()
 	if !ok {
-		// No active reader for this request (already closed or unknown ID).
-		// Also try the legacy empty-ID path for backwards compatibility with
-		// workers that haven't been updated yet.
-		if requestID != "" {
-			s.logMu.Lock()
-			ch, ok = s.logStreams[""]
-			s.logMu.Unlock()
-		}
-		if !ok {
-			return
-		}
+		return
 	}
 	select {
 	case ch <- chunk:

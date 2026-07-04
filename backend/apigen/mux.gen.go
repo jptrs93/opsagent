@@ -95,7 +95,6 @@ type OpsagentHttpV1Handler interface {
 	GetV1Settings(Context) (*Settings, error)
 	PutV1Settings(Context, *Settings) (*Settings, error)
 	PostV1GenerateExportedConfig(Context, *EmptyRequest) (*ExportedConfigBlob, error)
-	PostV1SecretValueReveal(Context, *SecretValue) (*SecretRevealResponse, error)
 	PostV1SecretsList(Context, *EmptyRequest) (*SecretList, error)
 	PostV1SecretsSet(Context, *SecretSetRequest) (*SecretMeta, error)
 	PostV1SecretsRename(Context, *SecretRenameRequest) (*SecretMeta, error)
@@ -447,17 +446,6 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/generate-exported-config", buildHandlerFunc(config, verifyAuth, postV1GenerateExportedConfigAccessPolicy, postAuthHandlerPostV1GenerateExportedConfig, compressionModeAuto, false))
-	postV1SecretValueRevealAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
-	postAuthHandlerPostV1SecretValueReveal := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretValue)
-		if err != nil {
-			HandleReqErr(authCtx, err, r, w)
-			return
-		}
-		res, err := h.PostV1SecretValueReveal(authCtx, req)
-		Respond(authCtx, r, w, res, err)
-	}
-	m.HandleFunc("POST /v1/secret/value/reveal", buildHandlerFunc(config, verifyAuth, postV1SecretValueRevealAccessPolicy, postAuthHandlerPostV1SecretValueReveal, compressionModeAuto, false))
 	postV1SecretsListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1SecretsList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)

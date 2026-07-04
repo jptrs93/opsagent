@@ -55,7 +55,6 @@ import {
   encodeSecretRevealRequest,
   encodeSecretSetRequest,
   encodeSecretUnlockRequest,
-  encodeSecretValue,
   encodeSettings,
   encodeSpaceDeleteRequest,
   encodeSpaceSetRequest,
@@ -480,18 +479,6 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeExportedConfigBlob(await response.arrayBuffer());
-  }
-
-  /**
-   * @param {SecretValue} payload
-   * @returns {Promise<SecretRevealResponse>}
-   */
-  async postV1SecretValueReveal(payload) {
-    const response = await this.#request("/v1/secret/value/reveal", { method: 'POST', body: encodeSecretValue(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeSecretRevealResponse(await response.arrayBuffer());
   }
 
   /**

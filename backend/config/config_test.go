@@ -81,7 +81,7 @@ func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("secrets.Open: %v", err)
 	}
-	secretMeta, err := secretMgr.Set("opendeploy.config.github_token", "config", []byte("ghp_test"), 0)
+	secretMeta, err := secretMgr.Set("opendeploy.config.github_token", []byte("ghp_test"), 0)
 	if err != nil {
 		t.Fatalf("Set secret: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
-	userCfg := store.SetUserConfig("shared.cluster.listen", "default", ":9555", 0, 1)
+	userCfg := store.SetUserConfig("shared.cluster.listen", ":9555", 0, 1)
 
 	settings := DefaultSettings(ainit.StaticConfig)
 	settings.Cluster.Listen = apigen.StringSetting{ConfigRef: apigen.ConfigRef{ID: userCfg.ID}}
