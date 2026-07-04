@@ -10,12 +10,12 @@ import (
 // persistence so a second Open() sees the same rows (as on a restart/recovery).
 type memStore struct {
 	slots         map[string]Keyslot
-	records       map[string]Record
+	records       map[int32]Record
 	systemRecords map[string]SystemRecord
 }
 
 func newMemStore() *memStore {
-	return &memStore{slots: map[string]Keyslot{}, records: map[string]Record{}, systemRecords: map[string]SystemRecord{}}
+	return &memStore{slots: map[string]Keyslot{}, records: map[int32]Record{}, systemRecords: map[string]SystemRecord{}}
 }
 
 func (m *memStore) ListSecretKeyslots() []Keyslot {
@@ -33,14 +33,49 @@ func (m *memStore) ListSecrets() []Record {
 	}
 	return out
 }
-func (m *memStore) NextSecretID() int32      { return int32(len(m.records) + 1) }
-func (m *memStore) UpsertSecret(r Record)    { m.records[r.Name] = r }
-func (m *memStore) DeleteSecret(name string) { delete(m.records, name) }
+func (m *memStore) NextSecretVersion(name string) int32 {
+	var max int32
+	for _, r := range m.records {
+		if r.Name == name && r.Version > max {
+			max = r.Version
+		}
+	}
+	return max + 1
+}
+func (m *memStore) InsertSecret(r Record) Record {
+	r.ID = int32(len(m.records) + 1)
+	m.records[r.ID] = r
+	return r
+}
+func (m *memStore) RenameSecret(name, newName string) {
+	for id, r := range m.records {
+		if r.Name == name {
+			r.Name = newName
+			m.records[id] = r
+		}
+	}
+}
+func (m *memStore) DeleteSecret(name string) {
+	for id, r := range m.records {
+		if r.Name == name {
+			delete(m.records, id)
+		}
+	}
+}
 func (m *memStore) GetSystemSecret(name string) (SystemRecord, bool) {
 	r, ok := m.systemRecords[name]
 	return r, ok
 }
 func (m *memStore) UpsertSystemSecret(r SystemRecord) { m.systemRecords[r.Name] = r }
+
+func (m *memStore) recordByName(name string) Record {
+	for _, r := range m.records {
+		if r.Name == name {
+			return r
+		}
+	}
+	return Record{}
+}
 
 func mustOpen(t *testing.T, dir string, store Store) *Manager {
 	t.Helper()
@@ -76,7 +111,7 @@ func TestSetResolveRoundTrip(t *testing.T) {
 
 	// List returns metadata, never the value.
 	metas := mgr.List()
-	if len(metas) != 1 || metas[0].ID == 0 || metas[0].Name != "staging.db.password" || metas[0].Group != "default" {
+	if len(metas) != 1 || metas[0].ID == 0 || metas[0].Name != "staging.db.password" || metas[0].Version != 1 {
 		t.Fatalf("List = %+v", metas)
 	}
 }
@@ -107,7 +142,7 @@ func TestCiphertextAtRestNotPlaintext(t *testing.T) {
 	if _, err := mgr.Set("k", "", []byte("super-secret-value"), 0); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	rec := store.records["k"]
+	rec := store.recordByName("k")
 	if string(rec.Ciphertext) == "super-secret-value" {
 		t.Fatal("value stored in plaintext")
 	}
@@ -125,11 +160,11 @@ func TestAADBindingPreventsSwap(t *testing.T) {
 	}
 	// Move a's ciphertext onto b's name: decryption must fail (name is AAD), so
 	// Resolve("b") returns not-ok rather than leaking value-a under b.
-	recA := store.records["a"]
-	recB := store.records["b"]
+	recA := store.recordByName("a")
+	recB := store.recordByName("b")
 	recB.Ciphertext = recA.Ciphertext
 	recB.Nonce = recA.Nonce
-	store.records["b"] = recB
+	store.records[recB.ID] = recB
 	mgr2 := mustOpen(t, dir, store)
 	if got, ok := mgr2.Resolve(recB.ID); ok {
 		t.Fatalf("expected AAD mismatch to fail; got %q", got)

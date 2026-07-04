@@ -35,8 +35,89 @@ func mustInit(dbPath, migrations string) *sql.DB {
 	if _, err := db.Exec(schema); err != nil {
 		panic(fmt.Sprintf("exec schema: %v", err))
 	}
+	migrateVersionedSecretConfigTables(db)
 	applyMigrations(db, migrations)
 	return db
+}
+
+func migrateVersionedSecretConfigTables(db *sql.DB) {
+	if tableHasColumn(db, "user_configs", "config_group") || tableHasColumn(db, "user_configs", "updated_at") || !tableHasColumn(db, "user_configs", "version") {
+		rebuildUserConfigsTable(db)
+	}
+	if tableHasColumn(db, "secrets", "secret_group") || tableHasColumn(db, "secrets", "updated_at") || !tableHasColumn(db, "secrets", "version") {
+		rebuildSecretsTable(db)
+	}
+}
+
+func tableHasColumn(db *sql.DB, table, column string) bool {
+	rows, err := db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		panic(fmt.Sprintf("table_info %s: %v", table, err))
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			panic(fmt.Sprintf("scan table_info %s: %v", table, err))
+		}
+		if name == column {
+			return true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		panic(fmt.Sprintf("table_info rows %s: %v", table, err))
+	}
+	return false
+	}
+
+func rebuildUserConfigsTable(db *sql.DB) {
+	const stmts = `
+ALTER TABLE user_configs RENAME TO user_configs_pre_versioning;
+CREATE TABLE user_configs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT    NOT NULL,
+    version      INTEGER NOT NULL DEFAULT 1,
+    space_id     INTEGER NOT NULL DEFAULT 1,
+    value        TEXT    NOT NULL DEFAULT '',
+    created_at   INTEGER NOT NULL,
+    updated_by   INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (name, version)
+);
+INSERT INTO user_configs (id, name, version, space_id, value, created_at, updated_by)
+SELECT id, name, 1, space_id, value, created_at, updated_by
+FROM user_configs_pre_versioning;
+DROP TABLE user_configs_pre_versioning;`
+	if _, err := db.Exec(stmts); err != nil {
+		panic(fmt.Sprintf("rebuild user_configs: %v", err))
+	}
+}
+
+func rebuildSecretsTable(db *sql.DB) {
+	const stmts = `
+ALTER TABLE secrets RENAME TO secrets_pre_versioning;
+CREATE TABLE secrets (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT    NOT NULL,
+    version      INTEGER NOT NULL DEFAULT 1,
+    space_id     INTEGER NOT NULL DEFAULT 1,
+    smk_version  INTEGER NOT NULL,
+    ciphertext   BLOB    NOT NULL,
+    nonce        BLOB    NOT NULL,
+    created_at   INTEGER NOT NULL,
+    updated_by   INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (name, version)
+);
+INSERT INTO secrets (id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by)
+SELECT id, name, 1, space_id, smk_version, ciphertext, nonce, created_at, updated_by
+FROM secrets_pre_versioning;
+DROP TABLE secrets_pre_versioning;`
+	if _, err := db.Exec(stmts); err != nil {
+		panic(fmt.Sprintf("rebuild secrets: %v", err))
+	}
 }
 
 func applyMigrations(db *sql.DB, migrations string) {

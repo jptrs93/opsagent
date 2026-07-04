@@ -98,9 +98,10 @@ function describeStatusEntry(status, prev) {
 
 const tsMs = (t) => (t instanceof Date ? t.getTime() : 0);
 
-export function deploymentHistory(deploymentId, label, onClose) {
+export function deploymentHistory(deploymentId, label, onClose, onRevertTargetVersion = () => {}) {
     const entries = van.state(null);
     const error = van.state('');
+    const showStatusUpdates = van.state(true);
 
     const load = async () => {
         try {
@@ -124,6 +125,18 @@ export function deploymentHistory(deploymentId, label, onClose) {
                 {class: "flex items-center gap-2"},
                 () => error.val ? span({class: "text-xs text-red-400"}, error.val) : span(),
                 button({
+                    class: () => `flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs transition-colors cursor-pointer ${showStatusUpdates.val ? 'border-brand bg-brand/20 text-blue-200' : 'border-gray-600 bg-gray-800 text-gray-400'}`,
+                    onclick: () => { showStatusUpdates.val = !showStatusUpdates.val; },
+                    type: "button",
+                    "aria-pressed": () => showStatusUpdates.val ? "true" : "false",
+                    title: "Toggle status update history lines",
+                },
+                    span({class: () => `h-3.5 w-6 rounded-full relative transition-colors ${showStatusUpdates.val ? 'bg-brand' : 'bg-gray-600'}`},
+                        span({class: () => `absolute top-0.5 h-2.5 w-2.5 rounded-full bg-white transition-all ${showStatusUpdates.val ? 'left-3' : 'left-0.5'}`}),
+                    ),
+                    span("Show status updates"),
+                ),
+                button({
                     class: "text-gray-400 hover:text-gray-200 text-sm px-2",
                     onclick: onClose,
                 }, "Close"),
@@ -144,6 +157,9 @@ export function deploymentHistory(deploymentId, label, onClose) {
                 // carry no preparer/runner data and render as meaningless
                 // "status update" lines).
                 const visibleEntries = entries.val.filter(e => !e.status || tsMs(e.status.updatedAt) > 0);
+                const renderEntries = showStatusUpdates.val
+                    ? visibleEntries
+                    : visibleEntries.filter(e => e.config);
 
                 // Build a map of config entries by version for diffing.
                 const configEntries = visibleEntries.filter(e => e.config);
@@ -173,7 +189,7 @@ export function deploymentHistory(deploymentId, label, onClose) {
                 };
                 const stableWindowMs = 10 * 60 * 1000;
 
-                const lines = visibleEntries.map((e, i) => {
+                const lines = renderEntries.map((e, i) => {
                     const isConfig = !!e.config;
                     const ts = entryTime(e) > 0
                         ? formatHistoryTime(isConfig ? e.config.updatedAt : e.status.updatedAt)
@@ -184,20 +200,26 @@ export function deploymentHistory(deploymentId, label, onClose) {
                         const desc = describeConfigEntry(e.config, info?.prev);
                         const userName = resolveUserDisplayName(e.config.updatedBy);
                         const user = userName ? ` [${userName}]` : '';
+                        const targetVersion = e.config.desiredState?.version || '';
                         return div(
                             {class: "px-3 py-0.5 text-xs font-mono text-orange-400"},
                             span(ts),
                             span("  "),
                             span(`v${e.config.version} `),
                             span(desc),
-                            user ? span({class: "text-orange-300"}, user) : null,
+                            user ? span({class: "text-orange-300"}, user) : '',
+                            targetVersion ? button({
+                                type: "button",
+                                class: "ml-2 p-0 text-xs font-mono text-blue-400 underline hover:text-blue-300 cursor-pointer",
+                                onclick: () => onRevertTargetVersion(deploymentId, e.config),
+                            }, "revert to this version") : '',
                         );
                     } else {
                         const prev = prevStatusByEntry.get(e);
                         const desc = describeStatusEntry(e.status, prev);
                         const transitionedToRunning = runnerChanged(e.status, prev)
                             && e.status.runner && e.status.runner.status === 2;
-                        const nextTs = i > 0 ? entryTime(visibleEntries[i - 1]) : 0;
+                        const nextTs = i > 0 ? entryTime(renderEntries[i - 1]) : 0;
                         const curTs = entryTime(e);
                         const stable = i === 0 || (nextTs > 0 && curTs > 0 && nextTs - curTs > stableWindowMs);
                         const color = transitionedToRunning && stable ? "text-green-500" : "text-gray-500";
@@ -211,7 +233,7 @@ export function deploymentHistory(deploymentId, label, onClose) {
                 }).filter(Boolean);
 
                 if (lines.length === 0) {
-                    return p({class: "p-4 text-sm text-gray-500"}, "No history.");
+                    return p({class: "p-4 text-sm text-gray-500"}, showStatusUpdates.val ? "No history." : "No config changes.");
                 }
 
                 return div({class: "flex flex-col"}, ...lines);

@@ -78,12 +78,10 @@
 /**
  * @typedef {Object} SecretRef
  * @property {string} key
- * @property {number} version
  */
 /**
  * @typedef {Object} ConfigRef
  * @property {string} key
- * @property {number} version
  */
 /**
  * @typedef {Object} StringSetting
@@ -193,13 +191,12 @@
 /**
  * @typedef {Object} SecretMeta
  * @property {string} name
- * @property {string} group
  * @property {Date} createdAt
- * @property {Date} updatedAt
  * @property {number} updatedBy
  * @property {number} id
  * @property {boolean} deleted
  * @property {number} spaceId
+ * @property {number} version
  */
 /**
  * @typedef {Object} SecretList
@@ -208,9 +205,13 @@
 /**
  * @typedef {Object} SecretSetRequest
  * @property {string} name
- * @property {string} group
  * @property {Uint8Array} value
  * @property {number} spaceId
+ */
+/**
+ * @typedef {Object} SecretRenameRequest
+ * @property {string} name
+ * @property {string} newName
  */
 /**
  * @typedef {Object} SecretDeleteRequest
@@ -240,14 +241,13 @@
 /**
  * @typedef {Object} UserConfig
  * @property {string} name
- * @property {string} group
  * @property {string} value
  * @property {Date} createdAt
- * @property {Date} updatedAt
  * @property {number} updatedBy
  * @property {number} id
  * @property {boolean} deleted
  * @property {number} spaceId
+ * @property {number} version
  */
 /**
  * @typedef {Object} UserConfigList
@@ -256,9 +256,13 @@
 /**
  * @typedef {Object} UserConfigSetRequest
  * @property {string} name
- * @property {string} group
  * @property {string} value
  * @property {number} spaceId
+ */
+/**
+ * @typedef {Object} UserConfigRenameRequest
+ * @property {string} name
+ * @property {string} newName
  */
 /**
  * @typedef {Object} UserConfigDeleteRequest
@@ -430,6 +434,7 @@
  * @property {string} name
  * @property {boolean} deleted
  * @property {number} spaceId
+ * @property {number} version
  */
 /**
  * @typedef {Object} SecretReferenceList
@@ -441,6 +446,7 @@
  * @property {string} name
  * @property {boolean} deleted
  * @property {number} spaceId
+ * @property {number} version
  */
 /**
  * @typedef {Object} UserConfigReferenceList
@@ -1763,9 +1769,6 @@ export function writeSecretRef(message, writer) {
     if (message.key !== undefined && message.key !== null && message.key !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
     }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
-    }
 }
 
 
@@ -1787,16 +1790,12 @@ export function encodeSecretRef(message) {
  */
 function decodeSecretRefMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", version: 0 };
+    const message = {key: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.key = reader.string();
-                break;
-            }
-            case 2: {
-                message.version = reader.int32();
                 break;
             }
             default:
@@ -1826,9 +1825,6 @@ export function writeConfigRef(message, writer) {
     if (message.key !== undefined && message.key !== null && message.key !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
     }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
-    }
 }
 
 
@@ -1850,16 +1846,12 @@ export function encodeConfigRef(message) {
  */
 function decodeConfigRefMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", version: 0 };
+    const message = {key: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.key = reader.string();
-                break;
-            }
-            case 2: {
-                message.version = reader.int32();
                 break;
             }
             default:
@@ -3198,14 +3190,8 @@ export function writeSecretMeta(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
     }
-    if (message.group !== undefined && message.group !== null && message.group !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.group);
-    }
     if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
-    }
-    if (message.updatedAt instanceof Date && message.updatedAt.getTime() !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.updatedAt.getTime()));
     }
     if (message.updatedBy !== undefined && message.updatedBy !== null && message.updatedBy !== 0) {
         writer.uint32(tag(5, WIRE.VARINT)).int32(message.updatedBy);
@@ -3218,6 +3204,9 @@ export function writeSecretMeta(message, writer) {
     }
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(8, WIRE.VARINT)).int32(message.spaceId);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(9, WIRE.VARINT)).int32(message.version);
     }
 }
 
@@ -3240,7 +3229,7 @@ export function encodeSecretMeta(message) {
  */
 function decodeSecretMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", group: "", createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0, id: 0, deleted: false, spaceId: 0 };
+    const message = {name: "", createdAt: new Date(0), updatedBy: 0, id: 0, deleted: false, spaceId: 0, version: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3248,16 +3237,8 @@ function decodeSecretMetaMessage(reader, length) {
                 message.name = reader.string();
                 break;
             }
-            case 2: {
-                message.group = reader.string();
-                break;
-            }
             case 3: {
                 message.createdAt = new Date(readInt64(reader, "int64"));
-                break;
-            }
-            case 4: {
-                message.updatedAt = new Date(readInt64(reader, "int64"));
                 break;
             }
             case 5: {
@@ -3274,6 +3255,10 @@ function decodeSecretMetaMessage(reader, length) {
             }
             case 8: {
                 message.spaceId = reader.int32();
+                break;
+            }
+            case 9: {
+                message.version = reader.int32();
                 break;
             }
             default:
@@ -3363,9 +3348,6 @@ export function writeSecretSetRequest(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
     }
-    if (message.group !== undefined && message.group !== null && message.group !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.group);
-    }
     if (message.value && message.value.length > 0) {
         writer.uint32(tag(3, WIRE.LDELIM)).bytes(message.value);
     }
@@ -3393,16 +3375,12 @@ export function encodeSecretSetRequest(message) {
  */
 function decodeSecretSetRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", group: "", value: new Uint8Array(0), spaceId: 0 };
+    const message = {name: "", value: new Uint8Array(0), spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.name = reader.string();
-                break;
-            }
-            case 2: {
-                message.group = reader.string();
                 break;
             }
             case 3: {
@@ -3428,6 +3406,69 @@ function decodeSecretSetRequestMessage(reader, length) {
 export function decodeSecretSetRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeSecretSetRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretRenameRequest} message
+ * @param {Writer} writer
+ */
+export function writeSecretRenameRequest(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.newName !== undefined && message.newName !== null && message.newName !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.newName);
+    }
+}
+
+
+/**
+ * @param {SecretRenameRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretRenameRequest(message) {
+    const writer = Writer.create();
+    writeSecretRenameRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretRenameRequest}
+ */
+function decodeSecretRenameRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "", newName: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 2: {
+                message.newName = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretRenameRequest}
+ */
+export function decodeSecretRenameRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretRenameRequestMessage(reader);
 }
 
 
@@ -3783,17 +3824,11 @@ export function writeUserConfig(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
     }
-    if (message.group !== undefined && message.group !== null && message.group !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.group);
-    }
     if (message.value !== undefined && message.value !== null && message.value !== "") {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
     }
     if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
-    }
-    if (message.updatedAt instanceof Date && message.updatedAt.getTime() !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.updatedAt.getTime()));
     }
     if (message.updatedBy !== undefined && message.updatedBy !== null && message.updatedBy !== 0) {
         writer.uint32(tag(6, WIRE.VARINT)).int32(message.updatedBy);
@@ -3806,6 +3841,9 @@ export function writeUserConfig(message, writer) {
     }
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(9, WIRE.VARINT)).int32(message.spaceId);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(10, WIRE.VARINT)).int32(message.version);
     }
 }
 
@@ -3828,16 +3866,12 @@ export function encodeUserConfig(message) {
  */
 function decodeUserConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", group: "", value: "", createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0, id: 0, deleted: false, spaceId: 0 };
+    const message = {name: "", value: "", createdAt: new Date(0), updatedBy: 0, id: 0, deleted: false, spaceId: 0, version: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.name = reader.string();
-                break;
-            }
-            case 2: {
-                message.group = reader.string();
                 break;
             }
             case 3: {
@@ -3846,10 +3880,6 @@ function decodeUserConfigMessage(reader, length) {
             }
             case 4: {
                 message.createdAt = new Date(readInt64(reader, "int64"));
-                break;
-            }
-            case 5: {
-                message.updatedAt = new Date(readInt64(reader, "int64"));
                 break;
             }
             case 6: {
@@ -3866,6 +3896,10 @@ function decodeUserConfigMessage(reader, length) {
             }
             case 9: {
                 message.spaceId = reader.int32();
+                break;
+            }
+            case 10: {
+                message.version = reader.int32();
                 break;
             }
             default:
@@ -3955,9 +3989,6 @@ export function writeUserConfigSetRequest(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
     }
-    if (message.group !== undefined && message.group !== null && message.group !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.group);
-    }
     if (message.value !== undefined && message.value !== null && message.value !== "") {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
     }
@@ -3985,16 +4016,12 @@ export function encodeUserConfigSetRequest(message) {
  */
 function decodeUserConfigSetRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", group: "", value: "", spaceId: 0 };
+    const message = {name: "", value: "", spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.name = reader.string();
-                break;
-            }
-            case 2: {
-                message.group = reader.string();
                 break;
             }
             case 3: {
@@ -4020,6 +4047,69 @@ function decodeUserConfigSetRequestMessage(reader, length) {
 export function decodeUserConfigSetRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeUserConfigSetRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {UserConfigRenameRequest} message
+ * @param {Writer} writer
+ */
+export function writeUserConfigRenameRequest(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.newName !== undefined && message.newName !== null && message.newName !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.newName);
+    }
+}
+
+
+/**
+ * @param {UserConfigRenameRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeUserConfigRenameRequest(message) {
+    const writer = Writer.create();
+    writeUserConfigRenameRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {UserConfigRenameRequest}
+ */
+function decodeUserConfigRenameRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "", newName: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 2: {
+                message.newName = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {UserConfigRenameRequest}
+ */
+export function decodeUserConfigRenameRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeUserConfigRenameRequestMessage(reader);
 }
 
 
@@ -5930,6 +6020,9 @@ export function writeSecretReference(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.spaceId);
     }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.version);
+    }
 }
 
 
@@ -5951,7 +6044,7 @@ export function encodeSecretReference(message) {
  */
 function decodeSecretReferenceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", deleted: false, spaceId: 0 };
+    const message = {id: 0, name: "", deleted: false, spaceId: 0, version: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5969,6 +6062,10 @@ function decodeSecretReferenceMessage(reader, length) {
             }
             case 4: {
                 message.spaceId = reader.int32();
+                break;
+            }
+            case 5: {
+                message.version = reader.int32();
                 break;
             }
             default:
@@ -6067,6 +6164,9 @@ export function writeUserConfigReference(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.spaceId);
     }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.version);
+    }
 }
 
 
@@ -6088,7 +6188,7 @@ export function encodeUserConfigReference(message) {
  */
 function decodeUserConfigReferenceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", deleted: false, spaceId: 0 };
+    const message = {id: 0, name: "", deleted: false, spaceId: 0, version: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6106,6 +6206,10 @@ function decodeUserConfigReferenceMessage(reader, length) {
             }
             case 4: {
                 message.spaceId = reader.int32();
+                break;
+            }
+            case 5: {
+                message.version = reader.int32();
                 break;
             }
             default:

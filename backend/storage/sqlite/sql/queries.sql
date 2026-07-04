@@ -176,29 +176,50 @@ SELECT kid, key_bytes FROM public_keys ORDER BY kid;
 -- === user_configs ===
 
 -- name: ListUserConfigs :many
-SELECT id, name, space_id, config_group, value, created_at, updated_at, updated_by
-FROM user_configs ORDER BY name;
+SELECT c.id, c.name, c.version, c.space_id, c.value, c.created_at, c.updated_by
+FROM user_configs c
+JOIN (
+    SELECT name, MAX(version) AS version
+    FROM user_configs
+    GROUP BY name
+) latest ON latest.name = c.name AND latest.version = c.version
+ORDER BY c.name;
+
+-- name: ListAllUserConfigs :many
+SELECT id, name, version, space_id, value, created_at, updated_by
+FROM user_configs ORDER BY name, version;
 
 -- name: GetUserConfig :one
-SELECT id, name, space_id, config_group, value, created_at, updated_at, updated_by
-FROM user_configs WHERE name = ?;
+SELECT id, name, version, space_id, value, created_at, updated_by
+FROM user_configs WHERE name = ?
+ORDER BY version DESC
+LIMIT 1;
+
+-- name: GetUserConfigVersion :one
+SELECT id, name, version, space_id, value, created_at, updated_by
+FROM user_configs WHERE name = ? AND version = ?;
+
+-- name: ListUserConfigVersionsByName :many
+SELECT id, name, version, space_id, value, created_at, updated_by
+FROM user_configs WHERE name = ?
+ORDER BY version ASC;
 
 -- name: GetUserConfigByID :one
-SELECT id, name, space_id, config_group, value, created_at, updated_at, updated_by
+SELECT id, name, version, space_id, value, created_at, updated_by
 FROM user_configs WHERE id = ?;
 
--- name: GetNextUserConfigID :one
-SELECT COALESCE(MAX(id), 0) + 1 FROM user_configs;
+-- name: GetNextUserConfigVersion :one
+SELECT COALESCE(MAX(version), 0) + 1
+FROM user_configs
+WHERE name = ?;
 
--- name: UpsertUserConfig :exec
-INSERT INTO user_configs (id, name, space_id, config_group, value, created_at, updated_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(name) DO UPDATE SET
-    space_id = excluded.space_id,
-    config_group = excluded.config_group,
-    value = excluded.value,
-    updated_at = excluded.updated_at,
-    updated_by = excluded.updated_by;
+-- name: InsertUserConfig :one
+INSERT INTO user_configs (name, version, space_id, value, created_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id, name, version, space_id, value, created_at, updated_by;
+
+-- name: RenameUserConfig :exec
+UPDATE user_configs SET name = ? WHERE name = ?;
 
 -- name: DeleteUserConfig :exec
 DELETE FROM user_configs WHERE name = ?;
@@ -279,27 +300,45 @@ ON CONFLICT(slot) DO UPDATE SET
 -- === secrets ===
 
 -- name: ListSecrets :many
-SELECT id, name, space_id, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
-FROM secrets ORDER BY name;
+SELECT id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by
+FROM secrets ORDER BY name, version;
+
+-- name: ListLatestSecrets :many
+SELECT s.id, s.name, s.version, s.space_id, s.smk_version, s.ciphertext, s.nonce, s.created_at, s.updated_by
+FROM secrets s
+JOIN (
+    SELECT name, MAX(version) AS version
+    FROM secrets
+    GROUP BY name
+) latest ON latest.name = s.name AND latest.version = s.version
+ORDER BY s.name;
+
+-- name: GetSecret :one
+SELECT id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by
+FROM secrets WHERE name = ?
+ORDER BY version DESC
+LIMIT 1;
+
+-- name: GetSecretVersion :one
+SELECT id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by
+FROM secrets WHERE name = ? AND version = ?;
 
 -- name: GetSecretByID :one
-SELECT id, name, space_id, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by
+SELECT id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by
 FROM secrets WHERE id = ?;
 
--- name: GetNextSecretID :one
-SELECT COALESCE(MAX(id), 0) + 1 FROM secrets;
+-- name: GetNextSecretVersion :one
+SELECT COALESCE(MAX(version), 0) + 1
+FROM secrets
+WHERE name = ?;
 
--- name: UpsertSecret :exec
-INSERT INTO secrets (id, name, space_id, secret_group, smk_version, ciphertext, nonce, created_at, updated_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(name) DO UPDATE SET
-    space_id = excluded.space_id,
-    secret_group = excluded.secret_group,
-    smk_version = excluded.smk_version,
-    ciphertext = excluded.ciphertext,
-    nonce = excluded.nonce,
-    updated_at = excluded.updated_at,
-    updated_by = excluded.updated_by;
+-- name: InsertSecret :one
+INSERT INTO secrets (name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by;
+
+-- name: RenameSecret :exec
+UPDATE secrets SET name = ? WHERE name = ?;
 
 -- name: DeleteSecret :exec
 DELETE FROM secrets WHERE name = ?;

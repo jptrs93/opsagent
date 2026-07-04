@@ -102,7 +102,6 @@ type backupConfigSignal struct {
 	Enabled         bool
 	AccessKeyID     string
 	SecretKey       string
-	SecretVersion   int32
 	SecretUpdatedAt time.Time
 	Bucket          string
 	Path            string
@@ -143,7 +142,6 @@ func backupConfigSignalFromDynamic(loader config.Loader, cfg *apigen.Settings, s
 	signal.AccessKeyID = loader.MustLoadConfigStringValue(cfg.Backup.S3AccessKeyID)
 	secretRef := cfg.Backup.S3SecretAccessKey
 	signal.SecretKey = secretRef.Key
-	signal.SecretVersion = secretRef.Version
 	if secrets != nil && signal.SecretKey != "" {
 		_, updated := secrets.HasSecret(signal.SecretKey)
 		signal.SecretUpdatedAt = updated

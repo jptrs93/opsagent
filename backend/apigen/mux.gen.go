@@ -98,6 +98,7 @@ type OpsagentHttpV1Handler interface {
 	PostV1SecretValueReveal(Context, *SecretValue) (*SecretRevealResponse, error)
 	PostV1SecretsList(Context, *EmptyRequest) (*SecretList, error)
 	PostV1SecretsSet(Context, *SecretSetRequest) (*SecretMeta, error)
+	PostV1SecretsRename(Context, *SecretRenameRequest) (*SecretMeta, error)
 	PostV1SecretsReveal(Context, *SecretRevealRequest) (*SecretRevealResponse, error)
 	PostV1SecretsDelete(Context, *SecretDeleteRequest) error
 	PostV1SecretsStatus(Context, *EmptyRequest) (*SecretsStatusResponse, error)
@@ -105,6 +106,7 @@ type OpsagentHttpV1Handler interface {
 	PostV1SecretsUnlock(Context, *SecretUnlockRequest) (*SecretsStatusResponse, error)
 	PostV1UserConfigsList(Context, *EmptyRequest) (*UserConfigList, error)
 	PostV1UserConfigsSet(Context, *UserConfigSetRequest) (*UserConfig, error)
+	PostV1UserConfigsRename(Context, *UserConfigRenameRequest) (*UserConfig, error)
 	PostV1UserConfigsDelete(Context, *UserConfigDeleteRequest) error
 	PostV1AssetsList(Context, *EmptyRequest) (*AssetList, error)
 	PostV1AssetsGet(Context, *AssetGetRequest) (*Asset, error)
@@ -478,6 +480,17 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/secrets/set", buildHandlerFunc(config, verifyAuth, postV1SecretsSetAccessPolicy, postAuthHandlerPostV1SecretsSet, compressionModeAuto, false))
+	postV1SecretsRenameAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1SecretsRename := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretRenameRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1SecretsRename(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/secrets/rename", buildHandlerFunc(config, verifyAuth, postV1SecretsRenameAccessPolicy, postAuthHandlerPostV1SecretsRename, compressionModeAuto, false))
 	postV1SecretsRevealAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1SecretsReveal := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretRevealRequest)
@@ -559,6 +572,17 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/user/configs/set", buildHandlerFunc(config, verifyAuth, postV1UserConfigsSetAccessPolicy, postAuthHandlerPostV1UserConfigsSet, compressionModeAuto, false))
+	postV1UserConfigsRenameAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1UserConfigsRename := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeUserConfigRenameRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1UserConfigsRename(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/user/configs/rename", buildHandlerFunc(config, verifyAuth, postV1UserConfigsRenameAccessPolicy, postAuthHandlerPostV1UserConfigsRename, compressionModeAuto, false))
 	postV1UserConfigsDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1UserConfigsDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeUserConfigDeleteRequest)

@@ -678,6 +678,25 @@ func (c *OpsagentHttpV1Capi) PostV1SecretsSet(ctx context.Context, req *SecretSe
 	return DecodeSecretMeta(body)
 }
 
+func (c *OpsagentHttpV1Capi) PostV1SecretsRename(ctx context.Context, req *SecretRenameRequest) (*SecretMeta, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1SecretsRename request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/secrets/rename", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeSecretMeta(body)
+}
+
 func (c *OpsagentHttpV1Capi) PostV1SecretsReveal(ctx context.Context, req *SecretRevealRequest) (*SecretRevealResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsReveal request is nil")
@@ -793,6 +812,25 @@ func (c *OpsagentHttpV1Capi) PostV1UserConfigsSet(ctx context.Context, req *User
 		return nil, fmt.Errorf("PostV1UserConfigsSet request is nil")
 	}
 	resp, err := c.do(ctx, "POST", "/v1/user/configs/set", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeUserConfig(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1UserConfigsRename(ctx context.Context, req *UserConfigRenameRequest) (*UserConfig, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1UserConfigsRename request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/user/configs/rename", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}

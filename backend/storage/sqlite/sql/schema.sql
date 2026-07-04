@@ -95,13 +95,13 @@ CREATE TABLE IF NOT EXISTS opendeploy_config (
 -- encrypted at rest; encrypted credentials belong in secrets instead.
 CREATE TABLE IF NOT EXISTS user_configs (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    name         TEXT    NOT NULL UNIQUE,
+    name         TEXT    NOT NULL,
+    version      INTEGER NOT NULL DEFAULT 1,
     space_id     INTEGER NOT NULL DEFAULT 1,
-    config_group TEXT    NOT NULL DEFAULT '',
     value        TEXT    NOT NULL DEFAULT '',
     created_at   INTEGER NOT NULL,  -- epoch ms
-    updated_at   INTEGER NOT NULL,  -- epoch ms
-    updated_by   INTEGER NOT NULL DEFAULT 0
+    updated_by   INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (name, version)
 );
 
 -- Versioned user-managed file assets. Rows are immutable: editing an asset
@@ -147,15 +147,15 @@ CREATE TABLE IF NOT EXISTS secret_keyslots (
 -- reserved for grouping secrets in the UI later; it carries no security meaning.
 CREATE TABLE IF NOT EXISTS secrets (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    name         TEXT    NOT NULL UNIQUE,
+    name         TEXT    NOT NULL,
+    version      INTEGER NOT NULL DEFAULT 1,
     space_id     INTEGER NOT NULL DEFAULT 1,
-    secret_group TEXT    NOT NULL DEFAULT '',
     smk_version  INTEGER NOT NULL,
     ciphertext   BLOB    NOT NULL,
     nonce        BLOB    NOT NULL,
     created_at   INTEGER NOT NULL,  -- epoch ms
-    updated_at   INTEGER NOT NULL,  -- epoch ms
-    updated_by   INTEGER NOT NULL DEFAULT 0
+    updated_by   INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (name, version)
 );
 
 -- Encrypted OpenDeploy-managed system secrets. These are not visible through

@@ -1383,12 +1383,14 @@ function envReferenceAutocomplete(form, row) {
     const isSecret = row.type === 'secret';
     const selectedID = isSecret ? Number(row.secretId || 0) : Number(row.configId || 0);
     const selectedKey = van.state(selectedID || '');
+    const options = () => versionedRefOptions(isSecret ? (secretRefsS.val || []) : (userConfigRefsS.val || []), selectedKey.val);
     return referencePicker({
-        refs: () => isSecret ? (secretRefsS.val || []) : (userConfigRefsS.val || []),
+        refs: options,
         selectedKey,
         placeholder: isSecret ? "Search secrets" : "Search configs",
         noMatchesLabel: `No matching ${isSecret ? 'secrets' : 'configs'}`,
         emptyLabel: `No ${isSecret ? 'secrets' : 'configs'} available`,
+        getLabel: ref => `${ref.name} v${ref.version || 0}`,
         onSelect: ref => {
             selectedKey.val = ref.id;
             updateEnvRow(form, row.id, isSecret
@@ -1396,6 +1398,25 @@ function envReferenceAutocomplete(form, row) {
                 : {configId: ref.id});
         },
     });
+}
+
+function versionedRefOptions(refs, selectedID) {
+    const latestByName = new Map();
+    const byID = new Map();
+    for (const ref of refs || []) {
+        if (!ref || !ref.id) continue;
+        byID.set(Number(ref.id), ref);
+        const current = latestByName.get(ref.name || '');
+        if (!current || Number(ref.version || 0) > Number(current.version || 0)) {
+            latestByName.set(ref.name || '', ref);
+        }
+    }
+    const options = Array.from(latestByName.values());
+    const selected = byID.get(Number(selectedID || 0));
+    if (selected && !options.some(ref => Number(ref.id) === Number(selected.id))) {
+        options.push(selected);
+    }
+    return options.sort((a, b) => (a.name || '').localeCompare(b.name || '') || Number(a.version || 0) - Number(b.version || 0));
 }
 
 function newEnvRow(values = {}) {

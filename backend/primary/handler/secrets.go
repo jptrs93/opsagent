@@ -16,16 +16,16 @@ var InvalidRecoveryCodeErr = apigen.NewApiErr("Invalid recovery code", "secret_i
 var NoRecoveryCodeErr = apigen.NewApiErr("No recovery code configured", "secret_no_recovery_code", http.StatusBadRequest)
 var SecretNotFoundErr = apigen.NewApiErr("Secret not found", "secret_not_found", http.StatusNotFound)
 var SecretReservedNameErr = apigen.NewApiErr("Secret name is reserved for OpenDeploy internal use", "secret_reserved_name", http.StatusBadRequest)
+var SecretAlreadyExistsErr = apigen.NewApiErr("Secret name already exists", "secret_name_exists", http.StatusBadRequest)
 
 func secretMetaToProto(m secrets.Meta) *apigen.SecretMeta {
 	return &apigen.SecretMeta{
 		ID:        m.ID,
 		Name:      m.Name,
 		SpaceID:   m.SpaceID,
-		Group:     m.Group,
 		CreatedAt: m.CreatedAt,
-		UpdatedAt: m.UpdatedAt,
 		UpdatedBy: m.UpdatedBy,
+		Version:   m.Version,
 	}
 }
 
@@ -46,6 +46,15 @@ func (h *Handler) listSecretMetas() []*apigen.SecretMeta {
 	return items
 }
 
+func (h *Handler) listAllSecretMetas() []*apigen.SecretMeta {
+	metas := h.Secrets.ListAll()
+	items := make([]*apigen.SecretMeta, 0, len(metas))
+	for _, m := range metas {
+		items = append(items, secretMetaToProto(m))
+	}
+	return items
+}
+
 func (h *Handler) PostV1SecretsList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.SecretList, error) {
 	return &apigen.SecretList{Items: h.listSecretMetas()}, nil
 }
@@ -58,7 +67,7 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 	if ctx.User != nil {
 		updatedBy = ctx.User.ID
 	}
-	meta, err := h.Secrets.Set(req.Name, req.Group, req.Value, updatedBy, req.SpaceID)
+	meta, err := h.Secrets.Set(req.Name, "", req.Value, updatedBy, req.SpaceID)
 	if err != nil {
 		if errors.Is(err, secrets.ErrLocked) {
 			return nil, SecretsLockedErr
@@ -69,7 +78,32 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 		return nil, err
 	}
 	proto := secretMetaToProto(meta)
-	h.Store.NotifySecretReferenceUpdate(apigen.SecretReference{ID: proto.ID, Name: proto.Name, SpaceID: proto.SpaceID})
+	h.Store.NotifySecretReferenceUpdate(apigen.SecretReference{ID: proto.ID, Name: proto.Name, SpaceID: proto.SpaceID, Version: proto.Version})
+	h.Store.NotifySecretMetaUpdate(*proto)
+	return proto, nil
+}
+
+func (h *Handler) PostV1SecretsRename(ctx apigen.Context, req *apigen.SecretRenameRequest) (*apigen.SecretMeta, error) {
+	if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.NewName) == "" {
+		return nil, SecretNameRequiredErr
+	}
+	meta, err := h.Secrets.Rename(req.Name, req.NewName)
+	if err != nil {
+		switch {
+		case errors.Is(err, secrets.ErrReservedName):
+			return nil, SecretReservedNameErr
+		case errors.Is(err, secrets.ErrNotFound):
+			return nil, SecretNotFoundErr
+		case errors.Is(err, secrets.ErrAlreadyExists):
+			return nil, SecretAlreadyExistsErr
+		default:
+			return nil, err
+		}
+	}
+	proto := secretMetaToProto(meta)
+	for _, renamed := range h.Secrets.MetasByName(proto.Name) {
+		h.Store.NotifySecretReferenceUpdate(apigen.SecretReference{ID: renamed.ID, Name: renamed.Name, SpaceID: renamed.SpaceID, Version: renamed.Version})
+	}
 	h.Store.NotifySecretMetaUpdate(*proto)
 	return proto, nil
 }
@@ -115,15 +149,12 @@ func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDele
 		return SecretNameRequiredErr
 	}
 	name := strings.TrimSpace(req.Name)
-	var deleted *apigen.SecretReference
-	var deletedMeta *apigen.SecretMeta
-	for _, meta := range h.listSecretMetas() {
-		if meta.Name == name {
-			deleted = &apigen.SecretReference{ID: meta.ID, Name: meta.Name, SpaceID: meta.SpaceID, Deleted: true}
-			deletedMeta = meta
-			deletedMeta.Deleted = true
-			break
-		}
+	if h.settingsUseSecret(name) || h.deploymentUsesSecretID(int32Set(h.Secrets.IDsByName(name))) {
+		return ReferenceInUseErr
+	}
+	deletedMetas := h.Secrets.MetasByName(name)
+	if len(deletedMetas) == 0 {
+		return SecretNotFoundErr
 	}
 	if err := h.Secrets.Delete(req.Name); err != nil {
 		if errors.Is(err, secrets.ErrReservedName) {
@@ -131,11 +162,11 @@ func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDele
 		}
 		return err
 	}
-	if deleted != nil {
-		h.Store.NotifySecretReferenceUpdate(*deleted)
-	}
-	if deletedMeta != nil {
-		h.Store.NotifySecretMetaUpdate(*deletedMeta)
+	for _, meta := range deletedMetas {
+		h.Store.NotifySecretReferenceUpdate(apigen.SecretReference{ID: meta.ID, Deleted: true})
+		proto := secretMetaToProto(meta)
+		proto.Deleted = true
+		h.Store.NotifySecretMetaUpdate(*proto)
 	}
 	return nil
 }

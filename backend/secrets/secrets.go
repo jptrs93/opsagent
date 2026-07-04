@@ -73,6 +73,9 @@ var ErrNotFound = errors.New("secret not found")
 // reserved internal secret namespace.
 var ErrReservedName = errors.New("secret name is reserved for internal use")
 
+// ErrAlreadyExists is returned when renaming a secret to an existing group name.
+var ErrAlreadyExists = errors.New("secret name already exists")
+
 // Keyslot is a wrapped copy of the SMK as persisted in secret_keyslots.
 type Keyslot struct {
 	Slot       string
@@ -87,13 +90,12 @@ type Keyslot struct {
 type Record struct {
 	ID         int32
 	Name       string
+	Version    int32
 	SpaceID    int32
-	Group      string
 	SMKVersion int32
 	Ciphertext []byte
 	Nonce      []byte
 	CreatedAt  int64 // epoch ms
-	UpdatedAt  int64 // epoch ms
 	UpdatedBy  int32
 }
 
@@ -112,14 +114,12 @@ type SystemRecord struct {
 type Meta struct {
 	ID        int32
 	Name      string
+	Version   int32
 	SpaceID   int32
-	Group     string
 	CreatedAt time.Time
-	UpdatedAt time.Time
 	UpdatedBy int32
 }
 
-const defaultUserSecretGroup = "default"
 const defaultUserSpaceID int32 = 1
 
 // Store is the persistence the Manager needs. The sqlite StorageAdapter
@@ -128,8 +128,9 @@ type Store interface {
 	ListSecretKeyslots() []Keyslot
 	UpsertSecretKeyslot(Keyslot)
 	ListSecrets() []Record
-	NextSecretID() int32
-	UpsertSecret(Record)
+	NextSecretVersion(name string) int32
+	InsertSecret(Record) Record
+	RenameSecret(name, newName string)
 	DeleteSecret(name string)
 	GetSystemSecret(name string) (SystemRecord, bool)
 	UpsertSystemSecret(SystemRecord)
@@ -163,7 +164,7 @@ type Manager struct {
 	mu          sync.RWMutex
 	smk         []byte // nil => locked
 	version     int32
-	cache       map[string]Record // name -> record (ciphertext)
+	cache       map[int32]Record // id -> immutable version row (ciphertext)
 	systemCache map[string]SystemRecord
 }
 
@@ -176,11 +177,11 @@ func Open(dataDir string, store Store) (*Manager, error) {
 	m := &Manager{
 		store:       store,
 		machineKey:  &fileMachineKey{path: filepath.Join(dataDir, machineKeyFile)},
-		cache:       make(map[string]Record),
+		cache:       make(map[int32]Record),
 		systemCache: make(map[string]SystemRecord),
 	}
 	for _, r := range store.ListSecrets() {
-		m.cache[r.Name] = r
+		m.cache[r.ID] = r
 	}
 
 	slots := store.ListSecretKeyslots()
@@ -259,19 +260,56 @@ func (m *Manager) ResolveMany(ids []int32) (map[int32]string, error) {
 }
 
 func (m *Manager) recordByID(id int32) (Record, bool) {
+	rec, ok := m.cache[id]
+	return rec, ok
+}
+
+func (m *Manager) latestRecordByName(name string) (Record, bool) {
+	var latest Record
+	found := false
 	for _, rec := range m.cache {
-		if rec.ID == id {
-			return rec, true
+		if rec.Name != name {
+			continue
+		}
+		if !found || rec.Version > latest.Version {
+			latest = rec
+			found = true
 		}
 	}
-	return Record{}, false
+	return latest, found
+}
+
+func (m *Manager) IDsByName(name string) []int32 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ids := []int32{}
+	for _, rec := range m.cache {
+		if rec.Name == name {
+			ids = append(ids, rec.ID)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
+func (m *Manager) MetasByName(name string) []Meta {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := []Meta{}
+	for _, rec := range m.cache {
+		if rec.Name == name {
+			out = append(out, rec.meta())
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Version < out[j].Version })
+	return out
 }
 
 func (m *Manager) HasSecret(name string) (bool, time.Time) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	r, ok := m.cache[name]
-	return ok, time.Unix(r.UpdatedAt/1000, 0)
+	r, ok := m.latestRecordByName(name)
+	return ok, time.UnixMilli(r.CreatedAt)
 }
 
 // Reveal returns the decrypted value of a single secret on explicit operator
@@ -284,11 +322,11 @@ func (m *Manager) Reveal(name string) ([]byte, error) {
 	if m.smk == nil {
 		return nil, ErrLocked
 	}
-	rec, ok := m.cache[name]
+	rec, ok := m.latestRecordByName(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
-	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD("user", name))
+	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD("user", rec.Name))
 	if err != nil {
 		return nil, fmt.Errorf("decrypting secret %q: %w", name, err)
 	}
@@ -309,7 +347,7 @@ func (m *Manager) Set(name, group string, value []byte, updatedBy int32, spaceID
 	if len(spaceIDs) > 0 && spaceIDs[0] > 0 {
 		spaceID = spaceIDs[0]
 	}
-	return m.set(name, group, value, updatedBy, spaceID)
+	return m.set(name, value, updatedBy, spaceID)
 }
 
 // SetInternal creates or updates an OpenDeploy-managed internal secret. Internal
@@ -348,7 +386,7 @@ func (m *Manager) SetInternal(name string, value []byte) error {
 	return nil
 }
 
-func (m *Manager) set(name, group string, value []byte, updatedBy int32, spaceID int32) (Meta, error) {
+func (m *Manager) set(name string, value []byte, updatedBy int32, spaceID int32) (Meta, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.smk == nil {
@@ -359,27 +397,60 @@ func (m *Manager) set(name, group string, value []byte, updatedBy int32, spaceID
 		return Meta{}, err
 	}
 	now := nowMs()
-	createdAt := now
-	id := m.store.NextSecretID()
-	if existing, ok := m.cache[name]; ok {
-		createdAt = existing.CreatedAt
-		id = existing.ID
-	}
+	version := m.store.NextSecretVersion(name)
 	rec := Record{
-		ID:         id,
 		Name:       name,
+		Version:    version,
 		SpaceID:    spaceID,
-		Group:      defaultUserSecretGroup,
 		SMKVersion: m.version,
 		Ciphertext: ct,
 		Nonce:      nonce,
-		CreatedAt:  createdAt,
-		UpdatedAt:  now,
+		CreatedAt:  now,
 		UpdatedBy:  updatedBy,
 	}
-	m.store.UpsertSecret(rec)
-	m.cache[name] = rec
+	rec = m.store.InsertSecret(rec)
+	m.cache[rec.ID] = rec
 	return rec.meta(), nil
+}
+
+func (m *Manager) Rename(name, newName string) (Meta, error) {
+	name = strings.TrimSpace(name)
+	newName = strings.TrimSpace(newName)
+	if name == "" || newName == "" {
+		return Meta{}, errors.New("secret name is required")
+	}
+	if isReservedInternalName(name) || isReservedInternalName(newName) {
+		return Meta{}, ErrReservedName
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if name == newName {
+		rec, ok := m.latestRecordByName(name)
+		if !ok {
+			return Meta{}, ErrNotFound
+		}
+		return rec.meta(), nil
+	}
+	if _, ok := m.latestRecordByName(newName); ok {
+		return Meta{}, ErrAlreadyExists
+	}
+	if _, ok := m.latestRecordByName(name); !ok {
+		return Meta{}, ErrNotFound
+	}
+	m.store.RenameSecret(name, newName)
+	slog.Info("renamed secret group", "name", name, "newName", newName)
+	var latest Record
+	for id, rec := range m.cache {
+		if rec.Name != name {
+			continue
+		}
+		rec.Name = newName
+		m.cache[id] = rec
+		if latest.ID == 0 || rec.Version > latest.Version {
+			latest = rec
+		}
+	}
+	return latest.meta(), nil
 }
 
 // RevealInternal decrypts an OpenDeploy-managed internal secret. It bypasses the
@@ -411,7 +482,11 @@ func (m *Manager) Delete(name string) error {
 		return ErrReservedName
 	}
 	m.store.DeleteSecret(name)
-	delete(m.cache, name)
+	for id, rec := range m.cache {
+		if rec.Name == name {
+			delete(m.cache, id)
+		}
+	}
 	return nil
 }
 
@@ -419,11 +494,30 @@ func (m *Manager) Delete(name string) error {
 func (m *Manager) List() []Meta {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	latest := map[string]Record{}
+	for _, rec := range m.cache {
+		if current, ok := latest[rec.Name]; !ok || rec.Version > current.Version {
+			latest[rec.Name] = rec
+		}
+	}
+	out := make([]Meta, 0, len(latest))
+	for _, rec := range latest {
+		out = append(out, rec.meta())
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name || (out[i].Name == out[j].Name && out[i].Version < out[j].Version) })
+	return out
+}
+
+// ListAll returns metadata for every immutable secret version row, sorted by
+// name then version. Never returns values.
+func (m *Manager) ListAll() []Meta {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	out := make([]Meta, 0, len(m.cache))
 	for _, rec := range m.cache {
 		out = append(out, rec.meta())
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name || (out[i].Name == out[j].Name && out[i].Version < out[j].Version) })
 	return out
 }
 
@@ -650,10 +744,9 @@ func (r Record) meta() Meta {
 	return Meta{
 		ID:        r.ID,
 		Name:      r.Name,
+		Version:   r.Version,
 		SpaceID:   r.SpaceID,
-		Group:     defaultUserSecretGroup,
 		CreatedAt: time.UnixMilli(r.CreatedAt),
-		UpdatedAt: time.UnixMilli(r.UpdatedAt),
 		UpdatedBy: r.UpdatedBy,
 	}
 }

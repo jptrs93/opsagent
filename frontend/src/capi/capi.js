@@ -51,6 +51,7 @@ import {
   encodeMsgToMaster,
   encodePrepareOutputRequest,
   encodeSecretDeleteRequest,
+  encodeSecretRenameRequest,
   encodeSecretRevealRequest,
   encodeSecretSetRequest,
   encodeSecretUnlockRequest,
@@ -59,6 +60,7 @@ import {
   encodeSpaceDeleteRequest,
   encodeSpaceSetRequest,
   encodeUserConfigDeleteRequest,
+  encodeUserConfigRenameRequest,
   encodeUserConfigSetRequest,
   encodeValidateSourceRequest,
   encodeWebAuthNFinishRequest,
@@ -517,6 +519,18 @@ export class Capi {
   }
 
   /**
+   * @param {SecretRenameRequest} payload
+   * @returns {Promise<SecretMeta>}
+   */
+  async postV1SecretsRename(payload) {
+    const response = await this.#request("/v1/secrets/rename", { method: 'POST', body: encodeSecretRenameRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeSecretMeta(await response.arrayBuffer());
+  }
+
+  /**
    * @param {SecretRevealRequest} payload
    * @returns {Promise<SecretRevealResponse>}
    */
@@ -594,6 +608,18 @@ export class Capi {
    */
   async postV1UserConfigsSet(payload) {
     const response = await this.#request("/v1/user/configs/set", { method: 'POST', body: encodeUserConfigSetRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeUserConfig(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {UserConfigRenameRequest} payload
+   * @returns {Promise<UserConfig>}
+   */
+  async postV1UserConfigsRename(payload) {
+    const response = await this.#request("/v1/user/configs/rename", { method: 'POST', body: encodeUserConfigRenameRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }

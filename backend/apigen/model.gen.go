@@ -122,13 +122,11 @@ type SecretValue struct {
 }
 
 type SecretRef struct {
-	Key     string
-	Version int32
+	Key string
 }
 
 type ConfigRef struct {
-	Key     string
-	Version int32
+	Key string
 }
 
 type StringSetting struct {
@@ -238,13 +236,12 @@ type WebAuthNFinishRequest struct {
 
 type SecretMeta struct {
 	Name      string
-	Group     string
 	CreatedAt time.Time
-	UpdatedAt time.Time
 	UpdatedBy int32
 	ID        int32
 	Deleted   bool
 	SpaceID   int32
+	Version   int32
 }
 
 type SecretList struct {
@@ -253,9 +250,13 @@ type SecretList struct {
 
 type SecretSetRequest struct {
 	Name    string
-	Group   string
 	Value   []byte
 	SpaceID int32
+}
+
+type SecretRenameRequest struct {
+	Name    string
+	NewName string
 }
 
 type SecretDeleteRequest struct {
@@ -285,14 +286,13 @@ type SecretUnlockRequest struct {
 
 type UserConfig struct {
 	Name      string
-	Group     string
 	Value     string
 	CreatedAt time.Time
-	UpdatedAt time.Time
 	UpdatedBy int32
 	ID        int32
 	Deleted   bool
 	SpaceID   int32
+	Version   int32
 }
 
 type UserConfigList struct {
@@ -301,9 +301,13 @@ type UserConfigList struct {
 
 type UserConfigSetRequest struct {
 	Name    string
-	Group   string
 	Value   string
 	SpaceID int32
+}
+
+type UserConfigRenameRequest struct {
+	Name    string
+	NewName string
 }
 
 type UserConfigDeleteRequest struct {
@@ -475,6 +479,7 @@ type SecretReference struct {
 	Name    string
 	Deleted bool
 	SpaceID int32
+	Version int32
 }
 
 type SecretReferenceList struct {
@@ -486,6 +491,7 @@ type UserConfigReference struct {
 	Name    string
 	Deleted bool
 	SpaceID int32
+	Version int32
 }
 
 type UserConfigReferenceList struct {

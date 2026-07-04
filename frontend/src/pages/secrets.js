@@ -53,6 +53,7 @@ export function secretsPage() {
             localKey: `local:${nextLocalKey++}`,
             type: "config", isNew, _saved: false,
             referenceId: config ? config.id : 0,
+            version: config ? config.version : 0,
             name: van.state(config ? config.name : ""),
             value: van.state(config ? config.value : ""),
             createdAt: config ? config.createdAt : null,
@@ -69,6 +70,7 @@ export function secretsPage() {
             localKey: `local:${nextLocalKey++}`,
             type: "secret", meta, isNew, _saved: false,
             referenceId: meta ? meta.id : 0,
+            version: meta ? meta.version : 0,
             name: van.state(meta ? meta.name : ""),
             value: van.state(""),
             createdAt: meta ? meta.createdAt : null,
@@ -85,6 +87,16 @@ export function secretsPage() {
 
     const rowKey = (row) => row.orig.name ? `${row.type}:${row.orig.name}` : row.localKey;
     const itemKey = (type, item) => `${type}:${item.name}`;
+    const latestByName = (items) => {
+        const latest = new Map();
+        for (const item of items || []) {
+            const name = item?.name || "";
+            if (!name) continue;
+            const current = latest.get(name);
+            if (!current || Number(item.version || 0) > Number(current.version || 0)) latest.set(name, item);
+        }
+        return Array.from(latest.values());
+    };
     const settingConfigRefKeys = (settings) => [
         settings?.httpWeb?.enabled?.configRef?.key,
         settings?.httpWeb?.listen?.configRef?.key,
@@ -136,6 +148,7 @@ export function secretsPage() {
         if (key === "type") return row.type;
         if (key === "value") return row.type === "config" ? rawStateValue(row.value) : "";
         if (key === "created") return String(row.createdAt?.getTime() || 0).padStart(13, "0");
+        if (key === "version") return String(row.version || 0).padStart(10, "0");
         if (key === "inUse") return String(inUseCount(row)).padStart(10, "0");
         return rawStateValue(row.name);
     };
@@ -206,12 +219,14 @@ export function secretsPage() {
         const status = secretsStatusS.val;
         if (!status) return;
         const currentRows = localRows || [];
+        const latestSecrets = latestByName(secretMetasS.val || []);
+        const latestConfigs = latestByName(userConfigsS.val || []);
         const existing = new Map(currentRows
             .filter(row => !row.isNew && row.orig.name)
             .map(row => [rowKey(row), row]));
         const streamKeys = new Set([
-            ...(status.unlocked ? (secretMetasS.val || []).map(meta => itemKey("secret", meta)) : []),
-            ...(userConfigsS.val || []).map(config => itemKey("config", config)),
+            ...(status.unlocked ? latestSecrets.map(meta => itemKey("secret", meta)) : []),
+            ...latestConfigs.map(config => itemKey("config", config)),
         ]);
         for (const key of pendingDeletes) {
             if (!streamKeys.has(key)) pendingDeletes.delete(key);
@@ -223,11 +238,11 @@ export function secretsPage() {
             return (isDirty(current) || current._saved) ? current : make();
         };
         const secretRows = status.unlocked
-            ? (secretMetasS.val || [])
+            ? latestSecrets
                 .filter(meta => !pendingDeletes.has(itemKey("secret", meta)))
                 .map(meta => preserveOrMake(itemKey("secret", meta), () => makeSecretRow(meta), row => row.name.val.trim() === meta.name))
             : [];
-        const configRows = (userConfigsS.val || [])
+        const configRows = latestConfigs
             .filter(config => !pendingDeletes.has(itemKey("config", config)))
             .map(config => preserveOrMake(itemKey("config", config), () => makeConfigRow(config), row => row.name.val.trim() === config.name && row.value.val === config.value));
         const carried = currentRows.filter(row => {
@@ -241,8 +256,8 @@ export function secretsPage() {
         const status = secretsStatusS.val;
         const signature = JSON.stringify({
             status,
-            secrets: (secretMetasS.val || []).map(item => [item.id, item.name, item.group, item.createdAt, item.updatedAt, item.updatedBy]),
-            configs: (userConfigsS.val || []).map(item => [item.id, item.name, item.group, item.value, item.createdAt, item.updatedAt, item.updatedBy]),
+            secrets: (secretMetasS.val || []).map(item => [item.id, item.name, item.version, item.createdAt, item.updatedBy]),
+            configs: (userConfigsS.val || []).map(item => [item.id, item.name, item.version, item.value, item.createdAt, item.updatedBy]),
             deploymentRefs: (deploymentsS.val || []).map(item => [item.config?.id, item.config?.version, item.config?.deleted, item.config?.spec?.runner?.container?.envVars]),
         });
         if (signature === streamSignature) return;
@@ -295,13 +310,15 @@ export function secretsPage() {
         const renamed = !row.isNew && row.orig.name !== name;
         if (renamed) pendingDeletes.add(oldKey);
         try {
-            const saved = await capi.postV1UserConfigsSet({
-                name,
-                group: "default",
-                value: row.value.val,
-            });
+            let saved = null;
             if (renamed) {
-                await capi.postV1UserConfigsDelete({name: row.orig.name});
+                saved = await capi.postV1UserConfigsRename({name: row.orig.name, newName: name});
+            }
+            if (row.isNew || row.value.val !== row.orig.value) {
+                saved = await capi.postV1UserConfigsSet({
+                    name,
+                    value: row.value.val,
+                });
             }
             return saved;
         } catch (e) {
@@ -315,20 +332,14 @@ export function secretsPage() {
         const renamed = !row.isNew && row.orig.name !== name;
         if (renamed) pendingDeletes.add(oldKey);
         try {
-            let value;
-            if (row.loaded.val || row.valueDirty.val) {
-                value = row.value.val;
-            } else {
-                const res = await capi.postV1SecretsReveal({name: row.orig.name});
-                value = new TextDecoder().decode(res.value);
-            }
-            await capi.postV1SecretsSet({
-                name,
-                group: "default",
-                value: new TextEncoder().encode(value),
-            });
             if (renamed) {
-                await capi.postV1SecretsDelete({name: row.orig.name});
+                await capi.postV1SecretsRename({name: row.orig.name, newName: name});
+            }
+            if (row.isNew || row.valueDirty.val) {
+                await capi.postV1SecretsSet({
+                    name,
+                    value: new TextEncoder().encode(row.value.val),
+                });
             }
         } catch (e) {
             if (renamed) pendingDeletes.delete(oldKey);
@@ -469,6 +480,7 @@ export function secretsPage() {
         {class: "border-b border-gray-800 last:border-0 align-middle"},
         td({class: "py-1 pr-3 w-px whitespace-nowrap"}, typeBadge(row.type)),
         td({class: "py-1 pr-3 w-1/3"}, cellInput(row.name, "name", true)),
+        td({class: "py-1 pr-3 text-gray-300 whitespace-nowrap"}, `v${row.version || 0}`),
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap"}, formatDateTime(row.createdAt, "-")),
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => inUseCount(row)),
         td({class: "py-1 pr-3"}, row.type === "secret" ? secretValueInput(row) : configValueInput(row)),
@@ -542,6 +554,7 @@ export function secretsPage() {
                     tr({class: "text-left text-gray-400 border-b border-gray-700"},
                         sortableHeader("type", "Type", "w-px"),
                         sortableHeader("name", "Name"),
+                        sortableHeader("version", "Version"),
                         sortableHeader("created", "Created"),
                         sortableHeader("inUse", "In use by"),
                         sortableHeader("value", "Value"),

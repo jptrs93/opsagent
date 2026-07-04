@@ -49,7 +49,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
         : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'};
     const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
     const menuOpen = van.state(false);
-    const actionButtonClass = "rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-xs leading-none p-2 cursor-pointer";
+    const actionButtonClass = "rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-xs leading-none px-2 py-1.5 cursor-pointer";
     let menuEl = null;
     let offMenuClick = null;
     let offViewportHandlers = null;
@@ -138,18 +138,18 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
     return tr(
         {class: "border-b border-gray-800 last:border-0 hover:bg-gray-800/60 transition-colors", "data-testid": `deployment-row-${deployment.name || deployment.id}`},
         td(
-            {class: "py-3 pl-4 pr-3 align-middle min-w-32"},
+            {class: "py-2 pl-4 pr-3 align-middle min-w-32"},
             span({class: "font-medium text-sm text-white break-words"}, deployment.name || `#${deployment.id}`),
         ),
-        showSpace ? td({class: "py-3 px-3 align-middle text-sm text-gray-300 whitespace-nowrap"}, deployment.spaceName || '-') : '',
-        td({class: "py-3 px-3 align-middle text-sm text-gray-300 break-words"}, deployment.machine || '-'),
+        showSpace ? td({class: "py-2 px-3 align-middle text-sm text-gray-300 whitespace-nowrap"}, deployment.spaceName || '-') : '',
+        td({class: "py-2 px-3 align-middle text-sm text-gray-300 break-words"}, deployment.machine || '-'),
         td(
-            {class: "py-3 px-3 align-middle whitespace-nowrap"},
+            {class: "py-2 px-3 align-middle whitespace-nowrap"},
             statusBadge(hasExisting, existingColors, () => onShowRunOutput(deployment)),
         ),
-        td({class: "py-3 px-3 align-middle text-sm whitespace-nowrap"}, versionLink(deployment)),
+        td({class: "py-2 px-3 align-middle text-sm whitespace-nowrap"}, versionLink(deployment)),
         td(
-            {class: "py-3 px-3 align-middle text-sm break-words"},
+            {class: "py-2 px-3 align-middle text-sm break-words"},
             prepareCopy
                 ? button({
                     class: `${prepareCopy.class} hover:brightness-125 underline cursor-pointer p-0`,
@@ -161,7 +161,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
         ),
         td(
             {
-                class: "py-3 px-3 align-middle text-sm text-gray-300 whitespace-nowrap",
+                class: "py-2 px-3 align-middle text-sm text-gray-300 whitespace-nowrap",
                 "data-testid": `deployment-restarts-${deployment.name || deployment.id}`,
             },
             div(
@@ -171,15 +171,15 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
             ),
         ),
         td(
-            {class: "py-3 px-3 align-middle text-sm text-gray-300 break-words"},
+            {class: "py-2 px-3 align-middle text-sm text-gray-300 break-words"},
             () => resolveUserDisplayName(deployment.deployedBy) || 'unknown',
         ),
         td(
-            {class: "py-3 px-3 align-middle text-sm text-gray-500 whitespace-nowrap"},
+            {class: "py-2 px-3 align-middle text-sm text-gray-500 whitespace-nowrap"},
             formatMaybeDate(deployment.deployedAt, 'unknown'),
         ),
         td(
-            {class: "py-3 pl-3 pr-1 align-middle text-right whitespace-nowrap"},
+            {class: "py-2 pl-3 pr-5 align-middle text-right whitespace-nowrap"},
             div(
                 {class: "inline-flex items-center justify-end gap-1"},
                 button({

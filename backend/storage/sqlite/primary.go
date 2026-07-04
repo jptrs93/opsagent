@@ -1008,10 +1008,13 @@ func (s *PrimaryStorage) SubscribeUserUpdates() (*pubsubu.Sub[apigen.User], func
 }
 
 func (s *PrimaryStorage) ListSecretReferences() []*apigen.SecretReference {
-	metas := s.ListSecrets()
-	out := make([]*apigen.SecretReference, 0, len(metas))
-	for _, m := range metas {
-		out = append(out, &apigen.SecretReference{ID: m.ID, Name: m.Name, SpaceID: m.SpaceID})
+	rows, err := s.q.ListSecrets(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("ListSecrets: %v", err))
+	}
+	out := make([]*apigen.SecretReference, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, &apigen.SecretReference{ID: int32(row.ID), Name: row.Name, SpaceID: int32(row.SpaceID), Version: int32(row.Version)})
 	}
 	return out
 }
@@ -1044,10 +1047,13 @@ func (s *PrimaryStorage) SubscribeSecretMetaUpdates() (*pubsubu.Sub[apigen.Secre
 }
 
 func (s *PrimaryStorage) ListUserConfigReferences() []*apigen.UserConfigReference {
-	configs := s.ListUserConfigs()
-	out := make([]*apigen.UserConfigReference, 0, len(configs))
-	for _, cfg := range configs {
-		out = append(out, &apigen.UserConfigReference{ID: cfg.ID, Name: cfg.Name, SpaceID: cfg.SpaceID})
+	rows, err := s.q.ListAllUserConfigs(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("ListAllUserConfigs: %v", err))
+	}
+	out := make([]*apigen.UserConfigReference, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, &apigen.UserConfigReference{ID: int32(row.ID), Name: row.Name, SpaceID: int32(row.SpaceID), Version: int32(row.Version)})
 	}
 	return out
 }
@@ -1154,41 +1160,6 @@ func (s *PrimaryStorage) UserCount() int {
 		panic(fmt.Sprintf("UserCount: %v", err))
 	}
 	return len(rows)
-}
-
-func (s *PrimaryStorage) FetchLegacySystemConfigValue(key string) (value string, configured bool, err error) {
-	row := s.db.QueryRowContext(context.Background(), `
-SELECT value
-FROM system_config
-WHERE key = ?
-`, key)
-	if err := row.Scan(&value); errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
-	} else if err != nil {
-		if strings.Contains(err.Error(), "no such table: system_config") {
-			return "", false, nil
-		}
-		return "", false, err
-	}
-	return value, true, nil
-}
-
-func (s *PrimaryStorage) SetLegacySystemConfigValue(key, value string) error {
-	_, err := s.db.ExecContext(context.Background(), `
-CREATE TABLE IF NOT EXISTS system_config (
-    key        TEXT PRIMARY KEY,
-    value      TEXT    NOT NULL,
-    updated_at INTEGER NOT NULL DEFAULT 0
-)
-`)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.ExecContext(context.Background(), `
-INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?)
-ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-`, key, value, time.Now().UnixMilli())
-	return err
 }
 
 func (s *PrimaryStorage) FetchLatestOpenDeployConfig() (OpendeployConfig, error) {

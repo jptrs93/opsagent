@@ -10,7 +10,7 @@ import {exportConfigOverlay} from "../components/exportConfigOverlay.js";
 import {deploymentJsonOverlay} from "../components/deploymentJsonOverlay.js";
 import {capi} from "../capi/index.js";
 
-const { div, h2, p, button, input, table, thead, tbody, tr, th, td, span } = van.tags;
+const { div, h2, p, button, input, table, thead, tbody, tr, th, td, span, colgroup, col } = van.tags;
 
 const SIDEBAR_WIDTH_KEY = 'opsagent_sidebar_width';
 const SHOW_OPENDEPLOY_KEY = 'opsagent_show_opendeploy';
@@ -96,6 +96,78 @@ function deleteDeploymentOverlay(deployment, close) {
                     disabled: () => saving.val,
                     onclick: confirmDelete,
                 }, () => saving.val ? "Deleting..." : "Delete"),
+            ),
+        ),
+    );
+}
+
+function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCurrentConfig, close) {
+    const saving = van.state(false);
+    const error = van.state('');
+    const targetVersion = historyConfig?.desiredState?.version || '';
+    const historyVersion = historyConfig?.version || 0;
+    const currentConfig = getCurrentConfig();
+    const label = currentConfig
+        ? formatDeploymentLabel({
+            id: deploymentId,
+            spaceName: `space ${currentConfig.configId?.spaceId ?? 0}`,
+            machine: currentConfig.configId?.machine || '',
+            name: currentConfig.configId?.name || '',
+        })
+        : `#${deploymentId}`;
+
+    const confirmRevert = async () => {
+        if (saving.val) return;
+        error.val = '';
+        if (!targetVersion) {
+            error.val = 'This history entry does not contain a target version.';
+            return;
+        }
+        const current = getCurrentConfig();
+        if (!current) {
+            error.val = 'Deployment no longer exists.';
+            return;
+        }
+        saving.val = true;
+        try {
+            await capi.postV1DeploymentUpdate({
+                deploymentId,
+                targetVersion,
+                version: (current.version || 0) + 1,
+            });
+            close();
+        } catch (e) {
+            error.val = e?.message || 'Reverting target version failed.';
+        } finally {
+            saving.val = false;
+        }
+    };
+
+    return div(
+        {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4", "data-testid": "deployment-revert-target-overlay"},
+        div(
+            {class: "card w-full max-w-lg flex flex-col gap-4 shadow-2xl"},
+            h2({class: "text-base font-semibold"}, "Revert target version"),
+            p({class: "text-sm text-gray-300"}, `Revert ${label} to the target version from config v${historyVersion}?`),
+            p({class: "text-xs text-gray-400"}, "This only changes the desired target version. It does not restore any other config fields from that history entry."),
+            div(
+                {class: "rounded-lg border border-gray-700 bg-gray-950/60 px-3 py-2 font-mono text-xs text-blue-200 break-all"},
+                targetVersion || 'No target version',
+            ),
+            () => error.val ? p({class: "text-sm text-red-400"}, error.val) : '',
+            div({class: "flex items-center justify-end gap-2"},
+                button({
+                    type: "button",
+                    class: "text-xs px-3 py-1 rounded-md font-medium bg-gray-700 text-gray-200 hover:bg-gray-600 disabled:opacity-60 cursor-pointer",
+                    disabled: () => saving.val,
+                    onclick: close,
+                }, "Cancel"),
+                button({
+                    type: "button",
+                    class: "text-xs px-3 py-1 rounded-md font-medium bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-60 cursor-pointer",
+                    disabled: () => saving.val || !targetVersion,
+                    onclick: confirmRevert,
+                }, () => saving.val ? "Reverting..." : "Revert target"),
             ),
         ),
     );
@@ -274,6 +346,15 @@ export function statusPage(onOpenLogs = () => {}) {
         overlayNode.val = deleteDeploymentOverlay(deployment, closeOverlay);
     };
 
+    const onRevertHistoryTargetVersion = (deploymentId, historyConfig) => {
+        overlayNode.val = revertDeploymentTargetVersionOverlay(
+            deploymentId,
+            historyConfig,
+            () => findRawConfig(deploymentId),
+            closeOverlay,
+        );
+    };
+
     const closeCreateOverlay = () => {
         createOverlayNode.val = '';
     };
@@ -314,8 +395,24 @@ export function statusPage(onOpenLogs = () => {}) {
         ? rows
         : rows.filter(row => row.spaceId !== OPENDEPLOY_SPACE_ID);
 
-    const deploymentTable = (rows, showSpaceColumn) => table(
-        {class: "w-full text-left text-sm"},
+    const deploymentTableClass = (showSpaceColumn) => `w-full ${showSpaceColumn ? 'min-w-[88rem]' : 'min-w-[80rem]'} table-fixed text-left text-sm`;
+
+    const deploymentColgroup = (showSpaceColumn) => colgroup(
+        col({style: "width:13rem"}),
+        showSpaceColumn ? col({style: "width:8rem"}) : '',
+        col({style: "width:10rem"}),
+        col({style: "width:8rem"}),
+        col({style: "width:10rem"}),
+        col({style: "width:12rem"}),
+        col({style: "width:9rem"}),
+        col({style: "width:10rem"}),
+        col({style: "width:11rem"}),
+        col({style: "width:14rem"}),
+    );
+
+    const deploymentTableHeader = (showSpaceColumn) => table(
+        {class: deploymentTableClass(showSpaceColumn)},
+        deploymentColgroup(showSpaceColumn),
         thead(
             tr(
                 {class: "border-b border-gray-700 text-xs uppercase tracking-wide text-gray-500"},
@@ -328,9 +425,14 @@ export function statusPage(onOpenLogs = () => {}) {
                 tableHeader("Restarts", headerTips.restarts, "py-3 px-3 font-medium"),
                 tableHeader("Deployed by", headerTips.deployedBy, "py-3 px-3 font-medium"),
                 tableHeader("Deployed at", headerTips.deployedAt, "py-3 px-3 font-medium"),
-                tableHeader("Actions", headerTips.actions, "py-3 pl-3 pr-4 font-medium text-right", true),
+                tableHeader("Actions", headerTips.actions, "py-3 pl-3 pr-5 font-medium text-right", true),
             ),
         ),
+    );
+
+    const deploymentTableBody = (rows, showSpaceColumn) => table(
+        {class: deploymentTableClass(showSpaceColumn)},
+        deploymentColgroup(showSpaceColumn),
         tbody(
             ...rows.map(s => statusRowNode(s, showSpaceColumn)),
         ),
@@ -338,7 +440,7 @@ export function statusPage(onOpenLogs = () => {}) {
 
     const spaceDividerRow = (space, isFirst) => tr(
         td(
-            {colSpan: 9, class: `${isFirst ? 'pt-3 pb-4' : 'py-4'} px-0`},
+            {colSpan: 9, class: `${isFirst ? 'pt-2 pb-3' : 'py-3'} px-0`},
             div(
                 {class: "flex items-center gap-3"},
                 span({class: "text-xs font-semibold tracking-wide text-blue-300 whitespace-nowrap"}, spaceLabel(space)),
@@ -347,22 +449,9 @@ export function statusPage(onOpenLogs = () => {}) {
         ),
     );
 
-    const groupedDeploymentTable = (groups) => table(
-        {class: "w-full text-left text-sm"},
-        thead(
-            tr(
-                {class: "border-b border-gray-700 text-xs uppercase tracking-wide text-gray-500"},
-                tableHeader("Deployment", headerTips.deployment, "py-3 pl-4 pr-3 font-medium"),
-                tableHeader("Machine", headerTips.machine, "py-3 px-3 font-medium"),
-                tableHeader("Status", headerTips.status, "py-3 px-3 font-medium"),
-                tableHeader("Running Version", headerTips.version, "py-3 px-3 font-medium"),
-                tableHeader("Prepare", headerTips.prepare, "py-3 px-3 font-medium"),
-                tableHeader("Restarts", headerTips.restarts, "py-3 px-3 font-medium"),
-                tableHeader("Deployed by", headerTips.deployedBy, "py-3 px-3 font-medium"),
-                tableHeader("Deployed at", headerTips.deployedAt, "py-3 px-3 font-medium"),
-                tableHeader("Actions", headerTips.actions, "py-3 pl-3 pr-4 font-medium text-right", true),
-            ),
-        ),
+    const groupedDeploymentTableBody = (groups) => table(
+        {class: deploymentTableClass(false)},
+        deploymentColgroup(false),
         tbody(
             ...groups.flatMap((group, index) => {
                 const space = (spacesS.val || []).find(s => s.id === group.spaceId) || {id: group.spaceId, name: `space ${group.spaceId}`};
@@ -375,7 +464,7 @@ export function statusPage(onOpenLogs = () => {}) {
     );
 
     const tableHeader = (text, tip, classes, alignRight = false) => th(
-        {class: `${classes} sticky top-0 z-10 bg-surface`},
+        {class: `${classes} bg-surface`},
         span(
             {class: `inline-flex items-center gap-1.5 ${alignRight ? 'justify-end' : ''}`},
             text,
@@ -426,9 +515,16 @@ export function statusPage(onOpenLogs = () => {}) {
         );
     };
 
-    const deploymentTableCard = (tableNode) => div(
+    const deploymentTableCard = (headerNode, bodyNode) => div(
         {class: "w-full min-w-0 min-h-0 flex-1 rounded-lg bg-surface border border-gray-700 p-2 flex flex-col"},
-        div({class: "w-full min-h-0 flex-1 overflow-auto"}, tableNode),
+        div(
+            {class: "w-full min-h-0 flex-1 overflow-x-auto overflow-y-hidden"},
+            div(
+                {class: "h-full min-h-0 flex flex-col"},
+                div({class: "flex-none pr-3"}, headerNode),
+                div({class: "deployment-table-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-3"}, bodyNode),
+            ),
+        ),
     );
 
     const deploymentToolbarButtonBase = "inline-flex items-center justify-center whitespace-nowrap rounded-lg px-3 py-1.5 " +
@@ -535,11 +631,11 @@ export function statusPage(onOpenLogs = () => {}) {
             });
 
             if (!groupBySpace.val) {
-                return deploymentTableCard(deploymentTable(sorted, true));
+                return deploymentTableCard(deploymentTableHeader(true), deploymentTableBody(sorted, true));
             }
 
             const groups = groupDeploymentsBySpace(sorted);
-            return deploymentTableCard(groupedDeploymentTable(groups));
+            return deploymentTableCard(deploymentTableHeader(false), groupedDeploymentTableBody(groups));
         }
     );
 
@@ -611,7 +707,7 @@ export function statusPage(onOpenLogs = () => {}) {
 			applySidebarLayout(false);
 			return;
 		}
-		content = deploymentHistory(depId, label, closeSidebar);
+		content = deploymentHistory(depId, label, closeSidebar, onRevertHistoryTargetVersion);
 
 		sidebarPane.appendChild(content);
         applySidebarLayout(true);

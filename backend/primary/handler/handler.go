@@ -15,7 +15,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/assetstore"
 	"github.com/jptrs93/opsagent/backend/config"
-	"github.com/jptrs93/opsagent/backend/configmigration"
 	"github.com/jptrs93/opsagent/backend/engine"
 	"github.com/jptrs93/opsagent/backend/engine/configdist"
 	"github.com/jptrs93/opsagent/backend/engine/ctrd"
@@ -107,9 +106,6 @@ func (h *Handler) GetV1Healthz(ctx apigen.Context, request *http.Request, writer
 
 func New(ctx context.Context, staticFS fs.FS, machineName string) (*Handler, error) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(ainit.StaticConfig.DataDir, "primary.db"))
-	if err := configmigration.MigrateOldConfig(store); err != nil {
-		return nil, err
-	}
 	// Open the primary-only secrets store before config snapshotting so legacy
 	// fixed secret references can be detected without revealing plaintext.
 	secretsMgr, err := secrets.Open(ainit.StaticConfig.DataDir, store)

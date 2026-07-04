@@ -9,8 +9,8 @@ import (
 
 	"github.com/benbjohnson/litestream"
 	"github.com/benbjohnson/litestream/s3"
+	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/config"
-	"github.com/jptrs93/opsagent/backend/configmigration"
 	"github.com/jptrs93/opsagent/backend/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
@@ -152,25 +152,23 @@ func applyRestoredPrimaryConfigOverrides(dbPath string, opts installOptions, own
 		return fmt.Errorf("init config service: %w", err)
 	}
 	settings := service.Snapshot().Settings
-	updates := make([]configmigration.Update, 0, len(overrides))
 	for _, override := range overrides {
 		switch override.key {
 		case primaryConfigWebListen:
-			updates = append(updates,
-				configmigration.Update{Key: configmigration.WebHTTPListen, Value: configmigration.LiteralValue(override.value)},
-				configmigration.Update{Key: configmigration.WebHTTPSListen, Value: configmigration.LiteralValue(override.value)},
-			)
+			settings.HttpWeb.Listen = apigen.StringSetting{Value: override.value}
+			settings.HttpsWeb.Listen = apigen.StringSetting{Value: override.value}
 		case primaryConfigWebHTTPOnly:
 			httpOnly, _ := strconv.ParseBool(override.value)
-			updates = append(updates,
-				configmigration.Update{Key: configmigration.WebHTTPEnabled, Value: configmigration.LiteralValue(strconv.FormatBool(httpOnly))},
-				configmigration.Update{Key: configmigration.WebHTTPSEnabled, Value: configmigration.LiteralValue(strconv.FormatBool(!httpOnly))},
-			)
-		default:
-			updates = append(updates, configmigration.Update{Key: configmigration.ConfigKey(override.key), Value: configmigration.LiteralValue(override.value)})
+			settings.HttpWeb.Enabled = apigen.BoolSetting{Value: httpOnly}
+			settings.HttpsWeb.Enabled = apigen.BoolSetting{Value: !httpOnly}
+		case primaryConfigClusterListen:
+			settings.Cluster.Listen = apigen.StringSetting{Value: override.value}
+		case primaryConfigEnrollmentListen:
+			settings.Cluster.EnrollmentListen = apigen.StringSetting{Value: override.value}
+		case primaryConfigAcmeHosts:
+			settings.HttpsWeb.AcmeHosts = apigen.StringSetting{Value: override.value}
 		}
 	}
-	configmigration.ApplyUpdates(&settings, updates)
 	if err := service.UpdateSettings(settings); err != nil {
 		_ = store.Close()
 		return fmt.Errorf("set restored primary config overrides: %w", err)

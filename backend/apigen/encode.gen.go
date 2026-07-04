@@ -560,14 +560,12 @@ func DecodeSecretValue(b []byte) (*SecretValue, error) {
 }
 
 func (m SecretRef) IsZero() bool {
-	return m.Key == "" &&
-		m.Version == 0
+	return m.Key == ""
 }
 
 func (m *SecretRef) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Key, 1)
-	b = AppendInt32Field(b, m.Version, 2)
 	return b
 }
 
@@ -584,8 +582,6 @@ func DecodeSecretRef(b []byte) (*SecretRef, error) {
 		switch num {
 		case 1:
 			b, m.Key, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -597,14 +593,12 @@ func DecodeSecretRef(b []byte) (*SecretRef, error) {
 }
 
 func (m ConfigRef) IsZero() bool {
-	return m.Key == "" &&
-		m.Version == 0
+	return m.Key == ""
 }
 
 func (m *ConfigRef) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Key, 1)
-	b = AppendInt32Field(b, m.Version, 2)
 	return b
 }
 
@@ -621,8 +615,6 @@ func DecodeConfigRef(b []byte) (*ConfigRef, error) {
 		switch num {
 		case 1:
 			b, m.Key, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1673,13 +1665,12 @@ func DecodeWebAuthNFinishRequest(b []byte) (*WebAuthNFinishRequest, error) {
 func (m *SecretMeta) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Name, 1)
-	b = AppendStringField(b, m.Group, 2)
 	b = AppendInt64FromTime(b, m.CreatedAt, 3)
-	b = AppendInt64FromTime(b, m.UpdatedAt, 4)
 	b = AppendInt32Field(b, m.UpdatedBy, 5)
 	b = AppendInt32Field(b, m.ID, 6)
 	b = AppendBoolField(b, m.Deleted, 7)
 	b = AppendInt32Field(b, m.SpaceID, 8)
+	b = AppendInt32Field(b, m.Version, 9)
 	return b
 }
 
@@ -1696,12 +1687,8 @@ func DecodeSecretMeta(b []byte) (*SecretMeta, error) {
 		switch num {
 		case 1:
 			b, m.Name, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Group, err = ConsumeString(b, typ)
 		case 3:
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 4:
-			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 5:
 			b, m.UpdatedBy, err = ConsumeVarInt32(b, typ)
 		case 6:
@@ -1710,6 +1697,8 @@ func DecodeSecretMeta(b []byte) (*SecretMeta, error) {
 			b, m.Deleted, err = ConsumeBool(b, typ)
 		case 8:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 9:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1766,7 +1755,6 @@ func DecodeSecretList(b []byte) (*SecretList, error) {
 func (m *SecretSetRequest) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Name, 1)
-	b = AppendStringField(b, m.Group, 2)
 	b = AppendBytesField(b, m.Value, 3)
 	b = AppendInt32Field(b, m.SpaceID, 4)
 	return b
@@ -1785,12 +1773,42 @@ func DecodeSecretSetRequest(b []byte) (*SecretSetRequest, error) {
 		switch num {
 		case 1:
 			b, m.Name, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Group, err = ConsumeString(b, typ)
 		case 3:
 			b, m.Value, err = ConsumeBytesCopy(b, typ)
 		case 4:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretRenameRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendStringField(b, m.NewName, 2)
+	return b
+}
+
+func DecodeSecretRenameRequest(b []byte) (*SecretRenameRequest, error) {
+	var m SecretRenameRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.NewName, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1981,14 +1999,13 @@ func DecodeSecretUnlockRequest(b []byte) (*SecretUnlockRequest, error) {
 func (m *UserConfig) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Name, 1)
-	b = AppendStringField(b, m.Group, 2)
 	b = AppendStringField(b, m.Value, 3)
 	b = AppendInt64FromTime(b, m.CreatedAt, 4)
-	b = AppendInt64FromTime(b, m.UpdatedAt, 5)
 	b = AppendInt32Field(b, m.UpdatedBy, 6)
 	b = AppendInt32Field(b, m.ID, 7)
 	b = AppendBoolField(b, m.Deleted, 8)
 	b = AppendInt32Field(b, m.SpaceID, 9)
+	b = AppendInt32Field(b, m.Version, 10)
 	return b
 }
 
@@ -2005,14 +2022,10 @@ func DecodeUserConfig(b []byte) (*UserConfig, error) {
 		switch num {
 		case 1:
 			b, m.Name, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Group, err = ConsumeString(b, typ)
 		case 3:
 			b, m.Value, err = ConsumeString(b, typ)
 		case 4:
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 5:
-			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 6:
 			b, m.UpdatedBy, err = ConsumeVarInt32(b, typ)
 		case 7:
@@ -2021,6 +2034,8 @@ func DecodeUserConfig(b []byte) (*UserConfig, error) {
 			b, m.Deleted, err = ConsumeBool(b, typ)
 		case 9:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 10:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -2077,7 +2092,6 @@ func DecodeUserConfigList(b []byte) (*UserConfigList, error) {
 func (m *UserConfigSetRequest) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Name, 1)
-	b = AppendStringField(b, m.Group, 2)
 	b = AppendStringField(b, m.Value, 3)
 	b = AppendInt32Field(b, m.SpaceID, 4)
 	return b
@@ -2096,12 +2110,42 @@ func DecodeUserConfigSetRequest(b []byte) (*UserConfigSetRequest, error) {
 		switch num {
 		case 1:
 			b, m.Name, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Group, err = ConsumeString(b, typ)
 		case 3:
 			b, m.Value, err = ConsumeString(b, typ)
 		case 4:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *UserConfigRenameRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendStringField(b, m.NewName, 2)
+	return b
+}
+
+func DecodeUserConfigRenameRequest(b []byte) (*UserConfigRenameRequest, error) {
+	var m UserConfigRenameRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.NewName, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3354,6 +3398,7 @@ func (m *SecretReference) Encode() []byte {
 	b = AppendStringField(b, m.Name, 2)
 	b = AppendBoolField(b, m.Deleted, 3)
 	b = AppendInt32Field(b, m.SpaceID, 4)
+	b = AppendInt32Field(b, m.Version, 5)
 	return b
 }
 
@@ -3376,6 +3421,8 @@ func DecodeSecretReference(b []byte) (*SecretReference, error) {
 			b, m.Deleted, err = ConsumeBool(b, typ)
 		case 4:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3435,6 +3482,7 @@ func (m *UserConfigReference) Encode() []byte {
 	b = AppendStringField(b, m.Name, 2)
 	b = AppendBoolField(b, m.Deleted, 3)
 	b = AppendInt32Field(b, m.SpaceID, 4)
+	b = AppendInt32Field(b, m.Version, 5)
 	return b
 }
 
@@ -3457,6 +3505,8 @@ func DecodeUserConfigReference(b []byte) (*UserConfigReference, error) {
 			b, m.Deleted, err = ConsumeBool(b, typ)
 		case 4:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

@@ -59,41 +59,57 @@ func (s *PrimaryStorage) ListSecrets() []secrets.Record {
 		out = append(out, secrets.Record{
 			ID:         int32(r.ID),
 			Name:       r.Name,
+			Version:    int32(r.Version),
 			SpaceID:    int32(r.SpaceID),
-			Group:      r.SecretGroup,
 			SMKVersion: int32(r.SmkVersion),
 			Ciphertext: r.Ciphertext,
 			Nonce:      r.Nonce,
 			CreatedAt:  r.CreatedAt,
-			UpdatedAt:  r.UpdatedAt,
 			UpdatedBy:  int32(r.UpdatedBy),
 		})
 	}
 	return out
 }
 
-func (s *PrimaryStorage) NextSecretID() int32 {
-	id, err := s.q.GetNextSecretID(context.Background())
+func (s *PrimaryStorage) NextSecretVersion(name string) int32 {
+	version, err := s.q.GetNextSecretVersion(context.Background(), name)
 	if err != nil {
-		panic(fmt.Sprintf("GetNextSecretID: %v", err))
+		panic(fmt.Sprintf("GetNextSecretVersion: %v", err))
 	}
-	return int32(id)
+	return int32(version)
 }
 
-func (s *PrimaryStorage) UpsertSecret(r secrets.Record) {
-	if err := s.q.UpsertSecret(context.Background(), UpsertSecretParams{
-		ID:          int64(r.ID),
-		Name:        r.Name,
-		SpaceID:     int64(normalizedUserSpaceID(r.SpaceID)),
-		SecretGroup: r.Group,
-		SmkVersion:  int64(r.SMKVersion),
-		Ciphertext:  r.Ciphertext,
-		Nonce:       r.Nonce,
-		CreatedAt:   r.CreatedAt,
-		UpdatedAt:   r.UpdatedAt,
-		UpdatedBy:   int64(r.UpdatedBy),
-	}); err != nil {
-		panic(fmt.Sprintf("UpsertSecret: %v", err))
+func (s *PrimaryStorage) InsertSecret(r secrets.Record) secrets.Record {
+	row, err := s.q.InsertSecret(context.Background(), InsertSecretParams{
+		Name:       r.Name,
+		Version:    int64(r.Version),
+		SpaceID:    int64(normalizedUserSpaceID(r.SpaceID)),
+		SmkVersion: int64(r.SMKVersion),
+		Ciphertext: r.Ciphertext,
+		Nonce:      r.Nonce,
+		CreatedAt:  r.CreatedAt,
+		UpdatedBy:  int64(r.UpdatedBy),
+	})
+	if err != nil {
+		panic(fmt.Sprintf("InsertSecret: %v", err))
+	}
+	return secrets.Record{
+		ID:         int32(row.ID),
+		Name:       row.Name,
+		Version:    int32(row.Version),
+		SpaceID:    int32(row.SpaceID),
+		SMKVersion: int32(row.SmkVersion),
+		Ciphertext: row.Ciphertext,
+		Nonce:      row.Nonce,
+		CreatedAt:  row.CreatedAt,
+		UpdatedBy:  int32(row.UpdatedBy),
+	}
+
+}
+
+func (s *PrimaryStorage) RenameSecret(name, newName string) {
+	if err := s.q.RenameSecret(context.Background(), RenameSecretParams{Name: newName, Name_2: name}); err != nil {
+		panic(fmt.Sprintf("RenameSecret: %v", err))
 	}
 }
 

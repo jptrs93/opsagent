@@ -147,6 +147,10 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc PostV1SecretsRename(SecretRenameRequest) returns (SecretMeta) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   // Return the decrypted value of a single secret, on explicit operator
   // request. This is the only endpoint that returns a plaintext value.
   rpc PostV1SecretsReveal(SecretRevealRequest) returns (SecretRevealResponse) {
@@ -181,6 +185,10 @@ service OpsagentHttpV1 {
   }
 
   rpc PostV1UserConfigsSet(UserConfigSetRequest) returns (UserConfig) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1UserConfigsRename(UserConfigRenameRequest) returns (UserConfig) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -359,12 +367,12 @@ message SecretValue {
 
 message SecretRef {
   string key = 1;
-  int32 version = 2;
+  reserved 2;
 }
 
 message ConfigRef {
   string key = 1;
-  int32 version = 2;
+  reserved 2;
 }
 
 message StringSetting {
@@ -479,13 +487,14 @@ message WebAuthNFinishRequest {
 // never leaves the server.
 message SecretMeta {
   string name = 1;
-  string group = 2;        // optional grouping label
+  reserved 2;
   int64 created_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int64 updated_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  reserved 4;
   int32 updated_by = 5;
   int32 id = 6;
   bool deleted = 7;
   int32 space_id = 8;
+  int32 version = 9;
 }
 
 message SecretList {
@@ -494,9 +503,14 @@ message SecretList {
 
 message SecretSetRequest {
   string name = 1;
-  string group = 2;
+  reserved 2;
   bytes value = 3;         // plaintext secret value; encrypted at rest, never returned
   int32 space_id = 4;
+}
+
+message SecretRenameRequest {
+  string name = 1;
+  string new_name = 2;
 }
 
 message SecretDeleteRequest {
@@ -528,14 +542,15 @@ message SecretUnlockRequest {
 
 message UserConfig {
   string name = 1;
-  string group = 2;        // optional grouping label
+  reserved 2;
   string value = 3;        // plaintext value; not encrypted at rest
   int64 created_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int64 updated_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  reserved 5;
   int32 updated_by = 6;
   int32 id = 7;
   bool deleted = 8;
   int32 space_id = 9;
+  int32 version = 10;
 }
 
 message UserConfigList {
@@ -544,9 +559,14 @@ message UserConfigList {
 
 message UserConfigSetRequest {
   string name = 1;
-  string group = 2;
+  reserved 2;
   string value = 3;
   int32 space_id = 4;
+}
+
+message UserConfigRenameRequest {
+  string name = 1;
+  string new_name = 2;
 }
 
 message UserConfigDeleteRequest {
@@ -760,6 +780,7 @@ message SecretReference {
   string name = 2;
   bool deleted = 3;
   int32 space_id = 4;
+  int32 version = 5;
 }
 
 message SecretReferenceList {
@@ -771,6 +792,7 @@ message UserConfigReference {
   string name = 2;
   bool deleted = 3;
   int32 space_id = 4;
+  int32 version = 5;
 }
 
 message UserConfigReferenceList {

@@ -96,16 +96,15 @@ type PublicKey struct {
 }
 
 type Secret struct {
-	ID          int64
-	Name        string
-	SpaceID     int64
-	SecretGroup string
-	SmkVersion  int64
-	Ciphertext  []byte
-	Nonce       []byte
-	CreatedAt   int64
-	UpdatedAt   int64
-	UpdatedBy   int64
+	ID         int64
+	Name       string
+	Version    int64
+	SpaceID    int64
+	SmkVersion int64
+	Ciphertext []byte
+	Nonce      []byte
+	CreatedAt  int64
+	UpdatedBy  int64
 }
 
 type SecretKeyslot struct {
@@ -138,12 +137,11 @@ type User struct {
 }
 
 type UserConfig struct {
-	ID          int64
-	Name        string
-	SpaceID     int64
-	ConfigGroup string
-	Value       string
-	CreatedAt   int64
-	UpdatedAt   int64
-	UpdatedBy   int64
+	ID        int64
+	Name      string
+	Version   int64
+	SpaceID   int64
+	Value     string
+	CreatedAt int64
+	UpdatedBy int64
 }
