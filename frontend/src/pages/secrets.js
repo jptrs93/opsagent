@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {formatDateTime} from "../lib/date.js";
-import {eyeOffIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
+import {copyIcon, eyeOffIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
 import {deploymentsS, secretMetasS, secretsStatusS, userConfigsS} from "../state/deployments.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
@@ -10,8 +10,9 @@ const DEFAULT_SECRET_MASK = "••••••••••••••••";
 
 const rawStateValue = (state) => state.rawVal ?? state.val ?? "";
 
-const iconButton = (child, onclick, cls = "") => button({
+const iconButton = (child, onclick, cls = "", attrs = {}) => button({
     type: "button",
+    ...attrs,
     class: `p-1.5 rounded text-gray-400 hover:text-gray-100 hover:bg-surface-hover transition-colors cursor-pointer ${cls}`,
     onclick,
 }, child);
@@ -309,6 +310,26 @@ export function secretsPage() {
         row.revealed.val = true;
     };
 
+    const secretValueForCopy = async (row) => {
+        if (row.isNew || row.loaded.val) return row.value.val;
+        const res = await capi.postV1SecretsReveal({id: row.referenceId});
+        const value = new TextDecoder().decode(res.value);
+        row.value.val = value;
+        row.orig.value = value;
+        row.loaded.val = true;
+        return value;
+    };
+
+    const copyRowValue = async (row) => {
+        try {
+            error.val = null;
+            const value = row.type === "secret" ? await secretValueForCopy(row) : row.value.val;
+            await navigator.clipboard.writeText(value);
+        } catch (e) {
+            error.val = e.message;
+        }
+    };
+
     const saveConfigRow = async (row, name) => {
         const oldKey = `config:${row.orig.name}`;
         const renamed = !row.isNew && row.orig.name !== name;
@@ -494,7 +515,15 @@ export function secretsPage() {
                     smallBtn("Save", () => saveRow(row), "bg-brand text-white hover:bg-blue-600",
                         () => !row.name.val.trim()),
                     smallBtn("Discard", () => discardRow(row), "bg-gray-700 text-gray-200 hover:bg-gray-600"))
-                : iconButton(trashIcon(), () => requestDeleteRow(row), "hover:text-red-400")),
+                : div({class: "flex items-center justify-start gap-1"},
+                    iconButton(copyIcon(), () => copyRowValue(row), "", {
+                        title: `Copy ${row.type} value`,
+                        "aria-label": `Copy ${row.type} value`,
+                    }),
+                    iconButton(trashIcon(), () => requestDeleteRow(row), "hover:text-red-400", {
+                        title: `Delete ${row.type}`,
+                        "aria-label": `Delete ${row.type}`,
+                    }))),
     );
 
     const deleteOverlay = () => {

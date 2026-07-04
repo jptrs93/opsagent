@@ -7,10 +7,11 @@ CLAUDE.md               High level summary information for LLM agents. Top-level
 docs/
   documentation.md       This file. Documentation design and organisation.
   engineering/           System design, architecture, and cross-cutting patterns. Individual topic files live here.
+  future-work/           Forward-looking design notes and exploratory proposals. Individual topic files live here.
   product/               Product-facing concepts: features, lifecycle, and workflows. Individual topic files live here.
 ```
 
-Individual documentation files go under `engineering/` or `product/` — one file per topic. CLAUDE.md lists each file and the concern it addresses; this file does not duplicate that index. Examples of such files are `engineering/<some-subsystem>.md` or `product/<some-feature>.md`.
+Individual documentation files go under `engineering/`, `future-work/`, or `product/` - one file per topic. CLAUDE.md lists each file and the concern it addresses; this file does not duplicate that index. Examples of such files are `engineering/<some-subsystem>.md`, `future-work/<some-proposal>.md`, or `product/<some-feature>.md`.
 
 ## Writing style
 
