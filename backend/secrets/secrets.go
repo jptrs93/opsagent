@@ -296,13 +296,6 @@ func (m *Manager) latestRecordByName(name string) (Record, bool) {
 	return latest, found
 }
 
-func (m *Manager) LatestSecretIDByName(name string) (int32, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	rec, ok := m.latestRecordByName(name)
-	return rec.ID, ok
-}
-
 func (m *Manager) MetaByID(id int32) (Meta, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -337,13 +330,6 @@ func (m *Manager) MetasByName(name string) []Meta {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Version < out[j].Version })
 	return out
-}
-
-func (m *Manager) HasSecret(name string) (bool, time.Time) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	r, ok := m.latestRecordByName(name)
-	return ok, time.UnixMilli(r.CreatedAt)
 }
 
 // Reveal returns the decrypted value of a single secret on explicit operator

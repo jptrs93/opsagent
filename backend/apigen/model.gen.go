@@ -122,13 +122,11 @@ type SecretValue struct {
 }
 
 type SecretRef struct {
-	Key string
-	ID  int32
+	ID int32
 }
 
 type ConfigRef struct {
-	Key string
-	ID  int32
+	ID int32
 }
 
 type StringSetting struct {

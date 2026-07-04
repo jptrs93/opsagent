@@ -24,14 +24,6 @@ func (h *Handler) PutV1Settings(ctx apigen.Context, req *apigen.Settings) (*apig
 		if ref == nil {
 			return "", false, nil
 		}
-		if ref.ID == 0 && strings.TrimSpace(ref.Key) != "" {
-			cfg, ok := h.Store.GetLatestUserConfig(strings.TrimSpace(ref.Key))
-			if !ok {
-				return "", false, nil
-			}
-			ref.ID = cfg.ID
-			ref.Key = cfg.Name
-		}
 		if ref.ID == 0 {
 			return "", false, nil
 		}
@@ -39,7 +31,6 @@ func (h *Handler) PutV1Settings(ctx apigen.Context, req *apigen.Settings) (*apig
 		if !ok {
 			return "", false, nil
 		}
-		ref.Key = cfg.Name
 		value := cfg.Value
 		return value, ok, nil
 	})
@@ -47,7 +38,7 @@ func (h *Handler) PutV1Settings(ctx apigen.Context, req *apigen.Settings) (*apig
 		return nil, apigen.NewApiErr(err.Error(), "settings_invalid", http.StatusBadRequest)
 	}
 	for _, ref := range settingsSecretRefs(stored) {
-		if err := h.hydrateSecretRef(ref); err != nil {
+		if err := h.validateSecretRef(ref); err != nil {
 			return nil, err
 		}
 	}
@@ -147,7 +138,7 @@ func resolveStringInPlace(stored, resolved *apigen.StringSetting, field string, 
 	if stored == nil || resolved == nil {
 		return fmt.Errorf("%s is required", field)
 	}
-	if stored.ConfigRef.ID == 0 && strings.TrimSpace(stored.ConfigRef.Key) == "" {
+	if stored.ConfigRef.ID == 0 {
 		return nil
 	}
 	value, ok, err := resolveRef(&stored.ConfigRef)
@@ -165,7 +156,7 @@ func resolveBoolInPlace(stored, resolved *apigen.BoolSetting, field string, reso
 	if stored == nil || resolved == nil {
 		return fmt.Errorf("%s is required", field)
 	}
-	if stored.ConfigRef.ID == 0 && strings.TrimSpace(stored.ConfigRef.Key) == "" {
+	if stored.ConfigRef.ID == 0 {
 		return nil
 	}
 	value, ok, err := resolveRef(&stored.ConfigRef)
@@ -249,21 +240,12 @@ func settingsSecretRefs(settings *apigen.Settings) []*apigen.SecretRef {
 	}
 }
 
-func (h *Handler) hydrateSecretRef(ref *apigen.SecretRef) error {
-	if ref == nil || (ref.ID == 0 && strings.TrimSpace(ref.Key) == "") {
+func (h *Handler) validateSecretRef(ref *apigen.SecretRef) error {
+	if ref == nil || ref.ID == 0 {
 		return nil
 	}
-	if ref.ID == 0 {
-		id, ok := h.Secrets.LatestSecretIDByName(strings.TrimSpace(ref.Key))
-		if !ok {
-			return SecretNotFoundErr
-		}
-		ref.ID = id
-	}
-	meta, ok := h.Secrets.MetaByID(ref.ID)
-	if !ok {
+	if _, ok := h.Secrets.MetaByID(ref.ID); !ok {
 		return SecretNotFoundErr
 	}
-	ref.Key = meta.Name
 	return nil
 }

@@ -201,6 +201,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
                 }, ".."),
             ),
         ),
+        td({class: "p-0", "aria-hidden": "true"}, ""),
     );
 }
 

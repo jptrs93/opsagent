@@ -488,9 +488,9 @@ export function secretsPage() {
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap"}, formatDateTime(row.createdAt, "-")),
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => inUseCount(row)),
         td({class: "py-1 pr-3"}, row.type === "secret" ? secretValueInput(row) : configValueInput(row)),
-        td({class: "py-1 pl-2 pr-5 text-right whitespace-nowrap w-px"},
+        td({class: "py-1 pl-2 pr-5 text-left whitespace-nowrap w-px"},
             () => isDirty(row)
-                ? div({class: "flex items-center justify-end gap-2"},
+                ? div({class: "flex items-center justify-start gap-2"},
                     smallBtn("Save", () => saveRow(row), "bg-brand text-white hover:bg-blue-600",
                         () => !row.name.val.trim()),
                     smallBtn("Discard", () => discardRow(row), "bg-gray-700 text-gray-200 hover:bg-gray-600"))
@@ -525,8 +525,8 @@ export function secretsPage() {
         col({style: "width:7rem"}),
         col({style: "width:12rem"}),
         col({style: "width:8rem"}),
-        col({style: "width:22rem"}),
-        col({style: "width:8rem"}),
+        col({style: "width:24rem"}),
+        col({style: "width:6rem"}),
     );
 
     const sortableHeader = (key, label, cls = "") => th({class: `pb-2 pr-3 font-medium ${cls}`},

@@ -395,19 +395,20 @@ export function statusPage(onOpenLogs = () => {}) {
         ? rows
         : rows.filter(row => row.spaceId !== OPENDEPLOY_SPACE_ID);
 
-    const deploymentTableClass = (showSpaceColumn) => `w-full ${showSpaceColumn ? 'min-w-[88rem]' : 'min-w-[80rem]'} table-fixed text-left text-sm`;
+    const deploymentTableClass = (showSpaceColumn) => `w-full ${showSpaceColumn ? 'min-w-[80rem]' : 'min-w-[75rem]'} table-fixed text-left text-sm`;
 
     const deploymentColgroup = (showSpaceColumn) => colgroup(
-        col({style: "width:13rem"}),
-        showSpaceColumn ? col({style: "width:8rem"}) : '',
         col({style: "width:10rem"}),
+        showSpaceColumn ? col({style: "width:5.5rem"}) : '',
         col({style: "width:8rem"}),
-        col({style: "width:10rem"}),
-        col({style: "width:12rem"}),
+        col({style: "width:7rem"}),
+        col({style: "width:8rem"}),
         col({style: "width:9rem"}),
-        col({style: "width:10rem"}),
-        col({style: "width:11rem"}),
-        col({style: "width:14rem"}),
+        col({style: "width:7rem"}),
+        col({style: "width:7rem"}),
+        col({style: "width:8rem"}),
+        col({style: "width:11.5rem"}),
+        col({style: "width:1rem"}),
     );
 
     const deploymentTableHeader = (showSpaceColumn) => table(
@@ -426,6 +427,7 @@ export function statusPage(onOpenLogs = () => {}) {
                 tableHeader("Deployed by", headerTips.deployedBy, "py-3 px-3 font-medium"),
                 tableHeader("Deployed at", headerTips.deployedAt, "py-3 px-3 font-medium"),
                 tableHeader("Actions", headerTips.actions, "py-3 pl-3 pr-5 font-medium text-right", true),
+                th({class: "p-0 bg-surface", "aria-hidden": "true"}, ""),
             ),
         ),
     );
@@ -440,7 +442,7 @@ export function statusPage(onOpenLogs = () => {}) {
 
     const spaceDividerRow = (space, isFirst) => tr(
         td(
-            {colSpan: 9, class: `${isFirst ? 'pt-2 pb-3' : 'py-3'} px-0`},
+            {colSpan: 10, class: `${isFirst ? 'pt-2 pb-3' : 'py-3'} px-0`},
             div(
                 {class: "flex items-center gap-3"},
                 span({class: "text-xs font-semibold tracking-wide text-blue-300 whitespace-nowrap"}, spaceLabel(space)),

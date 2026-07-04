@@ -366,14 +366,12 @@ message SecretValue {
 }
 
 message SecretRef {
-  string key = 1;
-  reserved 2;
+  reserved 1, 2;
   int32 id = 3;
 }
 
 message ConfigRef {
-  string key = 1;
-  reserved 2;
+  reserved 1, 2;
   int32 id = 3;
 }
 

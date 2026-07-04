@@ -81,26 +81,24 @@ func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("secrets.Open: %v", err)
 	}
-	if _, err := secretMgr.Set("opendeploy.config.github_token", "config", []byte("ghp_test"), 0); err != nil {
+	secretMeta, err := secretMgr.Set("opendeploy.config.github_token", "config", []byte("ghp_test"), 0)
+	if err != nil {
 		t.Fatalf("Set secret: %v", err)
 	}
-	service, err := NewService(store, secretMgr)
+	service, err := NewService(store)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
 
 	settings := DefaultSettings(ainit.StaticConfig)
-	settings.Repo.GithubToken = apigen.SecretRef{Key: "opendeploy.config.github_token"}
+	settings.Repo.GithubToken = apigen.SecretRef{ID: secretMeta.ID}
 	if err := service.UpdateSettings(*settings); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
 
 	cfg := service.Snapshot()
-	if cfg.Settings.Repo.GithubToken.ID == 0 {
-		t.Fatal("GithubTokenSecretRef ID = 0, want hydrated ID")
-	}
-	if cfg.Settings.Repo.GithubToken.Key != "opendeploy.config.github_token" {
-		t.Fatalf("GithubTokenSecretRef key = %q", cfg.Settings.Repo.GithubToken.Key)
+	if cfg.Settings.Repo.GithubToken.ID != secretMeta.ID {
+		t.Fatalf("GithubTokenSecretRef ID = %d, want %d", cfg.Settings.Repo.GithubToken.ID, secretMeta.ID)
 	}
 }
 
@@ -131,10 +129,10 @@ func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
-	store.SetUserConfig("shared.cluster.listen", "default", ":9555", 0, 1)
+	userCfg := store.SetUserConfig("shared.cluster.listen", "default", ":9555", 0, 1)
 
 	settings := DefaultSettings(ainit.StaticConfig)
-	settings.Cluster.Listen = apigen.StringSetting{ConfigRef: apigen.ConfigRef{Key: "shared.cluster.listen"}}
+	settings.Cluster.Listen = apigen.StringSetting{ConfigRef: apigen.ConfigRef{ID: userCfg.ID}}
 	if err := service.UpdateSettings(*settings); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
@@ -143,43 +141,8 @@ func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 	if cfg.Settings.Cluster.Listen.Value != "" {
 		t.Fatalf("ClusterListen value = %q, want empty stored value", cfg.Settings.Cluster.Listen.Value)
 	}
-	if cfg.Settings.Cluster.Listen.ConfigRef.Key != "shared.cluster.listen" {
-		t.Fatalf("Cluster.Listen.ConfigRef.Key = %q", cfg.Settings.Cluster.Listen.ConfigRef.Key)
-	}
-	if cfg.Settings.Cluster.Listen.ConfigRef.ID == 0 {
-		t.Fatal("Cluster.Listen.ConfigRef.ID = 0, want hydrated ID")
-	}
-}
-
-func TestStoredKeyOnlyRefsMigrateToIDsOnStartup(t *testing.T) {
-	dir := t.TempDir()
-	store := sqlite.NewPrimaryStorage(filepath.Join(dir, "primary.db"))
-	secretMgr, err := secrets.Open(dir, store)
-	if err != nil {
-		t.Fatalf("secrets.Open: %v", err)
-	}
-	secretMeta, err := secretMgr.Set("opendeploy.config.github_token", "config", []byte("ghp_test"), 0)
-	if err != nil {
-		t.Fatalf("Set secret: %v", err)
-	}
-	cfg := DefaultConfig(ainit.StaticConfig)
-	cfg.Settings.Repo.GithubToken = apigen.SecretRef{Key: "opendeploy.config.github_token"}
-	userCfg := store.SetUserConfig("shared.cluster.listen", "default", ":9555", 0, 1)
-	cfg.Settings.Cluster.Listen = apigen.StringSetting{ConfigRef: apigen.ConfigRef{Key: "shared.cluster.listen"}}
-	if _, err := store.AppendOpenDeploySettings(cfg.Encode()); err != nil {
-		t.Fatalf("AppendOpenDeploySettings: %v", err)
-	}
-
-	service, err := NewService(store, secretMgr)
-	if err != nil {
-		t.Fatalf("NewService: %v", err)
-	}
-	migrated := service.Snapshot()
-	if migrated.Settings.Repo.GithubToken.ID != secretMeta.ID {
-		t.Fatalf("GithubToken ID = %d, want %d", migrated.Settings.Repo.GithubToken.ID, secretMeta.ID)
-	}
-	if migrated.Settings.Cluster.Listen.ConfigRef.ID != userCfg.ID {
-		t.Fatalf("Cluster.Listen config ref ID = %d, want %d", migrated.Settings.Cluster.Listen.ConfigRef.ID, userCfg.ID)
+	if cfg.Settings.Cluster.Listen.ConfigRef.ID != userCfg.ID {
+		t.Fatalf("Cluster.Listen.ConfigRef.ID = %d, want %d", cfg.Settings.Cluster.Listen.ConfigRef.ID, userCfg.ID)
 	}
 }
 

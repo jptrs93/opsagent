@@ -77,12 +77,10 @@
  */
 /**
  * @typedef {Object} SecretRef
- * @property {string} key
  * @property {number} id
  */
 /**
  * @typedef {Object} ConfigRef
- * @property {string} key
  * @property {number} id
  */
 /**
@@ -1769,9 +1767,6 @@ export function decodeSecretValue(buffer) {
  * @param {Writer} writer
  */
 export function writeSecretRef(message, writer) {
-    if (message.key !== undefined && message.key !== null && message.key !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
-    }
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int32(message.id);
     }
@@ -1796,14 +1791,10 @@ export function encodeSecretRef(message) {
  */
 function decodeSecretRefMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", id: 0 };
+    const message = {id: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.key = reader.string();
-                break;
-            }
             case 3: {
                 message.id = reader.int32();
                 break;
@@ -1832,9 +1823,6 @@ export function decodeSecretRef(buffer) {
  * @param {Writer} writer
  */
 export function writeConfigRef(message, writer) {
-    if (message.key !== undefined && message.key !== null && message.key !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
-    }
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int32(message.id);
     }
@@ -1859,14 +1847,10 @@ export function encodeConfigRef(message) {
  */
 function decodeConfigRefMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", id: 0 };
+    const message = {id: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.key = reader.string();
-                break;
-            }
             case 3: {
                 message.id = reader.int32();
                 break;

@@ -17,11 +17,10 @@ const shellQuote = (value) => {
 };
 
 const refID = (ref) => Number(ref?.id || 0);
-const configRefKey = (ref) => ref?.key || "";
 const deepClone = (value) => JSON.parse(JSON.stringify(value));
 const stringSetting = (value = "") => ({value, configRef: undefined});
 const boolSetting = (value = false) => ({value, configRef: undefined});
-const secretSetting = (id = 0, key = "") => (id ? {id, key} : {});
+const secretSetting = (id = 0) => (id ? {id} : {});
 const latestRefs = (refs, selectedID = 0) => {
     const latest = new Map();
     const byID = new Map();
@@ -38,8 +37,8 @@ const latestRefs = (refs, selectedID = 0) => {
     return options.sort((a, b) => (a.name || "").localeCompare(b.name || "") || Number(a.version || 0) - Number(b.version || 0));
 };
 const refLabel = (ref) => `${ref.name} v${ref.version || 0}`;
-const configRefPayload = (item) => ({id: Number(item.configRefID || 0), key: item.configRefKey || ""});
-const secretRefPayload = (item) => ({id: Number(item.secretId || 0), key: item.value || ""});
+const configRefPayload = (item) => ({id: Number(item.configRefID || 0)});
+const secretRefPayload = (item) => ({id: Number(item.secretId || 0)});
 const emptySettings = () => ({
     httpWeb: {
         enabled: boolSetting(false),
@@ -168,9 +167,8 @@ const draftValue = (setting, cfg) => {
     if (setting.type === "secret") {
         const secret = setting.secret(cfg);
         return {
-            value: secret?.key || "",
+            value: "",
             secretId: refID(secret),
-            original: secret?.key || "",
             originalSecretId: refID(secret),
             cleared: false,
             revealed: false,
@@ -179,7 +177,6 @@ const draftValue = (setting, cfg) => {
     }
     const current = setting.setting(cfg) || {};
     const refId = refID(current.configRef);
-    const refKey = configRefKey(current.configRef);
     const original = setting.type === "bool"
         ? boolValue(current.value)
         : (current.value || "");
@@ -190,8 +187,6 @@ const draftValue = (setting, cfg) => {
         originalMode: refId ? "config" : "value",
         configRefID: refId,
         originalConfigRefID: refId,
-        configRefKey: refKey,
-        originalConfigRefKey: refKey,
     };
 };
 
@@ -235,7 +230,7 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
         referencePicker({
             refs: () => latestRefs(userConfigRefsS.val || [], item()?.configRefID || 0),
             selectedKey: () => item()?.configRefID || "",
-            selectedLabel: () => item()?.configRefKey || "",
+            selectedLabel: "",
             getKey: ref => ref.id,
             getLabel: refLabel,
             placeholder: "Search configs",
@@ -244,7 +239,7 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
             inputClass,
             containerClass: "relative min-w-64 flex-1",
             disabled: () => saving.val,
-            onSelect: ref => patch({configRefID: ref.id, configRefKey: ref.name}),
+            onSelect: ref => patch({configRefID: ref.id}),
         }),
     );
 
@@ -275,7 +270,7 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
     if (setting.type === "secret") {
         const revealSecret = async () => {
             const current = item();
-            if (!current?.value) return;
+            if (!current?.secretId) return;
             if (current.revealed) { patch({revealed: false, revealedValue: ""}); return; }
             try {
                 error.val = null;
@@ -290,7 +285,7 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
             referencePicker({
                 refs: () => latestRefs(secretRefsS.val?.length ? secretRefsS.val : secrets.val, item()?.secretId || 0),
                 selectedKey: () => item()?.secretId || "",
-                selectedLabel: () => item()?.value || "",
+                selectedLabel: "",
                 getKey: ref => ref.id,
                 getLabel: refLabel,
                 placeholder: "Search secrets",
@@ -299,7 +294,7 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
                 inputClass,
                 containerClass: "relative min-w-64 flex-1",
                 disabled: () => saving.val,
-                onSelect: ref => patch({secretId: ref.id, value: ref.name, revealed: false, revealedValue: ""}),
+                onSelect: ref => patch({secretId: ref.id, revealed: false, revealedValue: ""}),
             }),
             button({
                 type: "button",
@@ -307,7 +302,7 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
                 class: "text-xs px-2 py-1 rounded-md font-medium text-gray-200 bg-gray-700 hover:bg-gray-600 cursor-pointer whitespace-nowrap",
                 onclick: () => openCreateSecret(setting),
             }, "Create secret"),
-            () => item()?.value ? button({
+            () => item()?.secretId ? button({
                 type: "button",
                 title: () => item().revealed ? "Hide saved secret" : "Reveal saved secret",
                 "aria-label": () => item().revealed ? "Hide saved secret" : "Reveal saved secret",
@@ -315,11 +310,11 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
                 class: "p-1 rounded text-gray-300 bg-gray-700 hover:bg-gray-600 cursor-pointer",
                 onclick: revealSecret,
             }, () => item().revealed ? eyeOffIcon() : eyeOpenIcon()) : "",
-            () => item()?.value ? button({
+            () => item()?.secretId ? button({
                 type: "button",
                 disabled: () => saving.val,
                 class: "text-xs px-2 py-1 rounded-md font-medium text-gray-200 bg-gray-700 hover:bg-gray-600 cursor-pointer whitespace-nowrap",
-                onclick: () => patch({secretId: 0, value: "", revealed: false, revealedValue: ""}),
+                onclick: () => patch({secretId: 0, revealed: false, revealedValue: ""}),
             }, "Clear") : "",
             () => item()?.revealed ? code({
                 class: "text-xs text-amber-200 bg-amber-950/40 px-2 py-1 rounded truncate max-w-64",
@@ -438,7 +433,7 @@ export function settingsPage() {
                 value: new TextEncoder().encode(createSecretValue.val),
             });
             await reloadSecrets();
-            patchDraft(createSecretSettingKey.val, {secretId: saved.id, value: saved.name, revealed: false, revealedValue: ""});
+            patchDraft(createSecretSettingKey.val, {secretId: saved.id, revealed: false, revealedValue: ""});
             closeCreateSecret();
         } catch (e) {
             error.val = e.message;
