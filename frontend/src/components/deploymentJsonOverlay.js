@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {deploymentsS} from "../state/deployments.js";
 import {cleanDeploymentConfig, deploymentConfigToYaml} from "../yaml/deploymentConfig.js";
 
-const {div, h2, span, pre, button} = van.tags;
+const {div, span, pre, button} = van.tags;
 
 function currentDeploymentConfig(deploymentId) {
     return (deploymentsS.val || []).find(item => item.config?.id === deploymentId)?.config || null;
@@ -38,7 +38,7 @@ function modeButton(label, mode, selectedMode) {
 
 export function deploymentConfigOverlay(deployment, onClose) {
     const copied = van.state(false);
-    const selectedMode = van.state('json');
+    const selectedMode = van.state('yaml');
     const deploymentId = deployment.id;
 
     const outputText = () => selectedMode.val === 'yaml'
@@ -60,9 +60,8 @@ export function deploymentConfigOverlay(deployment, onClose) {
                 div(
                     {class: "flex flex-col gap-3 px-4 py-3 border-b border-gray-700 md:flex-row md:items-start md:justify-between"},
                     div({class: "min-w-0"},
-                        h2({class: "text-sm font-semibold text-gray-200 truncate"}, "Deployment config"),
                         div(
-                            {class: "mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs"},
+                            {class: "flex flex-wrap gap-x-3 gap-y-1 text-xs"},
                             titleField("space", deployment.spaceName),
                             titleField("name", deployment.name),
                             titleField("machine", deployment.machine),

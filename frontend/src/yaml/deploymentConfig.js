@@ -55,6 +55,17 @@ function writeValue(value, indent) {
     return `${indent}${yamlScalar(value)}`;
 }
 
+function orderDeploymentConfig(config) {
+    const ordered = {};
+    for (const key of ['id', 'configId', 'createdAt', 'version', 'updatedAt', 'updatedBy', 'spec', 'desiredState', 'deleted']) {
+        if (config[key] !== undefined) ordered[key] = config[key];
+    }
+    for (const [key, value] of Object.entries(config)) {
+        if (ordered[key] === undefined) ordered[key] = value;
+    }
+    return ordered;
+}
+
 export function cleanDeploymentConfig(config) {
     return omitZeroValues(config);
 }
@@ -62,5 +73,5 @@ export function cleanDeploymentConfig(config) {
 export function deploymentConfigToYaml(config) {
     const cleaned = cleanDeploymentConfig(config);
     if (!cleaned) return '';
-    return `${writeValue(cleaned, '')}\n`;
+    return `${writeValue(orderDeploymentConfig(cleaned), '')}\n`;
 }

@@ -165,6 +165,9 @@ export function deploymentHistory(deploymentId, label, onClose, onRevertTargetVe
                 const configEntries = visibleEntries.filter(e => e.config);
                 const configByVersion = {};
                 const configsSorted = [...configEntries].sort((a, b) => a.config.version - b.config.version);
+                const currentConfigVersion = configsSorted.length > 0
+                    ? configsSorted[configsSorted.length - 1].config.version
+                    : 0;
                 let prevConfig = null;
                 for (const e of configsSorted) {
                     configByVersion[e.config.version] = { config: e.config, prev: prevConfig };
@@ -201,6 +204,7 @@ export function deploymentHistory(deploymentId, label, onClose, onRevertTargetVe
                         const userName = resolveUserDisplayName(e.config.updatedBy);
                         const user = userName ? ` [${userName}]` : '';
                         const targetVersion = e.config.desiredState?.version || '';
+                        const canRevertTargetVersion = targetVersion && e.config.version !== currentConfigVersion;
                         return div(
                             {class: "px-3 py-0.5 text-xs font-mono text-orange-400"},
                             span(ts),
@@ -208,7 +212,7 @@ export function deploymentHistory(deploymentId, label, onClose, onRevertTargetVe
                             span(`v${e.config.version} `),
                             span(desc),
                             user ? span({class: "text-orange-300"}, user) : '',
-                            targetVersion ? button({
+                            canRevertTargetVersion ? button({
                                 type: "button",
                                 class: "ml-2 p-0 text-xs font-mono text-blue-400 underline hover:text-blue-300 cursor-pointer",
                                 onclick: () => onRevertTargetVersion(deploymentId, e.config),
