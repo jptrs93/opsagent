@@ -56,21 +56,11 @@ export function createOverlay(onClose, onCreated, opts = {}) {
         machinesLoaded.val = true;
     };
 
-    const loadAssets = async () => {
-        try {
-            const res = await capi.postV1AssetsList({});
-            assets.val = res.items || [];
-        } catch (e) {
-            assets.val = [];
-        }
-    };
-
     van.derive(() => {
         assets.val = assetMetasS.val;
     });
 
     loadMachines();
-    loadAssets();
 
     const doCreate = async () => {
         errorMsg.val = '';
@@ -150,7 +140,7 @@ export function createOverlay(onClose, onCreated, opts = {}) {
             () => assetMountsPane(form, {assets: assets.val, enableAssetEditor: true}),
             upgradeStrategyPane(form),
             resourcesPane(form),
-            assetEditorPane(form, {onSaved: loadAssets}),
+            assetEditorPane(form),
         ),
     );
 

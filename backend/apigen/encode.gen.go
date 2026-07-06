@@ -2614,7 +2614,6 @@ func (m *EnvVarValue) Encode() []byte {
 	b = AppendStringFieldOpt(b, m.Value, 3)
 	b = AppendStringField(b, m.Asset, 4)
 	b = AppendInt32Field(b, m.AssetID, 5)
-	b = AppendInt32Field(b, m.Version, 6)
 	return b
 }
 
@@ -2639,8 +2638,6 @@ func DecodeEnvVarValue(b []byte) (*EnvVarValue, error) {
 			b, m.Asset, err = ConsumeString(b, typ)
 		case 5:
 			b, m.AssetID, err = ConsumeVarInt32(b, typ)
-		case 6:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -2726,7 +2723,6 @@ func DecodeContainerMount(b []byte) (*ContainerMount, error) {
 func (m *ContainerAssetMount) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Asset, 1)
-	b = AppendInt32Field(b, m.Version, 2)
 	b = AppendStringField(b, m.Path, 3)
 	b = AppendStringField(b, m.Format, 4)
 	b = AppendInt32Field(b, m.AssetID, 5)
@@ -2747,8 +2743,6 @@ func DecodeContainerAssetMount(b []byte) (*ContainerAssetMount, error) {
 		switch num {
 		case 1:
 			b, m.Asset, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
 		case 3:
 			b, m.Path, err = ConsumeString(b, typ)
 		case 4:

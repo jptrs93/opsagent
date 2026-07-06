@@ -589,7 +589,7 @@ func containsString(ss []string, s string) bool {
 }
 
 type deploymentAssetResolver interface {
-	GetAsset(key string, version int32) (*apigen.Asset, bool)
+	GetAssetByID(assetID int32) (*apigen.Asset, bool)
 }
 
 type deploymentSecretLister interface {
@@ -879,10 +879,9 @@ func resolveAssetMounts(in []*apigen.ContainerAssetMount, assets deploymentAsset
 		if m == nil {
 			return nil, invalidConfigErrf("runner.container.assetMounts: asset and path are both required")
 		}
-		key := strings.TrimSpace(m.Asset)
 		path := strings.TrimSpace(m.Path)
-		if key == "" || path == "" {
-			return nil, invalidConfigErrf("runner.container.assetMounts: asset and path are both required")
+		if m.AssetID <= 0 || path == "" {
+			return nil, invalidConfigErrf("runner.container.assetMounts: assetId and path are both required")
 		}
 		if !filepath.IsAbs(path) {
 			return nil, invalidConfigErrf("runner.container.assetMounts: path must be absolute")
@@ -891,16 +890,12 @@ func resolveAssetMounts(in []*apigen.ContainerAssetMount, assets deploymentAsset
 		if cleanPath != path || cleanPath == "/" || strings.HasSuffix(path, "/") {
 			return nil, invalidConfigErrf("runner.container.assetMounts: path must be an absolute file path")
 		}
-		asset, ok := assets.GetAsset(key, m.Version)
+		asset, ok := assets.GetAssetByID(m.AssetID)
 		if !ok {
-			if m.Version > 0 {
-				return nil, invalidConfigErrf("runner.container.assetMounts: asset %q version %d not found", key, m.Version)
-			}
-			return nil, invalidConfigErrf("runner.container.assetMounts: asset %q not found", key)
+			return nil, invalidConfigErrf("runner.container.assetMounts: asset id %d not found", m.AssetID)
 		}
 		out = append(out, &apigen.ContainerAssetMount{
 			Asset:      asset.Key,
-			Version:    asset.Version,
 			Path:       cleanPath,
 			Format:     asset.Format,
 			AssetID:    asset.ID,
@@ -912,23 +907,18 @@ func resolveAssetMounts(in []*apigen.ContainerAssetMount, assets deploymentAsset
 
 func resolveEnvAssetRefs(scope string, env map[string]*apigen.EnvVarValue, assets deploymentAssetResolver) error {
 	for key, value := range env {
-		assetKey := strings.TrimSpace(value.Asset)
-		if assetKey == "" {
+		if value.AssetID <= 0 {
 			continue
 		}
 		if assets == nil {
 			return invalidConfigErrf("%s.%s: assets cannot be resolved here", scope, key)
 		}
-		asset, ok := assets.GetAsset(assetKey, value.Version)
+		asset, ok := assets.GetAssetByID(value.AssetID)
 		if !ok {
-			if value.Version > 0 {
-				return invalidConfigErrf("%s.%s: asset %q version %d not found", scope, key, assetKey, value.Version)
-			}
-			return invalidConfigErrf("%s.%s: asset %q not found", scope, key, assetKey)
+			return invalidConfigErrf("%s.%s: asset id %d not found", scope, key, value.AssetID)
 		}
 		value.Asset = asset.Key
 		value.AssetID = asset.ID
-		value.Version = asset.Version
 	}
 	return nil
 }
@@ -966,11 +956,11 @@ func validateEnvVars(scope string, in map[string]*apigen.EnvVarValue) error {
 				return invalidConfigErrf("%s.%s: configId must be positive", scope, key)
 			}
 		}
-		if strings.TrimSpace(value.Asset) != "" {
+		if value.AssetID > 0 {
 			set++
 		}
 		if set != 1 {
-			return invalidConfigErrf("%s.%s: exactly one of value, secretId, configId, or asset is required", scope, key)
+			return invalidConfigErrf("%s.%s: exactly one of value, secretId, configId, or assetId is required", scope, key)
 		}
 		out[key] = value
 	}

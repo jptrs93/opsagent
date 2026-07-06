@@ -78,7 +78,7 @@ Key generated files:
 |--------|------|---------|----------|--------|
 | GET | `/v1/cluster/status` | — | `ClusterStatusResponse` | ANY_OF default |
 | GET | `/v1/cluster/github-credentials` | — | `GithubCredentials` | NO_AUTH over mTLS cluster listener |
-| GET | `/v1/cluster/asset?asset_id=<id>&version=<version>` | query params | raw asset bytes with `X-Opsagent-Asset-*` headers | NO_AUTH over mTLS cluster listener |
+| GET | `/v1/cluster/asset?asset_id=<id>` | query params | raw asset bytes with `X-Opsagent-Asset-*` headers | NO_AUTH over mTLS cluster listener |
 | GET | `/v1/cluster/secrets` | `ClusterSecretsRequest` | `ClusterSecretsResponse` | NO_AUTH over mTLS cluster listener |
 | GET | `/v1/cluster/configs` | `ClusterConfigsRequest` | `ClusterConfigsResponse` | NO_AUTH over mTLS cluster listener |
 

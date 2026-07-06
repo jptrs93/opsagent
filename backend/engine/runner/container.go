@@ -756,7 +756,7 @@ func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd.Mount, string) {
 		if m == nil {
 			continue
 		}
-		hostPath := preparer.AssetCachePathWithMode(m.AssetID, m.Version, m.Executable)
+		hostPath := preparer.AssetCachePathWithMode(m.AssetID, m.Executable)
 		mounts = append(mounts, ctrd.Mount{Source: hostPath, Dest: m.Path, ReadOnly: true})
 	}
 	implicitMounted := map[string]bool{}
@@ -767,15 +767,15 @@ func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd.Mount, string) {
 	sort.Strings(envKeys)
 	for _, key := range envKeys {
 		value := cfg.EnvVars[key]
-		if value == nil || value.Asset == "" || value.AssetID <= 0 || value.Version <= 0 {
+		if value == nil || value.AssetID <= 0 {
 			continue
 		}
-		dest := implicitAssetContainerPath(value.AssetID, value.Version)
+		dest := implicitAssetContainerPath(value.AssetID)
 		if implicitMounted[dest] {
 			continue
 		}
 		implicitMounted[dest] = true
-		mounts = append(mounts, ctrd.Mount{Source: preparer.AssetCachePath(value.AssetID, value.Version), Dest: dest, ReadOnly: true})
+		mounts = append(mounts, ctrd.Mount{Source: preparer.AssetCachePath(value.AssetID), Dest: dest, ReadOnly: true})
 	}
 	return mounts, dataHost
 }

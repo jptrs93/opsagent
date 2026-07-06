@@ -342,7 +342,6 @@
  * @property {string} value
  * @property {string} asset
  * @property {number} assetId
- * @property {number} version
  */
 /**
  * @typedef {Object} SystemdRunnerConfig
@@ -358,7 +357,6 @@
 /**
  * @typedef {Object} ContainerAssetMount
  * @property {string} asset
- * @property {number} version
  * @property {string} path
  * @property {string} format
  * @property {number} assetId
@@ -4953,9 +4951,6 @@ export function writeEnvVarValue(message, writer) {
     if (message.assetId !== undefined && message.assetId !== null && message.assetId !== 0) {
         writer.uint32(tag(5, WIRE.VARINT)).int32(message.assetId);
     }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.version);
-    }
 }
 
 
@@ -4977,7 +4972,7 @@ export function encodeEnvVarValue(message) {
  */
 function decodeEnvVarValueMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {secretId: undefined, configId: undefined, value: undefined, asset: "", assetId: 0, version: 0 };
+    const message = {secretId: undefined, configId: undefined, value: undefined, asset: "", assetId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4999,10 +4994,6 @@ function decodeEnvVarValueMessage(reader, length) {
             }
             case 5: {
                 message.assetId = reader.int32();
-                break;
-            }
-            case 6: {
-                message.version = reader.int32();
                 break;
             }
             default:
@@ -5165,9 +5156,6 @@ export function writeContainerAssetMount(message, writer) {
     if (message.asset !== undefined && message.asset !== null && message.asset !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.asset);
     }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
-    }
     if (message.path !== undefined && message.path !== null && message.path !== "") {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.path);
     }
@@ -5201,16 +5189,12 @@ export function encodeContainerAssetMount(message) {
  */
 function decodeContainerAssetMountMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {asset: "", version: 0, path: "", format: "", assetId: 0, executable: false };
+    const message = {asset: "", path: "", format: "", assetId: 0, executable: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.asset = reader.string();
-                break;
-            }
-            case 2: {
-                message.version = reader.int32();
                 break;
             }
             case 3: {

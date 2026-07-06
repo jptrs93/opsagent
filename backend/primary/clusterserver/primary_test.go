@@ -21,9 +21,9 @@ func TestBuildAllowedRefs(t *testing.T) {
 					EnvVars: map[string]*apigen.EnvVarValue{
 						"SECRET": &apigen.EnvVarValue{SecretID: &secretID},
 						"CONFIG": &apigen.EnvVarValue{ConfigID: &configID},
-						"ASSET":  &apigen.EnvVarValue{Asset: "app.env", AssetID: 3, Version: 2},
+						"ASSET":  &apigen.EnvVarValue{Asset: "app.env", AssetID: 3},
 					},
-					AssetMounts: []*apigen.ContainerAssetMount{&apigen.ContainerAssetMount{Asset: "nginx.conf", AssetID: 4, Version: 5, Path: "/etc/nginx/nginx.conf"}},
+					AssetMounts: []*apigen.ContainerAssetMount{&apigen.ContainerAssetMount{Asset: "nginx.conf", AssetID: 4, Path: "/etc/nginx/nginx.conf"}},
 				}},
 			},
 		},
@@ -38,7 +38,7 @@ func TestBuildAllowedRefs(t *testing.T) {
 	if !refs.allConfigsAllowed([]int32{9}) || refs.allConfigsAllowed([]int32{10}) {
 		t.Fatal("config refs not scoped correctly")
 	}
-	if !refs.assetAllowed(3, 2) || !refs.assetAllowed(4, 5) || refs.assetAllowed(4, 6) {
+	if !refs.assetAllowed(3) || !refs.assetAllowed(4) || refs.assetAllowed(5) {
 		t.Fatal("asset refs not scoped correctly")
 	}
 	if !refs.usesGithub {

@@ -76,7 +76,7 @@ type Primary struct {
 }
 
 type assetProvider interface {
-	OpenAsset(ctx context.Context, assetID, version int32) (*apigen.Asset, io.ReadCloser, error)
+	OpenAsset(ctx context.Context, assetID int32) (*apigen.Asset, io.ReadCloser, error)
 }
 
 // New creates a Primary. RunPrimary mounts it on the mTLS HTTP/2 cluster
@@ -113,18 +113,14 @@ func (p *Primary) GetV1ClusterAsset(authCtx apigen.Context, r *http.Request, w h
 	if err != nil {
 		return err
 	}
-	version, err := int32QueryParam(r, "version")
-	if err != nil {
-		return err
-	}
 	machine, err := requireMachine(authCtx)
 	if err != nil {
 		return err
 	}
-	if !p.allowedRefsForMachine(machine).assetAllowed(assetID, version) {
+	if !p.allowedRefsForMachine(machine).assetAllowed(assetID) {
 		return clusterForbiddenErr
 	}
-	asset, body, err := p.assets.OpenAsset(authCtx, assetID, version)
+	asset, body, err := p.assets.OpenAsset(authCtx, assetID)
 	if err != nil {
 		return err
 	}
@@ -137,7 +133,7 @@ func (p *Primary) GetV1ClusterAsset(authCtx apigen.Context, r *http.Request, w h
 	w.Header().Set("X-Opsagent-Asset-Version", strconv.Itoa(int(asset.Version)))
 	w.Header().Set("X-Opsagent-Asset-Format", asset.Format)
 	if _, err := io.Copy(w, body); err != nil {
-		slog.ErrorContext(authCtx, "stream cluster asset", "asset_id", assetID, "version", version, "err", err)
+		slog.ErrorContext(authCtx, "stream cluster asset", "asset_id", assetID, "err", err)
 	}
 	return nil
 }
@@ -158,13 +154,8 @@ type clusterAllowedRefs struct {
 	deploymentIDs map[int32]struct{}
 	secretIDs     map[int32]struct{}
 	configIDs     map[int32]struct{}
-	assetRefs     map[clusterAssetRef]struct{}
+	assetIDs      map[int32]struct{}
 	usesGithub    bool
-}
-
-type clusterAssetRef struct {
-	assetID int32
-	version int32
 }
 
 func (p *Primary) allowedRefsForMachine(machine string) clusterAllowedRefs {
@@ -176,7 +167,7 @@ func buildAllowedRefs(snapshot []apigen.DeploymentWithStatus) clusterAllowedRefs
 		deploymentIDs: make(map[int32]struct{}),
 		secretIDs:     make(map[int32]struct{}),
 		configIDs:     make(map[int32]struct{}),
-		assetRefs:     make(map[clusterAssetRef]struct{}),
+		assetIDs:      make(map[int32]struct{}),
 	}
 	for _, dws := range snapshot {
 		cfg := dws.Config
@@ -197,15 +188,15 @@ func buildAllowedRefs(snapshot []apigen.DeploymentWithStatus) clusterAllowedRefs
 			if value.ConfigID != nil && *value.ConfigID > 0 {
 				refs.configIDs[*value.ConfigID] = struct{}{}
 			}
-			if value.AssetID > 0 && value.Version > 0 {
-				refs.assetRefs[clusterAssetRef{assetID: value.AssetID, version: value.Version}] = struct{}{}
+			if value.AssetID > 0 {
+				refs.assetIDs[value.AssetID] = struct{}{}
 			}
 		}
 		for _, mount := range container.AssetMounts {
-			if mount == nil || mount.AssetID <= 0 || mount.Version <= 0 {
+			if mount == nil || mount.AssetID <= 0 {
 				continue
 			}
-			refs.assetRefs[clusterAssetRef{assetID: mount.AssetID, version: mount.Version}] = struct{}{}
+			refs.assetIDs[mount.AssetID] = struct{}{}
 		}
 	}
 	return refs
@@ -224,8 +215,8 @@ func (r clusterAllowedRefs) allConfigsAllowed(ids []int32) bool {
 	return allInt32RefsAllowed(ids, r.configIDs)
 }
 
-func (r clusterAllowedRefs) assetAllowed(assetID, version int32) bool {
-	_, ok := r.assetRefs[clusterAssetRef{assetID: assetID, version: version}]
+func (r clusterAllowedRefs) assetAllowed(assetID int32) bool {
+	_, ok := r.assetIDs[assetID]
 	return ok
 }
 

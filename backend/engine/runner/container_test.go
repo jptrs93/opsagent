@@ -70,7 +70,7 @@ func TestCountEnvVars(t *testing.T) {
 		"PLAIN":  {Value: &plain},
 		"SECRET": {SecretID: &secretID},
 		"CONFIG": {ConfigID: &configID},
-		"ASSET":  {Asset: "bundle", AssetID: 3, Version: 4},
+		"ASSET":  {Asset: "bundle", AssetID: 3},
 		"NIL":    nil,
 	})
 
@@ -118,8 +118,8 @@ func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 		Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
 			DisableDataVolume: true,
 			AssetMounts: []*apigen.ContainerAssetMount{
-				{AssetID: 8, Version: 2, Path: "/etc/app.conf"},
-				{AssetID: 9, Version: 3, Path: "/docker-entrypoint-initdb.d/init.sh", Executable: true},
+				{AssetID: 8, Path: "/etc/app.conf"},
+				{AssetID: 9, Path: "/docker-entrypoint-initdb.d/init.sh", Executable: true},
 			},
 		}}},
 	}
@@ -131,10 +131,10 @@ func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 	if len(mounts) != 2 {
 		t.Fatalf("mounts len = %d, want 2", len(mounts))
 	}
-	if mounts[0].Source != preparer.AssetCachePathWithMode(8, 2, false) || !mounts[0].ReadOnly {
+	if mounts[0].Source != preparer.AssetCachePathWithMode(8, false) || !mounts[0].ReadOnly {
 		t.Fatalf("readonly asset mount = %+v", mounts[0])
 	}
-	if mounts[1].Source != preparer.AssetCachePathWithMode(9, 3, true) || !mounts[1].ReadOnly {
+	if mounts[1].Source != preparer.AssetCachePathWithMode(9, true) || !mounts[1].ReadOnly {
 		t.Fatalf("executable asset mount = %+v", mounts[1])
 	}
 }

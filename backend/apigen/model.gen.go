@@ -387,7 +387,6 @@ type EnvVarValue struct {
 	Value    *string
 	Asset    string
 	AssetID  int32
-	Version  int32
 }
 
 type SystemdRunnerConfig struct {
@@ -403,7 +402,6 @@ type ContainerMount struct {
 
 type ContainerAssetMount struct {
 	Asset      string
-	Version    int32
 	Path       string
 	Format     string
 	AssetID    int32

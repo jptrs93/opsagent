@@ -70,7 +70,7 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 			SecretMetasSnapshot:      &apigen.SecretList{Items: h.listAllSecretMetas()},
 			UserConfigValuesSnapshot: &apigen.UserConfigList{Items: h.Store.ListAllUserConfigs()},
 			SpacesSnapshot:           &apigen.SpaceList{Items: h.Store.ListSpaces()},
-			AssetsSnapshot:           &apigen.AssetList{Items: h.Store.ListAssets()},
+			AssetsSnapshot:           &apigen.AssetList{Items: h.Store.ListAllAssetVersions()},
 		}
 		if !yield(initial, nil) {
 			return

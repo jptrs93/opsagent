@@ -191,7 +191,7 @@ const handleStateMessage = (message) => {
 
 const sortByName = (items) => [...items].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 const sortSpaces = (items) => [...items].sort((a, b) => (a.id || 0) - (b.id || 0) || (a.name || '').localeCompare(b.name || ''));
-const sortAssets = (items) => [...items].sort((a, b) => (a.key || '').localeCompare(b.key || ''));
+const sortAssets = (items) => [...items].sort((a, b) => (a.key || '').localeCompare(b.key || '') || Number(a.version || 0) - Number(b.version || 0));
 
 const applyItemUpdate = (items, update) => {
     const next = new Map((items || []).map((item) => [item.id, item]));
@@ -224,10 +224,11 @@ const applySpaceUpdate = (items, update) => {
 };
 
 const applyAssetUpdate = (items, update) => {
-    const next = (items || []).filter((item) => item.id !== update.id && item.key !== update.key);
-    if (!update.deleted) {
-        next.push(update);
+    if (update.deleted) {
+        return sortAssets((items || []).filter((item) => item.key !== update.key));
     }
+    const next = (items || []).filter((item) => item.id !== update.id);
+    next.push(update);
     return sortAssets(next);
 };
 

@@ -24,9 +24,9 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	if latest.ID != v2.ID || latest.Version != 2 || latest.SpaceID != DefaultSpaceID || string(latest.Blob) != "events {}\nhttp {}\n" {
 		t.Fatalf("latest asset = v%d %q", latest.Version, latest.Blob)
 	}
-	byID, ok := store.GetAssetByIDVersion(v2.ID, v2.Version)
+	byID, ok := store.GetAssetByID(v2.ID)
 	if !ok || byID.Key != "nginx.conf" || string(byID.Blob) != "events {}\nhttp {}\n" {
-		t.Fatalf("asset by id/version = %+v ok=%v", byID, ok)
+		t.Fatalf("asset by id = %+v ok=%v", byID, ok)
 	}
 
 	old, ok := store.GetAsset("nginx.conf", 1)
@@ -43,6 +43,10 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	}
 	if items[0].ID != v2.ID || items[0].Key != "nginx.conf" || items[0].SpaceID != DefaultSpaceID || items[0].Version != 2 || items[0].SizeBytes != int32(len("events {}\nhttp {}\n")) {
 		t.Fatalf("asset meta = %+v", items[0])
+	}
+	allItems := store.ListAllAssetVersions()
+	if len(allItems) != 2 || allItems[0].ID != v1.ID || allItems[1].ID != v2.ID {
+		t.Fatalf("all asset versions = %+v", allItems)
 	}
 
 	store.DeleteAsset("nginx.conf")

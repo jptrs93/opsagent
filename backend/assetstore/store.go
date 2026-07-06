@@ -109,10 +109,10 @@ func (s *Store) setLargeAssetFromReader(ctx context.Context, key, format string,
 	return asset, nil
 }
 
-func (s *Store) OpenAsset(ctx context.Context, assetID, version int32) (*apigen.Asset, io.ReadCloser, error) {
-	asset, ok := s.DB.GetAssetByIDVersion(assetID, version)
+func (s *Store) OpenAsset(ctx context.Context, assetID int32) (*apigen.Asset, io.ReadCloser, error) {
+	asset, ok := s.DB.GetAssetByID(assetID)
 	if !ok {
-		return nil, nil, fmt.Errorf("asset %d version %d not found", assetID, version)
+		return nil, nil, fmt.Errorf("asset %d not found", assetID)
 	}
 	if asset.Location != "" {
 		body, err := s.openS3Asset(ctx, asset.Location)

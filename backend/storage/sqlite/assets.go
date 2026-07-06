@@ -67,6 +67,29 @@ func (s *PrimaryStorage) ListAssets() []*apigen.AssetMeta {
 	return out
 }
 
+func (s *PrimaryStorage) ListAllAssetVersions() []*apigen.AssetMeta {
+	rows, err := s.db.QueryContext(context.Background(), `
+SELECT id, key, space_id, created_at, version, format, location, size_bytes
+FROM assets
+ORDER BY key, version`)
+	if err != nil {
+		panic(fmt.Sprintf("ListAllAssetVersions: %v", err))
+	}
+	defer rows.Close()
+	out := []*apigen.AssetMeta{}
+	for rows.Next() {
+		var r ListLatestAssetsRow
+		if err := rows.Scan(&r.ID, &r.Key, &r.SpaceID, &r.CreatedAt, &r.Version, &r.Format, &r.Location, &r.SizeBytes); err != nil {
+			panic(fmt.Sprintf("ListAllAssetVersions scan: %v", err))
+		}
+		out = append(out, assetRowToMeta(r))
+	}
+	if err := rows.Err(); err != nil {
+		panic(fmt.Sprintf("ListAllAssetVersions rows: %v", err))
+	}
+	return out
+}
+
 func (s *PrimaryStorage) NotifyAssetUpdate(asset *apigen.Asset) {
 	meta := assetProtoToMeta(asset)
 	if meta.ID == 0 && meta.Key == "" {
@@ -108,13 +131,18 @@ func (s *PrimaryStorage) GetAsset(key string, version int32) (*apigen.Asset, boo
 	return assetRowToProto(r), true
 }
 
-func (s *PrimaryStorage) GetAssetByIDVersion(assetID, version int32) (*apigen.Asset, bool) {
-	r, err := s.q.GetAssetByIDVersion(context.Background(), GetAssetByIDVersionParams{ID: int64(assetID), Version: int64(version)})
+func (s *PrimaryStorage) GetAssetByID(assetID int32) (*apigen.Asset, bool) {
+	row := s.db.QueryRowContext(context.Background(), `
+SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
+FROM assets
+WHERE id = ?`, assetID)
+	var r Asset
+	err := row.Scan(&r.ID, &r.Key, &r.SpaceID, &r.CreatedAt, &r.Version, &r.Format, &r.Location, &r.SizeBytes, &r.Blob)
 	if err == sql.ErrNoRows {
 		return nil, false
 	}
 	if err != nil {
-		panic(fmt.Sprintf("GetAssetByIDVersion: %v", err))
+		panic(fmt.Sprintf("GetAssetByID: %v", err))
 	}
 	return assetRowToProto(r), true
 }
@@ -131,10 +159,15 @@ func (s *PrimaryStorage) ListAssetVersionsByKey(key string) []*apigen.Asset {
 	return out
 }
 
-func (s *PrimaryStorage) OpenAsset(ctx context.Context, assetID, version int32) (*apigen.Asset, io.ReadCloser, error) {
-	r, err := s.q.GetAssetByIDVersion(ctx, GetAssetByIDVersionParams{ID: int64(assetID), Version: int64(version)})
+func (s *PrimaryStorage) OpenAsset(ctx context.Context, assetID int32) (*apigen.Asset, io.ReadCloser, error) {
+	row := s.db.QueryRowContext(ctx, `
+SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
+FROM assets
+WHERE id = ?`, assetID)
+	var r Asset
+	err := row.Scan(&r.ID, &r.Key, &r.SpaceID, &r.CreatedAt, &r.Version, &r.Format, &r.Location, &r.SizeBytes, &r.Blob)
 	if err == sql.ErrNoRows {
-		return nil, nil, fmt.Errorf("asset %d version %d not found", assetID, version)
+		return nil, nil, fmt.Errorf("asset %d not found", assetID)
 	}
 	if err != nil {
 		return nil, nil, err

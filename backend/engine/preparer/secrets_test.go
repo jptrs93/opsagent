@@ -69,9 +69,9 @@ func TestConfigRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 func TestRequiredAssetRefsIncludesExplicitAndEnvAssets(t *testing.T) {
 	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
 		Container: apigen.ContainerRunnerConfig{
-			AssetMounts: []*apigen.ContainerAssetMount{{Asset: "explicit.conf", AssetID: 8, Version: 2, Executable: true}},
+			AssetMounts: []*apigen.ContainerAssetMount{{Asset: "explicit.conf", AssetID: 8, Executable: true}},
 			EnvVars: map[string]*apigen.EnvVarValue{
-				"APP_CONFIG": {Asset: "implicit.conf", AssetID: 12, Version: 4},
+				"APP_CONFIG": {Asset: "implicit.conf", AssetID: 12},
 				"PLAIN":      {Value: ptrString("value")},
 			},
 		},
@@ -81,17 +81,17 @@ func TestRequiredAssetRefsIncludesExplicitAndEnvAssets(t *testing.T) {
 	if len(refs) != 2 {
 		t.Fatalf("refs len = %d; want 2", len(refs))
 	}
-	if refs[0].AssetID != 8 || refs[0].Version != 2 || refs[0].Label != `asset mount "explicit.conf"` || !refs[0].Executable {
+	if refs[0].AssetID != 8 || refs[0].Label != `asset mount "explicit.conf"` || !refs[0].Executable {
 		t.Fatalf("refs[0] = %+v", refs[0])
 	}
-	if refs[1].AssetID != 12 || refs[1].Version != 4 || refs[1].Label != `asset env var "APP_CONFIG"` || refs[1].Executable {
+	if refs[1].AssetID != 12 || refs[1].Label != `asset env var "APP_CONFIG"` || refs[1].Executable {
 		t.Fatalf("refs[1] = %+v", refs[1])
 	}
 }
 
 func TestAssetCachePathWithModeUsesSeparateExecutablePath(t *testing.T) {
-	readonly := AssetCachePathWithMode(8, 2, false)
-	executable := AssetCachePathWithMode(8, 2, true)
+	readonly := AssetCachePathWithMode(8, false)
+	executable := AssetCachePathWithMode(8, true)
 	if readonly == executable {
 		t.Fatalf("readonly and executable cache paths match: %q", readonly)
 	}

@@ -650,9 +650,9 @@ message EnvVarValue {
   optional int32 secret_id = 1;
   optional int32 config_id = 2;
   optional string value = 3;
-  string asset = 4;     // operator-selected asset key; resolved to immutable asset_id/version
-  int32 asset_id = 5;   // resolved asset row id, used for local cache/downloads
-  int32 version = 6;    // resolved immutable asset version
+  string asset = 4;     // display asset key copied from the resolved asset row
+  int32 asset_id = 5;   // immutable asset row id, used for local cache/downloads
+  reserved 6;
 }
 
 // Internal-only runner for the OPENDEPLOY deployment. Public deployment
@@ -669,11 +669,11 @@ message ContainerMount {
 }
 
 message ContainerAssetMount {
-  string asset = 1;     // asset key selected by the operator
-  int32 version = 2;    // resolved immutable asset version
+  string asset = 1;     // display asset key copied from the resolved asset row
+  reserved 2;
   string path = 3;      // destination file path inside the container
   string format = 4;    // copied from the resolved asset for display/debugging
-  int32 asset_id = 5;   // resolved asset row id, used for local cache/downloads
+  int32 asset_id = 5;   // immutable asset row id, used for local cache/downloads
   bool executable = 6;  // mount read-only with execute bits enabled
 }
 

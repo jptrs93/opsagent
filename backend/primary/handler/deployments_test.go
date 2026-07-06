@@ -55,12 +55,13 @@ func TestValidateDeploymentSpecNixDockerBuild(t *testing.T) {
 
 type fakeAssetResolver map[string]*apigen.Asset
 
-func (r fakeAssetResolver) GetAsset(key string, version int32) (*apigen.Asset, bool) {
-	asset, ok := r[key]
-	if !ok || (version > 0 && asset.Version != version) {
-		return nil, false
+func (r fakeAssetResolver) GetAssetByID(assetID int32) (*apigen.Asset, bool) {
+	for _, asset := range r {
+		if asset != nil && asset.ID == assetID {
+			return asset, true
+		}
 	}
-	return asset, true
+	return nil, false
 }
 
 type fakeSecretResolver map[int32]string
@@ -97,7 +98,7 @@ func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
 		Runner: apigen.RunnerConfig{
 			Container: apigen.ContainerRunnerConfig{
 				AssetMounts: []*apigen.ContainerAssetMount{{
-					Asset:      "nginx.conf",
+					AssetID:    42,
 					Path:       "/etc/nginx/nginx.conf",
 					Executable: true,
 				}},
@@ -111,7 +112,7 @@ func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
 	if len(mounts) != 1 {
 		t.Fatalf("asset mounts len = %d", len(mounts))
 	}
-	if mounts[0].AssetID != 42 || mounts[0].Asset != "nginx.conf" || mounts[0].Version != 3 || mounts[0].Path != "/etc/nginx/nginx.conf" || mounts[0].Format != "nginx" || !mounts[0].Executable {
+	if mounts[0].AssetID != 42 || mounts[0].Asset != "nginx.conf" || mounts[0].Path != "/etc/nginx/nginx.conf" || mounts[0].Format != "nginx" || !mounts[0].Executable {
 		t.Fatalf("asset mount not resolved: %+v", mounts[0])
 	}
 }
@@ -131,7 +132,7 @@ func TestValidateDeploymentSpecResolvesEnvAssetRefs(t *testing.T) {
 		Runner: apigen.RunnerConfig{
 			Container: apigen.ContainerRunnerConfig{
 				EnvVars: map[string]*apigen.EnvVarValue{
-					"APP_CONFIG": {Asset: " app.conf "},
+					"APP_CONFIG": {AssetID: 51},
 				},
 			},
 		},
@@ -140,7 +141,7 @@ func TestValidateDeploymentSpecResolvesEnvAssetRefs(t *testing.T) {
 		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
 	}
 	value := spec.Runner.Container.EnvVars["APP_CONFIG"]
-	if value.Asset != "app.conf" || value.AssetID != 51 || value.Version != 7 {
+	if value.Asset != "app.conf" || value.AssetID != 51 {
 		t.Fatalf("env asset ref not resolved: %+v", value)
 	}
 }
@@ -153,12 +154,12 @@ func TestValidateDeploymentSpecRejectsUnknownEnvAssetRef(t *testing.T) {
 		Runner: apigen.RunnerConfig{
 			Container: apigen.ContainerRunnerConfig{
 				EnvVars: map[string]*apigen.EnvVarValue{
-					"APP_CONFIG": {Asset: "missing.conf"},
+					"APP_CONFIG": {AssetID: 999},
 				},
 			},
 		},
 	}, fakeAssetResolver{})
-	if err == nil || !strings.Contains(err.Error(), `asset "missing.conf" not found`) {
+	if err == nil || !strings.Contains(err.Error(), `asset id 999 not found`) {
 		t.Fatalf("err = %v, want unknown asset", err)
 	}
 }

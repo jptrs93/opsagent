@@ -198,15 +198,6 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         }
     };
 
-    const loadAssets = async () => {
-        try {
-            const res = await capi.postV1AssetsList({});
-            assets.val = res.items || [];
-        } catch (e) {
-            assets.val = [];
-        }
-    };
-
     van.derive(() => {
         assets.val = assetMetasS.val;
     });
@@ -227,7 +218,6 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     if (deployment.variant && (deployment.variant !== 'containerImage' || !deploymentUpdate.hasTrustedSourceValidation())) {
         loadVersions('', {preserveSelection: true});
     }
-    loadAssets();
 
     const onBranchChange = (e) => {
         deploymentUpdate.nixDockerBuild.selectedBranch.val = e.target.value;
@@ -370,7 +360,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
             () => assetMountsPane(form, {assets: assets.val, enableAssetEditor: true}),
             upgradeStrategyPane(form),
             resourcesPane(form),
-            assetEditorPane(form, {onSaved: loadAssets}),
+            assetEditorPane(form),
         ),
     );
 

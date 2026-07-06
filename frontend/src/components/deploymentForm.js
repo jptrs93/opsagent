@@ -885,14 +885,12 @@ function defaultVolumeCard(form) {
 
 function assetOptionValue(asset) {
     const id = Number(asset?.id || 0);
-    const version = Number(asset?.version || 0);
-    return id && version ? `${id}:${version}` : (asset?.key || '');
+    return id ? String(id) : '';
 }
 
 function rowAssetOptionValue(row) {
     const id = Number(row?.assetId || 0);
-    const version = Number(row?.version || 0);
-    return id && version ? `${id}:${version}` : (row?.key || row?.asset || '');
+    return id ? String(id) : '';
 }
 
 function assetOptionLabel(asset) {
@@ -901,22 +899,37 @@ function assetOptionLabel(asset) {
 }
 
 function assetOptionsForRow(assets, row) {
-    const options = (assets || []).map(asset => ({
-        id: Number(asset.id || 0),
-        key: asset.key || '',
-        version: Number(asset.version || 0),
-        selectedOnly: false,
-    }));
+    const options = versionedAssetOptions(assets, row?.assetId);
     const selected = {
         id: Number(row?.assetId || 0),
         key: row?.key || row?.asset || '',
         version: Number(row?.version || 0),
         selectedOnly: true,
     };
-    if (selected.id && selected.key && selected.version && !options.some(option => assetOptionValue(option) === assetOptionValue(selected))) {
+    if (selected.id && selected.key && !options.some(option => assetOptionValue(option) === assetOptionValue(selected))) {
         options.unshift(selected);
     }
     return options;
+}
+
+function versionedAssetOptions(assets, selectedID) {
+    const latestByKey = new Map();
+    const byID = new Map();
+    for (const asset of assets || []) {
+        if (!asset || !asset.id) continue;
+        byID.set(Number(asset.id), asset);
+        const key = asset.key || '';
+        const current = latestByKey.get(key);
+        if (!current || Number(asset.version || 0) > Number(current.version || 0)) {
+            latestByKey.set(key, asset);
+        }
+    }
+    const options = Array.from(latestByKey.values());
+    const selected = byID.get(Number(selectedID || 0));
+    if (selected && !options.some(asset => Number(asset.id) === Number(selected.id))) {
+        options.push({...selected, selectedOnly: true});
+    }
+    return options.sort((a, b) => (a.key || '').localeCompare(b.key || '') || Number(a.version || 0) - Number(b.version || 0));
 }
 
 export function assetMountsPane(form, opts = {}) {
@@ -1445,7 +1458,7 @@ function formEnvVars(form) {
             if (!key) return null;
             if (v.type === 'secret') return Number(v.secretId || 0) ? [key, {secretId: Number(v.secretId)}] : null;
             if (v.type === 'config') return Number(v.configId || 0) ? [key, {configId: Number(v.configId)}] : null;
-            if (v.type === 'asset') return (v.asset || '').trim() ? [key, {asset: v.asset.trim(), assetId: Number(v.assetId || 0), version: Number(v.version || 0)}] : null;
+            if (v.type === 'asset') return Number(v.assetId || 0) ? [key, {asset: (v.asset || '').trim(), assetId: Number(v.assetId || 0)}] : null;
             return [key, {value: v.value || ''}];
         })
         .filter(Boolean));
@@ -1467,8 +1480,8 @@ function invalidCommandReason(form) {
 
 function formAssetMounts(form) {
     return (form.assetMounts.val || [])
-        .map(m => ({asset: (m.key || '').trim(), version: m.version || 0, path: (m.path || '').trim(), executable: Boolean(m.executable)}))
-        .filter(m => m.asset && m.path);
+        .map(m => ({asset: (m.key || '').trim(), assetId: Number(m.assetId || 0), path: (m.path || '').trim(), executable: Boolean(m.executable)}))
+        .filter(m => m.assetId && m.path);
 }
 
 function formVolumeMounts(form) {
@@ -1511,9 +1524,9 @@ function hasInvalidAssetMounts(form) {
 
 function invalidAssetMountsReason(form) {
     for (const m of form.assetMounts.val || []) {
-        const key = (m.key || '').trim();
+        const assetId = Number(m.assetId || 0);
         const path = (m.path || '').trim();
-        if (!key) continue;
+        if (!assetId) continue;
         if (!validAbsolutePath(path)) return 'Asset mount path must be an absolute file path without trailing slash or dot segments.';
     }
     return '';
@@ -1595,7 +1608,7 @@ function envVarsToFormRows(envVars) {
         const version = Number(value?.version || 0);
         if (secretId) return newEnvRow({key, type: 'secret', secretId});
         if (configId) return newEnvRow({key, type: 'config', configId});
-        if ((value?.asset || '').trim()) return newEnvRow({key, type: 'asset', asset: value.asset, assetId, version});
+        if (assetId) return newEnvRow({key, type: 'asset', asset: value?.asset || '', assetId, version});
         return newEnvRow({key, type: 'value', value: value?.value || ''});
     });
 }

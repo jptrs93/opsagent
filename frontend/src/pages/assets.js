@@ -29,6 +29,16 @@ const assetRefMatches = (asset, ref) => {
     return Boolean(asset.key && ref.asset === asset.key);
 };
 
+const latestAssets = (items) => {
+    const latest = new Map();
+    for (const item of items || []) {
+        if (!item?.key) continue;
+        const current = latest.get(item.key);
+        if (!current || Number(item.version || 0) > Number(current.version || 0)) latest.set(item.key, item);
+    }
+    return Array.from(latest.values()).sort((a, b) => (a.key || '').localeCompare(b.key || ''));
+};
+
 const smallBtn = (text, onclick, cls, disabledWhen) => button({
     type: "button",
     disabled: disabledWhen,
@@ -91,7 +101,7 @@ async function renameUploadedAsset(key, name) {
 }
 
 export function assetsPage() {
-    const rows = van.state(assetMetasS.val);
+    const rows = van.state(latestAssets(assetMetasS.val));
     const error = van.state(null);
     const search = van.state("");
     const selected = van.state(null);
@@ -167,7 +177,7 @@ export function assetsPage() {
     };
 
     van.derive(() => {
-        rows.val = assetMetasS.val;
+        rows.val = latestAssets(assetMetasS.val);
     });
 
     reload();

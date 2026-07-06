@@ -59,7 +59,7 @@ func resolveEnvValue(key string, v *apigen.EnvVarValue) (string, error) {
 	if v.ConfigID != nil {
 		set++
 	}
-	if v.Asset != "" {
+	if v.AssetID > 0 {
 		set++
 	}
 	if set != 1 {
@@ -71,17 +71,14 @@ func resolveEnvValue(key string, v *apigen.EnvVarValue) (string, error) {
 	if v.SecretID != nil {
 		return resolveSecretRef(*v.SecretID)
 	}
-	if v.Asset != "" {
-		if v.AssetID <= 0 || v.Version <= 0 {
-			return "", fmt.Errorf("asset env var %q has unresolved asset id/version", key)
-		}
-		return implicitAssetContainerPath(v.AssetID, v.Version), nil
+	if v.AssetID > 0 {
+		return implicitAssetContainerPath(v.AssetID), nil
 	}
 	return resolveConfigRef(*v.ConfigID)
 }
 
-func implicitAssetContainerPath(assetID, version int32) string {
-	return implicitAssetContainerDir + "/" + strconv.Itoa(int(assetID)) + "_" + strconv.Itoa(int(version))
+func implicitAssetContainerPath(assetID int32) string {
+	return implicitAssetContainerDir + "/" + strconv.Itoa(int(assetID))
 }
 
 func resolveSecretRef(id int32) (string, error) {

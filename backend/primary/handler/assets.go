@@ -136,7 +136,13 @@ func (h *Handler) PostV1AssetsRename(ctx apigen.Context, request *http.Request, 
 	if !ok {
 		return AssetNotFoundErr
 	}
-	h.Store.NotifyAssetUpdate(asset)
+	versions := h.Store.ListAssetVersionsByKey(newKey)
+	for _, version := range versions {
+		h.Store.NotifyAssetUpdate(version)
+	}
+	if len(versions) == 0 {
+		h.Store.NotifyAssetUpdate(asset)
+	}
 	apigen.Respond(ctx, request, writer, asset, nil)
 	return nil
 }

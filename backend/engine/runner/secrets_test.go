@@ -28,14 +28,14 @@ func TestResolveEnv(t *testing.T) {
 			"DB_PASS": {SecretID: ptrInt32(1)},
 			"TOKEN":   {SecretID: ptrInt32(2)},
 			"HOST":    {ConfigID: ptrInt32(3)},
-			"CONFIG":  {Asset: "app.conf", AssetID: 12, Version: 4},
+			"CONFIG":  {Asset: "app.conf", AssetID: 12},
 		}
 		out, err := resolveEnv(in)
 		if err != nil {
 			t.Fatalf("resolveEnv: %v", err)
 		}
 		want := []string{
-			"CONFIG=/opendeploy-env-assets/12_4",
+			"CONFIG=/opendeploy-env-assets/12",
 			"DB_PASS=s3cret",
 			"HOST=db.local",
 			"PLAIN=value",
@@ -96,8 +96,8 @@ func TestContainerMountsIncludesImplicitAssetEnvMount(t *testing.T) {
 			Container: apigen.ContainerRunnerConfig{
 				DisableDataVolume: true,
 				EnvVars: map[string]*apigen.EnvVarValue{
-					"APP_CONFIG":   {Asset: "app.conf", AssetID: 12, Version: 4},
-					"APP_CONFIG_2": {Asset: "app.conf", AssetID: 12, Version: 4},
+					"APP_CONFIG":   {Asset: "app.conf", AssetID: 12},
+					"APP_CONFIG_2": {Asset: "app.conf", AssetID: 12},
 				},
 			},
 		}},
@@ -106,7 +106,7 @@ func TestContainerMountsIncludesImplicitAssetEnvMount(t *testing.T) {
 	if len(mounts) != 1 {
 		t.Fatalf("mounts len = %d; want 1", len(mounts))
 	}
-	if mounts[0].Dest != "/opendeploy-env-assets/12_4" || !mounts[0].ReadOnly {
+	if mounts[0].Dest != "/opendeploy-env-assets/12" || !mounts[0].ReadOnly {
 		t.Fatalf("implicit mount = %+v", mounts[0])
 	}
 }
