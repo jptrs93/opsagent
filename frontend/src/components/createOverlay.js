@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {deploymentsS, spacesS} from "../state/deployments.js";
+import {assetMetasS, deploymentsS, spacesS} from "../state/deployments.js";
 import {spinnerButton} from "./spinnerbutton.js";
 import {refreshIcon} from "../lib/icons.js";
 import {
@@ -35,7 +35,7 @@ export function createOverlay(onClose, onCreated, opts = {}) {
     }
     const machines = van.state([]);
     const machinesLoaded = van.state(false);
-    const assets = van.state([]);
+    const assets = van.state(assetMetasS.val);
     const loadingVersions = van.state(false);
 
     van.derive(() => {
@@ -64,6 +64,10 @@ export function createOverlay(onClose, onCreated, opts = {}) {
             assets.val = [];
         }
     };
+
+    van.derive(() => {
+        assets.val = assetMetasS.val;
+    });
 
     loadMachines();
     loadAssets();

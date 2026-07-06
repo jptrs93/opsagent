@@ -31,9 +31,18 @@ var EnrollmentWorkerNameRequiredErr = apigen.NewApiErr("Worker name is required"
 var EnrollmentNotConnectedErr = apigen.NewApiErr("Worker is not connected", "enrollment_not_connected", http.StatusConflict)
 var EnrollmentSigningNotConfiguredErr = apigen.NewApiErr("Cluster CA signing key is not configured", "enrollment_signing_not_configured", http.StatusServiceUnavailable)
 var EnrollmentNotFoundErr = apigen.NewApiErr("Enrollment request not found", "enrollment_not_found", http.StatusNotFound)
+var EnrollmentFingerprintNotConfiguredErr = apigen.NewApiErr("Enrollment TLS fingerprint is not configured", "enrollment_fingerprint_not_configured", http.StatusServiceUnavailable)
 
 func (h *Handler) VerifyEnrollmentRequest(ctx context.Context, _ http.ResponseWriter, r *http.Request, _ apigen.AccessPolicy) (apigen.Context, error) {
 	return apigen.Context{Ctx: context.WithValue(ctx, enrollmentRequestIPKey{}, remoteIP(r))}, nil
+}
+
+func (h *Handler) GetV1EnrollmentInfo(ctx apigen.Context) (*apigen.EnrollmentInfo, error) {
+	fingerprint := strings.TrimSpace(h.EnrollmentTLSFingerprint)
+	if fingerprint == "" {
+		return nil, EnrollmentFingerprintNotConfiguredErr
+	}
+	return &apigen.EnrollmentInfo{EnrollmentTlsSpkiSha256: fingerprint}, nil
 }
 
 func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*apigen.EnrollmentWorkerMsg, error]) iter.Seq2[*apigen.EnrollmentPrimaryMsg, error] {

@@ -74,6 +74,10 @@ type EnrollmentRequestList struct {
 	Items []*EnrollmentRequestStatus
 }
 
+type EnrollmentInfo struct {
+	EnrollmentTlsSpkiSha256 string
+}
+
 type EnrollmentAcceptRequest struct {
 	ID         int32
 	WorkerName string
@@ -320,6 +324,7 @@ type AssetMeta struct {
 	SizeBytes int32
 	ID        int32
 	SpaceID   int32
+	Deleted   bool
 }
 
 type Asset struct {
@@ -450,6 +455,8 @@ type State struct {
 	UserConfigValueUpdate    *UserConfig
 	SpacesSnapshot           *SpaceList
 	SpaceUpdate              *Space
+	AssetsSnapshot           *AssetList
+	AssetUpdate              *AssetMeta
 }
 
 type Space struct {

@@ -62,7 +62,9 @@ func (s *Store) SetAssetFromReader(ctx context.Context, key, format string, size
 		if int64(len(blob)) != sizeBytes {
 			return nil, fmt.Errorf("asset upload size changed while reading")
 		}
-		return s.DB.SetAsset(key, format, blob, spaceID), nil
+		asset := s.DB.SetAsset(key, format, blob, spaceID)
+		s.DB.NotifyAssetUpdate(asset)
+		return asset, nil
 	}
 	return s.setLargeAssetFromReader(ctx, key, format, sizeBytes, r, spaceID)
 }
@@ -103,6 +105,7 @@ func (s *Store) setLargeAssetFromReader(ctx context.Context, key, format string,
 	}
 	asset = s.DB.UpdateAssetLocation(asset.ID, location)
 	asset.Blob = nil
+	s.DB.NotifyAssetUpdate(asset)
 	return asset, nil
 }
 
@@ -122,6 +125,7 @@ func (s *Store) OpenAsset(ctx context.Context, assetID, version int32) (*apigen.
 }
 
 func (s *Store) DeleteAsset(ctx context.Context, key string) error {
+	latest, ok := s.DB.GetAsset(key, 0)
 	for _, asset := range s.DB.ListAssetVersionsByKey(key) {
 		if asset.Location == "" {
 			continue
@@ -131,6 +135,9 @@ func (s *Store) DeleteAsset(ctx context.Context, key string) error {
 		}
 	}
 	s.DB.DeleteAsset(key)
+	if ok {
+		s.DB.NotifyAssetDeleted(latest)
+	}
 	return nil
 }
 

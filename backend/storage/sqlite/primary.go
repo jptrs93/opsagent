@@ -78,6 +78,7 @@ type PrimaryStorage struct {
 	userConfigSubs      *pubsubu.PubSub[apigen.UserConfigReference]
 	userConfigValueSubs *pubsubu.PubSub[apigen.UserConfig]
 	spaceSubs           *pubsubu.PubSub[apigen.Space]
+	assetSubs           *pubsubu.PubSub[apigen.AssetMeta]
 	enrollmentSubs      *pubsubu.PubSub[apigen.EnrollmentRequestStatus]
 }
 
@@ -92,6 +93,7 @@ func NewPrimaryStorage(dbPath string) *PrimaryStorage {
 		userConfigSubs:      &pubsubu.PubSub[apigen.UserConfigReference]{},
 		userConfigValueSubs: &pubsubu.PubSub[apigen.UserConfig]{},
 		spaceSubs:           &pubsubu.PubSub[apigen.Space]{},
+		assetSubs:           &pubsubu.PubSub[apigen.AssetMeta]{},
 		enrollmentSubs:      &pubsubu.PubSub[apigen.EnrollmentRequestStatus]{},
 	}
 }

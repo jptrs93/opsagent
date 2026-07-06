@@ -93,6 +93,7 @@ type OpsagentHttpV1Handler interface {
 	PostV1DeploymentVersions(Context, *DeploymentVersionsRequest) (*DeploymentVersions, error)
 	PostV1RepoValidate(Context, *ValidateSourceRequest) (*ValidateSourceResponse, error)
 	GetV1Settings(Context) (*Settings, error)
+	GetV1EnrollmentInfo(Context) (*EnrollmentInfo, error)
 	PutV1Settings(Context, *Settings) (*Settings, error)
 	PostV1GenerateExportedConfig(Context, *EmptyRequest) (*ExportedConfigBlob, error)
 	PostV1SecretsList(Context, *EmptyRequest) (*SecretList, error)
@@ -424,6 +425,12 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("GET /v1/settings", buildHandlerFunc(config, verifyAuth, getV1SettingsAccessPolicy, postAuthHandlerGetV1Settings, compressionModeAuto, false))
+	getV1EnrollmentInfoAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerGetV1EnrollmentInfo := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		res, err := h.GetV1EnrollmentInfo(authCtx)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("GET /v1/enrollment/info", buildHandlerFunc(config, verifyAuth, getV1EnrollmentInfoAccessPolicy, postAuthHandlerGetV1EnrollmentInfo, compressionModeAuto, false))
 	putV1SettingsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPutV1Settings := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSettings)

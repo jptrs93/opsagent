@@ -220,6 +220,35 @@ func DecodeEnrollmentRequestList(b []byte) (*EnrollmentRequestList, error) {
 	return &m, nil
 }
 
+func (m *EnrollmentInfo) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.EnrollmentTlsSpkiSha256, 1)
+	return b
+}
+
+func DecodeEnrollmentInfo(b []byte) (*EnrollmentInfo, error) {
+	var m EnrollmentInfo
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.EnrollmentTlsSpkiSha256, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *EnrollmentAcceptRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
@@ -2169,6 +2198,7 @@ func (m *AssetMeta) Encode() []byte {
 	b = AppendInt32Field(b, m.SizeBytes, 6)
 	b = AppendInt32Field(b, m.ID, 7)
 	b = AppendInt32Field(b, m.SpaceID, 8)
+	b = AppendBoolField(b, m.Deleted, 9)
 	return b
 }
 
@@ -2199,6 +2229,8 @@ func DecodeAssetMeta(b []byte) (*AssetMeta, error) {
 			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 8:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 9:
+			b, m.Deleted, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3029,6 +3061,14 @@ func (m *State) Encode() []byte {
 		b = AppendTag(b, 22, BytesType)
 		b = AppendBytes(b, m.SpaceUpdate.Encode())
 	}
+	if m.AssetsSnapshot != nil {
+		b = AppendTag(b, 23, BytesType)
+		b = AppendBytes(b, m.AssetsSnapshot.Encode())
+	}
+	if m.AssetUpdate != nil {
+		b = AppendTag(b, 24, BytesType)
+		b = AppendBytes(b, m.AssetUpdate.Encode())
+	}
 	return b
 }
 
@@ -3215,6 +3255,24 @@ func DecodeState(b []byte) (*State, error) {
 				item, err = DecodeSpace(msgBytes)
 				if err == nil {
 					m.SpaceUpdate = item
+				}
+			}
+		case 23:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AssetList
+				item, err = DecodeAssetList(msgBytes)
+				if err == nil {
+					m.AssetsSnapshot = item
+				}
+			}
+		case 24:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AssetMeta
+				item, err = DecodeAssetMeta(msgBytes)
+				if err == nil {
+					m.AssetUpdate = item
 				}
 			}
 		default:

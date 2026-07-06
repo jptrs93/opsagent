@@ -33,7 +33,7 @@ Install a new worker with a single command:
 sudo ./ubuntu_worker_install.sh \
     --cluster-addr primary.example.com:9443 \
     --enrollment-addr primary.example.com:9444 \
-    --primary-fingerprint sha256:AA:BB:CC:...
+    --enrollment-fingerprint sha256:AA:BB:CC:...
 ```
 
 No pre-generated certs. No manual file copies. Everything the worker needs is
@@ -63,12 +63,12 @@ from the mTLS cluster listener because new workers do not yet have client certs:
 
 ### Worker-side first contact
 
-1. Worker reads `--cluster-addr`, `--enrollment-addr`, and `--primary-fingerprint` from its env.
+1. Worker reads `--cluster-addr`, `--enrollment-addr`, and `--enrollment-fingerprint` from its env.
 2. If `/var/lib/opendeploy/tls/node.crt` already exists, skip enrollment and
    connect directly on the mTLS channel. (Idempotent — reruns are safe.)
 3. Otherwise, dial `--enrollment-addr` with TLS `InsecureSkipVerify: true` plus
    a custom `VerifyConnection` callback that computes the SHA-256 of the
-   presented leaf cert and compares it to `--primary-fingerprint`. On
+   presented leaf cert SPKI and compares it to `--enrollment-fingerprint`. On
    mismatch, **abort with a clear error** — do not proceed.
 4. Send `POST /enroll/request` with:
    - a freshly-generated ed25519 keypair's public key (the worker keeps the
@@ -152,9 +152,9 @@ Workers hold secrets in memory only; no on-disk copy. Restart → reconnect
 
 - `opendeploy install` stays the primary installer, unchanged.
 - Worker install: `opendeploy install` grows a worker mode via flags
-  (`--cluster-addr`, `--enrollment-addr`, `--primary-fingerprint`):
+  (`--cluster-addr`, `--enrollment-addr`, `--enrollment-fingerprint`):
   - creates the `opendeploy` user, data dir, sudoers, unit file (same as primary)
-  - writes `/etc/opendeploy/env` with `OPENDEPLOY_PRIMARY_CLUSTER_ADDR`, `OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR`, and
+  - writes `/etc/opendeploy/env` with `OPENDEPLOY_PRIMARY_CLUSTER_ADDR`, `OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR`, `OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT`, and
     `OPENDEPLOY_PRIMARY_FINGERPRINT` set, everything else blank
   - starts the service immediately — no manual config step, since first-contact
     enrollment blocks in-process until the operator approves

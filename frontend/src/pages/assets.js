@@ -5,7 +5,7 @@ import {decodeAsset} from "../capi/model.js";
 import {closeIcon, trashIcon} from "../lib/icons.js";
 import {formatDateTime} from "../lib/date.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
-import {deploymentsS} from "../state/deployments.js";
+import {assetMetasS, deploymentsS} from "../state/deployments.js";
 import {loginS} from "../state/login.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, textarea } = van.tags;
@@ -91,7 +91,7 @@ async function renameUploadedAsset(key, name) {
 }
 
 export function assetsPage() {
-    const rows = van.state(null);
+    const rows = van.state(assetMetasS.val);
     const error = van.state(null);
     const search = van.state("");
     const selected = van.state(null);
@@ -165,6 +165,10 @@ export function assetsPage() {
             error.val = e.message;
         }
     };
+
+    van.derive(() => {
+        rows.val = assetMetasS.val;
+    });
 
     reload();
 

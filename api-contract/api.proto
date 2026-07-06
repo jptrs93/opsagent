@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package opsagent.v1;
 
-import "options.proto";
+import "api-contract/options.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
@@ -119,6 +119,10 @@ service OpsagentHttpV1 {
   // Settings document. Secret/config refs are pinned by immutable row id; use
   // PostV1SecretsReveal to reveal plaintext explicitly.
   rpc GetV1Settings(cp.Empty) returns (Settings) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc GetV1EnrollmentInfo(cp.Empty) returns (EnrollmentInfo) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -310,6 +314,10 @@ message EnrollmentRequestStatus {
 
 message EnrollmentRequestList {
   repeated EnrollmentRequestStatus items = 1;
+}
+
+message EnrollmentInfo {
+  string enrollment_tls_spki_sha256 = 1;
 }
 
 message EnrollmentAcceptRequest {
@@ -575,6 +583,7 @@ message AssetMeta {
   int32 size_bytes = 6;
   int32 id = 7;
   int32 space_id = 8;
+  bool deleted = 9;
 }
 
 message Asset {
@@ -745,6 +754,8 @@ message State {
   UserConfig user_config_value_update = 20;
   SpaceList spaces_snapshot = 21;
   Space space_update = 22;
+  AssetList assets_snapshot = 23;
+  AssetMeta asset_update = 24;
 }
 
 message Space {

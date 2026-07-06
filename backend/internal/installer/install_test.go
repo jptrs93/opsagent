@@ -68,6 +68,31 @@ func TestRenderEnvTemplateWritesSplitWebSettings(t *testing.T) {
 	}
 }
 
+func TestParseInstallSecondaryRequiresEnrollmentFingerprint(t *testing.T) {
+	_, _, err := parseInstallSecondary([]string{"--cluster-addr", "primary:9443", "--enrollment-addr", "primary:9444"})
+	if err == nil || !strings.Contains(err.Error(), "--enrollment-fingerprint") {
+		t.Fatalf("parseInstallSecondary err = %v, want enrollment fingerprint error", err)
+	}
+}
+
+func TestParseInstallSecondaryStoresEnrollmentFingerprint(t *testing.T) {
+	_, opts, err := parseInstallSecondary([]string{
+		"--cluster-addr", "primary:9443",
+		"--enrollment-addr", "primary:9444",
+		"--enrollment-fingerprint", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	})
+	if err != nil {
+		t.Fatalf("parseInstallSecondary: %v", err)
+	}
+	if opts.enrollmentFingerprint == nil || *opts.enrollmentFingerprint == "" {
+		t.Fatal("enrollment fingerprint was not stored")
+	}
+	env := string(renderEnvTemplate(opts, nil))
+	if !strings.Contains(env, "OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
+		t.Fatalf("env missing enrollment fingerprint:\n%s", env)
+	}
+}
+
 func TestRenderOpenDeployUnitUsesRestartAlways(t *testing.T) {
 	unit := renderOpenDeployUnit(installOptions{role: "primary"})
 	if !strings.Contains(string(unit), "Restart=always") {

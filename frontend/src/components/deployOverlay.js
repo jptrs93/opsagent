@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {deploymentsS, spacesS} from "../state/deployments.js";
+import {assetMetasS, deploymentsS, spacesS} from "../state/deployments.js";
 import {spinnerButton} from "./spinnerbutton.js";
 import {refreshIcon} from "../lib/icons.js";
 import {
@@ -45,7 +45,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     const requestDescription = van.state('');
     const versionError = van.state('');
     const errorMsg = van.state('');
-    const assets = van.state([]);
+    const assets = van.state(assetMetasS.val);
     const canStop = Boolean(deployment.desiredRunning);
     const canManageLifecycle = deployment.runnerType !== 'systemd';
     const canStart = Boolean(deployment.deployedVersion);
@@ -206,6 +206,10 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
             assets.val = [];
         }
     };
+
+    van.derive(() => {
+        assets.val = assetMetasS.val;
+    });
 
     van.derive(() => {
         if (form.sourceType.val !== 'containerImage') return;

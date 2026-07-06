@@ -14,6 +14,7 @@ export const userConfigRefsS = van.state([]);
 export const secretsStatusS = van.state(null);
 export const secretMetasS = van.state([]);
 export const userConfigsS = van.state([]);
+export const assetMetasS = van.state([]);
 const SEEDED_SPACES = [{id: 0, name: 'opendeploy'}, {id: 1, name: 'default'}];
 
 export const spacesS = van.state(SEEDED_SPACES);
@@ -77,6 +78,7 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
         secretsStatusS.val = null;
         secretMetasS.val = [];
         userConfigsS.val = [];
+        assetMetasS.val = [];
         spacesS.val = SEEDED_SPACES;
     }
     setStreamState('offline', 'offline');
@@ -177,10 +179,19 @@ const handleStateMessage = (message) => {
     if (message.spaceUpdate && message.spaceUpdate.id !== undefined) {
         spacesS.val = applySpaceUpdate(spacesS.val, message.spaceUpdate);
     }
+
+    if (message.assetsSnapshot) {
+        assetMetasS.val = sortAssets(message.assetsSnapshot.items || []);
+    }
+
+    if (message.assetUpdate && (message.assetUpdate.id || message.assetUpdate.key)) {
+        assetMetasS.val = applyAssetUpdate(assetMetasS.val, message.assetUpdate);
+    }
 };
 
 const sortByName = (items) => [...items].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 const sortSpaces = (items) => [...items].sort((a, b) => (a.id || 0) - (b.id || 0) || (a.name || '').localeCompare(b.name || ''));
+const sortAssets = (items) => [...items].sort((a, b) => (a.key || '').localeCompare(b.key || ''));
 
 const applyItemUpdate = (items, update) => {
     const next = new Map((items || []).map((item) => [item.id, item]));
@@ -210,6 +221,14 @@ const applySpaceUpdate = (items, update) => {
         next.set(update.id, update);
     }
     return sortSpaces(Array.from(next.values()));
+};
+
+const applyAssetUpdate = (items, update) => {
+    const next = (items || []).filter((item) => item.id !== update.id && item.key !== update.key);
+    if (!update.deleted) {
+        next.push(update);
+    }
+    return sortAssets(next);
 };
 
 const scheduleReconnect = (generation, lastError) => {

@@ -195,6 +195,7 @@ func parseInstallSecondary(args []string) (string, installOptions, error) {
 	useSelf := fs.Bool("use-self", false, "install this executable as v0.0.0 instead of downloading opendeploy")
 	clusterAddrRaw := fs.String("cluster-addr", "", "set OPENDEPLOY_PRIMARY_CLUSTER_ADDR for the primary mTLS cluster address")
 	enrollmentAddrRaw := fs.String("enrollment-addr", "", "set OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR for the primary enrollment address")
+	enrollmentFingerprintRaw := fs.String("enrollment-fingerprint", "", "set OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT for enrollment TLS pinning")
 	primaryNameRaw := fs.String("primary-name", "", "set OPENDEPLOY_PRIMARY_NAME for primary TLS verification (default runtime value: primary)")
 	fs.BoolVar(&dryRun, "dry-run", false, "print the actions that would be taken without performing them")
 	_ = fs.Parse(args)
@@ -217,6 +218,13 @@ func parseInstallSecondary(args []string) (string, installOptions, error) {
 				return
 			}
 			opts.enrollmentAddr = &v
+		case "enrollment-fingerprint":
+			v := strings.TrimSpace(*enrollmentFingerprintRaw)
+			if err := validateInstallStringFlag("--enrollment-fingerprint", v); err != nil && parseErr == nil {
+				parseErr = err
+				return
+			}
+			opts.enrollmentFingerprint = &v
 		case "primary-name":
 			v := strings.TrimSpace(*primaryNameRaw)
 			if err := validateInstallStringFlag("--primary-name", v); err != nil && parseErr == nil {
@@ -235,6 +243,9 @@ func parseInstallSecondary(args []string) (string, installOptions, error) {
 	if opts.enrollmentAddr == nil {
 		return "", installOptions{}, fmt.Errorf("install secondary requires --enrollment-addr")
 	}
+	if opts.enrollmentFingerprint == nil {
+		return "", installOptions{}, fmt.Errorf("install secondary requires --enrollment-fingerprint")
+	}
 	return *version, opts, nil
 }
 
@@ -250,7 +261,7 @@ func usage(prog string) {
 
 Usage:
   %[1]s install primary [--version vX.Y.Z] [--use-self] [--http-only true] [--web-listen :8080] [--cluster-listen :9443] [--enrollment-listen :9444] [--acme-hosts host1,host2] [--primary-name primary] [--restore-backup true --restore-s3-access-key-id ... --restore-s3-secret-access-key ... --restore-s3-bucket ... --restore-s3-path ... --restore-s3-region ... --recovery-code ...] [--dry-run]
-  %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 [--version vX.Y.Z] [--use-self] [--primary-name primary] [--dry-run]
+  %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 --enrollment-fingerprint sha256:<hex> [--version vX.Y.Z] [--use-self] [--primary-name primary] [--dry-run]
   %[1]s uninstall [--purge] [--yes] [--dry-run]
 
 Commands:

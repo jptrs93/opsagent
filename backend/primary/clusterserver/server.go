@@ -60,19 +60,22 @@ func RunEnrollment(
 	loader config.Loader,
 	material *cluster.Material,
 	listenSetting apigen.StringSetting,
+	middlewares ...apigen.MiddlewareFunc,
 ) error {
 	listen := loader.MustLoadConfigStringValue(listenSetting)
+	streamMiddlewares := []apigen.MiddlewareFunc{
+		func(next apigen.HandlerFunc) apigen.HandlerFunc {
+			return func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+				_ = http.NewResponseController(w).EnableFullDuplex()
+				next(ctx, w, r)
+			}
+		},
+	}
+	streamMiddlewares = append(streamMiddlewares, middlewares...)
 	mux := apigen.CreateEnrollmentV1Mux(h, &apigen.MuxConfig{
 		VerifyAuth:         verifyAuth,
 		MaxRequestBodySize: 1 * 1024 * 1024,
-		Middlewares: []apigen.MiddlewareFunc{
-			func(next apigen.HandlerFunc) apigen.HandlerFunc {
-				return func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-					_ = http.NewResponseController(w).EnableFullDuplex()
-					next(ctx, w, r)
-				}
-			},
-		},
+		Middlewares:        streamMiddlewares,
 	})
 	srv := &http.Server{
 		Addr:        listen,

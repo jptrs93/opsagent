@@ -8,6 +8,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/jptrs93/goutil/pubsubu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
@@ -38,6 +39,22 @@ func assetRowToMeta(r ListLatestAssetsRow) *apigen.AssetMeta {
 	}
 }
 
+func assetProtoToMeta(a *apigen.Asset) apigen.AssetMeta {
+	if a == nil {
+		return apigen.AssetMeta{}
+	}
+	return apigen.AssetMeta{
+		ID:        a.ID,
+		Key:       a.Key,
+		SpaceID:   a.SpaceID,
+		CreatedAt: a.CreatedAt,
+		Version:   a.Version,
+		Format:    a.Format,
+		Location:  a.Location,
+		SizeBytes: a.SizeBytes,
+	}
+}
+
 func (s *PrimaryStorage) ListAssets() []*apigen.AssetMeta {
 	rows, err := s.q.ListLatestAssets(context.Background())
 	if err != nil {
@@ -48,6 +65,28 @@ func (s *PrimaryStorage) ListAssets() []*apigen.AssetMeta {
 		out = append(out, assetRowToMeta(r))
 	}
 	return out
+}
+
+func (s *PrimaryStorage) NotifyAssetUpdate(asset *apigen.Asset) {
+	meta := assetProtoToMeta(asset)
+	if meta.ID == 0 && meta.Key == "" {
+		return
+	}
+	s.assetSubs.Notify(meta)
+}
+
+func (s *PrimaryStorage) NotifyAssetDeleted(asset *apigen.Asset) {
+	meta := assetProtoToMeta(asset)
+	if meta.ID == 0 && meta.Key == "" {
+		return
+	}
+	meta.Deleted = true
+	s.assetSubs.Notify(meta)
+}
+
+func (s *PrimaryStorage) SubscribeAssetUpdates() (*pubsubu.Sub[apigen.AssetMeta], func()) {
+	sub := s.assetSubs.Subscribe(nil)
+	return sub, sub.UnsubscribeFunc
 }
 
 func (s *PrimaryStorage) GetAsset(key string, version int32) (*apigen.Asset, bool) {

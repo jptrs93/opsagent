@@ -13,13 +13,19 @@ const formatTime = (t) => {
 
 export function clusterPage() {
     const config = van.state(null);
+    const enrollmentInfo = van.state(null);
     const configError = van.state(null);
     const copied = van.state(false);
 
     const loadConfig = async () => {
         try {
             configError.val = null;
-            config.val = await capi.getV1Settings();
+            const [settings, info] = await Promise.all([
+                capi.getV1Settings(),
+                capi.getV1EnrollmentInfo(),
+            ]);
+            config.val = settings;
+            enrollmentInfo.val = info;
         } catch (e) {
             configError.val = e.message || "Failed to load cluster config";
         }
@@ -27,7 +33,7 @@ export function clusterPage() {
     loadConfig();
 
     const copyInstallCommand = async () => {
-        const command = secondaryInstallCommand(config.val);
+        const command = secondaryInstallCommand(config.val, enrollmentInfo.val);
         if (!command) return;
         await navigator.clipboard.writeText(command);
         copied.val = true;
@@ -108,14 +114,14 @@ export function clusterPage() {
                             ),
                             tbody(...pending.map(req => enrollmentRow(req)))
                         ),
-                    secondaryInstallPanel(config, configError, copied, copyInstallCommand),
+                    secondaryInstallPanel(config, enrollmentInfo, configError, copied, copyInstallCommand),
                 )
             );
         }
     );
 }
 
-function secondaryInstallPanel(config, configError, copied, onCopy) {
+function secondaryInstallPanel(config, enrollmentInfo, configError, copied, onCopy) {
     return div(
         {class: "mt-4 pt-4 border-t border-gray-700"},
         div(
@@ -125,7 +131,7 @@ function secondaryInstallPanel(config, configError, copied, onCopy) {
                 {
                     type: "button",
                     class: "btn-secondary text-sm py-1.5 px-3 shrink-0",
-                    disabled: () => !secondaryInstallCommand(config.val),
+                    disabled: () => !secondaryInstallCommand(config.val, enrollmentInfo.val),
                     onclick: onCopy,
                 },
                 () => copied.val ? "Copied" : "Copy",
@@ -133,27 +139,29 @@ function secondaryInstallPanel(config, configError, copied, onCopy) {
         ),
         () => configError.val
             ? p({class: "text-xs text-red-400"}, configError.val)
-            : installCommandBlock(secondaryInstallCommand(config.val)),
+            : installCommandBlock(secondaryInstallCommand(config.val, enrollmentInfo.val)),
     );
 }
 
 function installCommandBlock(command) {
     if (!command) {
-        return p({class: "text-xs text-gray-500"}, "Loading primary cluster addresses...");
+        return p({class: "text-xs text-gray-500"}, "Loading primary cluster addresses and enrollment fingerprint...");
     }
     return code({class: "block overflow-x-auto whitespace-pre rounded bg-gray-950 p-3 text-xs text-gray-200"}, command);
 }
 
-function secondaryInstallCommand(config) {
+function secondaryInstallCommand(config, enrollmentInfo) {
     const clusterListen = resolveStringSetting(config?.cluster?.listen);
     const enrollmentListen = resolveStringSetting(config?.cluster?.enrollmentListen);
-    if (!clusterListen || !enrollmentListen) return "";
+    const enrollmentFingerprint = (enrollmentInfo?.enrollmentTlsSpkiSha256 || "").trim();
+    if (!clusterListen || !enrollmentListen || !enrollmentFingerprint) return "";
     const clusterAddr = dialAddress(clusterListen);
     const enrollmentAddr = dialAddress(enrollmentListen);
     if (!clusterAddr || !enrollmentAddr) return "";
     return `curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/install_secondary.sh | bash -s -- \\
   --cluster-addr "${clusterAddr}" \\
-  --enrollment-addr "${enrollmentAddr}"`;
+  --enrollment-addr "${enrollmentAddr}" \\
+  --enrollment-fingerprint "${enrollmentFingerprint}"`;
 }
 
 function resolveStringSetting(setting) {

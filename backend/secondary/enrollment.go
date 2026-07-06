@@ -2,6 +2,8 @@ package secondary
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/tls"
 	"fmt"
 	"log/slog"
@@ -17,12 +19,13 @@ import (
 )
 
 type EnrollmentConfig struct {
-	PrimaryEnrollmentAddr string
-	DataDir               string
-	ClusterCAPath         string
-	ClusterCertPath       string
-	ClusterKeyPath        string
-	OpendeployVersion     string
+	PrimaryEnrollmentAddr        string
+	PrimaryEnrollmentFingerprint string
+	DataDir                      string
+	ClusterCAPath                string
+	ClusterCertPath              string
+	ClusterKeyPath               string
+	OpendeployVersion            string
 }
 
 func Enroll(cfg EnrollmentConfig) error {
@@ -33,7 +36,11 @@ func Enroll(cfg EnrollmentConfig) error {
 	if err != nil {
 		return err
 	}
-	capi := apigen.NewEnrollmentV1Capi(enrollmentBaseURL(cfg.PrimaryEnrollmentAddr), apigen.WithEnrollmentV1CapiHTTPClient(enrollmentHTTPClient()))
+	client, err := enrollmentHTTPClient(cfg.PrimaryEnrollmentFingerprint)
+	if err != nil {
+		return err
+	}
+	capi := apigen.NewEnrollmentV1Capi(enrollmentBaseURL(cfg.PrimaryEnrollmentAddr), apigen.WithEnrollmentV1CapiHTTPClient(client))
 
 	backoff := time.Second
 	const maxBackoff = 30 * time.Second
@@ -120,11 +127,26 @@ func writeEnrollmentTLSBundle(cfg EnrollmentConfig, accepted *apigen.EnrollmentA
 	return nil
 }
 
-func enrollmentHTTPClient() *http.Client {
+func enrollmentHTTPClient(expectedFingerprint string) (*http.Client, error) {
+	expected, err := certu.ParseSHA256Fingerprint(expectedFingerprint)
+	if err != nil {
+		return nil, fmt.Errorf("primary enrollment fingerprint: %w", err)
+	}
 	// The worker has no cluster trust root before enrollment. TLS still prevents
-	// passive capture, while CSR enrollment keeps the private key off the wire.
-	// Fingerprint pinning can replace this bootstrap skip later.
-	return &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+	// passive capture; SPKI pinning authenticates the bootstrap server identity.
+	return &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{
+		InsecureSkipVerify: true,
+		VerifyConnection: func(state tls.ConnectionState) error {
+			if len(state.PeerCertificates) == 0 {
+				return fmt.Errorf("enrollment TLS server did not present a certificate")
+			}
+			got := sha256.Sum256(state.PeerCertificates[0].RawSubjectPublicKeyInfo)
+			if subtle.ConstantTimeCompare(got[:], expected) != 1 {
+				return fmt.Errorf("enrollment TLS fingerprint mismatch: got %s, want %s", certu.FormatSHA256Fingerprint(got[:]), certu.FormatSHA256Fingerprint(expected))
+			}
+			return nil
+		},
+	}}}, nil
 }
 
 func ensureRequestingMachineID(dataDir string) (string, error) {

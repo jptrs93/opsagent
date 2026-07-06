@@ -122,15 +122,26 @@ func runPrimary() error {
 	if err != nil {
 		return fmt.Errorf("bootstrapping cluster TLS material: %w", err)
 	}
+	enrollmentFingerprint, err := certu.CertificatePEMSPKISHA256(clusterMaterial.PrimaryCert)
+	if err != nil {
+		return fmt.Errorf("computing enrollment TLS fingerprint: %w", err)
+	}
+	h.EnrollmentTLSFingerprint = enrollmentFingerprint
 
 	// Primary cluster and enrollment listeners start for every primary.
 	clusterPrimary := clusterserver.New(h.Store, h.Assets, h.Github, h.Secrets)
 	h.ClusterPrimary = clusterPrimary
+	enrollmentMiddlewares := []apigen.MiddlewareFunc{}
+	if !localtest.Enabled() {
+		enrollmentMiddlewares = append(enrollmentMiddlewares,
+			ratelimit.PerIP(rate.Limit(0.2), 5, time.Minute),
+		)
+	}
 	g.Go(func() error {
 		return clusterserver.RunPrimary(ctx, clusterPrimary, h.ConfigService, clusterMaterial, initialConfig.Settings.Cluster.Listen)
 	})
 	g.Go(func() error {
-		return clusterserver.RunEnrollment(ctx, h, h.VerifyEnrollmentRequest, h.ConfigService, clusterMaterial, initialConfig.Settings.Cluster.EnrollmentListen)
+		return clusterserver.RunEnrollment(ctx, h, h.VerifyEnrollmentRequest, h.ConfigService, clusterMaterial, initialConfig.Settings.Cluster.EnrollmentListen, enrollmentMiddlewares...)
 	})
 	middlewares := []apigen.MiddlewareFunc{}
 	if !localtest.Enabled() {
@@ -187,14 +198,18 @@ func runSecondary() {
 	}
 	caPath, certPath, keyPath := workerTLSPaths(cfg.DataDir)
 	if !workerTLSMaterialExists(caPath, certPath, keyPath) {
+		if cfg.PrimaryEnrollmentFingerprint == "" {
+			panic("OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT must be set before worker enrollment")
+		}
 		slog.Info(fmt.Sprintf("worker cluster certs missing; starting enrollment enrollmentAddr=%v", cfg.PrimaryEnrollmentAddr))
 		if err := secondary.Enroll(secondary.EnrollmentConfig{
-			PrimaryEnrollmentAddr: cfg.PrimaryEnrollmentAddr,
-			DataDir:               cfg.DataDir,
-			ClusterCAPath:         caPath,
-			ClusterCertPath:       certPath,
-			ClusterKeyPath:        keyPath,
-			OpendeployVersion:     version.Version,
+			PrimaryEnrollmentAddr:        cfg.PrimaryEnrollmentAddr,
+			PrimaryEnrollmentFingerprint: cfg.PrimaryEnrollmentFingerprint,
+			DataDir:                      cfg.DataDir,
+			ClusterCAPath:                caPath,
+			ClusterCertPath:              certPath,
+			ClusterKeyPath:               keyPath,
+			OpendeployVersion:            version.Version,
 		}); err != nil {
 			panic(fmt.Sprintf("worker enrollment: %v", err))
 		}

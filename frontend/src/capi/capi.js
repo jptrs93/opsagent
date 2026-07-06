@@ -10,6 +10,7 @@ import {
   decodeDeploymentHistory,
   decodeDeploymentVersions,
   decodeDesiredState,
+  decodeEnrollmentInfo,
   decodeEnrollmentPrimaryMsg,
   decodeEnrollmentRequestList,
   decodeEnrollmentRequestStatus,
@@ -455,6 +456,17 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeSettings(await response.arrayBuffer());
+  }
+
+  /**
+   * @returns {Promise<EnrollmentInfo>}
+   */
+  async getV1EnrollmentInfo() {
+    const response = await this.#request("/v1/enrollment/info", { method: 'GET' });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeEnrollmentInfo(await response.arrayBuffer());
   }
 
   /**

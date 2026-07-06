@@ -80,9 +80,10 @@ type StaticConfiguration struct {
 	ContainerdAddress   string
 	ContainerdNamespace string
 
-	PrimaryClusterAddr    string `env:"OPENDEPLOY_PRIMARY_CLUSTER_ADDR,"`    // secondaries only: primary's mTLS cluster address
-	PrimaryEnrollmentAddr string `env:"OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR,"` // secondaries only: primary's unauthenticated enrollment address
-	PrimaryName           string `env:"OPENDEPLOY_PRIMARY_NAME,primary"`     // primary cert DNS name; secondaries use it for TLS verification when dialing by IP
+	PrimaryClusterAddr           string `env:"OPENDEPLOY_PRIMARY_CLUSTER_ADDR,"`           // secondaries only: primary's mTLS cluster address
+	PrimaryEnrollmentAddr        string `env:"OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR,"`        // secondaries only: primary's unauthenticated enrollment address
+	PrimaryEnrollmentFingerprint string `env:"OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT,"` // secondaries only: sha256 SPKI fingerprint for enrollment TLS pinning
+	PrimaryName                  string `env:"OPENDEPLOY_PRIMARY_NAME,primary"`            // primary cert DNS name; secondaries use it for TLS verification when dialing by IP
 
 	InitialWebHTTPEnabled     bool     `env:"OPENDEPLOY_INITIAL_WEB_HTTP_ENABLED,false"`
 	InitialWebHTTPListen      string   `env:"OPENDEPLOY_INITIAL_WEB_HTTP_LISTEN,:8080"`

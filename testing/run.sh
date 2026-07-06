@@ -210,10 +210,12 @@ install_primary() {
 
 install_secondary() {
 	download_opendeploy "$SECONDARY_NAME"
+	local enrollment_fingerprint
+	enrollment_fingerprint="$(primary_enrollment_fingerprint)"
 	if [[ "$LOCAL_TEST" == "true" ]]; then
-		docker exec -e OPENDEPLOY_LOCAL_TEST="$LOCAL_TEST" "$SECONDARY_NAME" opendeploy install secondary --use-self --cluster-addr "$PRIMARY_NAME:9443" --enrollment-addr "$PRIMARY_NAME:9444"
+		docker exec -e OPENDEPLOY_LOCAL_TEST="$LOCAL_TEST" "$SECONDARY_NAME" opendeploy install secondary --use-self --cluster-addr "$PRIMARY_NAME:9443" --enrollment-addr "$PRIMARY_NAME:9444" --enrollment-fingerprint "$enrollment_fingerprint"
 	else
-		docker exec -e OPENDEPLOY_LOCAL_TEST="$LOCAL_TEST" "$SECONDARY_NAME" opendeploy install secondary --version "$VERSION" --cluster-addr "$PRIMARY_NAME:9443" --enrollment-addr "$PRIMARY_NAME:9444"
+		docker exec -e OPENDEPLOY_LOCAL_TEST="$LOCAL_TEST" "$SECONDARY_NAME" opendeploy install secondary --version "$VERSION" --cluster-addr "$PRIMARY_NAME:9443" --enrollment-addr "$PRIMARY_NAME:9444" --enrollment-fingerprint "$enrollment_fingerprint"
 	fi
 	configure_local_test "$SECONDARY_NAME"
 	configure_github_token "$SECONDARY_NAME"
@@ -221,6 +223,18 @@ install_secondary() {
 	docker exec "$SECONDARY_NAME" usermod -aG nix-users opendeploy
 	docker exec "$SECONDARY_NAME" systemctl restart opendeploy.service
 	wait_for_service "$SECONDARY_NAME" opendeploy.service
+}
+
+primary_enrollment_fingerprint() {
+	docker exec "$PRIMARY_NAME" bash -lc '
+		set -euo pipefail
+		hex=$(openssl s_client -connect 127.0.0.1:9444 -servername primary </dev/null 2>/dev/null \
+			| openssl x509 -pubkey -noout \
+			| openssl pkey -pubin -outform DER \
+			| openssl dgst -sha256 -hex \
+			| awk "{print \$2}")
+		printf "sha256:%s\n" "$hex"
+	'
 }
 
 wait_for_service() {

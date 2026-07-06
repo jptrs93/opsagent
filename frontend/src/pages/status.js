@@ -7,7 +7,7 @@ import {deployOverlay} from "../components/deployOverlay.js";
 import {createOverlay} from "../components/createOverlay.js";
 import {prepareOutputOverlay} from "../components/prepareOutputOverlay.js";
 import {exportConfigOverlay} from "../components/exportConfigOverlay.js";
-import {deploymentJsonOverlay} from "../components/deploymentJsonOverlay.js";
+import {deploymentConfigOverlay} from "../components/deploymentJsonOverlay.js";
 import {capi} from "../capi/index.js";
 
 const { div, h2, p, button, input, table, thead, tbody, tr, th, td, span, colgroup, col } = van.tags;
@@ -337,8 +337,8 @@ export function statusPage(onOpenLogs = () => {}) {
         });
     };
 
-    const onViewJson = (deployment) => {
-        overlayNode.val = deploymentJsonOverlay(deployment.id, formatDeploymentLabel(deployment), closeOverlay);
+    const onViewConfig = (deployment) => {
+        overlayNode.val = deploymentConfigOverlay(deployment, closeOverlay);
     };
 
     const onDelete = (deployment) => {
@@ -374,7 +374,7 @@ export function statusPage(onOpenLogs = () => {}) {
         onShowPrepareOutput,
         onUpdate,
         onFork,
-        {showSpace: showSpaceColumn, onViewJson, onDelete},
+        {showSpace: showSpaceColumn, onViewConfig, onDelete},
     );
 
     const filterDeployments = (rows) => {

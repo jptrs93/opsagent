@@ -38,7 +38,7 @@ const prepareStatusCopy = (prepareStatus, prepareVersion) => {
 
 export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrepareOutput, onUpdate, onFork, opts = {}) {
     const showSpace = opts.showSpace !== false;
-    const onViewJson = opts.onViewJson || (() => {});
+    const onViewConfig = opts.onViewConfig || (() => {});
     const onDelete = opts.onDelete || (() => {});
     const hasExisting = deployment.existingStatus !== STATUS_NO_DEPLOYMENT;
     const canDelete = deployment.canDelete ?? deployment.existingStatus === STATUS_STOPPED;
@@ -107,7 +107,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
                 onmousedown: (e) => e.stopPropagation(),
                 style: "visibility:hidden",
             },
-            menuAction("View JSON", () => onViewJson(deployment)),
+            menuAction("View config", () => onViewConfig(deployment)),
             menuAction("Fork", () => onFork(deployment)),
             canDelete ? menuAction("Delete", () => onDelete(deployment)) : '',
         );

@@ -583,6 +583,22 @@ func (c *OpsagentHttpV1Capi) GetV1Settings(ctx context.Context) (*Settings, erro
 	return DecodeSettings(body)
 }
 
+func (c *OpsagentHttpV1Capi) GetV1EnrollmentInfo(ctx context.Context) (*EnrollmentInfo, error) {
+	resp, err := c.do(ctx, "GET", "/v1/enrollment/info", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeEnrollmentInfo(body)
+}
+
 func (c *OpsagentHttpV1Capi) PutV1Settings(ctx context.Context, req *Settings) (*Settings, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PutV1Settings request is nil")

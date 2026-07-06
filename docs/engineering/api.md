@@ -67,7 +67,7 @@ Key generated files:
 | POST | `/v1/deployment/prepare-output` | `PrepareOutputRequest` | stream `PrepareOutputChunk` | ANY_OF default |
 | POST | `/v1/deployment/versions` | `DeploymentVersionsRequest` | `DeploymentVersions` | ANY_OF default |
 
-`/v1/state/stream` is the UI's live state source. Its initial `State` message includes deployment, user, connected-machine, enrollment, secrets status, secret/config reference, secret/config value, and space snapshots; subsequent messages carry matching incremental updates plus heartbeats.
+`/v1/state/stream` is the UI's live state source. Its initial `State` message includes deployment, user, connected-machine, enrollment, secrets status, secret/config reference, secret/config value, space, and asset metadata snapshots; subsequent messages carry matching incremental updates plus heartbeats.
 
 `/v1/deployment/log-search` streams historical run logs as typed `LogLine` protobuf frames. It scans existing `.logbin` files for the requested deployment and time range; it does not tail the currently active log file.
 
@@ -115,16 +115,17 @@ User-managed configs and encrypted secrets are immutable versioned rows. Saving 
 
 `POST /v1/secrets/reveal` is the only user-facing API that returns decrypted secret plaintext. It accepts `SecretRevealRequest.id` for exact-version reveal; list/state APIs return metadata only.
 
-Assets are versioned plaintext file blobs stored in `assets`. Rows are immutable; setting an existing key creates a new version with a numeric asset id. Blobs up to 10 MiB are stored inline; larger blobs are stored in the configured large-asset S3 bucket and referenced by `location`. Workers stream required asset blobs on demand over the mTLS cluster asset endpoint during preparation.
+Assets are versioned plaintext file blobs stored in `assets`. Rows are immutable; setting an existing key creates a new version with a numeric asset id. List and state stream APIs expose only `AssetMeta`, not blob content. Blobs up to 10 MiB are stored inline; larger blobs are stored in the configured large-asset S3 bucket and referenced by `location`. Workers stream required asset blobs on demand over the mTLS cluster asset endpoint during preparation.
 
 ### Enrollment
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
+| GET | `/v1/enrollment/info` | — | `EnrollmentInfo` | ANY_OF default |
 | POST | `/v1/enrollment/request` | stream `EnrollmentWorkerMsg` | stream `EnrollmentPrimaryMsg` | NO_AUTH |
 | POST | `/v1/enrollment/list` | — | `EnrollmentRequestList` | ANY_OF default |
 | POST | `/v1/enrollment/accept` | `EnrollmentAcceptRequest` | `EnrollmentRequestStatus` | ANY_OF default |
 
-Workers use `EnrollmentV1` only when local cluster CA/cert/key material is missing. The enrollment listener is HTTPS using the primary server certificate, but workers skip server verification during bootstrap because they do not yet have a trust root. Workers generate their private key locally, send a stable generated `requesting_machine_id` plus a PEM CSR, then keep the stream open until an operator accepts the request. Acceptance signs the CSR with the primary's internally stored cluster CA key and returns only the CA certificate and worker certificate; the private key never leaves the worker. By default the worker writes them to `/var/lib/opendeploy/tls/ca.crt`, `/var/lib/opendeploy/tls/node.crt`, and `/var/lib/opendeploy/tls/node.key`, then reconnects to `OpsagentClusterV1` over mTLS. The cert files are written `0644`; the private key is written `0600`.
+Workers use `EnrollmentV1` only when local cluster CA/cert/key material is missing. The enrollment listener is HTTPS using the primary server certificate. Because workers do not yet have a trust root, secondary installs pin the enrollment listener's `sha256:` SPKI fingerprint from authenticated `GET /v1/enrollment/info`; the worker verifies the presented TLS certificate matches that fingerprint before sending its CSR. In production, the public enrollment listener also applies the same generated-mux middleware approach as the web UI: per-client-IP request admission is limited to a burst of 5 and a refill rate of 0.2 requests/second. Workers generate their private key locally, send a stable generated `requesting_machine_id` plus a PEM CSR, then keep the stream open until an operator accepts the request. Acceptance signs the CSR with the primary's internally stored cluster CA key and returns only the CA certificate and worker certificate; the private key never leaves the worker. By default the worker writes them to `/var/lib/opendeploy/tls/ca.crt`, `/var/lib/opendeploy/tls/node.crt`, and `/var/lib/opendeploy/tls/node.key`, then reconnects to `OpsagentClusterV1` over mTLS. The cert files are written `0644`; the private key is written `0600`.
 
 ## Adding new endpoints
 

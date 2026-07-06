@@ -29,6 +29,10 @@
  * @property {EnrollmentRequestStatus[]} items
  */
 /**
+ * @typedef {Object} EnrollmentInfo
+ * @property {string} enrollmentTlsSpkiSha256
+ */
+/**
  * @typedef {Object} EnrollmentAcceptRequest
  * @property {number} id
  * @property {string} workerName
@@ -275,6 +279,7 @@
  * @property {number} sizeBytes
  * @property {number} id
  * @property {number} spaceId
+ * @property {boolean} deleted
  */
 /**
  * @typedef {Object} Asset
@@ -405,6 +410,8 @@
  * @property {UserConfig} userConfigValueUpdate
  * @property {SpaceList} spacesSnapshot
  * @property {Space} spaceUpdate
+ * @property {AssetList} assetsSnapshot
+ * @property {AssetMeta} assetUpdate
  */
 /**
  * @typedef {Object} Space
@@ -1119,6 +1126,62 @@ function decodeEnrollmentRequestListMessage(reader, length) {
 export function decodeEnrollmentRequestList(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeEnrollmentRequestListMessage(reader);
+}
+
+
+
+/**
+ * @param {EnrollmentInfo} message
+ * @param {Writer} writer
+ */
+export function writeEnrollmentInfo(message, writer) {
+    if (message.enrollmentTlsSpkiSha256 !== undefined && message.enrollmentTlsSpkiSha256 !== null && message.enrollmentTlsSpkiSha256 !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.enrollmentTlsSpkiSha256);
+    }
+}
+
+
+/**
+ * @param {EnrollmentInfo} message
+ * @returns {Uint8Array}
+ */
+export function encodeEnrollmentInfo(message) {
+    const writer = Writer.create();
+    writeEnrollmentInfo(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {EnrollmentInfo}
+ */
+function decodeEnrollmentInfoMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {enrollmentTlsSpkiSha256: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.enrollmentTlsSpkiSha256 = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {EnrollmentInfo}
+ */
+export function decodeEnrollmentInfo(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeEnrollmentInfoMessage(reader);
 }
 
 
@@ -4147,6 +4210,9 @@ export function writeAssetMeta(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(8, WIRE.VARINT)).int32(message.spaceId);
     }
+    if (message.deleted === true) {
+        writer.uint32(tag(9, WIRE.VARINT)).bool(message.deleted);
+    }
 }
 
 
@@ -4168,7 +4234,7 @@ export function encodeAssetMeta(message) {
  */
 function decodeAssetMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", createdAt: new Date(0), version: 0, format: "", location: "", sizeBytes: 0, id: 0, spaceId: 0 };
+    const message = {key: "", createdAt: new Date(0), version: 0, format: "", location: "", sizeBytes: 0, id: 0, spaceId: 0, deleted: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4202,6 +4268,10 @@ function decodeAssetMetaMessage(reader, length) {
             }
             case 8: {
                 message.spaceId = reader.int32();
+                break;
+            }
+            case 9: {
+                message.deleted = reader.bool();
                 break;
             }
             default:
@@ -5578,6 +5648,16 @@ export function writeState(message, writer) {
         writeSpace(message.spaceUpdate, writer);
         writer.ldelim();
     }
+    if (message.assetsSnapshot !== undefined && message.assetsSnapshot !== null) {
+        writer.uint32(tag(23, WIRE.LDELIM)).fork();
+        writeAssetList(message.assetsSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.assetUpdate !== undefined && message.assetUpdate !== null) {
+        writer.uint32(tag(24, WIRE.LDELIM)).fork();
+        writeAssetMeta(message.assetUpdate, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -5599,7 +5679,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, machinesSnapshot: undefined, machineUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined };
+    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, machinesSnapshot: undefined, machineUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5681,6 +5761,14 @@ function decodeStateMessage(reader, length) {
             }
             case 22: {
                 message.spaceUpdate = decodeSpaceMessage(reader, reader.uint32());
+                break;
+            }
+            case 23: {
+                message.assetsSnapshot = decodeAssetListMessage(reader, reader.uint32());
+                break;
+            }
+            case 24: {
+                message.assetUpdate = decodeAssetMetaMessage(reader, reader.uint32());
                 break;
             }
             default:

@@ -55,6 +55,10 @@ type Handler struct {
 	// or slave mode.
 	ClusterPrimary *clusterserver.Primary
 
+	// EnrollmentTLSFingerprint is the sha256 SPKI fingerprint for the TLS
+	// certificate presented by the unauthenticated enrollment listener.
+	EnrollmentTLSFingerprint string
+
 	enrollmentMu       sync.Mutex
 	enrollmentSessions map[int32]*enrollmentSession
 }
