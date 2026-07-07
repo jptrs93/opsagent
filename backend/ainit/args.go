@@ -6,19 +6,18 @@ import (
 	"os"
 
 	"github.com/jptrs93/goutil/envu"
-	"github.com/jptrs93/opsagent/backend/logconsumer"
 )
 
 type Command string
 
 const (
-	CommandPrimary          Command = "primary"
-	CommandSecondary        Command = "secondary"
-	CommandInstall          Command = "install"
-	CommandUninstall        Command = "uninstall"
-	CommandSplitLogConsumer Command = logconsumer.SplitCommandName
-	CommandRawLogConsumer   Command = logconsumer.RawBinaryCommandName
-	commandTest             Command = "test"
+	CommandPrimary        Command = "primary"
+	CommandSecondary      Command = "secondary"
+	CommandInstall        Command = "install"
+	CommandUninstall      Command = "uninstall"
+	CommandRawLogConsumer Command = "raw-binary-log-consumer"
+	CommandDataplane      Command = "dataplane"
+	commandTest           Command = "test"
 )
 
 type Arguments struct {
@@ -51,10 +50,10 @@ func initArgs() {
 	case CommandUninstall:
 		Args.Command = CommandUninstall
 		Args.Installer = true
-	case CommandSplitLogConsumer:
-		Args.Command = CommandSplitLogConsumer
 	case CommandRawLogConsumer:
 		Args.Command = CommandRawLogConsumer
+	case CommandDataplane:
+		Args.Command = CommandDataplane
 	default:
 		usage(os.Stderr, Args.Program)
 		fmt.Fprintf(os.Stderr, "\nunknown command: %s\n", os.Args[1])
@@ -74,14 +73,16 @@ func usage(w io.Writer, prog string) {
 Usage:
   %[1]s primary
   %[1]s secondary
-  %[1]s install primary [--version vX.Y.Z] [--use-self] [--http-only true] [--web-listen :8080] [--acme-hosts host1,host2] [--primary-name primary] [--dry-run]
+  %[1]s install primary [--version vX.Y.Z] [--use-self] [--http-only true] [--web-listen :8080] [--web-tls-self-managed true] [--web-tls-cert-pem-file cert.pem] [--acme-hosts host1,host2] [--primary-name primary] [--dry-run]
   %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 --enrollment-fingerprint sha256:<hex> [--version vX.Y.Z] [--use-self] [--primary-name primary] [--dry-run]
   %[1]s uninstall [--purge] [--yes] [--dry-run]
+  %[1]s dataplane-dns
 
 Commands:
   primary     Run the primary HTTP server and cluster listeners.
   secondary   Run a worker that enrolls with and connects to the primary.
   install     Fresh install or in-place upgrade.
   uninstall   Remove the service and binary; --purge also wipes all state.
+  dataplane-dns Internal dataplane DNS process.
 `, prog)
 }

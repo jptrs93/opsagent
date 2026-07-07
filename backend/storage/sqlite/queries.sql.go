@@ -273,6 +273,19 @@ func (q *Queries) GetLatestConfig(ctx context.Context) (OpendeployConfig, error)
 	return i, err
 }
 
+const getLocalKV = `-- name: GetLocalKV :one
+
+SELECT value FROM local_kv WHERE key = ?
+`
+
+// === local_kv ===
+func (q *Queries) GetLocalKV(ctx context.Context, key string) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, getLocalKV, key)
+	var value []byte
+	err := row.Scan(&value)
+	return value, err
+}
+
 const getNextAssetVersion = `-- name: GetNextAssetVersion :one
 SELECT COALESCE(MAX(version), 0) + 1
 FROM assets
@@ -581,8 +594,8 @@ INSERT INTO deployment_status_history (
     deployment_id, updated_at,
     preparer_config_version, preparer_artifact, preparer_status,
     runner_config_version, runner_pid, runner_artifact, runner_status,
-    runner_num_restarts, runner_last_restart_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    runner_num_restarts, runner_last_restart_at, runner_extra_blob
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertDeploymentStatusHistoryParams struct {
@@ -597,6 +610,7 @@ type InsertDeploymentStatusHistoryParams struct {
 	RunnerStatus          sql.NullInt64
 	RunnerNumRestarts     sql.NullInt64
 	RunnerLastRestartAt   sql.NullInt64
+	RunnerExtraBlob       []byte
 }
 
 // === deployment_status_history ===
@@ -613,6 +627,7 @@ func (q *Queries) InsertDeploymentStatusHistory(ctx context.Context, arg InsertD
 		arg.RunnerStatus,
 		arg.RunnerNumRestarts,
 		arg.RunnerLastRestartAt,
+		arg.RunnerExtraBlob,
 	)
 	return err
 }
@@ -744,7 +759,7 @@ const listAllDeploymentStatuses = `-- name: ListAllDeploymentStatuses :many
 SELECT deployment_id, updated_at,
        preparer_config_version, preparer_artifact, preparer_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
-       runner_num_restarts, runner_last_restart_at
+       runner_num_restarts, runner_last_restart_at, runner_extra_blob
 FROM deployment_status
 `
 
@@ -769,6 +784,7 @@ func (q *Queries) ListAllDeploymentStatuses(ctx context.Context) ([]DeploymentSt
 			&i.RunnerStatus,
 			&i.RunnerNumRestarts,
 			&i.RunnerLastRestartAt,
+			&i.RunnerExtraBlob,
 		); err != nil {
 			return nil, err
 		}
@@ -946,7 +962,7 @@ const listDeploymentStatusHistory = `-- name: ListDeploymentStatusHistory :many
 SELECT deployment_id, updated_at,
        preparer_config_version, preparer_artifact, preparer_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
-       runner_num_restarts, runner_last_restart_at
+       runner_num_restarts, runner_last_restart_at, runner_extra_blob
 FROM deployment_status_history
 WHERE deployment_id = ?
 ORDER BY updated_at ASC
@@ -973,6 +989,7 @@ func (q *Queries) ListDeploymentStatusHistory(ctx context.Context, deploymentID 
 			&i.RunnerStatus,
 			&i.RunnerNumRestarts,
 			&i.RunnerLastRestartAt,
+			&i.RunnerExtraBlob,
 		); err != nil {
 			return nil, err
 		}
@@ -991,7 +1008,7 @@ const listDeploymentStatusHistorySince = `-- name: ListDeploymentStatusHistorySi
 SELECT deployment_id, updated_at,
        preparer_config_version, preparer_artifact, preparer_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
-       runner_num_restarts, runner_last_restart_at
+       runner_num_restarts, runner_last_restart_at, runner_extra_blob
 FROM deployment_status_history
 WHERE deployment_id = ? AND updated_at > ?
 ORDER BY updated_at ASC
@@ -1023,6 +1040,7 @@ func (q *Queries) ListDeploymentStatusHistorySince(ctx context.Context, arg List
 			&i.RunnerStatus,
 			&i.RunnerNumRestarts,
 			&i.RunnerLastRestartAt,
+			&i.RunnerExtraBlob,
 		); err != nil {
 			return nil, err
 		}
@@ -1533,8 +1551,8 @@ INSERT INTO deployment_status (
     deployment_id, updated_at,
     preparer_config_version, preparer_artifact, preparer_status,
     runner_config_version, runner_pid, runner_artifact, runner_status,
-    runner_num_restarts, runner_last_restart_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    runner_num_restarts, runner_last_restart_at, runner_extra_blob
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(deployment_id) DO UPDATE SET
     updated_at = excluded.updated_at,
     preparer_config_version = excluded.preparer_config_version,
@@ -1545,7 +1563,8 @@ ON CONFLICT(deployment_id) DO UPDATE SET
     runner_artifact = excluded.runner_artifact,
     runner_status = excluded.runner_status,
     runner_num_restarts = excluded.runner_num_restarts,
-    runner_last_restart_at = excluded.runner_last_restart_at
+    runner_last_restart_at = excluded.runner_last_restart_at,
+    runner_extra_blob = excluded.runner_extra_blob
 `
 
 type UpsertDeploymentStatusParams struct {
@@ -1560,6 +1579,7 @@ type UpsertDeploymentStatusParams struct {
 	RunnerStatus          sql.NullInt64
 	RunnerNumRestarts     sql.NullInt64
 	RunnerLastRestartAt   sql.NullInt64
+	RunnerExtraBlob       []byte
 }
 
 // === deployment_status ===
@@ -1576,7 +1596,23 @@ func (q *Queries) UpsertDeploymentStatus(ctx context.Context, arg UpsertDeployme
 		arg.RunnerStatus,
 		arg.RunnerNumRestarts,
 		arg.RunnerLastRestartAt,
+		arg.RunnerExtraBlob,
 	)
+	return err
+}
+
+const upsertLocalKV = `-- name: UpsertLocalKV :exec
+INSERT INTO local_kv (key, value) VALUES (?, ?)
+ON CONFLICT(key) DO UPDATE SET value = excluded.value
+`
+
+type UpsertLocalKVParams struct {
+	Key   string
+	Value []byte
+}
+
+func (q *Queries) UpsertLocalKV(ctx context.Context, arg UpsertLocalKVParams) error {
+	_, err := q.db.ExecContext(ctx, upsertLocalKV, arg.Key, arg.Value)
 	return err
 }
 

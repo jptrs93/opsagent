@@ -728,6 +728,7 @@ func (m *Config) Encode() []byte {
 		b = AppendBytes(b, m.Settings.Encode())
 	}
 	b = AppendStringField(b, m.MasterPasswordHash, 2)
+	b = AppendBytesField(b, m.NetworkUlaPrefix, 3)
 	return b
 }
 
@@ -754,6 +755,8 @@ func DecodeConfig(b []byte) (*Config, error) {
 			}
 		case 2:
 			b, m.MasterPasswordHash, err = ConsumeString(b, typ)
+		case 3:
+			b, m.NetworkUlaPrefix, err = ConsumeBytesCopy(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -2973,6 +2976,142 @@ func DecodeRunnerConfig(b []byte) (*RunnerConfig, error) {
 	return &m, nil
 }
 
+func (m *ContainerPort) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendInt32Field(b, m.Port, 2)
+	return b
+}
+
+func DecodeContainerPort(b []byte) (*ContainerPort, error) {
+	var m ContainerPort
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Port, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *HostPort) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.Host, 1)
+	b = AppendStringField(b, m.Port, 2)
+	return b
+}
+
+func DecodeHostPort(b []byte) (*HostPort, error) {
+	var m HostPort
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Host, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Port, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m NetworkingConfig) IsZero() bool {
+	return m.Mode == 0 &&
+		len(m.Ports) == 0 &&
+		len(m.HostPorts) == 0
+}
+
+func (m *NetworkingConfig) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, int32(m.Mode), 1)
+	for _, item := range m.Ports {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	for _, item := range m.HostPorts {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeNetworkingConfig(b []byte) (*NetworkingConfig, error) {
+	var m NetworkingConfig
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Mode = NetworkingMode(raw)
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ContainerPort
+				item, err = DecodeContainerPort(msgBytes)
+				if err == nil {
+					m.Ports = append(m.Ports, item)
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *HostPort
+				item, err = DecodeHostPort(msgBytes)
+				if err == nil {
+					m.HostPorts = append(m.HostPorts, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *State) Encode() []byte {
 	var b []byte
 	b = AppendBoolField(b, m.Heartbeat, 1)
@@ -4258,7 +4397,8 @@ func DecodeDeploymentIdentifier(b []byte) (*DeploymentIdentifier, error) {
 
 func (m DeploymentSpec) IsZero() bool {
 	return m.Prepare.IsZero() &&
-		m.Runner.IsZero()
+		m.Runner.IsZero() &&
+		m.Networking.IsZero()
 }
 
 func (m *DeploymentSpec) Encode() []byte {
@@ -4270,6 +4410,10 @@ func (m *DeploymentSpec) Encode() []byte {
 	if !m.Runner.IsZero() {
 		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, m.Runner.Encode())
+	}
+	if !m.Networking.IsZero() {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Networking.Encode())
 	}
 	return b
 }
@@ -4302,6 +4446,15 @@ func DecodeDeploymentSpec(b []byte) (*DeploymentSpec, error) {
 				item, err = DecodeRunnerConfig(msgBytes)
 				if err == nil {
 					m.Runner = *item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetworkingConfig
+				item, err = DecodeNetworkingConfig(msgBytes)
+				if err == nil {
+					m.Networking = *item
 				}
 			}
 		default:
@@ -4652,7 +4805,9 @@ func (m RunnerStatus) IsZero() bool {
 		m.Status == 0 &&
 		m.NumberOfRestarts == 0 &&
 		m.LastRestartAt.IsZero() &&
-		m.RunningVersion == ""
+		m.RunningVersion == "" &&
+		len(m.Endpoints) == 0 &&
+		len(m.NetworkDiagnostics) == 0
 }
 
 func (m *RunnerStatus) Encode() []byte {
@@ -4664,6 +4819,14 @@ func (m *RunnerStatus) Encode() []byte {
 	b = AppendInt32Field(b, m.NumberOfRestarts, 6)
 	b = AppendInt64FromTime(b, m.LastRestartAt, 7)
 	b = AppendStringField(b, m.RunningVersion, 8)
+	for _, item := range m.Endpoints {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 9, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	b = AppendRepeated(b, m.NetworkDiagnostics, AppendFieldDecorator(AppendStringField, 10))
 	return b
 }
 
@@ -4672,6 +4835,7 @@ func DecodeRunnerStatus(b []byte) (*RunnerStatus, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -4696,6 +4860,63 @@ func DecodeRunnerStatus(b []byte) (*RunnerStatus, error) {
 			b, m.LastRestartAt, err = ConsumeTimeFromInt64(b, typ)
 		case 8:
 			b, m.RunningVersion, err = ConsumeString(b, typ)
+		case 9:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Endpoint
+				item, err = DecodeEndpoint(msgBytes)
+				if err == nil {
+					m.Endpoints = append(m.Endpoints, item)
+				}
+			}
+		case 10:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.NetworkDiagnostics = append(m.NetworkDiagnostics, item)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *Endpoint) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.Ordinal, 1)
+	b = AppendStringField(b, m.Address, 2)
+	b = AppendStringField(b, m.Machine, 3)
+	b = AppendInt32Field(b, int32(m.State), 4)
+	return b
+}
+
+func DecodeEndpoint(b []byte) (*Endpoint, error) {
+	var m Endpoint
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Ordinal, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Address, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Machine, err = ConsumeString(b, typ)
+		case 4:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.State = EndpointState(raw)
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5811,6 +6032,10 @@ func (m *MsgToWorker) Encode() []byte {
 		b = AppendTag(b, 7, BytesType)
 		b = AppendBytes(b, m.LogSearchRequest.Encode())
 	}
+	if m.ClusterNetwork != nil {
+		b = AppendTag(b, 8, BytesType)
+		b = AppendBytes(b, m.ClusterNetwork.Encode())
+	}
 	return b
 }
 
@@ -5882,6 +6107,44 @@ func DecodeMsgToWorker(b []byte) (*MsgToWorker, error) {
 					m.LogSearchRequest = item
 				}
 			}
+		case 8:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNetworkInfo
+				item, err = DecodeClusterNetworkInfo(msgBytes)
+				if err == nil {
+					m.ClusterNetwork = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterNetworkInfo) Encode() []byte {
+	var b []byte
+	b = AppendBytesField(b, m.UlaPrefix, 1)
+	return b
+}
+
+func DecodeClusterNetworkInfo(b []byte) (*ClusterNetworkInfo, error) {
+	var m ClusterNetworkInfo
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.UlaPrefix, err = ConsumeBytesCopy(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5942,6 +6205,114 @@ func DecodeMsgToMaster(b []byte) (*MsgToMaster, error) {
 				item, err = DecodeLogLineBatch(msgBytes)
 				if err == nil {
 					m.LogLines = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NetState) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.Seq, 1)
+	b = AppendBytesField(b, m.UlaPrefix, 2)
+	b = AppendStringField(b, m.Machine, 3)
+	for _, item := range m.DnsServices {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	b = AppendRepeated(b, m.UpstreamResolvers, AppendFieldDecorator(AppendStringField, 5))
+	return b
+}
+
+func DecodeNetState(b []byte) (*NetState, error) {
+	var m NetState
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Seq, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, m.UlaPrefix, err = ConsumeBytesCopy(b, typ)
+		case 3:
+			b, m.Machine, err = ConsumeString(b, typ)
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DnsService
+				item, err = DecodeDnsService(msgBytes)
+				if err == nil {
+					m.DnsServices = append(m.DnsServices, item)
+				}
+			}
+		case 5:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.UpstreamResolvers = append(m.UpstreamResolvers, item)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *DnsService) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendStringField(b, m.Environment, 2)
+	for _, item := range m.Endpoints {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeDnsService(b []byte) (*DnsService, error) {
+	var m DnsService
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Environment, err = ConsumeString(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Endpoint
+				item, err = DecodeEndpoint(msgBytes)
+				if err == nil {
+					m.Endpoints = append(m.Endpoints, item)
 				}
 			}
 		default:
