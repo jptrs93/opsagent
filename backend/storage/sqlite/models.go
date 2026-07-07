@@ -58,6 +58,7 @@ type DeploymentStatus struct {
 	RunnerStatus          sql.NullInt64
 	RunnerNumRestarts     sql.NullInt64
 	RunnerLastRestartAt   sql.NullInt64
+	RunnerExtraBlob       []byte
 }
 
 type DeploymentStatusHistory struct {
@@ -72,6 +73,7 @@ type DeploymentStatusHistory struct {
 	RunnerStatus          sql.NullInt64
 	RunnerNumRestarts     sql.NullInt64
 	RunnerLastRestartAt   sql.NullInt64
+	RunnerExtraBlob       []byte
 }
 
 type EnrollmentRequest struct {
@@ -82,6 +84,11 @@ type EnrollmentRequest struct {
 	RequestingMachineID string
 	OpendeployVersion   string
 	Status              string
+}
+
+type LocalKv struct {
+	Key   string
+	Value []byte
 }
 
 type OpendeployConfig struct {

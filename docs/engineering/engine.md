@@ -17,6 +17,7 @@ Key files:
 - `backend/engine/runner/runner.go` — `Runner` interface and factories.
 - `backend/engine/runner/container.go` — public containerd runner.
 - `backend/engine/runner/systemd.go` — internal-only runner for the `OPENDEPLOY` self-deployment.
+- `backend/lib/network/` — machine-local virtual networking, host routes, nftables egress NAT, and host-port DNAT.
 
 ## Data Model
 
@@ -46,7 +47,7 @@ Decision flow:
 
 `Stop()` is synchronous. The operator waits until the runner has stopped and written terminal status before moving on.
 
-Container deployments can opt into `runner.container.upgradeStrategy = ROLLOVER`. In that mode the operator starts an unpublished candidate runner for the prepared config version, waits for its readiness signal, then promotes it and stops the old runner. If the candidate exits, times out, or fails before readiness, the operator stops the candidate and keeps the old runner active. The default/unspecified strategy is `RECREATE`, which preserves the stop-then-start behavior above.
+Container deployments can opt into `runner.container.upgradeStrategy = ROLLOVER`. The operator starts an unpublished candidate runner for the prepared config version, waits for its readiness signal, promotes it, and stops the old runner. If the candidate exits, times out, or fails before readiness, the operator stops the candidate and keeps the old runner active. The default/unspecified strategy is `RECREATE`, which preserves the stop-then-start behavior above. Virtual networking can promote without host-port bind contention; host networking requires the workload to defer binding conflicting host ports until after readiness.
 
 ## Preparers
 
@@ -69,7 +70,7 @@ type Runner interface {
 }
 ```
 
-Public deployments run through `containerRunner`. It creates one deterministic containerd container per deployment config version (`opendeploy-{deploymentID}-v{version}`), starts a task with host networking, wires stdout/stderr through the internal split binary log consumer, writes indexed source files under `{RunOutputDir}/{deploymentID}/{version}/{run}/{stdoutN,stderrN}.logbin`, waits for task exit, and respawns with exponential backoff on crashes. Split source files end with a rotate marker when the consumer moves to the next indexed file, or an end marker on graceful shutdown. The log collector follows rotate markers and compacts source files into processed hourly files under `{RunOutputDir}/{deploymentID}/processed/` for API reads.
+Public deployments run through `containerRunner`. It creates one deterministic containerd container per deployment config version (`opendeploy-{deploymentID}-v{version}`), wires stdout/stderr through the internal split binary log consumer, writes indexed source files under `{RunOutputDir}/{deploymentID}/{version}/{run}/{stdoutN,stderrN}.logbin`, waits for task exit, and respawns with exponential backoff on crashes. Host-network deployments join the host network namespace. Virtual-network deployments get a pre-created Linux netns from `backend/lib/network`, and the containerd OCI spec joins that namespace. Split source files end with a rotate marker when the consumer moves to the next indexed file, or an end marker on graceful shutdown. The log collector follows rotate markers and compacts source files into processed hourly files under `{RunOutputDir}/{deploymentID}/processed/` for API reads.
 
 Run-log reads go through `engine/logreader`. It identifies all candidate run directories for a deployment, turns each run into a chronological `LogLine` stream, and merges those streams by timestamp for historical searches. It only scans existing files and does not tail active writes.
 
@@ -80,9 +81,18 @@ Container runner behavior:
 - Additional host mounts and OpenDeploy-managed asset mounts are translated to containerd bind mounts.
 - `devShmSizeKb` optionally resizes the container's default `/dev/shm` tmpfs from containerd's default 64 MiB using a KiB value.
 - `fileDescriptorLimit` optionally overrides the OCI `RLIMIT_NOFILE`; when unset, OpenDeploy sets both soft and hard limits to `2048`.
-- Rollover candidates get a per-run Unix socket directory mounted at `/run/opendeploy` and `OPENDEPLOY_READINESS_SOCK_PATH=/run/opendeploy/readiness.sock`. The app signals readiness by writing `ready\n` to that socket after warmup. OpenDeploy then stops the old runner; with host networking, the app should wait for its required port to become bindable before starting its server.
+- Virtual networking creates a netns/veth pair, a stable IPv6 instance address, a machine-local IPv4 egress address, a host `/128` route, and optional nftables `portForwarding` DNAT rules.
+- Rollover candidates get a per-run Unix socket directory mounted at `/run/opendeploy` and `OPENDEPLOY_READINESS_SOCK_PATH=/run/opendeploy/readiness.sock`. The app signals readiness by writing `ready\n` to that socket after warmup. In virtual mode, OpenDeploy promotes the candidate by replacing the stable-address host route and `portForwarding` rules, then stops the old runner. In host mode, rollover is cooperative: the candidate shares the host network namespace, so it must defer binding conflicting host ports until after readiness and then wait for the old runner to stop.
 - Reattach uses `ctrd.LoadTask` by deterministic id; if no running task exists, the runner starts fresh.
 - Stop sends SIGTERM, waits up to 3 seconds, sends SIGKILL if needed, then deletes the task/container/snapshot.
+
+## Networking
+
+The current networking implementation is machine-local. See `docs/engineering/networking.md` for details.
+
+The runner only consumes networking primitives. It derives the stable instance address from the cluster ULA prefix and deployment id, asks the network manager to prepare state, passes the netns path to containerd, writes a generated `resolv.conf` when dataplane DNS is known, and writes endpoint status back to storage.
+
+Cross-machine routing, WireGuard, ingress, and policy enforcement are outside the current runner path.
 
 `systemdRunner` is internal-only for the OpenDeploy self-deployment. It symlinks the downloaded binary to the configured bin path, writes `STARTING`, and asks systemd to restart the unit. The old process does not poll systemd after requesting restart; the restarted process marks itself `RUNNING` when the operator reattaches. Public API validation rejects systemd runner config.
 

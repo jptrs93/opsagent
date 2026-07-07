@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/jptrs93/opsagent/backend/apigen"
 	_ "modernc.org/sqlite"
 )
 
@@ -37,7 +38,77 @@ func mustInit(dbPath, migrations string) *sql.DB {
 	}
 	migrateVersionedSecretConfigTables(db)
 	applyMigrations(db, migrations)
+	migrateDeploymentSpecsMissingNetworking(db)
 	return db
+}
+
+func migrateDeploymentSpecsMissingNetworking(db *sql.DB) {
+	migrateDeploymentSpecTableMissingNetworking(db, "deployment_configs", "deployment_id", "")
+	migrateDeploymentSpecTableMissingNetworking(db, "deployment_config_history", "deployment_id", "version")
+}
+
+func migrateDeploymentSpecTableMissingNetworking(db *sql.DB, table, idColumn, versionColumn string) {
+	selectCols := idColumn + ", spec_blob"
+	if versionColumn != "" {
+		selectCols = idColumn + ", " + versionColumn + ", spec_blob"
+	}
+	rows, err := db.Query("SELECT " + selectCols + " FROM " + table)
+	if err != nil {
+		panic(fmt.Sprintf("query %s deployment specs: %v", table, err))
+	}
+	defer rows.Close()
+
+	type migrationRow struct {
+		id      int64
+		version int64
+		blob    []byte
+	}
+	var updates []migrationRow
+	for rows.Next() {
+		var r migrationRow
+		if versionColumn != "" {
+			if err := rows.Scan(&r.id, &r.version, &r.blob); err != nil {
+				panic(fmt.Sprintf("scan %s deployment spec: %v", table, err))
+			}
+		} else if err := rows.Scan(&r.id, &r.blob); err != nil {
+			panic(fmt.Sprintf("scan %s deployment spec: %v", table, err))
+		}
+		spec, err := apigen.DecodeDeploymentSpec(r.blob)
+		if err != nil {
+			panic(fmt.Sprintf("decode %s deployment spec id=%d version=%d: %v", table, r.id, r.version, err))
+		}
+		if spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_UNSPECIFIED || len(spec.Networking.PortForwarding) > 0 {
+			continue
+		}
+		spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
+		r.blob = spec.Encode()
+		updates = append(updates, r)
+	}
+	if err := rows.Err(); err != nil {
+		panic(fmt.Sprintf("iterate %s deployment specs: %v", table, err))
+	}
+	if len(updates) == 0 {
+		return
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		panic(fmt.Sprintf("begin %s networking migration: %v", table, err))
+	}
+	defer tx.Rollback()
+	for _, r := range updates {
+		if versionColumn != "" {
+			if _, err := tx.Exec("UPDATE "+table+" SET spec_blob = ? WHERE "+idColumn+" = ? AND "+versionColumn+" = ?", r.blob, r.id, r.version); err != nil {
+				panic(fmt.Sprintf("update %s deployment spec id=%d version=%d: %v", table, r.id, r.version, err))
+			}
+		} else if _, err := tx.Exec("UPDATE "+table+" SET spec_blob = ? WHERE "+idColumn+" = ?", r.blob, r.id); err != nil {
+			panic(fmt.Sprintf("update %s deployment spec id=%d: %v", table, r.id, err))
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit %s networking migration: %v", table, err))
+	}
+	slog.Info("migrated deployment specs missing networking mode", "table", table, "count", len(updates))
 }
 
 func migrateVersionedSecretConfigTables(db *sql.DB) {
@@ -72,7 +143,7 @@ func tableHasColumn(db *sql.DB, table, column string) bool {
 		panic(fmt.Sprintf("table_info rows %s: %v", table, err))
 	}
 	return false
-	}
+}
 
 func rebuildUserConfigsTable(db *sql.DB) {
 	const stmts = `

@@ -14,6 +14,22 @@ const (
 	ContainerUpgradeStrategy_ROLLOVER                               ContainerUpgradeStrategy = 2
 )
 
+type NetworkingMode int32
+
+const (
+	NetworkingMode_NETWORKING_MODE_UNSPECIFIED NetworkingMode = 0
+	NetworkingMode_NETWORKING_MODE_VIRTUAL     NetworkingMode = 1
+	NetworkingMode_NETWORKING_MODE_HOST        NetworkingMode = 2
+)
+
+type PortForwardProtocol int32
+
+const (
+	PortForwardProtocol_PORT_FORWARD_PROTOCOL_UNSPECIFIED PortForwardProtocol = 0
+	PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP         PortForwardProtocol = 1
+	PortForwardProtocol_PORT_FORWARD_PROTOCOL_UDP         PortForwardProtocol = 2
+)
+
 type RunningStatus int32
 
 const (
@@ -34,6 +50,15 @@ const (
 	PreparationStatus_READY                      PreparationStatus = 4
 	PreparationStatus_FAILED                     PreparationStatus = 5
 	PreparationStatus_PULLING                    PreparationStatus = 6
+)
+
+type EndpointState int32
+
+const (
+	EndpointState_ENDPOINT_STATE_UNSPECIFIED EndpointState = 0
+	EndpointState_ENDPOINT_READY             EndpointState = 1
+	EndpointState_ENDPOINT_DRAINING          EndpointState = 2
+	EndpointState_ENDPOINT_DOWN              EndpointState = 3
 )
 
 type AccessPolicyType int32
@@ -142,6 +167,7 @@ type BoolSetting struct {
 type Config struct {
 	Settings           Settings
 	MasterPasswordHash string
+	NetworkUlaPrefix   []byte
 }
 
 type Settings struct {
@@ -432,6 +458,17 @@ type RunnerConfig struct {
 	Container ContainerRunnerConfig
 }
 
+type PortForward struct {
+	Protocol      PortForwardProtocol
+	HostPort      int32
+	ContainerPort int32
+}
+
+type NetworkingConfig struct {
+	Mode           NetworkingMode
+	PortForwarding []*PortForward
+}
+
 type State struct {
 	Heartbeat                bool
 	DeploymentsSnapshot      *DeploymentWithStatusSnapshot
@@ -588,8 +625,9 @@ type DeploymentIdentifier struct {
 }
 
 type DeploymentSpec struct {
-	Prepare PrepareConfig
-	Runner  RunnerConfig
+	Prepare    PrepareConfig
+	Runner     RunnerConfig
+	Networking NetworkingConfig
 }
 
 type DesiredState struct {
@@ -640,6 +678,15 @@ type RunnerStatus struct {
 	NumberOfRestarts        int32
 	LastRestartAt           time.Time
 	RunningVersion          string
+	Endpoints               []*Endpoint
+	NetworkDiagnostics      []string
+}
+
+type Endpoint struct {
+	Ordinal int32
+	Address string
+	Machine string
+	State   EndpointState
 }
 
 type Version struct {
@@ -788,6 +835,11 @@ type MsgToWorker struct {
 	DeploymentLogRequest *DeploymentLogRequest
 	StopLogRequestID     string
 	LogSearchRequest     *LogSearchRequest
+	ClusterNetwork       *ClusterNetworkInfo
+}
+
+type ClusterNetworkInfo struct {
+	UlaPrefix []byte
 }
 
 type MsgToMaster struct {
@@ -796,6 +848,20 @@ type MsgToMaster struct {
 	LogEnd       bool
 	LogRequestID string
 	LogLines     LogLineBatch
+}
+
+type NetState struct {
+	Seq               int64
+	UlaPrefix         []byte
+	Machine           string
+	DnsServices       []*DnsService
+	UpstreamResolvers []string
+}
+
+type DnsService struct {
+	Name        string
+	Environment string
+	Endpoints   []*Endpoint
 }
 
 type AccessPolicy struct {
