@@ -78,7 +78,7 @@ jobs:
             echo "invalid version tag: $VERSION" >&2
             exit 1
           fi
-          go build -trimpath -ldflags="-s -w -X github.com/jptrs93/opsagent/backend/version.Version=${VERSION}" -o "opendeploy-linux-${GOARCH}" .
+          go build -trimpath -ldflags="-s -w -X github.com/jptrs93/opsagent/backend/util/version.Version=${VERSION}" -o "opendeploy-linux-${GOARCH}" .
 
       - uses: actions/upload-artifact@v7
         with:

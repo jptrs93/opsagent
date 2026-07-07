@@ -386,6 +386,9 @@ message BoolSetting {
 message Config {
   Settings settings = 1 [(cp.go_value) = true];
   string master_password_hash = 2;
+  // RFC 4193 ULA /48 prefix (6 bytes) for the virtual network. Generated
+  // randomly at first primary startup, then immutable. Not user-editable.
+  bytes network_ula_prefix = 3;
 }
 
 message Settings {
@@ -644,6 +647,7 @@ message PrepareConfig {
   GithubReleaseConfig github_release = 2;
   ContainerImageConfig container_image = 3;
   NixDockerBuildConfig nix_docker_build = 4;
+  // field 5 was self_image; do not reuse.
 }
 
 message EnvVarValue {
@@ -707,6 +711,38 @@ message RunnerConfig {
   // field 1 was os_process; do not reuse.
   SystemdRunnerConfig systemd = 2 [(cp.go_value) = true];
   ContainerRunnerConfig container = 3 [(cp.go_value) = true];
+}
+
+// === Networking config ===
+
+// NetworkingMode is pinned to the config version. Specs written before the
+// networking feature decode as UNSPECIFIED and are migrated on startup to
+// explicit HOST mode. New create/update requests must include networking;
+// the UI defaults new deployments to VIRTUAL unless HOST is explicitly chosen,
+// and UNSPECIFIED is rejected on new writes.
+// Restarts and respawns re-read the immutable spec version, so an existing
+// deployment's networking never changes without a new config version.
+enum NetworkingMode {
+  NETWORKING_MODE_UNSPECIFIED = 0; // pre-networking specs: host networking
+  NETWORKING_MODE_VIRTUAL = 1;     // per-container netns on the virtual IPv6 network
+  NETWORKING_MODE_HOST = 2;        // explicit opt-out: host network namespace
+}
+
+enum PortForwardProtocol {
+  PORT_FORWARD_PROTOCOL_UNSPECIFIED = 0;
+  PORT_FORWARD_PROTOCOL_TCP = 1;
+  PORT_FORWARD_PROTOCOL_UDP = 2;
+}
+
+message PortForward {
+  PortForwardProtocol protocol = 1;
+  int32 host_port = 2;      // port published on the machine's host interfaces
+  int32 container_port = 3; // port inside the virtual-mode container netns
+}
+
+message NetworkingConfig {
+  NetworkingMode mode = 1;
+  repeated PortForward port_forwarding = 2; // virtual mode only; DNAT on host interfaces
 }
 
 
@@ -894,6 +930,7 @@ message DeploymentIdentifier {
 message DeploymentSpec {
   PrepareConfig prepare = 1 [(cp.go_value) = true];
   RunnerConfig runner = 2 [(cp.go_value) = true];
+  NetworkingConfig networking = 3 [(cp.go_value) = true];
 }
 
 message DesiredState {
@@ -955,6 +992,29 @@ message RunnerStatus {
   // read time by resolving deployment_config_version against the config history;
   // not persisted on the status row.
   string running_version = 8;
+  // Virtual-network endpoints, one per instance ordinal (always ordinal 0
+  // today). Empty for host-network deployments.
+  repeated Endpoint endpoints = 9;
+  // Networking diagnostics surfaced on the status card (e.g. an IPv4-only
+  // listener that is unreachable at its instance address).
+  repeated string network_diagnostics = 10;
+}
+
+enum EndpointState {
+  ENDPOINT_STATE_UNSPECIFIED = 0;
+  ENDPOINT_READY = 1;    // in the endpoint set: resolves in DNS, receives traffic
+  ENDPOINT_DRAINING = 2; // removed from the set ahead of SIGTERM
+  ENDPOINT_DOWN = 3;     // instance not running
+}
+
+// Endpoint is one instance of a deployment on the virtual network. Modeled as
+// a set with per-endpoint state from day one (see networking design); every
+// set has exactly one member until multi-instance deployments exist.
+message Endpoint {
+  int32 ordinal = 1;      // instance ordinal (0-based)
+  string address = 2;     // stable instance address (kind 0)
+  string machine = 3;     // hosting machine
+  EndpointState state = 4;
 }
 
 
@@ -1132,6 +1192,17 @@ message MsgToWorker {
   DeploymentLogRequest deployment_log_request = 5;
   string stop_log_request_id = 6;  // Cancel an active log stream by its request_id.
   LogSearchRequest log_search_request = 7;
+  // Cluster-wide network parameters, sent at the head of every session before
+  // the deployments snapshot. Workers persist it and program the local
+  // dataplane from it on boot before reaching the primary.
+  ClusterNetworkInfo cluster_network = 8;
+}
+
+// ClusterNetworkInfo carries the cluster-wide virtual network parameters.
+// Addresses are pure functions of (ula_prefix, kind, deployment id, field), so
+// this is the only distributed IPAM state.
+message ClusterNetworkInfo {
+  bytes ula_prefix = 1; // 6 bytes: the RFC 4193 ULA /48 prefix, generated once at first primary startup
 }
 
 message MsgToMaster {
@@ -1140,4 +1211,29 @@ message MsgToMaster {
   bool log_end = 3;
   string log_request_id = 4;  // Tags log_data/log_end with the originating request_id.
   LogLineBatch log_lines = 5 [(cp.go_value) = true];
+}
+
+// === Dataplane netstate ===
+//
+// NetState is the configuration interface between the agent and the per-machine
+// dataplane system deployment (DNS server today; ingress proxy in a later
+// phase). The agent writes full snapshots with atomic write-rename into the
+// dataplane deployment's data volume; the dataplane process loads the file at
+// start and reacts to updates via file watching. It is a pure state consumer:
+// no sockets, no DB access, no deltas.
+
+message NetState {
+  int64 seq = 1;               // monotonic; consumers ignore snapshots with seq <= last applied
+  bytes ula_prefix = 2;        // 6-byte ULA /48 prefix
+  string machine = 3;          // machine this snapshot was rendered for
+  repeated DnsService dns_services = 4;
+  repeated string upstream_resolvers = 5; // host's upstream DNS servers, "ip" or "ip:port"
+}
+
+// DnsService is one deployment's discovery record set:
+// {name}.{environment}.internal -> READY instance addresses.
+message DnsService {
+  string name = 1;        // normalized deployment name (underscores -> hyphens)
+  string environment = 2; // normalized space name
+  repeated Endpoint endpoints = 3;
 }

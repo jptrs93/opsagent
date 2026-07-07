@@ -9,6 +9,10 @@ const { div, h3, label, input, select, option, button, p, span, textarea, table,
 const SOURCE_NIX_DOCKER = 'nixDockerBuild';
 const SOURCE_DOCKER_IMAGE = 'containerImage';
 const RUNNER_CONTAINER = 'container';
+const NETWORKING_MODE_VIRTUAL = 1;
+const NETWORKING_MODE_HOST = 2;
+const PORT_FORWARD_PROTOCOL_TCP = 1;
+const PORT_FORWARD_PROTOCOL_UDP = 2;
 const CONTAINER_UPGRADE_RECREATE = 1;
 const CONTAINER_UPGRADE_ROLLOVER = 2;
 const DEFAULT_READINESS_TIMEOUT_SECONDS = 600;
@@ -30,6 +34,7 @@ const INTERNAL_SPACE_ID = 0;
 let nextEnvID = 1;
 let nextAssetMountID = 1;
 let nextVolumeMountID = 1;
+let nextPortForwardID = 1;
 
 export function emptyDeploymentForm() {
     return makeFormState({
@@ -41,6 +46,8 @@ export function emptyDeploymentForm() {
         nixRepo: '',
         nixFlake: '',
         containerImage: '',
+        networkingMode: String(NETWORKING_MODE_VIRTUAL),
+        portForwarding: [],
         runnerType: RUNNER_CONTAINER,
         containerUser: '',
         containerCommand: '',
@@ -66,6 +73,7 @@ export function deploymentConfigToForm(cfg) {
     const nixDocker = prepare.nixDockerBuild || {};
     const containerImage = prepare.containerImage || {};
     const container = runner.container || {};
+    const networking = spec.networking || {};
     const devShm = devShmFormState(container.devShmSizeKb || 0);
     const fileDescriptorLimit = Number(container.fileDescriptorLimit || 0);
     // Reveal a section's additional options up-front when the existing config
@@ -85,6 +93,8 @@ export function deploymentConfigToForm(cfg) {
         nixRepo: nixDocker.repo || '',
         nixFlake: nixDocker.flake || '',
         containerImage: containerImage.image || '',
+        networkingMode: String(networking.mode || NETWORKING_MODE_HOST),
+        portForwarding: portForwardingToFormRows(networking.portForwarding),
         runnerType: RUNNER_CONTAINER,
         containerUser: container.user || '',
         containerCommand: (container.command || []).join('\n'),
@@ -183,6 +193,7 @@ export function deploymentForm(form, opts = {}) {
             sectionDivider(executionTitle),
             div(
                 {class: "flex flex-col gap-3"},
+                networkingSection(form),
                 div(
                     {class: "flex flex-col gap-3"},
                     envSummary(form),
@@ -227,6 +238,11 @@ export function formToSpec(form) {
         disableDataVolume: Boolean(form.containerDisableDataVolume.val),
         upgradeStrategy: Number(form.containerUpgradeStrategy.val || CONTAINER_UPGRADE_RECREATE),
     };
+    spec.networking = {
+        mode: Number(form.networkingMode.val || NETWORKING_MODE_VIRTUAL),
+    };
+    const portForwarding = formPortForwarding(form);
+    if (portForwarding.length) spec.networking.portForwarding = portForwarding;
     if (Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER) {
         spec.runner.container.readinessSignal = {timeoutSeconds: Number(form.containerReadinessTimeoutSeconds.val || 0)};
     }
@@ -499,6 +515,8 @@ function makeFormState(values) {
         nixRepo: van.state(values.nixRepo),
         nixFlake: van.state(values.nixFlake),
         containerImage: van.state(values.containerImage || ''),
+        networkingMode: van.state(String(values.networkingMode || NETWORKING_MODE_VIRTUAL)),
+        portForwarding: van.state(values.portForwarding || []),
         runnerType: van.state(values.runnerType),
         containerUser: van.state(values.containerUser || ''),
         containerCommand: van.state(values.containerCommand || ''),
@@ -705,6 +723,119 @@ function upgradeStrategySummary(form) {
             },
         }, () => form.upgradeStrategyPaneOpen.val ? "Close" : "Configure"),
     );
+}
+
+function networkingSection(form) {
+    return div(
+        {class: "flex flex-col gap-3"},
+        div(
+            {class: "flex items-start justify-between gap-3"},
+            div(
+                {class: "flex flex-col gap-1"},
+                span({class: "text-xs text-gray-400"}, "Networking"),
+                p({class: "text-[11px] text-gray-500 leading-relaxed"}, () => Number(form.networkingMode.val) === NETWORKING_MODE_HOST
+                    ? "Host mode keeps the container in the machine network namespace."
+                    : "Virtual mode gives the container an isolated network namespace on the OpenDeploy virtual network."),
+            ),
+            select({
+                "data-testid": "deployment-networking-mode-select",
+                value: form.networkingMode,
+                class: "w-44 px-3 py-2 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand text-xs",
+                onchange: e => { form.networkingMode.val = e.target.value; },
+            },
+                option({value: String(NETWORKING_MODE_VIRTUAL), selected: form.networkingMode.rawVal === String(NETWORKING_MODE_VIRTUAL)}, "Virtual"),
+                option({value: String(NETWORKING_MODE_HOST), selected: form.networkingMode.rawVal === String(NETWORKING_MODE_HOST)}, "Host"),
+            ),
+        ),
+        () => Number(form.networkingMode.val) === NETWORKING_MODE_VIRTUAL ? portForwardingSection(form) : '',
+    );
+}
+
+function portForwardingSection(form) {
+    const rows = () => form.portForwarding.val || [];
+    const update = (row, patch) => {
+        form.portForwarding.val = rows().map(p => p.id === row.id ? {...p, ...patch} : p);
+    };
+    const remove = (row) => {
+        form.portForwarding.val = rows().filter(p => p.id !== row.id);
+    };
+    return div(
+        {class: "flex flex-col gap-2 rounded-sm border border-gray-800 bg-gray-900/40 p-3"},
+        div(
+            {class: "flex items-center justify-between gap-3"},
+            div(
+                span({class: "text-xs text-gray-300"}, "Port forwarding"),
+                p({class: "text-[11px] text-gray-500 mt-1"}, "Publish a host TCP or UDP port to a port inside this virtual container."),
+            ),
+            button({
+                type: "button",
+                class: "px-2 py-1 rounded-sm bg-gray-800 text-gray-200 text-xs hover:bg-gray-700 cursor-pointer",
+                onclick: () => { form.portForwarding.val = [...rows(), newPortForwardingRow()]; },
+            }, "Add port"),
+        ),
+        () => rows().length === 0
+            ? p({class: "text-xs text-gray-500"}, "No host ports published.")
+            : table(
+                {class: "w-full text-xs"},
+                thead(tr(
+                    th({class: "text-left font-normal text-gray-500 pb-1"}, "Protocol"),
+                    th({class: "text-left font-normal text-gray-500 pb-1"}, "Host port"),
+                    th({class: "text-left font-normal text-gray-500 pb-1"}, "Container port"),
+                    th({class: "w-8"}),
+                )),
+                tbody(...rows().map(row => tr(
+                    td({class: "pr-2 py-1"}, select({
+                        value: String(row.protocol || PORT_FORWARD_PROTOCOL_TCP),
+                        class: "w-full px-2 py-1 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand",
+                        onchange: e => update(row, {protocol: Number(e.target.value || PORT_FORWARD_PROTOCOL_TCP)}),
+                    },
+                        option({value: String(PORT_FORWARD_PROTOCOL_TCP), selected: Number(row.protocol) === PORT_FORWARD_PROTOCOL_TCP}, "TCP"),
+                        option({value: String(PORT_FORWARD_PROTOCOL_UDP), selected: Number(row.protocol) === PORT_FORWARD_PROTOCOL_UDP}, "UDP"),
+                    )),
+                    td({class: "pr-2 py-1"}, input({
+                        type: "number",
+                        min: "1",
+                        max: "65535",
+                        value: row.hostPort || '',
+                        class: textInputClass(false, false),
+                        placeholder: "443",
+                        oninput: e => update(row, {hostPort: e.target.value}),
+                    })),
+                    td({class: "pr-2 py-1"}, input({
+                        type: "number",
+                        min: "1",
+                        max: "65535",
+                        value: row.containerPort || '',
+                        class: textInputClass(false, false),
+                        placeholder: "443",
+                        oninput: e => update(row, {containerPort: e.target.value}),
+                    })),
+                    td({class: "py-1 text-right"}, button({
+                        type: "button",
+                        class: "text-gray-500 hover:text-red-300 cursor-pointer",
+                        title: "Remove port forwarding",
+                        onclick: () => remove(row),
+                    }, xIcon({class: "w-4 h-4"}))),
+                ))),
+            ),
+    );
+}
+
+function newPortForwardingRow(values = {}) {
+    return {
+        id: nextPortForwardID++,
+        protocol: values.protocol || PORT_FORWARD_PROTOCOL_TCP,
+        hostPort: values.hostPort ? String(values.hostPort) : '',
+        containerPort: values.containerPort ? String(values.containerPort) : '',
+    };
+}
+
+function portForwardingToFormRows(portForwarding) {
+    return (portForwarding || []).map(p => newPortForwardingRow({
+        protocol: p.protocol || PORT_FORWARD_PROTOCOL_TCP,
+        hostPort: p.hostPort || '',
+        containerPort: p.containerPort || '',
+    }));
 }
 
 function resourcesSummary(form) {
@@ -1462,6 +1593,17 @@ function formEnvVars(form) {
             return [key, {value: v.value || ''}];
         })
         .filter(Boolean));
+}
+
+function formPortForwarding(form) {
+    if (Number(form.networkingMode.val) !== NETWORKING_MODE_VIRTUAL) return [];
+    return (form.portForwarding.val || [])
+        .map(p => ({
+            protocol: Number(p.protocol || PORT_FORWARD_PROTOCOL_TCP),
+            hostPort: Number(p.hostPort || 0),
+            containerPort: Number(p.containerPort || 0),
+        }))
+        .filter(p => p.hostPort > 0 || p.containerPort > 0);
 }
 
 function formCommand(form) {

@@ -97,6 +97,7 @@
  * @typedef {Object} Config
  * @property {Settings} settings
  * @property {string} masterPasswordHash
+ * @property {Uint8Array} networkUlaPrefix
  */
 /**
  * @typedef {Object} Settings
@@ -387,6 +388,17 @@
  * @property {ContainerRunnerConfig} container
  */
 /**
+ * @typedef {Object} PortForward
+ * @property {number} protocol
+ * @property {number} hostPort
+ * @property {number} containerPort
+ */
+/**
+ * @typedef {Object} NetworkingConfig
+ * @property {number} mode
+ * @property {PortForward[]} portForwarding
+ */
+/**
  * @typedef {Object} State
  * @property {boolean} heartbeat
  * @property {DeploymentWithStatusSnapshot} deploymentsSnapshot
@@ -545,6 +557,7 @@
  * @typedef {Object} DeploymentSpec
  * @property {PrepareConfig} prepare
  * @property {RunnerConfig} runner
+ * @property {NetworkingConfig} networking
  */
 /**
  * @typedef {Object} DesiredState
@@ -595,6 +608,15 @@
  * @property {number} numberOfRestarts
  * @property {Date} lastRestartAt
  * @property {string} runningVersion
+ * @property {Endpoint[]} endpoints
+ * @property {string[]} networkDiagnostics
+ */
+/**
+ * @typedef {Object} Endpoint
+ * @property {number} ordinal
+ * @property {string} address
+ * @property {string} machine
+ * @property {number} state
  */
 /**
  * @typedef {Object} Version
@@ -743,6 +765,11 @@
  * @property {DeploymentLogRequest} deploymentLogRequest
  * @property {string} stopLogRequestId
  * @property {LogSearchRequest} logSearchRequest
+ * @property {ClusterNetworkInfo} clusterNetwork
+ */
+/**
+ * @typedef {Object} ClusterNetworkInfo
+ * @property {Uint8Array} ulaPrefix
  */
 /**
  * @typedef {Object} MsgToMaster
@@ -751,6 +778,20 @@
  * @property {boolean} logEnd
  * @property {string} logRequestId
  * @property {LogLineBatch} logLines
+ */
+/**
+ * @typedef {Object} NetState
+ * @property {number} seq
+ * @property {Uint8Array} ulaPrefix
+ * @property {string} machine
+ * @property {DnsService[]} dnsServices
+ * @property {string[]} upstreamResolvers
+ */
+/**
+ * @typedef {Object} DnsService
+ * @property {string} name
+ * @property {string} environment
+ * @property {Endpoint[]} endpoints
  */
 /**
  * @typedef {Object} AccessPolicy
@@ -2018,6 +2059,9 @@ export function writeConfig(message, writer) {
     if (message.masterPasswordHash !== undefined && message.masterPasswordHash !== null && message.masterPasswordHash !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.masterPasswordHash);
     }
+    if (message.networkUlaPrefix && message.networkUlaPrefix.length > 0) {
+        writer.uint32(tag(3, WIRE.LDELIM)).bytes(message.networkUlaPrefix);
+    }
 }
 
 
@@ -2039,7 +2083,7 @@ export function encodeConfig(message) {
  */
 function decodeConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {settings: undefined, masterPasswordHash: "" };
+    const message = {settings: undefined, masterPasswordHash: "", networkUlaPrefix: new Uint8Array(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2049,6 +2093,10 @@ function decodeConfigMessage(reader, length) {
             }
             case 2: {
                 message.masterPasswordHash = reader.string();
+                break;
+            }
+            case 3: {
+                message.networkUlaPrefix = reader.bytes();
                 break;
             }
             default:
@@ -5528,6 +5576,143 @@ export function decodeRunnerConfig(buffer) {
 
 
 /**
+ * @param {PortForward} message
+ * @param {Writer} writer
+ */
+export function writePortForward(message, writer) {
+    if (message.protocol !== undefined && message.protocol !== null && message.protocol !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.protocol);
+    }
+    if (message.hostPort !== undefined && message.hostPort !== null && message.hostPort !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.hostPort);
+    }
+    if (message.containerPort !== undefined && message.containerPort !== null && message.containerPort !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.containerPort);
+    }
+}
+
+
+/**
+ * @param {PortForward} message
+ * @returns {Uint8Array}
+ */
+export function encodePortForward(message) {
+    const writer = Writer.create();
+    writePortForward(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {PortForward}
+ */
+function decodePortForwardMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {protocol: 0, hostPort: 0, containerPort: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.protocol = reader.int32();
+                break;
+            }
+            case 2: {
+                message.hostPort = reader.int32();
+                break;
+            }
+            case 3: {
+                message.containerPort = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {PortForward}
+ */
+export function decodePortForward(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodePortForwardMessage(reader);
+}
+
+
+
+/**
+ * @param {NetworkingConfig} message
+ * @param {Writer} writer
+ */
+export function writeNetworkingConfig(message, writer) {
+    if (message.mode !== undefined && message.mode !== null && message.mode !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.mode);
+    }
+    if (message.portForwarding && message.portForwarding.length > 0) {
+        for (const item of message.portForwarding) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writePortForward(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {NetworkingConfig} message
+ * @returns {Uint8Array}
+ */
+export function encodeNetworkingConfig(message) {
+    const writer = Writer.create();
+    writeNetworkingConfig(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NetworkingConfig}
+ */
+function decodeNetworkingConfigMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {mode: 0, portForwarding: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.mode = reader.int32();
+                break;
+            }
+            case 2: {
+                message.portForwarding.push(decodePortForwardMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NetworkingConfig}
+ */
+export function decodeNetworkingConfig(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNetworkingConfigMessage(reader);
+}
+
+
+
+/**
  * @param {State} message
  * @param {Writer} writer
  */
@@ -7412,6 +7597,11 @@ export function writeDeploymentSpec(message, writer) {
         writeRunnerConfig(message.runner, writer);
         writer.ldelim();
     }
+    if (message.networking !== undefined && message.networking !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeNetworkingConfig(message.networking, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -7433,7 +7623,7 @@ export function encodeDeploymentSpec(message) {
  */
 function decodeDeploymentSpecMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {prepare: undefined, runner: undefined };
+    const message = {prepare: undefined, runner: undefined, networking: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -7443,6 +7633,10 @@ function decodeDeploymentSpecMessage(reader, length) {
             }
             case 2: {
                 message.runner = decodeRunnerConfigMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.networking = decodeNetworkingConfigMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -7954,6 +8148,18 @@ export function writeRunnerStatus(message, writer) {
     if (message.runningVersion !== undefined && message.runningVersion !== null && message.runningVersion !== "") {
         writer.uint32(tag(8, WIRE.LDELIM)).string(message.runningVersion);
     }
+    if (message.endpoints && message.endpoints.length > 0) {
+        for (const item of message.endpoints) {
+            writer.uint32(tag(9, WIRE.LDELIM)).fork();
+            writeEndpoint(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.networkDiagnostics && message.networkDiagnostics.length > 0) {
+        for (const item of message.networkDiagnostics) {
+            writer.uint32(tag(10, WIRE.LDELIM)).string(item);
+        }
+    }
 }
 
 
@@ -7975,7 +8181,7 @@ export function encodeRunnerStatus(message) {
  */
 function decodeRunnerStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentConfigVersion: 0, runningPid: 0, runningArtifact: "", status: 0, numberOfRestarts: 0, lastRestartAt: new Date(0), runningVersion: "" };
+    const message = {deploymentConfigVersion: 0, runningPid: 0, runningArtifact: "", status: 0, numberOfRestarts: 0, lastRestartAt: new Date(0), runningVersion: "", endpoints: [], networkDiagnostics: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -8007,6 +8213,14 @@ function decodeRunnerStatusMessage(reader, length) {
                 message.runningVersion = reader.string();
                 break;
             }
+            case 9: {
+                message.endpoints.push(decodeEndpointMessage(reader, reader.uint32()));
+                break;
+            }
+            case 10: {
+                message.networkDiagnostics.push(reader.string());
+                break;
+            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -8022,6 +8236,83 @@ function decodeRunnerStatusMessage(reader, length) {
 export function decodeRunnerStatus(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeRunnerStatusMessage(reader);
+}
+
+
+
+/**
+ * @param {Endpoint} message
+ * @param {Writer} writer
+ */
+export function writeEndpoint(message, writer) {
+    if (message.ordinal !== undefined && message.ordinal !== null && message.ordinal !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.ordinal);
+    }
+    if (message.address !== undefined && message.address !== null && message.address !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.address);
+    }
+    if (message.machine !== undefined && message.machine !== null && message.machine !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.machine);
+    }
+    if (message.state !== undefined && message.state !== null && message.state !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.state);
+    }
+}
+
+
+/**
+ * @param {Endpoint} message
+ * @returns {Uint8Array}
+ */
+export function encodeEndpoint(message) {
+    const writer = Writer.create();
+    writeEndpoint(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {Endpoint}
+ */
+function decodeEndpointMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {ordinal: 0, address: "", machine: "", state: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.ordinal = reader.int32();
+                break;
+            }
+            case 2: {
+                message.address = reader.string();
+                break;
+            }
+            case 3: {
+                message.machine = reader.string();
+                break;
+            }
+            case 4: {
+                message.state = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {Endpoint}
+ */
+export function decodeEndpoint(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeEndpointMessage(reader);
 }
 
 
@@ -9710,6 +10001,11 @@ export function writeMsgToWorker(message, writer) {
         writeLogSearchRequest(message.logSearchRequest, writer);
         writer.ldelim();
     }
+    if (message.clusterNetwork !== undefined && message.clusterNetwork !== null) {
+        writer.uint32(tag(8, WIRE.LDELIM)).fork();
+        writeClusterNetworkInfo(message.clusterNetwork, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -9731,7 +10027,7 @@ export function encodeMsgToWorker(message) {
  */
 function decodeMsgToWorkerMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentsSnapshot: undefined, deploymentUpdate: undefined, prepareLogRequest: undefined, runLogRequest: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", logSearchRequest: undefined };
+    const message = {deploymentsSnapshot: undefined, deploymentUpdate: undefined, prepareLogRequest: undefined, runLogRequest: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", logSearchRequest: undefined, clusterNetwork: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9763,6 +10059,10 @@ function decodeMsgToWorkerMessage(reader, length) {
                 message.logSearchRequest = decodeLogSearchRequestMessage(reader, reader.uint32());
                 break;
             }
+            case 8: {
+                message.clusterNetwork = decodeClusterNetworkInfoMessage(reader, reader.uint32());
+                break;
+            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -9778,6 +10078,62 @@ function decodeMsgToWorkerMessage(reader, length) {
 export function decodeMsgToWorker(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeMsgToWorkerMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterNetworkInfo} message
+ * @param {Writer} writer
+ */
+export function writeClusterNetworkInfo(message, writer) {
+    if (message.ulaPrefix && message.ulaPrefix.length > 0) {
+        writer.uint32(tag(1, WIRE.LDELIM)).bytes(message.ulaPrefix);
+    }
+}
+
+
+/**
+ * @param {ClusterNetworkInfo} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterNetworkInfo(message) {
+    const writer = Writer.create();
+    writeClusterNetworkInfo(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterNetworkInfo}
+ */
+function decodeClusterNetworkInfoMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {ulaPrefix: new Uint8Array(0) };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.ulaPrefix = reader.bytes();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterNetworkInfo}
+ */
+export function decodeClusterNetworkInfo(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterNetworkInfoMessage(reader);
 }
 
 
@@ -9866,6 +10222,170 @@ function decodeMsgToMasterMessage(reader, length) {
 export function decodeMsgToMaster(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeMsgToMasterMessage(reader);
+}
+
+
+
+/**
+ * @param {NetState} message
+ * @param {Writer} writer
+ */
+export function writeNetState(message, writer) {
+    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.seq);
+    }
+    if (message.ulaPrefix && message.ulaPrefix.length > 0) {
+        writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.ulaPrefix);
+    }
+    if (message.machine !== undefined && message.machine !== null && message.machine !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.machine);
+    }
+    if (message.dnsServices && message.dnsServices.length > 0) {
+        for (const item of message.dnsServices) {
+            writer.uint32(tag(4, WIRE.LDELIM)).fork();
+            writeDnsService(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.upstreamResolvers && message.upstreamResolvers.length > 0) {
+        for (const item of message.upstreamResolvers) {
+            writer.uint32(tag(5, WIRE.LDELIM)).string(item);
+        }
+    }
+}
+
+
+/**
+ * @param {NetState} message
+ * @returns {Uint8Array}
+ */
+export function encodeNetState(message) {
+    const writer = Writer.create();
+    writeNetState(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NetState}
+ */
+function decodeNetStateMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {seq: 0, ulaPrefix: new Uint8Array(0), machine: "", dnsServices: [], upstreamResolvers: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.seq = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.ulaPrefix = reader.bytes();
+                break;
+            }
+            case 3: {
+                message.machine = reader.string();
+                break;
+            }
+            case 4: {
+                message.dnsServices.push(decodeDnsServiceMessage(reader, reader.uint32()));
+                break;
+            }
+            case 5: {
+                message.upstreamResolvers.push(reader.string());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NetState}
+ */
+export function decodeNetState(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNetStateMessage(reader);
+}
+
+
+
+/**
+ * @param {DnsService} message
+ * @param {Writer} writer
+ */
+export function writeDnsService(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.environment !== undefined && message.environment !== null && message.environment !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.environment);
+    }
+    if (message.endpoints && message.endpoints.length > 0) {
+        for (const item of message.endpoints) {
+            writer.uint32(tag(3, WIRE.LDELIM)).fork();
+            writeEndpoint(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {DnsService} message
+ * @returns {Uint8Array}
+ */
+export function encodeDnsService(message) {
+    const writer = Writer.create();
+    writeDnsService(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DnsService}
+ */
+function decodeDnsServiceMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "", environment: "", endpoints: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 2: {
+                message.environment = reader.string();
+                break;
+            }
+            case 3: {
+                message.endpoints.push(decodeEndpointMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DnsService}
+ */
+export function decodeDnsService(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDnsServiceMessage(reader);
 }
 
 
