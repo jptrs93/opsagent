@@ -9,3 +9,8 @@ backend/web/dist
 .claude
 **/result
 testing/.tmp/
+testing-vms/.tmp/
+testing-vms/.mock-artifacts/
+testing-vms/test-results/
+testing-vms/playwright-report/
+testing-vms/images/playwright/packer_cache/

@@ -1,0 +1,43 @@
+[Unit]
+Description=OpenDeploy deployment management server
+After=network-online.target opendeploy-containerd.service
+Wants=network-online.target opendeploy-containerd.service
+
+[Service]
+Type=simple
+User=opendeploy
+Group=opendeploy
+
+ExecStart=/var/lib/opendeploy/bin/opendeploy primary
+
+# Environment — override via /etc/opendeploy/env or systemctl edit
+EnvironmentFile=-/etc/opendeploy/env
+Environment=PATH=/nix/var/nix/profiles/default/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Only signal the main opendeploy process on stop/restart. Child processes
+# (osProcess runner deployments) are spawned with Setsid and must survive
+# opendeploy restarts — opendeploy reattaches to them on startup via PID polling.
+KillMode=process
+
+# OpenDeploy can exit cleanly for managed lifecycle events, such as applying
+# listener config changes by starting again from a fresh config snapshot.
+Restart=always
+RestartSec=5
+
+# Hardening
+# NoNewPrivileges is intentionally not set: the runner uses sudo to
+# restart its own systemd unit via the sudoers rule installed by the
+# deploy script. This requires privilege escalation to succeed.
+# ProtectSystem is intentionally not used: opendeploy spawns arbitrary child
+# processes whose resource needs (tmp dirs, sockets, etc.) can't be predicted.
+# ReadWritePaths whack-a-mole is not sustainable for a process manager.
+# Allow binding to privileged ports (80/443). Container deployments need
+# CAP_CHOWN for deployment data-volume ownership, CAP_SYS_ADMIN for runtime
+# namespace/mount operations, CAP_NET_ADMIN for virtual networking
+# (sysctls, netns/veth/routes, and nftables host-port rules), and DAC caps
+# to access root-owned containerd/netns paths while the service runs as
+# the opendeploy user.
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_SYS_ADMIN CAP_NET_ADMIN
+
+[Install]
+WantedBy=multi-user.target

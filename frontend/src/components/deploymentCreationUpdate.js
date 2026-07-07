@@ -319,18 +319,18 @@ export class DeploymentCreationUpdate {
         };
     }
 
-    toUpdatePayload({internalGithubRelease = false} = {}) {
+    toUpdatePayload({internalGithubRelease = false, versionOnly = false} = {}) {
         if (!this.existingState) throw new Error('Cannot produce update payload without existing deployment state');
         const payload = {
             deploymentId: this.existingState.id,
             version: this.existingState.currentVersion + 1,
         };
-        if (!internalGithubRelease) {
+        if (!internalGithubRelease && !versionOnly) {
             const nextSpec = formToSpec(this.form);
             if (JSON.stringify(nextSpec) !== this.initialSpecKey) payload.spec = nextSpec;
         }
         const nextSpaceId = Number(this.form.spaceId.val || 0);
-        if (nextSpaceId !== this.initialSpaceId) payload.spaceId = nextSpaceId;
+        if (!versionOnly && nextSpaceId !== this.initialSpaceId) payload.spaceId = nextSpaceId;
         const targetVersion = internalGithubRelease
             ? this.githubRelease.selectedRelease.val.trim()
             : this.selectedTargetVersion();

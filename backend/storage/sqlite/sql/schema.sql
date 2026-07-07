@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS deployment_status (
     runner_artifact         TEXT,
     runner_status           INTEGER,
     runner_num_restarts     INTEGER,
-    runner_last_restart_at  INTEGER  -- epoch ms
+    runner_last_restart_at  INTEGER,  -- epoch ms
+    runner_extra_blob       BLOB    NOT NULL DEFAULT x''
 );
 
 -- Append-only log of status transitions reported by the operator.
@@ -69,6 +70,7 @@ CREATE TABLE IF NOT EXISTS deployment_status_history (
     runner_status           INTEGER,
     runner_num_restarts     INTEGER,
     runner_last_restart_at  INTEGER,  -- epoch ms
+    runner_extra_blob       BLOB    NOT NULL DEFAULT x'',
     PRIMARY KEY (deployment_id, updated_at)
 );
 
@@ -166,6 +168,14 @@ CREATE TABLE IF NOT EXISTS system_secrets (
     nonce       BLOB    NOT NULL,
     created_at  INTEGER NOT NULL,  -- epoch ms
     updated_at  INTEGER NOT NULL   -- epoch ms
+);
+
+-- Small machine-local key/value state, e.g. the worker's cached cluster network
+-- parameters (programmed into the dataplane on boot before the primary is
+-- reachable). Created on every node; never replicated.
+CREATE TABLE IF NOT EXISTS local_kv (
+    key   TEXT PRIMARY KEY,
+    value BLOB NOT NULL
 );
 
 -- Worker enrollment requests. A reconnecting unenrolled worker is identified by

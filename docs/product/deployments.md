@@ -67,11 +67,22 @@ self-deployment. Public create/update validation rejects it.
 
 | Variant | Fields | Description |
 |---|---|---|
-| `container` | `user`, `envVars`, `command`, `workingDir`, `dataMountPath`, `disableDataVolume`, `mounts`, `assetMounts`, `upgradeStrategy`, `readinessSignal`, `devShmSizeKb`, `fileDescriptorLimit` | Runs the prepared image as a container via containerd (host networking, OpenDeploy-supervised crash/backoff loop). `envVars` is a map from env var name to an `EnvVarValue` with exactly one of literal `value`, pinned `secretId`, pinned `configId`, or asset ref. Every container gets a default per-deployment host data volume at `/var/lib/opendeploy-volumes/{deploymentID}/default`, bind-mounted at `/data` (override with `dataMountPath`, opt out with `disableDataVolume`). `mounts` bind existing absolute host paths from the target machine into absolute container paths, read/write by default or read-only with `readonly: true`. `assetMounts` bind OpenDeploy-managed asset files read-only; set `executable: true` for read+execute script mounts. `upgradeStrategy` defaults to `RECREATE`; `ROLLOVER` starts a candidate container, waits for its Unix-socket readiness signal, then stops the old container. `devShmSizeKb` optionally resizes the container's `/dev/shm` tmpfs in KiB; `fileDescriptorLimit` optionally overrides `RLIMIT_NOFILE`, with OpenDeploy otherwise defaulting containers to `2048` for both soft and hard limits. Stdout/stderr logging is always handled by OpenDeploy's split binary log consumer. `user` maps to the in-container OS user. Requires the `containerImage` or `nixDockerBuild` prepare. Linux only. |
+| `container` | `user`, `envVars`, `command`, `workingDir`, `dataMountPath`, `disableDataVolume`, `mounts`, `assetMounts`, `upgradeStrategy`, `readinessSignal`, `devShmSizeKb`, `fileDescriptorLimit` | Runs the prepared image as a container via containerd with OpenDeploy-supervised crash/backoff. Networking is controlled by `spec.networking`: host mode joins the host network namespace; virtual mode creates a per-container network namespace. `envVars` is a map from env var name to an `EnvVarValue` with exactly one of literal `value`, pinned `secretId`, pinned `configId`, or asset ref. Every container gets a default per-deployment host data volume at `/var/lib/opendeploy-volumes/{deploymentID}/default`, bind-mounted at `/data` (override with `dataMountPath`, opt out with `disableDataVolume`). `mounts` bind existing absolute host paths from the target machine into absolute container paths, read/write by default or read-only with `readonly: true`. `assetMounts` bind OpenDeploy-managed asset files read-only; set `executable: true` for read+execute script mounts. `upgradeStrategy` defaults to `RECREATE`; `ROLLOVER` starts a candidate container, waits for its Unix-socket readiness signal, promotes it, then stops the old container. `devShmSizeKb` optionally resizes the container's `/dev/shm` tmpfs in KiB; `fileDescriptorLimit` optionally overrides `RLIMIT_NOFILE`, with OpenDeploy otherwise defaulting containers to `2048` for both soft and hard limits. Stdout/stderr logging is always handled by OpenDeploy's split binary log consumer. `user` maps to the in-container OS user. Requires the `containerImage` or `nixDockerBuild` prepare. Linux only. |
 
 `systemd` remains as an internal-only runner for the `OPENDEPLOY`
 self-deployment. Public create/update validation rejects it, and public state
 responses redact that runner config to an empty `runner` object.
+
+### Networking
+
+`spec.networking` controls container network mode and published ports.
+
+- New create/update requests must set an explicit networking mode. Legacy specs without networking are migrated to explicit `HOST` on startup.
+- `HOST` joins the host network namespace.
+- `VIRTUAL` creates a per-container network namespace with a derived IPv6 instance address and machine-local IPv4 egress address.
+- `portForwarding` publishes host-interface TCP or UDP ports to container ports through nftables DNAT and requires `VIRTUAL`, e.g. `{protocol: TCP, hostPort: 443, containerPort: 443}`.
+- Virtual-mode deployments publish endpoint status for `.internal` DNS discovery through the per-machine dataplane DNS deployment.
+- Cross-machine virtual networking, policy, and public ingress are not implemented yet.
 
 ### Config versioning
 
@@ -135,7 +146,7 @@ card carries a per-environment tinted background and displays:
 7. The operator creates a runner, which writes `RunnerStatus.Status =
    STARTING` then `RUNNING` with the PID.
 
-For container deployments with `upgradeStrategy = ROLLOVER`, step 7 starts a candidate container before stopping the old one. The candidate receives `OPENDEPLOY_READINESS_SOCK_PATH=/run/opendeploy/readiness.sock`; once warmup is complete it writes `ready\n` to that Unix socket. OpenDeploy then stops the old container and promotes the candidate. Because current containers use host networking, rollover apps should not bind the public port before signaling readiness; after signaling, they should wait until the port is free and then start serving.
+For container deployments with `upgradeStrategy = ROLLOVER`, step 7 starts a candidate container before stopping the old one. The candidate receives `OPENDEPLOY_READINESS_SOCK_PATH=/run/opendeploy/readiness.sock`; once warmup is complete it writes `ready\n` to that Unix socket. With virtual networking, the candidate can bind the same container port immediately in its own network namespace; OpenDeploy promotes it by flipping the stable-address host route and any `portForwarding` rules, then stops the old container. With host networking, rollover is cooperative: the candidate shares the host network namespace with the old container, so it must not bind conflicting host ports before signaling readiness. After readiness, it should wait until OpenDeploy stops the old container and the port becomes free, then bind and serve.
 
 ## Crash recovery
 

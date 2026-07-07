@@ -9,7 +9,7 @@
 - Define the behavior for auto-upgrading deployments that depend on changed assets, configs, or secrets.
 - Add "used by" information for assets, configs, secrets, and spaces. Show how many deployments use each item and which deployments use it.
 - Expand the machines page to show more machine details, including network interfaces, IP addresses, CPU cores, architecture, RAM, and disk space.
-- Major feature: built-in networking layer. Design in [future-work/networking.md](../future-work/networking.md); Phase 1 (machine-local virtual network) is independently shippable.
+- Continue the built-in networking layer. Machine-local virtual networking and port forwarding exist; remaining work includes cross-machine WireGuard mesh, network policy, ingress, and service load balancing. Design in [future-work/networking.md](../future-work/networking.md).
 - Major feature: add resource monitoring for workloads.
 - Add resource requests and limits to deployment configuration.
 - Major feature: allow deployments to be defined without specifying a machine. Add a scheduler that automatically schedules deployments onto machines.

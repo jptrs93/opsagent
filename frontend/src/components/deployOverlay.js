@@ -37,9 +37,16 @@ const currentCommitLabel = (id, commits) => {
     return `${id} current version (not found on branch)`;
 };
 
+const isInternalOpenDeployDeployment = (deployment) => {
+    const name = deployment?.name || deployment?.configId?.name || '';
+    const spaceId = Number(deployment?.spaceId ?? deployment?.configId?.spaceId ?? -1);
+    return spaceId === 0 && (name === 'opendeploy' || name === 'opendeploy-net');
+};
+
 export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed) {
     const deploymentUpdate = new DeploymentCreationUpdate({deployment, deploymentConfig});
     const form = deploymentUpdate.form;
+    const internalDeployment = isInternalOpenDeployDeployment(deployment);
     const internalGithubRelease = deployment.variant === 'githubRelease';
     const loadingVersions = van.state(false);
     const requestDescription = van.state('');
@@ -47,7 +54,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     const errorMsg = van.state('');
     const assets = van.state(assetMetasS.val);
     const canStop = Boolean(deployment.desiredRunning);
-    const canManageLifecycle = deployment.runnerType !== 'systemd';
+    const canManageLifecycle = !internalDeployment && deployment.runnerType !== 'systemd';
     const canStart = Boolean(deployment.deployedVersion);
     let requestSeq = 0;
 
@@ -227,12 +234,12 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     const doDeploy = async () => {
         return withRequest('Updating deployment.', async () => {
             errorMsg.val = '';
-            if (!internalGithubRelease && !isFormValid(form, {deployments: deploymentsS.val})) {
+            if (!internalDeployment && !internalGithubRelease && !isFormValid(form, {deployments: deploymentsS.val})) {
                 errorMsg.val = 'Artifact source and required execution fields must be set.';
                 throw new Error(errorMsg.val);
             }
 
-            const payload = deploymentUpdate.toUpdatePayload({internalGithubRelease});
+            const payload = deploymentUpdate.toUpdatePayload({internalGithubRelease, versionOnly: internalDeployment});
 
             try {
                 await capi.postV1DeploymentUpdate(payload);
@@ -285,7 +292,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         });
     };
 
-    const updateInvalidReason = () => internalGithubRelease ? '' : formInvalidReason(form, {deployments: deploymentsS.val});
+    const updateInvalidReason = () => (internalDeployment || internalGithubRelease) ? '' : formInvalidReason(form, {deployments: deploymentsS.val});
 
     const backdrop = div({
         class: "fixed inset-0 bg-black/60 z-40",
@@ -297,7 +304,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         {class: "fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 pointer-events-none"},
         div(
             {class: "bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-row overflow-hidden pointer-events-auto",
-             style: () => `width: ${form.envPaneOpen.val || form.assetMountsPaneOpen.val || form.volumeMountsPaneOpen.val || form.upgradeStrategyPaneOpen.val || form.resourcesPaneOpen.val || form.assetEditorOpen.val ? 1560 : 1120}px; max-width: calc(100vw - 1rem); max-height: 88vh;`,
+             style: () => `width: ${!internalDeployment && (form.envPaneOpen.val || form.assetMountsPaneOpen.val || form.volumeMountsPaneOpen.val || form.upgradeStrategyPaneOpen.val || form.resourcesPaneOpen.val || form.assetEditorOpen.val) ? 1560 : 1120}px; max-width: calc(100vw - 1rem); max-height: 88vh;`,
              onclick: (e) => e.stopPropagation()},
             div(
                 {class: "flex-1 min-w-0 flex flex-col"},
@@ -305,8 +312,9 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                     {class: "flex-1 min-h-0 overflow-auto p-4 flex flex-col gap-5"},
                     () => deploymentForm(form, {
                         identityLocked: true,
-                        hideArtifactSource: internalGithubRelease,
-                        hideExecution: internalGithubRelease,
+                        hideIdentity: internalDeployment,
+                        hideArtifactSource: internalDeployment || internalGithubRelease,
+                        hideExecution: internalDeployment || internalGithubRelease,
                         spaceOptions: spacesS.val,
                         assets: assets.val,
                         enableAssetEditor: true,
@@ -355,12 +363,12 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                         : '',
                 ),
             ),
-            () => envVarsPane(form, {assets: assets.val}),
-            volumeMountsPane(form, {deployments: deploymentsS}),
-            () => assetMountsPane(form, {assets: assets.val, enableAssetEditor: true}),
-            upgradeStrategyPane(form),
-            resourcesPane(form),
-            assetEditorPane(form),
+            () => internalDeployment ? '' : envVarsPane(form, {assets: assets.val}),
+            () => internalDeployment ? '' : volumeMountsPane(form, {deployments: deploymentsS}),
+            () => internalDeployment ? '' : assetMountsPane(form, {assets: assets.val, enableAssetEditor: true}),
+            () => internalDeployment ? '' : upgradeStrategyPane(form),
+            () => internalDeployment ? '' : resourcesPane(form),
+            () => internalDeployment ? '' : assetEditorPane(form),
         ),
     );
 
