@@ -27,6 +27,17 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 		s.BumpUpdatedAt()
 		s.DeploymentID = 7
 		s.Preparer = apigen.PreparerStatus{DeploymentConfigVersion: 3, Artifact: "art", Status: apigen.PreparationStatus_READY}
+		s.Runner = apigen.RunnerStatus{
+			DeploymentConfigVersion: 3,
+			Status:                  apigen.RunningStatus_RUNNING,
+			Endpoints: []*apigen.Endpoint{{
+				Ordinal: 0,
+				Address: "fd00::7",
+				Machine: "m1",
+				State:   apigen.EndpointState_ENDPOINT_READY,
+			}},
+			NetworkDiagnostics: []string{"listener is IPv4-only"},
+		}
 		return true
 	})
 
@@ -44,6 +55,12 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 	rs := got[0].Status
 	if rs.Preparer.Status != apigen.PreparationStatus_READY || rs.Preparer.Artifact != "art" {
 		t.Fatalf("status not round-tripped: %+v", rs)
+	}
+	if len(rs.Runner.Endpoints) != 1 || rs.Runner.Endpoints[0].Address != "fd00::7" || rs.Runner.Endpoints[0].State != apigen.EndpointState_ENDPOINT_READY {
+		t.Fatalf("runner endpoints not round-tripped: %+v", rs.Runner.Endpoints)
+	}
+	if len(rs.Runner.NetworkDiagnostics) != 1 || rs.Runner.NetworkDiagnostics[0] != "listener is IPv4-only" {
+		t.Fatalf("runner diagnostics not round-tripped: %+v", rs.Runner.NetworkDiagnostics)
 	}
 	if rs.UpdatedAt.IsZero() {
 		t.Fatalf("expected non-zero HLC clock, got zero")

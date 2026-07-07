@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path/filepath"
 	"time"
 
 	"os"
@@ -15,19 +14,19 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/cluster"
-	"github.com/jptrs93/opsagent/backend/config"
-	"github.com/jptrs93/opsagent/backend/internal/installer"
-	"github.com/jptrs93/opsagent/backend/localtest"
-	"github.com/jptrs93/opsagent/backend/logconsumer"
-	"github.com/jptrs93/opsagent/backend/middleware/ratelimit"
-	"github.com/jptrs93/opsagent/backend/primary/backup"
-	"github.com/jptrs93/opsagent/backend/primary/clusterserver"
-	"github.com/jptrs93/opsagent/backend/primary/handler"
-	"github.com/jptrs93/opsagent/backend/primary/webui"
-	"github.com/jptrs93/opsagent/backend/secondary"
+	"github.com/jptrs93/opsagent/backend/app/dataplane"
+	"github.com/jptrs93/opsagent/backend/app/installer"
+	"github.com/jptrs93/opsagent/backend/app/logconsumer"
+	"github.com/jptrs93/opsagent/backend/app/primary/backup"
+	"github.com/jptrs93/opsagent/backend/app/primary/clusterserver"
+	"github.com/jptrs93/opsagent/backend/app/primary/handler"
+	"github.com/jptrs93/opsagent/backend/app/primary/webui"
+	"github.com/jptrs93/opsagent/backend/app/secondary"
+	"github.com/jptrs93/opsagent/backend/lib/config"
+	"github.com/jptrs93/opsagent/backend/lib/middleware/ratelimit"
+
 	"github.com/jptrs93/opsagent/backend/util/certu"
-	"github.com/jptrs93/opsagent/backend/version"
+	"github.com/jptrs93/opsagent/backend/util/version"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
 
@@ -67,14 +66,14 @@ func main() {
 			os.Exit(1)
 		}
 		return
-	case ainit.CommandSplitLogConsumer:
-		if err := logconsumer.RunSplitProcess(os.Args); err != nil {
+	case ainit.CommandRawLogConsumer:
+		if err := logconsumer.RunRawBinaryProcess(os.Args); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
 			os.Exit(1)
 		}
 		return
-	case ainit.CommandRawLogConsumer:
-		if err := logconsumer.RunRawBinaryProcess(os.Args); err != nil {
+	case ainit.CommandDataplane:
+		if err := runDataplaneDNS(); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
 			os.Exit(1)
 		}
@@ -98,6 +97,17 @@ func main() {
 
 }
 
+func runDataplaneDNS() error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	statePath := dataplane.NetStatePath(ainit.StaticConfig.DataDir)
+	listen := os.Getenv("OPENDEPLOY_DATAPLANE_DNS_LISTEN")
+	if listen == "" {
+		listen = ":53"
+	}
+	return dataplane.RunDNS(ctx, statePath, listen)
+}
+
 func runPrimary() error {
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -118,7 +128,7 @@ func runPrimary() error {
 		<-backupDone
 	}()
 	initialConfig := h.ConfigService.Snapshot()
-	clusterMaterial, err := cluster.BootstrapPrimary(h.Secrets, machineName)
+	clusterMaterial, err := certu.BootstrapPrimary(h.Secrets, machineName)
 	if err != nil {
 		return fmt.Errorf("bootstrapping cluster TLS material: %w", err)
 	}
@@ -129,13 +139,10 @@ func runPrimary() error {
 	h.EnrollmentTLSFingerprint = enrollmentFingerprint
 
 	// Primary cluster and enrollment listeners start for every primary.
-	clusterPrimary := clusterserver.New(h.Store, h.Assets, h.Github, h.Secrets)
+	clusterPrimary := clusterserver.New(h.Store, h.Assets, h.Github, h.Secrets, h.ConfigService.NetworkPrefix())
 	h.ClusterPrimary = clusterPrimary
-	enrollmentMiddlewares := []apigen.MiddlewareFunc{}
-	if !localtest.Enabled() {
-		enrollmentMiddlewares = append(enrollmentMiddlewares,
-			ratelimit.PerIP(rate.Limit(0.2), 5, time.Minute),
-		)
+	enrollmentMiddlewares := []apigen.MiddlewareFunc{
+		ratelimit.PerIP(rate.Limit(0.2), 5, time.Minute),
 	}
 	g.Go(func() error {
 		return clusterserver.RunPrimary(ctx, clusterPrimary, h.ConfigService, clusterMaterial, initialConfig.Settings.Cluster.Listen)
@@ -143,13 +150,10 @@ func runPrimary() error {
 	g.Go(func() error {
 		return clusterserver.RunEnrollment(ctx, h, h.VerifyEnrollmentRequest, h.ConfigService, clusterMaterial, initialConfig.Settings.Cluster.EnrollmentListen, enrollmentMiddlewares...)
 	})
-	middlewares := []apigen.MiddlewareFunc{}
-	if !localtest.Enabled() {
-		middlewares = append(middlewares,
-			ratelimit.PerIP(rate.Limit(40), 100, time.Minute),
-			ratelimit.PerIPAndPrefix("/v1/auth", rate.Limit(1), 10, time.Minute),
-			ratelimit.PerIPAndPrefix("/v1/auth/master", rate.Limit(0.2), 10, time.Minute),
-		)
+	middlewares := []apigen.MiddlewareFunc{
+		ratelimit.PerIP(rate.Limit(40), 100, time.Minute),
+		ratelimit.PerIPAndPrefix("/v1/auth", rate.Limit(1), 10, time.Minute),
+		ratelimit.PerIPAndPrefix("/v1/auth/master", rate.Limit(0.2), 10, time.Minute),
 	}
 	m := apigen.CreateOpsagentHttpV1Mux(h, &apigen.MuxConfig{
 		VerifyAuth:         h.VerifyAuth,
@@ -196,8 +200,8 @@ func runSecondary() {
 	if cfg.PrimaryClusterAddr == "" || cfg.PrimaryEnrollmentAddr == "" {
 		panic("OPENDEPLOY_PRIMARY_CLUSTER_ADDR and OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR must be set when running secondary")
 	}
-	caPath, certPath, keyPath := workerTLSPaths(cfg.DataDir)
-	if !workerTLSMaterialExists(caPath, certPath, keyPath) {
+	caPath, certPath, keyPath := certu.WorkerTLSPaths(cfg.DataDir)
+	if !certu.WorkerTLSMaterialExists(caPath, certPath, keyPath) {
 		if cfg.PrimaryEnrollmentFingerprint == "" {
 			panic("OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT must be set before worker enrollment")
 		}
@@ -224,18 +228,4 @@ func runSecondary() {
 		MachineName:        machineName,
 		DataDir:            cfg.DataDir,
 	})
-}
-
-func workerTLSPaths(dataDir string) (caPath, certPath, keyPath string) {
-	tlsDir := filepath.Join(dataDir, "tls")
-	return filepath.Join(tlsDir, "ca.crt"), filepath.Join(tlsDir, "node.crt"), filepath.Join(tlsDir, "node.key")
-}
-
-func workerTLSMaterialExists(paths ...string) bool {
-	for _, path := range paths {
-		if _, err := os.Stat(path); err != nil {
-			return false
-		}
-	}
-	return true
 }

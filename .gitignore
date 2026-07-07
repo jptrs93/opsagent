@@ -9,3 +9,5 @@ backend/web/dist
 .claude
 **/result
 testing/.tmp/
+testing-vms/.tmp/
+testing-vms/.mock-artifacts/

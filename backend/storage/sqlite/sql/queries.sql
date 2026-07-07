@@ -100,8 +100,8 @@ INSERT INTO deployment_status (
     deployment_id, updated_at,
     preparer_config_version, preparer_artifact, preparer_status,
     runner_config_version, runner_pid, runner_artifact, runner_status,
-    runner_num_restarts, runner_last_restart_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    runner_num_restarts, runner_last_restart_at, runner_extra_blob
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(deployment_id) DO UPDATE SET
     updated_at = excluded.updated_at,
     preparer_config_version = excluded.preparer_config_version,
@@ -112,13 +112,14 @@ ON CONFLICT(deployment_id) DO UPDATE SET
     runner_artifact = excluded.runner_artifact,
     runner_status = excluded.runner_status,
     runner_num_restarts = excluded.runner_num_restarts,
-    runner_last_restart_at = excluded.runner_last_restart_at;
+    runner_last_restart_at = excluded.runner_last_restart_at,
+    runner_extra_blob = excluded.runner_extra_blob;
 
 -- name: ListAllDeploymentStatuses :many
 SELECT deployment_id, updated_at,
        preparer_config_version, preparer_artifact, preparer_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
-       runner_num_restarts, runner_last_restart_at
+       runner_num_restarts, runner_last_restart_at, runner_extra_blob
 FROM deployment_status;
 
 -- === deployment_status_history ===
@@ -128,14 +129,14 @@ INSERT INTO deployment_status_history (
     deployment_id, updated_at,
     preparer_config_version, preparer_artifact, preparer_status,
     runner_config_version, runner_pid, runner_artifact, runner_status,
-    runner_num_restarts, runner_last_restart_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    runner_num_restarts, runner_last_restart_at, runner_extra_blob
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListDeploymentStatusHistory :many
 SELECT deployment_id, updated_at,
        preparer_config_version, preparer_artifact, preparer_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
-       runner_num_restarts, runner_last_restart_at
+       runner_num_restarts, runner_last_restart_at, runner_extra_blob
 FROM deployment_status_history
 WHERE deployment_id = ?
 ORDER BY updated_at ASC;
@@ -144,7 +145,7 @@ ORDER BY updated_at ASC;
 SELECT deployment_id, updated_at,
        preparer_config_version, preparer_artifact, preparer_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
-       runner_num_restarts, runner_last_restart_at
+       runner_num_restarts, runner_last_restart_at, runner_extra_blob
 FROM deployment_status_history
 WHERE deployment_id = ? AND updated_at > ?
 ORDER BY updated_at ASC;
@@ -362,3 +363,12 @@ ON CONFLICT(name) DO UPDATE SET
 
 -- name: GetLatestConfig :one
 select * from opendeploy_config order by id desc limit 1;
+
+-- === local_kv ===
+
+-- name: GetLocalKV :one
+SELECT value FROM local_kv WHERE key = ?;
+
+-- name: UpsertLocalKV :exec
+INSERT INTO local_kv (key, value) VALUES (?, ?)
+ON CONFLICT(key) DO UPDATE SET value = excluded.value;

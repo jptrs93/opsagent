@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/jptrs93/opsagent/backend/secrets"
+	"github.com/jptrs93/opsagent/backend/lib/secrets"
 )
 
 // This file implements secrets.Store on the primary PrimaryStorage. The
