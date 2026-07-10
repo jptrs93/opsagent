@@ -33,9 +33,7 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            cc: gcc
           - arch: arm64
-            cc: aarch64-linux-gnu-gcc
     steps:
       - uses: actions/checkout@v5
 
@@ -54,11 +52,6 @@ jobs:
           go-version: '1.26'
           cache-dependency-path: backend/go.sum
 
-      - name: Install C toolchains
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
       - name: Build frontend
         working-directory: frontend
         run: |
@@ -68,10 +61,9 @@ jobs:
       - name: Build backend
         working-directory: backend
         env:
-          CGO_ENABLED: 1
+          CGO_ENABLED: 0
           GOOS: linux
           GOARCH: ${{ matrix.arch }}
-          CC: ${{ matrix.cc }}
           VERSION: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -79,6 +71,10 @@ jobs:
             exit 1
           fi
           go build -trimpath -ldflags="-s -w -X github.com/jptrs93/opsagent/backend/util/version.Version=${VERSION}" -o "opendeploy-linux-${GOARCH}" .
+          if ! file "opendeploy-linux-${GOARCH}" | grep -q 'statically linked'; then
+            echo "opendeploy-linux-${GOARCH} is dynamically linked; release binaries must be static" >&2
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v7
         with:
