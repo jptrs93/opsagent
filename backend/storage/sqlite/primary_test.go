@@ -86,3 +86,59 @@ func TestEnsureDataplaneDeploymentDoesNotReconcileExistingVersion(t *testing.T) 
 		t.Fatalf("ensure bumped unchanged dataplane version from %d to %d", cfg.Version, again.Version)
 	}
 }
+
+func TestEnsureNodesForSystemDeploymentsBackfillsPrimaryAndWorkers(t *testing.T) {
+	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	store.EnsureSystemDeployment("primary", "v0.0.200")
+	store.EnsureSystemDeployment("worker-1", "v0.0.200")
+
+	store.EnsureNodesForSystemDeployments("primary")
+
+	nodes := store.ListNodes()
+	if len(nodes) != 2 {
+		t.Fatalf("node count = %d, want 2: %+v", len(nodes), nodes)
+	}
+	rolesByName := map[string][]int32{}
+	for _, node := range nodes {
+		if node.Name != node.SNI {
+			t.Fatalf("node %q sni = %q, want same as name", node.Name, node.SNI)
+		}
+		if node.EnrollmentID != nil {
+			t.Fatalf("backfilled node %q enrollment id = %v, want nil", node.Name, *node.EnrollmentID)
+		}
+		rolesByName[node.Name] = node.Roles
+	}
+	if len(rolesByName["primary"]) != 1 || rolesByName["primary"][0] != NodeRolePrimary {
+		t.Fatalf("primary roles = %+v, want primary", rolesByName["primary"])
+	}
+	if len(rolesByName["worker-1"]) != 1 || rolesByName["worker-1"][0] != NodeRoleSecondary {
+		t.Fatalf("worker roles = %+v, want secondary", rolesByName["worker-1"])
+	}
+}
+
+func TestAcceptEnrollmentRequestCreatesNode(t *testing.T) {
+	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	req := store.MustUpsertEnrollmentRequest("127.0.0.1", "requesting-id", "v0.0.200")
+
+	status, err := store.AcceptEnrollmentRequest(req.ID, "worker-1")
+	if err != nil {
+		t.Fatalf("AcceptEnrollmentRequest: %v", err)
+	}
+	if status.Status != EnrollmentStatusAccepted {
+		t.Fatalf("status = %q, want accepted", status.Status)
+	}
+	nodes := store.ListNodes()
+	if len(nodes) != 1 {
+		t.Fatalf("node count = %d, want 1: %+v", len(nodes), nodes)
+	}
+	node := nodes[0]
+	if node.Name != "worker-1" || node.SNI != "worker-1" {
+		t.Fatalf("node identity = name %q sni %q, want worker-1", node.Name, node.SNI)
+	}
+	if node.EnrollmentID == nil || *node.EnrollmentID != req.ID {
+		t.Fatalf("node enrollment id = %v, want %d", node.EnrollmentID, req.ID)
+	}
+	if len(node.Roles) != 1 || node.Roles[0] != NodeRoleSecondary {
+		t.Fatalf("node roles = %+v, want secondary", node.Roles)
+	}
+}

@@ -102,12 +102,19 @@ func (s *PrimaryStorage) listEnrollmentRequestsLocked() ([]*apigen.EnrollmentReq
 	return items, nil
 }
 
-func (s *PrimaryStorage) AcceptEnrollmentRequest(id int32) (*apigen.EnrollmentRequestStatus, error) {
+func (s *PrimaryStorage) AcceptEnrollmentRequest(id int32, workerName string) (*apigen.EnrollmentRequestStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		panic(fmt.Sprintf("begin enrollment accept tx: %v", err))
+	}
+	defer tx.Rollback()
+
 	now := time.Now().UnixMilli()
-	row, err := scanEnrollmentRequest(s.db.QueryRowContext(context.Background(), `
+	row, err := scanEnrollmentRequest(tx.QueryRowContext(ctx, `
 		UPDATE enrollment_requests
 		SET updated_at = ?, status = ?
 		WHERE id = ?
@@ -117,10 +124,17 @@ func (s *PrimaryStorage) AcceptEnrollmentRequest(id int32) (*apigen.EnrollmentRe
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	if err == nil {
-		s.enrollmentSubs.Notify(*row)
+	if err != nil {
+		return row, err
 	}
-	return row, err
+	if err := upsertNode(ctx, tx, int64(id), workerName, workerName, []int32{NodeRoleSecondary}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit enrollment accept tx: %v", err))
+	}
+	s.enrollmentSubs.Notify(*row)
+	return row, nil
 }
 
 func scanEnrollmentRequest(row *sql.Row) (*apigen.EnrollmentRequestStatus, error) {

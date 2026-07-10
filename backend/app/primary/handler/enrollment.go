@@ -123,7 +123,7 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 	if err != nil {
 		return nil, fmt.Errorf("signing worker CSR: %w", err)
 	}
-	status, err := h.Store.AcceptEnrollmentRequest(req.ID)
+	status, err := h.Store.AcceptEnrollmentRequest(req.ID, workerName)
 	if errors.Is(err, sqlite.ErrNotFound) {
 		return nil, EnrollmentNotFoundErr
 	}

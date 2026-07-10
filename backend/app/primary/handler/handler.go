@@ -193,6 +193,7 @@ func New(ctx context.Context, staticFS fs.FS, machineName string) (*Handler, err
 
 	// Ensure the system self-management deployment exists for the primary.
 	h.Store.EnsureSystemDeployment(machineName, version.Version)
+	h.Store.EnsureNodesForSystemDeployments(machineName)
 	dataplaneCfg := h.Store.EnsureDataplaneDeployment(machineName, version.Version)
 	network.Default.SetDataplaneDeploymentID(dataplaneCfg.ID)
 

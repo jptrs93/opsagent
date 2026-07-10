@@ -192,3 +192,16 @@ CREATE TABLE IF NOT EXISTS enrollment_requests (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_enrollment_requests_machine_id
     ON enrollment_requests(requesting_machine_id);
+
+-- Canonical cluster node registry. The primary is inserted with enrollment_id
+-- NULL; enrolled workers reference the enrollment request that accepted them.
+CREATE TABLE IF NOT EXISTS nodes (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    enrollment_id INTEGER,
+    name          TEXT    NOT NULL,
+    sni           TEXT    NOT NULL DEFAULT '',
+    roles         TEXT    NOT NULL DEFAULT '[]', -- JSON array of integer role ids
+    wg_public_key TEXT    NOT NULL DEFAULT '',
+    UNIQUE(name),
+    UNIQUE(enrollment_id)
+);

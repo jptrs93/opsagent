@@ -28,7 +28,7 @@ const BACKUP_RESTORE_DEFAULTS = {
   path: 'opendeploy/e2e-primary',
   largeAssetPath: 'opendeploy/e2e-assets',
   region: 'us-east-1',
-  endpoint: `http://${process.env.OPD_SECONDARY_HOST || 'opendeploy-secondary'}:9000`,
+  endpoint: process.env.OPD_BACKEND_S3_ENDPOINT || 'http://opendeploy-secondary:9000',
   statePath: process.env.OPD_BACKUP_RESTORE_STATE || '/e2e/test-results/backup-restore.env',
 };
 
@@ -151,9 +151,7 @@ export async function createNixDockerDeployment(page, {
   await step(`fill deployment identity ${name}`, async () => {
     await byTestId(dialog, 'deployment-name-input', textField(dialog, 'Name')).fill(name);
     await byTestId(dialog, 'deployment-machine-select', selectField(dialog, 'Machine')).selectOption(machine);
-    const networkingSelect = byTestId(dialog, 'deployment-networking-mode-select', selectField(dialog, 'Networking'));
-    await networkingSelect.scrollIntoViewIfNeeded();
-    await networkingSelect.selectOption(networkingMode);
+    await setDeploymentNetworkingMode(dialog, networkingMode);
   });
   const sourceTypeSelect = byTestId(dialog, 'deployment-source-type-select', selectField(dialog, 'Source type'));
   if (expectDefaultDockerImage) {
@@ -582,9 +580,7 @@ async function createContainerImageDeployment(page, {
   await step(`fill container deployment ${name}`, async () => {
     await byTestId(dialog, 'deployment-name-input', textField(dialog, 'Name')).fill(name);
     await byTestId(dialog, 'deployment-machine-select', selectField(dialog, 'Machine')).selectOption(machine);
-    const networkingSelect = byTestId(dialog, 'deployment-networking-mode-select', selectField(dialog, 'Networking'));
-    await networkingSelect.scrollIntoViewIfNeeded();
-    await networkingSelect.selectOption(networkingMode);
+    await setDeploymentNetworkingMode(dialog, networkingMode);
     await setDeploymentPortForwarding(dialog, portForwarding);
     await byTestId(dialog, 'deployment-source-type-select', selectField(dialog, 'Source type')).selectOption('containerImage');
     await byTestId(dialog, 'deployment-container-image-input', textField(dialog, 'Image')).fill(image);
@@ -829,6 +825,7 @@ async function setDeploymentUpgradeStrategy(dialog, {strategy = UPGRADE_RECREATE
 async function setDeploymentPortForwarding(dialog, portForwarding) {
   const rows = portForwarding || [];
   if (rows.length === 0) return;
+  const pane = await openDeploymentNetworkingPane(dialog);
   const section = dialog.getByText('Port forwarding', {exact: true}).locator('xpath=ancestor::div[contains(@class, "border")][1]');
   await expect(section).toBeVisible({timeout: LONG_UI_TIMEOUT});
   for (const rule of rows) {
@@ -838,6 +835,23 @@ async function setDeploymentPortForwarding(dialog, portForwarding) {
     await row.locator('input').nth(0).fill(String(rule.hostPort));
     await row.locator('input').nth(1).fill(String(rule.containerPort));
   }
+  await pane.getByTitle('Close').click();
+  await expect(pane).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
+async function setDeploymentNetworkingMode(dialog, networkingMode) {
+  const pane = await openDeploymentNetworkingPane(dialog);
+  await byTestId(pane, 'deployment-networking-mode-select', selectField(pane, 'Mode')).selectOption(String(networkingMode));
+  await pane.getByTitle('Close').click();
+  await expect(pane).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
+async function openDeploymentNetworkingPane(dialog) {
+  const pane = dialog.getByRole('heading', {name: 'Networking'}).locator('xpath=ancestor::div[contains(@class, "border-l")][1]');
+  if (await pane.isVisible().catch(() => false)) return pane;
+  await dialog.getByText(/^Networking:/).locator('xpath=ancestor::div[contains(@class, "justify-between")][1]').getByRole('button').click();
+  await expect(pane).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  return pane;
 }
 
 function envVarRef(value) {

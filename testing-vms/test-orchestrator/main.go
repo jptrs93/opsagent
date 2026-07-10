@@ -2064,6 +2064,7 @@ func (c *config) runPlaywrightFlows() error {
 	logf("Upgrade target version: %s", upgradeVersion)
 	envPairs := map[string]string{
 		"OPD_BASE_URL":             c.PlaywrightBaseURL,
+		"OPD_BACKEND_S3_ENDPOINT":  "http://" + c.SecondaryName + ":9000",
 		"OPD_IGNORE_HTTPS_ERRORS":  "true",
 		"OPD_SECONDARY_HOST":       secondaryHost,
 		"OPD_SETUP_PASSWORD":       envFile["OPD_SETUP_PASSWORD"],
