@@ -2,7 +2,7 @@
 
 ## Overview
 
-Authentication is passkey-only. A master password is used once to bootstrap the first passkey. Both flows produce a JWT token used for subsequent requests. Access control is enforced per-route via policies defined in the protobuf API contract.
+Authentication uses passkeys for normal operator login. A master password can issue a short-lived token for passkey registration, including bootstrap and recovery when an operator needs to enroll a replacement authenticator. Both flows produce a JWT token used for subsequent requests. Access control is enforced per-route via policies defined in the protobuf API contract.
 
 Key files:
 - `backend/handler/auth.go` — master password handler, JWT signing/verification, token generation.
@@ -15,7 +15,7 @@ OpenDeploy is a single-admin tool. The `User` proto exposes `{id, name}` to the 
 
 ## Master password bootstrap
 
-The initial master password is provisioned via the `OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH` environment variable, which holds an argon2id hash produced by `authu.HashPassword`. Fresh primary installs generate a high-entropy temporary password, write its hash to `/etc/opendeploy/env`, and print the password once. It is used only to obtain a short-lived token for passkey registration.
+The initial master password is provisioned via the `OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH` environment variable, which holds an argon2id hash produced by `authu.HashPassword`. Fresh primary installs generate a high-entropy setup password, write its hash to `/etc/opendeploy/env`, and print the password once. It obtains a short-lived token for passkey registration and remains configured until rotated.
 
 The configured master password hash is stored in the persisted OpenDeploy config envelope. It is owned by the config service but is not editable through the general settings update endpoint.
 
@@ -31,7 +31,7 @@ An authenticated default-session user can save a replacement master password. Th
 
 `POST /v1/auth/master/password/verify` checks a supplied password against the current configured hash without issuing a bootstrap token.
 
-After registering a passkey, the initial master password is no longer needed for normal operation. It remains configured until rotated through the authenticated master-password endpoint.
+After registering a passkey, the master password is no longer needed for normal operation. It intentionally remains available as a recovery route for enrolling a new passkey or creating an additional operator user, until rotated through the authenticated master-password endpoint.
 
 ## JWT tokens
 
@@ -55,7 +55,7 @@ Passkeys use the FIDO2/WebAuthn standard via `github.com/go-webauthn/webauthn`. 
 
 ### Relying party configuration
 
-- When HTTPS Web UI is enabled, RPID is the first configured Web UI host from `ACME_HOSTS` (default `opendeploy.dev`) and origins are HTTPS versions of the configured hosts.
+- When HTTPS Web UI is enabled, RPID is the first configured Web UI host from `ACME_HOSTS` (default `opendeploy.dev`) and origins are HTTPS versions of the configured hosts. `OPENDEPLOY_PASSKEY_EXTRA_ORIGINS` can append comma-separated additional origins, such as test tunnels with explicit ports.
 - When only HTTP Web UI is enabled, RPID is `localhost` and origins are `http://localhost:8080` and `http://localhost:5173`.
 
 ### Registration flow

@@ -1,15 +1,15 @@
 package ainit
 
 import (
-	"encoding/json"
-	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path"
 
 	"github.com/jptrs93/goutil/envu"
 	"github.com/jptrs93/goutil/erru"
-	"github.com/jptrs93/opsagent/backend/logconsumer"
+	"github.com/jptrs93/goutil/fileu"
+	"github.com/jptrs93/opsagent/backend/lib/log"
 )
 
 var StaticConfig StaticConfiguration
@@ -18,7 +18,7 @@ const productionDataDir = "/var/lib/opendeploy"
 
 func init() {
 	initArgs()
-	if Args.Installer || Args.Command == CommandSplitLogConsumer || Args.Command == CommandRawLogConsumer {
+	if Args.Installer || Args.Command == CommandRawLogConsumer {
 		return
 	}
 	StaticConfig = envu.MustParse[StaticConfiguration](os.LookupEnv)
@@ -34,40 +34,22 @@ func init() {
 	StaticConfig.LogDir = path.Join(StaticConfig.DataDir, "log")
 	StaticConfig.ContainerdNamespace = "opendeploy"
 	StaticConfig.ContainerdAddress = "/run/opendeploy/containerd.sock"
-	mustCreateDir(StaticConfig.DataDir, 0o750)
-	mustCreateDir(StaticConfig.LogDir, 0o750)
-	mustCreateDir(StaticConfig.PrepareOutputDir, 0o750)
-	mustCreateDir(StaticConfig.RunOutputDir, 0o750)
-	mustCreateDir(StaticConfig.VolumesDir, 0o755)
-	mustCreateDir(StaticConfig.ReleasesDir, 0o755)
-	basePath := logconsumer.SystemLogBasePath(StaticConfig.RunOutputDir)
-	w, err := logconsumer.NewSystemLogWriter(basePath)
-	if err != nil {
-		panic(fmt.Sprintf("opening service log writer: %v", err))
+	fileu.MustEnsureDirWithPerm(StaticConfig.DataDir, 0o750)
+	fileu.MustEnsureDirWithPerm(StaticConfig.LogDir, 0o750)
+	fileu.MustEnsureDirWithPerm(StaticConfig.PrepareOutputDir, 0o750)
+	fileu.MustEnsureDirWithPerm(StaticConfig.RunOutputDir, 0o750)
+	fileu.MustEnsureDirWithPerm(StaticConfig.VolumesDir, 0o755)
+	fileu.MustEnsureDirWithPerm(StaticConfig.ReleasesDir, 0o755)
+	var w io.WriteCloser
+	if Args.Command == CommandDataplane {
+		w = os.Stdout
+	} else {
+		// Main opendeploy agents (primary, secondary) are a special case that write logs directly to /var/opendeploy-run-logs/0
+		basePath := log.SystemLogBasePath(StaticConfig.RunOutputDir)
+		w = erru.Must(log.NewSystemLogWriter(basePath))
 	}
-	logLevel := getLogLevel()
-	l := slog.New(logconsumer.NewSlogHandler(w, logLevel))
-	slog.SetDefault(l)
-}
-
-func mustCreateDir(p string, mode os.FileMode) {
-	if err := os.MkdirAll(p, mode); err != nil {
-		panic(fmt.Sprintf("creating dir %q: %v", p, err))
-	}
-	if err := os.Chmod(p, mode); err != nil {
-		panic(fmt.Sprintf("chmod dir %q: %v", p, err))
-	}
-}
-
-func getLogLevel() slog.Level {
-	logLevelStr := envu.MustGetOrDefault[string]("LOG_LEVEL", "INFO")
-	var level slog.Level
-	err := json.Unmarshal([]byte(fmt.Sprintf("\"%s\"", logLevelStr)), &level)
-	if err == nil {
-		return level
-	}
-	slog.Warn(fmt.Sprintf("decoding log level '%v': %v", logLevelStr, err))
-	return slog.LevelInfo
+	logLevel := envu.MustGetOrDefault[slog.Level]("LOG_LEVEL", slog.LevelInfo)
+	slog.SetDefault(slog.New(log.NewSlogHandler(w, logLevel)))
 }
 
 type StaticConfiguration struct {
@@ -91,7 +73,9 @@ type StaticConfiguration struct {
 	InitialWebHTTPSListen     string   `env:"OPENDEPLOY_INITIAL_WEB_HTTPS_LISTEN,:443"`
 	InitialWebTLSSelfManaged  bool     `env:"OPENDEPLOY_INITIAL_WEB_TLS_SELF_MANAGED,false"`
 	InitialWebTLSCertPEM      string   `env:"OPENDEPLOY_INITIAL_WEB_TLS_CERT_PEM,"`
+	InitialWebTLSCertPEMFile  string   `env:"OPENDEPLOY_INITIAL_WEB_TLS_CERT_PEM_FILE,"`
 	InitialMasterPasswordHash string   `env:"OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH,"`
+	PasskeyExtraOrigins       []string `env:"OPENDEPLOY_PASSKEY_EXTRA_ORIGINS,"`
 	InitialClusterListen      string   `env:"OPENDEPLOY_INITIAL_CLUSTER_LISTEN,:9443"`    // mTLS listen address
 	InitialEnrollmentListen   string   `env:"OPENDEPLOY_INITIAL_ENROLLMENT_LISTEN,:9444"` // HTTPS worker enrollment listen address
 	InitialAcmeHosts          []string `env:"OPENDEPLOY_INITIAL_ACME_HOSTS,opendeploy.dev"`

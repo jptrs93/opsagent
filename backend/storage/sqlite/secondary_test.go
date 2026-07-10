@@ -27,6 +27,17 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 		s.BumpUpdatedAt()
 		s.DeploymentID = 7
 		s.Preparer = apigen.PreparerStatus{DeploymentConfigVersion: 3, Artifact: "art", Status: apigen.PreparationStatus_READY}
+		s.Runner = apigen.RunnerStatus{
+			DeploymentConfigVersion: 3,
+			Status:                  apigen.RunningStatus_RUNNING,
+			Endpoints: []*apigen.Endpoint{{
+				Ordinal: 0,
+				Address: "fd00::7",
+				Machine: "m1",
+				State:   apigen.EndpointState_ENDPOINT_READY,
+			}},
+			NetworkDiagnostics: []string{"listener is IPv4-only"},
+		}
 		return true
 	})
 
@@ -45,6 +56,12 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 	if rs.Preparer.Status != apigen.PreparationStatus_READY || rs.Preparer.Artifact != "art" {
 		t.Fatalf("status not round-tripped: %+v", rs)
 	}
+	if len(rs.Runner.Endpoints) != 1 || rs.Runner.Endpoints[0].Address != "fd00::7" || rs.Runner.Endpoints[0].State != apigen.EndpointState_ENDPOINT_READY {
+		t.Fatalf("runner endpoints not round-tripped: %+v", rs.Runner.Endpoints)
+	}
+	if len(rs.Runner.NetworkDiagnostics) != 1 || rs.Runner.NetworkDiagnostics[0] != "listener is IPv4-only" {
+		t.Fatalf("runner diagnostics not round-tripped: %+v", rs.Runner.NetworkDiagnostics)
+	}
 	if rs.UpdatedAt.IsZero() {
 		t.Fatalf("expected non-zero HLC clock, got zero")
 	}
@@ -53,5 +70,35 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 // nonEmptySpec returns a spec that encodes to non-empty bytes (an empty
 // DeploymentSpec{} encodes to nil, which violates spec_blob NOT NULL).
 func nonEmptySpec() *apigen.DeploymentSpec {
-	return &apigen.DeploymentSpec{Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{User: "1000"}}}
+	return &apigen.DeploymentSpec{
+		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{User: "1000"}},
+		Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_HOST},
+	}
+}
+
+func TestSecondaryStorageMigratesMissingNetworkingToHost(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "secondary.db")
+	store := NewSecondaryStorage(dbPath)
+	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
+		ID:       9,
+		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Machine: "m1", Name: "legacy"},
+		Version:  1,
+		Spec: apigen.DeploymentSpec{
+			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+			Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+		},
+	})
+	if err := store.db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	reopened := NewSecondaryStorage(dbPath)
+	defer reopened.db.Close()
+	cfg := reopened.configCache[9]
+	if cfg == nil {
+		t.Fatal("migrated config not found")
+	}
+	if cfg.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_HOST {
+		t.Fatalf("networking mode = %v, want host", cfg.Spec.Networking.Mode)
+	}
 }
