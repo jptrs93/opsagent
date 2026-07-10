@@ -47,8 +47,7 @@ type ContainerSpec struct {
 	OutputRun     int32    // deployment run number for stdout/stderr records
 
 	// NetnsPath joins the container to a pre-created network namespace (the
-	// virtual network). Empty = host networking (pre-networking specs and the
-	// explicit host mode opt-out).
+	// virtual network). Empty = host networking.
 	NetnsPath string
 	// ResolvConfPath is a generated resolv.conf to bind-mount read-only when
 	// NetnsPath is set (points at the machine's dataplane DNS). Empty = the

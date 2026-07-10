@@ -48,6 +48,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     const form = deploymentUpdate.form;
     const internalDeployment = isInternalOpenDeployDeployment(deployment);
     const internalGithubRelease = deployment.variant === 'githubRelease';
+    const internalOpenDeployRelease = internalDeployment || internalGithubRelease;
     const loadingVersions = van.state(false);
     const requestDescription = van.state('');
     const versionError = van.state('');
@@ -77,7 +78,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
 
     const loadVersions = async (branch, opts = {}) => {
         const sourceID = deploymentUpdate.currentSourceID();
-        if (!internalGithubRelease && !sourceID) {
+        if (!internalOpenDeployRelease && !sourceID) {
             versionError.val = form.sourceType.val === 'containerImage' ? 'Image not set' : 'Repository not set';
             deploymentUpdate.nixDockerBuild.commits.val = [];
             deploymentUpdate.containerImage.tags.val = [];
@@ -87,12 +88,12 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         const selectedBranch = sourceType === SOURCE_NIX_DOCKER
             ? (branch || deploymentUpdate.nixDockerBuild.selectedBranch.val || '')
             : '';
-        const endRequest = startRequest(versionRequestDescription(sourceType, internalGithubRelease, selectedBranch));
+        const endRequest = startRequest(versionRequestDescription(sourceType, internalOpenDeployRelease, selectedBranch));
         loadingVersions.val = true;
         versionError.val = '';
         const sourceKey = deploymentUpdate.sourceKey();
         try {
-            if (internalGithubRelease) {
+            if (internalOpenDeployRelease) {
                 const req = {deploymentId: deployment.id};
                 let result;
                 try {
@@ -222,7 +223,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         }
     });
 
-    if (deployment.variant && (deployment.variant !== 'containerImage' || !deploymentUpdate.hasTrustedSourceValidation())) {
+    if (deployment.variant && (internalOpenDeployRelease || deployment.variant !== 'containerImage' || !deploymentUpdate.hasTrustedSourceValidation())) {
         loadVersions('', {preserveSelection: true});
     }
 
@@ -239,7 +240,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                 throw new Error(errorMsg.val);
             }
 
-            const payload = deploymentUpdate.toUpdatePayload({internalGithubRelease, versionOnly: internalDeployment});
+            const payload = deploymentUpdate.toUpdatePayload({internalGithubRelease: internalOpenDeployRelease, versionOnly: internalDeployment});
 
             try {
                 await capi.postV1DeploymentUpdate(payload);
@@ -322,7 +323,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                     () => hasVersions ? versionSection({
                         form,
                         deploymentUpdate,
-                        internalGithubRelease,
+                        internalGithubRelease: internalOpenDeployRelease,
                         loadingVersions,
                         versionError,
                         deployedVersion: deployment.deployedVersion || '',

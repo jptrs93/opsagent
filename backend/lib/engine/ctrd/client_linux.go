@@ -164,8 +164,7 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 			specOpts = append(specOpts, oci.WithHostResolvconf)
 		}
 	} else {
-		// Host networking: pre-networking spec versions and the explicit
-		// networking.mode=host opt-out.
+		// Host networking: explicit networking.mode=host opt-out.
 		specOpts = append(specOpts, oci.WithHostNamespace(specs.NetworkNamespace), oci.WithHostResolvconf)
 	}
 	if spec.User != "" {

@@ -34,7 +34,7 @@ Deployment networking is configured on `DeploymentSpec.networking`.
 
 - `NETWORKING_MODE_HOST` runs the container in the host network namespace.
 - `NETWORKING_MODE_VIRTUAL` runs the container in a managed network namespace.
-- `NETWORKING_MODE_UNSPECIFIED` is reserved for pre-networking specs. New create/update requests must set an explicit mode; legacy missing specs are migrated to explicit host mode on startup.
+- `NETWORKING_MODE_UNSPECIFIED` is invalid for create/update requests. Deployment specs must set an explicit mode.
 
 `networking.portForwarding` maps one host-interface TCP or UDP port to one container port and requires virtual mode. TCP and UDP claims are independent, so the same numeric host port can be published once for TCP and once for UDP.
 

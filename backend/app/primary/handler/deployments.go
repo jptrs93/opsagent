@@ -195,6 +195,19 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 	if cfg == nil || cfg.Spec.Prepare.IsZero() {
 		return nil, DeploymentNotFoundErr
 	}
+	if sqlite.IsDataplaneDeploymentConfig(cfg) {
+		if versionprovider2.GHRel == nil {
+			return nil, fmt.Errorf("github release version loading is not configured")
+		}
+		releases, err := versionprovider2.GHRel.ListReleases(ctx, internaldeploy.Repo)
+		if err != nil {
+			return nil, fmt.Errorf("listing releases: %w", err)
+		}
+		return &apigen.DeploymentVersions{
+			DeploymentID:  req.DeploymentID,
+			GithubRelease: &apigen.DeploymentGithubReleaseVersions{Releases: releases},
+		}, nil
+	}
 
 	switch {
 	case cfg.Spec.Prepare.NixDockerBuild != nil:

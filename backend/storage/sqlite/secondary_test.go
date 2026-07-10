@@ -75,30 +75,3 @@ func nonEmptySpec() *apigen.DeploymentSpec {
 		Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_HOST},
 	}
 }
-
-func TestSecondaryStorageMigratesMissingNetworkingToHost(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "secondary.db")
-	store := NewSecondaryStorage(dbPath)
-	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
-		ID:       9,
-		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Machine: "m1", Name: "legacy"},
-		Version:  1,
-		Spec: apigen.DeploymentSpec{
-			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-			Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-		},
-	})
-	if err := store.db.Close(); err != nil {
-		t.Fatalf("close db: %v", err)
-	}
-
-	reopened := NewSecondaryStorage(dbPath)
-	defer reopened.db.Close()
-	cfg := reopened.configCache[9]
-	if cfg == nil {
-		t.Fatal("migrated config not found")
-	}
-	if cfg.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_HOST {
-		t.Fatalf("networking mode = %v, want host", cfg.Spec.Networking.Mode)
-	}
-}

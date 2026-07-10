@@ -715,15 +715,13 @@ message RunnerConfig {
 
 // === Networking config ===
 
-// NetworkingMode is pinned to the config version. Specs written before the
-// networking feature decode as UNSPECIFIED and are migrated on startup to
-// explicit HOST mode. New create/update requests must include networking;
-// the UI defaults new deployments to VIRTUAL unless HOST is explicitly chosen,
-// and UNSPECIFIED is rejected on new writes.
+// NetworkingMode is pinned to the config version. Create/update requests must
+// include networking; the UI defaults new deployments to VIRTUAL unless HOST is
+// explicitly chosen, and UNSPECIFIED is rejected on new writes.
 // Restarts and respawns re-read the immutable spec version, so an existing
 // deployment's networking never changes without a new config version.
 enum NetworkingMode {
-  NETWORKING_MODE_UNSPECIFIED = 0; // pre-networking specs: host networking
+  NETWORKING_MODE_UNSPECIFIED = 0; // invalid for deployment config writes
   NETWORKING_MODE_VIRTUAL = 1;     // per-container netns on the virtual IPv6 network
   NETWORKING_MODE_HOST = 2;        // explicit opt-out: host network namespace
 }

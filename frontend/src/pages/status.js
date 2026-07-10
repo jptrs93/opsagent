@@ -236,7 +236,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
         const machineMissing = Boolean(machine) && !machineNames.has(machine);
         const existingStatus = runner.status || 0;
         const uiExistingStatus = machineMissing && existingStatus === STATUS_RUNNING ? 0 : existingStatus;
-        const systemDeployment = spaceId === OPENDEPLOY_SPACE_ID && (cid.name || '') === 'opendeploy';
+        const systemDeployment = spaceId === OPENDEPLOY_SPACE_ID && ['opendeploy', 'opendeploy-net'].includes(cid.name || '');
 
         return {
             id,
