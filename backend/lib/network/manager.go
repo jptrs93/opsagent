@@ -8,18 +8,26 @@ import (
 // Manager is the machine-local networking reconciler: it owns per-container
 // netns/veth/route state and the machine's nftables ruleset (IPv4 egress
 // masquerade and port-forwarding DNAT). It runs in-process in the agent; the
-// dataplane itself is the kernel, so manager availability is irrelevant to
-// existing traffic. All operations are full-state and idempotent.
+// network data plane itself is the kernel, so manager availability is
+// irrelevant to existing traffic. All operations are full-state and idempotent.
 //
-// Default is the process-wide instance, wired by the bootstrap (same pattern
-// as runner.Containerd).
-var Default = NewManager()
+// Default is the process-wide instance, wired by the bootstrap.
+var Default = New(Prefix{}, 0)
 
-func NewManager() *Manager {
+// New returns a manager initialized with the machine's cluster network identity.
+func New(prefix Prefix, netproxyDeploymentID int32) *Manager {
 	return &Manager{
-		hostPorts: map[int32]hostPortsEntry{},
-		current:   map[int32]*ContainerNet{},
+		prefix:               prefix,
+		hasPrefix:            !prefix.IsZero(),
+		netproxyDeploymentID: netproxyDeploymentID,
+		hostPorts:            map[int32]hostPortsEntry{},
+		current:              map[int32]*ContainerNet{},
 	}
+}
+
+// SetDefault installs the process-wide manager during application startup.
+func SetDefault(manager *Manager) {
+	Default = manager
 }
 
 type Manager struct {
@@ -27,9 +35,9 @@ type Manager struct {
 	prefix    Prefix
 	hasPrefix bool
 
-	// dataplaneDeploymentID identifies this machine's dataplane system
+	// netproxyDeploymentID identifies this machine's netproxy system
 	// deployment; the local DNS address derives from it.
-	dataplaneDeploymentID int32
+	netproxyDeploymentID int32
 
 	// hostPorts is the desired DNAT state per deployment; the nftables table is
 	// rebuilt from this map on every change.
@@ -81,30 +89,30 @@ func (m *Manager) PrefixValue() (Prefix, bool) {
 	return m.prefix, m.hasPrefix
 }
 
-// SetDataplaneDeploymentID records this machine's dataplane system deployment;
+// SetNetproxyDeploymentID records this machine's netproxy system deployment;
 // the machine-local DNS address is its instance address. Containers spawned
 // afterwards get a resolv.conf pointing at it.
-func (m *Manager) SetDataplaneDeploymentID(id int32) {
+func (m *Manager) SetNetproxyDeploymentID(id int32) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.dataplaneDeploymentID = id
+	m.netproxyDeploymentID = id
 }
 
-// DNSAddr returns the machine-local dataplane DNS address, and whether both
-// the prefix and the dataplane deployment are known yet.
+// DNSAddr returns the machine-local netproxy DNS address, and whether both the
+// prefix and the netproxy deployment are known yet.
 func (m *Manager) DNSAddr() (netip.Addr, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if !m.hasPrefix || m.dataplaneDeploymentID == 0 {
+	if !m.hasPrefix || m.netproxyDeploymentID == 0 {
 		return netip.Addr{}, false
 	}
-	return m.prefix.InstanceAddr(m.dataplaneDeploymentID, 0), true
+	return m.prefix.InstanceAddr(m.netproxyDeploymentID, 0), true
 }
 
-// IsDataplaneDeployment reports whether id is this machine's dataplane system
+// IsNetproxyDeployment reports whether id is this machine's netproxy system
 // deployment.
-func (m *Manager) IsDataplaneDeployment(id int32) bool {
+func (m *Manager) IsNetproxyDeployment(id int32) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.dataplaneDeploymentID != 0 && id == m.dataplaneDeploymentID
+	return m.netproxyDeploymentID != 0 && id == m.netproxyDeploymentID
 }

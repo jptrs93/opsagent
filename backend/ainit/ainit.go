@@ -41,7 +41,7 @@ func init() {
 	fileu.MustEnsureDirWithPerm(StaticConfig.VolumesDir, 0o755)
 	fileu.MustEnsureDirWithPerm(StaticConfig.ReleasesDir, 0o755)
 	var w io.WriteCloser
-	if Args.Command == CommandDataplane {
+	if Args.Command == CommandNetproxy {
 		w = os.Stdout
 	} else {
 		// Main opendeploy agents (primary, secondary) are a special case that write logs directly to /var/opendeploy-run-logs/0

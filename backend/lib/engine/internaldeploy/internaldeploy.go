@@ -3,25 +3,25 @@ package internaldeploy
 import "github.com/jptrs93/opsagent/backend/apigen"
 
 const (
-	SpaceID        int32 = 0
-	Repo                 = "github.com/jptrs93/opsagent"
-	SelfName             = "opendeploy"
-	DataplaneName        = "opendeploy-net"
-	DataplaneImage       = "opendeploy-net"
+	SpaceID       int32 = 0
+	Repo                = "github.com/jptrs93/opsagent"
+	SelfName            = "opendeploy"
+	NetproxyName        = "opendeploy-net"
+	NetproxyImage       = "opendeploy-net"
 )
 
 func IsSelfIdentifier(cid apigen.DeploymentIdentifier) bool {
 	return cid.SpaceID == SpaceID && cid.Name == SelfName
 }
 
-func IsDataplaneIdentifier(cid apigen.DeploymentIdentifier) bool {
-	return cid.SpaceID == SpaceID && cid.Name == DataplaneName
+func IsNetproxyIdentifier(cid apigen.DeploymentIdentifier) bool {
+	return cid.SpaceID == SpaceID && cid.Name == NetproxyName
 }
 
 func IsInternalIdentifier(cid apigen.DeploymentIdentifier) bool {
-	return IsSelfIdentifier(cid) || IsDataplaneIdentifier(cid)
+	return IsSelfIdentifier(cid) || IsNetproxyIdentifier(cid)
 }
 
-func IsDataplaneConfig(cfg *apigen.DeploymentConfig) bool {
-	return cfg != nil && IsDataplaneIdentifier(cfg.ConfigID)
+func IsNetproxyConfig(cfg *apigen.DeploymentConfig) bool {
+	return cfg != nil && IsNetproxyIdentifier(cfg.ConfigID)
 }

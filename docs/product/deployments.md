@@ -81,7 +81,7 @@ responses redact that runner config to an empty `runner` object.
 - `HOST` joins the host network namespace.
 - `VIRTUAL` creates a per-container network namespace with a derived IPv6 instance address and machine-local IPv4 egress address.
 - `portForwarding` publishes host-interface TCP or UDP ports to container ports through nftables DNAT and requires `VIRTUAL`, e.g. `{protocol: TCP, hostPort: 443, containerPort: 443}`.
-- Virtual-mode deployments publish endpoint status for `.internal` DNS discovery through the per-machine dataplane DNS deployment.
+- Virtual-mode deployments publish endpoint status for `.internal` DNS discovery through the per-machine netproxy deployment.
 - Cross-machine virtual networking, policy, and public ingress are not implemented yet.
 
 ### Config versioning

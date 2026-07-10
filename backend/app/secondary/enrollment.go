@@ -15,6 +15,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/network"
+	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
@@ -105,6 +107,9 @@ func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, ma
 			slog.Info("worker enrollment request registered", "id", msg.RequestStatus.ID, "status", msg.RequestStatus.Status)
 		}
 		if msg.Accepted != nil {
+			if err := cacheEnrollmentBootstrapState(cfg, msg.Accepted); err != nil {
+				return err
+			}
 			if err := writeEnrollmentTLSBundle(cfg, msg.Accepted, keyPEM); err != nil {
 				return err
 			}
@@ -113,6 +118,42 @@ func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, ma
 		}
 	}
 	return fmt.Errorf("enrollment stream ended before acceptance")
+}
+
+func cacheEnrollmentBootstrapState(cfg EnrollmentConfig, accepted *apigen.EnrollmentAccepted) error {
+	if accepted == nil {
+		return fmt.Errorf("accepted enrollment response is missing")
+	}
+	info := accepted.ClusterNetwork
+	if info == nil || len(info.UlaPrefix) == 0 {
+		return fmt.Errorf("accepted enrollment response missing cluster network")
+	}
+	if accepted.NodeDeployment == nil || accepted.NodeDeployment.Config.ID == 0 {
+		return fmt.Errorf("accepted enrollment response missing node deployment")
+	}
+	if accepted.NodeNetDeployment == nil || accepted.NodeNetDeployment.Config.ID == 0 {
+		return fmt.Errorf("accepted enrollment response missing node net deployment")
+	}
+	store := sqlite.NewSecondaryStorage(filepath.Join(cfg.DataDir, "secondary.db"))
+	if _, err := network.ParsePrefix(info.UlaPrefix); err != nil {
+		return fmt.Errorf("parsing enrollment cluster network: %w", err)
+	}
+	store.MustSetLocalKV(sqlite.LocalKVClusterNetwork, info.Encode())
+	cacheEnrollmentDeployment(store, accepted.NodeDeployment)
+	cacheEnrollmentDeployment(store, accepted.NodeNetDeployment)
+	return nil
+}
+
+func cacheEnrollmentDeployment(store *sqlite.SecondaryStorage, dws *apigen.DeploymentWithStatus) {
+	store.MustWriteDeploymentConfig(&dws.Config)
+	if !dws.Status.IsZero() {
+		status := dws.Status
+		status.DeploymentID = dws.Config.ID
+		store.MustWriteDeploymentStatus(dws.Config.ID, func(current *apigen.DeploymentStatus) bool {
+			*current = status
+			return true
+		})
+	}
 }
 
 func writeEnrollmentTLSBundle(cfg EnrollmentConfig, accepted *apigen.EnrollmentAccepted, keyPEM []byte) error {

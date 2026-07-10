@@ -5,8 +5,8 @@
 Authentication uses passkeys for normal operator login. A master password can issue a short-lived token for passkey registration, including bootstrap and recovery when an operator needs to enroll a replacement authenticator. Both flows produce a JWT token used for subsequent requests. Access control is enforced per-route via policies defined in the protobuf API contract.
 
 Key files:
-- `backend/handler/auth.go` — master password handler, JWT signing/verification, token generation.
-- `backend/handler/passkey.go` — passkey registration and login handlers, credential persistence, and WebAuthn user adapter.
+- `backend/app/primary/webuihandler/auth.go` — master password handler, JWT signing/verification, token generation.
+- `backend/app/primary/webuihandler/passkey.go` — passkey registration and login handlers, credential persistence, and WebAuthn user adapter.
 - `backend/apigen/policy_ext.go` — access control policy enforcement.
 
 ## Single-user model

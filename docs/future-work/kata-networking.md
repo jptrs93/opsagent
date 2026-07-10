@@ -201,7 +201,7 @@ Host networking is not supported by Kata. It should be modeled as a container-on
 
 Kata deployments should use virtual networking and explicit `portForwarding` or `ingress` configuration for external reachability. Workloads that require host network namespace semantics, multicast LAN discovery, packet capture, DHCP, or direct interface access should use the runc/container runtime path if mixed runtimes are supported.
 
-## Dataplane services
+## Netproxy services
 
 The current plan runs DNS and ingress proxy in one `opendeploy-net` internal deployment. Kata changes the tradeoff.
 

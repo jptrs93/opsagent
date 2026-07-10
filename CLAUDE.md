@@ -19,7 +19,7 @@ docs/                Project documentation.
 - [docs/engineering/assets.md](docs/engineering/assets.md) — Versioned file assets and phase 2 read-only container mount plan.
 - [docs/engineering/frontend.md](docs/engineering/frontend.md) — Frontend architecture, rendering, state, and styling.
 - [docs/engineering/engine.md](docs/engineering/engine.md) — Deployment operator, preparers (nix build, github release, container image), runners (os process, systemd, container).
-- [docs/engineering/networking.md](docs/engineering/networking.md) — Current machine-local virtual networking implementation: ULA addressing, netns/veth setup, nftables host ports, dataplane DNS, and rollover route flips.
+- [docs/engineering/networking.md](docs/engineering/networking.md) — Current machine-local virtual networking implementation: ULA addressing, netns/veth setup, nftables host ports, netproxy DNS, and rollover route flips.
 - [docs/engineering/secrets.md](docs/engineering/secrets.md) — Encrypted versioned secrets store, typed secret/config env refs, key hierarchy, and the machine-key boundary (incl. Phase 2/3 plans).
 - [docs/future-work/kata-networking.md](docs/future-work/kata-networking.md) — Kata Containers + Cloud Hypervisor runtime direction and networking design tradeoffs for routed L3 workload attachments.
 - [docs/future-work/networking.md](docs/future-work/networking.md) — Built-in networking layer design: IPv6 ULA addressing, WireGuard mesh, netmap distribution, DNS discovery, embedded ingress proxy, policy, load balancing, and implementation phases.

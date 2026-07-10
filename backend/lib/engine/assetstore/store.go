@@ -13,7 +13,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
@@ -94,7 +94,7 @@ func (s *Store) setLargeAssetFromReader(ctx context.Context, key, format string,
 	prefix := s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Path)
 	objectKey := objectKey(prefix, asset.ID)
 	location := "s3://" + bucket + "/" + objectKey
-	if _, err := client.PutObject(ctx, &awss3.PutObjectInput{
+	if _, err := client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(bucket),
 		Key:           aws.String(objectKey),
 		Body:          tmp,
@@ -150,7 +150,7 @@ func (s *Store) deleteS3Asset(ctx context.Context, location string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := client.DeleteObject(ctx, &awss3.DeleteObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)}); err != nil {
+	if _, err := client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)}); err != nil {
 		return fmt.Errorf("delete large asset from s3: %w", err)
 	}
 	return nil
@@ -165,14 +165,14 @@ func (s *Store) openS3Asset(ctx context.Context, location string) (io.ReadCloser
 	if err != nil {
 		return nil, err
 	}
-	res, err := client.GetObject(ctx, &awss3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+	res, err := client.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
 	if err != nil {
 		return nil, fmt.Errorf("read large asset from s3: %w", err)
 	}
 	return res.Body, nil
 }
 
-func (s *Store) s3Client(cfg *apigen.Settings, requireEnabled bool) (*awss3.Client, string, error) {
+func (s *Store) s3Client(cfg *apigen.Settings, requireEnabled bool) (*s3.Client, string, error) {
 	if requireEnabled {
 		enabled := s.Loader.MustLoadConfigBoolValue(cfg.LargeAssets.S3Enabled)
 		if !enabled {
@@ -194,7 +194,7 @@ func (s *Store) s3Client(cfg *apigen.Settings, requireEnabled bool) (*awss3.Clie
 		Region:      region,
 		Credentials: credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, ""),
 	}
-	client := awss3.NewFromConfig(awsCfg, func(o *awss3.Options) {
+	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 		if endpoint != "" {
 			o.BaseEndpoint = aws.String(endpoint)
 			o.UsePathStyle = true
@@ -225,7 +225,7 @@ func parseS3Location(location string) (string, string, error) {
 }
 
 func revealSecretRef(secrets secretStore, ref apigen.SecretRef) (string, error) {
-	if secrets == nil || ref.ID == 0 {
+	if ref.ID == 0 {
 		return "", nil
 	}
 	value, err := secrets.RevealByID(ref.ID)

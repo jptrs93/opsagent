@@ -8,9 +8,16 @@ import (
 	"encoding/pem"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/jptrs93/opsagent/backend/ainit"
+	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
+	"github.com/jptrs93/opsagent/backend/lib/network"
+	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
@@ -63,6 +70,98 @@ func TestEnrollReturnsWhenContextCanceled(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
 		t.Fatalf("Enroll took %s after context cancellation", elapsed)
 	}
+}
+
+func TestCacheEnrollmentBootstrapStateRequiresNetwork(t *testing.T) {
+	accepted := enrollmentAcceptedWithBootstrap(t, "worker-1")
+	accepted.ClusterNetwork = nil
+	if err := cacheEnrollmentBootstrapState(EnrollmentConfig{DataDir: t.TempDir()}, accepted); err == nil {
+		t.Fatal("cacheEnrollmentBootstrapState succeeded without network")
+	}
+}
+
+func TestMustLoadRuntimeConfigLoadsCachedBootstrapState(t *testing.T) {
+	dataDir := t.TempDir()
+	accepted := enrollmentAcceptedWithBootstrap(t, "worker-1")
+
+	if err := cacheEnrollmentBootstrapState(EnrollmentConfig{DataDir: dataDir}, accepted); err != nil {
+		t.Fatalf("cacheEnrollmentBootstrapState: %v", err)
+	}
+	caPath, certPath, keyPath := writeRuntimeTLS(t, dataDir, "worker-1")
+	cfg := MustLoadRuntimeConfig(ainit.StaticConfiguration{
+		DataDir:            dataDir,
+		PrimaryClusterAddr: "primary:9443",
+		PrimaryName:        "primary",
+	}, caPath, certPath, keyPath)
+
+	wantPrefix, err := network.ParsePrefix(accepted.ClusterNetwork.UlaPrefix)
+	if err != nil {
+		t.Fatalf("ParsePrefix: %v", err)
+	}
+	if cfg.TLS == nil || cfg.MachineName != "worker-1" || cfg.ClusterPrefix != wantPrefix || cfg.NetDeploymentID != 11 {
+		t.Fatalf("runtime config = %+v", cfg)
+	}
+}
+
+func TestMustLoadRuntimeConfigRequiresCachedBootstrapState(t *testing.T) {
+	dataDir := t.TempDir()
+	caPath, certPath, keyPath := writeRuntimeTLS(t, dataDir, "worker-1")
+	defer func() {
+		if recover() == nil {
+			t.Fatal("MustLoadRuntimeConfig did not panic without cached bootstrap state")
+		}
+	}()
+	MustLoadRuntimeConfig(ainit.StaticConfiguration{DataDir: dataDir}, caPath, certPath, keyPath)
+}
+
+func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.EnrollmentAccepted {
+	t.Helper()
+	prefix := network.GeneratePrefix()
+	return &apigen.EnrollmentAccepted{
+		ID:             1,
+		WorkerName:     machine,
+		ClusterNetwork: &apigen.ClusterNetworkInfo{UlaPrefix: prefix.Bytes()},
+		NodeDeployment: &apigen.DeploymentWithStatus{Config: apigen.DeploymentConfig{
+			ID:   10,
+			Spec: *sqlite.SystemDeploymentSpec(),
+			ConfigID: apigen.DeploymentIdentifier{
+				SpaceID: internaldeploy.SpaceID,
+				Machine: machine,
+				Name:    internaldeploy.SelfName,
+			},
+		}},
+		NodeNetDeployment: &apigen.DeploymentWithStatus{Config: apigen.DeploymentConfig{
+			ID:   11,
+			Spec: *sqlite.NetproxyDeploymentSpec(),
+			ConfigID: apigen.DeploymentIdentifier{
+				SpaceID: internaldeploy.SpaceID,
+				Machine: machine,
+				Name:    internaldeploy.NetproxyName,
+			},
+		}},
+	}
+}
+
+func writeRuntimeTLS(t *testing.T, dataDir, machine string) (string, string, string) {
+	t.Helper()
+	caCert, caKey, err := certu.GenerateClusterCA("test-ca")
+	if err != nil {
+		t.Fatalf("GenerateClusterCA: %v", err)
+	}
+	cert, key, err := certu.GenerateNodeCertificate(caCert, caKey, machine)
+	if err != nil {
+		t.Fatalf("GenerateNodeCertificate: %v", err)
+	}
+	caPath, certPath, keyPath := certu.WorkerTLSPaths(dataDir)
+	if err := os.MkdirAll(filepath.Dir(caPath), 0o750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	for path, contents := range map[string][]byte{caPath: caCert, certPath: cert, keyPath: key} {
+		if err := os.WriteFile(path, contents, 0o600); err != nil {
+			t.Fatalf("WriteFile(%s): %v", path, err)
+		}
+	}
+	return caPath, certPath, keyPath
 }
 
 func enrollmentTestCertificate(t *testing.T) *x509.Certificate {

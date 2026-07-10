@@ -287,6 +287,18 @@ func (m *EnrollmentAccepted) Encode() []byte {
 	b = AppendStringField(b, m.WorkerName, 2)
 	b = AppendBytesField(b, m.CaCertificate, 3)
 	b = AppendBytesField(b, m.WorkerCertificate, 4)
+	if m.ClusterNetwork != nil {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.ClusterNetwork.Encode())
+	}
+	if m.NodeDeployment != nil {
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, m.NodeDeployment.Encode())
+	}
+	if m.NodeNetDeployment != nil {
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.NodeNetDeployment.Encode())
+	}
 	return b
 }
 
@@ -295,6 +307,7 @@ func DecodeEnrollmentAccepted(b []byte) (*EnrollmentAccepted, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -309,6 +322,33 @@ func DecodeEnrollmentAccepted(b []byte) (*EnrollmentAccepted, error) {
 			b, m.CaCertificate, err = ConsumeBytesCopy(b, typ)
 		case 4:
 			b, m.WorkerCertificate, err = ConsumeBytesCopy(b, typ)
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNetworkInfo
+				item, err = DecodeClusterNetworkInfo(msgBytes)
+				if err == nil {
+					m.ClusterNetwork = item
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentWithStatus
+				item, err = DecodeDeploymentWithStatus(msgBytes)
+				if err == nil {
+					m.NodeDeployment = item
+				}
+			}
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentWithStatus
+				item, err = DecodeDeploymentWithStatus(msgBytes)
+				if err == nil {
+					m.NodeNetDeployment = item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

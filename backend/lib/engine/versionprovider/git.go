@@ -6,16 +6,16 @@ import (
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/engine/preparer"
+	gitrepo "github.com/jptrs93/opsagent/backend/lib/repo/git"
 )
 
 // GitVersionProvider lists branches and commits for repos that use Nix Docker
 // image preparation.
 type GitVersionProvider struct {
-	git *preparer.GitManager
+	git *gitrepo.Manager
 }
 
-func NewGitVersionProvider(git *preparer.GitManager) *GitVersionProvider {
+func NewGitVersionProvider(git *gitrepo.Manager) *GitVersionProvider {
 	return &GitVersionProvider{git: git}
 }
 

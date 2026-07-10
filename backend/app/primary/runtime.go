@@ -1,0 +1,120 @@
+package primary
+
+import (
+	"context"
+	"path/filepath"
+	"time"
+
+	"github.com/jptrs93/opsagent/backend/ainit"
+	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/netproxy"
+	"github.com/jptrs93/opsagent/backend/app/primary/webuihandler"
+	"github.com/jptrs93/opsagent/backend/lib/config"
+	"github.com/jptrs93/opsagent/backend/lib/engine"
+	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
+	"github.com/jptrs93/opsagent/backend/lib/engine/configdist"
+	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/containerimage"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubrelease"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubreleaseimage"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixdocker"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
+	"github.com/jptrs93/opsagent/backend/lib/engine/secretdist"
+	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
+	"github.com/jptrs93/opsagent/backend/lib/network"
+	repogit "github.com/jptrs93/opsagent/backend/lib/repo/git"
+	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
+	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
+	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/util/version"
+)
+
+type runtime struct {
+	store                 *sqlite.PrimaryStorage
+	assets                *assetstore.Store
+	configService         *config.Service
+	github                githubcredentials.Provider
+	gitVersions           *versionprovider.GitVersionProvider
+	githubReleaseVersions *versionprovider.GithubReleaseVersionProvider
+	secrets               *secrets.Manager
+	operator              engine.DeploymentOperator
+}
+
+func newRuntime() (*runtime, error) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(ainit.StaticConfig.DataDir, "primary.db"))
+	secretsMgr, err := secrets.Open(ainit.StaticConfig.DataDir, store)
+	if err != nil {
+		return nil, err
+	}
+	configService, err := config.NewServiceWithInitialConfigHook(store, initialWebTLSCertPEMHook(secretsMgr))
+	if err != nil {
+		return nil, err
+	}
+	network.Default.SetPrefix(configService.NetworkPrefix())
+	assetStore := &assetstore.Store{
+		DB:      store,
+		Secrets: secretsMgr,
+		Loader:  configService,
+		Config: func() *apigen.Settings {
+			snapshot := configService.Snapshot()
+			return &snapshot.Settings
+		},
+	}
+	githubCredentials := githubcredentials.SecretProvider{
+		Secrets: secretsMgr,
+		SecretRef: func(context.Context) apigen.SecretRef {
+			return configService.Snapshot().Settings.Repo.GithubToken
+		},
+	}
+
+	// The shared client connects lazily, so primary startup does not require containerd.
+	ctrdClient := ctrd.New(ainit.StaticConfig.ContainerdAddress, ainit.StaticConfig.ContainerdNamespace)
+	secretProvider := secretdist.NewPrimaryProvider(secretsMgr)
+	configProvider := configdist.NewPrimaryProvider(store)
+	runtimeInputs := runtimeinputs.New(assetStore, secretProvider, configProvider)
+	gitManager := repogit.NewManager(ainit.StaticConfig.DataDir, githubCredentials)
+	githubClient := githubrepo.NewClient(nil, githubCredentials)
+
+	return &runtime{
+		store:                 store,
+		assets:                assetStore,
+		configService:         configService,
+		github:                githubCredentials,
+		gitVersions:           versionprovider.NewGitVersionProvider(gitManager),
+		githubReleaseVersions: versionprovider.NewGithubReleaseVersionProviderWithClient(githubClient),
+		secrets:               secretsMgr,
+		operator: engine.DeploymentOperator{
+			Store:              store,
+			GithubRelease:      githubrelease.New(ainit.StaticConfig.ReleasesDir, githubClient, githubCredentials),
+			NixDocker:          nixdocker.New(gitManager, ctrdClient),
+			ContainerImage:     containerimage.New(ctrdClient),
+			GithubReleaseImage: githubreleaseimage.New(ainit.StaticConfig.ReleasesDir, githubClient, ctrdClient),
+			Containerd:         ctrdClient,
+			RuntimeInputs:      runtimeInputs,
+		},
+	}, nil
+}
+
+func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
+	return webuihandler.Dependencies{
+		Store:                 r.store,
+		Assets:                r.assets,
+		ConfigService:         r.configService,
+		Github:                r.github,
+		GitVersions:           r.gitVersions,
+		GithubReleaseVersions: r.githubReleaseVersions,
+		Secrets:               r.secrets,
+	}
+}
+
+func (r *runtime) start(ctx context.Context, machineName string) {
+	r.store.EnsureSystemDeployment(machineName, version.Version)
+	r.store.EnsurePrimaryNode(machineName)
+	r.store.SetNodeStatusByName(machineName, true, time.Now())
+	netproxyCfg := r.store.EnsureNetproxyDeployment(machineName, version.Version)
+	network.Default.SetNetproxyDeploymentID(netproxyCfg.ID)
+
+	go netproxy.RunNetStateWriter(ctx, r.store, machineName, netproxy.NetStatePath(ainit.StaticConfig.DataDir))
+	go r.operator.RunAll(machineName)
+}

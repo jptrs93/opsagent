@@ -8,7 +8,7 @@ import (
 )
 
 // LocalKVClusterNetwork caches the cluster network parameters
-// (apigen.ClusterNetworkInfo) on a worker so the dataplane can be programmed on
+// (apigen.ClusterNetworkInfo) on a worker so the network can be programmed on
 // boot before the primary is reachable.
 const LocalKVClusterNetwork = "cluster_network"
 

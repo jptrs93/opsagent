@@ -113,6 +113,9 @@ type EnrollmentAccepted struct {
 	WorkerName        string
 	CaCertificate     []byte
 	WorkerCertificate []byte
+	ClusterNetwork    *ClusterNetworkInfo
+	NodeDeployment    *DeploymentWithStatus
+	NodeNetDeployment *DeploymentWithStatus
 }
 
 type GithubCredentials struct {

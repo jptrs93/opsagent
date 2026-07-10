@@ -1,7 +1,7 @@
 package certu
 
 import (
-	gotls "crypto/tls"
+	"crypto/tls"
 	"testing"
 )
 
@@ -11,7 +11,7 @@ func TestGenerateSelfSignedServerCertificateProducesLoadableBundle(t *testing.T)
 		t.Fatalf("GenerateSelfSignedServerCertificate: %v", err)
 	}
 	bundle := append(append([]byte{}, certPEM...), keyPEM...)
-	if _, err := gotls.X509KeyPair(bundle, bundle); err != nil {
+	if _, err := tls.X509KeyPair(bundle, bundle); err != nil {
 		t.Fatalf("X509KeyPair generated bundle: %v", err)
 	}
 }

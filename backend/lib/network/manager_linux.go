@@ -46,7 +46,7 @@ type ContainerNetSpec struct {
 	// network mutation, while warmup traffic keeps the run address as source.
 	DeprecatedAddrs []netip.Addr
 	// UnprivilegedPortStart lowers net.ipv4.ip_unprivileged_port_start inside
-	// the netns when SetUnprivilegedPortStart is true. Used by the dataplane
+	// the netns when SetUnprivilegedPortStart is true. Used by the netproxy
 	// deployment to bind :53 without capabilities.
 	UnprivilegedPortStart    int
 	SetUnprivilegedPortStart bool

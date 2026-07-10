@@ -17,7 +17,7 @@ Implemented today:
 - `portForwarding` publishes virtual-mode container TCP/UDP ports through nftables DNAT on the machine's host interfaces.
 - ROLLOVER in virtual mode starts a candidate on a run-scoped IPv6 address and promotes it by flipping the stable-address host route.
 - Runner status publishes READY/DOWN endpoint state for virtual-mode deployments.
-- A per-machine internal dataplane deployment runs the built-in DNS process and answers `.internal` AAAA records from endpoint state.
+- A per-machine internal netproxy deployment runs the built-in DNS process and answers `.internal` AAAA records from endpoint state.
 
 Not implemented yet:
 
@@ -64,11 +64,11 @@ Reserved kinds:
 
 For virtual-mode containers, the runner asks `backend/lib/network` to create network state before starting the containerd task. The network manager creates the named netns, veth pair, container-side addresses, default routes, host-side gateway addresses, and host route. The containerd wrapper joins the pre-created network namespace through the OCI spec.
 
-The container receives a generated `resolv.conf` pointing at the machine-local dataplane DNS address once the dataplane deployment id is known. The dataplane deployment itself uses the host resolver to avoid a DNS dependency cycle.
+The container receives a generated `resolv.conf` pointing at the machine-local netproxy DNS address once the netproxy deployment id is known. The netproxy deployment itself uses the host resolver to avoid a DNS dependency cycle.
 
-## Dataplane DNS
+## Netproxy DNS
 
-The agent writes full `NetState` protobuf snapshots to `/var/lib/opendeploy/dataplane/netstate.pb`. The dataplane DNS process polls this file, answers `.internal` AAAA records for READY virtual endpoints, and forwards unmatched queries to the host's upstream resolvers.
+The agent writes full `NetState` protobuf snapshots to `/var/lib/opendeploy/netproxy/netstate.pb`. The netproxy DNS process polls this file, answers `.internal` AAAA records for READY virtual endpoints, and forwards unmatched queries to the host's upstream resolvers.
 
 DNS names are derived from deployment and space identity:
 

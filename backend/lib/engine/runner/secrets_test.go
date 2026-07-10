@@ -1,91 +1,87 @@
 package runner
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 )
 
-type fakeResolver map[int32]string
+type fakeRuntimeInputProvider struct {
+	secrets map[int32]string
+	configs map[int32]string
+}
 
-func (f fakeResolver) Resolve(id int32) (string, bool)       { v, ok := f[id]; return v, ok }
-func (f fakeResolver) ResolveConfig(id int32) (string, bool) { v, ok := f[id]; return v, ok }
+func (f fakeRuntimeInputProvider) FetchSecrets(context.Context, []int32) (map[int32]string, error) {
+	return f.secrets, nil
+}
 
-func withResolvers(secrets SecretResolver, configs ConfigResolver, fn func()) {
-	prevSecrets := Secrets
-	prevConfigs := Configs
-	Secrets = secrets
-	Configs = configs
-	defer func() { Secrets = prevSecrets; Configs = prevConfigs }()
-	fn()
+func (f fakeRuntimeInputProvider) FetchConfigs(context.Context, []int32) (map[int32]string, error) {
+	return f.configs, nil
 }
 
 func TestResolveEnv(t *testing.T) {
-	withResolvers(fakeResolver{1: "s3cret", 2: "abc"}, fakeResolver{3: "db.local"}, func() {
-		in := map[string]*apigen.EnvVarValue{
-			"PLAIN":   {Value: ptrString("value")},
-			"DB_PASS": {SecretID: ptrInt32(1)},
-			"TOKEN":   {SecretID: ptrInt32(2)},
-			"HOST":    {ConfigID: ptrInt32(3)},
-			"CONFIG":  {Asset: "app.conf", AssetID: 12},
-		}
-		out, err := resolveEnv(in)
-		if err != nil {
-			t.Fatalf("resolveEnv: %v", err)
-		}
-		want := []string{
-			"CONFIG=/opendeploy-env-assets/12",
-			"DB_PASS=s3cret",
-			"HOST=db.local",
-			"PLAIN=value",
-			"TOKEN=abc",
-		}
-		if !reflect.DeepEqual(out, want) {
-			t.Fatalf("resolveEnv() = %#v; want %#v", out, want)
-		}
-	})
+	in := map[string]*apigen.EnvVarValue{
+		"PLAIN":   {Value: ptrString("value")},
+		"DB_PASS": {SecretID: ptrInt32(1)},
+		"TOKEN":   {SecretID: ptrInt32(2)},
+		"HOST":    {ConfigID: ptrInt32(3)},
+		"CONFIG":  {Asset: "app.conf", AssetID: 12},
+	}
+	provider := fakeRuntimeInputProvider{
+		secrets: map[int32]string{1: "s3cret", 2: "abc"},
+		configs: map[int32]string{3: "db.local"},
+	}
+	inputs := runtimeinputs.New(nil, provider, provider)
+	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
+		Container: apigen.ContainerRunnerConfig{EnvVars: in},
+	}}}
+	if err := inputs.EnsureSecretsReady(context.Background(), dep); err != nil {
+		t.Fatalf("EnsureSecretsReady: %v", err)
+	}
+	if err := inputs.EnsureConfigsReady(context.Background(), dep); err != nil {
+		t.Fatalf("EnsureConfigsReady: %v", err)
+	}
+	out, err := resolveEnv(inputs, in)
+	if err != nil {
+		t.Fatalf("resolveEnv: %v", err)
+	}
+	want := []string{
+		"CONFIG=/opendeploy-env-assets/12",
+		"DB_PASS=s3cret",
+		"HOST=db.local",
+		"PLAIN=value",
+		"TOKEN=abc",
+	}
+	if !reflect.DeepEqual(out, want) {
+		t.Fatalf("resolveEnv() = %#v; want %#v", out, want)
+	}
 }
 
 func TestResolveEnvUnknownSecretFailsClosed(t *testing.T) {
-	withResolvers(fakeResolver{}, fakeResolver{}, func() {
-		if _, err := resolveEnv(map[string]*apigen.EnvVarValue{"X": {SecretID: ptrInt32(1)}}); err == nil {
-			t.Fatal("expected error for unknown secret")
-		}
-	})
+	inputs := runtimeinputs.New(nil, nil, nil)
+	if _, err := resolveEnv(inputs, map[string]*apigen.EnvVarValue{"X": {SecretID: ptrInt32(1)}}); err == nil {
+		t.Fatal("expected error for unknown secret")
+	}
 }
 
 func TestResolveEnvUnknownConfigFailsClosed(t *testing.T) {
-	withResolvers(fakeResolver{}, fakeResolver{}, func() {
-		if _, err := resolveEnv(map[string]*apigen.EnvVarValue{"X": {ConfigID: ptrInt32(1)}}); err == nil {
-			t.Fatal("expected error for unknown config")
-		}
-	})
-}
-
-func TestResolveEnvNoResolverFailsClosed(t *testing.T) {
-	withResolvers(nil, nil, func() {
-		if _, err := resolveEnv(map[string]*apigen.EnvVarValue{"X": {SecretID: ptrInt32(1)}}); err == nil {
-			t.Fatal("expected error when no resolver is set")
-		}
-		if _, err := resolveEnv(map[string]*apigen.EnvVarValue{"X": {ConfigID: ptrInt32(1)}}); err == nil {
-			t.Fatal("expected error when no config resolver is set")
-		}
-		out, err := resolveEnv(map[string]*apigen.EnvVarValue{"X": {Value: ptrString("plain")}})
-		if err != nil || out[0] != "X=plain" {
-			t.Fatalf("plain passthrough failed: %v %q", err, out)
-		}
-	})
+	inputs := runtimeinputs.New(nil, nil, nil)
+	if _, err := resolveEnv(inputs, map[string]*apigen.EnvVarValue{"X": {ConfigID: ptrInt32(1)}}); err == nil {
+		t.Fatal("expected error for unknown config")
+	}
 }
 
 func TestResolveEnvRejectsAmbiguousValue(t *testing.T) {
-	if _, err := resolveEnv(map[string]*apigen.EnvVarValue{"X": {Value: ptrString("plain"), SecretID: ptrInt32(1)}}); err == nil {
+	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{"X": {Value: ptrString("plain"), SecretID: ptrInt32(1)}}); err == nil {
 		t.Fatal("expected error for ambiguous env value")
 	}
 }
 
 func TestResolveEnvRejectsUnresolvedAsset(t *testing.T) {
-	if _, err := resolveEnv(map[string]*apigen.EnvVarValue{"X": {Asset: "app.conf"}}); err == nil {
+	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{"X": {Asset: "app.conf"}}); err == nil {
 		t.Fatal("expected error for unresolved asset")
 	}
 }

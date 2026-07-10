@@ -24,8 +24,8 @@ const DefaultSpaceID int32 = 1
 const systemDeploymentName = internaldeploy.SelfName
 const systemDeploymentRepo = internaldeploy.Repo
 const systemDeploymentBinPath = "/var/lib/opendeploy/bin/opendeploy"
-const dataplaneDeploymentName = internaldeploy.DataplaneName
-const dataplaneStateDir = "/var/lib/opendeploy/dataplane"
+const netproxyDeploymentName = internaldeploy.NetproxyName
+const netproxyStateDir = "/var/lib/opendeploy/netproxy"
 
 func normalizedUserSpaceID(spaceID int32) int32 {
 	if spaceID <= 0 {
@@ -42,12 +42,12 @@ func IsSystemDeploymentConfig(cfg *apigen.DeploymentConfig) bool {
 	return cfg != nil && IsSystemDeploymentIdentifier(cfg.ConfigID)
 }
 
-func IsDataplaneDeploymentIdentifier(cid apigen.DeploymentIdentifier) bool {
-	return internaldeploy.IsDataplaneIdentifier(cid)
+func IsNetproxyDeploymentIdentifier(cid apigen.DeploymentIdentifier) bool {
+	return internaldeploy.IsNetproxyIdentifier(cid)
 }
 
-func IsDataplaneDeploymentConfig(cfg *apigen.DeploymentConfig) bool {
-	return internaldeploy.IsDataplaneConfig(cfg)
+func IsNetproxyDeploymentConfig(cfg *apigen.DeploymentConfig) bool {
+	return internaldeploy.IsNetproxyConfig(cfg)
 }
 
 func IsInternalDeploymentConfig(cfg *apigen.DeploymentConfig) bool {
@@ -89,18 +89,18 @@ func isSystemDeploymentSpec(spec *apigen.DeploymentSpec) bool {
 			spec.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_UNSPECIFIED)
 }
 
-func DataplaneDeploymentSpec() *apigen.DeploymentSpec {
+func NetproxyDeploymentSpec() *apigen.DeploymentSpec {
 	return &apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{
-			ContainerImage: &apigen.ContainerImageConfig{Image: internaldeploy.DataplaneImage},
+			ContainerImage: &apigen.ContainerImageConfig{Image: internaldeploy.NetproxyImage},
 		},
 		Runner: apigen.RunnerConfig{
 			Container: apigen.ContainerRunnerConfig{
 				Command:           []string{"/opendeploy", "dataplane"},
 				DisableDataVolume: true,
 				Mounts: []*apigen.ContainerMount{{
-					Host:      dataplaneStateDir,
-					Container: dataplaneStateDir,
+					Host:      netproxyStateDir,
+					Container: netproxyStateDir,
 					Readonly:  true,
 				}},
 			},
@@ -752,18 +752,18 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 	slog.Info("created system deployment", "machine", machine, "version", opendeployVersion)
 }
 
-// EnsureDataplaneDeployment creates the per-machine opendeploy-net internal
+// EnsureNetproxyDeployment creates the per-machine opendeploy-net internal
 // deployment when missing and returns its config. Existing deployments keep
 // their desired version.
-func (s *PrimaryStorage) EnsureDataplaneDeployment(machine string, opendeployVersion string) *apigen.DeploymentConfig {
+func (s *PrimaryStorage) EnsureNetproxyDeployment(machine string, opendeployVersion string) *apigen.DeploymentConfig {
 	desiredVersion := strings.TrimSpace(opendeployVersion)
 	if desiredVersion == "" {
-		panic("EnsureDataplaneDeployment requires an explicit OpenDeploy version")
+		panic("EnsureNetproxyDeployment requires an explicit OpenDeploy version")
 	}
 	cid := apigen.DeploymentIdentifier{
 		SpaceID: OpendeploySpaceID,
 		Machine: machine,
-		Name:    dataplaneDeploymentName,
+		Name:    netproxyDeploymentName,
 	}
 
 	s.mu.Lock()
@@ -775,7 +775,7 @@ func (s *PrimaryStorage) EnsureDataplaneDeployment(machine string, opendeployVer
 		}
 	}
 
-	spec := DataplaneDeploymentSpec()
+	spec := NetproxyDeploymentSpec()
 	specBlob := spec.Encode()
 
 	bgCtx := context.Background()
@@ -800,7 +800,7 @@ func (s *PrimaryStorage) EnsureDataplaneDeployment(machine string, opendeployVer
 		Deleted:        0,
 	})
 	if err != nil {
-		panic(fmt.Sprintf("CreateDeploymentConfig (dataplane): %v", err))
+		panic(fmt.Sprintf("CreateDeploymentConfig (netproxy): %v", err))
 	}
 	dbID := row.DeploymentID
 
@@ -813,7 +813,7 @@ func (s *PrimaryStorage) EnsureDataplaneDeployment(machine string, opendeployVer
 		DesiredRunning: 1,
 		Deleted:        0,
 	}); err != nil {
-		panic(fmt.Sprintf("InsertDeploymentConfigHistory (dataplane): %v", err))
+		panic(fmt.Sprintf("InsertDeploymentConfigHistory (netproxy): %v", err))
 	}
 
 	s.insertDefaultStatus(q, dbID)
@@ -837,7 +837,7 @@ func (s *PrimaryStorage) EnsureDataplaneDeployment(machine string, opendeployVer
 		Deleted:        0,
 	})
 	s.notifyFromCache(id)
-	slog.Info("created dataplane deployment", "machine", machine, "version", desiredVersion)
+	slog.Info("created netproxy deployment", "machine", machine, "version", desiredVersion)
 	return s.configCache[id]
 }
 

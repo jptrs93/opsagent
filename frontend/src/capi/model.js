@@ -43,6 +43,9 @@
  * @property {string} workerName
  * @property {Uint8Array} caCertificate
  * @property {Uint8Array} workerCertificate
+ * @property {ClusterNetworkInfo} clusterNetwork
+ * @property {DeploymentWithStatus} nodeDeployment
+ * @property {DeploymentWithStatus} nodeNetDeployment
  */
 /**
  * @typedef {Object} GithubCredentials
@@ -1333,6 +1336,21 @@ export function writeEnrollmentAccepted(message, writer) {
     if (message.workerCertificate && message.workerCertificate.length > 0) {
         writer.uint32(tag(4, WIRE.LDELIM)).bytes(message.workerCertificate);
     }
+    if (message.clusterNetwork !== undefined && message.clusterNetwork !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeClusterNetworkInfo(message.clusterNetwork, writer);
+        writer.ldelim();
+    }
+    if (message.nodeDeployment !== undefined && message.nodeDeployment !== null) {
+        writer.uint32(tag(6, WIRE.LDELIM)).fork();
+        writeDeploymentWithStatus(message.nodeDeployment, writer);
+        writer.ldelim();
+    }
+    if (message.nodeNetDeployment !== undefined && message.nodeNetDeployment !== null) {
+        writer.uint32(tag(7, WIRE.LDELIM)).fork();
+        writeDeploymentWithStatus(message.nodeNetDeployment, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -1354,7 +1372,7 @@ export function encodeEnrollmentAccepted(message) {
  */
 function decodeEnrollmentAcceptedMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, workerName: "", caCertificate: new Uint8Array(0), workerCertificate: new Uint8Array(0) };
+    const message = {id: 0, workerName: "", caCertificate: new Uint8Array(0), workerCertificate: new Uint8Array(0), clusterNetwork: undefined, nodeDeployment: undefined, nodeNetDeployment: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1372,6 +1390,18 @@ function decodeEnrollmentAcceptedMessage(reader, length) {
             }
             case 4: {
                 message.workerCertificate = reader.bytes();
+                break;
+            }
+            case 5: {
+                message.clusterNetwork = decodeClusterNetworkInfoMessage(reader, reader.uint32());
+                break;
+            }
+            case 6: {
+                message.nodeDeployment = decodeDeploymentWithStatusMessage(reader, reader.uint32());
+                break;
+            }
+            case 7: {
+                message.nodeNetDeployment = decodeDeploymentWithStatusMessage(reader, reader.uint32());
                 break;
             }
             default:

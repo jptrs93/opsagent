@@ -23,19 +23,20 @@ It is **primary-only**: the encrypted store and its keys live on the primary and
 are never replicated to secondaries.
 
 Key files:
-- `backend/secrets/secrets.go` — `Manager`, the key hierarchy, AEAD, and the
+- `backend/lib/secrets/secrets.go` — `Manager`, the key hierarchy, AEAD, and the
   `machineKeyProvider` boundary.
 - `backend/storage/sqlite/secrets_store.go` — `secrets.Store` on the primary
   `StorageAdapter` (DB passthrough for the `secret_keyslots`, `secrets`, and
   `system_secrets` tables).
-- `backend/engine/preparer/secrets.go` — finds typed `secretId` / `configId`
-  refs and fetches all needed values as one preparation batch.
-- `backend/engine/secretdist/secretdist.go` — primary-side prepared secret cache.
-- `backend/secondary/secrets.go` — secondary-side mTLS batch fetcher and in-memory
-  cache.
-- `backend/engine/runner/secrets.go` — typed secret/config env ref expansion
-  from the prepared in-memory cache at spawn time.
-- `backend/handler/secrets.go` — the CRUD / status / recovery endpoints.
+- `backend/lib/engine/prepare/runtimeinputs/secrets.go` — finds typed `secretId`
+  / `configId` refs, fetches each needed batch, validates it, and owns the
+  prepared in-memory caches.
+- `backend/lib/engine/secretdist/secretdist.go` — primary-side encrypted-secret
+  fetch adapter.
+- `backend/app/secondary/secrets.go` — secondary-side mTLS batch fetcher.
+- `backend/lib/engine/runner/secrets.go` — typed secret/config env ref expansion
+  through the injected runtime-input service at spawn time.
+- `backend/app/primary/webuihandler/secrets.go` — the CRUD / status / recovery endpoints.
 - `frontend/src/pages/secrets.js` — the Secrets page.
 
 OpenDeploy also stores internal key material in a separate encrypted
@@ -98,23 +99,25 @@ without either the on-box machine KEK or the recovery code.
 ## Prepare-time distribution and spawn-time expansion
 
 Typed `secretId` and `configId` env refs are discovered during deployment
-preparation (`backend/engine/preparer/secrets.go`). The preparer requests all
-referenced secret IDs as one batch through `SecretProvider.FetchSecrets` and all
-referenced config IDs as one batch through `ConfigProvider.FetchConfigs`; this is
-the same prepare-time readiness boundary used for asset materialization.
+preparation (`backend/lib/engine/prepare/runtimeinputs/secrets.go`). The
+runtime-input service requests all referenced secret IDs as one batch through
+`SecretProvider.FetchSecrets` and all referenced config IDs as one batch through
+`ConfigProvider.FetchConfigs`; this is the same prepare-time readiness boundary
+used for asset materialization.
 
-On the primary, the provider decrypts from `secrets.Manager` and stores the
-plaintext values in an in-memory runner cache keyed by row ID. On a secondary,
+On the primary, the provider decrypts from `secrets.Manager`. On a secondary,
 the provider calls the primary over the mTLS cluster endpoint
 `GET /v1/cluster/secrets` with a `ClusterSecretsRequest{ids}` payload, then
-stores the returned plaintext values in an internal in-memory cache. Secrets are
-never written to `secondary.db`.
+returns the plaintext batch. In both cases the single `RuntimeInputs` instance
+validates the complete response before storing any values in its process-memory
+cache. Secrets are never written to `secondary.db`.
 
-At process spawn time (`backend/engine/runner/secrets.go`), `EnvVarValue`
-entries with `secretId` or `configId` are expanded from prepared in-memory
-caches. Plain `user_configs` values are not encrypted at rest. Unknown
-references, locked secrets, missing primary connectivity during prepare, or no
-resolver on the node are **fail-closed** errors.
+The operator injects that same `RuntimeInputs` instance into every container
+runner. At process spawn time (`backend/lib/engine/runner/secrets.go`),
+`EnvVarValue` entries with `secretId` or `configId` are expanded from its
+prepared in-memory caches. Plain `user_configs` values are not encrypted at
+rest. Unknown references, locked secrets, missing primary connectivity during
+prepare, or no prepared value on the node are **fail-closed** errors.
 
 ## The `machineKeyProvider` boundary
 

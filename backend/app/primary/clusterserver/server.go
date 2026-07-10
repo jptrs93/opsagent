@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
@@ -30,7 +31,7 @@ func RunPrimary(
 	// identity comes from the client cert CN. The server emits health-check PINGs
 	// so it detects a dead worker.
 	clusterMux := apigen.CreateOpsagentClusterV1Mux(h, &apigen.MuxConfig{
-		VerifyAuth:         VerifyClusterPeer,
+		VerifyAuth:         clusterhandler.VerifyClusterPeer,
 		MaxRequestBodySize: 16 * 1024 * 1024, // 16 MB cap on a single inbound stream frame
 	})
 	protocols := new(http.Protocols)

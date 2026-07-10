@@ -330,6 +330,9 @@ message EnrollmentAccepted {
   string worker_name = 2;
   bytes ca_certificate = 3;
   bytes worker_certificate = 4;
+  ClusterNetworkInfo cluster_network = 5;
+  DeploymentWithStatus node_deployment = 6;
+  DeploymentWithStatus node_net_deployment = 7;
 }
 
 message GithubCredentials {

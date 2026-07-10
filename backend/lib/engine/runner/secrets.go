@@ -6,29 +6,12 @@ import (
 	"strconv"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 )
 
 const implicitAssetContainerDir = "/opendeploy-env-assets"
 
-// SecretResolver resolves a secret id to its plaintext value. It is set at
-// startup (on the primary) to the secrets manager.
-type SecretResolver interface {
-	Resolve(id int32) (value string, ok bool)
-}
-
-// ConfigResolver resolves a plain user config by id. It is intentionally a
-// separate interface because config values are not encrypted at rest.
-type ConfigResolver interface {
-	ResolveConfig(id int32) (value string, ok bool)
-}
-
-// Secrets and Configs are process-wide resolvers used to expand typed env refs
-// at spawn time. Resolution happens at spawn so referenced values are picked up
-// on the next (re)start.
-var Secrets SecretResolver
-var Configs ConfigResolver
-
-func resolveEnv(env map[string]*apigen.EnvVarValue) ([]string, error) {
+func resolveEnv(inputs *runtimeinputs.RuntimeInputs, env map[string]*apigen.EnvVarValue) ([]string, error) {
 	keys := make([]string, 0, len(env))
 	for key := range env {
 		keys = append(keys, key)
@@ -36,7 +19,7 @@ func resolveEnv(env map[string]*apigen.EnvVarValue) ([]string, error) {
 	sort.Strings(keys)
 	out := make([]string, 0, len(keys))
 	for _, key := range keys {
-		val, err := resolveEnvValue(key, env[key])
+		val, err := resolveEnvValue(inputs, key, env[key])
 		if err != nil {
 			return nil, fmt.Errorf("env %s: %w", key, err)
 		}
@@ -45,7 +28,7 @@ func resolveEnv(env map[string]*apigen.EnvVarValue) ([]string, error) {
 	return out, nil
 }
 
-func resolveEnvValue(key string, v *apigen.EnvVarValue) (string, error) {
+func resolveEnvValue(inputs *runtimeinputs.RuntimeInputs, key string, v *apigen.EnvVarValue) (string, error) {
 	if v == nil {
 		return "", fmt.Errorf("value is required")
 	}
@@ -69,34 +52,28 @@ func resolveEnvValue(key string, v *apigen.EnvVarValue) (string, error) {
 		return *v.Value, nil
 	}
 	if v.SecretID != nil {
-		return resolveSecretRef(*v.SecretID)
+		return resolveSecretRef(inputs, *v.SecretID)
 	}
 	if v.AssetID > 0 {
 		return implicitAssetContainerPath(v.AssetID), nil
 	}
-	return resolveConfigRef(*v.ConfigID)
+	return resolveConfigRef(inputs, *v.ConfigID)
 }
 
 func implicitAssetContainerPath(assetID int32) string {
 	return implicitAssetContainerDir + "/" + strconv.Itoa(int(assetID))
 }
 
-func resolveSecretRef(id int32) (string, error) {
-	if Secrets == nil {
-		return "", fmt.Errorf("unknown secret id %d: no secrets store on this node", id)
-	}
-	val, ok := Secrets.Resolve(id)
+func resolveSecretRef(inputs *runtimeinputs.RuntimeInputs, id int32) (string, error) {
+	val, ok := inputs.ResolveSecret(id)
 	if !ok {
 		return "", fmt.Errorf("unknown secret id %d", id)
 	}
 	return val, nil
 }
 
-func resolveConfigRef(id int32) (string, error) {
-	if Configs == nil {
-		return "", fmt.Errorf("unknown config id %d: no config store on this node", id)
-	}
-	val, ok := Configs.ResolveConfig(id)
+func resolveConfigRef(inputs *runtimeinputs.RuntimeInputs, id int32) (string, error) {
+	val, ok := inputs.ResolveConfig(id)
 	if !ok {
 		return "", fmt.Errorf("unknown config id %d", id)
 	}

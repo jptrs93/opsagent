@@ -4,7 +4,7 @@ Design for the built-in networking layer: per-workload addressing, cross-machine
 
 ## Goals and principles
 
-- Batteries included: one built-in network implementation, no plugin ecosystem. All components ship in the opendeploy binary; per machine there is the agent plus one dataplane system deployment (see Component model).
+- Batteries included: one built-in network implementation, no plugin ecosystem. All components ship in the opendeploy binary; per machine there is the agent plus one netproxy system deployment (see Component model).
 - The primary is control plane only. It computes and distributes networking state; it is never on the datapath. A primary outage degrades to "no topology changes", never "traffic stops".
 - No NAT-based service translation (no kube-proxy equivalent). Workload addresses are stable and identity-bound; topology changes update routes, not NAT tables.
 - Addresses are derived, not allocated. There is no IPAM state, allocator, or reuse policy.
@@ -72,20 +72,20 @@ Two distinct concerns with opposite operational profiles:
 Layout per machine:
 
 - **Agent** (existing opendeploy process, root): deployment operator plus the networking reconciler as an in-process subsystem. In-agent because there is no availability gain from separating it (kernel state persists; no new containers start while the agent is down), no privilege gain (the agent is already root), and veth setup / promotion route flips sequence synchronously with runner and operator code paths — a separate daemon would recreate the kubelet↔CNI RPC boundary this design avoids.
-- **Dataplane system deployment**: an internal per-machine system deployment run via containerd, following the `OPENDEPLOY` internal-deployment pattern. It hosts the DNS server on every machine, the ingress proxy where the machine is ingress-designated, and later opt-in L7 east-west and TCP passthrough. DNS lives here, not in the agent, because name resolution is datapath: it must survive agent restarts (including every self-upgrade).
+- **Netproxy system deployment**: an internal per-machine system deployment run via containerd, following the `OPENDEPLOY` internal-deployment pattern. It hosts the DNS server on every machine, the ingress proxy where the machine is ingress-designated, and later opt-in L7 east-west and TCP passthrough. DNS lives here, not in the agent, because name resolution is datapath: it must survive agent restarts (including every self-upgrade).
 
-### Dataplane system deployment
+### Netproxy system deployment
 
 - Auto-created per enrolled machine; internal-only spec variants (like `githubRelease`/`systemd` today), redacted from public create/update, not user-deletable.
 - Image: the agent synthesizes a single-layer OCI image from its own release binary and imports it via the existing `ctrd.Import` path — no registry, no external build. The deployment version tracks the opendeploy release; agent upgrades bump it.
 - Runs unprivileged in its own netns like any workload; reaches backends over the mesh like any workload. Public traffic arrives via `portForwarding` DNAT (no privileged ports; `net.ipv4.ip_unprivileged_port_start` is per-netns, so binding `:53` for DNS inside its namespace is a sysctl, not a capability).
 - Upgrades use ROLLOVER with a refinement: `portForwarding` DNAT targets the container's kind-2 run address rather than the stable instance address. Rewriting the DNAT rule affects only new flows (established connections keep translating via their conntrack entries), so public connections drain gracefully on the old container while new ones land on the new — a cleaner handoff than listener-FD passing.
-- System deployments use a tight crash-backoff curve (not the standard 1–60s exponential), and the agent reattaches/respawns the dataplane deployment first on boot.
-- Configuration interface: a single protobuf netstate file (routes, endpoint states, exposed domains, certificate material, ACME challenge tokens — defined in `api-contract`), written by the agent with atomic write-rename into the deployment's data volume and watched by the proxy via inotify. Full snapshots, no deltas or streams. The dataplane process is a pure state consumer: it self-configures from the file at start (agent may be down) and reacts to updates in milliseconds. Direct read access to the node's main database was rejected: it would expose secrets and cluster state to the internet-facing process, and would freeze internal storage schemas as a cross-version API between independently-upgrading processes; the netstate message uses the same protobuf evolution discipline as the rest of the API contract.
+- System deployments use a tight crash-backoff curve (not the standard 1–60s exponential), and the agent reattaches/respawns the netproxy deployment first on boot.
+- Configuration interface: a single protobuf netstate file (routes, endpoint states, exposed domains, certificate material, ACME challenge tokens — defined in `api-contract`), written by the agent with atomic write-rename into the deployment's data volume and watched by the proxy via inotify. Full snapshots, no deltas or streams. The netproxy process is a pure state consumer: it self-configures from the file at start (agent may be down) and reacts to updates in milliseconds. Direct read access to the node's main database was rejected: it would expose secrets and cluster state to the internet-facing process, and would freeze internal storage schemas as a cross-version API between independently-upgrading processes; the netstate message uses the same protobuf evolution discipline as the rest of the API contract.
 - ACME issuance runs centrally in the primary's agent (account keys, issuance locks, and certificates in primary storage). Challenge tokens and issued certificates are distributed to ingress machines as netstate content, so any ingress node can answer an HTTP-01 challenge and the proxy never writes state.
 - Product visibility for free: status card, restart counts, standard log pipeline, deployment history for upgrades.
 
-Failure behavior: agent down → routing, DNS, and ingress unaffected (containerd shims outlive both agent and containerd restarts); no topology changes until it returns. Dataplane container down → routing unaffected; DNS/ingress out on that machine until respawn. Accepted trade-off versus a systemd unit: after a machine reboot, or if the dataplane container crashes while the agent is hard-down, DNS/ingress on that machine wait for the agent to respawn them. A systemd-unit fallback remains the escape hatch if these windows prove painful in practice.
+Failure behavior: agent down → routing, DNS, and ingress unaffected (containerd shims outlive both agent and containerd restarts); no topology changes until it returns. Netproxy container down → routing unaffected; DNS/ingress out on that machine until respawn. Accepted trade-off versus a systemd unit: after a machine reboot, or if the netproxy container crashes while the agent is hard-down, DNS/ingress on that machine wait for the agent to respawn them. A systemd-unit fallback remains the escape hatch if these windows prove painful in practice.
 
 ## Dataplane
 
@@ -148,7 +148,7 @@ Readiness generalizes the existing ROLLOVER readiness socket: signaling ready me
 
 ## Service discovery (DNS)
 
-Each machine runs a small built-in DNS server (`miekg/dns`) inside the dataplane system deployment (see Component model), serving records derived from the netmap; container resolv.conf points at that machine's dataplane instance address (replacing `WithHostResolvconf`). The dataplane container itself resolves via the host's upstream servers.
+Each machine runs a small built-in DNS server (`miekg/dns`) inside the netproxy system deployment (see Component model), serving records derived from the netmap; container resolv.conf points at that machine's netproxy instance address (replacing `WithHostResolvconf`). The netproxy container itself resolves via the host's upstream servers.
 
 - `{name}.{environment}.internal` → AAAA records for READY instance addresses, low TTL, shuffled.
 - `{ordinal}.{name}.{environment}.internal` → a specific instance.
@@ -163,7 +163,7 @@ An L7 proxy running on machines designated as ingress machines in settings (defa
 
 ### Process model
 
-The proxy runs inside the dataplane system deployment (see Component model): a containerd workload built from the opendeploy binary, not part of the agent process. The agent programs the proxy but does not contain it — opendeploy self-upgrades (which restart the agent on every release) never interrupt ingress traffic, and the internet-facing parser is isolated from cluster CA material, decrypted secrets, and DB access.
+The proxy runs inside the netproxy system deployment (see Component model): a containerd workload built from the opendeploy binary, not part of the agent process. The agent programs the proxy but does not contain it — opendeploy self-upgrades (which restart the agent on every release) never interrupt ingress traffic, and the internet-facing parser is isolated from cluster CA material, decrypted secrets, and DB access.
 
 ### Behavior
 
@@ -294,8 +294,8 @@ The dataplane on each machine, no cross-machine mesh yet.
 - Netns/veth per container, host routes, IPv4 egress NAT, MTU handling.
 - Attachment source anti-spoofing and generated default ingress policy for machine-local traffic: same-space allow, cross-space deny.
 - Endpoint-set-shaped state (n=1) with READY/DRAINING, readiness generalized to set membership.
-- Internal system deployment machinery: self-image synthesis from the release binary, auto-created per-machine dataplane deployment, tight crash backoff, agent socket interface, disk-persisted state.
-- Per-machine DNS in the dataplane deployment: serves deployments local to that machine, forwards upstream.
+- Internal system deployment machinery: self-image synthesis from the release binary, auto-created per-machine netproxy deployment, tight crash backoff, agent socket interface, disk-persisted state.
+- Per-machine DNS in the netproxy deployment: serves deployments local to that machine, forwards upstream.
 - `portForwarding` publishing (nftables DNAT on the machine's host interfaces) to preserve external reachability.
 - New ROLLOVER promotion (temporary candidate address, route flip); wildcard-bind requirement and IPv4-only-listener diagnostic.
 - `networking` section in the deployment config, proto schema, and UI side panel (`portForwarding`).
@@ -315,7 +315,7 @@ Usable outcome: same-space instances reach same-space instances by name across m
 
 Incremental within the phase:
 
-- 3a: ingress role enabled in the existing dataplane system deployment (`portForwarding` 80/443 DNAT to its run address), certmagic ACME (certmagic `Storage` over primary storage), `ingress` config with collision validation, longest-prefix routing to local-machine backends. Works with Phase 1 alone on single-machine clusters.
+- 3a: ingress role enabled in the existing netproxy system deployment (`portForwarding` 80/443 DNAT to its run address), certmagic ACME (certmagic `Storage` over primary storage), `ingress` config with collision validation, longest-prefix routing to local-machine backends. Works with Phase 1 alone on single-machine clusters.
 - 3b: cross-machine backends over the mesh (requires Phase 2); multi-node ingress with per-node public DNS records.
 - 3c: rollover integration — drain awareness and hold-and-release during promotions; web UI served through the proxy.
 

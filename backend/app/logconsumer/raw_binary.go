@@ -14,7 +14,7 @@ import (
 
 	"github.com/containerd/containerd/v2/core/runtime/v2/logging"
 	"github.com/jptrs93/opsagent/backend/ainit"
-	odlog "github.com/jptrs93/opsagent/backend/lib/log"
+	"github.com/jptrs93/opsagent/backend/lib/log"
 )
 
 const logOutputQueueSize = 5_000
@@ -55,7 +55,7 @@ func RunRawBinaryProcess(args []string) error {
 
 func runRawBinaryLogger(rawCfg rawBinaryConfig) {
 	logging.Run(func(ctx context.Context, cfg *logging.Config, ready func() error) error {
-		writer, err := odlog.NewBinaryWriter(rawCfg.DeploymentDir, rawCfg.Version, rawCfg.Run)
+		writer, err := log.NewBinaryWriter(rawCfg.DeploymentDir, rawCfg.Version, rawCfg.Run)
 		if err != nil {
 			return err
 		}
@@ -71,10 +71,10 @@ func runRawBinaryLogger(rawCfg rawBinaryConfig) {
 		})
 
 		wg.Go(func() {
-			stdoutErr = processRawBinaryLinesWithClock(cfg.Stdout, odlog.BinaryStreamStdout, outlines, time.Now)
+			stdoutErr = processRawBinaryLinesWithClock(cfg.Stdout, log.BinaryStreamStdout, outlines, time.Now)
 		})
 		wg.Go(func() {
-			stderrErr = processRawBinaryLinesWithClock(cfg.Stderr, odlog.BinaryStreamStderr, outlines, time.Now)
+			stderrErr = processRawBinaryLinesWithClock(cfg.Stderr, log.BinaryStreamStderr, outlines, time.Now)
 		})
 
 		go func() {
@@ -127,7 +127,7 @@ func processRawBinaryLinesWithClock(r io.Reader, stream int8, ch chan<- rawBinar
 	for {
 		line, err := br.ReadBytes('\n')
 		if len(line) > 0 {
-			if len(line) > math.MaxInt32-odlog.BinaryRecordPayloadLen {
+			if len(line) > math.MaxInt32-log.BinaryRecordPayloadLen {
 				return fmt.Errorf("log line too large: %d bytes", len(line))
 			}
 			ch <- rawBinaryLogLine{t: now().UTC(), stream: stream, line: bytes.Clone(line)}

@@ -1,11 +1,12 @@
 package runner
 
 import (
+	"context"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
-	"github.com/jptrs93/opsagent/backend/lib/engine/preparer"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 )
 
@@ -132,16 +133,19 @@ func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 	if len(mounts) != 2 {
 		t.Fatalf("mounts len = %d, want 2", len(mounts))
 	}
-	if mounts[0].Source != preparer.AssetCachePathWithMode(8, false) || !mounts[0].ReadOnly {
+	if mounts[0].Source != runtimeinputs.AssetCachePathWithMode(8, false) || !mounts[0].ReadOnly {
 		t.Fatalf("readonly asset mount = %+v", mounts[0])
 	}
-	if mounts[1].Source != preparer.AssetCachePathWithMode(9, true) || !mounts[1].ReadOnly {
+	if mounts[1].Source != runtimeinputs.AssetCachePathWithMode(9, true) || !mounts[1].ReadOnly {
 		t.Fatalf("executable asset mount = %+v", mounts[1])
 	}
 }
 
 func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
-	r := buildContainerRunner(nil, nil, nil, &apigen.DeploymentConfig{
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	containerd := ctrd.New("unused", "unused")
+	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, containerd, nil, &apigen.DeploymentConfig{
 		ID: 7,
 		Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
 			DisableDataVolume:   true,
@@ -154,6 +158,9 @@ func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	}
 	if r.fileDescLimit != 4096 {
 		t.Fatalf("fileDescLimit = %d, want 4096", r.fileDescLimit)
+	}
+	if r.containerd != containerd {
+		t.Fatal("containerd client was not retained")
 	}
 }
 

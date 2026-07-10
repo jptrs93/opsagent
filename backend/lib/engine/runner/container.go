@@ -20,16 +20,12 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	ctrd2 "github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
-	"github.com/jptrs93/opsagent/backend/lib/engine/preparer"
+	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"golang.org/x/sys/unix"
 )
-
-// Containerd is the process-wide containerd client, wired by the bootstrap. It
-// is shared with the container image preparer.
-var Containerd *ctrd2.Client
 
 const (
 	containerMinBackoff      = 1 * time.Second
@@ -53,6 +49,8 @@ type containerRunner struct {
 	done   chan struct{}
 
 	store          storage.OperatorStore
+	containerd     *ctrd.Client
+	runtimeInputs  *runtimeinputs.RuntimeInputs
 	deploymentID   int32
 	deploymentName string
 	machine        string
@@ -63,7 +61,7 @@ type containerRunner struct {
 	envVars        map[string]*apigen.EnvVarValue // resolved to "KEY=VALUE" entries at start
 	command        []string                       // argv override; empty = image default
 	cwd            string                         // process cwd; empty = image default
-	mounts         []ctrd2.Mount
+	mounts         []ctrd.Mount
 	devShmSizeKB   int64
 	fileDescLimit  int64
 	configVersion  int32
@@ -79,7 +77,7 @@ type containerRunner struct {
 	publish  atomic.Bool
 
 	taskMu sync.Mutex
-	task   *ctrd2.Task
+	task   *ctrd.Task
 	netMu  sync.Mutex
 	net    *network.ContainerNet
 
@@ -104,10 +102,10 @@ func containerID(deploymentID int32, configVersion int32) string {
 	return fmt.Sprintf("opendeploy-%d-v%d", deploymentID, configVersion)
 }
 
-func newContainerRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
+func newContainerRunner(store storage.OperatorStore, containerd *ctrd.Client, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(context.Background())
 	configVersion := preparerStatus.DeploymentConfigVersion
-	r := buildContainerRunner(ctx, cancel, store, dep, configVersion)
+	r := buildContainerRunner(ctx, cancel, store, containerd, inputs, dep, configVersion)
 	r.publish.Store(true)
 	r.status = apigen.RunnerStatus{
 		DeploymentConfigVersion: configVersion,
@@ -120,10 +118,10 @@ func newContainerRunner(store storage.OperatorStore, dep *apigen.DeploymentConfi
 	return r
 }
 
-func newRolloverContainerRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
+func newRolloverContainerRunner(store storage.OperatorStore, containerd *ctrd.Client, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(context.Background())
 	configVersion := preparerStatus.DeploymentConfigVersion
-	r := buildContainerRunner(ctx, cancel, store, dep, configVersion)
+	r := buildContainerRunner(ctx, cancel, store, containerd, inputs, dep, configVersion)
 	r.readiness = &readinessConfig{timeout: containerReadinessTimeout(dep.Spec.Runner.Container.ReadinessSignal)}
 	r.readyCh = make(chan error, 1)
 	r.status = apigen.RunnerStatus{
@@ -136,9 +134,9 @@ func newRolloverContainerRunner(store storage.OperatorStore, dep *apigen.Deploym
 	return r
 }
 
-func reAttachContainerRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
+func reAttachContainerRunner(store storage.OperatorStore, containerd *ctrd.Client, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
 	ctx, cancel := context.WithCancel(context.Background())
-	r := buildContainerRunner(ctx, cancel, store, dep, prev.DeploymentConfigVersion)
+	r := buildContainerRunner(ctx, cancel, store, containerd, inputs, dep, prev.DeploymentConfigVersion)
 	r.publish.Store(true)
 	r.status = prev
 	r.startupMode = mode
@@ -153,13 +151,15 @@ func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Durati
 	return containerReadinessDefaultTimeout
 }
 
-func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
+func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, containerd *ctrd.Client, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
 	cfg := dep.Spec.Runner.Container
 	r := &containerRunner{
 		ctx:            ctx,
 		cancel:         cancel,
 		done:           make(chan struct{}),
 		store:          store,
+		containerd:     containerd,
+		runtimeInputs:  inputs,
 		deploymentID:   dep.ID,
 		deploymentName: containerDeploymentName(dep),
 		machine:        dep.ConfigID.Machine,
@@ -264,7 +264,7 @@ func (r *containerRunner) run() {
 
 	// Reattach: reconcile any existing containerd task for this deterministic id.
 	if r.startupMode == containerStartupReattachRunning || r.startupMode == containerStartupReattachStopped {
-		if task, err := Containerd.LoadTask(r.ctx, r.containerID); err == nil {
+		if task, err := r.containerd.LoadTask(r.ctx, r.containerID); err == nil {
 			r.logContainerEvent("re-attach", r.currentRunNumber(), r.mounts)
 			r.setTask(task)
 			if r.startupMode == containerStartupReattachStopped {
@@ -307,7 +307,7 @@ func (r *containerRunner) run() {
 
 		// Resolve typed env references at spawn time (values not persisted/logged;
 		// updates picked up on respawn).
-		env, err := resolveEnv(r.envVars)
+		env, err := resolveEnv(r.runtimeInputs, r.envVars)
 		if err != nil {
 			slog.ErrorContext(r.ctx, "resolving env references failed", "err", err)
 			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
@@ -348,7 +348,7 @@ func (r *containerRunner) run() {
 			}
 			ready = listener.ready
 			closeReady = listener.close
-			mounts = append(append([]ctrd2.Mount{}, mounts...), ctrd2.Mount{Source: listener.dir, Dest: containerReadinessContainerDir})
+			mounts = append(append([]ctrd.Mount{}, mounts...), ctrd.Mount{Source: listener.dir, Dest: containerReadinessContainerDir})
 			env = append(env, containerReadinessEnvKey+"="+containerReadinessContainerPath)
 		}
 		cn, resolvConfPath, err = r.setupContainerNet(runNumber, readinessActive)
@@ -367,7 +367,7 @@ func (r *containerRunner) run() {
 			continue
 		}
 
-		spec := ctrd2.ContainerSpec{
+		spec := ctrd.ContainerSpec{
 			ID:             r.containerID,
 			Image:          r.status.RunningArtifact,
 			User:           r.user,
@@ -385,7 +385,7 @@ func (r *containerRunner) run() {
 		if cn != nil {
 			spec.NetnsPath = cn.NetnsPath
 		}
-		task, err := Containerd.RunTask(r.ctx, spec)
+		task, err := r.containerd.RunTask(r.ctx, spec)
 		if err != nil {
 			if closeReady != nil {
 				closeReady()
@@ -476,7 +476,7 @@ func (r *containerRunner) run() {
 }
 
 // monitorTask blocks until the task exits or the runner context is cancelled.
-func (r *containerRunner) monitorTask(task *ctrd2.Task) {
+func (r *containerRunner) monitorTask(task *ctrd.Task) {
 	exitCh, err := task.Wait(r.ctx)
 	if err != nil {
 		slog.WarnContext(r.ctx, "waiting on container task failed", "id", r.containerID, "err", err)
@@ -488,7 +488,7 @@ func (r *containerRunner) monitorTask(task *ctrd2.Task) {
 	}
 }
 
-func (r *containerRunner) stopAdoptedTask(task *ctrd2.Task) {
+func (r *containerRunner) stopAdoptedTask(task *ctrd.Task) {
 	if task == nil {
 		return
 	}
@@ -525,7 +525,7 @@ func (r *containerRunner) shouldPublishStopped() bool {
 	}
 }
 
-func (r *containerRunner) logContainerEvent(action string, runNumber int32, mounts []ctrd2.Mount) {
+func (r *containerRunner) logContainerEvent(action string, runNumber int32, mounts []ctrd.Mount) {
 	counts := countEnvVars(r.envVars)
 	slog.Info(fmt.Sprintf(
 		"container %s deployment='%s' config_version=%d run_number=%d mount_paths='%s' dev_shm_size_kb=%d file_descriptor_limit=%d env_plain_count=%d env_config_count=%d env_secret_count=%d env_asset_count=%d",
@@ -558,7 +558,7 @@ func (r *containerRunner) effectiveFileDescLimit() int64 {
 	if r.fileDescLimit > 0 {
 		return r.fileDescLimit
 	}
-	return ctrd2.DefaultFileDescriptorLimit
+	return ctrd.DefaultFileDescriptorLimit
 }
 
 type envVarCounts struct {
@@ -590,7 +590,7 @@ func countEnvVars(env map[string]*apigen.EnvVarValue) envVarCounts {
 	return counts
 }
 
-func formatMountPaths(mounts []ctrd2.Mount) string {
+func formatMountPaths(mounts []ctrd.Mount) string {
 	if len(mounts) == 0 {
 		return "-"
 	}
@@ -753,7 +753,7 @@ func (r *containerRunner) ensureDataVolume() {
 	}
 }
 
-func (r *containerRunner) deleteTask(task *ctrd2.Task) {
+func (r *containerRunner) deleteTask(task *ctrd.Task) {
 	if task == nil {
 		return
 	}
@@ -762,13 +762,13 @@ func (r *containerRunner) deleteTask(task *ctrd2.Task) {
 	}
 }
 
-func (r *containerRunner) setTask(task *ctrd2.Task) {
+func (r *containerRunner) setTask(task *ctrd.Task) {
 	r.taskMu.Lock()
 	r.task = task
 	r.taskMu.Unlock()
 }
 
-func (r *containerRunner) getTask() *ctrd2.Task {
+func (r *containerRunner) getTask() *ctrd.Task {
 	r.taskMu.Lock()
 	defer r.taskMu.Unlock()
 	return r.task
@@ -801,7 +801,7 @@ func (r *containerRunner) setupContainerNet(runNumber int32, candidate bool) (*n
 		Addr:                     addr,
 		DeprecatedAddrs:          deprecatedAddrs,
 		UnprivilegedPortStart:    0,
-		SetUnprivilegedPortStart: network.Default.IsDataplaneDeployment(r.deploymentID),
+		SetUnprivilegedPortStart: network.Default.IsNetproxyDeployment(r.deploymentID),
 	})
 	if err != nil {
 		return nil, "", err
@@ -827,12 +827,12 @@ func containerNetAddresses(prefix network.Prefix, deploymentID int32, runNumber 
 }
 
 func (r *containerRunner) writeResolvConf(runNumber int32) (string, error) {
-	if network.Default.IsDataplaneDeployment(r.deploymentID) {
+	if network.Default.IsNetproxyDeployment(r.deploymentID) {
 		return "", nil
 	}
 	dns, ok := network.Default.DNSAddr()
 	if !ok {
-		return "", fmt.Errorf("dataplane DNS address is not known")
+		return "", fmt.Errorf("netproxy DNS address is not known")
 	}
 	dir := filepath.Join(ainit.StaticConfig.DataDir, "resolvconf", strconv.Itoa(int(r.deploymentID)), strconv.Itoa(int(r.configVersion)))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -969,13 +969,13 @@ func (r *containerRunner) syncNetworkStatus() {
 // data volume (unless disabled) followed by any configured mounts. It also
 // returns the default volume's host path (empty when disabled) so the runner can
 // create + chown it at spawn time.
-func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd2.Mount, string) {
+func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd.Mount, string) {
 	cfg := dep.Spec.Runner.Container
-	var mounts []ctrd2.Mount
+	var mounts []ctrd.Mount
 	var dataHost string
 	if !cfg.DisableDataVolume {
 		dataHost = defaultVolumeHostDir(dep.ID)
-		mounts = append(mounts, ctrd2.Mount{
+		mounts = append(mounts, ctrd.Mount{
 			Source: dataHost,
 			Dest:   defaultVolumeDest(cfg.User, cfg.DataMountPath),
 		})
@@ -984,14 +984,14 @@ func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd2.Mount, string) {
 		if m == nil {
 			continue
 		}
-		mounts = append(mounts, ctrd2.Mount{Source: m.Host, Dest: m.Container, ReadOnly: m.Readonly})
+		mounts = append(mounts, ctrd.Mount{Source: m.Host, Dest: m.Container, ReadOnly: m.Readonly})
 	}
 	for _, m := range cfg.AssetMounts {
 		if m == nil {
 			continue
 		}
-		hostPath := preparer.AssetCachePathWithMode(m.AssetID, m.Executable)
-		mounts = append(mounts, ctrd2.Mount{Source: hostPath, Dest: m.Path, ReadOnly: true})
+		hostPath := runtimeinputs.AssetCachePathWithMode(m.AssetID, m.Executable)
+		mounts = append(mounts, ctrd.Mount{Source: hostPath, Dest: m.Path, ReadOnly: true})
 	}
 	implicitMounted := map[string]bool{}
 	envKeys := make([]string, 0, len(cfg.EnvVars))
@@ -1009,7 +1009,7 @@ func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd2.Mount, string) {
 			continue
 		}
 		implicitMounted[dest] = true
-		mounts = append(mounts, ctrd2.Mount{Source: preparer.AssetCachePath(value.AssetID), Dest: dest, ReadOnly: true})
+		mounts = append(mounts, ctrd.Mount{Source: runtimeinputs.AssetCachePath(value.AssetID), Dest: dest, ReadOnly: true})
 	}
 	return mounts, dataHost
 }

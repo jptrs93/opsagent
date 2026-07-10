@@ -167,7 +167,7 @@ CREATE TABLE IF NOT EXISTS system_secrets (
 );
 
 -- Small machine-local key/value state, e.g. the worker's cached cluster network
--- parameters (programmed into the dataplane on boot before the primary is
+-- parameters (programmed into the network on boot before the primary is
 -- reachable). Created on every node; never replicated.
 CREATE TABLE IF NOT EXISTS local_kv (
     key   TEXT PRIMARY KEY,

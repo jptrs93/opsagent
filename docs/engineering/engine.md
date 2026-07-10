@@ -2,21 +2,23 @@
 
 ## Overview
 
-The engine package (`backend/engine/`) orchestrates deployments through an operator-per-deployment model. Each deployment gets a `DeploymentOperator` reconciliation loop that reacts to config/status changes, starts a preparer, and then starts or replaces a runner when the prepared image is ready.
+The engine package (`backend/lib/engine/`) orchestrates deployments through an operator-per-deployment model. Each deployment gets a `DeploymentOperator` reconciliation loop that reacts to config/status changes, starts a preparer, and then starts or replaces a runner when the prepared image is ready.
 
 Key files:
 
-- `backend/engine/operator.go` — `DeploymentOperator` reconciliation loop.
-- `backend/engine/preparer/preparer.go` — `Preparer` interface plus `StartPrepare`/`ReAttach` dispatch.
-- `backend/engine/preparer/nixdockerbuild.go` — builds a Nix flake that streams an OCI/Docker image and imports it into containerd.
-- `backend/engine/preparer/containerimage.go` — pulls a container image into containerd.
-- `backend/engine/preparer/ghrelease.go` — internal-only GitHub release downloader for the `OPENDEPLOY` self-deployment.
-- `backend/engine/preparer/nixbuild.go` — shared Git/Nix command helper used by `NixDockerBuilder`; not a public Nix-store executable preparer.
-- `backend/engine/preparer/gitmanager.go` — Git repo/branch/commit helper used by validation, version discovery, and Nix Docker builds.
-- `backend/engine/ctrd/` — containerd client wrapper behind Linux build tags.
-- `backend/engine/runner/runner.go` — `Runner` interface and factories.
-- `backend/engine/runner/container.go` — public containerd runner.
-- `backend/engine/runner/systemd.go` — internal-only runner for the `OPENDEPLOY` self-deployment.
+- `backend/lib/engine/operator.go` — `DeploymentOperator` reconciliation loop and preparer dispatch.
+- `backend/app/primary/runtime.go` — primary dependency graph and operator startup.
+- `backend/lib/engine/preparer/preparer.go` — in-flight handle lifecycle and shared preparation helpers.
+- `backend/lib/engine/preparer/nixdocker/` — builds a Nix flake that streams an OCI/Docker image and imports it into containerd.
+- `backend/lib/engine/preparer/containerimage/` — pulls an ordinary registry image into containerd.
+- `backend/lib/engine/preparer/githubrelease/` — internal-only OpenDeploy executable release preparation.
+- `backend/lib/engine/preparer/githubreleaseimage/` — builds the internal `opendeploy-net` image from an OpenDeploy release binary.
+- `backend/lib/repo/git/` — Git repo/branch/commit and checkout service used by validation, version discovery, and Nix Docker builds.
+- `backend/lib/repo/github/` — authenticated GitHub release and asset download client.
+- `backend/lib/engine/ctrd/` — containerd client wrapper behind Linux build tags.
+- `backend/lib/engine/runner/runner.go` — `Runner` interface and factories.
+- `backend/lib/engine/runner/container.go` — public containerd runner.
+- `backend/lib/engine/runner/systemd.go` — internal-only runner for the OpenDeploy self-deployment.
 - `backend/lib/network/` — machine-local virtual networking, host routes, nftables egress NAT, and host-port DNAT.
 
 ## Data Model
@@ -36,7 +38,9 @@ Internal exceptions:
 
 ## Operator
 
-`DeploymentOperator` is deliberately small: it decides which prepared artifact should be running and delegates lifecycle to the current preparer/runner.
+`DeploymentOperator` owns concrete references to the four artifact preparers, the shared containerd client and runtime-input service, and the runner reconciliation loop. It explicitly passes the same containerd and runtime-input instances to every container runner it creates or reattaches. A single private switch selects the GitHub release, Nix Docker, ordinary container image, or internal GitHub release image preparer. Primary constructs and starts its operator in `app/primary/runtime.go`; secondary does so in `app/secondary/secondary.go`. The dependency graphs are independent, and preparation and runner construction do not use package-level implementation globals.
+
+`preparer.Handle` is the concrete cancellation/completion handle for the complete preparation operation. The operator owns its goroutine and all status transitions: it first ensures all runtime inputs are available, then calls the selected artifact preparer synchronously, and publishes the terminal status only after both stages complete. Concrete artifact preparers only perform strategy-specific artifact work. Nix builds are serialized across deployments to avoid Nix-store contention; image pulls and the two internal release preparations are allowed to run independently.
 
 Decision flow:
 
@@ -51,13 +55,16 @@ Container deployments can opt into `runner.container.upgradeStrategy = ROLLOVER`
 
 ## Preparers
 
-`NixDockerBuilder` asks `GitManager` to prepare a local checkout of the configured Git repo at `DesiredState.Version`, verifies the configured `flake.nix` path exists in that checked-out tree, runs `nix build --no-update-lock-file --no-link --print-out-paths -L` in the configured flake directory, executes the resulting image stream, and pipes it into `ctrd.Client.Import`. The imported image is tagged as `opendeploy.local/nix-docker-build/{deploymentID}:{version}`. Validation and version discovery use Git-native remote/ref operations plus a bare partial metadata cache under the data directory, avoiding GitHub API dependency for Nix/Git sources.
+`nixdocker.Preparer` asks `repo/git.Manager` to prepare a local checkout of the configured Git repo at `DesiredState.Version`, verifies the configured `flake.nix` path exists in that checked-out tree, runs `nix build --no-update-lock-file --no-link --print-out-paths -L` in the configured flake directory, executes the resulting image stream, and pipes it into `ctrd.Client.Import`. The imported image is tagged as `opendeploy.local/nix-docker-build/{deploymentID}:{version}`. Validation and version discovery share the same Git manager and its bare partial metadata cache under the data directory.
 
-`ContainerImagePuller` pulls `prepare.containerImage.image` plus the desired tag/digest into containerd and unpacks it. Pulls are anonymous in the current phase.
+`containerimage.Preparer` pulls `prepare.containerImage.image` plus the desired tag/digest into containerd and unpacks it. Pulls are anonymous in the current phase.
 
-`GithubReleaseDownloader` is internal-only. It downloads OpenDeploy release assets for `OPENDEPLOY`; it is not exposed as a public deployment source.
+`githubrelease.Preparer` is internal-only. It downloads the executable used by the OpenDeploy self-deployment. `githubreleaseimage.Preparer` independently downloads the architecture-specific OpenDeploy binary and packages it into the internal `opendeploy-net` OCI image. Both consume the shared `repo/github.Client`; neither concrete preparer depends on the other.
+
+Asset, secret, and config preparation dependencies are grouped in one instance-owned `runtimeinputs.RuntimeInputs`. It owns the validated in-memory secret and config caches as well as the providers that populate them. The operator uses this service before artifact preparation and explicitly passes the same instance to container runners for typed env-ref expansion at spawn and respawn. Every deployment strategy passes through this common stage before artifact preparation. On successful process-start reattachment, the operator also rechecks runtime inputs before reusing an existing artifact.
 
 Prepare output is written to `{PrepareOutputDir}/{deploymentID}/{version}.log`.
+OpenDeploy-generated entries use `==> message` and failures use `==> ERROR: message`; subprocess output is streamed unchanged between those entries.
 
 ## Runners
 
@@ -90,7 +97,7 @@ Container runner behavior:
 
 The current networking implementation is machine-local. See `docs/engineering/networking.md` for details.
 
-The runner only consumes networking primitives. It derives the stable instance address from the cluster ULA prefix and deployment id, asks the network manager to prepare state, passes the netns path to containerd, writes a generated `resolv.conf` when dataplane DNS is known, and writes endpoint status back to storage.
+The runner only consumes networking primitives. It derives the stable instance address from the cluster ULA prefix and deployment id, asks the network manager to prepare state, passes the netns path to containerd, writes a generated `resolv.conf` when netproxy DNS is known, and writes endpoint status back to storage.
 
 Cross-machine routing, WireGuard, ingress, and policy enforcement are outside the current runner path.
 
@@ -100,7 +107,7 @@ Cross-machine routing, WireGuard, ingress, and policy enforcement are outside th
 
 OpenDeploy runs its own bundled containerd provisioned by the installer as `opendeploy-containerd.service`. Runtime binaries/config live under `/var/lib/opendeploy/runtime/`; containerd root state lives under `/var/lib/opendeploy-containerd/`; transient state lives under `/run/opendeploy-containerd/`; the socket is `/run/opendeploy/containerd.sock`.
 
-The `ctrd` package stubs out on non-Linux so the backend builds on macOS/dev. Container prepares/runs fail at runtime on unsupported platforms with a clear containerd/Linux error.
+The deployment runtime supports Linux only. The `ctrd` client is compiled on all platforms so platform-independent unit tests run on macOS; container operations still require an accessible containerd daemon and Linux runtime. The networking package retains non-Linux stubs.
 
 ## Backoff
 

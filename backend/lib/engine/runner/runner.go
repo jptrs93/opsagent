@@ -9,6 +9,8 @@ import (
 	"log/slog"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
@@ -30,7 +32,7 @@ type RolloverCandidate interface {
 // The artifact to execute is taken from status.Preparer.Artifact — the
 // operator only calls Create once the preparer has reached READY for
 // dep.Version.
-func Create(store storage.OperatorStore, dep *apigen.DeploymentConfig, status *apigen.DeploymentStatus) Runner {
+func Create(store storage.OperatorStore, containerd *ctrd.Client, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, status *apigen.DeploymentStatus) Runner {
 	var preparer apigen.PreparerStatus
 	if status != nil {
 		preparer = status.Preparer
@@ -40,23 +42,23 @@ func Create(store storage.OperatorStore, dep *apigen.DeploymentConfig, status *a
 	case useSystemd(dep):
 		return newSystemdRunnerWithRestart(store, dep, preparer)
 	}
-	return newContainerRunner(store, dep, preparer)
+	return newContainerRunner(store, containerd, inputs, dep, preparer)
 }
 
-func CreateRolloverCandidate(store storage.OperatorStore, dep *apigen.DeploymentConfig, status *apigen.DeploymentStatus) RolloverCandidate {
+func CreateRolloverCandidate(store storage.OperatorStore, containerd *ctrd.Client, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, status *apigen.DeploymentStatus) RolloverCandidate {
 	var preparer apigen.PreparerStatus
 	if status != nil {
 		preparer = status.Preparer
 	}
 	slog.Info("runner.CreateRolloverCandidate", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion)
-	return newRolloverContainerRunner(store, dep, preparer)
+	return newRolloverContainerRunner(store, containerd, inputs, dep, preparer)
 }
 
 // ReAttachRunning resumes supervision for a deployment whose desired state is
 // running. Container runners adopt an existing task by id, or start a fresh task
 // when there is nothing to adopt. Systemd runners publish the current
 // OpenDeploy process as RUNNING — no install or restart.
-func ReAttachRunning(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
+func ReAttachRunning(store storage.OperatorStore, containerd *ctrd.Client, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
 	if prev.IsZero() {
 		if useSystemd(dep) {
 			slog.Info("runner.ReAttachRunning: observing existing systemd unit without previous runner status")
@@ -72,13 +74,13 @@ func ReAttachRunning(store storage.OperatorStore, dep *apigen.DeploymentConfig, 
 	case useSystemd(dep):
 		return reAttachSystemdRunner(store, dep, prev)
 	}
-	return reAttachContainerRunner(store, dep, prev, containerStartupReattachRunning)
+	return reAttachContainerRunner(store, containerd, inputs, dep, prev, containerStartupReattachRunning)
 }
 
 // ReAttachStopped reconciles runtime leftovers for a deployment whose desired
 // state is stopped. Container runners may adopt an existing task only to stop
 // and delete it; they never start a fresh task from this path.
-func ReAttachStopped(store storage.OperatorStore, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
+func ReAttachStopped(store storage.OperatorStore, containerd *ctrd.Client, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
 	if prev.IsZero() {
 		slog.Info("runner.ReAttachStopped: no previous runner, returning stopped")
 		return Stopped()
@@ -89,7 +91,7 @@ func ReAttachStopped(store storage.OperatorStore, dep *apigen.DeploymentConfig, 
 	if useSystemd(dep) {
 		return Stopped()
 	}
-	return reAttachContainerRunner(store, dep, prev, containerStartupReattachStopped)
+	return reAttachContainerRunner(store, containerd, inputs, dep, prev, containerStartupReattachStopped)
 }
 
 // Stopped returns a no-op Runner sentinel used when no process is running.

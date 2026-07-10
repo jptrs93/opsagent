@@ -6,18 +6,15 @@ import (
 	"net/http"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/engine/secretdist"
 )
 
 type PrimarySecretProvider struct {
-	*secretdist.Cache
 	capi *apigen.OpsagentClusterV1Capi
 }
 
 func NewPrimarySecretProvider(baseURL string, client *http.Client) *PrimarySecretProvider {
 	return &PrimarySecretProvider{
-		Cache: secretdist.NewCache(),
-		capi:  apigen.NewOpsagentClusterV1Capi(baseURL, apigen.WithOpsagentClusterV1CapiHTTPClient(client)),
+		capi: apigen.NewOpsagentClusterV1Capi(baseURL, apigen.WithOpsagentClusterV1CapiHTTPClient(client)),
 	}
 }
 
@@ -33,11 +30,5 @@ func (p *PrimarySecretProvider) FetchSecrets(ctx context.Context, ids []int32) (
 		}
 		values[item.ID] = string(item.Value)
 	}
-	for _, id := range ids {
-		if _, ok := values[id]; !ok {
-			return nil, fmt.Errorf("primary did not return secret id %d", id)
-		}
-	}
-	p.Store(values)
 	return values, nil
 }

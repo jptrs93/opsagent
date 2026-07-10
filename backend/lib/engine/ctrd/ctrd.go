@@ -1,7 +1,4 @@
-// Package ctrd isolates all containerd usage behind a small platform-neutral
-// surface. The real implementation (client_linux.go) is compiled only on linux;
-// everywhere else a stub (client_other.go) returns ErrUnsupported so the rest of
-// opendeploy builds and runs on macOS/dev without containerd.
+// Package ctrd isolates all containerd usage behind a small surface.
 //
 // The Client is the single handle shared by the container image preparer and the
 // container runner. It dials containerd lazily, so opendeploy still starts on hosts
@@ -13,9 +10,6 @@ import (
 	"errors"
 	"io"
 )
-
-// ErrUnsupported is returned by every operation on non-linux platforms.
-var ErrUnsupported = errors.New("containers require linux with containerd")
 
 // ErrNotFound is returned by LoadTask when no running container/task exists for
 // the given id (the caller should perform a fresh spawn).
@@ -50,7 +44,7 @@ type ContainerSpec struct {
 	// virtual network). Empty = host networking.
 	NetnsPath string
 	// ResolvConfPath is a generated resolv.conf to bind-mount read-only when
-	// NetnsPath is set (points at the machine's dataplane DNS). Empty = the
+	// NetnsPath is set (points at the machine's netproxy DNS). Empty = the
 	// host's resolv.conf.
 	ResolvConfPath string
 }

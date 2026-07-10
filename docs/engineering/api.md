@@ -20,8 +20,9 @@ Key generated files:
 ## Mux and handler flow (Go)
 
 - Routes use `http.NewServeMux()` with Go 1.22+ pattern syntax (e.g. `"POST /v1/auth/master"`).
-- Each route decodes the request body, calls the corresponding `handler.Handler` method, and writes a binary response.
-- Auth is enforced by `handler.VerifyAuth` before handlers run.
+- Each route decodes the request body, calls its generated service handler, and writes a binary response.
+- Primary handlers are split by security surface: `webuihandler.Handler` implements `OpsagentHttpV1`, `clusterhandler.Handler` implements `OpsagentClusterV1`, and `enrollmenthandler.Handler` implements `EnrollmentV1`.
+- Web UI auth is enforced by `webuihandler.Handler.VerifyAuth`; cluster peer identity comes from mTLS, while enrollment uses its dedicated request verifier.
 - Static SPA assets are served from embedded `backend/web/dist`; unknown paths fall back to `index.html`.
 - The frontend is built via `//go:generate` in `backend/main.go` before embedding.
 
@@ -131,5 +132,5 @@ Workers use `EnrollmentV1` only when local cluster CA/cert/key material is missi
 
 1. Add the RPC and any new message types to `api-contract/api.proto`.
 2. Run `bash api-contract/proto_generate.sh`.
-3. Implement the handler method in `backend/handler/*.go`.
+3. Implement the handler method in the matching package under `backend/app/primary`: `webuihandler`, `clusterhandler`, or `enrollmenthandler`.
 4. The JS client method is generated automatically in `frontend/src/capi/capi.js`.

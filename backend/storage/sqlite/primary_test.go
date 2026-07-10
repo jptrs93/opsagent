@@ -40,17 +40,17 @@ func TestEnsureSystemDeploymentRepairsExistingSpec(t *testing.T) {
 	}
 }
 
-func TestEnsureDataplaneDeploymentCreatesInternalConfig(t *testing.T) {
+func TestEnsureNetproxyDeploymentCreatesInternalConfig(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	cfg := store.EnsureDataplaneDeployment("primary", "v0.0.200")
+	cfg := store.EnsureNetproxyDeployment("primary", "v0.0.200")
 	if cfg == nil {
-		t.Fatal("dataplane config not returned")
+		t.Fatal("netproxy config not returned")
 	}
-	if cfg.ConfigID.SpaceID != OpendeploySpaceID || cfg.ConfigID.Machine != "primary" || cfg.ConfigID.Name != dataplaneDeploymentName {
+	if cfg.ConfigID.SpaceID != OpendeploySpaceID || cfg.ConfigID.Machine != "primary" || cfg.ConfigID.Name != netproxyDeploymentName {
 		t.Fatalf("unexpected config id: %+v", cfg.ConfigID)
 	}
-	if !IsDataplaneDeploymentConfig(cfg) || !IsInternalDeploymentConfig(cfg) {
-		t.Fatalf("dataplane config not recognized as internal: %+v", cfg.ConfigID)
+	if !IsNetproxyDeploymentConfig(cfg) || !IsInternalDeploymentConfig(cfg) {
+		t.Fatalf("netproxy config not recognized as internal: %+v", cfg.ConfigID)
 	}
 	if !cfg.DesiredState.Running || cfg.DesiredState.Version != "v0.0.200" {
 		t.Fatalf("desired state = %+v, want running v0.0.200", cfg.DesiredState)
@@ -58,32 +58,32 @@ func TestEnsureDataplaneDeploymentCreatesInternalConfig(t *testing.T) {
 	if cfg.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL || len(cfg.Spec.Networking.PortForwarding) != 0 {
 		t.Fatalf("unexpected networking config: %+v", cfg.Spec.Networking)
 	}
-	again := store.EnsureDataplaneDeployment("primary", "v0.0.200")
+	again := store.EnsureNetproxyDeployment("primary", "v0.0.200")
 	if again.Version != cfg.Version {
-		t.Fatalf("ensure bumped unchanged dataplane version from %d to %d", cfg.Version, again.Version)
+		t.Fatalf("ensure bumped unchanged netproxy version from %d to %d", cfg.Version, again.Version)
 	}
 }
 
-func TestEnsureDataplaneDeploymentRequiresExplicitVersion(t *testing.T) {
+func TestEnsureNetproxyDeploymentRequiresExplicitVersion(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	defer func() {
 		if recover() == nil {
-			t.Fatal("EnsureDataplaneDeployment did not panic without version")
+			t.Fatal("EnsureNetproxyDeployment did not panic without version")
 		}
 	}()
-	store.EnsureDataplaneDeployment("primary", "")
+	store.EnsureNetproxyDeployment("primary", "")
 }
 
-func TestEnsureDataplaneDeploymentDoesNotReconcileExistingVersion(t *testing.T) {
+func TestEnsureNetproxyDeploymentDoesNotReconcileExistingVersion(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	cfg := store.EnsureDataplaneDeployment("primary", "v0.0.200")
+	cfg := store.EnsureNetproxyDeployment("primary", "v0.0.200")
 
-	again := store.EnsureDataplaneDeployment("primary", "v0.0.201")
+	again := store.EnsureNetproxyDeployment("primary", "v0.0.201")
 	if again.DesiredState.Version != "v0.0.200" {
 		t.Fatalf("desired version = %q, want preserved v0.0.200", again.DesiredState.Version)
 	}
 	if again.Version != cfg.Version {
-		t.Fatalf("ensure bumped unchanged dataplane version from %d to %d", cfg.Version, again.Version)
+		t.Fatalf("ensure bumped unchanged netproxy version from %d to %d", cfg.Version, again.Version)
 	}
 }
 
