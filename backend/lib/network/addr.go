@@ -21,7 +21,7 @@ import (
 const (
 	KindInstance uint16 = 0 // field = instance ordinal (0-based)
 	KindService  uint16 = 1 // field = 0; virtual per-deployment address (unrouted until socket LB)
-	KindRun      uint16 = 2 // field = run number; rollover candidate temporary address
+	KindRun      uint16 = 2 // field = run number; preferred warmup source for rollover candidates
 	KindMachine  uint16 = 3 // field = machine id, deployment id bits zero
 )
 
@@ -90,8 +90,10 @@ func (p Prefix) ServiceAddr(deploymentID int32) netip.Addr {
 	return p.addr(KindService, uint32(deploymentID), 0)
 }
 
-// RunAddr is the kind-2 run-scoped temporary address used by rollover
-// candidates before promotion.
+// RunAddr is the kind-2 run-scoped temporary address used as a rollover
+// candidate's preferred outbound source during warmup. The stable instance
+// address is also preassigned as deprecated/non-preferred so promotion only has
+// to flip the host route.
 func (p Prefix) RunAddr(deploymentID int32, runNumber int32) netip.Addr {
 	return p.addr(KindRun, uint32(deploymentID), uint32(runNumber))
 }

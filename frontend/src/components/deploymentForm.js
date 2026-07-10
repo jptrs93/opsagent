@@ -193,7 +193,6 @@ export function deploymentForm(form, opts = {}) {
             sectionDivider(executionTitle),
             div(
                 {class: "flex flex-col gap-3"},
-                networkingSection(form),
                 div(
                     {class: "flex flex-col gap-3"},
                     envSummary(form),
@@ -203,6 +202,7 @@ export function deploymentForm(form, opts = {}) {
                     assetMountsSection(form, opts),
                     upgradeStrategySummary(form),
                     resourcesSummary(form),
+                    networkingSummary(form),
                 ),
             ),
         ),
@@ -542,6 +542,7 @@ function makeFormState(values) {
         volumeMountsPaneOpen: van.state(false),
         upgradeStrategyPaneOpen: van.state(false),
         resourcesPaneOpen: van.state(false),
+        networkingPaneOpen: van.state(false),
         assetEditorOpen: van.state(false),
         assetEditorMountID: van.state(0),
         assetEditorError: van.state(''),
@@ -725,29 +726,59 @@ function upgradeStrategySummary(form) {
     );
 }
 
-function networkingSection(form) {
+function networkingSummary(form) {
     return div(
-        {class: "flex flex-col gap-3"},
-        div(
-            {class: "flex items-start justify-between gap-3"},
-            div(
-                {class: "flex flex-col gap-1"},
-                span({class: "text-xs text-gray-400"}, "Networking"),
-                p({class: "text-[11px] text-gray-500 leading-relaxed"}, () => Number(form.networkingMode.val) === NETWORKING_MODE_HOST
-                    ? "Host mode keeps the container in the machine network namespace."
-                    : "Virtual mode gives the container an isolated network namespace on the OpenDeploy virtual network."),
-            ),
-            select({
-                "data-testid": "deployment-networking-mode-select",
-                value: form.networkingMode,
-                class: "w-44 px-3 py-2 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand text-xs",
-                onchange: e => { form.networkingMode.val = e.target.value; },
+        {class: "flex items-center justify-between gap-3"},
+        span({class: "text-xs text-gray-400"}, () => `Networking: ${networkingSummaryText(form)}`),
+        button({
+            type: "button",
+            class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
+            onclick: () => {
+                const opening = !form.networkingPaneOpen.val;
+                if (opening) closeRuntimePanes(form, 'networking');
+                form.networkingPaneOpen.val = opening;
             },
-                option({value: String(NETWORKING_MODE_VIRTUAL), selected: form.networkingMode.rawVal === String(NETWORKING_MODE_VIRTUAL)}, "Virtual"),
-                option({value: String(NETWORKING_MODE_HOST), selected: form.networkingMode.rawVal === String(NETWORKING_MODE_HOST)}, "Host"),
-            ),
+        }, () => form.networkingPaneOpen.val ? "Close" : "Configure"),
+    );
+}
+
+function networkingSummaryText(form) {
+    if (Number(form.networkingMode.val) === NETWORKING_MODE_HOST) return "Host";
+    const count = formPortForwarding(form).length;
+    return count === 0 ? "Virtual" : `Virtual, ${count} forwarded port${count === 1 ? '' : 's'}`;
+}
+
+export function networkingPane(form) {
+    return div(
+        {class: () => form.networkingPaneOpen.val
+            ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
+            : "hidden"},
+        div(
+            {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
+            h3({class: "text-sm font-semibold text-gray-200"}, "Networking"),
+            button({
+                type: "button",
+                class: "text-gray-500 hover:text-gray-200 cursor-pointer",
+                title: "Close",
+                onclick: () => { form.networkingPaneOpen.val = false; },
+            }, xIcon({size: 16})),
         ),
-        () => Number(form.networkingMode.val) === NETWORKING_MODE_VIRTUAL ? portForwardingSection(form) : '',
+        div(
+            {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-4 p-4"},
+            div(
+                {class: "flex flex-col gap-3 rounded-sm border border-gray-700 bg-gray-900/40 p-4"},
+                selectField("Mode", form.networkingMode, [
+                    {value: String(NETWORKING_MODE_VIRTUAL), label: "Virtual"},
+                    {value: String(NETWORKING_MODE_HOST), label: "Host"},
+                ], "w-full", value => {
+                    form.networkingMode.val = value;
+                }),
+                p({class: "text-xs leading-relaxed text-gray-500"}, () => Number(form.networkingMode.val) === NETWORKING_MODE_HOST
+                    ? "Host mode keeps the container in the machine network namespace. Port forwarding is unavailable because the process binds host ports directly."
+                    : "Virtual mode gives the container an isolated network namespace on the OpenDeploy virtual network. Add port forwarding when the workload must be reachable from the machine's host interfaces."),
+            ),
+            () => Number(form.networkingMode.val) === NETWORKING_MODE_VIRTUAL ? portForwardingSection(form) : '',
+        ),
     );
 }
 
@@ -1819,6 +1850,7 @@ function closeRuntimePanes(form, keep) {
     if (keep !== 'volumes') form.volumeMountsPaneOpen.val = false;
     if (keep !== 'strategy') form.upgradeStrategyPaneOpen.val = false;
     if (keep !== 'resources') form.resourcesPaneOpen.val = false;
+    if (keep !== 'networking') form.networkingPaneOpen.val = false;
     if (keep !== 'assetEditor') form.assetEditorOpen.val = false;
 }
 
@@ -2089,6 +2121,7 @@ function repoMsgClass(status) {
 function selectField(text, state, options, widthClass = "w-56", onChange) {
     const testID = {
         "Source type": "deployment-source-type-select",
+        "Mode": "deployment-networking-mode-select",
         "Strategy": "deployment-runner-strategy-select",
     }[text];
     return field(text, select({

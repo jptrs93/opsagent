@@ -117,7 +117,7 @@ This keeps promotion host-local and fast for both runc and Kata.
 
 This is the recommended default.
 
-The workload receives a stable instance address and a run address. The host routes stable-address traffic to the active attachment. Candidate workloads use run addresses for warmup and become active after a route flip.
+The workload receives a stable instance address and a run address. The host routes stable-address traffic to the active attachment. Candidate workloads use run addresses as their preferred outbound source during warmup and become active after a route flip.
 
 | Property | Outcome |
 |---|---|

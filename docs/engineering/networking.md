@@ -53,7 +53,7 @@ The IPv6 layout after the `/48` prefix is:
 Current routed kinds:
 
 - Kind `0`: stable instance address, field is the instance ordinal. Only ordinal `0` exists today.
-- Kind `2`: run-scoped temporary address for rollover candidates.
+- Kind `2`: run-scoped address used as a rollover candidate's preferred outbound source during warmup.
 
 Reserved kinds:
 
@@ -82,12 +82,14 @@ Names are normalized to lowercase DNS labels, with underscores converted to dash
 Virtual-mode ROLLOVER uses the route-flip model:
 
 1. The old container keeps the stable instance address route.
-2. The candidate starts in a new netns with a run-scoped address and the stable address configured as deprecated/non-preferred.
+2. The candidate starts in a new netns with a run-scoped address as its preferred outbound source, plus the stable address configured as deprecated/non-preferred.
 3. The candidate signals readiness through the existing Unix readiness socket.
 4. The agent replaces the host route for the stable address so new traffic reaches the candidate.
 5. The old container is stopped and its network state is removed.
 
 This avoids binding conflicts on published ports. Existing TCP connections to the old container can still break on promotion; ingress-level graceful handoff is part of future work.
+
+The run-scoped address is not the address clients use after promotion. It exists so candidate warmup calls do not appear to come from the stable service identity before the candidate is active. Preassigning the stable address as non-preferred lets promotion avoid mutating the container netns; OpenDeploy only flips the host route for the stable address.
 
 ## Future Ingress Shape
 

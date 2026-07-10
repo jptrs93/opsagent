@@ -37,8 +37,8 @@ type ContainerNetSpec struct {
 	ContainerID  string
 	DeploymentID int32
 	// Addr is the v6 address routed to the container from the start: the stable
-	// instance address, or the run-scoped temporary address for rollover
-	// candidates.
+	// instance address for normal runs, or the run-scoped address used as a
+	// rollover candidate's preferred outbound source during warmup.
 	Addr netip.Addr
 	// DeprecatedAddrs are assigned before workload start with preferred_lft=0
 	// and are not routed by SetupContainerNet. Rollover candidates use this for

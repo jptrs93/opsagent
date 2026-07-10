@@ -58,7 +58,7 @@ Containers keep a machine-local IPv4 path for internet egress: a fixed private r
 ### Application requirements
 
 - Workloads must listen on the IPv6 wildcard (`::`). Binding `0.0.0.0` only makes an app unreachable at its instance address (from peers and from ingress alike).
-- Workloads must not bind to a specific address; rollover candidates can start with both the run address and the stable instance address configured, and promotion changes which attachment receives the stable-address route.
+- Workloads must not bind to a specific address; rollover candidates can start with both the run address and the stable instance address configured. The run address is the candidate's preferred outbound source during warmup, while the stable address is non-preferred until promotion changes which attachment receives the stable-address route.
 
 OpenDeploy detects IPv4-only listeners from the container netns (`/proc/net/tcp6` vs `tcp`) after readiness and surfaces a diagnostic on the status card. One failure mode, one diagnostic.
 

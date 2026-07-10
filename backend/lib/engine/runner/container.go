@@ -818,6 +818,9 @@ func (r *containerRunner) setupContainerNet(runNumber int32, candidate bool) (*n
 func containerNetAddresses(prefix network.Prefix, deploymentID int32, runNumber int32, candidate bool) (netip.Addr, []netip.Addr) {
 	stable := prefix.InstanceAddr(deploymentID, 0)
 	if candidate {
+		// Candidate warmup traffic should source from the run-scoped address.
+		// The stable address is preassigned as deprecated so promotion is just a
+		// host-route flip, not a netns mutation in the critical path.
 		return prefix.RunAddr(deploymentID, runNumber), []netip.Addr{stable}
 	}
 	return stable, nil
