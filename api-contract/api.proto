@@ -790,6 +790,10 @@ message State {
   Space space_update = 22;
   AssetList assets_snapshot = 23;
   AssetMeta asset_update = 24;
+  ClusterNodeList nodes_snapshot = 25;
+  ClusterNode node_update = 26;
+  ClusterNodeStatusList node_statuses_snapshot = 27;
+  ClusterNodeStatus node_status_update = 28;
 }
 
 message Space {
@@ -1169,6 +1173,32 @@ message ClusterMachine {
   bool is_primary = 2;
   bool connected = 3;
   int64 connected_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+}
+
+message ClusterNode {
+  int32 id = 1;
+  int32 enrollment_id = 2;
+  string name = 3;
+  string sni = 4;
+  repeated int32 roles = 5;
+  string wg_public_key = 6;
+  repeated string addresses = 7;
+  int64 enrolled_at = 8 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+}
+
+message ClusterNodeList {
+  repeated ClusterNode items = 1;
+}
+
+message ClusterNodeStatus {
+  int32 id = 1;
+  int32 node_id = 2;
+  int64 last_connected_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  bool is_connected = 4;
+}
+
+message ClusterNodeStatusList {
+  repeated ClusterNodeStatus items = 1;
 }
 
 message ClusterStatusResponse {

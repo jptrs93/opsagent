@@ -87,32 +87,24 @@ func TestEnsureDataplaneDeploymentDoesNotReconcileExistingVersion(t *testing.T) 
 	}
 }
 
-func TestEnsureNodesForSystemDeploymentsBackfillsPrimaryAndWorkers(t *testing.T) {
+func TestEnsurePrimaryNodeCreatesPrimaryRole(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	store.EnsureSystemDeployment("primary", "v0.0.200")
-	store.EnsureSystemDeployment("worker-1", "v0.0.200")
 
-	store.EnsureNodesForSystemDeployments("primary")
+	store.EnsurePrimaryNode("primary")
 
 	nodes := store.ListNodes()
-	if len(nodes) != 2 {
-		t.Fatalf("node count = %d, want 2: %+v", len(nodes), nodes)
+	if len(nodes) != 1 {
+		t.Fatalf("node count = %d, want 1: %+v", len(nodes), nodes)
 	}
-	rolesByName := map[string][]int32{}
-	for _, node := range nodes {
-		if node.Name != node.SNI {
-			t.Fatalf("node %q sni = %q, want same as name", node.Name, node.SNI)
-		}
-		if node.EnrollmentID != nil {
-			t.Fatalf("backfilled node %q enrollment id = %v, want nil", node.Name, *node.EnrollmentID)
-		}
-		rolesByName[node.Name] = node.Roles
+	node := nodes[0]
+	if node.Name != "primary" || node.SNI != "primary" {
+		t.Fatalf("node identity = name %q sni %q, want primary", node.Name, node.SNI)
 	}
-	if len(rolesByName["primary"]) != 1 || rolesByName["primary"][0] != NodeRolePrimary {
-		t.Fatalf("primary roles = %+v, want primary", rolesByName["primary"])
+	if node.EnrollmentID != nil {
+		t.Fatalf("primary enrollment id = %v, want nil", *node.EnrollmentID)
 	}
-	if len(rolesByName["worker-1"]) != 1 || rolesByName["worker-1"][0] != NodeRoleSecondary {
-		t.Fatalf("worker roles = %+v, want secondary", rolesByName["worker-1"])
+	if len(node.Roles) != 1 || node.Roles[0] != NodeRolePrimary {
+		t.Fatalf("primary roles = %+v, want primary", node.Roles)
 	}
 }
 

@@ -198,10 +198,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_enrollment_requests_machine_id
 CREATE TABLE IF NOT EXISTS nodes (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     enrollment_id INTEGER,
+    enrolled_at   INTEGER NOT NULL DEFAULT 0,  -- epoch ms
     name          TEXT    NOT NULL,
     sni           TEXT    NOT NULL DEFAULT '',
     roles         TEXT    NOT NULL DEFAULT '[]', -- JSON array of integer role ids
+    addresses     TEXT    NOT NULL DEFAULT '[]', -- JSON array of node addresses
     wg_public_key TEXT    NOT NULL DEFAULT '',
     UNIQUE(name),
     UNIQUE(enrollment_id)
+);
+
+CREATE TABLE IF NOT EXISTS node_statuses (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id           INTEGER NOT NULL,
+    last_connected_at INTEGER NOT NULL DEFAULT 0, -- epoch ms
+    is_connected      INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(node_id)
 );

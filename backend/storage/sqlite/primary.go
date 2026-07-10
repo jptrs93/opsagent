@@ -122,6 +122,8 @@ type PrimaryStorage struct {
 	spaceSubs           *pubsubu.PubSub[apigen.Space]
 	assetSubs           *pubsubu.PubSub[apigen.AssetMeta]
 	enrollmentSubs      *pubsubu.PubSub[apigen.EnrollmentRequestStatus]
+	nodeSubs            *pubsubu.PubSub[apigen.ClusterNode]
+	nodeStatusSubs      *pubsubu.PubSub[apigen.ClusterNodeStatus]
 }
 
 func NewPrimaryStorage(dbPath string) *PrimaryStorage {
@@ -137,6 +139,8 @@ func NewPrimaryStorage(dbPath string) *PrimaryStorage {
 		spaceSubs:           &pubsubu.PubSub[apigen.Space]{},
 		assetSubs:           &pubsubu.PubSub[apigen.AssetMeta]{},
 		enrollmentSubs:      &pubsubu.PubSub[apigen.EnrollmentRequestStatus]{},
+		nodeSubs:            &pubsubu.PubSub[apigen.ClusterNode]{},
+		nodeStatusSubs:      &pubsubu.PubSub[apigen.ClusterNodeStatus]{},
 	}
 }
 

@@ -492,6 +492,10 @@ type State struct {
 	SpaceUpdate              *Space
 	AssetsSnapshot           *AssetList
 	AssetUpdate              *AssetMeta
+	NodesSnapshot            *ClusterNodeList
+	NodeUpdate               *ClusterNode
+	NodeStatusesSnapshot     *ClusterNodeStatusList
+	NodeStatusUpdate         *ClusterNodeStatus
 }
 
 type Space struct {
@@ -821,6 +825,32 @@ type ClusterMachine struct {
 	IsPrimary   bool
 	Connected   bool
 	ConnectedAt time.Time
+}
+
+type ClusterNode struct {
+	ID           int32
+	EnrollmentID int32
+	Name         string
+	Sni          string
+	Roles        []int32
+	WgPublicKey  string
+	Addresses    []string
+	EnrolledAt   time.Time
+}
+
+type ClusterNodeList struct {
+	Items []*ClusterNode
+}
+
+type ClusterNodeStatus struct {
+	ID              int32
+	NodeID          int32
+	LastConnectedAt time.Time
+	IsConnected     bool
+}
+
+type ClusterNodeStatusList struct {
+	Items []*ClusterNodeStatus
 }
 
 type ClusterStatusResponse struct {

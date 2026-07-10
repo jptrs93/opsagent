@@ -8,6 +8,8 @@ export const deploymentsS = van.state([]);
 // usersMapS holds a Map<userId, userName> for resolving display names.
 export const usersMapS = van.state(new Map());
 export const machinesS = van.state([]);
+export const nodesS = van.state([]);
+export const nodeStatusesS = van.state([]);
 export const enrollmentsS = van.state([]);
 export const secretRefsS = van.state([]);
 export const userConfigRefsS = van.state([]);
@@ -72,6 +74,8 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
         deploymentsS.val = [];
         usersMapS.val = new Map();
         machinesS.val = [];
+        nodesS.val = [];
+        nodeStatusesS.val = [];
         enrollmentsS.val = [];
         secretRefsS.val = [];
         userConfigRefsS.val = [];
@@ -124,6 +128,28 @@ const handleStateMessage = (message) => {
             next.delete(message.machineUpdate.name);
         }
         machinesS.val = Array.from(next.values());
+    }
+
+    if (message.nodesSnapshot) {
+        nodesS.val = sortByName(message.nodesSnapshot.items || []);
+        refreshMachinesFromNodes();
+    }
+
+    if (message.nodeUpdate?.id) {
+        nodesS.val = applyItemUpdate(nodesS.val, message.nodeUpdate);
+        refreshMachinesFromNodes();
+    }
+
+    if (message.nodeStatusesSnapshot) {
+        nodeStatusesS.val = message.nodeStatusesSnapshot.items || [];
+        refreshMachinesFromNodes();
+    }
+
+    if (message.nodeStatusUpdate?.id) {
+        const next = new Map((nodeStatusesS.val || []).map((status) => [status.id, status]));
+        next.set(message.nodeStatusUpdate.id, message.nodeStatusUpdate);
+        nodeStatusesS.val = Array.from(next.values());
+        refreshMachinesFromNodes();
     }
 
     if (message.enrollmentsSnapshot) {
@@ -192,6 +218,20 @@ const handleStateMessage = (message) => {
 const sortByName = (items) => [...items].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 const sortSpaces = (items) => [...items].sort((a, b) => (a.id || 0) - (b.id || 0) || (a.name || '').localeCompare(b.name || ''));
 const sortAssets = (items) => [...items].sort((a, b) => (a.key || '').localeCompare(b.key || '') || Number(a.version || 0) - Number(b.version || 0));
+
+const refreshMachinesFromNodes = () => {
+    if (!nodesS.val.length) return;
+    const statusesByNodeId = new Map((nodeStatusesS.val || []).map((status) => [status.nodeId, status]));
+    machinesS.val = sortByName(nodesS.val.map((node) => {
+        const status = statusesByNodeId.get(node.id) || {};
+        return {
+            name: node.name,
+            isPrimary: (node.roles || []).includes(0),
+            connected: status.isConnected === true,
+            connectedAt: status.lastConnectedAt,
+        };
+    }));
+};
 
 const applyItemUpdate = (items, update) => {
     const next = new Map((items || []).map((item) => [item.id, item]));

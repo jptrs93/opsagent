@@ -30,6 +30,10 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 		defer spaceUnsub()
 		assetSub, assetUnsub := h.Store.SubscribeAssetUpdates()
 		defer assetUnsub()
+		nodeSub, nodeUnsub := h.Store.SubscribeNodeUpdates()
+		defer nodeUnsub()
+		nodeStatusSub, nodeStatusUnsub := h.Store.SubscribeNodeStatusUpdates()
+		defer nodeStatusUnsub()
 		enrollments, enrollmentCh, enrollmentUnsub, err := h.Store.MustFetchEnrollmentSnapshotAndSubscribe()
 		if err != nil {
 			yield(nil, err)
@@ -71,6 +75,8 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 			UserConfigValuesSnapshot: &apigen.UserConfigList{Items: h.Store.ListAllUserConfigs()},
 			SpacesSnapshot:           &apigen.SpaceList{Items: h.Store.ListSpaces()},
 			AssetsSnapshot:           &apigen.AssetList{Items: h.Store.ListAllAssetVersions()},
+			NodesSnapshot:            &apigen.ClusterNodeList{Items: h.Store.ListClusterNodes()},
+			NodeStatusesSnapshot:     &apigen.ClusterNodeStatusList{Items: h.Store.ListNodeStatuses()},
 		}
 		if !yield(initial, nil) {
 			return
@@ -145,6 +151,20 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 					return
 				}
 				if !yield(&apigen.State{AssetUpdate: &asset}, nil) {
+					return
+				}
+			case node, ok := <-nodeSub.Ch:
+				if !ok {
+					return
+				}
+				if !yield(&apigen.State{NodeUpdate: &node}, nil) {
+					return
+				}
+			case nodeStatus, ok := <-nodeStatusSub.Ch:
+				if !ok {
+					return
+				}
+				if !yield(&apigen.State{NodeStatusUpdate: &nodeStatus}, nil) {
 					return
 				}
 			case machine, ok := <-machineCh:

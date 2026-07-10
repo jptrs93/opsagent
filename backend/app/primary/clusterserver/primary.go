@@ -316,6 +316,7 @@ func (p *Primary) registerSession(machine string, sess *Session) {
 	p.sessions[machine] = sess
 	connectedAt := time.Now()
 	p.connectedAt[machine] = connectedAt
+	p.store.SetNodeStatusByName(machine, true, connectedAt)
 	p.machineSubs.Notify(apigen.ClusterMachine{Name: machine, Connected: true, ConnectedAt: connectedAt})
 }
 
@@ -325,6 +326,7 @@ func (p *Primary) unregisterSession(machine string, expected *Session) {
 	if current, ok := p.sessions[machine]; ok && current == expected {
 		delete(p.sessions, machine)
 		delete(p.connectedAt, machine)
+		p.store.SetNodeStatusByName(machine, false, time.Time{})
 		p.machineSubs.Notify(apigen.ClusterMachine{Name: machine, Connected: false})
 	}
 }

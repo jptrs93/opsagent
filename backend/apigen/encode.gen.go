@@ -3160,6 +3160,22 @@ func (m *State) Encode() []byte {
 		b = AppendTag(b, 24, BytesType)
 		b = AppendBytes(b, m.AssetUpdate.Encode())
 	}
+	if m.NodesSnapshot != nil {
+		b = AppendTag(b, 25, BytesType)
+		b = AppendBytes(b, m.NodesSnapshot.Encode())
+	}
+	if m.NodeUpdate != nil {
+		b = AppendTag(b, 26, BytesType)
+		b = AppendBytes(b, m.NodeUpdate.Encode())
+	}
+	if m.NodeStatusesSnapshot != nil {
+		b = AppendTag(b, 27, BytesType)
+		b = AppendBytes(b, m.NodeStatusesSnapshot.Encode())
+	}
+	if m.NodeStatusUpdate != nil {
+		b = AppendTag(b, 28, BytesType)
+		b = AppendBytes(b, m.NodeStatusUpdate.Encode())
+	}
 	return b
 }
 
@@ -3364,6 +3380,42 @@ func DecodeState(b []byte) (*State, error) {
 				item, err = DecodeAssetMeta(msgBytes)
 				if err == nil {
 					m.AssetUpdate = item
+				}
+			}
+		case 25:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNodeList
+				item, err = DecodeClusterNodeList(msgBytes)
+				if err == nil {
+					m.NodesSnapshot = item
+				}
+			}
+		case 26:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNode
+				item, err = DecodeClusterNode(msgBytes)
+				if err == nil {
+					m.NodeUpdate = item
+				}
+			}
+		case 27:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNodeStatusList
+				item, err = DecodeClusterNodeStatusList(msgBytes)
+				if err == nil {
+					m.NodeStatusesSnapshot = item
+				}
+			}
+		case 28:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNodeStatus
+				item, err = DecodeClusterNodeStatus(msgBytes)
+				if err == nil {
+					m.NodeStatusUpdate = item
 				}
 			}
 		default:
@@ -5910,6 +5962,184 @@ func DecodeClusterMachine(b []byte) (*ClusterMachine, error) {
 			b, m.Connected, err = ConsumeBool(b, typ)
 		case 4:
 			b, m.ConnectedAt, err = ConsumeTimeFromInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterNode) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt32Field(b, m.EnrollmentID, 2)
+	b = AppendStringField(b, m.Name, 3)
+	b = AppendStringField(b, m.Sni, 4)
+	b = AppendRepeatedCompact(b, m.Roles, 5, AppendCompactDecorator(AppendInt32Compact))
+	b = AppendStringField(b, m.WgPublicKey, 6)
+	b = AppendRepeated(b, m.Addresses, AppendFieldDecorator(AppendStringField, 7))
+	b = AppendInt64FromTime(b, m.EnrolledAt, 8)
+	return b
+}
+
+func DecodeClusterNode(b []byte) (*ClusterNode, error) {
+	var m ClusterNode
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.EnrollmentID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 4:
+			b, m.Sni, err = ConsumeString(b, typ)
+		case 5:
+			b, m.Roles, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt32)
+		case 6:
+			b, m.WgPublicKey, err = ConsumeString(b, typ)
+		case 7:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Addresses = append(m.Addresses, item)
+			}
+		case 8:
+			b, m.EnrolledAt, err = ConsumeTimeFromInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterNodeList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeClusterNodeList(b []byte) (*ClusterNodeList, error) {
+	var m ClusterNodeList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNode
+				item, err = DecodeClusterNode(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterNodeStatus) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt32Field(b, m.NodeID, 2)
+	b = AppendInt64FromTime(b, m.LastConnectedAt, 3)
+	b = AppendBoolField(b, m.IsConnected, 4)
+	return b
+}
+
+func DecodeClusterNodeStatus(b []byte) (*ClusterNodeStatus, error) {
+	var m ClusterNodeStatus
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.NodeID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.LastConnectedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 4:
+			b, m.IsConnected, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterNodeStatusList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeClusterNodeStatusList(b []byte) (*ClusterNodeStatusList, error) {
+	var m ClusterNodeStatusList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNodeStatus
+				item, err = DecodeClusterNodeStatus(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

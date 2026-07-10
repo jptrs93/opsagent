@@ -422,6 +422,10 @@
  * @property {Space} spaceUpdate
  * @property {AssetList} assetsSnapshot
  * @property {AssetMeta} assetUpdate
+ * @property {ClusterNodeList} nodesSnapshot
+ * @property {ClusterNode} nodeUpdate
+ * @property {ClusterNodeStatusList} nodeStatusesSnapshot
+ * @property {ClusterNodeStatus} nodeStatusUpdate
  */
 /**
  * @typedef {Object} Space
@@ -751,6 +755,32 @@
  * @property {boolean} isPrimary
  * @property {boolean} connected
  * @property {Date} connectedAt
+ */
+/**
+ * @typedef {Object} ClusterNode
+ * @property {number} id
+ * @property {number} enrollmentId
+ * @property {string} name
+ * @property {string} sni
+ * @property {number[]} roles
+ * @property {string} wgPublicKey
+ * @property {string[]} addresses
+ * @property {Date} enrolledAt
+ */
+/**
+ * @typedef {Object} ClusterNodeList
+ * @property {ClusterNode[]} items
+ */
+/**
+ * @typedef {Object} ClusterNodeStatus
+ * @property {number} id
+ * @property {number} nodeId
+ * @property {Date} lastConnectedAt
+ * @property {boolean} isConnected
+ */
+/**
+ * @typedef {Object} ClusterNodeStatusList
+ * @property {ClusterNodeStatus[]} items
  */
 /**
  * @typedef {Object} ClusterStatusResponse
@@ -5827,6 +5857,26 @@ export function writeState(message, writer) {
         writeAssetMeta(message.assetUpdate, writer);
         writer.ldelim();
     }
+    if (message.nodesSnapshot !== undefined && message.nodesSnapshot !== null) {
+        writer.uint32(tag(25, WIRE.LDELIM)).fork();
+        writeClusterNodeList(message.nodesSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.nodeUpdate !== undefined && message.nodeUpdate !== null) {
+        writer.uint32(tag(26, WIRE.LDELIM)).fork();
+        writeClusterNode(message.nodeUpdate, writer);
+        writer.ldelim();
+    }
+    if (message.nodeStatusesSnapshot !== undefined && message.nodeStatusesSnapshot !== null) {
+        writer.uint32(tag(27, WIRE.LDELIM)).fork();
+        writeClusterNodeStatusList(message.nodeStatusesSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.nodeStatusUpdate !== undefined && message.nodeStatusUpdate !== null) {
+        writer.uint32(tag(28, WIRE.LDELIM)).fork();
+        writeClusterNodeStatus(message.nodeStatusUpdate, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -5848,7 +5898,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, machinesSnapshot: undefined, machineUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined };
+    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, machinesSnapshot: undefined, machineUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5938,6 +5988,22 @@ function decodeStateMessage(reader, length) {
             }
             case 24: {
                 message.assetUpdate = decodeAssetMetaMessage(reader, reader.uint32());
+                break;
+            }
+            case 25: {
+                message.nodesSnapshot = decodeClusterNodeListMessage(reader, reader.uint32());
+                break;
+            }
+            case 26: {
+                message.nodeUpdate = decodeClusterNodeMessage(reader, reader.uint32());
+                break;
+            }
+            case 27: {
+                message.nodeStatusesSnapshot = decodeClusterNodeStatusListMessage(reader, reader.uint32());
+                break;
+            }
+            case 28: {
+                message.nodeStatusUpdate = decodeClusterNodeStatusMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -9899,6 +9965,319 @@ function decodeClusterMachineMessage(reader, length) {
 export function decodeClusterMachine(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeClusterMachineMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterNode} message
+ * @param {Writer} writer
+ */
+export function writeClusterNode(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.enrollmentId !== undefined && message.enrollmentId !== null && message.enrollmentId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.enrollmentId);
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.sni !== undefined && message.sni !== null && message.sni !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.sni);
+    }
+    if (message.roles) {
+        const packedWriter = Writer.create();
+        for (const item of message.roles) {
+            packedWriter.int32(item);
+        }
+        if (packedWriter.len > 0) {
+            writer.uint32(tag(5, WIRE.LDELIM)).bytes(packedWriter.finish());
+        }
+    }
+    if (message.wgPublicKey !== undefined && message.wgPublicKey !== null && message.wgPublicKey !== "") {
+        writer.uint32(tag(6, WIRE.LDELIM)).string(message.wgPublicKey);
+    }
+    if (message.addresses && message.addresses.length > 0) {
+        for (const item of message.addresses) {
+            writer.uint32(tag(7, WIRE.LDELIM)).string(item);
+        }
+    }
+    if (message.enrolledAt instanceof Date && message.enrolledAt.getTime() !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).int64(Math.trunc(message.enrolledAt.getTime()));
+    }
+}
+
+
+/**
+ * @param {ClusterNode} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterNode(message) {
+    const writer = Writer.create();
+    writeClusterNode(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterNode}
+ */
+function decodeClusterNodeMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, enrollmentId: 0, name: "", sni: "", roles: [], wgPublicKey: "", addresses: [], enrolledAt: new Date(0) };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.enrollmentId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.name = reader.string();
+                break;
+            }
+            case 4: {
+                message.sni = reader.string();
+                break;
+            }
+            case 5: {
+                const end2 = reader.uint32() + reader.pos;
+                while (reader.pos < end2) {
+                    message.roles.push(reader.int32());
+                }
+                break;
+            }
+            case 6: {
+                message.wgPublicKey = reader.string();
+                break;
+            }
+            case 7: {
+                message.addresses.push(reader.string());
+                break;
+            }
+            case 8: {
+                message.enrolledAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterNode}
+ */
+export function decodeClusterNode(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterNodeMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterNodeList} message
+ * @param {Writer} writer
+ */
+export function writeClusterNodeList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeClusterNode(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ClusterNodeList} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterNodeList(message) {
+    const writer = Writer.create();
+    writeClusterNodeList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterNodeList}
+ */
+function decodeClusterNodeListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeClusterNodeMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterNodeList}
+ */
+export function decodeClusterNodeList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterNodeListMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterNodeStatus} message
+ * @param {Writer} writer
+ */
+export function writeClusterNodeStatus(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.nodeId);
+    }
+    if (message.lastConnectedAt instanceof Date && message.lastConnectedAt.getTime() !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.lastConnectedAt.getTime()));
+    }
+    if (message.isConnected === true) {
+        writer.uint32(tag(4, WIRE.VARINT)).bool(message.isConnected);
+    }
+}
+
+
+/**
+ * @param {ClusterNodeStatus} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterNodeStatus(message) {
+    const writer = Writer.create();
+    writeClusterNodeStatus(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterNodeStatus}
+ */
+function decodeClusterNodeStatusMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, nodeId: 0, lastConnectedAt: new Date(0), isConnected: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.nodeId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.lastConnectedAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 4: {
+                message.isConnected = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterNodeStatus}
+ */
+export function decodeClusterNodeStatus(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterNodeStatusMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterNodeStatusList} message
+ * @param {Writer} writer
+ */
+export function writeClusterNodeStatusList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeClusterNodeStatus(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ClusterNodeStatusList} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterNodeStatusList(message) {
+    const writer = Writer.create();
+    writeClusterNodeStatusList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterNodeStatusList}
+ */
+function decodeClusterNodeStatusListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeClusterNodeStatusMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterNodeStatusList}
+ */
+export function decodeClusterNodeStatusList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterNodeStatusListMessage(reader);
 }
 
 
