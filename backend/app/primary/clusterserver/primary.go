@@ -18,7 +18,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jptrs93/goutil/pubsubu"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 
@@ -74,7 +73,6 @@ type Primary struct {
 	mu          sync.RWMutex
 	sessions    map[string]*Session  // machine name → session
 	connectedAt map[string]time.Time // machine name → when session was accepted
-	machineSubs *pubsubu.PubSub[apigen.ClusterMachine]
 }
 
 type assetProvider interface {
@@ -92,7 +90,6 @@ func New(store *sqlite.PrimaryStorage, assets assetProvider, githubCredentials g
 		networkPrefix:     networkPrefix,
 		sessions:          make(map[string]*Session),
 		connectedAt:       make(map[string]time.Time),
-		machineSubs:       &pubsubu.PubSub[apigen.ClusterMachine]{},
 	}
 }
 
@@ -317,7 +314,6 @@ func (p *Primary) registerSession(machine string, sess *Session) {
 	connectedAt := time.Now()
 	p.connectedAt[machine] = connectedAt
 	p.store.SetNodeStatusByName(machine, true, connectedAt)
-	p.machineSubs.Notify(apigen.ClusterMachine{Name: machine, Connected: true, ConnectedAt: connectedAt})
 }
 
 func (p *Primary) unregisterSession(machine string, expected *Session) {
@@ -327,7 +323,6 @@ func (p *Primary) unregisterSession(machine string, expected *Session) {
 		delete(p.sessions, machine)
 		delete(p.connectedAt, machine)
 		p.store.SetNodeStatusByName(machine, false, time.Time{})
-		p.machineSubs.Notify(apigen.ClusterMachine{Name: machine, Connected: false})
 	}
 }
 
@@ -364,22 +359,6 @@ func (p *Primary) ConnectedMachines() map[string]time.Time {
 		out[name] = p.connectedAt[name]
 	}
 	return out
-}
-
-func (p *Primary) FetchMachinesSnapshotAndSubscribe() ([]*apigen.ClusterMachine, chan apigen.ClusterMachine, func()) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	machines := make([]*apigen.ClusterMachine, 0, len(p.sessions))
-	for name := range p.sessions {
-		machines = append(machines, &apigen.ClusterMachine{
-			Name:        name,
-			Connected:   true,
-			ConnectedAt: p.connectedAt[name],
-		})
-	}
-	sub := p.machineSubs.Subscribe(nil)
-	return machines, sub.Ch, sub.UnsubscribeFunc
 }
 
 // MachineNotConnectedError is returned when a log proxy request targets a

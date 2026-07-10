@@ -405,8 +405,6 @@
  * @property {DeploymentWithStatus} deploymentUpdate
  * @property {User[]} usersSnapshot
  * @property {User} userUpdate
- * @property {ClusterMachineList} machinesSnapshot
- * @property {ClusterMachine} machineUpdate
  * @property {EnrollmentRequestList} enrollmentsSnapshot
  * @property {EnrollmentRequestStatus} enrollmentUpdate
  * @property {SecretReferenceList} secretsSnapshot
@@ -5772,16 +5770,6 @@ export function writeState(message, writer) {
         writeUser(message.userUpdate, writer);
         writer.ldelim();
     }
-    if (message.machinesSnapshot !== undefined && message.machinesSnapshot !== null) {
-        writer.uint32(tag(8, WIRE.LDELIM)).fork();
-        writeClusterMachineList(message.machinesSnapshot, writer);
-        writer.ldelim();
-    }
-    if (message.machineUpdate !== undefined && message.machineUpdate !== null) {
-        writer.uint32(tag(9, WIRE.LDELIM)).fork();
-        writeClusterMachine(message.machineUpdate, writer);
-        writer.ldelim();
-    }
     if (message.enrollmentsSnapshot !== undefined && message.enrollmentsSnapshot !== null) {
         writer.uint32(tag(10, WIRE.LDELIM)).fork();
         writeEnrollmentRequestList(message.enrollmentsSnapshot, writer);
@@ -5898,7 +5886,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, machinesSnapshot: undefined, machineUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined };
+    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5920,14 +5908,6 @@ function decodeStateMessage(reader, length) {
             }
             case 7: {
                 message.userUpdate = decodeUserMessage(reader, reader.uint32());
-                break;
-            }
-            case 8: {
-                message.machinesSnapshot = decodeClusterMachineListMessage(reader, reader.uint32());
-                break;
-            }
-            case 9: {
-                message.machineUpdate = decodeClusterMachineMessage(reader, reader.uint32());
                 break;
             }
             case 10: {

@@ -116,20 +116,6 @@ const handleStateMessage = (message) => {
         usersMapS.val = next;
     }
 
-    if (message.machinesSnapshot) {
-        machinesS.val = message.machinesSnapshot.items || [];
-    }
-
-    if (message.machineUpdate?.name) {
-        const next = new Map((machinesS.val || []).map((machine) => [machine.name, machine]));
-        if (message.machineUpdate.connected) {
-            next.set(message.machineUpdate.name, message.machineUpdate);
-        } else {
-            next.delete(message.machineUpdate.name);
-        }
-        machinesS.val = Array.from(next.values());
-    }
-
     if (message.nodesSnapshot) {
         nodesS.val = sortByName(message.nodesSnapshot.items || []);
         refreshMachinesFromNodes();

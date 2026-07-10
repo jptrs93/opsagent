@@ -475,8 +475,6 @@ type State struct {
 	DeploymentUpdate         *DeploymentWithStatus
 	UsersSnapshot            []*User
 	UserUpdate               *User
-	MachinesSnapshot         *ClusterMachineList
-	MachineUpdate            *ClusterMachine
 	EnrollmentsSnapshot      *EnrollmentRequestList
 	EnrollmentUpdate         *EnrollmentRequestStatus
 	SecretsSnapshot          *SecretReferenceList

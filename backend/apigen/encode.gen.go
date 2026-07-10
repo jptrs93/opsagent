@@ -3092,14 +3092,6 @@ func (m *State) Encode() []byte {
 		b = AppendTag(b, 7, BytesType)
 		b = AppendBytes(b, m.UserUpdate.Encode())
 	}
-	if m.MachinesSnapshot != nil {
-		b = AppendTag(b, 8, BytesType)
-		b = AppendBytes(b, m.MachinesSnapshot.Encode())
-	}
-	if m.MachineUpdate != nil {
-		b = AppendTag(b, 9, BytesType)
-		b = AppendBytes(b, m.MachineUpdate.Encode())
-	}
 	if m.EnrollmentsSnapshot != nil {
 		b = AppendTag(b, 10, BytesType)
 		b = AppendBytes(b, m.EnrollmentsSnapshot.Encode())
@@ -3227,24 +3219,6 @@ func DecodeState(b []byte) (*State, error) {
 				item, err = DecodeUser(msgBytes)
 				if err == nil {
 					m.UserUpdate = item
-				}
-			}
-		case 8:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ClusterMachineList
-				item, err = DecodeClusterMachineList(msgBytes)
-				if err == nil {
-					m.MachinesSnapshot = item
-				}
-			}
-		case 9:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ClusterMachine
-				item, err = DecodeClusterMachine(msgBytes)
-				if err == nil {
-					m.MachineUpdate = item
 				}
 			}
 		case 10:
