@@ -33,12 +33,12 @@ func printAssetMount(root string) {
 		return
 	}
 
-	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, entryErr error) error {
-		if entryErr != nil {
-			fmt.Printf("nixdockerbuild1 asset walk %s error=%v\n", path, entryErr)
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			fmt.Printf("nixdockerbuild1 asset walk %s error=%v\n", path, err)
 			return nil
 		}
-		if entry.IsDir() {
+		if d.IsDir() {
 			return nil
 		}
 		rel, relErr := filepath.Rel(root, path)

@@ -135,8 +135,8 @@ func socketProcesses() map[string][]socketProcess {
 			continue
 		}
 		fdDir := filepath.Join("/proc", pid, "fd")
-		fds, readFDsErr := os.ReadDir(fdDir)
-		if readFDsErr != nil {
+		fds, err := os.ReadDir(fdDir)
+		if err != nil {
 			continue
 		}
 		proc := socketProcess{pid: pid, comm: readTrimmed(filepath.Join("/proc", pid, "comm")), cmdline: readCmdline(filepath.Join("/proc", pid, "cmdline"))}

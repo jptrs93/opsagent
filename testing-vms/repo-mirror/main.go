@@ -532,9 +532,9 @@ func handleGit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip") {
-		gz, gzipErr := gzip.NewReader(bytes.NewReader(body))
-		if gzipErr != nil {
-			http.Error(w, gzipErr.Error(), http.StatusBadRequest)
+		gz, err := gzip.NewReader(bytes.NewReader(body))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		body, err = io.ReadAll(gz)

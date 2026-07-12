@@ -406,12 +406,12 @@ func (r *containerRunner) run() {
 		r.setTask(task)
 		r.logContainerEvent("start", runNumber, mounts)
 		if cn != nil && !readinessActive {
-			stable, publishErr := r.stableAddr()
-			if publishErr == nil {
-				publishErr = r.publishContainerNet(cn, stable)
+			stable, err := r.stableAddr()
+			if err == nil {
+				err = r.publishContainerNet(cn, stable)
 			}
-			if publishErr != nil {
-				slog.ErrorContext(r.ctx, "publishing container network failed", "err", publishErr, "id", r.containerID)
+			if err != nil {
+				slog.ErrorContext(r.ctx, "publishing container network failed", "err", err, "id", r.containerID)
 				_ = task.Kill(context.Background(), syscall.SIGTERM)
 				r.deleteTask(task)
 				r.cleanupContainerNet(cn)

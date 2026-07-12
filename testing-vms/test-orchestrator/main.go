@@ -591,8 +591,8 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	if mkdirErr := os.MkdirAll(filepath.Dir(dst), 0o755); mkdirErr != nil {
-		return mkdirErr
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
 	}
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
@@ -1623,10 +1623,10 @@ func (c *config) materializeLocalGitSnapshot() (string, func(), error) {
 		return "", nil, err
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
-	out, listFilesErr := outputInDir(c.RepoRoot, "git", "ls-files", "-co", "--exclude-standard")
-	if listFilesErr != nil {
+	out, err := outputInDir(c.RepoRoot, "git", "ls-files", "-co", "--exclude-standard")
+	if err != nil {
 		cleanup()
-		return "", nil, listFilesErr
+		return "", nil, err
 	}
 	for _, rel := range strings.Split(out, "\n") {
 		rel = strings.TrimSpace(rel)

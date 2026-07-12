@@ -121,15 +121,15 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 		LinkAttrs: netlink.LinkAttrs{Name: hostVeth, MTU: vethMTU, Alias: spec.ContainerID},
 		PeerName:  peerName,
 	}
-	if linkAddErr := netlink.LinkAdd(veth); linkAddErr != nil {
-		return cleanup(fmt.Errorf("creating veth %s: %w", hostVeth, linkAddErr))
+	if err := netlink.LinkAdd(veth); err != nil {
+		return cleanup(fmt.Errorf("creating veth %s: %w", hostVeth, err))
 	}
 	peer, err := netlink.LinkByName(peerName)
 	if err != nil {
 		return cleanup(fmt.Errorf("looking up veth peer: %w", err))
 	}
-	if moveErr := netlink.LinkSetNsFd(peer, int(nsHandle)); moveErr != nil {
-		return cleanup(fmt.Errorf("moving veth peer into netns: %w", moveErr))
+	if err := netlink.LinkSetNsFd(peer, int(nsHandle)); err != nil {
+		return cleanup(fmt.Errorf("moving veth peer into netns: %w", err))
 	}
 
 	// Container side.
@@ -138,8 +138,8 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 		return cleanup(fmt.Errorf("opening netlink handle in netns: %w", err))
 	}
 	defer nsNetlink.Close()
-	if configureErr := configureContainerSide(nsNetlink, peerName, spec.Addr, spec.DeprecatedAddrs, contV4, hostV4); configureErr != nil {
-		return cleanup(configureErr)
+	if err := configureContainerSide(nsNetlink, peerName, spec.Addr, spec.DeprecatedAddrs, contV4, hostV4); err != nil {
+		return cleanup(err)
 	}
 
 	// Host side.
@@ -147,17 +147,17 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 	if err != nil {
 		return cleanup(fmt.Errorf("looking up host veth: %w", err))
 	}
-	if gatewayErr := netlink.AddrAdd(hostLink, &netlink.Addr{
+	if err := netlink.AddrAdd(hostLink, &netlink.Addr{
 		IPNet: netipPrefixToIPNet(netip.PrefixFrom(hostGateway, 64)),
 		Flags: unix.IFA_F_NODAD,
-	}); gatewayErr != nil {
-		return cleanup(fmt.Errorf("assigning host gateway address: %w", gatewayErr))
+	}); err != nil {
+		return cleanup(fmt.Errorf("assigning host gateway address: %w", err))
 	}
-	if addrErr := netlink.AddrAdd(hostLink, &netlink.Addr{IPNet: netipPrefixToIPNet(netip.PrefixFrom(hostV4, 30))}); addrErr != nil {
-		return cleanup(fmt.Errorf("assigning host v4 address: %w", addrErr))
+	if err := netlink.AddrAdd(hostLink, &netlink.Addr{IPNet: netipPrefixToIPNet(netip.PrefixFrom(hostV4, 30))}); err != nil {
+		return cleanup(fmt.Errorf("assigning host v4 address: %w", err))
 	}
-	if linkUpErr := netlink.LinkSetUp(hostLink); linkUpErr != nil {
-		return cleanup(fmt.Errorf("bringing host veth up: %w", linkUpErr))
+	if err := netlink.LinkSetUp(hostLink); err != nil {
+		return cleanup(fmt.Errorf("bringing host veth up: %w", err))
 	}
 	if err := replaceHostRoute(spec.Addr, hostLink.Attrs().Index); err != nil {
 		return cleanup(fmt.Errorf("adding host route for %v: %w", spec.Addr, err))
@@ -301,8 +301,8 @@ func configureContainerSide(h *netlink.Handle, peerName string, addr netip.Addr,
 	if err != nil {
 		return fmt.Errorf("container peer link: %w", err)
 	}
-	if renameErr := h.LinkSetName(link, containerIface); renameErr != nil {
-		return fmt.Errorf("renaming container link: %w", renameErr)
+	if err := h.LinkSetName(link, containerIface); err != nil {
+		return fmt.Errorf("renaming container link: %w", err)
 	}
 	link, err = h.LinkByName(containerIface)
 	if err != nil {
