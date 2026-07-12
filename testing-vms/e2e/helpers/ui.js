@@ -94,8 +94,8 @@ export async function expectOpenDeployLogs(page) {
 
   const deploymentSelect = page.getByTestId('logs-deployment-select');
   await expect.poll(async () => {
-    const options = await deploymentSelect.locator('option').evaluateAll(options =>
-      options.map(o => ({value: o.value, text: o.textContent || ''})),
+    const options = await deploymentSelect.locator('option').evaluateAll(optionNodes =>
+      optionNodes.map(o => ({value: o.value, text: o.textContent || ''})),
     );
     return options.find(o => o.value && o.text.trim().endsWith(' / opendeploy'))?.value || '';
   }, {message: 'expected opendeploy deployment option', timeout: LONG_UI_TIMEOUT}).not.toBe('');
@@ -869,14 +869,14 @@ async function selectEnvReference(row, name) {
   await expect(picker).toHaveValue(versionedReferenceValue(name), {timeout: LONG_UI_TIMEOUT});
 }
 
-async function setDeploymentDataMountPath(dialog, path) {
+async function setDeploymentDataMountPath(dialog, mountPath) {
   await dialog.getByRole('button', {name: 'Click to manage'}).click();
   await expect(dialog.getByRole('heading', {name: 'Mounted volumes'})).toBeVisible();
   const pane = dialog.getByRole('heading', {name: 'Mounted volumes'}).locator('xpath=ancestor::div[contains(@class, "border-l")][1]');
-  await field(pane, 'Container mount path').getByRole('textbox').fill(path);
+  await field(pane, 'Container mount path').getByRole('textbox').fill(mountPath);
 }
 
-async function setDeploymentAssetMount(dialog, {asset, path}) {
+async function setDeploymentAssetMount(dialog, {asset, path: mountPath}) {
   await dialog.getByRole('button', {name: 'Click to mount assets'}).click();
   await expect(dialog.getByRole('heading', {name: 'Mounted assets'})).toBeVisible();
   const pane = dialog.getByRole('heading', {name: 'Mounted assets'}).locator('xpath=ancestor::div[contains(@class, "border-l")][1]');
@@ -884,7 +884,7 @@ async function setDeploymentAssetMount(dialog, {asset, path}) {
   const assetOption = assetSelect.locator('option').filter({hasText: asset}).first();
   await expect(assetOption).toBeAttached({timeout: LONG_UI_TIMEOUT});
   await assetSelect.selectOption(await assetOption.getAttribute('value'));
-  await field(pane, 'Container path').getByRole('textbox').fill(path);
+  await field(pane, 'Container path').getByRole('textbox').fill(mountPath);
   await expect(dialog.getByText('1 mounted asset')).toBeVisible();
 }
 

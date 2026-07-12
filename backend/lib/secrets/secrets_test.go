@@ -34,13 +34,13 @@ func (m *memStore) ListSecrets() []Record {
 	return out
 }
 func (m *memStore) NextSecretVersion(name string) int32 {
-	var max int32
+	var maxVersion int32
 	for _, r := range m.records {
-		if r.Name == name && r.Version > max {
-			max = r.Version
+		if r.Name == name && r.Version > maxVersion {
+			maxVersion = r.Version
 		}
 	}
-	return max + 1
+	return maxVersion + 1
 }
 func (m *memStore) InsertSecret(r Record) Record {
 	r.ID = int32(len(m.records) + 1)

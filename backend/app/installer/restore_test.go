@@ -19,24 +19,24 @@ func TestApplyRestoredPrimaryConfigOverrides(t *testing.T) {
 	}
 	settings := config.DefaultSettings(ainit.StaticConfig)
 	settings.HttpWeb.Listen.Value = "10.0.0.1:443"
-	if err := service.UpdateSettings(*settings); err != nil {
-		t.Fatalf("seed web listen: %v", err)
+	if updateErr := service.UpdateSettings(*settings); updateErr != nil {
+		t.Fatalf("seed web listen: %v", updateErr)
 	}
-	if err := store.Close(); err != nil {
-		t.Fatalf("close seed store: %v", err)
+	if closeErr := store.Close(); closeErr != nil {
+		t.Fatalf("close seed store: %v", closeErr)
 	}
 
 	httpOnly := true
 	webListen := ":8443"
 	clusterListen := ":9443"
 	enrollmentListen := ":9444"
-	acmeHosts := "new.example.com"
+	acmeHostList := "new.example.com"
 	err = applyRestoredPrimaryConfigOverrides(dbPath, installOptions{
 		httpOnly:         &httpOnly,
 		webListen:        &webListen,
 		clusterListen:    &clusterListen,
 		enrollmentListen: &enrollmentListen,
-		acmeHosts:        &acmeHosts,
+		acmeHosts:        &acmeHostList,
 	}, noChown)
 	if err != nil {
 		t.Fatalf("apply overrides: %v", err)

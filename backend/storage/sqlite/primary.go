@@ -396,14 +396,14 @@ func (s *PrimaryStorage) MustSetDeploymentDesiredState(ctx apigen.Context, deplo
 		userID = int64(ctx.User.ID)
 	}
 
-	if err := q.UpdateDesiredState(bgCtx, UpdateDesiredStateParams{
+	if updateErr := q.UpdateDesiredState(bgCtx, UpdateDesiredStateParams{
 		DesiredVersion: desired.Version,
 		DesiredRunning: boolToInt(desired.Running),
 		UpdatedAt:      now,
 		UpdatedBy:      userID,
 		DeploymentID:   dbID,
-	}); err != nil {
-		panic(fmt.Sprintf("UpdateDesiredState: %v", err))
+	}); updateErr != nil {
+		panic(fmt.Sprintf("UpdateDesiredState: %v", updateErr))
 	}
 
 	updated, err := q.GetDeploymentConfig(bgCtx, dbID)

@@ -144,8 +144,7 @@ func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	containerd := ctrd.New("unused", "unused")
-	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, containerd, nil, &apigen.DeploymentConfig{
+	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, &apigen.DeploymentConfig{
 		ID: 7,
 		Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
 			DisableDataVolume:   true,
@@ -158,9 +157,6 @@ func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	}
 	if r.fileDescLimit != 4096 {
 		t.Fatalf("fileDescLimit = %d, want 4096", r.fileDescLimit)
-	}
-	if r.containerd != containerd {
-		t.Fatal("containerd client was not retained")
 	}
 }
 

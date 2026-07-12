@@ -130,12 +130,12 @@ func (s *Service) loadOrInitConfig(hook InitialConfigHook) (apigen.Config, error
 		if errors.Is(err, sqlite.ErrNotFound) {
 			cfg := DefaultConfig(ainit.StaticConfig)
 			if hook != nil {
-				if err := hook(cfg); err != nil {
-					return res, fmt.Errorf("initial config hook: %w", err)
+				if hookErr := hook(cfg); hookErr != nil {
+					return res, fmt.Errorf("initial config hook: %w", hookErr)
 				}
 			}
-			if _, err := s.Storage.AppendOpenDeploySettings(cfg.Encode()); err != nil {
-				return res, fmt.Errorf("AppendOpenDeploySettings: %w", err)
+			if _, appendErr := s.Storage.AppendOpenDeploySettings(cfg.Encode()); appendErr != nil {
+				return res, fmt.Errorf("AppendOpenDeploySettings: %w", appendErr)
 			}
 			return normalizeConfig(*cfg), nil
 		} else {

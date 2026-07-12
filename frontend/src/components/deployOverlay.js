@@ -27,9 +27,9 @@ const versionLabel = (v) => {
         ? v.time.toISOString().substring(0, 10)
         : '';
     const shortId = v.id.length > 7 && /^[0-9a-f]+$/i.test(v.id) ? v.id.substring(0, 7) : v.id;
-    const label = (v.label || '').substring(0, 30);
+    const releaseLabel = (v.label || '').substring(0, 30);
     const ellipsis = (v.label || '').length > 30 ? '...' : '';
-    return `${date}\t\t${shortId}\t\t${label}${ellipsis}`;
+    return `${date}\t\t${shortId}\t\t${releaseLabel}${ellipsis}`;
 };
 
 const currentCommitLabel = (id, commits) => {

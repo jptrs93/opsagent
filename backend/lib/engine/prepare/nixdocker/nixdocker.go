@@ -27,16 +27,14 @@ import (
 // stream, imports the stream into containerd, and returns the local image ref.
 type Preparer struct {
 	gitManager *repogit.Manager
-	client     *ctrd.Client
 	sem        chan struct{}
 }
 
 // New creates a Nix Docker preparer. Builds are limited to one concurrent Nix
 // invocation per Preparer instance to avoid thrashing the Nix store.
-func New(gitManager *repogit.Manager, client *ctrd.Client) *Preparer {
+func New(gitManager *repogit.Manager) *Preparer {
 	return &Preparer{
 		gitManager: gitManager,
-		client:     client,
 		sem:        make(chan struct{}, 1),
 	}
 }
@@ -86,18 +84,18 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 		return "", apigen.PreparationStatus_FAILED
 	}
 
-	imageRef := imageRef(dep.ID, version)
-	log.Write("importing image stream %s as %s", streamPath, imageRef)
-	if err := p.importStream(ctx, streamPath, imageRef, log); err != nil {
+	localImageRef := imageRef(dep.ID, version)
+	log.Write("importing image stream %s as %s", streamPath, localImageRef)
+	if err := p.importStream(ctx, streamPath, localImageRef, log); err != nil {
 		log.Error("importing image: %v", err)
 		return "", apigen.PreparationStatus_FAILED
 	}
-	log.Write("image import complete: %s", imageRef)
+	log.Write("image import complete: %s", localImageRef)
 
-	return imageRef, apigen.PreparationStatus_READY
+	return localImageRef, apigen.PreparationStatus_READY
 }
 
-func (p *Preparer) importStream(ctx context.Context, streamPath string, imageRef string, log *preparerlog.Log) error {
+func (p *Preparer) importStream(ctx context.Context, streamPath string, localImageRef string, log *preparerlog.Log) error {
 	cmd := exec.CommandContext(ctx, streamPath)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -107,7 +105,7 @@ func (p *Preparer) importStream(ctx context.Context, streamPath string, imageRef
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting image stream: %w", err)
 	}
-	_, importErr := p.client.Import(ctx, ctrd.ImageStream{Reader: stdout, Ref: imageRef})
+	_, importErr := ctrd.Default.Import(ctx, ctrd.ImageStream{Reader: stdout, Ref: localImageRef})
 	if importErr != nil {
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
@@ -164,9 +162,9 @@ func runCmdCapture(ctx context.Context, dir string, log *preparerlog.Log, name s
 				mu.Unlock()
 			}
 		}
-		if err := scanner.Err(); err != nil {
-			slog.ErrorContext(ctx, "scanner error", "cmd", cmdStr, "stream", prefix, "err", err)
-			log.Error("reading command %s: %v", prefix, err)
+		if scanErr := scanner.Err(); scanErr != nil {
+			slog.ErrorContext(ctx, "scanner error", "cmd", cmdStr, "stream", prefix, "err", scanErr)
+			log.Error("reading command %s: %v", prefix, scanErr)
 		}
 	}
 

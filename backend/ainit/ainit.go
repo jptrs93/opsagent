@@ -32,8 +32,8 @@ func init() {
 	StaticConfig.PrepareOutputDir = StaticConfig.DataDir + "-build-logs"
 	StaticConfig.RunOutputDir = StaticConfig.DataDir + "-run-logs"
 	StaticConfig.LogDir = path.Join(StaticConfig.DataDir, "log")
-	StaticConfig.ContainerdNamespace = "opendeploy"
-	StaticConfig.ContainerdAddress = "/run/opendeploy/containerd.sock"
+	StaticConfig.CtrdNamespace = "opendeploy"
+	StaticConfig.CtrdAddress = "/run/opendeploy/containerd.sock"
 	fileu.MustEnsureDirWithPerm(StaticConfig.DataDir, 0o750)
 	fileu.MustEnsureDirWithPerm(StaticConfig.LogDir, 0o750)
 	fileu.MustEnsureDirWithPerm(StaticConfig.PrepareOutputDir, 0o750)
@@ -53,14 +53,14 @@ func init() {
 }
 
 type StaticConfiguration struct {
-	DataDir             string
-	RunOutputDir        string
-	PrepareOutputDir    string
-	VolumesDir          string
-	ReleasesDir         string
-	LogDir              string
-	ContainerdAddress   string
-	ContainerdNamespace string
+	DataDir          string
+	RunOutputDir     string
+	PrepareOutputDir string
+	VolumesDir       string
+	ReleasesDir      string
+	LogDir           string
+	CtrdAddress      string
+	CtrdNamespace    string
 
 	PrimaryClusterAddr           string `env:"OPENDEPLOY_PRIMARY_CLUSTER_ADDR,"`           // secondaries only: primary's mTLS cluster address
 	PrimaryEnrollmentAddr        string `env:"OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR,"`        // secondaries only: primary's unauthenticated enrollment address

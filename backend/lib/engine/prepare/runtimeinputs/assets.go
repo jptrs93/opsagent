@@ -39,8 +39,8 @@ func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.Deplo
 		mode := AssetCacheMode(ref.Executable)
 		if info, err := os.Stat(path); err == nil {
 			if info.Mode().Perm() != mode {
-				if err := os.Chmod(path, mode); err != nil {
-					return fmt.Errorf("chmod asset cache %s: %w", path, err)
+				if chmodErr := os.Chmod(path, mode); chmodErr != nil {
+					return fmt.Errorf("chmod asset cache %s: %w", path, chmodErr)
 				}
 			}
 			continue

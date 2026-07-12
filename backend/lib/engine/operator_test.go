@@ -8,8 +8,6 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
-	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/containerimage"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 )
 
@@ -115,9 +113,8 @@ func TestStartPreparerStopsBeforeArtifactWhenRuntimeInputsFail(t *testing.T) {
 	store := &recordingOperatorStore{}
 	secrets := &failingSecretProvider{}
 	op := DeploymentOperator{
-		Store:          store,
-		ContainerImage: containerimage.New(ctrd.New("unused", "unused")),
-		RuntimeInputs:  runtimeinputs.New(nil, secrets, nil),
+		Store:         store,
+		RuntimeInputs: runtimeinputs.New(nil, secrets, nil),
 	}
 
 	handle := op.startPreparer(dep)

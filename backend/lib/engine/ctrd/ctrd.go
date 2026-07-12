@@ -1,9 +1,8 @@
 // Package ctrd isolates all containerd usage behind a small surface.
 //
-// The Client is the single handle shared by the container image preparer and the
-// container runner. It dials containerd lazily, so opendeploy still starts on hosts
-// where containerd is absent — only container deployments fail, with a clear
-// error.
+// Default is the process-wide handle used by image preparers and container
+// runners. It dials containerd lazily, so opendeploy still starts on hosts where
+// containerd is absent — only container deployments fail, with a clear error.
 package ctrd
 
 import (

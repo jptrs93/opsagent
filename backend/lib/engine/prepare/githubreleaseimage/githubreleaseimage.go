@@ -22,14 +22,12 @@ import (
 type Preparer struct {
 	releasesDir string
 	github      *github.Client
-	containerd  *ctrd.Client
 }
 
-func New(releasesDir string, githubClient *github.Client, containerdClient *ctrd.Client) *Preparer {
+func New(releasesDir string, githubClient *github.Client) *Preparer {
 	return &Preparer{
 		releasesDir: filepath.Clean(releasesDir),
 		github:      githubClient,
-		containerd:  containerdClient,
 	}
 }
 
@@ -57,7 +55,7 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 		log.Error("building opendeploy-net image: %v", err)
 		return "", apigen.PreparationStatus_FAILED
 	}
-	resolved, err := p.containerd.Import(ctx, ctrd.ImageStream{Reader: reader, Ref: ref})
+	resolved, err := ctrd.Default.Import(ctx, ctrd.ImageStream{Reader: reader, Ref: ref})
 	if err != nil {
 		log.Error("importing opendeploy-net image: %v", err)
 		return "", apigen.PreparationStatus_FAILED

@@ -37,9 +37,9 @@ type secretStore interface {
 	RevealByID(id int32) ([]byte, error)
 }
 
-func StartReplication(ctx context.Context, configService *config.Service, secrets secretStore) <-chan struct{} {
+func StartReplication(ctx context.Context, configService *config.Service, secretSource secretStore) <-chan struct{} {
 	done := make(chan struct{})
-	filter := newBackupConfigFilter(configService, secrets)
+	filter := newBackupConfigFilter(configService, secretSource)
 	sub := configService.SnapshotAndSubscribe(filter.Filter)
 	filter.SetInitial(sub.InitialValue)
 	go func() {
@@ -65,11 +65,11 @@ func StartReplication(ctx context.Context, configService *config.Service, secret
 			}
 			runCtx, c := context.WithCancel(ctx)
 			cancel = c
-			done := make(chan struct{})
-			currentDone = done
+			replicationDone := make(chan struct{})
+			currentDone = replicationDone
 			go func() {
-				defer close(done)
-				runReplication(runCtx, configService, &cfg.Settings, secrets)
+				defer close(replicationDone)
+				runReplication(runCtx, configService, &cfg.Settings, secretSource)
 			}()
 		}
 
@@ -111,8 +111,8 @@ type backupConfigSignal struct {
 	ConfigError     string
 }
 
-func newBackupConfigFilter(loader config.Loader, secrets secretStore) *backupConfigFilter {
-	return &backupConfigFilter{loader: loader, secrets: secrets}
+func newBackupConfigFilter(loader config.Loader, secretSource secretStore) *backupConfigFilter {
+	return &backupConfigFilter{loader: loader, secrets: secretSource}
 }
 
 func (f *backupConfigFilter) Filter(prev, cfg apigen.Config) bool {
@@ -134,7 +134,7 @@ func (f *backupConfigFilter) SetInitial(cfg apigen.Config) {
 	f.seen = true
 }
 
-func backupConfigSignalFromDynamic(loader config.Loader, cfg *apigen.Settings, secrets secretStore) backupConfigSignal {
+func backupConfigSignalFromDynamic(loader config.Loader, cfg *apigen.Settings, secretSource secretStore) backupConfigSignal {
 	enabled := loader.MustLoadConfigBoolValue(cfg.Backup.Enabled)
 	signal := backupConfigSignal{Enabled: enabled}
 	if !signal.Enabled {
@@ -143,8 +143,8 @@ func backupConfigSignalFromDynamic(loader config.Loader, cfg *apigen.Settings, s
 	signal.AccessKeyID = loader.MustLoadConfigStringValue(cfg.Backup.S3AccessKeyID)
 	secretRef := cfg.Backup.S3SecretAccessKey
 	signal.SecretID = secretRef.ID
-	if secrets != nil && signal.SecretID != 0 {
-		if meta, ok := secrets.MetaByID(signal.SecretID); ok {
+	if secretSource != nil && signal.SecretID != 0 {
+		if meta, ok := secretSource.MetaByID(signal.SecretID); ok {
 			signal.SecretUpdatedAt = meta.CreatedAt
 		}
 	}
@@ -155,7 +155,7 @@ func backupConfigSignalFromDynamic(loader config.Loader, cfg *apigen.Settings, s
 	return signal
 }
 
-func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.Settings, secrets secretStore) {
+func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.Settings, secretSource secretStore) {
 	defer func() {
 		if err := stopReplication(context.Background()); err != nil {
 			slog.Error("stop backup replication", "err", err)
@@ -164,7 +164,7 @@ func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.Setti
 
 	backoff := timeu.NewExpBackoff(time.Minute, 5*time.Minute)
 	for ctx.Err() == nil {
-		backupCfg, err := resolvedBackupConfigFromDynamic(loader, cfg, secrets)
+		backupCfg, err := resolvedBackupConfigFromDynamic(loader, cfg, secretSource)
 		if err != nil {
 			slog.Error("backup replication config invalid", "err", err)
 			backoff.WaitWithContext(ctx)
@@ -249,8 +249,8 @@ func configured(loader config.Loader, cfg *apigen.Settings) bool {
 	return loader.MustLoadConfigBoolValue(cfg.Backup.Enabled)
 }
 
-func resolvedBackupConfigFromDynamic(loader config.Loader, cfg *apigen.Settings, secrets secretStore) (resolvedBackupConfig, error) {
-	secretAccessKey, err := revealSecretRef(secrets, cfg.Backup.S3SecretAccessKey)
+func resolvedBackupConfigFromDynamic(loader config.Loader, cfg *apigen.Settings, secretSource secretStore) (resolvedBackupConfig, error) {
+	secretAccessKey, err := revealSecretRef(secretSource, cfg.Backup.S3SecretAccessKey)
 	if err != nil {
 		return resolvedBackupConfig{}, fmt.Errorf("reveal backup S3 secret access key: %w", err)
 	}
@@ -292,11 +292,11 @@ func validateConfig(cfg resolvedBackupConfig) error {
 	return nil
 }
 
-func revealSecretRef(secrets secretStore, ref apigen.SecretRef) (string, error) {
-	if secrets == nil || ref.ID == 0 {
+func revealSecretRef(secretSource secretStore, ref apigen.SecretRef) (string, error) {
+	if secretSource == nil || ref.ID == 0 {
 		return "", nil
 	}
-	value, err := secrets.RevealByID(ref.ID)
+	value, err := secretSource.RevealByID(ref.ID)
 	if err != nil {
 		return "", err
 	}

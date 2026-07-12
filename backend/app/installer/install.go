@@ -65,8 +65,8 @@ func doInstall(version string, opts installOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := preflight(upgrade); err != nil {
-		return err
+	if preflightErr := preflight(upgrade); preflightErr != nil {
+		return preflightErr
 	}
 	if opts.useSelf {
 		version = "v0.0.0"

@@ -23,8 +23,8 @@ func initialWebTLSCertPEMHook(secretsMgr *secrets.Manager) func(*apigen.Config) 
 		if len(bundle) == 0 {
 			return nil
 		}
-		if _, err := tls.X509KeyPair(bundle, bundle); err != nil {
-			return fmt.Errorf("OPENDEPLOY_INITIAL_WEB_TLS_CERT_PEM must contain a PEM certificate chain and private key: %w", err)
+		if _, keyPairErr := tls.X509KeyPair(bundle, bundle); keyPairErr != nil {
+			return fmt.Errorf("OPENDEPLOY_INITIAL_WEB_TLS_CERT_PEM must contain a PEM certificate chain and private key: %w", keyPairErr)
 		}
 		meta, err := secretsMgr.Set(secrets.TLSCertPEMSecretName, bundle, 0)
 		if err != nil {

@@ -591,8 +591,8 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
+	if mkdirErr := os.MkdirAll(filepath.Dir(dst), 0o755); mkdirErr != nil {
+		return mkdirErr
 	}
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
@@ -1031,7 +1031,6 @@ func (c *config) startAllVMs() error {
 	}
 	results := make(chan vmStartResult, len(vms))
 	for _, vm := range vms {
-		vm := vm
 		go func() {
 			start := time.Now()
 			if c.Log != nil {
@@ -1624,10 +1623,10 @@ func (c *config) materializeLocalGitSnapshot() (string, func(), error) {
 		return "", nil, err
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
-	out, err := outputInDir(c.RepoRoot, "git", "ls-files", "-co", "--exclude-standard")
-	if err != nil {
+	out, listFilesErr := outputInDir(c.RepoRoot, "git", "ls-files", "-co", "--exclude-standard")
+	if listFilesErr != nil {
 		cleanup()
-		return "", nil, err
+		return "", nil, listFilesErr
 	}
 	for _, rel := range strings.Split(out, "\n") {
 		rel = strings.TrimSpace(rel)
@@ -2489,8 +2488,8 @@ type tailBuffer struct {
 	buf []byte
 }
 
-func newTailBuffer(max int) *tailBuffer {
-	return &tailBuffer{max: max}
+func newTailBuffer(maxBytes int) *tailBuffer {
+	return &tailBuffer{max: maxBytes}
 }
 
 func (b *tailBuffer) Write(p []byte) (int, error) {

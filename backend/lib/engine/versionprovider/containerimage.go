@@ -14,12 +14,10 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/imageref"
 )
 
-// ContainerImageVersionProvider lists public image tags via the Docker Registry
-// HTTP API. It supports Kubernetes-style image names, including Docker Hub
-// shorthand such as "postgres" and "library/postgres".
-type ContainerImageVersionProvider struct{}
-
-func (ContainerImageVersionProvider) ListTags(ctx context.Context, image string) ([]*apigen.Version, error) {
+// ListContainerImageTags lists public image tags via the Docker Registry HTTP
+// API. It supports Kubernetes-style image names, including Docker Hub shorthand
+// such as "postgres" and "library/postgres".
+func ListContainerImageTags(ctx context.Context, image string) ([]*apigen.Version, error) {
 	if strings.TrimSpace(image) == "" {
 		return nil, fmt.Errorf("container image missing")
 	}
@@ -28,9 +26,9 @@ func (ContainerImageVersionProvider) ListTags(ctx context.Context, image string)
 		return nil, err
 	}
 	if ref.Version != "" {
-		ok, err := imageVersionExists(ctx, ref)
-		if err != nil {
-			return nil, err
+		ok, existsErr := imageVersionExists(ctx, ref)
+		if existsErr != nil {
+			return nil, existsErr
 		}
 		if !ok {
 			return nil, fmt.Errorf("image version %q not found", ref.Version)

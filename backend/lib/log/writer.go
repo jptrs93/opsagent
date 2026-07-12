@@ -56,8 +56,8 @@ func (w *BinaryWriter) openBucket(bucket time.Time) error {
 		return err
 	}
 	if w.file != nil {
-		if err := w.file.Close(); err != nil {
-			return err
+		if closeErr := w.file.Close(); closeErr != nil {
+			return closeErr
 		}
 		w.file = nil
 	}

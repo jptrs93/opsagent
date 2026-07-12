@@ -7,11 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/app/netproxy"
 	"github.com/jptrs93/opsagent/backend/lib/engine"
-	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
-	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/containerimage"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubrelease"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubreleaseimage"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixdocker"
@@ -43,27 +40,23 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	githubCredentials := NewPrimaryGithubCredentialsProvider(primaryURL, primaryHTTPClient)
 	network.SetDefault(network.New(cfg.ClusterPrefix, cfg.NetDeploymentID))
 
-	ctrdClient := ctrd.New(ainit.StaticConfig.ContainerdAddress, ainit.StaticConfig.ContainerdNamespace)
 	assetProvider := NewPrimaryAssetProvider(primaryURL, primaryHTTPClient)
 	secretProvider := NewPrimarySecretProvider(primaryURL, primaryHTTPClient)
 	configProvider := NewPrimaryConfigProvider(primaryURL, primaryHTTPClient)
 	runtimeInputs := runtimeinputs.New(assetProvider, secretProvider, configProvider)
 	gitManager := git.NewManager(cfg.DataDir, githubCredentials)
-	githubClient := githubrepo.NewClient(nil, githubCredentials)
+	githubClient := githubrepo.NewClient(githubCredentials)
 	releasesDir := cfg.DataDir + "-releases"
 	githubReleasePreparer := githubrelease.New(releasesDir, githubClient, githubCredentials)
-	nixDockerPreparer := nixdocker.New(gitManager, ctrdClient)
-	containerImagePreparer := containerimage.New(ctrdClient)
-	githubReleaseImagePreparer := githubreleaseimage.New(releasesDir, githubClient, ctrdClient)
+	nixDockerPreparer := nixdocker.New(gitManager)
+	githubReleaseImagePreparer := githubreleaseimage.New(releasesDir, githubClient)
 
 	go netproxy.RunNetStateWriter(ctx, store, cfg.MachineName, netproxy.NetStatePath(cfg.DataDir))
 	go engine.DeploymentOperator{
 		Store:              store,
 		GithubRelease:      githubReleasePreparer,
 		NixDocker:          nixDockerPreparer,
-		ContainerImage:     containerImagePreparer,
 		GithubReleaseImage: githubReleaseImagePreparer,
-		Containerd:         ctrdClient,
 		RuntimeInputs:      runtimeInputs,
 	}.RunAll(cfg.MachineName)
 

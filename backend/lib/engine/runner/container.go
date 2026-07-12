@@ -49,7 +49,6 @@ type containerRunner struct {
 	done   chan struct{}
 
 	store          storage.OperatorStore
-	containerd     *ctrd.Client
 	runtimeInputs  *runtimeinputs.RuntimeInputs
 	deploymentID   int32
 	deploymentName string
@@ -102,10 +101,10 @@ func containerID(deploymentID int32, configVersion int32) string {
 	return fmt.Sprintf("opendeploy-%d-v%d", deploymentID, configVersion)
 }
 
-func newContainerRunner(store storage.OperatorStore, containerd *ctrd.Client, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
+func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(context.Background())
 	configVersion := preparerStatus.DeploymentConfigVersion
-	r := buildContainerRunner(ctx, cancel, store, containerd, inputs, dep, configVersion)
+	r := buildContainerRunner(ctx, cancel, store, inputs, dep, configVersion)
 	r.publish.Store(true)
 	r.status = apigen.RunnerStatus{
 		DeploymentConfigVersion: configVersion,
@@ -118,10 +117,10 @@ func newContainerRunner(store storage.OperatorStore, containerd *ctrd.Client, in
 	return r
 }
 
-func newRolloverContainerRunner(store storage.OperatorStore, containerd *ctrd.Client, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
+func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(context.Background())
 	configVersion := preparerStatus.DeploymentConfigVersion
-	r := buildContainerRunner(ctx, cancel, store, containerd, inputs, dep, configVersion)
+	r := buildContainerRunner(ctx, cancel, store, inputs, dep, configVersion)
 	r.readiness = &readinessConfig{timeout: containerReadinessTimeout(dep.Spec.Runner.Container.ReadinessSignal)}
 	r.readyCh = make(chan error, 1)
 	r.status = apigen.RunnerStatus{
@@ -134,9 +133,9 @@ func newRolloverContainerRunner(store storage.OperatorStore, containerd *ctrd.Cl
 	return r
 }
 
-func reAttachContainerRunner(store storage.OperatorStore, containerd *ctrd.Client, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
+func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
 	ctx, cancel := context.WithCancel(context.Background())
-	r := buildContainerRunner(ctx, cancel, store, containerd, inputs, dep, prev.DeploymentConfigVersion)
+	r := buildContainerRunner(ctx, cancel, store, inputs, dep, prev.DeploymentConfigVersion)
 	r.publish.Store(true)
 	r.status = prev
 	r.startupMode = mode
@@ -151,14 +150,13 @@ func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Durati
 	return containerReadinessDefaultTimeout
 }
 
-func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, containerd *ctrd.Client, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
+func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
 	cfg := dep.Spec.Runner.Container
 	r := &containerRunner{
 		ctx:            ctx,
 		cancel:         cancel,
 		done:           make(chan struct{}),
 		store:          store,
-		containerd:     containerd,
 		runtimeInputs:  inputs,
 		deploymentID:   dep.ID,
 		deploymentName: containerDeploymentName(dep),
@@ -264,7 +262,7 @@ func (r *containerRunner) run() {
 
 	// Reattach: reconcile any existing containerd task for this deterministic id.
 	if r.startupMode == containerStartupReattachRunning || r.startupMode == containerStartupReattachStopped {
-		if task, err := r.containerd.LoadTask(r.ctx, r.containerID); err == nil {
+		if task, err := ctrd.Default.LoadTask(r.ctx, r.containerID); err == nil {
 			r.logContainerEvent("re-attach", r.currentRunNumber(), r.mounts)
 			r.setTask(task)
 			if r.startupMode == containerStartupReattachStopped {
@@ -321,8 +319,8 @@ func (r *containerRunner) run() {
 		r.ensureDataVolume()
 		runNumber := r.status.NumberOfRestarts + 1
 		outputDir := apigen.RunOutputDeploymentDir(r.deploymentID)
-		if err := os.MkdirAll(outputDir, 0o750); err != nil {
-			slog.ErrorContext(r.ctx, "creating run log dir failed", "err", err, "path", outputDir)
+		if mkdirErr := os.MkdirAll(outputDir, 0o750); mkdirErr != nil {
+			slog.ErrorContext(r.ctx, "creating run log dir failed", "err", mkdirErr, "path", outputDir)
 			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 			crashCount++
 			if !r.sleepBackoff(crashCount) {
@@ -339,10 +337,10 @@ func (r *containerRunner) run() {
 		var ready <-chan error
 		var closeReady func()
 		if readinessActive {
-			listener, err := r.startReadinessListener(runNumber)
-			if err != nil {
-				slog.ErrorContext(r.ctx, "starting readiness listener failed", "err", err)
-				r.notifyReady(fmt.Errorf("starting readiness listener: %w", err))
+			listener, listenerErr := r.startReadinessListener(runNumber)
+			if listenerErr != nil {
+				slog.ErrorContext(r.ctx, "starting readiness listener failed", "err", listenerErr)
+				r.notifyReady(fmt.Errorf("starting readiness listener: %w", listenerErr))
 				r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 				return
 			}
@@ -385,7 +383,7 @@ func (r *containerRunner) run() {
 		if cn != nil {
 			spec.NetnsPath = cn.NetnsPath
 		}
-		task, err := r.containerd.RunTask(r.ctx, spec)
+		task, err := ctrd.Default.RunTask(r.ctx, spec)
 		if err != nil {
 			if closeReady != nil {
 				closeReady()
@@ -408,12 +406,12 @@ func (r *containerRunner) run() {
 		r.setTask(task)
 		r.logContainerEvent("start", runNumber, mounts)
 		if cn != nil && !readinessActive {
-			stable, err := r.stableAddr()
-			if err == nil {
-				err = r.publishContainerNet(cn, stable)
+			stable, publishErr := r.stableAddr()
+			if publishErr == nil {
+				publishErr = r.publishContainerNet(cn, stable)
 			}
-			if err != nil {
-				slog.ErrorContext(r.ctx, "publishing container network failed", "err", err, "id", r.containerID)
+			if publishErr != nil {
+				slog.ErrorContext(r.ctx, "publishing container network failed", "err", publishErr, "id", r.containerID)
 				_ = task.Kill(context.Background(), syscall.SIGTERM)
 				r.deleteTask(task)
 				r.cleanupContainerNet(cn)
@@ -646,14 +644,14 @@ func (r *containerRunner) startReadinessListener(runNumber int32) (*readinessLis
 	go func() {
 		defer close(ready)
 		for {
-			conn, err := listener.Accept()
-			if err != nil {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
 				select {
 				case <-r.ctx.Done():
 					ready <- r.ctx.Err()
 				default:
-					if !errors.Is(err, net.ErrClosed) {
-						ready <- err
+					if !errors.Is(acceptErr, net.ErrClosed) {
+						ready <- acceptErr
 					}
 				}
 				return

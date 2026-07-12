@@ -358,13 +358,13 @@ func validNixCachePath(path string) bool {
 }
 
 func fetchAndCacheNixPath(path string, localPath string) error {
-	url := "https://" + nixCacheHost + path
-	fmt.Fprintf(os.Stderr, "warning: nix cache miss path=%s upstream=%s\n", path, url)
+	upstreamURL := "https://" + nixCacheHost + path
+	fmt.Fprintf(os.Stderr, "warning: nix cache miss path=%s upstream=%s\n", path, upstreamURL)
 	tmp := localPath + ".tmp"
 	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequest(http.MethodGet, upstreamURL, nil)
 	if err != nil {
 		return err
 	}
@@ -416,8 +416,8 @@ func proxyUnknown(w http.ResponseWriter, r *http.Request) {
 		req.Header = r.Header.Clone()
 		req.Header.Del("Authorization")
 	}
-	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
-		http.Error(w, "proxy failed: "+err.Error(), http.StatusBadGateway)
+	proxy.ErrorHandler = func(responseWriter http.ResponseWriter, _ *http.Request, proxyErr error) {
+		http.Error(responseWriter, "proxy failed: "+proxyErr.Error(), http.StatusBadGateway)
 	}
 	proxy.ServeHTTP(w, r)
 }
@@ -532,9 +532,9 @@ func handleGit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip") {
-		gz, err := gzip.NewReader(bytes.NewReader(body))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		gz, gzipErr := gzip.NewReader(bytes.NewReader(body))
+		if gzipErr != nil {
+			http.Error(w, gzipErr.Error(), http.StatusBadRequest)
 			return
 		}
 		body, err = io.ReadAll(gz)

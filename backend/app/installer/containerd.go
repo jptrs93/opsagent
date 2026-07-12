@@ -111,30 +111,30 @@ func applyRuntime(deps []stagedDep) error {
 	if err != nil {
 		volOwner = noChown // dry-run before user creation
 	}
-	if err := ensureDir(volumesDir, 0o755, volOwner); err != nil {
-		return err
+	if volumesDirErr := ensureDir(volumesDir, 0o755, volOwner); volumesDirErr != nil {
+		return volumesDirErr
 	}
 
 	// config.toml: gid scopes the gRPC socket to the opendeploy group.
 	gid := 0
-	if o, err := lookupOwner(); err == nil {
+	if o, ownerErr := lookupOwner(); ownerErr == nil {
 		gid = o.gid
 	} else if !dryRun {
-		return fmt.Errorf("resolve opendeploy gid for containerd socket: %w", err)
+		return fmt.Errorf("resolve opendeploy gid for containerd socket: %w", ownerErr)
 	}
-	if _, err := writeFile(runtimeConfig, []byte(renderContainerdConfig(gid)), 0o644, noChown, false); err != nil {
-		return err
+	if _, configWriteErr := writeFile(runtimeConfig, []byte(renderContainerdConfig(gid)), 0o644, noChown, false); configWriteErr != nil {
+		return configWriteErr
 	}
 
 	// Install + enable the dedicated unit (embedded — no fetch).
-	if _, err := writeFile(containerdUnitPath, unitContainerd, 0o644, noChown, false); err != nil {
-		return err
+	if _, unitWriteErr := writeFile(containerdUnitPath, unitContainerd, 0o644, noChown, false); unitWriteErr != nil {
+		return unitWriteErr
 	}
-	if err := daemonReload(); err != nil {
-		return err
+	if reloadErr := daemonReload(); reloadErr != nil {
+		return reloadErr
 	}
-	if err := systemctl("enable", containerdService); err != nil {
-		return err
+	if enableErr := systemctl("enable", containerdService); enableErr != nil {
+		return enableErr
 	}
 
 	// Start if down; if already running and the active binaries changed, restart

@@ -20,7 +20,6 @@ const defaultAPIBaseURL = "https://api.github.com"
 var ErrReleaseNotFound = errors.New("release not found")
 
 type Client struct {
-	httpClient  *http.Client
 	credentials githubcredentials.Provider
 	apiBaseURL  string
 }
@@ -34,12 +33,8 @@ func WithAPIBaseURL(baseURL string) Option {
 	}
 }
 
-func NewClient(httpClient *http.Client, provider githubcredentials.Provider, options ...Option) *Client {
-	if httpClient == nil {
-		httpClient = http.DefaultClient
-	}
+func NewClient(provider githubcredentials.Provider, options ...Option) *Client {
 	c := &Client{
-		httpClient:  httpClient,
 		credentials: provider,
 		apiBaseURL:  defaultAPIBaseURL,
 	}
@@ -113,7 +108,7 @@ func (c *Client) getJSON(ctx context.Context, url string, out any, releaseByTag 
 	if err != nil {
 		return err
 	}
-	resp, err := c.httpClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("github api: %w", err)
 	}
@@ -147,7 +142,7 @@ func (c *Client) authenticatedRequest(ctx context.Context, url, accept string) (
 // DownloadAsset follows API redirects without forwarding GitHub credentials to
 // the asset host, and atomically replaces dstPath after a successful download.
 func (c *Client) DownloadAsset(ctx context.Context, assetAPIURL, dstPath string) error {
-	client := *c.httpClient
+	client := *http.DefaultClient
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
 	}

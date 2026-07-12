@@ -114,22 +114,22 @@ func (s *PrimaryStorage) AcceptEnrollmentRequest(id int32, workerName string) (*
 	defer tx.Rollback()
 
 	now := time.Now().UnixMilli()
-	row, err := scanEnrollmentRequest(tx.QueryRowContext(ctx, `
+	row, requestErr := scanEnrollmentRequest(tx.QueryRowContext(ctx, `
 		UPDATE enrollment_requests
 		SET updated_at = ?, status = ?
 		WHERE id = ?
 		RETURNING id, created_at, updated_at, requesting_ip_address, requesting_machine_id, opendeploy_version, status`,
 		now, EnrollmentStatusAccepted, int64(id),
 	))
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(requestErr, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	if err != nil {
-		return row, err
+	if requestErr != nil {
+		return row, requestErr
 	}
-	node, err := upsertNode(ctx, tx, int64(id), workerName, workerName, []int32{NodeRoleSecondary})
-	if err != nil {
-		return nil, err
+	node, nodeErr := upsertNode(ctx, tx, int64(id), workerName, workerName, []int32{NodeRoleSecondary})
+	if nodeErr != nil {
+		return nil, nodeErr
 	}
 	if err := tx.Commit(); err != nil {
 		panic(fmt.Sprintf("commit enrollment accept tx: %v", err))

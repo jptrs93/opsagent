@@ -294,9 +294,9 @@ func extractTarGzMembers(tarPath, destDir string, members []string) error {
 			continue
 		}
 		dst := filepath.Join(destDir, base)
-		out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
-		if err != nil {
-			return err
+		out, openErr := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+		if openErr != nil {
+			return openErr
 		}
 		if _, err := io.Copy(out, tr); err != nil {
 			out.Close()

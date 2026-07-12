@@ -94,8 +94,8 @@ func runOnce(ctx context.Context, cfg pgConfig, logger *slog.Logger) error {
 		`INSERT INTO opendeploy_e2e (id, name) VALUES (1, 'alpha'), (2, 'bravo'), (3, 'charlie')`,
 	}
 	for _, query := range queries {
-		if _, err := conn.Exec(query); err != nil {
-			return err
+		if _, execErr := conn.Exec(query); execErr != nil {
+			return execErr
 		}
 	}
 
@@ -216,8 +216,8 @@ func (c *pgConn) scramAuth(cfg pgConfig) error {
 	initial.WriteByte(0)
 	_ = binary.Write(&initial, binary.BigEndian, int32(len(clientFirst)))
 	initial.WriteString(clientFirst)
-	if err := writeTypedMessage(c.c, 'p', initial.Bytes()); err != nil {
-		return err
+	if writeInitialErr := writeTypedMessage(c.c, 'p', initial.Bytes()); writeInitialErr != nil {
+		return writeInitialErr
 	}
 
 	typ, msg, err := c.readMessage()
@@ -256,8 +256,8 @@ func (c *pgConn) scramAuth(cfg pgConfig) error {
 	serverSignature := hmacSHA256(serverKey, []byte(authMessage))
 
 	clientFinal := clientFinalNoProof + ",p=" + base64.StdEncoding.EncodeToString(proof)
-	if err := writeTypedMessage(c.c, 'p', []byte(clientFinal)); err != nil {
-		return err
+	if writeFinalErr := writeTypedMessage(c.c, 'p', []byte(clientFinal)); writeFinalErr != nil {
+		return writeFinalErr
 	}
 
 	typ, msg, err = c.readMessage()

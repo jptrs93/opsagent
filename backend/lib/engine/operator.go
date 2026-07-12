@@ -6,7 +6,6 @@ import (
 	"log/slog"
 
 	"github.com/jptrs93/goutil/pubsubu"
-	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/containerimage"
@@ -25,9 +24,7 @@ type DeploymentOperator struct {
 	Store              storage.OperatorStore
 	GithubRelease      *githubrelease.Preparer
 	NixDocker          *nixdocker.Preparer
-	ContainerImage     *containerimage.Preparer
 	GithubReleaseImage *githubreleaseimage.Preparer
-	Containerd         *ctrd.Client
 	RuntimeInputs      *runtimeinputs.RuntimeInputs
 }
 
@@ -117,7 +114,7 @@ func (op DeploymentOperator) Run(
 			"runnerStatus", fmtRunnerStatus(status.Runner),
 			"configSeqNo", config.Version,
 		)
-		currentRunner = runner.ReAttachRunning(op.Store, op.Containerd, op.RuntimeInputs, config, status.Runner)
+		currentRunner = runner.ReAttachRunning(op.Store, op.RuntimeInputs, config, status.Runner)
 	} else {
 		slog.Info("Run: initializing stopped deployment",
 			"dep", depName,
@@ -126,7 +123,7 @@ func (op DeploymentOperator) Run(
 			"configSeqNo", config.Version,
 		)
 		currentPreparer = prepare.Finished(config.Version)
-		currentRunner = runner.ReAttachStopped(op.Store, op.Containerd, op.RuntimeInputs, config, status.Runner)
+		currentRunner = runner.ReAttachStopped(op.Store, op.RuntimeInputs, config, status.Runner)
 	}
 	var candidate runner.RolloverCandidate
 	var candidateReady <-chan rolloverCandidateResult
@@ -198,12 +195,12 @@ func (op DeploymentOperator) Run(
 					"dep", depName,
 					"artifact", status.Preparer.Artifact, "configSeqNo", config.Version)
 				if containerUpgradeStrategy(&config) == apigen.ContainerUpgradeStrategy_ROLLOVER {
-					candidate = runner.CreateRolloverCandidate(op.Store, op.Containerd, op.RuntimeInputs, &config, &status)
+					candidate = runner.CreateRolloverCandidate(op.Store, op.RuntimeInputs, &config, &status)
 					candidateReady = waitForRolloverCandidate(candidate, config.Version)
 					continue
 				}
 				currentRunner.Stop()
-				currentRunner = runner.Create(op.Store, op.Containerd, op.RuntimeInputs, &config, &status)
+				currentRunner = runner.Create(op.Store, op.RuntimeInputs, &config, &status)
 			default:
 				slog.Debug("Run: nothing to do on update", "dep", depName)
 			}
@@ -253,7 +250,7 @@ func (op DeploymentOperator) prepare(ctx context.Context, dep *apigen.Deployment
 		return op.GithubReleaseImage.Prepare(ctx, dep, log)
 	case dep.Spec.Prepare.ContainerImage != nil:
 		prepare.WriteStatus(op.Store, dep, "", apigen.PreparationStatus_PULLING)
-		return op.ContainerImage.Prepare(ctx, dep, log)
+		return containerimage.Prepare(ctx, dep, log)
 	default:
 		log.Error("no prepare config found")
 		return "", apigen.PreparationStatus_FAILED

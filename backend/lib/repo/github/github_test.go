@@ -34,7 +34,7 @@ func TestListReleasesAuthenticatesRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(nil, testCredentialsProvider{token: "secret"}, WithAPIBaseURL(server.URL))
+	client := NewClient(testCredentialsProvider{token: "secret"}, WithAPIBaseURL(server.URL))
 	releases, err := client.ListReleases(context.Background(), "https://github.com/acme/widget.git", 50)
 	if err != nil {
 		t.Fatalf("ListReleases: %v", err)
@@ -64,7 +64,7 @@ func TestDownloadAssetStripsAuthAfterRedirect(t *testing.T) {
 	defer apiServer.Close()
 
 	dstPath := filepath.Join(t.TempDir(), "artifact")
-	client := NewClient(nil, testCredentialsProvider{token: "secret"})
+	client := NewClient(testCredentialsProvider{token: "secret"})
 	if err := client.DownloadAsset(context.Background(), apiServer.URL+"/asset", dstPath); err != nil {
 		t.Fatalf("DownloadAsset: %v", err)
 	}

@@ -248,7 +248,7 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 			GithubRelease: &apigen.DeploymentGithubReleaseVersions{Releases: releases},
 		}, nil
 	case cfg.Spec.Prepare.ContainerImage != nil:
-		tags, err := (versionprovider.ContainerImageVersionProvider{}).ListTags(ctx, cfg.Spec.Prepare.ContainerImage.Image)
+		tags, err := versionprovider.ListContainerImageTags(ctx, cfg.Spec.Prepare.ContainerImage.Image)
 		if err != nil {
 			return nil, fmt.Errorf("listing container image tags: %w", err)
 		}

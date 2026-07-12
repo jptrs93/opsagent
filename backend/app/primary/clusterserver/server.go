@@ -65,9 +65,9 @@ func RunEnrollment(
 	listen := loader.MustLoadConfigStringValue(listenSetting)
 	streamMiddlewares := []apigen.MiddlewareFunc{
 		func(next apigen.HandlerFunc) apigen.HandlerFunc {
-			return func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+			return func(requestCtx context.Context, w http.ResponseWriter, r *http.Request) {
 				_ = http.NewResponseController(w).EnableFullDuplex()
-				next(ctx, w, r)
+				next(requestCtx, w, r)
 			}
 		},
 	}

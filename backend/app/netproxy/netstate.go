@@ -90,8 +90,8 @@ func readyEndpoints(in []*apigen.Endpoint) []*apigen.Endpoint {
 	out := make([]*apigen.Endpoint, 0, len(in))
 	for _, ep := range in {
 		if ep != nil && ep.State == apigen.EndpointState_ENDPOINT_READY {
-			copy := *ep
-			out = append(out, &copy)
+			readyEndpoint := *ep
+			out = append(out, &readyEndpoint)
 		}
 	}
 	return out

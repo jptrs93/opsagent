@@ -101,8 +101,8 @@ func (h *Handler) PostV1AssetsUpload(ctx apigen.Context, request *http.Request, 
 	}
 	var spaceID int32
 	if rawSpaceID := strings.TrimSpace(query.Get("space_id")); rawSpaceID != "" {
-		parsed, err := strconv.ParseInt(rawSpaceID, 10, 32)
-		if err != nil {
+		parsed, parseErr := strconv.ParseInt(rawSpaceID, 10, 32)
+		if parseErr != nil {
 			return apigen.NewApiErr("Asset space ID is invalid", "asset_space_id_invalid", http.StatusBadRequest)
 		}
 		spaceID = int32(parsed)

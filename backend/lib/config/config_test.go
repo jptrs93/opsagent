@@ -17,8 +17,8 @@ func TestMasterPasswordHashRoundTrip(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	if err := service.SetMasterPasswordHash("hash-1"); err != nil {
-		t.Fatalf("SetMasterPasswordHash: %v", err)
+	if setErr := service.SetMasterPasswordHash("hash-1"); setErr != nil {
+		t.Fatalf("SetMasterPasswordHash: %v", setErr)
 	}
 	hash, err := service.GetMasterPasswordHash()
 	if err != nil {
@@ -60,8 +60,8 @@ func TestEnsureInitialSettingsPersistedIncludesMasterPasswordHash(t *testing.T) 
 		t.Fatalf("persisted value = %q, want initial-hash", value)
 	}
 
-	if err := service.SetMasterPasswordHash("changed-hash"); err != nil {
-		t.Fatalf("SetMasterPasswordHash: %v", err)
+	if setErr := service.SetMasterPasswordHash("changed-hash"); setErr != nil {
+		t.Fatalf("SetMasterPasswordHash: %v", setErr)
 	}
 	ainit.StaticConfig.InitialMasterPasswordHash = "new-initial-hash"
 	value, err = service.GetMasterPasswordHash()

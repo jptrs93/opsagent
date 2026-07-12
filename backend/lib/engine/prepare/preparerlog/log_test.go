@@ -17,11 +17,11 @@ func TestLogFormat(t *testing.T) {
 
 	log.Write("pulling %s", "image")
 	log.Error("pull failed: %v", "denied")
-	if _, err := log.Output().Write([]byte("raw output\n")); err != nil {
-		t.Fatal(err)
+	if _, writeErr := log.Output().Write([]byte("raw output\n")); writeErr != nil {
+		t.Fatal(writeErr)
 	}
-	if err := log.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := log.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
 
 	got, err := os.ReadFile(path)

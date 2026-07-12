@@ -43,9 +43,9 @@ func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswor
 	})
 	if errors.Is(err, sqlite.ErrNotFound) {
 		id := int32(h.Store.UserCount()) + 1
-		webAuthNID, err := authu.GenerateWebAuthnID(32)
-		if err != nil {
-			return nil, err
+		webAuthNID, generateErr := authu.GenerateWebAuthnID(32)
+		if generateErr != nil {
+			return nil, generateErr
 		}
 		user = &apigen.InternalUser{
 			ID:         id,

@@ -123,10 +123,10 @@ WHERE id = ? AND name = ?
 		if err != nil {
 			panic(fmt.Sprintf("RenameSecretRecords update: %v", err))
 		}
-		if n, err := res.RowsAffected(); err != nil {
+		if affected, err := res.RowsAffected(); err != nil {
 			panic(fmt.Sprintf("RenameSecretRecords rows affected: %v", err))
-		} else if n != 1 {
-			panic(fmt.Sprintf("RenameSecretRecords updated %d rows for id %d", n, r.ID))
+		} else if affected != 1 {
+			panic(fmt.Sprintf("RenameSecretRecords updated %d rows for id %d", affected, r.ID))
 		}
 	}
 	if err := tx.Commit(); err != nil {

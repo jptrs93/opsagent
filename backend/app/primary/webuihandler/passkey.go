@@ -55,9 +55,9 @@ func (h *Handler) initPasskeyService() error {
 			Registration: webauthn.TimeoutConfig{Enforce: true, Timeout: 5 * time.Minute},
 		},
 	}, func(userID []byte, credential *webauthn.Credential) error {
-		b, err := json.Marshal(credential)
-		if err != nil {
-			return err
+		b, marshalErr := json.Marshal(credential)
+		if marshalErr != nil {
+			return marshalErr
 		}
 		// The userID was just produced by an in-flight registration session, so
 		// the user must exist. Storage failure → crash; supervisor restarts.

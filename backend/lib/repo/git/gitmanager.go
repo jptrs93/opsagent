@@ -158,8 +158,8 @@ func (g *Manager) GetCommitLog(ctx context.Context, repoURL string, branch strin
 	lock.Lock()
 	defer lock.Unlock()
 
-	if err := g.fetchMetadataRef(ctx, repoDir, branch, "tree:0", limit); err != nil {
-		return nil, err
+	if fetchErr := g.fetchMetadataRef(ctx, repoDir, branch, "tree:0", limit); fetchErr != nil {
+		return nil, fetchErr
 	}
 
 	out, err := g.runGit(ctx, repoDir, "log", fmt.Sprintf("--max-count=%d", limit), "--format=%H%x00%s%x00%an%x00%cI%x1e", "FETCH_HEAD")

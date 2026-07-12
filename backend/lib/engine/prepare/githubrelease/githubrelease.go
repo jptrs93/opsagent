@@ -114,13 +114,13 @@ func (p *Preparer) runDownloadScript(ctx context.Context, gh apigen.GithubReleas
 	}
 	scriptPath := scriptFile.Name()
 	defer os.Remove(scriptPath)
-	if _, err := scriptFile.WriteString(script); err != nil {
+	if _, writeErr := scriptFile.WriteString(script); writeErr != nil {
 		scriptFile.Close()
-		log.Error("writing download script: %v", err)
+		log.Error("writing download script: %v", writeErr)
 		return "", apigen.PreparationStatus_FAILED
 	}
-	if err := scriptFile.Close(); err != nil {
-		log.Error("closing download script: %v", err)
+	if closeErr := scriptFile.Close(); closeErr != nil {
+		log.Error("closing download script: %v", closeErr)
 		return "", apigen.PreparationStatus_FAILED
 	}
 
@@ -138,8 +138,8 @@ func (p *Preparer) runDownloadScript(ctx context.Context, gh apigen.GithubReleas
 	if creds.Token != "" {
 		cmd.Env = append(cmd.Env, "GITHUB_TOKEN="+creds.Token)
 	}
-	if err := cmd.Run(); err != nil {
-		log.Error("running download script: %v", err)
+	if runErr := cmd.Run(); runErr != nil {
+		log.Error("running download script: %v", runErr)
 		return "", apigen.PreparationStatus_FAILED
 	}
 

@@ -317,7 +317,7 @@ func TestValidateDeploymentSpecRejectsInvalidHostMounts(t *testing.T) {
 		{name: "system config", host: "/etc/opendeploy", container: "/data"},
 		{name: "systemd unit dir", host: "/etc/systemd/system", container: "/data"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.name, func(subtestT *testing.T) {
 			_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
 				Prepare: apigen.PrepareConfig{
 					ContainerImage: &apigen.ContainerImageConfig{Image: "nginx:latest"},
@@ -330,7 +330,7 @@ func TestValidateDeploymentSpecRejectsInvalidHostMounts(t *testing.T) {
 				Networking: hostNetworking(),
 			}, nil)
 			if err == nil {
-				t.Fatal("expected invalid host mount")
+				subtestT.Fatal("expected invalid host mount")
 			}
 		})
 	}
@@ -541,10 +541,10 @@ func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(subtestT *testing.T) {
 			_, err := validateDeploymentSpecWithAssets(&tt.spec, nil)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("err = %v, want containing %q", err, tt.want)
+				subtestT.Fatalf("err = %v, want containing %q", err, tt.want)
 			}
 		})
 	}

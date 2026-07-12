@@ -44,8 +44,8 @@ func (h *Handler) PostV1GenerateExportedConfig(ctx apigen.Context, req *apigen.E
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(encoded, &jsonValue); err != nil {
-		return nil, err
+	if unmarshalErr := json.Unmarshal(encoded, &jsonValue); unmarshalErr != nil {
+		return nil, unmarshalErr
 	}
 	for key, value := range jsonValue {
 		jsonValue[key], _ = pruneExportValue(value)

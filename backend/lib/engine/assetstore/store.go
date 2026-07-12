@@ -92,11 +92,11 @@ func (s *Store) setLargeAssetFromReader(ctx context.Context, key, format string,
 
 	asset := s.DB.SetAssetStored(key, format, "", sizeBytes, []byte{}, spaceID)
 	prefix := s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Path)
-	objectKey := objectKey(prefix, asset.ID)
-	location := "s3://" + bucket + "/" + objectKey
+	s3ObjectKey := objectKey(prefix, asset.ID)
+	location := "s3://" + bucket + "/" + s3ObjectKey
 	if _, err := client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(bucket),
-		Key:           aws.String(objectKey),
+		Key:           aws.String(s3ObjectKey),
 		Body:          tmp,
 		ContentLength: aws.Int64(sizeBytes),
 	}); err != nil {
