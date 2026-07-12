@@ -65,8 +65,8 @@ func doInstall(version string, opts installOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := preflight(upgrade); err != nil {
-		return err
+	if preflightErr := preflight(upgrade); preflightErr != nil {
+		return preflightErr
 	}
 	if opts.useSelf {
 		version = "v0.0.0"
@@ -122,9 +122,9 @@ func stageAll(version, arch, tmp string, withRuntime bool, useSelf bool) (*stage
 
 	if withRuntime {
 		for _, dep := range runtimeDeps {
-			sd, err := stageDep(dep, arch, tmp)
-			if err != nil {
-				return nil, err
+			sd, stageErr := stageDep(dep, arch, tmp)
+			if stageErr != nil {
+				return nil, stageErr
 			}
 			st.runtime = append(st.runtime, sd)
 		}
@@ -144,8 +144,8 @@ func stageSelfAgent(tmp string) (string, error) {
 		return "", fmt.Errorf("resolving current executable symlink: %w", err)
 	}
 	dst := filepath.Join(tmp, "opendeploy-self")
-	if err := installBinary(self, dst, 0o755, noChown); err != nil {
-		return "", fmt.Errorf("staging current executable %s: %w", self, err)
+	if installErr := installBinary(self, dst, 0o755, noChown); installErr != nil {
+		return "", fmt.Errorf("staging current executable %s: %w", self, installErr)
 	}
 	info("using current executable %s as v0.0.0", self)
 	return dst, nil
@@ -186,15 +186,15 @@ func stageAgent(version, arch, tmp string) (string, error) {
 	}
 
 	sumsDst := filepath.Join(tmp, "sha256sums.txt")
-	if err := download(baseURL+"/sha256sums.txt", sumsDst); err != nil {
-		return "", err
+	if downloadErr := download(baseURL+"/sha256sums.txt", sumsDst); downloadErr != nil {
+		return "", downloadErr
 	}
 	want, err := checksumFor(sumsDst, binFile)
 	if err != nil {
 		return "", err
 	}
-	if err := verifySHA256(binDst, want); err != nil {
-		return "", err
+	if verifyErr := verifySHA256(binDst, want); verifyErr != nil {
+		return "", verifyErr
 	}
 	return binDst, nil
 }
@@ -299,33 +299,33 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 	}
 	if opts.restore != nil {
 		step("Restoring primary database")
-		if err := restorePrimaryBackup(*opts.restore, opts, own); err != nil {
-			return err
+		if restoreErr := restorePrimaryBackup(*opts.restore, opts, own); restoreErr != nil {
+			return restoreErr
 		}
 	}
 	// Sibling dirs outside the private data dir. Release artifacts are reachable by
 	// a different runAs user (0755); logs stay private to opendeploy (0750).
-	if err := ensureDir(releasesDir, 0o755, own); err != nil {
-		return err
+	if releasesDirErr := ensureDir(releasesDir, 0o755, own); releasesDirErr != nil {
+		return releasesDirErr
 	}
-	if err := ensureLogDirs(own); err != nil {
-		return err
+	if logDirsErr := ensureLogDirs(own); logDirsErr != nil {
+		return logDirsErr
 	}
-	if err := ensureDir(filepath.Dir(binPath), 0o755, own); err != nil {
-		return err
+	if binDirErr := ensureDir(filepath.Dir(binPath), 0o755, own); binDirErr != nil {
+		return binDirErr
 	}
 
 	// install staged binary into its versioned dir + symlink
 	step("Installing binary")
 	dst := releaseBinPath(version, arch)
-	if err := ensureReleaseArtifactDir(version, arch, own); err != nil {
-		return err
+	if releaseDirErr := ensureReleaseArtifactDir(version, arch, own); releaseDirErr != nil {
+		return releaseDirErr
 	}
-	if err := installBinary(st.agentBin, dst, 0o755, own); err != nil {
-		return err
+	if installErr := installBinary(st.agentBin, dst, 0o755, own); installErr != nil {
+		return installErr
 	}
-	if err := atomicSymlink(dst, binPath); err != nil {
-		return err
+	if symlinkErr := atomicSymlink(dst, binPath); symlinkErr != nil {
+		return symlinkErr
 	}
 	info("symlinked %s -> %s", binPath, dst)
 
@@ -340,8 +340,8 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 		return err
 	}
 	if !wrote && opts.hasEnvOverrides() {
-		if err := updateEnvFile(opts, rootOpenDeploy); err != nil {
-			return err
+		if updateErr := updateEnvFile(opts, rootOpenDeploy); updateErr != nil {
+			return updateErr
 		}
 	}
 	if wrote {
@@ -351,36 +351,36 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 	}
 
 	// TLS dir
-	if err := ensureDir(tlsDir, 0o750, own); err != nil {
-		return err
+	if tlsDirErr := ensureDir(tlsDir, 0o750, own); tlsDirErr != nil {
+		return tlsDirErr
 	}
 
 	// sudoers — validate with visudo before moving into place
 	step("Installing sudoers drop-in")
-	if err := installSudoers(); err != nil {
-		return err
+	if sudoersErr := installSudoers(); sudoersErr != nil {
+		return sudoersErr
 	}
 
 	// systemd unit (embedded)
 	step("Installing systemd unit")
-	if _, err := writeFile(serviceUnitPath, renderOpenDeployUnit(opts), 0o644, noChown, false); err != nil {
-		return err
+	if _, unitWriteErr := writeFile(serviceUnitPath, renderOpenDeployUnit(opts), 0o644, noChown, false); unitWriteErr != nil {
+		return unitWriteErr
 	}
-	if err := daemonReload(); err != nil {
-		return err
+	if reloadErr := daemonReload(); reloadErr != nil {
+		return reloadErr
 	}
-	if err := systemctl("enable", serviceName); err != nil {
-		return err
+	if enableErr := systemctl("enable", serviceName); enableErr != nil {
+		return enableErr
 	}
 
 	// bundled container runtime (staged in phase 1)
-	if err := applyRuntime(st.runtime); err != nil {
-		return err
+	if runtimeErr := applyRuntime(st.runtime); runtimeErr != nil {
+		return runtimeErr
 	}
 
 	step("Starting service")
-	if err := systemctl("start", serviceName); err != nil {
-		return err
+	if startErr := systemctl("start", serviceName); startErr != nil {
+		return startErr
 	}
 
 	printInstallComplete(opts, bootstrap, wrote)
@@ -430,8 +430,8 @@ func ensureReleaseArtifactDir(version, arch string, own owner) error {
 			continue
 		}
 		current = filepath.Join(current, part)
-		if err := ensureDir(current, 0o755, own); err != nil {
-			return err
+		if ensureErr := ensureDir(current, 0o755, own); ensureErr != nil {
+			return ensureErr
 		}
 	}
 	return nil

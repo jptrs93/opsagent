@@ -72,7 +72,7 @@ type nodeExecer interface {
 }
 
 func upsertNode(ctx context.Context, execer nodeExecer, enrollmentID any, name string, sni string, roles []int32) (*apigen.ClusterNode, error) {
-	node, err := scanNodeRows(execer.QueryRowContext(ctx, `
+	node, scanErr := scanNodeRows(execer.QueryRowContext(ctx, `
 		INSERT INTO nodes (enrollment_id, enrolled_at, name, sni, roles, addresses, wg_public_key)
 		VALUES (?, ?, ?, ?, ?, '[]', '')
 		ON CONFLICT(name) DO UPDATE SET
@@ -80,14 +80,14 @@ func upsertNode(ctx context.Context, execer nodeExecer, enrollmentID any, name s
 			sni = excluded.sni,
 			roles = excluded.roles
 		RETURNING id, enrollment_id, enrolled_at, name, sni, roles, addresses, wg_public_key`, enrollmentID, time.Now().UnixMilli(), name, sni, nodeRolesJSON(roles)))
-	if err != nil {
-		return nil, err
+	if scanErr != nil {
+		return nil, scanErr
 	}
-	if _, err := execer.ExecContext(ctx, `
+	if _, statusErr := execer.ExecContext(ctx, `
 		INSERT INTO node_statuses (node_id, last_connected_at, is_connected)
 		VALUES (?, 0, 0)
-		ON CONFLICT(node_id) DO NOTHING`, int64(node.ID)); err != nil {
-		return nil, err
+		ON CONFLICT(node_id) DO NOTHING`, int64(node.ID)); statusErr != nil {
+		return nil, statusErr
 	}
 	return nodeToAPI(node), nil
 }
@@ -95,24 +95,24 @@ func upsertNode(ctx context.Context, execer nodeExecer, enrollmentID any, name s
 func (s *PrimaryStorage) ListNodes() []*Node {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rows, err := s.db.QueryContext(context.Background(), `
+	rows, queryErr := s.db.QueryContext(context.Background(), `
 		SELECT id, enrollment_id, enrolled_at, name, sni, roles, addresses, wg_public_key
 		FROM nodes
 		ORDER BY id`)
-	if err != nil {
-		panic(fmt.Sprintf("list nodes: %v", err))
+	if queryErr != nil {
+		panic(fmt.Sprintf("list nodes: %v", queryErr))
 	}
 	defer rows.Close()
 	var out []*Node
 	for rows.Next() {
-		node, err := scanNodeRows(rows)
-		if err != nil {
-			panic(fmt.Sprintf("scan node: %v", err))
+		node, scanErr := scanNodeRows(rows)
+		if scanErr != nil {
+			panic(fmt.Sprintf("scan node: %v", scanErr))
 		}
 		out = append(out, node)
 	}
-	if err := rows.Err(); err != nil {
-		panic(fmt.Sprintf("iterate nodes: %v", err))
+	if rowsErr := rows.Err(); rowsErr != nil {
+		panic(fmt.Sprintf("iterate nodes: %v", rowsErr))
 	}
 	return out
 }
@@ -183,24 +183,24 @@ func (s *PrimaryStorage) SubscribeNodeUpdates() (*pubsubu.Sub[apigen.ClusterNode
 func (s *PrimaryStorage) ListNodeStatuses() []*apigen.ClusterNodeStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rows, err := s.db.QueryContext(context.Background(), `
+	rows, queryErr := s.db.QueryContext(context.Background(), `
 		SELECT id, node_id, last_connected_at, is_connected
 		FROM node_statuses
 		ORDER BY id`)
-	if err != nil {
-		panic(fmt.Sprintf("list node statuses: %v", err))
+	if queryErr != nil {
+		panic(fmt.Sprintf("list node statuses: %v", queryErr))
 	}
 	defer rows.Close()
 	var out []*apigen.ClusterNodeStatus
 	for rows.Next() {
-		status, err := scanNodeStatusRows(rows)
-		if err != nil {
-			panic(fmt.Sprintf("scan node status: %v", err))
+		status, scanErr := scanNodeStatusRows(rows)
+		if scanErr != nil {
+			panic(fmt.Sprintf("scan node status: %v", scanErr))
 		}
 		out = append(out, status)
 	}
-	if err := rows.Err(); err != nil {
-		panic(fmt.Sprintf("iterate node statuses: %v", err))
+	if rowsErr := rows.Err(); rowsErr != nil {
+		panic(fmt.Sprintf("iterate node statuses: %v", rowsErr))
 	}
 	return out
 }

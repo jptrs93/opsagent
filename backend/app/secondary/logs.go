@@ -155,8 +155,8 @@ func streamLatestRunLog(ctx context.Context, out *outbox, req *apigen.RunOutputR
 		}
 	}
 
-	if err := drain(); err != nil {
-		slog.Error("failed streaming run log file", "path", path, "err", err)
+	if drainErr := drain(); drainErr != nil {
+		slog.Error("failed streaming run log file", "path", path, "err", drainErr)
 		return
 	}
 	if keepTailing == nil {
@@ -170,12 +170,12 @@ func streamLatestRunLog(ctx context.Context, out *outbox, req *apigen.RunOutputR
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := drain(); err != nil {
-				slog.Error("failed streaming run log file", "path", path, "err", err)
+			if drainErr := drain(); drainErr != nil {
+				slog.Error("failed streaming run log file", "path", path, "err", drainErr)
 				return
 			}
-			if latest, err := latestRunLogFile(req.DeploymentID, req.Version); err == nil && latest != path {
-				if nf, err := os.Open(latest); err == nil {
+			if latest, latestErr := latestRunLogFile(req.DeploymentID, req.Version); latestErr == nil && latest != path {
+				if nf, openErr := os.Open(latest); openErr == nil {
 					_ = f.Close()
 					path = latest
 					f = nf
@@ -228,8 +228,8 @@ func waitForLatestRunLogFile(ctx context.Context, req *apigen.RunOutputRequest) 
 	}
 }
 
-func latestRunLogFile(deploymentID int32, version int32) (string, error) {
-	pattern := filepath.Join(apigen.RunOutputDeploymentDir(deploymentID), fmt.Sprintf("*_%d_*.logbin", version))
+func latestRunLogFile(deploymentID int32, configVersion int32) (string, error) {
+	pattern := filepath.Join(apigen.RunOutputDeploymentDir(deploymentID), fmt.Sprintf("*_%d_*.logbin", configVersion))
 	return latestMatchingLogFile(pattern)
 }
 
@@ -247,9 +247,9 @@ func latestMatchingLogFile(pattern string) (string, error) {
 		return "", err
 	}
 	for _, match := range matches[1:] {
-		info, err := os.Stat(match)
-		if err != nil {
-			return "", err
+		info, statErr := os.Stat(match)
+		if statErr != nil {
+			return "", statErr
 		}
 		if info.ModTime().After(latestInfo.ModTime()) {
 			latest = match
@@ -299,8 +299,8 @@ func streamFile(ctx context.Context, out *outbox, path string, requestID string,
 	}
 
 	// Initial drain of existing content.
-	if err := drain(); err != nil {
-		slog.Error("failed streaming log file", "path", path, "err", err)
+	if drainErr := drain(); drainErr != nil {
+		slog.Error("failed streaming log file", "path", path, "err", drainErr)
 		return
 	}
 
@@ -318,8 +318,8 @@ func streamFile(ctx context.Context, out *outbox, path string, requestID string,
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := drain(); err != nil {
-				slog.Error("failed streaming log file", "path", path, "err", err)
+			if drainErr := drain(); drainErr != nil {
+				slog.Error("failed streaming log file", "path", path, "err", drainErr)
 				return
 			}
 			if !keepTailing() {

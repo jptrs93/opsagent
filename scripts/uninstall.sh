@@ -29,59 +29,59 @@ run_as_root() {
 }
 
 verify_checksum() {
-    local bin_path="$1"
-    local sums_path="$2"
-    local bin_name="$3"
-    local want
+    local uninstall_checksum_bin_path="$1"
+    local uninstall_checksum_sums_path="$2"
+    local uninstall_checksum_bin_name="$3"
+    local uninstall_checksum_want
 
-    want="$(awk -v name="$bin_name" '$2 == name { print $1 }' "$sums_path")"
-    if [ -z "$want" ]; then
-        printf 'No checksum for %s in sha256sums.txt\n' "$bin_name" >&2
+    uninstall_checksum_want="$(awk -v name="$uninstall_checksum_bin_name" '$2 == name { print $1 }' "$uninstall_checksum_sums_path")"
+    if [ -z "$uninstall_checksum_want" ]; then
+        printf 'No checksum for %s in sha256sums.txt\n' "$uninstall_checksum_bin_name" >&2
         exit 1
     fi
 
     if command -v sha256sum >/dev/null 2>&1; then
-        (cd "$(dirname "$bin_path")" && printf '%s  %s\n' "$want" "$bin_name" | sha256sum -c - >/dev/null)
+        (cd "$(dirname "$uninstall_checksum_bin_path")" && printf '%s  %s\n' "$uninstall_checksum_want" "$uninstall_checksum_bin_name" | sha256sum -c - >/dev/null)
         return
     fi
 
     if command -v shasum >/dev/null 2>&1; then
-        local got
-        got="$(shasum -a 256 "$bin_path" | awk '{ print $1 }')"
-        if [ "$got" = "$want" ]; then
+        local uninstall_checksum_got
+        uninstall_checksum_got="$(shasum -a 256 "$uninstall_checksum_bin_path" | awk '{ print $1 }')"
+        if [ "$uninstall_checksum_got" = "$uninstall_checksum_want" ]; then
             return
         fi
-        printf 'Checksum mismatch for %s\n' "$bin_name" >&2
+        printf 'Checksum mismatch for %s\n' "$uninstall_checksum_bin_name" >&2
         exit 1
     fi
 
-    printf 'sha256sum or shasum is required to verify %s\n' "$bin_name" >&2
+    printf 'sha256sum or shasum is required to verify %s\n' "$uninstall_checksum_bin_name" >&2
     exit 1
 }
 
 download_opendeploy() {
-    local version="$1"
-    local arch="$2"
-    local tmp="$3"
-    local base_url bin_name bin_path sums_path
+    local uninstall_download_version="$1"
+    local uninstall_download_arch="$2"
+    local uninstall_download_tmp="$3"
+    local uninstall_download_base_url uninstall_download_bin_name uninstall_download_bin_path uninstall_download_sums_path
 
-    if [ "$version" = "latest" ]; then
-        base_url="https://github.com/${REPO}/releases/latest/download"
+    if [ "$uninstall_download_version" = "latest" ]; then
+        uninstall_download_base_url="https://github.com/${REPO}/releases/latest/download"
     else
-        base_url="https://github.com/${REPO}/releases/download/${version}"
+        uninstall_download_base_url="https://github.com/${REPO}/releases/download/${uninstall_download_version}"
     fi
 
-    bin_name="opendeploy-linux-${arch}"
-    bin_path="${tmp}/${bin_name}"
-    sums_path="${tmp}/sha256sums.txt"
+    uninstall_download_bin_name="opendeploy-linux-${uninstall_download_arch}"
+    uninstall_download_bin_path="${uninstall_download_tmp}/${uninstall_download_bin_name}"
+    uninstall_download_sums_path="${uninstall_download_tmp}/sha256sums.txt"
 
-    log "downloading ${version} ${bin_name}"
-    curl -fsSL "${base_url}/${bin_name}" -o "$bin_path"
-    curl -fsSL "${base_url}/sha256sums.txt" -o "$sums_path"
-    verify_checksum "$bin_path" "$sums_path" "$bin_name"
-    chmod +x "$bin_path"
+    log "downloading ${uninstall_download_version} ${uninstall_download_bin_name}"
+    curl -fsSL "${uninstall_download_base_url}/${uninstall_download_bin_name}" -o "$uninstall_download_bin_path"
+    curl -fsSL "${uninstall_download_base_url}/sha256sums.txt" -o "$uninstall_download_sums_path"
+    verify_checksum "$uninstall_download_bin_path" "$uninstall_download_sums_path" "$uninstall_download_bin_name"
+    chmod +x "$uninstall_download_bin_path"
 
-    printf '%s\n' "$bin_path"
+    printf '%s\n' "$uninstall_download_bin_path"
 }
 
 main() {
@@ -90,14 +90,14 @@ main() {
         return
     fi
 
-    local version arch bin
-    version="${OPENDEPLOY_VERSION:-latest}"
-    arch="$(detect_arch)"
+    local uninstall_version uninstall_arch uninstall_bin
+    uninstall_version="${OPENDEPLOY_VERSION:-latest}"
+    uninstall_arch="$(detect_arch)"
     OPENDEPLOY_DOWNLOAD_TMP="$(mktemp -d)"
     trap 'rm -rf -- "$OPENDEPLOY_DOWNLOAD_TMP"' EXIT
 
-    bin="$(download_opendeploy "$version" "$arch" "$OPENDEPLOY_DOWNLOAD_TMP")"
-    run_as_root "$bin" uninstall "$@"
+    uninstall_bin="$(download_opendeploy "$uninstall_version" "$uninstall_arch" "$OPENDEPLOY_DOWNLOAD_TMP")"
+    run_as_root "$uninstall_bin" uninstall "$@"
 }
 
 main "$@"

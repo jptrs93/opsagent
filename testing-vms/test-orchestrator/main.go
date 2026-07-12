@@ -263,7 +263,7 @@ func findScriptDir() (string, error) {
 		if filepath.Base(dir) == "testing-vms" {
 			return dir, nil
 		}
-		if _, err := os.Stat(filepath.Join(dir, "testing-vms", "e2e")); err == nil {
+		if _, statErr := os.Stat(filepath.Join(dir, "testing-vms", "e2e")); statErr == nil {
 			return filepath.Join(dir, "testing-vms"), nil
 		}
 		parent := filepath.Dir(dir)
@@ -567,12 +567,12 @@ func (c *config) finishTiming(entry *timingEntry, start, finish time.Time) {
 }
 
 func removeDirContentsExcept(dir, keepBase string) error {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
+	entries, readDirErr := os.ReadDir(dir)
+	if readDirErr != nil {
+		if os.IsNotExist(readDirErr) {
 			return nil
 		}
-		return err
+		return readDirErr
 	}
 	for _, entry := range entries {
 		if entry.Name() == keepBase {
@@ -591,8 +591,8 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
+	if mkdirErr := os.MkdirAll(filepath.Dir(dst), 0o755); mkdirErr != nil {
+		return mkdirErr
 	}
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
@@ -607,9 +607,9 @@ func (c *config) writeTimings() {
 	if len(c.Timings) == 0 {
 		return
 	}
-	data, err := json.MarshalIndent(c.Timings, "", "  ")
-	if err != nil {
-		logf("Could not marshal timings: %v", err)
+	data, marshalErr := json.MarshalIndent(c.Timings, "", "  ")
+	if marshalErr != nil {
+		logf("Could not marshal timings: %v", marshalErr)
 		return
 	}
 	path := filepath.Join(c.ResultsDir, "timings.json")
@@ -1031,7 +1031,6 @@ func (c *config) startAllVMs() error {
 	}
 	results := make(chan vmStartResult, len(vms))
 	for _, vm := range vms {
-		vm := vm
 		go func() {
 			start := time.Now()
 			if c.Log != nil {
@@ -1599,9 +1598,9 @@ func (c *config) publishLocalRepoToRepoMirror() error {
 	if err := c.vmRun(c.RepoMirrorName, "sudo", "rm", "-rf", "/tmp/opendeploy-local-git"); err != nil {
 		return err
 	}
-	snapshotGit, cleanup, err := c.materializeLocalGitSnapshot()
-	if err != nil {
-		return err
+	snapshotGit, cleanup, snapshotErr := c.materializeLocalGitSnapshot()
+	if snapshotErr != nil {
+		return snapshotErr
 	}
 	defer cleanup()
 	if err := run("limactl", "copy", "-r", snapshotGit, c.RepoMirrorName+":/tmp/opendeploy-local-git"); err != nil {
@@ -1619,15 +1618,15 @@ rm -rf /tmp/opendeploy-local-git
 }
 
 func (c *config) materializeLocalGitSnapshot() (string, func(), error) {
-	dir, err := os.MkdirTemp(c.StateDir, "local-git-snapshot-*")
-	if err != nil {
-		return "", nil, err
+	dir, tempDirErr := os.MkdirTemp(c.StateDir, "local-git-snapshot-*")
+	if tempDirErr != nil {
+		return "", nil, tempDirErr
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
-	out, err := outputInDir(c.RepoRoot, "git", "ls-files", "-co", "--exclude-standard")
-	if err != nil {
+	out, listFilesErr := outputInDir(c.RepoRoot, "git", "ls-files", "-co", "--exclude-standard")
+	if listFilesErr != nil {
 		cleanup()
-		return "", nil, err
+		return "", nil, listFilesErr
 	}
 	for _, rel := range strings.Split(out, "\n") {
 		rel = strings.TrimSpace(rel)
@@ -1635,8 +1634,8 @@ func (c *config) materializeLocalGitSnapshot() (string, func(), error) {
 			continue
 		}
 		src := filepath.Join(c.RepoRoot, rel)
-		info, err := os.Stat(src)
-		if err != nil || info.IsDir() {
+		info, statErr := os.Stat(src)
+		if statErr != nil || info.IsDir() {
 			continue
 		}
 		dst := filepath.Join(dir, rel)
@@ -1704,9 +1703,9 @@ func (c *config) publishReleaseToRepoMirror(version, bin string) error {
 	if !fileNonEmpty(bin) {
 		return fmt.Errorf("mock opendeploy binary not found: %s", bin)
 	}
-	sum, err := fileSHA256(bin)
-	if err != nil {
-		return err
+	sum, hashErr := fileSHA256(bin)
+	if hashErr != nil {
+		return hashErr
 	}
 	logf("Publishing opendeploy %s to %s", version, c.RepoMirrorName)
 	script := `set -euo pipefail
@@ -1766,10 +1765,10 @@ func (c *config) installPrimary() error {
 	} else {
 		args = append(args, "--version", c.InstallVersion)
 	}
-	installOutput, err := c.vmOutput(c.PrimaryName, args...)
+	installOutput, installErr := c.vmOutput(c.PrimaryName, args...)
 	logf("Primary installer output:\n%s", installOutput)
-	if err != nil {
-		return err
+	if installErr != nil {
+		return installErr
 	}
 	re := regexp.MustCompile(`Temporary\s+setup\s+password:\s+([^\s]+)`) // installer output contract
 	m := re.FindStringSubmatch(installOutput)
@@ -1801,9 +1800,9 @@ func (c *config) installWorker(name string) error {
 	if err := c.downloadOpenDeploy(name); err != nil {
 		return err
 	}
-	fp, err := c.primaryEnrollmentFingerprint()
-	if err != nil {
-		return err
+	fp, fingerprintErr := c.primaryEnrollmentFingerprint()
+	if fingerprintErr != nil {
+		return fingerprintErr
 	}
 	logf("Installing secondary in %s", name)
 	help, _ := c.vmCombinedOutput(name, "opendeploy", "install", "secondary", "-h")
@@ -1949,9 +1948,9 @@ func (c *config) ensurePlaywrightSecondaryTunnels() error {
 	if err := requireCmd("ssh"); err != nil {
 		return err
 	}
-	secondaryIP, err := c.vmIPv4(c.SecondaryName)
-	if err != nil {
-		return err
+	secondaryIP, resolveIPErr := c.vmIPv4(c.SecondaryName)
+	if resolveIPErr != nil {
+		return resolveIPErr
 	}
 	for _, port := range words(c.PlaywrightSecondaryPorts) {
 		cmd, err := c.startSSHTunnel(c.SecondaryName, port, secondaryIP, port)
@@ -1964,9 +1963,9 @@ func (c *config) ensurePlaywrightSecondaryTunnels() error {
 }
 
 func (c *config) startSSHTunnel(vm, localPort, remoteHost, remotePort string) (*exec.Cmd, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
+	home, homeDirErr := os.UserHomeDir()
+	if homeDirErr != nil {
+		return nil, homeDirErr
 	}
 	sshConfig := filepath.Join(home, ".lima", vm, "ssh.config")
 	if !fileNonEmpty(sshConfig) {
@@ -2110,9 +2109,9 @@ func (c *config) backupRestore() error {
 	stateFile := env("OPD_BACKUP_RESTORE_STATE_HOST", filepath.Join(c.ResultsDir, "backup-restore.env"))
 	waitSeconds := envInt("OPD_BACKUP_RESTORE_WAIT_SECONDS", 20)
 	restoreInstallVersion := env("OPD_RESTORE_INSTALL_VERSION", c.UpgradeVersion)
-	state, err := loadShellEnvFile(stateFile)
-	if err != nil {
-		return fmt.Errorf("backup restore state file not found or invalid: %s: %w", stateFile, err)
+	state, loadStateErr := loadShellEnvFile(stateFile)
+	if loadStateErr != nil {
+		return fmt.Errorf("backup restore state file not found or invalid: %s: %w", stateFile, loadStateErr)
 	}
 	for _, k := range []string{"OPD_RESTORE_S3_ACCESS_KEY_ID", "OPD_RESTORE_S3_SECRET_ACCESS_KEY", "OPD_RESTORE_S3_BUCKET", "OPD_RESTORE_S3_PATH", "OPD_RESTORE_S3_REGION", "OPD_RESTORE_S3_ENDPOINT", "OPD_RESTORE_RECOVERY_CODE"} {
 		if state[k] == "" {
@@ -2489,8 +2488,8 @@ type tailBuffer struct {
 	buf []byte
 }
 
-func newTailBuffer(max int) *tailBuffer {
-	return &tailBuffer{max: max}
+func newTailBuffer(maxBytes int) *tailBuffer {
+	return &tailBuffer{max: maxBytes}
 }
 
 func (b *tailBuffer) Write(p []byte) (int, error) {
@@ -2524,9 +2523,9 @@ func isDir(path string) bool {
 }
 
 func fileSHA256(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
+	f, openErr := os.Open(path)
+	if openErr != nil {
+		return "", openErr
 	}
 	defer f.Close()
 	h := sha256.New()

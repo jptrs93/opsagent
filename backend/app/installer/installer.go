@@ -152,8 +152,8 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 				parseErr = fmt.Errorf("--web-tls-cert-pem-file must not be empty")
 				return
 			}
-			if _, err := tls.X509KeyPair([]byte(v), []byte(v)); err != nil && parseErr == nil {
-				parseErr = fmt.Errorf("--web-tls-cert-pem-file must contain a PEM certificate chain and private key: %w", err)
+			if _, keyPairErr := tls.X509KeyPair([]byte(v), []byte(v)); keyPairErr != nil && parseErr == nil {
+				parseErr = fmt.Errorf("--web-tls-cert-pem-file must contain a PEM certificate chain and private key: %w", keyPairErr)
 				return
 			}
 			opts.webTLSCertPEM = &v

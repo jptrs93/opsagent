@@ -50,7 +50,7 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	}
 
 	store.DeleteAsset("nginx.conf")
-	if _, ok := store.GetAsset("nginx.conf", 0); ok {
+	if _, foundAfterDelete := store.GetAsset("nginx.conf", 0); foundAfterDelete {
 		t.Fatal("asset still found after delete")
 	}
 }

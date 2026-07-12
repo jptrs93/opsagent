@@ -32,8 +32,8 @@ func newLoginResponse(user *apigen.InternalUser, token string, scopes []string, 
 }
 
 func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswordRequest) (*apigen.LoginResponse, error) {
-	if err := h.verifyMasterPassword(req.Password); err != nil {
-		return nil, err
+	if passwordErr := h.verifyMasterPassword(req.Password); passwordErr != nil {
+		return nil, passwordErr
 	}
 	if strings.TrimSpace(req.Username) == "" {
 		return nil, UsernameRequiredErr
@@ -43,9 +43,9 @@ func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswor
 	})
 	if errors.Is(err, sqlite.ErrNotFound) {
 		id := int32(h.Store.UserCount()) + 1
-		webAuthNID, err := authu.GenerateWebAuthnID(32)
-		if err != nil {
-			return nil, err
+		webAuthNID, generateErr := authu.GenerateWebAuthnID(32)
+		if generateErr != nil {
+			return nil, generateErr
 		}
 		user = &apigen.InternalUser{
 			ID:         id,
@@ -90,8 +90,8 @@ func (h *Handler) PostV1AuthMasterPasswordSave(ctx apigen.Context, req *apigen.M
 	if err != nil {
 		return fmt.Errorf("hashing master password: %w", err)
 	}
-	if err := h.ConfigService.SetMasterPasswordHash(hash); err != nil {
-		return err
+	if saveErr := h.ConfigService.SetMasterPasswordHash(hash); saveErr != nil {
+		return saveErr
 	}
 	return nil
 }
@@ -131,8 +131,8 @@ func (h *Handler) VerifyAuth(ctx context.Context, _ http.ResponseWriter, r *http
 	scopes := jwtu.ScopesFromClaims(claims)
 	res.User = user
 	res.Token = tokenString
-	if err := policy.CanAccess(scopes); err != nil {
-		return res, err
+	if accessErr := policy.CanAccess(scopes); accessErr != nil {
+		return res, accessErr
 	}
 	return res, nil
 }

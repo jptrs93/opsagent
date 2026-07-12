@@ -20,7 +20,6 @@ const defaultAPIBaseURL = "https://api.github.com"
 var ErrReleaseNotFound = errors.New("release not found")
 
 type Client struct {
-	httpClient  *http.Client
 	credentials githubcredentials.Provider
 	apiBaseURL  string
 }
@@ -34,12 +33,8 @@ func WithAPIBaseURL(baseURL string) Option {
 	}
 }
 
-func NewClient(httpClient *http.Client, provider githubcredentials.Provider, options ...Option) *Client {
-	if httpClient == nil {
-		httpClient = http.DefaultClient
-	}
+func NewClient(provider githubcredentials.Provider, options ...Option) *Client {
 	c := &Client{
-		httpClient:  httpClient,
 		credentials: provider,
 		apiBaseURL:  defaultAPIBaseURL,
 	}
@@ -89,8 +84,8 @@ func (c *Client) ListReleases(ctx context.Context, repo string, limit int) ([]Re
 	}
 	url := fmt.Sprintf("%s/repos/%s/releases?per_page=%d", c.apiBaseURL, ownerRepo, limit)
 	var releases []Release
-	if err := c.getJSON(ctx, url, &releases, false); err != nil {
-		return nil, err
+	if requestErr := c.getJSON(ctx, url, &releases, false); requestErr != nil {
+		return nil, requestErr
 	}
 	return releases, nil
 }
@@ -102,8 +97,8 @@ func (c *Client) ReleaseByTag(ctx context.Context, repo, tag string) (*Release, 
 	}
 	url := fmt.Sprintf("%s/repos/%s/releases/tags/%s", c.apiBaseURL, ownerRepo, tag)
 	var release Release
-	if err := c.getJSON(ctx, url, &release, true); err != nil {
-		return nil, err
+	if requestErr := c.getJSON(ctx, url, &release, true); requestErr != nil {
+		return nil, requestErr
 	}
 	return &release, nil
 }
@@ -113,7 +108,7 @@ func (c *Client) getJSON(ctx context.Context, url string, out any, releaseByTag 
 	if err != nil {
 		return err
 	}
-	resp, err := c.httpClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("github api: %w", err)
 	}
@@ -147,7 +142,7 @@ func (c *Client) authenticatedRequest(ctx context.Context, url, accept string) (
 // DownloadAsset follows API redirects without forwarding GitHub credentials to
 // the asset host, and atomically replaces dstPath after a successful download.
 func (c *Client) DownloadAsset(ctx context.Context, assetAPIURL, dstPath string) error {
-	client := *c.httpClient
+	client := *http.DefaultClient
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
@@ -186,18 +181,18 @@ func (c *Client) DownloadAsset(ctx context.Context, assetAPIURL, dstPath string)
 		return err
 	}
 	tmpPath := tmp.Name()
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
+	if _, copyErr := io.Copy(tmp, resp.Body); copyErr != nil {
 		tmp.Close()
 		_ = os.Remove(tmpPath)
-		return err
+		return copyErr
 	}
-	if err := tmp.Close(); err != nil {
+	if closeErr := tmp.Close(); closeErr != nil {
 		_ = os.Remove(tmpPath)
-		return err
+		return closeErr
 	}
-	if err := os.Rename(tmpPath, dstPath); err != nil {
+	if renameErr := os.Rename(tmpPath, dstPath); renameErr != nil {
 		_ = os.Remove(tmpPath)
-		return err
+		return renameErr
 	}
 	return nil
 }

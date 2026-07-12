@@ -60,21 +60,21 @@ func TestContainerImageRepositoryNormalization(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(subtest *testing.T) {
 			gotURL, err := ContainerImageRepositoryURL(tt.image)
 			if err != nil {
-				t.Fatalf("ContainerImageRepositoryURL() error = %v", err)
+				subtest.Fatalf("ContainerImageRepositoryURL() error = %v", err)
 			}
 			if gotURL != tt.wantURL {
-				t.Fatalf("ContainerImageRepositoryURL() = %q, want %q", gotURL, tt.wantURL)
+				subtest.Fatalf("ContainerImageRepositoryURL() = %q, want %q", gotURL, tt.wantURL)
 			}
 
 			gotRef, err := ContainerImageRepositoryRef(tt.image)
 			if err != nil {
-				t.Fatalf("ContainerImageRepositoryRef() error = %v", err)
+				subtest.Fatalf("ContainerImageRepositoryRef() error = %v", err)
 			}
 			if gotRef != tt.wantRef {
-				t.Fatalf("ContainerImageRepositoryRef() = %q, want %q", gotRef, tt.wantRef)
+				subtest.Fatalf("ContainerImageRepositoryRef() = %q, want %q", gotRef, tt.wantRef)
 			}
 		})
 	}
@@ -102,13 +102,13 @@ func TestContainerImageRef(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(subtest *testing.T) {
 			got, err := ContainerImageRef(tt.image, tt.version)
 			if err != nil {
-				t.Fatalf("ContainerImageRef() error = %v", err)
+				subtest.Fatalf("ContainerImageRef() error = %v", err)
 			}
 			if got != tt.want {
-				t.Fatalf("ContainerImageRef() = %q, want %q", got, tt.want)
+				subtest.Fatalf("ContainerImageRef() = %q, want %q", got, tt.want)
 			}
 		})
 	}

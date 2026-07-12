@@ -55,10 +55,10 @@ func TestContainerRunnerShouldPublishStopped(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(subtest *testing.T) {
 			r := &containerRunner{status: tt.st}
 			if got := r.shouldPublishStopped(); got != tt.want {
-				t.Fatalf("shouldPublishStopped() = %v, want %v", got, tt.want)
+				subtest.Fatalf("shouldPublishStopped() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -106,9 +106,9 @@ func TestDefaultVolumeDest(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(subtest *testing.T) {
 			if got := defaultVolumeDest(tt.user, tt.override); got != tt.want {
-				t.Fatalf("defaultVolumeDest(%q, %q) = %q, want %q", tt.user, tt.override, got, tt.want)
+				subtest.Fatalf("defaultVolumeDest(%q, %q) = %q, want %q", tt.user, tt.override, got, tt.want)
 			}
 		})
 	}
@@ -144,8 +144,7 @@ func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	containerd := ctrd.New("unused", "unused")
-	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, containerd, nil, &apigen.DeploymentConfig{
+	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, &apigen.DeploymentConfig{
 		ID: 7,
 		Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
 			DisableDataVolume:   true,
@@ -158,9 +157,6 @@ func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	}
 	if r.fileDescLimit != 4096 {
 		t.Fatalf("fileDescLimit = %d, want 4096", r.fileDescLimit)
-	}
-	if r.containerd != containerd {
-		t.Fatal("containerd client was not retained")
 	}
 }
 

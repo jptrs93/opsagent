@@ -22,14 +22,12 @@ import (
 type Preparer struct {
 	releasesDir string
 	github      *github.Client
-	containerd  *ctrd.Client
 }
 
-func New(releasesDir string, githubClient *github.Client, containerdClient *ctrd.Client) *Preparer {
+func New(releasesDir string, githubClient *github.Client) *Preparer {
 	return &Preparer{
 		releasesDir: filepath.Clean(releasesDir),
 		github:      githubClient,
-		containerd:  containerdClient,
 	}
 }
 
@@ -57,7 +55,7 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 		log.Error("building opendeploy-net image: %v", err)
 		return "", apigen.PreparationStatus_FAILED
 	}
-	resolved, err := p.containerd.Import(ctx, ctrd.ImageStream{Reader: reader, Ref: ref})
+	resolved, err := ctrd.Default.Import(ctx, ctrd.ImageStream{Reader: reader, Ref: ref})
 	if err != nil {
 		log.Error("importing opendeploy-net image: %v", err)
 		return "", apigen.PreparationStatus_FAILED
@@ -84,21 +82,21 @@ func (p *Preparer) downloadReleaseAsset(ctx context.Context, version string, log
 	log.Write("selected asset %s (%d bytes)", asset.Name, asset.Size)
 
 	dstDir := filepath.Join(p.releasesDir, ownerRepo, version)
-	if err := os.MkdirAll(dstDir, 0o755); err != nil {
-		return "", fmt.Errorf("creating release dir: %w", err)
+	if mkdirErr := os.MkdirAll(dstDir, 0o755); mkdirErr != nil {
+		return "", fmt.Errorf("creating release dir: %w", mkdirErr)
 	}
 	dstPath := filepath.Join(dstDir, asset.Name)
-	if info, err := os.Stat(dstPath); err == nil && info.Size() == asset.Size && info.Mode().Perm()&0o111 != 0 {
+	if info, statErr := os.Stat(dstPath); statErr == nil && info.Size() == asset.Size && info.Mode().Perm()&0o111 != 0 {
 		log.Write("using cached asset %s", dstPath)
 		return dstPath, nil
 	}
 
 	log.Write("downloading asset to %s", dstPath)
-	if err := p.github.DownloadAsset(ctx, asset.URL, dstPath); err != nil {
-		return "", fmt.Errorf("download failed: %w", err)
+	if downloadErr := p.github.DownloadAsset(ctx, asset.URL, dstPath); downloadErr != nil {
+		return "", fmt.Errorf("download failed: %w", downloadErr)
 	}
-	if err := os.Chmod(dstPath, 0o755); err != nil {
-		return "", fmt.Errorf("chmod failed: %w", err)
+	if chmodErr := os.Chmod(dstPath, 0o755); chmodErr != nil {
+		return "", fmt.Errorf("chmod failed: %w", chmodErr)
 	}
 	return dstPath, nil
 }

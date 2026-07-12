@@ -73,11 +73,11 @@ func opendeployBinaryOCI(ref string, binary []byte) (io.Reader, error) {
 
 	var out bytes.Buffer
 	tw := tar.NewWriter(&out)
-	if err := writeTarFile(tw, "oci-layout", []byte(`{"imageLayoutVersion":"1.0.0"}`), 0o644); err != nil {
-		return nil, err
+	if layoutErr := writeTarFile(tw, "oci-layout", []byte(`{"imageLayoutVersion":"1.0.0"}`), 0o644); layoutErr != nil {
+		return nil, layoutErr
 	}
-	if err := writeTarFile(tw, "index.json", indexBytes, 0o644); err != nil {
-		return nil, err
+	if indexErr := writeTarFile(tw, "index.json", indexBytes, 0o644); indexErr != nil {
+		return nil, indexErr
 	}
 	for _, blob := range []struct {
 		digest string
@@ -85,12 +85,12 @@ func opendeployBinaryOCI(ref string, binary []byte) (io.Reader, error) {
 	}{
 		{configDigest, configBytes}, {manifestDigest, manifestBytes}, {layerDigest, layer},
 	} {
-		if err := writeTarFile(tw, "blobs/sha256/"+blob.digest, blob.data, 0o644); err != nil {
-			return nil, err
+		if blobErr := writeTarFile(tw, "blobs/sha256/"+blob.digest, blob.data, 0o644); blobErr != nil {
+			return nil, blobErr
 		}
 	}
-	if err := tw.Close(); err != nil {
-		return nil, err
+	if closeErr := tw.Close(); closeErr != nil {
+		return nil, closeErr
 	}
 	return bytes.NewReader(out.Bytes()), nil
 }

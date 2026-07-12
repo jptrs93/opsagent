@@ -244,8 +244,8 @@ func sha256OfFile(path string) (string, error) {
 	}
 	defer f.Close()
 	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
+	if _, copyErr := io.Copy(h, f); copyErr != nil {
+		return "", copyErr
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
@@ -282,25 +282,25 @@ func extractTarGzMembers(tarPath, destDir string, members []string) error {
 	tr := tar.NewReader(gz)
 	found := 0
 	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
+		hdr, nextErr := tr.Next()
+		if nextErr == io.EOF {
 			break
 		}
-		if err != nil {
-			return err
+		if nextErr != nil {
+			return nextErr
 		}
 		base := filepath.Base(hdr.Name)
 		if hdr.Typeflag != tar.TypeReg || !want[base] {
 			continue
 		}
 		dst := filepath.Join(destDir, base)
-		out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
-		if err != nil {
-			return err
+		out, openErr := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+		if openErr != nil {
+			return openErr
 		}
-		if _, err := io.Copy(out, tr); err != nil {
+		if _, copyErr := io.Copy(out, tr); copyErr != nil {
 			out.Close()
-			return err
+			return copyErr
 		}
 		out.Close()
 		found++
@@ -383,8 +383,8 @@ func resolveLatestTag() (string, error) {
 	var body struct {
 		TagName string `json:"tag_name"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return "", err
+	if decodeErr := json.NewDecoder(resp.Body).Decode(&body); decodeErr != nil {
+		return "", decodeErr
 	}
 	if body.TagName == "" {
 		return "", fmt.Errorf("no tag_name in latest release response")

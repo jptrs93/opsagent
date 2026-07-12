@@ -27,16 +27,14 @@ import (
 // stream, imports the stream into containerd, and returns the local image ref.
 type Preparer struct {
 	gitManager *repogit.Manager
-	client     *ctrd.Client
 	sem        chan struct{}
 }
 
 // New creates a Nix Docker preparer. Builds are limited to one concurrent Nix
 // invocation per Preparer instance to avoid thrashing the Nix store.
-func New(gitManager *repogit.Manager, client *ctrd.Client) *Preparer {
+func New(gitManager *repogit.Manager) *Preparer {
 	return &Preparer{
 		gitManager: gitManager,
-		client:     client,
 		sem:        make(chan struct{}, 1),
 	}
 }
@@ -86,28 +84,28 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 		return "", apigen.PreparationStatus_FAILED
 	}
 
-	imageRef := imageRef(dep.ID, version)
-	log.Write("importing image stream %s as %s", streamPath, imageRef)
-	if err := p.importStream(ctx, streamPath, imageRef, log); err != nil {
-		log.Error("importing image: %v", err)
+	localImageRef := imageRef(dep.ID, version)
+	log.Write("importing image stream %s as %s", streamPath, localImageRef)
+	if importErr := p.importStream(ctx, streamPath, localImageRef, log); importErr != nil {
+		log.Error("importing image: %v", importErr)
 		return "", apigen.PreparationStatus_FAILED
 	}
-	log.Write("image import complete: %s", imageRef)
+	log.Write("image import complete: %s", localImageRef)
 
-	return imageRef, apigen.PreparationStatus_READY
+	return localImageRef, apigen.PreparationStatus_READY
 }
 
-func (p *Preparer) importStream(ctx context.Context, streamPath string, imageRef string, log *preparerlog.Log) error {
+func (p *Preparer) importStream(ctx context.Context, streamPath string, localImageRef string, log *preparerlog.Log) error {
 	cmd := exec.CommandContext(ctx, streamPath)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("opening stream stdout: %w", err)
 	}
 	cmd.Stderr = log.Output()
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("starting image stream: %w", err)
+	if startErr := cmd.Start(); startErr != nil {
+		return fmt.Errorf("starting image stream: %w", startErr)
 	}
-	_, importErr := p.client.Import(ctx, ctrd.ImageStream{Reader: stdout, Ref: imageRef})
+	_, importErr := ctrd.Default.Import(ctx, ctrd.ImageStream{Reader: stdout, Ref: localImageRef})
 	if importErr != nil {
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
@@ -115,8 +113,8 @@ func (p *Preparer) importStream(ctx context.Context, streamPath string, imageRef
 		_ = cmd.Wait()
 		return importErr
 	}
-	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("image stream exited: %w", err)
+	if waitErr := cmd.Wait(); waitErr != nil {
+		return fmt.Errorf("image stream exited: %w", waitErr)
 	}
 	return nil
 }
@@ -138,10 +136,10 @@ func runCmdCapture(ctx context.Context, dir string, log *preparerlog.Log, name s
 	}
 	defer closePipes()
 
-	if err := cmd.Start(); err != nil {
-		slog.ErrorContext(ctx, "cmd start failed", "cmd", cmdStr, "err", err)
-		log.Error("starting command: %v", err)
-		return nil, fmt.Errorf("start %s: %w", cmdStr, err)
+	if startErr := cmd.Start(); startErr != nil {
+		slog.ErrorContext(ctx, "cmd start failed", "cmd", cmdStr, "err", startErr)
+		log.Error("starting command: %v", startErr)
+		return nil, fmt.Errorf("start %s: %w", cmdStr, startErr)
 	}
 	slog.InfoContext(ctx, "cmd started", "cmd", cmdStr, "pid", cmd.Process.Pid)
 
@@ -164,9 +162,9 @@ func runCmdCapture(ctx context.Context, dir string, log *preparerlog.Log, name s
 				mu.Unlock()
 			}
 		}
-		if err := scanner.Err(); err != nil {
-			slog.ErrorContext(ctx, "scanner error", "cmd", cmdStr, "stream", prefix, "err", err)
-			log.Error("reading command %s: %v", prefix, err)
+		if scanErr := scanner.Err(); scanErr != nil {
+			slog.ErrorContext(ctx, "scanner error", "cmd", cmdStr, "stream", prefix, "err", scanErr)
+			log.Error("reading command %s: %v", prefix, scanErr)
 		}
 	}
 
@@ -175,14 +173,14 @@ func runCmdCapture(ctx context.Context, dir string, log *preparerlog.Log, name s
 	go streamPipe("stderr", stderr, false)
 	wg.Wait()
 
-	if err := cmd.Wait(); err != nil {
+	if waitErr := cmd.Wait(); waitErr != nil {
 		if isContextDone(ctx.Err()) {
 			return stdoutLines, ctx.Err()
 		}
-		exitErr := fmt.Sprintf("cmd failed: %s: %v", cmdStr, err)
+		exitErr := fmt.Sprintf("cmd failed: %s: %v", cmdStr, waitErr)
 		slog.ErrorContext(ctx, exitErr)
 		log.Error("%s", exitErr)
-		return stdoutLines, fmt.Errorf("%s: %w", cmdStr, err)
+		return stdoutLines, fmt.Errorf("%s: %w", cmdStr, waitErr)
 	}
 	slog.InfoContext(ctx, "cmd completed", "cmd", cmdStr)
 	return stdoutLines, nil

@@ -98,8 +98,8 @@ export class DeploymentCreationUpdate {
         const repoName = this.form.nixRepo.val.trim();
         if (!repoName) return;
         const branchMap = new Map(this.cachedRepoBranchCommitOptions.get(repoName) || []);
-        for (const branch of sourceResult.availableBranches?.branches || []) {
-            if (!branchMap.has(branch)) branchMap.set(branch, []);
+        for (const availableBranch of sourceResult.availableBranches?.branches || []) {
+            if (!branchMap.has(availableBranch)) branchMap.set(availableBranch, []);
         }
         const branch = sourceResult.availableCommits?.branch || '';
         const commits = sourceResult.availableCommits?.commits || [];

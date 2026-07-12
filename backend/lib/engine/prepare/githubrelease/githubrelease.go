@@ -83,15 +83,15 @@ func (p *Preparer) downloadReleaseAsset(ctx context.Context, repo, assetName, ve
 	}
 	dstPath := filepath.Join(dstDir, asset.Name)
 
-	if info, err := os.Stat(dstPath); err == nil && info.Size() == asset.Size && info.Mode().Perm()&0o111 != 0 {
+	if info, statErr := os.Stat(dstPath); statErr == nil && info.Size() == asset.Size && info.Mode().Perm()&0o111 != 0 {
 		log.Write("using cached asset %s", dstPath)
 	} else {
 		log.Write("downloading asset to %s", dstPath)
-		if err := p.client.DownloadAsset(ctx, asset.URL, dstPath); err != nil {
-			return "", fmt.Errorf("download failed: %w", err)
+		if downloadErr := p.client.DownloadAsset(ctx, asset.URL, dstPath); downloadErr != nil {
+			return "", fmt.Errorf("download failed: %w", downloadErr)
 		}
-		if err := os.Chmod(dstPath, 0o755); err != nil {
-			return "", fmt.Errorf("chmod failed: %w", err)
+		if chmodErr := os.Chmod(dstPath, 0o755); chmodErr != nil {
+			return "", fmt.Errorf("chmod failed: %w", chmodErr)
 		}
 	}
 	return dstPath, nil
@@ -114,13 +114,13 @@ func (p *Preparer) runDownloadScript(ctx context.Context, gh apigen.GithubReleas
 	}
 	scriptPath := scriptFile.Name()
 	defer os.Remove(scriptPath)
-	if _, err := scriptFile.WriteString(script); err != nil {
+	if _, writeErr := scriptFile.WriteString(script); writeErr != nil {
 		scriptFile.Close()
-		log.Error("writing download script: %v", err)
+		log.Error("writing download script: %v", writeErr)
 		return "", apigen.PreparationStatus_FAILED
 	}
-	if err := scriptFile.Close(); err != nil {
-		log.Error("closing download script: %v", err)
+	if closeErr := scriptFile.Close(); closeErr != nil {
+		log.Error("closing download script: %v", closeErr)
 		return "", apigen.PreparationStatus_FAILED
 	}
 
@@ -138,8 +138,8 @@ func (p *Preparer) runDownloadScript(ctx context.Context, gh apigen.GithubReleas
 	if creds.Token != "" {
 		cmd.Env = append(cmd.Env, "GITHUB_TOKEN="+creds.Token)
 	}
-	if err := cmd.Run(); err != nil {
-		log.Error("running download script: %v", err)
+	if runErr := cmd.Run(); runErr != nil {
+		log.Error("running download script: %v", runErr)
 		return "", apigen.PreparationStatus_FAILED
 	}
 
@@ -148,8 +148,8 @@ func (p *Preparer) runDownloadScript(ctx context.Context, gh apigen.GithubReleas
 		log.Error("locating download script output: %v", err)
 		return "", apigen.PreparationStatus_FAILED
 	}
-	if err := os.Chmod(artifact, 0o755); err != nil {
-		log.Error("making downloaded artifact executable: %v", err)
+	if chmodErr := os.Chmod(artifact, 0o755); chmodErr != nil {
+		log.Error("making downloaded artifact executable: %v", chmodErr)
 		return "", apigen.PreparationStatus_FAILED
 	}
 

@@ -14,12 +14,10 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/imageref"
 )
 
-// ContainerImageVersionProvider lists public image tags via the Docker Registry
-// HTTP API. It supports Kubernetes-style image names, including Docker Hub
-// shorthand such as "postgres" and "library/postgres".
-type ContainerImageVersionProvider struct{}
-
-func (ContainerImageVersionProvider) ListTags(ctx context.Context, image string) ([]*apigen.Version, error) {
+// ListContainerImageTags lists public image tags via the Docker Registry HTTP
+// API. It supports Kubernetes-style image names, including Docker Hub shorthand
+// such as "postgres" and "library/postgres".
+func ListContainerImageTags(ctx context.Context, image string) ([]*apigen.Version, error) {
 	if strings.TrimSpace(image) == "" {
 		return nil, fmt.Errorf("container image missing")
 	}
@@ -28,9 +26,9 @@ func (ContainerImageVersionProvider) ListTags(ctx context.Context, image string)
 		return nil, err
 	}
 	if ref.Version != "" {
-		ok, err := imageVersionExists(ctx, ref)
-		if err != nil {
-			return nil, err
+		ok, existsErr := imageVersionExists(ctx, ref)
+		if existsErr != nil {
+			return nil, existsErr
 		}
 		if !ok {
 			return nil, fmt.Errorf("image version %q not found", ref.Version)
@@ -94,9 +92,9 @@ func listImageTags(ctx context.Context, ref imageref.Repository) ([]string, erro
 		var out struct {
 			Tags []string `json:"tags"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		if decodeErr := json.NewDecoder(resp.Body).Decode(&out); decodeErr != nil {
 			resp.Body.Close()
-			return nil, err
+			return nil, decodeErr
 		}
 		tags = append(tags, out.Tags...)
 		nextURL = nextRegistryPageURL(nextURL, resp.Header.Get("Link"))
@@ -227,8 +225,8 @@ func registryBearerToken(ctx context.Context, client *http.Client, challenge str
 		Token       string `json:"token"`
 		AccessToken string `json:"access_token"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", err
+	if decodeErr := json.NewDecoder(resp.Body).Decode(&out); decodeErr != nil {
+		return "", decodeErr
 	}
 	if out.Token != "" {
 		return out.Token, nil

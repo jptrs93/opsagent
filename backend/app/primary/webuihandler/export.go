@@ -19,7 +19,7 @@ type exportedConfigBundle struct {
 func (h *Handler) PostV1GenerateExportedConfig(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ExportedConfigBlob, error) {
 	deployments := h.Store.ListActiveDeploymentConfigs()
 	configs := h.Store.ListUserConfigs()
-	secrets := h.listSecretMetas()
+	secretMetas := h.listSecretMetas()
 	assets := h.Store.ListAssets()
 	spaces := h.Store.ListSpaces()
 	storedSettings := h.ConfigService.Snapshot().Settings
@@ -27,14 +27,14 @@ func (h *Handler) PostV1GenerateExportedConfig(ctx apigen.Context, req *apigen.E
 
 	sort.Slice(deployments, func(i, j int) bool { return deployments[i].ID < deployments[j].ID })
 	sort.Slice(configs, func(i, j int) bool { return configs[i].Name < configs[j].Name })
-	sort.Slice(secrets, func(i, j int) bool { return secrets[i].Name < secrets[j].Name })
+	sort.Slice(secretMetas, func(i, j int) bool { return secretMetas[i].Name < secretMetas[j].Name })
 	sort.Slice(assets, func(i, j int) bool { return assets[i].Key < assets[j].Key })
 	sort.Slice(spaces, func(i, j int) bool { return spaces[i].ID < spaces[j].ID })
 
 	content := exportedConfigBundle{
 		Deployments: deployments,
 		Configs:     configs,
-		Secrets:     secrets,
+		Secrets:     secretMetas,
 		Assets:      assets,
 		Spaces:      spaces,
 		Settings:    settings,
@@ -44,8 +44,8 @@ func (h *Handler) PostV1GenerateExportedConfig(ctx apigen.Context, req *apigen.E
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(encoded, &jsonValue); err != nil {
-		return nil, err
+	if unmarshalErr := json.Unmarshal(encoded, &jsonValue); unmarshalErr != nil {
+		return nil, unmarshalErr
 	}
 	for key, value := range jsonValue {
 		jsonValue[key], _ = pruneExportValue(value)

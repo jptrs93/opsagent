@@ -58,8 +58,8 @@ func streamBackwardLogFiles(paths []string, configVersion int, since time.Time, 
 		}
 		j := i + 1
 		for j < len(paths) {
-			nextBucket, _, _, ok := parseLogFileName(filepath.Base(paths[j]))
-			if !ok || !nextBucket.Equal(bucket) {
+			nextBucket, _, _, parsed := parseLogFileName(filepath.Base(paths[j]))
+			if !parsed || !nextBucket.Equal(bucket) {
 				break
 			}
 			j++
@@ -201,12 +201,12 @@ func readLogFile(path string, configVersion int, since time.Time, till *time.Tim
 	defer f.Close()
 	var lines []LogLine
 	for {
-		line, err := readRecord(f)
-		if err != nil {
-			if err == io.EOF {
+		line, readErr := readRecord(f)
+		if readErr != nil {
+			if readErr == io.EOF {
 				return lines, nil
 			}
-			return nil, fmt.Errorf("read %s: %w", path, err)
+			return nil, fmt.Errorf("read %s: %w", path, readErr)
 		}
 		if configVersion > 0 && line.Version != int32(configVersion) {
 			continue

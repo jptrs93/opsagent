@@ -34,13 +34,13 @@ func (m *memStore) ListSecrets() []Record {
 	return out
 }
 func (m *memStore) NextSecretVersion(name string) int32 {
-	var max int32
+	var maxVersion int32
 	for _, r := range m.records {
-		if r.Name == name && r.Version > max {
-			max = r.Version
+		if r.Name == name && r.Version > maxVersion {
+			maxVersion = r.Version
 		}
 	}
-	return max + 1
+	return maxVersion + 1
 }
 func (m *memStore) InsertSecret(r Record) Record {
 	r.ID = int32(len(m.records) + 1)
@@ -181,8 +181,8 @@ func TestRenameReencryptsVersions(t *testing.T) {
 		t.Fatalf("Set second: %v", err)
 	}
 
-	if _, err := mgr.Rename("db.password", "prod.db.password"); err != nil {
-		t.Fatalf("Rename: %v", err)
+	if _, renameErr := mgr.Rename("db.password", "prod.db.password"); renameErr != nil {
+		t.Fatalf("Rename: %v", renameErr)
 	}
 	if got, ok := mgr.Resolve(first.ID); !ok || got != "one" {
 		t.Fatalf("Resolve first after rename = %q, %v; want one, true", got, ok)
@@ -227,14 +227,14 @@ func TestSystemSecretsAreSeparateFromUserSecrets(t *testing.T) {
 	if err != nil || string(got) != "ca-key" {
 		t.Fatalf("RevealInternal = %q, %v; want ca-key, nil", got, err)
 	}
-	if _, err := mgr.Set("opendeploy.cluster.ca.key", []byte("user"), 0); err != ErrReservedName {
-		t.Fatalf("Set reserved name err = %v; want ErrReservedName", err)
+	if _, setErr := mgr.Set("opendeploy.cluster.ca.key", []byte("user"), 0); setErr != ErrReservedName {
+		t.Fatalf("Set reserved name err = %v; want ErrReservedName", setErr)
 	}
-	if _, err := mgr.Set("opendeploy.config.github_token", []byte("user"), 0); err != nil {
-		t.Fatalf("Set opendeploy config secret err = %v; want nil", err)
+	if _, setErr := mgr.Set("opendeploy.config.github_token", []byte("user"), 0); setErr != nil {
+		t.Fatalf("Set opendeploy config secret err = %v; want nil", setErr)
 	}
-	if _, err := mgr.Set("opendeploy.tls.pem", []byte("tls"), 0); err != nil {
-		t.Fatalf("Set initial TLS cert secret err = %v; want nil", err)
+	if _, setErr := mgr.Set("opendeploy.tls.pem", []byte("tls"), 0); setErr != nil {
+		t.Fatalf("Set initial TLS cert secret err = %v; want nil", setErr)
 	}
 }
 
@@ -279,23 +279,23 @@ func TestRecoveryUnlockOnFreshMachine(t *testing.T) {
 	if _, ok := mgr2.Resolve(meta.ID); ok {
 		t.Fatal("locked store must not resolve secrets")
 	}
-	if _, err := mgr2.Set("x", []byte("y"), 0); err == nil {
+	if _, setErr := mgr2.Set("x", []byte("y"), 0); setErr == nil {
 		t.Fatal("locked store must reject Set")
 	}
 
 	// Wrong code fails.
-	if err := mgr2.Unlock("AAAAA-BBBBB-CCCCC"); err == nil {
+	if unlockErr := mgr2.Unlock("AAAAA-BBBBB-CCCCC"); unlockErr == nil {
 		t.Fatal("expected wrong recovery code to fail")
 	}
 	// Correct code unlocks and re-establishes machine.key.
-	if err := mgr2.Unlock(code); err != nil {
-		t.Fatalf("Unlock: %v", err)
+	if unlockErr := mgr2.Unlock(code); unlockErr != nil {
+		t.Fatalf("Unlock: %v", unlockErr)
 	}
 	if got, ok := mgr2.Resolve(meta.ID); !ok || got != "v" {
 		t.Fatalf("Resolve after recovery = %q, %v", got, ok)
 	}
-	if _, err := os.Stat(filepath.Join(freshDir, machineKeyFile)); err != nil {
-		t.Fatalf("machine.key not re-established: %v", err)
+	if _, statErr := os.Stat(filepath.Join(freshDir, machineKeyFile)); statErr != nil {
+		t.Fatalf("machine.key not re-established: %v", statErr)
 	}
 
 	// And a subsequent normal reopen on the fresh machine is unattended.
@@ -325,8 +325,8 @@ func TestCodeFormattingTolerated(t *testing.T) {
 		}
 		spaced += string(c)
 	}
-	if err := mgr2.Unlock(toLower(spaced)); err != nil {
-		t.Fatalf("Unlock with reformatted code: %v", err)
+	if unlockErr := mgr2.Unlock(toLower(spaced)); unlockErr != nil {
+		t.Fatalf("Unlock with reformatted code: %v", unlockErr)
 	}
 }
 

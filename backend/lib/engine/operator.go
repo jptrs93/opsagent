@@ -6,7 +6,6 @@ import (
 	"log/slog"
 
 	"github.com/jptrs93/goutil/pubsubu"
-	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/containerimage"
@@ -25,9 +24,7 @@ type DeploymentOperator struct {
 	Store              storage.OperatorStore
 	GithubRelease      *githubrelease.Preparer
 	NixDocker          *nixdocker.Preparer
-	ContainerImage     *containerimage.Preparer
 	GithubReleaseImage *githubreleaseimage.Preparer
-	Containerd         *ctrd.Client
 	RuntimeInputs      *runtimeinputs.RuntimeInputs
 }
 
@@ -75,7 +72,7 @@ func (op DeploymentOperator) RunAll(machine string) {
 			if !ok {
 				return
 			}
-			if _, ok := running[v.Config.ID]; !ok {
+			if _, exists := running[v.Config.ID]; !exists {
 				running[v.Config.ID] = struct{}{}
 				slog.Info("RunAll: launching operator for new deployment",
 					"id", v.Config.ID,
@@ -117,7 +114,7 @@ func (op DeploymentOperator) Run(
 			"runnerStatus", fmtRunnerStatus(status.Runner),
 			"configSeqNo", config.Version,
 		)
-		currentRunner = runner.ReAttachRunning(op.Store, op.Containerd, op.RuntimeInputs, config, status.Runner)
+		currentRunner = runner.ReAttachRunning(op.Store, op.RuntimeInputs, config, status.Runner)
 	} else {
 		slog.Info("Run: initializing stopped deployment",
 			"dep", depName,
@@ -126,7 +123,7 @@ func (op DeploymentOperator) Run(
 			"configSeqNo", config.Version,
 		)
 		currentPreparer = prepare.Finished(config.Version)
-		currentRunner = runner.ReAttachStopped(op.Store, op.Containerd, op.RuntimeInputs, config, status.Runner)
+		currentRunner = runner.ReAttachStopped(op.Store, op.RuntimeInputs, config, status.Runner)
 	}
 	var candidate runner.RolloverCandidate
 	var candidateReady <-chan rolloverCandidateResult
@@ -146,8 +143,8 @@ func (op DeploymentOperator) Run(
 				continue
 			}
 			slog.Info("Run: rollover candidate ready, promoting candidate", "dep", depName, "configSeqNo", result.version)
-			if err := candidate.Promote(); err != nil {
-				slog.Warn("Run: rollover candidate promotion failed", "dep", depName, "configSeqNo", result.version, "err", err)
+			if promoteErr := candidate.Promote(); promoteErr != nil {
+				slog.Warn("Run: rollover candidate promotion failed", "dep", depName, "configSeqNo", result.version, "err", promoteErr)
 				candidate.Stop()
 				candidate = nil
 				candidateReady = nil
@@ -162,10 +159,10 @@ func (op DeploymentOperator) Run(
 			if !ok {
 				return
 			}
-			config := update.Config
-			status := update.Status
+			updatedConfig := update.Config
+			updatedStatus := update.Status
 			switch {
-			case config.Deleted:
+			case updatedConfig.Deleted:
 				slog.Info("Run: deployment deleted, shutting down", "dep", depName)
 				currentPreparer.Cancel()
 				if candidate != nil {
@@ -174,7 +171,7 @@ func (op DeploymentOperator) Run(
 				currentRunner.Stop()
 				sub.UnsubscribeFunc()
 				return
-			case !config.DesiredState.Running:
+			case !updatedConfig.DesiredState.Running:
 				slog.Info("Run: desired running=false, stopping runner", "dep", depName)
 				if candidate != nil {
 					candidate.Stop()
@@ -182,28 +179,28 @@ func (op DeploymentOperator) Run(
 					candidateReady = nil
 				}
 				currentRunner.Stop()
-			case config.Version > currentPreparer.Version() && config.DesiredState.Running:
+			case updatedConfig.Version > currentPreparer.Version() && updatedConfig.DesiredState.Running:
 				slog.Info("Run: config ahead of preparer, starting new prepare",
 					"dep", depName,
-					"configSeqNo", config.Version, "preparerSeqNo", currentPreparer.Version())
+					"configSeqNo", updatedConfig.Version, "preparerSeqNo", currentPreparer.Version())
 				if candidate != nil {
 					candidate.Stop()
 					candidate = nil
 					candidateReady = nil
 				}
 				currentPreparer.Cancel()
-				currentPreparer = op.startPreparer(&config)
-			case preparerReady(&status, config.Version) && config.Version > currentRunner.Version() && candidate == nil:
+				currentPreparer = op.startPreparer(&updatedConfig)
+			case preparerReady(&updatedStatus, updatedConfig.Version) && updatedConfig.Version > currentRunner.Version() && candidate == nil:
 				slog.Info("Run: preparer ready, creating runner",
 					"dep", depName,
-					"artifact", status.Preparer.Artifact, "configSeqNo", config.Version)
-				if containerUpgradeStrategy(&config) == apigen.ContainerUpgradeStrategy_ROLLOVER {
-					candidate = runner.CreateRolloverCandidate(op.Store, op.Containerd, op.RuntimeInputs, &config, &status)
-					candidateReady = waitForRolloverCandidate(candidate, config.Version)
+					"artifact", updatedStatus.Preparer.Artifact, "configSeqNo", updatedConfig.Version)
+				if containerUpgradeStrategy(&updatedConfig) == apigen.ContainerUpgradeStrategy_ROLLOVER {
+					candidate = runner.CreateRolloverCandidate(op.Store, op.RuntimeInputs, &updatedConfig, &updatedStatus)
+					candidateReady = waitForRolloverCandidate(candidate, updatedConfig.Version)
 					continue
 				}
 				currentRunner.Stop()
-				currentRunner = runner.Create(op.Store, op.Containerd, op.RuntimeInputs, &config, &status)
+				currentRunner = runner.Create(op.Store, op.RuntimeInputs, &updatedConfig, &updatedStatus)
 			default:
 				slog.Debug("Run: nothing to do on update", "dep", depName)
 			}
@@ -235,8 +232,8 @@ func (op DeploymentOperator) prepare(ctx context.Context, dep *apigen.Deployment
 
 	prepare.WriteStatus(op.Store, dep, "", apigen.PreparationStatus_PREPARING)
 	log.Write("preparing runtime inputs")
-	if err := op.RuntimeInputs.EnsureReady(ctx, dep); err != nil {
-		log.Error("preparing runtime inputs: %v", err)
+	if inputsErr := op.RuntimeInputs.EnsureReady(ctx, dep); inputsErr != nil {
+		log.Error("preparing runtime inputs: %v", inputsErr)
 		return "", apigen.PreparationStatus_FAILED
 	}
 	log.Write("runtime inputs ready")
@@ -253,7 +250,7 @@ func (op DeploymentOperator) prepare(ctx context.Context, dep *apigen.Deployment
 		return op.GithubReleaseImage.Prepare(ctx, dep, log)
 	case dep.Spec.Prepare.ContainerImage != nil:
 		prepare.WriteStatus(op.Store, dep, "", apigen.PreparationStatus_PULLING)
-		return op.ContainerImage.Prepare(ctx, dep, log)
+		return containerimage.Prepare(ctx, dep, log)
 	default:
 		log.Error("no prepare config found")
 		return "", apigen.PreparationStatus_FAILED

@@ -44,13 +44,13 @@ func TestManagerResolveCloneURLNormalizesGithubRepo(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(subtest *testing.T) {
 			got, err := NewManager("", testGithubCredentialsProvider{token: "secret"}).ResolveCloneURL(context.Background(), tt.repo)
 			if err != nil {
-				t.Fatal(err)
+				subtest.Fatal(err)
 			}
 			if got != tt.want {
-				t.Fatalf("ResolveCloneURL() = %q, want %q", got, tt.want)
+				subtest.Fatalf("ResolveCloneURL() = %q, want %q", got, tt.want)
 			}
 		})
 	}

@@ -17,8 +17,8 @@ func TestMasterPasswordHashRoundTrip(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	if err := service.SetMasterPasswordHash("hash-1"); err != nil {
-		t.Fatalf("SetMasterPasswordHash: %v", err)
+	if setErr := service.SetMasterPasswordHash("hash-1"); setErr != nil {
+		t.Fatalf("SetMasterPasswordHash: %v", setErr)
 	}
 	hash, err := service.GetMasterPasswordHash()
 	if err != nil {
@@ -60,8 +60,8 @@ func TestEnsureInitialSettingsPersistedIncludesMasterPasswordHash(t *testing.T) 
 		t.Fatalf("persisted value = %q, want initial-hash", value)
 	}
 
-	if err := service.SetMasterPasswordHash("changed-hash"); err != nil {
-		t.Fatalf("SetMasterPasswordHash: %v", err)
+	if setErr := service.SetMasterPasswordHash("changed-hash"); setErr != nil {
+		t.Fatalf("SetMasterPasswordHash: %v", setErr)
 	}
 	ainit.StaticConfig.InitialMasterPasswordHash = "new-initial-hash"
 	value, err = service.GetMasterPasswordHash()
@@ -92,8 +92,8 @@ func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 
 	settings := DefaultSettings(ainit.StaticConfig)
 	settings.Repo.GithubToken = apigen.SecretRef{ID: secretMeta.ID}
-	if err := service.UpdateSettings(*settings); err != nil {
-		t.Fatalf("UpdateSettings: %v", err)
+	if updateErr := service.UpdateSettings(*settings); updateErr != nil {
+		t.Fatalf("UpdateSettings: %v", updateErr)
 	}
 
 	cfg := service.Snapshot()
@@ -114,8 +114,8 @@ func TestBackupEnabledDefaultsFalseAndCanBeEnabled(t *testing.T) {
 	}
 	settings := DefaultSettings(ainit.StaticConfig)
 	settings.Backup.Enabled = apigen.BoolSetting{Value: true}
-	if err := service.UpdateSettings(*settings); err != nil {
-		t.Fatalf("UpdateSettings BackupEnabled: %v", err)
+	if updateErr := service.UpdateSettings(*settings); updateErr != nil {
+		t.Fatalf("UpdateSettings BackupEnabled: %v", updateErr)
 	}
 	if !service.Snapshot().Settings.Backup.Enabled.Value {
 		t.Fatal("BackupEnabled after update = false, want true")
@@ -133,8 +133,8 @@ func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 
 	settings := DefaultSettings(ainit.StaticConfig)
 	settings.Cluster.Listen = apigen.StringSetting{ConfigRef: apigen.ConfigRef{ID: userCfg.ID}}
-	if err := service.UpdateSettings(*settings); err != nil {
-		t.Fatalf("UpdateSettings: %v", err)
+	if updateErr := service.UpdateSettings(*settings); updateErr != nil {
+		t.Fatalf("UpdateSettings: %v", updateErr)
 	}
 
 	cfg := service.Snapshot()

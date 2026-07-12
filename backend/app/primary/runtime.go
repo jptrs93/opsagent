@@ -13,8 +13,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine"
 	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
 	"github.com/jptrs93/opsagent/backend/lib/engine/configdist"
-	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
-	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/containerimage"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubrelease"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubreleaseimage"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixdocker"
@@ -68,13 +66,11 @@ func newRuntime() (*runtime, error) {
 		},
 	}
 
-	// The shared client connects lazily, so primary startup does not require containerd.
-	ctrdClient := ctrd.New(ainit.StaticConfig.ContainerdAddress, ainit.StaticConfig.ContainerdNamespace)
 	secretProvider := secretdist.NewPrimaryProvider(secretsMgr)
 	configProvider := configdist.NewPrimaryProvider(store)
 	runtimeInputs := runtimeinputs.New(assetStore, secretProvider, configProvider)
 	gitManager := repogit.NewManager(ainit.StaticConfig.DataDir, githubCredentials)
-	githubClient := githubrepo.NewClient(nil, githubCredentials)
+	githubClient := githubrepo.NewClient(githubCredentials)
 
 	return &runtime{
 		store:                 store,
@@ -87,10 +83,8 @@ func newRuntime() (*runtime, error) {
 		operator: engine.DeploymentOperator{
 			Store:              store,
 			GithubRelease:      githubrelease.New(ainit.StaticConfig.ReleasesDir, githubClient, githubCredentials),
-			NixDocker:          nixdocker.New(gitManager, ctrdClient),
-			ContainerImage:     containerimage.New(ctrdClient),
-			GithubReleaseImage: githubreleaseimage.New(ainit.StaticConfig.ReleasesDir, githubClient, ctrdClient),
-			Containerd:         ctrdClient,
+			NixDocker:          nixdocker.New(gitManager),
+			GithubReleaseImage: githubreleaseimage.New(ainit.StaticConfig.ReleasesDir, githubClient),
 			RuntimeInputs:      runtimeInputs,
 		},
 	}, nil

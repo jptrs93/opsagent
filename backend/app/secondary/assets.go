@@ -59,8 +59,8 @@ func clusterAssetHTTPError(resp *http.Response) error {
 		return err
 	}
 	if len(body) > 0 {
-		apiErr, err := apigen.DecodeApiErr(body)
-		if err == nil && apiErr != nil {
+		apiErr, decodeErr := apigen.DecodeApiErr(body)
+		if decodeErr == nil && apiErr != nil {
 			return apiErr
 		}
 	}

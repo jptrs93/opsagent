@@ -106,12 +106,12 @@ export function referencePicker({
                 if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                     e.preventDefault();
                     if (!open.val) open.val = true;
-                    const items = matches();
-                    if (items.length === 0) return;
-                    const current = clampedHighlight(items);
+                    const matchingItems = matches();
+                    if (matchingItems.length === 0) return;
+                    const current = clampedHighlight(matchingItems);
                     highlightedIndex.val = e.key === 'ArrowDown'
-                        ? (current + 1) % items.length
-                        : (current - 1 + items.length) % items.length;
+                        ? (current + 1) % matchingItems.length
+                        : (current - 1 + matchingItems.length) % matchingItems.length;
                     return;
                 }
                 if (e.key !== 'Enter' || !open.val) return;

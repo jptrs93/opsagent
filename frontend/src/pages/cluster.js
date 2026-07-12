@@ -186,8 +186,8 @@ function dialAddress(listen) {
 function listenPort(value) {
     const bracketPort = value.match(/^\[[^\]]+\]:(\d+)$/);
     if (bracketPort) return bracketPort[1];
-    const hostPort = value.match(/:(\d+)$/);
-    return hostPort ? hostPort[1] : "";
+    const hostPortMatch = value.match(/:(\d+)$/);
+    return hostPortMatch ? hostPortMatch[1] : "";
 }
 
 function browserHost() {

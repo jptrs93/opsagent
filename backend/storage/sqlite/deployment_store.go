@@ -94,21 +94,21 @@ func (s *deploymentStore) MustWriteDeploymentStatus(deploymentID int32, f func(*
 	}
 
 	params := statusProtoToInsertParams(int64(deploymentID), current)
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		panic(fmt.Sprintf("begin tx: %v", err))
+	tx, beginErr := s.db.BeginTx(ctx, nil)
+	if beginErr != nil {
+		panic(fmt.Sprintf("begin tx: %v", beginErr))
 	}
 	defer tx.Rollback()
 	q := s.q.WithTx(tx)
 
-	if err := q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
-		panic(fmt.Sprintf("UpsertDeploymentStatus: %v", err))
+	if upsertErr := q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); upsertErr != nil {
+		panic(fmt.Sprintf("UpsertDeploymentStatus: %v", upsertErr))
 	}
-	if err := q.InsertDeploymentStatusHistory(ctx, params); err != nil {
-		panic(fmt.Sprintf("InsertDeploymentStatusHistory: %v", err))
+	if historyErr := q.InsertDeploymentStatusHistory(ctx, params); historyErr != nil {
+		panic(fmt.Sprintf("InsertDeploymentStatusHistory: %v", historyErr))
 	}
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit: %v", err))
+	if commitErr := tx.Commit(); commitErr != nil {
+		panic(fmt.Sprintf("commit: %v", commitErr))
 	}
 
 	s.statusCache[deploymentID] = current

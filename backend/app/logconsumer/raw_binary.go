@@ -87,11 +87,11 @@ func runRawBinaryLogger(rawCfg rawBinaryConfig) {
 			close(outlines)
 		}()
 
-		if err := ready(); err != nil {
+		if readyErr := ready(); readyErr != nil {
 			closeInputs()
 			for range outlines {
 			}
-			return err
+			return readyErr
 		}
 
 		var writeErr error
@@ -99,8 +99,8 @@ func runRawBinaryLogger(rawCfg rawBinaryConfig) {
 			if writeErr != nil {
 				continue
 			}
-			if err := writer.WriteLineAt(line.t, line.stream, line.line); err != nil {
-				writeErr = err
+			if lineWriteErr := writer.WriteLineAt(line.t, line.stream, line.line); lineWriteErr != nil {
+				writeErr = lineWriteErr
 				closeInputs()
 			}
 		}

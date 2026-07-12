@@ -20,21 +20,21 @@ detect_arch() {
 }
 
 requested_version() {
-    local version="${OPENDEPLOY_VERSION:-latest}"
+    local restore_requested_version="${OPENDEPLOY_VERSION:-latest}"
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --version=*)
-                version="${1#*=}"
+                restore_requested_version="${1#*=}"
                 ;;
             --version)
                 if [ "$#" -gt 1 ]; then
-                    version="$2"
+                    restore_requested_version="$2"
                 fi
                 ;;
         esac
         shift
     done
-    printf '%s\n' "$version"
+    printf '%s\n' "$restore_requested_version"
 }
 
 run_as_root() {
@@ -46,70 +46,70 @@ run_as_root() {
 }
 
 verify_checksum() {
-    local bin_path="$1"
-    local sums_path="$2"
-    local bin_name="$3"
-    local want
+    local restore_checksum_bin_path="$1"
+    local restore_checksum_sums_path="$2"
+    local restore_checksum_bin_name="$3"
+    local restore_checksum_want
 
-    want="$(awk -v name="$bin_name" '$2 == name { print $1 }' "$sums_path")"
-    if [ -z "$want" ]; then
-        printf 'No checksum for %s in sha256sums.txt\n' "$bin_name" >&2
+    restore_checksum_want="$(awk -v name="$restore_checksum_bin_name" '$2 == name { print $1 }' "$restore_checksum_sums_path")"
+    if [ -z "$restore_checksum_want" ]; then
+        printf 'No checksum for %s in sha256sums.txt\n' "$restore_checksum_bin_name" >&2
         exit 1
     fi
 
     if command -v sha256sum >/dev/null 2>&1; then
-        (cd "$(dirname "$bin_path")" && printf '%s  %s\n' "$want" "$bin_name" | sha256sum -c - >/dev/null)
+        (cd "$(dirname "$restore_checksum_bin_path")" && printf '%s  %s\n' "$restore_checksum_want" "$restore_checksum_bin_name" | sha256sum -c - >/dev/null)
         return
     fi
 
     if command -v shasum >/dev/null 2>&1; then
-        local got
-        got="$(shasum -a 256 "$bin_path" | awk '{ print $1 }')"
-        if [ "$got" = "$want" ]; then
+        local restore_checksum_got
+        restore_checksum_got="$(shasum -a 256 "$restore_checksum_bin_path" | awk '{ print $1 }')"
+        if [ "$restore_checksum_got" = "$restore_checksum_want" ]; then
             return
         fi
-        printf 'Checksum mismatch for %s\n' "$bin_name" >&2
+        printf 'Checksum mismatch for %s\n' "$restore_checksum_bin_name" >&2
         exit 1
     fi
 
-    printf 'sha256sum or shasum is required to verify %s\n' "$bin_name" >&2
+    printf 'sha256sum or shasum is required to verify %s\n' "$restore_checksum_bin_name" >&2
     exit 1
 }
 
 download_opendeploy() {
-    local version="$1"
-    local arch="$2"
-    local tmp="$3"
-    local base_url bin_name bin_path sums_path
+    local restore_download_version="$1"
+    local restore_download_arch="$2"
+    local restore_download_tmp="$3"
+    local restore_download_base_url restore_download_bin_name restore_download_bin_path restore_download_sums_path
 
-    if [ "$version" = "latest" ]; then
-        base_url="https://github.com/${REPO}/releases/latest/download"
+    if [ "$restore_download_version" = "latest" ]; then
+        restore_download_base_url="https://github.com/${REPO}/releases/latest/download"
     else
-        base_url="https://github.com/${REPO}/releases/download/${version}"
+        restore_download_base_url="https://github.com/${REPO}/releases/download/${restore_download_version}"
     fi
 
-    bin_name="opendeploy-linux-${arch}"
-    bin_path="${tmp}/${bin_name}"
-    sums_path="${tmp}/sha256sums.txt"
+    restore_download_bin_name="opendeploy-linux-${restore_download_arch}"
+    restore_download_bin_path="${restore_download_tmp}/${restore_download_bin_name}"
+    restore_download_sums_path="${restore_download_tmp}/sha256sums.txt"
 
-    log "downloading ${version} ${bin_name}"
-    curl -fsSL "${base_url}/${bin_name}" -o "$bin_path"
-    curl -fsSL "${base_url}/sha256sums.txt" -o "$sums_path"
-    verify_checksum "$bin_path" "$sums_path" "$bin_name"
-    chmod +x "$bin_path"
+    log "downloading ${restore_download_version} ${restore_download_bin_name}"
+    curl -fsSL "${restore_download_base_url}/${restore_download_bin_name}" -o "$restore_download_bin_path"
+    curl -fsSL "${restore_download_base_url}/sha256sums.txt" -o "$restore_download_sums_path"
+    verify_checksum "$restore_download_bin_path" "$restore_download_sums_path" "$restore_download_bin_name"
+    chmod +x "$restore_download_bin_path"
 
-    printf '%s\n' "$bin_path"
+    printf '%s\n' "$restore_download_bin_path"
 }
 
 main() {
-    local version arch bin
-    version="$(requested_version "$@")"
-    arch="$(detect_arch)"
+    local restore_version restore_arch restore_bin
+    restore_version="$(requested_version "$@")"
+    restore_arch="$(detect_arch)"
     OPENDEPLOY_DOWNLOAD_TMP="$(mktemp -d)"
     trap 'rm -rf -- "$OPENDEPLOY_DOWNLOAD_TMP"' EXIT
 
-    bin="$(download_opendeploy "$version" "$arch" "$OPENDEPLOY_DOWNLOAD_TMP")"
-    run_as_root "$bin" install primary "$@"
+    restore_bin="$(download_opendeploy "$restore_version" "$restore_arch" "$OPENDEPLOY_DOWNLOAD_TMP")"
+    run_as_root "$restore_bin" install primary "$@"
 }
 
 main "$@"

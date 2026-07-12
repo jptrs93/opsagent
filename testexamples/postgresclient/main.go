@@ -94,8 +94,8 @@ func runOnce(ctx context.Context, cfg pgConfig, logger *slog.Logger) error {
 		`INSERT INTO opendeploy_e2e (id, name) VALUES (1, 'alpha'), (2, 'bravo'), (3, 'charlie')`,
 	}
 	for _, query := range queries {
-		if _, err := conn.Exec(query); err != nil {
-			return err
+		if _, execErr := conn.Exec(query); execErr != nil {
+			return execErr
 		}
 	}
 
@@ -128,9 +128,9 @@ func dialPostgres(ctx context.Context, cfg pgConfig) (*pgConn, error) {
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = raw.SetDeadline(deadline)
 	}
-	if err := conn.startup(cfg); err != nil {
+	if startupErr := conn.startup(cfg); startupErr != nil {
 		raw.Close()
-		return nil, err
+		return nil, startupErr
 	}
 	_ = raw.SetDeadline(time.Time{})
 	return conn, nil
@@ -167,8 +167,8 @@ func (c *pgConn) startup(cfg pgConfig) error {
 		}
 		switch typ {
 		case 'R':
-			if err := c.handleAuth(msg, cfg); err != nil {
-				return err
+			if authErr := c.handleAuth(msg, cfg); authErr != nil {
+				return authErr
 			}
 		case 'S', 'K', 'N':
 			// ParameterStatus, BackendKeyData, NoticeResponse.
@@ -216,8 +216,8 @@ func (c *pgConn) scramAuth(cfg pgConfig) error {
 	initial.WriteByte(0)
 	_ = binary.Write(&initial, binary.BigEndian, int32(len(clientFirst)))
 	initial.WriteString(clientFirst)
-	if err := writeTypedMessage(c.c, 'p', initial.Bytes()); err != nil {
-		return err
+	if writeInitialErr := writeTypedMessage(c.c, 'p', initial.Bytes()); writeInitialErr != nil {
+		return writeInitialErr
 	}
 
 	typ, msg, err := c.readMessage()
@@ -256,8 +256,8 @@ func (c *pgConn) scramAuth(cfg pgConfig) error {
 	serverSignature := hmacSHA256(serverKey, []byte(authMessage))
 
 	clientFinal := clientFinalNoProof + ",p=" + base64.StdEncoding.EncodeToString(proof)
-	if err := writeTypedMessage(c.c, 'p', []byte(clientFinal)); err != nil {
-		return err
+	if writeFinalErr := writeTypedMessage(c.c, 'p', []byte(clientFinal)); writeFinalErr != nil {
+		return writeFinalErr
 	}
 
 	typ, msg, err = c.readMessage()
@@ -320,9 +320,9 @@ func (c *pgConn) Query(query string) ([][]string, error) {
 		case 'T', 'C', 'N':
 			// RowDescription, CommandComplete, NoticeResponse.
 		case 'D':
-			row, err := parseDataRow(msg)
-			if err != nil {
-				return nil, err
+			row, parseRowErr := parseDataRow(msg)
+			if parseRowErr != nil {
+				return nil, parseRowErr
 			}
 			rows = append(rows, row)
 		case 'Z':
@@ -341,16 +341,16 @@ func (c *pgConn) readMessage() (byte, []byte, error) {
 		return 0, nil, err
 	}
 	var lenBuf [4]byte
-	if _, err := io.ReadFull(c.r, lenBuf[:]); err != nil {
-		return 0, nil, err
+	if _, readLengthErr := io.ReadFull(c.r, lenBuf[:]); readLengthErr != nil {
+		return 0, nil, readLengthErr
 	}
 	n := int(binary.BigEndian.Uint32(lenBuf[:]))
 	if n < 4 {
 		return 0, nil, fmt.Errorf("invalid message length %d", n)
 	}
 	body := make([]byte, n-4)
-	if _, err := io.ReadFull(c.r, body); err != nil {
-		return 0, nil, err
+	if _, readBodyErr := io.ReadFull(c.r, body); readBodyErr != nil {
+		return 0, nil, readBodyErr
 	}
 	return typ, body, nil
 }

@@ -12,17 +12,9 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/preparerlog"
 )
 
-// Preparer pulls and unpacks a registry image for immediate use by the
+// Prepare pulls and unpacks a registry image for immediate use by the
 // container runner.
-type Preparer struct {
-	client *ctrd.Client
-}
-
-func New(client *ctrd.Client) *Preparer {
-	return &Preparer{client: client}
-}
-
-func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.PreparationStatus) {
+func Prepare(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.PreparationStatus) {
 	version := dep.DesiredState.Version
 	logPath := dep.PrepareOutputPath()
 	ref, err := imageref.Ref(dep.Spec.Prepare.ContainerImage.Image, version)
@@ -34,7 +26,7 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 
 	log.Write("pulling image %s", ref)
 
-	resolved, err := p.client.Pull(ctx, ref)
+	resolved, err := ctrd.Default.Pull(ctx, ref)
 	if err != nil {
 		slog.ErrorContext(ctx, "image pull failed", "ref", ref, "err", err)
 		log.Error("pulling image: %v", err)

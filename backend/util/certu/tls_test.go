@@ -11,7 +11,7 @@ func TestGenerateSelfSignedServerCertificateProducesLoadableBundle(t *testing.T)
 		t.Fatalf("GenerateSelfSignedServerCertificate: %v", err)
 	}
 	bundle := append(append([]byte{}, certPEM...), keyPEM...)
-	if _, err := tls.X509KeyPair(bundle, bundle); err != nil {
-		t.Fatalf("X509KeyPair generated bundle: %v", err)
+	if _, pairErr := tls.X509KeyPair(bundle, bundle); pairErr != nil {
+		t.Fatalf("X509KeyPair generated bundle: %v", pairErr)
 	}
 }

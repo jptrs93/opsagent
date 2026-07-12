@@ -248,7 +248,7 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 			GithubRelease: &apigen.DeploymentGithubReleaseVersions{Releases: releases},
 		}, nil
 	case cfg.Spec.Prepare.ContainerImage != nil:
-		tags, err := (versionprovider.ContainerImageVersionProvider{}).ListTags(ctx, cfg.Spec.Prepare.ContainerImage.Image)
+		tags, err := versionprovider.ListContainerImageTags(ctx, cfg.Spec.Prepare.ContainerImage.Image)
 		if err != nil {
 			return nil, fmt.Errorf("listing container image tags: %w", err)
 		}
@@ -705,14 +705,14 @@ type portForwardKey struct {
 	hostPort int32
 }
 
-func portForwardProtocolName(protocol apigen.PortForwardProtocol) string {
-	switch protocol {
+func portForwardProtocolName(portProtocol apigen.PortForwardProtocol) string {
+	switch portProtocol {
 	case apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP:
 		return "TCP"
 	case apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_UDP:
 		return "UDP"
 	default:
-		return fmt.Sprintf("protocol %d", protocol)
+		return fmt.Sprintf("protocol %d", portProtocol)
 	}
 }
 
@@ -807,23 +807,23 @@ func validateRunnerConfig(runner *apigen.RunnerConfig, prepare *apigen.PrepareCo
 	}
 	if hasContainer {
 		validateContainerCommand(&runner.Container)
-		if err := validateEnvVars("runner.container.envVars", runner.Container.EnvVars); err != nil {
-			return err
+		if envErr := validateEnvVars("runner.container.envVars", runner.Container.EnvVars); envErr != nil {
+			return envErr
 		}
-		if err := validateContainerUpgrade(&runner.Container); err != nil {
-			return err
+		if upgradeErr := validateContainerUpgrade(&runner.Container); upgradeErr != nil {
+			return upgradeErr
 		}
-		if err := validateContainerDevShmSizeKb(&runner.Container); err != nil {
-			return err
+		if shmErr := validateContainerDevShmSizeKb(&runner.Container); shmErr != nil {
+			return shmErr
 		}
-		if err := validateContainerFileDescriptorLimit(&runner.Container); err != nil {
-			return err
+		if limitErr := validateContainerFileDescriptorLimit(&runner.Container); limitErr != nil {
+			return limitErr
 		}
-		if err := resolveEnvAssetRefs("runner.container.envVars", runner.Container.EnvVars, assets); err != nil {
-			return err
+		if envAssetErr := resolveEnvAssetRefs("runner.container.envVars", runner.Container.EnvVars, assets); envAssetErr != nil {
+			return envAssetErr
 		}
-		if err := validateContainerMounts(runner.Container.Mounts); err != nil {
-			return err
+		if mountsErr := validateContainerMounts(runner.Container.Mounts); mountsErr != nil {
+			return mountsErr
 		}
 		assetMounts, err := resolveAssetMounts(runner.Container.AssetMounts, assets)
 		if err != nil {

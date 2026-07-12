@@ -15,9 +15,9 @@ const crashCountPath = "/data/crashcount.txt"
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	count, err := readCrashCount()
-	if err != nil {
-		logger.Error("nixdockercrasher read crash count error", "err", err)
+	count, readCountErr := readCrashCount()
+	if readCountErr != nil {
+		logger.Error("nixdockercrasher read crash count error", "err", readCountErr)
 		os.Exit(1)
 	}
 

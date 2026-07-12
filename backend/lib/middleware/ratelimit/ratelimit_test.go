@@ -57,8 +57,8 @@ func runRateLimitedRequest(middleware apigen.MiddlewareFunc, remoteAddr, path st
 	req := httptest.NewRequest(http.MethodPost, path, nil)
 	req.RemoteAddr = remoteAddr
 	w := httptest.NewRecorder()
-	handler := middleware(func(_ context.Context, w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
+	handler := middleware(func(_ context.Context, response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusNoContent)
 	})
 	handler(context.Background(), w, req)
 	return w.Result().StatusCode

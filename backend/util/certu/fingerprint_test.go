@@ -59,7 +59,7 @@ func TestCertificatePEMSPKISHA256(t *testing.T) {
 	if !strings.HasPrefix(fingerprint, FingerprintPrefixSHA256) {
 		t.Fatalf("fingerprint = %q, want sha256 prefix", fingerprint)
 	}
-	if _, err := ParseSHA256Fingerprint(fingerprint); err != nil {
-		t.Fatalf("ParseSHA256Fingerprint(%q): %v", fingerprint, err)
+	if _, parseErr := ParseSHA256Fingerprint(fingerprint); parseErr != nil {
+		t.Fatalf("ParseSHA256Fingerprint(%q): %v", fingerprint, parseErr)
 	}
 }

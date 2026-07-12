@@ -29,8 +29,8 @@ func TestEnrollmentHTTPClientAcceptsPinnedCertificate(t *testing.T) {
 		t.Fatalf("enrollmentHTTPClient: %v", err)
 	}
 	verify := client.Transport.(*http.Transport).TLSClientConfig.VerifyConnection
-	if err := verify(tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}}); err != nil {
-		t.Fatalf("VerifyConnection: %v", err)
+	if verifyErr := verify(tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}}); verifyErr != nil {
+		t.Fatalf("VerifyConnection: %v", verifyErr)
 	}
 }
 
@@ -42,7 +42,7 @@ func TestEnrollmentHTTPClientRejectsMismatchedCertificate(t *testing.T) {
 		t.Fatalf("enrollmentHTTPClient: %v", err)
 	}
 	verify := client.Transport.(*http.Transport).TLSClientConfig.VerifyConnection
-	if err := verify(tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}}); err == nil {
+	if verifyErr := verify(tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}}); verifyErr == nil {
 		t.Fatal("VerifyConnection succeeded with mismatched fingerprint")
 	}
 }
@@ -153,12 +153,12 @@ func writeRuntimeTLS(t *testing.T, dataDir, machine string) (string, string, str
 		t.Fatalf("GenerateNodeCertificate: %v", err)
 	}
 	caPath, certPath, keyPath := certu.WorkerTLSPaths(dataDir)
-	if err := os.MkdirAll(filepath.Dir(caPath), 0o750); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
+	if mkdirErr := os.MkdirAll(filepath.Dir(caPath), 0o750); mkdirErr != nil {
+		t.Fatalf("MkdirAll: %v", mkdirErr)
 	}
 	for path, contents := range map[string][]byte{caPath: caCert, certPath: cert, keyPath: key} {
-		if err := os.WriteFile(path, contents, 0o600); err != nil {
-			t.Fatalf("WriteFile(%s): %v", path, err)
+		if writeErr := os.WriteFile(path, contents, 0o600); writeErr != nil {
+			t.Fatalf("WriteFile(%s): %v", path, writeErr)
 		}
 	}
 	return caPath, certPath, keyPath

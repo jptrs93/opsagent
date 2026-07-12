@@ -785,10 +785,10 @@ export function networkingPane(form) {
 function portForwardingSection(form) {
     const rows = () => form.portForwarding.val || [];
     const update = (row, patch) => {
-        form.portForwarding.val = rows().map(p => p.id === row.id ? {...p, ...patch} : p);
+        form.portForwarding.val = rows().map(port => port.id === row.id ? {...port, ...patch} : port);
     };
     const remove = (row) => {
-        form.portForwarding.val = rows().filter(p => p.id !== row.id);
+        form.portForwarding.val = rows().filter(port => port.id !== row.id);
     };
     return div(
         {class: "flex flex-col gap-2 rounded-sm border border-gray-800 bg-gray-900/40 p-3"},
@@ -862,10 +862,10 @@ function newPortForwardingRow(values = {}) {
 }
 
 function portForwardingToFormRows(portForwarding) {
-    return (portForwarding || []).map(p => newPortForwardingRow({
-        protocol: p.protocol || PORT_FORWARD_PROTOCOL_TCP,
-        hostPort: p.hostPort || '',
-        containerPort: p.containerPort || '',
+    return (portForwarding || []).map(port => newPortForwardingRow({
+        protocol: port.protocol || PORT_FORWARD_PROTOCOL_TCP,
+        hostPort: port.hostPort || '',
+        containerPort: port.containerPort || '',
     }));
 }
 
@@ -1068,7 +1068,7 @@ function assetOptionsForRow(assets, row) {
         version: Number(row?.version || 0),
         selectedOnly: true,
     };
-    if (selected.id && selected.key && !options.some(option => assetOptionValue(option) === assetOptionValue(selected))) {
+    if (selected.id && selected.key && !options.some(assetOption => assetOptionValue(assetOption) === assetOptionValue(selected))) {
         options.unshift(selected);
     }
     return options;
@@ -1629,12 +1629,12 @@ function formEnvVars(form) {
 function formPortForwarding(form) {
     if (Number(form.networkingMode.val) !== NETWORKING_MODE_VIRTUAL) return [];
     return (form.portForwarding.val || [])
-        .map(p => ({
-            protocol: Number(p.protocol || PORT_FORWARD_PROTOCOL_TCP),
-            hostPort: Number(p.hostPort || 0),
-            containerPort: Number(p.containerPort || 0),
+        .map(port => ({
+            protocol: Number(port.protocol || PORT_FORWARD_PROTOCOL_TCP),
+            hostPort: Number(port.hostPort || 0),
+            containerPort: Number(port.containerPort || 0),
         }))
-        .filter(p => p.hostPort > 0 || p.containerPort > 0);
+        .filter(port => port.hostPort > 0 || port.containerPort > 0);
 }
 
 function formCommand(form) {

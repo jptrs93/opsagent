@@ -15,7 +15,7 @@ type GithubReleaseVersionProvider struct {
 }
 
 func NewGithubReleaseVersionProvider(provider githubcredentials.Provider) *GithubReleaseVersionProvider {
-	return NewGithubReleaseVersionProviderWithClient(githubrepo.NewClient(nil, provider))
+	return NewGithubReleaseVersionProviderWithClient(githubrepo.NewClient(provider))
 }
 
 func NewGithubReleaseVersionProviderWithClient(client *githubrepo.Client) *GithubReleaseVersionProvider {

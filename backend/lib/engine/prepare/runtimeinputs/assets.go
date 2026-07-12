@@ -37,15 +37,15 @@ func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.Deplo
 		}
 		path := AssetCachePathWithMode(ref.AssetID, ref.Executable)
 		mode := AssetCacheMode(ref.Executable)
-		if info, err := os.Stat(path); err == nil {
+		if info, statErr := os.Stat(path); statErr == nil {
 			if info.Mode().Perm() != mode {
-				if err := os.Chmod(path, mode); err != nil {
-					return fmt.Errorf("chmod asset cache %s: %w", path, err)
+				if chmodErr := os.Chmod(path, mode); chmodErr != nil {
+					return fmt.Errorf("chmod asset cache %s: %w", path, chmodErr)
 				}
 			}
 			continue
-		} else if err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("checking asset cache %s: %w", path, err)
+		} else if statErr != nil && !os.IsNotExist(statErr) {
+			return fmt.Errorf("checking asset cache %s: %w", path, statErr)
 		}
 		asset, body, err := r.assets.OpenAsset(ctx, ref.AssetID)
 		if err != nil {
@@ -61,28 +61,28 @@ func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.Deplo
 			_ = body.Close()
 			return fmt.Errorf("writing asset cache %s: %w", tmp, err)
 		}
-		if _, err := io.Copy(out, body); err != nil {
+		if _, copyErr := io.Copy(out, body); copyErr != nil {
 			_ = out.Close()
 			_ = body.Close()
 			_ = os.Remove(tmp)
-			return fmt.Errorf("writing asset cache %s: %w", tmp, err)
+			return fmt.Errorf("writing asset cache %s: %w", tmp, copyErr)
 		}
-		if err := body.Close(); err != nil {
+		if bodyCloseErr := body.Close(); bodyCloseErr != nil {
 			_ = out.Close()
 			_ = os.Remove(tmp)
-			return fmt.Errorf("reading asset %d: %w", ref.AssetID, err)
+			return fmt.Errorf("reading asset %d: %w", ref.AssetID, bodyCloseErr)
 		}
-		if err := out.Close(); err != nil {
+		if outputCloseErr := out.Close(); outputCloseErr != nil {
 			_ = os.Remove(tmp)
-			return fmt.Errorf("closing asset cache %s: %w", tmp, err)
+			return fmt.Errorf("closing asset cache %s: %w", tmp, outputCloseErr)
 		}
-		if err := os.Chmod(tmp, mode); err != nil {
+		if chmodErr := os.Chmod(tmp, mode); chmodErr != nil {
 			_ = os.Remove(tmp)
-			return fmt.Errorf("chmod asset cache %s: %w", tmp, err)
+			return fmt.Errorf("chmod asset cache %s: %w", tmp, chmodErr)
 		}
-		if err := os.Rename(tmp, path); err != nil {
+		if renameErr := os.Rename(tmp, path); renameErr != nil {
 			_ = os.Remove(tmp)
-			return fmt.Errorf("installing asset cache %s: %w", path, err)
+			return fmt.Errorf("installing asset cache %s: %w", path, renameErr)
 		}
 	}
 	return nil

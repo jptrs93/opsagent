@@ -23,8 +23,8 @@ func TestPickAssetSelectsCurrentArchitecture(t *testing.T) {
 	if asset == nil || asset.Name != want {
 		t.Fatalf("pickAsset() = %#v, want %q", asset, want)
 	}
-	if asset := pickAsset([]github.Asset{{Name: "opendeploy-linux-other"}}); asset != nil {
-		t.Fatalf("pickAsset() = %#v, want nil", asset)
+	if missingAsset := pickAsset([]github.Asset{{Name: "opendeploy-linux-other"}}); missingAsset != nil {
+		t.Fatalf("pickAsset() = %#v, want nil", missingAsset)
 	}
 }
 

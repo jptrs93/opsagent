@@ -109,28 +109,28 @@ func (s *PrimaryStorage) InsertSecret(r secrets.Record) secrets.Record {
 
 func (s *PrimaryStorage) RenameSecretRecords(name, newName string, records []secrets.Record) {
 	ctx := context.Background()
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		panic(fmt.Sprintf("begin rename secrets tx: %v", err))
+	tx, beginErr := s.db.BeginTx(ctx, nil)
+	if beginErr != nil {
+		panic(fmt.Sprintf("begin rename secrets tx: %v", beginErr))
 	}
 	defer tx.Rollback()
 	for _, r := range records {
-		res, err := tx.ExecContext(ctx, `
+		res, updateErr := tx.ExecContext(ctx, `
 UPDATE secrets
 SET name = ?, smk_version = ?, ciphertext = ?, nonce = ?
 WHERE id = ? AND name = ?
 `, newName, int64(r.SMKVersion), r.Ciphertext, r.Nonce, int64(r.ID), name)
-		if err != nil {
-			panic(fmt.Sprintf("RenameSecretRecords update: %v", err))
+		if updateErr != nil {
+			panic(fmt.Sprintf("RenameSecretRecords update: %v", updateErr))
 		}
-		if n, err := res.RowsAffected(); err != nil {
-			panic(fmt.Sprintf("RenameSecretRecords rows affected: %v", err))
-		} else if n != 1 {
-			panic(fmt.Sprintf("RenameSecretRecords updated %d rows for id %d", n, r.ID))
+		if affected, rowsErr := res.RowsAffected(); rowsErr != nil {
+			panic(fmt.Sprintf("RenameSecretRecords rows affected: %v", rowsErr))
+		} else if affected != 1 {
+			panic(fmt.Sprintf("RenameSecretRecords updated %d rows for id %d", affected, r.ID))
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit rename secrets tx: %v", err))
+	if commitErr := tx.Commit(); commitErr != nil {
+		panic(fmt.Sprintf("commit rename secrets tx: %v", commitErr))
 	}
 }
 

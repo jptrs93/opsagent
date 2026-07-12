@@ -145,9 +145,9 @@ func mirrorRepo(ownerRepo, remote string) error {
 }
 
 func createDummyRepo(ownerRepo, dst string) error {
-	work, err := os.MkdirTemp("", "opd-repo-mirror-*")
-	if err != nil {
-		return err
+	work, tempDirErr := os.MkdirTemp("", "opd-repo-mirror-*")
+	if tempDirErr != nil {
+		return tempDirErr
 	}
 	defer os.RemoveAll(work)
 	if err := runCmd("", "git", "init", work); err != nil {
@@ -219,9 +219,9 @@ func mirrorOCIImages() error {
 			archive := filepath.Join(root, "oci", strings.NewReplacer("/", "_", ":", "_").Replace(src)+".tar")
 			if fileNonEmpty(archive) {
 				fmt.Printf("Importing OCI image %s -> %s\n", src, dst)
-				if err := runCmd("", "skopeo", "copy", "--all", "oci-archive:"+archive, "docker://"+dst); err != nil {
-					if err := runCmd("", "skopeo", "copy", "docker-archive:"+archive, "docker://"+dst); err != nil {
-						return err
+				if copyOCIErr := runCmd("", "skopeo", "copy", "--all", "oci-archive:"+archive, "docker://"+dst); copyOCIErr != nil {
+					if copyDockerErr := runCmd("", "skopeo", "copy", "docker-archive:"+archive, "docker://"+dst); copyDockerErr != nil {
+						return copyDockerErr
 					}
 				}
 				continue
@@ -358,13 +358,13 @@ func validNixCachePath(path string) bool {
 }
 
 func fetchAndCacheNixPath(path string, localPath string) error {
-	url := "https://" + nixCacheHost + path
-	fmt.Fprintf(os.Stderr, "warning: nix cache miss path=%s upstream=%s\n", path, url)
+	upstreamURL := "https://" + nixCacheHost + path
+	fmt.Fprintf(os.Stderr, "warning: nix cache miss path=%s upstream=%s\n", path, upstreamURL)
 	tmp := localPath + ".tmp"
 	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequest(http.MethodGet, upstreamURL, nil)
 	if err != nil {
 		return err
 	}
@@ -416,8 +416,8 @@ func proxyUnknown(w http.ResponseWriter, r *http.Request) {
 		req.Header = r.Header.Clone()
 		req.Header.Del("Authorization")
 	}
-	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
-		http.Error(w, "proxy failed: "+err.Error(), http.StatusBadGateway)
+	proxy.ErrorHandler = func(responseWriter http.ResponseWriter, _ *http.Request, proxyErr error) {
+		http.Error(responseWriter, "proxy failed: "+proxyErr.Error(), http.StatusBadGateway)
 	}
 	proxy.ServeHTTP(w, r)
 }
@@ -532,9 +532,9 @@ func handleGit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip") {
-		gz, err := gzip.NewReader(bytes.NewReader(body))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		gz, gzipErr := gzip.NewReader(bytes.NewReader(body))
+		if gzipErr != nil {
+			http.Error(w, gzipErr.Error(), http.StatusBadRequest)
 			return
 		}
 		body, err = io.ReadAll(gz)
@@ -588,7 +588,7 @@ func handleGit(w http.ResponseWriter, r *http.Request) {
 		if strings.EqualFold(k, "Status") {
 			fields := strings.Fields(v)
 			if len(fields) > 0 {
-				if n, err := strconv.Atoi(fields[0]); err == nil {
+				if n, parseStatusErr := strconv.Atoi(fields[0]); parseStatusErr == nil {
 					status = n
 				}
 			}

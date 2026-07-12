@@ -186,7 +186,7 @@ func (s *PrimaryStorage) MustWriteReplicatedDeploymentStatus(st *apigen.Deployme
 	defer tx.Rollback()
 	q := s.q.WithTx(tx)
 
-	if _, err := tx.ExecContext(ctx, `
+	if _, historyErr := tx.ExecContext(ctx, `
 		INSERT INTO deployment_status_history (
 		    deployment_id, updated_at,
 		    preparer_config_version, preparer_artifact, preparer_status,
@@ -208,8 +208,8 @@ func (s *PrimaryStorage) MustWriteReplicatedDeploymentStatus(st *apigen.Deployme
 		params.PreparerConfigVersion, params.PreparerArtifact, params.PreparerStatus,
 		params.RunnerConfigVersion, params.RunnerPid, params.RunnerArtifact, params.RunnerStatus,
 		params.RunnerNumRestarts, params.RunnerLastRestartAt, params.RunnerExtraBlob,
-	); err != nil {
-		panic(fmt.Sprintf("UpsertDeploymentStatusHistory: %v", err))
+	); historyErr != nil {
+		panic(fmt.Sprintf("UpsertDeploymentStatusHistory: %v", historyErr))
 	}
 
 	var cached time.Time
@@ -217,12 +217,12 @@ func (s *PrimaryStorage) MustWriteReplicatedDeploymentStatus(st *apigen.Deployme
 		cached = cur.UpdatedAt
 	}
 	if !st.UpdatedAt.Before(cached) {
-		if err := q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
-			panic(fmt.Sprintf("UpsertDeploymentStatus: %v", err))
+		if upsertErr := q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); upsertErr != nil {
+			panic(fmt.Sprintf("UpsertDeploymentStatus: %v", upsertErr))
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit: %v", err))
+	if commitErr := tx.Commit(); commitErr != nil {
+		panic(fmt.Sprintf("commit: %v", commitErr))
 	}
 
 	if !st.UpdatedAt.Before(cached) {
@@ -302,8 +302,8 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 		panic(fmt.Sprintf("GetDeploymentConfig: %v", err))
 	}
 	if update.ExpectedVersion != int32(existing.Version+1) {
-		if err := tx.Commit(); err != nil {
-			panic(fmt.Sprintf("commit: %v", err))
+		if commitErr := tx.Commit(); commitErr != nil {
+			panic(fmt.Sprintf("commit: %v", commitErr))
 		}
 		return configRowToProto(existing), false, false
 	}
@@ -332,8 +332,8 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 		desiredVersion == existing.DesiredVersion &&
 		desiredRunning == existing.DesiredRunning &&
 		deleted == existing.Deleted {
-		if err := tx.Commit(); err != nil {
-			panic(fmt.Sprintf("commit: %v", err))
+		if commitErr := tx.Commit(); commitErr != nil {
+			panic(fmt.Sprintf("commit: %v", commitErr))
 		}
 		return configRowToProto(existing), false, true
 	}
@@ -352,10 +352,10 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 		DesiredRunning: desiredRunning,
 		Deleted:        deleted,
 	}
-	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
-		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
+	if upsertErr := q.UpsertDeploymentConfig(bgCtx, params); upsertErr != nil {
+		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", upsertErr))
 	}
-	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
+	if historyErr := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
 		Version:        params.Version,
 		UpdatedAt:      params.UpdatedAt,
@@ -364,11 +364,11 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 		DesiredVersion: params.DesiredVersion,
 		DesiredRunning: params.DesiredRunning,
 		Deleted:        params.Deleted,
-	}); err != nil {
-		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
+	}); historyErr != nil {
+		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", historyErr))
 	}
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit: %v", err))
+	if commitErr := tx.Commit(); commitErr != nil {
+		panic(fmt.Sprintf("commit: %v", commitErr))
 	}
 
 	cfg := upsertParamsToProto(params)
@@ -396,21 +396,21 @@ func (s *PrimaryStorage) MustSetDeploymentDesiredState(ctx apigen.Context, deplo
 		userID = int64(ctx.User.ID)
 	}
 
-	if err := q.UpdateDesiredState(bgCtx, UpdateDesiredStateParams{
+	if updateErr := q.UpdateDesiredState(bgCtx, UpdateDesiredStateParams{
 		DesiredVersion: desired.Version,
 		DesiredRunning: boolToInt(desired.Running),
 		UpdatedAt:      now,
 		UpdatedBy:      userID,
 		DeploymentID:   dbID,
-	}); err != nil {
-		panic(fmt.Sprintf("UpdateDesiredState: %v", err))
+	}); updateErr != nil {
+		panic(fmt.Sprintf("UpdateDesiredState: %v", updateErr))
 	}
 
 	updated, err := q.GetDeploymentConfig(bgCtx, dbID)
 	if err != nil {
 		panic(fmt.Sprintf("GetDeploymentConfig after update: %v", err))
 	}
-	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
+	if historyErr := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
 		Version:        updated.Version,
 		UpdatedAt:      updated.UpdatedAt,
@@ -419,11 +419,11 @@ func (s *PrimaryStorage) MustSetDeploymentDesiredState(ctx apigen.Context, deplo
 		DesiredVersion: updated.DesiredVersion,
 		DesiredRunning: updated.DesiredRunning,
 		Deleted:        updated.Deleted,
-	}); err != nil {
-		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
+	}); historyErr != nil {
+		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", historyErr))
 	}
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit: %v", err))
+	if commitErr := tx.Commit(); commitErr != nil {
+		panic(fmt.Sprintf("commit: %v", commitErr))
 	}
 
 	s.configCache[deploymentID] = configRowToProto(updated)
@@ -476,10 +476,10 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 		DesiredRunning: existing.DesiredRunning,
 		Deleted:        existing.Deleted,
 	}
-	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
-		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
+	if upsertErr := q.UpsertDeploymentConfig(bgCtx, params); upsertErr != nil {
+		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", upsertErr))
 	}
-	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
+	if historyErr := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
 		Version:        newVersion,
 		UpdatedAt:      now,
@@ -488,11 +488,11 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 		DesiredVersion: existing.DesiredVersion,
 		DesiredRunning: existing.DesiredRunning,
 		Deleted:        existing.Deleted,
-	}); err != nil {
-		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
+	}); historyErr != nil {
+		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", historyErr))
 	}
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit: %v", err))
+	if commitErr := tx.Commit(); commitErr != nil {
+		panic(fmt.Sprintf("commit: %v", commitErr))
 	}
 
 	s.configCache[deploymentID] = upsertParamsToProto(params)
@@ -541,10 +541,10 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymen
 		DesiredRunning: existing.DesiredRunning,
 		Deleted:        existing.Deleted,
 	}
-	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
-		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
+	if upsertErr := q.UpsertDeploymentConfig(bgCtx, params); upsertErr != nil {
+		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", upsertErr))
 	}
-	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
+	if historyErr := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
 		Version:        newVersion,
 		UpdatedAt:      now,
@@ -553,11 +553,11 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymen
 		DesiredVersion: existing.DesiredVersion,
 		DesiredRunning: existing.DesiredRunning,
 		Deleted:        existing.Deleted,
-	}); err != nil {
-		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
+	}); historyErr != nil {
+		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", historyErr))
 	}
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit: %v", err))
+	if commitErr := tx.Commit(); commitErr != nil {
+		panic(fmt.Sprintf("commit: %v", commitErr))
 	}
 
 	s.configCache[deploymentID] = upsertParamsToProto(params)
@@ -617,7 +617,7 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 	}
 	dbID := row.DeploymentID
 
-	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
+	if historyErr := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
 		Version:        1,
 		UpdatedAt:      now,
@@ -626,14 +626,14 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 		DesiredVersion: desired.Version,
 		DesiredRunning: boolToInt(desired.Running),
 		Deleted:        0,
-	}); err != nil {
-		panic(fmt.Sprintf("InsertDeploymentConfigHistory (create): %v", err))
+	}); historyErr != nil {
+		panic(fmt.Sprintf("InsertDeploymentConfigHistory (create): %v", historyErr))
 	}
 
 	s.insertDefaultStatus(q, dbID)
 
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit: %v", err))
+	if commitErr := tx.Commit(); commitErr != nil {
+		panic(fmt.Sprintf("commit: %v", commitErr))
 	}
 
 	cfg := upsertParamsToProto(UpsertDeploymentConfigParams{
@@ -716,7 +716,7 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 	}
 	dbID := row.DeploymentID
 
-	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
+	if historyErr := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
 		Version:        1,
 		UpdatedAt:      now,
@@ -724,14 +724,14 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 		DesiredVersion: opendeployVersion,
 		DesiredRunning: desiredRunning,
 		Deleted:        0,
-	}); err != nil {
-		panic(fmt.Sprintf("InsertDeploymentConfigHistory (system): %v", err))
+	}); historyErr != nil {
+		panic(fmt.Sprintf("InsertDeploymentConfigHistory (system): %v", historyErr))
 	}
 
 	s.insertDefaultStatus(q, dbID)
 
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit: %v", err))
+	if commitErr := tx.Commit(); commitErr != nil {
+		panic(fmt.Sprintf("commit: %v", commitErr))
 	}
 
 	id := int32(dbID)
@@ -804,7 +804,7 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(machine string, opendeployVers
 	}
 	dbID := row.DeploymentID
 
-	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
+	if historyErr := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
 		Version:        1,
 		UpdatedAt:      now,
@@ -812,14 +812,14 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(machine string, opendeployVers
 		DesiredVersion: desiredVersion,
 		DesiredRunning: 1,
 		Deleted:        0,
-	}); err != nil {
-		panic(fmt.Sprintf("InsertDeploymentConfigHistory (netproxy): %v", err))
+	}); historyErr != nil {
+		panic(fmt.Sprintf("InsertDeploymentConfigHistory (netproxy): %v", historyErr))
 	}
 
 	s.insertDefaultStatus(q, dbID)
 
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit: %v", err))
+	if commitErr := tx.Commit(); commitErr != nil {
+		panic(fmt.Sprintf("commit: %v", commitErr))
 	}
 
 	id := int32(dbID)
@@ -872,10 +872,10 @@ func (s *PrimaryStorage) repairSystemDeploymentLocked(deploymentID int32) {
 		DesiredRunning: existing.DesiredRunning,
 		Deleted:        existing.Deleted,
 	}
-	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
-		panic(fmt.Sprintf("UpsertDeploymentConfig (system repair): %v", err))
+	if upsertErr := q.UpsertDeploymentConfig(bgCtx, params); upsertErr != nil {
+		panic(fmt.Sprintf("UpsertDeploymentConfig (system repair): %v", upsertErr))
 	}
-	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
+	if historyErr := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
 		Version:        newVersion,
 		UpdatedAt:      now,
@@ -884,11 +884,11 @@ func (s *PrimaryStorage) repairSystemDeploymentLocked(deploymentID int32) {
 		DesiredVersion: existing.DesiredVersion,
 		DesiredRunning: existing.DesiredRunning,
 		Deleted:        existing.Deleted,
-	}); err != nil {
-		panic(fmt.Sprintf("InsertDeploymentConfigHistory (system repair): %v", err))
+	}); historyErr != nil {
+		panic(fmt.Sprintf("InsertDeploymentConfigHistory (system repair): %v", historyErr))
 	}
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit: %v", err))
+	if commitErr := tx.Commit(); commitErr != nil {
+		panic(fmt.Sprintf("commit: %v", commitErr))
 	}
 
 	s.configCache[deploymentID] = upsertParamsToProto(params)
@@ -1295,8 +1295,8 @@ func (s *PrimaryStorage) FetchUserMatching(predicate func(*apigen.InternalUser) 
 		return nil, err
 	}
 	for _, row := range rows {
-		u, err := apigen.DecodeInternalUser(row.DataBlob)
-		if err != nil {
+		u, decodeErr := apigen.DecodeInternalUser(row.DataBlob)
+		if decodeErr != nil {
 			continue
 		}
 		if predicate(u) {

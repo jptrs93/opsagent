@@ -40,17 +40,17 @@ func BootstrapPrimary(store *secrets.Manager, primaryName string) (*Material, er
 		return nil, err
 	}
 	mat = &Material{CACert: caCert, CAKey: caKey, PrimaryCert: primaryCert, PrimaryKey: primaryKey}
-	if err := store.SetInternal(secretCACert, mat.CACert); err != nil {
-		return nil, err
+	if setCACertErr := store.SetInternal(secretCACert, mat.CACert); setCACertErr != nil {
+		return nil, setCACertErr
 	}
-	if err := store.SetInternal(secretCAKey, mat.CAKey); err != nil {
-		return nil, err
+	if setCAKeyErr := store.SetInternal(secretCAKey, mat.CAKey); setCAKeyErr != nil {
+		return nil, setCAKeyErr
 	}
-	if err := store.SetInternal(secretPrimaryCert, mat.PrimaryCert); err != nil {
-		return nil, err
+	if setPrimaryCertErr := store.SetInternal(secretPrimaryCert, mat.PrimaryCert); setPrimaryCertErr != nil {
+		return nil, setPrimaryCertErr
 	}
-	if err := store.SetInternal(secretPrimaryKey, mat.PrimaryKey); err != nil {
-		return nil, err
+	if setPrimaryKeyErr := store.SetInternal(secretPrimaryKey, mat.PrimaryKey); setPrimaryKeyErr != nil {
+		return nil, setPrimaryKeyErr
 	}
 	return mat, nil
 }

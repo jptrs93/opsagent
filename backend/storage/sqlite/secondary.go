@@ -27,21 +27,21 @@ func (s *SecondaryStorage) MustWriteDeploymentConfig(cfg *apigen.DeploymentConfi
 	id := cfg.ID
 	_, exists := s.configCache[id]
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		panic(fmt.Sprintf("begin tx: %v", err))
+	tx, beginErr := s.db.BeginTx(ctx, nil)
+	if beginErr != nil {
+		panic(fmt.Sprintf("begin tx: %v", beginErr))
 	}
 	defer tx.Rollback()
 	q := s.q.WithTx(tx)
 
-	if err := q.UpsertDeploymentConfig(ctx, configProtoToUpsertParams(cfg)); err != nil {
-		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
+	if upsertErr := q.UpsertDeploymentConfig(ctx, configProtoToUpsertParams(cfg)); upsertErr != nil {
+		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", upsertErr))
 	}
 	if !exists {
 		s.insertDefaultStatus(q, int64(id))
 	}
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit: %v", err))
+	if commitErr := tx.Commit(); commitErr != nil {
+		panic(fmt.Sprintf("commit: %v", commitErr))
 	}
 
 	s.configCache[id] = cfg

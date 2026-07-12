@@ -79,25 +79,25 @@ func (s *PrimaryStorage) MustFetchEnrollmentSnapshotAndSubscribe() ([]*apigen.En
 }
 
 func (s *PrimaryStorage) listEnrollmentRequestsLocked() ([]*apigen.EnrollmentRequestStatus, error) {
-	rows, err := s.db.QueryContext(context.Background(), `
+	rows, queryErr := s.db.QueryContext(context.Background(), `
 		SELECT id, created_at, updated_at, requesting_ip_address, requesting_machine_id, opendeploy_version, status
 		FROM enrollment_requests
 		ORDER BY updated_at DESC, id DESC`)
-	if err != nil {
-		return nil, err
+	if queryErr != nil {
+		return nil, queryErr
 	}
 	defer rows.Close()
 
 	var items []*apigen.EnrollmentRequestStatus
 	for rows.Next() {
-		item, err := scanEnrollmentRequestRows(rows)
-		if err != nil {
-			return nil, err
+		item, scanErr := scanEnrollmentRequestRows(rows)
+		if scanErr != nil {
+			return nil, scanErr
 		}
 		items = append(items, item)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, rowsErr
 	}
 	return items, nil
 }
@@ -107,32 +107,32 @@ func (s *PrimaryStorage) AcceptEnrollmentRequest(id int32, workerName string) (*
 	defer s.mu.Unlock()
 
 	ctx := context.Background()
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		panic(fmt.Sprintf("begin enrollment accept tx: %v", err))
+	tx, beginErr := s.db.BeginTx(ctx, nil)
+	if beginErr != nil {
+		panic(fmt.Sprintf("begin enrollment accept tx: %v", beginErr))
 	}
 	defer tx.Rollback()
 
 	now := time.Now().UnixMilli()
-	row, err := scanEnrollmentRequest(tx.QueryRowContext(ctx, `
+	row, requestErr := scanEnrollmentRequest(tx.QueryRowContext(ctx, `
 		UPDATE enrollment_requests
 		SET updated_at = ?, status = ?
 		WHERE id = ?
 		RETURNING id, created_at, updated_at, requesting_ip_address, requesting_machine_id, opendeploy_version, status`,
 		now, EnrollmentStatusAccepted, int64(id),
 	))
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(requestErr, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	if err != nil {
-		return row, err
+	if requestErr != nil {
+		return row, requestErr
 	}
-	node, err := upsertNode(ctx, tx, int64(id), workerName, workerName, []int32{NodeRoleSecondary})
-	if err != nil {
-		return nil, err
+	node, nodeErr := upsertNode(ctx, tx, int64(id), workerName, workerName, []int32{NodeRoleSecondary})
+	if nodeErr != nil {
+		return nil, nodeErr
 	}
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit enrollment accept tx: %v", err))
+	if commitErr := tx.Commit(); commitErr != nil {
+		panic(fmt.Sprintf("commit enrollment accept tx: %v", commitErr))
 	}
 	s.enrollmentSubs.Notify(*row)
 	s.nodeSubs.Notify(*node)

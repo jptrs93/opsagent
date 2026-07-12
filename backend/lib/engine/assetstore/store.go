@@ -81,27 +81,27 @@ func (s *Store) setLargeAssetFromReader(ctx context.Context, key, format string,
 	}
 	defer os.Remove(tmp.Name())
 	defer tmp.Close()
-	if written, err := io.Copy(tmp, r); err != nil {
-		return nil, fmt.Errorf("stage large asset upload: %w", err)
+	if written, copyErr := io.Copy(tmp, r); copyErr != nil {
+		return nil, fmt.Errorf("stage large asset upload: %w", copyErr)
 	} else if written != sizeBytes {
 		return nil, fmt.Errorf("asset upload size changed while reading")
 	}
-	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
-		return nil, fmt.Errorf("stage large asset upload: %w", err)
+	if _, seekErr := tmp.Seek(0, io.SeekStart); seekErr != nil {
+		return nil, fmt.Errorf("stage large asset upload: %w", seekErr)
 	}
 
 	asset := s.DB.SetAssetStored(key, format, "", sizeBytes, []byte{}, spaceID)
 	prefix := s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Path)
-	objectKey := objectKey(prefix, asset.ID)
-	location := "s3://" + bucket + "/" + objectKey
-	if _, err := client.PutObject(ctx, &s3.PutObjectInput{
+	s3ObjectKey := objectKey(prefix, asset.ID)
+	location := "s3://" + bucket + "/" + s3ObjectKey
+	if _, uploadErr := client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(bucket),
-		Key:           aws.String(objectKey),
+		Key:           aws.String(s3ObjectKey),
 		Body:          tmp,
 		ContentLength: aws.Int64(sizeBytes),
-	}); err != nil {
+	}); uploadErr != nil {
 		s.DB.DeleteAssetVersionByID(asset.ID)
-		return nil, fmt.Errorf("write large asset to s3: %w", err)
+		return nil, fmt.Errorf("write large asset to s3: %w", uploadErr)
 	}
 	asset = s.DB.UpdateAssetLocation(asset.ID, location)
 	asset.Blob = nil
@@ -150,8 +150,8 @@ func (s *Store) deleteS3Asset(ctx context.Context, location string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)}); err != nil {
-		return fmt.Errorf("delete large asset from s3: %w", err)
+	if _, deleteErr := client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)}); deleteErr != nil {
+		return fmt.Errorf("delete large asset from s3: %w", deleteErr)
 	}
 	return nil
 }

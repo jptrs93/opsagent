@@ -158,8 +158,8 @@ func (g *Manager) GetCommitLog(ctx context.Context, repoURL string, branch strin
 	lock.Lock()
 	defer lock.Unlock()
 
-	if err := g.fetchMetadataRef(ctx, repoDir, branch, "tree:0", limit); err != nil {
-		return nil, err
+	if fetchErr := g.fetchMetadataRef(ctx, repoDir, branch, "tree:0", limit); fetchErr != nil {
+		return nil, fetchErr
 	}
 
 	out, err := g.runGit(ctx, repoDir, "log", fmt.Sprintf("--max-count=%d", limit), "--format=%H%x00%s%x00%an%x00%cI%x1e", "FETCH_HEAD")
@@ -202,11 +202,11 @@ func (g *Manager) CommitExists(ctx context.Context, repoURL string, commit strin
 	if g.gitObjectExists(ctx, repoDir, commit+"^{commit}") {
 		return true, nil
 	}
-	if err := g.fetchMetadataRef(ctx, repoDir, commit, "tree:0", 1); err != nil {
-		if isMissingGitRefError(err) {
+	if fetchErr := g.fetchMetadataRef(ctx, repoDir, commit, "tree:0", 1); fetchErr != nil {
+		if isMissingGitRefError(fetchErr) {
 			return false, nil
 		}
-		return false, err
+		return false, fetchErr
 	}
 	return g.gitObjectExists(ctx, repoDir, "FETCH_HEAD^{commit}"), nil
 }
@@ -236,8 +236,8 @@ func (g *Manager) PathExists(ctx context.Context, repoURL string, repoPath strin
 	if exists, ok := g.localPathExists(ctx, repoDir, ref, repoPath); ok {
 		return exists, nil
 	}
-	if err := g.fetchMetadataRef(ctx, repoDir, ref, "blob:none", 1); err != nil {
-		return false, err
+	if fetchErr := g.fetchMetadataRef(ctx, repoDir, ref, "blob:none", 1); fetchErr != nil {
+		return false, fetchErr
 	}
 	exists, _ := g.localPathExists(ctx, repoDir, "FETCH_HEAD", repoPath)
 	return exists, nil
@@ -260,31 +260,31 @@ func (g *Manager) EnsureCheckout(ctx context.Context, repoURL string, ref string
 	lock.Lock()
 	defer lock.Unlock()
 
-	if _, err := os.Stat(filepath.Join(repoDir, ".git")); err == nil {
+	if _, statErr := os.Stat(filepath.Join(repoDir, ".git")); statErr == nil {
 		fmt.Fprintf(logFile, "[%s] fetching %s for %s\n", time.Now().Format(time.RFC3339), ref, repoURL)
-		if err := g.runGitLogged(ctx, repoDir, logFile, "remote", "set-url", "origin", cloneURL); err != nil {
-			return "", err
+		if remoteErr := g.runGitLogged(ctx, repoDir, logFile, "remote", "set-url", "origin", cloneURL); remoteErr != nil {
+			return "", remoteErr
 		}
 	} else {
 		fmt.Fprintf(logFile, "[%s] cloning %s into %s\n", time.Now().Format(time.RFC3339), repoURL, repoDir)
-		if err := os.MkdirAll(filepath.Dir(repoDir), 0o755); err != nil {
-			return "", fmt.Errorf("creating repo dir: %w", err)
+		if mkdirErr := os.MkdirAll(filepath.Dir(repoDir), 0o755); mkdirErr != nil {
+			return "", fmt.Errorf("creating repo dir: %w", mkdirErr)
 		}
-		if err := g.runGitLogged(ctx, "", logFile, "clone", "--filter=blob:none", "--no-checkout", cloneURL, repoDir); err != nil {
-			return "", err
+		if cloneErr := g.runGitLogged(ctx, "", logFile, "clone", "--filter=blob:none", "--no-checkout", cloneURL, repoDir); cloneErr != nil {
+			return "", cloneErr
 		}
 	}
-	if err := g.runGitLogged(ctx, repoDir, logFile, "fetch", "--filter=blob:none", "origin", ref); err != nil {
-		return "", err
+	if fetchErr := g.runGitLogged(ctx, repoDir, logFile, "fetch", "--filter=blob:none", "origin", ref); fetchErr != nil {
+		return "", fetchErr
 	}
-	if err := g.runGitLogged(ctx, repoDir, logFile, "reset", "--hard"); err != nil {
-		return "", err
+	if resetErr := g.runGitLogged(ctx, repoDir, logFile, "reset", "--hard"); resetErr != nil {
+		return "", resetErr
 	}
-	if err := g.runGitLogged(ctx, repoDir, logFile, "clean", "-fdx"); err != nil {
-		return "", err
+	if cleanErr := g.runGitLogged(ctx, repoDir, logFile, "clean", "-fdx"); cleanErr != nil {
+		return "", cleanErr
 	}
-	if err := g.runGitLogged(ctx, repoDir, logFile, "checkout", "--force", "FETCH_HEAD"); err != nil {
-		return "", err
+	if checkoutErr := g.runGitLogged(ctx, repoDir, logFile, "checkout", "--force", "FETCH_HEAD"); checkoutErr != nil {
+		return "", checkoutErr
 	}
 	return repoDir, nil
 }
@@ -299,20 +299,20 @@ func (g *Manager) ensureMetadataRepo(ctx context.Context, repoURL string) (strin
 	lock.Lock()
 	defer lock.Unlock()
 
-	if _, err := os.Stat(filepath.Join(repoDir, "config")); err != nil {
-		if err := os.MkdirAll(filepath.Dir(repoDir), 0o755); err != nil {
-			return "", fmt.Errorf("creating git metadata cache dir: %w", err)
+	if _, statErr := os.Stat(filepath.Join(repoDir, "config")); statErr != nil {
+		if mkdirErr := os.MkdirAll(filepath.Dir(repoDir), 0o755); mkdirErr != nil {
+			return "", fmt.Errorf("creating git metadata cache dir: %w", mkdirErr)
 		}
-		if _, err := g.runGit(ctx, "", "init", "--bare", repoDir); err != nil {
-			return "", err
+		if _, initErr := g.runGit(ctx, "", "init", "--bare", repoDir); initErr != nil {
+			return "", initErr
 		}
 	}
-	if _, err := g.runGit(ctx, repoDir, "remote", "get-url", "origin"); err != nil {
-		if _, err := g.runGit(ctx, repoDir, "remote", "add", "origin", cloneURL); err != nil {
-			return "", err
+	if _, getRemoteErr := g.runGit(ctx, repoDir, "remote", "get-url", "origin"); getRemoteErr != nil {
+		if _, addRemoteErr := g.runGit(ctx, repoDir, "remote", "add", "origin", cloneURL); addRemoteErr != nil {
+			return "", addRemoteErr
 		}
-	} else if _, err := g.runGit(ctx, repoDir, "remote", "set-url", "origin", cloneURL); err != nil {
-		return "", err
+	} else if _, setRemoteErr := g.runGit(ctx, repoDir, "remote", "set-url", "origin", cloneURL); setRemoteErr != nil {
+		return "", setRemoteErr
 	}
 	return repoDir, nil
 }

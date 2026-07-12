@@ -140,8 +140,8 @@ func TestSystemdRestartLeavesStatusStartingForRestartedProcess(t *testing.T) {
 	if restartCalls != 1 {
 		t.Fatalf("restart calls = %d, want 1", restartCalls)
 	}
-	if target, err := filepath.EvalSymlinks(binPath); err != nil || target != resolvedArtifactPath {
-		t.Fatalf("bin symlink target = %q, %v; want %q", target, err, resolvedArtifactPath)
+	if target, evalErr := filepath.EvalSymlinks(binPath); evalErr != nil || target != resolvedArtifactPath {
+		t.Fatalf("bin symlink target = %q, %v; want %q", target, evalErr, resolvedArtifactPath)
 	}
 	statuses := store.runnerStatuses()
 	if len(statuses) != 1 {

@@ -42,8 +42,8 @@ export function bootstrapPage() {
             passwordInput.value = '';
             usernameInput.value = '';
             step.val = 'register';
-        } catch (e) {
-            status.val = p({class: 'text-red-400 text-sm'}, `${e.message}`);
+        } catch (error) {
+            status.val = p({class: 'text-red-400 text-sm'}, `${error.message}`);
         } finally {
             submitButton.isSubmitting.val = false;
         }

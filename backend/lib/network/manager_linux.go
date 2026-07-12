@@ -110,9 +110,9 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 	}
 	defer nsHandle.Close()
 
-	cleanup := func(err error) (*ContainerNet, error) {
+	cleanup := func(setupErr error) (*ContainerNet, error) {
 		m.TeardownContainerNet(spec.ContainerID, spec.DeploymentID)
-		return nil, err
+		return nil, setupErr
 	}
 
 	// veth pair in the host ns; peer moves into the container ns.
@@ -121,15 +121,15 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 		LinkAttrs: netlink.LinkAttrs{Name: hostVeth, MTU: vethMTU, Alias: spec.ContainerID},
 		PeerName:  peerName,
 	}
-	if err := netlink.LinkAdd(veth); err != nil {
-		return cleanup(fmt.Errorf("creating veth %s: %w", hostVeth, err))
+	if linkAddErr := netlink.LinkAdd(veth); linkAddErr != nil {
+		return cleanup(fmt.Errorf("creating veth %s: %w", hostVeth, linkAddErr))
 	}
 	peer, err := netlink.LinkByName(peerName)
 	if err != nil {
 		return cleanup(fmt.Errorf("looking up veth peer: %w", err))
 	}
-	if err := netlink.LinkSetNsFd(peer, int(nsHandle)); err != nil {
-		return cleanup(fmt.Errorf("moving veth peer into netns: %w", err))
+	if moveErr := netlink.LinkSetNsFd(peer, int(nsHandle)); moveErr != nil {
+		return cleanup(fmt.Errorf("moving veth peer into netns: %w", moveErr))
 	}
 
 	// Container side.
@@ -138,8 +138,8 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 		return cleanup(fmt.Errorf("opening netlink handle in netns: %w", err))
 	}
 	defer nsNetlink.Close()
-	if err := configureContainerSide(nsNetlink, peerName, spec.Addr, spec.DeprecatedAddrs, contV4, hostV4); err != nil {
-		return cleanup(err)
+	if configureErr := configureContainerSide(nsNetlink, peerName, spec.Addr, spec.DeprecatedAddrs, contV4, hostV4); configureErr != nil {
+		return cleanup(configureErr)
 	}
 
 	// Host side.
@@ -147,20 +147,20 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 	if err != nil {
 		return cleanup(fmt.Errorf("looking up host veth: %w", err))
 	}
-	if err := netlink.AddrAdd(hostLink, &netlink.Addr{
+	if gatewayErr := netlink.AddrAdd(hostLink, &netlink.Addr{
 		IPNet: netipPrefixToIPNet(netip.PrefixFrom(hostGateway, 64)),
 		Flags: unix.IFA_F_NODAD,
-	}); err != nil {
-		return cleanup(fmt.Errorf("assigning host gateway address: %w", err))
+	}); gatewayErr != nil {
+		return cleanup(fmt.Errorf("assigning host gateway address: %w", gatewayErr))
 	}
-	if err := netlink.AddrAdd(hostLink, &netlink.Addr{IPNet: netipPrefixToIPNet(netip.PrefixFrom(hostV4, 30))}); err != nil {
-		return cleanup(fmt.Errorf("assigning host v4 address: %w", err))
+	if addrErr := netlink.AddrAdd(hostLink, &netlink.Addr{IPNet: netipPrefixToIPNet(netip.PrefixFrom(hostV4, 30))}); addrErr != nil {
+		return cleanup(fmt.Errorf("assigning host v4 address: %w", addrErr))
 	}
-	if err := netlink.LinkSetUp(hostLink); err != nil {
-		return cleanup(fmt.Errorf("bringing host veth up: %w", err))
+	if linkUpErr := netlink.LinkSetUp(hostLink); linkUpErr != nil {
+		return cleanup(fmt.Errorf("bringing host veth up: %w", linkUpErr))
 	}
-	if err := replaceHostRoute(spec.Addr, hostLink.Attrs().Index); err != nil {
-		return cleanup(fmt.Errorf("adding host route for %v: %w", spec.Addr, err))
+	if routeErr := replaceHostRoute(spec.Addr, hostLink.Attrs().Index); routeErr != nil {
+		return cleanup(fmt.Errorf("adding host route for %v: %w", spec.Addr, routeErr))
 	}
 
 	slog.Info("container netns configured",
@@ -194,8 +194,8 @@ func (m *Manager) Promote(_ *ContainerNet, candidate *ContainerNet, stable netip
 	if err != nil {
 		return fmt.Errorf("promote: candidate host veth: %w", err)
 	}
-	if err := replaceHostRoute(stable, hostLink.Attrs().Index); err != nil {
-		return fmt.Errorf("promote: flipping host route: %w", err)
+	if routeErr := replaceHostRoute(stable, hostLink.Attrs().Index); routeErr != nil {
+		return fmt.Errorf("promote: flipping host route: %w", routeErr)
 	}
 
 	slog.Info("promoted candidate", "container", candidate.ContainerID, "addr", stable)
@@ -216,8 +216,8 @@ func (m *Manager) TeardownContainerNet(containerID string, deploymentID int32) {
 			continue
 		}
 		if link.Attrs().Alias == containerID {
-			if err := netlink.LinkDel(link); err != nil {
-				slog.Warn("deleting leftover veth", "veth", link.Attrs().Name, "err", err)
+			if deleteErr := netlink.LinkDel(link); deleteErr != nil {
+				slog.Warn("deleting leftover veth", "veth", link.Attrs().Name, "err", deleteErr)
 			}
 		}
 	}
@@ -301,39 +301,39 @@ func configureContainerSide(h *netlink.Handle, peerName string, addr netip.Addr,
 	if err != nil {
 		return fmt.Errorf("container peer link: %w", err)
 	}
-	if err := h.LinkSetName(link, containerIface); err != nil {
-		return fmt.Errorf("renaming container link: %w", err)
+	if renameErr := h.LinkSetName(link, containerIface); renameErr != nil {
+		return fmt.Errorf("renaming container link: %w", renameErr)
 	}
 	link, err = h.LinkByName(containerIface)
 	if err != nil {
 		return fmt.Errorf("container %s: %w", containerIface, err)
 	}
-	if err := addContainerV6Addr(h, link, addr, false); err != nil {
-		return err
+	if addrErr := addContainerV6Addr(h, link, addr, false); addrErr != nil {
+		return addrErr
 	}
 	for _, deprecatedAddr := range deprecatedAddrs {
-		if err := addContainerV6Addr(h, link, deprecatedAddr, true); err != nil {
-			return err
+		if addrErr := addContainerV6Addr(h, link, deprecatedAddr, true); addrErr != nil {
+			return addrErr
 		}
 	}
-	if err := h.AddrAdd(link, &netlink.Addr{IPNet: netipPrefixToIPNet(netip.PrefixFrom(contV4, 30))}); err != nil {
-		return fmt.Errorf("assigning container v4 address: %w", err)
+	if addrErr := h.AddrAdd(link, &netlink.Addr{IPNet: netipPrefixToIPNet(netip.PrefixFrom(contV4, 30))}); addrErr != nil {
+		return fmt.Errorf("assigning container v4 address: %w", addrErr)
 	}
-	if err := h.LinkSetUp(link); err != nil {
-		return fmt.Errorf("bringing container link up: %w", err)
+	if linkUpErr := h.LinkSetUp(link); linkUpErr != nil {
+		return fmt.Errorf("bringing container link up: %w", linkUpErr)
 	}
 	idx := link.Attrs().Index
-	if err := h.RouteAdd(&netlink.Route{
+	if routeErr := h.RouteAdd(&netlink.Route{
 		LinkIndex: idx,
 		Gw:        net.IP(hostGateway.AsSlice()),
-	}); err != nil {
-		return fmt.Errorf("container v6 default route: %w", err)
+	}); routeErr != nil {
+		return fmt.Errorf("container v6 default route: %w", routeErr)
 	}
-	if err := h.RouteAdd(&netlink.Route{
+	if routeErr := h.RouteAdd(&netlink.Route{
 		LinkIndex: idx,
 		Gw:        net.IP(hostV4.AsSlice()),
-	}); err != nil {
-		return fmt.Errorf("container v4 default route: %w", err)
+	}); routeErr != nil {
+		return fmt.Errorf("container v4 default route: %w", routeErr)
 	}
 	return nil
 }

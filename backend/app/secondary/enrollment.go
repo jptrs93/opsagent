@@ -47,12 +47,12 @@ func Enroll(ctx context.Context, cfg EnrollmentConfig) error {
 	backoff := time.Second
 	const maxBackoff = 30 * time.Second
 	for {
-		if err := ctx.Err(); err != nil {
-			return err
+		if contextErr := ctx.Err(); contextErr != nil {
+			return contextErr
 		}
 		connectedAt := time.Now()
-		err := runEnrollmentSession(ctx, capi, machineID, cfg)
-		if err == nil {
+		sessionErr := runEnrollmentSession(ctx, capi, machineID, cfg)
+		if sessionErr == nil {
 			return nil
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -66,7 +66,7 @@ func Enroll(ctx context.Context, cfg EnrollmentConfig) error {
 			"requestingMachineID", machineID,
 			"connected_for", time.Since(connectedAt).Round(time.Second),
 			"retry_in", backoff,
-			"err", err)
+			"err", sessionErr)
 		timer := time.NewTimer(backoff)
 		select {
 		case <-timer.C:
@@ -96,9 +96,9 @@ func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, ma
 		<-ctx.Done()
 	}
 
-	for msg, err := range capi.PostV1EnrollmentRequest(ctx, reqs) {
-		if err != nil {
-			return err
+	for msg, streamErr := range capi.PostV1EnrollmentRequest(ctx, reqs) {
+		if streamErr != nil {
+			return streamErr
 		}
 		if msg == nil {
 			continue
@@ -107,11 +107,11 @@ func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, ma
 			slog.Info("worker enrollment request registered", "id", msg.RequestStatus.ID, "status", msg.RequestStatus.Status)
 		}
 		if msg.Accepted != nil {
-			if err := cacheEnrollmentBootstrapState(cfg, msg.Accepted); err != nil {
-				return err
+			if cacheErr := cacheEnrollmentBootstrapState(cfg, msg.Accepted); cacheErr != nil {
+				return cacheErr
 			}
-			if err := writeEnrollmentTLSBundle(cfg, msg.Accepted, keyPEM); err != nil {
-				return err
+			if writeErr := writeEnrollmentTLSBundle(cfg, msg.Accepted, keyPEM); writeErr != nil {
+				return writeErr
 			}
 			slog.Info("worker enrollment accepted", "id", msg.Accepted.ID, "machine", msg.Accepted.WorkerName)
 			return nil
@@ -204,13 +204,13 @@ func enrollmentHTTPClient(expectedFingerprint string) (*http.Client, error) {
 
 func ensureRequestingMachineID(dataDir string) (string, error) {
 	path := filepath.Join(dataDir, "enrollment-machine-id")
-	if b, err := os.ReadFile(path); err == nil {
-		id := strings.TrimSpace(string(b))
-		if id != "" {
-			return id, nil
+	if b, readErr := os.ReadFile(path); readErr == nil {
+		storedID := strings.TrimSpace(string(b))
+		if storedID != "" {
+			return storedID, nil
 		}
-	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("reading enrollment machine id: %w", err)
+	} else if !os.IsNotExist(readErr) {
+		return "", fmt.Errorf("reading enrollment machine id: %w", readErr)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", fmt.Errorf("creating data dir for enrollment machine id: %w", err)

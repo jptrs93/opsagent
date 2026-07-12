@@ -133,8 +133,8 @@ func (p *Handler) GetV1ClusterAsset(authCtx apigen.Context, r *http.Request, w h
 	w.Header().Set("X-Opsagent-Asset-Key", url.QueryEscape(asset.Key))
 	w.Header().Set("X-Opsagent-Asset-Version", strconv.Itoa(int(asset.Version)))
 	w.Header().Set("X-Opsagent-Asset-Format", asset.Format)
-	if _, err := io.Copy(w, body); err != nil {
-		slog.ErrorContext(authCtx, "stream cluster asset", "asset_id", assetID, "err", err)
+	if _, copyErr := io.Copy(w, body); copyErr != nil {
+		slog.ErrorContext(authCtx, "stream cluster asset", "asset_id", assetID, "err", copyErr)
 	}
 	return nil
 }

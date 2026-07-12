@@ -26,9 +26,9 @@ func TestMatchMinLevel(t *testing.T) {
 		{name: "unknown min ignored", line: "plain line", min: "TRACE", want: true},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.name, func(subtest *testing.T) {
 			if got := Match([]byte(tc.line), "", tc.min); got != tc.want {
-				t.Fatalf("Match() = %v, want %v", got, tc.want)
+				subtest.Fatalf("Match() = %v, want %v", got, tc.want)
 			}
 		})
 	}

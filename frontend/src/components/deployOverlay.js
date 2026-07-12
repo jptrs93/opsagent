@@ -27,9 +27,9 @@ const versionLabel = (v) => {
         ? v.time.toISOString().substring(0, 10)
         : '';
     const shortId = v.id.length > 7 && /^[0-9a-f]+$/i.test(v.id) ? v.id.substring(0, 7) : v.id;
-    const label = (v.label || '').substring(0, 30);
+    const releaseLabel = (v.label || '').substring(0, 30);
     const ellipsis = (v.label || '').length > 30 ? '...' : '';
-    return `${date}\t\t${shortId}\t\t${label}${ellipsis}`;
+    return `${date}\t\t${shortId}\t\t${releaseLabel}${ellipsis}`;
 };
 
 const currentCommitLabel = (id, commits) => {
@@ -95,19 +95,19 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         const sourceKey = deploymentUpdate.sourceKey();
         try {
             if (internalOpenDeployRelease) {
-                const req = {deploymentId: deployment.id};
-                let result;
+                const releaseRequest = {deploymentId: deployment.id};
+                let releaseResult;
                 try {
-                    result = await capi.postV1DeploymentVersions(req);
+                    releaseResult = await capi.postV1DeploymentVersions(releaseRequest);
                 } catch (e) {
-                    console.error('[opendeploy] deployment versions refresh request failed', {request: req, error: e, stack: e?.stack});
+                    console.error('[opendeploy] deployment versions refresh request failed', {request: releaseRequest, error: e, stack: e?.stack});
                     versionError.val = e.message || 'Failed to load versions';
                     deploymentUpdate.githubRelease.releases.val = [];
                     return;
                 }
-                console.log('[opendeploy] deployment versions refresh response', {request: req, response: result});
+                console.log('[opendeploy] deployment versions refresh response', {request: releaseRequest, response: releaseResult});
                 try {
-                    const releases = result?.githubRelease?.releases || [];
+                    const releases = releaseResult?.githubRelease?.releases || [];
                     deploymentUpdate.githubRelease.releases.val = releases;
                     const previous = deploymentUpdate.githubRelease.selectedRelease.val;
                     const deployedId = deployment.deployedVersion || '';
@@ -119,7 +119,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                         deploymentUpdate.githubRelease.selectedRelease.val = releases[0]?.id || '';
                     }
                 } catch (e) {
-                    console.error('[opendeploy] deployment versions refresh client error', {request: req, response: result, error: e, stack: e?.stack});
+                    console.error('[opendeploy] deployment versions refresh client error', {request: releaseRequest, response: releaseResult, error: e, stack: e?.stack});
                     versionError.val = `Client error after loading versions: ${e.message || e}`;
                     deploymentUpdate.githubRelease.releases.val = [];
                 }

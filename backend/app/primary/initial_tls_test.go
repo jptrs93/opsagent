@@ -79,8 +79,8 @@ func TestInitialWebTLSCertPEMHookReadsAndRemovesOneShotFile(t *testing.T) {
 	}
 	bundle := append(certPEM, keyPEM...)
 	certPath := filepath.Join(dir, initialWebTLSCertPEMFileName)
-	if err := os.WriteFile(certPath, bundle, 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
+	if writeErr := os.WriteFile(certPath, bundle, 0o600); writeErr != nil {
+		t.Fatalf("WriteFile: %v", writeErr)
 	}
 
 	old := ainit.StaticConfig
@@ -94,8 +94,8 @@ func TestInitialWebTLSCertPEMHookReadsAndRemovesOneShotFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServiceWithInitialConfigHook: %v", err)
 	}
-	if _, err := os.Stat(certPath); !os.IsNotExist(err) {
-		t.Fatalf("one-shot cert file still exists or stat failed: %v", err)
+	if _, statErr := os.Stat(certPath); !os.IsNotExist(statErr) {
+		t.Fatalf("one-shot cert file still exists or stat failed: %v", statErr)
 	}
 	stored, err := secretMgr.RevealByID(service.Snapshot().Settings.HttpsWeb.TlsCertPem.ID)
 	if err != nil {

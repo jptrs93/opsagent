@@ -38,22 +38,22 @@ func (h *Handler) PutV1Settings(ctx apigen.Context, req *apigen.Settings) (*apig
 		return nil, apigen.NewApiErr(err.Error(), "settings_invalid", http.StatusBadRequest)
 	}
 	for _, ref := range settingsSecretRefs(stored) {
-		if err := h.validateSecretRef(ref); err != nil {
-			return nil, err
+		if refErr := h.validateSecretRef(ref); refErr != nil {
+			return nil, refErr
 		}
 	}
 	resolved.HttpsWeb.TlsCertPem = stored.HttpsWeb.TlsCertPem
-	if err := h.validateWebTLSCert(resolved); err != nil {
-		if errors.Is(err, secrets.ErrLocked) {
+	if certErr := h.validateWebTLSCert(resolved); certErr != nil {
+		if errors.Is(certErr, secrets.ErrLocked) {
 			return nil, SecretsLockedErr
 		}
-		if errors.Is(err, secrets.ErrNotFound) {
+		if errors.Is(certErr, secrets.ErrNotFound) {
 			return nil, SecretNotFoundErr
 		}
-		return nil, apigen.NewApiErr(err.Error(), "settings_invalid", http.StatusBadRequest)
+		return nil, apigen.NewApiErr(certErr.Error(), "settings_invalid", http.StatusBadRequest)
 	}
-	if err := h.ConfigService.UpdateSettings(*stored); err != nil {
-		return nil, err
+	if updateErr := h.ConfigService.UpdateSettings(*stored); updateErr != nil {
+		return nil, updateErr
 	}
 	return stored, nil
 }
@@ -225,8 +225,8 @@ func (h *Handler) validateWebTLSCert(settings *apigen.Settings) error {
 	if err != nil {
 		return err
 	}
-	if _, err := tls.X509KeyPair(bundle, bundle); err != nil {
-		return fmt.Errorf("https_web.tls_cert_pem must contain a PEM certificate chain and private key: %w", err)
+	if _, keyPairErr := tls.X509KeyPair(bundle, bundle); keyPairErr != nil {
+		return fmt.Errorf("https_web.tls_cert_pem must contain a PEM certificate chain and private key: %w", keyPairErr)
 	}
 	return nil
 }

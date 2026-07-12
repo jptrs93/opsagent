@@ -24,16 +24,16 @@ func TestSystemLogWriterWritesMergedBinaryRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.Write([]byte("first\n")); err != nil {
-		t.Fatalf("write first: %v", err)
+	if _, writeErr := w.Write([]byte("first\n")); writeErr != nil {
+		t.Fatalf("write first: %v", writeErr)
 	}
 	second := time.Date(2026, 6, 15, 14, 30, 0, 987654321, time.UTC)
 	now = second
-	if _, err := w.Write([]byte("second\n")); err != nil {
-		t.Fatalf("write second: %v", err)
+	if _, writeErr := w.Write([]byte("second\n")); writeErr != nil {
+		t.Fatalf("write second: %v", writeErr)
 	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("close: %v", err)
+	if closeErr := w.Close(); closeErr != nil {
+		t.Fatalf("close: %v", closeErr)
 	}
 
 	assertBinaryRecords(t, filepath.Join(base, "0", "20260615_1400_0_1.logbin"), []binaryRecord{{time: first.UnixNano(), version: 0, run: 1, stream: BinaryStreamStdout, line: "first\n"}})
@@ -47,14 +47,14 @@ func TestSystemLogWriterCombinesPartialWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.Write([]byte("line")); err != nil {
-		t.Fatal(err)
+	if _, writeErr := w.Write([]byte("line")); writeErr != nil {
+		t.Fatal(writeErr)
 	}
-	if _, err := w.Write([]byte(" ends\n")); err != nil {
-		t.Fatal(err)
+	if _, writeErr := w.Write([]byte(" ends\n")); writeErr != nil {
+		t.Fatal(writeErr)
 	}
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := w.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
 
 	assertBinaryRecords(t, filepath.Join(base, "0", "20260615_1430_0_1.logbin"), []binaryRecord{{time: now.UnixNano(), version: 0, run: 1, stream: BinaryStreamStdout, line: "line ends\n"}})
@@ -67,11 +67,11 @@ func TestSystemLogWriterFlushesPartialLineOnClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.Write([]byte("partial")); err != nil {
-		t.Fatal(err)
+	if _, writeErr := w.Write([]byte("partial")); writeErr != nil {
+		t.Fatal(writeErr)
 	}
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := w.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
 
 	assertBinaryRecords(t, filepath.Join(base, "0", "20260615_1430_0_1.logbin"), []binaryRecord{{time: now.UnixNano(), version: 0, run: 1, stream: BinaryStreamStdout, line: "partial"}})

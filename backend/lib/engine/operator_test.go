@@ -8,8 +8,6 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
-	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/containerimage"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 )
 
@@ -70,7 +68,7 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(subtest *testing.T) {
 			op := DeploymentOperator{
 				Store:         operatorTestStore{},
 				RuntimeInputs: runtimeinputs.New(nil, nil, nil),
@@ -89,7 +87,7 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 			handle := op.reAttachPreparer(dep, tt.status)
 
 			if handle.Version() != dep.Version {
-				t.Fatalf("handle version = %d, want %d", handle.Version(), dep.Version)
+				subtest.Fatalf("handle version = %d, want %d", handle.Version(), dep.Version)
 			}
 		})
 	}
@@ -115,9 +113,8 @@ func TestStartPreparerStopsBeforeArtifactWhenRuntimeInputsFail(t *testing.T) {
 	store := &recordingOperatorStore{}
 	secrets := &failingSecretProvider{}
 	op := DeploymentOperator{
-		Store:          store,
-		ContainerImage: containerimage.New(ctrd.New("unused", "unused")),
-		RuntimeInputs:  runtimeinputs.New(nil, secrets, nil),
+		Store:         store,
+		RuntimeInputs: runtimeinputs.New(nil, secrets, nil),
 	}
 
 	handle := op.startPreparer(dep)

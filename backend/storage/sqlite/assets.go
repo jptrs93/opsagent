@@ -68,24 +68,24 @@ func (s *PrimaryStorage) ListAssets() []*apigen.AssetMeta {
 }
 
 func (s *PrimaryStorage) ListAllAssetVersions() []*apigen.AssetMeta {
-	rows, err := s.db.QueryContext(context.Background(), `
+	rows, queryErr := s.db.QueryContext(context.Background(), `
 SELECT id, key, space_id, created_at, version, format, location, size_bytes
 FROM assets
 ORDER BY key, version`)
-	if err != nil {
-		panic(fmt.Sprintf("ListAllAssetVersions: %v", err))
+	if queryErr != nil {
+		panic(fmt.Sprintf("ListAllAssetVersions: %v", queryErr))
 	}
 	defer rows.Close()
 	out := []*apigen.AssetMeta{}
 	for rows.Next() {
 		var r ListLatestAssetsRow
-		if err := rows.Scan(&r.ID, &r.Key, &r.SpaceID, &r.CreatedAt, &r.Version, &r.Format, &r.Location, &r.SizeBytes); err != nil {
-			panic(fmt.Sprintf("ListAllAssetVersions scan: %v", err))
+		if scanErr := rows.Scan(&r.ID, &r.Key, &r.SpaceID, &r.CreatedAt, &r.Version, &r.Format, &r.Location, &r.SizeBytes); scanErr != nil {
+			panic(fmt.Sprintf("ListAllAssetVersions scan: %v", scanErr))
 		}
 		out = append(out, assetRowToMeta(r))
 	}
-	if err := rows.Err(); err != nil {
-		panic(fmt.Sprintf("ListAllAssetVersions rows: %v", err))
+	if rowsErr := rows.Err(); rowsErr != nil {
+		panic(fmt.Sprintf("ListAllAssetVersions rows: %v", rowsErr))
 	}
 	return out
 }
@@ -194,18 +194,18 @@ func (s *PrimaryStorage) SetAssetStored(key, format, location string, sizeBytes 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		panic(fmt.Sprintf("begin tx: %v", err))
+	tx, beginErr := s.db.BeginTx(ctx, nil)
+	if beginErr != nil {
+		panic(fmt.Sprintf("begin tx: %v", beginErr))
 	}
 	defer tx.Rollback()
 	q := s.q.WithTx(tx)
 
-	version, err := q.GetNextAssetVersion(ctx, key)
-	if err != nil {
-		panic(fmt.Sprintf("GetNextAssetVersion: %v", err))
+	version, versionErr := q.GetNextAssetVersion(ctx, key)
+	if versionErr != nil {
+		panic(fmt.Sprintf("GetNextAssetVersion: %v", versionErr))
 	}
-	r, err := q.InsertAsset(ctx, InsertAssetParams{
+	r, insertErr := q.InsertAsset(ctx, InsertAssetParams{
 		Key:       key,
 		SpaceID:   int64(spaceID),
 		CreatedAt: now,
@@ -215,11 +215,11 @@ func (s *PrimaryStorage) SetAssetStored(key, format, location string, sizeBytes 
 		SizeBytes: sizeBytes,
 		Blob:      blob,
 	})
-	if err != nil {
-		panic(fmt.Sprintf("InsertAsset: %v", err))
+	if insertErr != nil {
+		panic(fmt.Sprintf("InsertAsset: %v", insertErr))
 	}
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit asset: %v", err))
+	if commitErr := tx.Commit(); commitErr != nil {
+		panic(fmt.Sprintf("commit asset: %v", commitErr))
 	}
 	return assetRowToProto(r)
 }

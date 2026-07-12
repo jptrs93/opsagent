@@ -113,9 +113,9 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 		select {
 		case accepted := <-sess.accepted:
 			yield(&apigen.EnrollmentPrimaryMsg{Accepted: accepted}, nil)
-		case err := <-disconnected:
-			if err != nil {
-				yield(nil, err)
+		case disconnectErr := <-disconnected:
+			if disconnectErr != nil {
+				yield(nil, disconnectErr)
 			}
 		case <-ctx.Done():
 		}

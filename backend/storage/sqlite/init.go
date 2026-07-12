@@ -28,12 +28,12 @@ func mustInitSecondary(dbPath string) *sql.DB {
 }
 
 func mustInit(dbPath, migrations string) *sql.DB {
-	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=journal_mode(wal)&_pragma=busy_timeout(5000)")
-	if err != nil {
-		panic(fmt.Sprintf("open sqlite: %v", err))
+	db, openErr := sql.Open("sqlite", "file:"+dbPath+"?_pragma=journal_mode(wal)&_pragma=busy_timeout(5000)")
+	if openErr != nil {
+		panic(fmt.Sprintf("open sqlite: %v", openErr))
 	}
-	if _, err := db.Exec(schema); err != nil {
-		panic(fmt.Sprintf("exec schema: %v", err))
+	if _, schemaErr := db.Exec(schema); schemaErr != nil {
+		panic(fmt.Sprintf("exec schema: %v", schemaErr))
 	}
 	migrateVersionedSecretConfigTables(db)
 	applyMigrations(db, migrations)
@@ -50,9 +50,9 @@ func migrateVersionedSecretConfigTables(db *sql.DB) {
 }
 
 func tableHasColumn(db *sql.DB, table, column string) bool {
-	rows, err := db.Query("PRAGMA table_info(" + table + ")")
-	if err != nil {
-		panic(fmt.Sprintf("table_info %s: %v", table, err))
+	rows, queryErr := db.Query("PRAGMA table_info(" + table + ")")
+	if queryErr != nil {
+		panic(fmt.Sprintf("table_info %s: %v", table, queryErr))
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -61,15 +61,15 @@ func tableHasColumn(db *sql.DB, table, column string) bool {
 		var notNull int
 		var defaultValue any
 		var pk int
-		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
-			panic(fmt.Sprintf("scan table_info %s: %v", table, err))
+		if scanErr := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); scanErr != nil {
+			panic(fmt.Sprintf("scan table_info %s: %v", table, scanErr))
 		}
 		if name == column {
 			return true
 		}
 	}
-	if err := rows.Err(); err != nil {
-		panic(fmt.Sprintf("table_info rows %s: %v", table, err))
+	if rowsErr := rows.Err(); rowsErr != nil {
+		panic(fmt.Sprintf("table_info rows %s: %v", table, rowsErr))
 	}
 	return false
 }

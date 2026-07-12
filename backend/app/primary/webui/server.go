@@ -166,8 +166,8 @@ func webUITLSBundle(store *secrets.Manager, loader config.Loader, cfg *apigen.Se
 		return nil, err
 	}
 	bundle = append(certPEM, keyPEM...)
-	if err := store.SetInternal(webUISelfSignedTLSBundleSecret, bundle); err != nil {
-		return nil, err
+	if storeErr := store.SetInternal(webUISelfSignedTLSBundleSecret, bundle); storeErr != nil {
+		return nil, storeErr
 	}
 	return bundle, nil
 }

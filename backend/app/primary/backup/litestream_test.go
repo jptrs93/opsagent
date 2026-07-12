@@ -33,8 +33,8 @@ func configWithSettings(settings *apigen.Settings) apigen.Config {
 }
 
 func TestBackupConfigFilterOnlyAllowsBackupChanges(t *testing.T) {
-	secrets := testSecretStore{updated: map[int32]time.Time{10: time.Unix(1, 0)}}
-	filter := newBackupConfigFilter(testConfigLoader{}, secrets)
+	secretSource := testSecretStore{updated: map[int32]time.Time{10: time.Unix(1, 0)}}
+	filter := newBackupConfigFilter(testConfigLoader{}, secretSource)
 	initial := config.DefaultSettings(ainit.StaticConfig)
 	initial.HttpWeb.Listen = apigen.StringSetting{Value: ":8080"}
 	initial.Backup.Enabled = apigen.BoolSetting{Value: true}

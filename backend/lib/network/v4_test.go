@@ -24,7 +24,7 @@ func TestV4PairDisjointSlots(t *testing.T) {
 			t.Fatalf("%s outside %s", a, V4CIDR)
 		}
 	}
-	if _, _, err := V4Pair(7, 2); err == nil {
+	if _, _, invalidSlotErr := V4Pair(7, 2); invalidSlotErr == nil {
 		t.Fatal("slot 2 accepted")
 	}
 }

@@ -113,8 +113,8 @@ func readTCPListeners(path, proto string) []tcpListener {
 		}
 		listeners = append(listeners, tcpListener{proto: proto, local: local, uid: uid, inode: inode})
 	}
-	if err := scanner.Err(); err != nil {
-		log.Printf("bind443 port scan scanner failed path=%s err=%v", path, err)
+	if scanErr := scanner.Err(); scanErr != nil {
+		log.Printf("bind443 port scan scanner failed path=%s err=%v", path, scanErr)
 	}
 	return listeners
 }
@@ -131,18 +131,18 @@ func socketProcesses() map[string][]socketProcess {
 			continue
 		}
 		pid := entry.Name()
-		if _, err := strconv.Atoi(pid); err != nil {
+		if _, parsePIDErr := strconv.Atoi(pid); parsePIDErr != nil {
 			continue
 		}
 		fdDir := filepath.Join("/proc", pid, "fd")
-		fds, err := os.ReadDir(fdDir)
-		if err != nil {
+		fds, readFDsErr := os.ReadDir(fdDir)
+		if readFDsErr != nil {
 			continue
 		}
 		proc := socketProcess{pid: pid, comm: readTrimmed(filepath.Join("/proc", pid, "comm")), cmdline: readCmdline(filepath.Join("/proc", pid, "cmdline"))}
 		for _, fd := range fds {
-			target, err := os.Readlink(filepath.Join(fdDir, fd.Name()))
-			if err != nil || !strings.HasPrefix(target, "socket:[") || !strings.HasSuffix(target, "]") {
+			target, readlinkErr := os.Readlink(filepath.Join(fdDir, fd.Name()))
+			if readlinkErr != nil || !strings.HasPrefix(target, "socket:[") || !strings.HasSuffix(target, "]") {
 				continue
 			}
 			inode := strings.TrimSuffix(strings.TrimPrefix(target, "socket:["), "]")

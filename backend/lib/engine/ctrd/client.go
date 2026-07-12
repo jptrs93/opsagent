@@ -20,19 +20,13 @@ import (
 // Client is a lazily-connected handle to a containerd daemon, scoped to a
 // single namespace.
 type Client struct {
-	address   string
-	namespace string
-
 	mu sync.Mutex
 	c  *containerd.Client
 }
 
-// New stores the connection parameters but does not dial — the first
-// operation establishes the connection. This keeps opendeploy startup independent
-// of whether containerd is installed.
-func New(address, namespace string) *Client {
-	return &Client{address: address, namespace: namespace}
-}
+// Default is the process-wide client used by preparers and container runners.
+// It connects lazily on the first containerd operation.
+var Default = &Client{}
 
 func (c *Client) ensure() (*containerd.Client, error) {
 	c.mu.Lock()
@@ -40,16 +34,16 @@ func (c *Client) ensure() (*containerd.Client, error) {
 	if c.c != nil {
 		return c.c, nil
 	}
-	cl, err := containerd.New(c.address)
+	cl, err := containerd.New(ainit.StaticConfig.CtrdAddress)
 	if err != nil {
-		return nil, fmt.Errorf("connecting to containerd at %s: %w", c.address, err)
+		return nil, fmt.Errorf("connecting to containerd at %s: %w", ainit.StaticConfig.CtrdAddress, err)
 	}
 	c.c = cl
 	return cl, nil
 }
 
 func (c *Client) withNS(ctx context.Context) context.Context {
-	return namespaces.WithNamespace(ctx, c.namespace)
+	return namespaces.WithNamespace(ctx, ainit.StaticConfig.CtrdNamespace)
 }
 
 // Pull fetches and unpacks an image into the content store/snapshotter and
@@ -81,15 +75,15 @@ func (c *Client) Import(ctx context.Context, image ImageStream) (string, error) 
 		return "", err
 	}
 	ctx = c.withNS(ctx)
-	if _, err := cl.Import(ctx, image.Reader, containerd.WithIndexName(image.Ref)); err != nil {
-		return "", err
+	if _, importErr := cl.Import(ctx, image.Reader, containerd.WithIndexName(image.Ref)); importErr != nil {
+		return "", importErr
 	}
 	img, err := cl.GetImage(ctx, image.Ref)
 	if err != nil {
 		return "", fmt.Errorf("loading imported image %s: %w", image.Ref, err)
 	}
-	if err := img.Unpack(ctx, ""); err != nil {
-		return "", fmt.Errorf("unpacking imported image %s: %w", image.Ref, err)
+	if unpackErr := img.Unpack(ctx, ""); unpackErr != nil {
+		return "", fmt.Errorf("unpacking imported image %s: %w", image.Ref, unpackErr)
 	}
 	return image.Ref, nil
 }
@@ -121,7 +115,7 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 	var mounts []specs.Mount
 	for _, m := range spec.Mounts {
 		bindOpt := "rbind"
-		if st, err := os.Stat(m.Source); err == nil && !st.IsDir() {
+		if st, statErr := os.Stat(m.Source); statErr == nil && !st.IsDir() {
 			bindOpt = "bind"
 		}
 		opts := []string{bindOpt}
@@ -207,10 +201,10 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
 		return nil, fmt.Errorf("creating task: %w", err)
 	}
-	if err := task.Start(ctx); err != nil {
+	if startErr := task.Start(ctx); startErr != nil {
 		_, _ = task.Delete(ctx)
 		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
-		return nil, fmt.Errorf("starting task: %w", err)
+		return nil, fmt.Errorf("starting task: %w", startErr)
 	}
 	return &Task{client: c, container: container, task: task}, nil
 }
@@ -300,9 +294,9 @@ func (c *Client) remove(ctx context.Context, cl *containerd.Client, id string) {
 	if err != nil {
 		return
 	}
-	if task, err := container.Task(ctx, nil); err == nil {
+	if task, taskErr := container.Task(ctx, nil); taskErr == nil {
 		_ = task.Kill(ctx, syscall.SIGKILL)
-		if sc, err := task.Wait(ctx); err == nil {
+		if sc, waitErr := task.Wait(ctx); waitErr == nil {
 			select {
 			case <-sc:
 			case <-time.After(5 * time.Second):

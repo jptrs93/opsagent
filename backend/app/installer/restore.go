@@ -191,14 +191,14 @@ func applyRestoredPrimaryConfigOverrides(dbPath string, opts installOptions, own
 			settings.HttpsWeb.TlsSelfManaged = apigen.BoolSetting{Value: selfManaged}
 		case primaryConfigWebTLSCertPEM:
 			bundle := []byte(override.value)
-			if _, err := tls.X509KeyPair(bundle, bundle); err != nil {
+			if _, keyPairErr := tls.X509KeyPair(bundle, bundle); keyPairErr != nil {
 				_ = store.Close()
-				return fmt.Errorf("restored Web TLS certificate PEM must contain a certificate chain and private key: %w", err)
+				return fmt.Errorf("restored Web TLS certificate PEM must contain a certificate chain and private key: %w", keyPairErr)
 			}
-			meta, err := secretsMgr.Set(secrets.TLSCertPEMSecretName, bundle, 0)
-			if err != nil {
+			meta, setErr := secretsMgr.Set(secrets.TLSCertPEMSecretName, bundle, 0)
+			if setErr != nil {
 				_ = store.Close()
-				return fmt.Errorf("creating restored Web TLS certificate secret: %w", err)
+				return fmt.Errorf("creating restored Web TLS certificate secret: %w", setErr)
 			}
 			settings.HttpsWeb.TlsSelfManaged = apigen.BoolSetting{Value: true}
 			settings.HttpsWeb.TlsCertPem = apigen.SecretRef{ID: meta.ID}
@@ -210,16 +210,16 @@ func applyRestoredPrimaryConfigOverrides(dbPath string, opts installOptions, own
 			settings.HttpsWeb.AcmeHosts = apigen.StringSetting{Value: override.value}
 		}
 	}
-	if err := service.UpdateSettings(settings); err != nil {
+	if updateErr := service.UpdateSettings(settings); updateErr != nil {
 		_ = store.Close()
-		return fmt.Errorf("set restored primary config overrides: %w", err)
+		return fmt.Errorf("set restored primary config overrides: %w", updateErr)
 	}
-	if err := store.Close(); err != nil {
-		return fmt.Errorf("close restored primary database after config overrides: %w", err)
+	if closeErr := store.Close(); closeErr != nil {
+		return fmt.Errorf("close restored primary database after config overrides: %w", closeErr)
 	}
 	for _, path := range sqliteArtifactPaths(dbPath) {
-		if err := chownIfExists(path, own); err != nil {
-			return err
+		if chownErr := chownIfExists(path, own); chownErr != nil {
+			return chownErr
 		}
 	}
 	info("updated restored primary listener config")
@@ -253,16 +253,16 @@ func unlockRestoredSecrets(dbPath, recoveryCode string, own owner) error {
 		_ = store.Close()
 		return fmt.Errorf("open restored secrets store: %w", err)
 	}
-	if err := mgr.Unlock(recoveryCode); err != nil {
+	if unlockErr := mgr.Unlock(recoveryCode); unlockErr != nil {
 		_ = store.Close()
-		return fmt.Errorf("unlock restored secrets store: %w", err)
+		return fmt.Errorf("unlock restored secrets store: %w", unlockErr)
 	}
-	if err := store.Close(); err != nil {
-		return fmt.Errorf("close restored primary database: %w", err)
+	if closeErr := store.Close(); closeErr != nil {
+		return fmt.Errorf("close restored primary database: %w", closeErr)
 	}
 	for _, path := range append(sqliteArtifactPaths(dbPath), filepath.Join(dataDir, "machine.key")) {
-		if err := chownIfExists(path, own); err != nil {
-			return err
+		if chownErr := chownIfExists(path, own); chownErr != nil {
+			return chownErr
 		}
 	}
 	return nil

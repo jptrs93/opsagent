@@ -205,8 +205,8 @@ func SignWorkerCertificateRequestFromPEM(caCertPEM, caKeyPEM, csrPEM []byte, wor
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := csr.CheckSignature(); err != nil {
-		return nil, nil, fmt.Errorf("validating worker CSR signature: %w", err)
+	if signatureErr := csr.CheckSignature(); signatureErr != nil {
+		return nil, nil, fmt.Errorf("validating worker CSR signature: %w", signatureErr)
 	}
 	serial, err := randomSerial()
 	if err != nil {

@@ -52,8 +52,8 @@ func (h *Handler) PostV1SpacesDelete(ctx apigen.Context, req *apigen.SpaceDelete
 	if count > 0 {
 		return SpaceInUseErr
 	}
-	if err := h.Store.DeleteSpace(req.ID); err != nil {
-		return err
+	if deleteErr := h.Store.DeleteSpace(req.ID); deleteErr != nil {
+		return deleteErr
 	}
 	return nil
 }

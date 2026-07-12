@@ -391,8 +391,8 @@ func (m *Manager) SetInternal(name string, value []byte) error {
 	createdAt := now
 	if existing, ok := m.systemCache[name]; ok {
 		createdAt = existing.CreatedAt
-	} else if existing, ok := m.store.GetSystemSecret(name); ok {
-		createdAt = existing.CreatedAt
+	} else if stored, found := m.store.GetSystemSecret(name); found {
+		createdAt = stored.CreatedAt
 	}
 	rec := SystemRecord{
 		Name:       name,
@@ -585,8 +585,8 @@ func (m *Manager) GenerateRecoveryCode() (string, error) {
 		return "", err
 	}
 	salt := make([]byte, saltLen)
-	if _, err := rand.Read(salt); err != nil {
-		return "", err
+	if _, randomErr := rand.Read(salt); randomErr != nil {
+		return "", randomErr
 	}
 	kek := argon2.IDKey([]byte(normalizeCode(code)), salt, argon2Time, argon2Memory, argon2Threads, keyLen)
 	wrapped, nonce, err := aeadSeal(kek, m.smk, slotAAD(slotRecovery))
@@ -619,8 +619,8 @@ func (m *Manager) Unlock(code string) error {
 	if err != nil {
 		return ErrInvalidRecoveryCode
 	}
-	if err := m.rewriteMachineSlot(smk, rec.SMKVersion); err != nil {
-		return err
+	if rewriteErr := m.rewriteMachineSlot(smk, rec.SMKVersion); rewriteErr != nil {
+		return rewriteErr
 	}
 	m.smk = smk
 	m.version = rec.SMKVersion
@@ -690,8 +690,8 @@ func aeadSeal(key, plaintext, aad []byte) (ciphertext, nonce []byte, err error) 
 		return nil, nil, err
 	}
 	nonce = make([]byte, aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, nil, err
+	if _, randomErr := rand.Read(nonce); randomErr != nil {
+		return nil, nil, randomErr
 	}
 	return aead.Seal(nil, nonce, plaintext, aad), nonce, nil
 }

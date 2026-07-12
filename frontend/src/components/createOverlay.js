@@ -184,8 +184,8 @@ function createVersionSection(args) {
     if (sourceType === SOURCE_DOCKER_IMAGE) {
         const imageSet = Boolean(form.containerImage.val.trim());
         const explicitVersion = imageVersionFromReference(form.containerImage.val);
-        const check = deploymentUpdate.activeRepoCheck();
-        const ready = check.status === 'ok';
+        const imageCheck = deploymentUpdate.activeRepoCheck();
+        const imageReady = imageCheck.status === 'ok';
         const tags = deploymentUpdate.containerImage.tags.val;
         const selectedTag = deploymentUpdate.containerImage.selectedTagSourceKey.val === deploymentUpdate.sourceKey()
             ? deploymentUpdate.containerImage.selectedTag.val
@@ -194,7 +194,7 @@ function createVersionSection(args) {
             return div(
                 {class: "flex flex-col gap-3"},
                 sectionDivider("Version"),
-                versionMessage(imageSet && check.status !== 'idle' ? versionStatusMessage(deploymentUpdate, check) : (imageSet ? '' : 'Image not set')),
+                versionMessage(imageSet && imageCheck.status !== 'idle' ? versionStatusMessage(deploymentUpdate, imageCheck) : (imageSet ? '' : 'Image not set')),
                 div(
                     {class: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] items-end gap-3"},
                     label(
@@ -209,7 +209,7 @@ function createVersionSection(args) {
         return div(
             {class: "flex flex-col gap-3"},
             sectionDivider("Version"),
-            versionMessage(imageSet ? versionStatusMessage(deploymentUpdate, check) : 'Image not set'),
+            versionMessage(imageSet ? versionStatusMessage(deploymentUpdate, imageCheck) : 'Image not set'),
             div(
                 {class: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-3"},
                 label(
@@ -217,13 +217,13 @@ function createVersionSection(args) {
                     span("Tag"),
                     select({
                         class: selectClass(),
-                        disabled: !ready || args.loadingVersions.val || tags.length === 0,
+                        disabled: !imageReady || args.loadingVersions.val || tags.length === 0,
                         onchange: (e) => {
                             deploymentUpdate.containerImage.selectedTag.val = e.target.value;
                             deploymentUpdate.containerImage.selectedTagSourceKey.val = deploymentUpdate.sourceKey();
                         },
                     },
-                        option({value: '', disabled: true, selected: !selectedTag}, versionPlaceholder(ready, args.loadingVersions.val, tags, "Image unavailable")),
+                        option({value: '', disabled: true, selected: !selectedTag}, versionPlaceholder(imageReady, args.loadingVersions.val, tags, "Image unavailable")),
                         ...tags.map(v => option({value: v.id, selected: v.id === selectedTag}, versionLabel(v))),
                     ),
                 ),

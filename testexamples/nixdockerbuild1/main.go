@@ -23,9 +23,9 @@ func main() {
 }
 
 func printAssetMount(root string) {
-	info, err := os.Stat(root)
-	if err != nil {
-		fmt.Printf("nixdockerbuild1 asset root %s error=%v\n", root, err)
+	info, statErr := os.Stat(root)
+	if statErr != nil {
+		fmt.Printf("nixdockerbuild1 asset root %s error=%v\n", root, statErr)
 		return
 	}
 	if !info.IsDir() {
@@ -33,12 +33,12 @@ func printAssetMount(root string) {
 		return
 	}
 
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			fmt.Printf("nixdockerbuild1 asset walk %s error=%v\n", path, err)
+	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, entryErr error) error {
+		if entryErr != nil {
+			fmt.Printf("nixdockerbuild1 asset walk %s error=%v\n", path, entryErr)
 			return nil
 		}
-		if d.IsDir() {
+		if entry.IsDir() {
 			return nil
 		}
 		rel, relErr := filepath.Rel(root, path)
@@ -54,7 +54,7 @@ func printAssetMount(root string) {
 		fmt.Printf("nixdockerbuild1 asset content %s=%s\n", rel, strings.TrimSpace(string(content)))
 		return nil
 	})
-	if err != nil {
-		fmt.Printf("nixdockerbuild1 asset walk root error=%v\n", err)
+	if walkErr != nil {
+		fmt.Printf("nixdockerbuild1 asset walk root error=%v\n", walkErr)
 	}
 }

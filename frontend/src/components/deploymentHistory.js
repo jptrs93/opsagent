@@ -69,8 +69,8 @@ function runnerChanged(cur, prev) {
         || ta !== tb;
 }
 
-function formatPreparer(p) {
-    const label = preparerStatusLabels[p.status] || `preparer=${p.status}`;
+function formatPreparer(preparer) {
+    const label = preparerStatusLabels[preparer.status] || `preparer=${preparer.status}`;
     return `prepare: ${label}`;
 }
 
