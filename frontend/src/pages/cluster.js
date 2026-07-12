@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {deploymentsStreamS, enrollmentsS, machinesS, userConfigsS} from "../state/deployments.js";
+import {backupStatusS, deploymentsStreamS, enrollmentsS, machinesS, userConfigsS} from "../state/deployments.js";
 
 const { button, code, div, h2, input, p, span, table, tbody, td, th, thead, tr } = van.tags;
 
@@ -93,6 +93,7 @@ export function clusterPage() {
                             )
                         )
                 ),
+                backupReplicationCard(backupStatusS),
                 div(
                     {class: "card"},
                     div(
@@ -118,6 +119,64 @@ export function clusterPage() {
                 )
             );
         }
+    );
+}
+
+function backupReplicationCard(statusS) {
+    return div(
+        {class: "card", "data-testid": "backup-replication-card"},
+        div(
+            {class: "flex items-start justify-between gap-3 mb-3"},
+            div(
+                h2({class: "font-semibold mb-1"}, "Backup replication"),
+                p({class: "text-sm text-gray-400"}, "Primary database replication state."),
+            ),
+            () => backupStatusBadge(statusS.val),
+        ),
+        () => backupStatusDetails(statusS.val),
+    );
+}
+
+function backupStatusBadge(status) {
+    const label = backupStatusLabel(status);
+    const klass = status?.error
+        ? "bg-red-950 text-red-300 border-red-800"
+        : status?.inSync
+            ? "bg-green-950 text-green-300 border-green-800"
+            : status?.configured
+                ? "bg-yellow-950 text-yellow-300 border-yellow-800"
+                : "bg-gray-800 text-gray-300 border-gray-700";
+    return span({class: `px-2 py-1 rounded border text-xs font-medium`, "data-testid": "backup-replication-status"},
+        span({class: klass + " px-2 py-1 rounded border"}, label),
+    );
+}
+
+function backupStatusLabel(status) {
+    if (!status || !status.configured) return "not configured";
+    if (status.error) return "error";
+    if (!status.running) return "not running";
+    if (status.inSync) return "in sync";
+    return "syncing";
+}
+
+function backupStatusDetails(status) {
+    if (!status || !status.configured) {
+        return p({class: "text-sm text-gray-400"}, "Backups are not configured.");
+    }
+    return div(
+        {class: "grid grid-cols-1 md:grid-cols-3 gap-3 text-sm"},
+        detailCell("Local TXID", String(status.localTxid || 0), "backup-replication-local-txid"),
+        detailCell("Remote TXID", String(status.remoteTxid || 0), "backup-replication-remote-txid"),
+        detailCell("Last successful sync", formatTime(status.lastSuccessfulSyncAt), "backup-replication-last-sync"),
+        status.error ? div({class: "md:col-span-3 text-red-300 text-xs break-words", "data-testid": "backup-replication-error"}, status.error) : "",
+    );
+}
+
+function detailCell(label, value, testId) {
+    return div(
+        {class: "rounded border border-gray-800 bg-black/20 p-3"},
+        div({class: "text-xs text-gray-500 mb-1"}, label),
+        div({class: "text-gray-200 font-mono break-all", "data-testid": testId}, value),
     );
 }
 

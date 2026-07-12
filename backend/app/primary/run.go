@@ -47,7 +47,7 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		return fmt.Errorf("creating web UI handler: %w", err)
 	}
 	primaryRuntime.start(ctx, machineName)
-	backupDone := backup.StartReplication(ctx, primaryRuntime.configService, primaryRuntime.secrets)
+	backupDone := backup.StartReplication(ctx, primaryRuntime.configService, primaryRuntime.secrets, primaryRuntime.store)
 	defer func() {
 		cancel()
 		<-backupDone

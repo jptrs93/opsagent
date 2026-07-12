@@ -391,6 +391,53 @@ func DecodeGithubCredentials(b []byte) (*GithubCredentials, error) {
 	return &m, nil
 }
 
+func (m *BackupStatus) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Configured, 1)
+	b = AppendBoolField(b, m.Running, 2)
+	b = AppendBoolField(b, m.InSync, 3)
+	b = AppendUint64Field(b, m.LocalTxid, 4)
+	b = AppendUint64Field(b, m.RemoteTxid, 5)
+	b = AppendInt64FromTime(b, m.LastSuccessfulSyncAt, 6)
+	b = AppendStringField(b, m.Error, 7)
+	return b
+}
+
+func DecodeBackupStatus(b []byte) (*BackupStatus, error) {
+	var m BackupStatus
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Configured, err = ConsumeBool(b, typ)
+		case 2:
+			b, m.Running, err = ConsumeBool(b, typ)
+		case 3:
+			b, m.InSync, err = ConsumeBool(b, typ)
+		case 4:
+			b, m.LocalTxid, err = ConsumeVarUint64(b, typ)
+		case 5:
+			b, m.RemoteTxid, err = ConsumeVarUint64(b, typ)
+		case 6:
+			b, m.LastSuccessfulSyncAt, err = ConsumeTimeFromInt64(b, typ)
+		case 7:
+			b, m.Error, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *ClusterSecretsRequest) Encode() []byte {
 	var b []byte
 	b = AppendRepeatedCompact(b, m.Ids, 1, AppendCompactDecorator(AppendInt32Compact))
@@ -3208,6 +3255,14 @@ func (m *State) Encode() []byte {
 		b = AppendTag(b, 28, BytesType)
 		b = AppendBytes(b, m.NodeStatusUpdate.Encode())
 	}
+	if m.BackupStatusSnapshot != nil {
+		b = AppendTag(b, 29, BytesType)
+		b = AppendBytes(b, m.BackupStatusSnapshot.Encode())
+	}
+	if m.BackupStatusUpdate != nil {
+		b = AppendTag(b, 30, BytesType)
+		b = AppendBytes(b, m.BackupStatusUpdate.Encode())
+	}
 	return b
 }
 
@@ -3430,6 +3485,24 @@ func DecodeState(b []byte) (*State, error) {
 				item, err = DecodeClusterNodeStatus(msgBytes)
 				if err == nil {
 					m.NodeStatusUpdate = item
+				}
+			}
+		case 29:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *BackupStatus
+				item, err = DecodeBackupStatus(msgBytes)
+				if err == nil {
+					m.BackupStatusSnapshot = item
+				}
+			}
+		case 30:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *BackupStatus
+				item, err = DecodeBackupStatus(msgBytes)
+				if err == nil {
+					m.BackupStatusUpdate = item
 				}
 			}
 		default:

@@ -1,9 +1,11 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
+import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {formatDateTime} from "../lib/date.js";
 import {copyIcon, eyeOffIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
-import {deploymentsS, secretMetasS, secretsStatusS, userConfigsS} from "../state/deployments.js";
+import {deploymentUsages} from "../lib/referenceUsage.js";
+import {deploymentsS, secretMetasS, secretsStatusS, spacesS, userConfigsS} from "../state/deployments.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
 const DEFAULT_SECRET_MASK = "••••••••••••••••";
@@ -41,6 +43,7 @@ export function secretsPage() {
     const sort = van.state({key: "name", dir: "asc"});
     const deleteTarget = van.state(null);
     const deleteSaving = van.state(false);
+    const usageTarget = van.state(null);
     let localRows = null;
     let streamSignature = '';
     let nextLocalKey = 1;
@@ -98,56 +101,65 @@ export function secretsPage() {
         }
         return Array.from(latest.values());
     };
-    const settingConfigRefIDs = (settings) => [
-        settings?.httpWeb?.enabled?.configRef?.id,
-        settings?.httpWeb?.listen?.configRef?.id,
-        settings?.httpsWeb?.enabled?.configRef?.id,
-        settings?.httpsWeb?.listen?.configRef?.id,
-        settings?.httpsWeb?.tlsSelfManaged?.configRef?.id,
-        settings?.httpsWeb?.acmeHosts?.configRef?.id,
-        settings?.httpsWeb?.acmeEmail?.configRef?.id,
-        settings?.cluster?.listen?.configRef?.id,
-        settings?.cluster?.enrollmentListen?.configRef?.id,
-        settings?.backup?.enabled?.configRef?.id,
-        settings?.backup?.s3AccessKeyId?.configRef?.id,
-        settings?.backup?.s3Bucket?.configRef?.id,
-        settings?.backup?.s3Path?.configRef?.id,
-        settings?.backup?.s3Region?.configRef?.id,
-        settings?.backup?.s3Endpoint?.configRef?.id,
-        settings?.largeAssets?.s3Enabled?.configRef?.id,
-        settings?.largeAssets?.s3AccessKeyId?.configRef?.id,
-        settings?.largeAssets?.s3Bucket?.configRef?.id,
-        settings?.largeAssets?.s3Path?.configRef?.id,
-        settings?.largeAssets?.s3Region?.configRef?.id,
-        settings?.largeAssets?.s3Endpoint?.configRef?.id,
-    ].map(Number).filter(Boolean);
-    const settingSecretRefIDs = (settings) => [
-        settings?.httpsWeb?.tlsCertPem?.id,
-        settings?.repo?.githubToken?.id,
-        settings?.backup?.s3SecretAccessKey?.id,
-        settings?.largeAssets?.s3SecretAccessKey?.id,
-    ].map(Number).filter(Boolean);
-    const settingsUseCount = (row) => {
+    const settingConfigRefs = (settings) => [
+        ["Web UI HTTP enabled", settings?.httpWeb?.enabled?.configRef?.id],
+        ["Web UI HTTP listen", settings?.httpWeb?.listen?.configRef?.id],
+        ["Web UI HTTPS enabled", settings?.httpsWeb?.enabled?.configRef?.id],
+        ["Web UI HTTPS listen", settings?.httpsWeb?.listen?.configRef?.id],
+        ["Web UI use self managed TLS cert", settings?.httpsWeb?.tlsSelfManaged?.configRef?.id],
+        ["Web UI ACME hosts", settings?.httpsWeb?.acmeHosts?.configRef?.id],
+        ["Web UI ACME email", settings?.httpsWeb?.acmeEmail?.configRef?.id],
+        ["Cluster listen", settings?.cluster?.listen?.configRef?.id],
+        ["Cluster enrollment listen", settings?.cluster?.enrollmentListen?.configRef?.id],
+        ["Backup enabled", settings?.backup?.enabled?.configRef?.id],
+        ["Backup S3 access key ID", settings?.backup?.s3AccessKeyId?.configRef?.id],
+        ["Backup S3 bucket", settings?.backup?.s3Bucket?.configRef?.id],
+        ["Backup S3 path", settings?.backup?.s3Path?.configRef?.id],
+        ["Backup S3 region", settings?.backup?.s3Region?.configRef?.id],
+        ["Backup S3 endpoint", settings?.backup?.s3Endpoint?.configRef?.id],
+        ["Large asset S3 enabled", settings?.largeAssets?.s3Enabled?.configRef?.id],
+        ["Large asset S3 access key ID", settings?.largeAssets?.s3AccessKeyId?.configRef?.id],
+        ["Large asset S3 bucket", settings?.largeAssets?.s3Bucket?.configRef?.id],
+        ["Large asset S3 path", settings?.largeAssets?.s3Path?.configRef?.id],
+        ["Large asset S3 region", settings?.largeAssets?.s3Region?.configRef?.id],
+        ["Large asset S3 endpoint", settings?.largeAssets?.s3Endpoint?.configRef?.id],
+    ].map(([label, id]) => ({label, id: Number(id || 0)})).filter(ref => ref.id);
+    const settingSecretRefs = (settings) => [
+        ["Web UI TLS cert PEM", settings?.httpsWeb?.tlsCertPem?.id],
+        ["GitHub token", settings?.repo?.githubToken?.id],
+        ["Backup S3 secret access key", settings?.backup?.s3SecretAccessKey?.id],
+        ["Large asset S3 secret access key", settings?.largeAssets?.s3SecretAccessKey?.id],
+    ].map(([label, id]) => ({label, id: Number(id || 0)})).filter(ref => ref.id);
+    const itemReferenceIDs = (row) => {
         const name = row.orig.name || rawStateValue(row.name).trim();
-        if (!name) return 0;
-        const idsForName = new Set((row.type === "secret" ? (secretMetasS.val || []) : (userConfigsS.val || []))
+        if (!name) return new Set();
+        return new Set((row.type === "secret" ? (secretMetasS.val || []) : (userConfigsS.val || []))
             .filter(item => item?.name === name)
             .map(item => Number(item.id || 0))
             .filter(Boolean));
-        const ids = row.type === "secret"
-            ? settingSecretRefIDs(settingsSnapshot.val)
-            : settingConfigRefIDs(settingsSnapshot.val);
-        return ids.filter(id => idsForName.has(id)).length;
     };
-    const deploymentUsesItem = (deployment, row) => {
-        const referenceId = Number(row.referenceId || 0);
-        if (!referenceId) return false;
+    const deploymentUsesItem = (deployment, row, referenceIDs = itemReferenceIDs(row)) => {
+        if (!referenceIDs.size) return false;
         const cfg = deployment?.config;
         if (!cfg || cfg.deleted) return false;
         const envVars = cfg.spec?.runner?.container?.envVars || {};
-        return Object.values(envVars).some(value => Number(value?.[row.type === "secret" ? "secretId" : "configId"] || 0) === referenceId);
+        return Object.values(envVars).some(value => referenceIDs.has(Number(value?.[row.type === "secret" ? "secretId" : "configId"] || 0)));
     };
-    const inUseCount = (row) => settingsUseCount(row) + (deploymentsS.val || []).filter(deployment => deploymentUsesItem(deployment, row)).length;
+    const usageForRow = (row) => {
+        const referenceIDs = itemReferenceIDs(row);
+        const settings = (row.type === "secret" ? settingSecretRefs(settingsSnapshot.val) : settingConfigRefs(settingsSnapshot.val))
+            .filter(ref => referenceIDs.has(ref.id));
+        const deployments = deploymentUsages(
+            deploymentsS.val,
+            spacesS.val,
+            deployment => deploymentUsesItem(deployment, row, referenceIDs),
+        );
+        return {deployments, settings};
+    };
+    const inUseCount = (row) => {
+        const usage = usageForRow(row);
+        return usage.deployments.length + usage.settings.length;
+    };
 
     const sortValue = (row, key) => {
         if (key === "type") return row.type;
@@ -501,13 +513,26 @@ export function secretsPage() {
             () => toggleReveal(row)),
     );
 
+    const usageButton = (row) => {
+        const usage = usageForRow(row);
+        const count = usage.deployments.length + usage.settings.length;
+        if (!count) return "0";
+        const name = row.orig.name || rawStateValue(row.name).trim();
+        return button({
+            type: "button",
+            class: "cursor-pointer text-brand hover:text-blue-300 hover:underline",
+            "aria-label": `Show usage for ${row.type} ${name}`,
+            onclick: () => usageTarget.val = {resourceType: row.type, resourceName: name, ...usage},
+        }, String(count));
+    };
+
     const rowEl = (row) => tr(
         {class: "border-b border-gray-800 last:border-0 align-middle"},
         td({class: "py-1 pr-3 w-px whitespace-nowrap"}, typeBadge(row.type)),
         td({class: "py-1 pr-3 w-1/3"}, cellInput(row.name, "name", true)),
         td({class: "py-1 pr-3 text-gray-300 whitespace-nowrap"}, `v${row.version || 0}`),
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap"}, formatDateTime(row.createdAt, "-")),
-        td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => inUseCount(row)),
+        td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => usageButton(row)),
         td({class: "py-1 pr-3"}, row.type === "secret" ? secretValueInput(row) : configValueInput(row)),
         td({class: "py-1 pl-2 pr-5 text-left whitespace-nowrap w-px"},
             () => isDirty(row)
@@ -543,6 +568,18 @@ export function secretsPage() {
                         "button", () => deleteSaving.val),
                 ),
             ),
+        );
+    };
+
+    const usageOverlay = () => {
+        const target = usageTarget.val;
+        if (!target) return "";
+        return referenceUsageOverlay(
+            target.resourceType,
+            target.resourceName,
+            target.deployments,
+            target.settings,
+            () => usageTarget.val = null,
         );
     };
 
@@ -629,5 +666,6 @@ export function secretsPage() {
         {class: "h-full min-h-0 overflow-hidden p-3"},
         contentTable,
         deleteOverlay,
+        usageOverlay,
     );
 }

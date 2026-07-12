@@ -123,6 +123,16 @@ type GithubCredentials struct {
 	ChangedAt time.Time
 }
 
+type BackupStatus struct {
+	Configured           bool
+	Running              bool
+	InSync               bool
+	LocalTxid            uint64
+	RemoteTxid           uint64
+	LastSuccessfulSyncAt time.Time
+	Error                string
+}
+
 type ClusterSecretsRequest struct {
 	Ids []int32
 }
@@ -497,6 +507,8 @@ type State struct {
 	NodeUpdate               *ClusterNode
 	NodeStatusesSnapshot     *ClusterNodeStatusList
 	NodeStatusUpdate         *ClusterNodeStatus
+	BackupStatusSnapshot     *BackupStatus
+	BackupStatusUpdate       *BackupStatus
 }
 
 type Space struct {

@@ -360,6 +360,15 @@ export async function runBackupRestoreSetup(page, opts = {}) {
   await configureBackupSettings(page, cfg);
   const recoveryCode = await generateRecoveryCode(page);
   writeBackupRestoreState(cfg, recoveryCode);
+  await waitForBackupReplicationInSync(page);
+}
+
+async function waitForBackupReplicationInSync(page) {
+  await step('wait for backup replication in sync', async () => {
+    await byTestId(page, 'nav-cluster', page.getByText('Machines')).click();
+    const status = byTestId(page, 'backup-replication-status', page.getByText(/in sync|syncing|error|not configured|not running/));
+    await expect(status).toContainText('in sync', {timeout: BACKUP_RESTORE_TIMEOUT});
+  });
 }
 
 export async function configureLargeAssetStorage(page, opts = {}) {
@@ -439,6 +448,32 @@ export async function createSecret(page, {name, value} = {}) {
   await row.getByRole('button', {name: 'Save'}).click();
   await expect(row.getByRole('button', {name: 'Save'})).toBeHidden({timeout: LONG_UI_TIMEOUT});
   await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(name))})).toBeVisible();
+}
+
+export async function expectReferenceUsage(page, {
+  resourceType,
+  resourceName,
+  deploymentName,
+  space = 'default',
+  machine = 'worker-1',
+} = {}) {
+  const navKey = resourceType === 'asset' ? 'assets' : 'secrets';
+  const navLabel = resourceType === 'asset' ? 'Assets' : 'Secrets / Configs';
+  await byTestId(page, `nav-${navKey}`, page.getByText(navLabel)).click();
+
+  const resourceRow = page.getByRole('row').filter({hasText: resourceName}).first();
+  const usageButton = resourceRow.getByRole('button', {name: `Show usage for ${resourceType} ${resourceName}`});
+  await expect(usageButton).toHaveText('1', {timeout: LONG_UI_TIMEOUT});
+  await usageButton.click();
+
+  const overlay = byTestId(page, 'reference-usage-overlay', page.locator('.fixed.inset-0.z-50').filter({hasText: 'In use by'}));
+  await expect(overlay).toBeVisible();
+  const deploymentRow = overlay.locator('[data-testid^="reference-usage-deployment-"]').filter({hasText: deploymentName});
+  await expect(deploymentRow).toContainText(space);
+  await expect(deploymentRow).toContainText(deploymentName);
+  await expect(deploymentRow).toContainText(machine);
+  await overlay.getByRole('button', {name: 'Close'}).click();
+  await expect(overlay).toBeHidden();
 }
 
 function editableSecretConfigRow(page, typeLabel) {

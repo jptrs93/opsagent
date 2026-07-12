@@ -291,6 +291,7 @@ export function statusPage(onOpenLogs = () => {}) {
     const groupBySpace = van.state(true);
     const showOpendeploy = van.state(loadShowOpendeploy());
     const search = van.state('');
+    let activeInfoTipUnpin = null;
 
     const abortActiveSidebar = () => {
         if (activeSidebarAbort) {
@@ -479,13 +480,19 @@ export function statusPage(onOpenLogs = () => {}) {
         // anywhere else; hover still shows it transiently when not pinned.
         const pinned = van.state(false);
         let offHandler = null;
+        let attachTimer = null;
 
         const unpin = () => {
             pinned.val = false;
+            if (attachTimer) {
+                clearTimeout(attachTimer);
+                attachTimer = null;
+            }
             if (offHandler) {
                 document.removeEventListener('mousedown', offHandler);
                 offHandler = null;
             }
+            if (activeInfoTipUnpin === unpin) activeInfoTipUnpin = null;
         };
 
         const toggle = (e) => {
@@ -494,10 +501,15 @@ export function statusPage(onOpenLogs = () => {}) {
                 unpin();
                 return;
             }
+            if (activeInfoTipUnpin) activeInfoTipUnpin();
             pinned.val = true;
+            activeInfoTipUnpin = unpin;
             offHandler = () => unpin();
             // Attach on the next tick so the opening click doesn't close it.
-            setTimeout(() => document.addEventListener('mousedown', offHandler), 0);
+            attachTimer = setTimeout(() => {
+                attachTimer = null;
+                if (pinned.val && offHandler) document.addEventListener('mousedown', offHandler);
+            }, 0);
         };
 
         return span(

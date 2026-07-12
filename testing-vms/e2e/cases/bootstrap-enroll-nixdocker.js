@@ -17,6 +17,7 @@ import {
   createPostgresDeployment,
   createSecret,
   expectDeploymentOutput,
+  expectReferenceUsage,
   expectOpenDeployAgentVersion,
   expectOpenDeployLogs,
   runBackupRestoreSetup,
@@ -190,6 +191,18 @@ export const orderedCases = [
           path: '/tmp/opendeploy-e2e-asset.txt',
         },
       });
+    },
+  },
+  {
+    id: 'reference-usage-overlays-verified',
+    title: 'verify reference usage overlays',
+    description: 'Verifies config, secret, and asset usage overlays identify their consuming deployment.',
+    requires: ['asset-backed-nix-docker-deployment'],
+    async run(ctx) {
+      const expected = {deploymentName: 'nixdockerbuild-assets'};
+      await expectReferenceUsage(ctx.page, {resourceType: 'config', resourceName: 'e2e.config.message', ...expected});
+      await expectReferenceUsage(ctx.page, {resourceType: 'secret', resourceName: 'e2e.secret.message', ...expected});
+      await expectReferenceUsage(ctx.page, {resourceType: 'asset', resourceName: 'e2e-workload-asset.txt', ...expected});
     },
   },
   {

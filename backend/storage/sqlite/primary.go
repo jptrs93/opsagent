@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jptrs93/goutil/ptru"
@@ -114,6 +115,9 @@ func NetproxyDeploymentSpec() *apigen.DeploymentSpec {
 type PrimaryStorage struct {
 	*deploymentStore
 	userSubs            *pubsubu.PubSub[apigen.User]
+	backupStatusMu      sync.RWMutex
+	backupStatus        apigen.BackupStatus
+	backupStatusSubs    *pubsubu.PubSub[apigen.BackupStatus]
 	secretStatusSubs    *pubsubu.PubSub[apigen.SecretsStatusResponse]
 	secretSubs          *pubsubu.PubSub[apigen.SecretReference]
 	secretMetaSubs      *pubsubu.PubSub[apigen.SecretMeta]
@@ -131,6 +135,7 @@ func NewPrimaryStorage(dbPath string) *PrimaryStorage {
 	return &PrimaryStorage{
 		deploymentStore:     newDeploymentStore(db),
 		userSubs:            &pubsubu.PubSub[apigen.User]{},
+		backupStatusSubs:    &pubsubu.PubSub[apigen.BackupStatus]{},
 		secretStatusSubs:    &pubsubu.PubSub[apigen.SecretsStatusResponse]{},
 		secretSubs:          &pubsubu.PubSub[apigen.SecretReference]{},
 		secretMetaSubs:      &pubsubu.PubSub[apigen.SecretMeta]{},
@@ -1165,6 +1170,24 @@ func (s *PrimaryStorage) ListUsersPublic() []*apigen.User {
 
 func (s *PrimaryStorage) SubscribeUserUpdates() (*pubsubu.Sub[apigen.User], func()) {
 	sub := s.userSubs.Subscribe(nil)
+	return sub, sub.UnsubscribeFunc
+}
+
+func (s *PrimaryStorage) NotifyBackupStatusUpdate(status apigen.BackupStatus) {
+	s.backupStatusMu.Lock()
+	s.backupStatus = status
+	s.backupStatusMu.Unlock()
+	s.backupStatusSubs.Notify(status)
+}
+
+func (s *PrimaryStorage) CurrentBackupStatus() apigen.BackupStatus {
+	s.backupStatusMu.RLock()
+	defer s.backupStatusMu.RUnlock()
+	return s.backupStatus
+}
+
+func (s *PrimaryStorage) SubscribeBackupStatusUpdates() (*pubsubu.Sub[apigen.BackupStatus], func()) {
+	sub := s.backupStatusSubs.Subscribe(nil)
 	return sub, sub.UnsubscribeFunc
 }
 

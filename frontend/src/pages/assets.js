@@ -2,10 +2,12 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {handleErr} from "../capi/err.js";
 import {decodeAsset} from "../capi/model.js";
+import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {closeIcon, trashIcon} from "../lib/icons.js";
 import {formatDateTime} from "../lib/date.js";
+import {deploymentUsages} from "../lib/referenceUsage.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
-import {assetMetasS, deploymentsS} from "../state/deployments.js";
+import {assetMetasS, deploymentsS, spacesS} from "../state/deployments.js";
 import {loginS} from "../state/login.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, textarea } = van.tags;
@@ -21,12 +23,11 @@ const fmtSize = (n) => {
     return `${(n / 1000 / 1000).toFixed(2)} MB`;
 };
 
-const assetRefMatches = (asset, ref) => {
+const assetRefMatches = (assetKey, assetIDs, ref) => {
     if (!ref) return false;
-    const assetId = Number(asset.id || 0);
     const refAssetId = Number(ref.assetId || 0);
-    if (assetId && refAssetId && assetId === refAssetId) return true;
-    return Boolean(asset.key && ref.asset === asset.key);
+    if (refAssetId && assetIDs.has(refAssetId)) return true;
+    return Boolean(assetKey && ref.asset === assetKey);
 };
 
 const latestAssets = (items) => {
@@ -117,6 +118,7 @@ export function assetsPage() {
     const uploadedAssetName = van.state("");
     const deleteTarget = van.state(null);
     const deleteSaving = van.state(false);
+    const usageTarget = van.state(null);
 
     const draftKey = van.state("");
     const draftContent = van.state("");
@@ -300,16 +302,45 @@ export function assetsPage() {
             row.key.toLowerCase().includes(query));
     };
 
-    const deploymentUsesAsset = (deployment, asset) => {
+    const assetReferenceIDs = (asset) => new Set([
+        Number(asset.id || 0),
+        ...(assetMetasS.val || [])
+            .filter(item => item?.key === asset.key)
+            .map(item => Number(item.id || 0)),
+    ].filter(Boolean));
+
+    const deploymentUsesAsset = (deployment, asset, assetIDs = assetReferenceIDs(asset)) => {
         const cfg = deployment?.config;
         if (!cfg || cfg.deleted) return false;
         const container = cfg.spec?.runner?.container || {};
         const envRefs = Object.values(container.envVars || {});
         const mountRefs = container.assetMounts || [];
-        return envRefs.some(ref => assetRefMatches(asset, ref)) || mountRefs.some(ref => assetRefMatches(asset, ref));
+        return envRefs.some(ref => assetRefMatches(asset.key, assetIDs, ref))
+            || mountRefs.some(ref => assetRefMatches(asset.key, assetIDs, ref));
     };
 
-    const inUseCount = (asset) => (deploymentsS.val || []).filter(deployment => deploymentUsesAsset(deployment, asset)).length;
+    const usageForAsset = (asset) => {
+        const assetIDs = assetReferenceIDs(asset);
+        return deploymentUsages(
+            deploymentsS.val,
+            spacesS.val,
+            deployment => deploymentUsesAsset(deployment, asset, assetIDs),
+        );
+    };
+
+    const usageButton = (asset) => {
+        const deployments = usageForAsset(asset);
+        if (!deployments.length) return "0";
+        return button({
+            type: "button",
+            class: "cursor-pointer text-brand hover:text-blue-300 hover:underline",
+            "aria-label": `Show usage for asset ${asset.key}`,
+            onclick: (e) => {
+                e.stopPropagation();
+                usageTarget.val = {resourceName: asset.key, deployments};
+            },
+        }, String(deployments.length));
+    };
 
     const uploadProgressText = () => {
         const total = uploadProgressTotal.val || 0;
@@ -375,7 +406,7 @@ export function assetsPage() {
                     td({class: "py-2 pr-3 min-w-0"},
                         div({class: "font-mono text-gray-100 truncate"}, row.key)),
                     td({class: "py-2 pr-3 text-gray-400 whitespace-nowrap"}, formatDateTime(row.createdAt, "-")),
-                    td({class: "py-2 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => inUseCount(row)),
+                    td({class: "py-2 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => usageButton(row)),
                     td({class: "py-2 pr-3 text-gray-300"}, `v${row.version}`),
                     td({class: "py-2 pr-3 text-gray-400 whitespace-nowrap"}, fmtSize(row.sizeBytes || 0)),
                     td({class: "py-2 pl-2 text-right whitespace-nowrap w-px"},
@@ -510,6 +541,18 @@ export function assetsPage() {
         ),
     ) : "";
 
+    const usageOverlay = () => {
+        const target = usageTarget.val;
+        if (!target) return "";
+        return referenceUsageOverlay(
+            "asset",
+            target.resourceName,
+            target.deployments,
+            [],
+            () => usageTarget.val = null,
+        );
+    };
+
     return div(
         {class: "h-full min-h-0 overflow-hidden p-3 flex flex-col gap-3"},
         () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : "",
@@ -517,6 +560,7 @@ export function assetsPage() {
         div({class: "flex-1 flex flex-col lg:flex-row gap-3 min-h-0"}, leftPane, () => selected.val === null ? "" : editorPanel()),
         uploadOverlay,
         deleteOverlay,
+        usageOverlay,
     );
 }
 

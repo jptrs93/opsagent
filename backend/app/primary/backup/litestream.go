@@ -37,7 +37,11 @@ type secretStore interface {
 	RevealByID(id int32) ([]byte, error)
 }
 
-func StartReplication(ctx context.Context, configService *config.Service, secretSource secretStore) <-chan struct{} {
+type statusPublisher interface {
+	NotifyBackupStatusUpdate(apigen.BackupStatus)
+}
+
+func StartReplication(ctx context.Context, configService *config.Service, secretSource secretStore, publisher statusPublisher) <-chan struct{} {
 	done := make(chan struct{})
 	filter := newBackupConfigFilter(configService, secretSource)
 	sub := configService.SnapshotAndSubscribe(filter.Filter)
@@ -61,6 +65,7 @@ func StartReplication(ctx context.Context, configService *config.Service, secret
 				if err := stopReplication(context.Background()); err != nil {
 					slog.Error("stop backup replication", "err", err)
 				}
+				publishBackupStatus(publisher, apigen.BackupStatus{})
 				return
 			}
 			runCtx, c := context.WithCancel(ctx)
@@ -69,7 +74,7 @@ func StartReplication(ctx context.Context, configService *config.Service, secret
 			currentDone = replicationDone
 			go func() {
 				defer close(replicationDone)
-				runReplication(runCtx, configService, &cfg.Settings, secretSource)
+				runReplication(runCtx, configService, &cfg.Settings, secretSource, publisher)
 			}()
 		}
 
@@ -155,11 +160,12 @@ func backupConfigSignalFromDynamic(loader config.Loader, cfg *apigen.Settings, s
 	return signal
 }
 
-func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.Settings, secretSource secretStore) {
+func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.Settings, secretSource secretStore, publisher statusPublisher) {
 	defer func() {
 		if err := stopReplication(context.Background()); err != nil {
 			slog.Error("stop backup replication", "err", err)
 		}
+		publishBackupStatus(publisher, apigen.BackupStatus{Configured: true, Error: "backup replication is not running"})
 	}()
 
 	backoff := timeu.NewExpBackoff(time.Minute, 5*time.Minute)
@@ -167,18 +173,20 @@ func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.Setti
 		backupCfg, err := resolvedBackupConfigFromDynamic(loader, cfg, secretSource)
 		if err != nil {
 			slog.Error("backup replication config invalid", "err", err)
+			publishBackupStatus(publisher, apigen.BackupStatus{Configured: true, Error: err.Error()})
 			backoff.WaitWithContext(ctx)
 			continue
 		}
 		if err := startReplication(ctx, backupCfg); err != nil {
 			slog.Error("start backup replication", "err", err)
+			publishBackupStatus(publisher, apigen.BackupStatus{Configured: true, Error: err.Error()})
 			if stopErr := stopReplication(context.Background()); stopErr != nil {
 				slog.Error("stop failed backup replication", "err", stopErr)
 			}
 			backoff.WaitWithContext(ctx)
 			continue
 		}
-		<-ctx.Done()
+		pollBackupStatus(ctx, publisher)
 	}
 }
 
@@ -223,6 +231,65 @@ func startReplication(ctx context.Context, cfg resolvedBackupConfig) error {
 	activeConfig = cfg
 	slog.Info("started primary database backup replication", "bucket", cfg.Bucket, "path", cfg.Path)
 	return nil
+}
+
+func CurrentStatus(ctx context.Context) apigen.BackupStatus {
+	activeMu.Lock()
+	defer activeMu.Unlock()
+
+	if activeConfig == (resolvedBackupConfig{}) {
+		return apigen.BackupStatus{}
+	}
+	status := apigen.BackupStatus{Configured: true}
+	if activeStore == nil {
+		status.Error = "backup replication is not running"
+		return status
+	}
+	dbPath := filepath.Join(ainit.StaticConfig.DataDir, "primary.db")
+	db := activeStore.FindDB(dbPath)
+	if db == nil {
+		status.Error = "primary database is not registered with backup replication"
+		return status
+	}
+	status.Running = true
+	status.LastSuccessfulSyncAt = db.LastSuccessfulSyncAt()
+	syncStatus, err := db.SyncStatus(ctx)
+	if err != nil {
+		status.Error = err.Error()
+		return status
+	}
+	status.LocalTxid = uint64(syncStatus.LocalTXID)
+	status.RemoteTxid = uint64(syncStatus.RemoteTXID)
+	status.InSync = syncStatus.InSync
+	return status
+}
+
+func pollBackupStatus(ctx context.Context, publisher statusPublisher) {
+	var last apigen.BackupStatus
+	publishIfChanged := func() {
+		status := CurrentStatus(ctx)
+		if status != last {
+			publishBackupStatus(publisher, status)
+			last = status
+		}
+	}
+	publishIfChanged()
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			publishIfChanged()
+		}
+	}
+}
+
+func publishBackupStatus(publisher statusPublisher, status apigen.BackupStatus) {
+	if publisher != nil {
+		publisher.NotifyBackupStatusUpdate(status)
+	}
 }
 
 func stopReplication(ctx context.Context) error {

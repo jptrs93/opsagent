@@ -53,6 +53,16 @@
  * @property {Date} changedAt
  */
 /**
+ * @typedef {Object} BackupStatus
+ * @property {boolean} configured
+ * @property {boolean} running
+ * @property {boolean} inSync
+ * @property {number} localTxid
+ * @property {number} remoteTxid
+ * @property {Date} lastSuccessfulSyncAt
+ * @property {string} error
+ */
+/**
  * @typedef {Object} ClusterSecretsRequest
  * @property {number[]} ids
  */
@@ -427,6 +437,8 @@
  * @property {ClusterNode} nodeUpdate
  * @property {ClusterNodeStatusList} nodeStatusesSnapshot
  * @property {ClusterNodeStatus} nodeStatusUpdate
+ * @property {BackupStatus} backupStatusSnapshot
+ * @property {BackupStatus} backupStatusUpdate
  */
 /**
  * @typedef {Object} Space
@@ -1482,6 +1494,104 @@ function decodeGithubCredentialsMessage(reader, length) {
 export function decodeGithubCredentials(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeGithubCredentialsMessage(reader);
+}
+
+
+
+/**
+ * @param {BackupStatus} message
+ * @param {Writer} writer
+ */
+export function writeBackupStatus(message, writer) {
+    if (message.configured === true) {
+        writer.uint32(tag(1, WIRE.VARINT)).bool(message.configured);
+    }
+    if (message.running === true) {
+        writer.uint32(tag(2, WIRE.VARINT)).bool(message.running);
+    }
+    if (message.inSync === true) {
+        writer.uint32(tag(3, WIRE.VARINT)).bool(message.inSync);
+    }
+    if (message.localTxid !== undefined && message.localTxid !== null && message.localTxid !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).uint64(message.localTxid);
+    }
+    if (message.remoteTxid !== undefined && message.remoteTxid !== null && message.remoteTxid !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).uint64(message.remoteTxid);
+    }
+    if (message.lastSuccessfulSyncAt instanceof Date && message.lastSuccessfulSyncAt.getTime() !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int64(Math.trunc(message.lastSuccessfulSyncAt.getTime()));
+    }
+    if (message.error !== undefined && message.error !== null && message.error !== "") {
+        writer.uint32(tag(7, WIRE.LDELIM)).string(message.error);
+    }
+}
+
+
+/**
+ * @param {BackupStatus} message
+ * @returns {Uint8Array}
+ */
+export function encodeBackupStatus(message) {
+    const writer = Writer.create();
+    writeBackupStatus(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {BackupStatus}
+ */
+function decodeBackupStatusMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {configured: false, running: false, inSync: false, localTxid: 0, remoteTxid: 0, lastSuccessfulSyncAt: new Date(0), error: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.configured = reader.bool();
+                break;
+            }
+            case 2: {
+                message.running = reader.bool();
+                break;
+            }
+            case 3: {
+                message.inSync = reader.bool();
+                break;
+            }
+            case 4: {
+                message.localTxid = readInt64(reader, "uint64");
+                break;
+            }
+            case 5: {
+                message.remoteTxid = readInt64(reader, "uint64");
+                break;
+            }
+            case 6: {
+                message.lastSuccessfulSyncAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 7: {
+                message.error = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {BackupStatus}
+ */
+export function decodeBackupStatus(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeBackupStatusMessage(reader);
 }
 
 
@@ -5895,6 +6005,16 @@ export function writeState(message, writer) {
         writeClusterNodeStatus(message.nodeStatusUpdate, writer);
         writer.ldelim();
     }
+    if (message.backupStatusSnapshot !== undefined && message.backupStatusSnapshot !== null) {
+        writer.uint32(tag(29, WIRE.LDELIM)).fork();
+        writeBackupStatus(message.backupStatusSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.backupStatusUpdate !== undefined && message.backupStatusUpdate !== null) {
+        writer.uint32(tag(30, WIRE.LDELIM)).fork();
+        writeBackupStatus(message.backupStatusUpdate, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -5916,7 +6036,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined };
+    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6014,6 +6134,14 @@ function decodeStateMessage(reader, length) {
             }
             case 28: {
                 message.nodeStatusUpdate = decodeClusterNodeStatusMessage(reader, reader.uint32());
+                break;
+            }
+            case 29: {
+                message.backupStatusSnapshot = decodeBackupStatusMessage(reader, reader.uint32());
+                break;
+            }
+            case 30: {
+                message.backupStatusUpdate = decodeBackupStatusMessage(reader, reader.uint32());
                 break;
             }
             default:

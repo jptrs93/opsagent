@@ -591,8 +591,8 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
+	if mkdirErr := os.MkdirAll(filepath.Dir(dst), 0o755); mkdirErr != nil {
+		return mkdirErr
 	}
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
@@ -1623,10 +1623,10 @@ func (c *config) materializeLocalGitSnapshot() (string, func(), error) {
 		return "", nil, err
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
-	out, err := outputInDir(c.RepoRoot, "git", "ls-files", "-co", "--exclude-standard")
-	if err != nil {
+	out, listFilesErr := outputInDir(c.RepoRoot, "git", "ls-files", "-co", "--exclude-standard")
+	if listFilesErr != nil {
 		cleanup()
-		return "", nil, err
+		return "", nil, listFilesErr
 	}
 	for _, rel := range strings.Split(out, "\n") {
 		rel = strings.TrimSpace(rel)
@@ -2107,44 +2107,49 @@ func (c *config) runPlaywrightFlows() error {
 
 func (c *config) backupRestore() error {
 	stateFile := env("OPD_BACKUP_RESTORE_STATE_HOST", filepath.Join(c.ResultsDir, "backup-restore.env"))
-	waitSeconds := envInt("OPD_BACKUP_RESTORE_WAIT_SECONDS", 20)
 	restoreInstallVersion := env("OPD_RESTORE_INSTALL_VERSION", c.UpgradeVersion)
-	state, err := loadShellEnvFile(stateFile)
-	if err != nil {
-		return fmt.Errorf("backup restore state file not found or invalid: %s: %w", stateFile, err)
-	}
-	for _, k := range []string{"OPD_RESTORE_S3_ACCESS_KEY_ID", "OPD_RESTORE_S3_SECRET_ACCESS_KEY", "OPD_RESTORE_S3_BUCKET", "OPD_RESTORE_S3_PATH", "OPD_RESTORE_S3_REGION", "OPD_RESTORE_S3_ENDPOINT", "OPD_RESTORE_RECOVERY_CODE"} {
-		if state[k] == "" {
-			return fmt.Errorf("%s is required in %s", k, stateFile)
+	state := map[string]string{}
+	if err := c.substep("load restore state", stateFile, func() error {
+		loaded, err := loadShellEnvFile(stateFile)
+		if err != nil {
+			return fmt.Errorf("backup restore state file not found or invalid: %s: %w", stateFile, err)
 		}
-	}
-	if err := c.requireHostTools(); err != nil {
+		for _, k := range []string{"OPD_RESTORE_S3_ACCESS_KEY_ID", "OPD_RESTORE_S3_SECRET_ACCESS_KEY", "OPD_RESTORE_S3_BUCKET", "OPD_RESTORE_S3_PATH", "OPD_RESTORE_S3_REGION", "OPD_RESTORE_S3_ENDPOINT", "OPD_RESTORE_RECOVERY_CODE"} {
+			if loaded[k] == "" {
+				return fmt.Errorf("%s is required in %s", k, stateFile)
+			}
+		}
+		state = loaded
+		return nil
+	}); err != nil {
 		return err
 	}
-	logf("Restarting primary so backup replication reads updated settings")
-	_ = c.vmRun(c.PrimaryName, "sudo", "systemctl", "restart", "opendeploy.service")
-	if err := c.waitForService(c.PrimaryName, "opendeploy.service"); err != nil {
+	if err := c.substep("check host tools", "limactl, curl, openssl", c.requireHostTools); err != nil {
 		return err
 	}
-	if err := c.waitForHealthz(c.PrimaryName); err != nil {
+	if err := c.substep("destroy source primary", "delete primary VM after Playwright verified backup replication", func() error {
+		_ = c.vmQuietRun(c.PrimaryName, "sudo", "systemctl", "stop", "opendeploy.service")
+		c.deleteVM(c.PrimaryName)
+		return nil
+	}); err != nil {
 		return err
 	}
-	logf("Waiting %ds for backup replication", waitSeconds)
-	time.Sleep(time.Duration(waitSeconds) * time.Second)
-	logf("Destroying primary VM")
-	_ = c.vmQuietRun(c.PrimaryName, "sudo", "systemctl", "stop", "opendeploy.service")
-	c.deleteVM(c.PrimaryName)
-	logf("Starting fresh primary VM for restore")
-	if err := c.startVM(c.PrimaryName, "node"); err != nil {
+	if err := c.substep("create replacement primary", "fresh Lima VM", func() error {
+		return c.startVM(c.PrimaryName, "node")
+	}); err != nil {
 		return err
 	}
-	if err := c.syncHostsAll(); err != nil {
+	if err := c.substep("sync cluster hosts", "update primary/secondary/repo-mirror names after primary replacement", c.syncHostsAll); err != nil {
 		return err
 	}
-	if err := c.installTestCA(c.PrimaryName); err != nil {
+	if err := c.substep("install test CA", c.PrimaryName, func() error {
+		return c.installTestCA(c.PrimaryName)
+	}); err != nil {
 		return err
 	}
-	if err := c.waitForSystemd(c.PrimaryName); err != nil {
+	if err := c.substep("wait replacement systemd", c.PrimaryName, func() error {
+		return c.waitForSystemd(c.PrimaryName)
+	}); err != nil {
 		return err
 	}
 	orig := c.InstallVersion
@@ -2152,10 +2157,14 @@ func (c *config) backupRestore() error {
 		c.InstallVersion = restoreInstallVersion
 		defer func() { c.InstallVersion = orig }()
 	}
-	if err := c.downloadOpenDeploy(c.PrimaryName); err != nil {
+	if err := c.substep("install opendeploy binary", restoreInstallVersion, func() error {
+		return c.downloadOpenDeploy(c.PrimaryName)
+	}); err != nil {
 		return err
 	}
-	if err := run("limactl", "copy", c.ServerBundle, c.PrimaryName+":/tmp/opendeploy-web.pem"); err != nil {
+	if err := c.substep("copy web TLS bundle", "replacement primary HTTPS certificate", func() error {
+		return run("limactl", "copy", c.ServerBundle, c.PrimaryName+":/tmp/opendeploy-web.pem")
+	}); err != nil {
 		return err
 	}
 	cmd := []string{"sudo", "opendeploy", "install", "primary", "--web-listen", ":443", "--acme-hosts", c.WebHost, "--web-tls-self-managed", "true", "--web-tls-cert-pem-file", "/tmp/opendeploy-web.pem", "--passkey-extra-origins", "https://" + c.WebHost + ":8443", "--restore-backup", "true", "--restore-s3-access-key-id", state["OPD_RESTORE_S3_ACCESS_KEY_ID"], "--restore-s3-secret-access-key", state["OPD_RESTORE_S3_SECRET_ACCESS_KEY"], "--restore-s3-bucket", state["OPD_RESTORE_S3_BUCKET"], "--restore-s3-path", state["OPD_RESTORE_S3_PATH"], "--restore-s3-region", state["OPD_RESTORE_S3_REGION"], "--restore-s3-endpoint", state["OPD_RESTORE_S3_ENDPOINT"], "--recovery-code", state["OPD_RESTORE_RECOVERY_CODE"]}
@@ -2164,26 +2173,32 @@ func (c *config) backupRestore() error {
 	} else {
 		cmd = append(cmd, "--version", restoreInstallVersion)
 	}
-	logf("Installing restored primary")
-	if err := c.vmRun(c.PrimaryName, cmd...); err != nil {
+	if err := c.substep("restore primary install", "opendeploy install primary --restore-backup", func() error {
+		return c.vmRun(c.PrimaryName, cmd...)
+	}); err != nil {
 		return err
 	}
-	if err := c.configureGithubToken(c.PrimaryName); err != nil {
+	if err := c.substep("post-restore primary setup", "GitHub token and Nix user permissions", func() error {
+		if err := c.configureGithubToken(c.PrimaryName); err != nil {
+			return err
+		}
+		return c.addOpenDeployToNixUsers(c.PrimaryName)
+	}); err != nil {
 		return err
 	}
-	if err := c.addOpenDeployToNixUsers(c.PrimaryName); err != nil {
+	if err := c.substep("restart restored primary", "apply post-restore setup", func() error {
+		return c.vmRun(c.PrimaryName, "sudo", "systemctl", "restart", "opendeploy.service")
+	}); err != nil {
 		return err
 	}
-	if err := c.vmRun(c.PrimaryName, "sudo", "systemctl", "restart", "opendeploy.service"); err != nil {
+	if err := c.substep("verify restored primary", "service active and healthz OK", func() error {
+		if err := c.waitForService(c.PrimaryName, "opendeploy.service"); err != nil {
+			return err
+		}
+		return c.waitForHealthz(c.PrimaryName)
+	}); err != nil {
 		return err
 	}
-	if err := c.waitForService(c.PrimaryName, "opendeploy.service"); err != nil {
-		return err
-	}
-	if err := c.waitForHealthz(c.PrimaryName); err != nil {
-		return err
-	}
-	logf("Backup restore extension complete")
 	return nil
 }
 

@@ -14,6 +14,7 @@ export const enrollmentsS = van.state([]);
 export const secretRefsS = van.state([]);
 export const userConfigRefsS = van.state([]);
 export const secretsStatusS = van.state(null);
+export const backupStatusS = van.state(null);
 export const secretMetasS = van.state([]);
 export const userConfigsS = van.state([]);
 export const assetMetasS = van.state([]);
@@ -80,6 +81,7 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
         secretRefsS.val = [];
         userConfigRefsS.val = [];
         secretsStatusS.val = null;
+        backupStatusS.val = null;
         secretMetasS.val = [];
         userConfigsS.val = [];
         assetMetasS.val = [];
@@ -166,6 +168,14 @@ const handleStateMessage = (message) => {
 
     if (message.secretsStatusSnapshot) {
         secretsStatusS.val = message.secretsStatusSnapshot;
+    }
+
+    if (message.backupStatusSnapshot) {
+        backupStatusS.val = message.backupStatusSnapshot;
+    }
+
+    if (message.backupStatusUpdate) {
+        backupStatusS.val = message.backupStatusUpdate;
     }
 
     if (message.secretMetasSnapshot) {

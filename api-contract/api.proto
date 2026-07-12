@@ -340,6 +340,16 @@ message GithubCredentials {
   int64 changed_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
 }
 
+message BackupStatus {
+  bool configured = 1;
+  bool running = 2;
+  bool in_sync = 3;
+  uint64 local_txid = 4;
+  uint64 remote_txid = 5;
+  int64 last_successful_sync_at = 6 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  string error = 7;
+}
+
 message ClusterSecretsRequest {
   repeated int32 ids = 1;
 }
@@ -795,6 +805,8 @@ message State {
   ClusterNode node_update = 26;
   ClusterNodeStatusList node_statuses_snapshot = 27;
   ClusterNodeStatus node_status_update = 28;
+  BackupStatus backup_status_snapshot = 29;
+  BackupStatus backup_status_update = 30;
 }
 
 message Space {
