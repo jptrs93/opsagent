@@ -169,18 +169,25 @@ type Manager struct {
 	systemCache map[string]SystemRecord
 }
 
-// Open loads the secrets store. On first run (no keyslots) it generates the SMK
-// and machine key and writes machine.key. If keyslots exist it unlocks using
-// machine.key; a missing/invalid machine.key leaves the store locked (a valid
-// state — the server still runs; deployments referencing secrets fail closed
-// until Unlock). Open only returns an error for a genuine first-init failure.
-func Open(dataDir string, store Store) (*Manager, error) {
-	m := &Manager{
-		store:       store,
-		machineKey:  &fileMachineKey{path: filepath.Join(dataDir, machineKeyFile)},
-		cache:       make(map[int32]Record),
-		systemCache: make(map[string]SystemRecord),
+// Initialize creates the secrets master key and local machine key for a new
+// primary. Open deliberately does not perform this state transition.
+func Initialize(dataDir string, store Store) (*Manager, error) {
+	m := newManager(dataDir, store)
+	if slots := store.ListSecretKeyslots(); len(slots) != 0 {
+		return nil, fmt.Errorf("secrets store is already initialized")
 	}
+	if err := m.initFirstRun(); err != nil {
+		return nil, fmt.Errorf("initializing secrets store: %w", err)
+	}
+	slog.Info("secrets store initialized")
+	slog.Warn("secrets recovery code not configured — generate one so secrets can be recovered if this machine is lost")
+	return m, nil
+}
+
+// Open loads an initialized secrets store. A missing/invalid machine.key leaves
+// the store locked so it can be recovered with a configured recovery code.
+func Open(dataDir string, store Store) (*Manager, error) {
+	m := newManager(dataDir, store)
 	for _, r := range store.ListSecrets() {
 		m.cache[r.ID] = r
 	}
@@ -188,12 +195,7 @@ func Open(dataDir string, store Store) (*Manager, error) {
 	slots := store.ListSecretKeyslots()
 	if _, ok := findSlot(slots, slotMachine); !ok {
 		if len(slots) == 0 {
-			if err := m.initFirstRun(); err != nil {
-				return nil, fmt.Errorf("initializing secrets store: %w", err)
-			}
-			slog.Info("secrets store initialized")
-			slog.Warn("secrets recovery code not configured — generate one so secrets can be recovered if this machine is lost")
-			return m, nil
+			return nil, fmt.Errorf("secrets store is not initialized")
 		}
 		slog.Warn("secrets store has no machine keyslot; locked until recovery unlock")
 		return m, nil
@@ -208,6 +210,15 @@ func Open(dataDir string, store Store) (*Manager, error) {
 		slog.Warn("secrets recovery code not configured — generate one so secrets can be recovered if this machine is lost")
 	}
 	return m, nil
+}
+
+func newManager(dataDir string, store Store) *Manager {
+	return &Manager{
+		store:       store,
+		machineKey:  &fileMachineKey{path: filepath.Join(dataDir, machineKeyFile)},
+		cache:       make(map[int32]Record),
+		systemCache: make(map[string]SystemRecord),
+	}
 }
 
 // Resolve returns the plaintext value for a secret id. It implements the

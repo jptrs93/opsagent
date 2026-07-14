@@ -1,6 +1,6 @@
 # installer
 
-`internal/installer` provisions, upgrades, and removes an opendeploy deployment on
+`app/installer` provisions, upgrades, and removes an opendeploy deployment on
 a host. It is built into the main `opendeploy` binary and invoked as the
 `opendeploy install` / `opendeploy uninstall` subcommands.
 
@@ -11,18 +11,17 @@ removed. The repo-level `scripts/install_primary.sh`,
 bootstrap wrappers that download the release binary and then invoke these
 subcommands (see the repo `README.md` for one-liners).
 
-## Independence
+## Bootstrap boundary
 
-This package is deliberately self-contained:
+The installer owns the fresh-primary state transition. It calls
+`app/primarybootstrap` directly to create `primary.db`, initialize the secrets
+machine key, persist initial settings and the ULA prefix, import optional Web
+TLS material, and create cluster TLS identity before systemd starts. Primary
+runtime startup only opens and validates this state.
 
-- It does **not** import `ainit`, the server config, or any other backend
-  package. It keeps its own copy of every path, pinned version, and checksum in
-  `config.go`.
-- The only coupling to the rest of the binary is a guard in `ainit.init()` that
-  skips server bootstrap (data-dir creation, file logging) when an installer
-  subcommand is detected. Go runs every imported package's `init()` before
-  `main()`, so that skip has to live in `ainit`; the installer itself stays
-  ignorant of it. `IsSubcommand` / `Run` are the only exported symbols.
+`ainit.init()` skips server directory and logging initialization for installer
+subcommands. Installer paths remain explicit in `config.go`; bootstrap inputs
+are passed as typed values rather than process environment variables.
 
 ## Use
 
@@ -64,6 +63,9 @@ sudo opendeploy uninstall --purge
   validation, generated primary setup password, service start on fresh install,
   printed service log directory/current file, env-file preservation, and the
   preserve-vs-`--purge` split.
+- **Direct primary bootstrap**: foundational database, secrets, network, and
+  certificate state is complete before `opendeploy.service` starts. Reinstalls
+  validate and preserve an existing database; startup never recreates one.
 
 ## Layout
 

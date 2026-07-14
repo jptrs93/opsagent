@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 	"github.com/jptrs93/opsagent/backend/util/stringu"
@@ -13,11 +12,11 @@ import (
 func TestApplyRestoredPrimaryConfigOverrides(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := sqlite.NewPrimaryStorage(dbPath)
-	service, err := config.NewService(store)
+	service, err := config.InitializeService(store, *config.DefaultConfig(config.DefaultInitialConfig()))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
-	settings := config.DefaultSettings(ainit.StaticConfig)
+	settings := config.DefaultSettings(config.DefaultInitialConfig())
 	settings.HttpWeb.Listen.Value = "10.0.0.1:443"
 	if updateErr := service.UpdateSettings(*settings); updateErr != nil {
 		t.Fatalf("seed web listen: %v", updateErr)

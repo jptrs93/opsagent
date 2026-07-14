@@ -19,7 +19,7 @@ Reference designs: Tailscale (coordination server + cryptokey routing + netmap d
 
 ### Virtual network
 
-The virtual network is IPv6-only, using an RFC 4193 ULA `/48` prefix generated randomly at first primary startup and persisted. There is no install-time network configuration and no realistic collision with corporate networks, cloud VPCs, other OpenDeploy clusters, or Tailscale.
+The virtual network is IPv6-only, using an RFC 4193 ULA `/48` prefix generated randomly by primary installation and persisted. There is no operator-supplied network configuration and no realistic collision with corporate networks, cloud VPCs, other OpenDeploy clusters, or Tailscale.
 
 ### Address layout
 

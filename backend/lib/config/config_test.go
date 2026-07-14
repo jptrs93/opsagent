@@ -3,9 +3,9 @@ package config
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
@@ -13,7 +13,7 @@ import (
 
 func TestMasterPasswordHashRoundTrip(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	service, err := NewService(sqlite.NewPrimaryStorage(dbPath))
+	service, err := InitializeService(sqlite.NewPrimaryStorage(dbPath), *DefaultConfig(DefaultInitialConfig()))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -42,13 +42,39 @@ func TestMasterPasswordHashRoundTrip(t *testing.T) {
 	}
 }
 
+func TestNewServiceRejectsUninitializedConfig(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	defer store.Close()
+	if _, err := NewService(store); err == nil || !strings.Contains(err.Error(), "not initialized") {
+		t.Fatalf("NewService error = %v, want not initialized", err)
+	}
+}
+
+func TestMigrateLegacyInitialConfigAddsNetworkPrefix(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	defer store.Close()
+	cfg := DefaultConfig(DefaultInitialConfig())
+	if _, err := store.AppendOpenDeploySettings(cfg.Encode()); err != nil {
+		t.Fatalf("AppendOpenDeploySettings: %v", err)
+	}
+	if err := MigrateLegacyInitialConfig(store); err != nil {
+		t.Fatalf("MigrateLegacyInitialConfig: %v", err)
+	}
+	service, err := NewService(store)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if service.NetworkPrefix().IsZero() {
+		t.Fatal("migrated network prefix is zero")
+	}
+}
+
 func TestEnsureInitialSettingsPersistedIncludesMasterPasswordHash(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := sqlite.NewPrimaryStorage(dbPath)
-	old := ainit.StaticConfig.InitialMasterPasswordHash
-	t.Cleanup(func() { ainit.StaticConfig.InitialMasterPasswordHash = old })
-	ainit.StaticConfig.InitialMasterPasswordHash = "initial-hash"
-	service, err := NewService(store)
+	initial := DefaultInitialConfig()
+	initial.MasterPasswordHash = "initial-hash"
+	service, err := InitializeService(store, *DefaultConfig(initial))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -64,7 +90,6 @@ func TestEnsureInitialSettingsPersistedIncludesMasterPasswordHash(t *testing.T) 
 	if setErr := service.SetMasterPasswordHash("changed-hash"); setErr != nil {
 		t.Fatalf("SetMasterPasswordHash: %v", setErr)
 	}
-	ainit.StaticConfig.InitialMasterPasswordHash = "new-initial-hash"
 	value, err = service.GetMasterPasswordHash()
 	if err != nil {
 		t.Fatalf("GetMasterPasswordHash after set: %v", err)
@@ -78,7 +103,7 @@ func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "primary.db")
 	store := sqlite.NewPrimaryStorage(dbPath)
-	secretMgr, err := secrets.Open(dir, store)
+	secretMgr, err := secrets.Initialize(dir, store)
 	if err != nil {
 		t.Fatalf("secrets.Open: %v", err)
 	}
@@ -86,12 +111,12 @@ func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Set secret: %v", err)
 	}
-	service, err := NewService(store)
+	service, err := InitializeService(store, *DefaultConfig(DefaultInitialConfig()))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	settings := DefaultSettings(ainit.StaticConfig)
+	settings := DefaultSettings(DefaultInitialConfig())
 	settings.Repo.GithubToken = apigen.SecretRef{ID: secretMeta.ID}
 	if err := service.UpdateSettings(*settings); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
@@ -106,7 +131,7 @@ func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 func TestBackupEnabledDefaultsFalseAndCanBeEnabled(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := sqlite.NewPrimaryStorage(dbPath)
-	service, err := NewService(store)
+	service, err := InitializeService(store, *DefaultConfig(DefaultInitialConfig()))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -117,7 +142,7 @@ func TestBackupEnabledDefaultsFalseAndCanBeEnabled(t *testing.T) {
 	if service.Snapshot().Settings.LargeAssets.UseSeparateS3.Value {
 		t.Fatal("LargeAssets.UseSeparateS3 default = true, want false")
 	}
-	settings := DefaultSettings(ainit.StaticConfig)
+	settings := DefaultSettings(DefaultInitialConfig())
 	settings.Backup.Enabled = apigen.BoolSetting{Value: true}
 	if err := service.UpdateSettings(*settings); err != nil {
 		t.Fatalf("UpdateSettings BackupEnabled: %v", err)
@@ -159,13 +184,13 @@ func TestBackupEnabledDefaultsFalseAndCanBeEnabled(t *testing.T) {
 func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := sqlite.NewPrimaryStorage(dbPath)
-	service, err := NewService(store)
+	service, err := InitializeService(store, *DefaultConfig(DefaultInitialConfig()))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
 	userCfg := store.SetUserConfig("shared.cluster.listen", ":9555", 0, 1)
 
-	settings := DefaultSettings(ainit.StaticConfig)
+	settings := DefaultSettings(DefaultInitialConfig())
 	settings.Cluster.Listen = apigen.StringSetting{ConfigRef: apigen.ConfigRef{ID: userCfg.ID}}
 	if err := service.UpdateSettings(*settings); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
@@ -181,14 +206,7 @@ func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 }
 
 func TestWebUIDefaultsPreserveExistingHTTPSInstall(t *testing.T) {
-	old := ainit.StaticConfig
-	t.Cleanup(func() { ainit.StaticConfig = old })
-	ainit.StaticConfig.InitialWebHTTPEnabled = false
-	ainit.StaticConfig.InitialWebHTTPListen = ":8080"
-	ainit.StaticConfig.InitialWebHTTPSEnabled = true
-	ainit.StaticConfig.InitialWebHTTPSListen = ":443"
-
-	service, err := NewService(sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db")))
+	service, err := InitializeService(sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db")), *DefaultConfig(DefaultInitialConfig()))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}

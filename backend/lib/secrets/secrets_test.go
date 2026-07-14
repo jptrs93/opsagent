@@ -76,11 +76,23 @@ func (m *memStore) recordByName(name string) Record {
 
 func mustOpen(t *testing.T, dir string, store Store) *Manager {
 	t.Helper()
-	mgr, err := Open(dir, store)
+	var mgr *Manager
+	var err error
+	if len(store.ListSecretKeyslots()) == 0 {
+		mgr, err = Initialize(dir, store)
+	} else {
+		mgr, err = Open(dir, store)
+	}
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	return mgr
+}
+
+func TestOpenRejectsUninitializedStore(t *testing.T) {
+	if _, err := Open(t.TempDir(), newMemStore()); err == nil {
+		t.Fatal("Open succeeded for an uninitialized secrets store")
+	}
 }
 
 func TestSetResolveRoundTrip(t *testing.T) {

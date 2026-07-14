@@ -43,8 +43,8 @@ a human approves the machine in the primary's web UI.
 ## Primary becomes the CA
 
 - The primary holds the cluster CA cert **and** the intermediate signing key.
-- On first startup the primary generates its own server cert, self-signed by
-  the intermediate key. No more `generate_certs.sh` — the operator never
+- During installation the primary generates its own server cert, signed by
+  the cluster CA. No more `generate_certs.sh` — the operator never
   touches OpenSSL.
 - The primary's web UI exposes the primary's cert SHA-256 fingerprint so the
   operator can copy it into the worker installer.
@@ -53,9 +53,8 @@ The signing key is stored as internal encrypted secret material on the primary.
 
 ## Enrollment protocol
 
-The cluster mTLS listener (`OPENDEPLOY_INITIAL_CLUSTER_LISTEN`, default `:9443`) and
-the unauthenticated enrollment listener (`OPENDEPLOY_INITIAL_ENROLLMENT_LISTEN`,
-default `:9444`) start for every primary. Enrollment is intentionally separate
+The cluster mTLS listener (default `:9443`) and the unauthenticated enrollment
+listener (default `:9444`) are persisted during installation and start for every primary. Enrollment is intentionally separate
 from the mTLS cluster listener because new workers do not yet have client certs:
 
 - Enrollment listener → only enrollment endpoints are reachable.

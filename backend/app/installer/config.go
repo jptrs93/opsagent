@@ -25,7 +25,6 @@ const (
 	configDir                = "/etc/opendeploy"
 	envFile                  = "/etc/opendeploy/env"
 	tlsDir                   = dataDir + "/tls"
-	initialWebTLSCertPEMFile = dataDir + "/initial-web-tls.pem"
 
 	serviceName     = "opendeploy.service"
 	serviceUnitPath = "/etc/systemd/system/opendeploy.service"

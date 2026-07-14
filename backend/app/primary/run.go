@@ -56,9 +56,9 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		<-assetReconcileDone
 	}()
 	initialConfig := primaryRuntime.configService.Snapshot()
-	clusterMaterial, err := certu.BootstrapPrimary(primaryRuntime.secrets, machineName)
+	clusterMaterial, err := certu.LoadPrimary(primaryRuntime.secrets)
 	if err != nil {
-		return fmt.Errorf("bootstrapping cluster TLS material: %w", err)
+		return fmt.Errorf("loading cluster TLS material: %w", err)
 	}
 	enrollmentFingerprint, err := certu.CertificatePEMSPKISHA256(clusterMaterial.PrimaryCert)
 	if err != nil {

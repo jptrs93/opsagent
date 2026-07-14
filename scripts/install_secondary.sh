@@ -109,7 +109,7 @@ main() {
     trap 'rm -rf -- "$OPENDEPLOY_DOWNLOAD_TMP"' EXIT
 
     bin="$(download_opendeploy "$version" "$arch" "$OPENDEPLOY_DOWNLOAD_TMP")"
-    run_as_root "$bin" install secondary "$@"
+    run_as_root "$bin" install secondary --use-self "$@"
 }
 
 main "$@"

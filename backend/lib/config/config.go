@@ -9,7 +9,6 @@ import (
 
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/pubsubu"
-	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
@@ -31,25 +30,47 @@ type Loader interface {
 	MustLoadConfigBoolValue(v apigen.BoolSetting) bool
 }
 
-type InitialConfigHook func(*apigen.Config) error
+type InitialConfig struct {
+	WebHTTPEnabled     bool
+	WebHTTPListen      string
+	WebHTTPSEnabled    bool
+	WebHTTPSListen     string
+	WebTLSSelfManaged  bool
+	AcmeHosts          []string
+	AcmeEmail          string
+	ClusterListen      string
+	EnrollmentListen   string
+	MasterPasswordHash string
+}
 
-func DefaultSettings(static ainit.StaticConfiguration) *apigen.Settings {
+func DefaultInitialConfig() InitialConfig {
+	return InitialConfig{
+		WebHTTPListen:    ":8080",
+		WebHTTPSEnabled:  true,
+		WebHTTPSListen:   ":443",
+		AcmeHosts:        []string{"opendeploy.example.com"},
+		ClusterListen:    ":9443",
+		EnrollmentListen: ":9444",
+	}
+}
+
+func DefaultSettings(initial InitialConfig) *apigen.Settings {
 	return &apigen.Settings{
 		HttpWeb: apigen.HttpWebSettings{
-			Enabled: apigen.BoolSetting{Value: static.InitialWebHTTPEnabled},
-			Listen:  apigen.StringSetting{Value: static.InitialWebHTTPListen},
+			Enabled: apigen.BoolSetting{Value: initial.WebHTTPEnabled},
+			Listen:  apigen.StringSetting{Value: initial.WebHTTPListen},
 		},
 		HttpsWeb: apigen.HttpsWebSettings{
-			Enabled:        apigen.BoolSetting{Value: static.InitialWebHTTPSEnabled},
-			Listen:         apigen.StringSetting{Value: static.InitialWebHTTPSListen},
-			TlsSelfManaged: apigen.BoolSetting{Value: static.InitialWebTLSSelfManaged},
+			Enabled:        apigen.BoolSetting{Value: initial.WebHTTPSEnabled},
+			Listen:         apigen.StringSetting{Value: initial.WebHTTPSListen},
+			TlsSelfManaged: apigen.BoolSetting{Value: initial.WebTLSSelfManaged},
 			TlsCertPem:     apigen.SecretRef{},
-			AcmeHosts:      apigen.StringSetting{Value: strings.Join(static.InitialAcmeHosts, ",")},
-			AcmeEmail:      apigen.StringSetting{Value: static.InitialAcmeEmail},
+			AcmeHosts:      apigen.StringSetting{Value: strings.Join(initial.AcmeHosts, ",")},
+			AcmeEmail:      apigen.StringSetting{Value: initial.AcmeEmail},
 		},
 		Cluster: apigen.ClusterSettings{
-			Listen:           apigen.StringSetting{Value: static.InitialClusterListen},
-			EnrollmentListen: apigen.StringSetting{Value: static.InitialEnrollmentListen},
+			Listen:           apigen.StringSetting{Value: initial.ClusterListen},
+			EnrollmentListen: apigen.StringSetting{Value: initial.EnrollmentListen},
 		},
 		Repo: apigen.RepoSettings{
 			GithubToken: apigen.SecretRef{},
@@ -84,39 +105,71 @@ func normalizeConfig(cfg apigen.Config) apigen.Config {
 	return cfg
 }
 
-func DefaultConfig(static ainit.StaticConfiguration) *apigen.Config {
+func DefaultConfig(initial InitialConfig) *apigen.Config {
 	return &apigen.Config{
-		Settings:           *DefaultSettings(static),
-		MasterPasswordHash: static.InitialMasterPasswordHash,
+		Settings:           *DefaultSettings(initial),
+		MasterPasswordHash: initial.MasterPasswordHash,
 	}
 }
 
 func NewService(store *sqlite.PrimaryStorage) (*Service, error) {
-	return NewServiceWithInitialConfigHook(store, nil)
-}
-
-func NewServiceWithInitialConfigHook(store *sqlite.PrimaryStorage, hook InitialConfigHook) (*Service, error) {
 	s := &Service{
 		Storage:       store,
 		Subs:          &pubsubu.PubSub[apigen.Config]{},
 		migrationWake: make(chan struct{}, 1),
 	}
-	cfg, versionID, err := s.loadOrInitConfig(hook)
+	cfg, versionID, err := s.loadConfig()
 	if err != nil {
 		return nil, err
 	}
-	// The virtual network ULA prefix is generated exactly once per cluster and
-	// is immutable thereafter (addresses are pure functions of it).
-	if len(cfg.NetworkUlaPrefix) == 0 {
-		cfg.NetworkUlaPrefix = network.GeneratePrefix().Bytes()
-		versionID, err = s.Storage.AppendOpenDeploySettings(cfg.Encode())
-		if err != nil {
-			return nil, fmt.Errorf("persisting generated network ULA prefix: %w", err)
-		}
+	if _, err := network.ParsePrefix(cfg.NetworkUlaPrefix); err != nil {
+		return nil, fmt.Errorf("stored network ULA prefix is invalid: %w", err)
 	}
 	s.versionID = versionID
 	s.Subs.Notify(cfg)
 	return s, nil
+}
+
+// InitializeService persists the first primary config. Normal primary startup
+// uses NewService and therefore never invents missing cluster configuration.
+func InitializeService(store *sqlite.PrimaryStorage, cfg apigen.Config) (*Service, error) {
+	if _, err := store.FetchLatestOpenDeployConfig(); err == nil {
+		return nil, fmt.Errorf("primary config is already initialized")
+	} else if !errors.Is(err, sqlite.ErrNotFound) {
+		return nil, fmt.Errorf("checking existing primary config: %w", err)
+	}
+	if len(cfg.NetworkUlaPrefix) == 0 {
+		cfg.NetworkUlaPrefix = network.GeneratePrefix().Bytes()
+	}
+	if _, err := network.ParsePrefix(cfg.NetworkUlaPrefix); err != nil {
+		return nil, fmt.Errorf("initial network ULA prefix is invalid: %w", err)
+	}
+	if _, err := store.AppendOpenDeploySettings(cfg.Encode()); err != nil {
+		return nil, fmt.Errorf("persisting initial primary config: %w", err)
+	}
+	return NewService(store)
+}
+
+// MigrateLegacyInitialConfig applies bootstrap-era defaults that older primary
+// databases may not contain. It is called by installer upgrade/restore, never
+// by normal primary startup.
+func MigrateLegacyInitialConfig(store *sqlite.PrimaryStorage) error {
+	r, err := store.FetchLatestOpenDeployConfig()
+	if err != nil {
+		return err
+	}
+	cfg, err := apigen.DecodeConfig(r.ConfigBlob)
+	if err != nil {
+		return fmt.Errorf("decoding primary config for migration: %w", err)
+	}
+	if len(cfg.NetworkUlaPrefix) != 0 {
+		return nil
+	}
+	cfg.NetworkUlaPrefix = network.GeneratePrefix().Bytes()
+	if _, err := store.AppendOpenDeploySettings(cfg.Encode()); err != nil {
+		return fmt.Errorf("persisting migrated network ULA prefix: %w", err)
+	}
+	return nil
 }
 
 // NetworkPrefix returns the cluster's ULA /48 prefix.
@@ -136,22 +189,12 @@ func (s *Service) Snapshot() apigen.Config {
 	return s.Subs.Value()
 }
 
-func (s *Service) loadOrInitConfig(hook InitialConfigHook) (apigen.Config, int64, error) {
+func (s *Service) loadConfig() (apigen.Config, int64, error) {
 	var res apigen.Config
 	r, err := s.Storage.FetchLatestOpenDeployConfig()
 	if err != nil {
 		if errors.Is(err, sqlite.ErrNotFound) {
-			cfg := DefaultConfig(ainit.StaticConfig)
-			if hook != nil {
-				if hookErr := hook(cfg); hookErr != nil {
-					return res, 0, fmt.Errorf("initial config hook: %w", hookErr)
-				}
-			}
-			id, appendErr := s.Storage.AppendOpenDeploySettings(cfg.Encode())
-			if appendErr != nil {
-				return res, 0, fmt.Errorf("AppendOpenDeploySettings: %w", appendErr)
-			}
-			return normalizeConfig(*cfg), id, nil
+			return res, 0, fmt.Errorf("primary config is not initialized")
 		} else {
 			return res, 0, fmt.Errorf("FetchLatestOpenDeployConfig: %w", err)
 		}

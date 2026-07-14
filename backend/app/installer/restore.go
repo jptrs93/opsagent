@@ -11,9 +11,11 @@ import (
 	"github.com/benbjohnson/litestream"
 	"github.com/benbjohnson/litestream/s3"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primarybootstrap"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
 const (
@@ -110,6 +112,9 @@ func restorePrimaryBackup(opts restoreOptions, install installOptions, own owner
 
 	if err := unlockRestoredSecrets(dbPath, opts.RecoveryCode, own); err != nil {
 		return fmt.Errorf("%w; delete %s, %s, %s, and %s before trying install recovery again", err, dbPath, dbPath+"-wal", dbPath+"-shm", filepath.Join(dataDir, "machine.key"))
+	}
+	if err := (primarybootstrap.Service{DataDir: dataDir}).MigrateAndValidate(context.Background()); err != nil {
+		return fmt.Errorf("migrating restored primary bootstrap state: %w", err)
 	}
 	if err := applyRestoredPrimaryConfigOverrides(dbPath, install, own); err != nil {
 		return err
@@ -208,6 +213,21 @@ func applyRestoredPrimaryConfigOverrides(dbPath string, opts installOptions, own
 			settings.Cluster.EnrollmentListen = apigen.StringSetting{Value: override.value}
 		case primaryConfigAcmeHosts:
 			settings.HttpsWeb.AcmeHosts = apigen.StringSetting{Value: override.value}
+		}
+	}
+	if service.MustLoadConfigBoolValue(settings.HttpsWeb.Enabled) && service.MustLoadConfigBoolValue(settings.HttpsWeb.TlsSelfManaged) && settings.HttpsWeb.TlsCertPem.ID == 0 {
+		if secretsMgr == nil {
+			secretsMgr, err = secrets.Open(dataDir, store)
+			if err != nil {
+				_ = store.Close()
+				return fmt.Errorf("open restored secrets store: %w", err)
+			}
+		}
+		acmeHosts := service.MustLoadConfigStringValue(settings.HttpsWeb.AcmeHosts)
+		listen := service.MustLoadConfigStringValue(settings.HttpsWeb.Listen)
+		if _, err := certu.BootstrapWebUISelfSigned(secretsMgr, certu.WebUISelfSignedNames(acmeHosts, listen)); err != nil {
+			_ = store.Close()
+			return fmt.Errorf("creating restored self-managed Web TLS certificate: %w", err)
 		}
 	}
 	if err := service.UpdateSettingsInternal(settings); err != nil {

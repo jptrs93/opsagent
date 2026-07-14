@@ -15,6 +15,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
 func (h *Handler) GetV1Settings(ctx apigen.Context) (*apigen.Settings, error) {
@@ -236,8 +237,12 @@ func validateListenValue(field, value string) error {
 func (h *Handler) validateWebTLSCert(settings *apigen.Settings) error {
 	tlsSelfManaged := settings.HttpsWeb.TlsSelfManaged.Value
 	id := settings.HttpsWeb.TlsCertPem.ID
-	if !tlsSelfManaged || id == 0 {
+	if !tlsSelfManaged {
 		return nil
+	}
+	if id == 0 {
+		_, err := certu.BootstrapWebUISelfSigned(h.Secrets, certu.WebUISelfSignedNames(settings.HttpsWeb.AcmeHosts.Value, settings.HttpsWeb.Listen.Value))
+		return err
 	}
 	bundle, err := h.Secrets.RevealByID(id)
 	if err != nil {

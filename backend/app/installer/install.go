@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -9,6 +10,9 @@ import (
 	"time"
 
 	"github.com/jptrs93/goutil/authu"
+	"github.com/jptrs93/opsagent/backend/app/primarybootstrap"
+	"github.com/jptrs93/opsagent/backend/lib/config"
+	buildversion "github.com/jptrs93/opsagent/backend/util/version"
 )
 
 type bootstrapCredentials struct {
@@ -52,13 +56,26 @@ type installOptions struct {
 }
 
 func (o installOptions) hasEnvOverrides() bool {
-	return o.httpOnly != nil || o.webListen != nil || o.webTLSSelfManaged != nil || (o.webTLSCertPEM != nil && o.restore == nil) || o.passkeyExtraOrigins != nil || o.clusterListen != nil || o.enrollmentListen != nil || o.acmeHosts != nil || o.clusterAddr != nil || o.enrollmentAddr != nil || o.enrollmentFingerprint != nil || o.primaryName != nil
+	return o.passkeyExtraOrigins != nil || o.clusterAddr != nil || o.enrollmentAddr != nil || o.enrollmentFingerprint != nil || o.primaryName != nil
+}
+
+func (o installOptions) hasPrimaryConfigOverrides() bool {
+	return o.httpOnly != nil || o.webListen != nil || o.webTLSSelfManaged != nil || o.webTLSCertPEM != nil || o.clusterListen != nil || o.enrollmentListen != nil || o.acmeHosts != nil
 }
 
 func doInstall(version string, opts installOptions) error {
 	upgrade := pathExists(serviceUnitPath)
 	if opts.restore != nil && upgrade {
 		return fmt.Errorf("backup restore is only supported for fresh primary installs")
+	}
+	if upgrade && opts.role == "primary" && !pathExists(filepath.Join(dataDir, "primary.db")) && !dryRun {
+		return fmt.Errorf("refusing to upgrade primary because %s is missing", filepath.Join(dataDir, "primary.db"))
+	}
+	if upgrade && opts.role == "primary" && opts.hasPrimaryConfigOverrides() {
+		return fmt.Errorf("initial primary config flags are only supported for fresh installs or backup restore; update an existing primary through its settings")
+	}
+	if upgrade && opts.role == "primary" && opts.primaryName != nil {
+		return fmt.Errorf("primary name is fixed at initial installation and cannot be changed during upgrade")
 	}
 
 	arch, err := hostArch()
@@ -69,7 +86,7 @@ func doInstall(version string, opts installOptions) error {
 		return preflightErr
 	}
 	if opts.useSelf {
-		version = "v0.0.0"
+		version = buildversion.Version
 	} else if version == "" || version == "latest" {
 		step("Resolving latest release")
 		version, err = resolveLatestTag()
@@ -147,7 +164,7 @@ func stageSelfAgent(tmp string) (string, error) {
 	if err := installBinary(self, dst, 0o755, noChown); err != nil {
 		return "", fmt.Errorf("staging current executable %s: %w", self, err)
 	}
-	info("using current executable %s as v0.0.0", self)
+	info("using current executable %s", self)
 	return dst, nil
 }
 
@@ -235,6 +252,11 @@ func runUpgrade(version, arch string, st *staged, opts installOptions) error {
 	if err := ensureDir(assetCacheDir, 0o755, own); err != nil {
 		return err
 	}
+	if opts.role == "primary" && !dryRun {
+		if err := (primarybootstrap.Service{DataDir: dataDir}).MigrateAndValidate(context.Background()); err != nil {
+			return fmt.Errorf("validating primary before upgrade: %w", err)
+		}
+	}
 
 	dst := releaseBinPath(version, arch)
 	if err := ensureReleaseArtifactDir(version, arch, own); err != nil {
@@ -247,7 +269,7 @@ func runUpgrade(version, arch string, st *staged, opts installOptions) error {
 		return err
 	}
 	info("symlinked %s -> %s", binPath, dst)
-	if opts.hasEnvOverrides() {
+	if opts.hasEnvOverrides() || (opts.role == "primary" && isRoot()) {
 		step("Updating config")
 		if err := updateEnvFile(opts, rootOpenDeploy); err != nil {
 			return err
@@ -298,11 +320,6 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 	if err := ensureDir(assetCacheDir, 0o755, own); err != nil {
 		return err
 	}
-	if opts.restore == nil {
-		if err := writeInitialWebTLSCertPEMFile(opts, own); err != nil {
-			return err
-		}
-	}
 	if opts.restore != nil {
 		step("Restoring primary database")
 		if err := restorePrimaryBackup(*opts.restore, opts, own); err != nil {
@@ -335,17 +352,18 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 	}
 	info("symlinked %s -> %s", binPath, dst)
 
+	bootstrap, err := initializePrimary(opts, own)
+	if err != nil {
+		return err
+	}
+
 	// env file — never clobber an existing operator-edited file
 	step("Writing config")
-	bootstrap, err := generateBootstrapCredentials(opts)
+	wrote, err := writeFile(envFile, renderEnvTemplate(opts), 0o640, rootOpenDeploy, true)
 	if err != nil {
 		return err
 	}
-	wrote, err := writeFile(envFile, renderEnvTemplate(opts, bootstrap), 0o640, rootOpenDeploy, true)
-	if err != nil {
-		return err
-	}
-	if !wrote && opts.hasEnvOverrides() {
+	if !wrote && (opts.hasEnvOverrides() || opts.role == "primary") {
 		if err := updateEnvFile(opts, rootOpenDeploy); err != nil {
 			return err
 		}
@@ -384,7 +402,104 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 		return err
 	}
 
-	printInstallComplete(opts, bootstrap, wrote)
+	printInstallComplete(opts, bootstrap)
+	return nil
+}
+
+func initializePrimary(opts installOptions, own owner) (*bootstrapCredentials, error) {
+	if opts.role != "primary" {
+		return nil, nil
+	}
+	service := primarybootstrap.Service{DataDir: dataDir}
+	if opts.restore != nil || pathExists(filepath.Join(dataDir, "primary.db")) {
+		if dryRun {
+			planned("validate existing primary bootstrap state")
+			return nil, nil
+		}
+		if opts.restore == nil && (opts.hasPrimaryConfigOverrides() || opts.primaryName != nil) {
+			return nil, fmt.Errorf("initial primary config and primary name flags cannot be applied when preserving an existing database")
+		}
+		if err := service.MigrateAndValidate(context.Background()); err != nil {
+			return nil, fmt.Errorf("validating existing primary bootstrap state: %w", err)
+		}
+		if err := securePrimaryBootstrapArtifacts(own); err != nil {
+			return nil, err
+		}
+		info("preserved existing primary bootstrap state")
+		return nil, nil
+	}
+	if dryRun {
+		planned("initialize primary database, secrets, network prefix, and TLS identity")
+		return nil, nil
+	}
+	bootstrap, err := generateBootstrapCredentials(opts)
+	if err != nil {
+		return nil, err
+	}
+	initial := config.DefaultInitialConfig()
+	initial.MasterPasswordHash = bootstrap.hash
+	if opts.httpOnly != nil {
+		initial.WebHTTPEnabled = *opts.httpOnly
+		initial.WebHTTPSEnabled = !*opts.httpOnly
+	}
+	if opts.webListen != nil {
+		initial.WebHTTPListen = *opts.webListen
+		initial.WebHTTPSListen = *opts.webListen
+	}
+	if opts.webTLSSelfManaged != nil {
+		initial.WebTLSSelfManaged = *opts.webTLSSelfManaged
+	}
+	if opts.clusterListen != nil {
+		initial.ClusterListen = *opts.clusterListen
+	}
+	if opts.enrollmentListen != nil {
+		initial.EnrollmentListen = *opts.enrollmentListen
+	}
+	if opts.acmeHosts != nil {
+		initial.AcmeHosts = acmeHosts(opts)
+	}
+	primaryName := "primary"
+	if opts.primaryName != nil {
+		primaryName = *opts.primaryName
+	}
+	var webTLSCertPEM []byte
+	if opts.webTLSCertPEM != nil {
+		webTLSCertPEM = []byte(*opts.webTLSCertPEM)
+	}
+	if _, err := service.Initialize(context.Background(), primarybootstrap.Options{
+		Initial:       initial,
+		PrimaryName:   primaryName,
+		WebTLSCertPEM: webTLSCertPEM,
+	}); err != nil {
+		return nil, fmt.Errorf("initializing primary: %w", err)
+	}
+	printSetupPassword(bootstrap.password)
+	if err := securePrimaryBootstrapArtifacts(own); err != nil {
+		return nil, err
+	}
+	info("initialized primary database, secrets, network prefix, and TLS identity")
+	return bootstrap, nil
+}
+
+func printSetupPassword(password string) {
+	fmt.Printf("\nTemporary setup password: %s\n", password)
+	fmt.Print("Use this password to register the first passkey. Replace the master password after bootstrap if needed.\n")
+}
+
+func securePrimaryBootstrapArtifacts(own owner) error {
+	dbPath := filepath.Join(dataDir, "primary.db")
+	paths := append(sqliteArtifactPaths(dbPath), filepath.Join(dataDir, "machine.key"))
+	for _, path := range paths {
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		if err := chmodChown(path, 0o600, own); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -500,7 +615,7 @@ func updateServiceUnitForUpgrade(opts installOptions) error {
 	return nil
 }
 
-func printInstallComplete(opts installOptions, bootstrap *bootstrapCredentials, wroteEnv bool) {
+func printInstallComplete(opts installOptions, bootstrap *bootstrapCredentials) {
 	logDir, logFile := serviceLogPaths(time.Now().UTC())
 	if opts.role == "secondary" {
 		fmt.Print("\nInstall complete. opendeploy.service is enabled and started.\n")
@@ -512,11 +627,10 @@ func printInstallComplete(opts installOptions, bootstrap *bootstrapCredentials, 
 	for _, addr := range webUIAddrs(opts) {
 		fmt.Printf("  %s\n", addr)
 	}
-	if bootstrap != nil && wroteEnv {
-		fmt.Printf("\nTemporary setup password: %s\n", bootstrap.password)
-		fmt.Print("Use this password to register the first passkey. Replace the master password after bootstrap if needed.\n")
+	if bootstrap != nil {
+		fmt.Print("\nThe temporary setup password was printed after primary initialization.\n")
 	} else {
-		fmt.Printf("\nKept existing %s. Use its configured setup password/hash to bootstrap.\n", envFile)
+		fmt.Print("\nPreserved the existing primary setup credentials.\n")
 	}
 	printServiceLogDetails(logDir, logFile)
 }
@@ -551,6 +665,9 @@ func webUIAddrs(opts installOptions) []string {
 		defaultPort = "80"
 	}
 	listen := ":443"
+	if opts.httpOnly != nil && *opts.httpOnly {
+		listen = ":8080"
+	}
 	if opts.webListen != nil && strings.TrimSpace(*opts.webListen) != "" {
 		listen = strings.TrimSpace(*opts.webListen)
 	}

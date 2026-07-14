@@ -2,12 +2,10 @@
 // a host. It is invoked as the `opendeploy install` / `opendeploy uninstall`
 // subcommands of the main binary.
 //
-// It is deliberately self-contained: it does NOT import ainit, the server
-// config, and keeps its own copy of every path, pinned version, and checksum
-// (see config.go). Restore unlock reuses the storage and secrets packages so it
-// can rewrite the local machine key before first boot. The runtime coupling is a
-// guard in ainit.init() that skips server bootstrap when an installer subcommand
-// is detected.
+// It keeps an explicit copy of every system path, pinned version, and checksum
+// (see config.go). Fresh primary install delegates persistent initialization to
+// app/primarybootstrap; restore reuses storage and secrets services. A guard in
+// ainit.init() skips server directory and logging setup for installer commands.
 //
 // The embedded systemd units, env template, and sudoers drop-in (assets/) make
 // the binary self-installing — nothing is fetched from GitHub except the
@@ -87,15 +85,15 @@ func parseInstall(args []string) (string, installOptions, error) {
 func parseInstallPrimary(args []string) (string, installOptions, error) {
 	fs := flag.NewFlagSet("install primary", flag.ExitOnError)
 	version := fs.String("version", "latest", "release tag to install (default: latest)")
-	useSelf := fs.Bool("use-self", false, "install this executable as v0.0.0 instead of downloading opendeploy")
+	useSelf := fs.Bool("use-self", false, "install this executable using its embedded version instead of downloading opendeploy")
 	httpOnlyRaw := fs.String("http-only", "", "enable HTTP web UI and disable HTTPS web UI (true or false)")
 	webListenRaw := fs.String("web-listen", "", "set initial web UI listen address (for example :8080)")
 	webTLSSelfManagedRaw := fs.String("web-tls-self-managed", "", "enable self-managed HTTPS certificate mode (true or false)")
 	webTLSCertPEMFileRaw := fs.String("web-tls-cert-pem-file", "", "read initial HTTPS certificate/key PEM bundle from a file")
 	passkeyExtraOriginsRaw := fs.String("passkey-extra-origins", "", "set OPENDEPLOY_PASSKEY_EXTRA_ORIGINS (comma-separated WebAuthn origins)")
-	clusterListenRaw := fs.String("cluster-listen", "", "set OPENDEPLOY_INITIAL_CLUSTER_LISTEN (for example :9443)")
-	enrollmentListenRaw := fs.String("enrollment-listen", "", "set OPENDEPLOY_INITIAL_ENROLLMENT_LISTEN (for example :9444)")
-	acmeHostsRaw := fs.String("acme-hosts", "", "set OPENDEPLOY_INITIAL_ACME_HOSTS (comma-separated hostnames)")
+	clusterListenRaw := fs.String("cluster-listen", "", "set the initial cluster listen address (for example :9443)")
+	enrollmentListenRaw := fs.String("enrollment-listen", "", "set the initial enrollment listen address (for example :9444)")
+	acmeHostsRaw := fs.String("acme-hosts", "", "set the initial ACME hostnames (comma-separated)")
 	primaryNameRaw := fs.String("primary-name", "", "set OPENDEPLOY_PRIMARY_NAME for the primary certificate/machine name")
 	restoreBackupRaw := fs.String("restore-backup", "", "restore primary.db from S3 before first boot (true or false)")
 	restoreS3AccessKeyIDRaw := fs.String("restore-s3-access-key-id", "", "S3 access key id for backup restore")
@@ -231,7 +229,7 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 func parseInstallSecondary(args []string) (string, installOptions, error) {
 	fs := flag.NewFlagSet("install secondary", flag.ExitOnError)
 	version := fs.String("version", "latest", "release tag to install (default: latest)")
-	useSelf := fs.Bool("use-self", false, "install this executable as v0.0.0 instead of downloading opendeploy")
+	useSelf := fs.Bool("use-self", false, "install this executable using its embedded version instead of downloading opendeploy")
 	clusterAddrRaw := fs.String("cluster-addr", "", "set OPENDEPLOY_PRIMARY_CLUSTER_ADDR for the primary mTLS cluster address")
 	enrollmentAddrRaw := fs.String("enrollment-addr", "", "set OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR for the primary enrollment address")
 	enrollmentFingerprintRaw := fs.String("enrollment-fingerprint", "", "set OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT for enrollment TLS pinning")

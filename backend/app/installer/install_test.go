@@ -41,44 +41,35 @@ func TestGenerateBootstrapCredentialsSkippedForSecondary(t *testing.T) {
 	}
 }
 
-func TestRenderEnvTemplateWritesSplitWebSettings(t *testing.T) {
+func TestRenderEnvTemplateDoesNotPersistInitialSettings(t *testing.T) {
 	httpOnly := true
 	webListen := ":8080"
 	env := string(renderEnvTemplate(installOptions{
 		httpOnly:  &httpOnly,
 		webListen: &webListen,
-	}, nil))
+	}))
 
-	for _, want := range []string{
-		"OPENDEPLOY_INITIAL_WEB_HTTP_ENABLED=true",
-		"OPENDEPLOY_INITIAL_WEB_HTTP_LISTEN=:8080",
-		"OPENDEPLOY_INITIAL_WEB_HTTPS_ENABLED=false",
-		"OPENDEPLOY_INITIAL_WEB_HTTPS_LISTEN=:8080",
-	} {
-		if !strings.Contains(env, want) {
-			t.Fatalf("env missing %q:\n%s", want, env)
-		}
-	}
-	for _, oldKey := range []string{
-		"OPENDEPLOY_INITIAL_WEB_HTTP_ONLY=",
-		"OPENDEPLOY_INITIAL_WEB_LISTEN=",
-	} {
-		if strings.Contains(env, oldKey) {
-			t.Fatalf("env contains old key %q:\n%s", oldKey, env)
-		}
+	if strings.Contains(env, "OPENDEPLOY_INITIAL_") {
+		t.Fatalf("env contains initial bootstrap settings:\n%s", env)
 	}
 }
 
-func TestRenderEnvTemplateWritesInitialWebTLSCertPEMFile(t *testing.T) {
+func TestRenderEnvTemplateDoesNotWriteInitialWebTLS(t *testing.T) {
 	certPEM := "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----\n-----BEGIN PRIVATE KEY-----\ndef\n-----END PRIVATE KEY-----\n"
-	env := string(renderEnvTemplate(installOptions{webTLSCertPEM: &certPEM}, nil))
+	env := string(renderEnvTemplate(installOptions{webTLSCertPEM: &certPEM}))
 
-	want := "OPENDEPLOY_INITIAL_WEB_TLS_CERT_PEM_FILE=" + initialWebTLSCertPEMFile
-	if !strings.Contains(env, want) {
-		t.Fatalf("env missing TLS PEM file path:\n%s", env)
-	}
-	if strings.Contains(env, "abc") || strings.Contains(env, "def") {
+	if strings.Contains(env, "TLS_CERT") || strings.Contains(env, "abc") || strings.Contains(env, "def") {
 		t.Fatalf("env contains TLS PEM material:\n%s", env)
+	}
+}
+
+func TestStripInitialEnvValuesPreservesRuntimeSettings(t *testing.T) {
+	env := stripInitialEnvValues([]byte("OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH=hash\nOPENDEPLOY_INITIAL_WEB_HTTPS_ENABLED=true\nOPENDEPLOY_PRIMARY_NAME=primary\n"))
+	if strings.Contains(string(env), "OPENDEPLOY_INITIAL_") {
+		t.Fatalf("initial values remain:\n%s", env)
+	}
+	if !strings.Contains(string(env), "OPENDEPLOY_PRIMARY_NAME=primary") {
+		t.Fatalf("runtime setting was removed:\n%s", env)
 	}
 }
 
@@ -123,7 +114,7 @@ func TestParseInstallSecondaryStoresEnrollmentFingerprint(t *testing.T) {
 	if opts.enrollmentFingerprint == nil || *opts.enrollmentFingerprint == "" {
 		t.Fatal("enrollment fingerprint was not stored")
 	}
-	env := string(renderEnvTemplate(opts, nil))
+	env := string(renderEnvTemplate(opts))
 	if !strings.Contains(env, "OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
 		t.Fatalf("env missing enrollment fingerprint:\n%s", env)
 	}

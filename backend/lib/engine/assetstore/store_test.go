@@ -73,7 +73,7 @@ func createMigration(t *testing.T, store *Store, oldSettings, newSettings *apige
 }
 
 func TestLargeAssetStoredLocallyWhenBackupDisabled(t *testing.T) {
-	settings := config.DefaultSettings(ainit.StaticConfig)
+	settings := config.DefaultSettings(config.DefaultInitialConfig())
 	store := newTestStore(t, &settings)
 	blob := largeTestBlob()
 
@@ -110,7 +110,7 @@ func TestLargeAssetStoredLocallyWhenBackupDisabled(t *testing.T) {
 }
 
 func TestReconcileFinishesInterruptedLocalUpload(t *testing.T) {
-	settings := config.DefaultSettings(ainit.StaticConfig)
+	settings := config.DefaultSettings(config.DefaultInitialConfig())
 	store := newTestStore(t, &settings)
 	stagedName := ".upload-interrupted"
 	if err := os.WriteFile(filepath.Join(ainit.StaticConfig.LargeAssetsDir, stagedName), []byte("data"), 0o600); err != nil {
@@ -137,7 +137,7 @@ func TestReconcileFinishesInterruptedLocalUpload(t *testing.T) {
 }
 
 func TestMigrationRemainsActiveUntilReconcileFinishesIt(t *testing.T) {
-	settings := config.DefaultSettings(ainit.StaticConfig)
+	settings := config.DefaultSettings(config.DefaultInitialConfig())
 	store := newTestStore(t, &settings)
 	oldSettings := *settings
 	newSettings := *settings
@@ -192,7 +192,7 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 	}))
 	defer server.Close()
 
-	settings := config.DefaultSettings(ainit.StaticConfig)
+	settings := config.DefaultSettings(config.DefaultInitialConfig())
 	settings.Backup.S3AccessKeyID.Value = "shared-key"
 	settings.Backup.S3SecretAccessKey = apigen.SecretRef{ID: 1}
 	settings.Backup.S3Bucket.Value = "bucket"
@@ -263,7 +263,7 @@ func TestLargeAssetSeparateS3OverridesSharedCredentials(t *testing.T) {
 	}))
 	defer server.Close()
 
-	settings := config.DefaultSettings(ainit.StaticConfig)
+	settings := config.DefaultSettings(config.DefaultInitialConfig())
 	settings.Backup.Enabled.Value = true
 	settings.Backup.S3AccessKeyID.Value = "shared-key"
 	settings.Backup.S3SecretAccessKey = apigen.SecretRef{ID: 1}
@@ -291,7 +291,7 @@ func TestLargeAssetSeparateS3OverridesSharedCredentials(t *testing.T) {
 }
 
 func TestLargeAssetUploadDoesNotFallBackWhenBackupS3IsInvalid(t *testing.T) {
-	settings := config.DefaultSettings(ainit.StaticConfig)
+	settings := config.DefaultSettings(config.DefaultInitialConfig())
 	settings.Backup.Enabled.Value = true
 	store := newTestStore(t, &settings)
 	blob := largeTestBlob()
@@ -306,7 +306,7 @@ func TestLargeAssetUploadDoesNotFallBackWhenBackupS3IsInvalid(t *testing.T) {
 }
 
 func TestS3ConfigurationChangeRequiresAssetsToBeLocal(t *testing.T) {
-	settings := config.DefaultSettings(ainit.StaticConfig)
+	settings := config.DefaultSettings(config.DefaultInitialConfig())
 	store := newTestStore(t, &settings)
 	store.DB.SetAssetStored("large.bin", "binary", "s3://bucket/path/1", InlineThresholdBytes+1, nil, 1)
 	next := *settings

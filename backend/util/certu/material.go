@@ -3,8 +3,10 @@ package certu
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 )
@@ -14,6 +16,7 @@ const (
 	secretCAKey       = "opendeploy.cluster.ca.key"
 	secretPrimaryCert = "opendeploy.cluster.primary.cert"
 	secretPrimaryKey  = "opendeploy.cluster.primary.key"
+	secretWebUITLS    = "opendeploy.webui.self_signed_tls_bundle"
 )
 
 type Material struct {
@@ -21,6 +24,44 @@ type Material struct {
 	CAKey       []byte
 	PrimaryCert []byte
 	PrimaryKey  []byte
+}
+
+func BootstrapWebUISelfSigned(store *secrets.Manager, names []string) ([]byte, error) {
+	bundle, err := LoadWebUISelfSigned(store)
+	if err == nil {
+		return bundle, nil
+	}
+	if !errors.Is(err, secrets.ErrNotFound) {
+		return nil, err
+	}
+	certPEM, keyPEM, err := GenerateSelfSignedServerCertificate(names)
+	if err != nil {
+		return nil, err
+	}
+	bundle = append(certPEM, keyPEM...)
+	if err := store.SetInternal(secretWebUITLS, bundle); err != nil {
+		return nil, err
+	}
+	return bundle, nil
+}
+
+func LoadWebUISelfSigned(store *secrets.Manager) ([]byte, error) {
+	return store.RevealInternal(secretWebUITLS)
+}
+
+func WebUISelfSignedNames(acmeHosts, listen string) []string {
+	var names []string
+	for _, name := range strings.Split(acmeHosts, ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			names = append(names, name)
+		}
+	}
+	host, _, err := net.SplitHostPort(strings.TrimSpace(listen))
+	host = strings.Trim(host, "[]")
+	if err == nil && host != "" && host != "0.0.0.0" && host != "::" {
+		names = append(names, host)
+	}
+	return names
 }
 
 func BootstrapPrimary(store *secrets.Manager, primaryName string) (*Material, error) {

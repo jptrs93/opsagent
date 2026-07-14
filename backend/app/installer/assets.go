@@ -35,14 +35,8 @@ func renderContainerdConfig(gid int) string {
 		"  gid = " + itoa(gid) + "\n"
 }
 
-func renderEnvTemplate(opts installOptions, bootstrap *bootstrapCredentials) []byte {
-	content := envTemplate
-	if bootstrap != nil {
-		content = applyEnvValues(content, map[string]string{
-			"OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH": bootstrap.hash,
-		}, []string{"OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH"})
-	}
-	return applyEnvOverrides(content, opts)
+func renderEnvTemplate(opts installOptions) []byte {
+	return applyEnvOverrides(envTemplate, opts)
 }
 
 func renderOpenDeployUnit(opts installOptions) []byte {
@@ -60,52 +54,17 @@ func updateEnvFile(opts installOptions, own owner) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	_, err := writeFile(envFile, applyEnvOverrides(content, opts), 0o640, own, false)
+	_, err := writeFile(envFile, applyEnvOverrides(stripInitialEnvValues(content), opts), 0o640, own, false)
 	if err == nil {
 		info("updated %s", envFile)
 	}
 	return err
 }
 
-func writeInitialWebTLSCertPEMFile(opts installOptions, own owner) error {
-	if opts.webTLSCertPEM == nil {
-		return nil
-	}
-	_, err := writeFile(initialWebTLSCertPEMFile, []byte(strings.TrimSpace(*opts.webTLSCertPEM)+"\n"), 0o600, own, false)
-	if err == nil {
-		info("wrote one-time initial HTTPS certificate PEM file")
-	}
-	return err
-}
-
 func applyEnvOverrides(content []byte, opts installOptions) []byte {
 	values := map[string]string{}
-	if opts.httpOnly != nil {
-		values["OPENDEPLOY_INITIAL_WEB_HTTP_ENABLED"] = fmt.Sprintf("%t", *opts.httpOnly)
-		values["OPENDEPLOY_INITIAL_WEB_HTTPS_ENABLED"] = fmt.Sprintf("%t", !*opts.httpOnly)
-	}
-	if opts.webListen != nil {
-		values["OPENDEPLOY_INITIAL_WEB_HTTP_LISTEN"] = *opts.webListen
-		values["OPENDEPLOY_INITIAL_WEB_HTTPS_LISTEN"] = *opts.webListen
-	}
-	if opts.webTLSSelfManaged != nil {
-		values["OPENDEPLOY_INITIAL_WEB_TLS_SELF_MANAGED"] = fmt.Sprintf("%t", *opts.webTLSSelfManaged)
-	}
-	if opts.webTLSCertPEM != nil && opts.restore == nil {
-		values["OPENDEPLOY_INITIAL_WEB_TLS_CERT_PEM"] = ""
-		values["OPENDEPLOY_INITIAL_WEB_TLS_CERT_PEM_FILE"] = initialWebTLSCertPEMFile
-	}
 	if opts.passkeyExtraOrigins != nil {
 		values["OPENDEPLOY_PASSKEY_EXTRA_ORIGINS"] = *opts.passkeyExtraOrigins
-	}
-	if opts.clusterListen != nil {
-		values["OPENDEPLOY_INITIAL_CLUSTER_LISTEN"] = *opts.clusterListen
-	}
-	if opts.enrollmentListen != nil {
-		values["OPENDEPLOY_INITIAL_ENROLLMENT_LISTEN"] = *opts.enrollmentListen
-	}
-	if opts.acmeHosts != nil {
-		values["OPENDEPLOY_INITIAL_ACME_HOSTS"] = *opts.acmeHosts
 	}
 	if opts.clusterAddr != nil {
 		values["OPENDEPLOY_PRIMARY_CLUSTER_ADDR"] = *opts.clusterAddr
@@ -119,7 +78,20 @@ func applyEnvOverrides(content []byte, opts installOptions) []byte {
 	if opts.primaryName != nil {
 		values["OPENDEPLOY_PRIMARY_NAME"] = *opts.primaryName
 	}
-	return applyEnvValues(content, values, []string{"OPENDEPLOY_INITIAL_ACME_HOSTS", "OPENDEPLOY_INITIAL_WEB_HTTP_ENABLED", "OPENDEPLOY_INITIAL_WEB_HTTP_LISTEN", "OPENDEPLOY_INITIAL_WEB_HTTPS_ENABLED", "OPENDEPLOY_INITIAL_WEB_HTTPS_LISTEN", "OPENDEPLOY_INITIAL_WEB_TLS_SELF_MANAGED", "OPENDEPLOY_INITIAL_WEB_TLS_CERT_PEM", "OPENDEPLOY_INITIAL_WEB_TLS_CERT_PEM_FILE", "OPENDEPLOY_PASSKEY_EXTRA_ORIGINS", "OPENDEPLOY_INITIAL_CLUSTER_LISTEN", "OPENDEPLOY_INITIAL_ENROLLMENT_LISTEN", "OPENDEPLOY_PRIMARY_CLUSTER_ADDR", "OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR", "OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT", "OPENDEPLOY_PRIMARY_NAME"})
+	return applyEnvValues(content, values, []string{"OPENDEPLOY_PASSKEY_EXTRA_ORIGINS", "OPENDEPLOY_PRIMARY_CLUSTER_ADDR", "OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR", "OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT", "OPENDEPLOY_PRIMARY_NAME"})
+}
+
+func stripInitialEnvValues(content []byte) []byte {
+	lines := strings.Split(strings.TrimRight(string(content), "\n"), "\n")
+	out := lines[:0]
+	for _, line := range lines {
+		key, _, ok := strings.Cut(line, "=")
+		if ok && strings.HasPrefix(strings.TrimSpace(key), "OPENDEPLOY_INITIAL_") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return []byte(strings.Join(out, "\n") + "\n")
 }
 
 func applyEnvValues(content []byte, values map[string]string, appendOrder []string) []byte {

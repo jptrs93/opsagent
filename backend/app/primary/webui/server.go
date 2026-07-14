@@ -22,7 +22,6 @@ import (
 )
 
 const primaryServerShutdownTimeout = 20 * time.Second
-const webUISelfSignedTLSBundleSecret = "opendeploy.webui.self_signed_tls_bundle"
 
 func RunPrimaryHTTPWebUI(ctx context.Context, cs *config.Service, webHandler http.Handler) error {
 	cfg := cs.Snapshot().Settings
@@ -152,22 +151,7 @@ func webUITLSBundle(store *secrets.Manager, loader config.Loader, cfg *apigen.Se
 		}
 		return value, nil
 	}
-	bundle, err := store.RevealInternal(webUISelfSignedTLSBundleSecret)
-	if err == nil {
-		return bundle, nil
-	}
-	if !errors.Is(err, secrets.ErrNotFound) {
-		return nil, err
-	}
-	certPEM, keyPEM, err := certu.GenerateSelfSignedServerCertificate(webUITLSNames(loader, cfg))
-	if err != nil {
-		return nil, err
-	}
-	bundle = append(certPEM, keyPEM...)
-	if err := store.SetInternal(webUISelfSignedTLSBundleSecret, bundle); err != nil {
-		return nil, err
-	}
-	return bundle, nil
+	return certu.LoadWebUISelfSigned(store)
 }
 
 func webUITLSNames(loader config.Loader, cfg *apigen.Settings) []string {

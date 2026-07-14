@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
@@ -35,7 +34,7 @@ func configWithSettings(settings *apigen.Settings) apigen.Config {
 func TestBackupConfigFilterOnlyAllowsBackupChanges(t *testing.T) {
 	secretSource := testSecretStore{updated: map[int32]time.Time{10: time.Unix(1, 0)}}
 	filter := newBackupConfigFilter(testConfigLoader{}, secretSource)
-	initial := config.DefaultSettings(ainit.StaticConfig)
+	initial := config.DefaultSettings(config.DefaultInitialConfig())
 	initial.HttpWeb.Listen = apigen.StringSetting{Value: ":8080"}
 	initial.Backup.Enabled = apigen.BoolSetting{Value: true}
 	initial.Backup.S3AccessKeyID = apigen.StringSetting{Value: "access-key"}
@@ -75,7 +74,7 @@ func TestBackupConfigFilterOnlyAllowsBackupChanges(t *testing.T) {
 
 func TestBackupConfigFilterIgnoresBackupSettingsWhileDisabled(t *testing.T) {
 	filter := newBackupConfigFilter(testConfigLoader{}, nil)
-	initial := config.DefaultSettings(ainit.StaticConfig)
+	initial := config.DefaultSettings(config.DefaultInitialConfig())
 	initial.Backup.Enabled = apigen.BoolSetting{Value: false}
 	initial.Backup.S3AccessKeyID = apigen.StringSetting{Value: "access-key"}
 	initial.Backup.S3Bucket = apigen.StringSetting{Value: "bucket"}

@@ -2,6 +2,8 @@ package primary
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -40,12 +42,19 @@ type runtime struct {
 }
 
 func newRuntime() (*runtime, error) {
-	store := sqlite.NewPrimaryStorage(filepath.Join(ainit.StaticConfig.DataDir, "primary.db"))
+	dbPath := filepath.Join(ainit.StaticConfig.DataDir, "primary.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("primary is not initialized: %s does not exist", dbPath)
+		}
+		return nil, fmt.Errorf("checking primary database: %w", err)
+	}
+	store := sqlite.NewPrimaryStorage(dbPath)
 	secretsMgr, err := secrets.Open(ainit.StaticConfig.DataDir, store)
 	if err != nil {
 		return nil, err
 	}
-	configService, err := config.NewServiceWithInitialConfigHook(store, initialWebTLSCertPEMHook(secretsMgr))
+	configService, err := config.NewService(store)
 	if err != nil {
 		return nil, err
 	}

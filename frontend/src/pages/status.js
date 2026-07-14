@@ -247,6 +247,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             variant,
             repo,
             runnerType,
+            runnerPresent: Boolean(d.status?.runner),
             existingStatus: uiExistingStatus,
             canDelete: systemDeployment
                 ? machineMissing

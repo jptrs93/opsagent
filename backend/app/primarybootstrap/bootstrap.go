@@ -1,0 +1,217 @@
+package primarybootstrap
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/config"
+	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/util/certu"
+)
+
+type Service struct {
+	DataDir string
+}
+
+type Options struct {
+	Initial       config.InitialConfig
+	PrimaryName   string
+	WebTLSCertPEM []byte
+}
+
+type Result struct {
+	EnrollmentFingerprint string
+}
+
+func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
+	if err := validateOptions(opts); err != nil {
+		return nil, err
+	}
+	dbPath := filepath.Join(s.DataDir, "primary.db")
+	if _, err := os.Stat(dbPath); err == nil {
+		return nil, fmt.Errorf("primary database already exists at %s", dbPath)
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("checking primary database: %w", err)
+	}
+
+	store := sqlite.NewPrimaryStorage(dbPath)
+	complete := false
+	defer func() {
+		_ = store.Close()
+		if !complete {
+			cleanupBootstrapArtifacts(s.DataDir)
+		}
+	}()
+	secretsMgr, err := secrets.Initialize(s.DataDir, store)
+	if err != nil {
+		return nil, err
+	}
+	cfg := config.DefaultConfig(opts.Initial)
+	if len(opts.WebTLSCertPEM) != 0 {
+		meta, err := secretsMgr.Set(secrets.TLSCertPEMSecretName, opts.WebTLSCertPEM, 0)
+		if err != nil {
+			return nil, fmt.Errorf("storing initial Web TLS certificate: %w", err)
+		}
+		cfg.Settings.HttpsWeb.TlsSelfManaged = apigen.BoolSetting{Value: true}
+		cfg.Settings.HttpsWeb.TlsCertPem = apigen.SecretRef{ID: meta.ID}
+	}
+	clusterMaterial, err := certu.BootstrapPrimary(secretsMgr, opts.PrimaryName)
+	if err != nil {
+		return nil, fmt.Errorf("initializing cluster TLS material: %w", err)
+	}
+	if cfg.Settings.HttpsWeb.Enabled.Value && cfg.Settings.HttpsWeb.TlsSelfManaged.Value && cfg.Settings.HttpsWeb.TlsCertPem.ID == 0 {
+		if _, err := certu.BootstrapWebUISelfSigned(secretsMgr, certu.WebUISelfSignedNames(cfg.Settings.HttpsWeb.AcmeHosts.Value, cfg.Settings.HttpsWeb.Listen.Value)); err != nil {
+			return nil, fmt.Errorf("initializing self-managed Web TLS material: %w", err)
+		}
+	}
+	if _, err := config.InitializeService(store, *cfg); err != nil {
+		return nil, err
+	}
+	fingerprint, err := certu.CertificatePEMSPKISHA256(clusterMaterial.PrimaryCert)
+	if err != nil {
+		return nil, fmt.Errorf("computing enrollment TLS fingerprint: %w", err)
+	}
+	if err := store.Close(); err != nil {
+		return nil, fmt.Errorf("closing initialized primary database: %w", err)
+	}
+	complete = true
+	return &Result{EnrollmentFingerprint: fingerprint}, nil
+}
+
+func (s Service) MigrateAndValidate(ctx context.Context) error {
+	dbPath := filepath.Join(s.DataDir, "primary.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		return err
+	}
+	store := sqlite.NewPrimaryStorage(dbPath)
+	if err := config.MigrateLegacyInitialConfig(store); err != nil {
+		_ = store.Close()
+		return fmt.Errorf("migrating legacy primary bootstrap state: %w", err)
+	}
+	secretsMgr, err := secrets.Open(s.DataDir, store)
+	if err != nil {
+		_ = store.Close()
+		return fmt.Errorf("opening secrets for primary bootstrap migration: %w", err)
+	}
+	configService, err := config.NewService(store)
+	if err != nil {
+		_ = store.Close()
+		return err
+	}
+	settings := configService.Snapshot().Settings
+	if configService.MustLoadConfigBoolValue(settings.HttpsWeb.Enabled) && configService.MustLoadConfigBoolValue(settings.HttpsWeb.TlsSelfManaged) && settings.HttpsWeb.TlsCertPem.ID == 0 {
+		if _, err := certu.LoadWebUISelfSigned(secretsMgr); errors.Is(err, secrets.ErrNotFound) {
+			acmeHosts := configService.MustLoadConfigStringValue(settings.HttpsWeb.AcmeHosts)
+			listen := configService.MustLoadConfigStringValue(settings.HttpsWeb.Listen)
+			if _, err := certu.BootstrapWebUISelfSigned(secretsMgr, certu.WebUISelfSignedNames(acmeHosts, listen)); err != nil {
+				_ = store.Close()
+				return fmt.Errorf("migrating self-managed Web TLS material: %w", err)
+			}
+		} else if err != nil {
+			_ = store.Close()
+			return fmt.Errorf("loading self-managed Web TLS material during migration: %w", err)
+		}
+	}
+	if err := store.Close(); err != nil {
+		return fmt.Errorf("closing migrated primary database: %w", err)
+	}
+	return s.Validate(ctx)
+}
+
+func (s Service) Validate(_ context.Context) error {
+	dbPath := filepath.Join(s.DataDir, "primary.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("primary database does not exist at %s", dbPath)
+		}
+		return err
+	}
+	store := sqlite.NewPrimaryStorage(dbPath)
+	defer store.Close()
+	secretsMgr, err := secrets.Open(s.DataDir, store)
+	if err != nil {
+		return err
+	}
+	if unlocked, _ := secretsMgr.Status(); !unlocked {
+		return secrets.ErrLocked
+	}
+	configService, err := config.NewService(store)
+	if err != nil {
+		return err
+	}
+	if _, err := certu.LoadPrimary(secretsMgr); err != nil {
+		return fmt.Errorf("loading cluster TLS material: %w", err)
+	}
+	settings := configService.Snapshot().Settings
+	if configService.MustLoadConfigBoolValue(settings.HttpsWeb.Enabled) && configService.MustLoadConfigBoolValue(settings.HttpsWeb.TlsSelfManaged) {
+		var bundle []byte
+		if settings.HttpsWeb.TlsCertPem.ID != 0 {
+			bundle, err = secretsMgr.RevealByID(settings.HttpsWeb.TlsCertPem.ID)
+		} else {
+			bundle, err = certu.LoadWebUISelfSigned(secretsMgr)
+		}
+		if err != nil {
+			return fmt.Errorf("loading self-managed Web TLS material: %w", err)
+		}
+		if _, err := tls.X509KeyPair(bundle, bundle); err != nil {
+			return fmt.Errorf("loading self-managed Web TLS material: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateOptions(opts Options) error {
+	if strings.TrimSpace(opts.PrimaryName) == "" {
+		return fmt.Errorf("primary name is required")
+	}
+	if strings.TrimSpace(opts.Initial.MasterPasswordHash) == "" {
+		return fmt.Errorf("initial master password hash is required")
+	}
+	if !opts.Initial.WebHTTPEnabled && !opts.Initial.WebHTTPSEnabled {
+		return fmt.Errorf("at least one Web listener must be enabled")
+	}
+	for name, value := range map[string]string{
+		"HTTP Web":   enabledValue(opts.Initial.WebHTTPEnabled, opts.Initial.WebHTTPListen),
+		"HTTPS Web":  enabledValue(opts.Initial.WebHTTPSEnabled, opts.Initial.WebHTTPSListen),
+		"cluster":    opts.Initial.ClusterListen,
+		"enrollment": opts.Initial.EnrollmentListen,
+	} {
+		if value == "" {
+			continue
+		}
+		if _, port, err := net.SplitHostPort(strings.TrimSpace(value)); err != nil || port == "" {
+			return fmt.Errorf("%s listen address must look like :8080", name)
+		}
+	}
+	if opts.Initial.WebHTTPEnabled && opts.Initial.WebHTTPSEnabled && strings.TrimSpace(opts.Initial.WebHTTPListen) == strings.TrimSpace(opts.Initial.WebHTTPSListen) {
+		return fmt.Errorf("HTTP and HTTPS Web listen addresses must differ")
+	}
+	if len(opts.WebTLSCertPEM) != 0 {
+		if _, err := tls.X509KeyPair(opts.WebTLSCertPEM, opts.WebTLSCertPEM); err != nil {
+			return fmt.Errorf("initial Web TLS certificate must contain a certificate chain and private key: %w", err)
+		}
+	}
+	return nil
+}
+
+func enabledValue(enabled bool, value string) string {
+	if !enabled {
+		return ""
+	}
+	return value
+}
+
+func cleanupBootstrapArtifacts(dataDir string) {
+	dbPath := filepath.Join(dataDir, "primary.db")
+	for _, path := range []string{dbPath, dbPath + "-wal", dbPath + "-shm", filepath.Join(dataDir, "machine.key")} {
+		_ = os.Remove(path)
+	}
+}

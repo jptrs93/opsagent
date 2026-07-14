@@ -8,7 +8,9 @@ const OPTIONAL_VALIDATION_TIMEOUT = LONG_UI_TIMEOUT;
 const VALIDATE_REQUEST_TIMEOUT = 5_000;
 const LOG_OUTPUT_TIMEOUT = 120_000;
 const LOG_OUTPUT_POLL_TIMEOUT = 1_500;
-const DEPLOYMENT_RUNNING_TIMEOUT = 25_000;
+const DEPLOYMENT_RUNNING_TIMEOUT = 180_000;
+const PREPARATION_TIMEOUT = 180_000;
+const RUNNER_START_TIMEOUT = 60_000;
 const RESTART_TIMEOUT = 120_000;
 const UPGRADE_TIMEOUT = 180_000;
 const RELEASE_OPTIONS_TIMEOUT = 60_000;
@@ -499,8 +501,11 @@ async function configureBackupSettings(page, cfg) {
   await setSettingText(page, 'Backup S3 region', cfg.region);
   await setSettingText(page, 'Backup S3 endpoint', cfg.endpoint);
 
-  await page.getByRole('button', {name: 'Save changes'}).click();
-  await expect(page.getByText('Unsaved changes')).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  const saveButton = page.getByRole('button', {name: 'Save changes'});
+  if (await saveButton.isVisible()) {
+    await saveButton.click();
+    await expect(page.getByText('Unsaved changes')).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  }
 }
 
 async function generateRecoveryCode(page) {
@@ -748,7 +753,24 @@ async function expectMachineConnected(page, machine) {
 async function expectDeploymentRunning(page, name) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
   const row = deploymentRow(page, {name});
-  await expect(row.getByTitle('View run output')).toContainText('Running', {timeout: DEPLOYMENT_RUNNING_TIMEOUT});
+  const prepareStatus = row.getByTestId(`deployment-prepare-status-${name}`);
+  await expect(prepareStatus).toContainText(/\b(ready|failed)\b/, {timeout: PREPARATION_TIMEOUT});
+
+  const prepareText = ((await prepareStatus.textContent()) || '').trim();
+  if (/\bfailed\b/.test(prepareText)) {
+    await prepareStatus.click();
+    const output = page.getByTestId('prepare-output-text');
+    await expect(output).toBeVisible({timeout: LONG_UI_TIMEOUT});
+    const details = ((await output.textContent()) || '').trim();
+    throw new Error(`deployment ${name} preparation failed${details ? `:\n${details}` : ''}`);
+  }
+
+  const runnerStatus = row.getByTestId(`deployment-runner-status-${name}`);
+  await expect(runnerStatus).toHaveText(/^(Running|Crashed|Stopped)$/, {timeout: RUNNER_START_TIMEOUT});
+  const runnerText = ((await runnerStatus.textContent()) || '').trim();
+  if (runnerText !== 'Running') {
+    throw new Error(`deployment ${name} runner entered ${runnerText}`);
+  }
 }
 
 async function openDeploymentLogsSearch(page, row) {

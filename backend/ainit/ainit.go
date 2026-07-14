@@ -103,17 +103,5 @@ type StaticConfiguration struct {
 	PrimaryEnrollmentFingerprint string `env:"OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT,"` // secondaries only: sha256 SPKI fingerprint for enrollment TLS pinning
 	PrimaryName                  string `env:"OPENDEPLOY_PRIMARY_NAME,primary"`            // primary cert DNS name; secondaries use it for TLS verification when dialing by IP
 
-	InitialWebHTTPEnabled     bool     `env:"OPENDEPLOY_INITIAL_WEB_HTTP_ENABLED,false"`
-	InitialWebHTTPListen      string   `env:"OPENDEPLOY_INITIAL_WEB_HTTP_LISTEN,:8080"`
-	InitialWebHTTPSEnabled    bool     `env:"OPENDEPLOY_INITIAL_WEB_HTTPS_ENABLED,true"`
-	InitialWebHTTPSListen     string   `env:"OPENDEPLOY_INITIAL_WEB_HTTPS_LISTEN,:443"`
-	InitialWebTLSSelfManaged  bool     `env:"OPENDEPLOY_INITIAL_WEB_TLS_SELF_MANAGED,false"`
-	InitialWebTLSCertPEM      string   `env:"OPENDEPLOY_INITIAL_WEB_TLS_CERT_PEM,"`
-	InitialWebTLSCertPEMFile  string   `env:"OPENDEPLOY_INITIAL_WEB_TLS_CERT_PEM_FILE,"`
-	InitialMasterPasswordHash string   `env:"OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH,"`
-	PasskeyExtraOrigins       []string `env:"OPENDEPLOY_PASSKEY_EXTRA_ORIGINS,"`
-	InitialClusterListen      string   `env:"OPENDEPLOY_INITIAL_CLUSTER_LISTEN,:9443"`    // mTLS listen address
-	InitialEnrollmentListen   string   `env:"OPENDEPLOY_INITIAL_ENROLLMENT_LISTEN,:9444"` // HTTPS worker enrollment listen address
-	InitialAcmeHosts          []string `env:"OPENDEPLOY_INITIAL_ACME_HOSTS,opendeploy.dev"`
-	InitialAcmeEmail          string   `env:"OPENDEPLOY_INITIAL_ACME_EMAIL,"`
+	PasskeyExtraOrigins []string `env:"OPENDEPLOY_PASSKEY_EXTRA_ORIGINS,"`
 }

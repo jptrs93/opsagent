@@ -15,7 +15,7 @@ OpenDeploy is a single-admin tool. The `User` proto exposes `{id, name}` to the 
 
 ## Master password bootstrap
 
-The initial master password is provisioned via the `OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH` environment variable, which holds an argon2id hash produced by `authu.HashPassword`. Fresh primary installs generate a high-entropy setup password, write its hash to `/etc/opendeploy/env`, and print the password once. It obtains a short-lived token for passkey registration and remains configured until rotated.
+Fresh primary installs generate a high-entropy setup password and persist its Argon2id hash directly in the initial `primary.db` config envelope before systemd starts. The hash is never written to `/etc/opendeploy/env`; the installer prints the password once after the database has been initialized. It obtains a short-lived token for passkey registration and remains configured until rotated.
 
 The configured master password hash is stored in the persisted OpenDeploy config envelope. It is owned by the config service but is not editable through the general settings update endpoint.
 

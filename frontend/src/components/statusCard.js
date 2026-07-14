@@ -14,6 +14,14 @@ const existingStatusLabels = {
 };
 
 const missingMachineStatusLabel = {bg: 'bg-yellow-600', text: 'text-yellow-300', label: 'Unknown'};
+const preRunnerStatusLabels = {
+    1: {bg: 'bg-yellow-600', text: 'text-yellow-300', label: 'Preparing'},
+    2: {bg: 'bg-blue-600', text: 'text-blue-200', label: 'Preparing'},
+    3: {bg: 'bg-blue-600', text: 'text-blue-200', label: 'Preparing'},
+    4: {bg: 'bg-yellow-600', text: 'text-yellow-300', label: 'Starting'},
+    5: {bg: 'bg-red-600', text: 'text-red-300', label: 'Prepare failed'},
+    6: {bg: 'bg-blue-600', text: 'text-blue-200', label: 'Preparing'},
+};
 
 const STATUS_NO_DEPLOYMENT = 1;
 const STATUS_STOPPED = 3;
@@ -26,6 +34,7 @@ const prepareStatusCopy = (prepareStatus, prepareVersion) => {
             return {class: 'text-yellow-300', text: `requested ${shortVersion(prepareVersion)}`};
         case 2:
         case 3:
+        case 6:
             return {class: 'text-blue-300', text: `${shortVersion(prepareVersion)} in progress`};
         case 4:
             return {class: 'text-green-300', text: `${shortVersion(prepareVersion)} ready`};
@@ -42,12 +51,14 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
     const onDelete = opts.onDelete || (() => {});
     const hasExisting = deployment.existingStatus !== STATUS_NO_DEPLOYMENT;
     const canDelete = deployment.canDelete ?? deployment.existingStatus === STATUS_STOPPED;
-    const existingColors = hasExisting
+    const preRunnerColors = !deployment.runnerPresent ? preRunnerStatusLabels[deployment.prepareStatus] : null;
+    const existingColors = preRunnerColors || (hasExisting
         ? (deployment.machineMissing && deployment.existingStatus === 0
             ? missingMachineStatusLabel
             : (existingStatusLabels[deployment.existingStatus] || existingStatusLabels[0]))
-        : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'};
+        : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'});
     const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
+    const statusKey = deployment.name || deployment.id;
     const menuOpen = van.state(false);
     const actionButtonClass = "rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-xs leading-none px-2 py-1.5 cursor-pointer";
     let menuEl = null;
@@ -145,7 +156,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
         td({class: "py-2 px-3 align-middle text-sm text-gray-300 break-words"}, deployment.machine || '-'),
         td(
             {class: "py-2 px-3 align-middle whitespace-nowrap"},
-            statusBadge(hasExisting, existingColors, () => onShowRunOutput(deployment)),
+            statusBadge(hasExisting && deployment.runnerPresent, existingColors, () => onShowRunOutput(deployment), `deployment-runner-status-${statusKey}`),
         ),
         td({class: "py-2 px-3 align-middle text-sm whitespace-nowrap"}, versionLink(deployment)),
         td(
@@ -153,11 +164,12 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
             prepareCopy
                 ? button({
                     class: `${prepareCopy.class} hover:brightness-125 underline cursor-pointer p-0`,
+                    "data-testid": `deployment-prepare-status-${statusKey}`,
                     onclick: () => onShowPrepareOutput(deployment),
                     title: "View prepare output",
                     type: "button",
                 }, prepareCopy.text)
-                : span({class: "text-gray-500"}, '-'),
+                : span({class: "text-gray-500", "data-testid": `deployment-prepare-status-${statusKey}`}, '-'),
         ),
         td(
             {
@@ -205,12 +217,13 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
     );
 }
 
-function statusBadge(hasExisting, colors, onclick) {
-    if (!hasExisting) {
-        return span({class: `px-2 py-0.5 rounded text-xs font-medium ${colors.bg} ${colors.text}`}, colors.label);
+function statusBadge(hasRunOutput, colors, onclick, testID) {
+    if (!hasRunOutput) {
+        return span({class: `px-2 py-0.5 rounded text-xs font-medium ${colors.bg} ${colors.text}`, "data-testid": testID}, colors.label);
     }
     return span({
         class: `px-2 py-0.5 rounded text-xs font-medium cursor-pointer hover:brightness-125 ${colors.bg} ${colors.text}`,
+        "data-testid": testID,
         onclick,
         title: "View run output",
     }, colors.label);
