@@ -210,7 +210,7 @@ func applyRestoredPrimaryConfigOverrides(dbPath string, opts installOptions, own
 			settings.HttpsWeb.AcmeHosts = apigen.StringSetting{Value: override.value}
 		}
 	}
-	if err := service.UpdateSettings(settings); err != nil {
+	if err := service.UpdateSettingsInternal(settings); err != nil {
 		_ = store.Close()
 		return fmt.Errorf("set restored primary config overrides: %w", err)
 	}

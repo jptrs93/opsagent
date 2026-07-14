@@ -68,9 +68,22 @@ func (s *PrimaryStorage) ListAssets() []*apigen.AssetMeta {
 }
 
 func (s *PrimaryStorage) ListAllAssetVersions() []*apigen.AssetMeta {
+	return s.listAllAssetVersions(false)
+}
+
+func (s *PrimaryStorage) ListAllAssetVersionsIncludingPending() []*apigen.AssetMeta {
+	return s.listAllAssetVersions(true)
+}
+
+func (s *PrimaryStorage) listAllAssetVersions(includePending bool) []*apigen.AssetMeta {
+	where := "WHERE location NOT LIKE 'pending://%'"
+	if includePending {
+		where = ""
+	}
 	rows, err := s.db.QueryContext(context.Background(), `
 SELECT id, key, space_id, created_at, version, format, location, size_bytes
 FROM assets
+`+where+`
 ORDER BY key, version`)
 	if err != nil {
 		panic(fmt.Sprintf("ListAllAssetVersions: %v", err))
@@ -132,10 +145,22 @@ func (s *PrimaryStorage) GetAsset(key string, version int32) (*apigen.Asset, boo
 }
 
 func (s *PrimaryStorage) GetAssetByID(assetID int32) (*apigen.Asset, bool) {
+	return s.getAssetByID(assetID, false)
+}
+
+func (s *PrimaryStorage) GetAssetByIDIncludingPending(assetID int32) (*apigen.Asset, bool) {
+	return s.getAssetByID(assetID, true)
+}
+
+func (s *PrimaryStorage) getAssetByID(assetID int32, includePending bool) (*apigen.Asset, bool) {
+	pendingClause := "AND location NOT LIKE 'pending://%'"
+	if includePending {
+		pendingClause = ""
+	}
 	row := s.db.QueryRowContext(context.Background(), `
 SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
 FROM assets
-WHERE id = ?`, assetID)
+WHERE id = ? `+pendingClause, assetID)
 	var r Asset
 	err := row.Scan(&r.ID, &r.Key, &r.SpaceID, &r.CreatedAt, &r.Version, &r.Format, &r.Location, &r.SizeBytes, &r.Blob)
 	if err == sql.ErrNoRows {
@@ -159,11 +184,35 @@ func (s *PrimaryStorage) ListAssetVersionsByKey(key string) []*apigen.Asset {
 	return out
 }
 
+func (s *PrimaryStorage) ListAssetVersionsByKeyIncludingPending(key string) []*apigen.Asset {
+	rows, err := s.db.QueryContext(context.Background(), `
+SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
+FROM assets
+WHERE key = ?
+ORDER BY version ASC`, key)
+	if err != nil {
+		panic(fmt.Sprintf("ListAssetVersionsByKeyIncludingPending: %v", err))
+	}
+	defer rows.Close()
+	out := []*apigen.Asset{}
+	for rows.Next() {
+		var row Asset
+		if err := rows.Scan(&row.ID, &row.Key, &row.SpaceID, &row.CreatedAt, &row.Version, &row.Format, &row.Location, &row.SizeBytes, &row.Blob); err != nil {
+			panic(fmt.Sprintf("ListAssetVersionsByKeyIncludingPending scan: %v", err))
+		}
+		out = append(out, assetRowToProto(row))
+	}
+	if err := rows.Err(); err != nil {
+		panic(fmt.Sprintf("ListAssetVersionsByKeyIncludingPending rows: %v", err))
+	}
+	return out
+}
+
 func (s *PrimaryStorage) OpenAsset(ctx context.Context, assetID int32) (*apigen.Asset, io.ReadCloser, error) {
 	row := s.db.QueryRowContext(ctx, `
 SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
 FROM assets
-WHERE id = ?`, assetID)
+WHERE id = ? AND location NOT LIKE 'pending://%'`, assetID)
 	var r Asset
 	err := row.Scan(&r.ID, &r.Key, &r.SpaceID, &r.CreatedAt, &r.Version, &r.Format, &r.Location, &r.SizeBytes, &r.Blob)
 	if err == sql.ErrNoRows {

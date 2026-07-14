@@ -18,6 +18,7 @@ const (
 	dataDir                  = "/var/lib/opendeploy"
 	binPath                  = "/var/lib/opendeploy/bin/opendeploy"
 	releasesDir              = "/var/lib/opendeploy-releases"
+	assetCacheDir            = "/var/lib/opendeploy-assets"
 	volumesDir               = "/var/lib/opendeploy-volumes"
 	buildLogsDir             = "/var/lib/opendeploy-build-logs"
 	runLogsDir               = "/var/lib/opendeploy-run-logs"

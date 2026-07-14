@@ -10,7 +10,7 @@ The harness creates real Ubuntu VMs with Lima:
 
 Playwright runs in Docker rather than in a Lima VM.
 
-The primary Web UI is served over HTTPS at `https://primary.opendeploy.test` by default. The harness writes `/etc/hosts` entries inside the VMs and installs a test CA so browser/WebAuthn tests use a real HTTPS origin.
+The primary Web UI is served over HTTPS at `https://primary.opendeploy.test` by default. The harness writes `/etc/hosts` entries inside the VMs and installs a test CA so browser/WebAuthn tests use a real HTTPS origin. The machine-local root CA is stored in the ignored `testing-vms/.test-ca` directory, is reused across runs, and is separate from disposable state under `testing-vms/.tmp`. Override its location with `OPD_VM_CERT_DIR`.
 
 ## Requirements
 
@@ -92,6 +92,32 @@ The harness uses `mcr.microsoft.com/playwright:v1.57.0-noble` by default. Overri
 By default the orchestrator opens a host SSH tunnel from `127.0.0.1:8443` to the primary VM's `:443`. The Playwright container then starts a local TCP proxy for `primary.opendeploy.test:443`, so the browser origin remains `https://primary.opendeploy.test` for WebAuthn. Override the host tunnel port with `OPD_PLAYWRIGHT_HOST_PORT`.
 
 Set `OPD_PLAYWRIGHT_BASE_URL` only when providing your own Docker-reachable primary URL. Add extra host mappings with `OPD_PLAYWRIGHT_ADD_HOSTS` if needed.
+
+## Host Browser Access
+
+After the harness has created the primary VM, start an SSH tunnel from the host:
+
+```sh
+bash testing-vms/tunnel.sh
+```
+
+The script starts the VM if needed and forwards `127.0.0.1:8443` to its HTTPS listener. Keep it running and open `https://primary.opendeploy.test:8443`. Override the local port with `OPD_PLAYWRIGHT_HOST_PORT` or the VM name with `OPD_VM_PRIMARY`.
+
+Add the hostname to the macOS host file once if it is not already present:
+
+```text
+127.0.0.1 primary.opendeploy.test
+```
+
+After the first E2E run creates the long-lived root CA, trust it once on macOS:
+
+```sh
+sudo security add-trusted-cert -d -r trustRoot \
+  -k /Library/Keychains/System.keychain \
+  testing-vms/.test-ca/ca.crt
+```
+
+The leaf server certificate is renewed as needed without replacing the trusted root CA. Delete `testing-vms/.test-ca` only when you intentionally want to rotate the test CA; doing so requires trusting the newly generated root again.
 
 ## Local Checkout Mode
 

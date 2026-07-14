@@ -14,6 +14,13 @@ func mustPrefix(t *testing.T, b []byte) Prefix {
 	return p
 }
 
+func mustAddr(addr netip.Addr, err error) netip.Addr {
+	if err != nil {
+		panic(err)
+	}
+	return addr
+}
+
 func TestGeneratePrefixIsULA(t *testing.T) {
 	p := GeneratePrefix()
 	if p[0] != 0xfd {
@@ -36,7 +43,7 @@ func TestParsePrefixRejectsInvalid(t *testing.T) {
 	}
 }
 
-func TestAddressLayout(t *testing.T) {
+func TestLogicalAddressLayout(t *testing.T) {
 	p := mustPrefix(t, []byte{0xfd, 0xab, 0xcd, 0xef, 0x01, 0x23})
 
 	tests := []struct {
@@ -44,43 +51,116 @@ func TestAddressLayout(t *testing.T) {
 		got  netip.Addr
 		want string
 	}{
-		{"instance 7/0", p.InstanceAddr(7, 0), "fdab:cdef:123:0:0:7:0:0"},
-		{"instance 7/3", p.InstanceAddr(7, 3), "fdab:cdef:123:0:0:7:0:3"},
-		{"service 7", p.ServiceAddr(7), "fdab:cdef:123:1:0:7:0:0"},
-		{"run 7/12", p.RunAddr(7, 12), "fdab:cdef:123:2:0:7:0:c"},
-		{"machine 5", p.MachineAddr(5), "fdab:cdef:123:3:0:0:0:5"},
-		{"large deployment id", p.InstanceAddr(0x7fffffff, 1), "fdab:cdef:123:0:7fff:ffff:0:1"},
+		{"instance 5/7/0", mustAddr(p.InstanceAddr(5, 7, 0)), "fdab:cdef:123:0:1:4000:70:0"},
+		{"instance 5/7/3", mustAddr(p.InstanceAddr(5, 7, 3)), "fdab:cdef:123:0:1:4000:70:3"},
+		{"service 5/7", mustAddr(p.ServiceAddr(5, 7)), "fdab:cdef:123:0:1:4000:71:0"},
+		{"run 5/7/12", mustAddr(p.RunAddr(5, 7, 12)), "fdab:cdef:123:0:1:4000:72:c"},
 	}
 	for _, tt := range tests {
 		want := netip.MustParseAddr(tt.want)
 		if tt.got != want {
 			t.Errorf("%s = %s, want %s", tt.name, tt.got, want)
 		}
-	}
-}
-
-func TestAddressesAreWithinCIDR(t *testing.T) {
-	p := GeneratePrefix()
-	cidr := p.CIDR()
-	for _, a := range []netip.Addr{
-		p.InstanceAddr(1, 0), p.ServiceAddr(2), p.RunAddr(3, 9), p.MachineAddr(4),
-	} {
-		if !cidr.Contains(a) {
-			t.Errorf("%s not contained in %s", a, cidr)
+		nodeID, err := p.NodeID(tt.got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if nodeID != LogicalNodeID {
+			t.Errorf("%s node id = %d, want logical node %d", tt.name, nodeID, LogicalNodeID)
 		}
 	}
 }
 
-func TestDeploymentCIDRMatchesAllOrdinals(t *testing.T) {
+func TestNodeTranslationOnlyChangesNode(t *testing.T) {
 	p := GeneratePrefix()
-	block := p.DeploymentCIDR(KindInstance, 42)
-	if !block.Contains(p.InstanceAddr(42, 0)) || !block.Contains(p.InstanceAddr(42, 1<<20)) {
-		t.Fatal("deployment block does not cover its ordinals")
+	logical := mustAddr(p.InstanceAddr(17, 42, 9))
+	locator := mustAddr(p.WithNode(logical, 12345))
+
+	nodeID, err := p.NodeID(locator)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if block.Contains(p.InstanceAddr(43, 0)) {
-		t.Fatal("deployment block covers another deployment")
+	if nodeID != 12345 {
+		t.Fatalf("locator node id = %d, want 12345", nodeID)
 	}
-	if block.Contains(p.RunAddr(42, 1)) {
-		t.Fatal("kind-0 block covers kind-2 addresses")
+	restored := mustAddr(p.WithNode(locator, LogicalNodeID))
+	if restored != logical {
+		t.Fatalf("restored logical address = %s, want %s", restored, logical)
+	}
+}
+
+func TestAddressPrefixes(t *testing.T) {
+	p := GeneratePrefix()
+	instance0 := mustAddr(p.InstanceAddr(17, 42, 0))
+	instance1 := mustAddr(p.InstanceAddr(17, 42, 1))
+	service := mustAddr(p.ServiceAddr(17, 42))
+	run := mustAddr(p.RunAddr(17, 42, 9))
+	otherDeployment := mustAddr(p.InstanceAddr(17, 43, 0))
+	otherSpace := mustAddr(p.InstanceAddr(18, 42, 0))
+	remote := mustAddr(p.WithNode(instance0, 7))
+
+	nodeBlock, err := p.NodeCIDR(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nodeBlock.Bits() != NodePrefixBits || !nodeBlock.Contains(remote) || nodeBlock.Contains(instance0) {
+		t.Fatalf("node block %s does not isolate node locator addresses", nodeBlock)
+	}
+
+	spaceBlock, err := p.SpaceCIDR(17)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spaceBlock.Bits() != SpacePrefixBits || !spaceBlock.Contains(instance0) || !spaceBlock.Contains(otherDeployment) || spaceBlock.Contains(otherSpace) || spaceBlock.Contains(remote) {
+		t.Fatalf("space block %s does not isolate one logical space", spaceBlock)
+	}
+
+	deploymentBlock, err := p.DeploymentCIDR(17, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deploymentBlock.Bits() != DeploymentPrefixBits ||
+		!deploymentBlock.Contains(instance0) || !deploymentBlock.Contains(instance1) ||
+		!deploymentBlock.Contains(service) || !deploymentBlock.Contains(run) ||
+		deploymentBlock.Contains(otherDeployment) {
+		t.Fatalf("deployment block %s does not cover every deployment address kind", deploymentBlock)
+	}
+}
+
+func TestAddressLimits(t *testing.T) {
+	p := GeneratePrefix()
+	if _, err := p.InstanceAddr(MaxSpaceID, MaxDeploymentID, MaxField); err != nil {
+		t.Fatalf("maximum logical address rejected: %v", err)
+	}
+	if _, err := p.InstanceAddr(MaxSpaceID+1, 1, 0); err == nil {
+		t.Fatal("oversized space id accepted")
+	}
+	if _, err := p.InstanceAddr(1, MaxDeploymentID+1, 0); err == nil {
+		t.Fatal("oversized deployment id accepted")
+	}
+	if _, err := p.InstanceAddr(1, 1, MaxField+1); err == nil {
+		t.Fatal("oversized instance ordinal accepted")
+	}
+	if _, err := p.NodeCIDR(MaxNodeID + 1); err == nil {
+		t.Fatal("oversized node id accepted")
+	}
+}
+
+func TestRunAddressFieldWraps(t *testing.T) {
+	p := GeneratePrefix()
+	first := mustAddr(p.RunAddr(1, 1, 1))
+	wrapped := mustAddr(p.RunAddr(1, 1, (1<<FieldBits)+1))
+	if first != wrapped {
+		t.Fatalf("wrapped run address = %s, want %s", wrapped, first)
+	}
+	if _, err := p.RunAddr(1, 1, 0); err == nil {
+		t.Fatal("zero run number accepted")
+	}
+}
+
+func TestWithNodeRejectsAddressOutsideCluster(t *testing.T) {
+	p := GeneratePrefix()
+	if _, err := p.WithNode(netip.MustParseAddr("fd00::1"), 1); err == nil {
+		t.Fatal("address outside cluster accepted")
 	}
 }

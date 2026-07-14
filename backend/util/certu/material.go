@@ -83,8 +83,7 @@ func SignWorkerCertificateRequest(store *secrets.Manager, csrPEM []byte, workerN
 	return SignWorkerCertificateRequestFromPEM(mat.CACert, mat.CAKey, csrPEM, workerName)
 }
 
-func WorkerTLSPaths(dataDir string) (caPath, certPath, keyPath string) {
-	tlsDir := filepath.Join(dataDir, "tls")
+func WorkerTLSPaths(tlsDir string) (caPath, certPath, keyPath string) {
 	return filepath.Join(tlsDir, "ca.crt"), filepath.Join(tlsDir, "node.crt"), filepath.Join(tlsDir, "node.key")
 }
 

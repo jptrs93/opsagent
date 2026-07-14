@@ -197,7 +197,7 @@ service OpsagentHttpV1 {
   }
 
   // Versioned user-managed file assets. Small assets are stored inline; large
-  // uploads are streamed to configured S3 storage and referenced by location.
+  // assets use primary-local storage or S3 according to Backup mode.
   rpc PostV1AssetsList(EmptyRequest) returns (AssetList) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -348,6 +348,10 @@ message BackupStatus {
   uint64 remote_txid = 5;
   int64 last_successful_sync_at = 6 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   string error = 7;
+  bool asset_migration_running = 8;
+  uint32 asset_pending = 9;
+  bool asset_target_s3 = 10;
+  string asset_error = 11;
 }
 
 message ClusterSecretsRequest {
@@ -447,7 +451,9 @@ message BackupSettings {
 }
 
 message LargeAssetsSettings {
-  BoolSetting s3_enabled = 1 [(cp.go_value) = true];
+  // Field 1 was previously s3_enabled. Keeping the field number maps existing
+  // enabled installations to the separate S3 configuration they already use.
+  BoolSetting use_separate_s3 = 1 [(cp.go_value) = true];
   StringSetting s3_access_key_id = 2 [(cp.go_value) = true];
   SecretRef s3_secret_access_key = 3 [(cp.go_value) = true];
   StringSetting s3_bucket = 4 [(cp.go_value) = true];

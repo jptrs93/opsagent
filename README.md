@@ -49,7 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/insta
 
 The installer:
 
-- creates the `opendeploy` system user, `/var/lib/opendeploy/` data dir, `/var/lib/opendeploy-releases/` release dir, and `/var/lib/opendeploy-volumes/` volume dir
+- creates the `opendeploy` system user and ownership-sensitive runtime roots, including `/var/lib/opendeploy/`, `/var/lib/opendeploy-assets/`, releases, volumes, and log directories; agent startup creates the fixed children below the data directory before primary or secondary services run
 - downloads and checksum-verifies the release binary into `/var/lib/opendeploy-releases/jptrs93/opsagent/<version>/opendeploy-linux-<arch>` and symlinks `/var/lib/opendeploy/bin/opendeploy` to it
 - provisions a bundled, pinned containerd + runc runtime and the `opendeploy-containerd.service` unit
 - generates primary cluster mTLS material on first startup and stores it encrypted in the primary secrets store

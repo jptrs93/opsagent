@@ -10,6 +10,7 @@ backend/web/dist
 **/result
 testing/.tmp/
 testing-vms/.tmp/
+testing-vms/.test-ca/
 testing-vms/.mock-artifacts/
 testing-vms/test-results/
 testing-vms/playwright-report/

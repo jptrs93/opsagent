@@ -90,6 +90,9 @@ func TestMustLoadRuntimeConfigLoadsCachedBootstrapState(t *testing.T) {
 	caPath, certPath, keyPath := writeRuntimeTLS(t, dataDir, "worker-1")
 	cfg := MustLoadRuntimeConfig(ainit.StaticConfiguration{
 		DataDir:            dataDir,
+		GitCacheDir:        filepath.Join(dataDir, "git-cache"),
+		ReleasesDir:        dataDir + "-releases",
+		NetproxyStatePath:  filepath.Join(dataDir, "netproxy", "netstate.pb"),
 		PrimaryClusterAddr: "primary:9443",
 		PrimaryName:        "primary",
 	}, caPath, certPath, keyPath)
@@ -152,7 +155,7 @@ func writeRuntimeTLS(t *testing.T, dataDir, machine string) (string, string, str
 	if err != nil {
 		t.Fatalf("GenerateNodeCertificate: %v", err)
 	}
-	caPath, certPath, keyPath := certu.WorkerTLSPaths(dataDir)
+	caPath, certPath, keyPath := certu.WorkerTLSPaths(filepath.Join(dataDir, "tls"))
 	if err := os.MkdirAll(filepath.Dir(caPath), 0o750); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}

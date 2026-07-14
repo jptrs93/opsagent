@@ -124,13 +124,17 @@ type GithubCredentials struct {
 }
 
 type BackupStatus struct {
-	Configured           bool
-	Running              bool
-	InSync               bool
-	LocalTxid            uint64
-	RemoteTxid           uint64
-	LastSuccessfulSyncAt time.Time
-	Error                string
+	Configured            bool
+	Running               bool
+	InSync                bool
+	LocalTxid             uint64
+	RemoteTxid            uint64
+	LastSuccessfulSyncAt  time.Time
+	Error                 string
+	AssetMigrationRunning bool
+	AssetPending          uint32
+	AssetTargetS3         bool
+	AssetError            string
 }
 
 type ClusterSecretsRequest struct {
@@ -226,7 +230,7 @@ type BackupSettings struct {
 }
 
 type LargeAssetsSettings struct {
-	S3Enabled         BoolSetting
+	UseSeparateS3     BoolSetting
 	S3AccessKeyID     StringSetting
 	S3SecretAccessKey SecretRef
 	S3Bucket          StringSetting

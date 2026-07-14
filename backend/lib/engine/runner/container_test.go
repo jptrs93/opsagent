@@ -145,7 +145,8 @@ func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, &apigen.DeploymentConfig{
-		ID: 7,
+		ID:       7,
+		ConfigID: apigen.DeploymentIdentifier{SpaceID: 5},
 		Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
 			DisableDataVolume:   true,
 			DevShmSizeKb:        65536,
@@ -158,14 +159,26 @@ func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	if r.fileDescLimit != 4096 {
 		t.Fatalf("fileDescLimit = %d, want 4096", r.fileDescLimit)
 	}
+	if r.spaceID != 5 {
+		t.Fatalf("spaceID = %d, want 5", r.spaceID)
+	}
 }
 
 func TestContainerNetAddresses(t *testing.T) {
 	p := network.Prefix{0xfd, 0xab, 0xcd, 0xef, 0x12, 0x34}
-	stable := p.InstanceAddr(7, 0)
-	run := p.RunAddr(7, 3)
+	stable, err := p.InstanceAddr(5, 7, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := p.RunAddr(5, 7, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	addr, deprecatedAddrs := containerNetAddresses(p, 7, 3, false)
+	addr, deprecatedAddrs, err := containerNetAddresses(p, 5, 7, 3, false)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if addr != stable {
 		t.Fatalf("non-candidate addr = %v, want %v", addr, stable)
 	}
@@ -173,7 +186,10 @@ func TestContainerNetAddresses(t *testing.T) {
 		t.Fatalf("non-candidate deprecatedAddrs = %v, want none", deprecatedAddrs)
 	}
 
-	addr, deprecatedAddrs = containerNetAddresses(p, 7, 3, true)
+	addr, deprecatedAddrs, err = containerNetAddresses(p, 5, 7, 3, true)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if addr != run {
 		t.Fatalf("candidate addr = %v, want %v", addr, run)
 	}

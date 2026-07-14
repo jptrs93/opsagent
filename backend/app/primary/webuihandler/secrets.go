@@ -132,6 +132,8 @@ func (h *Handler) PostV1SecretsReveal(ctx apigen.Context, req *apigen.SecretReve
 }
 
 func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDeleteRequest) error {
+	unlockReferences := h.ConfigService.LockReferences()
+	defer unlockReferences()
 	if strings.TrimSpace(req.Name) == "" {
 		return SecretNameRequiredErr
 	}

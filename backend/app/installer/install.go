@@ -226,10 +226,13 @@ func runUpgrade(version, arch string, st *staged, opts installOptions) error {
 	step("Phase 2/2 — upgrading opendeploy to %s (linux/%s)", version, arch)
 	own := resolveOpenDeployOwner()
 	rootOpenDeploy := owner{uid: 0, gid: own.gid}
-	if !isRoot() && !dryRun && (!pathExists(buildLogsDir) || !pathExists(runLogsDir)) {
-		return fmt.Errorf("upgrade requires root once to create %s and %s", buildLogsDir, runLogsDir)
+	if !isRoot() && !dryRun && (!pathExists(buildLogsDir) || !pathExists(runLogsDir) || !pathExists(assetCacheDir)) {
+		return fmt.Errorf("upgrade requires root once to create runtime state directories")
 	}
 	if err := ensureLogDirs(own); err != nil {
+		return err
+	}
+	if err := ensureDir(assetCacheDir, 0o755, own); err != nil {
 		return err
 	}
 
@@ -292,6 +295,9 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 	if err := ensureDir(dataDir, 0o750, own); err != nil {
 		return err
 	}
+	if err := ensureDir(assetCacheDir, 0o755, own); err != nil {
+		return err
+	}
 	if opts.restore == nil {
 		if err := writeInitialWebTLSCertPEMFile(opts, own); err != nil {
 			return err
@@ -348,11 +354,6 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 		info("created %s (edit before starting)", envFile)
 	} else {
 		info("kept existing %s", envFile)
-	}
-
-	// TLS dir
-	if err := ensureDir(tlsDir, 0o750, own); err != nil {
-		return err
 	}
 
 	// sudoers — validate with visudo before moving into place

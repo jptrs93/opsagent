@@ -21,7 +21,7 @@ func Run(ctx context.Context) {
 	if cfg.PrimaryClusterAddr == "" || cfg.PrimaryEnrollmentAddr == "" {
 		panic("OPENDEPLOY_PRIMARY_CLUSTER_ADDR and OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR must be set when running secondary")
 	}
-	caPath, certPath, keyPath := certu.WorkerTLSPaths(cfg.DataDir)
+	caPath, certPath, keyPath := certu.WorkerTLSPaths(cfg.TLSDir)
 	if !certu.WorkerTLSMaterialExists(caPath, certPath, keyPath) {
 		if cfg.PrimaryEnrollmentFingerprint == "" {
 			panic("OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT must be set before worker enrollment")
@@ -79,6 +79,9 @@ func MustLoadRuntimeConfig(cfg ainit.StaticConfiguration, caPath, certPath, keyP
 		PrimaryName:        cfg.PrimaryName,
 		MachineName:        machineName,
 		DataDir:            cfg.DataDir,
+		GitCacheDir:        cfg.GitCacheDir,
+		ReleasesDir:        cfg.ReleasesDir,
+		NetproxyStatePath:  cfg.NetproxyStatePath,
 		ClusterPrefix:      prefix,
 		NetDeploymentID:    netDeploymentID,
 	}

@@ -78,15 +78,16 @@ Preserved:
   - %s
   - %s
   - %s
+  - %s
   - opendeploy system user
 Re-run with --purge to delete these.
-`, dataDir, buildLogsDir, runLogsDir, envFile, tlsDir)
+`, dataDir, assetCacheDir, buildLogsDir, runLogsDir, envFile, tlsDir)
 		return nil
 	}
 
 	// purge: wipe state dirs + user
 	step("Purging all state")
-	for _, dir := range []string{dataDir, releasesDir, volumesDir, buildLogsDir, runLogsDir, containerdRoot, configDir} {
+	for _, dir := range []string{dataDir, assetCacheDir, releasesDir, volumesDir, buildLogsDir, runLogsDir, containerdRoot, configDir} {
 		if pathExists(dir) {
 			if err := removeAll(dir); err != nil {
 				return err
@@ -106,6 +107,7 @@ Re-run with --purge to delete these.
 func confirmPurge() bool {
 	fmt.Printf(`WARNING: --purge will permanently delete:
   - %s (all deployment state and logs)
+  - %s (materialized deployment asset cache)
   - %s (downloaded deployment release artifacts)
   - %s (container data volumes)
   - %s (prepare/build logs)
@@ -114,7 +116,7 @@ func confirmPurge() bool {
   - %s (env file, TLS certs and keys)
   - the opendeploy system user
 
-Type 'yes' to continue: `, dataDir, releasesDir, volumesDir, buildLogsDir, runLogsDir, containerdRoot, configDir)
+Type 'yes' to continue: `, dataDir, assetCacheDir, releasesDir, volumesDir, buildLogsDir, runLogsDir, containerdRoot, configDir)
 
 	reply, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 	return strings.TrimSpace(reply) == "yes"

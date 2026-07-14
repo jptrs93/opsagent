@@ -44,7 +44,7 @@ func TestBackupConfigFilterOnlyAllowsBackupChanges(t *testing.T) {
 	initial.Backup.S3Path = apigen.StringSetting{Value: "path"}
 	initial.Backup.S3Region = apigen.StringSetting{Value: "region"}
 	initial.Backup.S3Endpoint = apigen.StringSetting{Value: "endpoint"}
-	initial.LargeAssets.S3Enabled = apigen.BoolSetting{Value: false}
+	initial.LargeAssets.UseSeparateS3 = apigen.BoolSetting{Value: false}
 	initial.LargeAssets.S3AccessKeyID = apigen.StringSetting{Value: "unrelated"}
 	initial.LargeAssets.S3SecretAccessKey = apigen.SecretRef{ID: 11}
 	filter.SetInitial(configWithSettings(initial))
@@ -52,7 +52,7 @@ func TestBackupConfigFilterOnlyAllowsBackupChanges(t *testing.T) {
 	unrelatedValue := *initial
 	unrelated := &unrelatedValue
 	unrelated.HttpWeb.Listen.Value = ":9090"
-	unrelated.LargeAssets.S3Enabled.Value = true
+	unrelated.LargeAssets.UseSeparateS3.Value = true
 	unrelated.LargeAssets.S3AccessKeyID.Value = "changed"
 	if filter.Filter(configWithSettings(initial), configWithSettings(unrelated)) {
 		t.Fatal("unrelated config change passed backup filter")

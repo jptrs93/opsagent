@@ -117,7 +117,7 @@ export function secretsPage() {
         ["Backup S3 path", settings?.backup?.s3Path?.configRef?.id],
         ["Backup S3 region", settings?.backup?.s3Region?.configRef?.id],
         ["Backup S3 endpoint", settings?.backup?.s3Endpoint?.configRef?.id],
-        ["Large asset S3 enabled", settings?.largeAssets?.s3Enabled?.configRef?.id],
+        ["Use separate large assets S3", settings?.largeAssets?.useSeparateS3?.configRef?.id],
         ["Large asset S3 access key ID", settings?.largeAssets?.s3AccessKeyId?.configRef?.id],
         ["Large asset S3 bucket", settings?.largeAssets?.s3Bucket?.configRef?.id],
         ["Large asset S3 path", settings?.largeAssets?.s3Path?.configRef?.id],

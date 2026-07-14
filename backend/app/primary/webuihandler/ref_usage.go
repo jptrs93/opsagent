@@ -40,15 +40,16 @@ func (h *Handler) settingsUseSecretID(ids map[int32]struct{}) bool {
 	if h.ConfigService == nil {
 		return false
 	}
-	settings := h.ConfigService.Snapshot().Settings
-	for _, id := range []int32{
-		settings.HttpsWeb.TlsCertPem.ID,
-		settings.Repo.GithubToken.ID,
-		settings.Backup.S3SecretAccessKey.ID,
-		settings.LargeAssets.S3SecretAccessKey.ID,
-	} {
-		if _, ok := ids[id]; ok {
-			return true
+	for _, settings := range h.settingsForReferenceChecks() {
+		for _, id := range []int32{
+			settings.HttpsWeb.TlsCertPem.ID,
+			settings.Repo.GithubToken.ID,
+			settings.Backup.S3SecretAccessKey.ID,
+			settings.LargeAssets.S3SecretAccessKey.ID,
+		} {
+			if _, ok := ids[id]; ok {
+				return true
+			}
 		}
 	}
 	return false
@@ -58,36 +59,56 @@ func (h *Handler) settingsUseConfigID(ids map[int32]struct{}) bool {
 	if h.ConfigService == nil {
 		return false
 	}
-	settings := h.ConfigService.Snapshot().Settings
-	refs := []apigen.ConfigRef{
-		settings.HttpWeb.Enabled.ConfigRef,
-		settings.HttpWeb.Listen.ConfigRef,
-		settings.HttpsWeb.Enabled.ConfigRef,
-		settings.HttpsWeb.Listen.ConfigRef,
-		settings.HttpsWeb.TlsSelfManaged.ConfigRef,
-		settings.HttpsWeb.AcmeHosts.ConfigRef,
-		settings.HttpsWeb.AcmeEmail.ConfigRef,
-		settings.Cluster.Listen.ConfigRef,
-		settings.Cluster.EnrollmentListen.ConfigRef,
-		settings.Backup.Enabled.ConfigRef,
-		settings.Backup.S3AccessKeyID.ConfigRef,
-		settings.Backup.S3Bucket.ConfigRef,
-		settings.Backup.S3Path.ConfigRef,
-		settings.Backup.S3Region.ConfigRef,
-		settings.Backup.S3Endpoint.ConfigRef,
-		settings.LargeAssets.S3Enabled.ConfigRef,
-		settings.LargeAssets.S3AccessKeyID.ConfigRef,
-		settings.LargeAssets.S3Bucket.ConfigRef,
-		settings.LargeAssets.S3Path.ConfigRef,
-		settings.LargeAssets.S3Region.ConfigRef,
-		settings.LargeAssets.S3Endpoint.ConfigRef,
-	}
-	for _, ref := range refs {
-		if _, ok := ids[ref.ID]; ok {
-			return true
+	for _, settings := range h.settingsForReferenceChecks() {
+		refs := []apigen.ConfigRef{
+			settings.HttpWeb.Enabled.ConfigRef,
+			settings.HttpWeb.Listen.ConfigRef,
+			settings.HttpsWeb.Enabled.ConfigRef,
+			settings.HttpsWeb.Listen.ConfigRef,
+			settings.HttpsWeb.TlsSelfManaged.ConfigRef,
+			settings.HttpsWeb.AcmeHosts.ConfigRef,
+			settings.HttpsWeb.AcmeEmail.ConfigRef,
+			settings.Cluster.Listen.ConfigRef,
+			settings.Cluster.EnrollmentListen.ConfigRef,
+			settings.Backup.Enabled.ConfigRef,
+			settings.Backup.S3AccessKeyID.ConfigRef,
+			settings.Backup.S3Bucket.ConfigRef,
+			settings.Backup.S3Path.ConfigRef,
+			settings.Backup.S3Region.ConfigRef,
+			settings.Backup.S3Endpoint.ConfigRef,
+			settings.LargeAssets.UseSeparateS3.ConfigRef,
+			settings.LargeAssets.S3AccessKeyID.ConfigRef,
+			settings.LargeAssets.S3Bucket.ConfigRef,
+			settings.LargeAssets.S3Path.ConfigRef,
+			settings.LargeAssets.S3Region.ConfigRef,
+			settings.LargeAssets.S3Endpoint.ConfigRef,
+		}
+		for _, ref := range refs {
+			if _, ok := ids[ref.ID]; ok {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func (h *Handler) settingsForReferenceChecks() []apigen.Settings {
+	settings := []apigen.Settings{h.ConfigService.Snapshot().Settings}
+	migration, ok := h.Store.GetUnfinishedAssetMigration()
+	if !ok {
+		return settings
+	}
+	for _, versionID := range []int64{migration.OldConfigVersionID, migration.NewConfigVersionID} {
+		row, err := h.Store.FetchOpenDeployConfigByID(versionID)
+		if err != nil {
+			continue
+		}
+		cfg, err := apigen.DecodeConfig(row.ConfigBlob)
+		if err == nil {
+			settings = append(settings, cfg.Settings)
+		}
+	}
+	return settings
 }
 
 func int32Set(ids []int32) map[int32]struct{} {

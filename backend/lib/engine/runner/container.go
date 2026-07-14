@@ -51,6 +51,7 @@ type containerRunner struct {
 	store          storage.OperatorStore
 	runtimeInputs  *runtimeinputs.RuntimeInputs
 	deploymentID   int32
+	spaceID        int32
 	deploymentName string
 	machine        string
 	containerID    string
@@ -159,6 +160,7 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		store:          store,
 		runtimeInputs:  inputs,
 		deploymentID:   dep.ID,
+		spaceID:        dep.ConfigID.SpaceID,
 		deploymentName: containerDeploymentName(dep),
 		machine:        dep.ConfigID.Machine,
 		containerID:    containerID(dep.ID, configVersion),
@@ -621,7 +623,7 @@ type readinessListener struct {
 }
 
 func (r *containerRunner) startReadinessListener(runNumber int32) (*readinessListener, error) {
-	dir := filepath.Join(ainit.StaticConfig.DataDir, "readiness", strconv.Itoa(int(r.deploymentID)), strconv.Itoa(int(r.status.DeploymentConfigVersion)), strconv.Itoa(int(runNumber)))
+	dir := filepath.Join(ainit.StaticConfig.ReadinessDir, strconv.Itoa(int(r.deploymentID)), strconv.Itoa(int(r.status.DeploymentConfigVersion)), strconv.Itoa(int(runNumber)))
 	if err := os.RemoveAll(dir); err != nil {
 		return nil, err
 	}
@@ -781,7 +783,7 @@ func (r *containerRunner) stableAddr() (netip.Addr, error) {
 	if !ok {
 		return netip.Addr{}, fmt.Errorf("virtual network prefix is not known")
 	}
-	return prefix.InstanceAddr(r.deploymentID, 0), nil
+	return prefix.InstanceAddr(r.spaceID, r.deploymentID, 0)
 }
 
 func (r *containerRunner) setupContainerNet(runNumber int32, candidate bool) (*network.ContainerNet, string, error) {
@@ -792,7 +794,10 @@ func (r *containerRunner) setupContainerNet(runNumber int32, candidate bool) (*n
 	if !ok {
 		return nil, "", fmt.Errorf("virtual network prefix is not known")
 	}
-	addr, deprecatedAddrs := containerNetAddresses(prefix, r.deploymentID, runNumber, candidate)
+	addr, deprecatedAddrs, err := containerNetAddresses(prefix, r.spaceID, r.deploymentID, runNumber, candidate)
+	if err != nil {
+		return nil, "", err
+	}
 	cn, err := network.Default.SetupContainerNet(network.ContainerNetSpec{
 		ContainerID:              r.containerID,
 		DeploymentID:             r.deploymentID,
@@ -813,15 +818,19 @@ func (r *containerRunner) setupContainerNet(runNumber int32, candidate bool) (*n
 	return cn, resolvConfPath, nil
 }
 
-func containerNetAddresses(prefix network.Prefix, deploymentID int32, runNumber int32, candidate bool) (netip.Addr, []netip.Addr) {
-	stable := prefix.InstanceAddr(deploymentID, 0)
+func containerNetAddresses(prefix network.Prefix, spaceID, deploymentID, runNumber int32, candidate bool) (netip.Addr, []netip.Addr, error) {
+	stable, err := prefix.InstanceAddr(spaceID, deploymentID, 0)
+	if err != nil {
+		return netip.Addr{}, nil, err
+	}
 	if candidate {
 		// Candidate warmup traffic should source from the run-scoped address.
 		// The stable address is preassigned as deprecated so promotion is just a
 		// host-route flip, not a netns mutation in the critical path.
-		return prefix.RunAddr(deploymentID, runNumber), []netip.Addr{stable}
+		run, err := prefix.RunAddr(spaceID, deploymentID, runNumber)
+		return run, []netip.Addr{stable}, err
 	}
-	return stable, nil
+	return stable, nil, nil
 }
 
 func (r *containerRunner) writeResolvConf(runNumber int32) (string, error) {
@@ -832,7 +841,7 @@ func (r *containerRunner) writeResolvConf(runNumber int32) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("netproxy DNS address is not known")
 	}
-	dir := filepath.Join(ainit.StaticConfig.DataDir, "resolvconf", strconv.Itoa(int(r.deploymentID)), strconv.Itoa(int(r.configVersion)))
+	dir := filepath.Join(ainit.StaticConfig.ResolvConfDir, strconv.Itoa(int(r.deploymentID)), strconv.Itoa(int(r.configVersion)))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}

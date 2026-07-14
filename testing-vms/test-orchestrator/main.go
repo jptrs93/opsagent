@@ -168,7 +168,8 @@ func loadConfig() (*config, error) {
 	c.ResultsDir = env("OPD_VM_RESULTS_DIR", filepath.Join(scriptDir, "test-results"))
 	c.ReportDir = env("OPD_VM_REPORT_DIR", filepath.Join(scriptDir, "playwright-report"))
 	c.E2EEnvFile = env("OPD_VM_E2E_ENV_FILE", filepath.Join(c.StateDir, "e2e.env"))
-	c.CertDir = env("OPD_VM_CERT_DIR", filepath.Join(c.StateDir, "certs"))
+	// Keep the trusted test CA separate from disposable per-run state.
+	c.CertDir = env("OPD_VM_CERT_DIR", filepath.Join(scriptDir, ".test-ca"))
 	c.CACert = filepath.Join(c.CertDir, "ca.crt")
 	c.CAKey = filepath.Join(c.CertDir, "ca.key")
 	c.ServerCert = filepath.Join(c.CertDir, "server.crt")
@@ -1282,18 +1283,31 @@ func (c *config) repoMirrorStatus() error {
 }
 
 func (c *config) ensureTestCerts() error {
-	if fileNonEmpty(c.CACert) && fileNonEmpty(c.CAKey) && fileNonEmpty(c.ServerCert) && fileNonEmpty(c.ServerKey) && fileNonEmpty(c.ServerBundle) && certContainsDNS(c.ServerCert, "cache.nixos.org") {
-		return nil
-	}
-	logf("Generating VM test CA and server certificate")
 	if err := os.MkdirAll(c.CertDir, 0o755); err != nil {
 		return err
 	}
-	for _, path := range []string{c.CACert, c.CAKey, c.ServerCert, c.ServerKey, c.ServerBundle, filepath.Join(c.CertDir, "server.csr"), filepath.Join(c.CertDir, "server.cnf")} {
-		_ = os.Remove(path)
+	caReady := fileNonEmpty(c.CACert) && fileNonEmpty(c.CAKey) && certValidFor(c.CACert, 365*24*time.Hour)
+	if !caReady {
+		logf("Generating persistent VM test CA")
+		for _, path := range []string{c.CACert, c.CAKey, filepath.Join(c.CertDir, "ca.srl")} {
+			_ = os.Remove(path)
+		}
+		if err := quietRun("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "3650", "-subj", "/CN=OpenDeploy E2E Test CA", "-keyout", c.CAKey, "-out", c.CACert); err != nil {
+			return err
+		}
 	}
-	if err := quietRun("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "30", "-subj", "/CN=OpenDeploy E2E Test CA", "-keyout", c.CAKey, "-out", c.CACert); err != nil {
-		return err
+
+	serverReady := fileNonEmpty(c.ServerCert) && fileNonEmpty(c.ServerKey) && fileNonEmpty(c.ServerBundle) && certValidFor(c.ServerCert, 24*time.Hour) && certSignedBy(c.ServerCert, c.CACert)
+	for _, host := range []string{c.WebHost, "github.com", "api.github.com", "cache.nixos.org", c.RepoMirrorName, c.RepoRegistryHost, "localhost"} {
+		serverReady = serverReady && certContainsDNS(c.ServerCert, host)
+	}
+	if serverReady {
+		return nil
+	}
+
+	logf("Issuing VM server certificate from persistent test CA")
+	for _, path := range []string{c.ServerCert, c.ServerKey, c.ServerBundle, filepath.Join(c.CertDir, "server.csr"), filepath.Join(c.CertDir, "server.cnf")} {
+		_ = os.Remove(path)
 	}
 	cnf := fmt.Sprintf(`[req]
 distinguished_name = req_distinguished_name
@@ -1343,6 +1357,15 @@ func certContainsDNS(path, host string) bool {
 	cmd := exec.Command("openssl", "x509", "-in", path, "-noout", "-text")
 	out, err := cmd.Output()
 	return err == nil && strings.Contains(string(out), "DNS:"+host)
+}
+
+func certValidFor(path string, validity time.Duration) bool {
+	seconds := fmt.Sprintf("%d", int64(validity/time.Second))
+	return quietRun("openssl", "x509", "-in", path, "-noout", "-checkend", seconds) == nil
+}
+
+func certSignedBy(path, caPath string) bool {
+	return quietRun("openssl", "verify", "-CAfile", caPath, path) == nil
 }
 
 func (c *config) installTestCA(name string) error {

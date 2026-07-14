@@ -9,7 +9,7 @@ import (
 
 // Run starts the netproxy DNS service using process configuration.
 func Run(ctx context.Context) error {
-	statePath := NetStatePath(ainit.StaticConfig.DataDir)
+	statePath := ainit.StaticConfig.NetproxyStatePath
 	listen := os.Getenv("OPENDEPLOY_NETPROXY_DNS_LISTEN")
 	if listen == "" {
 		listen = ":53"

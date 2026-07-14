@@ -51,14 +51,17 @@ func newRuntime() (*runtime, error) {
 	}
 	network.Default.SetPrefix(configService.NetworkPrefix())
 	assetStore := &assetstore.Store{
-		DB:      store,
-		Secrets: secretsMgr,
-		Loader:  configService,
+		DB:            store,
+		Secrets:       secretsMgr,
+		Loader:        configService,
+		MigrationWake: configService.AssetMigrationWake(),
 		Config: func() *apigen.Settings {
 			snapshot := configService.Snapshot()
 			return &snapshot.Settings
 		},
 	}
+	configService.AssetOperationMu = assetStore.AssetOperationLocker()
+	configService.ValidateSettingsUpdate = assetStore.ValidateSettingsUpdate
 	githubCredentials := githubcredentials.SecretProvider{
 		Secrets: secretsMgr,
 		SecretRef: func(context.Context) apigen.SecretRef {
@@ -69,7 +72,7 @@ func newRuntime() (*runtime, error) {
 	secretProvider := secretdist.NewPrimaryProvider(secretsMgr)
 	configProvider := configdist.NewPrimaryProvider(store)
 	runtimeInputs := runtimeinputs.New(assetStore, secretProvider, configProvider)
-	gitManager := repogit.NewManager(ainit.StaticConfig.DataDir, githubCredentials)
+	gitManager := repogit.NewManager(ainit.StaticConfig.GitCacheDir, githubCredentials)
 	githubClient := githubrepo.NewClient(githubCredentials)
 
 	return &runtime{
@@ -109,6 +112,6 @@ func (r *runtime) start(ctx context.Context, machineName string) {
 	netproxyCfg := r.store.EnsureNetproxyDeployment(machineName, version.Version)
 	network.Default.SetNetproxyDeploymentID(netproxyCfg.ID)
 
-	go netproxy.RunNetStateWriter(ctx, r.store, machineName, netproxy.NetStatePath(ainit.StaticConfig.DataDir))
+	go netproxy.RunNetStateWriter(ctx, r.store, machineName, ainit.StaticConfig.NetproxyStatePath)
 	go r.operator.RunAll(machineName)
 }

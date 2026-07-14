@@ -121,6 +121,25 @@ CREATE TABLE IF NOT EXISTS assets (
 CREATE INDEX IF NOT EXISTS idx_assets_key_created_at
     ON assets(key, created_at);
 
+-- One durable job records each complete large-asset storage transition. Asset
+-- locations remain authoritative for per-asset progress.
+CREATE TABLE IF NOT EXISTS asset_migrations (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    old_config_version_id INTEGER NOT NULL,
+    new_config_version_id INTEGER NOT NULL,
+    status                TEXT    NOT NULL DEFAULT 'pending'
+                                  CHECK (status IN ('pending', 'running', 'finished')),
+    last_error            TEXT    NOT NULL DEFAULT '',
+    created_at            INTEGER NOT NULL,
+    started_at            INTEGER NOT NULL DEFAULT 0,
+    last_attempt_at       INTEGER NOT NULL DEFAULT 0,
+    finished_at           INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_migrations_unfinished
+    ON asset_migrations ((1))
+    WHERE status != 'finished';
+
 -- Secrets: envelope-encrypted key/value store. PRIMARY-ONLY — these two tables
 -- are never replicated to secondaries (the cluster feeder only sends deployment
 -- configs/status; see primary/session.go). They are created on every node by

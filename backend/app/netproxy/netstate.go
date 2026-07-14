@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -17,10 +16,6 @@ import (
 type deploymentStore interface {
 	FetchDeploymentSnapshot(machine string) []apigen.DeploymentWithStatus
 	SubscribeDeploymentUpdates(machine string) (chan apigen.DeploymentWithStatus, func())
-}
-
-func NetStatePath(dataDir string) string {
-	return filepath.Join(dataDir, "netproxy", "netstate.pb")
 }
 
 // RunNetStateWriter writes full protobuf netstate snapshots for the local
@@ -76,9 +71,6 @@ func RenderNetState(seq int64, machine string, items []apigen.DeploymentWithStat
 }
 
 func WriteNetState(path string, state *apigen.NetState) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
-	}
 	tmp := fmt.Sprintf("%s.tmp.%d", path, time.Now().UnixNano())
 	if err := os.WriteFile(tmp, state.Encode(), 0o640); err != nil {
 		return err

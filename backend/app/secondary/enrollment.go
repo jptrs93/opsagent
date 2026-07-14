@@ -164,9 +164,6 @@ func writeEnrollmentTLSBundle(cfg EnrollmentConfig, accepted *apigen.EnrollmentA
 		if strings.TrimSpace(path) == "" {
 			return fmt.Errorf("cluster TLS output path is empty")
 		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			return fmt.Errorf("creating TLS dir %q: %w", filepath.Dir(path), err)
-		}
 	}
 	if err := os.WriteFile(cfg.ClusterCAPath, accepted.CaCertificate, 0o644); err != nil {
 		return fmt.Errorf("writing cluster CA: %w", err)
@@ -211,9 +208,6 @@ func ensureRequestingMachineID(dataDir string) (string, error) {
 		}
 	} else if !os.IsNotExist(err) {
 		return "", fmt.Errorf("reading enrollment machine id: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return "", fmt.Errorf("creating data dir for enrollment machine id: %w", err)
 	}
 	id := uuid.NewString()
 	if err := os.WriteFile(path, []byte(id+"\n"), 0o600); err != nil {

@@ -61,6 +61,10 @@
  * @property {number} remoteTxid
  * @property {Date} lastSuccessfulSyncAt
  * @property {string} error
+ * @property {boolean} assetMigrationRunning
+ * @property {number} assetPending
+ * @property {boolean} assetTargetS3
+ * @property {string} assetError
  */
 /**
  * @typedef {Object} ClusterSecretsRequest
@@ -156,7 +160,7 @@
  */
 /**
  * @typedef {Object} LargeAssetsSettings
- * @property {BoolSetting} s3Enabled
+ * @property {BoolSetting} useSeparateS3
  * @property {StringSetting} s3AccessKeyId
  * @property {SecretRef} s3SecretAccessKey
  * @property {StringSetting} s3Bucket
@@ -1524,6 +1528,18 @@ export function writeBackupStatus(message, writer) {
     if (message.error !== undefined && message.error !== null && message.error !== "") {
         writer.uint32(tag(7, WIRE.LDELIM)).string(message.error);
     }
+    if (message.assetMigrationRunning === true) {
+        writer.uint32(tag(8, WIRE.VARINT)).bool(message.assetMigrationRunning);
+    }
+    if (message.assetPending !== undefined && message.assetPending !== null && message.assetPending !== 0) {
+        writer.uint32(tag(9, WIRE.VARINT)).uint32(message.assetPending);
+    }
+    if (message.assetTargetS3 === true) {
+        writer.uint32(tag(10, WIRE.VARINT)).bool(message.assetTargetS3);
+    }
+    if (message.assetError !== undefined && message.assetError !== null && message.assetError !== "") {
+        writer.uint32(tag(11, WIRE.LDELIM)).string(message.assetError);
+    }
 }
 
 
@@ -1545,7 +1561,7 @@ export function encodeBackupStatus(message) {
  */
 function decodeBackupStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {configured: false, running: false, inSync: false, localTxid: 0, remoteTxid: 0, lastSuccessfulSyncAt: new Date(0), error: "" };
+    const message = {configured: false, running: false, inSync: false, localTxid: 0, remoteTxid: 0, lastSuccessfulSyncAt: new Date(0), error: "", assetMigrationRunning: false, assetPending: 0, assetTargetS3: false, assetError: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1575,6 +1591,22 @@ function decodeBackupStatusMessage(reader, length) {
             }
             case 7: {
                 message.error = reader.string();
+                break;
+            }
+            case 8: {
+                message.assetMigrationRunning = reader.bool();
+                break;
+            }
+            case 9: {
+                message.assetPending = reader.uint32();
+                break;
+            }
+            case 10: {
+                message.assetTargetS3 = reader.bool();
+                break;
+            }
+            case 11: {
+                message.assetError = reader.string();
                 break;
             }
             default:
@@ -2801,9 +2833,9 @@ export function decodeBackupSettings(buffer) {
  * @param {Writer} writer
  */
 export function writeLargeAssetsSettings(message, writer) {
-    if (message.s3Enabled !== undefined && message.s3Enabled !== null) {
+    if (message.useSeparateS3 !== undefined && message.useSeparateS3 !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeBoolSetting(message.s3Enabled, writer);
+        writeBoolSetting(message.useSeparateS3, writer);
         writer.ldelim();
     }
     if (message.s3AccessKeyId !== undefined && message.s3AccessKeyId !== null) {
@@ -2857,12 +2889,12 @@ export function encodeLargeAssetsSettings(message) {
  */
 function decodeLargeAssetsSettingsMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {s3Enabled: undefined, s3AccessKeyId: undefined, s3SecretAccessKey: undefined, s3Bucket: undefined, s3Path: undefined, s3Region: undefined, s3Endpoint: undefined };
+    const message = {useSeparateS3: undefined, s3AccessKeyId: undefined, s3SecretAccessKey: undefined, s3Bucket: undefined, s3Path: undefined, s3Region: undefined, s3Endpoint: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.s3Enabled = decodeBoolSettingMessage(reader, reader.uint32());
+                message.useSeparateS3 = decodeBoolSettingMessage(reader, reader.uint32());
                 break;
             }
             case 2: {

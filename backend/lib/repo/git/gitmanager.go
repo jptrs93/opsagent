@@ -33,13 +33,13 @@ type CommitInfo struct {
 }
 
 type Manager struct {
-	dataDir     string
+	cacheDir    string
 	credentials githubcredentials.Provider
 	locks       sync.Map
 }
 
-func NewManager(dataDir string, provider githubcredentials.Provider) *Manager {
-	return &Manager{dataDir: dataDir, credentials: provider}
+func NewManager(cacheDir string, provider githubcredentials.Provider) *Manager {
+	return &Manager{cacheDir: cacheDir, credentials: provider}
 }
 
 func (g *Manager) ResolveCloneURL(ctx context.Context, repoURL string) (string, error) {
@@ -267,9 +267,6 @@ func (g *Manager) EnsureCheckout(ctx context.Context, repoURL string, ref string
 		}
 	} else {
 		fmt.Fprintf(logFile, "[%s] cloning %s into %s\n", time.Now().Format(time.RFC3339), repoURL, repoDir)
-		if err := os.MkdirAll(filepath.Dir(repoDir), 0o755); err != nil {
-			return "", fmt.Errorf("creating repo dir: %w", err)
-		}
 		if err := g.runGitLogged(ctx, "", logFile, "clone", "--filter=blob:none", "--no-checkout", cloneURL, repoDir); err != nil {
 			return "", err
 		}
@@ -300,9 +297,6 @@ func (g *Manager) ensureMetadataRepo(ctx context.Context, repoURL string) (strin
 	defer lock.Unlock()
 
 	if _, err := os.Stat(filepath.Join(repoDir, "config")); err != nil {
-		if err := os.MkdirAll(filepath.Dir(repoDir), 0o755); err != nil {
-			return "", fmt.Errorf("creating git metadata cache dir: %w", err)
-		}
 		if _, err := g.runGit(ctx, "", "init", "--bare", repoDir); err != nil {
 			return "", err
 		}
@@ -369,11 +363,11 @@ func (g *Manager) runGit(ctx context.Context, dir string, args ...string) (strin
 }
 
 func (g *Manager) metadataDir(repoURL string) string {
-	return filepath.Join(g.dataDir, "git-cache", "metadata", repoKey(repoURL)+".git")
+	return filepath.Join(g.cacheDir, "metadata", repoKey(repoURL)+".git")
 }
 
 func (g *Manager) worktreeDir(repoURL string) string {
-	return filepath.Join(g.dataDir, "git-cache", "worktrees", repoKey(repoURL))
+	return filepath.Join(g.cacheDir, "worktrees", repoKey(repoURL))
 }
 
 func (g *Manager) repoLock(repoURL string) *sync.Mutex {

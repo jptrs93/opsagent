@@ -23,23 +23,10 @@ func init() {
 	}
 	StaticConfig = envu.MustParse[StaticConfiguration](os.LookupEnv)
 	if envu.IsTestBasedOnArgs() {
-		StaticConfig.DataDir = path.Join(erru.Must(os.UserConfigDir()), "opendeploy")
+		ensureStaticDirs(Args.Command, &StaticConfig, path.Join(erru.Must(os.UserConfigDir()), "opendeploy"))
 	} else {
-		StaticConfig.DataDir = productionDataDir
+		ensureStaticDirs(Args.Command, &StaticConfig, productionDataDir)
 	}
-	StaticConfig.VolumesDir = StaticConfig.DataDir + "-volumes"
-	StaticConfig.ReleasesDir = StaticConfig.DataDir + "-releases"
-	StaticConfig.PrepareOutputDir = StaticConfig.DataDir + "-build-logs"
-	StaticConfig.RunOutputDir = StaticConfig.DataDir + "-run-logs"
-	StaticConfig.LogDir = path.Join(StaticConfig.DataDir, "log")
-	StaticConfig.CtrdNamespace = "opendeploy"
-	StaticConfig.CtrdAddress = "/run/opendeploy/containerd.sock"
-	fileu.MustEnsureDirWithPerm(StaticConfig.DataDir, 0o750)
-	fileu.MustEnsureDirWithPerm(StaticConfig.LogDir, 0o750)
-	fileu.MustEnsureDirWithPerm(StaticConfig.PrepareOutputDir, 0o750)
-	fileu.MustEnsureDirWithPerm(StaticConfig.RunOutputDir, 0o750)
-	fileu.MustEnsureDirWithPerm(StaticConfig.VolumesDir, 0o755)
-	fileu.MustEnsureDirWithPerm(StaticConfig.ReleasesDir, 0o755)
 	var w io.WriteCloser
 	if Args.Command == CommandNetproxy {
 		w = os.Stdout
@@ -52,15 +39,64 @@ func init() {
 	slog.SetDefault(slog.New(log.NewSlogHandler(w, logLevel)))
 }
 
+func ensureStaticDirs(command Command, cfg *StaticConfiguration, dataDir string) {
+	cfg.DataDir = dataDir
+	cfg.AssetCacheDir = dataDir + "-assets"
+	cfg.VolumesDir = dataDir + "-volumes"
+	cfg.ReleasesDir = dataDir + "-releases"
+	cfg.PrepareOutputDir = dataDir + "-build-logs"
+	cfg.RunOutputDir = dataDir + "-run-logs"
+	cfg.LargeAssetsDir = path.Join(dataDir, "large-assets")
+	cfg.GitCacheDir = path.Join(dataDir, "git-cache")
+	cfg.GitMetadataDir = path.Join(cfg.GitCacheDir, "metadata")
+	cfg.GitWorktreesDir = path.Join(cfg.GitCacheDir, "worktrees")
+	cfg.NetproxyDir = path.Join(dataDir, "netproxy")
+	cfg.NetproxyStatePath = path.Join(cfg.NetproxyDir, "netstate.pb")
+	cfg.ReadinessDir = path.Join(dataDir, "readiness")
+	cfg.ResolvConfDir = path.Join(dataDir, "resolvconf")
+	cfg.TLSDir = path.Join(dataDir, "tls")
+	cfg.ACMECacheDir = path.Join(dataDir, ".certs")
+	cfg.CtrdNamespace = "opendeploy"
+	cfg.CtrdAddress = "/run/opendeploy/containerd.sock"
+	if command != CommandPrimary && command != CommandSecondary && command != commandTest {
+		return
+	}
+	fileu.MustEnsureDirWithPerm(cfg.DataDir, 0o750)
+	fileu.MustEnsureDirWithPerm(cfg.AssetCacheDir, 0o755)
+	fileu.MustEnsureDirWithPerm(cfg.PrepareOutputDir, 0o750)
+	fileu.MustEnsureDirWithPerm(cfg.RunOutputDir, 0o750)
+	fileu.MustEnsureDirWithPerm(cfg.VolumesDir, 0o755)
+	fileu.MustEnsureDirWithPerm(cfg.ReleasesDir, 0o755)
+	fileu.MustEnsureDirWithPerm(cfg.LargeAssetsDir, 0o750)
+	fileu.MustEnsureDirWithPerm(cfg.GitCacheDir, 0o750)
+	fileu.MustEnsureDirWithPerm(cfg.GitMetadataDir, 0o750)
+	fileu.MustEnsureDirWithPerm(cfg.GitWorktreesDir, 0o750)
+	fileu.MustEnsureDirWithPerm(cfg.NetproxyDir, 0o750)
+	fileu.MustEnsureDirWithPerm(cfg.ReadinessDir, 0o750)
+	fileu.MustEnsureDirWithPerm(cfg.ResolvConfDir, 0o755)
+	fileu.MustEnsureDirWithPerm(cfg.TLSDir, 0o750)
+	fileu.MustEnsureDirWithPerm(cfg.ACMECacheDir, 0o700)
+}
+
 type StaticConfiguration struct {
-	DataDir          string
-	RunOutputDir     string
-	PrepareOutputDir string
-	VolumesDir       string
-	ReleasesDir      string
-	LogDir           string
-	CtrdAddress      string
-	CtrdNamespace    string
+	DataDir           string
+	AssetCacheDir     string
+	RunOutputDir      string
+	PrepareOutputDir  string
+	VolumesDir        string
+	ReleasesDir       string
+	LargeAssetsDir    string
+	GitCacheDir       string
+	GitMetadataDir    string
+	GitWorktreesDir   string
+	NetproxyDir       string
+	NetproxyStatePath string
+	ReadinessDir      string
+	ResolvConfDir     string
+	TLSDir            string
+	ACMECacheDir      string
+	CtrdAddress       string
+	CtrdNamespace     string
 
 	PrimaryClusterAddr           string `env:"OPENDEPLOY_PRIMARY_CLUSTER_ADDR,"`           // secondaries only: primary's mTLS cluster address
 	PrimaryEnrollmentAddr        string `env:"OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR,"`        // secondaries only: primary's unauthenticated enrollment address

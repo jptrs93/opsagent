@@ -8,12 +8,14 @@ import (
 	"io"
 	"math"
 	"os"
-	"strconv"
+	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
@@ -22,16 +24,72 @@ import (
 const InlineThresholdBytes = 10 * 1024 * 1024
 
 var ErrLargeAssetS3Config = errors.New("large asset S3 settings are not configured")
+var ErrAssetS3ConfigChangeRequiresLocal = errors.New("large asset S3 configuration cannot change while S3 assets or pending uploads exist")
 
 type Store struct {
-	DB      *sqlite.PrimaryStorage
-	Config  func() *apigen.Settings
-	Loader  config.Loader
-	Secrets secretStore
+	DB                   *sqlite.PrimaryStorage
+	Config               func() *apigen.Settings
+	Loader               config.Loader
+	Secrets              secretStore
+	MigrationWake        <-chan struct{}
+	BeforeLocalMigration func(context.Context) error
+
+	mu sync.Mutex
 }
 
 type secretStore interface {
 	RevealByID(id int32) ([]byte, error)
+}
+
+func (s *Store) AssetOperationLocker() sync.Locker {
+	return &s.mu
+}
+
+func (s *Store) ValidateSettingsUpdate(current, next apigen.Settings) error {
+	if s.effectiveS3Identity(current) == s.effectiveS3Identity(next) {
+		return nil
+	}
+	for _, asset := range s.DB.ListAllAssetVersionsIncludingPending() {
+		if strings.HasPrefix(asset.Location, "s3://") || strings.HasPrefix(asset.Location, "pending://") {
+			return ErrAssetS3ConfigChangeRequiresLocal
+		}
+	}
+	return nil
+}
+
+type s3Identity struct {
+	separate    bool
+	accessKeyID string
+	secretID    int32
+	bucket      string
+	path        string
+	region      string
+	endpoint    string
+}
+
+func (s *Store) effectiveS3Identity(settings apigen.Settings) s3Identity {
+	separate := s.Loader.MustLoadConfigBoolValue(settings.LargeAssets.UseSeparateS3)
+	accessKeyID := settings.Backup.S3AccessKeyID
+	secret := settings.Backup.S3SecretAccessKey
+	bucket := settings.Backup.S3Bucket
+	region := settings.Backup.S3Region
+	endpoint := settings.Backup.S3Endpoint
+	if separate {
+		accessKeyID = settings.LargeAssets.S3AccessKeyID
+		secret = settings.LargeAssets.S3SecretAccessKey
+		bucket = settings.LargeAssets.S3Bucket
+		region = settings.LargeAssets.S3Region
+		endpoint = settings.LargeAssets.S3Endpoint
+	}
+	return s3Identity{
+		separate:    separate,
+		accessKeyID: s.Loader.MustLoadConfigStringValue(accessKeyID),
+		secretID:    secret.ID,
+		bucket:      s.Loader.MustLoadConfigStringValue(bucket),
+		path:        s.Loader.MustLoadConfigStringValue(settings.LargeAssets.S3Path),
+		region:      s.Loader.MustLoadConfigStringValue(region),
+		endpoint:    s.Loader.MustLoadConfigStringValue(endpoint),
+	}
 }
 
 func (s *Store) GetAssetForPreview(key string, version int32) (*apigen.Asset, bool, error) {
@@ -70,12 +128,11 @@ func (s *Store) SetAssetFromReader(ctx context.Context, key, format string, size
 }
 
 func (s *Store) setLargeAssetFromReader(ctx context.Context, key, format string, sizeBytes int64, r io.Reader, spaceID int32) (*apigen.Asset, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	cfg := s.Config()
-	client, bucket, err := s.s3Client(cfg, true)
-	if err != nil {
-		return nil, err
-	}
-	tmp, err := os.CreateTemp("", "opendeploy-large-asset-*")
+	tmp, err := os.CreateTemp(ainit.StaticConfig.LargeAssetsDir, ".upload-*")
 	if err != nil {
 		return nil, fmt.Errorf("stage large asset upload: %w", err)
 	}
@@ -86,22 +143,51 @@ func (s *Store) setLargeAssetFromReader(ctx context.Context, key, format string,
 	} else if written != sizeBytes {
 		return nil, fmt.Errorf("asset upload size changed while reading")
 	}
+	if err := tmp.Sync(); err != nil {
+		return nil, fmt.Errorf("sync staged large asset upload: %w", err)
+	}
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return nil, fmt.Errorf("stage large asset upload: %w", err)
 	}
 
-	asset := s.DB.SetAssetStored(key, format, "", sizeBytes, []byte{}, spaceID)
-	prefix := s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Path)
-	s3ObjectKey := objectKey(prefix, asset.ID)
-	location := "s3://" + bucket + "/" + s3ObjectKey
-	if _, err := client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:        aws.String(bucket),
-		Key:           aws.String(s3ObjectKey),
-		Body:          tmp,
-		ContentLength: aws.Int64(sizeBytes),
-	}); err != nil {
+	asset := s.DB.SetAssetStored(key, format, pendingLocation(filepath.Base(tmp.Name())), sizeBytes, []byte{}, spaceID)
+	var location string
+	if s.Loader.MustLoadConfigBoolValue(cfg.Backup.Enabled) {
+		client, bucket, err := s.s3Client(cfg)
+		if err != nil {
+			s.DB.DeleteAssetVersionByID(asset.ID)
+			return nil, err
+		}
+		prefix := s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Path)
+		s3ObjectKey := objectKey(prefix, asset.ID)
+		location = "s3://" + bucket + "/" + s3ObjectKey
+		if _, err := client.PutObject(ctx, &s3.PutObjectInput{
+			Bucket:        aws.String(bucket),
+			Key:           aws.String(s3ObjectKey),
+			Body:          tmp,
+			ContentLength: aws.Int64(sizeBytes),
+		}); err != nil {
+			s.DB.DeleteAssetVersionByID(asset.ID)
+			return nil, fmt.Errorf("write large asset to s3: %w", err)
+		}
+	} else {
+		location = localLocation(asset.ID)
+		if err := tmp.Close(); err != nil {
+			s.DB.DeleteAssetVersionByID(asset.ID)
+			return nil, fmt.Errorf("close large asset: %w", err)
+		}
+		if err := os.Rename(tmp.Name(), localPath(asset.ID)); err != nil {
+			s.DB.DeleteAssetVersionByID(asset.ID)
+			return nil, fmt.Errorf("store large asset locally: %w", err)
+		}
+		if err := syncDir(ainit.StaticConfig.LargeAssetsDir); err != nil {
+			s.DB.DeleteAssetVersionByID(asset.ID)
+			return nil, fmt.Errorf("sync large asset directory: %w", err)
+		}
+	}
+	if location == "" {
 		s.DB.DeleteAssetVersionByID(asset.ID)
-		return nil, fmt.Errorf("write large asset to s3: %w", err)
+		return nil, fmt.Errorf("large asset location was not selected")
 	}
 	asset = s.DB.UpdateAssetLocation(asset.ID, location)
 	asset.Blob = nil
@@ -110,58 +196,74 @@ func (s *Store) setLargeAssetFromReader(ctx context.Context, key, format string,
 }
 
 func (s *Store) OpenAsset(ctx context.Context, assetID int32) (*apigen.Asset, io.ReadCloser, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	asset, ok := s.DB.GetAssetByID(assetID)
 	if !ok {
 		return nil, nil, fmt.Errorf("asset %d not found", assetID)
 	}
-	if asset.Location != "" {
+	if strings.HasPrefix(asset.Location, "s3://") {
 		body, err := s.openS3Asset(ctx, asset.Location)
 		if err != nil {
 			return nil, nil, err
 		}
 		return asset, body, nil
 	}
+	if strings.HasPrefix(asset.Location, "local://") {
+		id, err := parseLocalLocation(asset.Location)
+		if err != nil {
+			return nil, nil, err
+		}
+		body, err := os.Open(localPath(id))
+		if err != nil {
+			return nil, nil, fmt.Errorf("read local large asset: %w", err)
+		}
+		return asset, body, nil
+	}
+	if asset.Location != "" {
+		return nil, nil, fmt.Errorf("unsupported asset location %q", asset.Location)
+	}
 	return asset, io.NopCloser(bytes.NewReader(asset.Blob)), nil
 }
 
 func (s *Store) DeleteAsset(ctx context.Context, key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	latest, ok := s.DB.GetAsset(key, 0)
-	for _, asset := range s.DB.ListAssetVersionsByKey(key) {
-		if asset.Location == "" {
-			continue
-		}
-		if err := s.deleteS3Asset(ctx, asset.Location); err != nil {
-			return err
-		}
-	}
+	versions := s.DB.ListAssetVersionsByKeyIncludingPending(key)
 	s.DB.DeleteAsset(key)
 	if ok {
 		s.DB.NotifyAssetDeleted(latest)
 	}
+	for _, asset := range versions {
+		if strings.HasPrefix(asset.Location, "local://") {
+			id, err := parseLocalLocation(asset.Location)
+			if err != nil {
+				return err
+			}
+			if err := os.Remove(localPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("delete local large asset: %w", err)
+			}
+		}
+		if strings.HasPrefix(asset.Location, "pending://") {
+			name, err := parsePendingLocation(asset.Location)
+			if err != nil {
+				return err
+			}
+			if err := os.Remove(filepath.Join(ainit.StaticConfig.LargeAssetsDir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("delete staged large asset: %w", err)
+			}
+		}
+	}
 	return nil
 }
-
-func (s *Store) deleteS3Asset(ctx context.Context, location string) error {
-	bucket, key, err := parseS3Location(location)
-	if err != nil {
-		return err
-	}
-	client, _, err := s.s3Client(s.Config(), true)
-	if err != nil {
-		return err
-	}
-	if _, err := client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)}); err != nil {
-		return fmt.Errorf("delete large asset from s3: %w", err)
-	}
-	return nil
-}
-
 func (s *Store) openS3Asset(ctx context.Context, location string) (io.ReadCloser, error) {
 	bucket, key, err := parseS3Location(location)
 	if err != nil {
 		return nil, err
 	}
-	client, _, err := s.s3Client(s.Config(), true)
+	client, _, err := s.s3Client(s.Config())
 	if err != nil {
 		return nil, err
 	}
@@ -172,21 +274,28 @@ func (s *Store) openS3Asset(ctx context.Context, location string) (io.ReadCloser
 	return res.Body, nil
 }
 
-func (s *Store) s3Client(cfg *apigen.Settings, requireEnabled bool) (*s3.Client, string, error) {
-	if requireEnabled {
-		enabled := s.Loader.MustLoadConfigBoolValue(cfg.LargeAssets.S3Enabled)
-		if !enabled {
-			return nil, "", fmt.Errorf("%w: large asset S3 settings must be enabled before storing or reading large assets", ErrLargeAssetS3Config)
-		}
+func (s *Store) s3Client(cfg *apigen.Settings) (*s3.Client, string, error) {
+	separate := s.Loader.MustLoadConfigBoolValue(cfg.LargeAssets.UseSeparateS3)
+	accessKeySetting := cfg.Backup.S3AccessKeyID
+	secretRef := cfg.Backup.S3SecretAccessKey
+	bucketSetting := cfg.Backup.S3Bucket
+	regionSetting := cfg.Backup.S3Region
+	endpointSetting := cfg.Backup.S3Endpoint
+	if separate {
+		accessKeySetting = cfg.LargeAssets.S3AccessKeyID
+		secretRef = cfg.LargeAssets.S3SecretAccessKey
+		bucketSetting = cfg.LargeAssets.S3Bucket
+		regionSetting = cfg.LargeAssets.S3Region
+		endpointSetting = cfg.LargeAssets.S3Endpoint
 	}
-	secretAccessKey, err := revealSecretRef(s.Secrets, cfg.LargeAssets.S3SecretAccessKey)
+	secretAccessKey, err := revealSecretRef(s.Secrets, secretRef)
 	if err != nil {
 		return nil, "", fmt.Errorf("reveal large asset S3 secret access key: %w", err)
 	}
-	accessKeyID := s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3AccessKeyID)
-	bucket := s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Bucket)
-	region := s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Region)
-	endpoint := s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Endpoint)
+	accessKeyID := s.Loader.MustLoadConfigStringValue(accessKeySetting)
+	bucket := s.Loader.MustLoadConfigStringValue(bucketSetting)
+	region := s.Loader.MustLoadConfigStringValue(regionSetting)
+	endpoint := s.Loader.MustLoadConfigStringValue(endpointSetting)
 	if accessKeyID == "" || secretAccessKey == "" || bucket == "" || region == "" {
 		return nil, "", fmt.Errorf("%w: access key ID, secret access key, bucket, and region are required", ErrLargeAssetS3Config)
 	}
@@ -201,27 +310,6 @@ func (s *Store) s3Client(cfg *apigen.Settings, requireEnabled bool) (*s3.Client,
 		}
 	})
 	return client, bucket, nil
-}
-
-func objectKey(prefix string, assetID int32) string {
-	base := strconv.Itoa(int(assetID))
-	prefix = strings.Trim(prefix, "/")
-	if prefix == "" {
-		return base
-	}
-	return prefix + "/" + base
-}
-
-func parseS3Location(location string) (string, string, error) {
-	const scheme = "s3://"
-	if !strings.HasPrefix(location, scheme) {
-		return "", "", fmt.Errorf("unsupported asset location %q", location)
-	}
-	parts := strings.SplitN(strings.TrimPrefix(location, scheme), "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", fmt.Errorf("invalid asset location %q", location)
-	}
-	return parts[0], parts[1], nil
 }
 
 func revealSecretRef(secrets secretStore, ref apigen.SecretRef) (string, error) {

@@ -20,6 +20,18 @@ type Asset struct {
 	Blob      []byte
 }
 
+type AssetMigration struct {
+	ID                 int64
+	OldConfigVersionID int64
+	NewConfigVersionID int64
+	Status             string
+	LastError          string
+	CreatedAt          int64
+	StartedAt          int64
+	LastAttemptAt      int64
+	FinishedAt         int64
+}
+
 type DeploymentConfig struct {
 	DeploymentID   int64
 	SpaceID        int64

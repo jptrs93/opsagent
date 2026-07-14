@@ -233,6 +233,7 @@ FROM assets a
 JOIN (
     SELECT key, MAX(version) AS version
     FROM assets
+    WHERE location NOT LIKE 'pending://%'
     GROUP BY key
 ) latest ON latest.key = a.key AND latest.version = a.version
 ORDER BY a.key;
@@ -240,25 +241,25 @@ ORDER BY a.key;
 -- name: GetLatestAsset :one
 SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
 FROM assets
-WHERE key = ?
+WHERE key = ? AND location NOT LIKE 'pending://%'
 ORDER BY version DESC
 LIMIT 1;
 
 -- name: GetAssetVersion :one
 SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
 FROM assets
-WHERE key = ? AND version = ?;
+WHERE key = ? AND version = ? AND location NOT LIKE 'pending://%';
 
 -- name: ListAssetVersionsByKey :many
 SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
 FROM assets
-WHERE key = ?
+WHERE key = ? AND location NOT LIKE 'pending://%'
 ORDER BY version ASC;
 
 -- name: GetAssetByIDVersion :one
 SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
 FROM assets
-WHERE id = ? AND version = ?;
+WHERE id = ? AND version = ? AND location NOT LIKE 'pending://%';
 
 -- name: GetNextAssetVersion :one
 SELECT COALESCE(MAX(version), 0) + 1
@@ -281,6 +282,45 @@ DELETE FROM assets WHERE id = ?;
 
 -- name: DeleteAsset :exec
 DELETE FROM assets WHERE key = ?;
+
+-- === asset_migrations ===
+
+-- name: GetUnfinishedAssetMigration :one
+SELECT id, old_config_version_id, new_config_version_id, status, last_error,
+       created_at, started_at, last_attempt_at, finished_at
+FROM asset_migrations
+WHERE status != 'finished'
+ORDER BY id
+LIMIT 1;
+
+-- name: InsertAssetMigration :one
+INSERT INTO asset_migrations (
+    old_config_version_id, new_config_version_id, status, created_at
+) VALUES (?, ?, 'pending', ?)
+RETURNING id, old_config_version_id, new_config_version_id, status, last_error,
+          created_at, started_at, last_attempt_at, finished_at;
+
+-- name: StartAssetMigration :one
+UPDATE asset_migrations
+SET status = 'running', started_at = CASE WHEN started_at = 0 THEN ? ELSE started_at END,
+    last_attempt_at = ?, last_error = ''
+WHERE id = ?
+RETURNING id, old_config_version_id, new_config_version_id, status, last_error,
+          created_at, started_at, last_attempt_at, finished_at;
+
+-- name: RecordAssetMigrationError :one
+UPDATE asset_migrations
+SET status = 'running', last_attempt_at = ?, last_error = ?
+WHERE id = ?
+RETURNING id, old_config_version_id, new_config_version_id, status, last_error,
+          created_at, started_at, last_attempt_at, finished_at;
+
+-- name: FinishAssetMigration :one
+UPDATE asset_migrations
+SET status = 'finished', last_error = '', finished_at = ?
+WHERE id = ?
+RETURNING id, old_config_version_id, new_config_version_id, status, last_error,
+          created_at, started_at, last_attempt_at, finished_at;
 
 -- === secret_keyslots ===
 
@@ -363,6 +403,9 @@ ON CONFLICT(name) DO UPDATE SET
 
 -- name: GetLatestConfig :one
 select * from opendeploy_config order by id desc limit 1;
+
+-- name: GetConfigByID :one
+SELECT id, updated_at, config_blob FROM opendeploy_config WHERE id = ?;
 
 -- === local_kv ===
 

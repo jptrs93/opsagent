@@ -12,7 +12,9 @@ import (
 	"github.com/jptrs93/goutil/ptru"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/config"
+	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
 func (h *Handler) GetV1Settings(ctx apigen.Context) (*apigen.Settings, error) {
@@ -20,6 +22,8 @@ func (h *Handler) GetV1Settings(ctx apigen.Context) (*apigen.Settings, error) {
 }
 
 func (h *Handler) PutV1Settings(ctx apigen.Context, req *apigen.Settings) (*apigen.Settings, error) {
+	unlockReferences := h.ConfigService.LockReferences()
+	defer unlockReferences()
 	stored, resolved, err := validateSettings(req, func(ref *apigen.ConfigRef) (string, bool, error) {
 		if ref == nil {
 			return "", false, nil
@@ -53,6 +57,20 @@ func (h *Handler) PutV1Settings(ctx apigen.Context, req *apigen.Settings) (*apig
 		return nil, apigen.NewApiErr(err.Error(), "settings_invalid", http.StatusBadRequest)
 	}
 	if err := h.ConfigService.UpdateSettings(*stored); err != nil {
+		if errors.Is(err, sqlite.ErrAssetMigrationInProgress) {
+			return nil, apigen.NewApiErr(
+				"Wait for the current large asset migration to finish before changing settings",
+				"asset_migration_in_progress",
+				http.StatusConflict,
+			)
+		}
+		if errors.Is(err, assetstore.ErrAssetS3ConfigChangeRequiresLocal) {
+			return nil, apigen.NewApiErr(
+				"Disable Backup and wait for large assets to migrate locally before changing the large asset S3 configuration",
+				"settings_invalid",
+				http.StatusBadRequest,
+			)
+		}
 		return nil, err
 	}
 	return stored, nil
@@ -110,7 +128,7 @@ func validateSettings(req *apigen.Settings, resolveRef func(*apigen.ConfigRef) (
 	if err := resolveStringInPlace(&stored.Backup.S3Endpoint, &resolved.Backup.S3Endpoint, "backup.s3_endpoint", resolveRef); err != nil {
 		return nil, nil, err
 	}
-	if err := resolveBoolInPlace(&stored.LargeAssets.S3Enabled, &resolved.LargeAssets.S3Enabled, "large_assets.s3_enabled", resolveRef); err != nil {
+	if err := resolveBoolInPlace(&stored.LargeAssets.UseSeparateS3, &resolved.LargeAssets.UseSeparateS3, "large_assets.use_separate_s3", resolveRef); err != nil {
 		return nil, nil, err
 	}
 	if err := resolveStringInPlace(&stored.LargeAssets.S3AccessKeyID, &resolved.LargeAssets.S3AccessKeyID, "large_assets.s3_access_key_id", resolveRef); err != nil {

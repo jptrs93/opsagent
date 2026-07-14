@@ -28,9 +28,6 @@ func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.Deplo
 	if len(refs) == 0 {
 		return nil
 	}
-	if err := os.MkdirAll(AssetCacheDir(), 0o755); err != nil {
-		return fmt.Errorf("creating asset cache dir: %w", err)
-	}
 	for _, ref := range refs {
 		if ref.AssetID == 0 {
 			return fmt.Errorf("%s has unresolved asset id", ref.Label)
@@ -121,7 +118,7 @@ func RequiredAssetRefs(cfg *apigen.DeploymentConfig) []requiredAssetRef {
 }
 
 func AssetCacheDir() string {
-	return ainit.StaticConfig.DataDir + "-assets"
+	return ainit.StaticConfig.AssetCacheDir
 }
 
 func AssetCachePath(assetID int32) string {

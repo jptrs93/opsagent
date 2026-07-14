@@ -18,10 +18,13 @@ import (
 )
 
 var (
-	activeMu     sync.Mutex
-	activeStore  *litestream.Store
-	activeConfig resolvedBackupConfig
+	activeMu                        sync.Mutex
+	activeStore                     *litestream.Store
+	activeConfig                    resolvedBackupConfig
+	assetMigrationBlocksReplication bool
 )
+
+var errAssetMigrationBlocksReplication = fmt.Errorf("asset migration blocks backup replication")
 
 type resolvedBackupConfig struct {
 	AccessKeyID     string
@@ -41,7 +44,19 @@ type statusPublisher interface {
 	NotifyBackupStatusUpdate(apigen.BackupStatus)
 }
 
-func StartReplication(ctx context.Context, configService *config.Service, secretSource secretStore, publisher statusPublisher) <-chan struct{} {
+type assetBackupReadiness interface {
+	ReadyForDatabaseBackup() (bool, string)
+	AssetStorageStatus() (targetS3 bool, pending int, running bool, err string)
+}
+
+func StopReplicationForAssetMigration(ctx context.Context) error {
+	activeMu.Lock()
+	defer activeMu.Unlock()
+	assetMigrationBlocksReplication = true
+	return closeActiveStore(ctx)
+}
+
+func StartReplication(ctx context.Context, configService *config.Service, secretSource secretStore, publisher statusPublisher, assets assetBackupReadiness) <-chan struct{} {
 	done := make(chan struct{})
 	filter := newBackupConfigFilter(configService, secretSource)
 	sub := configService.SnapshotAndSubscribe(filter.Filter)
@@ -62,19 +77,26 @@ func StartReplication(ctx context.Context, configService *config.Service, secret
 		apply := func(cfg apigen.Config) {
 			stopCurrent()
 			if !configured(configService, &cfg.Settings) {
-				if err := stopReplication(context.Background()); err != nil {
+				if err := StopReplicationForAssetMigration(context.Background()); err != nil {
 					slog.Error("stop backup replication", "err", err)
 				}
-				publishBackupStatus(publisher, apigen.BackupStatus{})
+				runCtx, c := context.WithCancel(ctx)
+				cancel = c
+				currentDone = make(chan struct{})
+				go func(done chan struct{}) {
+					defer close(done)
+					pollBackupStatus(runCtx, publisher, assets)
+				}(currentDone)
 				return
 			}
+			allowReplicationAfterAssetMigration()
 			runCtx, c := context.WithCancel(ctx)
 			cancel = c
 			replicationDone := make(chan struct{})
 			currentDone = replicationDone
 			go func() {
 				defer close(replicationDone)
-				runReplication(runCtx, configService, &cfg.Settings, secretSource, publisher)
+				runReplication(runCtx, configService, &cfg.Settings, secretSource, publisher, assets)
 			}()
 		}
 
@@ -160,39 +182,56 @@ func backupConfigSignalFromDynamic(loader config.Loader, cfg *apigen.Settings, s
 	return signal
 }
 
-func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.Settings, secretSource secretStore, publisher statusPublisher) {
+func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.Settings, secretSource secretStore, publisher statusPublisher, assets assetBackupReadiness) {
 	defer func() {
 		if err := stopReplication(context.Background()); err != nil {
 			slog.Error("stop backup replication", "err", err)
 		}
-		publishBackupStatus(publisher, apigen.BackupStatus{Configured: true, Error: "backup replication is not running"})
+		publishBackupStatus(publisher, withAssetStatus(apigen.BackupStatus{Configured: true, Error: "backup replication is not running"}, assets))
 	}()
 
 	backoff := timeu.NewExpBackoff(time.Minute, 5*time.Minute)
 	for ctx.Err() == nil {
+		if assets != nil {
+			ready, _ := assets.ReadyForDatabaseBackup()
+			if !ready {
+				publishBackupStatus(publisher, withAssetStatus(apigen.BackupStatus{Configured: true}, assets))
+				timer := time.NewTimer(2 * time.Second)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					continue
+				case <-timer.C:
+					continue
+				}
+			}
+		}
 		backupCfg, err := resolvedBackupConfigFromDynamic(loader, cfg, secretSource)
 		if err != nil {
 			slog.Error("backup replication config invalid", "err", err)
-			publishBackupStatus(publisher, apigen.BackupStatus{Configured: true, Error: err.Error()})
+			publishBackupStatus(publisher, withAssetStatus(apigen.BackupStatus{Configured: true, Error: err.Error()}, assets))
 			backoff.WaitWithContext(ctx)
 			continue
 		}
 		if err := startReplication(ctx, backupCfg); err != nil {
 			slog.Error("start backup replication", "err", err)
-			publishBackupStatus(publisher, apigen.BackupStatus{Configured: true, Error: err.Error()})
+			publishBackupStatus(publisher, withAssetStatus(apigen.BackupStatus{Configured: true, Error: err.Error()}, assets))
 			if stopErr := stopReplication(context.Background()); stopErr != nil {
 				slog.Error("stop failed backup replication", "err", stopErr)
 			}
 			backoff.WaitWithContext(ctx)
 			continue
 		}
-		pollBackupStatus(ctx, publisher)
+		pollBackupStatus(ctx, publisher, assets)
 	}
 }
 
 func startReplication(ctx context.Context, cfg resolvedBackupConfig) error {
 	activeMu.Lock()
 	defer activeMu.Unlock()
+	if assetMigrationBlocksReplication {
+		return errAssetMigrationBlocksReplication
+	}
 
 	if activeStore != nil && activeConfig == cfg {
 		return nil
@@ -233,6 +272,12 @@ func startReplication(ctx context.Context, cfg resolvedBackupConfig) error {
 	return nil
 }
 
+func allowReplicationAfterAssetMigration() {
+	activeMu.Lock()
+	assetMigrationBlocksReplication = false
+	activeMu.Unlock()
+}
+
 func CurrentStatus(ctx context.Context) apigen.BackupStatus {
 	activeMu.Lock()
 	defer activeMu.Unlock()
@@ -264,10 +309,10 @@ func CurrentStatus(ctx context.Context) apigen.BackupStatus {
 	return status
 }
 
-func pollBackupStatus(ctx context.Context, publisher statusPublisher) {
+func pollBackupStatus(ctx context.Context, publisher statusPublisher, assets assetBackupReadiness) {
 	var last apigen.BackupStatus
 	publishIfChanged := func() {
-		status := CurrentStatus(ctx)
+		status := withAssetStatus(CurrentStatus(ctx), assets)
 		if status != last {
 			publishBackupStatus(publisher, status)
 			last = status
@@ -284,6 +329,21 @@ func pollBackupStatus(ctx context.Context, publisher statusPublisher) {
 			publishIfChanged()
 		}
 	}
+}
+
+func withAssetStatus(status apigen.BackupStatus, assets assetBackupReadiness) apigen.BackupStatus {
+	if assets == nil {
+		return status
+	}
+	targetS3, pending, running, assetErr := assets.AssetStorageStatus()
+	status.AssetTargetS3 = targetS3
+	status.AssetPending = uint32(pending)
+	status.AssetMigrationRunning = running
+	status.AssetError = assetErr
+	if running || pending > 0 {
+		status.InSync = false
+	}
+	return status
 }
 
 func publishBackupStatus(publisher statusPublisher, status apigen.BackupStatus) {
@@ -303,11 +363,11 @@ func closeActiveStore(ctx context.Context) error {
 		return nil
 	}
 	store := activeStore
-	activeStore = nil
-	activeConfig = resolvedBackupConfig{}
 	if err := store.Close(ctx); err != nil {
 		return err
 	}
+	activeStore = nil
+	activeConfig = resolvedBackupConfig{}
 	slog.Info("stopped primary database backup replication")
 	return nil
 }

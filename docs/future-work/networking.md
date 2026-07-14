@@ -6,9 +6,9 @@ Design for the built-in networking layer: per-workload addressing, cross-machine
 
 - Batteries included: one built-in network implementation, no plugin ecosystem. All components ship in the opendeploy binary; per machine there is the agent plus one netproxy system deployment (see Component model).
 - The primary is control plane only. It computes and distributes networking state; it is never on the datapath. A primary outage degrades to "no topology changes", never "traffic stops".
-- No NAT-based service translation (no kube-proxy equivalent). Workload addresses are stable and identity-bound; topology changes update routes, not NAT tables.
+- No NAT-based service translation (no kube-proxy equivalent). Workload logical addresses are stable and identity-bound. Cross-node transport performs stateless logical/locator rewriting only at the mesh boundary.
 - Addresses are derived, not allocated. There is no IPAM state, allocator, or reuse policy.
-- One logical workload network. Spaces are policy domains, not separate host-level virtual networks.
+- One logical workload network. Every space is a durable tenant/security domain with its own logical prefix, not a separate host-level virtual network or WireGuard device.
 - Network policy is a default security boundary: same-space traffic is allowed, cross-space traffic is denied unless explicitly allowed, and workload source addresses are validated at the host attachment boundary.
 - Configuration lives on the deployment config (a `networking` section edited in a side panel). Cluster-scoped knobs are limited to settings (ingress machines) and are validated cluster-wide.
 - Boring, debuggable dataplane first (netlink, WireGuard, nftables — inspectable with `ip`, `wg`, `nft`). eBPF is a later optimization, never a prerequisite.
@@ -26,30 +26,32 @@ The virtual network is IPv6-only, using an RFC 4193 ULA `/48` prefix generated r
 Addresses are pure functions of existing identifiers. Layout of the 80 host bits after the `/48` prefix:
 
 ```
-<ULA /48> : <kind:16> : <deployment id:32> : <field:32>
+<ULA /48> : <node:17> : <space:17> : <deployment:26> : <kind:4> : <field:16>
 ```
 
 | Kind | Meaning | Field |
 |---|---|---|
 | `0` | Instance address | instance ordinal (0-based) |
 | `1` | Service address (virtual; per deployment) | `0` |
-| `2` | Run-scoped temporary address (rollover candidates) | run number |
-| `3` | Machine mesh address | machine id, deployment id bits zero |
+| `2` | Run-scoped temporary address (rollover candidates) | low 16 bits of the run number |
+| `3`-`15` | Reserved | undefined |
 
 Properties:
 
-- An instance is `(deployment id, ordinal)`. Instance addresses are stable for the life of the instance and survive rescheduling to another machine.
-- All addresses of one deployment share the `<ULA/48>:<kind>:<deployment id>` prefix, so policy, filtering, and capture rules match a whole deployment with one prefix.
+- Node `0` denotes logical addresses. A nonzero node id denotes a cross-node routing locator. Logical-to-locator translation changes only the node bits.
+- An instance is `(space id, deployment id, ordinal)`. Its logical address survives restarts, upgrades, and node rescheduling. Moving it to another space changes its logical address.
+- Every logical space is one `/82`, making same-space policy a prefix rule.
+- All logical addresses of one deployment share one `/108` across every kind and field.
+- Every routing node owns one `/65` locator prefix containing every space and workload currently placed on that node.
 - Service addresses (kind 1) are reserved from day one but not routed until socket-level load balancing exists (see Load balancing). Connecting to an unrouted service address fails cleanly.
-- Deployment ids are never recycled, so blocks are never reused.
+- Space and deployment ids are never recycled, so logical prefixes are never reused.
+- Run fields wrap after 16 bits because only concurrently live temporary runs must be distinct. Instance ordinals do not wrap.
 
-Instance limits are bounded only by the 32-bit fields; there are no practical caps on deployments, replicas, or daemon set size.
+Hard limits are 131,071 nonzero node ids, 131,072 spaces, 67,108,864 deployment ids, 16 kinds, and 65,536 values per kind.
 
 ### Spaces and address derivation
 
-Space id is not encoded in the v1 address layout. Same-space policy is compiled from endpoint state into nftables sets rather than inferred from address prefixes.
-
-That keeps a deployment's logical address stable if it moves between spaces. If spaces later become hard tenant domains where address changes on space moves are acceptable, a per-space address prefix can be reconsidered for easier prefix rules and observability. Even then, prefix shape is only an optimization: attachment anti-spoofing and policy filters remain the security boundary.
+Space is part of logical network identity because a space is a tenant/security domain, not an organizational folder. Moving a deployment to another space is an explicit address-changing redeployment: existing connections terminate, DNS and endpoint state change, and the old address is not forwarded into the new space. Prefix shape makes the default same-space rule compact, but attachment anti-spoofing and destination policy remain the security boundary.
 
 ### IPv4 egress
 
@@ -91,25 +93,28 @@ Failure behavior: agent down → routing, DNS, and ingress unaffected (container
 
 ### Per-machine composition
 
-- One `wg0` WireGuard device per machine holding the mesh (kernel WireGuard via `wgctrl`).
+- One `wg0` WireGuard device per machine holding its mesh peers (kernel WireGuard via `wgctrl`).
 - One netns + veth pair per container (pure Go via `vishvananda/netlink`; no CNI).
-- No bridge. Plain host routes glue the two: local instance addresses route `/128 → veth`; remote instance addresses are covered by `wg0` peer `allowed_ips`.
+- No bridge. Plain host routes glue local logical `/128`s to veths. Cross-node packets are translated to node-scoped locators before entering `wg0` and restored to logical addresses after leaving it.
 - MTU on veth and `wg0` accounts for WireGuard overhead (1420 on a 1500 underlay).
 
-### Cryptokey routing is the service routing table
+### Node-prefix cryptokey routing
 
-WireGuard `allowed_ips` maps each remote instance address to the hosting machine's public key. This table is the inter-machine routing table and a cross-machine source-ownership check: a remote machine cannot originate traffic from addresses not mapped to its key. It is not the workload network policy boundary and does not protect same-host traffic. Host attachment anti-spoofing and receiver-side nftables policy are still required. All cross-machine traffic is encrypted and machine-authenticated with zero per-service configuration — this covers the mTLS-in-transit value of a service mesh without sidecars.
+WireGuard `allowed_ips` maps each remote node's locator `/65` to that node's public key. Workload starts, stops, space moves, and placement changes do not alter WireGuard configuration; node membership, keys, endpoints, and mesh topology do. The source prefix check proves which node sent a locator, not which workload on that node originated it. Host attachment anti-spoofing and receiver-side logical policy are still required. All cross-machine traffic is encrypted and machine-authenticated with zero per-service configuration.
 
 ### Cross-machine packet walk
 
 Instance on machine A sends to an instance address hosted on machine B:
 
 1. Container netns: default route via the host-side veth (link-local next hop); the packet crosses the veth pair.
-2. Host A (IPv6 forwarding enabled): local instances match `/128 → veth` routes; everything else in the ULA space matches one route, `<ULA>/48 dev wg0`.
-3. Kernel WireGuard looks the destination up in its `allowed_ips` trie. Machine B's peer entry contains the `/128`s of every instance B hosts plus B's kind-3 machine address. Match → encrypt to B's key → UDP to B's netmap endpoint. There is no separate inter-node routing protocol: `allowed_ips` is the inter-node routing table, programmed only by the netmap.
-4. Machine B accepts the packet only if its source address is inside A's `allowed_ips` entry (cryptokey anti-spoofing), then routes it via the local `/128 → veth` route into the destination netns.
+2. Host A validates the logical source at the workload attachment. Local logical destinations keep node `0` and route directly by `/128 → veth`.
+3. For a remote destination, the placement map supplies machine B's 17-bit node id. Host A fills node A into the logical source and node B into the logical destination, preserving space, deployment, kind, and field. Transport checksums and ICMPv6 embedded headers must be adjusted without per-flow NAT state.
+4. WireGuard selects machine B because its peer owns B's locator `/65`, encrypts the packet, and rejects inbound source locators outside the sending peer's `/65`.
+5. Host B verifies the destination locator names itself, zeros both node fields, applies logical destination ingress policy, and routes the restored logical destination via its local `/128 → veth` route.
 
-Host processes (ingress proxy, DNS, health checks) send over the same path using the machine's kind-3 address as source. When an instance moves machines, the netmap flips its `/128` between peer entries on every machine; that is the entire routing update.
+When an instance moves machines, its logical address does not change. The placement map changes from the old node id to the new one; WireGuard peer configuration is unchanged. Stale translations reach the old node and are dropped because it no longer owns the destination endpoint.
+
+The translation mechanism must handle TCP, UDP, and ICMPv6 checksum adjustment, fragments, ICMPv6 errors carrying translated headers, and placement changes while packets are in flight. Encapsulation remains a fallback if stateless rewriting proves too complex, at the cost of another IPv6 header and a lower effective MTU.
 
 ### WireGuard availability
 
@@ -121,11 +126,13 @@ WireGuard is not installed or bundled; it is a kernel feature (mainline since 5.
 - Each machine reports its reachable endpoint(s) to the primary; the netmap carries peer endpoints as data. Machines must be directly reachable at this stage — NAT traversal (STUN/DERP-style relaying) is explicitly out of scope, but the endpoint-as-data shape leaves room for a relay later without redesign.
 - The primary machine is itself a mesh peer.
 
+A direct full mesh is acceptable only for an initial modest node count. At the 20,000-node target, roughly 400 million directed peer relationships are not acceptable even if workload churn never changes WireGuard. The locator `/65` design therefore must also support bounded-degree routing through redundant site/region gateways or another hierarchical next-hop topology. A node's locator prefix remains unchanged whether the next WireGuard peer is the destination node or a gateway.
+
 ## Netmap distribution
 
 The primary computes a per-machine netmap and pushes it over the existing mTLS cluster stream (same shape as secrets/config distribution).
 
-- Full-state snapshots, not incremental mutations. Workers reconcile wg peers, `allowed_ips`, host routes, nftables filters, and DNS data idempotently against the snapshot. No deltas unless scale ever demands them.
+- Workers reconcile peers, `allowed_ips`, placement maps, host routes, nftables filters, and DNS data idempotently. Full snapshots are acceptable initially; the 20,000-node/100,000-deployment target requires incremental, sharded distribution and bounded peer sets.
 - Filtered per machine: a machine only learns peers and addresses it legitimately needs.
 - Persisted last-known-good: the worker stores the latest netmap in its local database and programs the dataplane from it on boot, before reaching the primary. Invariant: existing traffic flows do not depend on primary availability.
 
@@ -135,14 +142,14 @@ Netmap content (schema sketch):
 NetMap {
   seq                      // monotonic per machine
   ula_prefix
-  machines:  [{machine_id, wg_public_key, endpoints, mesh_address}]
+  machines:  [{machine_id, network_node_id, wg_public_key, endpoints, locator_prefix}]
   services:  [{deployment_id, space_id, name, environment, service_address,
-                endpoints: [{ordinal, address, machine_id, state}],   // state: READY | DRAINING | DOWN
+                endpoints: [{ordinal, logical_address, network_node_id, state}], // READY | DRAINING | DOWN
                 explicit_allowed_from: [deployment_id]}]
 }
 ```
 
-Endpoints are modeled as sets with per-endpoint state from day one, even while every set has exactly one member. Load balancing phases change only who consumes the set, never the schema. `space_id` is included so workers can compile generated same-space allow rules without deriving policy from address shape.
+Endpoints are modeled as sets with per-endpoint state from day one, even while every set has exactly one member. Load balancing phases change only who consumes the set, never the schema. Space remains explicit metadata for validation and product display even though it is also encoded in the logical address.
 
 Readiness generalizes the existing ROLLOVER readiness socket: signaling ready means membership in the endpoint set. Instances that are not ready do not resolve in DNS and are not routing targets. Removal from the set (`DRAINING`) happens before SIGTERM, with a drain window, so scale-downs and upgrades do not sever in-flight work.
 
@@ -190,7 +197,7 @@ Multi-node ingress requires shared certificate and ACME state: an HTTP-01 challe
 
 ## Network policy
 
-OpenDeploy has one logical workload network. Space isolation is policy, not separate VRFs, per-space WireGuard devices, or per-space ULA prefixes.
+OpenDeploy has one cluster logical workload network. Each space has a derived `/82` logical subprefix, but isolation is enforced by policy rather than separate VRFs, WireGuard devices, or independently generated ULA networks.
 
 Default stance:
 
@@ -207,16 +214,16 @@ Enforcement has two mandatory layers:
 
 For workload-to-workload isolation, destination ingress policy plus source anti-spoofing is sufficient. A separate workload egress policy is not required for the v1 default boundary. Egress policy remains useful later for internet/private-network controls, host-service access, control-plane protection, and exfiltration-sensitive deployments.
 
-Policies are expressed in logical workload terms: space, deployment, labels later, protocol, and port. They compile to nftables sets/maps distributed as part of the netmap and applied with full-state atomic reconciliation. Same-host and cross-host traffic hit the same destination-side policy; WireGuard only authenticates the remote machine and source prefix for cross-host packets.
+Policies are expressed in logical workload terms: space, deployment, labels later, protocol, and port. The default same-space allow compiles to the source space's `/82`; explicit cross-space rules compile to deployment prefixes and port/protocol matches. Same-host and cross-host traffic hit the same destination-side policy after any reverse translation. WireGuard authenticates the sending node and locator `/65`, not the logical workload identity.
 
-If machine-scoped locator addresses are added later, policy still evaluates logical source and destination addresses before outbound translation and after inbound reverse translation. Locator addresses are routing state, not policy identity.
+Policy evaluates node-zero logical source and destination addresses before outbound translation and after inbound reverse translation. Locator addresses are routing state, not policy identity.
 
 ## Load balancing
 
 kube-proxy exists to translate stable virtual addresses to ephemeral endpoints. Stable instance addresses remove the need. Balancing arrives in stages; users only ever set a replica count.
 
 1. **DNS over ready endpoint sets** (ships with the netmap). Health-aware by construction: not-ready instances do not resolve. Known limits (client caching, long-lived connection pinning) are acceptable for internal traffic.
-2. **eBPF socket-level balancing** (`cgroup/connect6` hook via `cilium/ebpf`). Rewrites `connect()` calls to the kind-1 service address into a chosen READY instance address, per connection, before any packet exists. No DNAT, no conntrack; wire packets always carry real instance addresses, so cryptokey routing is undisturbed. The hook's backend map is programmed from the same netmap. This is when service addresses start routing.
+2. **eBPF socket-level balancing** (`cgroup/connect6` hook via `cilium/ebpf`). Rewrites `connect()` calls to the kind-1 service address into a chosen READY logical instance address, per connection, before any packet exists. No service DNAT or conntrack is required; cross-node routing subsequently translates that instance address to a locator. The hook's backend map is programmed from the same netmap. This is when service addresses start routing.
 3. **L7 east-west through the embedded proxy** (opt-in, per deployment): retries, traffic splitting, per-route metrics for HTTP workloads. Ingress traffic already gets endpoint-set balancing from stage 1.
 
 Interim DNAT-based virtual IPs are explicitly rejected; before stage 2, service addresses simply do not route.
@@ -250,7 +257,7 @@ Default rolling recreate, one ordinal at a time, behind the endpoint set:
 
 Surge mode (no capacity dip) applies the single-instance candidate flow per ordinal — same primitive.
 
-Cross-machine moves (scheduler relocating an ordinal) flip the address's `allowed_ips` mapping cluster-wide via a netmap update: new instance ready on the target machine under a temporary address, publish the netmap flip, drain/stop on the source. Propagation is eventually consistent; a sub-second stale-peer window is absorbed by TCP retransmission. This is the one rollover variant where the primary is on the critical path, which is acceptable because scheduler moves are already control-plane acts.
+Cross-machine moves (scheduler relocating an ordinal) update the logical-address-to-node placement map: start the new instance on the target under a temporary address, publish the placement flip, then drain and stop the source. WireGuard `allowed_ips` do not change. Propagation is eventually consistent; stale translations reach the old node and are dropped until clients retransmit using the new placement. This is the one rollover variant where the primary is on the critical path, which is acceptable because scheduler moves are already control-plane acts.
 
 Daemon sets are the rolling recreate loop iterated over machines; each replacement is machine-local.
 
@@ -290,7 +297,7 @@ Each phase is independently shippable and usable; later phases can wait.
 
 The dataplane on each machine, no cross-machine mesh yet.
 
-- ULA prefix generation and persistence on the primary; derived address functions (kinds 0–3).
+- ULA prefix generation and persistence on the primary; derived logical address functions (kinds 0–2) using node `0`, space, deployment, kind, and field.
 - Netns/veth per container, host routes, IPv4 egress NAT, MTU handling.
 - Attachment source anti-spoofing and generated default ingress policy for machine-local traffic: same-space allow, cross-space deny.
 - Endpoint-set-shaped state (n=1) with READY/DRAINING, readiness generalized to set membership.
@@ -305,9 +312,9 @@ Usable outcome: containers are isolated with stable addresses, same-machine depl
 
 ### Phase 2 — Cluster mesh
 
-- WireGuard keypairs in enrollment (existing machines: key exchange over the established mTLS cluster channel); `wg0` full mesh; machine endpoint reporting.
+- Stable 17-bit network node ids and WireGuard keypairs in enrollment (existing machines: key exchange over the established mTLS cluster channel); `wg0` peers/next hops; machine endpoint reporting.
 - Netmap computation, per-machine filtering, distribution over the cluster stream, worker-side persistence and idempotent reconciliation.
-- Cross-machine instance routing via `allowed_ips`; cluster-wide DNS; the same default policy applies across machines.
+- Stateless logical/locator translation around WireGuard, node `/65` routing via `allowed_ips`, cluster-wide DNS, and the same logical policy across machines.
 
 Usable outcome: same-space instances reach same-space instances by name across machines, encrypted, with the primary off the datapath. Cross-space traffic remains denied unless explicitly allowed.
 
@@ -341,7 +348,7 @@ Coupled to the scheduler/replicas backlog item; networking consumes placements a
 
 Decisions Phase 1 must honor so later phases are additive:
 
-- Address functions include kinds 1–3 even though only kind 0 and 2 route in Phase 1.
+- Address functions include service kind 1 and node-field fill/zero helpers even though only logical instance kind 0 and run kind 2 route in Phase 1.
 - Netmap/state schema uses endpoint sets with per-endpoint state from the start.
 - The worker's reconciler is full-state and idempotent from the start, even while state is locally produced rather than primary-distributed.
 - Status schema anticipates `(deployment, ordinal)` granularity (ordinal 0 today).

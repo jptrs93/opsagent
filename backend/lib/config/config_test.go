@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -104,13 +105,17 @@ func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 
 func TestBackupEnabledDefaultsFalseAndCanBeEnabled(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	service, err := NewService(sqlite.NewPrimaryStorage(dbPath))
+	store := sqlite.NewPrimaryStorage(dbPath)
+	service, err := NewService(store)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
 
 	if service.Snapshot().Settings.Backup.Enabled.Value {
 		t.Fatal("BackupEnabled default = true, want false")
+	}
+	if service.Snapshot().Settings.LargeAssets.UseSeparateS3.Value {
+		t.Fatal("LargeAssets.UseSeparateS3 default = true, want false")
 	}
 	settings := DefaultSettings(ainit.StaticConfig)
 	settings.Backup.Enabled = apigen.BoolSetting{Value: true}
@@ -119,6 +124,35 @@ func TestBackupEnabledDefaultsFalseAndCanBeEnabled(t *testing.T) {
 	}
 	if !service.Snapshot().Settings.Backup.Enabled.Value {
 		t.Fatal("BackupEnabled after update = false, want true")
+	}
+	select {
+	case <-service.AssetMigrationWake():
+	default:
+		t.Fatal("BackupEnabled update did not wake the asset migration worker")
+	}
+	migration, ok := store.GetUnfinishedAssetMigration()
+	if !ok {
+		t.Fatal("BackupEnabled update did not create an asset migration")
+	}
+	if migration.OldConfigVersionID == migration.NewConfigVersionID {
+		t.Fatal("asset migration old and new config IDs are equal")
+	}
+	latestBeforeBlockedSave, err := store.FetchLatestOpenDeployConfig()
+	if err != nil {
+		t.Fatalf("FetchLatestOpenDeployConfig before blocked save: %v", err)
+	}
+	if err := service.UpdateSettings(service.Snapshot().Settings); !errors.Is(err, sqlite.ErrAssetMigrationInProgress) {
+		t.Fatalf("UpdateSettings during migration error = %v, want ErrAssetMigrationInProgress", err)
+	}
+	latestAfterBlockedSave, err := store.FetchLatestOpenDeployConfig()
+	if err != nil {
+		t.Fatalf("FetchLatestOpenDeployConfig after blocked save: %v", err)
+	}
+	if latestAfterBlockedSave.ID != latestBeforeBlockedSave.ID {
+		t.Fatalf("blocked settings save created config %d, previous latest was %d", latestAfterBlockedSave.ID, latestBeforeBlockedSave.ID)
+	}
+	if err := service.SetMasterPasswordHash("allowed-during-migration"); err != nil {
+		t.Fatalf("SetMasterPasswordHash during migration: %v", err)
 	}
 }
 

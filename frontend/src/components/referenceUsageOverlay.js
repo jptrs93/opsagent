@@ -35,12 +35,17 @@ export function referenceUsageOverlay(resourceType, resourceName, deployments, s
                 "data-testid": "reference-usage-overlay",
             },
             div(
-                {class: "w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-xl border border-gray-700 bg-gray-900 shadow-2xl pointer-events-auto flex flex-col"},
+                {
+                    class: "w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-xl border border-gray-700 bg-gray-900 shadow-2xl pointer-events-auto flex flex-col",
+                    role: "dialog",
+                    "aria-modal": "true",
+                    "aria-labelledby": "reference-usage-title",
+                },
                 div(
                     {class: "flex items-start justify-between gap-4 border-b border-gray-700 px-4 py-3"},
                     div(
                         {class: "min-w-0"},
-                        h2({class: "text-base font-semibold text-gray-100"}, "In use by"),
+                        h2({id: "reference-usage-title", class: "text-base font-semibold text-gray-100"}, "In use by"),
                         p(
                             {class: "mt-1 truncate text-xs text-gray-400"},
                             span({class: "capitalize"}, resourceType),

@@ -400,6 +400,10 @@ func (m *BackupStatus) Encode() []byte {
 	b = AppendUint64Field(b, m.RemoteTxid, 5)
 	b = AppendInt64FromTime(b, m.LastSuccessfulSyncAt, 6)
 	b = AppendStringField(b, m.Error, 7)
+	b = AppendBoolField(b, m.AssetMigrationRunning, 8)
+	b = AppendUint32Field(b, m.AssetPending, 9)
+	b = AppendBoolField(b, m.AssetTargetS3, 10)
+	b = AppendStringField(b, m.AssetError, 11)
 	return b
 }
 
@@ -428,6 +432,14 @@ func DecodeBackupStatus(b []byte) (*BackupStatus, error) {
 			b, m.LastSuccessfulSyncAt, err = ConsumeTimeFromInt64(b, typ)
 		case 7:
 			b, m.Error, err = ConsumeString(b, typ)
+		case 8:
+			b, m.AssetMigrationRunning, err = ConsumeBool(b, typ)
+		case 9:
+			b, m.AssetPending, err = ConsumeVarUint32(b, typ)
+		case 10:
+			b, m.AssetTargetS3, err = ConsumeBool(b, typ)
+		case 11:
+			b, m.AssetError, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1371,7 +1383,7 @@ func DecodeBackupSettings(b []byte) (*BackupSettings, error) {
 }
 
 func (m LargeAssetsSettings) IsZero() bool {
-	return m.S3Enabled.IsZero() &&
+	return m.UseSeparateS3.IsZero() &&
 		m.S3AccessKeyID.IsZero() &&
 		m.S3SecretAccessKey.IsZero() &&
 		m.S3Bucket.IsZero() &&
@@ -1382,9 +1394,9 @@ func (m LargeAssetsSettings) IsZero() bool {
 
 func (m *LargeAssetsSettings) Encode() []byte {
 	var b []byte
-	if !m.S3Enabled.IsZero() {
+	if !m.UseSeparateS3.IsZero() {
 		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.S3Enabled.Encode())
+		b = AppendBytes(b, m.UseSeparateS3.Encode())
 	}
 	if !m.S3AccessKeyID.IsZero() {
 		b = AppendTag(b, 2, BytesType)
@@ -1431,7 +1443,7 @@ func DecodeLargeAssetsSettings(b []byte) (*LargeAssetsSettings, error) {
 				var item *BoolSetting
 				item, err = DecodeBoolSetting(msgBytes)
 				if err == nil {
-					m.S3Enabled = *item
+					m.UseSeparateS3 = *item
 				}
 			}
 		case 2:

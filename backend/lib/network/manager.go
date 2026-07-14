@@ -106,7 +106,8 @@ func (m *Manager) DNSAddr() (netip.Addr, bool) {
 	if !m.hasPrefix || m.netproxyDeploymentID == 0 {
 		return netip.Addr{}, false
 	}
-	return m.prefix.InstanceAddr(m.netproxyDeploymentID, 0), true
+	addr, err := m.prefix.InstanceAddr(0, m.netproxyDeploymentID, 0)
+	return addr, err == nil
 }
 
 // IsNetproxyDeployment reports whether id is this machine's netproxy system

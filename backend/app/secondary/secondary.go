@@ -25,6 +25,9 @@ type runtimeConfig struct {
 	PrimaryName        string // cert CN of the primary (for TLS server name verification)
 	MachineName        string
 	DataDir            string
+	GitCacheDir        string
+	ReleasesDir        string
+	NetproxyStatePath  string
 	ClusterPrefix      network.Prefix
 	NetDeploymentID    int32
 }
@@ -44,14 +47,13 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	secretProvider := NewPrimarySecretProvider(primaryURL, primaryHTTPClient)
 	configProvider := NewPrimaryConfigProvider(primaryURL, primaryHTTPClient)
 	runtimeInputs := runtimeinputs.New(assetProvider, secretProvider, configProvider)
-	gitManager := git.NewManager(cfg.DataDir, githubCredentials)
+	gitManager := git.NewManager(cfg.GitCacheDir, githubCredentials)
 	githubClient := githubrepo.NewClient(githubCredentials)
-	releasesDir := cfg.DataDir + "-releases"
-	githubReleasePreparer := githubrelease.New(releasesDir, githubClient, githubCredentials)
+	githubReleasePreparer := githubrelease.New(cfg.ReleasesDir, githubClient, githubCredentials)
 	nixDockerPreparer := nixdocker.New(gitManager)
-	githubReleaseImagePreparer := githubreleaseimage.New(releasesDir, githubClient)
+	githubReleaseImagePreparer := githubreleaseimage.New(cfg.ReleasesDir, githubClient)
 
-	go netproxy.RunNetStateWriter(ctx, store, cfg.MachineName, netproxy.NetStatePath(cfg.DataDir))
+	go netproxy.RunNetStateWriter(ctx, store, cfg.MachineName, cfg.NetproxyStatePath)
 	go engine.DeploymentOperator{
 		Store:              store,
 		GithubRelease:      githubReleasePreparer,

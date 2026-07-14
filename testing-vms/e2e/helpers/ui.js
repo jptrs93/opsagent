@@ -377,24 +377,28 @@ export async function configureLargeAssetStorage(page, opts = {}) {
   await step('ensure object storage deployment', () => ensureE2EObjectStorage(page, cfg));
   await step('open settings for large assets', async () => {
     await byTestId(page, 'nav-settings', page.getByText('Settings')).click();
-    await expect(settingRow(page, 'Large asset S3 enabled')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+    await expect(settingRow(page, 'Backup enabled')).toBeVisible({timeout: LONG_UI_TIMEOUT});
   });
-  await step('enable large asset S3', async () => {
-    await setSettingBool(page, 'Large asset S3 enabled', true);
-    await expect(settingRow(page, 'Large asset S3 access key ID')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await step('enable backup storage', async () => {
+    await setSettingBool(page, 'Backup enabled', true);
+    await expect(settingRow(page, 'Large asset S3 path')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+    await expect(settingRow(page, 'Use separate large assets S3')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+    await expect(settingRow(page, 'Large asset S3 access key ID')).toBeHidden();
   });
-  await step('fill large asset S3 settings', async () => {
-    await setSettingText(page, 'Large asset S3 access key ID', cfg.minioRootUser);
-    await setSettingSecret(page, 'Large asset S3 secret access key', cfg.minioRootPasswordSecret);
-    await setSettingText(page, 'Large asset S3 bucket', cfg.bucket);
+  await step('fill shared backup and large asset S3 settings', async () => {
+    await setSettingText(page, 'Backup S3 access key ID', cfg.minioRootUser);
+    await setSettingSecret(page, 'Backup S3 secret access key', cfg.minioRootPasswordSecret);
+    await setSettingText(page, 'Backup S3 bucket', cfg.bucket);
+    await setSettingText(page, 'Backup S3 path', cfg.path);
+    await setSettingText(page, 'Backup S3 region', cfg.region);
+    await setSettingText(page, 'Backup S3 endpoint', cfg.endpoint);
     await setSettingText(page, 'Large asset S3 path', cfg.largeAssetPath);
-    await setSettingText(page, 'Large asset S3 region', cfg.region);
-    await setSettingText(page, 'Large asset S3 endpoint', cfg.endpoint);
   });
   await step('save large asset S3 settings', async () => {
     await page.getByRole('button', {name: 'Save changes'}).click();
     await expect(page.getByText('Unsaved changes')).toBeHidden({timeout: LONG_UI_TIMEOUT});
   });
+  await waitForBackupReplicationInSync(page);
 }
 
 async function ensureE2EObjectStorage(page, cfg) {
@@ -461,8 +465,7 @@ export async function expectReferenceUsage(page, {
   const navLabel = resourceType === 'asset' ? 'Assets' : 'Secrets / Configs';
   await byTestId(page, `nav-${navKey}`, page.getByText(navLabel)).click();
 
-  const resourceRow = page.getByRole('row').filter({hasText: resourceName}).first();
-  const usageButton = resourceRow.getByRole('button', {name: `Show usage for ${resourceType} ${resourceName}`});
+  const usageButton = page.getByRole('button', {name: `Show usage for ${resourceType} ${resourceName}`, exact: true});
   await expect(usageButton).toHaveText('1', {timeout: LONG_UI_TIMEOUT});
   await usageButton.click();
 
@@ -663,7 +666,7 @@ export async function uploadAsset(page, {key, content, fileName = key} = {}) {
     await expect(overlay).toBeHidden({timeout: LONG_UI_TIMEOUT});
   }
   await assetRow.click();
-  await expect(page.getByText(/[0-9.]+ (B|KB|MB|GB|TB) stored externally/)).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await expect(page.getByText(/[0-9.]+ (B|KB|MB|GB|TB) large asset/)).toBeVisible({timeout: LONG_UI_TIMEOUT});
 }
 
 export async function expectDeploymentOutput(page, name, expectedLines) {

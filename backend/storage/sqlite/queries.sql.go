@@ -136,10 +136,40 @@ func (q *Queries) DeleteUserConfig(ctx context.Context, name string) error {
 	return err
 }
 
+const finishAssetMigration = `-- name: FinishAssetMigration :one
+UPDATE asset_migrations
+SET status = 'finished', last_error = '', finished_at = ?
+WHERE id = ?
+RETURNING id, old_config_version_id, new_config_version_id, status, last_error,
+          created_at, started_at, last_attempt_at, finished_at
+`
+
+type FinishAssetMigrationParams struct {
+	FinishedAt int64
+	ID         int64
+}
+
+func (q *Queries) FinishAssetMigration(ctx context.Context, arg FinishAssetMigrationParams) (AssetMigration, error) {
+	row := q.db.QueryRowContext(ctx, finishAssetMigration, arg.FinishedAt, arg.ID)
+	var i AssetMigration
+	err := row.Scan(
+		&i.ID,
+		&i.OldConfigVersionID,
+		&i.NewConfigVersionID,
+		&i.Status,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.LastAttemptAt,
+		&i.FinishedAt,
+	)
+	return i, err
+}
+
 const getAssetByIDVersion = `-- name: GetAssetByIDVersion :one
 SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
 FROM assets
-WHERE id = ? AND version = ?
+WHERE id = ? AND version = ? AND location NOT LIKE 'pending://%'
 `
 
 type GetAssetByIDVersionParams struct {
@@ -167,7 +197,7 @@ func (q *Queries) GetAssetByIDVersion(ctx context.Context, arg GetAssetByIDVersi
 const getAssetVersion = `-- name: GetAssetVersion :one
 SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
 FROM assets
-WHERE key = ? AND version = ?
+WHERE key = ? AND version = ? AND location NOT LIKE 'pending://%'
 `
 
 type GetAssetVersionParams struct {
@@ -189,6 +219,17 @@ func (q *Queries) GetAssetVersion(ctx context.Context, arg GetAssetVersionParams
 		&i.SizeBytes,
 		&i.Blob,
 	)
+	return i, err
+}
+
+const getConfigByID = `-- name: GetConfigByID :one
+SELECT id, updated_at, config_blob FROM opendeploy_config WHERE id = ?
+`
+
+func (q *Queries) GetConfigByID(ctx context.Context, id int64) (OpendeployConfig, error) {
+	row := q.db.QueryRowContext(ctx, getConfigByID, id)
+	var i OpendeployConfig
+	err := row.Scan(&i.ID, &i.UpdatedAt, &i.ConfigBlob)
 	return i, err
 }
 
@@ -240,7 +281,7 @@ func (q *Queries) GetDeploymentConfig(ctx context.Context, deploymentID int64) (
 const getLatestAsset = `-- name: GetLatestAsset :one
 SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
 FROM assets
-WHERE key = ?
+WHERE key = ? AND location NOT LIKE 'pending://%'
 ORDER BY version DESC
 LIMIT 1
 `
@@ -433,6 +474,34 @@ func (q *Queries) GetSystemSecret(ctx context.Context, name string) (SystemSecre
 	return i, err
 }
 
+const getUnfinishedAssetMigration = `-- name: GetUnfinishedAssetMigration :one
+
+SELECT id, old_config_version_id, new_config_version_id, status, last_error,
+       created_at, started_at, last_attempt_at, finished_at
+FROM asset_migrations
+WHERE status != 'finished'
+ORDER BY id
+LIMIT 1
+`
+
+// === asset_migrations ===
+func (q *Queries) GetUnfinishedAssetMigration(ctx context.Context) (AssetMigration, error) {
+	row := q.db.QueryRowContext(ctx, getUnfinishedAssetMigration)
+	var i AssetMigration
+	err := row.Scan(
+		&i.ID,
+		&i.OldConfigVersionID,
+		&i.NewConfigVersionID,
+		&i.Status,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.LastAttemptAt,
+		&i.FinishedAt,
+	)
+	return i, err
+}
+
 const getUser = `-- name: GetUser :one
 
 SELECT id, name, data_blob FROM users WHERE id = ?
@@ -552,6 +621,37 @@ func (q *Queries) InsertAsset(ctx context.Context, arg InsertAssetParams) (Asset
 		&i.Location,
 		&i.SizeBytes,
 		&i.Blob,
+	)
+	return i, err
+}
+
+const insertAssetMigration = `-- name: InsertAssetMigration :one
+INSERT INTO asset_migrations (
+    old_config_version_id, new_config_version_id, status, created_at
+) VALUES (?, ?, 'pending', ?)
+RETURNING id, old_config_version_id, new_config_version_id, status, last_error,
+          created_at, started_at, last_attempt_at, finished_at
+`
+
+type InsertAssetMigrationParams struct {
+	OldConfigVersionID int64
+	NewConfigVersionID int64
+	CreatedAt          int64
+}
+
+func (q *Queries) InsertAssetMigration(ctx context.Context, arg InsertAssetMigrationParams) (AssetMigration, error) {
+	row := q.db.QueryRowContext(ctx, insertAssetMigration, arg.OldConfigVersionID, arg.NewConfigVersionID, arg.CreatedAt)
+	var i AssetMigration
+	err := row.Scan(
+		&i.ID,
+		&i.OldConfigVersionID,
+		&i.NewConfigVersionID,
+		&i.Status,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.LastAttemptAt,
+		&i.FinishedAt,
 	)
 	return i, err
 }
@@ -838,7 +938,7 @@ func (q *Queries) ListAllUserConfigs(ctx context.Context) ([]UserConfig, error) 
 const listAssetVersionsByKey = `-- name: ListAssetVersionsByKey :many
 SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
 FROM assets
-WHERE key = ?
+WHERE key = ? AND location NOT LIKE 'pending://%'
 ORDER BY version ASC
 `
 
@@ -1062,6 +1162,7 @@ FROM assets a
 JOIN (
     SELECT key, MAX(version) AS version
     FROM assets
+    WHERE location NOT LIKE 'pending://%'
     GROUP BY key
 ) latest ON latest.key = a.key AND latest.version = a.version
 ORDER BY a.key
@@ -1396,6 +1497,37 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 	return items, nil
 }
 
+const recordAssetMigrationError = `-- name: RecordAssetMigrationError :one
+UPDATE asset_migrations
+SET status = 'running', last_attempt_at = ?, last_error = ?
+WHERE id = ?
+RETURNING id, old_config_version_id, new_config_version_id, status, last_error,
+          created_at, started_at, last_attempt_at, finished_at
+`
+
+type RecordAssetMigrationErrorParams struct {
+	LastAttemptAt int64
+	LastError     string
+	ID            int64
+}
+
+func (q *Queries) RecordAssetMigrationError(ctx context.Context, arg RecordAssetMigrationErrorParams) (AssetMigration, error) {
+	row := q.db.QueryRowContext(ctx, recordAssetMigrationError, arg.LastAttemptAt, arg.LastError, arg.ID)
+	var i AssetMigration
+	err := row.Scan(
+		&i.ID,
+		&i.OldConfigVersionID,
+		&i.NewConfigVersionID,
+		&i.Status,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.LastAttemptAt,
+		&i.FinishedAt,
+	)
+	return i, err
+}
+
 const renameSecret = `-- name: RenameSecret :exec
 UPDATE secrets SET name = ? WHERE name = ?
 `
@@ -1422,6 +1554,38 @@ type RenameUserConfigParams struct {
 func (q *Queries) RenameUserConfig(ctx context.Context, arg RenameUserConfigParams) error {
 	_, err := q.db.ExecContext(ctx, renameUserConfig, arg.Name, arg.Name_2)
 	return err
+}
+
+const startAssetMigration = `-- name: StartAssetMigration :one
+UPDATE asset_migrations
+SET status = 'running', started_at = CASE WHEN started_at = 0 THEN ? ELSE started_at END,
+    last_attempt_at = ?, last_error = ''
+WHERE id = ?
+RETURNING id, old_config_version_id, new_config_version_id, status, last_error,
+          created_at, started_at, last_attempt_at, finished_at
+`
+
+type StartAssetMigrationParams struct {
+	StartedAt     int64
+	LastAttemptAt int64
+	ID            int64
+}
+
+func (q *Queries) StartAssetMigration(ctx context.Context, arg StartAssetMigrationParams) (AssetMigration, error) {
+	row := q.db.QueryRowContext(ctx, startAssetMigration, arg.StartedAt, arg.LastAttemptAt, arg.ID)
+	var i AssetMigration
+	err := row.Scan(
+		&i.ID,
+		&i.OldConfigVersionID,
+		&i.NewConfigVersionID,
+		&i.Status,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.LastAttemptAt,
+		&i.FinishedAt,
+	)
+	return i, err
 }
 
 const updateAssetLocation = `-- name: UpdateAssetLocation :one

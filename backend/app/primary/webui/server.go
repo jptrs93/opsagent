@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -120,10 +119,9 @@ func webUITLSConfig(
 	}
 	acmeHosts := cs.MustLoadConfigStringValue(cfg.HttpsWeb.AcmeHosts)
 	acmeEmail := cs.MustLoadConfigStringValue(cfg.HttpsWeb.AcmeEmail)
-	certCacheDir := filepath.Join(ainit.StaticConfig.DataDir, ".certs")
 	certManager := &autocert.Manager{
 		Prompt:      autocert.AcceptTOS,
-		Cache:       autocert.DirCache(certCacheDir),
+		Cache:       autocert.DirCache(ainit.StaticConfig.ACMECacheDir),
 		HostPolicy:  autocert.HostWhitelist(stringu.ParseStringList(acmeHosts)...),
 		Email:       acmeEmail,
 		RenewBefore: 168 * time.Hour,

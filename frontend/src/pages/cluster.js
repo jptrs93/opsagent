@@ -129,7 +129,7 @@ function backupReplicationCard(statusS) {
             {class: "flex items-start justify-between gap-3 mb-3"},
             div(
                 h2({class: "font-semibold mb-1"}, "Backup replication"),
-                p({class: "text-sm text-gray-400"}, "Primary database replication state."),
+                p({class: "text-sm text-gray-400"}, "Primary database and large asset backup state."),
             ),
             () => backupStatusBadge(statusS.val),
         ),
@@ -139,7 +139,7 @@ function backupReplicationCard(statusS) {
 
 function backupStatusBadge(status) {
     const label = backupStatusLabel(status);
-    const klass = status?.error
+    const klass = status?.error || status?.assetError
         ? "bg-red-950 text-red-300 border-red-800"
         : status?.inSync
             ? "bg-green-950 text-green-300 border-green-800"
@@ -152,15 +152,16 @@ function backupStatusBadge(status) {
 }
 
 function backupStatusLabel(status) {
+    if (status?.error || status?.assetError) return "error";
+    if (status?.assetMigrationRunning) return status.assetTargetS3 ? "moving assets to S3" : "moving assets local";
     if (!status || !status.configured) return "not configured";
-    if (status.error) return "error";
     if (!status.running) return "not running";
     if (status.inSync) return "in sync";
     return "syncing";
 }
 
 function backupStatusDetails(status) {
-    if (!status || !status.configured) {
+    if ((!status || !status.configured) && !status?.assetMigrationRunning && !status?.assetError) {
         return p({class: "text-sm text-gray-400"}, "Backups are not configured.");
     }
     return div(
@@ -168,6 +169,11 @@ function backupStatusDetails(status) {
         detailCell("Local TXID", String(status.localTxid || 0), "backup-replication-local-txid"),
         detailCell("Remote TXID", String(status.remoteTxid || 0), "backup-replication-remote-txid"),
         detailCell("Last successful sync", formatTime(status.lastSuccessfulSyncAt), "backup-replication-last-sync"),
+        status.assetMigrationRunning
+            ? div({class: "md:col-span-3 text-amber-300 text-xs"},
+                `${status.assetPending || 0} large asset(s) waiting to move ${status.assetTargetS3 ? "to S3" : "to local storage"}.`)
+            : "",
+        status.assetError ? div({class: "md:col-span-3 text-red-300 text-xs break-words"}, status.assetError) : "",
         status.error ? div({class: "md:col-span-3 text-red-300 text-xs break-words", "data-testid": "backup-replication-error"}, status.error) : "",
     );
 }

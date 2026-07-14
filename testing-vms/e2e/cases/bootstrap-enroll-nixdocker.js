@@ -218,19 +218,10 @@ export const orderedCases = [
     },
   },
   {
-    id: 'large-asset-storage-configured',
-    title: 'configure large asset storage',
-    description: 'Creates object storage and configures large asset S3 settings.',
-    requires: ['worker-enrolled'],
-    async run(ctx) {
-      await configureLargeAssetStorage(ctx.page);
-    },
-  },
-  {
     id: 'large-asset-generated',
     title: 'generate large asset',
     description: 'Generates deterministic large binary content and records its SHA-256.',
-    requires: ['large-asset-storage-configured'],
+    requires: ['worker-enrolled'],
     async run(ctx) {
       ctx.largeAsset = generateLargeAsset();
     },
@@ -249,10 +240,19 @@ export const orderedCases = [
     },
   },
   {
+    id: 'large-asset-storage-configured',
+    title: 'configure large asset backup',
+    description: 'Enables backup and migrates the locally uploaded large asset to shared S3 storage.',
+    requires: ['large-asset-uploaded'],
+    async run(ctx) {
+      await configureLargeAssetStorage(ctx.page);
+    },
+  },
+  {
     id: 'large-asset-verification-deployment',
     title: 'create large asset verification deployment',
-    description: 'Creates a deployment that reads the externally stored large asset and checks its digest.',
-    requires: ['large-asset-uploaded'],
+    description: 'Creates a deployment that reads the S3-backed large asset and checks its digest.',
+    requires: ['large-asset-storage-configured'],
     async run(ctx) {
       await createNixDockerDeployment(ctx.page, {
         name: 'largeassetverify',

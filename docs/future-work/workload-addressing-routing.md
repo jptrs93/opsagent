@@ -1,389 +1,189 @@
-# Workload addressing and WireGuard routing options
-
-Design note comparing two possible cross-host addressing models for the built-in networking layer. This expands on [networking.md](networking.md) and [kata-networking.md](kata-networking.md).
-
-## Context
-
-The cluster has one generated IPv6 ULA `/48`. Workloads attach to each host through isolated network namespaces and veth pairs. Cross-host traffic is expected to use a host WireGuard mesh.
-
-The key design choice is whether a workload address should encode its current machine placement, or whether placement should remain routing state.
-
-Chosen direction:
-
-1. Start with flat stable workload identity addresses. In the first cross-host implementation, these logical addresses are also the addresses routed by WireGuard, so peer `AllowedIPs` contain workload `/128`s.
-2. Keep the internal model explicit about `logical_address`, `machine`, and endpoint `state`, so the first implementation does not permanently assume that logical addresses must always be the transport locator.
-3. If WireGuard allowed-ips churn becomes a scale limit, extend the design with implicit machine-scoped routing addresses and host-side logical-to-locator translation around WireGuard. DNS, status, and policy should continue to speak in logical workload addresses.
-4. Enforce policy in the logical address space: source anti-spoofing at the workload attachment boundary, destination ingress policy before delivery to a workload, same-space allow by default, and cross-space deny by default.
-
-The two base options are:
-
-1. Machine-scoped locator addresses: workload IPs live under a machine prefix.
-2. Flat stable workload identity addresses: workload IPs are derived from deployment identity and routing maps them to the current machine.
-
-## WireGuard constraint
-
-WireGuard `AllowedIPs` are prefix-based CIDR matches. They do not support arbitrary bit-pattern matches.
-
-For outbound packets, `AllowedIPs` answer:
-
-```
-destination prefix -> peer public key
-```
-
-For inbound packets, they also enforce source ownership:
-
-```
-peer public key -> allowed source prefixes
-```
-
-`AllowedIPs` can represent `fdxx:...:machine-42::/64` or `fdxx:...:workload-7/128`. It cannot represent "all addresses whose machine id bits are 42" unless those bits are a leading prefix.
-
-The common Go API supports appending allowed IPs to an existing peer, but removing or moving an entry generally means replacing the affected peer's full allowed IP list.
-
-## Option A: machine-scoped locator addresses
-
-Each enrolled machine receives a stable numeric machine id. The address layout puts machine id in high-order bits after the cluster prefix, so every machine owns a contiguous prefix.
-
-Example shape:
-
-```
-<ULA /48> : <machine id> : <deployment id> : <ordinal/run>
-```
-
-Example ownership:
-
-```
-machine A owns fdxx:xxxx:xxxx:000a::/64
-machine B owns fdxx:xxxx:xxxx:000b::/64
-```
-
-### Routing
-
-Each host programs local `/128` routes for workloads it runs:
-
-```
-fdxx:...:machine-B:deployment-7/128 -> dev od7s0
-```
-
-Each host programs WireGuard peers by machine prefix:
-
-```
-peer machine-A AllowedIPs = fdxx:...:000a::/64
-peer machine-B AllowedIPs = fdxx:...:000b::/64
-```
-
-When a new workload starts on machine B, other machines do not need WireGuard changes. The new address is already covered by machine B's prefix.
-
-When a workload moves from machine B to machine C, its address changes because the machine prefix changes. DNS and endpoint state must update to the new address.
-
-### DNS
-
-DNS must know current placement:
-
-```
-api.prod.internal -> fdxx:...:machine-B:deployment-7
-```
-
-If the workload moves:
-
-```
-api.prod.internal -> fdxx:...:machine-C:deployment-7
-```
-
-Clients with cached old addresses may fail until they re-resolve, unless the system adds a temporary forwarding/override mechanism.
-
-This is similar to Kubernetes pod IPs: pod IPs are locators, not durable identities. Kubernetes hides pod churn behind Services, ClusterIPs, EndpointSlices, and low-TTL DNS.
-
-### Network policy
-
-Network policy must track current endpoint addresses. If deployment A moves machines, the source/destination address set for deployment A changes.
-
-WireGuard proves a packet came from a machine prefix, not from the specific workload that should own a source address. Host-side attachment anti-spoofing is still required. Destination ingress policy should still evaluate logical workload identity, even though the routed address is placement-shaped.
-
-### Pros
-
-- Compact WireGuard state.
-- WireGuard config changes mostly when machines enroll, leave, or change endpoints.
-- Better scaling for tens or hundreds of thousands of workloads.
-- Route aggregation is natural and easy to debug.
-- Similar to Kubernetes node PodCIDR models.
-
-### Cons
-
-- Workload IP changes when the workload moves machines.
-- DNS and endpoint state must update on placement changes.
-- DNS caches and long-lived clients can observe stale IPs.
-- Deployment-level network policy churns with placement.
-- Stable per-instance IP semantics require an additional abstraction, such as a service VIP, proxy, or temporary route override.
-
-## Option B: flat stable workload identity addresses
-
-Workload addresses are derived from workload identity only. Machine placement is not part of the address.
-
-Current planned shape:
-
-```
-<ULA /48> : <kind> : <deployment id> : <field>
-```
-
-For example:
-
-```
-kind 0 = stable instance address, field = ordinal
-kind 2 = run-scoped address, field = run number
-```
-
-A deployment instance keeps the same stable address regardless of which machine currently runs it.
-
-### Routing
-
-Each host programs local `/128` routes for workloads it runs:
-
-```
-fdxx:...:deployment-7-instance-0/128 -> dev od7s0
-```
-
-Other hosts route cluster traffic into `wg0`, and WireGuard `AllowedIPs` map individual remote workload addresses to peers:
-
-```
-peer machine-B AllowedIPs =
-  fdxx:...:deployment-7-instance-0/128
-  fdxx:...:deployment-8-instance-0/128
-```
-
-When a workload is created, the hosting machine must become the owner of that workload's `/128` in other machines' WireGuard config.
-
-When a workload moves from machine B to machine C:
-
-```
-remove workload /128 from peer machine-B
-add workload /128 to peer machine-C
-```
-
-The workload address does not change.
-
-### DNS
-
-DNS can derive stable addresses without placement:
-
-```
-api.prod.internal -> fdxx:...:deployment-7-instance-0
-```
-
-If the workload moves, DNS does not need to change for that stable instance address. Routing ownership changes instead.
-
-### Network policy
-
-Network policy is cleaner because address identity is stable.
-
-Example:
-
-```
-deployment B allows deployment A
-```
-
-can compile to destination-side host filters that match deployment-derived source and destination prefixes or sets. Moving A or B between machines does not necessarily require policy changes.
-
-WireGuard still does not replace network policy. Same-host traffic bypasses WireGuard, so host-side nftables or eBPF filters are still needed. WireGuard only provides cross-host machine/source ownership. Attachment anti-spoofing remains mandatory because destination policy trusts the logical source address.
-
-### Pros
-
-- Workload stable addresses survive machine moves.
-- DNS is simpler and less sensitive to placement churn.
-- Cached stable addresses continue to work after routing converges.
-- Deployment-level network policy can be identity-based rather than placement-based.
-- Cross-host anti-spoofing can be tied to exact workload `/128` ownership.
-
-### Cons
-
-- WireGuard `AllowedIPs` can grow to one `/128` per remote workload.
-- Workload creation, deletion, and moves can require WireGuard config updates across machines.
-- Removing or moving one address generally requires replacing the affected peer's allowed IP list.
-- Large clusters may have significant control-plane update cost.
-- Machine drain or mass rollout can create a large burst of WireGuard reconciliation work.
-
-## Scale implications
-
-With 10,000 workloads in the flat model, each machine may have thousands of remote `/128` entries in WireGuard `AllowedIPs`.
-
-Steady-state packet lookup is not expected to be a linear scan; WireGuard keeps an allowed-ips lookup structure. The larger concern is update cost:
-
-- large netlink messages when replacing a peer's allowed IP list
-- kernel trie updates
-- primary netmap fanout
-- worker reconciliation latency
-- memory usage for many prefixes
-
-With machine-scoped prefixes, WireGuard state is proportional to machine count instead of workload count. Workload churn moves to DNS, endpoint state, and policy state instead.
-
-The first implementation should still use the flat model because it is simpler and keeps logical workload identity, DNS, and policy semantics aligned. It should be implemented as a routing strategy, not as an assumption baked into every layer.
-
-## Hybrid option: home prefixes plus overrides
-
-A possible compromise is to assign every machine a home prefix, allocate stable workload addresses from the workload's home machine prefix, and use more-specific `/128` WireGuard overrides only when a workload runs away from its home machine.
-
-Normal case:
-
-```
-peer machine-A AllowedIPs = fdxx:...:machine-A::/64
-peer machine-B AllowedIPs = fdxx:...:machine-B::/64
-```
-
-Moved workload:
-
-```
-deployment-7 address is inside machine-A home prefix
-deployment-7 currently runs on machine-B
-
-peer machine-A AllowedIPs = fdxx:...:machine-A::/64
-peer machine-B AllowedIPs = fdxx:...:machine-B::/64
-                            fdxx:...:machine-A:deployment-7/128
-```
-
-WireGuard uses longest-prefix match, so the `/128` override wins over the home `/64`.
-
-This keeps WireGuard compact in the common case while allowing stable addresses across moves. It adds persistent machine IDs, home-prefix assignment, deployment address allocation/home metadata, and override reconciliation.
-
-This hybrid is not the preferred extension path at the moment. It introduces long-lived allocation/home state and still needs cleanup rules to prevent permanent `/128` override fragmentation.
-
-## Future extension: implicit locator addresses
-
-If flat `/128` WireGuard ownership becomes too expensive, add a host-side identity/locator translation layer while preserving flat logical addresses as the product-facing model.
-
-Each workload has:
-
-```
-logical address = deployment-scoped stable identity
-locator address = machine-scoped routing address derived from current placement
-```
-
-Example:
-
-```
-logical L_B = fdxx:...:deployment-B
-locator R_B = fdxx:...:machine-B:deployment-B
-```
-
-WireGuard then routes only machine prefixes:
-
-```
-peer machine-A AllowedIPs = fdxx:...:machine-A::/64
-peer machine-B AllowedIPs = fdxx:...:machine-B::/64
-```
-
-The host translates packets around the cross-host boundary.
-
-Outbound on machine A:
-
-```
-workload A sends:  src=L_A dst=L_B
-host maps:         src=L_A -> R_A, dst=L_B -> R_B
-WireGuard routes:  dst=R_B via machine-B prefix
-```
-
-Inbound on machine B:
-
-```
-WireGuard receives: src=R_A dst=R_B
-host maps:          src=R_A -> L_A, dst=R_B -> L_B
-workload B sees:    src=L_A dst=L_B
-```
-
-The full `L -> R` mapping does not necessarily need to be distributed as full addresses. If `R` is derivable from `L` plus current machine id, the distributed placement state can be:
-
-```
-logical address L_B -> current machine B
-```
-
-Then each host can derive `R_B` locally.
-
-This extension moves churn from WireGuard allowed-ips replacement into a translation map that can be updated one endpoint at a time. It also keeps DNS and network policy on stable logical addresses.
-
-### Policy placement with locator translation
-
-If locator addresses are introduced, policy must stay above the routing translation layer.
-
-Outbound on the source machine:
-
-```
-workload emits:       src=L_A dst=L_B
-source anti-spoof:    verify L_A belongs to this attachment
-optional egress rule: evaluate L_A -> L_B in logical space
-translation:          L_A/L_B -> R_A/R_B
-WireGuard routing:    route R_B by machine prefix
-```
-
-Inbound on the destination machine:
-
-```
-WireGuard receives:   src=R_A dst=R_B
-reverse translation:  R_A/R_B -> L_A/L_B
-ingress policy:       allow same-space, explicit cross-space, or system traffic
-workload receives:    src=L_A dst=L_B
-```
-
-The policy engine can share endpoint state with the translation engine, but policy rules must not match locator addresses. Locator addresses are topology and routing state; logical addresses plus workload metadata are identity.
-
-The default policy remains:
-
-- Deny workload-to-workload traffic first.
-- Allow same-space workload-to-workload traffic on all protocols and ports.
-- Deny cross-space traffic unless an explicit policy allows it.
-- Allow internet egress by default.
-
-Possible implementation mechanisms:
-
-- nftables maps for logical-to-locator address translation.
-- eBPF maps at tc or another host datapath hook.
-- Encapsulation instead of rewrite, preserving the inner logical packet and routing an outer machine-scoped packet.
-
-The extension is intentionally deferred. It should be added only if benchmarks show WireGuard `/128` ownership updates are a real bottleneck, or if network policy implementation naturally creates the required logical-to-locator maps.
-
-Design constraints for the first flat implementation:
-
-- Endpoint state should carry logical address and current machine separately.
-- DNS should return logical addresses, not assume they are placement locators.
-- Network policy should be expressed and stored in logical workload terms.
-- Source anti-spoofing should validate logical source addresses at each workload attachment.
-- Destination ingress policy should be compiled from logical source/destination identity and metadata, not from machine placement.
-- The WireGuard reconciler should be isolated as one routing backend.
-- Code should avoid naming that makes logical address and routed locator permanently equivalent.
-
-## Space ids in address derivation
-
-Encoding space id into the logical address layout was considered because it would make same-space policy easy to express as prefix rules.
-
-Example shape:
-
-```
-<ULA /48> : <space id> : <kind/deployment/ordinal bits>
-```
-
-This is not the preferred v1 layout. Space membership should be compiled into nftables sets from authoritative endpoint state instead. That keeps deployment addresses stable if a deployment changes spaces and avoids making space-id bit allocation part of the address ABI.
-
-A per-space prefix can be reconsidered later if spaces become hard tenant domains and changing a deployment's space is intentionally treated as an address-changing redeploy. Even with per-space prefixes, attachment anti-spoofing and destination policy remain mandatory; address shape is not the security boundary.
+# Workload addressing and routing
 
 ## Decision
 
-Use Option B first: flat stable workload identity addresses routed directly by WireGuard `/128` ownership.
+OpenDeploy separates stable logical workload identity from cross-node routing location without allocating a second address. One cluster RFC 4193 ULA `/48` uses this fixed layout:
 
-This gives the simplest initial cross-host model:
-
-```
-DNS returns logical workload addresses
-WireGuard AllowedIPs map logical /128s to current machines
-network policy is defined over logical workload identities
-host attachment anti-spoofing proves packets came from the claimed logical source
+```text
+<ULA /48> : <node:17> : <space:17> : <deployment:26> : <kind:4> : <field:16>
 ```
 
-If scale testing shows WireGuard update churn is too costly, evolve to implicit locator addresses and translation rather than switching product semantics to machine-scoped workload IPs.
+Node `0` means logical identity. A nonzero node value means a routing locator. Cross-node translation fills the source and destination node fields before WireGuard and zeros both fields after WireGuard. Space, deployment, kind, and field remain bit-for-bit unchanged.
 
-## Open questions
+This replaces the earlier plan to route stable logical `/128`s directly through WireGuard. The direct model made WireGuard configuration and reconciliation proportional to workload count and caused every workload placement change to update peer `AllowedIPs`. The selected model keeps WireGuard routing proportional to node membership or bounded routing next hops.
 
-- What target scale should the first cross-host implementation support: 1,000, 10,000, or 100,000 workloads?
-- How often do we expect cross-machine moves after initial placement?
-- Are stable per-instance IPs a product guarantee, or are stable DNS/service names enough?
-- Should the first implementation avoid service VIPs entirely, or adopt a Kubernetes-like Service abstraction earlier?
-- How expensive is WireGuard peer allowed-ips replacement at 10,000 and 100,000 `/128` entries on target kernels?
-- Which translation mechanism is best if implicit locator addresses become necessary: nftables maps, eBPF, or encapsulation?
-- At what scale should policy and translation state move from nftables maps to eBPF maps, if ever?
+## Bit allocation
+
+| Field | Bits | Values | Meaning |
+|---|---:|---:|---|
+| Node | 17 | 131,072 | `0` is logical; `1..131071` are routing nodes |
+| Space | 17 | 131,072 | durable tenant/security domain |
+| Deployment | 26 | 67,108,864 | stable deployment id; never recycled |
+| Kind | 4 | 16 | deployment address type |
+| Field | 16 | 65,536 | kind-specific ordinal or token |
+
+Kinds:
+
+| Kind | Meaning | Field |
+|---|---|---|
+| `0` | Stable instance | instance ordinal |
+| `1` | Virtual service | `0` |
+| `2` | Temporary rollover run | low 16 bits of run number |
+| `3`-`15` | Reserved | undefined |
+
+Run values may wrap because only concurrently live temporary runs must be distinct. Instance ordinals do not wrap. Space and deployment ids are part of the address ABI and must remain in range.
+
+## Prefix hierarchy
+
+Because node precedes space, WireGuard can aggregate every locator on one node while logical policy can aggregate every workload in one space:
+
+```text
+Cluster ULA                                      /48
+├── Logical root (node = 0)                      /65
+│   └── Space                                    /82
+│       └── Deployment                           /108
+│           └── Kind                             /112
+│               └── Address                      /128
+└── Locator root for each nonzero node           /65
+    └── Space and unchanged workload identity
+```
+
+WireGuard needs one locator prefix per direct node peer or routed next hop:
+
+```text
+peer node-A AllowedIPs = <ULA + node-A>/65
+peer node-B AllowedIPs = <ULA + node-B>/65
+```
+
+It does not need one `/128` per workload or one prefix per `(node, space)` pair.
+
+## Identity semantics
+
+A logical instance address is derived from:
+
+```text
+(cluster prefix, node=0, space, deployment, kind=instance, ordinal)
+```
+
+It survives process restarts, deployment upgrades, and rescheduling to another node. Space is deliberately part of identity: a space is a security/tenant domain, not a folder. Moving a deployment between spaces changes all of its logical addresses and terminates existing connections. The old address must not forward into the new space.
+
+DNS, endpoint status, policy, logs, and the product API use logical addresses only. Locator addresses are internal dataplane values and never appear to workloads.
+
+## Translation
+
+Given logical source `L_A`, logical destination `L_B`, source node `A`, and placement `L_B -> B`:
+
+```text
+outbound source:      fill node(L_A) with A
+outbound destination: fill node(L_B) with B
+inbound source:       zero node(locator_A)
+inbound destination:  zero node(locator_B)
+```
+
+Example:
+
+```text
+workload emits:       src=(0, space 10, deployment 5, instance 0)
+                      dst=(0, space 20, deployment 9, instance 0)
+
+WireGuard transports: src=(node 100, space 10, deployment 5, instance 0)
+                      dst=(node 200, space 20, deployment 9, instance 0)
+
+workload receives:    src=(0, space 10, deployment 5, instance 0)
+                      dst=(0, space 20, deployment 9, instance 0)
+```
+
+The source host still needs placement state mapping a logical destination to its current node. The address design removes reverse identity reconstruction state: space and workload identity are retained in the locator, so inbound translation only zeros the node fields.
+
+Translation is stateless but not checksum-free. Replacing IPv6 addresses requires incremental updates for TCP, UDP, and ICMPv6 pseudo-header checksums. The implementation must also handle fragments and ICMPv6 errors that embed translated packet headers. Encapsulation remains a fallback if rewriting proves too complex, but it adds another IPv6 header and lowers effective MTU.
+
+## Packet walk
+
+Cross-node workload traffic follows this order:
+
+1. The packet enters the source host from a workload veth or TAP with logical node-zero addresses.
+2. Attachment anti-spoofing verifies that the logical source belongs to that workload.
+3. Optional egress policy evaluates logical source and destination identity.
+4. The placement map supplies the destination network node id.
+5. The host fills source and destination node fields and adjusts transport checksums.
+6. WireGuard routes the destination locator by node `/65` and authenticates the source node `/65`.
+7. The destination host verifies that the destination node field names itself and that the endpoint is locally placed.
+8. The host zeros both node fields and restores affected checksums and embedded headers.
+9. Destination ingress policy evaluates the restored logical addresses.
+10. A local `/128` route delivers the packet to the destination workload.
+
+Same-node traffic remains logical throughout and must hit equivalent attachment and destination policy.
+
+WireGuard proves which node sent a locator, not which workload on that node originated it. Attachment anti-spoofing protects against untrusted workloads. If compromised-node impersonation is in scope, receivers additionally need authoritative `(node, logical workload)` placement validation for source identities.
+
+## Policy
+
+The default destination policy is:
+
+```text
+deny workload traffic
+allow source from destination space /82
+allow explicit cross-space deployment/port/protocol rules
+allow explicit OpenDeploy system paths
+```
+
+The `/82` makes same-space membership independent of workload churn. Explicit policy can match a deployment's `/108` across instance, service, and run kinds. Prefix structure is an optimization and observability aid; attachment anti-spoofing and destination policy remain the security boundary.
+
+Space moves are security-domain migrations:
+
+1. Remove the old endpoint from readiness and DNS.
+2. Drain and stop the old logical identity.
+3. Remove old routes and policy state.
+4. Start the deployment with the new space-derived address.
+5. Publish the new endpoint and DNS state.
+
+The migration must not preserve old-address forwarding because that would retain reachability granted by the old space.
+
+## Control-plane state
+
+WireGuard state changes for node membership, key rotation, endpoint changes, or routing-topology changes. It does not change for workload creation, deletion, restart, space move, or placement move.
+
+Placement state still changes with workload topology:
+
+```text
+(logical address or deployment/ordinal) -> network node id
+```
+
+At 100,000 deployments, globally replicating placement state to 20,000 nodes can itself be expensive. State should be filtered by spaces and explicit policies relevant to local workloads, distributed incrementally, and sharded when required. A single very large space remains the worst case because every member may legitimately contact every other member.
+
+## Node scale
+
+The 17-bit field supports 131,071 nonzero routing node ids, but address capacity does not make a 20,000-node full WireGuard mesh viable:
+
+```text
+20,000 * 19,999 ~= 400 million directed peer relationships
+```
+
+The routing layer must permit bounded-degree topology at that scale, such as redundant site/region gateways, while retaining the same destination node `/65`. The next WireGuard peer may be the destination node in a small cluster or a gateway in a large cluster; the workload and locator address ABI does not change.
+
+Network node ids are stable numeric routing identities. Node `0` is permanently reserved for logical addresses. If persisted database node ids are used directly, enrollment must reject values above 131,071. If ids are recycled later, reuse requires complete removal of the old peer and a quarantine/convergence rule; stale packets reaching a reused node must still fail destination-placement validation.
+
+## Current implementation boundary
+
+Implemented now:
+
+- The fixed address packing and bounds.
+- Logical node-zero instance, service, and run derivation.
+- Space-dependent logical addresses.
+- Node `/65`, space `/82`, and deployment `/108` prefix helpers.
+- A node-field fill/zero helper that preserves all lower identity bits.
+
+Not implemented yet:
+
+- Network node-id enrollment/distribution.
+- WireGuard peer and next-hop reconciliation.
+- Placement-map distribution.
+- Packet translation and checksum handling.
+- Cross-node source/destination validation.
+- Same-space and explicit cross-space policy enforcement.
+
+## Migration
+
+The cluster ULA `/48` remains unchanged. The layout replaces the earlier kind/deployment/field format before any user deployment used virtual mode. Host-mode deployments are unaffected.
+
+Existing per-machine `opendeploy-net` deployments are the only virtual-mode workloads. They may remain attached to an old-address network namespace immediately after the agent upgrade. Redeploy each one to the new OpenDeploy version; normal container replacement tears down the old namespace and derives the correct space-0 logical address. No automatic address migration or database rewrite is required.

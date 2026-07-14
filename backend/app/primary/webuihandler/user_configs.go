@@ -44,6 +44,8 @@ func (h *Handler) PostV1UserConfigsRename(ctx apigen.Context, req *apigen.UserCo
 }
 
 func (h *Handler) PostV1UserConfigsDelete(ctx apigen.Context, req *apigen.UserConfigDeleteRequest) error {
+	unlockReferences := h.ConfigService.LockReferences()
+	defer unlockReferences()
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return UserConfigNameRequiredErr

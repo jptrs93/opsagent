@@ -116,7 +116,7 @@ User-managed configs and encrypted secrets are immutable versioned rows. Saving 
 
 `POST /v1/secrets/reveal` is the only user-facing API that returns decrypted secret plaintext. It accepts `SecretRevealRequest.id` for exact-version reveal; list/state APIs return metadata only.
 
-Assets are versioned plaintext file blobs stored in `assets`. Rows are immutable; setting an existing key creates a new version with a numeric asset id. List and state stream APIs expose only `AssetMeta`, not blob content. Blobs up to 10 MiB are stored inline; larger blobs are stored in the configured large-asset S3 bucket and referenced by `location`. Workers stream required asset blobs on demand over the mTLS cluster asset endpoint during preparation.
+Assets are versioned plaintext file blobs recorded in `assets`. Rows are immutable; setting an existing key creates a new version with a numeric asset id. List and state stream APIs expose only `AssetMeta`, not blob content. Blobs up to and including 10 MiB are stored inline. Larger blobs use local primary storage while Backup is disabled and S3 while Backup is enabled; changing Backup starts an asynchronous placement transition. Storage placement is transparent to these asset endpoints. Workers stream required asset blobs on demand over the mTLS cluster asset endpoint during preparation. See [Assets](assets.md) for storage modes, transition status, retention, restore, and compatibility.
 
 ### Enrollment
 | Method | Path | Request | Response | Policy |

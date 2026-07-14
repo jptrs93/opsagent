@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/pubsubu"
@@ -15,8 +16,14 @@ import (
 )
 
 type Service struct {
-	Storage *sqlite.PrimaryStorage
-	Subs    *pubsubu.PubSub[apigen.Config]
+	Storage                *sqlite.PrimaryStorage
+	Subs                   *pubsubu.PubSub[apigen.Config]
+	AssetOperationMu       sync.Locker
+	ValidateSettingsUpdate func(current, next apigen.Settings) error
+	mu                     sync.Mutex
+	referenceMu            sync.Mutex
+	versionID              int64
+	migrationWake          chan struct{}
 }
 
 type Loader interface {
@@ -57,7 +64,7 @@ func DefaultSettings(static ainit.StaticConfiguration) *apigen.Settings {
 			S3Endpoint:        apigen.StringSetting{Value: ""},
 		},
 		LargeAssets: apigen.LargeAssetsSettings{
-			S3Enabled:         apigen.BoolSetting{Value: false},
+			UseSeparateS3:     apigen.BoolSetting{Value: false},
 			S3AccessKeyID:     apigen.StringSetting{Value: ""},
 			S3SecretAccessKey: apigen.SecretRef{},
 			S3Bucket:          apigen.StringSetting{Value: ""},
@@ -89,8 +96,12 @@ func NewService(store *sqlite.PrimaryStorage) (*Service, error) {
 }
 
 func NewServiceWithInitialConfigHook(store *sqlite.PrimaryStorage, hook InitialConfigHook) (*Service, error) {
-	s := &Service{Storage: store, Subs: &pubsubu.PubSub[apigen.Config]{}}
-	cfg, err := s.loadOrInitConfig(hook)
+	s := &Service{
+		Storage:       store,
+		Subs:          &pubsubu.PubSub[apigen.Config]{},
+		migrationWake: make(chan struct{}, 1),
+	}
+	cfg, versionID, err := s.loadOrInitConfig(hook)
 	if err != nil {
 		return nil, err
 	}
@@ -98,10 +109,12 @@ func NewServiceWithInitialConfigHook(store *sqlite.PrimaryStorage, hook InitialC
 	// is immutable thereafter (addresses are pure functions of it).
 	if len(cfg.NetworkUlaPrefix) == 0 {
 		cfg.NetworkUlaPrefix = network.GeneratePrefix().Bytes()
-		if _, err := s.Storage.AppendOpenDeploySettings(cfg.Encode()); err != nil {
+		versionID, err = s.Storage.AppendOpenDeploySettings(cfg.Encode())
+		if err != nil {
 			return nil, fmt.Errorf("persisting generated network ULA prefix: %w", err)
 		}
 	}
+	s.versionID = versionID
 	s.Subs.Notify(cfg)
 	return s, nil
 }
@@ -123,7 +136,7 @@ func (s *Service) Snapshot() apigen.Config {
 	return s.Subs.Value()
 }
 
-func (s *Service) loadOrInitConfig(hook InitialConfigHook) (apigen.Config, error) {
+func (s *Service) loadOrInitConfig(hook InitialConfigHook) (apigen.Config, int64, error) {
 	var res apigen.Config
 	r, err := s.Storage.FetchLatestOpenDeployConfig()
 	if err != nil {
@@ -131,38 +144,96 @@ func (s *Service) loadOrInitConfig(hook InitialConfigHook) (apigen.Config, error
 			cfg := DefaultConfig(ainit.StaticConfig)
 			if hook != nil {
 				if hookErr := hook(cfg); hookErr != nil {
-					return res, fmt.Errorf("initial config hook: %w", hookErr)
+					return res, 0, fmt.Errorf("initial config hook: %w", hookErr)
 				}
 			}
-			if _, appendErr := s.Storage.AppendOpenDeploySettings(cfg.Encode()); appendErr != nil {
-				return res, fmt.Errorf("AppendOpenDeploySettings: %w", appendErr)
+			id, appendErr := s.Storage.AppendOpenDeploySettings(cfg.Encode())
+			if appendErr != nil {
+				return res, 0, fmt.Errorf("AppendOpenDeploySettings: %w", appendErr)
 			}
-			return normalizeConfig(*cfg), nil
+			return normalizeConfig(*cfg), id, nil
 		} else {
-			return res, fmt.Errorf("FetchLatestOpenDeployConfig: %w", err)
+			return res, 0, fmt.Errorf("FetchLatestOpenDeployConfig: %w", err)
 		}
 	}
 	cfg, err := apigen.DecodeConfig(r.ConfigBlob)
 	if err != nil {
-		return res, fmt.Errorf("DecodeConfig: %w", err)
+		return res, 0, fmt.Errorf("DecodeConfig: %w", err)
 	}
-	return normalizeConfig(*cfg), nil
+	return normalizeConfig(*cfg), r.ID, nil
 }
 
 func (s *Service) UpdateSettings(settings apigen.Settings) error {
+	if s.AssetOperationMu != nil {
+		s.AssetOperationMu.Lock()
+		defer s.AssetOperationMu.Unlock()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	settings = NormalizeSettings(settings)
 	cfg := s.Snapshot()
+	if s.ValidateSettingsUpdate != nil {
+		if err := s.ValidateSettingsUpdate(cfg.Settings, settings); err != nil {
+			return err
+		}
+	}
+	oldBackupEnabled, err := s.LoadConfigBoolValue(cfg.Settings.Backup.Enabled)
+	if err != nil {
+		return fmt.Errorf("load current Backup.Enabled: %w", err)
+	}
+	newBackupEnabled, err := s.LoadConfigBoolValue(settings.Backup.Enabled)
+	if err != nil {
+		return fmt.Errorf("load new Backup.Enabled: %w", err)
+	}
 	cfg.Settings = settings
-	return s.saveAndNotify(cfg)
+	cfg = normalizeConfig(cfg)
+	versionID, migration, err := s.Storage.AppendOpenDeploySettingsWithAssetMigration(cfg.Encode(), oldBackupEnabled != newBackupEnabled)
+	if err != nil {
+		return err
+	}
+	s.versionID = versionID
+	s.Subs.Notify(cfg)
+	if migration != nil {
+		select {
+		case s.migrationWake <- struct{}{}:
+		default:
+		}
+	}
+	return nil
 }
 
-func (s *Service) saveAndNotify(cfg apigen.Config) error {
+func (s *Service) saveAndNotifyLocked(cfg apigen.Config) error {
 	cfg = normalizeConfig(cfg)
-	if _, err := s.Storage.AppendOpenDeploySettings(cfg.Encode()); err != nil {
+	versionID, err := s.Storage.AppendOpenDeploySettings(cfg.Encode())
+	if err != nil {
 		return fmt.Errorf("AppendOpenDeploySettings: %w", err)
 	}
+	s.versionID = versionID
 	s.Subs.Notify(cfg)
 	return nil
+}
+
+func (s *Service) VersionID() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.versionID
+}
+
+func (s *Service) AssetMigrationWake() <-chan struct{} {
+	return s.migrationWake
+}
+
+func (s *Service) LockReferences() func() {
+	s.referenceMu.Lock()
+	return s.referenceMu.Unlock
+}
+
+func (s *Service) UpdateSettingsInternal(settings apigen.Settings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cfg := s.Snapshot()
+	cfg.Settings = NormalizeSettings(settings)
+	return s.saveAndNotifyLocked(cfg)
 }
 
 func (s *Service) GetMasterPasswordHash() (string, error) {
@@ -170,9 +241,11 @@ func (s *Service) GetMasterPasswordHash() (string, error) {
 }
 
 func (s *Service) SetMasterPasswordHash(hash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	cfg := s.Snapshot()
 	cfg.MasterPasswordHash = hash
-	return s.saveAndNotify(cfg)
+	return s.saveAndNotifyLocked(cfg)
 }
 
 func (s *Service) MustLoadConfigStringValue(v apigen.StringSetting) string {

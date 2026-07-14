@@ -42,23 +42,34 @@ Virtual networking supports ROLLOVER without host-port bind contention because c
 
 ## Addressing
 
-Addresses are pure functions of the ULA prefix and deployment identity. There is no IPAM allocator.
+Addresses are pure functions of the ULA prefix, space, deployment, kind, and field. There is no workload IPAM allocator.
 
 The IPv6 layout after the `/48` prefix is:
 
 ```text
-<kind:16> : <deployment id:32> : <field:32>
+<node:17> : <space:17> : <deployment:26> : <kind:4> : <field:16>
 ```
 
-Current routed kinds:
+Node `0` identifies the logical address applications, DNS, endpoint status, and policy use. Nonzero node values are reserved for the future cross-machine locator translation described in `docs/future-work/workload-addressing-routing.md`; the current machine-local implementation only creates node-zero logical addresses.
+
+The resulting logical prefix hierarchy is:
+
+- Cluster: `/48`.
+- Logical address root (`node = 0`): `/65`.
+- Space: `/82`.
+- Deployment across every kind and field: `/108`.
+- Kind: `/112`.
+- Individual address: `/128`.
+
+Current kinds:
 
 - Kind `0`: stable instance address, field is the instance ordinal. Only ordinal `0` exists today.
+- Kind `1`: service address, currently unrouted.
 - Kind `2`: run-scoped address used as a rollover candidate's preferred outbound source during warmup.
 
-Reserved kinds:
+Kinds `3` through `15` are reserved. The hard address-layout limits are 131,071 nonzero node ids, 131,072 spaces, 67,108,864 deployment ids, 16 kinds, and 65,536 field values per kind. Run fields may wrap because only concurrently live temporary runs must be distinct; stable instance ordinals do not wrap.
 
-- Kind `1`: service address, currently unrouted.
-- Kind `3`: machine mesh address, currently unrouted.
+Space is part of logical network identity. Moving a deployment to another space changes its instance, service, and run addresses and is therefore a connection-breaking security-domain migration. Moving an instance between nodes does not change its logical address.
 
 ## Runtime Wiring
 
@@ -90,6 +101,12 @@ Virtual-mode ROLLOVER uses the route-flip model:
 This avoids binding conflicts on published ports. Existing TCP connections to the old container can still break on promotion; ingress-level graceful handoff is part of future work.
 
 The run-scoped address is not the address clients use after promotion. It exists so candidate warmup calls do not appear to come from the stable service identity before the candidate is active. Preassigning the stable address as non-preferred lets promotion avoid mutating the container netns; OpenDeploy only flips the host route for the stable address.
+
+## Address Layout Migration
+
+The node/space/deployment/kind/field layout replaced the earlier kind/deployment/field layout before user virtual-mode deployments existed. The persisted cluster ULA `/48` does not change. Existing host-mode deployments are unaffected.
+
+The only pre-existing virtual-mode workload is the per-machine `opendeploy-net` internal deployment in space `0`. An agent can reattach its old container and network namespace across an upgrade, so each `opendeploy-net` deployment must be redeployed to the new OpenDeploy version after upgrading. The normal deployment replacement tears down the old namespace and recreates it with the newly derived address; no database or prefix migration is required.
 
 ## Future Ingress Shape
 

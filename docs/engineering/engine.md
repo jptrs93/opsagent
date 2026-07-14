@@ -66,6 +66,12 @@ Asset, secret, and config preparation dependencies are grouped in one instance-o
 Prepare output is written to `{PrepareOutputDir}/{deploymentID}/{version}.log`.
 OpenDeploy-generated entries use `==> message` and failures use `==> ERROR: message`; subprocess output is streamed unchanged between those entries.
 
+## Filesystem layout
+
+`ainit` derives and creates the fixed primary/secondary runtime roots before opening databases or starting engine components. These include the asset cache, local large-asset store, Git cache parents, netproxy state directory, readiness and resolver roots, worker TLS directory, ACME cache, releases, volumes, and build/run log roots. Dataplane only derives these paths because its netproxy directory is mounted read-only.
+
+Operations continue to create dynamic descendants whose names or ownership are runtime-specific: deployment log directories, release versions, Git repositories and worktrees, deployment volumes, readiness run directories, and generated resolver directories. Code using a fixed root assumes `ainit` has already created it.
+
 ## Runners
 
 `Runner` remains a small interface so internal and future runner variants can coexist:

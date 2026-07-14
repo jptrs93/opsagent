@@ -26,7 +26,7 @@ const fmtSize = (n) => {
 const assetRefMatches = (assetKey, assetIDs, ref) => {
     if (!ref) return false;
     const refAssetId = Number(ref.assetId || 0);
-    if (refAssetId && assetIDs.has(refAssetId)) return true;
+    if (refAssetId) return assetIDs.has(refAssetId);
     return Boolean(assetKey && ref.asset === assetKey);
 };
 
@@ -466,7 +466,7 @@ export function assetsPage() {
             {class: "text-input flex-1 min-h-0 flex items-center justify-center text-center text-sm text-gray-400"},
             div(
                 p({class: "font-medium text-gray-300"}, "This asset is too large to show."),
-                p({class: "text-xs text-gray-500 mt-1"}, "Large asset content is stored externally and is still available for deployment mounts."),
+                p({class: "text-xs text-gray-500 mt-1"}, "The full content remains available for deployment mounts."),
             ),
         ) : textarea({
             class: "text-input font-mono text-sm flex-1 min-h-0 resize-none leading-relaxed",
@@ -477,7 +477,7 @@ export function assetsPage() {
         }),
         div({class: "flex items-center justify-between gap-3"},
             p({class: "text-xs text-gray-500"}, () => draftLarge.val
-                ? `${fmtSize(draftSizeBytes.val)} stored externally`
+                ? `${fmtSize(draftSizeBytes.val)} large asset`
                 : `${encoder.encode(draftContent.val).length} bytes inline`),
             div({class: "flex items-center gap-2"},
                 smallBtn("Discard", () => {
