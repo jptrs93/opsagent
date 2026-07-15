@@ -12,6 +12,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
+	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
@@ -36,6 +37,7 @@ type Session struct {
 	sessCtx       context.Context
 	cancel        context.CancelFunc
 	machine       string
+	predicate     storage.DeploymentPredicate
 	store         *sqlite.PrimaryStorage
 	networkPrefix network.Prefix
 
@@ -56,11 +58,12 @@ type logChunk struct {
 	end    bool
 }
 
-func newSession(sessCtx context.Context, cancel context.CancelFunc, machine string, store *sqlite.PrimaryStorage) *Session {
+func newSession(sessCtx context.Context, cancel context.CancelFunc, machine string, predicate storage.DeploymentPredicate, store *sqlite.PrimaryStorage) *Session {
 	return &Session{
 		sessCtx:    sessCtx,
 		cancel:     cancel,
 		machine:    machine,
+		predicate:  predicate,
 		store:      store,
 		outbox:     make(chan *apigen.MsgToWorker, outboxSize),
 		logStreams: make(map[string]chan logChunk),
@@ -86,7 +89,7 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 	defer s.cancel()
 	defer s.closeAllLogStreams()
 
-	snapshot, updatesCh, unsubUpdates := s.store.MustFetchSnapshotAndSubscribe(s.machine)
+	snapshot, updatesCh, unsubUpdates := s.store.MustFetchSnapshotAndSubscribe(s.predicate)
 	defer unsubUpdates()
 	items := make([]*apigen.DeploymentWithStatus, 0, len(snapshot))
 	for i := range snapshot {
@@ -208,7 +211,7 @@ func (s *Session) handleStatusWrite(st *apigen.DeploymentStatus) {
 	if st == nil || st.DeploymentID == 0 {
 		return
 	}
-	if !buildAllowedRefs(s.store.FetchDeploymentSnapshot(s.machine)).deploymentAllowed(st.DeploymentID) {
+	if !buildAllowedRefs(s.store.FetchDeploymentSnapshot(s.predicate)).deploymentAllowed(st.DeploymentID) {
 		slog.Warn("rejecting cross-machine worker status write", "machine", s.machine, "deployment_id", st.DeploymentID)
 		return
 	}

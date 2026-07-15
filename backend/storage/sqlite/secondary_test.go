@@ -45,7 +45,7 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 
 	// Reopen: loadCache must read everything back from disk.
 	store2 := NewSecondaryStorage(dbPath)
-	got, _, unsub := store2.MustFetchSnapshotAndSubscribe("m1")
+	got, _, unsub := store2.MustFetchSnapshotAndSubscribe(nil)
 	defer unsub()
 	if len(got) != 1 {
 		t.Fatalf("expected 1 deployment for m1, got %d", len(got))
@@ -121,7 +121,7 @@ func TestSecondaryMigrationBackfillsConfigsAndDropsHistoryNodeID(t *testing.T) {
 
 	store := NewSecondaryStorage(dbPath)
 	defer store.db.Close()
-	configs, _, unsub := store.MustFetchSnapshotAndSubscribe("m1")
+	configs, _, unsub := store.MustFetchSnapshotAndSubscribe(nil)
 	unsub()
 	if len(configs) != 1 || configs[0].Config.NodeID != 42 {
 		t.Fatalf("active config after migration = %+v, want node ID 42", configs)
@@ -150,7 +150,7 @@ func TestSecondaryNormalizesMissingNodeID(t *testing.T) {
 		DesiredState: apigen.DesiredState{Version: "v1", Running: true},
 	})
 
-	configs, _, unsub := store.MustFetchSnapshotAndSubscribe("m1")
+	configs, _, unsub := store.MustFetchSnapshotAndSubscribe(nil)
 	unsub()
 	if len(configs) != 1 || configs[0].Config.NodeID != -1 {
 		t.Fatalf("missing node ID normalized to %+v, want -1", configs)

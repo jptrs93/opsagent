@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage"
 )
 
 type fakeOperatorStore struct {
@@ -28,7 +29,7 @@ func (s *fakeOperatorStore) MustWriteDeploymentStatus(deploymentID int32, f func
 	s.statuses = append(s.statuses, s.status.Runner)
 }
 
-func (s *fakeOperatorStore) MustFetchSnapshotAndSubscribe(string) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus, func()) {
+func (s *fakeOperatorStore) MustFetchSnapshotAndSubscribe(storage.DeploymentPredicate) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus, func()) {
 	return nil, make(chan apigen.DeploymentWithStatus), func() {}
 }
 

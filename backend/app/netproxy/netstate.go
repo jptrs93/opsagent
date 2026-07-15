@@ -11,25 +11,26 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
+	"github.com/jptrs93/opsagent/backend/storage"
 )
 
 type deploymentStore interface {
-	FetchDeploymentSnapshot(machine string) []apigen.DeploymentWithStatus
-	SubscribeDeploymentUpdates(machine string) (chan apigen.DeploymentWithStatus, func())
+	FetchDeploymentSnapshot(predicate storage.DeploymentPredicate) []apigen.DeploymentWithStatus
+	SubscribeDeploymentUpdates(predicate storage.DeploymentPredicate) (chan apigen.DeploymentWithStatus, func())
 }
 
 // RunNetStateWriter writes full protobuf netstate snapshots for the local
 // netproxy process. It is intentionally full-state and idempotent.
-func RunNetStateWriter(ctx context.Context, store deploymentStore, machine, path string) {
+func RunNetStateWriter(ctx context.Context, store deploymentStore, predicate storage.DeploymentPredicate, machine, path string) {
 	seq := int64(0)
 	write := func() {
 		seq++
-		if err := WriteNetState(path, RenderNetState(seq, machine, store.FetchDeploymentSnapshot(machine))); err != nil {
+		if err := WriteNetState(path, RenderNetState(seq, machine, store.FetchDeploymentSnapshot(predicate))); err != nil {
 			slog.Warn("writing netproxy netstate failed", "path", path, "err", err)
 		}
 	}
 	write()
-	updates, unsub := store.SubscribeDeploymentUpdates(machine)
+	updates, unsub := store.SubscribeDeploymentUpdates(predicate)
 	defer unsub()
 	for {
 		select {

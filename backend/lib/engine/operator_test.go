@@ -9,12 +9,13 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
+	"github.com/jptrs93/opsagent/backend/storage"
 )
 
 type operatorTestStore struct{}
 
 func (operatorTestStore) MustWriteDeploymentStatus(int32, func(*apigen.DeploymentStatus) bool) {}
-func (operatorTestStore) MustFetchSnapshotAndSubscribe(string) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus, func()) {
+func (operatorTestStore) MustFetchSnapshotAndSubscribe(storage.DeploymentPredicate) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus, func()) {
 	return nil, nil, func() {}
 }
 
@@ -29,7 +30,7 @@ func (s *recordingOperatorStore) MustWriteDeploymentStatus(_ int32, update func(
 	update(&s.status)
 }
 
-func (s *recordingOperatorStore) MustFetchSnapshotAndSubscribe(string) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus, func()) {
+func (s *recordingOperatorStore) MustFetchSnapshotAndSubscribe(storage.DeploymentPredicate) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus, func()) {
 	return nil, nil, func() {}
 }
 

@@ -5,7 +5,7 @@ import "github.com/jptrs93/opsagent/backend/apigen"
 var ReferenceInUseErr = apigen.NewApiErr("Secret or config is still in use", "reference_in_use", 400)
 
 func (h *Handler) deploymentUsesSecretID(ids map[int32]struct{}) bool {
-	for _, item := range h.Store.FetchDeploymentSnapshot("") {
+	for _, item := range h.Store.FetchDeploymentSnapshot(nil) {
 		if item.Config.Deleted {
 			continue
 		}
@@ -21,7 +21,7 @@ func (h *Handler) deploymentUsesSecretID(ids map[int32]struct{}) bool {
 }
 
 func (h *Handler) deploymentUsesConfigID(ids map[int32]struct{}) bool {
-	for _, item := range h.Store.FetchDeploymentSnapshot("") {
+	for _, item := range h.Store.FetchDeploymentSnapshot(nil) {
 		if item.Config.Deleted {
 			continue
 		}

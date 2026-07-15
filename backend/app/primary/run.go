@@ -16,6 +16,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/webui"
 	"github.com/jptrs93/opsagent/backend/app/primary/webuihandler"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/ratelimit"
+	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/util/version"
 	"golang.org/x/sync/errgroup"
@@ -45,13 +46,17 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		return fmt.Errorf("loading cluster TLS material: %w", err)
 	}
 	certificateIdentifier := certu.MustCertCommonNameFromPEM(clusterMaterial.PrimaryCert)
-	machineIdentifier := primaryRuntime.store.EnsurePrimaryNode("primary", certificateIdentifier).Identifier
+	primaryNode := primaryRuntime.store.EnsurePrimaryNode("primary", certificateIdentifier)
+	machineIdentifier := primaryNode.Identifier
 	slog.Info(fmt.Sprintf("opendeploy starting primary version=%v machine=%v", version.Version, machineIdentifier))
 	webUIHandler, err := webuihandler.New(staticFS, machineIdentifier, primaryRuntime.webUIHandlerDependencies())
 	if err != nil {
 		return fmt.Errorf("creating web UI handler: %w", err)
 	}
-	primaryRuntime.start(ctx, machineIdentifier)
+	primaryDeployments := storage.DeploymentPredicate(func(cfg apigen.DeploymentConfig) bool {
+		return cfg.NodeID == primaryNode.ID
+	})
+	primaryRuntime.start(ctx, primaryDeployments, machineIdentifier)
 	assetReconcileDone := primaryRuntime.assets.StartReconciler(ctx)
 	backupDone := backup.StartReplication(ctx, primaryRuntime.configService, primaryRuntime.secrets, primaryRuntime.store, primaryRuntime.assets)
 	defer func() {

@@ -63,10 +63,12 @@ func MustLoadRuntimeConfig(cfg ainit.StaticConfiguration, caPath, certPath, keyP
 	}
 
 	var netDeploymentID int32
-	for _, item := range store.FetchDeploymentSnapshot(machineName) {
+	for _, item := range store.FetchDeploymentSnapshot(nil) {
+		if item.Config.ConfigID.Machine != machineName {
+			continue
+		}
 		if sqlite.IsNetproxyDeploymentConfig(&item.Config) && item.Config.ID != 0 {
 			netDeploymentID = item.Config.ID
-			break
 		}
 	}
 	if netDeploymentID == 0 {

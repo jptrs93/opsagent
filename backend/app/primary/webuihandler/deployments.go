@@ -50,7 +50,7 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 	}
 
 	// Check for duplicate before creating.
-	snapshot := h.Store.FetchDeploymentSnapshot("")
+	snapshot := h.Store.FetchDeploymentSnapshot(nil)
 	for _, dws := range snapshot {
 		if dws.Config.ConfigID == cid && !dws.Config.Deleted {
 			return nil, DuplicateDeploymentErr
@@ -84,7 +84,7 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 			return nil, invalidConfigErrf("opendeploy system deployment identity is internal-only")
 		}
 		if cfg.ConfigID.SpaceID != *req.SpaceID {
-			for _, dws := range h.Store.FetchDeploymentSnapshot("") {
+			for _, dws := range h.Store.FetchDeploymentSnapshot(nil) {
 				if dws.Config.ID != req.DeploymentID && dws.Config.ConfigID == nextID && !dws.Config.Deleted {
 					return nil, DuplicateDeploymentErr
 				}
@@ -583,7 +583,7 @@ func toAPILogLine(line logreader.LogLine) *apigen.LogLine {
 
 // findConfigByID looks up a deployment config from the store's snapshot by integer ID.
 func (h *Handler) findConfigByID(deploymentID int32) *apigen.DeploymentConfig {
-	snapshot := h.Store.FetchDeploymentSnapshot("")
+	snapshot := h.Store.FetchDeploymentSnapshot(nil)
 	for _, dws := range snapshot {
 		if dws.Config.ID == deploymentID {
 			cfg := dws.Config

@@ -315,7 +315,7 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 func TestRenameNodePreservesIdentifier(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	store.EnsurePrimaryNode("primary", "primary-id")
+	primaryNode := store.EnsurePrimaryNode("primary", "primary-id")
 	store.EnsureSystemDeployment("primary-id", "v1")
 
 	node, err := store.RenameNode("primary-id", "control plane")
@@ -325,7 +325,9 @@ func TestRenameNodePreservesIdentifier(t *testing.T) {
 	if node.Name != "control plane" || node.Identifier != "primary-id" {
 		t.Fatalf("renamed node = %+v", node)
 	}
-	configs := store.FetchDeploymentSnapshot("primary-id")
+	configs := store.FetchDeploymentSnapshot(func(cfg apigen.DeploymentConfig) bool {
+		return cfg.NodeID == primaryNode.ID
+	})
 	if len(configs) == 0 || configs[0].Config.ConfigID.Machine != "primary-id" {
 		t.Fatalf("deployment targets after rename = %+v", configs)
 	}

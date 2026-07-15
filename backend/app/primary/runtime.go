@@ -26,6 +26,7 @@ import (
 	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 	"github.com/jptrs93/opsagent/backend/util/version"
 )
@@ -114,12 +115,12 @@ func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
 	}
 }
 
-func (r *runtime) start(ctx context.Context, machineIdentifier string) {
+func (r *runtime) start(ctx context.Context, predicate storage.DeploymentPredicate, machineIdentifier string) {
 	r.store.EnsureSystemDeployment(machineIdentifier, version.Version)
 	r.store.SetNodeStatusByIdentifier(machineIdentifier, true, time.Now())
 	netproxyCfg := r.store.EnsureNetproxyDeployment(machineIdentifier, version.Version)
 	network.Default.SetNetproxyDeploymentID(netproxyCfg.ID)
 
-	go netproxy.RunNetStateWriter(ctx, r.store, machineIdentifier, ainit.StaticConfig.NetproxyStatePath)
-	go r.operator.RunAll(machineIdentifier)
+	go netproxy.RunNetStateWriter(ctx, r.store, predicate, machineIdentifier, ainit.StaticConfig.NetproxyStatePath)
+	go r.operator.RunAll(predicate)
 }

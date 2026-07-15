@@ -48,6 +48,8 @@ func TestBuildAllowedRefs(t *testing.T) {
 
 func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	m1Node := store.EnsurePrimaryNode("m1", "m1")
+	store.EnsurePrimaryNode("m2", "m2")
 	spec := &apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "docker.io/library/nginx"}},
 		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
@@ -55,7 +57,7 @@ func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 	m1 := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "m1", Name: "web"}, spec, apigen.DesiredState{Version: "1", Running: true})
 	m2 := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "m2", Name: "web"}, spec, apigen.DesiredState{Version: "1", Running: true})
 
-	sess := newSession(context.Background(), func() {}, "m1", store)
+	sess := newSession(context.Background(), func() {}, "m1", deploymentPredicateForNode(m1Node.ID), store)
 	crossMachine := &apigen.DeploymentStatus{DeploymentID: m2.ID, Runner: apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING}}
 	crossMachine.BumpUpdatedAt()
 	sess.handleStatusWrite(crossMachine)

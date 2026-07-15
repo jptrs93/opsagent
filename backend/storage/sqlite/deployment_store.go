@@ -11,6 +11,7 @@ import (
 	"github.com/jptrs93/goutil/pubsubu"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage"
 )
 
 type deploymentStore struct {
@@ -64,18 +65,18 @@ func (s *deploymentStore) loadCache() {
 	}
 }
 
-func (s *deploymentStore) FetchDeploymentSnapshot(machine string) []apigen.DeploymentWithStatus {
+func (s *deploymentStore) FetchDeploymentSnapshot(predicate storage.DeploymentPredicate) []apigen.DeploymentWithStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.snapshotLocked(machine)
+	return s.snapshotLocked(predicate)
 }
 
-func (s *deploymentStore) MustFetchSnapshotAndSubscribe(machine string) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus, func()) {
+func (s *deploymentStore) MustFetchSnapshotAndSubscribe(predicate storage.DeploymentPredicate) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus, func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	snapshot := s.snapshotLocked(machine)
-	sub := s.subs.Subscribe(deploymentFilter(machine))
+	snapshot := s.snapshotLocked(predicate)
+	sub := s.subs.Subscribe(deploymentFilter(predicate))
 	return snapshot, sub.Ch, sub.UnsubscribeFunc
 }
 
@@ -121,8 +122,8 @@ func (s *deploymentStore) FetchDeploymentStatus(deploymentID int32) *apigen.Depl
 	return s.statusCache[deploymentID]
 }
 
-func (s *deploymentStore) SubscribeDeploymentUpdates(machine string) (chan apigen.DeploymentWithStatus, func()) {
-	sub := s.subs.Subscribe(deploymentFilter(machine))
+func (s *deploymentStore) SubscribeDeploymentUpdates(predicate storage.DeploymentPredicate) (chan apigen.DeploymentWithStatus, func()) {
+	sub := s.subs.Subscribe(deploymentFilter(predicate))
 	return sub.Ch, sub.UnsubscribeFunc
 }
 
@@ -136,10 +137,10 @@ func (s *deploymentStore) insertDefaultStatus(q *Queries, dbID int64) {
 	s.statusCache[id] = st
 }
 
-func (s *deploymentStore) snapshotLocked(machine string) []apigen.DeploymentWithStatus {
+func (s *deploymentStore) snapshotLocked(predicate storage.DeploymentPredicate) []apigen.DeploymentWithStatus {
 	out := make([]apigen.DeploymentWithStatus, 0, len(s.configCache))
 	for id, cfg := range s.configCache {
-		if cfg.Deleted || !deploymentMatchesMachine(cfg, machine) {
+		if cfg.Deleted || (predicate != nil && !predicate(*cfg)) {
 			continue
 		}
 		out = append(out, apigen.DeploymentWithStatus{
@@ -202,17 +203,13 @@ func (s *deploymentStore) withRunningVersion(cfg *apigen.DeploymentConfig, st ap
 	return st
 }
 
-func deploymentFilter(machine string) func(apigen.DeploymentWithStatus, apigen.DeploymentWithStatus) bool {
-	if machine == "" {
+func deploymentFilter(predicate storage.DeploymentPredicate) func(apigen.DeploymentWithStatus, apigen.DeploymentWithStatus) bool {
+	if predicate == nil {
 		return nil
 	}
 	return func(prev, dws apigen.DeploymentWithStatus) bool {
-		return deploymentMatchesMachine(&dws.Config, machine)
+		return predicate(dws.Config)
 	}
-}
-
-func deploymentMatchesMachine(cfg *apigen.DeploymentConfig, machine string) bool {
-	return machine == "" || (cfg != nil && cfg.ConfigID.Machine == machine)
 }
 
 func statusValue(st *apigen.DeploymentStatus) apigen.DeploymentStatus {

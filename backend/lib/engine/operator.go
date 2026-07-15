@@ -47,11 +47,11 @@ func configName(cfg *apigen.DeploymentConfig) string {
 	return fmt.Sprintf("id=%d", cfg.ID)
 }
 
-func (op DeploymentOperator) RunAll(machine string) {
-	deps, ch, _ := op.Store.MustFetchSnapshotAndSubscribe(machine)
+func (op DeploymentOperator) RunAll(predicate storage.DeploymentPredicate) {
+	deps, ch, _ := op.Store.MustFetchSnapshotAndSubscribe(predicate)
 	subs := &pubsubu.PubSub[apigen.DeploymentWithStatus]{}
 
-	slog.Info("RunAll: snapshot loaded", "count", len(deps), "machine", machine)
+	slog.Info("RunAll: snapshot loaded", "count", len(deps))
 
 	running := map[int32]struct{}{}
 	for _, dep := range deps {

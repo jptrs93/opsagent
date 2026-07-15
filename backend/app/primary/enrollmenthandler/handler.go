@@ -13,6 +13,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/util/version"
@@ -158,7 +159,14 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 	}
 	h.store.EnsureSystemDeployment(sess.requestingMachineID, version.Version)
 	h.store.EnsureNetproxyDeployment(sess.requestingMachineID, version.Version)
-	nodeDeployment, nodeNetDeployment := enrollmentBootstrapDeployments(h.store.FetchDeploymentSnapshot(sess.requestingMachineID))
+	nodeID, err := h.store.NodeIDByIdentifier(sess.requestingMachineID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve enrolled worker %q: %w", sess.requestingMachineID, err)
+	}
+	predicate := storage.DeploymentPredicate(func(cfg apigen.DeploymentConfig) bool {
+		return cfg.NodeID == nodeID
+	})
+	nodeDeployment, nodeNetDeployment := enrollmentBootstrapDeployments(h.store.FetchDeploymentSnapshot(predicate))
 	if nodeDeployment == nil || nodeNetDeployment == nil {
 		return nil, fmt.Errorf("enrollment bootstrap deployments missing for worker %q", sess.requestingMachineID)
 	}

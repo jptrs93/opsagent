@@ -260,11 +260,16 @@ func (s *PrimaryStorage) SetNodeStatusByIdentifier(identifier string, connected 
 }
 
 func (s *PrimaryStorage) HasNodeIdentifier(identifier string) bool {
+	_, err := s.NodeIDByIdentifier(identifier)
+	return err == nil
+}
+
+func (s *PrimaryStorage) NodeIDByIdentifier(identifier string) (int32, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var found int
-	err := s.db.QueryRowContext(context.Background(), `SELECT 1 FROM nodes WHERE identifier = ?`, identifier).Scan(&found)
-	return err == nil
+	var nodeID int64
+	err := s.db.QueryRowContext(context.Background(), `SELECT id FROM nodes WHERE identifier = ?`, identifier).Scan(&nodeID)
+	return int32(nodeID), err
 }
 
 func (s *PrimaryStorage) PrimaryNodeIdentifier() (string, error) {

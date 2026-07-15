@@ -36,7 +36,7 @@ func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *sqlite.Se
 	const maxBackoff = 30 * time.Second
 	for ctx.Err() == nil {
 		connectedAt := time.Now()
-		err := runSession(ctx, capi, store, cfg.MachineName)
+		err := runSession(ctx, capi, store)
 		if ctx.Err() != nil {
 			return
 		}
@@ -105,14 +105,14 @@ func (t *logStreamTracker) remove(requestID string) {
 // the primary's messages (snapshot, config updates, log requests) from the
 // response stream, applying them to the local store. Returns when the stream
 // ends (error or clean EOF).
-func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *sqlite.SecondaryStorage, machine string) error {
+func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *sqlite.SecondaryStorage) error {
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	out := &outbox{ch: make(chan *apigen.MsgToMaster, 64), ctx: sessCtx}
 
 	// Subscribe to local deployment updates to push status back to primary.
-	statusCh, unsub := store.SubscribeDeploymentUpdates(machine)
+	statusCh, unsub := store.SubscribeDeploymentUpdates(nil)
 	defer unsub()
 	go statusPushLoop(sessCtx, out, statusCh)
 

@@ -53,14 +53,14 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	nixDockerPreparer := nixdocker.New(gitManager)
 	githubReleaseImagePreparer := githubreleaseimage.New(cfg.ReleasesDir, githubClient)
 
-	go netproxy.RunNetStateWriter(ctx, store, cfg.MachineName, cfg.NetproxyStatePath)
+	go netproxy.RunNetStateWriter(ctx, store, nil, cfg.MachineName, cfg.NetproxyStatePath)
 	go engine.DeploymentOperator{
 		Store:              store,
 		GithubRelease:      githubReleasePreparer,
 		NixDocker:          nixDockerPreparer,
 		GithubReleaseImage: githubReleaseImagePreparer,
 		RuntimeInputs:      runtimeInputs,
-	}.RunAll(cfg.MachineName)
+	}.RunAll(nil)
 
 	runPrimaryConnLoop(ctx, cfg, store, primaryHTTPClient)
 }

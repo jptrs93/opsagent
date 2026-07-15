@@ -23,6 +23,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
@@ -62,6 +63,24 @@ func requireMachine(ctx context.Context) (string, error) {
 	return machine, nil
 }
 
+func deploymentPredicateForNode(nodeID int32) storage.DeploymentPredicate {
+	return func(cfg apigen.DeploymentConfig) bool {
+		return cfg.NodeID == nodeID
+	}
+}
+
+func (p *Handler) requireDeploymentPredicate(ctx context.Context) (storage.DeploymentPredicate, error) {
+	machine, err := requireMachine(ctx)
+	if err != nil {
+		return nil, err
+	}
+	nodeID, err := p.store.NodeIDByIdentifier(machine)
+	if err != nil {
+		return nil, clusterForbiddenErr
+	}
+	return deploymentPredicateForNode(nodeID), nil
+}
+
 // Handler manages worker sessions and forwards state between the local store
 // and connected workers. It implements apigen.OpsagentClusterV1Handler; the
 // generated mux invokes PostV1ClusterConnect once per worker connection.
@@ -95,11 +114,11 @@ func New(store *sqlite.PrimaryStorage, assets assetProvider, githubCredentials g
 }
 
 func (p *Handler) GetV1ClusterGithubCredentials(authCtx apigen.Context) (*apigen.GithubCredentials, error) {
-	machine, err := requireMachine(authCtx)
+	predicate, err := p.requireDeploymentPredicate(authCtx)
 	if err != nil {
 		return nil, err
 	}
-	if !p.allowedRefsForMachine(machine).usesGithub {
+	if !p.allowedRefs(predicate).usesGithub {
 		return nil, clusterForbiddenErr
 	}
 	creds, err := p.githubCredentials.LoadCredentials(authCtx)
@@ -114,11 +133,11 @@ func (p *Handler) GetV1ClusterAsset(authCtx apigen.Context, r *http.Request, w h
 	if err != nil {
 		return err
 	}
-	machine, err := requireMachine(authCtx)
+	predicate, err := p.requireDeploymentPredicate(authCtx)
 	if err != nil {
 		return err
 	}
-	if !p.allowedRefsForMachine(machine).assetAllowed(assetID) {
+	if !p.allowedRefs(predicate).assetAllowed(assetID) {
 		return clusterForbiddenErr
 	}
 	asset, body, err := p.assets.OpenAsset(authCtx, assetID)
@@ -159,8 +178,8 @@ type clusterAllowedRefs struct {
 	usesGithub    bool
 }
 
-func (p *Handler) allowedRefsForMachine(machine string) clusterAllowedRefs {
-	return buildAllowedRefs(p.store.FetchDeploymentSnapshot(machine))
+func (p *Handler) allowedRefs(predicate storage.DeploymentPredicate) clusterAllowedRefs {
+	return buildAllowedRefs(p.store.FetchDeploymentSnapshot(predicate))
 }
 
 func buildAllowedRefs(snapshot []apigen.DeploymentWithStatus) clusterAllowedRefs {
@@ -240,11 +259,11 @@ func (p *Handler) GetV1ClusterSecrets(authCtx apigen.Context, req *apigen.Cluste
 	if req == nil || len(req.Ids) == 0 {
 		return nil, fmt.Errorf("at least one secret id is required")
 	}
-	machine, err := requireMachine(authCtx)
+	predicate, err := p.requireDeploymentPredicate(authCtx)
 	if err != nil {
 		return nil, err
 	}
-	if !p.allowedRefsForMachine(machine).allSecretsAllowed(req.Ids) {
+	if !p.allowedRefs(predicate).allSecretsAllowed(req.Ids) {
 		return nil, clusterForbiddenErr
 	}
 	values, err := p.secrets.ResolveMany(req.Ids)
@@ -262,11 +281,11 @@ func (p *Handler) GetV1ClusterConfigs(authCtx apigen.Context, req *apigen.Cluste
 	if req == nil || len(req.Ids) == 0 {
 		return nil, fmt.Errorf("at least one config id is required")
 	}
-	machine, err := requireMachine(authCtx)
+	predicate, err := p.requireDeploymentPredicate(authCtx)
 	if err != nil {
 		return nil, err
 	}
-	if !p.allowedRefsForMachine(machine).allConfigsAllowed(req.Ids) {
+	if !p.allowedRefs(predicate).allConfigsAllowed(req.Ids) {
 		return nil, clusterForbiddenErr
 	}
 	values, err := p.store.ResolveConfigs(req.Ids)
@@ -292,11 +311,17 @@ func (p *Handler) PostV1ClusterConnect(authCtx apigen.Context, reqs iter.Seq2[*a
 			yield(nil, fmt.Errorf("cluster connection missing machine identity"))
 			return
 		}
+		nodeID, err := p.store.NodeIDByIdentifier(machine)
+		if err != nil {
+			yield(nil, fmt.Errorf("cluster node %q is not registered", machine))
+			return
+		}
+		predicate := deploymentPredicateForNode(nodeID)
 
 		sessCtx, cancel := context.WithCancel(authCtx)
 		defer cancel()
 
-		sess := newSession(sessCtx, cancel, machine, p.store)
+		sess := newSession(sessCtx, cancel, machine, predicate, p.store)
 		sess.networkPrefix = p.networkPrefix
 		p.registerSession(machine, sess)
 		defer p.unregisterSession(machine, sess)
