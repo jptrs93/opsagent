@@ -86,6 +86,7 @@ type OpsagentHttpV1Handler interface {
 	PostV1DeploymentLogSearch(Context, *LogSearchRequest) iter.Seq2[*LogLineBatch, error]
 	PostV1DeploymentPrepareOutput(Context, *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error]
 	GetV1ClusterStatus(Context, *http.Request, http.ResponseWriter) error
+	PostV1ClusterRename(Context, *NodeRenameRequest) (*ClusterNode, error)
 	PostV1DeploymentCreate(Context, *DeploymentCreateRequest) (*DeploymentConfig, error)
 	PostV1SpacesCreate(Context, *SpaceSetRequest) (*Space, error)
 	PostV1SpacesUpdate(Context, *SpaceSetRequest) (*Space, error)
@@ -349,6 +350,17 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		}
 	}
 	m.HandleFunc("GET /v1/cluster/status", buildHandlerFunc(config, verifyAuth, getV1ClusterStatusAccessPolicy, postAuthHandlerGetV1ClusterStatus, compressionModeAuto, false))
+	postV1ClusterRenameAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1ClusterRename := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNodeRenameRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1ClusterRename(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/cluster/rename", buildHandlerFunc(config, verifyAuth, postV1ClusterRenameAccessPolicy, postAuthHandlerPostV1ClusterRename, compressionModeAuto, false))
 	postV1DeploymentCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1DeploymentCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentCreateRequest)

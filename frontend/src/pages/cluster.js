@@ -67,24 +67,7 @@ export function clusterPage() {
                                 )
                             ),
                             tbody(
-                                ...sorted.map(m =>
-                                    tr({class: "border-b border-gray-800 last:border-0", "data-testid": `machine-row-${m.name}`},
-                                        td({class: "py-3 pr-6 text-white font-medium"}, m.name),
-                                        td({class: "py-3 pr-6"},
-                                            m.isPrimary
-                                                ? span({class: "text-blue-400"}, "primary")
-                                                : span({class: "text-gray-300"}, "secondary")
-                                        ),
-                                        td({class: "py-3 pr-6"},
-                                            m.connected
-                                                ? span({class: "text-green-400"}, "connected")
-                                                : span({class: "text-red-400"}, "disconnected")
-                                        ),
-                                        td({class: "py-3 text-gray-400"},
-                                            m.isPrimary ? '-' : formatTime(m.connectedAt)
-                                        ),
-                                    )
-                                )
+                                ...sorted.map(machineRow)
                             )
                         )
                 ),
@@ -114,6 +97,62 @@ export function clusterPage() {
                 )
             );
         }
+    );
+}
+
+function machineRow(machine) {
+    const name = van.state(machine.name || '');
+    const saving = van.state(false);
+    const error = van.state('');
+
+    const rename = async () => {
+        const nextName = name.val.trim();
+        if (!nextName || nextName === machine.name || saving.val) return;
+        saving.val = true;
+        error.val = '';
+        try {
+            await capi.postV1ClusterRename({identifier: machine.identifier, name: nextName});
+        } catch (e) {
+            error.val = e.message || 'Failed to rename machine';
+        } finally {
+            saving.val = false;
+        }
+    };
+
+    return tr(
+        {class: "border-b border-gray-800 last:border-0 align-top", "data-testid": `machine-row-${machine.identifier}`},
+        td({class: "py-3 pr-6 text-white font-medium"},
+            div({class: "flex items-center gap-2"},
+                input({
+                    class: "input w-full min-w-36",
+                    value: name,
+                    "aria-label": `Machine name for ${machine.identifier}`,
+                    oninput: e => { name.val = e.target.value; },
+                    onkeydown: e => { if (e.key === 'Enter') rename(); },
+                }),
+                button({
+                    type: "button",
+                    class: "btn-secondary text-xs py-1 px-2 shrink-0",
+                    disabled: () => saving.val || !name.val.trim() || name.val.trim() === machine.name,
+                    onclick: rename,
+                }, () => saving.val ? "Saving..." : "Save"),
+            ),
+            div({class: "mt-1 text-xs text-gray-500 font-mono break-all"}, machine.identifier),
+            () => error.val ? p({class: "mt-1 text-xs text-red-400"}, error.val) : '',
+        ),
+        td({class: "py-3 pr-6"},
+            machine.isPrimary
+                ? span({class: "text-blue-400"}, "primary")
+                : span({class: "text-gray-300"}, "secondary")
+        ),
+        td({class: "py-3 pr-6"},
+            machine.connected
+                ? span({class: "text-green-400"}, "connected")
+                : span({class: "text-red-400"}, "disconnected")
+        ),
+        td({class: "py-3 text-gray-400"},
+            machine.isPrimary ? '-' : formatTime(machine.connectedAt)
+        ),
     );
 }
 

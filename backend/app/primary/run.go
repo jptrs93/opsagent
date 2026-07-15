@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/backup"
 	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
@@ -36,18 +35,23 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	if err != nil {
 		return fmt.Errorf("creating embedded sub fs: %w", err)
 	}
-	machineName := ainit.StaticConfig.PrimaryName
-	slog.Info(fmt.Sprintf("opendeploy starting primary version=%v machine=%v", version.Version, machineName))
 	primaryRuntime, err := newRuntime()
 	if err != nil {
 		return fmt.Errorf("creating primary runtime: %w", err)
 	}
 	primaryRuntime.assets.BeforeLocalMigration = backup.StopReplicationForAssetMigration
-	webUIHandler, err := webuihandler.New(staticFS, machineName, primaryRuntime.webUIHandlerDependencies())
+	clusterMaterial, err := certu.LoadPrimary(primaryRuntime.secrets)
+	if err != nil {
+		return fmt.Errorf("loading cluster TLS material: %w", err)
+	}
+	certificateIdentifier := certu.MustCertCommonNameFromPEM(clusterMaterial.PrimaryCert)
+	machineIdentifier := primaryRuntime.store.EnsurePrimaryNode("primary", certificateIdentifier).Identifier
+	slog.Info(fmt.Sprintf("opendeploy starting primary version=%v machine=%v", version.Version, machineIdentifier))
+	webUIHandler, err := webuihandler.New(staticFS, machineIdentifier, primaryRuntime.webUIHandlerDependencies())
 	if err != nil {
 		return fmt.Errorf("creating web UI handler: %w", err)
 	}
-	primaryRuntime.start(ctx, machineName)
+	primaryRuntime.start(ctx, machineIdentifier)
 	assetReconcileDone := primaryRuntime.assets.StartReconciler(ctx)
 	backupDone := backup.StartReplication(ctx, primaryRuntime.configService, primaryRuntime.secrets, primaryRuntime.store, primaryRuntime.assets)
 	defer func() {
@@ -56,10 +60,6 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		<-assetReconcileDone
 	}()
 	initialConfig := primaryRuntime.configService.Snapshot()
-	clusterMaterial, err := certu.LoadPrimary(primaryRuntime.secrets)
-	if err != nil {
-		return fmt.Errorf("loading cluster TLS material: %w", err)
-	}
 	enrollmentFingerprint, err := certu.CertificatePEMSPKISHA256(clusterMaterial.PrimaryCert)
 	if err != nil {
 		return fmt.Errorf("computing enrollment TLS fingerprint: %w", err)

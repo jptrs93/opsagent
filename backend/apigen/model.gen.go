@@ -849,17 +849,23 @@ type ClusterMachine struct {
 	IsPrimary   bool
 	Connected   bool
 	ConnectedAt time.Time
+	Identifier  string
 }
 
 type ClusterNode struct {
 	ID           int32
 	EnrollmentID int32
 	Name         string
-	Sni          string
+	Identifier   string
 	Roles        []int32
 	WgPublicKey  string
 	Addresses    []string
 	EnrolledAt   time.Time
+}
+
+type NodeRenameRequest struct {
+	Identifier string
+	Name       string
 }
 
 type ClusterNodeList struct {

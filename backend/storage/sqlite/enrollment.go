@@ -127,7 +127,7 @@ func (s *PrimaryStorage) AcceptEnrollmentRequest(id int32, workerName string) (*
 	if err != nil {
 		return row, err
 	}
-	node, err := upsertNode(ctx, tx, int64(id), workerName, workerName, []int32{NodeRoleSecondary})
+	node, err := upsertEnrolledNode(ctx, tx, int64(id), workerName, row.RequestingMachineID, []int32{NodeRoleSecondary})
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func (s *PrimaryStorage) AcceptEnrollmentRequest(id int32, workerName string) (*
 		panic(fmt.Sprintf("commit enrollment accept tx: %v", err))
 	}
 	s.enrollmentSubs.Notify(*row)
-	s.nodeSubs.Notify(*node)
+	s.nodeSubs.Notify(*nodeToAPI(node))
 	return row, nil
 }
 

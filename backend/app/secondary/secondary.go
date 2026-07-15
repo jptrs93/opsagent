@@ -22,7 +22,7 @@ import (
 type runtimeConfig struct {
 	TLS                *tls.Config
 	PrimaryClusterAddr string
-	PrimaryName        string // cert CN of the primary (for TLS server name verification)
+	PrimaryName        string // primary certificate DNS/IP SAN for TLS server name verification
 	MachineName        string
 	DataDir            string
 	GitCacheDir        string

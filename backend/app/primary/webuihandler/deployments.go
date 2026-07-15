@@ -41,6 +41,9 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 	if internaldeploy.IsInternalIdentifier(cid) {
 		return nil, invalidConfigErrf("opendeploy system deployment identity is internal-only")
 	}
+	if !h.Store.HasNodeIdentifier(cid.Machine) {
+		return nil, invalidConfigErrf("machine is not registered")
+	}
 	spec, err := h.validateDeploymentSpec(&req.Spec)
 	if err != nil {
 		return nil, err

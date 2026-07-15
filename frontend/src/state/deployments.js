@@ -222,12 +222,12 @@ const sortSpaces = (items) => [...items].sort((a, b) => (a.id || 0) - (b.id || 0
 const sortAssets = (items) => [...items].sort((a, b) => (a.key || '').localeCompare(b.key || '') || Number(a.version || 0) - Number(b.version || 0));
 
 const refreshMachinesFromNodes = () => {
-    if (!nodesS.val.length) return;
     const statusesByNodeId = new Map((nodeStatusesS.val || []).map((status) => [status.nodeId, status]));
     machinesS.val = sortByName(nodesS.val.map((node) => {
         const status = statusesByNodeId.get(node.id) || {};
         return {
             name: node.name,
+            identifier: node.identifier,
             isPrimary: (node.roles || []).includes(0),
             connected: status.isConnected === true,
             connectedAt: status.lastConnectedAt,

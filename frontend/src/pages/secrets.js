@@ -5,7 +5,7 @@ import {spinnerButton} from "../components/spinnerbutton.js";
 import {formatDateTime} from "../lib/date.js";
 import {copyIcon, eyeOffIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
-import {deploymentsS, primaryConfigS, secretMetasS, secretsStatusS, spacesS, userConfigsS} from "../state/deployments.js";
+import {deploymentsS, machinesS, primaryConfigS, secretMetasS, secretsStatusS, spacesS, userConfigsS} from "../state/deployments.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
 const DEFAULT_SECRET_MASK = "••••••••••••••••";
@@ -151,6 +151,7 @@ export function secretsPage() {
         const deployments = deploymentUsages(
             deploymentsS.val,
             spacesS.val,
+            machinesS.val,
             deployment => deploymentUsesItem(deployment, row, referenceIDs),
         );
         return {deployments, settings};

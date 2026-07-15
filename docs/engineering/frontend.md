@@ -54,6 +54,9 @@ The dashboard uses a split-pane layout:
 
 ### Cluster (`pages/cluster.js`)
 - Shows primary + worker machines and connection state via `GET /v1/cluster/status`.
+- Allows editing a machine's display name without changing its certificate or deployment identity.
+
+Deployment machine selectors render `ClusterNode.name` but submit the immutable `ClusterNode.identifier` as `DeploymentIdentifier.machine`.
 
 ## Rendering pattern
 

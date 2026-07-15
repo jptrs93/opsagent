@@ -457,6 +457,25 @@ func (c *OpsagentHttpV1Capi) GetV1ClusterStatus(ctx context.Context) (*ClusterSt
 	return DecodeClusterStatusResponse(body)
 }
 
+func (c *OpsagentHttpV1Capi) PostV1ClusterRename(ctx context.Context, req *NodeRenameRequest) (*ClusterNode, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1ClusterRename request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/cluster/rename", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeClusterNode(body)
+}
+
 func (c *OpsagentHttpV1Capi) PostV1DeploymentCreate(ctx context.Context, req *DeploymentCreateRequest) (*DeploymentConfig, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1DeploymentCreate request is nil")

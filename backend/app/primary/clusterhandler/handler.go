@@ -28,15 +28,15 @@ import (
 
 var _ apigen.OpsagentClusterV1Handler = (*Handler)(nil)
 
-// machineCtxKey keys the worker's certificate CN in the request context.
+// machineCtxKey keys the worker's node identifier from its certificate CN.
 type machineCtxKey struct{}
 
 var clusterForbiddenErr = apigen.NewApiErr("Forbidden", "cluster_request_not_authorized", http.StatusForbidden)
 
 // VerifyClusterPeer is the MuxConfig.VerifyAuth hook for the cluster mux. The
 // worker is already authenticated by mTLS (the listener requires and verifies a
-// client cert); this lifts the verified CN into the auth context so the handler
-// can identify the machine. It rejects connections without a peer certificate.
+// client cert); this lifts the verified CN into the auth context as the node
+// identifier. It rejects connections without a peer certificate.
 func VerifyClusterPeer(ctx context.Context, _ http.ResponseWriter, r *http.Request, _ apigen.AccessPolicy) (apigen.Context, error) {
 	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
 		return apigen.Context{}, fmt.Errorf("cluster peer presented no certificate")
@@ -73,8 +73,8 @@ type Handler struct {
 	networkPrefix     network.Prefix
 
 	mu          sync.RWMutex
-	sessions    map[string]*Session  // machine name → session
-	connectedAt map[string]time.Time // machine name → when session was accepted
+	sessions    map[string]*Session  // node identifier → session
+	connectedAt map[string]time.Time // node identifier → when session was accepted
 }
 
 type assetProvider interface {
@@ -314,7 +314,7 @@ func (p *Handler) registerSession(machine string, sess *Session) {
 	p.sessions[machine] = sess
 	connectedAt := time.Now()
 	p.connectedAt[machine] = connectedAt
-	p.store.SetNodeStatusByName(machine, true, connectedAt)
+	p.store.SetNodeStatusByIdentifier(machine, true, connectedAt)
 }
 
 func (p *Handler) unregisterSession(machine string, expected *Session) {
@@ -323,7 +323,7 @@ func (p *Handler) unregisterSession(machine string, expected *Session) {
 	if current, ok := p.sessions[machine]; ok && current == expected {
 		delete(p.sessions, machine)
 		delete(p.connectedAt, machine)
-		p.store.SetNodeStatusByName(machine, false, time.Time{})
+		p.store.SetNodeStatusByIdentifier(machine, false, time.Time{})
 	}
 }
 

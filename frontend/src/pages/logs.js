@@ -2,7 +2,8 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {copyIcon} from "../lib/icons.js";
 import {loginS} from "../state/login.js";
-import {deploymentsS, spacesS} from "../state/deployments.js";
+import {deploymentsS, machinesS, spacesS} from "../state/deployments.js";
+import {machineDisplayName} from "../lib/machines.js";
 
 const {div, p, select, option, input, button, pre, span, label} = van.tags;
 
@@ -24,10 +25,11 @@ function fromLocalInputValue(value) {
     return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function deploymentLabel(item) {
+function deploymentLabel(item, machines) {
     const cfg = item?.config || {};
     const cid = cfg.configId || {};
-    return [cid.machine, cid.name].filter(Boolean).join(' / ') || `#${cfg.id}`;
+    const machine = cid.machine ? machineDisplayName(cid.machine, machines) : '';
+    return [machine, cid.name].filter(Boolean).join(' / ') || `#${cfg.id}`;
 }
 
 function deploymentSpaceID(item) {
@@ -172,7 +174,7 @@ export function logsPage(selectedDeploymentId) {
         }
         deploymentSelect.replaceChildren(
             option({value: ""}, "Select deployment"),
-            ...filtered.map(item => option({value: String(item.config.id)}, deploymentLabel(item))),
+            ...filtered.map(item => option({value: String(item.config.id)}, deploymentLabel(item, machinesS.val))),
         );
         deploymentSelect.value = String(deploymentId.val || '');
     });
@@ -213,7 +215,7 @@ export function logsPage(selectedDeploymentId) {
         try {
             const items = (deploymentsS.val || []).filter(item => item.config?.id && !item.config.deleted);
             const selected = selectedDeployment(items, id);
-            const selectedLabel = deploymentLabel(selected);
+            const selectedLabel = deploymentLabel(selected, machinesS.val);
             const systemDeployment = isSystemDeployment(selected);
             const machine = selected?.config?.configId?.machine || '';
             const selectedConfigVersion = systemDeployment ? 0 : Number(configVersion.val || 0);

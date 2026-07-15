@@ -7,7 +7,7 @@ import {closeIcon, trashIcon} from "../lib/icons.js";
 import {formatDateTime} from "../lib/date.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
-import {assetMetasS, deploymentsS, spacesS} from "../state/deployments.js";
+import {assetMetasS, deploymentsS, machinesS, spacesS} from "../state/deployments.js";
 import {loginS} from "../state/login.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, textarea } = van.tags;
@@ -324,6 +324,7 @@ export function assetsPage() {
         return deploymentUsages(
             deploymentsS.val,
             spacesS.val,
+            machinesS.val,
             deployment => deploymentUsesAsset(deployment, asset, assetIDs),
         );
     };

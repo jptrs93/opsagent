@@ -4,6 +4,7 @@ import {
   decodeAsset,
   decodeAssetList,
   decodeClusterConfigsResponse,
+  decodeClusterNode,
   decodeClusterSecretsResponse,
   decodeClusterStatusResponse,
   decodeDeploymentConfig,
@@ -50,6 +51,7 @@ import {
   encodeMasterPasswordSaveRequest,
   encodeMasterPasswordVerifyRequest,
   encodeMsgToMaster,
+  encodeNodeRenameRequest,
   encodePrepareOutputRequest,
   encodeSecretDeleteRequest,
   encodeSecretRenameRequest,
@@ -373,6 +375,18 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeClusterStatusResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {NodeRenameRequest} payload
+   * @returns {Promise<ClusterNode>}
+   */
+  async postV1ClusterRename(payload) {
+    const response = await this.#request("/v1/cluster/rename", { method: 'POST', body: encodeNodeRenameRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeClusterNode(await response.arrayBuffer());
   }
 
   /**

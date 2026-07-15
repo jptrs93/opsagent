@@ -779,17 +779,23 @@
  * @property {boolean} isPrimary
  * @property {boolean} connected
  * @property {Date} connectedAt
+ * @property {string} identifier
  */
 /**
  * @typedef {Object} ClusterNode
  * @property {number} id
  * @property {number} enrollmentId
  * @property {string} name
- * @property {string} sni
+ * @property {string} identifier
  * @property {number[]} roles
  * @property {string} wgPublicKey
  * @property {string[]} addresses
  * @property {Date} enrolledAt
+ */
+/**
+ * @typedef {Object} NodeRenameRequest
+ * @property {string} identifier
+ * @property {string} name
  */
 /**
  * @typedef {Object} ClusterNodeList
@@ -10167,6 +10173,9 @@ export function writeClusterMachine(message, writer) {
     if (message.connectedAt instanceof Date && message.connectedAt.getTime() !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.connectedAt.getTime()));
     }
+    if (message.identifier !== undefined && message.identifier !== null && message.identifier !== "") {
+        writer.uint32(tag(5, WIRE.LDELIM)).string(message.identifier);
+    }
 }
 
 
@@ -10188,7 +10197,7 @@ export function encodeClusterMachine(message) {
  */
 function decodeClusterMachineMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", isPrimary: false, connected: false, connectedAt: new Date(0) };
+    const message = {name: "", isPrimary: false, connected: false, connectedAt: new Date(0), identifier: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10206,6 +10215,10 @@ function decodeClusterMachineMessage(reader, length) {
             }
             case 4: {
                 message.connectedAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 5: {
+                message.identifier = reader.string();
                 break;
             }
             default:
@@ -10241,8 +10254,8 @@ export function writeClusterNode(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.name);
     }
-    if (message.sni !== undefined && message.sni !== null && message.sni !== "") {
-        writer.uint32(tag(4, WIRE.LDELIM)).string(message.sni);
+    if (message.identifier !== undefined && message.identifier !== null && message.identifier !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.identifier);
     }
     if (message.roles) {
         const packedWriter = Writer.create();
@@ -10285,7 +10298,7 @@ export function encodeClusterNode(message) {
  */
 function decodeClusterNodeMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, enrollmentId: 0, name: "", sni: "", roles: [], wgPublicKey: "", addresses: [], enrolledAt: new Date(0) };
+    const message = {id: 0, enrollmentId: 0, name: "", identifier: "", roles: [], wgPublicKey: "", addresses: [], enrolledAt: new Date(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10302,7 +10315,7 @@ function decodeClusterNodeMessage(reader, length) {
                 break;
             }
             case 4: {
-                message.sni = reader.string();
+                message.identifier = reader.string();
                 break;
             }
             case 5: {
@@ -10339,6 +10352,69 @@ function decodeClusterNodeMessage(reader, length) {
 export function decodeClusterNode(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeClusterNodeMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeRenameRequest} message
+ * @param {Writer} writer
+ */
+export function writeNodeRenameRequest(message, writer) {
+    if (message.identifier !== undefined && message.identifier !== null && message.identifier !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.identifier);
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
+    }
+}
+
+
+/**
+ * @param {NodeRenameRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeRenameRequest(message) {
+    const writer = Writer.create();
+    writeNodeRenameRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeRenameRequest}
+ */
+function decodeNodeRenameRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {identifier: "", name: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.identifier = reader.string();
+                break;
+            }
+            case 2: {
+                message.name = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeRenameRequest}
+ */
+export function decodeNodeRenameRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeRenameRequestMessage(reader);
 }
 
 

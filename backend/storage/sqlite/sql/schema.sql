@@ -214,11 +214,12 @@ CREATE TABLE IF NOT EXISTS nodes (
     enrollment_id INTEGER,
     enrolled_at   INTEGER NOT NULL DEFAULT 0,  -- epoch ms
     name          TEXT    NOT NULL,
-    sni           TEXT    NOT NULL DEFAULT '',
+    identifier    TEXT    NOT NULL DEFAULT '',
     roles         TEXT    NOT NULL DEFAULT '[]', -- JSON array of integer role ids
     addresses     TEXT    NOT NULL DEFAULT '[]', -- JSON array of node addresses
     wg_public_key TEXT    NOT NULL DEFAULT '',
     UNIQUE(name),
+    UNIQUE(identifier),
     UNIQUE(enrollment_id)
 );
 

@@ -142,7 +142,7 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 	if sess == nil {
 		return nil, EnrollmentNotConnectedErr
 	}
-	caCert, workerCert, err := certu.SignWorkerCertificateRequest(h.secrets, sess.csrPEM, workerName)
+	caCert, workerCert, err := certu.SignWorkerCertificateRequest(h.secrets, sess.csrPEM, sess.requestingMachineID)
 	if errors.Is(err, secrets.ErrLocked) || errors.Is(err, secrets.ErrNotFound) {
 		return nil, EnrollmentSigningNotConfiguredErr
 	}
@@ -156,11 +156,11 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 	if err != nil {
 		return nil, err
 	}
-	h.store.EnsureSystemDeployment(workerName, version.Version)
-	h.store.EnsureNetproxyDeployment(workerName, version.Version)
-	nodeDeployment, nodeNetDeployment := enrollmentBootstrapDeployments(h.store.FetchDeploymentSnapshot(workerName))
+	h.store.EnsureSystemDeployment(sess.requestingMachineID, version.Version)
+	h.store.EnsureNetproxyDeployment(sess.requestingMachineID, version.Version)
+	nodeDeployment, nodeNetDeployment := enrollmentBootstrapDeployments(h.store.FetchDeploymentSnapshot(sess.requestingMachineID))
 	if nodeDeployment == nil || nodeNetDeployment == nil {
-		return nil, fmt.Errorf("enrollment bootstrap deployments missing for worker %q", workerName)
+		return nil, fmt.Errorf("enrollment bootstrap deployments missing for worker %q", sess.requestingMachineID)
 	}
 	accepted := &apigen.EnrollmentAccepted{
 		ID:                req.ID,

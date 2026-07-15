@@ -9,6 +9,7 @@ import {prepareOutputOverlay} from "../components/prepareOutputOverlay.js";
 import {exportConfigOverlay} from "../components/exportConfigOverlay.js";
 import {deploymentConfigOverlay} from "../components/deploymentJsonOverlay.js";
 import {capi} from "../capi/index.js";
+import {machineDisplayName} from "../lib/machines.js";
 
 const { div, h2, p, button, input, table, thead, tbody, tr, th, td, span, colgroup, col } = van.tags;
 
@@ -111,7 +112,9 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
         ? formatDeploymentLabel({
             id: deploymentId,
             spaceName: `space ${currentConfig.configId?.spaceId ?? 0}`,
-            machine: currentConfig.configId?.machine || '',
+            machine: currentConfig.configId?.machine
+                ? machineDisplayName(currentConfig.configId.machine, machinesS.val)
+                : '',
             name: currentConfig.configId?.name || '',
         })
         : `#${deploymentId}`;
@@ -207,7 +210,9 @@ const headerTips = {
 const mapDeploymentsToView = (deployments, spaces, machines) => {
     if (!Array.isArray(deployments)) return [];
     const spaceNames = new Map((spaces || []).map(space => [space.id, space.name]));
-    const machineNames = new Set((machines || []).map(machine => machine.name).filter(Boolean));
+    const machinesByIdentifier = new Map((machines || [])
+        .filter(machine => machine.identifier)
+        .map(machine => [machine.identifier, machine]));
 
     return deployments.filter(d => d.config && d.config.id && !d.config.deleted).map((d) => {
         const id = d.config.id; // integer
@@ -232,8 +237,9 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
 
         const runnerType = spec.runner?.systemd ? 'systemd' : 'container';
         const spaceId = cid.spaceId || 0;
-        const machine = cid.machine || '';
-        const machineMissing = Boolean(machine) && !machineNames.has(machine);
+        const machineIdentifier = cid.machine || '';
+        const machine = machineIdentifier ? machineDisplayName(machineIdentifier, machines) : '';
+        const machineMissing = Boolean(machineIdentifier) && !machinesByIdentifier.has(machineIdentifier);
         const existingStatus = runner.status || 0;
         const uiExistingStatus = machineMissing && existingStatus === STATUS_RUNNING ? 0 : existingStatus;
         const systemDeployment = spaceId === OPENDEPLOY_SPACE_ID && ['opendeploy', 'opendeploy-net'].includes(cid.name || '');
@@ -242,6 +248,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             id,
             name: cid.name || '',
             machine,
+            machineIdentifier,
             spaceId,
             spaceName: spaceNames.get(spaceId) || `space ${spaceId}`,
             variant,

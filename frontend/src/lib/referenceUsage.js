@@ -1,4 +1,6 @@
-export function deploymentUsages(deployments, spaces, usesDeployment) {
+import {machineDisplayName} from "./machines.js";
+
+export function deploymentUsages(deployments, spaces, machines, usesDeployment) {
     const spaceNames = new Map((spaces || []).map(space => [Number(space.id || 0), space.name]));
 
     return (deployments || []).flatMap(deployment => {
@@ -11,7 +13,7 @@ export function deploymentUsages(deployments, spaces, usesDeployment) {
             id: Number(config.id || 0),
             space: spaceNames.get(spaceId) || `space ${spaceId}`,
             name: identity.name || `deployment ${config.id}`,
-            machine: identity.machine || '-',
+            machine: machineDisplayName(identity.machine, machines),
         }];
     }).sort((a, b) => a.space.localeCompare(b.space)
         || a.name.localeCompare(b.name)

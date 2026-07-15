@@ -6110,6 +6110,7 @@ func (m *ClusterMachine) Encode() []byte {
 	b = AppendBoolField(b, m.IsPrimary, 2)
 	b = AppendBoolField(b, m.Connected, 3)
 	b = AppendInt64FromTime(b, m.ConnectedAt, 4)
+	b = AppendStringField(b, m.Identifier, 5)
 	return b
 }
 
@@ -6132,6 +6133,8 @@ func DecodeClusterMachine(b []byte) (*ClusterMachine, error) {
 			b, m.Connected, err = ConsumeBool(b, typ)
 		case 4:
 			b, m.ConnectedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 5:
+			b, m.Identifier, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -6147,7 +6150,7 @@ func (m *ClusterNode) Encode() []byte {
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendInt32Field(b, m.EnrollmentID, 2)
 	b = AppendStringField(b, m.Name, 3)
-	b = AppendStringField(b, m.Sni, 4)
+	b = AppendStringField(b, m.Identifier, 4)
 	b = AppendRepeatedCompact(b, m.Roles, 5, AppendCompactDecorator(AppendInt32Compact))
 	b = AppendStringField(b, m.WgPublicKey, 6)
 	b = AppendRepeated(b, m.Addresses, AppendFieldDecorator(AppendStringField, 7))
@@ -6173,7 +6176,7 @@ func DecodeClusterNode(b []byte) (*ClusterNode, error) {
 		case 3:
 			b, m.Name, err = ConsumeString(b, typ)
 		case 4:
-			b, m.Sni, err = ConsumeString(b, typ)
+			b, m.Identifier, err = ConsumeString(b, typ)
 		case 5:
 			b, m.Roles, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt32)
 		case 6:
@@ -6186,6 +6189,38 @@ func DecodeClusterNode(b []byte) (*ClusterNode, error) {
 			}
 		case 8:
 			b, m.EnrolledAt, err = ConsumeTimeFromInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NodeRenameRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Identifier, 1)
+	b = AppendStringField(b, m.Name, 2)
+	return b
+}
+
+func DecodeNodeRenameRequest(b []byte) (*NodeRenameRequest, error) {
+	var m NodeRenameRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Identifier, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Name, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

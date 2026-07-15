@@ -48,8 +48,15 @@ func GenerateClusterCA(name string) (certPEM, keyPEM []byte, err error) {
 }
 
 func GenerateNodeCertificate(caCertPEM, caKeyPEM []byte, nodeName string) (certPEM, keyPEM []byte, err error) {
-	if nodeName == "" {
+	return GenerateNodeCertificateWithServerName(caCertPEM, caKeyPEM, nodeName, nodeName)
+}
+
+func GenerateNodeCertificateWithServerName(caCertPEM, caKeyPEM []byte, commonName, serverName string) (certPEM, keyPEM []byte, err error) {
+	if commonName == "" {
 		return nil, nil, fmt.Errorf("node name is empty")
+	}
+	if serverName == "" {
+		return nil, nil, fmt.Errorf("server name is empty")
 	}
 	_, caCert, err := parseCertificate(caCertPEM, "CA cert")
 	if err != nil {
@@ -70,15 +77,15 @@ func GenerateNodeCertificate(caCertPEM, caKeyPEM []byte, nodeName string) (certP
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			CommonName: nodeName,
+			CommonName: commonName,
 		},
-		DNSNames:    []string{nodeName},
+		DNSNames:    []string{serverName},
 		NotBefore:   time.Now().Add(-time.Minute),
 		NotAfter:    time.Now().Add(365 * 24 * time.Hour),
 		KeyUsage:    x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
-	if ip := net.ParseIP(nodeName); ip != nil {
+	if ip := net.ParseIP(serverName); ip != nil {
 		tmpl.IPAddresses = []net.IP{ip}
 	}
 	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, pub, caKey)
@@ -189,9 +196,9 @@ func GenerateWorkerCertificateRequest(requestingMachineID string) (csrPEM, keyPE
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER}), keyPEM, nil
 }
 
-func SignWorkerCertificateRequestFromPEM(caCertPEM, caKeyPEM, csrPEM []byte, workerName string) ([]byte, []byte, error) {
-	if workerName == "" {
-		return nil, nil, fmt.Errorf("worker name is empty")
+func SignWorkerCertificateRequestFromPEM(caCertPEM, caKeyPEM, csrPEM []byte, identifier string) ([]byte, []byte, error) {
+	if identifier == "" {
+		return nil, nil, fmt.Errorf("worker identifier is empty")
 	}
 	_, caCert, err := parseCertificate(caCertPEM, "CA cert")
 	if err != nil {
@@ -208,6 +215,9 @@ func SignWorkerCertificateRequestFromPEM(caCertPEM, caKeyPEM, csrPEM []byte, wor
 	if signatureErr := csr.CheckSignature(); signatureErr != nil {
 		return nil, nil, fmt.Errorf("validating worker CSR signature: %w", signatureErr)
 	}
+	if csr.Subject.CommonName != identifier {
+		return nil, nil, fmt.Errorf("worker CSR common name does not match identifier")
+	}
 	serial, err := randomSerial()
 	if err != nil {
 		return nil, nil, err
@@ -215,7 +225,7 @@ func SignWorkerCertificateRequestFromPEM(caCertPEM, caKeyPEM, csrPEM []byte, wor
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			CommonName: workerName,
+			CommonName: identifier,
 		},
 		NotBefore:   time.Now().Add(-time.Minute),
 		NotAfter:    time.Now().Add(90 * 24 * time.Hour),

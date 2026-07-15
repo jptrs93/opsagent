@@ -25,6 +25,7 @@ const preRunnerStatusLabels = {
 
 const STATUS_NO_DEPLOYMENT = 1;
 const STATUS_STOPPED = 3;
+const openDeployRepo = 'github.com/jptrs93/opsagent';
 
 const prepareStatusCopy = (prepareStatus, prepareVersion) => {
     if (!prepareVersion) return null;
@@ -246,10 +247,15 @@ function versionLink(deployment) {
             title,
         }, short);
     }
-    if (deployment.variant === 'githubRelease' && deployment.repo) {
+    const releaseRepo = deployment.variant === 'githubRelease'
+        ? deployment.repo
+        : deployment.spaceId === 0 && deployment.name === 'opendeploy-net'
+            ? openDeployRepo
+            : '';
+    if (releaseRepo) {
         return a({
             class: `font-mono ${color} underline hover:text-white`,
-            href: `https://${deployment.repo}/releases/tag/${running}`,
+            href: `https://${releaseRepo}/releases/tag/${running}`,
             target: "_blank",
             rel: "noopener noreferrer",
             title,

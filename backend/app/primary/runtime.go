@@ -114,13 +114,12 @@ func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
 	}
 }
 
-func (r *runtime) start(ctx context.Context, machineName string) {
-	r.store.EnsureSystemDeployment(machineName, version.Version)
-	r.store.EnsurePrimaryNode(machineName)
-	r.store.SetNodeStatusByName(machineName, true, time.Now())
-	netproxyCfg := r.store.EnsureNetproxyDeployment(machineName, version.Version)
+func (r *runtime) start(ctx context.Context, machineIdentifier string) {
+	r.store.EnsureSystemDeployment(machineIdentifier, version.Version)
+	r.store.SetNodeStatusByIdentifier(machineIdentifier, true, time.Now())
+	netproxyCfg := r.store.EnsureNetproxyDeployment(machineIdentifier, version.Version)
 	network.Default.SetNetproxyDeploymentID(netproxyCfg.ID)
 
-	go netproxy.RunNetStateWriter(ctx, r.store, machineName, ainit.StaticConfig.NetproxyStatePath)
-	go r.operator.RunAll(machineName)
+	go netproxy.RunNetStateWriter(ctx, r.store, machineIdentifier, ainit.StaticConfig.NetproxyStatePath)
+	go r.operator.RunAll(machineIdentifier)
 }

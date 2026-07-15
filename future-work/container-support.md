@@ -12,16 +12,13 @@ This file tracks the work deliberately left out of phase 1.
 
 ## Logging follow-ups
 
-Container stdout/stderr now use containerd `cio.LogFile` and write directly to
-the shared run-log layout (`RunOutputDir/{deploymentID}/{version}.log`).
-OpenDeploy creates/truncates the file before fresh task creation, then the
-running task/shim owns writing to it independently of the OpenDeploy daemon.
+Container stdout/stderr are received by a per-task binary log consumer. It
+writes merged half-hourly UTC files to
+`RunOutputDir/{deploymentID}/{YYYYMMDD_HHMM}_{version}_{run}.logbin`.
+`version` is the deployment configuration version and `run` is its restart
+sequence, so concurrently running rollover candidates write separate files.
 
-Known gap: there is no live rotation, so a chatty container can grow the active
-file unboundedly. Rotation/archiving can later be
-implemented with `copytruncate` semantics, inactive-version cleanup, or a tiny
-per-workload `cio.BinaryIO` helper that owns rotation while keeping the main
-OpenDeploy daemon out of the workload log data path.
+Known gap: there is no retention or archival policy for completed log files.
 
 ## Future phases
 

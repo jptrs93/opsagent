@@ -64,7 +64,7 @@ func WebUISelfSignedNames(acmeHosts, listen string) []string {
 	return names
 }
 
-func BootstrapPrimary(store *secrets.Manager, primaryName string) (*Material, error) {
+func BootstrapPrimary(store *secrets.Manager, primaryIdentifier, primaryServerName string) (*Material, error) {
 	mat, err := LoadPrimary(store)
 	if err == nil {
 		return mat, nil
@@ -76,7 +76,7 @@ func BootstrapPrimary(store *secrets.Manager, primaryName string) (*Material, er
 	if err != nil {
 		return nil, err
 	}
-	primaryCert, primaryKey, err := GenerateNodeCertificate(caCert, caKey, primaryName)
+	primaryCert, primaryKey, err := GenerateNodeCertificateWithServerName(caCert, caKey, primaryIdentifier, primaryServerName)
 	if err != nil {
 		return nil, err
 	}
@@ -116,12 +116,12 @@ func LoadPrimary(store *secrets.Manager) (*Material, error) {
 	return &Material{CACert: caCert, CAKey: caKey, PrimaryCert: primaryCert, PrimaryKey: primaryKey}, nil
 }
 
-func SignWorkerCertificateRequest(store *secrets.Manager, csrPEM []byte, workerName string) (caCert, workerCert []byte, err error) {
+func SignWorkerCertificateRequest(store *secrets.Manager, csrPEM []byte, identifier string) (caCert, workerCert []byte, err error) {
 	mat, err := LoadPrimary(store)
 	if err != nil {
 		return nil, nil, fmt.Errorf("loading cluster signing material: %w", err)
 	}
-	return SignWorkerCertificateRequestFromPEM(mat.CACert, mat.CAKey, csrPEM, workerName)
+	return SignWorkerCertificateRequestFromPEM(mat.CACert, mat.CAKey, csrPEM, identifier)
 }
 
 func WorkerTLSPaths(tlsDir string) (caPath, certPath, keyPath string) {

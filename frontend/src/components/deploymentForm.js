@@ -275,7 +275,7 @@ export function formInvalidReason(form, opts = {}) {
     if (!nameValid(form)) return 'Deployment name is required.';
     if (!form.machine.val.trim()) return 'Machine is required.';
     const machineOptions = opts.machineOptions || [];
-    const machineOptionValues = machineOptions.map(m => typeof m === 'string' ? m : m.name).filter(Boolean);
+    const machineOptionValues = machineOptions.map(machine => machine.identifier).filter(Boolean);
     if (machineOptionValues.length > 0 && !machineOptionValues.includes(form.machine.val.trim())) return 'Select a registered machine.';
     if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
         if (!form.containerImage.val.trim()) return 'Container image is required.';
@@ -2174,9 +2174,8 @@ function publicSpaceOptions(spaces, currentSpaceID) {
 
 function machineSelect(form, opts) {
     const current = form.machine.rawVal;
-    const machineOptionValues = (opts.machineOptions || [])
-        .map(machine => typeof machine === 'string' ? machine : machine.name)
-        .filter(Boolean);
+    const machines = (opts.machineOptions || []).filter(machine => machine?.identifier);
+    const machineOptionValues = machines.map(machine => machine.identifier);
     const extraCurrent = current && !machineOptionValues.includes(current)
         ? [option({value: current, selected: true}, current)]
         : [];
@@ -2188,7 +2187,7 @@ function machineSelect(form, opts) {
         onchange: e => { form.machine.val = e.target.value; },
     },
         option({value: '', disabled: true, selected: !current}, machinePlaceholder(opts.machineOptionsLoaded, machineOptionValues)),
-        ...machineOptionValues.map(name => option({value: name, selected: name === current}, name)),
+        ...machines.map(machine => option({value: machine.identifier, selected: machine.identifier === current}, machine.name)),
         ...extraCurrent,
     );
 }

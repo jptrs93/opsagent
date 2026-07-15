@@ -55,8 +55,19 @@ func TestInitializeCreatesCompletePrimaryState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("secrets.Open: %v", err)
 	}
-	if _, err := certu.LoadPrimary(secretsMgr); err != nil {
+	clusterMaterial, err := certu.LoadPrimary(secretsMgr)
+	if err != nil {
 		t.Fatalf("certu.LoadPrimary: %v", err)
+	}
+	nodes := store.ListNodes()
+	if len(nodes) != 1 || nodes[0].Name != "primary" {
+		t.Fatalf("primary nodes = %+v, want one named primary", nodes)
+	}
+	if nodes[0].Identifier == "" || nodes[0].Identifier == "primary.test" {
+		t.Fatalf("primary identifier = %q, want generated value", nodes[0].Identifier)
+	}
+	if got := certu.MustCertCommonNameFromPEM(clusterMaterial.PrimaryCert); got != nodes[0].Identifier {
+		t.Fatalf("primary certificate CN = %q, want node identifier %q", got, nodes[0].Identifier)
 	}
 	if bundle, err := certu.LoadWebUISelfSigned(secretsMgr); err != nil {
 		t.Fatalf("certu.LoadWebUISelfSigned: %v", err)

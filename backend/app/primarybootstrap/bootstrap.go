@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
@@ -63,7 +64,9 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 		cfg.Settings.HttpsWeb.TlsSelfManaged = apigen.BoolSetting{Value: true}
 		cfg.Settings.HttpsWeb.TlsCertPem = apigen.SecretRef{ID: meta.ID}
 	}
-	clusterMaterial, err := certu.BootstrapPrimary(secretsMgr, opts.PrimaryName)
+	primaryIdentifier := uuid.NewString()
+	store.EnsurePrimaryNode("primary", primaryIdentifier)
+	clusterMaterial, err := certu.BootstrapPrimary(secretsMgr, primaryIdentifier, opts.PrimaryName)
 	if err != nil {
 		return nil, fmt.Errorf("initializing cluster TLS material: %w", err)
 	}

@@ -46,9 +46,11 @@ export function createOverlay(onClose, onCreated, opts = {}) {
     const loadMachines = async () => {
         try {
             const res = await capi.getV1ClusterStatus();
-            machines.val = (res.machines || []).map(m => m.name).filter(Boolean).sort();
+            machines.val = [...(res.machines || [])]
+                .filter(machine => machine?.identifier)
+                .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
             if (!form.machine.val && machines.val.length === 1) {
-                form.machine.val = machines.val[0];
+                form.machine.val = machines.val[0].identifier;
             }
         } catch (e) {
             errorMsg.val = e.message || 'Failed to load cluster machines';

@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -173,15 +174,15 @@ func TestEnsureNetproxyDeploymentReconcilesExistingVersion(t *testing.T) {
 func TestEnsurePrimaryNodeCreatesPrimaryRole(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 
-	store.EnsurePrimaryNode("primary")
+	store.EnsurePrimaryNode("primary", "primary-id")
 
 	nodes := store.ListNodes()
 	if len(nodes) != 1 {
 		t.Fatalf("node count = %d, want 1: %+v", len(nodes), nodes)
 	}
 	node := nodes[0]
-	if node.Name != "primary" || node.SNI != "primary" {
-		t.Fatalf("node identity = name %q sni %q, want primary", node.Name, node.SNI)
+	if node.Name != "primary" || node.Identifier != "primary-id" {
+		t.Fatalf("node identity = name %q identifier %q, want primary/primary-id", node.Name, node.Identifier)
 	}
 	if node.EnrollmentID != nil {
 		t.Fatalf("primary enrollment id = %v, want nil", *node.EnrollmentID)
@@ -207,13 +208,66 @@ func TestAcceptEnrollmentRequestCreatesNode(t *testing.T) {
 		t.Fatalf("node count = %d, want 1: %+v", len(nodes), nodes)
 	}
 	node := nodes[0]
-	if node.Name != "worker-1" || node.SNI != "worker-1" {
-		t.Fatalf("node identity = name %q sni %q, want worker-1", node.Name, node.SNI)
+	if node.Name != "worker-1" || node.Identifier != "requesting-id" {
+		t.Fatalf("node identity = name %q identifier %q, want worker-1/requesting-id", node.Name, node.Identifier)
 	}
 	if node.EnrollmentID == nil || *node.EnrollmentID != req.ID {
 		t.Fatalf("node enrollment id = %v, want %d", node.EnrollmentID, req.ID)
 	}
 	if len(node.Roles) != 1 || node.Roles[0] != NodeRoleSecondary {
 		t.Fatalf("node roles = %+v, want secondary", node.Roles)
+	}
+}
+
+func TestMigratesNodeSNIToIdentifier(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "primary.db")
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("open legacy database: %v", err)
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE nodes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			enrollment_id INTEGER,
+			enrolled_at INTEGER NOT NULL DEFAULT 0,
+			name TEXT NOT NULL,
+			sni TEXT NOT NULL DEFAULT '',
+			roles TEXT NOT NULL DEFAULT '[]',
+			addresses TEXT NOT NULL DEFAULT '[]',
+			wg_public_key TEXT NOT NULL DEFAULT '',
+			UNIQUE(name),
+			UNIQUE(enrollment_id)
+		);
+		INSERT INTO nodes (name, sni, roles) VALUES ('worker-1', 'worker-1', '[1]')`); err != nil {
+		t.Fatalf("seed legacy nodes: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close legacy database: %v", err)
+	}
+
+	store := NewPrimaryStorage(dbPath)
+	defer store.Close()
+	nodes := store.ListNodes()
+	if len(nodes) != 1 || nodes[0].Identifier != "worker-1" {
+		t.Fatalf("migrated nodes = %+v, want identifier worker-1", nodes)
+	}
+}
+
+func TestRenameNodePreservesIdentifier(t *testing.T) {
+	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	defer store.Close()
+	store.EnsurePrimaryNode("primary", "primary-id")
+	store.EnsureSystemDeployment("primary-id", "v1")
+
+	node, err := store.RenameNode("primary-id", "control plane")
+	if err != nil {
+		t.Fatalf("RenameNode: %v", err)
+	}
+	if node.Name != "control plane" || node.Identifier != "primary-id" {
+		t.Fatalf("renamed node = %+v", node)
+	}
+	configs := store.FetchDeploymentSnapshot("primary-id")
+	if len(configs) == 0 || configs[0].Config.ConfigID.Machine != "primary-id" {
+		t.Fatalf("deployment targets after rename = %+v", configs)
 	}
 }

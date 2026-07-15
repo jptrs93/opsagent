@@ -93,7 +93,7 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 	clusterListenRaw := fs.String("cluster-listen", "", "set the initial cluster listen address (for example :9443)")
 	enrollmentListenRaw := fs.String("enrollment-listen", "", "set the initial enrollment listen address (for example :9444)")
 	acmeHostsRaw := fs.String("acme-hosts", "", "set the initial ACME hostnames (comma-separated)")
-	primaryNameRaw := fs.String("primary-name", "", "set OPENDEPLOY_PRIMARY_NAME for the primary certificate/machine name")
+	primaryNameRaw := fs.String("primary-name", "", "set OPENDEPLOY_PRIMARY_NAME for the primary certificate DNS name")
 	restoreBackupRaw := fs.String("restore-backup", "", "restore primary.db from S3 before first boot (true or false)")
 	restoreS3AccessKeyIDRaw := fs.String("restore-s3-access-key-id", "", "S3 access key id for backup restore")
 	restoreS3SecretAccessKeyRaw := fs.String("restore-s3-secret-access-key", "", "S3 secret access key for backup restore")

@@ -618,6 +618,7 @@ func TestValidateDeploymentSpecAcceptsLiteralEnvValues(t *testing.T) {
 
 func TestDeploymentCreatePersistsInitialStoppedDesiredState(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	store.EnsurePrimaryNode("primary", "primary")
 	h := &Handler{Store: store}
 
 	cfg, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
