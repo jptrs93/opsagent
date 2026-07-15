@@ -187,6 +187,12 @@ type Config struct {
 	NetworkUlaPrefix   []byte
 }
 
+type ConfigVersion struct {
+	Version   int64
+	UpdatedAt time.Time
+	Config    Config
+}
+
 type Settings struct {
 	HttpWeb     HttpWebSettings
 	HttpsWeb    HttpsWebSettings
@@ -513,6 +519,7 @@ type State struct {
 	NodeStatusUpdate         *ClusterNodeStatus
 	BackupStatusSnapshot     *BackupStatus
 	BackupStatusUpdate       *BackupStatus
+	ConfigSnapshot           ConfigVersion
 }
 
 type Space struct {

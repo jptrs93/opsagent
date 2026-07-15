@@ -72,6 +72,7 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 			op := DeploymentOperator{
 				Store:         operatorTestStore{},
 				RuntimeInputs: runtimeinputs.New(nil, nil, nil),
+				ImageReady:    func(context.Context, string) error { return nil },
 			}
 			dep := &apigen.DeploymentConfig{
 				Version:      4,
@@ -125,5 +126,44 @@ func TestStartPreparerStopsBeforeArtifactWhenRuntimeInputsFail(t *testing.T) {
 	}
 	if got := store.preparerStatus().Status; got != apigen.PreparationStatus_FAILED {
 		t.Fatalf("preparer status = %v, want FAILED", got)
+	}
+}
+
+func TestReAttachPreparerRepreparesUnavailableImage(t *testing.T) {
+	oldOutputDir := ainit.StaticConfig.PrepareOutputDir
+	ainit.StaticConfig.PrepareOutputDir = t.TempDir()
+	defer func() { ainit.StaticConfig.PrepareOutputDir = oldOutputDir }()
+
+	store := &recordingOperatorStore{}
+	imageChecked := false
+	op := DeploymentOperator{
+		Store:         store,
+		RuntimeInputs: runtimeinputs.New(nil, nil, nil),
+		ImageReady: func(context.Context, string) error {
+			imageChecked = true
+			return errors.New("image unavailable")
+		},
+	}
+	dep := &apigen.DeploymentConfig{
+		ID:           12,
+		Version:      4,
+		DesiredState: apigen.DesiredState{Version: "v1", Running: true},
+		Spec: apigen.DeploymentSpec{
+			Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+		},
+	}
+
+	handle := op.reAttachPreparer(dep, apigen.PreparerStatus{
+		DeploymentConfigVersion: dep.Version,
+		Artifact:                "example/app:v1",
+		Status:                  apigen.PreparationStatus_READY,
+	})
+	handle.Cancel()
+
+	if !imageChecked {
+		t.Fatal("persisted ready image was not checked")
+	}
+	if got := store.preparerStatus().Status; got != apigen.PreparationStatus_FAILED {
+		t.Fatalf("preparer status = %v, want FAILED after same-version preparation ran", got)
 	}
 }

@@ -68,7 +68,7 @@ Key generated files:
 | POST | `/v1/deployment/prepare-output` | `PrepareOutputRequest` | stream `PrepareOutputChunk` | ANY_OF default |
 | POST | `/v1/deployment/versions` | `DeploymentVersionsRequest` | `DeploymentVersions` | ANY_OF default |
 
-`/v1/state/stream` is the UI's live state source. Its initial `State` message includes deployment, user, connected-machine, enrollment, secrets status, secret/config reference, secret/config value, space, and asset metadata snapshots; subsequent messages carry matching incremental updates plus heartbeats.
+`/v1/state/stream` is the UI's live state source. Its initial `State` message includes deployment, user, connected-machine, enrollment, secrets status, secret/config reference, secret/config value, space, asset metadata, and a full primary configuration snapshot. Configuration snapshots include the persisted configuration row ID and update time, but redact `master_password_hash`; each later configuration write emits another full snapshot. Other resources use matching incremental updates plus heartbeats.
 
 `/v1/deployment/log-search` streams historical run logs as typed `LogLine` protobuf frames. It scans existing `.logbin` files for the requested deployment and time range; it does not tail the currently active log file.
 

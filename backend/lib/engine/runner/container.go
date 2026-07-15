@@ -81,8 +81,9 @@ type containerRunner struct {
 	netMu  sync.Mutex
 	net    *network.ContainerNet
 
-	readyOnce sync.Once
-	readyCh   chan error
+	readyOnce       sync.Once
+	readyCh         chan error
+	artifactMissing chan struct{}
 }
 
 type readinessConfig struct {
@@ -154,22 +155,23 @@ func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Durati
 func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
 	cfg := dep.Spec.Runner.Container
 	r := &containerRunner{
-		ctx:            ctx,
-		cancel:         cancel,
-		done:           make(chan struct{}),
-		store:          store,
-		runtimeInputs:  inputs,
-		deploymentID:   dep.ID,
-		spaceID:        dep.ConfigID.SpaceID,
-		deploymentName: containerDeploymentName(dep),
-		machine:        dep.ConfigID.Machine,
-		containerID:    containerID(dep.ID, configVersion),
-		configVersion:  configVersion,
-		user:           cfg.User,
-		envVars:        cfg.EnvVars,
-		command:        cfg.Command,
-		cwd:            cfg.WorkingDir,
-		networking:     dep.Spec.Networking,
+		ctx:             ctx,
+		cancel:          cancel,
+		done:            make(chan struct{}),
+		artifactMissing: make(chan struct{}, 1),
+		store:           store,
+		runtimeInputs:   inputs,
+		deploymentID:    dep.ID,
+		spaceID:         dep.ConfigID.SpaceID,
+		deploymentName:  containerDeploymentName(dep),
+		machine:         dep.ConfigID.Machine,
+		containerID:     containerID(dep.ID, configVersion),
+		configVersion:   configVersion,
+		user:            cfg.User,
+		envVars:         cfg.EnvVars,
+		command:         cfg.Command,
+		cwd:             cfg.WorkingDir,
+		networking:      dep.Spec.Networking,
 	}
 	r.mounts, r.dataVolumeHost = containerMounts(dep)
 	r.devShmSizeKB = int64(cfg.DevShmSizeKb)
@@ -189,6 +191,8 @@ func containerDeploymentName(dep *apigen.DeploymentConfig) string {
 }
 
 func (r *containerRunner) Version() int32 { return r.status.DeploymentConfigVersion }
+
+func (r *containerRunner) ArtifactMissing() <-chan struct{} { return r.artifactMissing }
 
 func (r *containerRunner) WaitReady() error {
 	if r.readyCh == nil {
@@ -393,6 +397,13 @@ func (r *containerRunner) run() {
 			r.cleanupContainerNet(cn)
 			slog.ErrorContext(r.ctx, "starting container failed", "err", err, "image", spec.Image, "id", r.containerID)
 			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+			if errors.Is(err, ctrd.ErrImageUnavailable) {
+				r.notifyArtifactMissing()
+				if readinessActive {
+					r.notifyReady(fmt.Errorf("starting container: %w", err))
+				}
+				return
+			}
 			if readinessActive {
 				r.notifyReady(fmt.Errorf("starting container: %w", err))
 				return
@@ -472,6 +483,13 @@ func (r *containerRunner) run() {
 			r.updateStatus(apigen.RunningStatus_STOPPED, 0)
 			return
 		}
+	}
+}
+
+func (r *containerRunner) notifyArtifactMissing() {
+	select {
+	case r.artifactMissing <- struct{}{}:
+	default:
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/containerd/v2/pkg/oci"
+	"github.com/containerd/errdefs"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/app/logconsumer"
 	"github.com/opencontainers/runtime-spec/specs-go"
@@ -88,6 +89,31 @@ func (c *Client) Import(ctx context.Context, image ImageStream) (string, error) 
 	return image.Ref, nil
 }
 
+// ImageReady verifies that an image and its unpacked snapshot are available in
+// this node's local containerd store.
+func (c *Client) ImageReady(ctx context.Context, ref string) error {
+	cl, err := c.ensure()
+	if err != nil {
+		return err
+	}
+	ctx = c.withNS(ctx)
+	img, err := cl.GetImage(ctx, ref)
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return fmt.Errorf("%w: image %q not found", ErrImageUnavailable, ref)
+		}
+		return fmt.Errorf("loading image %q: %w", ref, err)
+	}
+	unpacked, err := img.IsUnpacked(ctx, "")
+	if err != nil {
+		return fmt.Errorf("checking image %q unpack status: %w", ref, err)
+	}
+	if !unpacked {
+		return fmt.Errorf("%w: image %q is not unpacked", ErrImageUnavailable, ref)
+	}
+	return nil
+}
+
 // Task is a handle to a created (and started) container task.
 type Task struct {
 	client    *Client
@@ -109,7 +135,10 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 
 	img, err := cl.GetImage(ctx, spec.Image)
 	if err != nil {
-		return nil, fmt.Errorf("image %s not found in containerd (was it pulled?): %w", spec.Image, err)
+		if errdefs.IsNotFound(err) {
+			return nil, fmt.Errorf("%w: image %q not found in containerd", ErrImageUnavailable, spec.Image)
+		}
+		return nil, fmt.Errorf("loading image %q from containerd: %w", spec.Image, err)
 	}
 
 	var mounts []specs.Mount
@@ -188,6 +217,9 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 		containerd.WithNewSpec(specOpts...),
 	)
 	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return nil, fmt.Errorf("%w: creating container from image %q: %v", ErrImageUnavailable, spec.Image, err)
+		}
 		return nil, fmt.Errorf("creating container: %w", err)
 	}
 

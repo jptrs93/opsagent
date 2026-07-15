@@ -820,6 +820,12 @@ func DecodeBoolSetting(b []byte) (*BoolSetting, error) {
 	return &m, nil
 }
 
+func (m Config) IsZero() bool {
+	return m.Settings.IsZero() &&
+		m.MasterPasswordHash == "" &&
+		len(m.NetworkUlaPrefix) == 0
+}
+
 func (m *Config) Encode() []byte {
 	var b []byte
 	if !m.Settings.IsZero() {
@@ -856,6 +862,58 @@ func DecodeConfig(b []byte) (*Config, error) {
 			b, m.MasterPasswordHash, err = ConsumeString(b, typ)
 		case 3:
 			b, m.NetworkUlaPrefix, err = ConsumeBytesCopy(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m ConfigVersion) IsZero() bool {
+	return m.Version == 0 &&
+		m.UpdatedAt.IsZero() &&
+		m.Config.IsZero()
+}
+
+func (m *ConfigVersion) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.Version, 1)
+	b = AppendInt64FromTime(b, m.UpdatedAt, 2)
+	if !m.Config.IsZero() {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Config.Encode())
+	}
+	return b
+}
+
+func DecodeConfigVersion(b []byte) (*ConfigVersion, error) {
+	var m ConfigVersion
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Version, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Config
+				item, err = DecodeConfig(msgBytes)
+				if err == nil {
+					m.Config = *item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3275,6 +3333,10 @@ func (m *State) Encode() []byte {
 		b = AppendTag(b, 30, BytesType)
 		b = AppendBytes(b, m.BackupStatusUpdate.Encode())
 	}
+	if !m.ConfigSnapshot.IsZero() {
+		b = AppendTag(b, 31, BytesType)
+		b = AppendBytes(b, m.ConfigSnapshot.Encode())
+	}
 	return b
 }
 
@@ -3515,6 +3577,15 @@ func DecodeState(b []byte) (*State, error) {
 				item, err = DecodeBackupStatus(msgBytes)
 				if err == nil {
 					m.BackupStatusUpdate = item
+				}
+			}
+		case 31:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ConfigVersion
+				item, err = DecodeConfigVersion(msgBytes)
+				if err == nil {
+					m.ConfigSnapshot = *item
 				}
 			}
 		default:

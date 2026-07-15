@@ -71,6 +71,7 @@ func restorePrimaryBackup(opts restoreOptions, install installOptions, own owner
 	if dryRun {
 		planned("restore primary database from s3://%s/%s to %s", opts.Bucket, opts.Path, dbPath)
 		planned("unlock restored secrets store and write new local machine key")
+		planned("invalidate restored runtime state for replacement primary %s", restoredPrimaryName(install))
 		for _, override := range restoredPrimaryConfigOverrides(install) {
 			planned("set restored primary config %s=%s", override.key, override.displayValue())
 		}
@@ -119,7 +120,36 @@ func restorePrimaryBackup(opts restoreOptions, install installOptions, own owner
 	if err := applyRestoredPrimaryConfigOverrides(dbPath, install, own); err != nil {
 		return err
 	}
+	if err := invalidateRestoredPrimaryRuntimeState(dbPath, restoredPrimaryName(install), own); err != nil {
+		return err
+	}
 	info("restored primary database and re-established local machine key")
+	return nil
+}
+
+func restoredPrimaryName(opts installOptions) string {
+	if opts.primaryName != nil {
+		return *opts.primaryName
+	}
+	return "primary"
+}
+
+func invalidateRestoredPrimaryRuntimeState(dbPath, machine string, own owner) error {
+	store := sqlite.NewPrimaryStorage(dbPath)
+	count, err := store.InvalidateMachineRuntimeState(machine)
+	if err != nil {
+		_ = store.Close()
+		return err
+	}
+	if err := store.Close(); err != nil {
+		return fmt.Errorf("close restored primary database after runtime invalidation: %w", err)
+	}
+	for _, path := range sqliteArtifactPaths(dbPath) {
+		if err := chownIfExists(path, own); err != nil {
+			return err
+		}
+	}
+	info("invalidated runtime state for %d replacement-primary deployments", count)
 	return nil
 }
 

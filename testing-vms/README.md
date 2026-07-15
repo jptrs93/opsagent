@@ -37,7 +37,7 @@ Defaults:
 
 - Deletes and recreates the primary/secondary VM cluster each run.
 - Uses `OPD_REMOTE=mock`, which requires an already-running repo mirror VM serving GitHub-shaped release/git traffic plus mirrored OCI images locally.
-- Installs OpenDeploy release `v0.0.258` and upgrades to `v0.0.258` by default.
+- Installs OpenDeploy release `v0.0.274` and upgrades to `v0.0.274` by default.
 - Runs `FLOWS=bootstrap-enroll-nixdocker` from the Playwright Docker container.
 - Runs Playwright in Docker and writes results to `testing-vms/test-results` and `testing-vms/playwright-report`.
 
@@ -46,7 +46,7 @@ Useful overrides:
 ```sh
 RESET=false bash testing-vms/run.sh
 FLOWS=bootstrap-enroll-nixdocker bash testing-vms/run.sh
-OPD_INSTALL_VERSION=v0.0.258 bash testing-vms/run.sh
+OPD_INSTALL_VERSION=v0.0.274 bash testing-vms/run.sh
 OPD_REMOTE=real bash testing-vms/run.sh
 OPENDEPLOY_GITHUB_TOKEN=... bash testing-vms/run.sh
 ```

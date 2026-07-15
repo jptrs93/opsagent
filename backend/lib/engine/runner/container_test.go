@@ -164,6 +164,23 @@ func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	}
 }
 
+func TestContainerRunnerSignalsMissingArtifactOnce(t *testing.T) {
+	r := &containerRunner{artifactMissing: make(chan struct{}, 1)}
+	r.notifyArtifactMissing()
+	r.notifyArtifactMissing()
+
+	select {
+	case <-r.ArtifactMissing():
+	default:
+		t.Fatal("missing artifact was not signaled")
+	}
+	select {
+	case <-r.ArtifactMissing():
+		t.Fatal("missing artifact signal was queued more than once")
+	default:
+	}
+}
+
 func TestContainerNetAddresses(t *testing.T) {
 	p := network.Prefix{0xfd, 0xab, 0xcd, 0xef, 0x12, 0x34}
 	stable, err := p.InstanceAddr(5, 7, 0)

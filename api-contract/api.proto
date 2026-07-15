@@ -408,6 +408,14 @@ message Config {
   bytes network_ula_prefix = 3;
 }
 
+// ConfigVersion identifies one persisted primary configuration revision. State
+// stream snapshots always clear Config.master_password_hash before publishing.
+message ConfigVersion {
+  int64 version = 1;
+  int64 updated_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  Config config = 3 [(cp.go_value) = true];
+}
+
 message Settings {
   HttpWebSettings http_web = 1 [(cp.go_value) = true];
   HttpsWebSettings https_web = 2 [(cp.go_value) = true];
@@ -813,6 +821,9 @@ message State {
   ClusterNodeStatus node_status_update = 28;
   BackupStatus backup_status_snapshot = 29;
   BackupStatus backup_status_update = 30;
+  // Full redacted primary configuration, emitted initially and after every
+  // persisted configuration change.
+  ConfigVersion config_snapshot = 31 [(cp.go_value) = true];
 }
 
 message Space {

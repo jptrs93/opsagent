@@ -2,10 +2,12 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
 	"github.com/jptrs93/goutil/pubsubu"
+	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/containerimage"
@@ -26,6 +28,7 @@ type DeploymentOperator struct {
 	NixDocker          *nixdocker.Preparer
 	GithubReleaseImage *githubreleaseimage.Preparer
 	RuntimeInputs      *runtimeinputs.RuntimeInputs
+	ImageReady         func(context.Context, string) error
 }
 
 // preparerReady returns true when the preparer has produced a READY artifact
@@ -127,19 +130,44 @@ func (op DeploymentOperator) Run(
 	}
 	var candidate runner.RolloverCandidate
 	var candidateReady <-chan rolloverCandidateResult
+	artifactRepairPending := false
+	artifactRepairStarted := false
 
 	// Reconciliation loop.
 	for {
 		select {
+		case <-currentRunner.ArtifactMissing():
+			if !config.DesiredState.Running {
+				continue
+			}
+			slog.Warn("Run: local artifact missing, preparing current config again", "dep", depName, "configSeqNo", config.Version)
+			if candidate != nil {
+				candidate.Stop()
+				candidate = nil
+				candidateReady = nil
+			}
+			currentRunner.Stop()
+			currentRunner = runner.Stopped()
+			currentPreparer.Cancel()
+			currentPreparer = op.startPreparer(config)
+			artifactRepairPending = true
+			artifactRepairStarted = false
 		case result := <-candidateReady:
 			if candidate == nil || result.candidate != candidate {
 				continue
 			}
 			if result.err != nil {
 				slog.Warn("Run: rollover candidate failed readiness", "dep", depName, "configSeqNo", result.version, "err", result.err)
+				artifactMissing := errors.Is(result.err, ctrd.ErrImageUnavailable)
 				candidate.Stop()
 				candidate = nil
 				candidateReady = nil
+				if artifactMissing && config.DesiredState.Running {
+					currentPreparer.Cancel()
+					currentPreparer = op.startPreparer(config)
+					artifactRepairPending = true
+					artifactRepairStarted = false
+				}
 				continue
 			}
 			slog.Info("Run: rollover candidate ready, promoting candidate", "dep", depName, "configSeqNo", result.version)
@@ -155,12 +183,17 @@ func (op DeploymentOperator) Run(
 			currentRunner = candidate
 			candidate = nil
 			candidateReady = nil
+			artifactRepairPending = false
+			artifactRepairStarted = false
 		case update, ok := <-sub.Ch:
 			if !ok {
 				return
 			}
-			config := update.Config
-			status := update.Status
+			config = &update.Config
+			status = &update.Status
+			if artifactRepairPending && status.Preparer.DeploymentConfigVersion == config.Version && status.Preparer.Status != apigen.PreparationStatus_READY {
+				artifactRepairStarted = true
+			}
 			switch {
 			case config.Deleted:
 				slog.Info("Run: deployment deleted, shutting down", "dep", depName)
@@ -189,18 +222,20 @@ func (op DeploymentOperator) Run(
 					candidateReady = nil
 				}
 				currentPreparer.Cancel()
-				currentPreparer = op.startPreparer(&config)
-			case preparerReady(&status, config.Version) && config.Version > currentRunner.Version() && candidate == nil:
+				currentPreparer = op.startPreparer(config)
+			case preparerReady(status, config.Version) && config.Version > currentRunner.Version() && candidate == nil && (!artifactRepairPending || artifactRepairStarted):
 				slog.Info("Run: preparer ready, creating runner",
 					"dep", depName,
 					"artifact", status.Preparer.Artifact, "configSeqNo", config.Version)
-				if containerUpgradeStrategy(&config) == apigen.ContainerUpgradeStrategy_ROLLOVER {
-					candidate = runner.CreateRolloverCandidate(op.Store, op.RuntimeInputs, &config, &status)
+				if containerUpgradeStrategy(config) == apigen.ContainerUpgradeStrategy_ROLLOVER {
+					candidate = runner.CreateRolloverCandidate(op.Store, op.RuntimeInputs, config, status)
 					candidateReady = waitForRolloverCandidate(candidate, config.Version)
 					continue
 				}
 				currentRunner.Stop()
-				currentRunner = runner.Create(op.Store, op.RuntimeInputs, &config, &status)
+				currentRunner = runner.Create(op.Store, op.RuntimeInputs, config, status)
+				artifactRepairPending = false
+				artifactRepairStarted = false
 			default:
 				slog.Debug("Run: nothing to do on update", "dep", depName)
 			}
@@ -264,7 +299,17 @@ func (op DeploymentOperator) reAttachPreparer(dep *apigen.DeploymentConfig, prev
 	if prev.DeploymentConfigVersion == dep.Version && prev.Status == apigen.PreparationStatus_READY {
 		if err := op.RuntimeInputs.EnsureReady(context.Background(), dep); err != nil {
 			slog.Error("reAttachPreparer: prepared runtime inputs unavailable", "configVersion", dep.Version, "err", err)
-			prepare.WriteStatus(op.Store, dep, prev.Artifact, apigen.PreparationStatus_FAILED)
+			return op.startPreparer(dep)
+		}
+		if dep.Spec.Runner.Systemd.IsZero() {
+			imageReady := op.ImageReady
+			if imageReady == nil {
+				imageReady = ctrd.Default.ImageReady
+			}
+			if err := imageReady(context.Background(), prev.Artifact); err != nil {
+				slog.Warn("reAttachPreparer: prepared image unavailable, preparing current config again", "configVersion", dep.Version, "artifact", prev.Artifact, "err", err)
+				return op.startPreparer(dep)
+			}
 		}
 		return prepare.Finished(dep.Version)
 	}

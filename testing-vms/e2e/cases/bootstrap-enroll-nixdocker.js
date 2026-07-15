@@ -83,7 +83,7 @@ export const orderedCases = [
     description: 'Verifies the primary OpenDeploy deployment is running the expected install version.',
     requires: ['passkey-login'],
     async run(ctx) {
-      await expectOpenDeployAgentVersion(ctx.page, {machine: 'primary', version: process.env.OPD_INSTALL_VERSION || 'v0.0.258'});
+      await expectOpenDeployAgentVersion(ctx.page, {machine: 'primary', version: process.env.OPD_INSTALL_VERSION || 'v0.0.274'});
     },
   },
   {
@@ -321,7 +321,7 @@ export const orderedCases = [
     description: 'Upgrades worker and primary OpenDeploy agents to the expected upgrade version.',
     requires: ['worker-enrolled'],
     async run(ctx) {
-      await upgradeOpenDeployAgents(ctx.page, {version: process.env.OPD_UPGRADE_VERSION || 'v0.0.258'});
+      await upgradeOpenDeployAgents(ctx.page, {version: process.env.OPD_UPGRADE_VERSION || 'v0.0.274'});
     },
   },
   {

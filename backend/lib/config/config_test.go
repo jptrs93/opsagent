@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
@@ -39,6 +40,63 @@ func TestMasterPasswordHashRoundTrip(t *testing.T) {
 	}
 	if hash != "hash-1" {
 		t.Fatalf("expected persisted hash-1, got %q", hash)
+	}
+}
+
+func TestVersionedConfigSnapshotsRedactMasterPasswordHash(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "primary.db")
+	initial := DefaultInitialConfig()
+	initial.MasterPasswordHash = "initial-hash"
+	service, err := InitializeService(sqlite.NewPrimaryStorage(dbPath), *DefaultConfig(initial))
+	if err != nil {
+		t.Fatalf("InitializeService: %v", err)
+	}
+
+	sub := service.VersionedSnapshotAndSubscribe()
+	defer sub.UnsubscribeFunc()
+	if !sub.InitialValueValid {
+		t.Fatal("initial versioned config snapshot is missing")
+	}
+	if sub.InitialValue.Version != service.VersionID() {
+		t.Fatalf("initial version = %d, want %d", sub.InitialValue.Version, service.VersionID())
+	}
+	if sub.InitialValue.UpdatedAt.IsZero() {
+		t.Fatal("initial updated_at is zero")
+	}
+	initialRow, err := service.Storage.FetchLatestOpenDeployConfig()
+	if err != nil {
+		t.Fatalf("FetchLatestOpenDeployConfig: %v", err)
+	}
+	if !sub.InitialValue.UpdatedAt.Equal(time.UnixMilli(initialRow.UpdatedAt)) {
+		t.Fatalf("initial updated_at = %v, want %v", sub.InitialValue.UpdatedAt, time.UnixMilli(initialRow.UpdatedAt))
+	}
+	if sub.InitialValue.Config.MasterPasswordHash != "" {
+		t.Fatalf("initial master password hash = %q, want empty", sub.InitialValue.Config.MasterPasswordHash)
+	}
+
+	if err := service.SetMasterPasswordHash("changed-hash"); err != nil {
+		t.Fatalf("SetMasterPasswordHash: %v", err)
+	}
+	select {
+	case got := <-sub.Ch:
+		if got.Version != service.VersionID() {
+			t.Fatalf("update version = %d, want %d", got.Version, service.VersionID())
+		}
+		if got.UpdatedAt.IsZero() {
+			t.Fatal("update updated_at is zero")
+		}
+		if got.Config.MasterPasswordHash != "" {
+			t.Fatalf("update master password hash = %q, want empty", got.Config.MasterPasswordHash)
+		}
+		row, err := service.Storage.FetchLatestOpenDeployConfig()
+		if err != nil {
+			t.Fatalf("FetchLatestOpenDeployConfig: %v", err)
+		}
+		if !got.UpdatedAt.Equal(time.UnixMilli(row.UpdatedAt)) {
+			t.Fatalf("update updated_at = %v, want %v", got.UpdatedAt, time.UnixMilli(row.UpdatedAt))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for versioned config update")
 	}
 }
 

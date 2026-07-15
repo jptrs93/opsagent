@@ -166,6 +166,54 @@ func (s *PrimaryStorage) ListActiveDeploymentConfigs() []*apigen.DeploymentConfi
 	return out
 }
 
+// InvalidateMachineRuntimeState clears machine-local observations that cannot
+// survive restoring the primary database onto a replacement host. Desired
+// config and status history remain unchanged.
+func (s *PrimaryStorage) InvalidateMachineRuntimeState(machine string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result, err := s.db.Exec(`
+		UPDATE deployment_status
+		SET preparer_config_version = NULL,
+			preparer_artifact = NULL,
+			preparer_status = NULL,
+			runner_config_version = NULL,
+			runner_pid = NULL,
+			runner_artifact = NULL,
+			runner_status = NULL,
+			runner_num_restarts = NULL,
+			runner_last_restart_at = NULL,
+			runner_extra_blob = x''
+		WHERE deployment_id IN (
+			SELECT deployment_id
+			FROM deployment_configs
+			WHERE machine = ?
+				AND NOT (space_id = ? AND name = ?)
+		)`, machine, OpendeploySpaceID, systemDeploymentName)
+	if err != nil {
+		return 0, fmt.Errorf("invalidate runtime state for machine %q: %w", machine, err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("count invalidated runtime state for machine %q: %w", machine, err)
+	}
+	for id, cfg := range s.configCache {
+		if cfg.ConfigID.Machine != machine || IsSystemDeploymentConfig(cfg) {
+			continue
+		}
+		status := s.statusCache[id]
+		if status == nil {
+			continue
+		}
+		s.statusCache[id] = &apigen.DeploymentStatus{
+			DeploymentID: status.DeploymentID,
+			UpdatedAt:    status.UpdatedAt,
+		}
+	}
+	return count, nil
+}
+
 func boolToInt(b bool) int64 {
 	if b {
 		return 1

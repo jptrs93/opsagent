@@ -18,6 +18,7 @@ export const backupStatusS = van.state(null);
 export const secretMetasS = van.state([]);
 export const userConfigsS = van.state([]);
 export const assetMetasS = van.state([]);
+export const primaryConfigS = van.state(null);
 const SEEDED_SPACES = [{id: 0, name: 'opendeploy'}, {id: 1, name: 'default'}];
 
 export const spacesS = van.state(SEEDED_SPACES);
@@ -85,6 +86,7 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
         secretMetasS.val = [];
         userConfigsS.val = [];
         assetMetasS.val = [];
+        primaryConfigS.val = null;
         spacesS.val = SEEDED_SPACES;
     }
     setStreamState('offline', 'offline');
@@ -208,6 +210,10 @@ const handleStateMessage = (message) => {
 
     if (message.assetUpdate && (message.assetUpdate.id || message.assetUpdate.key)) {
         assetMetasS.val = applyAssetUpdate(assetMetasS.val, message.assetUpdate);
+    }
+
+    if (message.configSnapshot) {
+        primaryConfigS.val = message.configSnapshot;
     }
 };
 

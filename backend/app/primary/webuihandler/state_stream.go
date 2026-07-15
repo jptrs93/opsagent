@@ -20,6 +20,8 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 		defer backupStatusUnsub()
 		secretStatusSub, secretStatusUnsub := h.Store.SubscribeSecretsStatusUpdates()
 		defer secretStatusUnsub()
+		configSub := h.ConfigService.VersionedSnapshotAndSubscribe()
+		defer configSub.UnsubscribeFunc()
 		secretSub, secretUnsub := h.Store.SubscribeSecretReferenceUpdates()
 		defer secretUnsub()
 		secretMetaSub, secretMetaUnsub := h.Store.SubscribeSecretMetaUpdates()
@@ -63,6 +65,7 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 			NodesSnapshot:            &apigen.ClusterNodeList{Items: h.Store.ListClusterNodes()},
 			NodeStatusesSnapshot:     &apigen.ClusterNodeStatusList{Items: h.Store.ListNodeStatuses()},
 			BackupStatusSnapshot:     &backupStatus,
+			ConfigSnapshot:           configSub.InitialValue,
 		}
 		if !yield(initial, nil) {
 			return
@@ -102,6 +105,13 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 					return
 				}
 				if !yield(&apigen.State{SecretsStatusSnapshot: &status}, nil) {
+					return
+				}
+			case config, ok := <-configSub.Ch:
+				if !ok {
+					return
+				}
+				if !yield(&apigen.State{ConfigSnapshot: config}, nil) {
 					return
 				}
 			case secret, ok := <-secretSub.Ch:

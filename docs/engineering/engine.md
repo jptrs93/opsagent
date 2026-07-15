@@ -48,8 +48,10 @@ Decision flow:
 - `!config.DesiredState.Running` — stop runner.
 - `config.Version > currentPreparer.Version()` — cancel old prepare and start a new one.
 - `preparerReady(status, config.Version) && config.Version > currentRunner.Version()` — stop old runner and create a new one.
+- A persisted `READY` container image that is absent or not unpacked locally — prepare the same config version again without changing desired-state history.
+- A container spawn that reports a locally unavailable image — stop retrying that image, signal the operator, and prepare the same config version again.
 
-`Stop()` is synchronous. The operator waits until the runner has stopped and written terminal status before moving on.
+`Stop()` is synchronous. The operator waits until the runner has stopped and written terminal status before moving on. Same-version artifact repair waits until the replacement preparation has published a non-`READY` transition before accepting its terminal `READY`, so a queued runner update carrying the stale preparer status cannot restart the missing image.
 
 Container deployments can opt into `runner.container.upgradeStrategy = ROLLOVER`. The operator starts an unpublished candidate runner for the prepared config version, waits for its readiness signal, promotes it, and stops the old runner. If the candidate exits, times out, or fails before readiness, the operator stops the candidate and keeps the old runner active. The default/unspecified strategy is `RECREATE`, which preserves the stop-then-start behavior above. Virtual networking can promote without host-port bind contention; host networking requires the workload to defer binding conflicting host ports until after readiness.
 
@@ -61,7 +63,9 @@ Container deployments can opt into `runner.container.upgradeStrategy = ROLLOVER`
 
 `githubrelease.Preparer` is internal-only. It downloads the executable used by the OpenDeploy self-deployment. `githubreleaseimage.Preparer` independently downloads the architecture-specific OpenDeploy binary and packages it into the internal `opendeploy-net` OCI image. Both consume the shared `repo/github.Client`; neither concrete preparer depends on the other.
 
-Asset, secret, and config preparation dependencies are grouped in one instance-owned `runtimeinputs.RuntimeInputs`. It owns the validated in-memory secret and config caches as well as the providers that populate them. The operator uses this service before artifact preparation and explicitly passes the same instance to container runners for typed env-ref expansion at spawn and respawn. Every deployment strategy passes through this common stage before artifact preparation. On successful process-start reattachment, the operator also rechecks runtime inputs before reusing an existing artifact.
+Asset, secret, and config preparation dependencies are grouped in one instance-owned `runtimeinputs.RuntimeInputs`. It owns the validated in-memory secret and config caches as well as the providers that populate them. The operator uses this service before artifact preparation and explicitly passes the same instance to container runners for typed env-ref expansion at spawn and respawn. Every deployment strategy passes through this common stage before artifact preparation. On process-start reattachment, the operator rechecks runtime inputs and verifies that a persisted container image is locally present and unpacked before reusing it.
+
+Primary backup restore preserves desired config and append-only status history, but runtime observations belong to the machine that produced the backup. The installer clears the mutable current preparer and runner fields for non-system deployments assigned to the replacement primary. Their unchanged config versions are then prepared normally on first startup. The OpenDeploy systemd self-deployment is excluded because the installer has already installed and started that binary; worker statuses are retained because surviving workers reconcile their own local runtime state.
 
 Prepare output is written to `{PrepareOutputDir}/{deploymentID}/{version}.log`.
 OpenDeploy-generated entries use `==> message` and failures use `==> ERROR: message`; subprocess output is streamed unchanged between those entries.
@@ -80,6 +84,7 @@ Operations continue to create dynamic descendants whose names or ownership are r
 type Runner interface {
     Stop()
     Version() int32
+    ArtifactMissing() <-chan struct{}
 }
 ```
 

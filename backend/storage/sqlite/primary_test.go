@@ -7,6 +7,89 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
+func TestInvalidateMachineRuntimeStatePreservesConfigAndHistory(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "primary.db")
+	store := NewPrimaryStorage(dbPath)
+	defer func() { _ = store.Close() }()
+
+	create := func(machine, name string, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
+		return store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{
+			SpaceID: DefaultSpaceID,
+			Machine: machine,
+			Name:    name,
+		}, spec, apigen.DesiredState{Version: "v1", Running: true})
+	}
+	containerSpec := &apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "example/app"}},
+		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+	}
+	primary := create("primary", "app", containerSpec)
+	worker := create("worker", "app", containerSpec)
+	system := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{
+		SpaceID: OpendeploySpaceID,
+		Machine: "primary",
+		Name:    systemDeploymentName,
+	}, SystemDeploymentSpec(), apigen.DesiredState{Version: "v1", Running: true})
+
+	seedStatus := func(cfg *apigen.DeploymentConfig, artifact string) {
+		store.MustWriteDeploymentStatus(cfg.ID, func(status *apigen.DeploymentStatus) bool {
+			status.BumpUpdatedAt()
+			status.DeploymentID = cfg.ID
+			status.Preparer = apigen.PreparerStatus{DeploymentConfigVersion: cfg.Version, Artifact: artifact, Status: apigen.PreparationStatus_READY}
+			status.Runner = apigen.RunnerStatus{DeploymentConfigVersion: cfg.Version, RunningArtifact: artifact, Status: apigen.RunningStatus_RUNNING}
+			return true
+		})
+	}
+	seedStatus(primary, "example/app:v1")
+	seedStatus(worker, "example/app:v1")
+	seedStatus(system, "/var/lib/opendeploy/releases/v1/opendeploy")
+
+	primaryStatusTime := store.FetchDeploymentStatus(primary.ID).UpdatedAt
+	primaryHistoryCount := len(store.MustFetchDeploymentStatusHistory(primary.ID))
+	primaryConfigHistoryCount := len(store.MustFetchDeploymentHistory(primary.ID))
+	primaryConfigVersion := primary.Version
+
+	count, err := store.InvalidateMachineRuntimeState("primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("invalidated count = %d, want 1", count)
+	}
+	got := store.FetchDeploymentStatus(primary.ID)
+	if !got.Preparer.IsZero() || !got.Runner.IsZero() {
+		t.Fatalf("primary runtime status was not cleared: %+v", got)
+	}
+	if !got.UpdatedAt.Equal(primaryStatusTime) {
+		t.Fatalf("updated_at = %v, want preserved %v", got.UpdatedAt, primaryStatusTime)
+	}
+	if len(store.MustFetchDeploymentStatusHistory(primary.ID)) != primaryHistoryCount {
+		t.Fatal("runtime invalidation changed status history")
+	}
+	if len(store.MustFetchDeploymentHistory(primary.ID)) != primaryConfigHistoryCount {
+		t.Fatal("runtime invalidation changed config history")
+	}
+	if store.FetchDeploymentStatus(worker.ID).Runner.Status != apigen.RunningStatus_RUNNING {
+		t.Fatal("worker runtime status was cleared")
+	}
+	if store.FetchDeploymentStatus(system.ID).Runner.Status != apigen.RunningStatus_RUNNING {
+		t.Fatal("primary system deployment runtime status was cleared")
+	}
+	for _, cfg := range store.ListActiveDeploymentConfigs() {
+		if cfg.ID == primary.ID && cfg.Version != primaryConfigVersion {
+			t.Fatalf("primary config version = %d, want %d", cfg.Version, primaryConfigVersion)
+		}
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store = NewPrimaryStorage(dbPath)
+	got = store.FetchDeploymentStatus(primary.ID)
+	if !got.Preparer.IsZero() || !got.Runner.IsZero() || !got.UpdatedAt.Equal(primaryStatusTime) {
+		t.Fatalf("persisted primary runtime status was not cleared correctly: %+v", got)
+	}
+}
+
 func TestEnsureSystemDeploymentRepairsExistingSpec(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	cid := &apigen.DeploymentIdentifier{SpaceID: OpendeploySpaceID, Machine: "primary", Name: systemDeploymentName}

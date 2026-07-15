@@ -14,6 +14,10 @@ import (
 // the given id (the caller should perform a fresh spawn).
 var ErrNotFound = errors.New("container task not found")
 
+// ErrImageUnavailable marks a missing or incomplete local image so the
+// operator can prepare the same desired config version again.
+var ErrImageUnavailable = errors.New("container image unavailable")
+
 // Mount is a single host bind mount into the container.
 type Mount struct {
 	Source   string

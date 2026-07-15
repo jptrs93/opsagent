@@ -19,6 +19,7 @@ import (
 type Runner interface {
 	Stop()
 	Version() int32
+	ArtifactMissing() <-chan struct{}
 }
 
 type RolloverCandidate interface {
@@ -98,8 +99,9 @@ func Stopped() Runner { return stoppedRunner{} }
 
 type stoppedRunner struct{}
 
-func (stoppedRunner) Stop()          {}
-func (stoppedRunner) Version() int32 { return -1 }
+func (stoppedRunner) Stop()                            {}
+func (stoppedRunner) Version() int32                   { return -1 }
+func (stoppedRunner) ArtifactMissing() <-chan struct{} { return nil }
 
 func useSystemd(dep *apigen.DeploymentConfig) bool {
 	return !dep.Spec.Runner.Systemd.IsZero()

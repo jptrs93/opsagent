@@ -3,7 +3,7 @@ import {capi} from "../capi/index.js";
 import {referencePicker} from "../components/referencePicker.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {copyIcon, eyeOffIcon, eyeOpenIcon} from "../lib/icons.js";
-import {secretRefsS, spacesS, userConfigRefsS, userConfigsS} from "../state/deployments.js";
+import {primaryConfigS, secretRefsS, spacesS, userConfigRefsS, userConfigsS} from "../state/deployments.js";
 
 const { div, h2, p, pre, span, table, tbody, tr, td, button, code, input, select, option, label: labelEl } = van.tags;
 
@@ -344,10 +344,10 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
 export function settingsPage() {
     if (settingsPageNode) return settingsPageNode;
 
-    const config = van.state(null);
     const draft = van.state(null);
     const dirtyCount = van.state(0);
     const loaded = van.state(false);
+    const settingsChangedElsewhere = van.state(false);
     const error = van.state(null);
     const saving = van.state(false);
     const secrets = van.state([]);
@@ -384,29 +384,51 @@ export function settingsPage() {
         setDraft({...current, [key]: {...current[key], ...next}});
     };
 
-    const load = async () => {
+    const currentSettings = () => primaryConfigS.val?.config?.settings || null;
+    let loadedConfigVersion = 0;
+    van.derive(() => {
+        const versioned = primaryConfigS.val;
+        const settings = versioned?.config?.settings;
+        if (!settings) {
+            loadedConfigVersion = 0;
+            if (loaded.val) {
+                draft.val = null;
+                dirtyCount.val = 0;
+                loaded.val = false;
+                settingsChangedElsewhere.val = false;
+            }
+            return;
+        }
+        if (Number(versioned.version) === loadedConfigVersion) return;
+        loadedConfigVersion = Number(versioned.version);
+        loaded.val = true;
+        if (!draft.val || dirtySettingsFor(draft.val).length === 0) {
+            setDraft(configDraft(settings));
+            settingsChangedElsewhere.val = false;
+        } else {
+            settingsChangedElsewhere.val = true;
+        }
+    });
+
+    const loadSecrets = async () => {
         try {
             error.val = null;
-            const [cfg, secretsStatus] = await Promise.all([
-                capi.getV1Settings(),
-                capi.postV1SecretsStatus({}),
-            ]);
-            config.val = cfg;
+            const secretsStatus = await capi.postV1SecretsStatus({});
             recoveryStatus.val = secretsStatus;
             secrets.val = secretsStatus.unlocked ? (await capi.postV1SecretsList({})).items || [] : [];
-            setDraft(configDraft(config.val));
-            loaded.val = true;
         } catch (e) {
             error.val = e.message;
         }
     };
-    setTimeout(load, 0);
+    setTimeout(loadSecrets, 0);
 
     const dirtySettings = () => dirtySettingsFor(draft.val);
 
     const resetChanges = () => {
-        if (!config.val) return;
-        setDraft(configDraft(config.val));
+        const settings = currentSettings();
+        if (!settings) return;
+        setDraft(configDraft(settings));
+        settingsChangedElsewhere.val = false;
     };
 
     const reloadSecrets = async () => {
@@ -451,11 +473,11 @@ export function settingsPage() {
         try {
             saving.val = true;
             error.val = null;
-            const payload = deepClone(config.val || emptySettings());
+            const payload = deepClone(currentSettings() || emptySettings());
             dirtySettings().forEach(({setting, item}) => setting.apply(payload, item));
             const res = await capi.putV1Settings(payload);
-            config.val = res;
             setDraft(configDraft(res));
+            settingsChangedElsewhere.val = false;
         } catch (e) {
             error.val = e.message;
         } finally {
@@ -475,7 +497,7 @@ export function settingsPage() {
     };
 
 	const recoveryInstallExample = () => {
-		const cfg = config.val || {};
+		const cfg = currentSettings() || {};
 		const httpWeb = cfg.httpWeb || {};
 		const httpsWeb = cfg.httpsWeb || {};
 		const backup = cfg.backup || {};
@@ -1018,6 +1040,7 @@ export function settingsPage() {
 
     const dirtyActions = () => dirtyCount.val ? div({class: "flex items-center gap-2"},
         span({class: "text-sm font-medium text-amber-300"}, "Unsaved changes"),
+        () => settingsChangedElsewhere.val ? span({class: "text-xs text-amber-200"}, "Settings changed elsewhere") : "",
         button({
             type: "button",
             disabled: () => saving.val,

@@ -117,6 +117,12 @@
  * @property {Uint8Array} networkUlaPrefix
  */
 /**
+ * @typedef {Object} ConfigVersion
+ * @property {number} version
+ * @property {Date} updatedAt
+ * @property {Config} config
+ */
+/**
  * @typedef {Object} Settings
  * @property {HttpWebSettings} httpWeb
  * @property {HttpsWebSettings} httpsWeb
@@ -443,6 +449,7 @@
  * @property {ClusterNodeStatus} nodeStatusUpdate
  * @property {BackupStatus} backupStatusSnapshot
  * @property {BackupStatus} backupStatusUpdate
+ * @property {ConfigVersion} configSnapshot
  */
 /**
  * @typedef {Object} Space
@@ -2314,6 +2321,78 @@ function decodeConfigMessage(reader, length) {
 export function decodeConfig(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeConfigMessage(reader);
+}
+
+
+
+/**
+ * @param {ConfigVersion} message
+ * @param {Writer} writer
+ */
+export function writeConfigVersion(message, writer) {
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.version);
+    }
+    if (message.updatedAt instanceof Date && message.updatedAt.getTime() !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.updatedAt.getTime()));
+    }
+    if (message.config !== undefined && message.config !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeConfig(message.config, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {ConfigVersion} message
+ * @returns {Uint8Array}
+ */
+export function encodeConfigVersion(message) {
+    const writer = Writer.create();
+    writeConfigVersion(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ConfigVersion}
+ */
+function decodeConfigVersionMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {version: 0, updatedAt: new Date(0), config: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.version = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.updatedAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 3: {
+                message.config = decodeConfigMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ConfigVersion}
+ */
+export function decodeConfigVersion(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeConfigVersionMessage(reader);
 }
 
 
@@ -6047,6 +6126,11 @@ export function writeState(message, writer) {
         writeBackupStatus(message.backupStatusUpdate, writer);
         writer.ldelim();
     }
+    if (message.configSnapshot !== undefined && message.configSnapshot !== null) {
+        writer.uint32(tag(31, WIRE.LDELIM)).fork();
+        writeConfigVersion(message.configSnapshot, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -6068,7 +6152,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined };
+    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6174,6 +6258,10 @@ function decodeStateMessage(reader, length) {
             }
             case 30: {
                 message.backupStatusUpdate = decodeBackupStatusMessage(reader, reader.uint32());
+                break;
+            }
+            case 31: {
+                message.configSnapshot = decodeConfigVersionMessage(reader, reader.uint32());
                 break;
             }
             default:

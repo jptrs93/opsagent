@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/pubsubu"
@@ -17,6 +18,7 @@ import (
 type Service struct {
 	Storage                *sqlite.PrimaryStorage
 	Subs                   *pubsubu.PubSub[apigen.Config]
+	VersionedSubs          *pubsubu.PubSub[apigen.ConfigVersion]
 	AssetOperationMu       sync.Locker
 	ValidateSettingsUpdate func(current, next apigen.Settings) error
 	mu                     sync.Mutex
@@ -116,17 +118,18 @@ func NewService(store *sqlite.PrimaryStorage) (*Service, error) {
 	s := &Service{
 		Storage:       store,
 		Subs:          &pubsubu.PubSub[apigen.Config]{},
+		VersionedSubs: &pubsubu.PubSub[apigen.ConfigVersion]{},
 		migrationWake: make(chan struct{}, 1),
 	}
-	cfg, versionID, err := s.loadConfig()
+	cfg, row, err := s.loadConfig()
 	if err != nil {
 		return nil, err
 	}
 	if _, err := network.ParsePrefix(cfg.NetworkUlaPrefix); err != nil {
 		return nil, fmt.Errorf("stored network ULA prefix is invalid: %w", err)
 	}
-	s.versionID = versionID
-	s.Subs.Notify(cfg)
+	s.versionID = row.ID
+	s.publishConfig(cfg, row.ID, time.UnixMilli(row.UpdatedAt))
 	return s, nil
 }
 
@@ -185,25 +188,39 @@ func (s *Service) SnapshotAndSubscribe(filter func(a, b apigen.Config) bool) *pu
 	return s.Subs.Subscribe(filter)
 }
 
+func (s *Service) VersionedSnapshotAndSubscribe() *pubsubu.Sub[apigen.ConfigVersion] {
+	return s.VersionedSubs.Subscribe(nil)
+}
+
 func (s *Service) Snapshot() apigen.Config {
 	return s.Subs.Value()
 }
 
-func (s *Service) loadConfig() (apigen.Config, int64, error) {
+func (s *Service) loadConfig() (apigen.Config, sqlite.OpendeployConfig, error) {
 	var res apigen.Config
 	r, err := s.Storage.FetchLatestOpenDeployConfig()
 	if err != nil {
 		if errors.Is(err, sqlite.ErrNotFound) {
-			return res, 0, fmt.Errorf("primary config is not initialized")
+			return res, sqlite.OpendeployConfig{}, fmt.Errorf("primary config is not initialized")
 		} else {
-			return res, 0, fmt.Errorf("FetchLatestOpenDeployConfig: %w", err)
+			return res, sqlite.OpendeployConfig{}, fmt.Errorf("FetchLatestOpenDeployConfig: %w", err)
 		}
 	}
 	cfg, err := apigen.DecodeConfig(r.ConfigBlob)
 	if err != nil {
-		return res, 0, fmt.Errorf("DecodeConfig: %w", err)
+		return res, sqlite.OpendeployConfig{}, fmt.Errorf("DecodeConfig: %w", err)
 	}
-	return normalizeConfig(*cfg), r.ID, nil
+	return normalizeConfig(*cfg), r, nil
+}
+
+func (s *Service) publishConfig(cfg apigen.Config, version int64, updatedAt time.Time) {
+	s.Subs.Notify(cfg)
+	cfg.MasterPasswordHash = ""
+	s.VersionedSubs.Notify(apigen.ConfigVersion{
+		Version:   version,
+		UpdatedAt: updatedAt,
+		Config:    cfg,
+	})
 }
 
 func (s *Service) UpdateSettings(settings apigen.Settings) error {
@@ -235,7 +252,11 @@ func (s *Service) UpdateSettings(settings apigen.Settings) error {
 		return err
 	}
 	s.versionID = versionID
-	s.Subs.Notify(cfg)
+	row, err := s.Storage.FetchOpenDeployConfigByID(versionID)
+	if err != nil {
+		panic(fmt.Sprintf("FetchOpenDeployConfigByID after settings update: %v", err))
+	}
+	s.publishConfig(cfg, versionID, time.UnixMilli(row.UpdatedAt))
 	if migration != nil {
 		select {
 		case s.migrationWake <- struct{}{}:
@@ -252,7 +273,11 @@ func (s *Service) saveAndNotifyLocked(cfg apigen.Config) error {
 		return fmt.Errorf("AppendOpenDeploySettings: %w", err)
 	}
 	s.versionID = versionID
-	s.Subs.Notify(cfg)
+	row, err := s.Storage.FetchOpenDeployConfigByID(versionID)
+	if err != nil {
+		panic(fmt.Sprintf("FetchOpenDeployConfigByID after config update: %v", err))
+	}
+	s.publishConfig(cfg, versionID, time.UnixMilli(row.UpdatedAt))
 	return nil
 }
 

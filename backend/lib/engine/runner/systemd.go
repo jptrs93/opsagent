@@ -112,7 +112,8 @@ func newSystemdRunnerWithRestart(store storage.OperatorStore, dep *apigen.Deploy
 	return r
 }
 
-func (r *systemdRunner) Version() int32 { return r.status.DeploymentConfigVersion }
+func (r *systemdRunner) Version() int32                   { return r.status.DeploymentConfigVersion }
+func (r *systemdRunner) ArtifactMissing() <-chan struct{} { return nil }
 
 // Stop cancels any in-flight install/restart. It does NOT stop the systemd unit.
 func (r *systemdRunner) Stop() {

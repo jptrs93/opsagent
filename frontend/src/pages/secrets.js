@@ -5,7 +5,7 @@ import {spinnerButton} from "../components/spinnerbutton.js";
 import {formatDateTime} from "../lib/date.js";
 import {copyIcon, eyeOffIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
-import {deploymentsS, secretMetasS, secretsStatusS, spacesS, userConfigsS} from "../state/deployments.js";
+import {deploymentsS, primaryConfigS, secretMetasS, secretsStatusS, spacesS, userConfigsS} from "../state/deployments.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
 const DEFAULT_SECRET_MASK = "••••••••••••••••";
@@ -38,7 +38,6 @@ const actionButton = (text, onclick, cls = "bg-gray-700 text-gray-200 hover:bg-g
 export function secretsPage() {
     const rows = van.state(null);
     const error = van.state(null);
-    const settingsSnapshot = van.state(null);
     const search = van.state("");
     const sort = van.state({key: "name", dir: "asc"});
     const deleteTarget = van.state(null);
@@ -147,7 +146,7 @@ export function secretsPage() {
     };
     const usageForRow = (row) => {
         const referenceIDs = itemReferenceIDs(row);
-        const settings = (row.type === "secret" ? settingSecretRefs(settingsSnapshot.val) : settingConfigRefs(settingsSnapshot.val))
+        const settings = (row.type === "secret" ? settingSecretRefs(primaryConfigS.val?.config?.settings) : settingConfigRefs(primaryConfigS.val?.config?.settings))
             .filter(ref => referenceIDs.has(ref.id));
         const deployments = deploymentUsages(
             deploymentsS.val,
@@ -190,16 +189,6 @@ export function secretsPage() {
         const query = search.val.trim().toLowerCase();
         return sortRows(query ? items.filter(row => matchesSearch(row, query)) : items);
     };
-
-    const loadSettings = async () => {
-        try {
-            settingsSnapshot.val = await capi.getV1Settings();
-            if (sort.val.key === "inUse") rows.val = filteredAndSortedRows(localRows || []);
-        } catch (e) {
-            error.val = e.message;
-        }
-    };
-    loadSettings();
 
     const reconcileVisibleRows = (visible, nextAll) => {
         const query = search.val.trim().toLowerCase();
@@ -276,6 +265,7 @@ export function secretsPage() {
             secrets: (secretMetasS.val || []).map(item => [item.id, item.name, item.version, item.createdAt, item.updatedBy]),
             configs: (userConfigsS.val || []).map(item => [item.id, item.name, item.version, item.value, item.createdAt, item.updatedBy]),
             deploymentRefs: (deploymentsS.val || []).map(item => [item.config?.id, item.config?.version, item.config?.deleted, item.config?.spec?.runner?.container?.envVars]),
+            configVersion: primaryConfigS.val?.version,
         });
         if (signature === streamSignature) return;
         streamSignature = signature;

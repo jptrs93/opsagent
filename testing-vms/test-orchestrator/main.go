@@ -185,8 +185,8 @@ func loadConfig() (*config, error) {
 	c.WebBaseURL = env("OPD_BASE_URL", "https://"+c.WebHost)
 
 	c.ReleaseRepo = env("RELEASE_REPO", "jptrs93/opsagent")
-	c.InstallVersion = env("OPD_INSTALL_VERSION", "v0.0.258")
-	c.UpgradeVersion = env("OPD_UPGRADE_VERSION", "v0.0.258")
+	c.InstallVersion = env("OPD_INSTALL_VERSION", "v0.0.274")
+	c.UpgradeVersion = env("OPD_UPGRADE_VERSION", "v0.0.274")
 	c.SelfVersion = env("OPD_SELF_VERSION", "v0.0.0")
 	c.LocalTest = envBool("OPD_LOCAL_CHECKOUT", false)
 	c.BackupRestore = envBool("OPD_BACKUP_RESTORE", false)
@@ -1183,6 +1183,39 @@ func (c *config) waitForHealthz(name string) error {
 	}
 	_ = c.vmRun(name, "systemctl", "status", "opendeploy", "--no-pager")
 	return fmt.Errorf("OpenDeploy health check failed in %s", name)
+}
+
+func (c *config) waitForPrimaryNetproxy(name string) error {
+	ctr := "/var/lib/opendeploy/runtime/bin/ctr"
+	args := []string{"sudo", ctr, "--address", "/run/opendeploy/containerd.sock", "--namespace", "opendeploy"}
+	for i := 0; i < 180; i++ {
+		images, imageErr := c.vmOutput(name, append(args, "images", "check", "--quiet")...)
+		containers, containerErr := c.vmOutput(name, append(args, "containers", "list")...)
+		tasks, taskErr := c.vmOutput(name, append(args, "tasks", "list")...)
+		netproxyID := ""
+		for _, line := range strings.Split(containers, "\n") {
+			if fields := strings.Fields(line); len(fields) > 1 && strings.Contains(line, "opendeploy-net:") {
+				netproxyID = fields[0]
+				break
+			}
+		}
+		netproxyRunning := false
+		for _, line := range strings.Split(tasks, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) > 2 && fields[0] == netproxyID && fields[len(fields)-1] == "RUNNING" {
+				netproxyRunning = true
+				break
+			}
+		}
+		if imageErr == nil && containerErr == nil && taskErr == nil && strings.Contains(images, "opendeploy-net:") && netproxyRunning {
+			return nil
+		}
+		time.Sleep(time.Second)
+	}
+	_ = c.vmRun(name, append(args, "images", "list")...)
+	_ = c.vmRun(name, append(args, "containers", "list")...)
+	_ = c.vmRun(name, append(args, "tasks", "list")...)
+	return fmt.Errorf("opendeploy-net did not recover on restored primary %s", name)
 }
 
 func (c *config) verifyRepoMirrorForRun() error {
@@ -2214,11 +2247,14 @@ func (c *config) backupRestore() error {
 	}); err != nil {
 		return err
 	}
-	if err := c.substep("verify restored primary", "service active and healthz OK", func() error {
+	if err := c.substep("verify restored primary", "service active, healthz OK, and opendeploy-net running", func() error {
 		if err := c.waitForService(c.PrimaryName, "opendeploy.service"); err != nil {
 			return err
 		}
-		return c.waitForHealthz(c.PrimaryName)
+		if err := c.waitForHealthz(c.PrimaryName); err != nil {
+			return err
+		}
+		return c.waitForPrimaryNetproxy(c.PrimaryName)
 	}); err != nil {
 		return err
 	}
