@@ -1,6 +1,7 @@
 -- Config representing desired state for each deployment. One row per deployment,
 CREATE TABLE IF NOT EXISTS deployment_configs (
     deployment_id   INTEGER PRIMARY KEY,
+    node_id         INTEGER NOT NULL DEFAULT -1,
     space_id        INTEGER NOT NULL DEFAULT 1,
     machine         TEXT    NOT NULL DEFAULT '',
     name            TEXT    NOT NULL DEFAULT '',
@@ -26,6 +27,7 @@ INSERT INTO spaces (id, name) VALUES (0, 'opendeploy'), (1, 'default') ON CONFLI
 -- Append-only log of every config mutation.
 CREATE TABLE IF NOT EXISTS deployment_config_history (
     deployment_id   INTEGER NOT NULL,
+    node_id         INTEGER NOT NULL DEFAULT -1,
     version         INTEGER NOT NULL,
     updated_at      INTEGER NOT NULL,  -- epoch ms
     updated_by      INTEGER NOT NULL DEFAULT 0,

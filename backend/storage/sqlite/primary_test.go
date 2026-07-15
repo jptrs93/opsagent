@@ -246,6 +246,31 @@ func TestMigratesNodeSNIToIdentifier(t *testing.T) {
 		t.Fatalf("open legacy database: %v", err)
 	}
 	if _, err := db.Exec(`
+		CREATE TABLE deployment_configs (
+			deployment_id INTEGER PRIMARY KEY,
+			space_id INTEGER NOT NULL DEFAULT 1,
+			machine TEXT NOT NULL DEFAULT '',
+			name TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL DEFAULT 0,
+			version INTEGER NOT NULL DEFAULT 0,
+			updated_at INTEGER NOT NULL,
+			updated_by INTEGER NOT NULL DEFAULT 0,
+			spec_blob BLOB NOT NULL,
+			desired_version TEXT NOT NULL DEFAULT '',
+			desired_running INTEGER NOT NULL DEFAULT 0,
+			deleted INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE TABLE deployment_config_history (
+			deployment_id INTEGER NOT NULL,
+			version INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			updated_by INTEGER NOT NULL DEFAULT 0,
+			spec_blob BLOB NOT NULL,
+			desired_version TEXT NOT NULL DEFAULT '',
+			desired_running INTEGER NOT NULL DEFAULT 0,
+			deleted INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (deployment_id, version)
+		);
 		CREATE TABLE nodes (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			enrollment_id INTEGER,
@@ -258,7 +283,15 @@ func TestMigratesNodeSNIToIdentifier(t *testing.T) {
 			UNIQUE(name),
 			UNIQUE(enrollment_id)
 		);
-		INSERT INTO nodes (name, sni, roles) VALUES ('worker-1', 'worker-1', '[1]')`); err != nil {
+		INSERT INTO nodes (name, sni, roles) VALUES ('worker-1', 'worker-1', '[1]');
+		INSERT INTO deployment_configs (
+			deployment_id, space_id, machine, name, created_at, version, updated_at,
+			updated_by, spec_blob, desired_version, desired_running, deleted
+		) VALUES (7, 1, 'worker-1', 'api', 1000, 1, 1000, 0, x'', 'v1', 1, 0);
+		INSERT INTO deployment_config_history (
+			deployment_id, version, updated_at, updated_by, spec_blob,
+			desired_version, desired_running, deleted
+		) VALUES (7, 1, 1000, 0, x'', 'v1', 1, 0)`); err != nil {
 		t.Fatalf("seed legacy nodes: %v", err)
 	}
 	if err := db.Close(); err != nil {
@@ -270,6 +303,47 @@ func TestMigratesNodeSNIToIdentifier(t *testing.T) {
 	nodes := store.ListNodes()
 	if len(nodes) != 1 || nodes[0].Identifier != "worker-1" {
 		t.Fatalf("migrated nodes = %+v, want identifier worker-1", nodes)
+	}
+	configs := store.FetchDeploymentSnapshot("worker-1")
+	if len(configs) != 1 || configs[0].Config.NodeID != nodes[0].ID {
+		t.Fatalf("migrated config node ID = %+v, want %d", configs, nodes[0].ID)
+	}
+	history := store.MustFetchDeploymentHistory(7)
+	if len(history) != 1 || history[0].NodeID != nodes[0].ID {
+		t.Fatalf("migrated history node ID = %+v, want %d", history, nodes[0].ID)
+	}
+}
+
+func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
+	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	defer store.Close()
+	node := store.EnsurePrimaryNode("primary", "primary-id")
+
+	cfg := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{
+		SpaceID: DefaultSpaceID,
+		Machine: "primary-id",
+		Name:    "api",
+	}, SystemDeploymentSpec(), apigen.DesiredState{Version: "v1", Running: true})
+	if cfg.NodeID != node.ID {
+		t.Fatalf("created node ID = %d, want %d", cfg.NodeID, node.ID)
+	}
+
+	updated, changed, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, DeploymentConfigUpdate{
+		ExpectedVersion: 2,
+		DesiredState:    &apigen.DesiredState{Version: "v2", Running: true},
+	})
+	if !changed || !versionOK || updated.NodeID != node.ID {
+		t.Fatalf("updated config = %+v, changed=%v versionOK=%v, want node ID %d", updated, changed, versionOK, node.ID)
+	}
+
+	history := store.MustFetchDeploymentHistory(cfg.ID)
+	if len(history) != 2 {
+		t.Fatalf("history length = %d, want 2", len(history))
+	}
+	for _, entry := range history {
+		if entry.NodeID != node.ID {
+			t.Fatalf("history version %d node ID = %d, want %d", entry.Version, entry.NodeID, node.ID)
+		}
 	}
 }
 

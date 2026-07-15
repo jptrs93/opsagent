@@ -981,6 +981,7 @@ message DeploymentDeleteRequest {
 
 message DeploymentConfig {
   int32 id = 8;                          // primary key (integer deployment id)
+  int32 node_id = 10;                    // canonical ClusterNode.id; -1 when unresolved
   DeploymentIdentifier config_id = 1 [(cp.go_value) = true];    // human-readable identity (display metadata)
   int32 version = 2;                      // per-deployment monotonically increasing config version
   int64 updated_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];

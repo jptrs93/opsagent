@@ -600,6 +600,7 @@
 /**
  * @typedef {Object} DeploymentConfig
  * @property {number} id
+ * @property {number} nodeId
  * @property {DeploymentIdentifier} configId
  * @property {number} version
  * @property {Date} updatedAt
@@ -8122,6 +8123,9 @@ export function writeDeploymentConfig(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(8, WIRE.VARINT)).int32(message.id);
     }
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(10, WIRE.VARINT)).int32(message.nodeId);
+    }
     if (message.configId !== undefined && message.configId !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
         writeDeploymentIdentifier(message.configId, writer);
@@ -8173,12 +8177,16 @@ export function encodeDeploymentConfig(message) {
  */
 function decodeDeploymentConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, configId: undefined, version: 0, updatedAt: new Date(0), updatedBy: 0, spec: undefined, desiredState: undefined, deleted: false, createdAt: new Date(0) };
+    const message = {id: 0, nodeId: 0, configId: undefined, version: 0, updatedAt: new Date(0), updatedBy: 0, spec: undefined, desiredState: undefined, deleted: false, createdAt: new Date(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 8: {
                 message.id = reader.int32();
+                break;
+            }
+            case 10: {
+                message.nodeId = reader.int32();
                 break;
             }
             case 1: {

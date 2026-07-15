@@ -34,6 +34,7 @@ type AssetMigration struct {
 
 type DeploymentConfig struct {
 	DeploymentID   int64
+	NodeID         int64
 	SpaceID        int64
 	Machine        string
 	Name           string
@@ -49,6 +50,7 @@ type DeploymentConfig struct {
 
 type DeploymentConfigHistory struct {
 	DeploymentID   int64
+	NodeID         int64
 	Version        int64
 	UpdatedAt      int64
 	UpdatedBy      int64
@@ -101,6 +103,24 @@ type EnrollmentRequest struct {
 type LocalKv struct {
 	Key   string
 	Value []byte
+}
+
+type NodeRow struct {
+	ID           int64
+	EnrollmentID sql.NullInt64
+	EnrolledAt   int64
+	Name         string
+	Identifier   string
+	Roles        string
+	Addresses    string
+	WgPublicKey  string
+}
+
+type NodeStatus struct {
+	ID              int64
+	NodeID          int64
+	LastConnectedAt int64
+	IsConnected     int64
 }
 
 type OpendeployConfig struct {

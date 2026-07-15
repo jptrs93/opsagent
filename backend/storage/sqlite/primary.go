@@ -393,6 +393,7 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 
 	params := UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
+		NodeID:         mustGetNodeIDByIdentifier(bgCtx, q, existing.Machine),
 		SpaceID:        spaceID,
 		Machine:        existing.Machine,
 		Name:           existing.Name,
@@ -410,6 +411,7 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
+		NodeID:         params.NodeID,
 		Version:        params.Version,
 		UpdatedAt:      params.UpdatedAt,
 		UpdatedBy:      params.UpdatedBy,
@@ -448,8 +450,13 @@ func (s *PrimaryStorage) MustSetDeploymentDesiredState(ctx apigen.Context, deplo
 	if ctx.User != nil {
 		userID = int64(ctx.User.ID)
 	}
+	existing, err := q.GetDeploymentConfig(bgCtx, dbID)
+	if err != nil {
+		panic(fmt.Sprintf("GetDeploymentConfig: %v", err))
+	}
 
 	if updateErr := q.UpdateDesiredState(bgCtx, UpdateDesiredStateParams{
+		NodeID:         mustGetNodeIDByIdentifier(bgCtx, q, existing.Machine),
 		DesiredVersion: desired.Version,
 		DesiredRunning: boolToInt(desired.Running),
 		UpdatedAt:      now,
@@ -465,6 +472,7 @@ func (s *PrimaryStorage) MustSetDeploymentDesiredState(ctx apigen.Context, deplo
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
+		NodeID:         updated.NodeID,
 		Version:        updated.Version,
 		UpdatedAt:      updated.UpdatedAt,
 		UpdatedBy:      updated.UpdatedBy,
@@ -517,6 +525,7 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 	newVersion := existing.Version + 1
 	params := UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
+		NodeID:         mustGetNodeIDByIdentifier(bgCtx, q, existing.Machine),
 		SpaceID:        existing.SpaceID,
 		Machine:        existing.Machine,
 		Name:           existing.Name,
@@ -534,6 +543,7 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
+		NodeID:         params.NodeID,
 		Version:        newVersion,
 		UpdatedAt:      now,
 		UpdatedBy:      userID,
@@ -582,6 +592,7 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymen
 	newVersion := existing.Version + 1
 	params := UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
+		NodeID:         mustGetNodeIDByIdentifier(bgCtx, q, existing.Machine),
 		SpaceID:        int64(spaceID),
 		Machine:        existing.Machine,
 		Name:           existing.Name,
@@ -599,6 +610,7 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymen
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
+		NodeID:         params.NodeID,
 		Version:        newVersion,
 		UpdatedAt:      now,
 		UpdatedBy:      userID,
@@ -652,7 +664,9 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 		specBlob = spec.Encode()
 	}
 
+	nodeID := mustGetNodeIDByIdentifier(bgCtx, q, cid.Machine)
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
+		NodeID:         nodeID,
 		SpaceID:        int64(cid.SpaceID),
 		Machine:        cid.Machine,
 		Name:           cid.Name,
@@ -672,6 +686,7 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
+		NodeID:         nodeID,
 		Version:        1,
 		UpdatedAt:      now,
 		UpdatedBy:      userID,
@@ -691,6 +706,7 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 
 	cfg := upsertParamsToProto(UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
+		NodeID:         nodeID,
 		SpaceID:        int64(cid.SpaceID),
 		Machine:        cid.Machine,
 		Name:           cid.Name,
@@ -752,7 +768,9 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 		desiredRunning = 1
 	}
 
+	nodeID := mustGetNodeIDByIdentifier(bgCtx, q, cid.Machine)
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
+		NodeID:         nodeID,
 		SpaceID:        int64(cid.SpaceID),
 		Machine:        cid.Machine,
 		Name:           cid.Name,
@@ -771,6 +789,7 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
+		NodeID:         nodeID,
 		Version:        1,
 		UpdatedAt:      now,
 		SpecBlob:       specBlob,
@@ -790,6 +809,7 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 	id := int32(dbID)
 	s.configCache[id] = upsertParamsToProto(UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
+		NodeID:         nodeID,
 		SpaceID:        int64(cid.SpaceID),
 		Machine:        cid.Machine,
 		Name:           cid.Name,
@@ -846,7 +866,9 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(machine string, opendeployVers
 
 	q := s.q.WithTx(tx)
 	now := time.Now().UnixMilli()
+	nodeID := mustGetNodeIDByIdentifier(bgCtx, q, cid.Machine)
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
+		NodeID:         nodeID,
 		SpaceID:        int64(cid.SpaceID),
 		Machine:        cid.Machine,
 		Name:           cid.Name,
@@ -865,6 +887,7 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(machine string, opendeployVers
 
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
+		NodeID:         nodeID,
 		Version:        1,
 		UpdatedAt:      now,
 		SpecBlob:       specBlob,
@@ -884,6 +907,7 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(machine string, opendeployVers
 	id := int32(dbID)
 	s.configCache[id] = upsertParamsToProto(UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
+		NodeID:         nodeID,
 		SpaceID:        int64(cid.SpaceID),
 		Machine:        cid.Machine,
 		Name:           cid.Name,
@@ -919,6 +943,7 @@ func (s *PrimaryStorage) repairSystemDeploymentLocked(deploymentID int32) {
 	newVersion := existing.Version + 1
 	params := UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
+		NodeID:         mustGetNodeIDByIdentifier(bgCtx, q, existing.Machine),
 		SpaceID:        existing.SpaceID,
 		Machine:        existing.Machine,
 		Name:           existing.Name,
@@ -936,6 +961,7 @@ func (s *PrimaryStorage) repairSystemDeploymentLocked(deploymentID int32) {
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
+		NodeID:         params.NodeID,
 		Version:        newVersion,
 		UpdatedAt:      now,
 		UpdatedBy:      0,
@@ -1102,6 +1128,7 @@ func configHistoryRowToProto(dbID int64, cid apigen.DeploymentIdentifier, create
 	}
 	return &apigen.DeploymentConfig{
 		ID:        int32(dbID),
+		NodeID:    int32(r.NodeID),
 		ConfigID:  cid,
 		CreatedAt: createdAt,
 		Version:   int32(r.Version),
@@ -1126,6 +1153,7 @@ func configProtoToUpsertParams(cfg *apigen.DeploymentConfig) UpsertDeploymentCon
 	}
 	return UpsertDeploymentConfigParams{
 		DeploymentID:   int64(cfg.ID),
+		NodeID:         int64(normalizeDeploymentNodeID(cfg.NodeID)),
 		SpaceID:        int64(cfg.ConfigID.SpaceID),
 		Machine:        cfg.ConfigID.Machine,
 		Name:           cfg.ConfigID.Name,
@@ -1146,7 +1174,8 @@ func configRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
 		slog.Error("failed decoding deployment spec", "deploymentID", r.DeploymentID, "err", err)
 	}
 	return &apigen.DeploymentConfig{
-		ID: int32(r.DeploymentID),
+		ID:     int32(r.DeploymentID),
+		NodeID: int32(r.NodeID),
 		ConfigID: apigen.DeploymentIdentifier{
 			SpaceID: int32(r.SpaceID),
 			Machine: r.Machine,
@@ -1171,7 +1200,8 @@ func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfi
 		slog.Error("failed decoding deployment spec", "deploymentID", p.DeploymentID, "err", err)
 	}
 	return &apigen.DeploymentConfig{
-		ID: int32(p.DeploymentID),
+		ID:     int32(p.DeploymentID),
+		NodeID: int32(p.NodeID),
 		ConfigID: apigen.DeploymentIdentifier{
 			SpaceID: int32(p.SpaceID),
 			Machine: p.Machine,
@@ -1188,6 +1218,23 @@ func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfi
 		},
 		Deleted: p.Deleted != 0,
 	}
+}
+
+func mustGetNodeIDByIdentifier(ctx context.Context, q *Queries, identifier string) int64 {
+	var nodeID int64
+	err := q.db.QueryRowContext(ctx, `
+		SELECT COALESCE((SELECT id FROM nodes WHERE identifier = ?), -1)`, identifier).Scan(&nodeID)
+	if err != nil {
+		panic(fmt.Sprintf("get node ID by identifier %q: %v", identifier, err))
+	}
+	return nodeID
+}
+
+func normalizeDeploymentNodeID(nodeID int32) int32 {
+	if nodeID <= 0 {
+		return -1
+	}
+	return nodeID
 }
 
 func spaceRowToProto(row Space) *apigen.Space {

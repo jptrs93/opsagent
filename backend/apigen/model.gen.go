@@ -670,6 +670,7 @@ type DeploymentDeleteRequest struct {
 
 type DeploymentConfig struct {
 	ID           int32
+	NodeID       int32
 	ConfigID     DeploymentIdentifier
 	Version      int32
 	UpdatedAt    time.Time

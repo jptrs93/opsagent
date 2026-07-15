@@ -53,6 +53,11 @@ in `POST /v1/deployment/update`; the `name`,
 `environment`, and `machine` identity fields are fixed at create time and
 cannot be changed through this path.
 
+Deployment config and history responses also include `nodeId`, the numeric
+`ClusterNode.id` corresponding to the stable `machine` identifier. A value of
+`-1` means the node could not be resolved. The frontend currently retains this
+field without using it for behavior.
+
 ### Prepare variants
 
 | Variant | Fields | Description |

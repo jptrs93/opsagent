@@ -4718,6 +4718,7 @@ func DecodeDeploymentDeleteRequest(b []byte) (*DeploymentDeleteRequest, error) {
 
 func (m DeploymentConfig) IsZero() bool {
 	return m.ID == 0 &&
+		m.NodeID == 0 &&
 		m.ConfigID.IsZero() &&
 		m.Version == 0 &&
 		m.UpdatedAt.IsZero() &&
@@ -4731,6 +4732,7 @@ func (m DeploymentConfig) IsZero() bool {
 func (m *DeploymentConfig) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 8)
+	b = AppendInt32Field(b, m.NodeID, 10)
 	if !m.ConfigID.IsZero() {
 		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, m.ConfigID.Encode())
@@ -4765,6 +4767,8 @@ func DecodeDeploymentConfig(b []byte) (*DeploymentConfig, error) {
 		switch num {
 		case 8:
 			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 10:
+			b, m.NodeID, err = ConsumeVarInt32(b, typ)
 		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {

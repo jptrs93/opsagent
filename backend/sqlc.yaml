@@ -7,3 +7,5 @@ sql:
       go:
         package: "sqlite"
         out: "storage/sqlite"
+        rename:
+          node: NodeRow

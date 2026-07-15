@@ -25,6 +25,8 @@ func (s *SecondaryStorage) MustWriteDeploymentConfig(cfg *apigen.DeploymentConfi
 	defer s.mu.Unlock()
 	ctx := context.Background()
 	id := cfg.ID
+	stored := *cfg
+	stored.NodeID = normalizeDeploymentNodeID(stored.NodeID)
 	_, exists := s.configCache[id]
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -34,7 +36,7 @@ func (s *SecondaryStorage) MustWriteDeploymentConfig(cfg *apigen.DeploymentConfi
 	defer tx.Rollback()
 	q := s.q.WithTx(tx)
 
-	if err := q.UpsertDeploymentConfig(ctx, configProtoToUpsertParams(cfg)); err != nil {
+	if err := q.UpsertDeploymentConfig(ctx, configProtoToUpsertParams(&stored)); err != nil {
 		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
 	}
 	if !exists {
@@ -44,7 +46,7 @@ func (s *SecondaryStorage) MustWriteDeploymentConfig(cfg *apigen.DeploymentConfi
 		panic(fmt.Sprintf("commit: %v", err))
 	}
 
-	s.configCache[id] = cfg
+	s.configCache[id] = &stored
 	s.notifyFromCache(id)
 }
 

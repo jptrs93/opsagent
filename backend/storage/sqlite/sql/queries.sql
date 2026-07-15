@@ -5,9 +5,10 @@
 -- existing row (e.g. a previously soft-deleted one) keeping its original
 -- deployment_id and created_at, and returns both.
 -- name: CreateDeploymentConfig :one
-INSERT INTO deployment_configs (space_id, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_configs (node_id, space_id, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(space_id, machine, name) DO UPDATE SET
+    node_id = excluded.node_id,
     version = excluded.version,
     updated_at = excluded.updated_at,
     updated_by = excluded.updated_by,
@@ -18,15 +19,16 @@ ON CONFLICT(space_id, machine, name) DO UPDATE SET
 RETURNING deployment_id, created_at;
 
 -- name: GetDeploymentConfig :one
-SELECT deployment_id, space_id, machine, name, created_at, version, updated_at, updated_by,
+SELECT deployment_id, node_id, space_id, machine, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE deployment_id = ?;
 
 -- name: UpsertDeploymentConfig :exec
-INSERT INTO deployment_configs (deployment_id, space_id, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_configs (deployment_id, node_id, space_id, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(deployment_id) DO UPDATE SET
+    node_id = excluded.node_id,
     space_id = excluded.space_id,
     machine = excluded.machine,
     name = excluded.name,
@@ -41,17 +43,17 @@ ON CONFLICT(deployment_id) DO UPDATE SET
 
 -- name: UpdateDesiredState :exec
 UPDATE deployment_configs
-SET desired_version = ?, desired_running = ?, version = version + 1, updated_at = ?, updated_by = ?
+SET node_id = ?, desired_version = ?, desired_running = ?, version = version + 1, updated_at = ?, updated_by = ?
 WHERE deployment_id = ?;
 
 -- name: ListDeploymentConfigsByMachine :many
-SELECT deployment_id, space_id, machine, name, created_at, version, updated_at, updated_by,
+SELECT deployment_id, node_id, space_id, machine, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE machine = ? AND deleted = 0;
 
 -- name: ListAllDeploymentConfigs :many
-SELECT deployment_id, space_id, machine, name, created_at, version, updated_at, updated_by,
+SELECT deployment_id, node_id, space_id, machine, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE deleted = 0;
@@ -78,11 +80,11 @@ SELECT COUNT(*) FROM deployment_configs WHERE space_id = ? AND deleted = 0;
 -- === deployment_config_history ===
 
 -- name: InsertDeploymentConfigHistory :exec
-INSERT INTO deployment_config_history (deployment_id, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO deployment_config_history (deployment_id, node_id, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListDeploymentConfigHistory :many
-SELECT deployment_id, version, updated_at, updated_by, spec_blob,
+SELECT deployment_id, node_id, version, updated_at, updated_by, spec_blob,
        desired_version, desired_running, deleted
 FROM deployment_config_history
 WHERE deployment_id = ?
