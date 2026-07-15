@@ -662,13 +662,12 @@ func (q *Queries) InsertAssetMigration(ctx context.Context, arg InsertAssetMigra
 
 const insertDeploymentConfigHistory = `-- name: InsertDeploymentConfigHistory :exec
 
-INSERT INTO deployment_config_history (deployment_id, node_id, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_config_history (deployment_id, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertDeploymentConfigHistoryParams struct {
 	DeploymentID   int64
-	NodeID         int64
 	Version        int64
 	UpdatedAt      int64
 	UpdatedBy      int64
@@ -682,7 +681,6 @@ type InsertDeploymentConfigHistoryParams struct {
 func (q *Queries) InsertDeploymentConfigHistory(ctx context.Context, arg InsertDeploymentConfigHistoryParams) error {
 	_, err := q.db.ExecContext(ctx, insertDeploymentConfigHistory,
 		arg.DeploymentID,
-		arg.NodeID,
 		arg.Version,
 		arg.UpdatedAt,
 		arg.UpdatedBy,
@@ -983,7 +981,7 @@ func (q *Queries) ListAssetVersionsByKey(ctx context.Context, key string) ([]Ass
 }
 
 const listDeploymentConfigHistory = `-- name: ListDeploymentConfigHistory :many
-SELECT deployment_id, node_id, version, updated_at, updated_by, spec_blob,
+SELECT deployment_id, version, updated_at, updated_by, spec_blob,
        desired_version, desired_running, deleted
 FROM deployment_config_history
 WHERE deployment_id = ?
@@ -1001,7 +999,6 @@ func (q *Queries) ListDeploymentConfigHistory(ctx context.Context, deploymentID 
 		var i DeploymentConfigHistory
 		if err := rows.Scan(
 			&i.DeploymentID,
-			&i.NodeID,
 			&i.Version,
 			&i.UpdatedAt,
 			&i.UpdatedBy,

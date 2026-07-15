@@ -1,8 +1,18 @@
--- todo future migrations
+-- Config snapshots received after the node ID rollout provide the authoritative
+-- ID. Apply it to older configs for the same machine only when that mapping is
+-- unambiguous.
+UPDATE deployment_configs AS target
+SET node_id = (
+    SELECT MIN(source.node_id)
+    FROM deployment_configs AS source
+    WHERE source.machine = target.machine AND source.node_id > 0
+)
+WHERE target.node_id <= 0
+  AND (
+      SELECT COUNT(DISTINCT source.node_id)
+      FROM deployment_configs AS source
+      WHERE source.machine = target.machine AND source.node_id > 0
+  ) = 1;
 
--- Keep the shared schema compatible with primary node identity records.
-ALTER TABLE nodes RENAME COLUMN sni TO identifier;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_nodes_identifier ON nodes(identifier);
-
-ALTER TABLE deployment_configs ADD COLUMN node_id INTEGER NOT NULL DEFAULT -1;
-ALTER TABLE deployment_config_history ADD COLUMN node_id INTEGER NOT NULL DEFAULT -1;
+-- Deployment history does not need to duplicate the current config's node ID.
+ALTER TABLE deployment_config_history DROP COLUMN node_id;

@@ -69,7 +69,7 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSecondaryMigrationLeavesLegacyNodeIDsForNewUpdates(t *testing.T) {
+func TestSecondaryMigrationBackfillsConfigsAndDropsHistoryNodeID(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "secondary.db")
 	db, err := sql.Open("sqlite", "file:"+dbPath)
 	if err != nil {
@@ -78,6 +78,7 @@ func TestSecondaryMigrationLeavesLegacyNodeIDsForNewUpdates(t *testing.T) {
 	if _, err := db.Exec(`
 		CREATE TABLE deployment_configs (
 			deployment_id INTEGER PRIMARY KEY,
+			node_id INTEGER NOT NULL DEFAULT -1,
 			space_id INTEGER NOT NULL DEFAULT 1,
 			machine TEXT NOT NULL DEFAULT '',
 			name TEXT NOT NULL DEFAULT '',
@@ -92,6 +93,7 @@ func TestSecondaryMigrationLeavesLegacyNodeIDsForNewUpdates(t *testing.T) {
 		);
 		CREATE TABLE deployment_config_history (
 			deployment_id INTEGER NOT NULL,
+			node_id INTEGER NOT NULL DEFAULT -1,
 			version INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL,
 			updated_by INTEGER NOT NULL DEFAULT 0,
@@ -102,14 +104,16 @@ func TestSecondaryMigrationLeavesLegacyNodeIDsForNewUpdates(t *testing.T) {
 			PRIMARY KEY (deployment_id, version)
 		);
 		INSERT INTO deployment_configs (
-			deployment_id, space_id, machine, name, created_at, version, updated_at,
+			deployment_id, node_id, space_id, machine, name, created_at, version, updated_at,
 			updated_by, spec_blob, desired_version, desired_running, deleted
-		) VALUES (7, 1, 'm1', 'api', 1000, 1, 1000, 0, x'', 'v1', 1, 0);
+		) VALUES
+			(7, 42, 1, 'm1', 'api', 1000, 1, 1000, 0, x'', 'v1', 1, 0),
+			(8, -1, 1, 'm1', 'old-api', 1000, 1, 1000, 0, x'', 'v1', 0, 1);
 		INSERT INTO deployment_config_history (
-			deployment_id, version, updated_at, updated_by, spec_blob,
+			deployment_id, node_id, version, updated_at, updated_by, spec_blob,
 			desired_version, desired_running, deleted
-		) VALUES (7, 1, 1000, 0, x'', 'v1', 1, 0)`); err != nil {
-		t.Fatalf("seed legacy database: %v", err)
+		) VALUES (8, -1, 1, 1000, 0, x'', 'v1', 0, 1)`); err != nil {
+		t.Fatalf("seed deployed database: %v", err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatalf("close legacy database: %v", err)
@@ -117,38 +121,20 @@ func TestSecondaryMigrationLeavesLegacyNodeIDsForNewUpdates(t *testing.T) {
 
 	store := NewSecondaryStorage(dbPath)
 	defer store.db.Close()
-	legacy, _, unsub := store.MustFetchSnapshotAndSubscribe("m1")
+	configs, _, unsub := store.MustFetchSnapshotAndSubscribe("m1")
 	unsub()
-	if len(legacy) != 1 || legacy[0].Config.NodeID != -1 {
-		t.Fatalf("legacy config node ID = %+v, want -1", legacy)
+	if len(configs) != 1 || configs[0].Config.NodeID != 42 {
+		t.Fatalf("active config after migration = %+v, want node ID 42", configs)
 	}
-	var historyNodeID int64
-	if err := store.db.QueryRow(`SELECT node_id FROM deployment_config_history WHERE deployment_id = 7 AND version = 1`).Scan(&historyNodeID); err != nil {
-		t.Fatalf("read legacy history node ID: %v", err)
+	var deletedNodeID int64
+	if err := store.db.QueryRow(`SELECT node_id FROM deployment_configs WHERE deployment_id = 8`).Scan(&deletedNodeID); err != nil {
+		t.Fatalf("read backfilled config node ID: %v", err)
 	}
-	if historyNodeID != -1 {
-		t.Fatalf("legacy history node ID = %d, want -1", historyNodeID)
+	if deletedNodeID != 42 {
+		t.Fatalf("backfilled config node ID = %d, want 42", deletedNodeID)
 	}
-
-	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
-		ID:           7,
-		NodeID:       42,
-		ConfigID:     apigen.DeploymentIdentifier{SpaceID: 1, Machine: "m1", Name: "api"},
-		Version:      2,
-		UpdatedAt:    time.UnixMilli(2000),
-		Spec:         *nonEmptySpec(),
-		DesiredState: apigen.DesiredState{Version: "v2", Running: true},
-	})
-	updated, _, unsub := store.MustFetchSnapshotAndSubscribe("m1")
-	unsub()
-	if len(updated) != 1 || updated[0].Config.NodeID != 42 {
-		t.Fatalf("updated config node ID = %+v, want 42", updated)
-	}
-	if err := store.db.QueryRow(`SELECT node_id FROM deployment_config_history WHERE deployment_id = 7 AND version = 1`).Scan(&historyNodeID); err != nil {
-		t.Fatalf("read history node ID after update: %v", err)
-	}
-	if historyNodeID != -1 {
-		t.Fatalf("history node ID after update = %d, want -1", historyNodeID)
+	if tableHasColumn(store.db, "deployment_config_history", "node_id") {
+		t.Fatal("deployment_config_history.node_id still exists")
 	}
 }
 

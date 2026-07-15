@@ -239,29 +239,16 @@ func TestAcceptEnrollmentRequestCreatesNode(t *testing.T) {
 	}
 }
 
-func TestMigratesNodeSNIToIdentifier(t *testing.T) {
+func TestPrimaryMigrationDropsHistoryNodeID(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	db, err := sql.Open("sqlite", "file:"+dbPath)
 	if err != nil {
 		t.Fatalf("open legacy database: %v", err)
 	}
 	if _, err := db.Exec(`
-		CREATE TABLE deployment_configs (
-			deployment_id INTEGER PRIMARY KEY,
-			space_id INTEGER NOT NULL DEFAULT 1,
-			machine TEXT NOT NULL DEFAULT '',
-			name TEXT NOT NULL DEFAULT '',
-			created_at INTEGER NOT NULL DEFAULT 0,
-			version INTEGER NOT NULL DEFAULT 0,
-			updated_at INTEGER NOT NULL,
-			updated_by INTEGER NOT NULL DEFAULT 0,
-			spec_blob BLOB NOT NULL,
-			desired_version TEXT NOT NULL DEFAULT '',
-			desired_running INTEGER NOT NULL DEFAULT 0,
-			deleted INTEGER NOT NULL DEFAULT 0
-		);
 		CREATE TABLE deployment_config_history (
 			deployment_id INTEGER NOT NULL,
+			node_id INTEGER NOT NULL DEFAULT -1,
 			version INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL,
 			updated_by INTEGER NOT NULL DEFAULT 0,
@@ -271,28 +258,11 @@ func TestMigratesNodeSNIToIdentifier(t *testing.T) {
 			deleted INTEGER NOT NULL DEFAULT 0,
 			PRIMARY KEY (deployment_id, version)
 		);
-		CREATE TABLE nodes (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			enrollment_id INTEGER,
-			enrolled_at INTEGER NOT NULL DEFAULT 0,
-			name TEXT NOT NULL,
-			sni TEXT NOT NULL DEFAULT '',
-			roles TEXT NOT NULL DEFAULT '[]',
-			addresses TEXT NOT NULL DEFAULT '[]',
-			wg_public_key TEXT NOT NULL DEFAULT '',
-			UNIQUE(name),
-			UNIQUE(enrollment_id)
-		);
-		INSERT INTO nodes (name, sni, roles) VALUES ('worker-1', 'worker-1', '[1]');
-		INSERT INTO deployment_configs (
-			deployment_id, space_id, machine, name, created_at, version, updated_at,
-			updated_by, spec_blob, desired_version, desired_running, deleted
-		) VALUES (7, 1, 'worker-1', 'api', 1000, 1, 1000, 0, x'', 'v1', 1, 0);
 		INSERT INTO deployment_config_history (
-			deployment_id, version, updated_at, updated_by, spec_blob,
+			deployment_id, node_id, version, updated_at, updated_by, spec_blob,
 			desired_version, desired_running, deleted
-		) VALUES (7, 1, 1000, 0, x'', 'v1', 1, 0)`); err != nil {
-		t.Fatalf("seed legacy nodes: %v", err)
+		) VALUES (7, 42, 1, 1000, 0, x'', 'v1', 1, 0)`); err != nil {
+		t.Fatalf("seed deployed history schema: %v", err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatalf("close legacy database: %v", err)
@@ -300,17 +270,12 @@ func TestMigratesNodeSNIToIdentifier(t *testing.T) {
 
 	store := NewPrimaryStorage(dbPath)
 	defer store.Close()
-	nodes := store.ListNodes()
-	if len(nodes) != 1 || nodes[0].Identifier != "worker-1" {
-		t.Fatalf("migrated nodes = %+v, want identifier worker-1", nodes)
-	}
-	configs := store.FetchDeploymentSnapshot("worker-1")
-	if len(configs) != 1 || configs[0].Config.NodeID != nodes[0].ID {
-		t.Fatalf("migrated config node ID = %+v, want %d", configs, nodes[0].ID)
+	if tableHasColumn(store.db, "deployment_config_history", "node_id") {
+		t.Fatal("deployment_config_history.node_id still exists")
 	}
 	history := store.MustFetchDeploymentHistory(7)
-	if len(history) != 1 || history[0].NodeID != nodes[0].ID {
-		t.Fatalf("migrated history node ID = %+v, want %d", history, nodes[0].ID)
+	if len(history) != 1 || history[0].NodeID != 0 {
+		t.Fatalf("history after migration = %+v, want one entry without node ID", history)
 	}
 }
 
@@ -341,8 +306,8 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 		t.Fatalf("history length = %d, want 2", len(history))
 	}
 	for _, entry := range history {
-		if entry.NodeID != node.ID {
-			t.Fatalf("history version %d node ID = %d, want %d", entry.Version, entry.NodeID, node.ID)
+		if entry.NodeID != 0 {
+			t.Fatalf("history version %d node ID = %d, want 0", entry.Version, entry.NodeID)
 		}
 	}
 }

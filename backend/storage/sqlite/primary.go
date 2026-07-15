@@ -411,7 +411,6 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
-		NodeID:         params.NodeID,
 		Version:        params.Version,
 		UpdatedAt:      params.UpdatedAt,
 		UpdatedBy:      params.UpdatedBy,
@@ -472,7 +471,6 @@ func (s *PrimaryStorage) MustSetDeploymentDesiredState(ctx apigen.Context, deplo
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
-		NodeID:         updated.NodeID,
 		Version:        updated.Version,
 		UpdatedAt:      updated.UpdatedAt,
 		UpdatedBy:      updated.UpdatedBy,
@@ -543,7 +541,6 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
-		NodeID:         params.NodeID,
 		Version:        newVersion,
 		UpdatedAt:      now,
 		UpdatedBy:      userID,
@@ -610,7 +607,6 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymen
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
-		NodeID:         params.NodeID,
 		Version:        newVersion,
 		UpdatedAt:      now,
 		UpdatedBy:      userID,
@@ -686,7 +682,6 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
-		NodeID:         nodeID,
 		Version:        1,
 		UpdatedAt:      now,
 		UpdatedBy:      userID,
@@ -789,7 +784,6 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
-		NodeID:         nodeID,
 		Version:        1,
 		UpdatedAt:      now,
 		SpecBlob:       specBlob,
@@ -887,7 +881,6 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(machine string, opendeployVers
 
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
-		NodeID:         nodeID,
 		Version:        1,
 		UpdatedAt:      now,
 		SpecBlob:       specBlob,
@@ -961,7 +954,6 @@ func (s *PrimaryStorage) repairSystemDeploymentLocked(deploymentID int32) {
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
-		NodeID:         params.NodeID,
 		Version:        newVersion,
 		UpdatedAt:      now,
 		UpdatedBy:      0,
@@ -1128,7 +1120,6 @@ func configHistoryRowToProto(dbID int64, cid apigen.DeploymentIdentifier, create
 	}
 	return &apigen.DeploymentConfig{
 		ID:        int32(dbID),
-		NodeID:    int32(r.NodeID),
 		ConfigID:  cid,
 		CreatedAt: createdAt,
 		Version:   int32(r.Version),

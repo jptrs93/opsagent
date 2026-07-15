@@ -50,7 +50,6 @@ type DeploymentConfig struct {
 
 type DeploymentConfigHistory struct {
 	DeploymentID   int64
-	NodeID         int64
 	Version        int64
 	UpdatedAt      int64
 	UpdatedBy      int64

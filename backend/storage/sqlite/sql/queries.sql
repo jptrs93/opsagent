@@ -80,11 +80,11 @@ SELECT COUNT(*) FROM deployment_configs WHERE space_id = ? AND deleted = 0;
 -- === deployment_config_history ===
 
 -- name: InsertDeploymentConfigHistory :exec
-INSERT INTO deployment_config_history (deployment_id, node_id, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO deployment_config_history (deployment_id, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListDeploymentConfigHistory :many
-SELECT deployment_id, node_id, version, updated_at, updated_by, spec_blob,
+SELECT deployment_id, version, updated_at, updated_by, spec_blob,
        desired_version, desired_running, deleted
 FROM deployment_config_history
 WHERE deployment_id = ?

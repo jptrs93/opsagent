@@ -27,7 +27,6 @@ INSERT INTO spaces (id, name) VALUES (0, 'opendeploy'), (1, 'default') ON CONFLI
 -- Append-only log of every config mutation.
 CREATE TABLE IF NOT EXISTS deployment_config_history (
     deployment_id   INTEGER NOT NULL,
-    node_id         INTEGER NOT NULL DEFAULT -1,
     version         INTEGER NOT NULL,
     updated_at      INTEGER NOT NULL,  -- epoch ms
     updated_by      INTEGER NOT NULL DEFAULT 0,
