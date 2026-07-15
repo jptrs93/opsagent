@@ -59,6 +59,7 @@ export class DeploymentCreationUpdate {
         /** @type {Map<string, Map<string, Array>>} */
         this.cachedRepoBranchCommitOptions = new Map();
         this.cachedRepoBranchCommitOptionsVersion = van.state(0);
+        this.validationGeneration = 0;
 
         this.repoValid = van.state(idleValidity());
         this.flakePathValid = van.state(idleValidity());
@@ -81,6 +82,22 @@ export class DeploymentCreationUpdate {
     currentSourceID() {
         if (this.form.sourceType.val === SOURCE_DOCKER_IMAGE) return this.form.containerImage.val.trim();
         return this.form.nixRepo.val.trim();
+    }
+
+    beginValidation() {
+        return {
+            generation: ++this.validationGeneration,
+            sourceType: this.form.sourceType.val,
+            repo: this.currentSourceID(),
+            sourceKey: this.sourceKey(),
+        };
+    }
+
+    isCurrentValidation(request) {
+        return request.generation === this.validationGeneration
+            && request.sourceType === this.form.sourceType.val
+            && request.repo === this.currentSourceID()
+            && request.sourceKey === this.sourceKey();
     }
 
     activeRepoCheck() {
@@ -243,14 +260,17 @@ export class DeploymentCreationUpdate {
         const sourceKey = this.sourceKey();
         const c = this.form.repoCheck.val;
         if (c.sourceKey === sourceKey && (c.status === 'ok' || c.status === 'error')) return;
+        const request = this.beginValidation();
         this.setRepoCheckChecking('Checking repository access...');
         try {
             const req = buildValidateSourceRequest(this.form);
             const res = await capi.postV1RepoValidate(req);
             console.log('[opendeploy] repo validate response', {request: req, response: res});
+            if (!this.isCurrentValidation(request)) return;
             this.setRepoCheckFromValidation(res, repo, sourceType, sourceKey);
         } catch (e) {
             console.error('[opendeploy] repo validate failed', {error: e, stack: e?.stack});
+            if (!this.isCurrentValidation(request)) return;
             this.setRepoCheckError(e.message || 'Validation failed.');
         }
     }
@@ -260,6 +280,7 @@ export class DeploymentCreationUpdate {
         const selectedCommit = (commit || '').trim();
         if (!this.form.nixRepo.val.trim() || !selectedCommit) return;
         const sourceKey = this.sourceKey();
+        const request = this.beginValidation();
         this.setRepoCheckChecking(this.form.repoCheck.val.message || 'Checking repository access...');
         try {
             const req = buildValidateSourceRequest(this.form, {
@@ -270,9 +291,11 @@ export class DeploymentCreationUpdate {
             });
             const res = await capi.postV1RepoValidate(req);
             console.log('[opendeploy] repo validate selected commit response', {request: req, response: res});
+            if (!this.isCurrentValidation(request)) return;
             this.setRepoCheckFromValidation(res, this.form.nixRepo.val.trim(), SOURCE_NIX_DOCKER, sourceKey);
         } catch (e) {
             console.error('[opendeploy] repo validate selected commit failed', {error: e, stack: e?.stack});
+            if (!this.isCurrentValidation(request)) return;
             this.setRepoCheckError(e.message || 'Validation failed.');
         }
     }

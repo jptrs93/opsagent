@@ -59,6 +59,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     const canManageLifecycle = !internalDeployment && deployment.runnerType !== 'systemd';
     const canStart = Boolean(deployment.deployedVersion);
     let requestSeq = 0;
+    let versionRequestSeq = 0;
 
     const startRequest = (description) => {
         const seq = ++requestSeq;
@@ -78,11 +79,13 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
     };
 
     const loadVersions = async (branch, opts = {}) => {
+        const versionRequest = ++versionRequestSeq;
         const sourceID = deploymentUpdate.currentSourceID();
         if (!internalOpenDeployRelease && !sourceID) {
             versionError.val = form.sourceType.val === 'containerImage' ? 'Image not set' : 'Repository not set';
             deploymentUpdate.nixDockerBuild.commits.val = [];
             deploymentUpdate.containerImage.tags.val = [];
+            loadingVersions.val = false;
             return;
         }
         const sourceType = form.sourceType.val;
@@ -93,6 +96,9 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         loadingVersions.val = true;
         versionError.val = '';
         const sourceKey = deploymentUpdate.sourceKey();
+        const isCurrentVersionRequest = () => versionRequest === versionRequestSeq
+            && sourceType === form.sourceType.val
+            && sourceKey === deploymentUpdate.sourceKey();
         try {
             if (internalOpenDeployRelease) {
                 const req = {deploymentId: deployment.id};
@@ -100,11 +106,13 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                 try {
                     result = await capi.postV1DeploymentVersions(req);
                 } catch (e) {
+                    if (!isCurrentVersionRequest()) return;
                     console.error('[opendeploy] deployment versions refresh request failed', {request: req, error: e, stack: e?.stack});
                     versionError.val = e.message || 'Failed to load versions';
                     deploymentUpdate.githubRelease.releases.val = [];
                     return;
                 }
+                if (!isCurrentVersionRequest()) return;
                 console.log('[opendeploy] deployment versions refresh response', {request: req, response: result});
                 try {
                     const releases = result?.githubRelease?.releases || [];
@@ -138,6 +146,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
             try {
                 result = await capi.postV1RepoValidate(req);
             } catch (e) {
+                if (!isCurrentVersionRequest()) return;
                 console.error('[opendeploy] deployment repo refresh request failed', {request: req, error: e, stack: e?.stack});
                 versionError.val = e.message || 'Failed to load versions';
                 deploymentUpdate.setRepoCheckError(versionError.val);
@@ -145,6 +154,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                 deploymentUpdate.containerImage.tags.val = [];
                 return;
             }
+            if (!isCurrentVersionRequest()) return;
             console.log('[opendeploy] deployment repo refresh response', {request: req, response: result});
             try {
                 let sourceResult = deploymentUpdate.validationSourceResult(result);
@@ -202,7 +212,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
                 deploymentUpdate.containerImage.tags.val = [];
             }
         } finally {
-            loadingVersions.val = false;
+            if (isCurrentVersionRequest()) loadingVersions.val = false;
             endRequest();
         }
     };

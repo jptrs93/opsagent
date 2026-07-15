@@ -31,6 +31,8 @@ const DEV_SHM_MAX_KB = 2147483647;
 const DEFAULT_SPACE_ID = 1;
 const INTERNAL_SPACE_ID = 0;
 
+const stateValue = (value) => value && typeof value === 'object' && 'val' in value ? value.val : value;
+
 let nextEnvID = 1;
 let nextAssetMountID = 1;
 let nextVolumeMountID = 1;
@@ -121,10 +123,6 @@ export function deploymentConfigToForm(cfg) {
 
 export function deploymentForm(form, opts = {}) {
     const identityLocked = Boolean(opts.identityLocked);
-    const spaceOptions = publicSpaceOptions(opts.spaceOptions || spacesS.val, form.spaceId.val);
-    const machineOptions = opts.machineOptions || [];
-    const machineOptionValues = machineOptions.map(m => typeof m === 'string' ? m : m.name).filter(Boolean);
-    const machineOptionsLoaded = opts.machineOptionsLoaded !== false;
     const executionTitle = opts.executionTitle || "Runtime";
     const showIdentityLockedNotice = (message) => {
         if (!identityLocked) return;
@@ -152,16 +150,19 @@ export function deploymentForm(form, opts = {}) {
                     placeholder: "my-service",
                     oninput: e => { form.name.val = e.target.value; },
                 }), identityLocked, () => showIdentityLockedNotice("Name is not currently changeable after creation.")),
-                identityField("Space", select({
-                    "data-testid": "deployment-space-select",
-                    value: String(form.spaceId.val ?? DEFAULT_SPACE_ID),
-                    class: textInputClass(false, false),
-                    onchange: e => { form.spaceId.val = Number(e.target.value || 0); },
-                }, ...spaceOptions.map(space => option({value: String(space.id), selected: Number(space.id) === Number(form.spaceId.val)}, space.name || `space ${space.id}`))), false),
-                identityField("Machine", machineSelect(form, {
+                identityField("Space", () => {
+                    const spaceOptions = publicSpaceOptions(stateValue(opts.spaceOptions) || spacesS.val, form.spaceId.val);
+                    return select({
+                        "data-testid": "deployment-space-select",
+                        value: String(form.spaceId.val ?? DEFAULT_SPACE_ID),
+                        class: textInputClass(false, false),
+                        onchange: e => { form.spaceId.val = Number(e.target.value || 0); },
+                    }, ...spaceOptions.map(space => option({value: String(space.id), selected: Number(space.id) === Number(form.spaceId.val)}, space.name || `space ${space.id}`)));
+                }, false),
+                identityField("Machine", () => machineSelect(form, {
                     identityLocked,
-                    machineOptionsLoaded,
-                    machineOptionValues,
+                    machineOptionsLoaded: stateValue(opts.machineOptionsLoaded) !== false,
+                    machineOptions: stateValue(opts.machineOptions) || [],
                 }), identityLocked, () => showIdentityLockedNotice("Machine is not currently changeable after creation.")),
             ),
             () => identityLocked && form.identityLockNotice.val
@@ -2173,18 +2174,21 @@ function publicSpaceOptions(spaces, currentSpaceID) {
 
 function machineSelect(form, opts) {
     const current = form.machine.rawVal;
-    const extraCurrent = current && !opts.machineOptionValues.includes(current)
+    const machineOptionValues = (opts.machineOptions || [])
+        .map(machine => typeof machine === 'string' ? machine : machine.name)
+        .filter(Boolean);
+    const extraCurrent = current && !machineOptionValues.includes(current)
         ? [option({value: current, selected: true}, current)]
         : [];
     return select({
         "data-testid": "deployment-machine-select",
         value: form.machine,
         class: `${selectClass()} ${opts.identityLocked ? 'opacity-70 cursor-not-allowed pointer-events-none' : ''}`,
-        disabled: opts.identityLocked || !opts.machineOptionsLoaded || opts.machineOptionValues.length === 0,
+        disabled: opts.identityLocked || !opts.machineOptionsLoaded || machineOptionValues.length === 0,
         onchange: e => { form.machine.val = e.target.value; },
     },
-        option({value: '', disabled: true, selected: !current}, machinePlaceholder(opts.machineOptionsLoaded, opts.machineOptionValues)),
-        ...opts.machineOptionValues.map(name => option({value: name, selected: name === current}, name)),
+        option({value: '', disabled: true, selected: !current}, machinePlaceholder(opts.machineOptionsLoaded, machineOptionValues)),
+        ...machineOptionValues.map(name => option({value: name, selected: name === current}, name)),
         ...extraCurrent,
     );
 }

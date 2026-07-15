@@ -169,12 +169,14 @@ export async function createNixDockerDeployment(page, {
       await repoInput.fill(repo);
       await flakeInput.click();
       await validateRequests.expectCount(1, 'expected one validate call after setting repository URL');
+      await validateRequests.expectResponseCount(1, 'expected the repository validation response');
     });
 
     await step(`validate flake path ${name}`, async () => {
       await flakeInput.fill(flake);
       await flakeInput.blur();
       await validateRequests.expectCount(2, 'expected a second validate call after setting flake path');
+      await validateRequests.expectResponseCount(2, 'expected the flake validation response');
       await expectPathValidation(dialog);
     });
 
@@ -186,6 +188,7 @@ export async function createNixDockerDeployment(page, {
       await expect(refreshButton).toBeEnabled();
       await refreshButton.click();
       await validateRequests.expectCount(3, 'expected a validate call after refreshing versions');
+      await validateRequests.expectResponseCount(3, 'expected the refreshed version response');
       await expectPathValidation(dialog);
       await expect(commitSelect).not.toHaveValue('', {timeout: LONG_UI_TIMEOUT});
       await expect(dialog.getByText('d is not a function')).toHaveCount(0);
@@ -204,8 +207,15 @@ export async function createNixDockerDeployment(page, {
   });
   await step(`submit deployment ${name}`, async () => {
     const submit = byTestId(dialog, 'create-deployment-submit', dialog.getByRole('button', {name: 'Create'}));
+    await expect(dialog.getByTestId('create-validation-reason')).toHaveCount(0);
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
+    const createResponse = page.waitForResponse(response => {
+      const request = response.request();
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployment/create';
+    }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
+    expect((await createResponse).ok()).toBe(true);
+    await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
   });
 
   let row = byTestId(page, `deployment-row-${name}`, page.locator('tr').filter({hasText: name}).filter({hasText: machine}));
@@ -943,8 +953,12 @@ async function setDeploymentAssetMount(dialog, {asset, path: mountPath}) {
   const assetSelect = field(pane, 'Asset').locator('select');
   const assetOption = assetSelect.locator('option').filter({hasText: asset}).first();
   await expect(assetOption).toBeAttached({timeout: LONG_UI_TIMEOUT});
-  await assetSelect.selectOption(await assetOption.getAttribute('value'));
-  await field(pane, 'Container path').getByRole('textbox').fill(mountPath);
+  const assetValue = await assetOption.getAttribute('value');
+  await assetSelect.selectOption(assetValue);
+  await expect(assetSelect).toHaveValue(assetValue);
+  const pathInput = field(pane, 'Container path').getByRole('textbox');
+  await pathInput.fill(mountPath);
+  await expect(pathInput).toHaveValue(mountPath);
   await expect(dialog.getByText('1 mounted asset')).toBeVisible();
 }
 
@@ -963,6 +977,7 @@ async function expectOutputText(page, text) {
 
 function trackRepoValidateRequests(page) {
   const requests = [];
+  const responses = [];
   const isValidateRequest = request => {
     const url = new URL(request.url());
     return request.method() === 'POST' && url.pathname === '/v1/repo/validate';
@@ -970,19 +985,29 @@ function trackRepoValidateRequests(page) {
   const handler = request => {
     if (isValidateRequest(request)) requests.push(request);
   };
+  const responseHandler = response => {
+    if (isValidateRequest(response.request())) responses.push(response);
+  };
   page.on('request', handler);
+  page.on('response', responseHandler);
 
   return {
     async expectCount(count, message) {
       await expect.poll(() => requests.length, {message, timeout: VALIDATE_REQUEST_TIMEOUT}).toBe(count);
     },
+    async expectResponseCount(count, message) {
+      await expect.poll(() => responses.length, {message, timeout: VALIDATE_REQUEST_TIMEOUT}).toBe(count);
+    },
     async expectStableCount(count, message) {
       await expect(requests, message).toHaveLength(count);
+      await expect(responses, message).toHaveLength(count);
       await page.waitForTimeout(STABLE_CHECK_DELAY);
       await expect(requests, message).toHaveLength(count);
+      await expect(responses, message).toHaveLength(count);
     },
     stop() {
       page.off('request', handler);
+      page.off('response', responseHandler);
     },
   };
 }

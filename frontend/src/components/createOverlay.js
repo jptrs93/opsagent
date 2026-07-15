@@ -9,8 +9,8 @@ import {
     buildValidateSourceRequest,
     deploymentForm,
     envVarsPane,
+    formInvalidReason,
     imageVersionFromReference,
-    isFormValid,
     networkingPane,
     resourcesPane,
     sectionDivider,
@@ -36,8 +36,8 @@ export function createOverlay(onClose, onCreated, opts = {}) {
     }
     const machines = van.state([]);
     const machinesLoaded = van.state(false);
-    const assets = van.state(assetMetasS.val);
     const loadingVersions = van.state(false);
+    const versionLoad = {generation: 0};
 
     van.derive(() => {
         deploymentUpdate.syncVersionOptionsFromCheck(deploymentUpdate.activeRepoCheck());
@@ -57,20 +57,15 @@ export function createOverlay(onClose, onCreated, opts = {}) {
         machinesLoaded.val = true;
     };
 
-    van.derive(() => {
-        assets.val = assetMetasS.val;
-    });
-
     loadMachines();
+
+    const invalidReason = () => createInvalidReason(deploymentUpdate, machines.val);
 
     const doCreate = async () => {
         errorMsg.val = '';
-        if (!isFormValid(form, {machineOptions: machines.val, deployments: deploymentsS.val})) {
-            errorMsg.val = 'Name, machine, artifact source, and required execution fields must be set.';
-            throw new Error(errorMsg.val);
-        }
-        if (deploymentUpdate.desiredRunning.val && !deploymentUpdate.createDesiredVersion()) {
-            errorMsg.val = 'Select a version before creating a running deployment, or choose Stopped.';
+        const reason = invalidReason();
+        if (reason) {
+            errorMsg.val = reason;
             throw new Error(errorMsg.val);
         }
 
@@ -87,7 +82,7 @@ export function createOverlay(onClose, onCreated, opts = {}) {
         onClose();
     };
 
-    const createButton = spinnerButton("Create", doCreate, "btn-primary text-sm py-1.5 px-4", "button", () => !isCreateValid(deploymentUpdate, machines.val));
+    const createButton = spinnerButton("Create", doCreate, "btn-primary text-sm py-1.5 px-4", "button", () => Boolean(invalidReason()));
     createButton.dataset.testid = "create-deployment-submit";
 
     const backdrop = div({
@@ -105,19 +100,18 @@ export function createOverlay(onClose, onCreated, opts = {}) {
                 {class: "flex-1 min-w-0 flex flex-col"},
                 div(
                     {class: "flex-1 min-h-0 overflow-auto p-4 flex flex-col gap-5"},
-                    () => deploymentForm(form, {
-                        spaceOptions: spacesS.val,
-                        machineOptions: machines.val,
-                        machineOptionsLoaded: machinesLoaded.val,
-                        assets: assets.val,
+                    deploymentForm(form, {
+                        spaceOptions: spacesS,
+                        machineOptions: machines,
+                        machineOptionsLoaded: machinesLoaded,
                         enableAssetEditor: true,
                         showRunnerSummary: false,
                     }),
                     () => createVersionSection({
                         deploymentUpdate,
                         loadingVersions,
-                        onBranchChange: (branch) => loadSourceVersions(deploymentUpdate, loadingVersions, branch, {preserveSelection: false}),
-                        onRefresh: () => loadSourceVersions(deploymentUpdate, loadingVersions, deploymentUpdate.nixDockerBuild.selectedBranch.val, {refreshAvailableBranches: true, preserveSelection: true}),
+                        onBranchChange: (branch) => loadSourceVersions(deploymentUpdate, loadingVersions, versionLoad, branch, {preserveSelection: false}),
+                        onRefresh: () => loadSourceVersions(deploymentUpdate, loadingVersions, versionLoad, deploymentUpdate.nixDockerBuild.selectedBranch.val, {refreshAvailableBranches: true, preserveSelection: true}),
                     }),
                 ),
                 () => {
@@ -129,6 +123,10 @@ export function createOverlay(onClose, onCreated, opts = {}) {
                 },
                 div(
                     {class: "flex items-center justify-end gap-3 px-4 py-3 border-t border-gray-700"},
+                    () => {
+                        const reason = invalidReason();
+                        return reason ? p({class: "text-xs text-amber-300", "data-testid": "create-validation-reason"}, reason) : '';
+                    },
                     button({
                         class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5",
                         onclick: onClose,
@@ -136,9 +134,9 @@ export function createOverlay(onClose, onCreated, opts = {}) {
                     createButton,
                 ),
             ),
-            () => envVarsPane(form, {assets: assets.val}),
+            () => envVarsPane(form, {assets: assetMetasS.val}),
             volumeMountsPane(form, {deployments: deploymentsS}),
-            () => assetMountsPane(form, {assets: assets.val, enableAssetEditor: true}),
+            () => assetMountsPane(form, {assets: assetMetasS.val, enableAssetEditor: true}),
             upgradeStrategyPane(form),
             resourcesPane(form),
             networkingPane(form),
@@ -149,10 +147,14 @@ export function createOverlay(onClose, onCreated, opts = {}) {
     return div(backdrop, dialog);
 }
 
-function isCreateValid(deploymentUpdate, machineOptions) {
+function createInvalidReason(deploymentUpdate, machineOptions) {
     const form = deploymentUpdate.form;
-    if (!isFormValid(form, {machineOptions, deployments: deploymentsS.val})) return false;
-    return !deploymentUpdate.desiredRunning.val || Boolean(deploymentUpdate.createDesiredVersion());
+    const formReason = formInvalidReason(form, {machineOptions, deployments: deploymentsS.val});
+    if (formReason) return formReason;
+    if (deploymentUpdate.desiredRunning.val && !deploymentUpdate.createDesiredVersion()) {
+        return 'Select a version before creating a running deployment, or choose Stopped.';
+    }
+    return '';
 }
 
 function createInitialStateField(deploymentUpdate) {
@@ -290,10 +292,12 @@ function createVersionSection(args) {
     );
 }
 
-async function loadSourceVersions(deploymentUpdate, loadingVersions, branch, opts = {}) {
+async function loadSourceVersions(deploymentUpdate, loadingVersions, versionLoad, branch, opts = {}) {
     const form = deploymentUpdate.form;
     const repo = deploymentUpdate.currentSourceID();
     if (!repo) return;
+    const validation = deploymentUpdate.beginValidation();
+    const loadGeneration = ++versionLoad.generation;
     loadingVersions.val = true;
     const sourceType = form.sourceType.val;
     const sourceKeyValue = deploymentUpdate.sourceKey();
@@ -305,17 +309,10 @@ async function loadSourceVersions(deploymentUpdate, loadingVersions, branch, opt
         refreshAvailableCommits: Boolean(selectedBranch),
         checkFlakePath: Boolean(form.nixFlake.val.trim()),
     } : {branch: branch || ''});
-    let res;
     try {
-        res = await capi.postV1RepoValidate(req);
-    } catch (e) {
-        console.error('[opendeploy] create version refresh request failed', {request: req, error: e, stack: e?.stack});
-        deploymentUpdate.setRepoCheckError(e.message || 'Validation failed.');
-        loadingVersions.val = false;
-        return;
-    }
-    console.log('[opendeploy] create version refresh response', {request: req, response: res});
-    try {
+        const res = await capi.postV1RepoValidate(req);
+        console.log('[opendeploy] create version refresh response', {request: req, response: res});
+        if (!deploymentUpdate.isCurrentValidation(validation)) return;
         const sourceResult = deploymentUpdate.validationSourceResult(res);
         deploymentUpdate.setRepoCheckFromValidation(res, repo, sourceType, sourceKeyValue);
         if (form.repoCheck.val.status === 'ok') {
@@ -332,10 +329,12 @@ async function loadSourceVersions(deploymentUpdate, loadingVersions, branch, opt
             }
         }
     } catch (e) {
-        console.error('[opendeploy] create version refresh client error', {request: req, response: res, error: e, stack: e?.stack});
+        console.error('[opendeploy] create version refresh failed', {request: req, error: e, stack: e?.stack});
+        if (!deploymentUpdate.isCurrentValidation(validation)) return;
         deploymentUpdate.setRepoCheckError(`Client error after validation: ${e.message || e}`);
+    } finally {
+        if (loadGeneration === versionLoad.generation) loadingVersions.val = false;
     }
-    loadingVersions.val = false;
 }
 
 function versionStatusMessage(deploymentUpdate, check) {
