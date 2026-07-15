@@ -119,8 +119,6 @@ func (r *runtime) start(ctx context.Context, machineName string) {
 	r.store.EnsurePrimaryNode(machineName)
 	r.store.SetNodeStatusByName(machineName, true, time.Now())
 	netproxyCfg := r.store.EnsureNetproxyDeployment(machineName, version.Version)
-	// Temporary v0.0.278 migration for the former dataplane state mount.
-	r.store.MigrateNetproxyDeployments(version.Version)
 	network.Default.SetNetproxyDeploymentID(netproxyCfg.ID)
 
 	go netproxy.RunNetStateWriter(ctx, r.store, machineName, ainit.StaticConfig.NetproxyStatePath)

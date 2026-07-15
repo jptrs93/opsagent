@@ -3,6 +3,7 @@ package webuihandler
 import (
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -312,6 +313,9 @@ func TestValidateDeploymentSpecRejectsInvalidHostMounts(t *testing.T) {
 		{name: "unclean container", host: "/srv/data", container: "/var/../data"},
 		{name: "opendeploy data", host: "/var/lib/opendeploy", container: "/data"},
 		{name: "opendeploy tls", host: "/var/lib/opendeploy/tls", container: "/data"},
+		{name: "opendeploy volumes root", host: "/var/lib/opendeploy-volumes", container: "/data"},
+		{name: "opendeploy volume directory", host: "/var/lib/opendeploy-volumes/24", container: "/data"},
+		{name: "opendeploy volume descendant", host: "/var/lib/opendeploy-volumes/24/default/keys", container: "/data"},
 		{name: "opendeploy runtime socket", host: "/run/opendeploy/containerd.sock", container: "/data"},
 		{name: "containerd state", host: "/var/lib/containerd", container: "/data"},
 		{name: "system config", host: "/etc/opendeploy", container: "/data"},
@@ -709,6 +713,47 @@ func TestDeploymentUpdatePreservesExistingVirtualNetworking(t *testing.T) {
 	updated := h.findConfigByID(created.ID)
 	if updated.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 		t.Fatalf("networking mode = %v, want preserved virtual", updated.Spec.Networking.Mode)
+	}
+}
+
+func TestDeploymentUpdateAcceptsManagedDefaultVolumeMount(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	secretsManager, err := secrets.Initialize(t.TempDir(), store)
+	if err != nil {
+		t.Fatalf("secrets.Initialize failed: %v", err)
+	}
+	source := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "database"}, &apigen.DeploymentSpec{
+		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "postgres"}},
+		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+		Networking: hostNetworking(),
+	}, apigen.DesiredState{})
+	target := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+		Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
+			Mounts: []*apigen.ContainerMount{{
+				Host:      "/var/lib/opendeploy-volumes/" + strconv.Itoa(int(source.ID)) + "/default",
+				Container: "/var/lib/postgresql/data",
+			}},
+		}},
+		Networking: hostNetworking(),
+	}, apigen.DesiredState{})
+	h := &Handler{Store: store, Secrets: secretsManager}
+
+	spec := target.Spec
+	spec.Runner.Container.EnvVars = map[string]*apigen.EnvVarValue{
+		"LOG_LEVEL": {Value: ptrString("debug")},
+	}
+	_, err = h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID: target.ID,
+		Version:      target.Version + 1,
+		Spec:         spec,
+	})
+	if err != nil {
+		t.Fatalf("PostV1DeploymentUpdate failed: %v", err)
+	}
+	updated := h.findConfigByID(target.ID)
+	if got := updated.Spec.Runner.Container.EnvVars["LOG_LEVEL"].Value; got == nil || *got != "debug" {
+		t.Fatalf("LOG_LEVEL = %+v, want debug", updated.Spec.Runner.Container.EnvVars["LOG_LEVEL"])
 	}
 }
 

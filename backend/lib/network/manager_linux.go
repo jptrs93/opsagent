@@ -223,22 +223,32 @@ func (m *Manager) TeardownContainerNet(containerID string, deploymentID int32) {
 	}
 }
 
-// CleanupContainerNets removes stale netns state for a deployment, keeping
-// only container ids accepted by keep. Used at reattach to clear rollover
-// candidates that did not survive an agent restart.
+// CleanupContainerNets removes stale netns and veth state for a deployment,
+// keeping only container ids accepted by keep. A failed or adopted container
+// can leave a host veth after its named netns has disappeared, so inspect both
+// sources of kernel state.
 func (m *Manager) CleanupContainerNets(deploymentID int32, keep func(containerID string) bool) {
 	prefix := fmt.Sprintf("opendeploy-%d-", deploymentID)
 	entries, err := os.ReadDir(netnsRunDir)
-	if err != nil {
-		return
+	if err == nil {
+		for _, e := range entries {
+			name := e.Name()
+			if !strings.HasPrefix(name, prefix) || keep(name) {
+				continue
+			}
+			slog.Info("cleaning up stale container netns", "netns", name)
+			m.TeardownContainerNet(name, deploymentID)
+		}
 	}
-	for _, e := range entries {
-		name := e.Name()
-		if !strings.HasPrefix(name, prefix) || keep(name) {
+	for slot := range v4SlotsPerDeployment {
+		link, linkErr := netlink.LinkByName(hostVethName(deploymentID, slot))
+		if linkErr != nil || keep(link.Attrs().Alias) {
 			continue
 		}
-		slog.Info("cleaning up stale container netns", "netns", name)
-		m.TeardownContainerNet(name, deploymentID)
+		slog.Info("cleaning up stale container veth", "veth", link.Attrs().Name, "container", link.Attrs().Alias)
+		if err := netlink.LinkDel(link); err != nil {
+			slog.Warn("deleting stale container veth", "veth", link.Attrs().Name, "err", err)
+		}
 	}
 }
 

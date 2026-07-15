@@ -900,40 +900,6 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(machine string, opendeployVers
 	return s.configCache[id]
 }
 
-// MigrateNetproxyDeployments rewrites pre-netproxy internal deployment specs to
-// the canonical form and brings them to the running OpenDeploy version. This is
-// intentionally invoked by the temporary v0.0.278 rollout migration only.
-func (s *PrimaryStorage) MigrateNetproxyDeployments(opendeployVersion string) int {
-	desiredVersion := strings.TrimSpace(opendeployVersion)
-	if desiredVersion == "" {
-		panic("MigrateNetproxyDeployments requires an explicit OpenDeploy version")
-	}
-	canonicalSpec := NetproxyDeploymentSpec()
-	canonicalSpecBlob := canonicalSpec.Encode()
-	migrated := 0
-	for _, cfg := range s.ListActiveDeploymentConfigs() {
-		if !IsNetproxyDeploymentConfig(cfg) ||
-			(bytes.Equal(cfg.Spec.Encode(), canonicalSpecBlob) &&
-				cfg.DesiredState.Version == desiredVersion && cfg.DesiredState.Running) {
-			continue
-		}
-		_, changed, current := s.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, DeploymentConfigUpdate{
-			ExpectedVersion: cfg.Version + 1,
-			Spec:            canonicalSpec,
-			DesiredState:    &apigen.DesiredState{Version: desiredVersion, Running: true},
-		})
-		if !current {
-			slog.Warn("skipping concurrent netproxy migration", "deploymentID", cfg.ID)
-			continue
-		}
-		if changed {
-			migrated++
-			slog.Info("migrated netproxy deployment", "machine", cfg.ConfigID.Machine, "deploymentID", cfg.ID, "version", desiredVersion)
-		}
-	}
-	return migrated
-}
-
 func (s *PrimaryStorage) repairSystemDeploymentLocked(deploymentID int32) {
 	bgCtx := context.Background()
 	dbID := int64(deploymentID)

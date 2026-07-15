@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -945,12 +946,31 @@ var deniedContainerHostMountRoots = []string{
 
 func containerHostMountDenied(host string) bool {
 	host = filepath.Clean(host)
+	if managedDefaultVolumeHost(host) {
+		return false
+	}
 	for _, root := range deniedContainerHostMountRoots {
 		if pathEqualOrUnder(host, root) {
 			return true
 		}
 	}
 	return false
+}
+
+// managedDefaultVolumeHost permits sharing the specific data-volume leaf that
+// the deployment-volume UI exposes, without allowing arbitrary OpenDeploy data.
+func managedDefaultVolumeHost(host string) bool {
+	const root = "/var/lib/opendeploy-volumes/"
+	rel, ok := strings.CutPrefix(host, root)
+	if !ok {
+		return false
+	}
+	id, volume, ok := strings.Cut(rel, "/")
+	if !ok || volume != "default" || id == "" {
+		return false
+	}
+	deploymentID, err := strconv.ParseInt(id, 10, 32)
+	return err == nil && deploymentID > 0 && strconv.FormatInt(deploymentID, 10) == id
 }
 
 func pathEqualOrUnder(path, root string) bool {

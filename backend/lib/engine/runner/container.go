@@ -808,6 +808,14 @@ func (r *containerRunner) setupContainerNet(runNumber int32, candidate bool) (*n
 	if !r.virtualNetwork() {
 		return nil, "", nil
 	}
+	if !candidate {
+		// A replaced runner may have been adopted after an agent restart, so it
+		// has no tracked ContainerNet for Stop to tear down. Remove its stale
+		// namespace/veth before allocating the normal runner's single slot.
+		network.Default.CleanupContainerNets(r.deploymentID, func(containerID string) bool {
+			return containerID == r.containerID
+		})
+	}
 	prefix, ok := network.Default.PrefixValue()
 	if !ok {
 		return nil, "", fmt.Errorf("virtual network prefix is not known")
