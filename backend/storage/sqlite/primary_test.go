@@ -170,6 +170,64 @@ func TestEnsureNetproxyDeploymentReconcilesExistingVersion(t *testing.T) {
 	}
 }
 
+func TestMigrateNetproxyDeploymentsRewritesLegacySpecsAndVersion(t *testing.T) {
+	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	defer func() { _ = store.Close() }()
+
+	legacySpec := &apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "opendeploy-net"}},
+		Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
+			Command:           []string{"/opendeploy", "dataplane"},
+			DisableDataVolume: true,
+			Mounts: []*apigen.ContainerMount{{
+				Host:      "/var/lib/opendeploy/dataplane",
+				Container: "/var/lib/opendeploy/dataplane",
+				Readonly:  true,
+			}},
+		}},
+		Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL},
+	}
+	primary := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{
+		SpaceID: OpendeploySpaceID,
+		Machine: "primary",
+		Name:    netproxyDeploymentName,
+	}, legacySpec, apigen.DesiredState{Version: "v0.0.268", Running: true})
+	secondary := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{
+		SpaceID: OpendeploySpaceID,
+		Machine: "secondary",
+		Name:    netproxyDeploymentName,
+	}, legacySpec, apigen.DesiredState{Version: "v0.0.268", Running: true})
+
+	if got := store.MigrateNetproxyDeployments("v0.0.278"); got != 2 {
+		t.Fatalf("migrated deployments = %d, want 2", got)
+	}
+	if got := store.MigrateNetproxyDeployments("v0.0.278"); got != 0 {
+		t.Fatalf("second migration changed %d deployments, want 0", got)
+	}
+
+	for _, id := range []int32{primary.ID, secondary.ID} {
+		var got *apigen.DeploymentConfig
+		for _, cfg := range store.ListActiveDeploymentConfigs() {
+			if cfg.ID == id {
+				got = cfg
+				break
+			}
+		}
+		if got == nil {
+			t.Fatalf("migrated deployment %d not found", id)
+		}
+		if string(got.Spec.Encode()) != string(NetproxyDeploymentSpec().Encode()) {
+			t.Fatalf("deployment %d spec was not canonical: %+v", id, got.Spec)
+		}
+		if got.DesiredState.Version != "v0.0.278" || !got.DesiredState.Running {
+			t.Fatalf("deployment %d desired state = %+v", id, got.DesiredState)
+		}
+		if got.Version != 2 {
+			t.Fatalf("deployment %d version = %d, want 2", id, got.Version)
+		}
+	}
+}
+
 func TestEnsurePrimaryNodeCreatesPrimaryRole(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 
