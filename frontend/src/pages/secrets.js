@@ -3,7 +3,7 @@ import {capi} from "../capi/index.js";
 import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {formatDateTime} from "../lib/date.js";
-import {copyIcon, eyeOffIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
+import {checkIcon, copyIcon, eyeOffIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
 import {deploymentsS, machinesS, primaryConfigS, secretMetasS, secretsStatusS, spacesS, userConfigsS} from "../state/deployments.js";
 
@@ -60,6 +60,7 @@ export function secretsPage() {
             name: van.state(config ? config.name : ""),
             value: van.state(config ? config.value : ""),
             createdAt: config ? config.createdAt : null,
+            copied: van.state(false),
             orig: {
                 name: config ? config.name : "",
                 value: config ? config.value : "",
@@ -80,6 +81,7 @@ export function secretsPage() {
             revealed: van.state(false),
             loaded: van.state(isNew),
             valueDirty: van.state(false),
+            copied: van.state(false),
             orig: {name: meta ? meta.name : "", value: ""},
         };
     };
@@ -328,6 +330,8 @@ export function secretsPage() {
             error.val = null;
             const value = row.type === "secret" ? await secretValueForCopy(row) : row.value.val;
             await navigator.clipboard.writeText(value);
+            row.copied.val = true;
+            setTimeout(() => { row.copied.val = false; }, 1500);
         } catch (e) {
             error.val = e.message;
         }
@@ -532,9 +536,11 @@ export function secretsPage() {
                         () => !row.name.val.trim()),
                     smallBtn("Discard", () => discardRow(row), "bg-gray-700 text-gray-200 hover:bg-gray-600"))
                 : div({class: "flex items-center justify-start gap-1"},
-                    iconButton(copyIcon(), () => copyRowValue(row), "", {
-                        title: `Copy ${row.type} value`,
-                        "aria-label": `Copy ${row.type} value`,
+                    iconButton(() => row.copied.val
+                        ? checkIcon({class: "w-4 h-4 text-green-400"})
+                        : copyIcon(), () => copyRowValue(row), "", {
+                        title: () => row.copied.val ? "Copied" : `Copy ${row.type} value`,
+                        "aria-label": () => row.copied.val ? "Copied" : `Copy ${row.type} value`,
                     }),
                     iconButton(trashIcon(), () => requestDeleteRow(row), "hover:text-red-400", {
                         title: `Delete ${row.type}`,

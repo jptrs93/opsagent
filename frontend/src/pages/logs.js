@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {copyIcon} from "../lib/icons.js";
+import {checkIcon, copyIcon} from "../lib/icons.js";
 import {loginS} from "../state/login.js";
 import {deploymentsS, machinesS, spacesS} from "../state/deployments.js";
 import {machineDisplayName} from "../lib/machines.js";
@@ -321,9 +321,11 @@ export function logsPage(selectedDeploymentId) {
                 type: "button",
                 class: "rounded p-1 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 cursor-pointer",
                 title: () => logDirCopied.val ? "Copied" : "Copy log directory",
-                "aria-label": "Copy log directory",
+                "aria-label": () => logDirCopied.val ? "Copied" : "Copy log directory",
                 onclick: copyLogDir,
-            }, () => logDirCopied.val ? span({class: "text-[11px] text-green-400"}, "Copied") : copyIcon({class: "w-3.5 h-3.5"})),
+            }, () => logDirCopied.val
+                ? checkIcon({class: "w-3.5 h-3.5 text-green-400"})
+                : copyIcon({class: "w-3.5 h-3.5"})),
         );
     };
 

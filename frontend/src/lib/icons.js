@@ -24,6 +24,10 @@ export const copyIcon = (attrs) => svg(iconAttrs(attrs),
     path({d: "M4 16c-.55 0-1-.45-1-1V4c0-.55.45-1 1-1h11c.55 0 1 .45 1 1"}),
 );
 
+export const checkIcon = (attrs) => svg(iconAttrs(attrs),
+    polyline({points: "20 6 9 17 4 12"}),
+);
+
 export const eyeOpenIcon = (attrs) => svg(iconAttrs(attrs),
     path({d: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"}),
     circle({cx: "12", cy: "12", r: "3"}),

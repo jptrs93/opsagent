@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {referencePicker} from "../components/referencePicker.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
-import {copyIcon, eyeOffIcon, eyeOpenIcon} from "../lib/icons.js";
+import {checkIcon, copyIcon, eyeOffIcon, eyeOpenIcon} from "../lib/icons.js";
 import {primaryConfigS, secretRefsS, spacesS, userConfigRefsS, userConfigsS} from "../state/deployments.js";
 
 const { div, h2, p, pre, span, table, tbody, tr, td, button, code, input, select, option, label: labelEl } = van.tags;
@@ -732,16 +732,15 @@ export function settingsPage() {
                 }),
                 button({
                     type: "button",
-                    title: "Copy new master password",
-                    "aria-label": "Copy new master password",
+                    title: () => newMasterPasswordCopied.val ? "Copied" : "Copy new master password",
+                    "aria-label": () => newMasterPasswordCopied.val ? "Copied" : "Copy new master password",
                     disabled: () => !newMasterPassword.val,
                     class: () => `absolute right-9 top-1/2 -translate-y-1/2 p-1.5 rounded text-gray-300 ` +
                         `hover:bg-gray-700 cursor-pointer ${newMasterPassword.val ? "" : "invisible"}`,
                     onclick: copyNewMasterPassword,
-                }, copyIcon()),
-                () => newMasterPasswordCopied.val ? span({
-                    class: "absolute right-20 top-1/2 -translate-y-1/2 text-xs text-green-400 bg-gray-900 px-2 py-1 rounded",
-                }, "Copied") : "",
+                }, () => newMasterPasswordCopied.val
+                    ? checkIcon({class: "w-4 h-4 text-green-400"})
+                    : copyIcon()),
                 button({
                     type: "button",
                     title: () => newMasterPasswordRevealed.val ? "Hide new master password" : "Reveal new master password",
