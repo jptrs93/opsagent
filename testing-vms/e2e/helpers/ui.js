@@ -152,7 +152,7 @@ export async function createNixDockerDeployment(page, {
 
   await step(`fill deployment identity ${name}`, async () => {
     await byTestId(dialog, 'deployment-name-input', textField(dialog, 'Name')).fill(name);
-    await byTestId(dialog, 'deployment-machine-select', selectField(dialog, 'Machine')).selectOption({label: machine});
+    await selectDeploymentNode(dialog, machine);
     await setDeploymentNetworkingMode(dialog, networkingMode);
   });
   const sourceTypeSelect = byTestId(dialog, 'deployment-source-type-select', selectField(dialog, 'Source type'));
@@ -636,7 +636,7 @@ async function createContainerImageDeployment(page, {
 
   await step(`fill container deployment ${name}`, async () => {
     await byTestId(dialog, 'deployment-name-input', textField(dialog, 'Name')).fill(name);
-    await byTestId(dialog, 'deployment-machine-select', selectField(dialog, 'Machine')).selectOption({label: machine});
+    await selectDeploymentNode(dialog, machine);
     await setDeploymentNetworkingMode(dialog, networkingMode);
     await setDeploymentPortForwarding(dialog, portForwarding);
     await byTestId(dialog, 'deployment-source-type-select', selectField(dialog, 'Source type')).selectOption('containerImage');
@@ -762,6 +762,13 @@ async function expectMachineConnected(page, machine) {
   await byTestId(page, 'nav-cluster', page.getByText('Machines')).click();
   const row = await clusterMachineRow(page, machine, UPGRADE_TIMEOUT);
   await expect(row).toContainText('connected', {timeout: UPGRADE_TIMEOUT});
+}
+
+async function selectDeploymentNode(dialog, nodeName) {
+  const select = byTestId(dialog, 'deployment-node-select', selectField(dialog, 'Node'));
+  const option = select.locator('option').filter({hasText: nodeName});
+  await expect(option).toHaveCount(1, {timeout: LONG_UI_TIMEOUT});
+  await select.selectOption(await option.getAttribute('value'));
 }
 
 async function clusterMachineRow(page, machine, timeout = LONG_UI_TIMEOUT) {
