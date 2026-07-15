@@ -120,7 +120,7 @@ export async function acceptFirstWaitingWorker(page, {workerName = 'worker-1'} =
   await byTestId(requestRow, 'enrollment-accept-button', requestRow.getByRole('button', {name: 'Accept'})).click();
 
   await expect(page.getByText('No pending enrollment requests.')).toBeVisible({timeout: LONG_UI_TIMEOUT});
-  const workerRow = byTestId(page, `machine-row-${workerName}`, page.locator('tr').filter({hasText: workerName}).filter({hasText: 'secondary'}));
+  const workerRow = page.locator('tr').filter({hasText: workerName}).filter({hasText: 'secondary'});
   await expect(workerRow).toContainText('connected', {timeout: LONG_UI_TIMEOUT});
 }
 
@@ -152,7 +152,7 @@ export async function createNixDockerDeployment(page, {
 
   await step(`fill deployment identity ${name}`, async () => {
     await byTestId(dialog, 'deployment-name-input', textField(dialog, 'Name')).fill(name);
-    await byTestId(dialog, 'deployment-machine-select', selectField(dialog, 'Machine')).selectOption(machine);
+    await byTestId(dialog, 'deployment-machine-select', selectField(dialog, 'Machine')).selectOption({label: machine});
     await setDeploymentNetworkingMode(dialog, networkingMode);
   });
   const sourceTypeSelect = byTestId(dialog, 'deployment-source-type-select', selectField(dialog, 'Source type'));
@@ -633,7 +633,7 @@ async function createContainerImageDeployment(page, {
 
   await step(`fill container deployment ${name}`, async () => {
     await byTestId(dialog, 'deployment-name-input', textField(dialog, 'Name')).fill(name);
-    await byTestId(dialog, 'deployment-machine-select', selectField(dialog, 'Machine')).selectOption(machine);
+    await byTestId(dialog, 'deployment-machine-select', selectField(dialog, 'Machine')).selectOption({label: machine});
     await setDeploymentNetworkingMode(dialog, networkingMode);
     await setDeploymentPortForwarding(dialog, portForwarding);
     await byTestId(dialog, 'deployment-source-type-select', selectField(dialog, 'Source type')).selectOption('containerImage');
@@ -757,7 +757,7 @@ export async function expectOpenDeployAgentVersion(page, {machine, version}) {
 
 async function expectMachineConnected(page, machine) {
   await byTestId(page, 'nav-cluster', page.getByText('Machines')).click();
-  const row = byTestId(page, `machine-row-${machine}`, page.locator('tr').filter({hasText: machine}));
+  const row = page.locator('tr').filter({hasText: machine});
   await expect(row).toContainText('connected', {timeout: UPGRADE_TIMEOUT});
 }
 

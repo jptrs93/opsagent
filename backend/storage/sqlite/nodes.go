@@ -51,17 +51,17 @@ func parseNodeAddresses(s string) []string {
 	return addresses
 }
 
-// EnsurePrimaryNode returns the existing primary registry entry or creates the
-// initial one. The identifier is the mTLS and deployment identity; name is UI
-// metadata only.
+// EnsurePrimaryNode resolves the primary by its server certificate CN, then
+// creates the initial registry entry if that certificate has no row yet. The
+// identifier is the mTLS and deployment identity; name is UI metadata only.
 func (s *PrimaryStorage) EnsurePrimaryNode(name, identifier string) *Node {
 	s.mu.Lock()
 	ctx := context.Background()
 	node, err := scanNodeRows(s.db.QueryRowContext(ctx, `
 		SELECT id, enrollment_id, enrolled_at, name, identifier, roles, addresses, wg_public_key
 		FROM nodes
-		WHERE enrollment_id IS NULL
-		LIMIT 1`))
+		WHERE identifier = ?
+		LIMIT 1`, identifier))
 	if err == sql.ErrNoRows {
 		node, err = insertNode(ctx, s.db, nil, name, identifier, []int32{NodeRolePrimary})
 	}
@@ -272,7 +272,10 @@ func (s *PrimaryStorage) PrimaryNodeIdentifier() (string, error) {
 	defer s.mu.Unlock()
 	var identifier string
 	err := s.db.QueryRowContext(context.Background(), `
-		SELECT identifier FROM nodes WHERE enrollment_id IS NULL LIMIT 1`).Scan(&identifier)
+		SELECT identifier
+		FROM nodes
+		WHERE EXISTS (SELECT 1 FROM json_each(nodes.roles) WHERE value = ?)
+		LIMIT 1`, NodeRolePrimary).Scan(&identifier)
 	return identifier, err
 }
 

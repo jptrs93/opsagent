@@ -192,6 +192,26 @@ func TestEnsurePrimaryNodeCreatesPrimaryRole(t *testing.T) {
 	}
 }
 
+func TestEnsurePrimaryNodeUsesCertificateIdentifier(t *testing.T) {
+	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	defer store.Close()
+	if _, err := store.db.Exec(`
+		INSERT INTO nodes (enrollment_id, enrolled_at, name, identifier, roles, addresses, wg_public_key)
+		VALUES (NULL, 0, 'coflip-prod', 'coflip-prod', '[1]', '[]', '')`); err != nil {
+		t.Fatalf("seed secondary node: %v", err)
+	}
+	if _, err := store.db.Exec(`
+		INSERT INTO nodes (enrollment_id, enrolled_at, name, identifier, roles, addresses, wg_public_key)
+		VALUES (NULL, 0, 'primary', 'primary', '[0]', '[]', '')`); err != nil {
+		t.Fatalf("seed primary node: %v", err)
+	}
+
+	node := store.EnsurePrimaryNode("primary", "primary")
+	if node.Name != "primary" || node.Identifier != "primary" {
+		t.Fatalf("primary node = %+v, want primary certificate identity", node)
+	}
+}
+
 func TestAcceptEnrollmentRequestCreatesNode(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	req := store.MustUpsertEnrollmentRequest("127.0.0.1", "requesting-id", "v0.0.200")
