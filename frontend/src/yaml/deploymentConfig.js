@@ -55,9 +55,9 @@ function writeValue(value, indent) {
     return `${indent}${yamlScalar(value)}`;
 }
 
-function orderDeploymentConfig(config) {
+export function orderDeploymentConfig(config) {
     const ordered = {};
-    for (const key of ['id', 'configId', 'createdAt', 'version', 'updatedAt', 'updatedBy', 'spec', 'desiredState', 'deleted']) {
+    for (const key of ['id', 'nodeId', 'configId', 'createdAt', 'version', 'updatedAt', 'updatedBy', 'spec', 'desiredState', 'deleted']) {
         if (config[key] !== undefined) ordered[key] = config[key];
     }
     for (const [key, value] of Object.entries(config)) {
@@ -67,7 +67,13 @@ function orderDeploymentConfig(config) {
 }
 
 export function cleanDeploymentConfig(config) {
-    return omitZeroValues(config);
+    if (!config) return undefined;
+    const cleaned = {...config};
+    if (cleaned.configId) {
+        cleaned.configId = {...cleaned.configId};
+        delete cleaned.configId.machine;
+    }
+    return omitZeroValues(cleaned);
 }
 
 export function deploymentConfigToYaml(config) {

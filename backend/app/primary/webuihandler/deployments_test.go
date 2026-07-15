@@ -618,11 +618,12 @@ func TestValidateDeploymentSpecAcceptsLiteralEnvValues(t *testing.T) {
 
 func TestDeploymentCreatePersistsInitialStoppedDesiredState(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	store.EnsurePrimaryNode("primary", "primary")
+	primary := store.EnsurePrimaryNode("primary", "primary")
 	h := &Handler{Store: store}
 
 	cfg, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"},
+		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "web"},
+		NodeID:   primary.ID,
 		Spec: apigen.DeploymentSpec{
 			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 			Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
@@ -648,10 +649,12 @@ func TestDeploymentCreatePersistsInitialStoppedDesiredState(t *testing.T) {
 
 func TestDeploymentCreateRejectsInternalIdentity(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	primary := store.EnsurePrimaryNode("primary", "primary")
 	h := &Handler{Store: store}
 
 	_, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		ConfigID: apigen.DeploymentIdentifier{SpaceID: sqlite.OpendeploySpaceID, Machine: "primary", Name: "opendeploy-net"},
+		ConfigID: apigen.DeploymentIdentifier{SpaceID: sqlite.OpendeploySpaceID, Name: "opendeploy-net"},
+		NodeID:   primary.ID,
 		Spec: apigen.DeploymentSpec{
 			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 			Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
@@ -791,6 +794,8 @@ func TestDeploymentDeleteRequiresStoppedDeployment(t *testing.T) {
 
 func TestDeploymentDeleteAllowsRunningMissingMachineDeployment(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	primary := store.EnsurePrimaryNode("primary", "primary")
+	store.EnsurePrimaryNode("worker", "worker-a")
 	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "worker-a", Name: "web"}, &apigen.DeploymentSpec{
 		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
@@ -800,7 +805,7 @@ func TestDeploymentDeleteAllowsRunningMissingMachineDeployment(t *testing.T) {
 		s.Runner.Status = apigen.RunningStatus_RUNNING
 		return true
 	})
-	h := &Handler{Store: store, MachineName: "primary"}
+	h := &Handler{Store: store, NodeID: primary.ID}
 
 	err := h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.ID, Version: created.Version + 1})
 	if err != nil {
@@ -813,6 +818,8 @@ func TestDeploymentDeleteAllowsRunningMissingMachineDeployment(t *testing.T) {
 
 func TestDeploymentDeleteAllowsStaleDisconnectedSystemDeployment(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	primary := store.EnsurePrimaryNode("primary", "primary")
+	store.EnsurePrimaryNode("worker", "worker-a")
 	store.EnsureSystemDeployment("worker-a", "v0.0.194")
 	system := findSystemDeployment(t, store, "worker-a")
 	store.MustWriteDeploymentStatus(system.ID, func(s *apigen.DeploymentStatus) bool {
@@ -822,9 +829,9 @@ func TestDeploymentDeleteAllowsStaleDisconnectedSystemDeployment(t *testing.T) {
 		return true
 	})
 	h := &Handler{
-		Store:       store,
-		MachineName: "primary",
-		Cluster:     clusterhandler.New(store, nil, nil, nil, network.Prefix{}),
+		Store:   store,
+		NodeID:  primary.ID,
+		Cluster: clusterhandler.New(store, nil, nil, nil, network.Prefix{}),
 	}
 
 	err := h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: system.ID, Version: system.Version + 1})
@@ -838,6 +845,7 @@ func TestDeploymentDeleteAllowsStaleDisconnectedSystemDeployment(t *testing.T) {
 
 func TestDeploymentDeleteRejectsPrimarySystemDeployment(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	primary := store.EnsurePrimaryNode("primary", "primary")
 	store.EnsureSystemDeployment("primary", "v0.0.194")
 	system := findSystemDeployment(t, store, "primary")
 	store.MustWriteDeploymentStatus(system.ID, func(s *apigen.DeploymentStatus) bool {
@@ -845,9 +853,9 @@ func TestDeploymentDeleteRejectsPrimarySystemDeployment(t *testing.T) {
 		return true
 	})
 	h := &Handler{
-		Store:       store,
-		MachineName: "primary",
-		Cluster:     clusterhandler.New(store, nil, nil, nil, network.Prefix{}),
+		Store:   store,
+		NodeID:  primary.ID,
+		Cluster: clusterhandler.New(store, nil, nil, nil, network.Prefix{}),
 	}
 
 	err := h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: system.ID, Version: system.Version + 1})

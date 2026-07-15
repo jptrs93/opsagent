@@ -18,6 +18,15 @@ type exportedConfigBundle struct {
 
 func (h *Handler) PostV1GenerateExportedConfig(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ExportedConfigBlob, error) {
 	deployments := h.Store.ListActiveDeploymentConfigs()
+	exportedDeployments := make([]*apigen.DeploymentConfig, 0, len(deployments))
+	for _, deployment := range deployments {
+		if deployment == nil {
+			continue
+		}
+		copy := *deployment
+		copy.ConfigID.Machine = ""
+		exportedDeployments = append(exportedDeployments, &copy)
+	}
 	configs := h.Store.ListUserConfigs()
 	secrets := h.listSecretMetas()
 	assets := h.Store.ListAssets()
@@ -25,14 +34,14 @@ func (h *Handler) PostV1GenerateExportedConfig(ctx apigen.Context, req *apigen.E
 	storedSettings := h.ConfigService.Snapshot().Settings
 	settings := storedSettings
 
-	sort.Slice(deployments, func(i, j int) bool { return deployments[i].ID < deployments[j].ID })
+	sort.Slice(exportedDeployments, func(i, j int) bool { return exportedDeployments[i].ID < exportedDeployments[j].ID })
 	sort.Slice(configs, func(i, j int) bool { return configs[i].Name < configs[j].Name })
 	sort.Slice(secrets, func(i, j int) bool { return secrets[i].Name < secrets[j].Name })
 	sort.Slice(assets, func(i, j int) bool { return assets[i].Key < assets[j].Key })
 	sort.Slice(spaces, func(i, j int) bool { return spaces[i].ID < spaces[j].ID })
 
 	content := exportedConfigBundle{
-		Deployments: deployments,
+		Deployments: exportedDeployments,
 		Configs:     configs,
 		Secrets:     secrets,
 		Assets:      assets,

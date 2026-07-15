@@ -1,1 +1,1 @@
-
+-- Existing secondary caches have canonical node_id values.

@@ -9,7 +9,7 @@ import {prepareOutputOverlay} from "../components/prepareOutputOverlay.js";
 import {exportConfigOverlay} from "../components/exportConfigOverlay.js";
 import {deploymentConfigOverlay} from "../components/deploymentJsonOverlay.js";
 import {capi} from "../capi/index.js";
-import {machineDisplayName} from "../lib/machines.js";
+import {nodeDisplayName} from "../lib/machines.js";
 
 const { div, h2, p, button, input, table, thead, tbody, tr, th, td, span, colgroup, col } = van.tags;
 
@@ -51,7 +51,7 @@ const SIDEBAR_HISTORY = 'history';
 
 const formatDeploymentLabel = (deployment) => {
     if (!deployment) return 'unknown deployment';
-    const parts = [deployment.spaceName, deployment.machine, deployment.name].filter(Boolean);
+    const parts = [deployment.spaceName, deployment.node, deployment.name].filter(Boolean);
     return parts.length > 0 ? parts.join(' / ') : `#${deployment.id}`;
 };
 
@@ -112,9 +112,7 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
         ? formatDeploymentLabel({
             id: deploymentId,
             spaceName: `space ${currentConfig.configId?.spaceId ?? 0}`,
-            machine: currentConfig.configId?.machine
-                ? machineDisplayName(currentConfig.configId.machine, machinesS.val)
-                : '',
+            node: currentConfig.nodeId ? nodeDisplayName(currentConfig.nodeId, machinesS.val) : '',
             name: currentConfig.configId?.name || '',
         })
         : `#${deploymentId}`;
@@ -195,7 +193,7 @@ const groupDeploymentsBySpace = (deployments) => {
 const headerTips = {
     deployment: 'Deployment name. Use history to inspect config and status changes.',
     space: 'Logical space for grouping deployments.',
-    machine: 'Cluster machine where this deployment is reconciled.',
+    node: 'Cluster node where this deployment is reconciled.',
     status: 'Current runner status. Click the badge to view run output.',
     version: 'Currently running commit or GitHub release tag. Orange when it differs from the desired version.',
     prepare: 'Latest prepare/build/download result. Click to view prepare logs.',
@@ -210,9 +208,9 @@ const headerTips = {
 const mapDeploymentsToView = (deployments, spaces, machines) => {
     if (!Array.isArray(deployments)) return [];
     const spaceNames = new Map((spaces || []).map(space => [space.id, space.name]));
-    const machinesByIdentifier = new Map((machines || [])
-        .filter(machine => machine.identifier)
-        .map(machine => [machine.identifier, machine]));
+    const machinesByNodeId = new Map((machines || [])
+        .filter(machine => Number(machine.id || 0))
+        .map(machine => [Number(machine.id), machine]));
 
     return deployments.filter(d => d.config && d.config.id && !d.config.deleted).map((d) => {
         const id = d.config.id; // integer
@@ -237,18 +235,18 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
 
         const runnerType = spec.runner?.systemd ? 'systemd' : 'container';
         const spaceId = cid.spaceId || 0;
-        const machineIdentifier = cid.machine || '';
-        const machine = machineIdentifier ? machineDisplayName(machineIdentifier, machines) : '';
-        const machineMissing = Boolean(machineIdentifier) && !machinesByIdentifier.has(machineIdentifier);
+        const nodeId = Number(d.config.nodeId || 0);
+        const node = nodeDisplayName(nodeId, machines);
+        const nodeMissing = Boolean(nodeId) && !machinesByNodeId.has(nodeId);
         const existingStatus = runner.status || 0;
-        const uiExistingStatus = machineMissing && existingStatus === STATUS_RUNNING ? 0 : existingStatus;
+        const uiExistingStatus = nodeMissing && existingStatus === STATUS_RUNNING ? 0 : existingStatus;
         const systemDeployment = spaceId === OPENDEPLOY_SPACE_ID && ['opendeploy', 'opendeploy-net'].includes(cid.name || '');
 
         return {
             id,
             name: cid.name || '',
-            machine,
-            machineIdentifier,
+            node,
+            nodeId,
             spaceId,
             spaceName: spaceNames.get(spaceId) || `space ${spaceId}`,
             variant,
@@ -257,9 +255,9 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             runnerPresent: Boolean(d.status?.runner),
             existingStatus: uiExistingStatus,
             canDelete: systemDeployment
-                ? machineMissing
-                : uiExistingStatus === STATUS_STOPPED || (machineMissing && uiExistingStatus === 0),
-            machineMissing,
+                ? nodeMissing
+                : uiExistingStatus === STATUS_STOPPED || (nodeMissing && uiExistingStatus === 0),
+            nodeMissing,
             existingVersion: runner.runningVersion || '',
             numberOfRestarts: runner.numberOfRestarts || 0,
             lastRestartAt: runner.lastRestartAt,
@@ -391,7 +389,7 @@ export function statusPage(onOpenLogs = () => {}) {
         if (!query) return rows;
         return rows.filter(row => [
             row.name,
-            row.machine,
+            row.node,
             row.spaceName,
             row.repo,
             row.runnerType,
@@ -428,7 +426,7 @@ export function statusPage(onOpenLogs = () => {}) {
                 {class: "border-b border-gray-700 text-xs uppercase tracking-wide text-gray-500"},
                 tableHeader("Deployment", headerTips.deployment, "py-3 pl-4 pr-3 font-medium"),
                 showSpaceColumn ? tableHeader("Space", headerTips.space, "py-3 px-3 font-medium") : '',
-                tableHeader("Machine", headerTips.machine, "py-3 px-3 font-medium"),
+                tableHeader("Node", headerTips.node, "py-3 px-3 font-medium"),
                 tableHeader("Status", headerTips.status, "py-3 px-3 font-medium"),
                 tableHeader("Running Version", headerTips.version, "py-3 px-3 font-medium"),
                 tableHeader("Prepare", headerTips.prepare, "py-3 px-3 font-medium"),
@@ -639,7 +637,7 @@ export function statusPage(onOpenLogs = () => {}) {
                 );
             }
 
-            // Sort: system deployment last, then by space, name, machine,
+            // Sort: system deployment last, then by space, name, node,
             // and finally id so the order is fully deterministic across
             // stream snapshots and reconnects.
             const sorted = [...filtered].sort((a, b) => {
@@ -648,7 +646,7 @@ export function statusPage(onOpenLogs = () => {}) {
                 return aSystem - bSystem
                     || (a.spaceId - b.spaceId)
                     || (a.name || '').localeCompare(b.name || '')
-                    || (a.machine || '').localeCompare(b.machine || '')
+                    || (a.node || '').localeCompare(b.node || '')
                     || (a.id - b.id);
             });
 

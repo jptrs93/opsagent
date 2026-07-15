@@ -393,7 +393,7 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 
 	params := UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
-		NodeID:         mustGetNodeIDByIdentifier(bgCtx, q, existing.Machine),
+		NodeID:         existing.NodeID,
 		SpaceID:        spaceID,
 		Machine:        existing.Machine,
 		Name:           existing.Name,
@@ -455,7 +455,7 @@ func (s *PrimaryStorage) MustSetDeploymentDesiredState(ctx apigen.Context, deplo
 	}
 
 	if updateErr := q.UpdateDesiredState(bgCtx, UpdateDesiredStateParams{
-		NodeID:         mustGetNodeIDByIdentifier(bgCtx, q, existing.Machine),
+		NodeID:         existing.NodeID,
 		DesiredVersion: desired.Version,
 		DesiredRunning: boolToInt(desired.Running),
 		UpdatedAt:      now,
@@ -523,7 +523,7 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 	newVersion := existing.Version + 1
 	params := UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
-		NodeID:         mustGetNodeIDByIdentifier(bgCtx, q, existing.Machine),
+		NodeID:         existing.NodeID,
 		SpaceID:        existing.SpaceID,
 		Machine:        existing.Machine,
 		Name:           existing.Name,
@@ -589,7 +589,7 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymen
 	newVersion := existing.Version + 1
 	params := UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
-		NodeID:         mustGetNodeIDByIdentifier(bgCtx, q, existing.Machine),
+		NodeID:         existing.NodeID,
 		SpaceID:        int64(spaceID),
 		Machine:        existing.Machine,
 		Name:           existing.Name,
@@ -625,10 +625,24 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymen
 	s.notifyFromCache(deploymentID)
 }
 
-// MustCreateDeployment creates a brand-new deployment from a DeploymentIdentifier and spec.
-// It allocates a deployment ID, persists the config, inserts a default status,
-// and returns the resulting DeploymentConfig.
+// MustCreateDeployment preserves the legacy machine-identifier API for internal
+// callers. New placement-aware callers must use MustCreateDeploymentForNode.
 func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.DeploymentIdentifier, spec *apigen.DeploymentSpec, desired apigen.DesiredState) *apigen.DeploymentConfig {
+	nodeID := mustGetNodeIDByIdentifier(context.Background(), s.q, cid.Machine)
+	return s.mustCreateDeploymentForNode(ctx, cid, int32(nodeID), spec, desired)
+}
+
+// MustCreateDeploymentForNode creates a deployment with an explicit canonical
+// node assignment. ConfigID.Machine is retained only for worker certificate
+// compatibility and must already have been resolved by the caller.
+func (s *PrimaryStorage) MustCreateDeploymentForNode(ctx apigen.Context, cid *apigen.DeploymentIdentifier, nodeID int32, spec *apigen.DeploymentSpec, desired apigen.DesiredState) *apigen.DeploymentConfig {
+	if nodeID <= 0 {
+		panic("deployment node ID must be positive")
+	}
+	return s.mustCreateDeploymentForNode(ctx, cid, nodeID, spec, desired)
+}
+
+func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *apigen.DeploymentIdentifier, nodeID int32, spec *apigen.DeploymentSpec, desired apigen.DesiredState) *apigen.DeploymentConfig {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -660,9 +674,8 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 		specBlob = spec.Encode()
 	}
 
-	nodeID := mustGetNodeIDByIdentifier(bgCtx, q, cid.Machine)
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
-		NodeID:         nodeID,
+		NodeID:         int64(nodeID),
 		SpaceID:        int64(cid.SpaceID),
 		Machine:        cid.Machine,
 		Name:           cid.Name,
@@ -701,7 +714,7 @@ func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.De
 
 	cfg := upsertParamsToProto(UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
-		NodeID:         nodeID,
+		NodeID:         int64(nodeID),
 		SpaceID:        int64(cid.SpaceID),
 		Machine:        cid.Machine,
 		Name:           cid.Name,
@@ -936,7 +949,7 @@ func (s *PrimaryStorage) repairSystemDeploymentLocked(deploymentID int32) {
 	newVersion := existing.Version + 1
 	params := UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
-		NodeID:         mustGetNodeIDByIdentifier(bgCtx, q, existing.Machine),
+		NodeID:         existing.NodeID,
 		SpaceID:        existing.SpaceID,
 		Machine:        existing.Machine,
 		Name:           existing.Name,

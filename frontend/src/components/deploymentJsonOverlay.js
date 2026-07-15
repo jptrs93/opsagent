@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {deploymentsS} from "../state/deployments.js";
-import {cleanDeploymentConfig, deploymentConfigToYaml} from "../yaml/deploymentConfig.js";
+import {cleanDeploymentConfig, deploymentConfigToYaml, orderDeploymentConfig} from "../yaml/deploymentConfig.js";
 
 const {div, span, pre, button} = van.tags;
 
@@ -10,7 +10,8 @@ function currentDeploymentConfig(deploymentId) {
 
 function deploymentConfigJson(deploymentId) {
     const config = currentDeploymentConfig(deploymentId);
-    return JSON.stringify(cleanDeploymentConfig(config) || {error: "deployment config not found", deploymentId}, null, 2);
+    const cleaned = cleanDeploymentConfig(config);
+    return JSON.stringify(cleaned ? orderDeploymentConfig(cleaned) : {error: "deployment config not found", deploymentId}, null, 2);
 }
 
 function deploymentConfigYaml(deploymentId) {
@@ -64,7 +65,7 @@ export function deploymentConfigOverlay(deployment, onClose) {
                             {class: "flex flex-wrap gap-x-3 gap-y-1 text-xs"},
                             titleField("space", deployment.spaceName),
                             titleField("name", deployment.name),
-                            titleField("machine", deployment.machine),
+                            titleField("node", deployment.node),
                         ),
                     ),
                     div({class: "flex shrink-0 items-center gap-2"},

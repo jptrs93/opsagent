@@ -595,6 +595,7 @@ type DeploymentCreateRequest struct {
 	ConfigID     DeploymentIdentifier
 	Spec         DeploymentSpec
 	DesiredState DesiredState
+	NodeID       int32
 }
 
 type DeploymentHistoryRequest struct {
@@ -631,6 +632,7 @@ type LogSearchRequest struct {
 	LogLineLimit  int32
 	ConfigVersion int32
 	SearchStr     string
+	TargetNodeID  int32
 }
 
 type LogLine struct {
@@ -716,6 +718,7 @@ type Endpoint struct {
 	Address string
 	Machine string
 	State   EndpointState
+	NodeID  int32
 }
 
 type Version struct {
@@ -851,6 +854,7 @@ type ClusterMachine struct {
 	Connected   bool
 	ConnectedAt time.Time
 	Identifier  string
+	ID          int32
 }
 
 type ClusterNode struct {

@@ -36,7 +36,7 @@ func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *sqlite.Se
 	const maxBackoff = 30 * time.Second
 	for ctx.Err() == nil {
 		connectedAt := time.Now()
-		err := runSession(ctx, capi, store)
+		err := runSession(ctx, capi, store, cfg.NodeID)
 		if ctx.Err() != nil {
 			return
 		}
@@ -105,14 +105,14 @@ func (t *logStreamTracker) remove(requestID string) {
 // the primary's messages (snapshot, config updates, log requests) from the
 // response stream, applying them to the local store. Returns when the stream
 // ends (error or clean EOF).
-func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *sqlite.SecondaryStorage) error {
+func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *sqlite.SecondaryStorage, nodeID int32) error {
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	out := &outbox{ch: make(chan *apigen.MsgToMaster, 64), ctx: sessCtx}
 
 	// Subscribe to local deployment updates to push status back to primary.
-	statusCh, unsub := store.SubscribeDeploymentUpdates(nil)
+	statusCh, unsub := store.SubscribeDeploymentUpdates(func(cfg apigen.DeploymentConfig) bool { return cfg.NodeID == nodeID })
 	defer unsub()
 	go statusPushLoop(sessCtx, out, statusCh)
 
@@ -144,13 +144,13 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 			connected = true
 			slog.Info("slave connected to primary", "peer", capi.BaseURL)
 		}
-		dispatchFromPrimary(sessCtx, out, store, tracker, msg)
+		dispatchFromPrimary(sessCtx, out, store, tracker, msg, nodeID)
 	}
 	return sessErr
 }
 
 // dispatchFromPrimary applies one MsgToWorker received from the primary.
-func dispatchFromPrimary(ctx context.Context, out *outbox, store *sqlite.SecondaryStorage, tracker *logStreamTracker, msg *apigen.MsgToWorker) {
+func dispatchFromPrimary(ctx context.Context, out *outbox, store *sqlite.SecondaryStorage, tracker *logStreamTracker, msg *apigen.MsgToWorker, nodeID int32) {
 	msgType := "heartbeat"
 	switch {
 	case msg.DeploymentsSnapshot != nil:
@@ -174,9 +174,9 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *sqlite.Seconda
 
 	switch {
 	case msg.DeploymentsSnapshot != nil:
-		applySnapshot(out, store, msg.DeploymentsSnapshot)
+		applySnapshot(out, store, msg.DeploymentsSnapshot, nodeID)
 	case msg.DeploymentUpdate != nil:
-		applyConfigUpdate(store, msg.DeploymentUpdate)
+		applyConfigUpdate(store, msg.DeploymentUpdate, nodeID)
 	case msg.ClusterNetwork != nil:
 		if err := applyClusterNetwork(store, msg.ClusterNetwork); err != nil {
 			slog.Warn("installing cluster network failed", "err", err)
@@ -251,10 +251,10 @@ func statusPushLoop(ctx context.Context, out *outbox, ch <-chan apigen.Deploymen
 // deployment; the secondary scans its local history for rows above that value
 // and streams them back as individual StatusWrites so the primary can insert
 // each one at its canonical clock.
-func applySnapshot(out *outbox, store *sqlite.SecondaryStorage, snap *apigen.DeploymentWithStatusSnapshot) {
+func applySnapshot(out *outbox, store *sqlite.SecondaryStorage, snap *apigen.DeploymentWithStatusSnapshot, nodeID int32) {
 	slog.Info("applying deployments snapshot from primary", "count", len(snap.Items))
 	for _, item := range snap.Items {
-		if item == nil || item.Config.ID == 0 {
+		if item == nil || item.Config.ID == 0 || item.Config.NodeID != nodeID {
 			continue
 		}
 		cfg := item.Config
@@ -280,8 +280,8 @@ func applySnapshot(out *outbox, store *sqlite.SecondaryStorage, snap *apigen.Dep
 
 // applyConfigUpdate writes a single config update from the primary into the
 // local store.
-func applyConfigUpdate(store *sqlite.SecondaryStorage, cfg *apigen.DeploymentConfig) {
-	if cfg == nil || cfg.ID == 0 {
+func applyConfigUpdate(store *sqlite.SecondaryStorage, cfg *apigen.DeploymentConfig, nodeID int32) {
+	if cfg == nil || cfg.ID == 0 || cfg.NodeID != nodeID {
 		return
 	}
 	slog.Info("applying deployment config update from primary", "id", cfg.ID, "seqNo", cfg.Version)

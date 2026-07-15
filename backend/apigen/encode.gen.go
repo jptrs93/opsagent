@@ -4156,6 +4156,7 @@ func (m *DeploymentCreateRequest) Encode() []byte {
 		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, m.DesiredState.Encode())
 	}
+	b = AppendInt32Field(b, m.NodeID, 4)
 	return b
 }
 
@@ -4198,6 +4199,8 @@ func DecodeDeploymentCreateRequest(b []byte) (*DeploymentCreateRequest, error) {
 					m.DesiredState = *item
 				}
 			}
+		case 4:
+			b, m.NodeID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4397,6 +4400,7 @@ func (m *LogSearchRequest) Encode() []byte {
 	b = AppendInt32Field(b, m.LogLineLimit, 7)
 	b = AppendInt32Field(b, m.ConfigVersion, 8)
 	b = AppendStringField(b, m.SearchStr, 9)
+	b = AppendInt32Field(b, m.TargetNodeID, 10)
 	return b
 }
 
@@ -4432,6 +4436,8 @@ func DecodeLogSearchRequest(b []byte) (*LogSearchRequest, error) {
 			b, m.ConfigVersion, err = ConsumeVarInt32(b, typ)
 		case 9:
 			b, m.SearchStr, err = ConsumeString(b, typ)
+		case 10:
+			b, m.TargetNodeID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5075,6 +5081,7 @@ func (m *Endpoint) Encode() []byte {
 	b = AppendStringField(b, m.Address, 2)
 	b = AppendStringField(b, m.Machine, 3)
 	b = AppendInt32Field(b, int32(m.State), 4)
+	b = AppendInt32Field(b, m.NodeID, 5)
 	return b
 }
 
@@ -5101,6 +5108,8 @@ func DecodeEndpoint(b []byte) (*Endpoint, error) {
 			if err == nil {
 				m.State = EndpointState(raw)
 			}
+		case 5:
+			b, m.NodeID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -6115,6 +6124,7 @@ func (m *ClusterMachine) Encode() []byte {
 	b = AppendBoolField(b, m.Connected, 3)
 	b = AppendInt64FromTime(b, m.ConnectedAt, 4)
 	b = AppendStringField(b, m.Identifier, 5)
+	b = AppendInt32Field(b, m.ID, 6)
 	return b
 }
 
@@ -6139,6 +6149,8 @@ func DecodeClusterMachine(b []byte) (*ClusterMachine, error) {
 			b, m.ConnectedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 5:
 			b, m.Identifier, err = ConsumeString(b, typ)
+		case 6:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

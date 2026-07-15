@@ -13,7 +13,7 @@ const existingStatusLabels = {
     5: {bg: 'bg-red-600', text: 'text-red-300', label: 'Crashed'},
 };
 
-const missingMachineStatusLabel = {bg: 'bg-yellow-600', text: 'text-yellow-300', label: 'Unknown'};
+const missingNodeStatusLabel = {bg: 'bg-yellow-600', text: 'text-yellow-300', label: 'Unknown'};
 const preRunnerStatusLabels = {
     1: {bg: 'bg-yellow-600', text: 'text-yellow-300', label: 'Preparing'},
     2: {bg: 'bg-blue-600', text: 'text-blue-200', label: 'Preparing'},
@@ -54,8 +54,8 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
     const canDelete = deployment.canDelete ?? deployment.existingStatus === STATUS_STOPPED;
     const preRunnerColors = !deployment.runnerPresent ? preRunnerStatusLabels[deployment.prepareStatus] : null;
     const existingColors = preRunnerColors || (hasExisting
-        ? (deployment.machineMissing && deployment.existingStatus === 0
-            ? missingMachineStatusLabel
+        ? (deployment.nodeMissing && deployment.existingStatus === 0
+            ? missingNodeStatusLabel
             : (existingStatusLabels[deployment.existingStatus] || existingStatusLabels[0]))
         : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'});
     const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
@@ -154,7 +154,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
             span({class: "font-medium text-sm text-white break-words"}, deployment.name || `#${deployment.id}`),
         ),
         showSpace ? td({class: "py-2 px-3 align-middle text-sm text-gray-300 whitespace-nowrap"}, deployment.spaceName || '-') : '',
-        td({class: "py-2 px-3 align-middle text-sm text-gray-300 break-words"}, deployment.machine || '-'),
+        td({class: "py-2 px-3 align-middle text-sm text-gray-300 break-words"}, deployment.node || '-'),
         td(
             {class: "py-2 px-3 align-middle whitespace-nowrap"},
             statusBadge(hasExisting && deployment.runnerPresent, existingColors, () => onShowRunOutput(deployment), `deployment-runner-status-${statusKey}`),

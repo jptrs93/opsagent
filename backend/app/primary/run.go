@@ -49,7 +49,7 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	primaryNode := primaryRuntime.store.EnsurePrimaryNode("primary", certificateIdentifier)
 	machineIdentifier := primaryNode.Identifier
 	slog.Info(fmt.Sprintf("opendeploy starting primary version=%v machine=%v", version.Version, machineIdentifier))
-	webUIHandler, err := webuihandler.New(staticFS, machineIdentifier, primaryRuntime.webUIHandlerDependencies())
+	webUIHandler, err := webuihandler.New(staticFS, primaryNode.ID, primaryRuntime.webUIHandlerDependencies())
 	if err != nil {
 		return fmt.Errorf("creating web UI handler: %w", err)
 	}

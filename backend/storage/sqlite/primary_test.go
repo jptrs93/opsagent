@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -236,46 +235,6 @@ func TestAcceptEnrollmentRequestCreatesNode(t *testing.T) {
 	}
 	if len(node.Roles) != 1 || node.Roles[0] != NodeRoleSecondary {
 		t.Fatalf("node roles = %+v, want secondary", node.Roles)
-	}
-}
-
-func TestPrimaryMigrationDropsHistoryNodeID(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	db, err := sql.Open("sqlite", "file:"+dbPath)
-	if err != nil {
-		t.Fatalf("open legacy database: %v", err)
-	}
-	if _, err := db.Exec(`
-		CREATE TABLE deployment_config_history (
-			deployment_id INTEGER NOT NULL,
-			node_id INTEGER NOT NULL DEFAULT -1,
-			version INTEGER NOT NULL,
-			updated_at INTEGER NOT NULL,
-			updated_by INTEGER NOT NULL DEFAULT 0,
-			spec_blob BLOB NOT NULL,
-			desired_version TEXT NOT NULL DEFAULT '',
-			desired_running INTEGER NOT NULL DEFAULT 0,
-			deleted INTEGER NOT NULL DEFAULT 0,
-			PRIMARY KEY (deployment_id, version)
-		);
-		INSERT INTO deployment_config_history (
-			deployment_id, node_id, version, updated_at, updated_by, spec_blob,
-			desired_version, desired_running, deleted
-		) VALUES (7, 42, 1, 1000, 0, x'', 'v1', 1, 0)`); err != nil {
-		t.Fatalf("seed deployed history schema: %v", err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("close legacy database: %v", err)
-	}
-
-	store := NewPrimaryStorage(dbPath)
-	defer store.Close()
-	if tableHasColumn(store.db, "deployment_config_history", "node_id") {
-		t.Fatal("deployment_config_history.node_id still exists")
-	}
-	history := store.MustFetchDeploymentHistory(7)
-	if len(history) != 1 || history[0].NodeID != 0 {
-		t.Fatalf("history after migration = %+v, want one entry without node ID", history)
 	}
 }
 

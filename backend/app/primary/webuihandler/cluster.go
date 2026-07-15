@@ -11,13 +11,13 @@ import (
 )
 
 func (h *Handler) GetV1ClusterStatus(ctx apigen.Context, r *http.Request, w http.ResponseWriter) error {
-	connected := map[string]timeAndConnected{}
+	connected := map[int32]timeAndConnected{}
 	if h.Cluster != nil {
-		for identifier, connectedAt := range h.Cluster.ConnectedMachines() {
-			connected[identifier] = timeAndConnected{connectedAt: connectedAt, connected: true}
+		for nodeID, connectedAt := range h.Cluster.ConnectedNodes() {
+			connected[nodeID] = timeAndConnected{connectedAt: connectedAt, connected: true}
 		}
 	}
-	connected[h.MachineName] = timeAndConnected{connected: true}
+	connected[h.NodeID] = timeAndConnected{connected: true}
 
 	nodes := h.Store.ListNodes()
 	machines := make([]*apigen.ClusterMachine, 0, len(nodes))
@@ -25,8 +25,9 @@ func (h *Handler) GetV1ClusterStatus(ctx apigen.Context, r *http.Request, w http
 		if node == nil || node.Name == "" || node.Identifier == "" {
 			continue
 		}
-		conn := connected[node.Identifier]
+		conn := connected[node.ID]
 		machines = append(machines, &apigen.ClusterMachine{
+			ID:          node.ID,
 			Name:        node.Name,
 			Identifier:  node.Identifier,
 			IsPrimary:   nodeHasRole(node, sqlite.NodeRolePrimary),
@@ -34,10 +35,6 @@ func (h *Handler) GetV1ClusterStatus(ctx apigen.Context, r *http.Request, w http
 			ConnectedAt: conn.connectedAt,
 		})
 	}
-	if len(machines) == 0 {
-		machines = append(machines, &apigen.ClusterMachine{Name: "primary", Identifier: h.MachineName, IsPrimary: true, Connected: true})
-	}
-
 	respond(w, &apigen.ClusterStatusResponse{Machines: machines})
 	return nil
 }

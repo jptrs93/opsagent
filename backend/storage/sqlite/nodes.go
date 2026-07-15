@@ -272,6 +272,14 @@ func (s *PrimaryStorage) NodeIDByIdentifier(identifier string) (int32, error) {
 	return int32(nodeID), err
 }
 
+func (s *PrimaryStorage) NodeIdentifierByID(nodeID int32) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var identifier string
+	err := s.db.QueryRowContext(context.Background(), `SELECT identifier FROM nodes WHERE id = ?`, nodeID).Scan(&identifier)
+	return identifier, err
+}
+
 func (s *PrimaryStorage) PrimaryNodeIdentifier() (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

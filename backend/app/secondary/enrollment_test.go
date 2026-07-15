@@ -101,7 +101,7 @@ func TestMustLoadRuntimeConfigLoadsCachedBootstrapState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParsePrefix: %v", err)
 	}
-	if cfg.TLS == nil || cfg.MachineName != "worker-1" || cfg.ClusterPrefix != wantPrefix || cfg.NetDeploymentID != 11 {
+	if cfg.TLS == nil || cfg.MachineName != "worker-1" || cfg.NodeID != 2 || cfg.ClusterPrefix != wantPrefix || cfg.NetDeploymentID != 11 {
 		t.Fatalf("runtime config = %+v", cfg)
 	}
 }
@@ -125,8 +125,9 @@ func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.Enrol
 		WorkerName:     machine,
 		ClusterNetwork: &apigen.ClusterNetworkInfo{UlaPrefix: prefix.Bytes()},
 		NodeDeployment: &apigen.DeploymentWithStatus{Config: apigen.DeploymentConfig{
-			ID:   10,
-			Spec: *sqlite.SystemDeploymentSpec(),
+			ID:     10,
+			NodeID: 2,
+			Spec:   *sqlite.SystemDeploymentSpec(),
 			ConfigID: apigen.DeploymentIdentifier{
 				SpaceID: internaldeploy.SpaceID,
 				Machine: machine,
@@ -134,8 +135,9 @@ func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.Enrol
 			},
 		}},
 		NodeNetDeployment: &apigen.DeploymentWithStatus{Config: apigen.DeploymentConfig{
-			ID:   11,
-			Spec: *sqlite.NetproxyDeploymentSpec(),
+			ID:     11,
+			NodeID: 2,
+			Spec:   *sqlite.NetproxyDeploymentSpec(),
 			ConfigID: apigen.DeploymentIdentifier{
 				SpaceID: internaldeploy.SpaceID,
 				Machine: machine,

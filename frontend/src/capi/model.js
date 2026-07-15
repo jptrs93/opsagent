@@ -525,6 +525,7 @@
  * @property {DeploymentIdentifier} configId
  * @property {DeploymentSpec} spec
  * @property {DesiredState} desiredState
+ * @property {number} nodeId
  */
 /**
  * @typedef {Object} DeploymentHistoryRequest
@@ -561,6 +562,7 @@
  * @property {number} logLineLimit
  * @property {number} configVersion
  * @property {string} searchStr
+ * @property {number} targetNodeId
  */
 /**
  * @typedef {Object} LogLine
@@ -646,6 +648,7 @@
  * @property {string} address
  * @property {string} machine
  * @property {number} state
+ * @property {number} nodeId
  */
 /**
  * @typedef {Object} Version
@@ -781,6 +784,7 @@
  * @property {boolean} connected
  * @property {Date} connectedAt
  * @property {string} identifier
+ * @property {number} id
  */
 /**
  * @typedef {Object} ClusterNode
@@ -7187,6 +7191,9 @@ export function writeDeploymentCreateRequest(message, writer) {
         writeDesiredState(message.desiredState, writer);
         writer.ldelim();
     }
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.nodeId);
+    }
 }
 
 
@@ -7208,7 +7215,7 @@ export function encodeDeploymentCreateRequest(message) {
  */
 function decodeDeploymentCreateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {configId: undefined, spec: undefined, desiredState: undefined };
+    const message = {configId: undefined, spec: undefined, desiredState: undefined, nodeId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -7222,6 +7229,10 @@ function decodeDeploymentCreateRequestMessage(reader, length) {
             }
             case 3: {
                 message.desiredState = decodeDesiredStateMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.nodeId = reader.int32();
                 break;
             }
             default:
@@ -7595,6 +7606,9 @@ export function writeLogSearchRequest(message, writer) {
     if (message.searchStr !== undefined && message.searchStr !== null && message.searchStr !== "") {
         writer.uint32(tag(9, WIRE.LDELIM)).string(message.searchStr);
     }
+    if (message.targetNodeId !== undefined && message.targetNodeId !== null && message.targetNodeId !== 0) {
+        writer.uint32(tag(10, WIRE.VARINT)).int32(message.targetNodeId);
+    }
 }
 
 
@@ -7616,7 +7630,7 @@ export function encodeLogSearchRequest(message) {
  */
 function decodeLogSearchRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, timeStart: new Date(0), timeEnd: new Date(0), levelMin: "", searchKeys: {}, requestId: "", logLineLimit: 0, configVersion: 0, searchStr: "" };
+    const message = {deploymentId: 0, timeStart: new Date(0), timeEnd: new Date(0), levelMin: "", searchKeys: {}, requestId: "", logLineLimit: 0, configVersion: 0, searchStr: "", targetNodeId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -7671,6 +7685,10 @@ function decodeLogSearchRequestMessage(reader, length) {
             }
             case 9: {
                 message.searchStr = reader.string();
+                break;
+            }
+            case 10: {
+                message.targetNodeId = reader.int32();
                 break;
             }
             default:
@@ -8595,6 +8613,9 @@ export function writeEndpoint(message, writer) {
     if (message.state !== undefined && message.state !== null && message.state !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.state);
     }
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.nodeId);
+    }
 }
 
 
@@ -8616,7 +8637,7 @@ export function encodeEndpoint(message) {
  */
 function decodeEndpointMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {ordinal: 0, address: "", machine: "", state: 0 };
+    const message = {ordinal: 0, address: "", machine: "", state: 0, nodeId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -8634,6 +8655,10 @@ function decodeEndpointMessage(reader, length) {
             }
             case 4: {
                 message.state = reader.int32();
+                break;
+            }
+            case 5: {
+                message.nodeId = reader.int32();
                 break;
             }
             default:
@@ -10184,6 +10209,9 @@ export function writeClusterMachine(message, writer) {
     if (message.identifier !== undefined && message.identifier !== null && message.identifier !== "") {
         writer.uint32(tag(5, WIRE.LDELIM)).string(message.identifier);
     }
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.id);
+    }
 }
 
 
@@ -10205,7 +10233,7 @@ export function encodeClusterMachine(message) {
  */
 function decodeClusterMachineMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", isPrimary: false, connected: false, connectedAt: new Date(0), identifier: "" };
+    const message = {name: "", isPrimary: false, connected: false, connectedAt: new Date(0), identifier: "", id: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10227,6 +10255,10 @@ function decodeClusterMachineMessage(reader, length) {
             }
             case 5: {
                 message.identifier = reader.string();
+                break;
+            }
+            case 6: {
+                message.id = reader.int32();
                 break;
             }
             default:

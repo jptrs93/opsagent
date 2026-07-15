@@ -120,7 +120,7 @@ export async function acceptFirstWaitingWorker(page, {workerName = 'worker-1'} =
   await byTestId(requestRow, 'enrollment-accept-button', requestRow.getByRole('button', {name: 'Accept'})).click();
 
   await expect(page.getByText('No pending enrollment requests.')).toBeVisible({timeout: LONG_UI_TIMEOUT});
-  const workerRow = page.locator('tr').filter({hasText: workerName}).filter({hasText: 'secondary'});
+  const workerRow = (await clusterMachineRow(page, workerName)).filter({hasText: 'secondary'});
   await expect(workerRow).toContainText('connected', {timeout: LONG_UI_TIMEOUT});
 }
 
@@ -298,10 +298,13 @@ export async function upgradeOpenDeployAgents(page, {version, workerName = 'work
 }
 
 async function waitForLoadableApp(page) {
+  const appReady = byTestId(page, 'nav-status', page.getByText('Deployments'))
+    .or(byTestId(page, 'login-passkey-button', page.getByRole('button', {name: 'Sign in with passkey'})))
+    .first();
   await expect.poll(async () => {
     try {
       const response = await page.goto('/', {waitUntil: 'domcontentloaded', timeout: 5_000});
-      return response?.ok() || false;
+      return Boolean(response?.ok() && await appReady.isVisible());
     } catch {
       return false;
     }
@@ -757,8 +760,24 @@ export async function expectOpenDeployAgentVersion(page, {machine, version}) {
 
 async function expectMachineConnected(page, machine) {
   await byTestId(page, 'nav-cluster', page.getByText('Machines')).click();
-  const row = page.locator('tr').filter({hasText: machine});
+  const row = await clusterMachineRow(page, machine, UPGRADE_TIMEOUT);
   await expect(row).toContainText('connected', {timeout: UPGRADE_TIMEOUT});
+}
+
+async function clusterMachineRow(page, machine, timeout = LONG_UI_TIMEOUT) {
+  let match;
+  await expect.poll(async () => {
+    const rows = page.locator('tr').filter({has: page.getByRole('textbox', {name: /^Machine name for /})});
+    for (let i = 0; i < await rows.count(); i++) {
+      const row = rows.nth(i);
+      if (await row.getByRole('textbox').inputValue() === machine) {
+        match = row;
+        return true;
+      }
+    }
+    return false;
+  }, {message: `expected machine row for ${machine}`, timeout}).toBe(true);
+  return match;
 }
 
 async function expectDeploymentRunning(page, name) {

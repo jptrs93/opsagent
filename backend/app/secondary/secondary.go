@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/netproxy"
 	"github.com/jptrs93/opsagent/backend/lib/engine"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubrelease"
@@ -24,6 +25,7 @@ type runtimeConfig struct {
 	PrimaryClusterAddr string
 	PrimaryName        string // primary certificate DNS/IP SAN for TLS server name verification
 	MachineName        string
+	NodeID             int32
 	DataDir            string
 	GitCacheDir        string
 	ReleasesDir        string
@@ -60,7 +62,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 		NixDocker:          nixDockerPreparer,
 		GithubReleaseImage: githubReleaseImagePreparer,
 		RuntimeInputs:      runtimeInputs,
-	}.RunAll(nil)
+	}.RunAll(func(dep apigen.DeploymentConfig) bool { return dep.NodeID == cfg.NodeID })
 
 	runPrimaryConnLoop(ctx, cfg, store, primaryHTTPClient)
 }

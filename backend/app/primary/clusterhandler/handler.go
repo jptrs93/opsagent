@@ -92,8 +92,8 @@ type Handler struct {
 	networkPrefix     network.Prefix
 
 	mu          sync.RWMutex
-	sessions    map[string]*Session  // node identifier → session
-	connectedAt map[string]time.Time // node identifier → when session was accepted
+	sessions    map[int32]*Session  // node ID → session
+	connectedAt map[int32]time.Time // node ID → when session was accepted
 }
 
 type assetProvider interface {
@@ -108,8 +108,8 @@ func New(store *sqlite.PrimaryStorage, assets assetProvider, githubCredentials g
 		githubCredentials: githubCredentials,
 		secrets:           secretsMgr,
 		networkPrefix:     networkPrefix,
-		sessions:          make(map[string]*Session),
-		connectedAt:       make(map[string]time.Time),
+		sessions:          make(map[int32]*Session),
+		connectedAt:       make(map[int32]time.Time),
 	}
 }
 
@@ -321,78 +321,78 @@ func (p *Handler) PostV1ClusterConnect(authCtx apigen.Context, reqs iter.Seq2[*a
 		sessCtx, cancel := context.WithCancel(authCtx)
 		defer cancel()
 
-		sess := newSession(sessCtx, cancel, machine, predicate, p.store)
+		sess := newSession(sessCtx, cancel, nodeID, machine, predicate, p.store)
 		sess.networkPrefix = p.networkPrefix
-		p.registerSession(machine, sess)
-		defer p.unregisterSession(machine, sess)
+		p.registerSession(nodeID, machine, sess)
+		defer p.unregisterSession(nodeID, machine, sess)
 
 		sess.run(reqs, yield)
 	}
 }
 
-func (p *Handler) registerSession(machine string, sess *Session) {
+func (p *Handler) registerSession(nodeID int32, identifier string, sess *Session) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if old, ok := p.sessions[machine]; ok {
+	if old, ok := p.sessions[nodeID]; ok {
 		old.cancel() // kick the stale session so its handler returns
 	}
-	p.sessions[machine] = sess
+	p.sessions[nodeID] = sess
 	connectedAt := time.Now()
-	p.connectedAt[machine] = connectedAt
-	p.store.SetNodeStatusByIdentifier(machine, true, connectedAt)
+	p.connectedAt[nodeID] = connectedAt
+	p.store.SetNodeStatusByIdentifier(identifier, true, connectedAt)
 }
 
-func (p *Handler) unregisterSession(machine string, expected *Session) {
+func (p *Handler) unregisterSession(nodeID int32, identifier string, expected *Session) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if current, ok := p.sessions[machine]; ok && current == expected {
-		delete(p.sessions, machine)
-		delete(p.connectedAt, machine)
-		p.store.SetNodeStatusByIdentifier(machine, false, time.Time{})
+	if current, ok := p.sessions[nodeID]; ok && current == expected {
+		delete(p.sessions, nodeID)
+		delete(p.connectedAt, nodeID)
+		p.store.SetNodeStatusByIdentifier(identifier, false, time.Time{})
 	}
 }
 
-// RequestLogs sends a log request to the named worker and returns a reader that
+// RequestLogs sends a log request to the identified worker and returns a reader that
 // yields the streamed log data. The caller must read until EOF (or close the
 // reader to abort).
-func (p *Handler) RequestLogs(machineName string, req *apigen.MsgToWorker) (io.ReadCloser, error) {
+func (p *Handler) RequestLogs(nodeID int32, req *apigen.MsgToWorker) (io.ReadCloser, error) {
 	p.mu.RLock()
-	sess, ok := p.sessions[machineName]
+	sess, ok := p.sessions[nodeID]
 	p.mu.RUnlock()
 	if !ok {
-		return nil, &MachineNotConnectedError{Machine: machineName}
+		return nil, &NodeNotConnectedError{NodeID: nodeID}
 	}
 	return sess.requestLogs(req)
 }
 
-func (p *Handler) RequestLogSearch(machineName string, req *apigen.MsgToWorker) (*LogSearchStream, error) {
+func (p *Handler) RequestLogSearch(nodeID int32, req *apigen.MsgToWorker) (*LogSearchStream, error) {
 	p.mu.RLock()
-	sess, ok := p.sessions[machineName]
+	sess, ok := p.sessions[nodeID]
 	p.mu.RUnlock()
 	if !ok {
-		return nil, &MachineNotConnectedError{Machine: machineName}
+		return nil, &NodeNotConnectedError{NodeID: nodeID}
 	}
 	return sess.requestLogSearch(req)
 }
 
-// ConnectedMachines returns the set of currently connected worker machines and
+// ConnectedNodes returns the set of currently connected worker node IDs and
 // when each connected.
-func (p *Handler) ConnectedMachines() map[string]time.Time {
+func (p *Handler) ConnectedNodes() map[int32]time.Time {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	out := make(map[string]time.Time, len(p.sessions))
-	for name := range p.sessions {
-		out[name] = p.connectedAt[name]
+	out := make(map[int32]time.Time, len(p.sessions))
+	for nodeID := range p.sessions {
+		out[nodeID] = p.connectedAt[nodeID]
 	}
 	return out
 }
 
-// MachineNotConnectedError is returned when a log proxy request targets a
-// machine that has no active cluster session.
-type MachineNotConnectedError struct {
-	Machine string
+// NodeNotConnectedError is returned when a log proxy request targets a node
+// that has no active cluster session.
+type NodeNotConnectedError struct {
+	NodeID int32
 }
 
-func (e *MachineNotConnectedError) Error() string {
-	return "machine not connected: " + e.Machine
+func (e *NodeNotConnectedError) Error() string {
+	return fmt.Sprintf("node not connected: %d", e.NodeID)
 }

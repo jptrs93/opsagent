@@ -53,7 +53,7 @@ type containerRunner struct {
 	deploymentID   int32
 	spaceID        int32
 	deploymentName string
-	machine        string
+	nodeID         int32
 	containerID    string
 
 	// derived from the deployment config version; not part of RunnerStatus.
@@ -164,7 +164,7 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		deploymentID:    dep.ID,
 		spaceID:         dep.ConfigID.SpaceID,
 		deploymentName:  containerDeploymentName(dep),
-		machine:         dep.ConfigID.Machine,
+		nodeID:          dep.NodeID,
 		containerID:     containerID(dep.ID, configVersion),
 		configVersion:   configVersion,
 		user:            cfg.User,
@@ -185,7 +185,7 @@ func containerDeploymentName(dep *apigen.DeploymentConfig) string {
 		return "<nil>"
 	}
 	if !dep.ConfigID.IsZero() {
-		return fmt.Sprintf("%d:%s:%s", dep.ConfigID.SpaceID, dep.ConfigID.Machine, dep.ConfigID.Name)
+		return fmt.Sprintf("%d:%d:%s", dep.ConfigID.SpaceID, dep.NodeID, dep.ConfigID.Name)
 	}
 	return fmt.Sprintf("id=%d", dep.ID)
 }
@@ -991,7 +991,7 @@ func (r *containerRunner) syncNetworkStatus() {
 	r.status.Endpoints = []*apigen.Endpoint{{
 		Ordinal: 0,
 		Address: addr.String(),
-		Machine: r.machine,
+		NodeID:  r.nodeID,
 		State:   state,
 	}}
 }

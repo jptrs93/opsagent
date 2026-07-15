@@ -3,7 +3,7 @@ import {capi} from "../capi/index.js";
 import {checkIcon, copyIcon} from "../lib/icons.js";
 import {loginS} from "../state/login.js";
 import {deploymentsS, machinesS, spacesS} from "../state/deployments.js";
-import {machineDisplayName} from "../lib/machines.js";
+import {nodeDisplayName} from "../lib/machines.js";
 
 const {div, p, select, option, input, button, pre, span, label} = van.tags;
 
@@ -28,8 +28,8 @@ function fromLocalInputValue(value) {
 function deploymentLabel(item, machines) {
     const cfg = item?.config || {};
     const cid = cfg.configId || {};
-    const machine = cid.machine ? machineDisplayName(cid.machine, machines) : '';
-    return [machine, cid.name].filter(Boolean).join(' / ') || `#${cfg.id}`;
+    const node = nodeDisplayName(cfg.nodeId, machines);
+    return [node, cid.name].filter(Boolean).join(' / ') || `#${cfg.id}`;
 }
 
 function deploymentSpaceID(item) {
@@ -217,13 +217,13 @@ export function logsPage(selectedDeploymentId) {
             const selected = selectedDeployment(items, id);
             const selectedLabel = deploymentLabel(selected, machinesS.val);
             const systemDeployment = isSystemDeployment(selected);
-            const machine = selected?.config?.configId?.machine || '';
+            const targetNodeId = Number(selected?.config?.nodeId || 0);
             const selectedConfigVersion = systemDeployment ? 0 : Number(configVersion.val || 0);
             const payload = {
                 deploymentId: systemDeployment ? 0 : id,
                 timeStart: start,
                 timeEnd: end || undefined,
-                searchKeys: systemDeployment ? {machine} : undefined,
+                targetNodeId,
                 logLineLimit: DEFAULT_LOG_LINE_LIMIT,
                 configVersion: selectedConfigVersion,
                 levelMin: levelMin.val || undefined,

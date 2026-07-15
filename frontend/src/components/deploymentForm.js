@@ -43,7 +43,7 @@ export function emptyDeploymentForm() {
         deploymentId: 0,
         name: '',
         spaceId: 1,
-        machine: '',
+        nodeId: 0,
         sourceType: SOURCE_DOCKER_IMAGE,
         nixRepo: '',
         nixFlake: '',
@@ -90,7 +90,7 @@ export function deploymentConfigToForm(cfg) {
         deploymentId: cfg.id || 0,
         name: cid.name || '',
         spaceId: cid.spaceId ?? DEFAULT_SPACE_ID,
-        machine: cid.machine || '',
+        nodeId: cfg.nodeId || 0,
         sourceType: prepare.containerImage ? SOURCE_DOCKER_IMAGE : SOURCE_NIX_DOCKER,
         nixRepo: nixDocker.repo || '',
         nixFlake: nixDocker.flake || '',
@@ -159,11 +159,11 @@ export function deploymentForm(form, opts = {}) {
                         onchange: e => { form.spaceId.val = Number(e.target.value || 0); },
                     }, ...spaceOptions.map(space => option({value: String(space.id), selected: Number(space.id) === Number(form.spaceId.val)}, space.name || `space ${space.id}`)));
                 }, false),
-                identityField("Machine", () => machineSelect(form, {
+                identityField("Node", () => nodeSelect(form, {
                     identityLocked,
-                    machineOptionsLoaded: stateValue(opts.machineOptionsLoaded) !== false,
-                    machineOptions: stateValue(opts.machineOptions) || [],
-                }), identityLocked, () => showIdentityLockedNotice("Machine is not currently changeable after creation.")),
+                    nodeOptionsLoaded: stateValue(opts.nodeOptionsLoaded) !== false,
+                    nodeOptions: stateValue(opts.nodeOptions) || [],
+                }), identityLocked, () => showIdentityLockedNotice("Node placement is not currently changeable after creation.")),
             ),
             () => identityLocked && form.identityLockNotice.val
                 ? span({class: "text-xs text-red-400 -mb-2"}, form.identityLockNotice.val)
@@ -214,7 +214,6 @@ export function formToDeploymentIdentifier(form) {
     return {
         name: form.name.val.trim(),
         spaceId: Number(form.spaceId.val || DEFAULT_SPACE_ID),
-        machine: form.machine.val.trim(),
     };
 }
 
@@ -273,10 +272,11 @@ export function isFormValid(form, opts = {}) {
 
 export function formInvalidReason(form, opts = {}) {
     if (!nameValid(form)) return 'Deployment name is required.';
-    if (!form.machine.val.trim()) return 'Machine is required.';
-    const machineOptions = opts.machineOptions || [];
-    const machineOptionValues = machineOptions.map(machine => machine.identifier).filter(Boolean);
-    if (machineOptionValues.length > 0 && !machineOptionValues.includes(form.machine.val.trim())) return 'Select a registered machine.';
+    const nodeId = Number(form.nodeId.val || 0);
+    if (!nodeId) return 'Node is required.';
+    const nodeOptions = opts.nodeOptions || [];
+    const nodeOptionValues = nodeOptions.map(node => Number(node.id || 0)).filter(Boolean);
+    if (nodeOptionValues.length > 0 && !nodeOptionValues.includes(nodeId)) return 'Select a registered node.';
     if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
         if (!form.containerImage.val.trim()) return 'Container image is required.';
     } else if (!form.nixRepo.val.trim() || !form.nixFlake.val.trim()) {
@@ -511,7 +511,7 @@ function makeFormState(values) {
         name: van.state(values.name),
         deploymentId: van.state(values.deploymentId || 0),
         spaceId: van.state(values.spaceId ?? DEFAULT_SPACE_ID),
-        machine: van.state(values.machine),
+        nodeId: van.state(Number(values.nodeId || 0)),
         sourceType: van.state(values.sourceType),
         nixRepo: van.state(values.nixRepo),
         nixFlake: van.state(values.nixFlake),
@@ -1264,7 +1264,7 @@ export function volumeMountsPane(form, opts = {}) {
                     updateMount(row, {deploymentId, host: deploymentId ? defaultVolumeHostPath(deploymentId) : ''});
                 },
             },
-                option({value: '', disabled: true, selected: !row.deploymentId}, deploymentOptions().length ? "Select deployment..." : "No deployments on this machine"),
+                option({value: '', disabled: true, selected: !row.deploymentId}, deploymentOptions().length ? "Select deployment..." : "No deployments on this node"),
                 ...deploymentOptions().map(d => option({value: String(d.config.id), selected: d.config.id === row.deploymentId}, deploymentVolumeLabel(d))),
             )),
             field("Container mount path", input({
@@ -1291,7 +1291,7 @@ export function volumeMountsPane(form, opts = {}) {
                 placeholder: "/home/ubuntu/coflip-server/data",
                 value: row.host || '',
                 oninput: e => mutateMount(row, {host: e.target.value}),
-            }), "Must already exist on the target machine."),
+            }), "Must already exist on the target node."),
             field("Container mount path", input({
                 class: textInputClass(true),
                 placeholder: "/data",
@@ -1333,7 +1333,7 @@ export function volumeMountsPane(form, opts = {}) {
             {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-4"},
             defaultVolumeCard(form),
             paneSectionDivider("Mount another deployment's default volume"),
-            p({class: "text-[11px] text-gray-500 -mt-2"}, "Only deployments on the selected machine are shown."),
+            p({class: "text-[11px] text-gray-500 -mt-2"}, "Only deployments on the selected node are shown."),
             () => div({class: "flex flex-col gap-3"}, ...deploymentRows().map(deploymentRowEl)),
             button({
                 type: "button",
@@ -1812,10 +1812,10 @@ function defaultVolumeHostPath(deploymentID) {
 }
 
 function deploymentVolumeOptions(deployments, form) {
-    const machine = form.machine.val.trim();
+    const nodeId = Number(form.nodeId.val || 0);
     const currentID = Number(form.deploymentId.val || 0);
     return (deployments || [])
-        .filter(d => d.config?.id && d.config.id !== currentID && !d.config?.deleted && d.config?.configId?.machine === machine)
+        .filter(d => d.config?.id && d.config.id !== currentID && !d.config?.deleted && Number(d.config?.nodeId || 0) === nodeId)
         .sort((a, b) => deploymentVolumeLabel(a).localeCompare(deploymentVolumeLabel(b)));
 }
 
@@ -2172,29 +2172,29 @@ function publicSpaceOptions(spaces, currentSpaceID) {
     return publicSpaces;
 }
 
-function machineSelect(form, opts) {
-    const current = form.machine.rawVal;
-    const machines = (opts.machineOptions || []).filter(machine => machine?.identifier);
-    const machineOptionValues = machines.map(machine => machine.identifier);
-    const extraCurrent = current && !machineOptionValues.includes(current)
-        ? [option({value: current, selected: true}, current)]
+function nodeSelect(form, opts) {
+    const current = Number(form.nodeId.rawVal || 0);
+    const nodes = (opts.nodeOptions || []).filter(node => Number(node?.id || 0));
+    const nodeOptionValues = nodes.map(node => Number(node.id));
+    const extraCurrent = current && !nodeOptionValues.includes(current)
+        ? [option({value: String(current), selected: true}, `node ${current}`)]
         : [];
     return select({
-        "data-testid": "deployment-machine-select",
-        value: form.machine,
+        "data-testid": "deployment-node-select",
+        value: () => String(form.nodeId.val || ''),
         class: `${selectClass()} ${opts.identityLocked ? 'opacity-70 cursor-not-allowed pointer-events-none' : ''}`,
-        disabled: opts.identityLocked || !opts.machineOptionsLoaded || machineOptionValues.length === 0,
-        onchange: e => { form.machine.val = e.target.value; },
+        disabled: opts.identityLocked || !opts.nodeOptionsLoaded || nodeOptionValues.length === 0,
+        onchange: e => { form.nodeId.val = Number(e.target.value || 0); },
     },
-        option({value: '', disabled: true, selected: !current}, machinePlaceholder(opts.machineOptionsLoaded, machineOptionValues)),
-        ...machines.map(machine => option({value: machine.identifier, selected: machine.identifier === current}, machine.name)),
+        option({value: '', disabled: true, selected: !current}, nodePlaceholder(opts.nodeOptionsLoaded, nodeOptionValues)),
+        ...nodes.map(node => option({value: String(node.id), selected: Number(node.id) === current}, `${node.name || 'Unnamed node'} (#${node.id})`)),
         ...extraCurrent,
     );
 }
 
-function machinePlaceholder(loaded, options) {
-    if (!loaded) return "Loading machines...";
-    return options.length === 0 ? "No registered machines" : "Select a machine...";
+function nodePlaceholder(loaded, options) {
+    if (!loaded) return "Loading nodes...";
+    return options.length === 0 ? "No registered nodes" : "Select a node...";
 }
 
 function nameValid(form) {

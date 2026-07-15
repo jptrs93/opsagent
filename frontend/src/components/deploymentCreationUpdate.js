@@ -334,6 +334,7 @@ export class DeploymentCreationUpdate {
         const targetVersion = this.createDesiredVersion();
         return {
             configId: formToDeploymentIdentifier(this.form),
+            nodeId: Number(this.form.nodeId.val || 0),
             spec: formToSpec(this.form),
             desiredState: {
                 version: targetVersion,

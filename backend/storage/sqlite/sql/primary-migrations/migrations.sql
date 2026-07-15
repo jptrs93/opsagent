@@ -1,1 +1,1 @@
-
+-- Existing primary deployments have canonical node_id values.

@@ -36,7 +36,8 @@ const heartbeatInterval = 5 * time.Second
 type Session struct {
 	sessCtx       context.Context
 	cancel        context.CancelFunc
-	machine       string
+	NodeID        int32
+	identifier    string
 	predicate     storage.DeploymentPredicate
 	store         *sqlite.PrimaryStorage
 	networkPrefix network.Prefix
@@ -58,11 +59,12 @@ type logChunk struct {
 	end    bool
 }
 
-func newSession(sessCtx context.Context, cancel context.CancelFunc, machine string, predicate storage.DeploymentPredicate, store *sqlite.PrimaryStorage) *Session {
+func newSession(sessCtx context.Context, cancel context.CancelFunc, nodeID int32, identifier string, predicate storage.DeploymentPredicate, store *sqlite.PrimaryStorage) *Session {
 	return &Session{
 		sessCtx:    sessCtx,
 		cancel:     cancel,
-		machine:    machine,
+		NodeID:     nodeID,
+		identifier: identifier,
 		predicate:  predicate,
 		store:      store,
 		outbox:     make(chan *apigen.MsgToWorker, outboxSize),
@@ -105,7 +107,7 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 		defer s.cancel()
 		for msg, err := range reqs {
 			if err != nil {
-				slog.Info("worker stream read error", "machine", s.machine, "err", err)
+				slog.Info("worker stream read error", "machine", s.identifier, "err", err)
 				return
 			}
 			s.handleIncoming(msg)
@@ -187,7 +189,7 @@ func (s *Session) routeLogChunk(requestID string, chunk logChunk) {
 	select {
 	case ch <- chunk:
 	default:
-		slog.Warn("log data dropped (channel full)", "machine", s.machine, "requestID", requestID)
+		slog.Warn("log data dropped (channel full)", "machine", s.identifier, "requestID", requestID)
 	}
 }
 
@@ -212,7 +214,7 @@ func (s *Session) handleStatusWrite(st *apigen.DeploymentStatus) {
 		return
 	}
 	if !buildAllowedRefs(s.store.FetchDeploymentSnapshot(s.predicate)).deploymentAllowed(st.DeploymentID) {
-		slog.Warn("rejecting cross-machine worker status write", "machine", s.machine, "deployment_id", st.DeploymentID)
+		slog.Warn("rejecting cross-machine worker status write", "machine", s.identifier, "deployment_id", st.DeploymentID)
 		return
 	}
 	s.store.MustWriteReplicatedDeploymentStatus(st)
@@ -223,7 +225,7 @@ func (s *Session) handleStatusWrite(st *apigen.DeploymentStatus) {
 // concurrently — each gets its own channel keyed by request ID.
 func (s *Session) requestLogs(req *apigen.MsgToWorker) (io.ReadCloser, error) {
 	// Assign a unique request ID.
-	id := fmt.Sprintf("%s-%d", s.machine, s.nextLogID.Add(1))
+	id := fmt.Sprintf("%s-%d", s.identifier, s.nextLogID.Add(1))
 	if req.DeploymentLogRequest != nil {
 		req.DeploymentLogRequest.RequestID = id
 	}
@@ -238,14 +240,14 @@ func (s *Session) requestLogs(req *apigen.MsgToWorker) (io.ReadCloser, error) {
 		delete(s.logStreams, id)
 		s.logMu.Unlock()
 		close(ch)
-		return nil, fmt.Errorf("worker %s is not connected", s.machine)
+		return nil, fmt.Errorf("worker %s is not connected", s.identifier)
 	}
 
 	return &logReader{session: s, requestID: id, ch: ch, closeCh: make(chan struct{})}, nil
 }
 
 func (s *Session) requestLogSearch(req *apigen.MsgToWorker) (*LogSearchStream, error) {
-	id := fmt.Sprintf("%s-%d", s.machine, s.nextLogID.Add(1))
+	id := fmt.Sprintf("%s-%d", s.identifier, s.nextLogID.Add(1))
 	if req.LogSearchRequest == nil {
 		return nil, fmt.Errorf("log search request is nil")
 	}
@@ -261,7 +263,7 @@ func (s *Session) requestLogSearch(req *apigen.MsgToWorker) (*LogSearchStream, e
 		delete(s.logStreams, id)
 		s.logMu.Unlock()
 		close(ch)
-		return nil, fmt.Errorf("worker %s is not connected", s.machine)
+		return nil, fmt.Errorf("worker %s is not connected", s.identifier)
 	}
 
 	return &LogSearchStream{session: s, requestID: id, ch: ch, closeCh: make(chan struct{})}, nil
@@ -336,7 +338,7 @@ func (r *LogSearchStream) Close() error {
 		stop := &apigen.MsgToWorker{StopLogRequestID: r.requestID}
 		if !r.session.send(stop) {
 			slog.Warn("failed sending stop log request to worker (session ended)",
-				"machine", r.session.machine, "requestID", r.requestID)
+				"machine", r.session.identifier, "requestID", r.requestID)
 		}
 	})
 	return nil
@@ -402,7 +404,7 @@ func (r *logReader) Close() error {
 		stop := &apigen.MsgToWorker{StopLogRequestID: r.requestID}
 		if !r.session.send(stop) {
 			slog.Warn("failed sending stop log request to worker (session ended)",
-				"machine", r.session.machine, "requestID", r.requestID)
+				"machine", r.session.identifier, "requestID", r.requestID)
 		}
 	})
 	return nil

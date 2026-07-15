@@ -32,10 +32,10 @@ export function createOverlay(onClose, onCreated, opts = {}) {
         form.deploymentId.val = 0;
         form.name.val = '';
         form.spaceId.val = 1;
-        form.machine.val = '';
+        form.nodeId.val = 0;
     }
-    const machines = van.state([]);
-    const machinesLoaded = van.state(false);
+    const nodes = van.state([]);
+    const nodesLoaded = van.state(false);
     const loadingVersions = van.state(false);
     const versionLoad = {generation: 0};
 
@@ -43,25 +43,25 @@ export function createOverlay(onClose, onCreated, opts = {}) {
         deploymentUpdate.syncVersionOptionsFromCheck(deploymentUpdate.activeRepoCheck());
     });
 
-    const loadMachines = async () => {
+    const loadNodes = async () => {
         try {
             const res = await capi.getV1ClusterStatus();
-            machines.val = [...(res.machines || [])]
-                .filter(machine => machine?.identifier)
+            nodes.val = [...(res.machines || [])]
+                .filter(node => Number(node?.id || 0))
                 .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-            if (!form.machine.val && machines.val.length === 1) {
-                form.machine.val = machines.val[0].identifier;
+            if (!form.nodeId.val && nodes.val.length === 1) {
+                form.nodeId.val = nodes.val[0].id;
             }
         } catch (e) {
-            errorMsg.val = e.message || 'Failed to load cluster machines';
-            machines.val = [];
+            errorMsg.val = e.message || 'Failed to load cluster nodes';
+            nodes.val = [];
         }
-        machinesLoaded.val = true;
+        nodesLoaded.val = true;
     };
 
-    loadMachines();
+    loadNodes();
 
-    const invalidReason = () => createInvalidReason(deploymentUpdate, machines.val);
+    const invalidReason = () => createInvalidReason(deploymentUpdate, nodes.val);
 
     const doCreate = async () => {
         errorMsg.val = '';
@@ -104,8 +104,8 @@ export function createOverlay(onClose, onCreated, opts = {}) {
                     {class: "flex-1 min-h-0 overflow-auto p-4 flex flex-col gap-5"},
                     deploymentForm(form, {
                         spaceOptions: spacesS,
-                        machineOptions: machines,
-                        machineOptionsLoaded: machinesLoaded,
+                        nodeOptions: nodes,
+                        nodeOptionsLoaded: nodesLoaded,
                         enableAssetEditor: true,
                         showRunnerSummary: false,
                     }),
@@ -149,9 +149,9 @@ export function createOverlay(onClose, onCreated, opts = {}) {
     return div(backdrop, dialog);
 }
 
-function createInvalidReason(deploymentUpdate, machineOptions) {
+function createInvalidReason(deploymentUpdate, nodeOptions) {
     const form = deploymentUpdate.form;
-    const formReason = formInvalidReason(form, {machineOptions, deployments: deploymentsS.val});
+    const formReason = formInvalidReason(form, {nodeOptions, deployments: deploymentsS.val});
     if (formReason) return formReason;
     if (deploymentUpdate.desiredRunning.val && !deploymentUpdate.createDesiredVersion()) {
         return 'Select a version before creating a running deployment, or choose Stopped.';

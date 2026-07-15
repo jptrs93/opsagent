@@ -35,17 +35,23 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 	if cid.Name == "" {
 		return nil, invalidConfigErrf("name is required")
 	}
-	if cid.Machine == "" {
-		return nil, invalidConfigErrf("machine is required")
+	if req.NodeID <= 0 {
+		return nil, invalidConfigErrf("nodeId is required")
 	}
+	machine, err := h.Store.NodeIdentifierByID(req.NodeID)
+	if err != nil {
+		return nil, invalidConfigErrf("node is not registered")
+	}
+	// The certificate identifier remains compatibility data; placement is nodeId.
+	cid.Machine = machine
 	if internaldeploy.IsInternalIdentifier(cid) {
 		return nil, invalidConfigErrf("opendeploy system deployment identity is internal-only")
 	}
-	if !h.Store.HasNodeIdentifier(cid.Machine) {
-		return nil, invalidConfigErrf("machine is not registered")
-	}
 	spec, err := h.validateDeploymentSpec(&req.Spec)
 	if err != nil {
+		return nil, err
+	}
+	if err := h.validateManagedVolumeMounts(spec, req.NodeID, 0); err != nil {
 		return nil, err
 	}
 
@@ -57,7 +63,7 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 		}
 	}
 
-	cfg := h.Store.MustCreateDeployment(ctx, &cid, spec, req.DesiredState)
+	cfg := h.Store.MustCreateDeploymentForNode(ctx, &cid, req.NodeID, spec, req.DesiredState)
 	return cfg, nil
 }
 
@@ -95,6 +101,9 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 	if !req.Spec.IsZero() {
 		validated, err := h.validateDeploymentSpec(&req.Spec)
 		if err != nil {
+			return nil, err
+		}
+		if err := h.validateManagedVolumeMounts(validated, cfg.NodeID, cfg.ID); err != nil {
 			return nil, err
 		}
 		spec = validated
@@ -161,11 +170,10 @@ func (h *Handler) PostV1DeploymentDelete(ctx apigen.Context, req *apigen.Deploym
 }
 
 func (h *Handler) canDeleteStaleDisconnectedSystemDeployment(cfg *apigen.DeploymentConfig) bool {
-	machine := cfg.ConfigID.Machine
-	if machine == "" || h.MachineName == "" || machine == h.MachineName || h.Cluster == nil {
+	if cfg.NodeID <= 0 || cfg.NodeID == h.NodeID || h.Cluster == nil {
 		return false
 	}
-	_, connected := h.Cluster.ConnectedMachines()[machine]
+	_, connected := h.Cluster.ConnectedNodes()[cfg.NodeID]
 	return !connected
 }
 
@@ -179,14 +187,13 @@ func (h *Handler) canDeleteDeployment(cfg *apigen.DeploymentConfig, status *apig
 	if status.Runner.Status != apigen.RunningStatus_RUNNING && status.Runner.Status != apigen.RunningStatus_DEPLOYMENT_STATUS_UNKNOWN {
 		return false
 	}
-	machine := cfg.ConfigID.Machine
-	if machine == "" || h.MachineName == "" || machine == h.MachineName {
+	if cfg.NodeID <= 0 || cfg.NodeID == h.NodeID {
 		return false
 	}
 	if h.Cluster == nil {
 		return true
 	}
-	_, connected := h.Cluster.ConnectedMachines()[machine]
+	_, connected := h.Cluster.ConnectedNodes()[cfg.NodeID]
 	return !connected
 }
 
@@ -280,15 +287,14 @@ func (h *Handler) PostV1DeploymentLogSearch(ctx apigen.Context, req *apigen.LogS
 			till = &req.TimeEnd
 		}
 		if req.DeploymentID == 0 {
-			machine := strings.TrimSpace(req.SearchKeys["machine"])
-			if machine == "" {
+			if req.TargetNodeID <= 0 {
 				yield(nil, MissingKeyErr)
 				return
 			}
-			if machine != h.MachineName && h.Cluster != nil {
-				stream, err := h.Cluster.RequestLogSearch(machine, &apigen.MsgToWorker{LogSearchRequest: req})
+			if req.TargetNodeID != h.NodeID && h.Cluster != nil {
+				stream, err := h.Cluster.RequestLogSearch(req.TargetNodeID, &apigen.MsgToWorker{LogSearchRequest: req})
 				if err != nil {
-					yield(nil, apigen.NewApiErr("Worker not connected: "+machine, "worker_not_connected", 502))
+					yield(nil, apigen.NewApiErr(fmt.Sprintf("Worker node %d is not connected", req.TargetNodeID), "worker_not_connected", 502))
 					return
 				}
 				defer stream.Close()
@@ -308,10 +314,10 @@ func (h *Handler) PostV1DeploymentLogSearch(ctx apigen.Context, req *apigen.LogS
 			yield(nil, DeploymentNotFoundErr)
 			return
 		}
-		if cfg.ConfigID.Machine != "" && cfg.ConfigID.Machine != h.MachineName && h.Cluster != nil {
-			stream, err := h.Cluster.RequestLogSearch(cfg.ConfigID.Machine, &apigen.MsgToWorker{LogSearchRequest: req})
+		if cfg.NodeID > 0 && cfg.NodeID != h.NodeID && h.Cluster != nil {
+			stream, err := h.Cluster.RequestLogSearch(cfg.NodeID, &apigen.MsgToWorker{LogSearchRequest: req})
 			if err != nil {
-				yield(nil, apigen.NewApiErr("Worker not connected: "+cfg.ConfigID.Machine, "worker_not_connected", 502))
+				yield(nil, apigen.NewApiErr(fmt.Sprintf("Worker node %d is not connected", cfg.NodeID), "worker_not_connected", 502))
 				return
 			}
 			defer stream.Close()
@@ -436,12 +442,12 @@ func (h *Handler) PostV1DeploymentPrepareOutput(ctx apigen.Context, req *apigen.
 			yield(nil, DeploymentNotFoundErr)
 			return
 		}
-		if cfg.ConfigID.Machine != "" && cfg.ConfigID.Machine != h.MachineName && h.Cluster != nil {
-			reader, err := h.Cluster.RequestLogs(cfg.ConfigID.Machine, &apigen.MsgToWorker{
+		if cfg.NodeID > 0 && cfg.NodeID != h.NodeID && h.Cluster != nil {
+			reader, err := h.Cluster.RequestLogs(cfg.NodeID, &apigen.MsgToWorker{
 				DeploymentLogRequest: &apigen.DeploymentLogRequest{PreparerOutput: req},
 			})
 			if err != nil {
-				yield(nil, apigen.NewApiErr("Worker not connected: "+cfg.ConfigID.Machine, "worker_not_connected", 502))
+				yield(nil, apigen.NewApiErr(fmt.Sprintf("Worker node %d is not connected", cfg.NodeID), "worker_not_connected", 502))
 				return
 			}
 			defer reader.Close()
@@ -963,17 +969,51 @@ func containerHostMountDenied(host string) bool {
 // managedDefaultVolumeHost permits sharing the specific data-volume leaf that
 // the deployment-volume UI exposes, without allowing arbitrary OpenDeploy data.
 func managedDefaultVolumeHost(host string) bool {
+	_, ok := managedDefaultVolumeDeploymentID(host)
+	return ok
+}
+
+func managedDefaultVolumeDeploymentID(host string) (int32, bool) {
 	const root = "/var/lib/opendeploy-volumes/"
 	rel, ok := strings.CutPrefix(host, root)
 	if !ok {
-		return false
+		return 0, false
 	}
 	id, volume, ok := strings.Cut(rel, "/")
 	if !ok || volume != "default" || id == "" {
-		return false
+		return 0, false
 	}
 	deploymentID, err := strconv.ParseInt(id, 10, 32)
-	return err == nil && deploymentID > 0 && strconv.FormatInt(deploymentID, 10) == id
+	if err != nil || deploymentID <= 0 || strconv.FormatInt(deploymentID, 10) != id {
+		return 0, false
+	}
+	return int32(deploymentID), true
+}
+
+func (h *Handler) validateManagedVolumeMounts(spec *apigen.DeploymentSpec, nodeID, currentID int32) error {
+	if spec == nil || spec.Runner.Container.IsZero() {
+		return nil
+	}
+	for _, mount := range spec.Runner.Container.Mounts {
+		if mount == nil {
+			continue
+		}
+		volumeDeploymentID, ok := managedDefaultVolumeDeploymentID(mount.Host)
+		if !ok {
+			continue
+		}
+		if volumeDeploymentID == currentID && currentID != 0 {
+			return invalidConfigErrf("runner.container.mounts: a deployment cannot mount its own default volume")
+		}
+		source := h.findConfigByID(volumeDeploymentID)
+		if source == nil || source.Deleted {
+			return invalidConfigErrf("runner.container.mounts: source deployment %d does not exist", volumeDeploymentID)
+		}
+		if source.NodeID != nodeID {
+			return invalidConfigErrf("runner.container.mounts: source deployment %d is on a different node", volumeDeploymentID)
+		}
+	}
+	return nil
 }
 
 func pathEqualOrUnder(path, root string) bool {

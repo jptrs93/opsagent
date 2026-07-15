@@ -12,7 +12,7 @@ export function referenceUsageOverlay(resourceType, resourceName, deployments, s
                     {class: "border-b border-gray-700 bg-gray-950 text-left text-xs text-gray-400"},
                     th({class: "px-3 py-2 font-medium"}, "Space"),
                     th({class: "px-3 py-2 font-medium"}, "Deployment"),
-                    th({class: "px-3 py-2 font-medium"}, "Machine"),
+                    th({class: "px-3 py-2 font-medium"}, "Node"),
                 ),
             ),
             tbody(...deployments.map(usage => tr(
@@ -22,7 +22,7 @@ export function referenceUsageOverlay(resourceType, resourceName, deployments, s
                 },
                 td({class: "px-3 py-2 text-gray-300"}, usage.space),
                 td({class: "px-3 py-2 font-medium text-gray-100"}, usage.name),
-                td({class: "px-3 py-2 text-gray-300"}, usage.machine),
+                td({class: "px-3 py-2 text-gray-300"}, usage.node),
             ))),
         ),
     ) : p({class: "text-sm text-gray-500"}, "No deployments use this item.");

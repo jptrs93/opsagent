@@ -39,9 +39,9 @@ type Handler struct {
 	// decrypts referenced secret IDs into the shared RuntimeInputs cache.
 	Secrets *secrets.Manager
 
-	// MachineName identifies this node when deciding whether a log request
-	// is local or must be proxied to a remote worker.
-	MachineName string
+	// NodeID identifies this node when deciding whether a log request is local
+	// or must be proxied to a remote worker.
+	NodeID int32
 
 	// Cluster is used to inspect worker connections and proxy remote logs.
 	Cluster *clusterhandler.Handler
@@ -107,7 +107,7 @@ func (h *Handler) GetV1Healthz(ctx apigen.Context, request *http.Request, writer
 }
 
 // New constructs the Web UI handler without starting application services.
-func New(staticFS fs.FS, machineName string, deps Dependencies) (*Handler, error) {
+func New(staticFS fs.FS, nodeID int32, deps Dependencies) (*Handler, error) {
 	snapshot := deps.ConfigService.Snapshot()
 	h := &Handler{
 		staticFS:              staticFS,
@@ -119,7 +119,7 @@ func New(staticFS fs.FS, machineName string, deps Dependencies) (*Handler, error
 		GitVersions:           deps.GitVersions,
 		GithubReleaseVersions: deps.GithubReleaseVersions,
 		Secrets:               deps.Secrets,
-		MachineName:           machineName,
+		NodeID:                nodeID,
 	}
 	h.jwtAuth = authu.NewJWTAuth[*apigen.InternalUser, int32](
 		func(kid string, key []byte) error {

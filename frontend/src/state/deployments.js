@@ -226,6 +226,7 @@ const refreshMachinesFromNodes = () => {
     machinesS.val = sortByName(nodesS.val.map((node) => {
         const status = statusesByNodeId.get(node.id) || {};
         return {
+            id: node.id,
             name: node.name,
             identifier: node.identifier,
             isPrimary: (node.roles || []).includes(0),

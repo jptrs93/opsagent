@@ -62,17 +62,15 @@ func MustLoadRuntimeConfig(cfg ainit.StaticConfiguration, caPath, certPath, keyP
 		panic(fmt.Sprintf("parsing cached cluster network: %v", err))
 	}
 
-	var netDeploymentID int32
+	var netDeploymentID, nodeID int32
 	for _, item := range store.FetchDeploymentSnapshot(nil) {
-		if item.Config.ConfigID.Machine != machineName {
-			continue
-		}
 		if sqlite.IsNetproxyDeploymentConfig(&item.Config) && item.Config.ID != 0 {
 			netDeploymentID = item.Config.ID
+			nodeID = item.Config.NodeID
 		}
 	}
-	if netDeploymentID == 0 {
-		panic(fmt.Sprintf("cached netproxy deployment is missing for machine %q", machineName))
+	if netDeploymentID == 0 || nodeID <= 0 {
+		panic("cached netproxy deployment has no valid node ID")
 	}
 
 	return runtimeConfig{
@@ -80,6 +78,7 @@ func MustLoadRuntimeConfig(cfg ainit.StaticConfiguration, caPath, certPath, keyP
 		PrimaryClusterAddr: cfg.PrimaryClusterAddr,
 		PrimaryName:        cfg.PrimaryName,
 		MachineName:        machineName,
+		NodeID:             nodeID,
 		DataDir:            cfg.DataDir,
 		GitCacheDir:        cfg.GitCacheDir,
 		ReleasesDir:        cfg.ReleasesDir,

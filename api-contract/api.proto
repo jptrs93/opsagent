@@ -905,6 +905,7 @@ message DeploymentCreateRequest {
   DeploymentIdentifier config_id = 1 [(cp.go_value) = true];
   DeploymentSpec spec = 2 [(cp.go_value) = true];
   DesiredState desired_state = 3 [(cp.go_value) = true];
+  int32 node_id = 4; // required canonical target node
 }
 
 message DeploymentHistoryRequest {
@@ -941,6 +942,7 @@ message LogSearchRequest {
   int32 log_line_limit = 7;
   int32 config_version = 8;  // Deployment config version to search (0 = all versions).
   string search_str = 9;     // Exact case-sensitive substring filter applied per log line.
+  int32 target_node_id = 10; // Required for system log searches (deployment_id = 0).
 }
 
 message LogLine {
@@ -959,7 +961,7 @@ message LogLineBatch {
 
 message DeploymentIdentifier {
   int32 space_id = 1;
-  string machine = 2; // stable ClusterNode.identifier, not the display name
+  string machine = 2 [deprecated = true]; // Legacy certificate identifier; placement uses DeploymentConfig.node_id.
   string name = 3;
 }
 
@@ -1050,8 +1052,9 @@ enum EndpointState {
 message Endpoint {
   int32 ordinal = 1;      // instance ordinal (0-based)
   string address = 2;     // stable instance address (kind 0)
-  string machine = 3;     // hosting machine
+  string machine = 3 [deprecated = true]; // Legacy hosting machine identifier.
   EndpointState state = 4;
+  int32 node_id = 5;      // canonical hosting node
 }
 
 
@@ -1209,6 +1212,7 @@ message ClusterMachine {
   bool connected = 3;
   int64 connected_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   string identifier = 5;
+  int32 id = 6;
 }
 
 message ClusterNode {
