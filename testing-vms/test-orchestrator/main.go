@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +18,8 @@ import (
 	"sync"
 	"time"
 )
+
+const mockUpgradeVersion = "v1.0.0"
 
 type config struct {
 	ScriptDir string
@@ -49,7 +52,6 @@ type config struct {
 	InstallVersion       string
 	UpgradeVersion       string
 	SelfVersion          string
-	LocalTest            bool
 	BackupRestore        bool
 	RemoteMode           string
 	MockOpenDeploySource string
@@ -126,7 +128,7 @@ func runMain() error {
 	if len(os.Args) > 1 {
 		cmd = os.Args[1]
 	}
-	c, err := loadConfig()
+	c, err := loadConfig(needsReleaseVersion(cmd))
 	if err != nil {
 		return err
 	}
@@ -155,7 +157,16 @@ func runMain() error {
 	}
 }
 
-func loadConfig() (*config, error) {
+func needsReleaseVersion(cmd string) bool {
+	switch cmd {
+	case "run", "run-playwright", "repo-mirror-up", "prepare-mock-artifacts", "backup-restore":
+		return true
+	default:
+		return false
+	}
+}
+
+func loadConfig(resolveLatestRelease bool) (*config, error) {
 	scriptDir, err := findScriptDir()
 	if err != nil {
 		return nil, err
@@ -185,13 +196,33 @@ func loadConfig() (*config, error) {
 	c.WebBaseURL = env("OPD_BASE_URL", "https://"+c.WebHost)
 
 	c.ReleaseRepo = env("RELEASE_REPO", "jptrs93/opsagent")
-	c.InstallVersion = env("OPD_INSTALL_VERSION", "v0.0.274")
-	c.UpgradeVersion = env("OPD_UPGRADE_VERSION", "v0.0.274")
+	c.InstallVersion = strings.TrimSpace(os.Getenv("OPD_INSTALL_VERSION"))
+	c.UpgradeVersion = strings.TrimSpace(os.Getenv("OPD_UPGRADE_VERSION"))
 	c.SelfVersion = env("OPD_SELF_VERSION", "v0.0.0")
-	c.LocalTest = envBool("OPD_LOCAL_CHECKOUT", false)
 	c.BackupRestore = envBool("OPD_BACKUP_RESTORE", false)
 	c.RemoteMode = env("OPD_REMOTE", "mock")
 	c.MockOpenDeploySource = env("OPD_MOCK_OPENDEPLOY_SOURCE", "local")
+	if c.usesSelfBootstrap() {
+		if c.InstallVersion != "" {
+			return nil, fmt.Errorf("OPD_INSTALL_VERSION is not supported in local mock mode: bootstrap always uses the local executable")
+		}
+		if c.UpgradeVersion != "" && c.UpgradeVersion != mockUpgradeVersion {
+			return nil, fmt.Errorf("OPD_UPGRADE_VERSION is not supported in local mock mode: the upgrade fixture is always %s", mockUpgradeVersion)
+		}
+		c.InstallVersion = c.SelfVersion
+		c.UpgradeVersion = mockUpgradeVersion
+	} else if resolveLatestRelease && (c.InstallVersion == "" || c.UpgradeVersion == "") {
+		latest, err := latestReleaseTag(c.ReleaseRepo, os.Getenv("OPENDEPLOY_GITHUB_TOKEN"))
+		if err != nil {
+			return nil, err
+		}
+		if c.InstallVersion == "" {
+			c.InstallVersion = latest
+		}
+		if c.UpgradeVersion == "" {
+			c.UpgradeVersion = latest
+		}
+	}
 
 	c.NodeCPUs = env("OPD_VM_NODE_CPUS", "4")
 	c.NodeMemory = env("OPD_VM_NODE_MEMORY", "6GiB")
@@ -200,9 +231,9 @@ func loadConfig() (*config, error) {
 	c.RepoMirrorMemory = env("OPD_VM_REPO_MIRROR_MEMORY", "6GiB")
 	c.RepoMirrorDisk = env("OPD_VM_REPO_MIRROR_DISK", "80GiB")
 
-	if c.LocalTest {
-		c.RepoMirrorReleases = env("OPD_REPO_MIRROR_RELEASES", "")
-		c.RepoMirrorLatest = env("OPD_REPO_MIRROR_LATEST", c.SelfVersion)
+	if c.usesSelfBootstrap() {
+		c.RepoMirrorReleases = env("OPD_REPO_MIRROR_RELEASES", mockUpgradeVersion)
+		c.RepoMirrorLatest = env("OPD_REPO_MIRROR_LATEST", mockUpgradeVersion)
 	} else {
 		c.RepoMirrorReleases = env("OPD_REPO_MIRROR_RELEASES", c.InstallVersion+" "+c.UpgradeVersion)
 		c.RepoMirrorLatest = env("OPD_REPO_MIRROR_LATEST", c.UpgradeVersion)
@@ -253,6 +284,36 @@ func loadConfig() (*config, error) {
 		c.RepoMirrorReleases = strings.TrimSpace(c.RepoMirrorReleases + " " + c.UpgradeVersion)
 	}
 	return c, nil
+}
+
+func latestReleaseTag(repo, token string) (string, error) {
+	req, err := http.NewRequest(http.MethodGet, "https://api.github.com/repos/"+repo+"/releases/latest", nil)
+	if err != nil {
+		return "", fmt.Errorf("creating latest release request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "opendeploy-e2e-harness")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	res, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetching latest release for %s: %w", repo, err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("fetching latest release for %s: GitHub returned %s", repo, res.Status)
+	}
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&release); err != nil {
+		return "", fmt.Errorf("decoding latest release for %s: %w", repo, err)
+	}
+	if strings.TrimSpace(release.TagName) == "" {
+		return "", fmt.Errorf("latest release for %s has no tag name", repo)
+	}
+	return strings.TrimSpace(release.TagName), nil
 }
 
 func findScriptDir() (string, error) {
@@ -653,9 +714,6 @@ func (c *config) requireHostTools() error {
 	if c.RemoteMode != "mock" && c.RemoteMode != "real" {
 		return errors.New("OPD_REMOTE must be mock or real")
 	}
-	if c.LocalTest && c.RemoteMode == "real" {
-		return errors.New("OPD_LOCAL_CHECKOUT=true requires OPD_REMOTE=mock")
-	}
 	if c.MockOpenDeploySource != "local" && c.MockOpenDeploySource != "real" {
 		return errors.New("OPD_MOCK_OPENDEPLOY_SOURCE must be local or real")
 	}
@@ -664,7 +722,7 @@ func (c *config) requireHostTools() error {
 			return err
 		}
 	}
-	if c.LocalTest || (c.RemoteMode == "mock" && c.MockOpenDeploySource == "local") {
+	if c.usesSelfBootstrap() {
 		for _, tool := range []string{"go", "pnpm"} {
 			if err := requireCmd(tool); err != nil {
 				return err
@@ -685,6 +743,10 @@ func (c *config) requireHostTools() error {
 }
 
 func (c *config) repoMirrorEnabled() bool { return c.RemoteMode != "real" }
+
+func (c *config) usesSelfBootstrap() bool {
+	return c.RemoteMode == "mock" && c.MockOpenDeploySource == "local"
+}
 
 func (c *config) clusterVMNames() []string { return []string{c.PrimaryName, c.SecondaryName} }
 
@@ -1421,20 +1483,15 @@ func (c *config) installTestCAAll() error {
 }
 
 func (c *config) buildSelfOpenDeploy() error {
-	if c.LocalTest != true && !c.repoMirrorEnabled() {
-		return nil
-	}
-	if c.LocalTest != true && c.MockOpenDeploySource != "local" {
+	if !c.repoMirrorEnabled() || c.MockOpenDeploySource != "local" {
 		return nil
 	}
 	logf("Building frontend assets for VM test binaries")
 	if err := c.substep("frontend", "pnpm run build", func() error { return runDir(filepath.Join(c.RepoRoot, "frontend"), "pnpm", "run", "build") }); err != nil {
 		return err
 	}
-	if c.LocalTest {
-		if err := c.substep("backend "+c.SelfVersion, "linux/"+c.Goarch, func() error { return c.buildOpenDeployLinux(c.SelfVersion, c.SelfBin) }); err != nil {
-			return err
-		}
+	if err := c.substep("backend "+c.SelfVersion, "linux/"+c.Goarch, func() error { return c.buildOpenDeployLinux(c.SelfVersion, c.SelfBin) }); err != nil {
+		return err
 	}
 	if c.repoMirrorEnabled() && c.MockOpenDeploySource == "local" {
 		for _, version := range words(c.RepoMirrorReleases) {
@@ -1461,23 +1518,24 @@ func (c *config) buildOpenDeployLinux(version, out string) error {
 	return cmd.Run()
 }
 
-func (c *config) downloadOpenDeploy(name string) error {
-	if c.LocalTest {
-		if !fileNonEmpty(c.SelfBin) {
-			return fmt.Errorf("local opendeploy binary not found: %s", c.SelfBin)
-		}
-		logf("Copying local opendeploy %s into %s", c.SelfVersion, name)
-		if err := run("limactl", "copy", c.SelfBin, name+":/tmp/opendeploy"); err != nil {
-			return err
-		}
-		return c.vmRun(name, "sudo", "install", "-m", "0755", "/tmp/opendeploy", "/usr/local/bin/opendeploy")
+func (c *config) copySelfOpenDeploy(name string) error {
+	if !fileNonEmpty(c.SelfBin) {
+		return fmt.Errorf("local opendeploy binary not found: %s", c.SelfBin)
 	}
-	logf("Downloading opendeploy %s for linux/%s in %s", c.InstallVersion, c.Goarch, name)
+	logf("Copying local opendeploy %s into %s", c.SelfVersion, name)
+	if err := run("limactl", "copy", c.SelfBin, name+":/tmp/opendeploy"); err != nil {
+		return err
+	}
+	return c.vmRun(name, "sudo", "install", "-m", "0755", "/tmp/opendeploy", "/usr/local/bin/opendeploy")
+}
+
+func (c *config) downloadOpenDeploy(name, version string) error {
+	logf("Downloading opendeploy %s for linux/%s in %s", version, c.Goarch, name)
 	script := `set -euo pipefail
 curl -fsSL "https://github.com/${OPD_REPO}/releases/download/${OPD_VERSION}/opendeploy-linux-${OPD_ARCH}" -o /tmp/opendeploy
 sudo install -m 0755 /tmp/opendeploy /usr/local/bin/opendeploy
 `
-	return c.vmEnvRun(name, map[string]string{"OPD_REPO": c.ReleaseRepo, "OPD_VERSION": c.InstallVersion, "OPD_ARCH": c.Goarch}, script)
+	return c.vmEnvRun(name, map[string]string{"OPD_REPO": c.ReleaseRepo, "OPD_VERSION": version, "OPD_ARCH": c.Goarch}, script)
 }
 
 func (c *config) setupRepoMirrorVM() error {
@@ -1728,7 +1786,7 @@ func (c *config) materializeLocalGitSnapshot() (string, func(), error) {
 }
 
 func (c *config) publishMockReleasesToRepoMirror() error {
-	if !c.LocalTest && c.MockOpenDeploySource != "local" {
+	if c.MockOpenDeploySource != "local" {
 		return c.writeLatestReleaseMarker()
 	}
 	if c.MockOpenDeploySource == "local" {
@@ -1737,11 +1795,6 @@ func (c *config) publishMockReleasesToRepoMirror() error {
 			if err := c.publishReleaseToRepoMirror(version, bin); err != nil {
 				return err
 			}
-		}
-	}
-	if c.LocalTest {
-		if err := c.publishReleaseToRepoMirror(c.SelfVersion, c.SelfBin); err != nil {
-			return err
 		}
 	}
 	return c.writeLatestReleaseMarker()
@@ -1806,7 +1859,15 @@ printf "sha256:%s\n" "$hex"
 func nameOr(v string) string { return v }
 
 func (c *config) installPrimary() error {
-	if err := c.downloadOpenDeploy(c.PrimaryName); err != nil {
+	installVersion := c.InstallVersion
+	var err error
+	if c.usesSelfBootstrap() {
+		installVersion = c.SelfVersion
+		err = c.copySelfOpenDeploy(c.PrimaryName)
+	} else {
+		err = c.downloadOpenDeploy(c.PrimaryName, installVersion)
+	}
+	if err != nil {
 		return err
 	}
 	if err := run("limactl", "copy", c.ServerBundle, c.PrimaryName+":/tmp/opendeploy-web.pem"); err != nil {
@@ -1814,11 +1875,7 @@ func (c *config) installPrimary() error {
 	}
 	logf("Installing primary in %s", c.PrimaryName)
 	args := []string{"sudo", "opendeploy", "install", "primary", "--web-listen", ":443", "--acme-hosts", c.WebHost, "--web-tls-self-managed", "true", "--web-tls-cert-pem-file", "/tmp/opendeploy-web.pem", "--passkey-extra-origins", "https://" + c.WebHost + ":8443"}
-	installVersion := c.InstallVersion
-	if c.LocalTest {
-		args = append(args, "--use-self")
-		installVersion = c.SelfVersion
-	} else {
+	if !c.usesSelfBootstrap() {
 		args = append(args, "--version", c.InstallVersion)
 	}
 	installOutput, err := c.vmOutput(c.PrimaryName, args...)
@@ -1853,7 +1910,13 @@ func (c *config) installPrimary() error {
 }
 
 func (c *config) installWorker(name string) error {
-	if err := c.downloadOpenDeploy(name); err != nil {
+	var err error
+	if c.usesSelfBootstrap() {
+		err = c.copySelfOpenDeploy(name)
+	} else {
+		err = c.downloadOpenDeploy(name, c.InstallVersion)
+	}
+	if err != nil {
 		return err
 	}
 	fp, err := c.primaryEnrollmentFingerprint()
@@ -1863,9 +1926,7 @@ func (c *config) installWorker(name string) error {
 	logf("Installing secondary in %s", name)
 	help, _ := c.vmCombinedOutput(name, "opendeploy", "install", "secondary", "-h")
 	args := []string{"sudo", "opendeploy", "install", "secondary"}
-	if c.LocalTest {
-		args = append(args, "--use-self")
-	} else {
+	if !c.usesSelfBootstrap() {
 		args = append(args, "--version", c.InstallVersion)
 	}
 	args = append(args, "--cluster-addr", c.PrimaryName+":9443", "--enrollment-addr", c.PrimaryName+":9444")
@@ -1906,13 +1967,6 @@ func (c *config) installCluster() error {
 		return err
 	}
 	return c.substep("secondary", "install worker service", func() error { return c.installWorker(c.SecondaryName) })
-}
-
-func (c *config) resolveUpgradeVersion() string {
-	if os.Getenv("OPD_UPGRADE_VERSION") != "" {
-		return c.UpgradeVersion
-	}
-	return c.UpgradeVersion
 }
 
 func (c *config) preparePlaywrightE2E() error {
@@ -2109,7 +2163,7 @@ func (c *config) runPlaywrightFlows() error {
 		return errors.New("no flows selected")
 	}
 	envFile, _ := loadShellEnvFile(c.E2EEnvFile)
-	upgradeVersion := c.resolveUpgradeVersion()
+	upgradeVersion := c.UpgradeVersion
 	secondaryHost := c.SecondaryName
 	if !c.PlaywrightBaseURLSet {
 		secondaryHost = "host.docker.internal"
@@ -2208,13 +2262,8 @@ func (c *config) backupRestore() error {
 	}); err != nil {
 		return err
 	}
-	orig := c.InstallVersion
-	if !c.LocalTest {
-		c.InstallVersion = restoreInstallVersion
-		defer func() { c.InstallVersion = orig }()
-	}
 	if err := c.substep("install opendeploy binary", restoreInstallVersion, func() error {
-		return c.downloadOpenDeploy(c.PrimaryName)
+		return c.downloadOpenDeploy(c.PrimaryName, restoreInstallVersion)
 	}); err != nil {
 		return err
 	}
@@ -2224,11 +2273,7 @@ func (c *config) backupRestore() error {
 		return err
 	}
 	cmd := []string{"sudo", "opendeploy", "install", "primary", "--web-listen", ":443", "--acme-hosts", c.WebHost, "--web-tls-self-managed", "true", "--web-tls-cert-pem-file", "/tmp/opendeploy-web.pem", "--passkey-extra-origins", "https://" + c.WebHost + ":8443", "--restore-backup", "true", "--restore-s3-access-key-id", state["OPD_RESTORE_S3_ACCESS_KEY_ID"], "--restore-s3-secret-access-key", state["OPD_RESTORE_S3_SECRET_ACCESS_KEY"], "--restore-s3-bucket", state["OPD_RESTORE_S3_BUCKET"], "--restore-s3-path", state["OPD_RESTORE_S3_PATH"], "--restore-s3-region", state["OPD_RESTORE_S3_REGION"], "--restore-s3-endpoint", state["OPD_RESTORE_S3_ENDPOINT"], "--recovery-code", state["OPD_RESTORE_RECOVERY_CODE"]}
-	if c.LocalTest {
-		cmd = append(cmd, "--use-self")
-	} else {
-		cmd = append(cmd, "--version", restoreInstallVersion)
-	}
+	cmd = append(cmd, "--version", restoreInstallVersion)
 	if err := c.substep("restore primary install", "opendeploy install primary --restore-backup", func() error {
 		return c.vmRun(c.PrimaryName, cmd...)
 	}); err != nil {

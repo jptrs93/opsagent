@@ -4,8 +4,10 @@
 
 Installs from GitHub releases on Ubuntu (amd64 or arm64). The `opendeploy` binary
 is its own installer; the shell wrappers only detect the host architecture,
-download and checksum the release binary, then pass every option through to
-`opendeploy install` / `opendeploy uninstall`. Idempotent — re-run to upgrade.
+download and checksum the release binary, then invoke `opendeploy install` /
+`opendeploy uninstall`. With no `--version`, the binary installs itself using
+its embedded version; an explicit `--version` requests a release download.
+Idempotent — re-run to upgrade.
 
 ```bash
 # Install or upgrade a primary.

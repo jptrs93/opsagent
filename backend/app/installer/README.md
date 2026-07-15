@@ -28,8 +28,9 @@ are passed as typed values rather than process environment variables.
 ```sh
 # Fresh install (needs root) or in-place upgrade — auto-detected by whether
 # /etc/systemd/system/opendeploy.service already exists.
-sudo opendeploy install primary                 # latest release
+sudo opendeploy install primary                 # this executable
 sudo opendeploy install primary --version v0.1.0
+sudo opendeploy install primary --version latest # latest release
 sudo opendeploy install primary --web-listen '[2001:db8::12]:443' --cluster-listen '[2001:db8::12]:9443' --enrollment-listen '[2001:db8::12]:9444'
 sudo opendeploy install secondary --cluster-addr primary.example.com:9443 --enrollment-addr primary.example.com:9444 --enrollment-fingerprint sha256:<hex>
 
@@ -53,8 +54,9 @@ sudo opendeploy uninstall --purge
 - **`--dry-run`** prints every command, file write, chown, and symlink before
   committing — recovering the "read it before you run it as root"
   auditability that a compiled installer would otherwise lose versus a script.
-- **Two-phase install**: phase 1 downloads + checksum-verifies *every* binary
-  (agent + containerd + runc) into a temp dir; phase 2 only does local
+- **Two-phase install**: phase 1 stages the current executable when no version
+  is supplied, or downloads + checksum-verifies an explicit release; it always
+  downloads and verifies runtime dependencies. Phase 2 only does local
   filesystem + systemctl work. A network or checksum failure aborts before the
   host is touched, instead of leaving a half-provisioned machine. (The shell
   installer downloads the runtime binaries late, after mutating the system.)

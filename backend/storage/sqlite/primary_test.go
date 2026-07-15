@@ -157,16 +157,16 @@ func TestEnsureNetproxyDeploymentRequiresExplicitVersion(t *testing.T) {
 	store.EnsureNetproxyDeployment("primary", "")
 }
 
-func TestEnsureNetproxyDeploymentDoesNotReconcileExistingVersion(t *testing.T) {
+func TestEnsureNetproxyDeploymentReconcilesExistingVersion(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	cfg := store.EnsureNetproxyDeployment("primary", "v0.0.200")
 
 	again := store.EnsureNetproxyDeployment("primary", "v0.0.201")
-	if again.DesiredState.Version != "v0.0.200" {
-		t.Fatalf("desired version = %q, want preserved v0.0.200", again.DesiredState.Version)
+	if again.DesiredState.Version != "v0.0.201" {
+		t.Fatalf("desired version = %q, want v0.0.201", again.DesiredState.Version)
 	}
-	if again.Version != cfg.Version {
-		t.Fatalf("ensure bumped unchanged netproxy version from %d to %d", cfg.Version, again.Version)
+	if again.Version <= cfg.Version {
+		t.Fatalf("version = %d, want above %d", again.Version, cfg.Version)
 	}
 }
 

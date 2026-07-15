@@ -284,7 +284,8 @@ export async function createNixDockerCrasherDeployment(page, {
   ]));
 }
 
-export async function upgradeOpenDeployAgents(page, {version = process.env.OPD_UPGRADE_VERSION || 'v0.0.274', workerName = 'worker-1'} = {}) {
+export async function upgradeOpenDeployAgents(page, {version, workerName = 'worker-1'} = {}) {
+  if (!version) throw new Error('upgrade version is required');
   await upgradeOpenDeployAgent(page, {machine: workerName, version});
   await expectOpenDeployAgentVersion(page, {machine: workerName, version});
   await expectMachineConnected(page, workerName);

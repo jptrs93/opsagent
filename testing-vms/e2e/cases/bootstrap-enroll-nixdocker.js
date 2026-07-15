@@ -29,6 +29,12 @@ import {
 const LARGE_ASSET_KEY = 'e2e-large-asset.bin';
 const LARGE_ASSET_PATH = '/tmp/opendeploy-e2e-large-asset.bin';
 
+function requiredEnv(name) {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} is required`);
+  return value;
+}
+
 function generateLargeAsset() {
   const content = Buffer.allocUnsafe(11 * 1024 * 1024);
   for (let i = 0; i < content.length; i += 1) {
@@ -83,7 +89,7 @@ export const orderedCases = [
     description: 'Verifies the primary OpenDeploy deployment is running the expected install version.',
     requires: ['passkey-login'],
     async run(ctx) {
-      await expectOpenDeployAgentVersion(ctx.page, {machine: 'primary', version: process.env.OPD_INSTALL_VERSION || 'v0.0.274'});
+      await expectOpenDeployAgentVersion(ctx.page, {machine: 'primary', version: requiredEnv('OPD_INSTALL_VERSION')});
     },
   },
   {
@@ -321,7 +327,7 @@ export const orderedCases = [
     description: 'Upgrades worker and primary OpenDeploy agents to the expected upgrade version.',
     requires: ['worker-enrolled'],
     async run(ctx) {
-      await upgradeOpenDeployAgents(ctx.page, {version: process.env.OPD_UPGRADE_VERSION || 'v0.0.274'});
+      await upgradeOpenDeployAgents(ctx.page, {version: requiredEnv('OPD_UPGRADE_VERSION')});
     },
   },
   {

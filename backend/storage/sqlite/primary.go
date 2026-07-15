@@ -806,8 +806,7 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 }
 
 // EnsureNetproxyDeployment creates the per-machine opendeploy-net internal
-// deployment when missing and returns its config. Existing deployments keep
-// their desired version.
+// deployment when missing and keeps it on the running OpenDeploy version.
 func (s *PrimaryStorage) EnsureNetproxyDeployment(machine string, opendeployVersion string) *apigen.DeploymentConfig {
 	desiredVersion := strings.TrimSpace(opendeployVersion)
 	if desiredVersion == "" {
@@ -820,13 +819,20 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(machine string, opendeployVers
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	for _, cfg := range s.configCache {
 		if cfg.ConfigID == cid && !cfg.Deleted {
+			s.mu.Unlock()
+			if cfg.DesiredState.Version != desiredVersion || !cfg.DesiredState.Running {
+				s.MustSetDeploymentDesiredState(apigen.Context{}, cfg.ID, apigen.DesiredState{Version: desiredVersion, Running: true})
+				s.mu.Lock()
+				updated := s.configCache[cfg.ID]
+				s.mu.Unlock()
+				return updated
+			}
 			return cfg
 		}
 	}
+	defer s.mu.Unlock()
 
 	spec := NetproxyDeploymentSpec()
 	specBlob := spec.Encode()

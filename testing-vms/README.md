@@ -37,7 +37,9 @@ Defaults:
 
 - Deletes and recreates the primary/secondary VM cluster each run.
 - Uses `OPD_REMOTE=mock`, which requires an already-running repo mirror VM serving GitHub-shaped release/git traffic plus mirrored OCI images locally.
-- Installs OpenDeploy release `v0.0.274` and upgrades to `v0.0.274` by default.
+- In the default local mock mode, bootstraps primary and worker from a locally
+  built `v0.0.0` executable, then upgrades them to a locally built `v1.0.0`
+  release served by the mirror.
 - Runs `FLOWS=bootstrap-enroll-nixdocker` from the Playwright Docker container.
 - Runs Playwright in Docker and writes results to `testing-vms/test-results` and `testing-vms/playwright-report`.
 
@@ -46,7 +48,6 @@ Useful overrides:
 ```sh
 RESET=false bash testing-vms/run.sh
 FLOWS=bootstrap-enroll-nixdocker bash testing-vms/run.sh
-OPD_INSTALL_VERSION=v0.0.274 bash testing-vms/run.sh
 OPD_REMOTE=real bash testing-vms/run.sh
 OPENDEPLOY_GITHUB_TOKEN=... bash testing-vms/run.sh
 ```
@@ -61,11 +62,17 @@ go run ./testing-vms/test-orchestrator repo-mirror-down
 
 The main run fails early in `OPD_REMOTE=mock` if the repo mirror is not healthy. Normal cleanup and reset leave the repo mirror and shared test certificates intact.
 
+`OPD_REMOTE=real` and `OPD_MOCK_OPENDEPLOY_SOURCE=real` resolve the latest
+GitHub release tag unless explicit install and upgrade versions are supplied.
+
 ## Mock Remote Mode
 
 `OPD_REMOTE=mock` keeps OpenDeploy release, git, runtime, OCI, Nix binary cache, and Lima base-image traffic pointed at local artifacts or the repo mirror. `repo-mirror-up` copies an untracked host-side artifact cache into the repo mirror VM, then publishes the local checkout as the `jptrs93/opsagent` git repo used by the E2E fixtures.
 
-By default, mock mode publishes locally built OpenDeploy binaries under the configured release tags (`OPD_MOCK_OPENDEPLOY_SOURCE=local`) so the VM HTTPS harness can test unreleased installer behavior. Set `OPD_MOCK_OPENDEPLOY_SOURCE=real` to serve the prepared real release binaries from the artifact cache instead.
+By default, mock mode builds the current checkout twice: `v0.0.0` for implicit
+self-bootstrap and `v1.0.0` as the mirrored upgrade/restore release. Set
+`OPD_MOCK_OPENDEPLOY_SOURCE=real` to serve prepared real release binaries from
+the artifact cache instead.
 
 Mock runs check the untracked artifact cache and prepare missing files automatically. To refresh the cache explicitly:
 
@@ -118,16 +125,6 @@ sudo security add-trusted-cert -d -r trustRoot \
 ```
 
 The leaf server certificate is renewed as needed without replacing the trusted root CA. Delete `testing-vms/.test-ca` only when you intentionally want to rotate the test CA; doing so requires trusting the newly generated root again.
-
-## Local Checkout Mode
-
-To test local backend/frontend changes without publishing a release:
-
-```sh
-OPD_LOCAL_CHECKOUT=true bash testing-vms/run.sh
-```
-
-This builds the local checkout as `v0.0.0`, publishes it into the repo mirror as the latest OpenDeploy release, and installs nodes with `opendeploy install --use-self`.
 
 Mock mode maps `github.com`, `api.github.com`, `cache.nixos.org`, and the local OCI registry host to the repo mirror VM through `/etc/hosts`. Real mode leaves those names untouched and does not require the repo mirror.
 

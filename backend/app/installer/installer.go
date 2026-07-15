@@ -84,8 +84,7 @@ func parseInstall(args []string) (string, installOptions, error) {
 
 func parseInstallPrimary(args []string) (string, installOptions, error) {
 	fs := flag.NewFlagSet("install primary", flag.ExitOnError)
-	version := fs.String("version", "latest", "release tag to install (default: latest)")
-	useSelf := fs.Bool("use-self", false, "install this executable using its embedded version instead of downloading opendeploy")
+	version := fs.String("version", "", "release tag to install (omit to install this executable)")
 	httpOnlyRaw := fs.String("http-only", "", "enable HTTP web UI and disable HTTPS web UI (true or false)")
 	webListenRaw := fs.String("web-listen", "", "set initial web UI listen address (for example :8080)")
 	webTLSSelfManagedRaw := fs.String("web-tls-self-managed", "", "enable self-managed HTTPS certificate mode (true or false)")
@@ -106,7 +105,7 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 	fs.BoolVar(&dryRun, "dry-run", false, "print the actions that would be taken without performing them")
 	_ = fs.Parse(args)
 
-	opts := installOptions{role: "primary", useSelf: *useSelf}
+	opts := installOptions{role: "primary"}
 	var parseErr error
 	restoreBackupSet := false
 	restoreBackup := false
@@ -228,8 +227,7 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 
 func parseInstallSecondary(args []string) (string, installOptions, error) {
 	fs := flag.NewFlagSet("install secondary", flag.ExitOnError)
-	version := fs.String("version", "latest", "release tag to install (default: latest)")
-	useSelf := fs.Bool("use-self", false, "install this executable using its embedded version instead of downloading opendeploy")
+	version := fs.String("version", "", "release tag to install (omit to install this executable)")
 	clusterAddrRaw := fs.String("cluster-addr", "", "set OPENDEPLOY_PRIMARY_CLUSTER_ADDR for the primary mTLS cluster address")
 	enrollmentAddrRaw := fs.String("enrollment-addr", "", "set OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR for the primary enrollment address")
 	enrollmentFingerprintRaw := fs.String("enrollment-fingerprint", "", "set OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT for enrollment TLS pinning")
@@ -237,7 +235,7 @@ func parseInstallSecondary(args []string) (string, installOptions, error) {
 	fs.BoolVar(&dryRun, "dry-run", false, "print the actions that would be taken without performing them")
 	_ = fs.Parse(args)
 
-	opts := installOptions{role: "secondary", useSelf: *useSelf}
+	opts := installOptions{role: "secondary"}
 	var parseErr error
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
@@ -297,8 +295,8 @@ func usage(prog string) {
 	fmt.Fprintf(os.Stderr, `%[1]s install / uninstall — provision, upgrade, and remove opendeploy
 
 Usage:
-  %[1]s install primary [--version vX.Y.Z] [--use-self] [--http-only true] [--web-listen :8080] [--web-tls-self-managed true] [--web-tls-cert-pem-file cert.pem] [--passkey-extra-origins https://host:8443] [--cluster-listen :9443] [--enrollment-listen :9444] [--acme-hosts host1,host2] [--primary-name primary] [--restore-backup true --restore-s3-access-key-id ... --restore-s3-secret-access-key ... --restore-s3-bucket ... --restore-s3-path ... --restore-s3-region ... --recovery-code ...] [--dry-run]
-  %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 --enrollment-fingerprint sha256:<hex> [--version vX.Y.Z] [--use-self] [--primary-name primary] [--dry-run]
+  %[1]s install primary [--version vX.Y.Z|latest] [--http-only true] [--web-listen :8080] [--web-tls-self-managed true] [--web-tls-cert-pem-file cert.pem] [--passkey-extra-origins https://host:8443] [--cluster-listen :9443] [--enrollment-listen :9444] [--acme-hosts host1,host2] [--primary-name primary] [--restore-backup true --restore-s3-access-key-id ... --restore-s3-secret-access-key ... --restore-s3-bucket ... --restore-s3-path ... --restore-s3-region ... --recovery-code ...] [--dry-run]
+  %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 --enrollment-fingerprint sha256:<hex> [--version vX.Y.Z|latest] [--primary-name primary] [--dry-run]
   %[1]s uninstall [--purge] [--yes] [--dry-run]
 
 Commands:

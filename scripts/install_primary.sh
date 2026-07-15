@@ -110,7 +110,7 @@ main() {
 
     bin="$(download_opendeploy "$version" "$arch" "$OPENDEPLOY_DOWNLOAD_TMP")"
     # The binary owns installer flag parsing; keep this wrapper transparent.
-    run_as_root "$bin" install primary --use-self "$@"
+    run_as_root "$bin" install primary "$@"
 }
 
 main "$@"

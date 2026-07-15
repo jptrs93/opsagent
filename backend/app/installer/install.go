@@ -39,7 +39,6 @@ type staged struct {
 // rather than leaving a half-provisioned machine.
 type installOptions struct {
 	role                  string
-	useSelf               bool
 	httpOnly              *bool
 	webListen             *string
 	webTLSSelfManaged     *bool
@@ -85,9 +84,10 @@ func doInstall(version string, opts installOptions) error {
 	if preflightErr := preflight(upgrade); preflightErr != nil {
 		return preflightErr
 	}
-	if opts.useSelf {
+	selfInstall := version == ""
+	if selfInstall {
 		version = buildversion.Version
-	} else if version == "" || version == "latest" {
+	} else if version == "latest" {
 		step("Resolving latest release")
 		version, err = resolveLatestTag()
 		if err != nil {
@@ -105,7 +105,7 @@ func doInstall(version string, opts installOptions) error {
 	// Phase 1 — stage. Runtime binaries are provisioned root-only, so an
 	// unprivileged upgrade skips staging them.
 	withRuntime := isRoot() || dryRun
-	st, err := stageAll(version, arch, tmp, withRuntime, opts.useSelf)
+	st, err := stageAll(version, arch, tmp, withRuntime, selfInstall)
 	if err != nil {
 		return err
 	}
@@ -119,8 +119,8 @@ func doInstall(version string, opts installOptions) error {
 
 // stageAll (phase 1) downloads + verifies the agent binary and, when requested,
 // every runtime dep, into tmp. Nothing on the host is touched.
-func stageAll(version, arch, tmp string, withRuntime bool, useSelf bool) (*staged, error) {
-	if useSelf {
+func stageAll(version, arch, tmp string, withRuntime bool, selfInstall bool) (*staged, error) {
+	if selfInstall {
 		step("Phase 1/2 — staging current binary and verifying runtime deps (linux/%s)", arch)
 	} else {
 		step("Phase 1/2 — downloading and verifying binaries (linux/%s)", arch)
@@ -128,7 +128,7 @@ func stageAll(version, arch, tmp string, withRuntime bool, useSelf bool) (*stage
 	st := &staged{}
 
 	var err error
-	if useSelf {
+	if selfInstall {
 		st.agentBin, err = stageSelfAgent(tmp)
 	} else {
 		st.agentBin, err = stageAgent(version, arch, tmp)
