@@ -65,6 +65,9 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 	if err := h.validateNodeNetworkingClaims(req.NodeID, 0, spec); err != nil {
 		return nil, err
 	}
+	if err := h.validateAddressEnvRefs(req.NodeID, 0, spec, snapshot); err != nil {
+		return nil, err
+	}
 
 	cfg := h.Store.MustCreateDeploymentForNode(ctx, &cid, req.NodeID, spec, req.DesiredState)
 	return cfg, nil
@@ -99,6 +102,10 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 				}
 			}
 		}
+		if cfg.ConfigID.SpaceID != *req.SpaceID && h.deploymentUsesAddressID(int32Set([]int32{cfg.ID})) {
+			// TODO: Rewrite dependent address refs and roll their runners in one coordinated migration.
+			return nil, invalidConfigErrf("deployment space cannot change while address references exist")
+		}
 	}
 
 	if !req.Spec.IsZero() {
@@ -111,6 +118,12 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 		}
 		if err := h.validateManagedVolumeMounts(validated, cfg.NodeID, cfg.ID); err != nil {
 			return nil, err
+		}
+		if err := h.validateAddressEnvRefs(cfg.NodeID, cfg.ID, validated, h.Store.FetchDeploymentSnapshot(nil)); err != nil {
+			return nil, err
+		}
+		if validated.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL && h.deploymentUsesAddressID(int32Set([]int32{cfg.ID})) {
+			return nil, invalidConfigErrf("deployment networking cannot leave virtual mode while address references exist")
 		}
 		spec = validated
 	}
@@ -161,6 +174,9 @@ func (h *Handler) PostV1DeploymentDelete(ctx apigen.Context, req *apigen.Deploym
 		}
 	} else if !h.canDeleteDeployment(cfg, status) {
 		return invalidConfigErrf("deployment must be stopped before deletion")
+	}
+	if h.deploymentUsesAddressID(int32Set([]int32{cfg.ID})) {
+		return ReferenceInUseErr
 	}
 	deleted := true
 	desired := apigen.DesiredState{Version: cfg.DesiredState.Version, Running: false}
@@ -889,6 +905,39 @@ func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec, secretStore deploymentS
 	return nil
 }
 
+func (h *Handler) validateAddressEnvRefs(nodeID, deploymentID int32, spec *apigen.DeploymentSpec, snapshot []apigen.DeploymentWithStatus) error {
+	if spec == nil || spec.Runner.Container.IsZero() {
+		return nil
+	}
+	configs := make(map[int32]*apigen.DeploymentConfig, len(snapshot))
+	for i := range snapshot {
+		configs[snapshot[i].Config.ID] = &snapshot[i].Config
+	}
+	for key, value := range spec.Runner.Container.EnvVars {
+		if value == nil || value.AddressDeploymentID == nil {
+			continue
+		}
+		targetID := *value.AddressDeploymentID
+		if targetID == deploymentID && deploymentID != 0 {
+			return invalidConfigErrf("runner.container.envVars.%s: deployment cannot reference its own address", key)
+		}
+		target := configs[targetID]
+		if target == nil || target.Deleted {
+			return invalidConfigErrf("runner.container.envVars.%s: unknown address deployment id %d", key, targetID)
+		}
+		if target.NodeID != nodeID {
+			return invalidConfigErrf("runner.container.envVars.%s: address deployment must be on the same node", key)
+		}
+		if target.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+			return invalidConfigErrf("runner.container.envVars.%s: address deployment must use virtual networking", key)
+		}
+		if value.AddressSpaceID == nil || target.ConfigID.SpaceID != *value.AddressSpaceID {
+			return invalidConfigErrf("runner.container.envVars.%s: address space does not match deployment", key)
+		}
+	}
+	return nil
+}
+
 func validatePrepareConfig(prepare *apigen.PrepareConfig) error {
 	if prepare == nil || prepare.IsZero() {
 		return invalidConfigErrf("prepare is required")
@@ -1246,8 +1295,21 @@ func validateEnvVars(scope string, in map[string]*apigen.EnvVarValue) error {
 		if value.AssetID > 0 {
 			set++
 		}
+		hasAddress := value.AddressDeploymentID != nil || value.AddressSpaceID != nil
+		if hasAddress {
+			set++
+			if value.AddressDeploymentID == nil || value.AddressSpaceID == nil {
+				return invalidConfigErrf("%s.%s: addressDeploymentId and addressSpaceId are required together", scope, key)
+			}
+			if *value.AddressDeploymentID <= 0 {
+				return invalidConfigErrf("%s.%s: addressDeploymentId must be positive", scope, key)
+			}
+			if *value.AddressSpaceID < 0 {
+				return invalidConfigErrf("%s.%s: addressSpaceId must not be negative", scope, key)
+			}
+		}
 		if set != 1 {
-			return invalidConfigErrf("%s.%s: exactly one of value, secretId, configId, or assetId is required", scope, key)
+			return invalidConfigErrf("%s.%s: exactly one of value, secretId, configId, assetId, or address is required", scope, key)
 		}
 		out[key] = value
 	}

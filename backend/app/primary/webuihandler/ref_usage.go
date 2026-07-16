@@ -2,7 +2,7 @@ package webuihandler
 
 import "github.com/jptrs93/opsagent/backend/apigen"
 
-var ReferenceInUseErr = apigen.NewApiErr("Secret or config is still in use", "reference_in_use", 400)
+var ReferenceInUseErr = apigen.NewApiErr("Referenced value is still in use", "reference_in_use", 400)
 
 func (h *Handler) deploymentUsesSecretID(ids map[int32]struct{}) bool {
 	for _, item := range h.Store.FetchDeploymentSnapshot(nil) {
@@ -30,6 +30,23 @@ func (h *Handler) deploymentUsesConfigID(ids map[int32]struct{}) bool {
 				if _, ok := ids[*value.ConfigID]; ok {
 					return true
 				}
+			}
+		}
+	}
+	return false
+}
+
+func (h *Handler) deploymentUsesAddressID(ids map[int32]struct{}) bool {
+	for _, item := range h.Store.FetchDeploymentSnapshot(nil) {
+		if item.Config.Deleted {
+			continue
+		}
+		for _, value := range item.Config.Spec.Runner.Container.EnvVars {
+			if value == nil || value.AddressDeploymentID == nil {
+				continue
+			}
+			if _, ok := ids[*value.AddressDeploymentID]; ok {
+				return true
 			}
 		}
 	}

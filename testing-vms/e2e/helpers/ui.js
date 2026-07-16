@@ -113,16 +113,19 @@ export async function expectOpenDeployLogs(page) {
   await expectOutputText(page, 'opendeploy starting primary');
 }
 
-export async function acceptFirstWaitingWorker(page, {workerName = 'worker-1'} = {}) {
+export async function acceptWaitingWorker(page, {machineID, workerName, expectNoPending = false} = {}) {
+  if (!machineID) throw new Error('worker machine ID is required');
+  if (!workerName) throw new Error('worker name is required');
   await byTestId(page, 'nav-cluster', page.getByText('Machines')).click();
   await expect(page.getByRole('heading', {name: 'Enrollment requests'})).toBeVisible();
 
-  const requestRow = byTestId(page, 'enrollment-request-1', page.locator('tr').filter({hasText: '#1'}).filter({hasText: 'Accept'}));
+  const requestRow = page.locator('tr').filter({hasText: machineID}).filter({hasText: 'Accept'});
   await expect(requestRow).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await byTestId(requestRow, 'enrollment-worker-name-input', requestRow.getByRole('textbox')).fill(workerName);
   await byTestId(requestRow, 'enrollment-accept-button', requestRow.getByRole('button', {name: 'Accept'})).click();
 
-  await expect(page.getByText('No pending enrollment requests.')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await expect(requestRow).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  if (expectNoPending) await expect(page.getByText('No pending enrollment requests.')).toBeVisible({timeout: LONG_UI_TIMEOUT});
   const workerRow = (await clusterMachineRow(page, workerName)).filter({hasText: 'secondary'});
   await expect(workerRow).toContainText('connected', {timeout: LONG_UI_TIMEOUT});
 }
@@ -139,6 +142,7 @@ export async function createNixDockerDeployment(page, {
   expectedEnv = env,
   assetMount,
   portForwarding = [],
+  ingress,
   upgradeStrategy = UPGRADE_RECREATE,
   readinessTimeoutSeconds = 600,
   expectDefaultDockerImage = false,
@@ -205,6 +209,7 @@ export async function createNixDockerDeployment(page, {
   await step(`configure deployment inputs ${name}`, async () => {
     await setDeploymentUpgradeStrategy(dialog, {strategy: upgradeStrategy, readinessTimeoutSeconds});
     await setDeploymentPortForwarding(dialog, portForwarding);
+    if (ingress !== undefined) await setDeploymentIngress(dialog, ingress);
     await setDeploymentEnvVars(dialog, env);
     if (assetMount) await setDeploymentAssetMount(dialog, assetMount);
   });
@@ -237,6 +242,7 @@ export async function updateNixDockerDeployment(page, {
   machine = 'worker-1',
   env = {},
   portForwarding = [],
+  ingress,
   upgradeStrategy = UPGRADE_RECREATE,
   readinessTimeoutSeconds = 600,
 } = {}) {
@@ -253,6 +259,7 @@ export async function updateNixDockerDeployment(page, {
   await step(`configure update ${name}`, async () => {
     await setDeploymentUpgradeStrategy(dialog, {strategy: upgradeStrategy, readinessTimeoutSeconds});
     await setDeploymentPortForwarding(dialog, portForwarding);
+    if (ingress !== undefined) await setDeploymentIngress(dialog, ingress);
     await setDeploymentEnvVars(dialog, env);
   });
 
@@ -996,7 +1003,7 @@ async function setDeploymentPortForwarding(dialog, portForwarding) {
   const rows = portForwarding || [];
   if (rows.length === 0) return;
   const pane = await openDeploymentNetworkingPane(dialog);
-  const section = dialog.getByText('Port forwarding', {exact: true}).locator('xpath=ancestor::div[contains(@class, "border")][1]');
+  const section = pane.getByText('Port forwarding', {exact: true}).locator('xpath=ancestor::div[contains(@class, "border")][1]');
   await expect(section).toBeVisible({timeout: LONG_UI_TIMEOUT});
   for (const rule of rows) {
     await section.getByRole('button', {name: 'Add port'}).click();
@@ -1004,6 +1011,25 @@ async function setDeploymentPortForwarding(dialog, portForwarding) {
     await row.locator('select').selectOption(String(rule.protocol || PORT_FORWARD_TCP));
     await row.locator('input').nth(0).fill(String(rule.hostPort));
     await row.locator('input').nth(1).fill(String(rule.containerPort));
+  }
+  await pane.getByTitle('Close').click();
+  await expect(pane).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
+async function setDeploymentIngress(dialog, ingress) {
+  const routes = ingress || [];
+  const pane = await openDeploymentNetworkingPane(dialog);
+  const section = byTestId(pane, 'deployment-ingress-section', pane.getByText('Ingress', {exact: true}).locator('xpath=ancestor::div[contains(@class, "border")][1]'));
+  await expect(section).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  while (await byTestId(section, 'deployment-ingress-row', section.locator('tbody tr')).count() > 0) {
+    await byTestId(section, 'deployment-remove-ingress-route', section.getByTitle('Remove ingress route')).first().click();
+  }
+  for (const route of routes) {
+    await byTestId(section, 'deployment-add-ingress-route', section.getByRole('button', {name: 'Add route'})).click();
+    const row = byTestId(section, 'deployment-ingress-row', section.locator('tbody tr')).last();
+    await byTestId(row, 'deployment-ingress-hostname-input', row.locator('input').nth(0)).fill(route.hostname);
+    if (route.hostPort) await byTestId(row, 'deployment-ingress-host-port-input', row.locator('input').nth(1)).fill(String(route.hostPort));
+    await byTestId(row, 'deployment-ingress-container-port-input', row.locator('input').nth(2)).fill(String(route.containerPort));
   }
   await pane.getByTitle('Close').click();
   await expect(pane).toBeHidden({timeout: LONG_UI_TIMEOUT});

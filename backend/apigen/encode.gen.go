@@ -2774,6 +2774,8 @@ func (m *EnvVarValue) Encode() []byte {
 	b = AppendStringFieldOpt(b, m.Value, 3)
 	b = AppendStringField(b, m.Asset, 4)
 	b = AppendInt32Field(b, m.AssetID, 5)
+	b = AppendInt32FieldOpt(b, m.AddressDeploymentID, 7)
+	b = AppendInt32FieldOpt(b, m.AddressSpaceID, 8)
 	return b
 }
 
@@ -2798,6 +2800,10 @@ func DecodeEnvVarValue(b []byte) (*EnvVarValue, error) {
 			b, m.Asset, err = ConsumeString(b, typ)
 		case 5:
 			b, m.AssetID, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.AddressDeploymentID, err = ConsumeVarInt32Opt(b, typ)
+		case 8:
+			b, m.AddressSpaceID, err = ConsumeVarInt32Opt(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

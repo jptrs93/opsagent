@@ -438,11 +438,13 @@ type PrepareConfig struct {
 }
 
 type EnvVarValue struct {
-	SecretID *int32
-	ConfigID *int32
-	Value    *string
-	Asset    string
-	AssetID  int32
+	SecretID            *int32
+	ConfigID            *int32
+	Value               *string
+	Asset               string
+	AssetID             int32
+	AddressDeploymentID *int32
+	AddressSpaceID      *int32
 }
 
 type SystemdRunnerConfig struct {

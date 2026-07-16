@@ -366,6 +366,8 @@
  * @property {string} value
  * @property {string} asset
  * @property {number} assetId
+ * @property {number} addressDeploymentId
+ * @property {number} addressSpaceId
  */
 /**
  * @typedef {Object} SystemdRunnerConfig
@@ -5318,6 +5320,12 @@ export function writeEnvVarValue(message, writer) {
     if (message.assetId !== undefined && message.assetId !== null && message.assetId !== 0) {
         writer.uint32(tag(5, WIRE.VARINT)).int32(message.assetId);
     }
+    if (message.addressDeploymentId !== undefined && message.addressDeploymentId !== null) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.addressDeploymentId);
+    }
+    if (message.addressSpaceId !== undefined && message.addressSpaceId !== null) {
+        writer.uint32(tag(8, WIRE.VARINT)).int32(message.addressSpaceId);
+    }
 }
 
 
@@ -5339,7 +5347,7 @@ export function encodeEnvVarValue(message) {
  */
 function decodeEnvVarValueMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {secretId: undefined, configId: undefined, value: undefined, asset: "", assetId: 0 };
+    const message = {secretId: undefined, configId: undefined, value: undefined, asset: "", assetId: 0, addressDeploymentId: undefined, addressSpaceId: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5361,6 +5369,14 @@ function decodeEnvVarValueMessage(reader, length) {
             }
             case 5: {
                 message.assetId = reader.int32();
+                break;
+            }
+            case 7: {
+                message.addressDeploymentId = reader.int32();
+                break;
+            }
+            case 8: {
+                message.addressSpaceId = reader.int32();
                 break;
             }
             default:

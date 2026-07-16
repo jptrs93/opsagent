@@ -7,6 +7,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
+	"github.com/jptrs93/opsagent/backend/lib/network"
 )
 
 const implicitAssetContainerDir = "/opendeploy-env-assets"
@@ -45,8 +46,11 @@ func resolveEnvValue(inputs *runtimeinputs.RuntimeInputs, key string, v *apigen.
 	if v.AssetID > 0 {
 		set++
 	}
+	if v.AddressDeploymentID != nil || v.AddressSpaceID != nil {
+		set++
+	}
 	if set != 1 {
-		return "", fmt.Errorf("exactly one of value, secretId, configId, or asset is required")
+		return "", fmt.Errorf("exactly one of value, secretId, configId, asset, or address is required")
 	}
 	if v.Value != nil {
 		return *v.Value, nil
@@ -57,7 +61,28 @@ func resolveEnvValue(inputs *runtimeinputs.RuntimeInputs, key string, v *apigen.
 	if v.AssetID > 0 {
 		return implicitAssetContainerPath(v.AssetID), nil
 	}
+	if v.AddressDeploymentID != nil || v.AddressSpaceID != nil {
+		return resolveAddressRef(v)
+	}
 	return resolveConfigRef(inputs, *v.ConfigID)
+}
+
+func resolveAddressRef(v *apigen.EnvVarValue) (string, error) {
+	if v.AddressDeploymentID == nil || v.AddressSpaceID == nil {
+		return "", fmt.Errorf("addressDeploymentId and addressSpaceId are required together")
+	}
+	if *v.AddressDeploymentID <= 0 || *v.AddressSpaceID < 0 {
+		return "", fmt.Errorf("invalid address reference")
+	}
+	prefix, ok := network.Default.PrefixValue()
+	if !ok {
+		return "", fmt.Errorf("cluster network prefix is unavailable")
+	}
+	addr, err := prefix.InstanceAddr(*v.AddressSpaceID, *v.AddressDeploymentID, 0)
+	if err != nil {
+		return "", fmt.Errorf("derive deployment address: %w", err)
+	}
+	return addr.String(), nil
 }
 
 func implicitAssetContainerPath(assetID int32) string {

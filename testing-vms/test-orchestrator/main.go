@@ -697,11 +697,11 @@ func (c *config) writeTimings() {
 }
 
 func (c *config) resetClusterState() {
-	for _, path := range []string{
-		c.E2EEnvFile,
-		filepath.Join(c.StateDir, "lima-"+c.PrimaryName+".yaml"),
-		filepath.Join(c.StateDir, "lima-"+c.SecondaryName+".yaml"),
-	} {
+	paths := []string{c.E2EEnvFile}
+	for _, name := range c.clusterVMNames() {
+		paths = append(paths, filepath.Join(c.StateDir, "lima-"+name+".yaml"))
+	}
+	for _, path := range paths {
 		_ = os.Remove(path)
 	}
 }
@@ -759,15 +759,17 @@ func (c *config) usesSelfBootstrap() bool {
 	return c.RemoteMode == "mock" && c.MockOpenDeploySource == "local"
 }
 
-func (c *config) clusterVMNames() []string { return []string{c.PrimaryName, c.SecondaryName} }
+func (c *config) clusterVMNames() []string {
+	return []string{c.PrimaryName, c.SecondaryName, c.Secondary2Name}
+}
 
 func (c *config) allVMNames() []string {
-	return []string{c.PrimaryName, c.SecondaryName, c.RepoMirrorName}
+	return []string{c.PrimaryName, c.SecondaryName, c.Secondary2Name, c.RepoMirrorName}
 }
 
 func (c *config) syncTargetVMNames() []string {
 	if c.repoMirrorEnabled() {
-		return []string{c.PrimaryName, c.SecondaryName, c.RepoMirrorName}
+		return []string{c.PrimaryName, c.SecondaryName, c.Secondary2Name, c.RepoMirrorName}
 	}
 	return c.clusterVMNames()
 }
@@ -2345,7 +2347,7 @@ func (c *config) runPlaywrightFlows() error {
 		testCmd = append(testCmd, shellQuote(arg))
 	}
 	logf("Running Playwright flows: %s", strings.Join(flowArgs, " "))
-	err := c.step("flows", strings.Join(flowArgs, " "), func() error {
+	err = c.step("flows", strings.Join(flowArgs, " "), func() error {
 		return c.runPlaywrightDockerFiltered(envPairs, "set -euo pipefail && "+strings.Join(testCmd, " "))
 	})
 	c.copyPlaywrightResults()

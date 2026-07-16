@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {xIcon} from "../lib/icons.js";
 import {referencePicker} from "./referencePicker.js";
-import {secretRefsS, spacesS, userConfigRefsS} from "../state/deployments.js";
+import {deploymentsS, secretRefsS, spacesS, userConfigRefsS} from "../state/deployments.js";
 
 const { div, h3, label, input, select, option, button, p, span, textarea, table, thead, tbody, tfoot, tr, th, td } = van.tags;
 
@@ -1548,6 +1548,7 @@ export function envVarsPane(form, opts = {}) {
             rows.map(row => `${row.id}:${row.type || 'value'}:${row.asset || ''}:${row.assetId || 0}:${row.version || 0}`).join('|'),
             (secretRefsS.val || []).map(ref => `${ref.id}:${ref.name}`).join('|'),
             (userConfigRefsS.val || []).map(ref => `${ref.id}:${ref.name}`).join('|'),
+            `${form.nodeId.val}:${(deploymentsS.val || []).map(item => `${item.config?.id || 0}:${item.config?.nodeId || 0}:${item.config?.configId?.spaceId ?? 0}:${item.config?.configId?.name || ''}:${item.config?.spec?.networking?.mode || 0}:${item.config?.deleted ? 1 : 0}`).join('|')}`,
             assets.map(asset => `${asset.id}:${asset.key}:${asset.version}`).join('|'),
         ].join('::');
         if (signature === envRowsSignature) return;
@@ -1615,6 +1616,7 @@ function envVarRow(form, row, assets) {
                 option({value: "value", selected: type === 'value'}, "Value"),
                 option({value: "config", selected: type === 'config'}, "Config"),
                 option({value: "secret", selected: type === 'secret'}, "Secret"),
+                option({value: "address", selected: type === 'address'}, "Address"),
                 option({value: "asset", selected: type === 'asset'}, "Asset"),
             ),
         ),
@@ -1656,6 +1658,7 @@ function envValueInput(form, row, assets) {
             },
         });
     }
+    if (row.type === 'address') return envAddressAutocomplete(form, row);
     return envReferenceAutocomplete(form, row);
 }
 
@@ -1684,6 +1687,45 @@ function envReferenceAutocomplete(form, row) {
     });
 }
 
+function envAddressAutocomplete(form, row) {
+    const selectedID = Number(row.addressDeploymentId || 0);
+    const selectedKey = van.state(selectedID || '');
+    const options = () => addressOptionsForRow(form, row);
+    return referencePicker({
+        refs: options,
+        selectedKey,
+        placeholder: "Search deployments",
+        noMatchesLabel: "No matching deployments",
+        emptyLabel: "No local virtual deployments",
+        getLabel: addressOptionLabel,
+        onSelect: deployment => {
+            selectedKey.val = deployment.config.id;
+            updateEnvRow(form, row.id, {
+                addressDeploymentId: deployment.config.id,
+                addressSpaceId: deployment.config.configId?.spaceId ?? 0,
+            });
+        },
+    });
+}
+
+function addressOptionsForRow(form, row) {
+    const selectedID = Number(row.addressDeploymentId || 0);
+    const targetNodeID = Number(form.nodeId.val || 0);
+    const all = deploymentsS.val || [];
+    const selectable = all.filter(item => !item.config?.deleted
+        && Number(item.config?.nodeId || 0) === targetNodeID
+        && Number(item.config?.spec?.networking?.mode || 0) === NETWORKING_MODE_VIRTUAL);
+    const selected = all.find(item => Number(item.config?.id || 0) === selectedID);
+    if (selected && !selectable.some(item => Number(item.config?.id || 0) === selectedID)) selectable.push(selected);
+    return selectable.sort((a, b) => addressOptionLabel(a).localeCompare(addressOptionLabel(b)));
+}
+
+function addressOptionLabel(item) {
+    const config = item?.config || {};
+    const id = config.configId || {};
+    return `${id.name || 'deployment'} (space ${id.spaceId ?? 0}, #${config.id || 0})`;
+}
+
 function versionedRefOptions(refs, selectedID) {
     const latestByName = new Map();
     const byID = new Map();
@@ -1704,7 +1746,7 @@ function versionedRefOptions(refs, selectedID) {
 }
 
 function newEnvRow(values = {}) {
-    return {id: nextEnvID++, key: '', type: 'value', value: '', secretId: 0, configId: 0, asset: '', assetId: 0, version: 0, ...values};
+    return {id: nextEnvID++, key: '', type: 'value', value: '', secretId: 0, configId: 0, addressDeploymentId: 0, addressSpaceId: 0, asset: '', assetId: 0, version: 0, ...values};
 }
 
 function updateEnvRow(form, id, patch) {
@@ -1712,10 +1754,11 @@ function updateEnvRow(form, id, patch) {
 }
 
 function envTypePatch(row, type) {
-    if (type === 'secret') return {type, value: '', configId: 0, asset: '', assetId: 0, version: 0, refSearch: ''};
-    if (type === 'config') return {type, value: '', secretId: 0, asset: '', assetId: 0, version: 0, refSearch: ''};
-    if (type === 'asset') return {type, value: '', secretId: 0, configId: 0, refSearch: ''};
-    return {type: 'value', secretId: 0, configId: 0, asset: '', assetId: 0, version: 0, refSearch: '', value: row.value || ''};
+    if (type === 'secret') return {type, value: '', configId: 0, addressDeploymentId: 0, addressSpaceId: 0, asset: '', assetId: 0, version: 0, refSearch: ''};
+    if (type === 'config') return {type, value: '', secretId: 0, addressDeploymentId: 0, addressSpaceId: 0, asset: '', assetId: 0, version: 0, refSearch: ''};
+    if (type === 'address') return {type, value: '', secretId: 0, configId: 0, addressDeploymentId: 0, addressSpaceId: 0, asset: '', assetId: 0, version: 0, refSearch: ''};
+    if (type === 'asset') return {type, value: '', secretId: 0, configId: 0, addressDeploymentId: 0, addressSpaceId: 0, refSearch: ''};
+    return {type: 'value', secretId: 0, configId: 0, addressDeploymentId: 0, addressSpaceId: 0, asset: '', assetId: 0, version: 0, refSearch: '', value: row.value || ''};
 }
 
 function envVarCount(arr) {
@@ -1729,6 +1772,7 @@ function formEnvVars(form) {
             if (!key) return null;
             if (v.type === 'secret') return Number(v.secretId || 0) ? [key, {secretId: Number(v.secretId)}] : null;
             if (v.type === 'config') return Number(v.configId || 0) ? [key, {configId: Number(v.configId)}] : null;
+            if (v.type === 'address') return Number(v.addressDeploymentId || 0) ? [key, {addressDeploymentId: Number(v.addressDeploymentId), addressSpaceId: Number(v.addressSpaceId || 0)}] : null;
             if (v.type === 'asset') return Number(v.assetId || 0) ? [key, {asset: (v.asset || '').trim(), assetId: Number(v.assetId || 0)}] : null;
             return [key, {value: v.value || ''}];
         })
@@ -1907,6 +1951,11 @@ function invalidEnvVarsReason(form) {
             if (!(row.asset || '').trim()) return `Select an asset for environment variable "${key}".`;
             continue;
         }
+        if (row.type === 'address') {
+            if (!Number(row.addressDeploymentId || 0)) return `Select a deployment address for environment variable "${key}".`;
+            if (Number(row.addressSpaceId) < 0) return `Select a valid deployment address for environment variable "${key}".`;
+            continue;
+        }
         if (row.type && row.type !== 'value') return `Select a valid type for environment variable "${key}".`;
     }
     return '';
@@ -1920,10 +1969,13 @@ function envVarsToFormRows(envVars) {
         const secretId = Number(value?.secretId || 0);
         const configId = Number(value?.configId || 0);
         const assetId = Number(value?.assetId || 0);
+        const addressDeploymentId = Number(value?.addressDeploymentId || 0);
+        const addressSpaceId = Number(value?.addressSpaceId || 0);
         const version = Number(value?.version || 0);
         if (secretId) return newEnvRow({key, type: 'secret', secretId});
         if (configId) return newEnvRow({key, type: 'config', configId});
         if (assetId) return newEnvRow({key, type: 'asset', asset: value?.asset || '', assetId, version});
+        if (addressDeploymentId) return newEnvRow({key, type: 'address', addressDeploymentId, addressSpaceId});
         return newEnvRow({key, type: 'value', value: value?.value || ''});
     });
 }
