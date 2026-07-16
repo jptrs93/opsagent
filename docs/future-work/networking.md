@@ -1,6 +1,6 @@
 # Networking
 
-Design for the built-in networking layer: per-workload addressing, cross-machine mesh, service discovery, ingress, network policy, and load balancing. Machine-local virtual networking is partially implemented; the cross-machine mesh, ingress, policy, and load-balancing sections remain future work. See `docs/engineering/networking.md` for the current implementation.
+Design for the built-in networking layer: per-workload addressing, cross-machine mesh, service discovery, ingress, network policy, and load balancing. Machine-local virtual networking and TLS passthrough ingress are partially implemented; the cross-machine mesh, L7 ingress, policy, and load-balancing sections remain future work. See `docs/engineering/networking.md` for the current implementation.
 
 ## Goals and principles
 
@@ -74,7 +74,7 @@ Two distinct concerns with opposite operational profiles:
 Layout per machine:
 
 - **Agent** (existing opendeploy process, root): deployment operator plus the networking reconciler as an in-process subsystem. In-agent because there is no availability gain from separating it (kernel state persists; no new containers start while the agent is down), no privilege gain (the agent is already root), and veth setup / promotion route flips sequence synchronously with runner and operator code paths — a separate daemon would recreate the kubelet↔CNI RPC boundary this design avoids.
-- **Netproxy system deployment**: an internal per-machine system deployment run via containerd, following the `OPENDEPLOY` internal-deployment pattern. It hosts the DNS server on every machine, the ingress proxy where the machine is ingress-designated, and later opt-in L7 east-west and TCP passthrough. DNS lives here, not in the agent, because name resolution is datapath: it must survive agent restarts (including every self-upgrade).
+- **Netproxy system deployment**: an internal per-machine system deployment run via containerd, following the `OPENDEPLOY` internal-deployment pattern. It hosts the DNS server and current TLS-passthrough ingress on every machine, and later opt-in L7 east-west routing and HTTPS termination. DNS lives here, not in the agent, because name resolution is datapath: it must survive agent restarts (including every self-upgrade).
 
 ### Netproxy system deployment
 
@@ -183,7 +183,12 @@ The proxy runs inside the netproxy system deployment (see Component model): a co
 
 ### Route configuration and collision rules
 
-Routes are configured only on deployments: `ingress: [{kind: HTTPS, hostname, containerPort, pathPrefix?}]`. A claim is `(hostname, pathPrefix)`.
+Routes are configured only on deployments. Every kind owns a dedicated nested
+configuration message. The initial implemented declaration is
+`ingress: [{kind: TLS_PASSTHROUGH, hostname, tlsPassthroughConfig: {hostPort?, containerPort}}]`.
+`hostPort` defaults to `443`; a passthrough claim is `(hostPort, hostname)`.
+Future HTTPS and HTTP/3 kinds receive their own configuration messages rather
+than sharing passthrough fields. HTTPS route claims will be `(hostname, pathPrefix)`.
 
 - Exact duplicate claims across deployments are rejected at config save, naming the conflicting deployment. Validation is race-free because the primary is the single writer of all deployment configs.
 - Overlapping prefixes on one domain are composition, not collision (`/` → frontend, `/api` → backend). Runtime routing is longest-prefix-match: deterministic, no priorities, no regex routes.
@@ -272,7 +277,11 @@ Deployment config gains a `networking` section (side panel in the UI):
 ```
 networking:
   portForwarding: [{protocol: TCP, hostPort: 443, containerPort: 443}] # raw host-interface DNAT
-  ingress:        [{kind: HTTPS, hostname: api.example.com, pathPrefix: /api, containerPort: 8080}]
+  ingress: [{
+    kind: TLS_PASSTHROUGH,
+    hostname: db.example.com,
+    tlsPassthroughConfig: {hostPort: 443, containerPort: 5432},
+  }]
   allowedFrom:    [other-deployment]                                      # cross-space allowlist; same-space is allowed by default
   # future: trafficPolicy, replica-related knobs
 ```

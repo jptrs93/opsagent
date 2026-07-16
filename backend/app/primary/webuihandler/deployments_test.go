@@ -465,6 +465,29 @@ func TestValidateDeploymentSpecAcceptsVirtualPortForwarding(t *testing.T) {
 	}
 }
 
+func TestValidateDeploymentSpecAcceptsTlsPassthroughIngress(t *testing.T) {
+	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+		Networking: apigen.NetworkingConfig{
+			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+			Ingress: []*apigen.Ingress{{
+				Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+				Hostname: "db.example.com",
+				TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
+					ContainerPort: 5432,
+				},
+			}},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
+	}
+	if got := len(spec.Networking.Ingress); got != 1 {
+		t.Fatalf("ingress count = %d, want 1", got)
+	}
+}
+
 func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 	tests := []struct {
 		name string
@@ -542,6 +565,57 @@ func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 				},
 			},
 			want: "duplicate TCP host port 18080",
+		},
+		{
+			name: "host mode with ingress",
+			spec: apigen.DeploymentSpec{
+				Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+				Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+				Networking: apigen.NetworkingConfig{
+					Mode: apigen.NetworkingMode_NETWORKING_MODE_HOST,
+					Ingress: []*apigen.Ingress{{
+						Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+						Hostname: "db.example.com",
+						TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
+							ContainerPort: 5432,
+						},
+					}},
+				},
+			},
+			want: "requires virtual mode",
+		},
+		{
+			name: "tls passthrough without config",
+			spec: apigen.DeploymentSpec{
+				Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+				Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+				Networking: apigen.NetworkingConfig{
+					Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+					Ingress: []*apigen.Ingress{{
+						Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+						Hostname: "db.example.com",
+					}},
+				},
+			},
+			want: "tlsPassthroughConfig",
+		},
+		{
+			name: "invalid ingress hostname",
+			spec: apigen.DeploymentSpec{
+				Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+				Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+				Networking: apigen.NetworkingConfig{
+					Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+					Ingress: []*apigen.Ingress{{
+						Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+						Hostname: "not a hostname",
+						TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
+							ContainerPort: 5432,
+						},
+					}},
+				},
+			},
+			want: "hostname",
 		},
 	}
 	for _, tt := range tests {
@@ -644,6 +718,107 @@ func TestDeploymentCreatePersistsInitialStoppedDesiredState(t *testing.T) {
 		t.Fatalf("history len = %d, want create only", len(history))
 	} else if history[0].DesiredState.Version != "1.25" || history[0].DesiredState.Running {
 		t.Fatalf("history desired state = %+v, want stopped 1.25", history[0].DesiredState)
+	}
+}
+
+func TestDeploymentCreateRejectsIngressClaimsAlreadyUsedOnNode(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	primary := store.EnsurePrimaryNode("primary", "primary")
+	h := &Handler{Store: store, NodeID: primary.ID}
+	ingress := func(hostname string) apigen.NetworkingConfig {
+		return apigen.NetworkingConfig{
+			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+			Ingress: []*apigen.Ingress{{
+				Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+				Hostname: hostname,
+				TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
+					HostPort:      8443,
+					ContainerPort: 5432,
+				},
+			}},
+		}
+	}
+	_, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "database"},
+		NodeID:   primary.ID,
+		Spec: apigen.DeploymentSpec{
+			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "postgres"}},
+			Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+			Networking: ingress("db.example.com"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("creating first ingress deployment: %v", err)
+	}
+	_, err = h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "database-copy"},
+		NodeID:   primary.ID,
+		Spec: apigen.DeploymentSpec{
+			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "postgres"}},
+			Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+			Networking: ingress("DB.EXAMPLE.COM"),
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "already claimed") {
+		t.Fatalf("err = %v, want duplicate ingress claim rejection", err)
+	}
+	_, err = h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "direct"},
+		NodeID:   primary.ID,
+		Spec: apigen.DeploymentSpec{
+			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+			Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+			Networking: apigen.NetworkingConfig{
+				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+				PortForwarding: []*apigen.PortForward{{
+					Protocol:      apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP,
+					HostPort:      8443,
+					ContainerPort: 443,
+				}},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "conflicts with ingress") {
+		t.Fatalf("err = %v, want raw port conflict rejection", err)
+	}
+}
+
+func TestDeploymentCreateRejectsPrimaryIngressOnPort443(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	primary := store.EnsurePrimaryNode("primary", "primary")
+	worker := store.EnsurePrimaryNode("worker", "worker")
+	h := &Handler{Store: store, NodeID: primary.ID}
+	spec := func() apigen.DeploymentSpec {
+		return apigen.DeploymentSpec{
+			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "postgres"}},
+			Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+			Networking: apigen.NetworkingConfig{
+				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+				Ingress: []*apigen.Ingress{{
+					Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+					Hostname: "db.example.com",
+					TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
+						ContainerPort: 5432,
+					},
+				}},
+			},
+		}
+	}
+	_, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "primary-database"},
+		NodeID:   primary.ID,
+		Spec:     spec(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "reserved for the primary Web UI") {
+		t.Fatalf("err = %v, want primary :443 reservation", err)
+	}
+	_, err = h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "worker-database"},
+		NodeID:   worker.ID,
+		Spec:     spec(),
+	})
+	if err != nil {
+		t.Fatalf("worker :443 ingress was rejected: %v", err)
 	}
 }
 

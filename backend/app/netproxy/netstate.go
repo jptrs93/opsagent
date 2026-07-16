@@ -25,8 +25,13 @@ func RunNetStateWriter(ctx context.Context, store deploymentStore, predicate sto
 	seq := int64(0)
 	write := func() {
 		seq++
-		if err := WriteNetState(path, RenderNetState(seq, machine, store.FetchDeploymentSnapshot(predicate))); err != nil {
+		state := RenderNetState(seq, machine, store.FetchDeploymentSnapshot(predicate))
+		if err := WriteNetState(path, state); err != nil {
 			slog.Warn("writing netproxy netstate failed", "path", path, "err", err)
+			return
+		}
+		if err := network.Default.SetNetproxyIngress(state.Ingress); err != nil {
+			slog.Warn("reconciling netproxy ingress forwarding failed", "err", err)
 		}
 	}
 	write()
@@ -48,11 +53,13 @@ func RunNetStateWriter(ctx context.Context, store deploymentStore, predicate sto
 func RenderNetState(seq int64, machine string, items []apigen.DeploymentWithStatus) *apigen.NetState {
 	prefix, _ := network.Default.PrefixValue()
 	services := make([]*apigen.DnsService, 0, len(items))
+	ingress := make([]*apigen.NetIngress, 0)
 	for _, item := range items {
 		if item.Config.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}
 		ready := readyEndpoints(item.Status.Runner.Endpoints)
+		ingress = append(ingress, renderIngress(item, ready)...)
 		if len(ready) == 0 {
 			continue
 		}
@@ -68,7 +75,51 @@ func RenderNetState(seq int64, machine string, items []apigen.DeploymentWithStat
 		Machine:           machine,
 		DnsServices:       services,
 		UpstreamResolvers: hostResolvers(),
+		Ingress:           ingress,
 	}
+}
+
+func renderIngress(item apigen.DeploymentWithStatus, endpoints []*apigen.Endpoint) []*apigen.NetIngress {
+	var out []*apigen.NetIngress
+	for _, route := range item.Config.Spec.Networking.Ingress {
+		if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH || route.TlsPassthroughConfig == nil {
+			continue
+		}
+		hostname := ingressHostname(route.Hostname)
+		if hostname == "" {
+			continue
+		}
+		port := route.TlsPassthroughConfig.HostPort
+		if port == 0 {
+			port = 443
+		}
+		if port < 1 || port > 65535 || route.TlsPassthroughConfig.ContainerPort < 1 || route.TlsPassthroughConfig.ContainerPort > 65535 {
+			continue
+		}
+		backends := make([]*apigen.IngressBackend, 0, len(endpoints))
+		for _, endpoint := range endpoints {
+			if endpoint.Address == "" {
+				continue
+			}
+			backends = append(backends, &apigen.IngressBackend{
+				Address: endpoint.Address,
+				Port:    route.TlsPassthroughConfig.ContainerPort,
+			})
+		}
+		out = append(out, &apigen.NetIngress{
+			Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+			Hostname: hostname,
+			TlsPassthrough: &apigen.TlsPassthroughNetIngress{
+				HostPort: port,
+				Backends: backends,
+			},
+		})
+	}
+	return out
+}
+
+func ingressHostname(value string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), ".")
 }
 
 func WriteNetState(path string, state *apigen.NetState) error {

@@ -49,4 +49,10 @@ func TestEnsureTestCertsReusesCAForServerRenewal(t *testing.T) {
 	if !certSignedBy(c.ServerCert, c.CACert) {
 		t.Fatal("renewed server certificate is not signed by the test CA")
 	}
+	for _, host := range tlsIngressHosts {
+		cert, _, bundle, _, _ := c.tlsIngressCertPaths(host)
+		if !certSignedBy(cert, c.CACert) || !certContainsDNS(cert, host) || !fileNonEmpty(bundle) {
+			t.Fatalf("TLS ingress certificate is not valid for %s", host)
+		}
+	}
 }

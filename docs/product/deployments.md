@@ -86,6 +86,7 @@ responses redact that runner config to an empty `runner` object.
 - `HOST` joins the host network namespace.
 - `VIRTUAL` creates a per-container network namespace with a derived IPv6 instance address and machine-local IPv4 egress address.
 - `portForwarding` publishes host-interface TCP or UDP ports to container ports through nftables DNAT and requires `VIRTUAL`, e.g. `{protocol: TCP, hostPort: 443, containerPort: 443}`.
+- `ingress` currently accepts `TLS_PASSTHROUGH` routes in virtual mode. Each route has a hostname and `tlsPassthroughConfig: {hostPort, containerPort}`; `hostPort: 0` defaults to `443`. Routes are rendered into local netproxy state, which selects by TLS SNI and relays the original TCP stream to a READY backend without TLS termination. The primary node reserves `:443` for the Web UI until both share one listener.
 - Virtual-mode deployments publish endpoint status for `.internal` DNS discovery through the per-machine netproxy deployment.
 - Cross-machine virtual networking, policy, and public ingress are not implemented yet.
 

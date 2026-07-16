@@ -3,9 +3,10 @@ import crypto from 'node:crypto';
 import {caseDef as nixDockerBaselineCase} from './nix-docker-baseline.js';
 import {caseDef as nixDockerVirtualNetworkCase} from './nix-docker-virtual-network.js';
 import {hostRolloverCase, virtualPortForwardingCase, virtualRolloverCase} from './rollover-networking.js';
+import {tlsPassthroughCases} from './tls-passthrough.js';
 import {installVirtualAuthenticator} from '../helpers/webauthn.js';
 import {
-  acceptFirstWaitingWorker,
+  acceptWaitingWorker,
   bootstrapFirstUser,
   configureLargeAssetStorage,
   configureGithubToken,
@@ -138,10 +139,26 @@ export const orderedCases = [
   {
     id: 'worker-enrolled',
     title: 'enroll worker',
-    description: 'Accepts the first waiting secondary enrollment request as worker-1.',
+    description: 'Accepts worker-1 by its persistent secondary enrollment identity.',
     requires: ['passkey-login'],
     async run(ctx) {
-      await acceptFirstWaitingWorker(ctx.page);
+      await acceptWaitingWorker(ctx.page, {
+        machineID: requiredEnv('OPD_WORKER_1_MACHINE_ID'),
+        workerName: 'worker-1',
+      });
+    },
+  },
+  {
+    id: 'worker-2-enrolled',
+    title: 'enroll second worker',
+    description: 'Accepts worker-2 by its persistent secondary enrollment identity.',
+    requires: ['worker-enrolled'],
+    async run(ctx) {
+      await acceptWaitingWorker(ctx.page, {
+        machineID: requiredEnv('OPD_WORKER_2_MACHINE_ID'),
+        workerName: 'worker-2',
+        expectNoPending: true,
+      });
     },
   },
   nixDockerBaselineCase,
@@ -149,6 +166,7 @@ export const orderedCases = [
   hostRolloverCase,
   virtualRolloverCase,
   virtualPortForwardingCase,
+  ...tlsPassthroughCases,
   {
     id: 'private-github-deployment',
     title: 'create private github deployment',

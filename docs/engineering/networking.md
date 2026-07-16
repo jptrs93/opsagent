@@ -2,7 +2,7 @@
 
 ## Overview
 
-OpenDeploy has a machine-local virtual networking implementation for container deployments. It is implemented in-process in the agent, with the Linux kernel as the dataplane. The cross-machine mesh, ingress proxy, and network policy design remain future work; see `docs/future-work/networking.md`.
+OpenDeploy has a machine-local virtual networking implementation for container deployments. It is implemented in-process in the agent, with the Linux kernel as the dataplane. The cross-machine mesh, L7 ingress proxy, and network policy design remain future work; see `docs/future-work/networking.md`.
 
 ## Current Scope
 
@@ -18,13 +18,14 @@ Implemented today:
 - ROLLOVER in virtual mode starts a candidate on a run-scoped IPv6 address and promotes it by flipping the stable-address host route.
 - Runner status publishes READY/DOWN endpoint state for virtual-mode deployments.
 - A per-machine internal netproxy deployment runs the built-in DNS process and answers `.internal` AAAA records from endpoint state.
+- Virtual-mode deployments can declare `TLS_PASSTHROUGH` ingress routes. The local agent renders them and their READY IPv6 backends into `netstate.pb`, derives netproxy TCP forwarding from their host-port set, and netproxy forwards TLS streams by SNI without termination.
 
 Not implemented yet:
 
 - WireGuard mesh and cross-machine workload routing.
 - Distributed netmap containing machine peers, keys, endpoints, routes, and policy state.
 - Source anti-spoofing and destination ingress policy.
-- Embedded public ingress proxy and ACME certificate distribution.
+- Embedded public L7 ingress proxy, including TLS termination and ACME certificate distribution.
 - Service virtual addresses and socket-level load balancing.
 - Cross-machine `ingress` routes (`HTTPS`, `TLS_PASSTHROUGH`, `HTTP3`) and the embedded proxy that serves them.
 
@@ -37,6 +38,14 @@ Deployment networking is configured on `DeploymentSpec.networking`.
 - `NETWORKING_MODE_UNSPECIFIED` is invalid for create/update requests. Deployment specs must set an explicit mode.
 
 `networking.portForwarding` maps one host-interface TCP or UDP port to one container port and requires virtual mode. TCP and UDP claims are independent, so the same numeric host port can be published once for TCP and once for UDP.
+
+`networking.ingress` also requires virtual mode. The currently supported shape is a
+`TLS_PASSTHROUGH` route with a hostname and a `tlsPassthroughConfig` containing
+`containerPort` plus optional `hostPort` (zero/default is `443`). The route and
+raw TCP forwarding cannot claim the same host port on a node; multiple distinct
+hostnames can share one ingress host port. Netproxy reads the TLS ClientHello to
+match SNI, then forwards the original TCP stream to a READY backend. The primary
+node reserves `:443` for the Web UI until both can share one listener.
 
 Virtual networking supports ROLLOVER without host-port bind contention because candidate containers bind inside their own network namespace. Host networking also supports ROLLOVER, but it is cooperative: the candidate must not bind conflicting host ports before signaling readiness, then waits for the old runner to stop and release the port.
 
@@ -77,9 +86,16 @@ For virtual-mode containers, the runner asks `backend/lib/network` to create net
 
 The container receives a generated `resolv.conf` pointing at the machine-local netproxy DNS address once the netproxy deployment id is known. The netproxy deployment itself uses the host resolver to avoid a DNS dependency cycle.
 
-## Netproxy DNS
+## Netproxy Services
 
-The agent writes full `NetState` protobuf snapshots to `/var/lib/opendeploy/netproxy/netstate.pb`. The netproxy DNS process polls this file, answers `.internal` AAAA records for READY virtual endpoints, and forwards unmatched queries to the host's upstream resolvers.
+The agent writes full node-local `NetState` protobuf snapshots to `/var/lib/opendeploy/netproxy/netstate.pb`. The snapshot contains DNS records and rendered ingress routes. Netproxy watches its directory for the atomic write-rename updates, answers `.internal` AAAA records for READY virtual endpoints, and forwards unmatched queries to the host's upstream resolvers.
+
+For TLS passthrough, netproxy listens on each rendered ingress TCP host port. It
+reads a bounded TLS ClientHello to select an exact SNI route, dials a READY
+backend's virtual IPv6 address, and relays the bytes unchanged. Connections
+without usable SNI, unknown names, malformed ClientHellos, or routes without a
+READY backend are closed. Backends see netproxy as the peer; PROXY protocol is
+not used in v1.
 
 DNS names are derived from deployment and space identity:
 
@@ -108,14 +124,20 @@ The node/space/deployment/kind/field layout replaced the earlier kind/deployment
 
 The only pre-existing virtual-mode workload is the per-machine `opendeploy-net` internal deployment in space `0`. An agent can reattach its old container and network namespace across an upgrade, so each `opendeploy-net` deployment must be redeployed to the new OpenDeploy version after upgrading. The normal deployment replacement tears down the old namespace and recreates it with the newly derived address; no database or prefix migration is required.
 
-## Future Ingress Shape
+## Ingress Shape
 
-The future proxy-backed ingress config is separate from raw `portForwarding` and is not implemented yet. Planned route examples:
+The proxy-backed ingress config is separate from raw `portForwarding`. Only the
+TLS-passthrough configuration and node-local rendering exist today:
 
 ```js
 ingress: [
-  {kind: "HTTPS", hostname: "api.example.com", pathPrefix: "/api", containerPort: 8080},
-  {kind: "TLS_PASSTHROUGH", hostname: "db.example.com", containerPort: 5432},
-  {kind: "HTTP3", hostname: "api.example.com", pathPrefix: "/api", containerPort: 8080},
+  {
+    kind: "TLS_PASSTHROUGH",
+    hostname: "db.example.com",
+    tlsPassthroughConfig: {hostPort: 443, containerPort: 5432},
+  },
 ]
 ```
+
+Future kinds will receive their own kind-specific configuration message rather
+than extending `TlsPassthroughConfig` with unrelated fields.

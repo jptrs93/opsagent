@@ -21,6 +21,7 @@ func New(prefix Prefix, netproxyDeploymentID int32) *Manager {
 		hasPrefix:            !prefix.IsZero(),
 		netproxyDeploymentID: netproxyDeploymentID,
 		hostPorts:            map[int32]hostPortsEntry{},
+		netproxyIngressPorts: map[uint16]struct{}{},
 		current:              map[int32]*ContainerNet{},
 	}
 }
@@ -42,6 +43,11 @@ type Manager struct {
 	// hostPorts is the desired DNAT state per deployment; the nftables table is
 	// rebuilt from this map on every change.
 	hostPorts map[int32]hostPortsEntry
+
+	// netproxyIngressPorts is the node-local ingress listener set rendered into
+	// NetState. It is forwarded to the current netproxy container separately
+	// from the immutable netproxy deployment spec.
+	netproxyIngressPorts map[uint16]struct{}
 
 	// current tracks which container currently receives each deployment's stable
 	// route after publication or promotion.

@@ -1,5 +1,12 @@
 package network
 
+import (
+	"sort"
+
+	"github.com/jptrs93/opsagent/backend/apigen"
+	"golang.org/x/sys/unix"
+)
+
 // hostPortsEntry records one deployment's published ports and which container
 // currently owns them. Ownership prevents a superseded runner's teardown from
 // wiping the rules its rollover replacement just installed.
@@ -33,7 +40,76 @@ func (m *Manager) ClearHostPorts(deploymentID int32, containerID string) error {
 		return nil
 	}
 	delete(m.hostPorts, deploymentID)
+	if deploymentID == m.netproxyDeploymentID {
+		delete(m.current, deploymentID)
+	}
 	return m.reconcileNft()
+}
+
+// SetNetproxyIngress updates the rendered ingress listener set. It is derived
+// state, not part of the opendeploy-net deployment spec.
+func (m *Manager) SetNetproxyIngress(ingress []*apigen.NetIngress) error {
+	ports := netproxyIngressPorts(ingress)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.netproxyIngressPorts = ports
+	m.reconcileNetproxyHostPortsLocked()
+	return m.reconcileNft()
+}
+
+func netproxyIngressPorts(ingress []*apigen.NetIngress) map[uint16]struct{} {
+	ports := make(map[uint16]struct{})
+	for _, route := range ingress {
+		if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH || route.TlsPassthrough == nil {
+			continue
+		}
+		port := route.TlsPassthrough.HostPort
+		if port >= 1 && port <= 65535 {
+			ports[uint16(port)] = struct{}{}
+		}
+	}
+	return ports
+}
+
+// PublishNetproxy publishes the current netproxy container and applies the
+// ingress listener set already rendered from local deployment state.
+func (m *Manager) PublishNetproxy(cn *ContainerNet) error {
+	if cn == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.current[m.netproxyDeploymentID] = cn
+	m.reconcileNetproxyHostPortsLocked()
+	return m.reconcileNft()
+}
+
+func (m *Manager) reconcileNetproxyHostPortsLocked() {
+	if m.netproxyDeploymentID == 0 {
+		return
+	}
+	cn := m.current[m.netproxyDeploymentID]
+	if cn == nil || len(m.netproxyIngressPorts) == 0 {
+		delete(m.hostPorts, m.netproxyDeploymentID)
+		return
+	}
+	ports := make([]int, 0, len(m.netproxyIngressPorts))
+	for port := range m.netproxyIngressPorts {
+		ports = append(ports, int(port))
+	}
+	sort.Ints(ports)
+	rules := make([]HostPortRule, 0, len(ports))
+	for _, port := range ports {
+		rules = append(rules, HostPortRule{
+			Protocol:   unix.IPPROTO_TCP,
+			HostPort:   uint16(port),
+			TargetPort: uint16(port),
+			TargetV6:   cn.Addr,
+			TargetV4:   cn.V4,
+		})
+	}
+	m.hostPorts[m.netproxyDeploymentID] = hostPortsEntry{owner: cn.ContainerID, rules: rules}
 }
 
 // SetCurrentNet records the container currently receiving a deployment's stable

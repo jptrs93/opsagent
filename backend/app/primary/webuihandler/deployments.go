@@ -62,6 +62,9 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 			return nil, DuplicateDeploymentErr
 		}
 	}
+	if err := h.validateNodeNetworkingClaims(req.NodeID, 0, spec); err != nil {
+		return nil, err
+	}
 
 	cfg := h.Store.MustCreateDeploymentForNode(ctx, &cid, req.NodeID, spec, req.DesiredState)
 	return cfg, nil
@@ -101,6 +104,9 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 	if !req.Spec.IsZero() {
 		validated, err := h.validateDeploymentSpec(&req.Spec)
 		if err != nil {
+			return nil, err
+		}
+		if err := h.validateNodeNetworkingClaims(cfg.NodeID, cfg.ID, validated); err != nil {
 			return nil, err
 		}
 		if err := h.validateManagedVolumeMounts(validated, cfg.NodeID, cfg.ID); err != nil {
@@ -673,10 +679,16 @@ func validateNetworkingConfig(cfg *apigen.NetworkingConfig, runner *apigen.Runne
 	}
 	switch cfg.Mode {
 	case apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL:
-		return validatePortForwarding(cfg.PortForwarding)
+		if err := validatePortForwarding(cfg.PortForwarding); err != nil {
+			return err
+		}
+		return validateIngress(cfg.Ingress)
 	case apigen.NetworkingMode_NETWORKING_MODE_HOST:
 		if len(cfg.PortForwarding) > 0 {
 			return invalidConfigErrf("networking.portForwarding requires virtual mode")
+		}
+		if len(cfg.Ingress) > 0 {
+			return invalidConfigErrf("networking.ingress requires virtual mode")
 		}
 		return nil
 	default:
@@ -706,6 +718,127 @@ func validatePortForwarding(portForwarding []*apigen.PortForward) error {
 			return invalidConfigErrf("networking.portForwarding: duplicate %s host port %d", portForwardProtocolName(pf.Protocol), pf.HostPort)
 		}
 		seen[key] = true
+	}
+	return nil
+}
+
+const defaultIngressHostPort = int32(443)
+
+func validateIngress(ingress []*apigen.Ingress) error {
+	seen := map[ingressRouteKey]bool{}
+	for _, route := range ingress {
+		if route == nil {
+			return invalidConfigErrf("networking.ingress: entry is required")
+		}
+		hostname, ok := ingressHostname(route.Hostname)
+		if !ok {
+			return invalidConfigErrf("networking.ingress.hostname must be a valid DNS hostname")
+		}
+		if route.Kind != apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH {
+			return invalidConfigErrf("networking.ingress.kind: unsupported value %d", route.Kind)
+		}
+		if route.TlsPassthroughConfig == nil {
+			return invalidConfigErrf("networking.ingress.tlsPassthroughConfig is required for TLS_PASSTHROUGH")
+		}
+		cfg := route.TlsPassthroughConfig
+		if cfg.HostPort < 0 || cfg.HostPort > 65535 {
+			return invalidConfigErrf("networking.ingress.tlsPassthroughConfig.hostPort must be between 1 and 65535, or zero for the default")
+		}
+		if cfg.ContainerPort < 1 || cfg.ContainerPort > 65535 {
+			return invalidConfigErrf("networking.ingress.tlsPassthroughConfig.containerPort must be between 1 and 65535")
+		}
+		key := ingressRouteKey{hostPort: ingressHostPort(cfg.HostPort), hostname: hostname}
+		if seen[key] {
+			return invalidConfigErrf("networking.ingress: duplicate TLS_PASSTHROUGH route for %s on host port %d", hostname, key.hostPort)
+		}
+		seen[key] = true
+	}
+	return nil
+}
+
+type ingressRouteKey struct {
+	hostPort int32
+	hostname string
+}
+
+func ingressHostPort(port int32) int32 {
+	if port == 0 {
+		return defaultIngressHostPort
+	}
+	return port
+}
+
+func ingressHostname(value string) (string, bool) {
+	hostname := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), ".")
+	if hostname == "" || len(hostname) > 253 {
+		return "", false
+	}
+	for _, label := range strings.Split(hostname, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return "", false
+		}
+		for _, char := range label {
+			if (char < 'a' || char > 'z') && (char < '0' || char > '9') && char != '-' {
+				return "", false
+			}
+		}
+	}
+	return hostname, true
+}
+
+func (h *Handler) validateNodeNetworkingClaims(nodeID, deploymentID int32, candidate *apigen.DeploymentSpec) error {
+	if candidate == nil {
+		return nil
+	}
+	routes := map[ingressRouteKey]int32{}
+	tcpPorts := map[int32]int32{}
+	add := func(id int32, spec apigen.DeploymentSpec) error {
+		if spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+			return nil
+		}
+		for _, pf := range spec.Networking.PortForwarding {
+			if pf != nil && pf.Protocol == apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP && pf.HostPort >= 1 && pf.HostPort <= 65535 {
+				if _, claimed := tcpPorts[pf.HostPort]; !claimed {
+					tcpPorts[pf.HostPort] = id
+				}
+			}
+		}
+		for _, route := range spec.Networking.Ingress {
+			if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH || route.TlsPassthroughConfig == nil {
+				continue
+			}
+			hostname, ok := ingressHostname(route.Hostname)
+			if !ok {
+				continue
+			}
+			key := ingressRouteKey{hostPort: ingressHostPort(route.TlsPassthroughConfig.HostPort), hostname: hostname}
+			// The primary Web UI owns :443 until it and ingress share one listener.
+			if id == deploymentID && nodeID == h.NodeID && key.hostPort == defaultIngressHostPort {
+				return invalidConfigErrf("networking.ingress: host port %d is reserved for the primary Web UI", key.hostPort)
+			}
+			if owner, claimed := routes[key]; claimed && owner != id {
+				return invalidConfigErrf("networking.ingress: %s on host port %d is already claimed by another deployment on this node", hostname, key.hostPort)
+			}
+			routes[key] = id
+		}
+		return nil
+	}
+
+	for _, item := range h.Store.FetchDeploymentSnapshot(nil) {
+		if item.Config.NodeID != nodeID || item.Config.ID == deploymentID {
+			continue
+		}
+		if err := add(item.Config.ID, item.Config.Spec); err != nil {
+			return err
+		}
+	}
+	if err := add(deploymentID, *candidate); err != nil {
+		return err
+	}
+	for key := range routes {
+		if _, claimed := tcpPorts[key.hostPort]; claimed {
+			return invalidConfigErrf("networking: TCP host port %d conflicts with ingress on this node", key.hostPort)
+		}
 	}
 	return nil
 }

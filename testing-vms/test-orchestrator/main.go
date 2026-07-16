@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +21,12 @@ import (
 )
 
 const mockUpgradeVersion = "v1.0.0"
+
+var tlsIngressHosts = []string{
+	"one.ingress.opendeploy.test",
+	"two.ingress.opendeploy.test",
+	"three.ingress.opendeploy.test",
+}
 
 type config struct {
 	ScriptDir string
@@ -42,6 +49,7 @@ type config struct {
 
 	PrimaryName    string
 	SecondaryName  string
+	Secondary2Name string
 	RepoMirrorName string
 	NetworkName    string
 	VMType         string
@@ -92,6 +100,7 @@ type config struct {
 	PlaywrightBaseURLSet     bool
 	PlaywrightHostPort       string
 	PlaywrightSecondaryPorts string
+	PlaywrightTLSIngressPort string
 	PlaywrightTunnelCmds     []*exec.Cmd
 
 	OpenDeployGitHubToken string
@@ -189,6 +198,7 @@ func loadConfig(resolveLatestRelease bool) (*config, error) {
 
 	c.PrimaryName = env("OPD_VM_PRIMARY", "opendeploy-primary")
 	c.SecondaryName = env("OPD_VM_SECONDARY", "opendeploy-secondary")
+	c.Secondary2Name = env("OPD_VM_SECONDARY_2", "opendeploy-secondary-2")
 	c.RepoMirrorName = env("OPD_VM_REPO_MIRROR", "opendeploy-repo-mirror")
 	c.NetworkName = env("OPD_VM_NETWORK", "user-v2")
 	c.VMType = env("OPD_VM_TYPE", "vz")
@@ -276,6 +286,7 @@ func loadConfig(resolveLatestRelease bool) (*config, error) {
 	c.PlaywrightDockerImage = env("OPD_PLAYWRIGHT_DOCKER_IMAGE", "mcr.microsoft.com/playwright:v1.57.0-noble")
 	c.PlaywrightHostPort = env("OPD_PLAYWRIGHT_HOST_PORT", "8443")
 	c.PlaywrightSecondaryPorts = env("OPD_PLAYWRIGHT_SECONDARY_PORTS", "18181 18182")
+	c.PlaywrightTLSIngressPort = env("OPD_PLAYWRIGHT_TLS_INGRESS_PORT", "18443")
 	c.PlaywrightBaseURLSet = os.Getenv("OPD_PLAYWRIGHT_BASE_URL") != ""
 	c.PlaywrightBaseURL = env("OPD_PLAYWRIGHT_BASE_URL", c.WebBaseURL)
 	c.OpenDeployGitHubToken = os.Getenv("OPENDEPLOY_GITHUB_TOKEN")
@@ -1085,7 +1096,10 @@ func (c *config) startAllVMs() error {
 	if err := os.MkdirAll(c.StateDir, 0o755); err != nil {
 		return err
 	}
-	vms := []struct{ name, role string }{{c.PrimaryName, "node"}, {c.SecondaryName, "node"}}
+	vms := make([]struct{ name, role string }, 0, len(c.clusterVMNames()))
+	for _, name := range c.clusterVMNames() {
+		vms = append(vms, struct{ name, role string }{name, "node"})
+	}
 	type vmStartResult struct {
 		name   string
 		start  time.Time
@@ -1396,15 +1410,12 @@ func (c *config) ensureTestCerts() error {
 	for _, host := range []string{c.WebHost, "github.com", "api.github.com", "cache.nixos.org", c.RepoMirrorName, c.RepoRegistryHost, "localhost"} {
 		serverReady = serverReady && certContainsDNS(c.ServerCert, host)
 	}
-	if serverReady {
-		return nil
-	}
-
-	logf("Issuing VM server certificate from persistent test CA")
-	for _, path := range []string{c.ServerCert, c.ServerKey, c.ServerBundle, filepath.Join(c.CertDir, "server.csr"), filepath.Join(c.CertDir, "server.cnf")} {
-		_ = os.Remove(path)
-	}
-	cnf := fmt.Sprintf(`[req]
+	if !serverReady {
+		logf("Issuing VM server certificate from persistent test CA")
+		for _, path := range []string{c.ServerCert, c.ServerKey, c.ServerBundle, filepath.Join(c.CertDir, "server.csr"), filepath.Join(c.CertDir, "server.cnf")} {
+			_ = os.Remove(path)
+		}
+		cnf := fmt.Sprintf(`[req]
 distinguished_name = req_distinguished_name
 req_extensions = v3_req
 prompt = no
@@ -1427,25 +1438,99 @@ DNS.6 = %s
 DNS.7 = localhost
 IP.1 = 127.0.0.1
 `, c.WebHost, c.WebHost, c.RepoMirrorName, c.RepoRegistryHost)
-	cnfPath := filepath.Join(c.CertDir, "server.cnf")
+		cnfPath := filepath.Join(c.CertDir, "server.cnf")
+		if err := os.WriteFile(cnfPath, []byte(cnf), 0o644); err != nil {
+			return err
+		}
+		if err := quietRun("openssl", "req", "-newkey", "rsa:2048", "-nodes", "-keyout", c.ServerKey, "-out", filepath.Join(c.CertDir, "server.csr"), "-config", cnfPath); err != nil {
+			return err
+		}
+		if err := quietRun("openssl", "x509", "-req", "-days", "30", "-in", filepath.Join(c.CertDir, "server.csr"), "-CA", c.CACert, "-CAkey", c.CAKey, "-CAcreateserial", "-out", c.ServerCert, "-extensions", "v3_req", "-extfile", cnfPath); err != nil {
+			return err
+		}
+		if err := writeCertBundle(c.ServerCert, c.ServerKey, c.ServerBundle); err != nil {
+			return err
+		}
+	}
+	for _, host := range tlsIngressHosts {
+		if err := c.ensureTLSIngressCert(host); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *config) tlsIngressCertPaths(host string) (cert, key, bundle, csr, cnf string) {
+	name := "ingress-" + strings.ReplaceAll(host, ".", "-")
+	return filepath.Join(c.CertDir, name+".crt"), filepath.Join(c.CertDir, name+".key"), filepath.Join(c.CertDir, name+"-bundle.pem"), filepath.Join(c.CertDir, name+".csr"), filepath.Join(c.CertDir, name+".cnf")
+}
+
+func (c *config) ensureTLSIngressCert(host string) error {
+	cert, key, bundle, csr, cnfPath := c.tlsIngressCertPaths(host)
+	ready := fileNonEmpty(cert) && fileNonEmpty(key) && fileNonEmpty(bundle) && certValidFor(cert, 24*time.Hour) && certSignedBy(cert, c.CACert) && certContainsDNS(cert, host)
+	if ready {
+		return nil
+	}
+	logf("Issuing TLS ingress certificate for %s", host)
+	for _, path := range []string{cert, key, bundle, csr, cnfPath} {
+		_ = os.Remove(path)
+	}
+	cnf := fmt.Sprintf(`[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+CN = %s
+
+[v3_req]
+keyUsage = keyEncipherment, dataEncipherment, digitalSignature
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = %s
+`, host, host)
 	if err := os.WriteFile(cnfPath, []byte(cnf), 0o644); err != nil {
 		return err
 	}
-	if err := quietRun("openssl", "req", "-newkey", "rsa:2048", "-nodes", "-keyout", c.ServerKey, "-out", filepath.Join(c.CertDir, "server.csr"), "-config", cnfPath); err != nil {
+	if err := quietRun("openssl", "req", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", csr, "-config", cnfPath); err != nil {
 		return err
 	}
-	if err := quietRun("openssl", "x509", "-req", "-days", "30", "-in", filepath.Join(c.CertDir, "server.csr"), "-CA", c.CACert, "-CAkey", c.CAKey, "-CAcreateserial", "-out", c.ServerCert, "-extensions", "v3_req", "-extfile", cnfPath); err != nil {
+	if err := quietRun("openssl", "x509", "-req", "-days", "30", "-in", csr, "-CA", c.CACert, "-CAkey", c.CAKey, "-CAcreateserial", "-out", cert, "-extensions", "v3_req", "-extfile", cnfPath); err != nil {
 		return err
 	}
-	cert, err := os.ReadFile(c.ServerCert)
+	return writeCertBundle(cert, key, bundle)
+}
+
+func writeCertBundle(certPath, keyPath, bundlePath string) error {
+	cert, err := os.ReadFile(certPath)
 	if err != nil {
 		return err
 	}
-	key, err := os.ReadFile(c.ServerKey)
+	key, err := os.ReadFile(keyPath)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(c.ServerBundle, append(cert, key...), 0o600)
+	return os.WriteFile(bundlePath, append(cert, key...), 0o600)
+}
+
+func (c *config) tlsIngressPlaywrightEnv() (map[string]string, error) {
+	ca, err := os.ReadFile(c.CACert)
+	if err != nil {
+		return nil, err
+	}
+	env := map[string]string{"OPD_TLS_INGRESS_CA_B64": base64.StdEncoding.EncodeToString(ca)}
+	for _, host := range tlsIngressHosts {
+		_, _, bundle, _, _ := c.tlsIngressCertPaths(host)
+		contents, err := os.ReadFile(bundle)
+		if err != nil {
+			return nil, err
+		}
+		id := strings.ToUpper(strings.Split(host, ".")[0])
+		env["OPD_TLS_INGRESS_CERT_"+id+"_B64"] = base64.StdEncoding.EncodeToString(contents)
+	}
+	return env, nil
 }
 
 func certContainsDNS(path, host string) bool {
@@ -1966,7 +2051,12 @@ func (c *config) installCluster() error {
 	if err := c.substep("primary", "install primary service", c.installPrimary); err != nil {
 		return err
 	}
-	return c.substep("secondary", "install worker service", func() error { return c.installWorker(c.SecondaryName) })
+	for _, worker := range []string{c.SecondaryName, c.Secondary2Name} {
+		if err := c.substep(worker, "install worker service", func() error { return c.installWorker(worker) }); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *config) preparePlaywrightE2E() error {
@@ -1978,6 +2068,9 @@ func (c *config) preparePlaywrightE2E() error {
 			return err
 		}
 		if err := c.ensurePlaywrightSecondaryTunnels(); err != nil {
+			return err
+		}
+		if err := c.ensurePlaywrightTLSIngressTunnel(); err != nil {
 			return err
 		}
 	}
@@ -2072,6 +2165,22 @@ func (c *config) ensurePlaywrightSecondaryTunnels() error {
 	return nil
 }
 
+func (c *config) ensurePlaywrightTLSIngressTunnel() error {
+	if err := requireCmd("ssh"); err != nil {
+		return err
+	}
+	secondaryIP, err := c.vmIPv4(c.Secondary2Name)
+	if err != nil {
+		return err
+	}
+	cmd, err := c.startSSHTunnel(c.Secondary2Name, c.PlaywrightTLSIngressPort, secondaryIP, "443")
+	if err != nil {
+		return err
+	}
+	c.PlaywrightTunnelCmds = append(c.PlaywrightTunnelCmds, cmd)
+	return nil
+}
+
 func (c *config) startSSHTunnel(vm, localPort, remoteHost, remotePort string) (*exec.Cmd, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -2163,12 +2272,33 @@ func (c *config) runPlaywrightFlows() error {
 		return errors.New("no flows selected")
 	}
 	envFile, _ := loadShellEnvFile(c.E2EEnvFile)
+	worker1MachineID, err := c.workerEnrollmentMachineID(c.SecondaryName)
+	if err != nil {
+		return err
+	}
+	worker2MachineID, err := c.workerEnrollmentMachineID(c.Secondary2Name)
+	if err != nil {
+		return err
+	}
+	tlsIngressEnv, err := c.tlsIngressPlaywrightEnv()
+	if err != nil {
+		return err
+	}
 	upgradeVersion := c.UpgradeVersion
 	secondaryHost := c.SecondaryName
+	tlsIngressHost := c.Secondary2Name
+	tlsIngressPort := c.PlaywrightTLSIngressPort
 	if !c.PlaywrightBaseURLSet {
 		secondaryHost = "host.docker.internal"
-	} else if ip, err := c.vmIPv4(c.SecondaryName); err == nil && ip != "" {
-		secondaryHost = ip
+		tlsIngressHost = "host.docker.internal"
+	} else {
+		tlsIngressPort = "443"
+		if ip, err := c.vmIPv4(c.SecondaryName); err == nil && ip != "" {
+			secondaryHost = ip
+		}
+		if secondary2IP, secondErr := c.vmIPv4(c.Secondary2Name); secondErr == nil && secondary2IP != "" {
+			tlsIngressHost = secondary2IP
+		}
 	}
 	logf("Upgrade target version: %s", upgradeVersion)
 	envPairs := map[string]string{
@@ -2176,6 +2306,10 @@ func (c *config) runPlaywrightFlows() error {
 		"OPD_BACKEND_S3_ENDPOINT":  "http://" + c.SecondaryName + ":9000",
 		"OPD_IGNORE_HTTPS_ERRORS":  "true",
 		"OPD_SECONDARY_HOST":       secondaryHost,
+		"OPD_TLS_INGRESS_HOST":     tlsIngressHost,
+		"OPD_TLS_INGRESS_PORT":     tlsIngressPort,
+		"OPD_WORKER_1_MACHINE_ID":  worker1MachineID,
+		"OPD_WORKER_2_MACHINE_ID":  worker2MachineID,
 		"OPD_SETUP_PASSWORD":       envFile["OPD_SETUP_PASSWORD"],
 		"OPD_INSTALL_VERSION":      envFile["OPD_INSTALL_VERSION"],
 		"OPD_UPGRADE_VERSION":      upgradeVersion,
@@ -2184,6 +2318,9 @@ func (c *config) runPlaywrightFlows() error {
 		"OPD_POSTGRES_IMAGE":       c.PostgresImage,
 		"OPD_MINIO_IMAGE":          c.MinioImage,
 		"OPENDEPLOY_GITHUB_TOKEN":  c.OpenDeployGitHubToken,
+	}
+	for key, value := range tlsIngressEnv {
+		envPairs[key] = value
 	}
 	if err := c.step("playwright container preparation", "Docker runner and E2E dependencies", func() error {
 		if err := c.substep("prepare", "output directories and Docker access", c.preparePlaywrightE2E); err != nil {
@@ -2316,6 +2453,18 @@ func (c *config) vmQuietRun(name string, args ...string) error {
 
 func (c *config) vmOutput(name string, args ...string) (string, error) {
 	return output(append([]string{"limactl", "shell", "--tty=false", name}, args...)...)
+}
+
+func (c *config) workerEnrollmentMachineID(name string) (string, error) {
+	out, err := c.vmOutput(name, "sudo", "cat", "/var/lib/opendeploy/enrollment-machine-id")
+	if err != nil {
+		return "", err
+	}
+	id := strings.TrimSpace(out)
+	if id == "" {
+		return "", fmt.Errorf("secondary %s has no enrollment machine ID", name)
+	}
+	return id, nil
 }
 
 func (c *config) vmIPv4(name string) (string, error) {

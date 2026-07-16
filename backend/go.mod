@@ -8,6 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.95.0
 	github.com/benbjohnson/litestream v0.5.11
 	github.com/containerd/containerd/v2 v2.3.1
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-webauthn/webauthn v0.16.3
 	github.com/google/nftables v0.3.0
 	github.com/google/uuid v1.6.0

@@ -883,6 +883,9 @@ func (r *containerRunner) publishContainerNet(cn *network.ContainerNet, stable n
 	if cn == nil {
 		return nil
 	}
+	if network.Default.IsNetproxyDeployment(r.deploymentID) {
+		return network.Default.PublishNetproxy(cn)
+	}
 	if err := network.Default.ApplyHostPorts(r.deploymentID, r.containerID, r.hostPortRules(cn, stable)); err != nil {
 		return err
 	}

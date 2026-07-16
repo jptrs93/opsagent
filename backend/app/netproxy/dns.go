@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
-	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -16,18 +14,17 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-// RunDNS serves the netproxy DNS process. It consumes full NetState snapshots
-// from statePath and answers .internal AAAA queries locally, forwarding all
-// unmatched queries to the configured upstream resolvers.
-func RunDNS(ctx context.Context, statePath, listen string) error {
+// RunDNS serves the netproxy DNS process. It consumes NetState snapshots and
+// answers .internal AAAA queries locally, forwarding all unmatched queries to
+// the configured upstream resolvers.
+func RunDNS(ctx context.Context, states netStateSubscriber, listen string) error {
 	if listen == "" {
 		listen = ":53"
 	}
 	s := &dnsServer{}
-	if err := s.load(statePath); err != nil {
-		slog.Warn("loading initial netstate failed", "path", statePath, "err", err)
-	}
-	go s.poll(ctx, statePath)
+	snapshot, updates, unsubscribe := states.SnapshotAndSubscribe()
+	defer unsubscribe()
+	s.setState(snapshot)
 
 	mux := dns.NewServeMux()
 	mux.HandleFunc(".", s.handle)
@@ -37,18 +34,22 @@ func RunDNS(ctx context.Context, statePath, listen string) error {
 	go func() { errCh <- udp.ListenAndServe() }()
 	go func() { errCh <- tcp.ListenAndServe() }()
 
-	select {
-	case <-ctx.Done():
-		_ = udp.Shutdown()
-		_ = tcp.Shutdown()
-		return nil
-	case err := <-errCh:
-		_ = udp.Shutdown()
-		_ = tcp.Shutdown()
-		if err == nil || errors.Is(err, context.Canceled) {
+	for {
+		select {
+		case <-ctx.Done():
+			_ = udp.Shutdown()
+			_ = tcp.Shutdown()
 			return nil
+		case next := <-updates:
+			s.setState(next)
+		case err := <-errCh:
+			_ = udp.Shutdown()
+			_ = tcp.Shutdown()
+			if err == nil || errors.Is(err, context.Canceled) {
+				return nil
+			}
+			return err
 		}
-		return err
 	}
 }
 
@@ -56,36 +57,15 @@ type dnsServer struct {
 	state atomic.Pointer[apigen.NetState]
 }
 
-func (s *dnsServer) poll(ctx context.Context, path string) {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := s.load(path); err != nil {
-				slog.Warn("reloading netstate failed", "path", path, "err", err)
-			}
-		}
-	}
-}
-
-func (s *dnsServer) load(path string) error {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	next, err := apigen.DecodeNetState(b)
-	if err != nil {
-		return err
+func (s *dnsServer) setState(next *apigen.NetState) {
+	if next == nil {
+		return
 	}
 	cur := s.state.Load()
 	if cur != nil && next.Seq <= cur.Seq {
-		return nil
+		return
 	}
 	s.state.Store(next)
-	return nil
 }
 
 func (s *dnsServer) handle(w dns.ResponseWriter, r *dns.Msg) {

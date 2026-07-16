@@ -13,6 +13,7 @@ const NETWORKING_MODE_VIRTUAL = 1;
 const NETWORKING_MODE_HOST = 2;
 const PORT_FORWARD_PROTOCOL_TCP = 1;
 const PORT_FORWARD_PROTOCOL_UDP = 2;
+const INGRESS_KIND_TLS_PASSTHROUGH = 1;
 const CONTAINER_UPGRADE_RECREATE = 1;
 const CONTAINER_UPGRADE_ROLLOVER = 2;
 const DEFAULT_READINESS_TIMEOUT_SECONDS = 600;
@@ -37,6 +38,7 @@ let nextEnvID = 1;
 let nextAssetMountID = 1;
 let nextVolumeMountID = 1;
 let nextPortForwardID = 1;
+let nextIngressID = 1;
 
 export function emptyDeploymentForm() {
     return makeFormState({
@@ -50,6 +52,7 @@ export function emptyDeploymentForm() {
         containerImage: '',
         networkingMode: String(NETWORKING_MODE_VIRTUAL),
         portForwarding: [],
+        ingress: [],
         runnerType: RUNNER_CONTAINER,
         containerUser: '',
         containerCommand: '',
@@ -97,6 +100,7 @@ export function deploymentConfigToForm(cfg) {
         containerImage: containerImage.image || '',
         networkingMode: String(networking.mode || NETWORKING_MODE_HOST),
         portForwarding: portForwardingToFormRows(networking.portForwarding),
+        ingress: ingressToFormRows(networking.ingress),
         runnerType: RUNNER_CONTAINER,
         containerUser: container.user || '',
         containerCommand: (container.command || []).join('\n'),
@@ -243,6 +247,8 @@ export function formToSpec(form) {
     };
     const portForwarding = formPortForwarding(form);
     if (portForwarding.length) spec.networking.portForwarding = portForwarding;
+    const ingress = formIngress(form);
+    if (ingress.length) spec.networking.ingress = ingress;
     if (Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER) {
         spec.runner.container.readinessSignal = {timeoutSeconds: Number(form.containerReadinessTimeoutSeconds.val || 0)};
     }
@@ -289,6 +295,7 @@ export function formInvalidReason(form, opts = {}) {
         || invalidUpgradeStrategyReason(form)
         || invalidDevShmReason(form)
         || invalidFileDescriptorLimitReason(form)
+        || invalidIngressReason(form)
         || '';
 }
 
@@ -518,6 +525,7 @@ function makeFormState(values) {
         containerImage: van.state(values.containerImage || ''),
         networkingMode: van.state(String(values.networkingMode || NETWORKING_MODE_VIRTUAL)),
         portForwarding: van.state(values.portForwarding || []),
+        ingress: van.state(values.ingress || []),
         runnerType: van.state(values.runnerType),
         containerUser: van.state(values.containerUser || ''),
         containerCommand: van.state(values.containerCommand || ''),
@@ -745,8 +753,12 @@ function networkingSummary(form) {
 
 function networkingSummaryText(form) {
     if (Number(form.networkingMode.val) === NETWORKING_MODE_HOST) return "Host";
-    const count = formPortForwarding(form).length;
-    return count === 0 ? "Virtual" : `Virtual, ${count} forwarded port${count === 1 ? '' : 's'}`;
+    const portCount = formPortForwarding(form).length;
+    const ingressCount = formIngress(form).length;
+    const parts = [];
+    if (portCount) parts.push(`${portCount} forwarded port${portCount === 1 ? '' : 's'}`);
+    if (ingressCount) parts.push(`${ingressCount} ingress route${ingressCount === 1 ? '' : 's'}`);
+    return parts.length === 0 ? "Virtual" : `Virtual, ${parts.join(', ')}`;
 }
 
 export function networkingPane(form) {
@@ -778,7 +790,7 @@ export function networkingPane(form) {
                     ? "Host mode keeps the container in the node network namespace. Port forwarding is unavailable because the process binds host ports directly."
                     : "Virtual mode gives the container an isolated network namespace on the OpenDeploy virtual network. Add port forwarding when the workload must be reachable from the node's host interfaces."),
             ),
-            () => Number(form.networkingMode.val) === NETWORKING_MODE_VIRTUAL ? portForwardingSection(form) : '',
+            () => Number(form.networkingMode.val) === NETWORKING_MODE_VIRTUAL ? [portForwardingSection(form), ingressSection(form)] : '',
         ),
     );
 }
@@ -853,6 +865,83 @@ function portForwardingSection(form) {
     );
 }
 
+function ingressSection(form) {
+    const rows = () => form.ingress.val || [];
+    const update = (row, patch) => {
+        form.ingress.val = rows().map(route => route.id === row.id ? {...route, ...patch} : route);
+    };
+    const remove = (row) => {
+        form.ingress.val = rows().filter(route => route.id !== row.id);
+    };
+    return div(
+        {class: "flex flex-col gap-2 rounded-sm border border-gray-800 bg-gray-900/40 p-3", "data-testid": "deployment-ingress-section"},
+        div(
+            {class: "flex items-center justify-between gap-3"},
+            div(
+                span({class: "text-xs text-gray-300"}, "Ingress"),
+                p({class: "text-[11px] text-gray-500 mt-1"}, "TLS passthrough routes by SNI to this virtual container without TLS termination. The primary node reserves host port 443 for the Web UI."),
+            ),
+            button({
+                type: "button",
+                class: "px-2 py-1 rounded-sm bg-gray-800 text-gray-200 text-xs hover:bg-gray-700 cursor-pointer",
+                "data-testid": "deployment-add-ingress-route",
+                onclick: () => { form.ingress.val = [...rows(), newIngressRow()]; },
+            }, "Add route"),
+        ),
+        () => rows().length === 0
+            ? p({class: "text-xs text-gray-500"}, "No ingress routes configured.")
+            : table(
+                {class: "w-full text-xs"},
+                thead(tr(
+                    th({class: "text-left font-normal text-gray-500 pb-1"}, "Kind"),
+                    th({class: "text-left font-normal text-gray-500 pb-1"}, "Hostname"),
+                    th({class: "text-left font-normal text-gray-500 pb-1"}, "Host port"),
+                    th({class: "text-left font-normal text-gray-500 pb-1"}, "Container port"),
+                    th({class: "w-8"}),
+                )),
+                tbody(...rows().map(row => tr(
+                    {"data-testid": "deployment-ingress-row"},
+                    td({class: "pr-2 py-1 text-gray-300 whitespace-nowrap"}, "TLS passthrough"),
+                    td({class: "pr-2 py-1"}, input({
+                        type: "text",
+                        "data-testid": "deployment-ingress-hostname-input",
+                        value: row.hostname || '',
+                        class: textInputClass(false, false),
+                        placeholder: "db.example.com",
+                        oninput: e => update(row, {hostname: e.target.value}),
+                    })),
+                    td({class: "pr-2 py-1"}, input({
+                        type: "number",
+                        "data-testid": "deployment-ingress-host-port-input",
+                        min: "1",
+                        max: "65535",
+                        value: row.hostPort || '',
+                        class: textInputClass(false, false),
+                        placeholder: "443",
+                        oninput: e => update(row, {hostPort: e.target.value}),
+                    })),
+                    td({class: "pr-2 py-1"}, input({
+                        type: "number",
+                        "data-testid": "deployment-ingress-container-port-input",
+                        min: "1",
+                        max: "65535",
+                        value: row.containerPort || '',
+                        class: textInputClass(false, false),
+                        placeholder: "443",
+                        oninput: e => update(row, {containerPort: e.target.value}),
+                    })),
+                    td({class: "py-1 text-right"}, button({
+                        type: "button",
+                        class: "text-gray-500 hover:text-red-300 cursor-pointer",
+                        title: "Remove ingress route",
+                        "data-testid": "deployment-remove-ingress-route",
+                        onclick: () => remove(row),
+                    }, xIcon({class: "w-4 h-4"}))),
+                ))),
+            ),
+    );
+}
+
 function newPortForwardingRow(values = {}) {
     return {
         id: nextPortForwardID++,
@@ -868,6 +957,25 @@ function portForwardingToFormRows(portForwarding) {
         hostPort: port.hostPort || '',
         containerPort: port.containerPort || '',
     }));
+}
+
+function newIngressRow(values = {}) {
+    return {
+        id: nextIngressID++,
+        hostname: values.hostname || '',
+        hostPort: values.hostPort ? String(values.hostPort) : '',
+        containerPort: values.containerPort ? String(values.containerPort) : '',
+    };
+}
+
+function ingressToFormRows(ingress) {
+    return (ingress || [])
+        .filter(route => Number(route.kind) === INGRESS_KIND_TLS_PASSTHROUGH && route.tlsPassthroughConfig)
+        .map(route => newIngressRow({
+            hostname: route.hostname || '',
+            hostPort: route.tlsPassthroughConfig.hostPort || '',
+            containerPort: route.tlsPassthroughConfig.containerPort || '',
+        }));
 }
 
 function resourcesSummary(form) {
@@ -1636,6 +1744,39 @@ function formPortForwarding(form) {
             containerPort: Number(port.containerPort || 0),
         }))
         .filter(port => port.hostPort > 0 || port.containerPort > 0);
+}
+
+function formIngress(form) {
+    if (Number(form.networkingMode.val) !== NETWORKING_MODE_VIRTUAL) return [];
+    return (form.ingress.val || [])
+        .map(route => ({
+            kind: INGRESS_KIND_TLS_PASSTHROUGH,
+            hostname: (route.hostname || '').trim(),
+            tlsPassthroughConfig: {
+                hostPort: Number(route.hostPort || 0),
+                containerPort: Number(route.containerPort || 0),
+            },
+        }))
+        .filter(route => route.hostname || route.tlsPassthroughConfig.hostPort > 0 || route.tlsPassthroughConfig.containerPort > 0);
+}
+
+function invalidIngressReason(form) {
+    if (Number(form.networkingMode.val) !== NETWORKING_MODE_VIRTUAL) return '';
+    const seen = new Set();
+    for (const route of formIngress(form)) {
+        const hostname = route.hostname.toLowerCase().replace(/\.$/, '');
+        const {hostPort, containerPort} = route.tlsPassthroughConfig;
+        if (!hostname) return 'Ingress hostname is required.';
+        if (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(hostname)) {
+            return 'Ingress hostname must be a valid DNS hostname.';
+        }
+        if (hostPort < 0 || hostPort > 65535) return 'Ingress host port must be between 1 and 65535, or empty for 443.';
+        if (containerPort < 1 || containerPort > 65535) return 'Ingress container port must be between 1 and 65535.';
+        const key = `${hostPort || 443}:${hostname}`;
+        if (seen.has(key)) return `Duplicate ingress route for ${hostname} on host port ${hostPort || 443}.`;
+        seen.add(key);
+    }
+    return '';
 }
 
 function formCommand(form) {

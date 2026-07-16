@@ -1,6 +1,9 @@
 import {expect, test} from '@playwright/test';
 import {Buffer} from 'node:buffer';
+import crypto from 'node:crypto';
+import dns from 'node:dns';
 import fs from 'node:fs';
+import https from 'node:https';
 import path from 'node:path';
 
 const LONG_UI_TIMEOUT = 15_000;
@@ -284,17 +287,19 @@ export async function createNixDockerCrasherDeployment(page, {
   ]));
 }
 
-export async function upgradeOpenDeployAgents(page, {version, workerName = 'worker-1'} = {}) {
+export async function upgradeOpenDeployAgents(page, {version, workerNames = ['worker-1', 'worker-2']} = {}) {
   if (!version) throw new Error('upgrade version is required');
-  await upgradeOpenDeployAgent(page, {machine: workerName, version});
-  await expectOpenDeployAgentVersion(page, {machine: workerName, version});
-  await expectMachineConnected(page, workerName);
+  for (const workerName of workerNames) {
+    await upgradeOpenDeployAgent(page, {machine: workerName, version});
+    await expectOpenDeployAgentVersion(page, {machine: workerName, version});
+    await expectMachineConnected(page, workerName);
+  }
   await upgradeOpenDeployAgent(page, {machine: 'primary', version});
   await waitForHealthyApp(page);
   await waitForLoadableApp(page);
   await expectAuthenticatedDeploymentsPage(page);
   await expectOpenDeployAgentVersion(page, {machine: 'primary', version});
-  await expectOpenDeployAgentVersion(page, {machine: workerName, version});
+  for (const workerName of workerNames) await expectOpenDeployAgentVersion(page, {machine: workerName, version});
 }
 
 async function waitForLoadableApp(page) {
@@ -716,6 +721,66 @@ export async function expectHTTPText(url, expectedText, {timeout = DEPLOYMENT_RU
       return '';
     }
   }, {message: `expected ${url} to contain ${expectedText}`, timeout}).toContain(expectedText);
+}
+
+export async function expectTLSIngress(hostname, {backend, certificateBundle, timeout = DEPLOYMENT_RUNNING_TIMEOUT} = {}) {
+  if (!backend || !certificateBundle) throw new Error('TLS ingress backend and certificate bundle are required');
+  const expectedBody = `backend=${backend}\nsni=${hostname}\n`;
+  const expectedFingerprint = new crypto.X509Certificate(Buffer.from(certificateBundle, 'base64')).fingerprint256;
+  await expect.poll(async () => {
+    try {
+      return (await requestTLSIngress(hostname)).body;
+    } catch {
+      return '';
+    }
+  }, {message: `expected TLS ingress for ${hostname}`, timeout}).toBe(expectedBody);
+  const result = await requestTLSIngress(hostname);
+  expect(result.fingerprint).toBe(expectedFingerprint);
+}
+
+export async function expectTLSIngressUnavailable(hostname, {timeout = DEPLOYMENT_RUNNING_TIMEOUT} = {}) {
+  await expect.poll(async () => {
+    try {
+      await requestTLSIngress(hostname);
+      return false;
+    } catch {
+      return true;
+    }
+  }, {message: `expected TLS ingress for ${hostname} to fail closed`, timeout}).toBe(true);
+}
+
+function requestTLSIngress(hostname) {
+  const tunnelHost = process.env.OPD_TLS_INGRESS_HOST || 'host.docker.internal';
+  const tunnelPort = Number(process.env.OPD_TLS_INGRESS_PORT || '18443');
+  const ca = Buffer.from(process.env.OPD_TLS_INGRESS_CA_B64 || '', 'base64');
+  if (ca.length === 0) return Promise.reject(new Error('OPD_TLS_INGRESS_CA_B64 is required'));
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      host: hostname,
+      port: tunnelPort,
+      path: '/',
+      method: 'GET',
+      servername: hostname,
+      headers: {host: hostname},
+      ca,
+      rejectUnauthorized: true,
+      lookup: (_name, _options, callback) => dns.lookup(tunnelHost, {family: 4}, callback),
+    }, response => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => { body += chunk; });
+      response.on('end', () => {
+        if (response.statusCode !== 200) {
+          reject(new Error(`TLS ingress ${hostname} returned HTTP ${response.statusCode}`));
+          return;
+        }
+        resolve({body, fingerprint: response.socket.getPeerCertificate().fingerprint256});
+      });
+    });
+    req.setTimeout(10_000, () => req.destroy(new Error(`TLS ingress ${hostname} timed out`)));
+    req.on('error', reject);
+    req.end();
+  });
 }
 
 export async function expectPrepareOutput(page, name, expectedText) {

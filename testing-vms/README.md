@@ -6,6 +6,7 @@ The harness creates real Ubuntu VMs with Lima:
 
 - `opendeploy-primary` — OpenDeploy primary.
 - `opendeploy-secondary` — OpenDeploy worker.
+- `opendeploy-secondary-2` — OpenDeploy worker reserved for TLS passthrough coverage.
 - `opendeploy-repo-mirror` — long-lived repo mirror VM for `OPD_REMOTE=mock`.
 
 Playwright runs in Docker rather than in a Lima VM.
@@ -17,7 +18,7 @@ The primary Web UI is served over HTTPS at `https://primary.opendeploy.test` by 
 - macOS with Lima installed: `brew install lima`.
 - Lima `user-v2` networking, enabled by default in modern Lima releases.
 - Apple Silicon or Intel Mac. The harness maps host architecture to matching Linux release binaries.
-- Enough disk space for three Ubuntu VMs.
+- Enough disk space for four Ubuntu VMs.
 - Docker for the Playwright runner.
 - `pnpm` and Go on the host when using the default `OPD_REMOTE=mock`, because mock OpenDeploy release binaries are built from the local checkout.
 
@@ -35,7 +36,7 @@ go run ./testing-vms/test-orchestrator repo-mirror-up
 
 Defaults:
 
-- Deletes and recreates the primary/secondary VM cluster each run.
+- Deletes and recreates the primary/two-secondary VM cluster each run.
 - Uses `OPD_REMOTE=mock`, which requires an already-running repo mirror VM serving GitHub-shaped release/git traffic plus mirrored OCI images locally.
 - In the default local mock mode, bootstraps primary and worker from a locally
   built `v0.0.0` executable, then upgrades them to a locally built `v1.0.0`
@@ -98,6 +99,8 @@ The harness uses `mcr.microsoft.com/playwright:v1.57.0-noble` by default. Overri
 
 By default the orchestrator opens a host SSH tunnel from `127.0.0.1:8443` to the primary VM's `:443`. The Playwright container then starts a local TCP proxy for `primary.opendeploy.test:443`, so the browser origin remains `https://primary.opendeploy.test` for WebAuthn. Override the host tunnel port with `OPD_PLAYWRIGHT_HOST_PORT`.
 
+It also opens `127.0.0.1:18443` to `opendeploy-secondary-2:443` for TLS passthrough assertions. The tests use a client-side resolver override for `*.ingress.opendeploy.test`; each of the three exact SNI routes presents its own CA-signed certificate. Override the local tunnel port with `OPD_PLAYWRIGHT_TLS_INGRESS_PORT`.
+
 Set `OPD_PLAYWRIGHT_BASE_URL` only when providing your own Docker-reachable primary URL. Add extra host mappings with `OPD_PLAYWRIGHT_ADD_HOSTS` if needed.
 
 ## Host Browser Access
@@ -142,10 +145,10 @@ The Playwright flow writes restore settings into `testing-vms/test-results/backu
 bash testing-vms/cleanup.sh
 ```
 
-This deletes the primary/secondary VM harness instances and cluster state. Results, reports, repo mirror, and shared test certificates are left in place. Use `repo-mirror-down` to delete the repo mirror VM explicitly.
+This deletes the primary/two-secondary VM harness instances and cluster state. Results, reports, repo mirror, and shared test certificates are left in place. Use `repo-mirror-down` to delete the repo mirror VM explicitly.
 
 ## Notes
 
-- The E2E flow accepts the secondary enrollment as UI machine `worker-1`.
+- The E2E flow accepts both secondary enrollments as UI machines `worker-1` and `worker-2` by their stable enrollment identities.
 - Workloads still use OpenDeploy's bundled containerd inside the worker VM, so this avoids Docker-in-Docker and privileged systemd containers while preserving real Linux host semantics.
 - Docker Playwright does not need to be on the Lima VM network, but it does need a Docker-reachable URL for the primary Web UI.
