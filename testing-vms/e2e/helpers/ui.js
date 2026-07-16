@@ -782,7 +782,7 @@ async function selectDeploymentNode(dialog, nodeName) {
 async function clusterMachineRow(page, machine, timeout = LONG_UI_TIMEOUT) {
   let match;
   await expect.poll(async () => {
-    const rows = page.locator('tr').filter({has: page.getByRole('textbox', {name: /^Machine name for /})});
+    const rows = page.locator('tr').filter({has: page.getByRole('textbox', {name: /^(Machine|Node) name for /})});
     for (let i = 0; i < await rows.count(); i++) {
       const row = rows.nth(i);
       if (await row.getByRole('textbox').inputValue() === machine) {
