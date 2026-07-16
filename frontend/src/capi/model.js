@@ -417,9 +417,21 @@
  * @property {number} containerPort
  */
 /**
+ * @typedef {Object} TlsPassthroughConfig
+ * @property {number} hostPort
+ * @property {number} containerPort
+ */
+/**
+ * @typedef {Object} Ingress
+ * @property {number} kind
+ * @property {string} hostname
+ * @property {TlsPassthroughConfig} tlsPassthroughConfig
+ */
+/**
  * @typedef {Object} NetworkingConfig
  * @property {number} mode
  * @property {PortForward[]} portForwarding
+ * @property {Ingress[]} ingress
  */
 /**
  * @typedef {Object} State
@@ -851,12 +863,29 @@
  * @property {string} machine
  * @property {DnsService[]} dnsServices
  * @property {string[]} upstreamResolvers
+ * @property {NetIngress[]} ingress
  */
 /**
  * @typedef {Object} DnsService
  * @property {string} name
  * @property {string} environment
  * @property {Endpoint[]} endpoints
+ */
+/**
+ * @typedef {Object} NetIngress
+ * @property {number} kind
+ * @property {string} hostname
+ * @property {TlsPassthroughNetIngress} tlsPassthrough
+ */
+/**
+ * @typedef {Object} TlsPassthroughNetIngress
+ * @property {number} hostPort
+ * @property {IngressBackend[]} backends
+ */
+/**
+ * @typedef {Object} IngressBackend
+ * @property {string} address
+ * @property {number} port
  */
 /**
  * @typedef {Object} AccessPolicy
@@ -5936,6 +5965,141 @@ export function decodePortForward(buffer) {
 
 
 /**
+ * @param {TlsPassthroughConfig} message
+ * @param {Writer} writer
+ */
+export function writeTlsPassthroughConfig(message, writer) {
+    if (message.hostPort !== undefined && message.hostPort !== null && message.hostPort !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.hostPort);
+    }
+    if (message.containerPort !== undefined && message.containerPort !== null && message.containerPort !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.containerPort);
+    }
+}
+
+
+/**
+ * @param {TlsPassthroughConfig} message
+ * @returns {Uint8Array}
+ */
+export function encodeTlsPassthroughConfig(message) {
+    const writer = Writer.create();
+    writeTlsPassthroughConfig(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {TlsPassthroughConfig}
+ */
+function decodeTlsPassthroughConfigMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {hostPort: 0, containerPort: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.hostPort = reader.int32();
+                break;
+            }
+            case 2: {
+                message.containerPort = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {TlsPassthroughConfig}
+ */
+export function decodeTlsPassthroughConfig(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeTlsPassthroughConfigMessage(reader);
+}
+
+
+
+/**
+ * @param {Ingress} message
+ * @param {Writer} writer
+ */
+export function writeIngress(message, writer) {
+    if (message.kind !== undefined && message.kind !== null && message.kind !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.kind);
+    }
+    if (message.hostname !== undefined && message.hostname !== null && message.hostname !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.hostname);
+    }
+    if (message.tlsPassthroughConfig !== undefined && message.tlsPassthroughConfig !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeTlsPassthroughConfig(message.tlsPassthroughConfig, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {Ingress} message
+ * @returns {Uint8Array}
+ */
+export function encodeIngress(message) {
+    const writer = Writer.create();
+    writeIngress(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {Ingress}
+ */
+function decodeIngressMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {kind: 0, hostname: "", tlsPassthroughConfig: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.kind = reader.int32();
+                break;
+            }
+            case 2: {
+                message.hostname = reader.string();
+                break;
+            }
+            case 3: {
+                message.tlsPassthroughConfig = decodeTlsPassthroughConfigMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {Ingress}
+ */
+export function decodeIngress(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeIngressMessage(reader);
+}
+
+
+
+/**
  * @param {NetworkingConfig} message
  * @param {Writer} writer
  */
@@ -5947,6 +6111,13 @@ export function writeNetworkingConfig(message, writer) {
         for (const item of message.portForwarding) {
             writer.uint32(tag(2, WIRE.LDELIM)).fork();
             writePortForward(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.ingress && message.ingress.length > 0) {
+        for (const item of message.ingress) {
+            writer.uint32(tag(3, WIRE.LDELIM)).fork();
+            writeIngress(item, writer);
             writer.ldelim();
         }
     }
@@ -5971,7 +6142,7 @@ export function encodeNetworkingConfig(message) {
  */
 function decodeNetworkingConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {mode: 0, portForwarding: [] };
+    const message = {mode: 0, portForwarding: [], ingress: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5981,6 +6152,10 @@ function decodeNetworkingConfigMessage(reader, length) {
             }
             case 2: {
                 message.portForwarding.push(decodePortForwardMessage(reader, reader.uint32()));
+                break;
+            }
+            case 3: {
+                message.ingress.push(decodeIngressMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -11005,6 +11180,13 @@ export function writeNetState(message, writer) {
             writer.uint32(tag(5, WIRE.LDELIM)).string(item);
         }
     }
+    if (message.ingress && message.ingress.length > 0) {
+        for (const item of message.ingress) {
+            writer.uint32(tag(6, WIRE.LDELIM)).fork();
+            writeNetIngress(item, writer);
+            writer.ldelim();
+        }
+    }
 }
 
 
@@ -11026,7 +11208,7 @@ export function encodeNetState(message) {
  */
 function decodeNetStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {seq: 0, ulaPrefix: new Uint8Array(0), machine: "", dnsServices: [], upstreamResolvers: [] };
+    const message = {seq: 0, ulaPrefix: new Uint8Array(0), machine: "", dnsServices: [], upstreamResolvers: [], ingress: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11048,6 +11230,10 @@ function decodeNetStateMessage(reader, length) {
             }
             case 5: {
                 message.upstreamResolvers.push(reader.string());
+                break;
+            }
+            case 6: {
+                message.ingress.push(decodeNetIngressMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -11139,6 +11325,208 @@ function decodeDnsServiceMessage(reader, length) {
 export function decodeDnsService(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeDnsServiceMessage(reader);
+}
+
+
+
+/**
+ * @param {NetIngress} message
+ * @param {Writer} writer
+ */
+export function writeNetIngress(message, writer) {
+    if (message.kind !== undefined && message.kind !== null && message.kind !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.kind);
+    }
+    if (message.hostname !== undefined && message.hostname !== null && message.hostname !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.hostname);
+    }
+    if (message.tlsPassthrough !== undefined && message.tlsPassthrough !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeTlsPassthroughNetIngress(message.tlsPassthrough, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {NetIngress} message
+ * @returns {Uint8Array}
+ */
+export function encodeNetIngress(message) {
+    const writer = Writer.create();
+    writeNetIngress(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NetIngress}
+ */
+function decodeNetIngressMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {kind: 0, hostname: "", tlsPassthrough: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.kind = reader.int32();
+                break;
+            }
+            case 2: {
+                message.hostname = reader.string();
+                break;
+            }
+            case 3: {
+                message.tlsPassthrough = decodeTlsPassthroughNetIngressMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NetIngress}
+ */
+export function decodeNetIngress(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNetIngressMessage(reader);
+}
+
+
+
+/**
+ * @param {TlsPassthroughNetIngress} message
+ * @param {Writer} writer
+ */
+export function writeTlsPassthroughNetIngress(message, writer) {
+    if (message.hostPort !== undefined && message.hostPort !== null && message.hostPort !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.hostPort);
+    }
+    if (message.backends && message.backends.length > 0) {
+        for (const item of message.backends) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeIngressBackend(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {TlsPassthroughNetIngress} message
+ * @returns {Uint8Array}
+ */
+export function encodeTlsPassthroughNetIngress(message) {
+    const writer = Writer.create();
+    writeTlsPassthroughNetIngress(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {TlsPassthroughNetIngress}
+ */
+function decodeTlsPassthroughNetIngressMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {hostPort: 0, backends: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.hostPort = reader.int32();
+                break;
+            }
+            case 2: {
+                message.backends.push(decodeIngressBackendMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {TlsPassthroughNetIngress}
+ */
+export function decodeTlsPassthroughNetIngress(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeTlsPassthroughNetIngressMessage(reader);
+}
+
+
+
+/**
+ * @param {IngressBackend} message
+ * @param {Writer} writer
+ */
+export function writeIngressBackend(message, writer) {
+    if (message.address !== undefined && message.address !== null && message.address !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.address);
+    }
+    if (message.port !== undefined && message.port !== null && message.port !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.port);
+    }
+}
+
+
+/**
+ * @param {IngressBackend} message
+ * @returns {Uint8Array}
+ */
+export function encodeIngressBackend(message) {
+    const writer = Writer.create();
+    writeIngressBackend(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {IngressBackend}
+ */
+function decodeIngressBackendMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {address: "", port: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.address = reader.string();
+                break;
+            }
+            case 2: {
+                message.port = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {IngressBackend}
+ */
+export function decodeIngressBackend(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeIngressBackendMessage(reader);
 }
 
 

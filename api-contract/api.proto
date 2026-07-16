@@ -769,9 +769,30 @@ message PortForward {
   int32 container_port = 3; // port inside the virtual-mode container netns
 }
 
+enum IngressKind {
+  INGRESS_KIND_UNSPECIFIED = 0;
+  INGRESS_KIND_TLS_PASSTHROUGH = 1;
+}
+
+// TlsPassthroughConfig configures a TLS connection forwarded by SNI without
+// terminating TLS. host_port zero uses the default HTTPS port (443).
+message TlsPassthroughConfig {
+  int32 host_port = 1;
+  int32 container_port = 2;
+}
+
+// Ingress is a public route declared by a workload. Each kind owns its
+// configuration so future route kinds do not acquire unrelated fields.
+message Ingress {
+  IngressKind kind = 1;
+  string hostname = 2;
+  TlsPassthroughConfig tls_passthrough_config = 3;
+}
+
 message NetworkingConfig {
   NetworkingMode mode = 1;
   repeated PortForward port_forwarding = 2; // virtual mode only; DNAT on host interfaces
+  repeated Ingress ingress = 3;
 }
 
 
@@ -1301,6 +1322,7 @@ message NetState {
   string machine = 3;          // machine this snapshot was rendered for
   repeated DnsService dns_services = 4;
   repeated string upstream_resolvers = 5; // host's upstream DNS servers, "ip" or "ip:port"
+  repeated NetIngress ingress = 6;
 }
 
 // DnsService is one deployment's discovery record set:
@@ -1309,4 +1331,22 @@ message DnsService {
   string name = 1;        // normalized deployment name (underscores -> hyphens)
   string environment = 2; // normalized space name
   repeated Endpoint endpoints = 3;
+}
+
+// NetIngress is a node-local, rendered ingress route consumed by netproxy.
+// It contains ready backend endpoints instead of deployment configuration.
+message NetIngress {
+  IngressKind kind = 1;
+  string hostname = 2;
+  TlsPassthroughNetIngress tls_passthrough = 3;
+}
+
+message TlsPassthroughNetIngress {
+  int32 host_port = 1;
+  repeated IngressBackend backends = 2;
+}
+
+message IngressBackend {
+  string address = 1;
+  int32 port = 2;
 }

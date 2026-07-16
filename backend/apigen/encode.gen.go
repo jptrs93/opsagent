@@ -3172,9 +3172,92 @@ func DecodePortForward(b []byte) (*PortForward, error) {
 	return &m, nil
 }
 
+func (m *TlsPassthroughConfig) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.HostPort, 1)
+	b = AppendInt32Field(b, m.ContainerPort, 2)
+	return b
+}
+
+func DecodeTlsPassthroughConfig(b []byte) (*TlsPassthroughConfig, error) {
+	var m TlsPassthroughConfig
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.HostPort, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.ContainerPort, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *Ingress) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, int32(m.Kind), 1)
+	b = AppendStringField(b, m.Hostname, 2)
+	if m.TlsPassthroughConfig != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.TlsPassthroughConfig.Encode())
+	}
+	return b
+}
+
+func DecodeIngress(b []byte) (*Ingress, error) {
+	var m Ingress
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Kind = IngressKind(raw)
+			}
+		case 2:
+			b, m.Hostname, err = ConsumeString(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *TlsPassthroughConfig
+				item, err = DecodeTlsPassthroughConfig(msgBytes)
+				if err == nil {
+					m.TlsPassthroughConfig = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m NetworkingConfig) IsZero() bool {
 	return m.Mode == 0 &&
-		len(m.PortForwarding) == 0
+		len(m.PortForwarding) == 0 &&
+		len(m.Ingress) == 0
 }
 
 func (m *NetworkingConfig) Encode() []byte {
@@ -3185,6 +3268,13 @@ func (m *NetworkingConfig) Encode() []byte {
 			continue
 		}
 		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	for _, item := range m.Ingress {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -3215,6 +3305,15 @@ func DecodeNetworkingConfig(b []byte) (*NetworkingConfig, error) {
 				item, err = DecodePortForward(msgBytes)
 				if err == nil {
 					m.PortForwarding = append(m.PortForwarding, item)
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Ingress
+				item, err = DecodeIngress(msgBytes)
+				if err == nil {
+					m.Ingress = append(m.Ingress, item)
 				}
 			}
 		default:
@@ -6639,6 +6738,13 @@ func (m *NetState) Encode() []byte {
 		b = AppendBytes(b, item.Encode())
 	}
 	b = AppendRepeated(b, m.UpstreamResolvers, AppendFieldDecorator(AppendStringField, 5))
+	for _, item := range m.Ingress {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
 	return b
 }
 
@@ -6674,6 +6780,15 @@ func DecodeNetState(b []byte) (*NetState, error) {
 			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
 			if err == nil {
 				m.UpstreamResolvers = append(m.UpstreamResolvers, item)
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetIngress
+				item, err = DecodeNetIngress(msgBytes)
+				if err == nil {
+					m.Ingress = append(m.Ingress, item)
+				}
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -6724,6 +6839,134 @@ func DecodeDnsService(b []byte) (*DnsService, error) {
 					m.Endpoints = append(m.Endpoints, item)
 				}
 			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NetIngress) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, int32(m.Kind), 1)
+	b = AppendStringField(b, m.Hostname, 2)
+	if m.TlsPassthrough != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.TlsPassthrough.Encode())
+	}
+	return b
+}
+
+func DecodeNetIngress(b []byte) (*NetIngress, error) {
+	var m NetIngress
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Kind = IngressKind(raw)
+			}
+		case 2:
+			b, m.Hostname, err = ConsumeString(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *TlsPassthroughNetIngress
+				item, err = DecodeTlsPassthroughNetIngress(msgBytes)
+				if err == nil {
+					m.TlsPassthrough = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *TlsPassthroughNetIngress) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.HostPort, 1)
+	for _, item := range m.Backends {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeTlsPassthroughNetIngress(b []byte) (*TlsPassthroughNetIngress, error) {
+	var m TlsPassthroughNetIngress
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.HostPort, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *IngressBackend
+				item, err = DecodeIngressBackend(msgBytes)
+				if err == nil {
+					m.Backends = append(m.Backends, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *IngressBackend) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Address, 1)
+	b = AppendInt32Field(b, m.Port, 2)
+	return b
+}
+
+func DecodeIngressBackend(b []byte) (*IngressBackend, error) {
+	var m IngressBackend
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Address, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Port, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

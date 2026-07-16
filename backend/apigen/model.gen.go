@@ -30,6 +30,13 @@ const (
 	PortForwardProtocol_PORT_FORWARD_PROTOCOL_UDP         PortForwardProtocol = 2
 )
 
+type IngressKind int32
+
+const (
+	IngressKind_INGRESS_KIND_UNSPECIFIED     IngressKind = 0
+	IngressKind_INGRESS_KIND_TLS_PASSTHROUGH IngressKind = 1
+)
+
 type RunningStatus int32
 
 const (
@@ -487,9 +494,21 @@ type PortForward struct {
 	ContainerPort int32
 }
 
+type TlsPassthroughConfig struct {
+	HostPort      int32
+	ContainerPort int32
+}
+
+type Ingress struct {
+	Kind                 IngressKind
+	Hostname             string
+	TlsPassthroughConfig *TlsPassthroughConfig
+}
+
 type NetworkingConfig struct {
 	Mode           NetworkingMode
 	PortForwarding []*PortForward
+	Ingress        []*Ingress
 }
 
 type State struct {
@@ -921,12 +940,29 @@ type NetState struct {
 	Machine           string
 	DnsServices       []*DnsService
 	UpstreamResolvers []string
+	Ingress           []*NetIngress
 }
 
 type DnsService struct {
 	Name        string
 	Environment string
 	Endpoints   []*Endpoint
+}
+
+type NetIngress struct {
+	Kind           IngressKind
+	Hostname       string
+	TlsPassthrough *TlsPassthroughNetIngress
+}
+
+type TlsPassthroughNetIngress struct {
+	HostPort int32
+	Backends []*IngressBackend
+}
+
+type IngressBackend struct {
+	Address string
+	Port    int32
 }
 
 type AccessPolicy struct {
