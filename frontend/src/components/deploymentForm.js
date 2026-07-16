@@ -790,7 +790,8 @@ export function networkingPane(form) {
                     ? "Host mode keeps the container in the node network namespace. Port forwarding is unavailable because the process binds host ports directly."
                     : "Virtual mode gives the container an isolated network namespace on the OpenDeploy virtual network. Add port forwarding when the workload must be reachable from the node's host interfaces."),
             ),
-            () => Number(form.networkingMode.val) === NETWORKING_MODE_VIRTUAL ? [portForwardingSection(form), ingressSection(form)] : '',
+            () => Number(form.networkingMode.val) === NETWORKING_MODE_VIRTUAL ? portForwardingSection(form) : '',
+            () => Number(form.networkingMode.val) === NETWORKING_MODE_VIRTUAL ? ingressSection(form) : '',
         ),
     );
 }

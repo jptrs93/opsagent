@@ -1,7 +1,6 @@
 import {expect, test} from '@playwright/test';
 import {Buffer} from 'node:buffer';
 import crypto from 'node:crypto';
-import dns from 'node:dns';
 import fs from 'node:fs';
 import https from 'node:https';
 import path from 'node:path';
@@ -160,7 +159,6 @@ export async function createNixDockerDeployment(page, {
   await step(`fill deployment identity ${name}`, async () => {
     await byTestId(dialog, 'deployment-name-input', textField(dialog, 'Name')).fill(name);
     await selectDeploymentNode(dialog, machine);
-    await setDeploymentNetworkingMode(dialog, networkingMode);
   });
   const sourceTypeSelect = byTestId(dialog, 'deployment-source-type-select', selectField(dialog, 'Source type'));
   if (expectDefaultDockerImage) {
@@ -207,6 +205,7 @@ export async function createNixDockerDeployment(page, {
   }
 
   await step(`configure deployment inputs ${name}`, async () => {
+    await setDeploymentNetworkingMode(dialog, networkingMode);
     await setDeploymentUpgradeStrategy(dialog, {strategy: upgradeStrategy, readinessTimeoutSeconds});
     await setDeploymentPortForwarding(dialog, portForwarding);
     if (ingress !== undefined) await setDeploymentIngress(dialog, ingress);
@@ -763,7 +762,7 @@ function requestTLSIngress(hostname) {
   if (ca.length === 0) return Promise.reject(new Error('OPD_TLS_INGRESS_CA_B64 is required'));
   return new Promise((resolve, reject) => {
     const req = https.request({
-      host: hostname,
+      host: tunnelHost,
       port: tunnelPort,
       path: '/',
       method: 'GET',
@@ -771,9 +770,9 @@ function requestTLSIngress(hostname) {
       headers: {host: hostname},
       ca,
       rejectUnauthorized: true,
-      lookup: (_name, _options, callback) => dns.lookup(tunnelHost, {family: 4}, callback),
     }, response => {
       let body = '';
+      const fingerprint = response.socket?.getPeerCertificate().fingerprint256;
       response.setEncoding('utf8');
       response.on('data', chunk => { body += chunk; });
       response.on('end', () => {
@@ -781,7 +780,7 @@ function requestTLSIngress(hostname) {
           reject(new Error(`TLS ingress ${hostname} returned HTTP ${response.statusCode}`));
           return;
         }
-        resolve({body, fingerprint: response.socket.getPeerCertificate().fingerprint256});
+        resolve({body, fingerprint});
       });
     });
     req.setTimeout(10_000, () => req.destroy(new Error(`TLS ingress ${hostname} timed out`)));

@@ -67,7 +67,6 @@ export const tlsPassthroughCases = [
             OPENDEPLOY_TLS_BUNDLE_B64: {type: 'secret', name: `e2e.tls.ingress.${route.id}`},
           },
           expectedEnv: {},
-          verifyLogs: false,
         });
       }
     },
