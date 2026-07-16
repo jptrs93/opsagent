@@ -42,11 +42,11 @@ export function referenceUsageOverlay(resourceType, resourceName, deployments, s
                     "aria-labelledby": "reference-usage-title",
                 },
                 div(
-                    {class: "flex items-start justify-between gap-4 border-b border-gray-700 px-4 py-3"},
+                    {class: "flex items-center justify-between gap-4 border-b border-gray-700 px-4 py-3"},
                     div(
                         {class: "min-w-0"},
                         h2(
-                            {id: "reference-usage-title", class: "truncate text-xs font-normal text-gray-400"},
+                            {id: "reference-usage-title", class: "truncate text-sm font-normal text-gray-400"},
                             span({class: `lowercase ${resourceType === "config" ? "text-blue-300" : "text-purple-300"}`}, resourceName),
                             " usages:",
                         ),
