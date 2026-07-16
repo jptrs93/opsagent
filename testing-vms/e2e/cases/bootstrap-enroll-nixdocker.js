@@ -16,6 +16,7 @@ import {
   createPostgresClientDeployment,
   createPostgresDeployment,
   createSecret,
+  expectBackupStorageDisabled,
   expectDeploymentOutput,
   expectReferenceUsage,
   expectOpenDeployAgentVersion,
@@ -26,8 +27,16 @@ import {
   upgradeOpenDeployAgents,
 } from '../helpers/ui.js';
 
-const LARGE_ASSET_KEY = 'e2e-large-asset.bin';
-const LARGE_ASSET_PATH = '/tmp/opendeploy-e2e-large-asset.bin';
+const PRE_MIGRATION_LARGE_ASSETS = [
+  {key: 'e2e-large-asset-local.bin', path: '/tmp/e2e-large-asset-local.bin', seed: 17},
+  {key: 'e2e-large-asset-migrated.bin', path: '/tmp/e2e-large-asset-migrated.bin', seed: 73},
+  {key: 'e2e-large-asset-extra.bin', path: '/tmp/e2e-large-asset-extra.bin', seed: 131},
+];
+const POST_MIGRATION_LARGE_ASSET = {
+  key: 'e2e-large-asset-s3.bin',
+  path: '/tmp/e2e-large-asset-s3.bin',
+  seed: 191,
+};
 
 function requiredEnv(name) {
   const value = process.env[name]?.trim();
@@ -35,15 +44,40 @@ function requiredEnv(name) {
   return value;
 }
 
-function generateLargeAsset() {
+function generateLargeAsset(asset) {
   const content = Buffer.allocUnsafe(11 * 1024 * 1024);
   for (let i = 0; i < content.length; i += 1) {
-    content[i] = (i * 31 + 17) % 251;
+    content[i] = (i * 31 + asset.seed) % 251;
   }
   return {
+    ...asset,
     content,
     sha256: crypto.createHash('sha256').update(content).digest('hex'),
   };
+}
+
+async function createLargeAssetDeployment(page, {name, asset}) {
+  await createNixDockerDeployment(page, {
+    name,
+    flake: 'testexamples/largeassetverify/flake.nix',
+    env: {
+      OPENDEPLOY_E2E_ASSET_PATH: asset.path,
+      OPENDEPLOY_E2E_ASSET_SHA256: asset.sha256,
+    },
+    expectedEnv: {},
+    assetMount: {
+      asset: asset.key,
+      path: asset.path,
+    },
+  });
+}
+
+async function expectLargeAssetDeploymentOutput(page, {name, asset}) {
+  await expectDeploymentOutput(page, name, [
+    `largeassetverify asset read path=${asset.path} bytes=${asset.content.length}`,
+    `largeassetverify asset sha256=${asset.sha256}`,
+    'largeassetverify asset verified true',
+  ]);
 }
 
 export const orderedCases = [
@@ -224,68 +258,131 @@ export const orderedCases = [
     },
   },
   {
-    id: 'large-asset-generated',
-    title: 'generate large asset',
-    description: 'Generates deterministic large binary content and records its SHA-256.',
+    id: 'backup-storage-disabled',
+    title: 'verify backup storage disabled',
+    description: 'Confirms large assets initially use primary-local storage because Backup is disabled.',
     requires: ['worker-enrolled'],
     async run(ctx) {
-      ctx.largeAsset = generateLargeAsset();
+      await expectBackupStorageDisabled(ctx.page);
     },
   },
   {
-    id: 'large-asset-uploaded',
-    title: 'upload large asset',
-    description: 'Uploads the generated large binary asset through the assets UI.',
-    requires: ['large-asset-generated'],
+    id: 'pre-migration-large-assets-generated',
+    title: 'generate pre-migration large assets',
+    description: 'Generates three distinct deterministic large assets and records their SHA-256 digests.',
+    requires: ['backup-storage-disabled'],
     async run(ctx) {
-      await uploadAsset(ctx.page, {
-        key: LARGE_ASSET_KEY,
-        content: ctx.largeAsset.content,
-        fileName: LARGE_ASSET_KEY,
+      ctx.preMigrationLargeAssets = PRE_MIGRATION_LARGE_ASSETS.map(generateLargeAsset);
+    },
+  },
+  {
+    id: 'pre-migration-large-assets-uploaded',
+    title: 'upload pre-migration large assets',
+    description: 'Uploads several large assets while Backup is disabled so they are stored locally.',
+    requires: ['pre-migration-large-assets-generated'],
+    async run(ctx) {
+      for (const asset of ctx.preMigrationLargeAssets) {
+        await uploadAsset(ctx.page, {
+          key: asset.key,
+          content: asset.content,
+          fileName: asset.key,
+        });
+      }
+    },
+  },
+  {
+    id: 'local-large-asset-deployment-created',
+    title: 'create local large asset deployment',
+    description: 'Creates a deployment that consumes one large asset before S3 migration.',
+    requires: ['pre-migration-large-assets-uploaded'],
+    async run(ctx) {
+      await createLargeAssetDeployment(ctx.page, {
+        name: 'largeassetlocal',
+        asset: ctx.preMigrationLargeAssets[0],
+      });
+    },
+  },
+  {
+    id: 'local-large-asset-output-verified',
+    title: 'verify local large asset output',
+    description: 'Verifies the pre-migration deployment reads the locally stored asset.',
+    requires: ['local-large-asset-deployment-created'],
+    async run(ctx) {
+      await expectLargeAssetDeploymentOutput(ctx.page, {
+        name: 'largeassetlocal',
+        asset: ctx.preMigrationLargeAssets[0],
       });
     },
   },
   {
     id: 'large-asset-storage-configured',
     title: 'configure large asset backup',
-    description: 'Enables backup and migrates the locally uploaded large asset to shared S3 storage.',
-    requires: ['large-asset-uploaded'],
+    description: 'Enables Backup and shared large-asset S3, then waits for all local assets to migrate.',
+    requires: ['local-large-asset-output-verified'],
     async run(ctx) {
       await configureLargeAssetStorage(ctx.page);
     },
   },
   {
-    id: 'large-asset-verification-deployment',
-    title: 'create large asset verification deployment',
-    description: 'Creates a deployment that reads the S3-backed large asset and checks its digest.',
+    id: 'migrated-large-asset-deployment-created',
+    title: 'create migrated large asset deployment',
+    description: 'Creates a fresh deployment using a pre-existing asset after its migration to S3.',
     requires: ['large-asset-storage-configured'],
     async run(ctx) {
-      await createNixDockerDeployment(ctx.page, {
-        name: 'largeassetverify',
-        flake: 'testexamples/largeassetverify/flake.nix',
-        env: {
-          OPENDEPLOY_E2E_ASSET_PATH: LARGE_ASSET_PATH,
-          OPENDEPLOY_E2E_ASSET_SHA256: ctx.largeAsset.sha256,
-        },
-        expectedEnv: {},
-        assetMount: {
-          asset: LARGE_ASSET_KEY,
-          path: LARGE_ASSET_PATH,
-        },
+      await createLargeAssetDeployment(ctx.page, {
+        name: 'largeassetmigrated',
+        asset: ctx.preMigrationLargeAssets[1],
       });
     },
   },
   {
-    id: 'large-asset-output-verified',
-    title: 'verify large asset output',
-    description: 'Verifies the large asset deployment read the expected bytes and SHA-256.',
-    requires: ['large-asset-verification-deployment'],
+    id: 'migrated-large-asset-output-verified',
+    title: 'verify migrated large asset output',
+    description: 'Verifies a fresh deployment can read the migrated asset from S3.',
+    requires: ['migrated-large-asset-deployment-created'],
     async run(ctx) {
-      await expectDeploymentOutput(ctx.page, 'largeassetverify', [
-        `largeassetverify asset read path=${LARGE_ASSET_PATH} bytes=${ctx.largeAsset.content.length}`,
-        `largeassetverify asset sha256=${ctx.largeAsset.sha256}`,
-        'largeassetverify asset verified true',
-      ]);
+      await expectLargeAssetDeploymentOutput(ctx.page, {
+        name: 'largeassetmigrated',
+        asset: ctx.preMigrationLargeAssets[1],
+      });
+    },
+  },
+  {
+    id: 'post-migration-large-asset-uploaded',
+    title: 'upload post-migration large asset',
+    description: 'Creates and uploads a new large asset while S3-backed storage is active.',
+    requires: ['migrated-large-asset-output-verified'],
+    async run(ctx) {
+      ctx.postMigrationLargeAsset = generateLargeAsset(POST_MIGRATION_LARGE_ASSET);
+      await uploadAsset(ctx.page, {
+        key: ctx.postMigrationLargeAsset.key,
+        content: ctx.postMigrationLargeAsset.content,
+        fileName: ctx.postMigrationLargeAsset.key,
+      });
+    },
+  },
+  {
+    id: 'post-migration-large-asset-deployment-created',
+    title: 'create post-migration large asset deployment',
+    description: 'Creates a deployment using the large asset uploaded directly to S3-backed storage.',
+    requires: ['post-migration-large-asset-uploaded'],
+    async run(ctx) {
+      await createLargeAssetDeployment(ctx.page, {
+        name: 'largeassets3',
+        asset: ctx.postMigrationLargeAsset,
+      });
+    },
+  },
+  {
+    id: 'post-migration-large-asset-output-verified',
+    title: 'verify post-migration large asset output',
+    description: 'Verifies the newly uploaded S3-backed asset is available to deployments.',
+    requires: ['post-migration-large-asset-deployment-created'],
+    async run(ctx) {
+      await expectLargeAssetDeploymentOutput(ctx.page, {
+        name: 'largeassets3',
+        asset: ctx.postMigrationLargeAsset,
+      });
     },
   },
   {

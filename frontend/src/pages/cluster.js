@@ -53,14 +53,14 @@ export function clusterPage() {
                 {class: "flex flex-col gap-3"},
                 div(
                     {class: "card"},
-                    h2({class: "font-semibold mb-4"}, "Connected machines"),
+                    h2({class: "font-semibold mb-4"}, "Connected nodes"),
                     sorted.length === 0
-                        ? p({class: "text-gray-400 text-sm"}, "No machines found.")
+                        ? p({class: "text-gray-400 text-sm"}, "No nodes found.")
                         : table(
                             {class: "w-full text-sm"},
                             thead(
                                 tr({class: "text-left text-gray-400 border-b border-gray-700"},
-                                    th({class: "pb-2 pr-6"}, "Machine"),
+                                    th({class: "pb-2 pr-6"}, "Node"),
                                     th({class: "pb-2 pr-6"}, "Role"),
                                     th({class: "pb-2 pr-6"}, "Status"),
                                     th({class: "pb-2"}, "Connected since"),
@@ -113,7 +113,7 @@ function machineRow(machine) {
         try {
             await capi.postV1ClusterRename({identifier: machine.identifier, name: nextName});
         } catch (e) {
-            error.val = e.message || 'Failed to rename machine';
+            error.val = e.message || 'Failed to rename node';
         } finally {
             saving.val = false;
         }
@@ -126,7 +126,7 @@ function machineRow(machine) {
                 input({
                     class: "input w-full min-w-36",
                     value: name,
-                    "aria-label": `Machine name for ${machine.identifier}`,
+                    "aria-label": `Node name for ${machine.identifier}`,
                     oninput: e => { name.val = e.target.value; },
                     onkeydown: e => { if (e.key === 'Enter') rename(); },
                 }),
@@ -137,7 +137,6 @@ function machineRow(machine) {
                     onclick: rename,
                 }, () => saving.val ? "Saving..." : "Save"),
             ),
-            div({class: "mt-1 text-xs text-gray-500 font-mono break-all"}, machine.identifier),
             () => error.val ? p({class: "mt-1 text-xs text-red-400"}, error.val) : '',
         ),
         td({class: "py-3 pr-6"},

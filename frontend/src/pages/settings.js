@@ -844,7 +844,7 @@ export function settingsPage() {
                 h2({class: "text-base font-semibold text-amber-400"}, "Save your recovery code"),
                 p({class: "text-xs text-gray-400"},
                     "This is shown only once and is not stored anywhere. Keep it somewhere safe. " +
-                    "It is the only way to recover secrets if this machine is lost."),
+                    "It is the only way to recover secrets if this node is lost."),
                 pre({class: "bg-gray-900 rounded-lg p-2 text-brand font-mono text-xs whitespace-pre-wrap break-all"},
                     recoveryCode.val),
                 div(spinnerButton("I've saved it", async () => { recoveryCode.val = ""; },
@@ -860,7 +860,7 @@ export function settingsPage() {
                     configured
                         ? p({class: "text-xs text-green-400"}, "A recovery code is configured.")
                         : p({class: "text-xs text-amber-400"},
-                            "No recovery code configured. Generate one so secrets can be recovered if this machine is lost."),
+                            "No recovery code configured. Generate one so secrets can be recovered if this node is lost."),
                 ),
                 spinnerButton(
                     configured ? "Regenerate recovery code" : "Generate recovery code",
@@ -872,7 +872,7 @@ export function settingsPage() {
             div({class: "border-t border-gray-800 pt-2 mt-1 flex flex-col gap-2"},
                 div({class: "flex items-center justify-between gap-3"},
                     p({class: "text-xs text-gray-400"},
-                        "Use this when restoring the primary on a new machine. Replace placeholder values before running."),
+                        "Use this when restoring the primary on a new node. Replace placeholder values before running."),
                     button({
                         type: "button",
                         class: `${compactButtonClass} whitespace-nowrap bg-gray-700 text-gray-200 hover:bg-gray-600 cursor-pointer`,

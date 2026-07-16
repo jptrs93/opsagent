@@ -45,11 +45,10 @@ export function referenceUsageOverlay(resourceType, resourceName, deployments, s
                     {class: "flex items-start justify-between gap-4 border-b border-gray-700 px-4 py-3"},
                     div(
                         {class: "min-w-0"},
-                        h2({id: "reference-usage-title", class: "text-base font-semibold text-gray-100"}, "In use by"),
-                        p(
-                            {class: "mt-1 truncate text-xs text-gray-400"},
-                            span({class: "capitalize"}, resourceType),
-                            ` ${resourceName}`,
+                        h2(
+                            {id: "reference-usage-title", class: "truncate text-base font-semibold text-gray-100"},
+                            span({class: "capitalize text-purple-300"}, `${resourceType} ${resourceName}`),
+                            " in use by",
                         ),
                     ),
                     button({type: "button", class: "shrink-0 cursor-pointer px-3 py-1.5 text-sm text-gray-400 hover:text-gray-100", onclick: onClose}, "Close"),

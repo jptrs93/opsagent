@@ -417,6 +417,14 @@ export async function configureLargeAssetStorage(page, opts = {}) {
   await waitForBackupReplicationInSync(page);
 }
 
+export async function expectBackupStorageDisabled(page) {
+  await step('verify backup storage is disabled', async () => {
+    await byTestId(page, 'nav-cluster', page.getByText('Machines')).click();
+    const status = byTestId(page, 'backup-replication-status', page.getByText(/not configured|not running|syncing|in sync|error/));
+    await expect(status).toContainText('not configured', {timeout: LONG_UI_TIMEOUT});
+  });
+}
+
 async function ensureE2EObjectStorage(page, cfg) {
   if (e2eObjectStorageReady) return;
 
@@ -555,7 +563,7 @@ async function setSettingBool(page, label, enabled) {
   const row = settingRow(page, label);
   const checkbox = row.locator('input[type="checkbox"]');
   if (await checkbox.isChecked() !== enabled) {
-    await row.locator('label').click();
+    await checkbox.setChecked(enabled, {force: true});
   }
   if (enabled) await expect(checkbox).toBeChecked({timeout: LONG_UI_TIMEOUT});
   else await expect(checkbox).not.toBeChecked({timeout: LONG_UI_TIMEOUT});
