@@ -39,6 +39,13 @@ export const eyeOffIcon = (attrs) => svg(iconAttrs(attrs),
     line({x1: "2", y1: "2", x2: "22", y2: "22"}),
 );
 
+export const expandIcon = (attrs) => svg(iconAttrs(attrs),
+    polyline({points: "15 3 21 3 21 9"}),
+    polyline({points: "9 21 3 21 3 15"}),
+    line({x1: "21", y1: "3", x2: "14", y2: "10"}),
+    line({x1: "3", y1: "21", x2: "10", y2: "14"}),
+);
+
 export const infoIcon = (attrs) => svg(iconAttrs(attrs),
     circle({cx: "12", cy: "12", r: "10"}),
     line({x1: "12", y1: "16", x2: "12", y2: "12"}),

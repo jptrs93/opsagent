@@ -49,6 +49,7 @@ export function emptyDeploymentForm() {
         sourceType: SOURCE_DOCKER_IMAGE,
         nixRepo: '',
         nixFlake: '',
+        nixTarget: '',
         containerImage: '',
         networkingMode: String(NETWORKING_MODE_VIRTUAL),
         portForwarding: [],
@@ -97,6 +98,7 @@ export function deploymentConfigToForm(cfg) {
         sourceType: prepare.containerImage ? SOURCE_DOCKER_IMAGE : SOURCE_NIX_DOCKER,
         nixRepo: nixDocker.repo || '',
         nixFlake: nixDocker.flake || '',
+        nixTarget: nixDocker.target || '',
         containerImage: containerImage.image || '',
         networkingMode: String(networking.mode || NETWORKING_MODE_HOST),
         portForwarding: portForwardingToFormRows(networking.portForwarding),
@@ -231,6 +233,7 @@ export function formToSpec(form) {
         spec.prepare.nixDockerBuild = {
             repo: form.nixRepo.val.trim(),
             flake: form.nixFlake.val.trim(),
+            target: form.nixTarget.val.trim(),
         };
     } else if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
         spec.prepare.containerImage = {
@@ -287,6 +290,8 @@ export function formInvalidReason(form, opts = {}) {
         if (!form.containerImage.val.trim()) return 'Container image is required.';
     } else if (!form.nixRepo.val.trim() || !form.nixFlake.val.trim()) {
         return 'Repository and flake path are required.';
+    } else if (form.nixTarget.val !== form.nixTarget.val.trim() || (form.nixTarget.val.trim() && !form.nixTarget.val.trim().startsWith('.#'))) {
+        return 'Flake target must be a local selector starting with .#.';
     }
     return invalidEnvVarsReason(form)
         || invalidCommandReason(form)
@@ -522,6 +527,7 @@ function makeFormState(values) {
         sourceType: van.state(values.sourceType),
         nixRepo: van.state(values.nixRepo),
         nixFlake: van.state(values.nixFlake),
+        nixTarget: van.state(values.nixTarget || ''),
         containerImage: van.state(values.containerImage || ''),
         networkingMode: van.state(String(values.networkingMode || NETWORKING_MODE_VIRTUAL)),
         portForwarding: van.state(values.portForwarding || []),
@@ -618,7 +624,11 @@ function optionsDisclosure(open, content) {
 
 function nixSourceFields(form) {
     if (form.sourceType.val === SOURCE_NIX_DOCKER) {
-        return flakeField(form);
+        return div(
+            {class: "flex flex-col gap-3"},
+            flakeField(form),
+            nixTargetField(form),
+        );
     }
     return '';
 }
@@ -2166,6 +2176,21 @@ function flakeField(form) {
             oninput: e => { form.nixFlake.val = e.target.value; },
             onblur: () => validateRepo(form),
         }),
+    );
+}
+
+function nixTargetField(form) {
+    return field(
+        "Flake target (optional)",
+        input({
+            type: "text",
+            "data-testid": "deployment-nix-target-input",
+            value: form.nixTarget.rawVal,
+            class: textInputClass(false, false),
+            placeholder: ".#radkitRpaClientImage",
+            oninput: e => { form.nixTarget.val = e.target.value; },
+        }),
+        "Local flake selector. Leave empty to build the default output.",
     );
 }
 

@@ -2600,6 +2600,7 @@ func (m *NixDockerBuildConfig) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Repo, 1)
 	b = AppendStringField(b, m.Flake, 2)
+	b = AppendStringField(b, m.Target, 3)
 	return b
 }
 
@@ -2618,6 +2619,8 @@ func DecodeNixDockerBuildConfig(b []byte) (*NixDockerBuildConfig, error) {
 			b, m.Repo, err = ConsumeString(b, typ)
 		case 2:
 			b, m.Flake, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Target, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

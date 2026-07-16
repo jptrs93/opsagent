@@ -2,15 +2,29 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
+import {valueOverlay} from "../components/valueOverlay.js";
 import {formatDateTime} from "../lib/date.js";
-import {checkIcon, copyIcon, eyeOffIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
+import {checkIcon, copyIcon, expandIcon, eyeOffIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
 import {deploymentsS, machinesS, primaryConfigS, secretMetasS, secretsStatusS, spacesS, userConfigsS} from "../state/deployments.js";
 
-const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
+const { div, h2, p, span, input, textarea, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
 const DEFAULT_SECRET_MASK = "••••••••••••••••";
+const RANDOM_SECRET_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+[]{}";
 
 const rawStateValue = (state) => state.rawVal ?? state.val ?? "";
+
+export function isLong(value, element) {
+    if (/[\r\n]/.test(value)) return true;
+
+    const availableWidth = element?.clientWidth || 384;
+    if (!availableWidth) return value.length > 115;
+    const context = document.createElement("canvas").getContext("2d");
+    if (!context) return value.length > 115;
+    const style = element ? getComputedStyle(element) : null;
+    context.font = style?.font || "13px monospace";
+    return context.measureText(value).width > availableWidth * 1.5;
+}
 
 const iconButton = (child, onclick, cls = "", attrs = {}) => button({
     type: "button",
@@ -43,6 +57,12 @@ export function secretsPage() {
     const deleteTarget = van.state(null);
     const deleteSaving = van.state(false);
     const usageTarget = van.state(null);
+    const valueTarget = van.state(null);
+    const createTarget = van.state(null);
+    const createName = van.state("");
+    const createValue = van.state("");
+    const createError = van.state(null);
+    const generatedSecretLength = van.state("32");
     let localRows = null;
     let streamSignature = '';
     let nextLocalKey = 1;
@@ -275,10 +295,52 @@ export function secretsPage() {
         syncRowsFromUniverse(sort.val.key === "inUse");
     });
 
-    const addRow = (type) => {
-        const row = type === "secret" ? makeSecretRow(null) : makeConfigRow(null);
-        localRows = [...(localRows || []), row];
-        rows.val = [...(rows.val || []), row];
+    const openCreate = (type) => {
+        createTarget.val = type;
+        createName.val = "";
+        createValue.val = "";
+        createError.val = null;
+        generatedSecretLength.val = "32";
+    };
+    const closeCreate = () => {
+        createTarget.val = null;
+        createError.val = null;
+    };
+    const generateSecret = () => {
+        const length = Math.max(1, Math.min(4096, Number.parseInt(generatedSecretLength.val, 10) || 32));
+        generatedSecretLength.val = String(length);
+        const bytes = new Uint8Array(length);
+        const limit = 256 - (256 % RANDOM_SECRET_CHARS.length);
+        let result = "";
+        while (result.length < length) {
+            globalThis.crypto.getRandomValues(bytes);
+            for (const byte of bytes) {
+                if (byte < limit) result += RANDOM_SECRET_CHARS[byte % RANDOM_SECRET_CHARS.length];
+                if (result.length === length) break;
+            }
+        }
+        createValue.val = result;
+    };
+    const createResource = async () => {
+        const type = createTarget.val;
+        const name = createName.val.trim();
+        if (!name) {
+            createError.val = `${type === "secret" ? "Secret" : "Config"} name is required`;
+            return;
+        }
+        try {
+            createError.val = null;
+            error.val = null;
+            if (type === "secret") {
+                await capi.postV1SecretsSet({name, value: new TextEncoder().encode(createValue.val)});
+            } else {
+                await capi.postV1UserConfigsSet({name, value: createValue.val});
+            }
+            closeCreate();
+        } catch (e) {
+            createError.val = e.message;
+            error.val = e.message;
+        }
     };
     const removeRow = (row) => {
         localRows = (localRows || []).filter(r => r !== row);
@@ -313,6 +375,7 @@ export function secretsPage() {
             } catch (e) { error.val = e.message; return; }
         }
         row.revealed.val = true;
+        if (isLong(row.value.val, row.valueInput)) valueTarget.val = row;
     };
 
     const secretValueForCopy = async (row) => {
@@ -486,10 +549,16 @@ export function secretsPage() {
             : "bg-blue-500/15 text-blue-300"}`,
     }, type === "secret" ? "Secret" : "Config");
 
-    const configValueInput = (row) => cellInput(row.value, "value", true);
+    const configValueInput = (row) => div({class: "flex items-center gap-1"},
+        cellInput(row.value, "value", true),
+        iconButton(expandIcon(), () => valueTarget.val = row, "shrink-0", {
+            title: "Expand config value",
+            "aria-label": "Expand config value",
+        }),
+    );
 
-    const secretValueInput = (row) => div({class: "flex items-center gap-1"},
-        input({
+    const secretValueInput = (row) => {
+        const valueInput = input({
             class: "flex-1 min-w-0 bg-transparent px-2 py-1 rounded border border-transparent " +
                 "hover:border-gray-700 focus:border-brand focus:outline-none font-mono",
             type: "text",
@@ -503,10 +572,14 @@ export function secretsPage() {
                 row.value.val = e.target.value;
                 row.valueDirty.val = true;
             },
-        }),
-        iconButton(() => row.revealed.val ? eyeOffIcon() : eyeOpenIcon(),
-            () => toggleReveal(row)),
-    );
+        });
+        row.valueInput = valueInput;
+        return div({class: "flex items-center gap-1"},
+            valueInput,
+            iconButton(() => row.revealed.val ? eyeOffIcon() : eyeOpenIcon(),
+                () => toggleReveal(row)),
+        );
+    };
 
     const usageButton = (row) => {
         const usage = usageForRow(row);
@@ -580,6 +653,81 @@ export function secretsPage() {
         );
     };
 
+    const valueViewerOverlay = () => {
+        const row = valueTarget.val;
+        if (!row) return "";
+        return valueOverlay(
+            rawStateValue(row.name),
+            () => row.value.val,
+            () => valueTarget.val = null,
+        );
+    };
+
+    const createOverlay = () => {
+        const type = createTarget.val;
+        if (!type) return "";
+        const typeLabel = type === "secret" ? "secret" : "config";
+        return div(
+            div({class: "fixed inset-0 z-40 bg-black/70", onclick: closeCreate}),
+            div(
+                {class: "fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none", "data-testid": `create-${typeLabel}-overlay`},
+                div(
+                    {
+                        class: "card w-full max-w-lg flex flex-col gap-4 shadow-2xl pointer-events-auto",
+                        role: "dialog",
+                        "aria-modal": "true",
+                        "aria-labelledby": "create-resource-title",
+                        onclick: (e) => e.stopPropagation(),
+                    },
+                    h2({id: "create-resource-title", class: "text-base font-semibold"}, `Add ${typeLabel}`),
+                    div({class: "flex flex-col gap-1.5"},
+                        p({class: "text-xs font-medium text-gray-400"}, "Name"),
+                        input({
+                            class: "text-input font-mono",
+                            placeholder: `${typeLabel} name`,
+                            autocomplete: "off",
+                            value: createName,
+                            oninput: (e) => createName.val = e.target.value,
+                        }),
+                    ),
+                    type === "secret" ? div(
+                        {class: "flex flex-wrap items-end justify-between gap-3 rounded-lg border border-gray-700 bg-gray-950/50 p-3"},
+                        div({class: "flex flex-col gap-1.5"},
+                            p({class: "text-xs font-medium text-gray-400"}, "Generate random value"),
+                            input({
+                                class: "text-input w-24 py-1.5 text-sm font-mono",
+                                type: "number",
+                                min: "1",
+                                max: "4096",
+                                value: generatedSecretLength,
+                                oninput: (e) => generatedSecretLength.val = e.target.value,
+                                "aria-label": "Generated secret length",
+                            }),
+                        ),
+                        smallBtn("Generate", generateSecret, "bg-gray-700 text-gray-200 hover:bg-gray-600"),
+                    ) : "",
+                    div({class: "flex min-h-0 flex-col gap-1.5"},
+                        p({class: "text-xs font-medium text-gray-400"}, "Value"),
+                        textarea({
+                            class: "text-input min-h-44 resize-y font-mono text-sm leading-relaxed",
+                            placeholder: `${typeLabel} value`,
+                            autocomplete: "off",
+                            spellcheck: "false",
+                            value: createValue,
+                            oninput: (e) => createValue.val = e.target.value,
+                        }),
+                    ),
+                    () => createError.val ? p({class: "text-sm text-red-400"}, createError.val) : "",
+                    div({class: "flex items-center justify-end gap-2"},
+                        smallBtn("Cancel", closeCreate, "bg-gray-700 text-gray-200 hover:bg-gray-600"),
+                        spinnerButton(`Add ${typeLabel}`, createResource, "btn-primary text-sm py-1.5 px-3", "button",
+                            () => !createName.val.trim()),
+                    ),
+                ),
+            ),
+        );
+    };
+
     const tableClass = "w-full min-w-[82rem] table-fixed text-sm";
 
     const tableCols = () => colgroup(
@@ -636,9 +784,9 @@ export function secretsPage() {
                 },
             }),
             div({class: "flex flex-wrap items-center gap-2"},
-                actionButton("Add secret", () => addRow("secret"), "bg-gray-700 text-gray-200 hover:bg-gray-600",
+                actionButton("Add secret", () => openCreate("secret"), "bg-gray-700 text-gray-200 hover:bg-gray-600",
                     () => !secretsStatusS.val || !secretsStatusS.val.unlocked),
-                actionButton("Add config", () => addRow("config")))),
+                actionButton("Add config", () => openCreate("config")))),
         div({class: "flex-1 min-h-0 overflow-hidden"}, () => {
             if (rows.val === null) return p({class: "text-gray-400 text-sm"}, "Loading...");
             if (rows.val.length === 0) {
@@ -664,5 +812,7 @@ export function secretsPage() {
         contentTable,
         deleteOverlay,
         usageOverlay,
+        valueViewerOverlay,
+        createOverlay,
     );
 }

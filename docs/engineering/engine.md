@@ -57,7 +57,7 @@ Container deployments can opt into `runner.container.upgradeStrategy = ROLLOVER`
 
 ## Preparers
 
-`nixdocker.Preparer` asks `repo/git.Manager` to prepare a local checkout of the configured Git repo at `DesiredState.Version`, verifies the configured `flake.nix` path exists in that checked-out tree, runs `nix build --no-update-lock-file --no-link --print-out-paths -L` in the configured flake directory, executes the resulting image stream, and pipes it into `ctrd.Client.Import`. The imported image is tagged as `opendeploy.local/nix-docker-build/{deploymentID}:{version}`. Validation and version discovery share the same Git manager and its bare partial metadata cache under the data directory.
+`nixdocker.Preparer` asks `repo/git.Manager` to prepare a local checkout of the configured Git repo at `DesiredState.Version`, verifies the configured `flake.nix` path exists in that checked-out tree, and runs `nix build --no-update-lock-file --no-link --print-out-paths -L` in the configured flake directory. An optional local `target` such as `.#radkitRpaClientImage` is appended to that command; an empty target builds the default output. It executes the resulting image stream and pipes it into `ctrd.Client.Import`. The imported image is tagged as `opendeploy.local/nix-docker-build/{deploymentID}:{version}`. Validation and version discovery share the same Git manager and its bare partial metadata cache under the data directory.
 
 `containerimage.Preparer` pulls `prepare.containerImage.image` plus the desired tag/digest into containerd and unpacks it. Pulls are anonymous in the current phase.
 

@@ -62,7 +62,7 @@ field. The frontend currently retains it without using it for behavior.
 
 | Variant | Fields | Description |
 |---|---|---|
-| `nixDockerBuild` | `repo`, `flake` | Clones the repo, checks out the desired version, verifies `flake` exists in that checked-out tree, runs `nix build` without updating the lock file, expects the default output to be an executable OCI/Docker image stream such as `pkgs.dockerTools.streamLayeredImage`, imports that stream into OpenDeploy's bundled containerd, and returns the local image ref. Must be paired with the `container` runner. |
+| `nixDockerBuild` | `repo`, `flake`, optional `target` | Clones the repo, checks out the desired version, verifies `flake` exists in that checked-out tree, runs `nix build` without updating the lock file, and expects its selected output to be an executable OCI/Docker image stream such as `pkgs.dockerTools.streamLayeredImage`. An empty target builds the default output; a local selector such as `.#radkitRpaClientImage` selects a named flake output. The stream is imported into OpenDeploy's bundled containerd and returned as a local image ref. Must be paired with the `container` runner. |
 | `containerImage` | `image` | Pulls `image:version` (version is the desired tag/digest) into containerd's content store and unpacks it. Phase 1 pulls anonymously — no registry credentials. Must be paired with the `container` runner. |
 
 `githubRelease` remains as an internal-only source for the `OPENDEPLOY`

@@ -39,8 +39,9 @@ func TestValidateDeploymentSpecNixDockerBuild(t *testing.T) {
 	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{
 			NixDockerBuild: &apigen.NixDockerBuildConfig{
-				Repo:  "github.com/acme/web",
-				Flake: "nix/web/flake.nix",
+				Repo:   "github.com/acme/web",
+				Flake:  "nix/web/flake.nix",
+				Target: ".#webImage",
 			},
 		},
 		Runner: apigen.RunnerConfig{
@@ -60,8 +61,24 @@ func TestValidateDeploymentSpecNixDockerBuild(t *testing.T) {
 	if spec.Prepare.NixDockerBuild.Flake != "nix/web/flake.nix" {
 		t.Fatalf("flake = %q", spec.Prepare.NixDockerBuild.Flake)
 	}
+	if spec.Prepare.NixDockerBuild.Target != ".#webImage" {
+		t.Fatalf("target = %q", spec.Prepare.NixDockerBuild.Target)
+	}
 	if spec.Runner.Container.User != "1000" {
 		t.Fatalf("container user = %q", spec.Runner.Container.User)
+	}
+}
+
+func TestValidateDeploymentSpecRejectsNonLocalNixTarget(t *testing.T) {
+	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{NixDockerBuild: &apigen.NixDockerBuildConfig{
+			Repo: "github.com/acme/web", Flake: "flake.nix", Target: "github:acme/web#image",
+		}},
+		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+		Networking: hostNetworking(),
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "local flake selector") {
+		t.Fatalf("err = %v, want local target rejection", err)
 	}
 }
 

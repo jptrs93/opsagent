@@ -66,7 +66,7 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 	}
 	nixDir := filepath.Dir(flakePath)
 	log.Write("running Nix build in %s", nixDir)
-	stdoutLines, err := runCmdCapture(ctx, nixDir, log, "nix", "--extra-experimental-features", "nix-command flakes", "build", "--no-update-lock-file", "--no-link", "--print-out-paths", "-L")
+	stdoutLines, err := runCmdCapture(ctx, nixDir, log, "nix", nixBuildArgs(nix.Target)...)
 	if err != nil {
 		log.Error("running Nix build: %v", err)
 		return "", apigen.PreparationStatus_FAILED
@@ -93,6 +93,17 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 	log.Write("image import complete: %s", localImageRef)
 
 	return localImageRef, apigen.PreparationStatus_READY
+}
+
+func nixBuildArgs(target string) []string {
+	args := []string{
+		"--extra-experimental-features", "nix-command flakes",
+		"build", "--no-update-lock-file", "--no-link", "--print-out-paths", "-L",
+	}
+	if target != "" {
+		args = append(args, target)
+	}
+	return args
 }
 
 func (p *Preparer) importStream(ctx context.Context, streamPath string, localImageRef string, log *preparerlog.Log) error {

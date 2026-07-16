@@ -416,8 +416,9 @@ type AssetDeleteRequest struct {
 }
 
 type NixDockerBuildConfig struct {
-	Repo  string
-	Flake string
+	Repo   string
+	Flake  string
+	Target string
 }
 
 type GithubReleaseConfig struct {

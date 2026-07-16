@@ -967,6 +967,10 @@ func validatePrepareConfig(prepare *apigen.PrepareConfig) error {
 		if prepare.NixDockerBuild.Flake == "" {
 			return invalidConfigErrf("prepare.nixDockerBuild: flake is required")
 		}
+		target := prepare.NixDockerBuild.Target
+		if target != "" && (target != strings.TrimSpace(target) || !strings.HasPrefix(target, ".#")) {
+			return invalidConfigErrf("prepare.nixDockerBuild.target: must be a local flake selector starting with .#")
+		}
 	}
 	if hasContainer {
 		if prepare.ContainerImage.Image == "" {

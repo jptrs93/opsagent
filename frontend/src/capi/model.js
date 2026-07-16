@@ -341,6 +341,7 @@
  * @typedef {Object} NixDockerBuildConfig
  * @property {string} repo
  * @property {string} flake
+ * @property {string} target
  */
 /**
  * @typedef {Object} GithubReleaseConfig
@@ -5039,6 +5040,9 @@ export function writeNixDockerBuildConfig(message, writer) {
     if (message.flake !== undefined && message.flake !== null && message.flake !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.flake);
     }
+    if (message.target !== undefined && message.target !== null && message.target !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.target);
+    }
 }
 
 
@@ -5060,7 +5064,7 @@ export function encodeNixDockerBuildConfig(message) {
  */
 function decodeNixDockerBuildConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {repo: "", flake: "" };
+    const message = {repo: "", flake: "", target: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5070,6 +5074,10 @@ function decodeNixDockerBuildConfigMessage(reader, length) {
             }
             case 2: {
                 message.flake = reader.string();
+                break;
+            }
+            case 3: {
+                message.target = reader.string();
                 break;
             }
             default:
