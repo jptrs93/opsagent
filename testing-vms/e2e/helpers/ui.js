@@ -1038,6 +1038,9 @@ async function setDeploymentIngress(dialog, ingress) {
 async function setDeploymentNetworkingMode(dialog, networkingMode) {
   const pane = await openDeploymentNetworkingPane(dialog);
   await byTestId(pane, 'deployment-networking-mode-select', selectField(pane, 'Mode')).selectOption(String(networkingMode));
+  if (String(networkingMode) === NETWORKING_VIRTUAL) {
+    await expect(pane.getByText('Port forwarding', {exact: true})).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  }
   await pane.getByTitle('Close').click();
   await expect(pane).toBeHidden({timeout: LONG_UI_TIMEOUT});
 }

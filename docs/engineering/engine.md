@@ -94,7 +94,7 @@ Run-log reads go through `engine/logreader`. It identifies all candidate `.logbi
 
 Container runner behavior:
 
-- Environment variables are stored as typed `EnvVarValue` entries. Exactly one of literal `value`, `secretId`, `configId`, or asset ref is set; secret/config IDs are prepared by the preparer and resolved at start time.
+- Environment variables are stored as typed `EnvVarValue` entries. Exactly one of literal `value`, `secretId`, `configId`, asset ref, or Address ref is set. An Address ref persists `{addressDeploymentId, addressSpaceId}` and, at spawn, derives the target's stable virtual IPv6 address from the local cluster ULA prefix without fetching target deployment state. Address targets must be virtual-networked on the same node; target deletion, removal of virtual networking, and space moves are rejected while references exist.
 - Default data volume is created under `{dataDir}-volumes/{deploymentID}/default` and mounted at `/data`, unless disabled or overridden with `dataMountPath`.
 - Additional host mounts and OpenDeploy-managed asset mounts are translated to containerd bind mounts.
 - `devShmSizeKb` optionally resizes the container's default `/dev/shm` tmpfs from containerd's default 64 MiB using a KiB value.

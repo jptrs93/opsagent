@@ -690,6 +690,123 @@ func TestValidateDeploymentSpecAcceptsLiteralEnvValues(t *testing.T) {
 	}
 }
 
+func TestValidateDeploymentSpecRejectsIncompleteAddressRef(t *testing.T) {
+	deploymentID := int32(7)
+	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"}},
+		Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
+			"UPSTREAM": {AddressDeploymentID: &deploymentID},
+		}}},
+		Networking: hostNetworking(),
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "required together") {
+		t.Fatalf("err = %v, want incomplete address rejection", err)
+	}
+}
+
+func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	primary := store.EnsurePrimaryNode("primary", "primary")
+	worker := store.EnsurePrimaryNode("worker", "worker")
+	secretsManager, err := secrets.Initialize(t.TempDir(), store)
+	if err != nil {
+		t.Fatalf("secrets.Initialize: %v", err)
+	}
+	h := &Handler{Store: store, Secrets: secretsManager}
+
+	create := func(name string, nodeID int32, networking apigen.NetworkingConfig, env map[string]*apigen.EnvVarValue) *apigen.DeploymentConfig {
+		t.Helper()
+		cfg, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+			ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: name},
+			NodeID:   nodeID,
+			Spec: apigen.DeploymentSpec{
+				Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+				Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{EnvVars: env}},
+				Networking: networking,
+			},
+		})
+		if err != nil {
+			t.Fatalf("PostV1DeploymentCreate %s: %v", name, err)
+		}
+		return cfg
+	}
+
+	target := create("database", primary.ID, virtualNetworking(), nil)
+	addressDeploymentID := target.ID
+	addressSpaceID := int32(1)
+	consumer := create("web", primary.ID, hostNetworking(), map[string]*apigen.EnvVarValue{
+		"DATABASE_ADDR": {AddressDeploymentID: &addressDeploymentID, AddressSpaceID: &addressSpaceID},
+	})
+	if got := consumer.Spec.Runner.Container.EnvVars["DATABASE_ADDR"]; got.AddressDeploymentID == nil || got.AddressSpaceID == nil {
+		t.Fatalf("address ref was not stored: %+v", got)
+	}
+
+	wrongSpace := int32(2)
+	_, err = h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "wrong-space"},
+		NodeID:   primary.ID,
+		Spec: apigen.DeploymentSpec{
+			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+			Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
+				"DATABASE_ADDR": {AddressDeploymentID: &addressDeploymentID, AddressSpaceID: &wrongSpace},
+			}}},
+			Networking: hostNetworking(),
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "address space does not match") {
+		t.Fatalf("err = %v, want address-space rejection", err)
+	}
+
+	remote := create("remote", worker.ID, virtualNetworking(), nil)
+	remoteID := remote.ID
+	_, err = h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "cross-node"},
+		NodeID:   primary.ID,
+		Spec: apigen.DeploymentSpec{
+			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+			Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
+				"REMOTE_ADDR": {AddressDeploymentID: &remoteID, AddressSpaceID: &addressSpaceID},
+			}}},
+			Networking: hostNetworking(),
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "same node") {
+		t.Fatalf("err = %v, want cross-node rejection", err)
+	}
+
+	nextSpaceID := int32(2)
+	_, err = h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID: target.ID,
+		Version:      target.Version + 1,
+		SpaceID:      &nextSpaceID,
+	})
+	if err == nil || !strings.Contains(err.Error(), "address references exist") {
+		t.Fatalf("err = %v, want address-dependent space move rejection", err)
+	}
+
+	_, err = h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID: target.ID,
+		Version:      target.Version + 1,
+		Spec: apigen.DeploymentSpec{
+			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+			Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+			Networking: hostNetworking(),
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "cannot leave virtual mode") {
+		t.Fatalf("err = %v, want virtual-networking removal rejection", err)
+	}
+
+	store.MustWriteDeploymentStatus(target.ID, func(status *apigen.DeploymentStatus) bool {
+		status.Runner.Status = apigen.RunningStatus_STOPPED
+		return true
+	})
+	err = h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: target.ID, Version: target.Version + 1})
+	if err == nil || !strings.Contains(err.Error(), "reference_in_use") {
+		t.Fatalf("err = %v, want referenced deployment deletion rejection", err)
+	}
+}
+
 func TestDeploymentCreatePersistsInitialStoppedDesiredState(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")

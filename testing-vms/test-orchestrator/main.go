@@ -242,7 +242,7 @@ func loadConfig(resolveLatestRelease bool) (*config, error) {
 	c.RepoMirrorDisk = env("OPD_VM_REPO_MIRROR_DISK", "80GiB")
 
 	if c.usesSelfBootstrap() {
-		c.RepoMirrorReleases = env("OPD_REPO_MIRROR_RELEASES", mockUpgradeVersion)
+		c.RepoMirrorReleases = env("OPD_REPO_MIRROR_RELEASES", c.SelfVersion+" "+mockUpgradeVersion)
 		c.RepoMirrorLatest = env("OPD_REPO_MIRROR_LATEST", mockUpgradeVersion)
 	} else {
 		c.RepoMirrorReleases = env("OPD_REPO_MIRROR_RELEASES", c.InstallVersion+" "+c.UpgradeVersion)

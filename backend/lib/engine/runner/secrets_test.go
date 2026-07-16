@@ -7,6 +7,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
+	"github.com/jptrs93/opsagent/backend/lib/network"
 )
 
 type fakeRuntimeInputProvider struct {
@@ -83,6 +84,39 @@ func TestResolveEnvRejectsAmbiguousValue(t *testing.T) {
 func TestResolveEnvRejectsUnresolvedAsset(t *testing.T) {
 	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{"X": {Asset: "app.conf"}}); err == nil {
 		t.Fatal("expected error for unresolved asset")
+	}
+}
+
+func TestResolveEnvAddressRefDerivesStableAddress(t *testing.T) {
+	prefix := network.Prefix{0xfd, 0xab, 0xcd, 0xef, 0x12, 0x34}
+	previous := network.Default
+	network.SetDefault(network.New(prefix, 0))
+	t.Cleanup(func() { network.SetDefault(previous) })
+
+	deploymentID := int32(7)
+	spaceID := int32(5)
+	out, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{
+		"UPSTREAM_ADDR": {AddressDeploymentID: &deploymentID, AddressSpaceID: &spaceID},
+	})
+	if err != nil {
+		t.Fatalf("resolveEnv: %v", err)
+	}
+	addr, err := prefix.InstanceAddr(spaceID, deploymentID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"UPSTREAM_ADDR=" + addr.String()}
+	if !reflect.DeepEqual(out, want) {
+		t.Fatalf("resolveEnv() = %#v; want %#v", out, want)
+	}
+}
+
+func TestResolveEnvAddressRefFailsClosed(t *testing.T) {
+	deploymentID := int32(7)
+	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{
+		"UPSTREAM_ADDR": {AddressDeploymentID: &deploymentID},
+	}); err == nil {
+		t.Fatal("expected incomplete address reference to fail")
 	}
 }
 

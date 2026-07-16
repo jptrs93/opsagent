@@ -88,6 +88,7 @@ responses redact that runner config to an empty `runner` object.
 - `portForwarding` publishes host-interface TCP or UDP ports to container ports through nftables DNAT and requires `VIRTUAL`, e.g. `{protocol: TCP, hostPort: 443, containerPort: 443}`.
 - `ingress` currently accepts `TLS_PASSTHROUGH` routes in virtual mode. Each route has a hostname and `tlsPassthroughConfig: {hostPort, containerPort}`; `hostPort: 0` defaults to `443`. Routes are rendered into local netproxy state, which selects by TLS SNI and relays the original TCP stream to a READY backend without TLS termination. The primary node reserves `:443` for the Web UI until both share one listener.
 - Virtual-mode deployments publish endpoint status for `.internal` DNS discovery through the per-machine netproxy deployment.
+- An environment variable of type `Address` selects a same-node virtual deployment and stores its deployment and space IDs. The consuming container receives that target's stable IPv6 instance address when it starts. A target cannot be deleted, moved to another space, or changed out of virtual networking while Address references remain. For a space move, remove the references, move the target, then add them back so they capture its new space ID.
 - Cross-machine virtual networking, policy, and public ingress are not implemented yet.
 
 ### Config versioning
