@@ -46,9 +46,9 @@ export function referenceUsageOverlay(resourceType, resourceName, deployments, s
                     div(
                         {class: "min-w-0"},
                         h2(
-                            {id: "reference-usage-title", class: "truncate text-base font-semibold text-gray-100"},
-                            span({class: "capitalize text-purple-300"}, `${resourceType} ${resourceName}`),
-                            " in use by",
+                            {id: "reference-usage-title", class: "truncate text-xs font-normal text-gray-400"},
+                            span({class: `lowercase ${resourceType === "config" ? "text-blue-300" : "text-purple-300"}`}, resourceName),
+                            " usages:",
                         ),
                     ),
                     button({type: "button", class: "shrink-0 cursor-pointer px-3 py-1.5 text-sm text-gray-400 hover:text-gray-100", onclick: onClose}, "Close"),
