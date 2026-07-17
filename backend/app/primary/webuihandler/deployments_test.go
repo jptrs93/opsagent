@@ -1203,6 +1203,66 @@ func TestDeploymentDeleteSoftDeletesStoppedDeployment(t *testing.T) {
 	}
 }
 
+func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	primary := store.EnsurePrimaryNode("primary", "primary")
+	h := &Handler{Store: store}
+	spec := apigen.DeploymentSpec{
+		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+		Networking: hostNetworking(),
+	}
+	create := func(version string) *apigen.DeploymentConfig {
+		t.Helper()
+		cfg, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+			ConfigID:     apigen.DeploymentIdentifier{SpaceID: 1, Name: "web"},
+			NodeID:       primary.ID,
+			Spec:         spec,
+			DesiredState: apigen.DesiredState{Version: version, Running: false},
+		})
+		if err != nil {
+			t.Fatalf("PostV1DeploymentCreate: %v", err)
+		}
+		return cfg
+	}
+
+	first := create("1.25")
+	store.MustWriteDeploymentStatus(first.ID, func(s *apigen.DeploymentStatus) bool {
+		s.Runner.Status = apigen.RunningStatus_STOPPED
+		return true
+	})
+	if err := h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{
+		DeploymentID: first.ID,
+		Version:      first.Version + 1,
+	}); err != nil {
+		t.Fatalf("PostV1DeploymentDelete: %v", err)
+	}
+
+	second := create("1.26")
+	if second.ID == first.ID {
+		t.Fatalf("new deployment reused deleted deployment ID %d", first.ID)
+	}
+	if second.Version != 1 {
+		t.Fatalf("new deployment version = %d, want 1", second.Version)
+	}
+	if second.DesiredState.Version != "1.26" {
+		t.Fatalf("new deployment desired state = %+v", second.DesiredState)
+	}
+
+	firstHistory := store.MustFetchDeploymentHistory(first.ID)
+	if len(firstHistory) != 2 || !firstHistory[len(firstHistory)-1].Deleted {
+		t.Fatalf("deleted deployment history = %+v, want independent two-entry history", firstHistory)
+	}
+	secondHistory := store.MustFetchDeploymentHistory(second.ID)
+	if len(secondHistory) != 1 || secondHistory[0].Deleted || secondHistory[0].Version != 1 {
+		t.Fatalf("new deployment history = %+v, want independent initial history", secondHistory)
+	}
+	active := store.ListActiveDeploymentConfigs()
+	if len(active) != 1 || active[0].ID != second.ID {
+		t.Fatalf("active deployments = %+v, want only new deployment %d", active, second.ID)
+	}
+}
+
 func TestDeploymentUpdateCombinesSpaceAndDesiredStateInSingleConfigVersion(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{

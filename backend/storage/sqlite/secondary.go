@@ -28,6 +28,14 @@ func (s *SecondaryStorage) MustWriteDeploymentConfig(cfg *apigen.DeploymentConfi
 	stored := *cfg
 	stored.NodeID = normalizeDeploymentNodeID(stored.NodeID)
 	_, exists := s.configCache[id]
+	retiredIDs := make([]int32, 0)
+	if !stored.Deleted {
+		for existingID, existing := range s.configCache {
+			if existingID != id && !existing.Deleted && existing.ConfigID == stored.ConfigID {
+				retiredIDs = append(retiredIDs, existingID)
+			}
+		}
+	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -36,6 +44,16 @@ func (s *SecondaryStorage) MustWriteDeploymentConfig(cfg *apigen.DeploymentConfi
 	defer tx.Rollback()
 	q := s.q.WithTx(tx)
 
+	if !stored.Deleted {
+		if err := q.RetireOtherActiveDeploymentConfigsWithIdentity(ctx, RetireOtherActiveDeploymentConfigsWithIdentityParams{
+			DeploymentID: int64(id),
+			SpaceID:      int64(stored.ConfigID.SpaceID),
+			Machine:      stored.ConfigID.Machine,
+			Name:         stored.ConfigID.Name,
+		}); err != nil {
+			panic(fmt.Sprintf("RetireOtherActiveDeploymentConfigsWithIdentity: %v", err))
+		}
+	}
 	if err := q.UpsertDeploymentConfig(ctx, configProtoToUpsertParams(&stored)); err != nil {
 		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
 	}
@@ -46,6 +64,13 @@ func (s *SecondaryStorage) MustWriteDeploymentConfig(cfg *apigen.DeploymentConfi
 		panic(fmt.Sprintf("commit: %v", err))
 	}
 
+	for _, retiredID := range retiredIDs {
+		retired := *s.configCache[retiredID]
+		retired.Deleted = true
+		retired.DesiredState.Running = false
+		s.configCache[retiredID] = &retired
+		s.notifyFromCache(retiredID)
+	}
 	s.configCache[id] = &stored
 	s.notifyFromCache(id)
 }

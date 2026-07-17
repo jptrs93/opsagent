@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -84,6 +85,56 @@ func TestSecondaryNormalizesMissingNodeID(t *testing.T) {
 	unsub()
 	if len(configs) != 1 || configs[0].Config.NodeID != -1 {
 		t.Fatalf("missing node ID normalized to %+v, want -1", configs)
+	}
+}
+
+func TestSecondaryRetiresStaleActiveIdentityBeforeCachingNewDeployment(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "secondary.db")
+	store := NewSecondaryStorage(dbPath)
+	identity := apigen.DeploymentIdentifier{SpaceID: 1, Machine: "m1", Name: "api"}
+	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
+		ID:           7,
+		NodeID:       23,
+		ConfigID:     identity,
+		Version:      4,
+		UpdatedAt:    time.UnixMilli(1000),
+		Spec:         *nonEmptySpec(),
+		DesiredState: apigen.DesiredState{Version: "v1", Running: true},
+	})
+
+	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
+		ID:           8,
+		NodeID:       23,
+		ConfigID:     identity,
+		Version:      1,
+		UpdatedAt:    time.UnixMilli(2000),
+		Spec:         *nonEmptySpec(),
+		DesiredState: apigen.DesiredState{Version: "v2", Running: true},
+	})
+
+	if stale := store.configCache[7]; stale == nil || !stale.Deleted || stale.DesiredState.Running {
+		t.Fatalf("stale cached deployment = %+v, want locally retired", stale)
+	}
+	staleRow, err := store.q.GetDeploymentConfig(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("read stale deployment row: %v", err)
+	}
+	if staleRow.Deleted == 0 || staleRow.DesiredRunning != 0 {
+		t.Fatalf("persisted stale deployment = %+v, want deleted and stopped", staleRow)
+	}
+	active := store.FetchDeploymentSnapshot(nil)
+	if len(active) != 1 || active[0].Config.ID != 8 {
+		t.Fatalf("active cached deployments = %+v, want only deployment 8", active)
+	}
+
+	if err := store.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store = NewSecondaryStorage(dbPath)
+	defer store.db.Close()
+	active = store.FetchDeploymentSnapshot(nil)
+	if len(active) != 1 || active[0].Config.ID != 8 {
+		t.Fatalf("persisted active deployments = %+v, want only deployment 8", active)
 	}
 }
 

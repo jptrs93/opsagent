@@ -1,21 +1,11 @@
 -- === deployment_configs ===
 
--- CreateDeploymentConfig inserts a brand-new deployment, auto-allocating the
--- integer deployment_id. On (space_id, machine, name) conflict it revives the
--- existing row (e.g. a previously soft-deleted one) keeping its original
--- deployment_id and created_at, and returns both.
+-- CreateDeploymentConfig inserts a new independent deployment and
+-- auto-allocates its deployment_id. Deleted deployments do not reserve their
+-- former identity tuple.
 -- name: CreateDeploymentConfig :one
 INSERT INTO deployment_configs (node_id, space_id, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(space_id, machine, name) DO UPDATE SET
-    node_id = excluded.node_id,
-    version = excluded.version,
-    updated_at = excluded.updated_at,
-    updated_by = excluded.updated_by,
-    spec_blob = excluded.spec_blob,
-    desired_version = excluded.desired_version,
-    desired_running = excluded.desired_running,
-    deleted = excluded.deleted
 RETURNING deployment_id, created_at;
 
 -- name: GetDeploymentConfig :one
@@ -40,6 +30,18 @@ ON CONFLICT(deployment_id) DO UPDATE SET
     desired_version = excluded.desired_version,
     desired_running = excluded.desired_running,
     deleted = excluded.deleted;
+
+-- A secondary may miss a deletion while disconnected. Retire any stale local
+-- row before caching the primary's new independent deployment with that tuple.
+-- name: RetireOtherActiveDeploymentConfigsWithIdentity :exec
+UPDATE deployment_configs
+SET desired_running = 0,
+    deleted = 1
+WHERE deployment_id != ?
+  AND space_id = ?
+  AND machine = ?
+  AND name = ?
+  AND deleted = 0;
 
 -- name: UpdateDesiredState :exec
 UPDATE deployment_configs

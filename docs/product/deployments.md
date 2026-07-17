@@ -22,7 +22,7 @@ A deployment is created by posting a `DeploymentCreateRequest` to
 {
   "configId": {
     "name": "coflip_server",
-    "environment": "PROD",
+    "spaceId": 1,
     "machine": "192.168.1.100"
   },
   "spec": {
@@ -49,9 +49,8 @@ A deployment is created by posting a `DeploymentCreateRequest` to
 ```
 
 The spec of an existing deployment is updated by posting the typed `spec` field
-in `POST /v1/deployment/update`; the `name`,
-`environment`, and `machine` identity fields are fixed at create time and
-cannot be changed through this path.
+in `POST /v1/deployment/update`. Its `name` and `machine` identity fields are
+fixed at creation; its space can be changed through the update path.
 
 Current deployment config responses also include `nodeId`, the numeric
 `ClusterNode.id` corresponding to the stable `machine` identifier. A value of
@@ -121,13 +120,15 @@ Driven by the runner. Tracks the running container task with `running_pid`,
 
 ## Deployment identification
 
-Each deployment has an integer `id` (primary key) assigned when the deployment is first created via `POST /v1/deployment/create`. The `DeploymentIdentifier{environment, machine, name}` tuple is human-readable metadata stored on `DeploymentConfig.ConfigID`. All API requests, storage keys, and log file paths use the integer `id`.
+Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployment/create`. The `DeploymentIdentifier{spaceId, machine, name}` tuple is human-readable metadata stored on `DeploymentConfig.ConfigID` and must be unique among active deployments. All API requests, storage keys, and log file paths use the integer `id`.
+
+Deleting a deployment releases its human-readable identity tuple but retains its ID, configuration history, status history, logs, volumes, and other ID-owned records. Creating a deployment later with the same space, machine, and name creates a completely new and independent deployment with a fresh ID and version history. It does not restore, continue, or otherwise inherit the deleted deployment.
 
 ## Deployment status display
 
 The status page shows one card per deployment, sorted with
-OPENDEPLOY last, then by environment, name, machine, and id. Each
-card carries a per-environment tinted background and displays:
+OPENDEPLOY last, then by space, name, machine, and id. Deployments can also be
+grouped by space. Each card displays:
 
 - Deployment name with history link
 - Status badge (Running/Stopped/Starting/Crashed/No Deployment) — clickable to view run output
