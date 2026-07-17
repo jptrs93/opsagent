@@ -3,12 +3,34 @@ package runner
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 )
+
+func TestComputeContainerBackoff(t *testing.T) {
+	tests := []struct {
+		crashCount int
+		want       time.Duration
+	}{
+		{crashCount: 0, want: time.Second},
+		{crashCount: 1, want: time.Second},
+		{crashCount: 2, want: 2 * time.Second},
+		{crashCount: 7, want: 64 * time.Second},
+		{crashCount: 12, want: 2048 * time.Second},
+		{crashCount: 13, want: time.Hour},
+		{crashCount: 100, want: time.Hour},
+	}
+
+	for _, tt := range tests {
+		if got := computeContainerBackoff(tt.crashCount); got != tt.want {
+			t.Errorf("computeContainerBackoff(%d) = %s, want %s", tt.crashCount, got, tt.want)
+		}
+	}
+}
 
 func TestContainerRunnerShouldPublishStopped(t *testing.T) {
 	tests := []struct {

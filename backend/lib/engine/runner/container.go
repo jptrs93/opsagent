@@ -29,7 +29,7 @@ import (
 
 const (
 	containerMinBackoff      = 1 * time.Second
-	containerMaxBackoff      = 30 * time.Second
+	containerMaxBackoff      = 1 * time.Hour
 	containerStableRunWindow = 15 * time.Second
 
 	containerReadinessDefaultTimeout = 10 * time.Minute

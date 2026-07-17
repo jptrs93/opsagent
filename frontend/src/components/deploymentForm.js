@@ -1712,6 +1712,7 @@ function envAddressAutocomplete(form, row) {
         placeholder: "Search deployments",
         noMatchesLabel: "No matching deployments",
         emptyLabel: "No local virtual deployments",
+        getKey: deployment => deployment.config?.id,
         getLabel: addressOptionLabel,
         onSelect: deployment => {
             selectedKey.val = deployment.config.id;
@@ -1725,13 +1726,15 @@ function envAddressAutocomplete(form, row) {
 
 function addressOptionsForRow(form, row) {
     const selectedID = Number(row.addressDeploymentId || 0);
+    const currentDeploymentID = Number(form.deploymentId.val || 0);
     const targetNodeID = Number(form.nodeId.val || 0);
     const all = deploymentsS.val || [];
     const selectable = all.filter(item => !item.config?.deleted
+        && Number(item.config?.id || 0) !== currentDeploymentID
         && Number(item.config?.nodeId || 0) === targetNodeID
         && Number(item.config?.spec?.networking?.mode || 0) === NETWORKING_MODE_VIRTUAL);
     const selected = all.find(item => Number(item.config?.id || 0) === selectedID);
-    if (selected && !selectable.some(item => Number(item.config?.id || 0) === selectedID)) selectable.push(selected);
+    if (selected && selectedID !== currentDeploymentID && !selectable.some(item => Number(item.config?.id || 0) === selectedID)) selectable.push(selected);
     return selectable.sort((a, b) => addressOptionLabel(a).localeCompare(addressOptionLabel(b)));
 }
 

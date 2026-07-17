@@ -122,7 +122,7 @@ The deployment runtime supports Linux only. The `ctrd` client is compiled on all
 
 ## Backoff
 
-Container crash backoff is 1 second to 60 seconds, doubling per consecutive crash. If a container runs for at least 15 seconds before crashing, the local crash count resets.
+Container crash backoff is 1 second to 1 hour, doubling per consecutive crash. If a container runs for at least 15 seconds before crashing, the local crash count resets.
 
 ## Storage Failure Policy
 
