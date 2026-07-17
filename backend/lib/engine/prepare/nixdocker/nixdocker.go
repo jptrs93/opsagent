@@ -88,10 +88,12 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 
 	localImageRef := imageRef(dep.ID, version)
 	log.Write("importing image stream %s as %s", streamPath, localImageRef)
+	imageStreamStarted := time.Now()
 	if err := p.importStream(ctx, streamPath, localImageRef, log); err != nil {
 		log.Error("importing image: %v", err)
 		return "", apigen.PreparationStatus_FAILED
 	}
+	log.Write("image stream export/import complete in %s", time.Since(imageStreamStarted).Round(time.Millisecond))
 	imageSize, err := ctrd.Default.ImageSize(ctx, localImageRef)
 	if err != nil {
 		log.Write("image import complete: %s (size unavailable: %v)", localImageRef, err)
