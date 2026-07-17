@@ -447,8 +447,8 @@ export const orderedCases = [
   },
   {
     id: 'postgres-deployment-created',
-    title: 'create postgres deployment',
-    description: 'Creates and verifies the Postgres container image deployment.',
+    title: 'create virtual-network postgres deployment',
+    description: 'Creates and verifies a Postgres container image deployment on the virtual network.',
     requires: ['worker-enrolled', 'postgres-user-secret-created', 'postgres-password-secret-created'],
     async run(ctx) {
       await createPostgresDeployment(ctx.page);
@@ -456,8 +456,8 @@ export const orderedCases = [
   },
   {
     id: 'postgres-client-deployment-created',
-    title: 'create postgres client deployment',
-    description: 'Creates a Nix Docker Postgres client deployment and verifies rows are readable.',
+    title: 'verify cross-deployment virtual networking',
+    description: 'Connects a virtual-network client to Postgres through internal DNS and verifies writes and reads.',
     requires: ['postgres-deployment-created'],
     async run(ctx) {
       await createPostgresClientDeployment(ctx.page);

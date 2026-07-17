@@ -3,14 +3,15 @@
 Tiny `nixDockerBuild` test app that connects to a Postgres deployment, creates a
 table, inserts rows, queries them back, logs the results, and then keeps running.
 
-The E2E flow uses it with the official `postgres:18` image running on the same
-OpenDeploy worker. Container deployments currently use host networking, so the
-client connects to `127.0.0.1:5432`.
+The E2E flow uses it with the official `postgres:18` image running as a separate
+virtual-network deployment on the same OpenDeploy worker. The client resolves
+the server through OpenDeploy's internal DNS and connects directly over its
+virtual IPv6 address without host-port forwarding.
 
 Required environment variables:
 
 ```text
-PGHOST=127.0.0.1
+PGHOST=postgres18.default.internal
 PGPORT=5432
 PGUSER=<secret ref: postgres>
 PGPASSWORD=<secret ref: postgrespass>

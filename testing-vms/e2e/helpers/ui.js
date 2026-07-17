@@ -349,6 +349,7 @@ export async function createPostgresDeployment(page, {
       POSTGRES_DB: 'postgres',
     },
     dataMountPath: '/var/lib/postgresql',
+    networkingMode: NETWORKING_VIRTUAL,
   });
   await expectDeploymentRunning(page, name);
   await expectDeploymentOutput(page, name, ['database system is ready to accept connections']);
@@ -362,8 +363,9 @@ export async function createPostgresClientDeployment(page, {
     name,
     machine,
     flake: 'testexamples/postgresclient/flake.nix',
+    networkingMode: NETWORKING_VIRTUAL,
     env: {
-      PGHOST: '127.0.0.1',
+      PGHOST: 'postgres18.default.internal',
       PGPORT: '5432',
       PGUSER: {type: 'secret', name: 'postgres'},
       PGPASSWORD: {type: 'secret', name: 'postgrespass'},
@@ -466,27 +468,23 @@ async function ensureE2EObjectStorage(page, cfg) {
 }
 
 export async function createConfig(page, {name, value} = {}) {
-  await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
-  await page.getByRole('button', {name: 'Add config'}).click();
-
-  const row = editableSecretConfigRow(page, 'Config');
-  await row.locator('input').nth(0).fill(name);
-  await row.locator('input').nth(1).fill(value);
-  await row.getByRole('button', {name: 'Save'}).click();
-  await expect(row.getByRole('button', {name: 'Save'})).toBeHidden({timeout: LONG_UI_TIMEOUT});
-  await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(name))})).toBeVisible();
+  await createSecretOrConfig(page, {type: 'config', name, value});
 }
 
 export async function createSecret(page, {name, value} = {}) {
-  await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
-  await page.getByRole('button', {name: 'Add secret'}).click();
+  await createSecretOrConfig(page, {type: 'secret', name, value});
+}
 
-  const row = editableSecretConfigRow(page, 'Secret');
-  await row.locator('input').nth(0).fill(name);
-  await row.locator('input').nth(1).fill(value);
-  await row.getByRole('button', {name: 'Save'}).click();
-  await expect(row.getByRole('button', {name: 'Save'})).toBeHidden({timeout: LONG_UI_TIMEOUT});
-  await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(name))})).toBeVisible();
+async function createSecretOrConfig(page, {type, name, value}) {
+  await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
+  await page.getByRole('button', {name: `Add ${type}`}).click();
+
+  const dialog = page.getByTestId(`create-${type}-overlay`).getByRole('dialog');
+  await dialog.getByPlaceholder(`${type} name`).fill(name);
+  await dialog.getByPlaceholder(`${type} value`).fill(value);
+  await dialog.getByRole('button', {name: `Add ${type}`}).click();
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(name))})).toBeVisible({timeout: LONG_UI_TIMEOUT});
 }
 
 export async function expectReferenceUsage(page, {
@@ -512,13 +510,6 @@ export async function expectReferenceUsage(page, {
   await expect(deploymentRow).toContainText(machine);
   await overlay.getByRole('button', {name: 'Close'}).click();
   await expect(overlay).toBeHidden();
-}
-
-function editableSecretConfigRow(page, typeLabel) {
-  return page.locator('tbody tr')
-    .filter({hasText: typeLabel})
-    .filter({has: page.getByRole('button', {name: 'Save'})})
-    .first();
 }
 
 async function configureBackupSettings(page, cfg) {
@@ -1087,6 +1078,7 @@ async function setDeploymentAssetMount(dialog, {asset, path: mountPath}) {
   const pathInput = field(pane, 'Container path').getByRole('textbox');
   await pathInput.fill(mountPath);
   await expect(pathInput).toHaveValue(mountPath);
+  await pathInput.blur();
   await expect(dialog.getByText('1 mounted asset')).toBeVisible();
 }
 

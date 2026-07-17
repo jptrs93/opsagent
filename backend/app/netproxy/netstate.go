@@ -2,6 +2,7 @@ package netproxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -22,7 +23,7 @@ type deploymentStore interface {
 // RunNetStateWriter writes full protobuf netstate snapshots for the local
 // netproxy process. It is intentionally full-state and idempotent.
 func RunNetStateWriter(ctx context.Context, store deploymentStore, predicate storage.DeploymentPredicate, machine, path string) {
-	seq := int64(0)
+	seq := initialNetStateSequence(path)
 	write := func() {
 		seq++
 		state := RenderNetState(seq, machine, store.FetchDeploymentSnapshot(predicate))
@@ -48,6 +49,23 @@ func RunNetStateWriter(ctx context.Context, store deploymentStore, predicate sto
 			write()
 		}
 	}
+}
+
+func initialNetStateSequence(path string) int64 {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0
+	}
+	if err != nil {
+		slog.Warn("reading existing netproxy netstate failed", "path", path, "err", err)
+		return 0
+	}
+	state, err := apigen.DecodeNetState(b)
+	if err != nil {
+		slog.Warn("decoding existing netproxy netstate failed", "path", path, "err", err)
+		return 0
+	}
+	return max(state.Seq, 0)
 }
 
 func RenderNetState(seq int64, machine string, items []apigen.DeploymentWithStatus) *apigen.NetState {

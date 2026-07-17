@@ -1,11 +1,29 @@
 package netproxy
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 )
+
+func TestInitialNetStateSequenceContinuesPersistedSequence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "netstate.pb")
+	if err := WriteNetState(path, &apigen.NetState{Seq: 41}); err != nil {
+		t.Fatalf("writing netstate: %v", err)
+	}
+	if got := initialNetStateSequence(path); got != 41 {
+		t.Fatalf("initial sequence = %d, want 41", got)
+	}
+}
+
+func TestInitialNetStateSequenceStartsAtZeroWithoutSnapshot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "netstate.pb")
+	if got := initialNetStateSequence(path); got != 0 {
+		t.Fatalf("initial sequence = %d, want 0", got)
+	}
+}
 
 func TestRenderNetStateRendersTlsPassthroughIngress(t *testing.T) {
 	prefix := network.GeneratePrefix()
