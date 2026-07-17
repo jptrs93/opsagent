@@ -228,6 +228,12 @@ func (s *ingressServer) handle(port uint16, client net.Conn) {
 		slog.Debug("writing TLS ClientHello to ingress backend failed", "port", port, "hostname", hostname, "err", err)
 		return
 	}
+	slog.Info("TLS ingress connection routed",
+		"port", port,
+		"hostname", hostname,
+		"client_address", client.RemoteAddr(),
+		"backend_address", backend.RemoteAddr(),
+	)
 	relayTCP(s.ctx, client, backend)
 }
 

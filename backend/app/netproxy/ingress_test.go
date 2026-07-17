@@ -6,8 +6,10 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"io"
+	"log/slog"
 	"net"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -111,6 +113,11 @@ func TestIngressStateFromNetState(t *testing.T) {
 }
 
 func TestIngressForwardsInspectedClientHello(t *testing.T) {
+	var logOutput bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logOutput, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
 	backendListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("starting backend: %v", err)
@@ -162,6 +169,18 @@ func TestIngressForwardsInspectedClientHello(t *testing.T) {
 	}
 	if err := <-backendDone; err != nil {
 		t.Fatalf("backend failed: %v", err)
+	}
+	gotLog := logOutput.String()
+	for _, want := range []string{
+		"msg=\"TLS ingress connection routed\"",
+		"port=8443",
+		"hostname=db.example.com",
+		"client_address=pipe",
+		"backend_address=127.0.0.1:",
+	} {
+		if !strings.Contains(gotLog, want) {
+			t.Errorf("log output %q does not contain %q", gotLog, want)
+		}
 	}
 }
 
