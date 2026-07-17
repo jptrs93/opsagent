@@ -1,9 +1,12 @@
 package netstatewatch
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,6 +59,42 @@ func TestRunPublishesAtomicRenames(t *testing.T) {
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatalf("Run failed: %v", err)
+	}
+}
+
+func TestPublishLogsAcceptedNetstateSummary(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	w := New("netstate.pb")
+	state := &apigen.NetState{
+		Seq:               7,
+		Machine:           "primary",
+		DnsServices:       []*apigen.DnsService{{Endpoints: []*apigen.Endpoint{{}, {}}}},
+		UpstreamResolvers: []string{"192.0.2.53"},
+		Ingress:           []*apigen.NetIngress{{}},
+	}
+	w.publish(state)
+	w.publish(state)
+
+	got := output.String()
+	for _, want := range []string{
+		"msg=\"netstate loaded\"",
+		"seq=7",
+		"machine=primary",
+		"dns_services=1",
+		"dns_endpoints=2",
+		"upstream_resolvers=1",
+		"ingress_routes=1",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("log output %q does not contain %q", got, want)
+		}
+	}
+	if count := strings.Count(got, "netstate loaded"); count != 1 {
+		t.Errorf("netstate loaded log count = %d, want 1", count)
 	}
 }
 

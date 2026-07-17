@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/miekg/dns"
+	"golang.org/x/time/rate"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
@@ -21,19 +23,21 @@ func RunDNS(ctx context.Context, states netStateSubscriber, listen string) error
 	if listen == "" {
 		listen = ":53"
 	}
-	s := &dnsServer{}
+	s := &dnsServer{warningLimiter: newOperationalWarningLimiter()}
 	snapshot, updates, unsubscribe := states.SnapshotAndSubscribe()
 	defer unsubscribe()
 	s.setState(snapshot)
 
 	mux := dns.NewServeMux()
 	mux.HandleFunc(".", s.handle)
-	udp := &dns.Server{Addr: listen, Net: "udp", Handler: mux}
-	tcp := &dns.Server{Addr: listen, Net: "tcp", Handler: mux}
+	started := make(chan struct{}, 2)
+	udp := &dns.Server{Addr: listen, Net: "udp", Handler: mux, NotifyStartedFunc: func() { started <- struct{}{} }}
+	tcp := &dns.Server{Addr: listen, Net: "tcp", Handler: mux, NotifyStartedFunc: func() { started <- struct{}{} }}
 	errCh := make(chan error, 2)
 	go func() { errCh <- udp.ListenAndServe() }()
 	go func() { errCh <- tcp.ListenAndServe() }()
 
+	startedCount := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -42,6 +46,11 @@ func RunDNS(ctx context.Context, states netStateSubscriber, listen string) error
 			return nil
 		case next := <-updates:
 			s.setState(next)
+		case <-started:
+			startedCount++
+			if startedCount == 2 {
+				slog.Info("DNS listeners started", "address", listen, "networks", "udp,tcp")
+			}
 		case err := <-errCh:
 			_ = udp.Shutdown()
 			_ = tcp.Shutdown()
@@ -54,7 +63,8 @@ func RunDNS(ctx context.Context, states netStateSubscriber, listen string) error
 }
 
 type dnsServer struct {
-	state atomic.Pointer[apigen.NetState]
+	state          atomic.Pointer[apigen.NetState]
+	warningLimiter *rate.Limiter
 }
 
 func (s *dnsServer) setState(next *apigen.NetState) {
@@ -142,16 +152,27 @@ func (s *dnsServer) forward(w dns.ResponseWriter, r *dns.Msg) bool {
 		return false
 	}
 	client := &dns.Client{Timeout: 2 * time.Second}
+	var lastErr error
 	for _, upstream := range state.UpstreamResolvers {
 		if !strings.Contains(upstream, ":") {
 			upstream = net.JoinHostPort(upstream, "53")
 		}
 		res, _, err := client.Exchange(r, upstream)
 		if err != nil {
+			lastErr = err
 			continue
 		}
-		_ = w.WriteMsg(res)
+		if err := w.WriteMsg(res); err != nil {
+			slog.Debug("writing forwarded DNS response failed", "err", err)
+		}
 		return true
+	}
+	if lastErr != nil && allowOperationalWarning(s.warningLimiter) {
+		attrs := []any{"resolver_count", len(state.UpstreamResolvers), "err", lastErr}
+		if len(r.Question) > 0 {
+			attrs = append(attrs, "name", r.Question[0].Name, "type", r.Question[0].Qtype)
+		}
+		slog.Warn("forwarding DNS query to all upstream resolvers failed", attrs...)
 	}
 	return false
 }

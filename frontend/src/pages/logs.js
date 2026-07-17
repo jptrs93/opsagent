@@ -239,7 +239,9 @@ export function logsPage(selectedDeploymentId) {
             }
             status.val = count >= DEFAULT_LOG_LINE_LIMIT
                 ? `Showing newest ${DEFAULT_LOG_LINE_LIMIT.toLocaleString()} log lines.`
-                : `${count} log line${count === 1 ? '' : 's'} returned.`;
+                : count === 0
+                    ? 'No process output found in the selected range.'
+                    : `${count} log line${count === 1 ? '' : 's'} returned.`;
             const refreshedAt = new Date();
             lastSearch.val = {
                 deploymentName: selectedLabel,
@@ -297,6 +299,9 @@ export function logsPage(selectedDeploymentId) {
         if (loading.val) return 'Searching logs...';
         const search = lastSearch.val;
         if (!search) return 'No logs search made.';
+        if (search.count === 0) {
+            return `No process output found for ${search.deploymentName} in the selected range. Check its preparation logs and the opendeploy system deployment logs for startup failures.`;
+        }
         const lineWord = search.count === 1 ? 'log line' : 'log lines';
         const versionText = search.configVersion ? ` config v${search.configVersion}` : ' all versions';
         return `Showing${versionText} logs for ${search.deploymentName} from ${formatSummaryDate(search.start)} to ${formatSummaryDate(search.end)}. Result ${search.count.toLocaleString()} ${lineWord}. Refreshed ${durationAgo(search.refreshedAt)}.`;

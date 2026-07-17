@@ -464,6 +464,18 @@ export const orderedCases = [
     },
   },
   {
+    id: 'postgres-address-client-deployment-created',
+    title: 'verify direct virtual address reference',
+    description: 'Connects a second virtual-network client to Postgres through an Address-typed environment variable.',
+    requires: ['postgres-client-deployment-created'],
+    async run(ctx) {
+      await createPostgresClientDeployment(ctx.page, {
+        name: 'postgresclient-address',
+        postgresHost: {type: 'address', name: 'postgres18'},
+      });
+    },
+  },
+  {
     id: 'backup-restore-state-prepared',
     title: 'prepare backup restore state',
     description: 'Optionally writes backup/restore state for the restore harness extension.',

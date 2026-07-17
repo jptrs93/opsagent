@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -36,9 +37,10 @@ type netStateSubscriber interface {
 // unchanged, including the bytes inspected while finding SNI.
 func RunTLSIngress(ctx context.Context, states netStateSubscriber) error {
 	s := &ingressServer{
-		ctx:       ctx,
-		listeners: make(map[uint16]net.Listener),
-		errs:      make(chan error, 1),
+		ctx:            ctx,
+		listeners:      make(map[uint16]net.Listener),
+		errs:           make(chan error, 1),
+		warningLimiter: newOperationalWarningLimiter(),
 	}
 	snapshot, updates, unsubscribe := states.SnapshotAndSubscribe()
 	defer unsubscribe()
@@ -68,6 +70,8 @@ type ingressServer struct {
 	mu        sync.Mutex
 	listeners map[uint16]net.Listener
 	errs      chan error
+
+	warningLimiter *rate.Limiter
 }
 
 type ingressState struct {
@@ -157,6 +161,7 @@ func (s *ingressServer) install(next *ingressState) error {
 	for port, listener := range opened {
 		s.listeners[port] = listener
 		go s.serve(port, listener)
+		slog.Info("TLS ingress listener started", "port", port)
 	}
 	for port, listener := range s.listeners {
 		if _, wanted := next.routes[port]; wanted {
@@ -164,6 +169,7 @@ func (s *ingressServer) install(next *ingressState) error {
 		}
 		delete(s.listeners, port)
 		_ = listener.Close()
+		slog.Info("TLS ingress listener stopped", "port", port)
 	}
 	return nil
 }
@@ -195,6 +201,7 @@ func (s *ingressServer) handle(port uint16, client net.Conn) {
 	_ = client.SetReadDeadline(time.Now().Add(clientHelloTimeout))
 	preface, hostname, err := readTLSClientHello(client)
 	if err != nil {
+		slog.Debug("reading TLS ingress ClientHello failed", "port", port, "err", err)
 		return
 	}
 	_ = client.SetReadDeadline(time.Time{})
@@ -205,16 +212,20 @@ func (s *ingressServer) handle(port uint16, client net.Conn) {
 	}
 	route := state.routes[port][hostname]
 	if route == nil || len(route.backends) == 0 {
+		slog.Debug("TLS ingress route has no ready backends", "port", port, "hostname", hostname)
 		return
 	}
 
 	backend, err := route.dial(s.ctx)
 	if err != nil {
-		slog.Debug("dialing TLS ingress backend failed", "port", port, "hostname", hostname, "err", err)
+		if allowOperationalWarning(s.warningLimiter) {
+			slog.Warn("dialing all TLS ingress backends failed", "port", port, "hostname", hostname, "backend_count", len(route.backends), "err", err)
+		}
 		return
 	}
 	defer backend.Close()
 	if _, err := backend.Write(preface); err != nil {
+		slog.Debug("writing TLS ClientHello to ingress backend failed", "port", port, "hostname", hostname, "err", err)
 		return
 	}
 	relayTCP(s.ctx, client, backend)

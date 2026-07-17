@@ -109,8 +109,8 @@ func (w *Watcher) publish(next *apigen.NetState) {
 		return
 	}
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	if w.snapshot != nil && next.Seq <= w.snapshot.Seq {
+		w.mu.Unlock()
 		return
 	}
 	w.snapshot = next
@@ -122,4 +122,20 @@ func (w *Watcher) publish(next *apigen.NetState) {
 			updates <- next
 		}
 	}
+	w.mu.Unlock()
+
+	endpointCount := 0
+	for _, service := range next.DnsServices {
+		if service != nil {
+			endpointCount += len(service.Endpoints)
+		}
+	}
+	slog.Info("netstate loaded",
+		"seq", next.Seq,
+		"machine", next.Machine,
+		"dns_services", len(next.DnsServices),
+		"dns_endpoints", endpointCount,
+		"upstream_resolvers", len(next.UpstreamResolvers),
+		"ingress_routes", len(next.Ingress),
+	)
 }

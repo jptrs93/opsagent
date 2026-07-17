@@ -40,10 +40,11 @@ func main() {
 		defer stop()
 		err := netproxy.Run(ctx)
 		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
+			slog.Error("opendeploy net stopped with error", "err", err)
 			stop() // Clean up before os.Exit, which skips deferred calls.
 			os.Exit(1)
 		}
+		slog.Info("opendeploy net stopped")
 	case ainit.CommandPrimary:
 		// Stop the primary's web, cluster, enrollment, backup, and config-watcher work.
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

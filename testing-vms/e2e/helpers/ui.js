@@ -110,6 +110,15 @@ export async function expectOpenDeployLogs(page) {
   await deploymentSelect.selectOption(deploymentValue);
   await page.getByTestId('logs-search-button').click();
   await expectOutputText(page, 'opendeploy starting primary');
+
+  const netproxyValue = await deploymentSelect.locator('option').evaluateAll(options => {
+    const match = options.find(o => o.value && (o.textContent || '').trim().endsWith(' / opendeploy-net'));
+    return match?.value || '';
+  });
+  expect(netproxyValue, 'expected opendeploy-net deployment option').not.toBe('');
+  await deploymentSelect.selectOption(netproxyValue);
+  await page.getByTestId('logs-search-button').click();
+  await expectOutputText(page, 'opendeploy net starting');
 }
 
 export async function acceptWaitingWorker(page, {machineID, workerName, expectNoPending = false} = {}) {
@@ -358,6 +367,7 @@ export async function createPostgresDeployment(page, {
 export async function createPostgresClientDeployment(page, {
   name = 'postgresclient',
   machine = 'worker-1',
+  postgresHost = 'postgres18.default.internal',
 } = {}) {
   await createNixDockerDeployment(page, {
     name,
@@ -365,7 +375,7 @@ export async function createPostgresClientDeployment(page, {
     flake: 'testexamples/postgresclient/flake.nix',
     networkingMode: NETWORKING_VIRTUAL,
     env: {
-      PGHOST: 'postgres18.default.internal',
+      PGHOST: postgresHost,
       PGPORT: '5432',
       PGUSER: {type: 'secret', name: 'postgres'},
       PGPASSWORD: {type: 'secret', name: 'postgrespass'},
@@ -373,7 +383,9 @@ export async function createPostgresClientDeployment(page, {
     },
     expectedEnv: {},
   });
+  const expectedHost = postgresHost?.type === 'address' ? 'fd' : postgresHost;
   await expectDeploymentOutput(page, name, [
+    `msg="postgresclient starting" host=${expectedHost}`,
     'msg="postgresclient row" id=1 name=alpha',
     'msg="postgresclient row" id=2 name=bravo',
     'msg="postgresclient row" id=3 name=charlie',
@@ -957,7 +969,7 @@ async function setDeploymentEnvVars(dialog, env) {
     const ref = envVarRef(value);
     if (ref.type !== 'value') {
       await row.locator('select').selectOption(ref.type);
-      await selectEnvReference(row, ref.name);
+      await selectEnvReference(row, ref);
     } else {
       await row.locator('input').nth(1).fill(ref.value);
     }
@@ -1044,18 +1056,21 @@ async function openDeploymentNetworkingPane(dialog) {
 }
 
 function envVarRef(value) {
-  if (value && typeof value === 'object' && (value.type === 'secret' || value.type === 'config')) {
+  if (value && typeof value === 'object' && (value.type === 'secret' || value.type === 'config' || value.type === 'address')) {
     return {type: value.type, name: value.name || ''};
   }
   return {type: 'value', value: String(value ?? '')};
 }
 
-async function selectEnvReference(row, name) {
+async function selectEnvReference(row, {type, name}) {
   const picker = row.locator('input').nth(1);
   await picker.fill(name);
   await expect(row.locator('li').filter({hasText: name}).first()).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await picker.press('Enter');
-  await expect(picker).toHaveValue(versionedReferenceValue(name), {timeout: LONG_UI_TIMEOUT});
+  const selectedValue = type === 'address'
+    ? new RegExp(`^${escapeRegExp(name)} \\(space \\d+, #\\d+\\)$`)
+    : versionedReferenceValue(name);
+  await expect(picker).toHaveValue(selectedValue, {timeout: LONG_UI_TIMEOUT});
 }
 
 async function setDeploymentDataMountPath(dialog, mountPath) {
