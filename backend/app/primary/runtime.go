@@ -120,6 +120,11 @@ func (r *runtime) start(ctx context.Context, predicate storage.DeploymentPredica
 	r.store.SetNodeStatusByIdentifier(machineIdentifier, true, time.Now())
 	netproxyCfg := r.store.EnsureNetproxyDeployment(machineIdentifier, version.Version)
 	network.Default.SetNetproxyDeploymentID(netproxyCfg.ID)
+	for _, node := range r.store.ListNodes() {
+		if node.Identifier != "" && node.Identifier != machineIdentifier {
+			r.store.EnsureNetproxyDeployment(node.Identifier, version.Version)
+		}
+	}
 
 	go netproxy.RunNetStateWriter(ctx, r.store, predicate, machineIdentifier, ainit.StaticConfig.NetproxyStatePath)
 	go r.operator.RunAll(predicate)

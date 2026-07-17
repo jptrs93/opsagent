@@ -88,14 +88,15 @@ The container receives a generated `resolv.conf` pointing at the machine-local n
 
 ## Netproxy Services
 
-The agent writes full node-local `NetState` protobuf snapshots to `/var/lib/opendeploy/netproxy/netstate.pb`. The snapshot contains DNS records and rendered ingress routes. Netproxy watches its directory for the atomic write-rename updates, answers `.internal` AAAA records for READY virtual endpoints, and forwards unmatched queries to the host's upstream resolvers.
+The agent writes full node-local `NetState` protobuf snapshots to `/var/lib/opendeploy/netproxy/netstate.pb`. The snapshot contains DNS records and rendered ingress routes. Netproxy watches its directory for the atomic write-rename updates, answers `.internal` AAAA records for READY virtual endpoints, and forwards unmatched queries to the host's upstream resolvers. Resolver discovery ignores loopback stubs that are unreachable from the netproxy namespace and falls back to the systemd-resolved or NetworkManager upstream resolver files. Forwarding is capped at 256 concurrent queries; overload and upstream failure return `SERVFAIL` rather than a cacheable negative answer.
 
 For TLS passthrough, netproxy listens on each rendered ingress TCP host port. It
 reads a bounded TLS ClientHello to select an exact SNI route, dials a READY
 backend's virtual IPv6 address, and relays the bytes unchanged. Connections
 without usable SNI, unknown names, malformed ClientHellos, or routes without a
 READY backend are closed. Backends see netproxy as the peer; PROXY protocol is
-not used in v1.
+not used in v1. The internal netproxy deployment has a 65,536 file-descriptor
+limit because every routed connection holds one client and one backend socket.
 
 DNS names are derived from deployment and space identity:
 

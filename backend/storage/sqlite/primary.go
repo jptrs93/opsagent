@@ -27,6 +27,7 @@ const systemDeploymentRepo = internaldeploy.Repo
 const systemDeploymentBinPath = "/var/lib/opendeploy/bin/opendeploy"
 const netproxyDeploymentName = internaldeploy.NetproxyName
 const netproxyStateDir = "/var/lib/opendeploy/netproxy"
+const netproxyFileDescriptorLimit = 65_536
 
 func normalizedUserSpaceID(spaceID int32) int32 {
 	if spaceID <= 0 {
@@ -97,8 +98,9 @@ func NetproxyDeploymentSpec() *apigen.DeploymentSpec {
 		},
 		Runner: apigen.RunnerConfig{
 			Container: apigen.ContainerRunnerConfig{
-				Command:           []string{"/opendeploy", "dataplane"},
-				DisableDataVolume: true,
+				Command:             []string{"/opendeploy", "dataplane"},
+				DisableDataVolume:   true,
+				FileDescriptorLimit: netproxyFileDescriptorLimit,
 				Mounts: []*apigen.ContainerMount{{
 					Host:      netproxyStateDir,
 					Container: netproxyStateDir,
@@ -434,7 +436,10 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 func (s *PrimaryStorage) MustSetDeploymentDesiredState(ctx apigen.Context, deploymentID int32, desired apigen.DesiredState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.mustSetDeploymentDesiredStateLocked(ctx, deploymentID, desired)
+}
 
+func (s *PrimaryStorage) mustSetDeploymentDesiredStateLocked(ctx apigen.Context, deploymentID int32, desired apigen.DesiredState) {
 	bgCtx := context.Background()
 	dbID := int64(deploymentID)
 	now := time.Now().UnixMilli()
@@ -753,7 +758,7 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 		if cfg.ConfigID == cid && !cfg.Deleted {
 			if !isSystemDeploymentSpec(&cfg.Spec) {
 				slog.Warn("repairing system deployment spec", "machine", machine, "deploymentID", cfg.ID)
-				s.repairSystemDeploymentLocked(cfg.ID)
+				s.repairDeploymentSpecLocked(cfg.ID, SystemDeploymentSpec(), "system")
 			}
 			return
 		}
@@ -844,24 +849,29 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(machine string, opendeployVers
 		Machine: machine,
 		Name:    netproxyDeploymentName,
 	}
+	desiredSpec := NetproxyDeploymentSpec()
 
 	s.mu.Lock()
 	for _, cfg := range s.configCache {
 		if cfg.ConfigID == cid && !cfg.Deleted {
-			s.mu.Unlock()
-			if cfg.DesiredState.Version != desiredVersion || !cfg.DesiredState.Running {
-				s.MustSetDeploymentDesiredState(apigen.Context{}, cfg.ID, apigen.DesiredState{Version: desiredVersion, Running: true})
-				s.mu.Lock()
-				updated := s.configCache[cfg.ID]
-				s.mu.Unlock()
-				return updated
+			if !bytes.Equal(cfg.Spec.Encode(), desiredSpec.Encode()) {
+				slog.Warn("repairing netproxy deployment spec", "machine", machine, "deploymentID", cfg.ID)
+				s.repairDeploymentSpecLocked(cfg.ID, desiredSpec, "netproxy")
+				cfg = s.configCache[cfg.ID]
 			}
-			return cfg
+			if cfg.DesiredState.Version == desiredVersion && cfg.DesiredState.Running {
+				s.mu.Unlock()
+				return cfg
+			}
+			s.mustSetDeploymentDesiredStateLocked(apigen.Context{}, cfg.ID, apigen.DesiredState{Version: desiredVersion, Running: true})
+			updated := s.configCache[cfg.ID]
+			s.mu.Unlock()
+			return updated
 		}
 	}
 	defer s.mu.Unlock()
 
-	spec := NetproxyDeploymentSpec()
+	spec := desiredSpec
 	specBlob := spec.Encode()
 
 	bgCtx := context.Background()
@@ -930,7 +940,7 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(machine string, opendeployVers
 	return s.configCache[id]
 }
 
-func (s *PrimaryStorage) repairSystemDeploymentLocked(deploymentID int32) {
+func (s *PrimaryStorage) repairDeploymentSpecLocked(deploymentID int32, spec *apigen.DeploymentSpec, label string) {
 	bgCtx := context.Background()
 	dbID := int64(deploymentID)
 	now := time.Now().UnixMilli()
@@ -943,9 +953,9 @@ func (s *PrimaryStorage) repairSystemDeploymentLocked(deploymentID int32) {
 
 	existing, err := q.GetDeploymentConfig(bgCtx, dbID)
 	if err != nil {
-		panic(fmt.Sprintf("GetDeploymentConfig (system repair): %v", err))
+		panic(fmt.Sprintf("GetDeploymentConfig (%s repair): %v", label, err))
 	}
-	specBlob := SystemDeploymentSpec().Encode()
+	specBlob := spec.Encode()
 	newVersion := existing.Version + 1
 	params := UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
@@ -963,7 +973,7 @@ func (s *PrimaryStorage) repairSystemDeploymentLocked(deploymentID int32) {
 		Deleted:        existing.Deleted,
 	}
 	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
-		panic(fmt.Sprintf("UpsertDeploymentConfig (system repair): %v", err))
+		panic(fmt.Sprintf("UpsertDeploymentConfig (%s repair): %v", label, err))
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
 		DeploymentID:   dbID,
@@ -975,7 +985,7 @@ func (s *PrimaryStorage) repairSystemDeploymentLocked(deploymentID int32) {
 		DesiredRunning: existing.DesiredRunning,
 		Deleted:        existing.Deleted,
 	}); err != nil {
-		panic(fmt.Sprintf("InsertDeploymentConfigHistory (system repair): %v", err))
+		panic(fmt.Sprintf("InsertDeploymentConfigHistory (%s repair): %v", label, err))
 	}
 	if err := tx.Commit(); err != nil {
 		panic(fmt.Sprintf("commit: %v", err))

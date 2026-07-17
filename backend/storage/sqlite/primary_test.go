@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -141,9 +142,73 @@ func TestEnsureNetproxyDeploymentCreatesInternalConfig(t *testing.T) {
 	if cfg.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL || len(cfg.Spec.Networking.PortForwarding) != 0 {
 		t.Fatalf("unexpected networking config: %+v", cfg.Spec.Networking)
 	}
+	if got := cfg.Spec.Runner.Container.FileDescriptorLimit; got != netproxyFileDescriptorLimit {
+		t.Fatalf("file descriptor limit = %d, want %d", got, netproxyFileDescriptorLimit)
+	}
 	again := store.EnsureNetproxyDeployment("primary", "v0.0.200")
 	if again.Version != cfg.Version {
 		t.Fatalf("ensure bumped unchanged netproxy version from %d to %d", cfg.Version, again.Version)
+	}
+}
+
+func TestEnsureNetproxyDeploymentRepairsExistingSpec(t *testing.T) {
+	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	cfg := store.EnsureNetproxyDeployment("primary", "v0.0.200")
+	broken := NetproxyDeploymentSpec()
+	broken.Runner.Container.FileDescriptorLimit = 128
+	store.MustUpdateDeploymentSpec(apigen.Context{}, cfg.ID, broken)
+	brokenVersion := store.configCache[cfg.ID].Version
+
+	repaired := store.EnsureNetproxyDeployment("primary", "v0.0.200")
+	if repaired.Version <= brokenVersion {
+		t.Fatalf("version = %d, want above broken version %d", repaired.Version, brokenVersion)
+	}
+	if got := repaired.Spec.Runner.Container.FileDescriptorLimit; got != netproxyFileDescriptorLimit {
+		t.Fatalf("file descriptor limit = %d, want %d", got, netproxyFileDescriptorLimit)
+	}
+	if repaired.DesiredState.Version != "v0.0.200" || !repaired.DesiredState.Running {
+		t.Fatalf("desired state changed during repair: %+v", repaired.DesiredState)
+	}
+}
+
+func TestEnsureNetproxyDeploymentRepairsSpecOnceConcurrently(t *testing.T) {
+	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	cfg := store.EnsureNetproxyDeployment("primary", "v0.0.200")
+	broken := NetproxyDeploymentSpec()
+	broken.Runner.Container.FileDescriptorLimit = 128
+	store.MustUpdateDeploymentSpec(apigen.Context{}, cfg.ID, broken)
+	brokenVersion := store.configCache[cfg.ID].Version
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() { store.EnsureNetproxyDeployment("primary", "v0.0.200") })
+	}
+	wg.Wait()
+
+	repaired := store.configCache[cfg.ID]
+	if repaired.Version != brokenVersion+1 {
+		t.Fatalf("version = %d, want one repair above %d", repaired.Version, brokenVersion)
+	}
+}
+
+func TestEnsureNetproxyDeploymentUpdatesDesiredStateOnceConcurrently(t *testing.T) {
+	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	cfg := store.EnsureNetproxyDeployment("primary", "v0.0.200")
+	store.MustSetDeploymentDesiredState(apigen.Context{}, cfg.ID, apigen.DesiredState{Version: "v0.0.199", Running: true})
+	staleVersion := store.configCache[cfg.ID].Version
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() { store.EnsureNetproxyDeployment("primary", "v0.0.200") })
+	}
+	wg.Wait()
+
+	updated := store.configCache[cfg.ID]
+	if updated.Version != staleVersion+1 {
+		t.Fatalf("version = %d, want one desired-state update above %d", updated.Version, staleVersion)
+	}
+	if updated.DesiredState.Version != "v0.0.200" || !updated.DesiredState.Running {
+		t.Fatalf("desired state = %+v, want running v0.0.200", updated.DesiredState)
 	}
 }
 

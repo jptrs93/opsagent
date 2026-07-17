@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -195,16 +196,34 @@ func spaceDNSName(id int32) string {
 }
 
 func hostResolvers() []string {
-	b, err := os.ReadFile("/etc/resolv.conf")
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, line := range strings.Split(string(b), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 2 && fields[0] == "nameserver" {
-			out = append(out, fields[1])
+	return hostResolversFromFiles(
+		"/etc/resolv.conf",
+		"/run/systemd/resolve/resolv.conf",
+		"/run/NetworkManager/resolv.conf",
+	)
+}
+
+func hostResolversFromFiles(paths ...string) []string {
+	for _, path := range paths {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var resolvers []string
+		for _, line := range strings.Split(string(b), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) != 2 || fields[0] != "nameserver" {
+				continue
+			}
+			addr, err := netip.ParseAddr(fields[1])
+			if err != nil || addr.IsLoopback() || addr.IsUnspecified() {
+				continue
+			}
+			resolvers = append(resolvers, addr.String())
+		}
+		if len(resolvers) > 0 {
+			return resolvers
 		}
 	}
-	return out
+	return nil
 }

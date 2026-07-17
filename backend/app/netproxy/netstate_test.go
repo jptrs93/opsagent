@@ -1,7 +1,9 @@
 package netproxy
 
 import (
+	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -86,5 +88,39 @@ func TestRenderNetStateKeepsIngressWithoutReadyBackend(t *testing.T) {
 	}
 	if got := state.Ingress[0].TlsPassthrough.Backends; len(got) != 0 {
 		t.Fatalf("backends = %+v, want none", got)
+	}
+}
+
+func TestHostResolversFallsBackFromLoopbackStub(t *testing.T) {
+	dir := t.TempDir()
+	stubPath := filepath.Join(dir, "stub.conf")
+	upstreamPath := filepath.Join(dir, "upstream.conf")
+	if err := os.WriteFile(stubPath, []byte("nameserver 127.0.0.53\nnameserver ::1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(upstreamPath, []byte("nameserver 192.0.2.53\nnameserver 2001:db8::53\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"192.0.2.53", "2001:db8::53"}
+	if got := hostResolversFromFiles(stubPath, upstreamPath); !slices.Equal(got, want) {
+		t.Fatalf("resolvers = %v, want %v", got, want)
+	}
+}
+
+func TestHostResolversPrefersUsablePrimaryConfig(t *testing.T) {
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "primary.conf")
+	fallbackPath := filepath.Join(dir, "fallback.conf")
+	if err := os.WriteFile(primaryPath, []byte("nameserver 198.51.100.53\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fallbackPath, []byte("nameserver 192.0.2.53\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"198.51.100.53"}
+	if got := hostResolversFromFiles(primaryPath, fallbackPath); !slices.Equal(got, want) {
+		t.Fatalf("resolvers = %v, want %v", got, want)
 	}
 }

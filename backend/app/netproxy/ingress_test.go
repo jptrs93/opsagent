@@ -177,6 +177,7 @@ func TestIngressForwardsInspectedClientHello(t *testing.T) {
 		"hostname=db.example.com",
 		"client_address=pipe",
 		"backend_address=127.0.0.1:",
+		"active_connections=1",
 	} {
 		if !strings.Contains(gotLog, want) {
 			t.Errorf("log output %q does not contain %q", gotLog, want)

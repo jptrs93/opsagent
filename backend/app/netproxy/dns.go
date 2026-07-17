@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,8 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
+const maxConcurrentDNSForwards = 256
+
 // RunDNS serves the netproxy DNS process. It consumes NetState snapshots and
 // answers .internal AAAA queries locally, forwarding all unmatched queries to
 // the configured upstream resolvers.
@@ -23,7 +26,10 @@ func RunDNS(ctx context.Context, states netStateSubscriber, listen string) error
 	if listen == "" {
 		listen = ":53"
 	}
-	s := &dnsServer{warningLimiter: newOperationalWarningLimiter()}
+	s := &dnsServer{
+		warningLimiter: newOperationalWarningLimiter(),
+		forwardSlots:   make(chan struct{}, maxConcurrentDNSForwards),
+	}
 	snapshot, updates, unsubscribe := states.SnapshotAndSubscribe()
 	defer unsubscribe()
 	s.setState(snapshot)
@@ -65,6 +71,7 @@ func RunDNS(ctx context.Context, states netStateSubscriber, listen string) error
 type dnsServer struct {
 	state          atomic.Pointer[apigen.NetState]
 	warningLimiter *rate.Limiter
+	forwardSlots   chan struct{}
 }
 
 func (s *dnsServer) setState(next *apigen.NetState) {
@@ -102,7 +109,11 @@ func (s *dnsServer) handle(w dns.ResponseWriter, r *dns.Msg) {
 	if s.forward(w, r) {
 		return
 	}
-	res.Rcode = dns.RcodeNameError
+	if strings.HasSuffix(strings.ToLower(strings.TrimSuffix(q.Name, ".")), ".internal") {
+		res.Rcode = dns.RcodeNameError
+	} else {
+		res.Rcode = dns.RcodeServerFailure
+	}
 	_ = w.WriteMsg(res)
 }
 
@@ -151,12 +162,21 @@ func (s *dnsServer) forward(w dns.ResponseWriter, r *dns.Msg) bool {
 	if state == nil {
 		return false
 	}
+	if s.forwardSlots != nil {
+		select {
+		case s.forwardSlots <- struct{}{}:
+			defer func() { <-s.forwardSlots }()
+		default:
+			if allowOperationalWarning(s.warningLimiter) {
+				slog.Warn("DNS forwarding concurrency limit reached", "limit", cap(s.forwardSlots))
+			}
+			return false
+		}
+	}
 	client := &dns.Client{Timeout: 2 * time.Second}
 	var lastErr error
 	for _, upstream := range state.UpstreamResolvers {
-		if !strings.Contains(upstream, ":") {
-			upstream = net.JoinHostPort(upstream, "53")
-		}
+		upstream = dnsResolverAddress(upstream)
 		res, _, err := client.Exchange(r, upstream)
 		if err != nil {
 			lastErr = err
@@ -175,4 +195,14 @@ func (s *dnsServer) forward(w dns.ResponseWriter, r *dns.Msg) bool {
 		slog.Warn("forwarding DNS query to all upstream resolvers failed", attrs...)
 	}
 	return false
+}
+
+func dnsResolverAddress(upstream string) string {
+	if _, _, err := net.SplitHostPort(upstream); err == nil {
+		return upstream
+	}
+	if addr, err := netip.ParseAddr(upstream); err == nil {
+		return net.JoinHostPort(addr.String(), "53")
+	}
+	return net.JoinHostPort(upstream, "53")
 }

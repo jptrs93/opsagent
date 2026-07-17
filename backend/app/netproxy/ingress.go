@@ -71,7 +71,8 @@ type ingressServer struct {
 	listeners map[uint16]net.Listener
 	errs      chan error
 
-	warningLimiter *rate.Limiter
+	warningLimiter    *rate.Limiter
+	activeConnections atomic.Int64
 }
 
 type ingressState struct {
@@ -228,11 +229,14 @@ func (s *ingressServer) handle(port uint16, client net.Conn) {
 		slog.Debug("writing TLS ClientHello to ingress backend failed", "port", port, "hostname", hostname, "err", err)
 		return
 	}
+	activeConnections := s.activeConnections.Add(1)
+	defer s.activeConnections.Add(-1)
 	slog.Info("TLS ingress connection routed",
 		"port", port,
 		"hostname", hostname,
 		"client_address", client.RemoteAddr(),
 		"backend_address", backend.RemoteAddr(),
+		"active_connections", activeConnections,
 	)
 	relayTCP(s.ctx, client, backend)
 }
