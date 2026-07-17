@@ -52,3 +52,18 @@ func TestNixBuildArgs(t *testing.T) {
 		t.Fatalf("target args = %q, want %q", got, want)
 	}
 }
+
+func TestFormatImageSize(t *testing.T) {
+	tests := map[int64]string{
+		0:                  "0 B",
+		1023:               "1023 B",
+		1024:               "1.0 KiB",
+		5 * 1024 * 1024:    "5.0 MiB",
+		1536 * 1024 * 1024: "1.5 GiB",
+	}
+	for size, want := range tests {
+		if got := formatImageSize(size); got != want {
+			t.Errorf("formatImageSize(%d) = %q, want %q", size, got, want)
+		}
+	}
+}

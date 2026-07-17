@@ -89,6 +89,23 @@ func (c *Client) Import(ctx context.Context, image ImageStream) (string, error) 
 	return image.Ref, nil
 }
 
+// ImageSize returns the total size of an image's packed resources.
+func (c *Client) ImageSize(ctx context.Context, ref string) (int64, error) {
+	cl, err := c.ensure()
+	if err != nil {
+		return 0, err
+	}
+	img, err := cl.GetImage(c.withNS(ctx), ref)
+	if err != nil {
+		return 0, fmt.Errorf("loading image %s: %w", ref, err)
+	}
+	size, err := img.Size(c.withNS(ctx))
+	if err != nil {
+		return 0, fmt.Errorf("getting image %s size: %w", ref, err)
+	}
+	return size, nil
+}
+
 // ImageReady verifies that an image and its unpacked snapshot are available in
 // this node's local containerd store.
 func (c *Client) ImageReady(ctx context.Context, ref string) error {

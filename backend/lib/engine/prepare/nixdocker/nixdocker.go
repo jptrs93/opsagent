@@ -52,12 +52,13 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 	slog.InfoContext(ctx, "nix docker build starting", "log_path", logPath)
 	nix := dep.Spec.Prepare.NixDockerBuild
 	log.Write("checking out repository %s at version %s", nix.Repo, version)
+	checkoutStarted := time.Now()
 	repoDir, err := p.gitManager.EnsureCheckout(ctx, nix.Repo, version, log.Output())
 	if err != nil {
 		log.Error("checking out repository: %v", err)
 		return "", apigen.PreparationStatus_FAILED
 	}
-	log.Write("checkout complete: %s", repoDir)
+	log.Write("checkout complete in %s: %s", time.Since(checkoutStarted).Round(time.Millisecond), repoDir)
 
 	flakePath, err := checkedOutFlakePath(repoDir, nix.Flake)
 	if err != nil {
@@ -66,6 +67,7 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 	}
 	nixDir := filepath.Dir(flakePath)
 	log.Write("running Nix build in %s", nixDir)
+	buildStarted := time.Now()
 	stdoutLines, err := runCmdCapture(ctx, nixDir, log, "nix", nixBuildArgs(nix.Target)...)
 	if err != nil {
 		log.Error("running Nix build: %v", err)
@@ -73,7 +75,7 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 	}
 
 	artifactPath := lastNonEmptyLine(stdoutLines)
-	log.Write("build complete, stream artifact: %s", artifactPath)
+	log.Write("build complete in %s, stream artifact: %s", time.Since(buildStarted).Round(time.Millisecond), artifactPath)
 	if artifactPath == "" {
 		log.Error("Nix build returned an empty artifact path")
 		return "", apigen.PreparationStatus_FAILED
@@ -90,7 +92,12 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 		log.Error("importing image: %v", err)
 		return "", apigen.PreparationStatus_FAILED
 	}
-	log.Write("image import complete: %s", localImageRef)
+	imageSize, err := ctrd.Default.ImageSize(ctx, localImageRef)
+	if err != nil {
+		log.Write("image import complete: %s (size unavailable: %v)", localImageRef, err)
+	} else {
+		log.Write("image import complete: %s (size: %s)", localImageRef, formatImageSize(imageSize))
+	}
 
 	return localImageRef, apigen.PreparationStatus_READY
 }
@@ -287,6 +294,22 @@ func lastNonEmptyLine(lines []string) string {
 		}
 	}
 	return ""
+}
+
+func formatImageSize(size int64) string {
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	units := []string{"KiB", "MiB", "GiB", "TiB"}
+	value := float64(size)
+	for _, suffix := range units {
+		value /= unit
+		if value < unit || suffix == units[len(units)-1] {
+			return fmt.Sprintf("%.1f %s", value, suffix)
+		}
+	}
+	return fmt.Sprintf("%d B", size)
 }
 
 func imageRef(deploymentID int32, version string) string {
