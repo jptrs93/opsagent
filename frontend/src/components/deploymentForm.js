@@ -1225,6 +1225,9 @@ export function assetMountsPane(form, opts = {}) {
     const updateMount = (row, patch) => {
         form.assetMounts.val = form.assetMounts.val.map(m => m.id === row.id ? {...m, ...patch} : m);
     };
+    const mutateMount = (row, patch) => {
+        Object.assign(row, patch);
+    };
     const removeMount = (row) => {
         form.assetMounts.val = form.assetMounts.val.filter(m => m.id !== row.id);
     };
@@ -1272,7 +1275,8 @@ export function assetMountsPane(form, opts = {}) {
                 class: textInputClass(true),
                 placeholder: "/etc/nginx/nginx.conf",
                 value: row.path,
-                oninput: e => updateMount(row, {path: e.target.value}),
+                oninput: e => mutateMount(row, {path: e.target.value}),
+                onchange: e => updateMount(row, {path: e.target.value}),
             })),
             field("Mode", select({
                 class: selectClass(),

@@ -141,7 +141,7 @@ const settingsSections = [
     {
         title: "Repository credentials",
         settings: [
-            {label: "GitHub token", key: "GITHUB_TOKEN", type: "secret", secret: (cfg) => cfg.repo?.githubToken, apply: (doc, item) => { doc.repo.githubToken = item.secretId ? secretRefPayload(item) : {}; }, defaultSecretName: "opendeploy.config.github_token"},
+            {label: "GitHub token", key: "GITHUB_TOKEN", type: "secret", secret: (cfg) => cfg.repo?.githubToken, apply: (doc, item) => { (doc.repo ||= {}).githubToken = item.secretId ? secretRefPayload(item) : {}; }, defaultSecretName: "opendeploy.config.github_token"},
         ],
     },
     {
