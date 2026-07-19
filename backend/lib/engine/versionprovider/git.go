@@ -49,12 +49,26 @@ func (p *GitVersionProvider) ListCommits(ctx context.Context, repo string, branc
 	return out, nil
 }
 
-func (p *GitVersionProvider) CommitExists(ctx context.Context, repo string, commit string) (bool, error) {
-	return p.git.CommitExists(ctx, repo, commit)
+func (p *GitVersionProvider) DefaultCommit(ctx context.Context, repo string) (string, string, error) {
+	if repo == "" {
+		return "", "", fmt.Errorf("git repo missing")
+	}
+	info, err := p.git.FetchRepoInfo(ctx, repo)
+	if err != nil {
+		return "", "", err
+	}
+	if info.LatestCommit == "" {
+		return "", info.Branch, fmt.Errorf("remote repository HEAD has no commit")
+	}
+	return info.LatestCommit, info.Branch, nil
 }
 
-func (p *GitVersionProvider) PathExists(ctx context.Context, repo string, repoPath string, ref string) (bool, error) {
-	return p.git.PathExists(ctx, repo, repoPath, ref)
+func (p *GitVersionProvider) ValidateCommit(ctx context.Context, repo string, commit string) error {
+	return p.git.ValidateExactCommit(ctx, repo, commit)
+}
+
+func (p *GitVersionProvider) ValidateNixSource(ctx context.Context, repo string, commit string, flakePath string) (bool, error) {
+	return p.git.ValidateExactNixSource(ctx, repo, commit, flakePath)
 }
 
 func commitSubject(msg string) string {

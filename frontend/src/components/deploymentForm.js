@@ -1,13 +1,14 @@
 import van from "vanjs-core";
-import {capi} from "../capi/index.js";
 import {xIcon} from "../lib/icons.js";
 import {referencePicker} from "./referencePicker.js";
-import {deploymentsS, secretRefsS, spacesS, userConfigRefsS} from "../state/deployments.js";
+import {
+    SOURCE_DOCKER_IMAGE,
+    SOURCE_NIX_DOCKER,
+    validateLocalFlakePath,
+} from "./deploymentSource.js";
 
 const { div, h3, label, input, select, option, button, p, span, textarea, table, thead, tbody, tfoot, tr, th, td } = van.tags;
 
-const SOURCE_NIX_DOCKER = 'nixDockerBuild';
-const SOURCE_DOCKER_IMAGE = 'containerImage';
 const RUNNER_CONTAINER = 'container';
 const NETWORKING_MODE_VIRTUAL = 1;
 const NETWORKING_MODE_HOST = 2;
@@ -57,6 +58,7 @@ export function emptyDeploymentForm() {
         runnerType: RUNNER_CONTAINER,
         containerUser: '',
         containerCommand: '',
+        containerWorkingDir: '',
         containerDataMountPath: '',
         containerDisableDataVolume: false,
         containerDevShmOverride: false,
@@ -82,14 +84,6 @@ export function deploymentConfigToForm(cfg) {
     const networking = spec.networking || {};
     const devShm = devShmFormState(container.devShmSizeKb || 0);
     const fileDescriptorLimit = Number(container.fileDescriptorLimit || 0);
-    // Reveal a section's additional options up-front when the existing config
-    // already sets one of them, so they aren't hidden on edit.
-    const showSourceOpts = false;
-    const showExecOpts = (container.command || []).length > 0;
-    const repoCheck = prepare.containerImage && containerImage.image
-        ? knownContainerImageSourceCheck(containerImage.image)
-        : (nixDocker.repo && nixDocker.flake ? knownNixSourceCheck(nixDocker.repo, nixDocker.flake) : undefined);
-
     return makeFormState({
         deploymentId: cfg.id || 0,
         name: cid.name || '',
@@ -106,6 +100,7 @@ export function deploymentConfigToForm(cfg) {
         runnerType: RUNNER_CONTAINER,
         containerUser: container.user || '',
         containerCommand: (container.command || []).join('\n'),
+        containerWorkingDir: container.workingDir || '',
         containerDataMountPath: container.dataMountPath || '',
         containerDisableDataVolume: Boolean(container.disableDataVolume),
         containerDevShmOverride: Number(container.devShmSizeKb || 0) > 0,
@@ -121,13 +116,12 @@ export function deploymentConfigToForm(cfg) {
             return {...row, originalAssetId: row.assetId, originalKey: row.key, originalPath: row.path, originalVersion: row.version, originalExecutable: row.executable};
         }),
         volumeMounts: (container.mounts || []).map(m => mountToFormRow(m)),
-        showSourceOpts,
-        showExecOpts,
-        repoCheck,
     });
 }
 
 export function deploymentForm(form, opts = {}) {
+    const sourceController = opts.sourceController;
+    if (!opts.hideArtifactSource && !sourceController) throw new Error('sourceController is required');
     const identityLocked = Boolean(opts.identityLocked);
     const executionTitle = opts.executionTitle || "Runtime";
     const showIdentityLockedNotice = (message) => {
@@ -141,45 +135,52 @@ export function deploymentForm(form, opts = {}) {
     };
 
     return div(
-        {class: "flex flex-col gap-5"},
-        opts.hideIdentity ? '' : sectionDivider("Deployment identity"),
-        opts.hideIdentity ? '' : div(
-            {class: "flex flex-col gap-3"},
+        {class: "flex flex-col gap-4"},
+        opts.hideIdentity ? '' : collapsibleSection(
+            "Deployment identity",
+            form.identitySectionOpen,
             div(
-                {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
-                identityField("Name", input({
-                    type: "text",
-                    "data-testid": "deployment-name-input",
-                    value: form.name.rawVal,
-                    disabled: identityLocked,
-                    class: () => textInputClass(false, identityLocked, !identityLocked && nameValid(form)),
-                    placeholder: "my-service",
-                    oninput: e => { form.name.val = e.target.value; },
-                }), identityLocked, () => showIdentityLockedNotice("Name is not currently changeable after creation.")),
-                identityField("Space", () => {
-                    const spaceOptions = publicSpaceOptions(stateValue(opts.spaceOptions) || spacesS.val, form.spaceId.val);
-                    return select({
-                        "data-testid": "deployment-space-select",
-                        value: String(form.spaceId.val ?? DEFAULT_SPACE_ID),
-                        class: textInputClass(false, false),
-                        onchange: e => { form.spaceId.val = Number(e.target.value || 0); },
-                    }, ...spaceOptions.map(space => option({value: String(space.id), selected: Number(space.id) === Number(form.spaceId.val)}, space.name || `space ${space.id}`)));
-                }, false),
-                identityField("Node", () => nodeSelect(form, {
-                    identityLocked,
-                    nodeOptionsLoaded: stateValue(opts.nodeOptionsLoaded) !== false,
-                    nodeOptions: stateValue(opts.nodeOptions) || [],
-                }), identityLocked, () => showIdentityLockedNotice("Node placement is not currently changeable after creation.")),
+                {class: "flex flex-col gap-2"},
+                div(
+                    {class: "grid grid-cols-1 gap-x-3 gap-y-2 md:grid-cols-3"},
+                    identityField("Name", input({
+                        type: "text",
+                        "data-testid": "deployment-name-input",
+                        value: form.name.rawVal,
+                        disabled: identityLocked,
+                        class: () => textInputClass(false, identityLocked),
+                        placeholder: "my-service",
+                        oninput: e => { form.name.val = e.target.value; },
+                    }), identityLocked, () => showIdentityLockedNotice("Name is not currently changeable after creation."), () => {
+                        if (identityLocked || !nameValid(form)) return '';
+                        const taken = deploymentNameTaken(form, opts.deployments || []);
+                        return span({class: taken ? "text-xs text-red-400" : "text-xs text-green-400"}, taken ? "Name unavailable" : "Name available");
+                    }),
+                    identityField("Space", () => {
+                        const spaceOptions = publicSpaceOptions(stateValue(opts.spaceOptions) || [], form.spaceId.val);
+                        return select({
+                            "data-testid": "deployment-space-select",
+                            value: String(form.spaceId.val ?? DEFAULT_SPACE_ID),
+                            class: textInputClass(false, false),
+                            onchange: e => { form.spaceId.val = Number(e.target.value || 0); },
+                        }, ...spaceOptions.map(space => option({value: String(space.id), selected: Number(space.id) === Number(form.spaceId.val)}, space.name || `space ${space.id}`)));
+                    }, false),
+                    identityField("Node", () => nodeSelect(form, {
+                        identityLocked,
+                        nodeOptionsLoaded: stateValue(opts.nodeOptionsLoaded) !== false,
+                        nodeOptions: stateValue(opts.nodeOptions) || [],
+                    }), identityLocked, () => showIdentityLockedNotice("Node placement is not currently changeable after creation.")),
+                ),
+                () => identityLocked && form.identityLockNotice.val
+                    ? span({class: "text-xs text-red-400 -mb-2"}, form.identityLockNotice.val)
+                    : '',
             ),
-            () => identityLocked && form.identityLockNotice.val
-                ? span({class: "text-xs text-red-400 -mb-2"}, form.identityLockNotice.val)
-                : '',
         ),
-        opts.hideArtifactSource ? '' : div(
-            {class: "flex flex-col gap-5"},
-            sectionDivider("Artifact source"),
+        opts.hideArtifactSource ? '' : collapsibleSection(
+            "Artifact source",
+            form.sourceSectionOpen,
             div(
-                {class: "flex flex-col gap-3"},
+                {class: "flex flex-col gap-2"},
                 div(
                     {class: "flex items-start gap-4"},
                     selectField("Source type", form.sourceType, [
@@ -187,24 +188,24 @@ export function deploymentForm(form, opts = {}) {
                         {value: SOURCE_DOCKER_IMAGE, label: "Docker image"},
                     ], "w-56", value => {
                         form.runnerType.val = runnerForSource(value);
+                        sourceController.onSourceTypeChange(value);
                     }),
                     () => form.sourceType.val === SOURCE_DOCKER_IMAGE
-                        ? dockerImageField(form)
-                        : repoField(form, form.sourceType.val),
+                        ? dockerImageField(form, sourceController)
+                        : repoField(form, sourceController),
                 ),
-                () => nixSourceFields(form),
+                () => nixSourceFields(form, sourceController),
             ),
         ),
-        opts.hideExecution ? '' : div(
-            {class: "flex flex-col gap-5"},
-            sectionDivider(executionTitle),
+        opts.hideExecution ? '' : collapsibleSection(
+            executionTitle,
+            form.runtimeSectionOpen,
             div(
-                {class: "flex flex-col gap-3"},
+                {class: "flex flex-col gap-2"},
                 div(
-                    {class: "flex flex-col gap-3"},
+                    {class: "flex flex-col gap-2"},
                     envSummary(form),
                     commandSummary(form),
-                    () => commandOptions(form),
                     volumeMountsSummary(form),
                     assetMountsSection(form, opts),
                     upgradeStrategySummary(form),
@@ -221,6 +222,44 @@ export function formToDeploymentIdentifier(form) {
         name: form.name.val.trim(),
         spaceId: Number(form.spaceId.val || DEFAULT_SPACE_ID),
     };
+}
+
+const DEPLOYMENT_FORM_DOCUMENT_FIELDS = [
+    'deploymentId',
+    'name',
+    'spaceId',
+    'nodeId',
+    'sourceType',
+    'nixRepo',
+    'nixFlake',
+    'nixTarget',
+    'containerImage',
+    'networkingMode',
+    'portForwarding',
+    'ingress',
+    'runnerType',
+    'containerUser',
+    'containerCommand',
+    'containerWorkingDir',
+    'containerDataMountPath',
+    'containerDisableDataVolume',
+    'containerDevShmOverride',
+    'containerDevShmSizeValue',
+    'containerDevShmSizeUnit',
+    'containerFileDescriptorLimitOverride',
+    'containerFileDescriptorLimit',
+    'containerUpgradeStrategy',
+    'containerReadinessTimeoutSeconds',
+    'envVars',
+    'assetMounts',
+    'volumeMounts',
+];
+
+export function replaceDeploymentFormFromConfig(form, config) {
+    const next = deploymentConfigToForm(config);
+    for (const key of DEPLOYMENT_FORM_DOCUMENT_FIELDS) {
+        form[key].val = next[key].val;
+    }
 }
 
 export function formToSpec(form) {
@@ -259,6 +298,8 @@ export function formToSpec(form) {
     if (user) spec.runner.container.user = user;
     const command = formCommand(form);
     if (command.length) spec.runner.container.command = command;
+    const workingDir = form.containerWorkingDir.val.trim();
+    if (workingDir) spec.runner.container.workingDir = workingDir;
     const dataMountPath = form.containerDataMountPath.val.trim();
     if (dataMountPath) spec.runner.container.dataMountPath = dataMountPath;
     const devShmSizeKb = devShmSizeKbForForm(form);
@@ -281,6 +322,7 @@ export function isFormValid(form, opts = {}) {
 
 export function formInvalidReason(form, opts = {}) {
     if (!nameValid(form)) return 'Deployment name is required.';
+    if (deploymentNameTaken(form, opts.deployments || [])) return 'Deployment name is unavailable in this space.';
     const nodeId = Number(form.nodeId.val || 0);
     if (!nodeId) return 'Node is required.';
     const nodeOptions = opts.nodeOptions || [];
@@ -290,6 +332,8 @@ export function formInvalidReason(form, opts = {}) {
         if (!form.containerImage.val.trim()) return 'Container image is required.';
     } else if (!form.nixRepo.val.trim() || !form.nixFlake.val.trim()) {
         return 'Repository and flake path are required.';
+    } else if (!validateLocalFlakePath(form.nixFlake.val).ok) {
+        return validateLocalFlakePath(form.nixFlake.val).message;
     } else if (form.nixTarget.val !== form.nixTarget.val.trim() || (form.nixTarget.val.trim() && !form.nixTarget.val.trim().startsWith('.#'))) {
         return 'Flake target must be a local selector starting with .#.';
     }
@@ -302,220 +346,6 @@ export function formInvalidReason(form, opts = {}) {
         || invalidFileDescriptorLimitReason(form)
         || invalidIngressReason(form)
         || '';
-}
-
-export function buildValidateSourceRequest(form, opts = {}) {
-    const sourceType = form.sourceType.val;
-    const branch = (opts.branch || '').trim();
-    const commit = (opts.commit || '').trim();
-    const hasExplicitFlags = [
-        'refreshAvailableBranches',
-        'refreshAvailableCommits',
-        'refreshVersions',
-        'checkRepo',
-        'checkBranch',
-        'checkCommit',
-        'checkFlakePath',
-    ].some(k => k in opts);
-    if (sourceType === SOURCE_NIX_DOCKER) {
-        const refreshAvailableBranches = hasExplicitFlags
-            ? Boolean(opts.refreshAvailableBranches)
-            : true;
-        const refreshAvailableCommits = hasExplicitFlags
-            ? Boolean(opts.refreshAvailableCommits ?? opts.refreshVersions === true)
-            : Boolean(branch);
-        return {nixDockerBuild: {
-            repoUrl: form.nixRepo.val.trim(),
-            selectedBranch: branch,
-            selectedCommit: commit ? {id: commit} : undefined,
-            selectedFlakePath: form.nixFlake.val.trim(),
-            refreshAvailableBranches,
-            refreshAvailableCommits,
-            checkRepo: hasExplicitFlags ? Boolean(opts.checkRepo ?? (refreshAvailableBranches || opts.refreshVersions === true)) : true,
-            checkBranch: hasExplicitFlags ? Boolean(opts.checkBranch) : Boolean(branch),
-            checkCommit: hasExplicitFlags ? Boolean(opts.checkCommit) : Boolean(commit),
-            checkFlakePath: hasExplicitFlags ? Boolean(opts.checkFlakePath) : Boolean(form.nixFlake.val.trim()),
-        }};
-    }
-    if (sourceType === SOURCE_DOCKER_IMAGE) {
-        return {containerImage: {image: form.containerImage.val.trim(), refreshVersions: opts.refreshVersions !== false}};
-    }
-    return {containerImage: {image: form.containerImage.val.trim(), refreshVersions: opts.refreshVersions !== false}};
-}
-
-export function sourceValidationKey(form) {
-    const sourceType = form.sourceType.val;
-    if (sourceType === SOURCE_DOCKER_IMAGE) {
-        return `${sourceType}:${form.containerImage.val.trim()}`;
-    }
-    const repo = form.nixRepo.val.trim();
-    const flake = sourceType === SOURCE_NIX_DOCKER ? form.nixFlake.val.trim() : '';
-    return `${sourceType}:${repo}:${flake}`;
-}
-
-export function imageVersionFromReference(raw) {
-    let image = (raw || '').trim();
-    image = image.replace(/^docker:\/\//, '').replace(/^https?:\/\//, '').replace(/\/$/, '');
-    const digestIdx = image.indexOf('@');
-    if (digestIdx >= 0) return image.slice(digestIdx + 1);
-    const lastSlash = image.lastIndexOf('/');
-    const lastColon = image.lastIndexOf(':');
-    if (lastColon > lastSlash) return image.slice(lastColon + 1);
-    return '';
-}
-
-export function validationSourceResult(form, res) {
-    switch (form.sourceType.val) {
-        case SOURCE_NIX_DOCKER:
-            return res?.nixDockerBuild || {};
-        case SOURCE_DOCKER_IMAGE:
-            return res?.containerImage || {};
-        default:
-            return {};
-    }
-}
-
-export function sourceCheckFromValidation(form, res, repo, sourceType, sourceKey) {
-    const sourceResult = validationSourceResult(form, res);
-    const previous = form.repoCheck.val || {};
-    const canReusePrevious = previous.sourceKey === sourceKey && previous.sourceType === sourceType && previous.repo === repo;
-
-    if (sourceType === SOURCE_DOCKER_IMAGE) {
-        const image = validationResultOrPrevious(
-            sourceResult.image,
-            canReusePrevious ? previous.image : undefined,
-            {ok: false, message: 'Image not accessible.'},
-        );
-        return {
-            status: image.ok ? 'ok' : 'error',
-            message: image.message || (image.ok ? 'Image accessible.' : 'Image not accessible.'),
-            repo,
-            sourceType,
-            sourceKey,
-            image,
-            tags: (sourceResult.tags || []).length > 0 ? sourceResult.tags : (canReusePrevious ? previous.tags || [] : []),
-        };
-    }
-
-    const gitRepository = validationResultOrPrevious(
-        sourceResult.gitRepository,
-        canReusePrevious ? previous.gitRepository : undefined,
-        {ok: false, message: 'Git repository not accessible.'},
-    );
-    const nixFlakeFile = validationResultOrPrevious(
-        sourceResult.nixFlakeFile,
-        canReusePrevious ? previous.nixFlakeFile : undefined,
-        {ok: false, message: ''},
-    );
-    const ok = Boolean(gitRepository.ok && (!form.nixFlake.val.trim() || nixFlakeFile.ok));
-    const branches = sourceResult.availableBranches?.loaded
-        ? (sourceResult.availableBranches.branches || [])
-        : (canReusePrevious ? previous.branches || [] : []);
-    const commitsByBranch = canReusePrevious ? {...(previous.commitsByBranch || {})} : {};
-    const activeBranch = sourceResult.availableCommits?.branch || sourceResult.checkedBranch || (canReusePrevious ? previous.branch || '' : '');
-    if (sourceResult.availableCommits?.loaded) {
-        commitsByBranch[activeBranch] = sourceResult.availableCommits?.commits || [];
-    }
-    const activeCommits = commitsByBranch[activeBranch] || [];
-    return {
-        status: ok ? 'ok' : 'error',
-        message: gitRepository.message || (gitRepository.ok ? 'Repo accessible.' : 'Source not accessible.'),
-        repo,
-        sourceType,
-        sourceKey,
-        gitRepository,
-        nixFlakeFile,
-        branches,
-        branch: activeBranch,
-        commits: activeCommits,
-        commitsByBranch,
-    };
-}
-
-function hasValidationResult(result) {
-    return Boolean(result && (result.checked || result.ok || result.message));
-}
-
-function validationResultOrPrevious(result, previous, fallback) {
-    if (hasValidationResult(result)) return result;
-    if (hasValidationResult(previous)) return previous;
-    return fallback;
-}
-
-function knownNixSourceCheck(repo, flake) {
-    const trimmedRepo = (repo || '').trim();
-    const trimmedFlake = (flake || '').trim();
-    const sourceKey = `${SOURCE_NIX_DOCKER}:${trimmedRepo}:${trimmedFlake}`;
-    return {
-        status: 'ok',
-        message: 'Repo accessible.',
-        repo: trimmedRepo,
-        sourceType: SOURCE_NIX_DOCKER,
-        sourceKey,
-        gitRepository: {checked: true, ok: true, message: 'Repo accessible.'},
-        nixFlakeFile: {checked: true, ok: true, message: 'Path verified'},
-        branches: [],
-        branch: '',
-        commits: [],
-        commitsByBranch: {},
-    };
-}
-
-function knownContainerImageSourceCheck(image) {
-    const trimmedImage = (image || '').trim();
-    const sourceKey = `${SOURCE_DOCKER_IMAGE}:${trimmedImage}`;
-    return {
-        status: 'ok',
-        message: 'Image accessible.',
-        repo: trimmedImage,
-        sourceType: SOURCE_DOCKER_IMAGE,
-        sourceKey,
-        image: {checked: true, ok: true, message: 'Image accessible.'},
-        tags: [],
-    };
-}
-
-export async function validateSelectedCommit(form, branch, commit) {
-    if (form.deploymentCreationUpdate) {
-        return form.deploymentCreationUpdate.validateSelectedCommit(branch, commit);
-    }
-    const sourceType = form.sourceType.val;
-    if (sourceType !== SOURCE_NIX_DOCKER) return;
-    const repo = form.nixRepo.val.trim();
-    const selectedCommit = (commit || '').trim();
-    if (!repo || !selectedCommit) return;
-
-    const sourceKey = sourceValidationKey(form);
-    const previous = form.repoCheck.val;
-    form.repoCheck.val = {
-        ...previous,
-        status: 'checking',
-        message: previous.message || 'Checking repository access…',
-        repo,
-        sourceType,
-        sourceKey,
-    };
-    try {
-        const req = buildValidateSourceRequest(form, {
-            branch,
-            commit: selectedCommit,
-            checkCommit: true,
-            checkFlakePath: Boolean(form.nixFlake.val.trim()),
-        });
-        const res = await capi.postV1RepoValidate(req);
-        console.log('[opendeploy] repo validate selected commit response', {request: req, response: res});
-        form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKey);
-    } catch (e) {
-        console.error('[opendeploy] repo validate selected commit failed', {error: e, stack: e?.stack});
-        form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType, sourceKey};
-    }
-}
-
-export function hasTrustedSourceValidation(form) {
-    const sourceType = form.sourceType.val;
-    const repo = sourceType === SOURCE_DOCKER_IMAGE ? form.containerImage.val.trim() : form.nixRepo.val.trim();
-    const c = form.repoCheck.val;
-    return Boolean(repo && c.status === 'ok' && c.sourceType === sourceType && c.repo === repo && c.sourceKey === sourceValidationKey(form));
 }
 
 function makeFormState(values) {
@@ -535,6 +365,7 @@ function makeFormState(values) {
         runnerType: van.state(values.runnerType),
         containerUser: van.state(values.containerUser || ''),
         containerCommand: van.state(values.containerCommand || ''),
+        containerWorkingDir: van.state(values.containerWorkingDir || ''),
         containerDataMountPath: van.state(values.containerDataMountPath || ''),
         containerDisableDataVolume: van.state(Boolean(values.containerDisableDataVolume)),
         containerDevShmOverride: van.state(Boolean(values.containerDevShmOverride)),
@@ -547,12 +378,11 @@ function makeFormState(values) {
         envVars: van.state(values.envVars || []),
         assetMounts: van.state(values.assetMounts || []),
         volumeMounts: van.state(values.volumeMounts || []),
-        showSourceOpts: van.state(Boolean(values.showSourceOpts)),
-        showExecOpts: van.state(Boolean(values.showExecOpts)),
         identityLockNotice: van.state(''),
         identityLockNoticeTimer: null,
         // Whether the environment-variables editor pane is open in the overlay.
         envPaneOpen: van.state(false),
+        commandPaneOpen: van.state(false),
         assetMountsPaneOpen: van.state(false),
         volumeMountsPaneOpen: van.state(false),
         upgradeStrategyPaneOpen: van.state(false),
@@ -564,20 +394,29 @@ function makeFormState(values) {
         assetEditorKey: van.state(''),
         assetEditorFormat: van.state('text'),
         assetEditorContent: van.state(''),
-        // Transient repo-accessibility check; tracks the repo/source it applies
-        // to so a stale result is hidden once the inputs change.
-        repoCheck: van.state(values.repoCheck || {status: 'idle', message: '', repo: '', sourceType: '', sourceKey: ''}),
+        identitySectionOpen: van.state(values.identitySectionOpen ?? true),
+        sourceSectionOpen: van.state(values.sourceSectionOpen ?? true),
+        runtimeSectionOpen: van.state(values.runtimeSectionOpen ?? true),
+        versionSectionOpen: van.state(values.versionSectionOpen ?? true),
+        stateSectionOpen: van.state(values.stateSectionOpen ?? true),
     };
 }
 
-// sectionDivider renders a thin horizontal rule with the section title centered,
-// splitting the line: ──────── Title ────────
-export function sectionDivider(title) {
+export function collapsibleSection(title, open, content) {
     return div(
-        {class: "flex items-center gap-3"},
-        div({class: "flex-1 border-t border-gray-700"}),
-        span({class: "text-xs font-semibold uppercase tracking-wide text-gray-400"}, title),
-        div({class: "flex-1 border-t border-gray-700"}),
+        {class: "flex flex-col gap-2"},
+        button(
+            {
+                type: "button",
+                class: "flex w-full items-center text-left cursor-pointer group",
+                "aria-expanded": () => String(open.val),
+                onclick: () => { open.val = !open.val; },
+            },
+            span({class: "mr-2 text-[10px] text-gray-500 transition-transform group-hover:text-gray-300"}, () => open.val ? "▼" : "▶"),
+            span({class: "text-xs font-semibold tracking-wide text-blue-300 whitespace-nowrap group-hover:text-blue-200"}, title),
+            span({class: "ml-3 h-px flex-1 bg-gradient-to-r from-gray-600/80 to-transparent"}),
+        ),
+        div({class: () => open.val ? '' : 'hidden'}, content),
     );
 }
 
@@ -590,10 +429,10 @@ function field(text, control, hint) {
     );
 }
 
-function identityField(text, control, locked, onLockedClick) {
+function identityField(text, control, locked, onLockedClick, status) {
     return label(
         {class: "flex flex-col gap-1 text-xs text-gray-400", onpointerdown: locked ? onLockedClick : undefined},
-        span(text),
+        div({class: "flex items-center justify-between gap-2"}, span(text), status ? status : ''),
         control,
     );
 }
@@ -618,15 +457,15 @@ function optionsDisclosure(open, content) {
             span({class: "text-[10px] leading-none"}, () => open.val ? "▼" : "▶"),
             span("Additional options"),
         ),
-        div({class: () => open.val ? "flex flex-col gap-3 mt-3" : "hidden"}, content()),
+        div({class: () => open.val ? "mt-2 flex flex-col gap-2" : "hidden"}, content()),
     );
 }
 
-function nixSourceFields(form) {
+function nixSourceFields(form, sourceController) {
     if (form.sourceType.val === SOURCE_NIX_DOCKER) {
         return div(
-            {class: "flex flex-col gap-3"},
-            flakeField(form),
+            {class: "grid grid-cols-1 gap-2 md:grid-cols-2"},
+            flakeField(form, sourceController),
             nixTargetField(form),
         );
     }
@@ -668,22 +507,48 @@ function commandSummary(form) {
         button({
             type: "button",
             class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
-            onclick: () => { form.showExecOpts.val = !form.showExecOpts.val; },
-        }, () => form.showExecOpts.val ? "Close" : "Override"),
+            onclick: () => {
+                const opening = !form.commandPaneOpen.val;
+                if (opening) closeRuntimePanes(form, 'command');
+                form.commandPaneOpen.val = opening;
+            },
+        }, () => form.commandPaneOpen.val ? "Close" : "Configure"),
     );
 }
 
-function commandOptions(form) {
+export function commandPane(form) {
     return div(
-        {class: () => form.showExecOpts.val ? "flex flex-col gap-2 rounded-lg border border-gray-700 bg-gray-900/60 p-3" : "hidden"},
-        field("Command argv", textarea({
-            "data-testid": "deployment-container-command-textarea",
-            rows: 4,
-            class: `${textInputClass()} font-mono text-xs`,
-            placeholder: "/app/server\n--listen\n:8080",
-            value: form.containerCommand.rawVal,
-            oninput: e => { form.containerCommand.val = e.target.value; },
-        }), "One argument per line. Leave blank to use the image default entrypoint/cmd."),
+        {class: () => form.commandPaneOpen.val
+            ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
+            : "hidden"},
+        div(
+            {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
+            h3({class: "text-sm font-semibold text-gray-200"}, "Command"),
+            button({
+                type: "button",
+                class: "text-gray-500 hover:text-gray-200 cursor-pointer",
+                title: "Close",
+                onclick: () => { form.commandPaneOpen.val = false; },
+            }, xIcon({size: 16})),
+        ),
+        div(
+            {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-4 p-4"},
+            field("Command arguments", textarea({
+                "data-testid": "deployment-container-command-textarea",
+                rows: 8,
+                class: `${textInputClass()} resize-y font-mono text-xs leading-relaxed`,
+                placeholder: "/app/server\n--listen\n:8080",
+                value: form.containerCommand.rawVal,
+                oninput: e => { form.containerCommand.val = e.target.value; },
+            }), "One argument per line. Leave blank to use the image default entrypoint and command."),
+            field("Working directory", input({
+                type: "text",
+                class: textInputClass(),
+                placeholder: "/app",
+                value: form.containerWorkingDir.rawVal,
+                oninput: e => { form.containerWorkingDir.val = e.target.value; },
+            }), "Leave blank to use the image default working directory."),
+        ),
     );
 }
 
@@ -777,7 +642,7 @@ export function networkingPane(form) {
             ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
             : "hidden"},
         div(
-            {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
+            {class: "flex items-center justify-between gap-3 px-3 py-2 border-b border-gray-700"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Networking"),
             button({
                 type: "button",
@@ -787,16 +652,16 @@ export function networkingPane(form) {
             }, xIcon({size: 16})),
         ),
         div(
-            {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-4 p-4"},
+            {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-3"},
             div(
-                {class: "flex flex-col gap-3 rounded-sm border border-gray-700 bg-gray-900/40 p-4"},
+                {class: "grid grid-cols-1 items-end gap-2 rounded-sm border border-gray-700 bg-gray-900/40 p-3 md:grid-cols-[9rem_minmax(0,1fr)]"},
                 selectField("Mode", form.networkingMode, [
                     {value: String(NETWORKING_MODE_VIRTUAL), label: "Virtual"},
                     {value: String(NETWORKING_MODE_HOST), label: "Host"},
                 ], "w-full", value => {
                     form.networkingMode.val = value;
                 }),
-                p({class: "text-xs leading-relaxed text-gray-500"}, () => Number(form.networkingMode.val) === NETWORKING_MODE_HOST
+                p({class: "text-[11px] leading-snug text-gray-500"}, () => Number(form.networkingMode.val) === NETWORKING_MODE_HOST
                     ? "Host mode keeps the container in the node network namespace. Port forwarding is unavailable because the process binds host ports directly."
                     : "Virtual mode gives the container an isolated network namespace on the OpenDeploy virtual network. Add port forwarding when the workload must be reachable from the node's host interfaces."),
             ),
@@ -804,6 +669,19 @@ export function networkingPane(form) {
             () => Number(form.networkingMode.val) === NETWORKING_MODE_VIRTUAL ? ingressSection(form) : '',
         ),
     );
+}
+
+function stableRowsBody(rows, renderRow) {
+    const body = tbody();
+    let signature = '';
+    van.derive(() => {
+        const currentRows = rows();
+        const nextSignature = currentRows.map(row => row.id).join('|');
+        if (nextSignature === signature) return;
+        signature = nextSignature;
+        body.replaceChildren(...currentRows.map(renderRow));
+    });
+    return body;
 }
 
 function portForwardingSection(form) {
@@ -814,65 +692,65 @@ function portForwardingSection(form) {
     const remove = (row) => {
         form.portForwarding.val = rows().filter(port => port.id !== row.id);
     };
+    const rowsBody = stableRowsBody(rows, row => tr(
+        td({class: "pr-2 py-1"}, select({
+            value: String(row.protocol || PORT_FORWARD_PROTOCOL_TCP),
+            class: "w-full px-2 py-1 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand",
+            onchange: e => update(row, {protocol: Number(e.target.value || PORT_FORWARD_PROTOCOL_TCP)}),
+        },
+            option({value: String(PORT_FORWARD_PROTOCOL_TCP), selected: Number(row.protocol) === PORT_FORWARD_PROTOCOL_TCP}, "TCP"),
+            option({value: String(PORT_FORWARD_PROTOCOL_UDP), selected: Number(row.protocol) === PORT_FORWARD_PROTOCOL_UDP}, "UDP"),
+        )),
+        td({class: "pr-2 py-1"}, input({
+            type: "number",
+            min: "1",
+            max: "65535",
+            value: row.hostPort || '',
+            class: `${textInputClass(false, false)} !px-2 !py-1`,
+            placeholder: "443",
+            oninput: e => update(row, {hostPort: e.target.value}),
+        })),
+        td({class: "pr-2 py-1"}, input({
+            type: "number",
+            min: "1",
+            max: "65535",
+            value: row.containerPort || '',
+            class: `${textInputClass(false, false)} !px-2 !py-1`,
+            placeholder: "443",
+            oninput: e => update(row, {containerPort: e.target.value}),
+        })),
+        td({class: "py-1 text-right"}, button({
+            type: "button",
+            class: "text-gray-500 hover:text-red-300 cursor-pointer",
+            title: "Remove port forwarding",
+            onclick: () => remove(row),
+        }, xIcon({class: "w-4 h-4"}))),
+    ));
     return div(
-        {class: "flex flex-col gap-2 rounded-sm border border-gray-800 bg-gray-900/40 p-3"},
+        {class: "flex flex-col gap-1.5 rounded-sm border border-gray-800 bg-gray-900/40 p-2.5"},
         div(
             {class: "flex items-center justify-between gap-3"},
             div(
                 span({class: "text-xs text-gray-300"}, "Port forwarding"),
-                p({class: "text-[11px] text-gray-500 mt-1"}, "Publish a host TCP or UDP port to a port inside this virtual container."),
+                p({class: "text-[11px] leading-tight text-gray-500 mt-0.5"}, "Publish a host TCP or UDP port to a port inside this virtual container."),
             ),
             button({
                 type: "button",
-                class: "px-2 py-1 rounded-sm bg-gray-800 text-gray-200 text-xs hover:bg-gray-700 cursor-pointer",
+                class: "px-2 py-0.5 rounded-sm bg-gray-800 text-gray-200 text-xs hover:bg-gray-700 cursor-pointer",
                 onclick: () => { form.portForwarding.val = [...rows(), newPortForwardingRow()]; },
             }, "Add port"),
         ),
-        () => rows().length === 0
-            ? p({class: "text-xs text-gray-500"}, "No host ports published.")
-            : table(
-                {class: "w-full text-xs"},
-                thead(tr(
-                    th({class: "text-left font-normal text-gray-500 pb-1"}, "Protocol"),
-                    th({class: "text-left font-normal text-gray-500 pb-1"}, "Host port"),
-                    th({class: "text-left font-normal text-gray-500 pb-1"}, "Container port"),
-                    th({class: "w-8"}),
-                )),
-                tbody(...rows().map(row => tr(
-                    td({class: "pr-2 py-1"}, select({
-                        value: String(row.protocol || PORT_FORWARD_PROTOCOL_TCP),
-                        class: "w-full px-2 py-1 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand",
-                        onchange: e => update(row, {protocol: Number(e.target.value || PORT_FORWARD_PROTOCOL_TCP)}),
-                    },
-                        option({value: String(PORT_FORWARD_PROTOCOL_TCP), selected: Number(row.protocol) === PORT_FORWARD_PROTOCOL_TCP}, "TCP"),
-                        option({value: String(PORT_FORWARD_PROTOCOL_UDP), selected: Number(row.protocol) === PORT_FORWARD_PROTOCOL_UDP}, "UDP"),
-                    )),
-                    td({class: "pr-2 py-1"}, input({
-                        type: "number",
-                        min: "1",
-                        max: "65535",
-                        value: row.hostPort || '',
-                        class: textInputClass(false, false),
-                        placeholder: "443",
-                        oninput: e => update(row, {hostPort: e.target.value}),
-                    })),
-                    td({class: "pr-2 py-1"}, input({
-                        type: "number",
-                        min: "1",
-                        max: "65535",
-                        value: row.containerPort || '',
-                        class: textInputClass(false, false),
-                        placeholder: "443",
-                        oninput: e => update(row, {containerPort: e.target.value}),
-                    })),
-                    td({class: "py-1 text-right"}, button({
-                        type: "button",
-                        class: "text-gray-500 hover:text-red-300 cursor-pointer",
-                        title: "Remove port forwarding",
-                        onclick: () => remove(row),
-                    }, xIcon({class: "w-4 h-4"}))),
-                ))),
-            ),
+        p({class: () => rows().length === 0 ? "text-[11px] text-gray-500" : "hidden"}, "No host ports published."),
+        table(
+            {class: () => rows().length === 0 ? "hidden" : "w-full text-xs"},
+            thead(tr(
+                th({class: "text-left font-normal text-gray-500 pb-1"}, "Protocol"),
+                th({class: "text-left font-normal text-gray-500 pb-1"}, "Host port"),
+                th({class: "text-left font-normal text-gray-500 pb-1"}, "Container port"),
+                th({class: "w-8"}),
+            )),
+            rowsBody,
+        ),
     );
 }
 
@@ -884,72 +762,72 @@ function ingressSection(form) {
     const remove = (row) => {
         form.ingress.val = rows().filter(route => route.id !== row.id);
     };
+    const rowsBody = stableRowsBody(rows, row => tr(
+        {"data-testid": "deployment-ingress-row"},
+        td({class: "pr-2 py-1 text-gray-300 whitespace-nowrap"}, "TLS passthrough"),
+        td({class: "pr-2 py-1"}, input({
+            type: "text",
+            "data-testid": "deployment-ingress-hostname-input",
+            value: row.hostname || '',
+            class: `${textInputClass(false, false)} !px-2 !py-1`,
+            placeholder: "db.example.com",
+            oninput: e => update(row, {hostname: e.target.value}),
+        })),
+        td({class: "pr-2 py-1"}, input({
+            type: "number",
+            "data-testid": "deployment-ingress-host-port-input",
+            min: "1",
+            max: "65535",
+            value: row.hostPort || '',
+            class: `${textInputClass(false, false)} !px-2 !py-1`,
+            placeholder: "443",
+            oninput: e => update(row, {hostPort: e.target.value}),
+        })),
+        td({class: "pr-2 py-1"}, input({
+            type: "number",
+            "data-testid": "deployment-ingress-container-port-input",
+            min: "1",
+            max: "65535",
+            value: row.containerPort || '',
+            class: `${textInputClass(false, false)} !px-2 !py-1`,
+            placeholder: "443",
+            oninput: e => update(row, {containerPort: e.target.value}),
+        })),
+        td({class: "py-1 text-right"}, button({
+            type: "button",
+            class: "text-gray-500 hover:text-red-300 cursor-pointer",
+            title: "Remove ingress route",
+            "data-testid": "deployment-remove-ingress-route",
+            onclick: () => remove(row),
+        }, xIcon({class: "w-4 h-4"}))),
+    ));
     return div(
-        {class: "flex flex-col gap-2 rounded-sm border border-gray-800 bg-gray-900/40 p-3", "data-testid": "deployment-ingress-section"},
+        {class: "flex flex-col gap-1.5 rounded-sm border border-gray-800 bg-gray-900/40 p-2.5", "data-testid": "deployment-ingress-section"},
         div(
             {class: "flex items-center justify-between gap-3"},
             div(
                 span({class: "text-xs text-gray-300"}, "Ingress"),
-                p({class: "text-[11px] text-gray-500 mt-1"}, "TLS passthrough routes by SNI to this virtual container without TLS termination. The primary node reserves host port 443 for the Web UI."),
+                p({class: "text-[11px] leading-tight text-gray-500 mt-0.5"}, "TLS passthrough routes by SNI to this virtual container without TLS termination. The primary node reserves host port 443 for the Web UI."),
             ),
             button({
                 type: "button",
-                class: "px-2 py-1 rounded-sm bg-gray-800 text-gray-200 text-xs hover:bg-gray-700 cursor-pointer",
+                class: "px-2 py-0.5 rounded-sm bg-gray-800 text-gray-200 text-xs hover:bg-gray-700 cursor-pointer",
                 "data-testid": "deployment-add-ingress-route",
                 onclick: () => { form.ingress.val = [...rows(), newIngressRow()]; },
             }, "Add route"),
         ),
-        () => rows().length === 0
-            ? p({class: "text-xs text-gray-500"}, "No ingress routes configured.")
-            : table(
-                {class: "w-full text-xs"},
-                thead(tr(
-                    th({class: "text-left font-normal text-gray-500 pb-1"}, "Kind"),
-                    th({class: "text-left font-normal text-gray-500 pb-1"}, "Hostname"),
-                    th({class: "text-left font-normal text-gray-500 pb-1"}, "Host port"),
-                    th({class: "text-left font-normal text-gray-500 pb-1"}, "Container port"),
-                    th({class: "w-8"}),
-                )),
-                tbody(...rows().map(row => tr(
-                    {"data-testid": "deployment-ingress-row"},
-                    td({class: "pr-2 py-1 text-gray-300 whitespace-nowrap"}, "TLS passthrough"),
-                    td({class: "pr-2 py-1"}, input({
-                        type: "text",
-                        "data-testid": "deployment-ingress-hostname-input",
-                        value: row.hostname || '',
-                        class: textInputClass(false, false),
-                        placeholder: "db.example.com",
-                        oninput: e => update(row, {hostname: e.target.value}),
-                    })),
-                    td({class: "pr-2 py-1"}, input({
-                        type: "number",
-                        "data-testid": "deployment-ingress-host-port-input",
-                        min: "1",
-                        max: "65535",
-                        value: row.hostPort || '',
-                        class: textInputClass(false, false),
-                        placeholder: "443",
-                        oninput: e => update(row, {hostPort: e.target.value}),
-                    })),
-                    td({class: "pr-2 py-1"}, input({
-                        type: "number",
-                        "data-testid": "deployment-ingress-container-port-input",
-                        min: "1",
-                        max: "65535",
-                        value: row.containerPort || '',
-                        class: textInputClass(false, false),
-                        placeholder: "443",
-                        oninput: e => update(row, {containerPort: e.target.value}),
-                    })),
-                    td({class: "py-1 text-right"}, button({
-                        type: "button",
-                        class: "text-gray-500 hover:text-red-300 cursor-pointer",
-                        title: "Remove ingress route",
-                        "data-testid": "deployment-remove-ingress-route",
-                        onclick: () => remove(row),
-                    }, xIcon({class: "w-4 h-4"}))),
-                ))),
-            ),
+        p({class: () => rows().length === 0 ? "text-[11px] text-gray-500" : "hidden"}, "No ingress routes configured."),
+        table(
+            {class: () => rows().length === 0 ? "hidden" : "w-full text-xs"},
+            thead(tr(
+                th({class: "text-left font-normal text-gray-500 pb-1"}, "Kind"),
+                th({class: "text-left font-normal text-gray-500 pb-1"}, "Hostname"),
+                th({class: "text-left font-normal text-gray-500 pb-1"}, "Host port"),
+                th({class: "text-left font-normal text-gray-500 pb-1"}, "Container port"),
+                th({class: "w-8"}),
+            )),
+            rowsBody,
+        ),
     );
 }
 
@@ -1037,7 +915,7 @@ export function upgradeStrategyPane(form) {
                     min: "0",
                     step: "1",
                     value: form.containerReadinessTimeoutSeconds.rawVal,
-                    class: textInputClass(false, false, !hasInvalidUpgradeStrategy(form)),
+                    class: textInputClass(false, false),
                     oninput: e => { form.containerReadinessTimeoutSeconds.val = e.target.value; },
                 }), "seconds; 0 uses server default")
                 : '',
@@ -1374,7 +1252,7 @@ export function volumeMountsPane(form, opts = {}) {
     const removeMount = (row) => {
         form.volumeMounts.val = rows().filter(m => m.id !== row.id);
     };
-    const deploymentOptions = () => deploymentVolumeOptions(optionDeployments(opts), form);
+    const deploymentOptions = () => deploymentVolumeOptions(optionDeployments(opts), form, stateValue(opts.spaces) || []);
     const deploymentRowEl = (row) => div(
         {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
         div(
@@ -1388,7 +1266,7 @@ export function volumeMountsPane(form, opts = {}) {
                 },
             },
                 option({value: '', disabled: true, selected: !row.deploymentId}, deploymentOptions().length ? "Select deployment..." : "No deployments on this node"),
-                ...deploymentOptions().map(d => option({value: String(d.config.id), selected: d.config.id === row.deploymentId}, deploymentVolumeLabel(d))),
+                ...deploymentOptions().map(d => option({value: String(d.config.id), selected: d.config.id === row.deploymentId}, deploymentVolumeLabel(d, stateValue(opts.spaces) || []))),
             )),
             field("Container mount path", input({
                 class: textInputClass(true),
@@ -1483,8 +1361,10 @@ export function assetEditorPane(form, opts = {}) {
         }
         try {
             form.assetEditorError.val = '';
-            const asset = await capi.postV1AssetsSet({
+            if (typeof opts.saveAsset !== 'function') throw new Error('saveAsset is required');
+            const asset = await opts.saveAsset({
                 key,
+                spaceId: Number(form.spaceId.val || DEFAULT_SPACE_ID),
                 format: form.assetEditorFormat.val.trim() || 'text',
                 blob: new TextEncoder().encode(form.assetEditorContent.val),
             });
@@ -1554,21 +1434,25 @@ export function assetEditorPane(form, opts = {}) {
 // via a CSS class (a binding that returns null would be GC'd by VanJS and never
 // re-open).
 export function envVarsPane(form, opts = {}) {
-    const assets = opts.assets || [];
+    const assets = () => stateValue(opts.assets) || [];
+    const secretRefs = () => stateValue(opts.secretRefs) || [];
+    const configRefs = () => stateValue(opts.configRefs) || [];
+    const deployments = () => stateValue(opts.deployments) || [];
     const envRows = tbody();
     let envRowsSignature = '';
     van.derive(() => {
         const rows = form.envVars.val || [];
         const signature = [
             rows.map(row => `${row.id}:${row.type || 'value'}:${row.addressDeploymentId || 0}:${row.addressSpaceId || 0}:${row.asset || ''}:${row.assetId || 0}:${row.version || 0}`).join('|'),
-            (secretRefsS.val || []).map(ref => `${ref.id}:${ref.name}`).join('|'),
-            (userConfigRefsS.val || []).map(ref => `${ref.id}:${ref.name}`).join('|'),
-            `${form.nodeId.val}:${(deploymentsS.val || []).map(item => `${item.config?.id || 0}:${item.config?.nodeId || 0}:${item.config?.configId?.spaceId ?? 0}:${item.config?.configId?.name || ''}:${item.config?.spec?.networking?.mode || 0}:${item.config?.deleted ? 1 : 0}`).join('|')}`,
-            assets.map(asset => `${asset.id}:${asset.key}:${asset.version}`).join('|'),
+            secretRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
+            configRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
+            `${form.nodeId.val}:${deployments().map(item => `${item.config?.id || 0}:${item.config?.nodeId || 0}:${item.config?.configId?.spaceId ?? 0}:${item.config?.configId?.name || ''}:${item.config?.spec?.networking?.mode || 0}:${item.config?.deleted ? 1 : 0}`).join('|')}`,
+            assets().map(asset => `${asset.id}:${asset.key}:${asset.version}`).join('|'),
         ].join('::');
         if (signature === envRowsSignature) return;
         envRowsSignature = signature;
-        envRows.replaceChildren(...rows.map(row => envVarRow(form, row, assets)));
+        const catalogs = {assets: assets(), secretRefs: secretRefs(), configRefs: configRefs(), deployments: deployments()};
+        envRows.replaceChildren(...rows.map(row => envVarRow(form, row, catalogs)));
     });
     return div(
         {class: () => form.envPaneOpen.val
@@ -1610,7 +1494,7 @@ export function envVarsPane(form, opts = {}) {
     );
 }
 
-function envVarRow(form, row, assets) {
+function envVarRow(form, row, catalogs) {
     const type = row.type || 'value';
     return tr({class: "border-b border-gray-800 last:border-b-0"},
         td({class: "py-1 pr-1.5 align-top"},
@@ -1635,7 +1519,7 @@ function envVarRow(form, row, assets) {
                 option({value: "asset", selected: type === 'asset'}, "Asset"),
             ),
         ),
-        td({class: "py-1 pl-1.5 pr-0.5 align-top"}, envValueInput(form, row, assets)),
+        td({class: "py-1 pl-1.5 pr-0.5 align-top"}, envValueInput(form, row, catalogs)),
         td({class: "py-1 pl-0.5 align-top text-right"},
             button({
                 type: "button",
@@ -1646,7 +1530,7 @@ function envVarRow(form, row, assets) {
     );
 }
 
-function envValueInput(form, row, assets) {
+function envValueInput(form, row, catalogs) {
     if ((row.type || 'value') === 'value') {
         return input({
             type: "text",
@@ -1657,7 +1541,7 @@ function envValueInput(form, row, assets) {
         });
     }
     if (row.type === 'asset') {
-        const assetOptions = assetOptionsForRow(assets, row);
+        const assetOptions = assetOptionsForRow(catalogs.assets, row);
         const selectedKey = van.state(rowAssetOptionValue(row));
         return referencePicker({
             refs: assetOptions,
@@ -1673,19 +1557,19 @@ function envValueInput(form, row, assets) {
             },
         });
     }
-    if (row.type === 'address') return envAddressAutocomplete(form, row);
-    return envReferenceAutocomplete(form, row);
+    if (row.type === 'address') return envAddressAutocomplete(form, row, catalogs.deployments);
+    return envReferenceAutocomplete(form, row, catalogs);
 }
 
 function updateEnvAssetRow(form, row, asset) {
     updateEnvRow(form, row.id, {asset: asset?.key || '', assetId: asset?.id || 0, version: asset?.version || 0});
 }
 
-function envReferenceAutocomplete(form, row) {
+function envReferenceAutocomplete(form, row, catalogs) {
     const isSecret = row.type === 'secret';
     const selectedID = isSecret ? Number(row.secretId || 0) : Number(row.configId || 0);
     const selectedKey = van.state(selectedID || '');
-    const options = () => versionedRefOptions(isSecret ? (secretRefsS.val || []) : (userConfigRefsS.val || []), selectedKey.val);
+    const options = () => versionedRefOptions(isSecret ? catalogs.secretRefs : catalogs.configRefs, selectedKey.val);
     return referencePicker({
         refs: options,
         selectedKey,
@@ -1702,10 +1586,10 @@ function envReferenceAutocomplete(form, row) {
     });
 }
 
-function envAddressAutocomplete(form, row) {
+function envAddressAutocomplete(form, row, deployments) {
     const selectedID = Number(row.addressDeploymentId || 0);
     const selectedKey = van.state(selectedID || '');
-    const options = () => addressOptionsForRow(form, row);
+    const options = () => addressOptionsForRow(form, row, deployments);
     return referencePicker({
         refs: options,
         selectedKey,
@@ -1724,11 +1608,11 @@ function envAddressAutocomplete(form, row) {
     });
 }
 
-function addressOptionsForRow(form, row) {
+function addressOptionsForRow(form, row, deployments) {
     const selectedID = Number(row.addressDeploymentId || 0);
     const currentDeploymentID = Number(form.deploymentId.val || 0);
     const targetNodeID = Number(form.nodeId.val || 0);
-    const all = deploymentsS.val || [];
+    const all = deployments || [];
     const selectable = all.filter(item => !item.config?.deleted
         && Number(item.config?.id || 0) !== currentDeploymentID
         && Number(item.config?.nodeId || 0) === targetNodeID
@@ -2022,12 +1906,12 @@ function defaultVolumeHostPath(deploymentID) {
     return `/var/lib/opendeploy-volumes/${deploymentID}/default`;
 }
 
-function deploymentVolumeOptions(deployments, form) {
+function deploymentVolumeOptions(deployments, form, spaces) {
     const nodeId = Number(form.nodeId.val || 0);
     const currentID = Number(form.deploymentId.val || 0);
     return (deployments || [])
         .filter(d => d.config?.id && d.config.id !== currentID && !d.config?.deleted && Number(d.config?.nodeId || 0) === nodeId)
-        .sort((a, b) => deploymentVolumeLabel(a).localeCompare(deploymentVolumeLabel(b)));
+        .sort((a, b) => deploymentVolumeLabel(a, spaces).localeCompare(deploymentVolumeLabel(b, spaces)));
 }
 
 function optionDeployments(opts) {
@@ -2036,28 +1920,28 @@ function optionDeployments(opts) {
     return Array.isArray(deployments) ? deployments : (deployments.val || []);
 }
 
-function deploymentVolumeLabel(deployment) {
+function deploymentVolumeLabel(deployment, spaces) {
     const id = deployment.config?.configId || {};
-    const space = spaceName(id.spaceId);
+    const space = spaceName(id.spaceId, spaces);
     return `${id.name || `deployment ${deployment.config?.id}`} (${space})`;
 }
 
-function spaceName(id) {
-    const space = (spacesS.val || []).find(s => s.id === id);
+function spaceName(id, spaces) {
+    const space = (spaces || []).find(s => s.id === id);
     return space?.name || `space ${id || 0}`;
 }
 
 function paneSectionDivider(text) {
     return div(
         {class: "flex items-center gap-3 mt-2 first:mt-0"},
-        div({class: "flex-1 border-t border-gray-700"}),
-        span({class: "text-xs font-semibold uppercase tracking-wide text-gray-400 text-center"}, text),
-        div({class: "flex-1 border-t border-gray-700"}),
+        span({class: "text-xs font-semibold tracking-wide text-blue-300 whitespace-nowrap"}, text),
+        div({class: "h-px flex-1 bg-gradient-to-r from-gray-600/80 to-transparent"}),
     );
 }
 
 function closeRuntimePanes(form, keep) {
     if (keep !== 'env') form.envPaneOpen.val = false;
+    if (keep !== 'command') form.commandPaneOpen.val = false;
     if (keep !== 'assets') form.assetMountsPaneOpen.val = false;
     if (keep !== 'volumes') form.volumeMountsPaneOpen.val = false;
     if (keep !== 'strategy') form.upgradeStrategyPaneOpen.val = false;
@@ -2139,7 +2023,7 @@ function resetFileDescriptorLimitOverrideValue(form) {
 
 // --- Repository field with on-blur accessibility validation ----------------
 
-function repoField(form, sourceType) {
+function repoField(form, sourceController) {
     const repoState = form.nixRepo;
     return label(
         {class: "flex-1 flex flex-col gap-1 text-xs text-gray-400"},
@@ -2147,7 +2031,7 @@ function repoField(form, sourceType) {
             {class: "flex items-center justify-between gap-3"},
             span("Repository"),
             () => {
-                const c = activeRepoCheck(form, sourceType, repoState);
+                const c = sourceController.repositoryStatus();
                 return c.status === 'idle' ? '' : span({class: repoMsgClass(c.status)}, c.message);
             },
         ),
@@ -2156,21 +2040,24 @@ function repoField(form, sourceType) {
             "data-testid": "deployment-repo-input",
             value: repoState.rawVal,
             placeholder: "github.com/org/repo",
-            class: () => repoInputClass(activeRepoCheck(form, sourceType, repoState).status),
-            oninput: e => { repoState.val = e.target.value; },
-            onblur: () => validateRepo(form),
+            class: repoInputClass(),
+            oninput: e => {
+                repoState.val = e.target.value;
+                sourceController.onRepositoryInput();
+            },
+            onblur: () => { void sourceController.onRepositoryBlur(); },
         }),
     );
 }
 
-function flakeField(form) {
+function flakeField(form, sourceController) {
     return label(
         {class: "flex flex-col gap-1 text-xs text-gray-400"},
         div(
             {class: "flex items-center justify-between gap-3"},
             span("Path to flake.nix"),
             () => {
-                const c = activeFlakeCheck(form);
+                const c = sourceController.flakeStatus();
                 return c.status === 'idle' ? '' : span({class: repoMsgClass(c.status)}, c.message);
             },
         ),
@@ -2178,10 +2065,13 @@ function flakeField(form) {
             type: "text",
             "data-testid": "deployment-flake-input",
             value: form.nixFlake.rawVal,
-            class: () => repoInputClass(activeFlakeCheck(form).status),
+            class: repoInputClass(),
             placeholder: "nix/app/flake.nix",
-            oninput: e => { form.nixFlake.val = e.target.value; },
-            onblur: () => validateRepo(form),
+            oninput: e => {
+                form.nixFlake.val = e.target.value;
+                sourceController.onFlakeInput();
+            },
+            onblur: () => sourceController.onFlakeBlur(),
         }),
     );
 }
@@ -2197,18 +2087,17 @@ function nixTargetField(form) {
             placeholder: ".#radkitRpaClientImage",
             oninput: e => { form.nixTarget.val = e.target.value; },
         }),
-        "Local flake selector. Leave empty to build the default output.",
     );
 }
 
-function dockerImageField(form) {
+function dockerImageField(form, sourceController) {
     return label(
         {class: "flex-1 flex flex-col gap-1 text-xs text-gray-400"},
         div(
             {class: "flex items-center justify-between gap-3"},
             span("Image"),
             () => {
-                const c = activeImageCheck(form);
+                const c = sourceController.imageStatus();
                 return c.status === 'idle' ? '' : span({class: repoMsgClass(c.status)}, c.message);
             },
         ),
@@ -2222,118 +2111,19 @@ function dockerImageField(form) {
             spellcheck: "false",
             value: form.containerImage.rawVal,
             placeholder: "postgres or ghcr.io/org/app",
-            class: () => repoInputClass(activeImageCheck(form).status),
-            oninput: e => { form.containerImage.val = e.target.value; },
-            onblur: () => validateRepo(form),
+            class: repoInputClass(),
+            oninput: e => {
+                form.containerImage.val = e.target.value;
+                sourceController.onImageInput();
+            },
+            onblur: () => { void sourceController.onImageBlur(); },
         }),
         span({class: "text-[11px] text-gray-500"}, "Kubernetes-style image path. Docker Hub shorthand such as postgres is supported."),
     );
 }
 
-// activeRepoCheck returns the validation result only if it still matches the
-// repo and source currently in the field; otherwise it reads as idle so a stale
-// green/red state disappears the moment the user edits or switches source.
-function activeRepoCheck(form, sourceType, repoState) {
-    if (form.deploymentCreationUpdate) {
-        const sourceID = repoState.val.trim();
-        if (!sourceID || form.sourceType.val !== sourceType) return {status: 'idle', message: ''};
-        const validity = sourceType === SOURCE_DOCKER_IMAGE
-            ? form.deploymentCreationUpdate.imageValid.val
-            : form.deploymentCreationUpdate.repoValid.val;
-        return validity.fieldKey === form.deploymentCreationUpdate.repoValidityKey(sourceType, sourceID)
-            ? validity
-            : {status: 'idle', message: ''};
-    }
-    const c = form.repoCheck.val;
-    const repo = repoState.val.trim();
-    if (!repo || c.sourceType !== sourceType || c.repo !== repo || c.sourceKey !== sourceValidationKey(form)) {
-        return {status: 'idle', message: ''};
-    }
-    return c;
-}
-
-function activeFlakeCheck(form) {
-    if (form.deploymentCreationUpdate) {
-        if (form.sourceType.val !== SOURCE_NIX_DOCKER || !form.nixRepo.val.trim() || !form.nixFlake.val.trim()) {
-            return {status: 'idle', message: ''};
-        }
-        const validity = form.deploymentCreationUpdate.flakePathValid.val;
-        return validity.fieldKey === form.deploymentCreationUpdate.flakeValidityKey()
-            ? validity
-            : {status: 'idle', message: ''};
-    }
-    const sourceType = form.sourceType.val;
-    if (sourceType !== SOURCE_NIX_DOCKER) {
-        return {status: 'idle', message: ''};
-    }
-    const repo = form.nixRepo.val.trim();
-    const flakePath = form.nixFlake.val.trim();
-    const c = form.repoCheck.val;
-    if (!repo || !flakePath || c.sourceKey !== sourceValidationKey(form)) {
-        return {status: 'idle', message: ''};
-    }
-    if (c.status === 'checking') {
-        return {status: 'checking', message: 'Checking path…'};
-    }
-    if (c.nixFlakeFile?.ok) {
-        return {status: 'ok', message: c.nixFlakeFile.message || 'Path verified'};
-    }
-    if (c.nixFlakeFile?.message) {
-        return {status: 'error', message: c.nixFlakeFile.message};
-    }
-    return {status: 'idle', message: ''};
-}
-
-function activeImageCheck(form) {
-    if (form.deploymentCreationUpdate) {
-        if (!form.containerImage.val.trim() || form.sourceType.val !== SOURCE_DOCKER_IMAGE) return {status: 'idle', message: ''};
-        const validity = form.deploymentCreationUpdate.imageValid.val;
-        return validity.fieldKey === form.deploymentCreationUpdate.repoValidityKey(SOURCE_DOCKER_IMAGE, form.containerImage.val)
-            ? validity
-            : {status: 'idle', message: ''};
-    }
-    const c = form.repoCheck.val;
-    const image = form.containerImage.val.trim();
-    if (!image || form.sourceType.val !== SOURCE_DOCKER_IMAGE || c.sourceKey !== sourceValidationKey(form)) {
-        return {status: 'idle', message: ''};
-    }
-    return c;
-}
-
-async function validateRepo(form) {
-    if (form.deploymentCreationUpdate) {
-        return form.deploymentCreationUpdate.validateRepo();
-    }
-    const sourceType = form.sourceType.val;
-    const repoState = sourceType === SOURCE_DOCKER_IMAGE ? form.containerImage : form.nixRepo;
-    const repo = repoState.val.trim();
-    if (!repo) {
-        form.repoCheck.val = {status: 'idle', message: '', repo: '', sourceType, sourceKey: ''};
-        return;
-    }
-    const sourceKey = sourceValidationKey(form);
-    const c = form.repoCheck.val;
-    // Don't re-check a repo we already have a verdict for.
-    if (c.sourceKey === sourceKey && (c.status === 'ok' || c.status === 'error')) {
-        return;
-    }
-    form.repoCheck.val = {status: 'checking', message: 'Checking repository access…', repo, sourceType, sourceKey};
-    try {
-        const req = buildValidateSourceRequest(form);
-        const res = await capi.postV1RepoValidate(req);
-        console.log('[opendeploy] repo validate response', {request: req, response: res});
-        form.repoCheck.val = sourceCheckFromValidation(form, res, repo, sourceType, sourceKey);
-    } catch (e) {
-        console.error('[opendeploy] repo validate failed', {error: e, stack: e?.stack});
-        form.repoCheck.val = {status: 'error', message: e.message || 'Validation failed.', repo, sourceType, sourceKey};
-    }
-}
-
-function repoInputClass(status) {
-    let border = 'border-gray-700 focus:ring-brand';
-    if (status === 'ok') border = 'border-green-500 focus:ring-green-500';
-    else if (status === 'error') border = 'border-red-500 focus:ring-red-500';
-    return `w-full px-3 py-2 rounded-sm bg-gray-800 text-gray-100 border ${border} focus:outline-none focus:ring-1`;
+function repoInputClass() {
+    return 'w-full px-3 py-2 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand';
 }
 
 function repoMsgClass(status) {
@@ -2377,8 +2167,8 @@ function textInput(state, placeholder = '', onblur) {
     });
 }
 
-function textInputClass(valid = false, disabled = false, success = false) {
-    const border = success ? 'border-green-500 focus:ring-green-500' : 'border-gray-700 focus:ring-brand';
+function textInputClass(valid = false, disabled = false) {
+    const border = 'border-gray-700 focus:ring-brand';
     const muted = disabled ? 'opacity-70 cursor-not-allowed pointer-events-none' : '';
     return `w-full px-3 py-2 rounded-sm bg-gray-800 text-gray-100 border ${border} focus:outline-none focus:ring-1 ${muted}`;
 }
@@ -2425,4 +2215,20 @@ function nodePlaceholder(loaded, options) {
 
 function nameValid(form) {
     return Boolean(form.name.val.trim());
+}
+
+function deploymentNameTaken(form, deployments) {
+    const name = form.name.val.trim();
+    const spaceId = Number(form.spaceId.val);
+    const deploymentId = Number(form.deploymentId.val || 0);
+    if (!name) return false;
+    return deployments.some(deployment => {
+        const config = deployment?.config || deployment?.currentConfig || deployment;
+        const configId = config?.configId || deployment?.configId || {};
+        const candidateId = Number(config?.id || deployment?.id || 0);
+        if (deploymentId && candidateId === deploymentId) return false;
+        return !config?.deleted && !deployment?.deleted
+            && configId.name === name
+            && Number(configId.spaceId) === spaceId;
+    });
 }

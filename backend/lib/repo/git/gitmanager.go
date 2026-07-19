@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,9 @@ type CommitInfo struct {
 	Time    time.Time
 	Branch  string
 }
+
+var fullCommitHashPattern = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
+var credentialURLPattern = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^/\s]*@`)
 
 type Manager struct {
 	cacheDir    string
@@ -75,7 +79,7 @@ func resolveCloneURL(repoURL string, githubToken string) (string, error) {
 
 	parts := strings.Split(repoURL, "/")
 	if len(parts) < 3 || parts[0] == "" {
-		return "", fmt.Errorf("cannot parse git repo from %q", repoURL)
+		return "", fmt.Errorf("cannot parse git repo from %q", redactCredentialURLs(repoURL))
 	}
 	cloneURL := "https://" + strings.TrimSuffix(repoURL, ".git") + ".git"
 	return injectGithubToken(cloneURL, githubToken)
@@ -100,7 +104,7 @@ func (g *Manager) FetchRepoInfo(ctx context.Context, repoURL string) (*RepoInfo,
 	}
 	out, err := exec.CommandContext(ctx, "git", "ls-remote", "--symref", cloneURL, "HEAD").Output()
 	if err != nil {
-		return nil, fmt.Errorf("ls-remote %s: %w", repoURL, err)
+		return nil, fmt.Errorf("ls-remote %s: %w", redactCredentialURLs(repoURL), err)
 	}
 	info := &RepoInfo{}
 	for _, line := range strings.Split(string(out), "\n") {
@@ -127,7 +131,7 @@ func (g *Manager) ListBranches(ctx context.Context, repoURL string) ([]string, e
 	}
 	out, err := exec.CommandContext(ctx, "git", "ls-remote", "--heads", cloneURL).Output()
 	if err != nil {
-		return nil, fmt.Errorf("ls-remote --heads %s: %w", repoURL, err)
+		return nil, fmt.Errorf("ls-remote --heads %s: %w", redactCredentialURLs(repoURL), err)
 	}
 	var branches []string
 	for _, line := range strings.Split(string(out), "\n") {
@@ -186,9 +190,27 @@ func (g *Manager) GetCommitLog(ctx context.Context, repoURL string, branch strin
 	return commits, nil
 }
 
-func (g *Manager) CommitExists(ctx context.Context, repoURL string, commit string) (bool, error) {
-	commit, err := cleanGitArg("commit", commit)
+// ValidateExactCommit verifies that commit is a full hash available from the
+// remote repository. It always fetches the requested hash, even if it is
+// already present in the metadata cache.
+func (g *Manager) ValidateExactCommit(ctx context.Context, repoURL string, commit string) error {
+	_, err := g.validateExactSource(ctx, repoURL, commit, "")
+	return err
+}
+
+// ValidateExactNixSource verifies an exact remote commit and a regular
+// flake.nix file in that commit's tree. commitValid is true when an error is
+// limited to flake path validation.
+func (g *Manager) ValidateExactNixSource(ctx context.Context, repoURL string, commit string, flakePath string) (commitValid bool, err error) {
+	clean, err := CleanFlakePath(flakePath)
 	if err != nil {
+		return false, err
+	}
+	return g.validateExactSource(ctx, repoURL, commit, clean)
+}
+
+func (g *Manager) validateExactSource(ctx context.Context, repoURL string, commit string, flakePath string) (bool, error) {
+	if err := ValidateFullCommitHash(commit); err != nil {
 		return false, err
 	}
 	repoDir, err := g.ensureMetadataRepo(ctx, repoURL)
@@ -199,48 +221,49 @@ func (g *Manager) CommitExists(ctx context.Context, repoURL string, commit strin
 	lock.Lock()
 	defer lock.Unlock()
 
-	if g.gitObjectExists(ctx, repoDir, commit+"^{commit}") {
+	if err := g.fetchMetadataRef(ctx, repoDir, commit, "blob:none", 1); err != nil {
+		if isMissingGitRefError(err) {
+			return false, fmt.Errorf("commit %q was not found in the remote repository", commit)
+		}
+		return false, fmt.Errorf("fetching exact commit: %w", err)
+	}
+	fetched, err := g.runGit(ctx, repoDir, "rev-parse", "--verify", "FETCH_HEAD^{commit}")
+	if err != nil {
+		return false, fmt.Errorf("verifying fetched commit: %w", err)
+	}
+	fetched = strings.TrimSpace(fetched)
+	if !strings.EqualFold(fetched, commit) {
+		return false, fmt.Errorf("remote returned commit %q instead of requested commit %q", fetched, commit)
+	}
+	if flakePath == "" {
 		return true, nil
 	}
-	if err := g.fetchMetadataRef(ctx, repoDir, commit, "tree:0", 1); err != nil {
-		if isMissingGitRefError(err) {
-			return false, nil
-		}
-		return false, err
+
+	out, err := g.runGit(ctx, repoDir, "ls-tree", "-z", "FETCH_HEAD", "--", ":(literal)"+flakePath)
+	if err != nil {
+		return true, fmt.Errorf("inspecting flake path %q: %w", flakePath, err)
 	}
-	return g.gitObjectExists(ctx, repoDir, "FETCH_HEAD^{commit}"), nil
+	entry := strings.TrimSuffix(out, "\x00")
+	if entry == "" {
+		return true, fmt.Errorf("flake path %q does not exist at commit %q", flakePath, commit)
+	}
+	metadata, entryPath, ok := strings.Cut(entry, "\t")
+	fields := strings.Fields(metadata)
+	if !ok || len(fields) != 3 {
+		return true, fmt.Errorf("unexpected Git tree entry for flake path %q", flakePath)
+	}
+	if entryPath != flakePath {
+		return true, fmt.Errorf("Git returned path %q while checking flake path %q", entryPath, flakePath)
+	}
+	if fields[0] != "100644" && fields[0] != "100755" || fields[1] != "blob" {
+		return true, fmt.Errorf("flake path %q is not a regular Git file", flakePath)
+	}
+	return true, nil
 }
 
 func isMissingGitRefError(err error) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "couldn't find remote ref") || strings.Contains(msg, "not our ref") || strings.Contains(msg, "Server does not allow request for unadvertised object")
-}
-
-func (g *Manager) PathExists(ctx context.Context, repoURL string, repoPath string, ref string) (bool, error) {
-	repoPath, err := cleanGitTreePath(repoPath)
-	if err != nil {
-		return false, err
-	}
-	ref, err = cleanGitArg("ref", defaultGitRef(ref))
-	if err != nil {
-		return false, err
-	}
-	repoDir, err := g.ensureMetadataRepo(ctx, repoURL)
-	if err != nil {
-		return false, err
-	}
-	lock := g.repoLock(repoURL)
-	lock.Lock()
-	defer lock.Unlock()
-
-	if exists, ok := g.localPathExists(ctx, repoDir, ref, repoPath); ok {
-		return exists, nil
-	}
-	if err := g.fetchMetadataRef(ctx, repoDir, ref, "blob:none", 1); err != nil {
-		return false, err
-	}
-	exists, _ := g.localPathExists(ctx, repoDir, "FETCH_HEAD", repoPath)
-	return exists, nil
 }
 
 func (g *Manager) EnsureCheckout(ctx context.Context, repoURL string, ref string, logFile io.Writer) (string, error) {
@@ -261,12 +284,12 @@ func (g *Manager) EnsureCheckout(ctx context.Context, repoURL string, ref string
 	defer lock.Unlock()
 
 	if _, err := os.Stat(filepath.Join(repoDir, ".git")); err == nil {
-		fmt.Fprintf(logFile, "[%s] fetching %s for %s\n", time.Now().Format(time.RFC3339), ref, repoURL)
+		fmt.Fprintf(logFile, "[%s] fetching %s for %s\n", time.Now().Format(time.RFC3339), ref, redactCredentialURLs(repoURL))
 		if err := g.runGitLogged(ctx, repoDir, logFile, "remote", "set-url", "origin", cloneURL); err != nil {
 			return "", err
 		}
 	} else {
-		fmt.Fprintf(logFile, "[%s] cloning %s into %s\n", time.Now().Format(time.RFC3339), repoURL, repoDir)
+		fmt.Fprintf(logFile, "[%s] cloning %s into %s\n", time.Now().Format(time.RFC3339), redactCredentialURLs(repoURL), repoDir)
 		if err := g.runGitLogged(ctx, "", logFile, "clone", "--filter=blob:none", "--no-checkout", cloneURL, repoDir); err != nil {
 			return "", err
 		}
@@ -315,18 +338,6 @@ func (g *Manager) fetchMetadataRef(ctx context.Context, repoDir string, ref stri
 	args := []string{"fetch", fmt.Sprintf("--depth=%d", depth), "--filter=" + filter, "origin", ref}
 	_, err := g.runGit(ctx, repoDir, args...)
 	return err
-}
-
-func (g *Manager) gitObjectExists(ctx context.Context, repoDir string, object string) bool {
-	_, err := g.runGit(ctx, repoDir, "cat-file", "-e", object)
-	return err == nil
-}
-
-func (g *Manager) localPathExists(ctx context.Context, repoDir string, ref string, repoPath string) (bool, bool) {
-	if !g.gitObjectExists(ctx, repoDir, ref+"^{commit}") || !g.gitObjectExists(ctx, repoDir, ref+"^{tree}") {
-		return false, false
-	}
-	return g.gitObjectExists(ctx, repoDir, ref+":"+repoPath), true
 }
 
 func (g *Manager) runGitLogged(ctx context.Context, dir string, logWriter io.Writer, args ...string) error {
@@ -400,11 +411,36 @@ func cleanGitArg(name string, value string) (string, error) {
 }
 
 func cleanGitTreePath(repoPath string) (string, error) {
-	clean := path.Clean(strings.Trim(strings.TrimSpace(repoPath), "/"))
-	if clean == "." || strings.HasPrefix(clean, "../") || clean == ".." {
+	repoPath = strings.TrimSpace(repoPath)
+	clean := path.Clean(repoPath)
+	if clean == "." || path.IsAbs(clean) || strings.HasPrefix(clean, "../") || clean == ".." {
 		return "", fmt.Errorf("path must be relative to the repository")
 	}
+	if strings.ContainsAny(clean, "\x00\n\r") {
+		return "", fmt.Errorf("path contains invalid characters")
+	}
 	return clean, nil
+}
+
+// CleanFlakePath canonicalizes a safe repository-relative flake file path.
+func CleanFlakePath(flakePath string) (string, error) {
+	clean, err := cleanGitTreePath(flakePath)
+	if err != nil {
+		return "", err
+	}
+	if path.Base(clean) != "flake.nix" {
+		return "", fmt.Errorf("flake path basename must be flake.nix")
+	}
+	return clean, nil
+}
+
+// ValidateFullCommitHash rejects branches, tags, abbreviated hashes, and
+// revision expressions where an immutable Nix version is required.
+func ValidateFullCommitHash(commit string) error {
+	if !fullCommitHashPattern.MatchString(commit) {
+		return fmt.Errorf("commit must be a full 40-character hexadecimal hash")
+	}
+	return nil
 }
 
 func sanitizeCommandForLogs(name string, args []string) string {
@@ -424,15 +460,19 @@ func redactGithubToken(s string) string {
 	const prefix = "x-access-token:"
 	idx := strings.Index(s, prefix)
 	if idx == -1 {
-		return s
+		return redactCredentialURLs(s)
 	}
 
 	afterPrefix := idx + len(prefix)
 	atIdx := strings.Index(s[afterPrefix:], "@")
 	if atIdx == -1 {
-		return s
+		return redactCredentialURLs(s)
 	}
 
 	atIdx = afterPrefix + atIdx
-	return s[:afterPrefix] + "***" + s[atIdx:]
+	return redactCredentialURLs(s[:afterPrefix] + "***" + s[atIdx:])
+}
+
+func redactCredentialURLs(s string) string {
+	return credentialURLPattern.ReplaceAllString(s, "${1}***@")
 }

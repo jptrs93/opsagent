@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,7 +57,7 @@ func TestManagerResolveCloneURLNormalizesGithubRepo(t *testing.T) {
 	}
 }
 
-func TestManagerUsesGitForCommitAndPathValidation(t *testing.T) {
+func TestManagerUsesGitForDiscovery(t *testing.T) {
 	ctx := context.Background()
 	repoDir := filepath.Join(t.TempDir(), "repo")
 	runTestGit(t, "", "init", repoDir)
@@ -74,8 +75,6 @@ func TestManagerUsesGitForCommitAndPathValidation(t *testing.T) {
 	}
 	runTestGit(t, repoDir, "add", ".")
 	runTestGit(t, repoDir, "commit", "-m", "initial commit")
-	initialCommit := strings.TrimSpace(runTestGit(t, repoDir, "rev-parse", "HEAD"))
-
 	runTestGit(t, repoDir, "checkout", "-b", "feature")
 	if err := os.WriteFile(filepath.Join(repoDir, "app.txt"), []byte("feature\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -101,37 +100,169 @@ func TestManagerUsesGitForCommitAndPathValidation(t *testing.T) {
 		t.Fatalf("GetCommitLog()[0] = %#v, want feature commit %s", commits, featureCommit)
 	}
 
-	exists, err := git.CommitExists(ctx, repoDir, initialCommit)
-	if err != nil {
+}
+
+func TestManagerValidatesExactOldCommitBeyondDiscoveryWindow(t *testing.T) {
+	ctx := context.Background()
+	repoDir := newTestRepo(t)
+	if err := os.WriteFile(filepath.Join(repoDir, "flake.nix"), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !exists {
-		t.Fatalf("CommitExists(%s) = false, want true", initialCommit)
+	runTestGit(t, repoDir, "add", "flake.nix")
+	runTestGit(t, repoDir, "commit", "-m", "old source")
+	oldCommit := strings.TrimSpace(runTestGit(t, repoDir, "rev-parse", "HEAD"))
+
+	for i := 0; i < 30; i++ {
+		if err := os.WriteFile(filepath.Join(repoDir, "counter"), []byte(fmt.Sprintf("%d\n", i)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		runTestGit(t, repoDir, "add", "counter")
+		runTestGit(t, repoDir, "commit", "-m", fmt.Sprintf("change %d", i))
 	}
 
-	exists, err = git.CommitExists(ctx, repoDir, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	manager := NewManager(filepath.Join(t.TempDir(), "cache"), testGithubCredentialsProvider{})
+	commits, err := manager.GetCommitLog(ctx, repoDir, "HEAD", 25)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if exists {
-		t.Fatal("CommitExists(deadbeef...) = true, want false")
+	if slices.ContainsFunc(commits, func(commit CommitInfo) bool { return commit.Hash == oldCommit }) {
+		t.Fatal("old commit unexpectedly appeared in 25-entry discovery window")
+	}
+	if commitValid, err := manager.ValidateExactNixSource(ctx, repoDir, oldCommit, "flake.nix"); err != nil || !commitValid {
+		t.Fatalf("ValidateExactNixSource() = (%v, %v), want (true, nil)", commitValid, err)
+	}
+}
+
+func TestManagerExactValidationRejectsRefsAndShortHashes(t *testing.T) {
+	manager := NewManager(t.TempDir(), testGithubCredentialsProvider{})
+	for _, commit := range []string{"main", "HEAD", "deadbeef", strings.Repeat("a", 39), strings.Repeat("g", 40), strings.Repeat("a", 40) + "^"} {
+		t.Run(commit, func(t *testing.T) {
+			if err := manager.ValidateExactCommit(context.Background(), "unused", commit); err == nil || !strings.Contains(err.Error(), "full 40-character") {
+				t.Fatalf("ValidateExactCommit(%q) error = %v, want full hash rejection", commit, err)
+			}
+		})
+	}
+}
+
+func TestManagerExactValidationAlwaysContactsRemote(t *testing.T) {
+	repoDir := newTestRepo(t)
+	if err := os.WriteFile(filepath.Join(repoDir, "flake.nix"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, repoDir, "add", "flake.nix")
+	runTestGit(t, repoDir, "commit", "-m", "source")
+	commit := strings.TrimSpace(runTestGit(t, repoDir, "rev-parse", "HEAD"))
+	manager := NewManager(filepath.Join(t.TempDir(), "cache"), testGithubCredentialsProvider{})
+	if err := manager.ValidateExactCommit(context.Background(), repoDir, commit); err != nil {
+		t.Fatal(err)
 	}
 
-	exists, err = git.PathExists(ctx, repoDir, "flake.nix", initialCommit)
-	if err != nil {
-		t.Fatal(err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := manager.ValidateExactCommit(ctx, repoDir, commit); err == nil {
+		t.Fatal("warm-cache validation succeeded with canceled context; expected a new Git operation")
 	}
-	if !exists {
-		t.Fatal("PathExists(flake.nix) = false, want true")
-	}
+}
 
-	exists, err = git.PathExists(ctx, repoDir, "nix", initialCommit)
-	if err != nil {
+func TestManagerExactValidationRedactsCredentialURL(t *testing.T) {
+	manager := NewManager(filepath.Join(t.TempDir(), "cache"), testGithubCredentialsProvider{})
+	err := manager.ValidateExactCommit(context.Background(), "https://user:super-secret@127.0.0.1:1/acme/app.git", strings.Repeat("a", 40))
+	if err == nil {
+		t.Fatal("expected inaccessible repository error")
+	}
+	if strings.Contains(err.Error(), "super-secret") || strings.Contains(err.Error(), "user:") {
+		t.Fatalf("error leaked credential URL: %v", err)
+	}
+}
+
+func TestManagerExactNixSourceRequiresRegularGitFile(t *testing.T) {
+	repoDir := newTestRepo(t)
+	if err := os.WriteFile(filepath.Join(repoDir, "real.nix"), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !exists {
-		t.Fatal("PathExists(nix directory) = false, want true")
+	if err := os.WriteFile(filepath.Join(repoDir, "flake.nix"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
+	runTestGit(t, repoDir, "add", ".")
+	runTestGit(t, repoDir, "commit", "-m", "regular")
+	regularCommit := strings.TrimSpace(runTestGit(t, repoDir, "rev-parse", "HEAD"))
+
+	if err := os.Remove(filepath.Join(repoDir, "flake.nix")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(repoDir, "flake.nix"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "flake.nix", "default.nix"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, repoDir, "add", "-A")
+	runTestGit(t, repoDir, "commit", "-m", "directory")
+	directoryCommit := strings.TrimSpace(runTestGit(t, repoDir, "rev-parse", "HEAD"))
+
+	if err := os.RemoveAll(filepath.Join(repoDir, "flake.nix")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real.nix", filepath.Join(repoDir, "flake.nix")); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, repoDir, "add", "-A")
+	runTestGit(t, repoDir, "commit", "-m", "symlink")
+	symlinkCommit := strings.TrimSpace(runTestGit(t, repoDir, "rev-parse", "HEAD"))
+
+	if err := os.Remove(filepath.Join(repoDir, "flake.nix")); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, repoDir, "add", "-A")
+	runTestGit(t, repoDir, "commit", "-m", "missing")
+	missingCommit := strings.TrimSpace(runTestGit(t, repoDir, "rev-parse", "HEAD"))
+
+	runTestGit(t, repoDir, "update-index", "--add", "--cacheinfo", "160000,"+regularCommit+",flake.nix")
+	runTestGit(t, repoDir, "commit", "-m", "gitlink")
+	gitlinkCommit := strings.TrimSpace(runTestGit(t, repoDir, "rev-parse", "HEAD"))
+
+	manager := NewManager(filepath.Join(t.TempDir(), "cache"), testGithubCredentialsProvider{})
+	if commitValid, err := manager.ValidateExactNixSource(context.Background(), repoDir, regularCommit, "./flake.nix"); err != nil || !commitValid {
+		t.Fatalf("regular file validation = (%v, %v), want (true, nil)", commitValid, err)
+	}
+	for name, commit := range map[string]string{
+		"directory": directoryCommit,
+		"symlink":   symlinkCommit,
+		"missing":   missingCommit,
+		"submodule": gitlinkCommit,
+	} {
+		t.Run(name, func(t *testing.T) {
+			commitValid, err := manager.ValidateExactNixSource(context.Background(), repoDir, commit, "flake.nix")
+			if err == nil || !commitValid {
+				t.Fatalf("ValidateExactNixSource() = (%v, %v), want verified commit and flake error", commitValid, err)
+			}
+		})
+	}
+	if commitValid, err := manager.ValidateExactNixSource(context.Background(), repoDir, regularCommit, ":(glob)**/flake.nix"); err == nil || !commitValid {
+		t.Fatalf("pathspec magic validation = (%v, %v), want verified commit and missing literal path", commitValid, err)
+	}
+}
+
+func TestCleanFlakePath(t *testing.T) {
+	if got, err := CleanFlakePath("./nix/../flake.nix"); err != nil || got != "flake.nix" {
+		t.Fatalf("CleanFlakePath() = (%q, %v), want flake.nix", got, err)
+	}
+	for _, flakePath := range []string{"/flake.nix", "../flake.nix", "nix/../../flake.nix", "default.nix", "flake.nix\nother"} {
+		t.Run(flakePath, func(t *testing.T) {
+			if _, err := CleanFlakePath(flakePath); err == nil {
+				t.Fatalf("CleanFlakePath(%q) succeeded", flakePath)
+			}
+		})
+	}
+}
+
+func newTestRepo(t *testing.T) string {
+	t.Helper()
+	repoDir := filepath.Join(t.TempDir(), "repo")
+	runTestGit(t, "", "init", repoDir)
+	runTestGit(t, repoDir, "config", "user.email", "test@example.com")
+	runTestGit(t, repoDir, "config", "user.name", "Test User")
+	return repoDir
 }
 
 func runTestGit(t *testing.T, dir string, args ...string) string {

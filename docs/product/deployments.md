@@ -61,7 +61,7 @@ field. The frontend currently retains it without using it for behavior.
 
 | Variant | Fields | Description |
 |---|---|---|
-| `nixDockerBuild` | `repo`, `flake`, optional `target` | Clones the repo, checks out the desired version, verifies `flake` exists in that checked-out tree, runs `nix build` without updating the lock file, and expects its selected output to be an executable OCI/Docker image stream such as `pkgs.dockerTools.streamLayeredImage`. An empty target builds the default output; a local selector such as `.#radkitRpaClientImage` selects a named flake output. The stream is imported into OpenDeploy's bundled containerd and returned as a local image ref. Must be paired with the `container` runner. |
+| `nixDockerBuild` | `repo`, `flake`, optional `target` | Uses a full commit hash as the desired version. `flake` must be a safe repository-relative path whose basename is `flake.nix` and whose entry at that exact commit is a regular Git file. Before a running config is saved, the primary contacts the remote and verifies the exact repository-wide commit and flake entry. The preparer checks out the commit, rechecks the file, runs `nix build` without updating the lock file, and expects its selected output to be an executable OCI/Docker image stream such as `pkgs.dockerTools.streamLayeredImage`. An empty target builds the default output; a local selector such as `.#radkitRpaClientImage` selects a named flake output. The stream is imported into OpenDeploy's bundled containerd and returned as a local image ref. Must be paired with the `container` runner. |
 | `containerImage` | `image` | Pulls `image:version` (version is the desired tag/digest) into containerd's content store and unpacks it. Phase 1 pulls anonymously — no registry credentials. Must be paired with the `container` runner. |
 
 `githubRelease` remains as an internal-only source for the `OPENDEPLOY`
@@ -105,6 +105,8 @@ Each deployment's runtime state is structured into sections owned by different c
 
 Set by user actions (deploy or stop). Contains the target `version` (commit hash or release tag) and a `running` boolean. Audit fields (`updated_at`, `updated_by`) and the config `version` are on the parent `DeploymentConfig`, not on `DesiredState` itself.
 
+Nix desired versions, when set, are full immutable commit hashes. Branch selection and the 25 most recent commits are discovery aids and are not persisted as source authority. Creating a running Nix deployment, starting one, changing its target commit, or changing its Nix source while it remains running performs synchronous remote commit and flake verification before persistence. Stopped Nix deployments still require structurally valid source fields but may omit the desired version and do not require remote accessibility until they transition to running.
+
 ### PreparerStatus
 
 Driven by the preparer. Tracks prepare progress with status values:
@@ -145,8 +147,7 @@ grouped by space. Each card displays:
 2. The user picks a version (and optionally edits the deployment spec) and submits.
 3. The frontend calls `POST /v1/deployment/update` with the target version
    and, if the spec was edited, the new typed `spec`.
-4. The backend writes the new spec (if any), sets `DesiredState`
-   (version, running=true), and bumps `DeploymentConfig.Version`.
+4. For an effective running Nix transition, the backend verifies the exact remote commit and regular `flake.nix` tree entry, then writes the new spec (if any), sets `DesiredState` (version, running=true), and bumps `DeploymentConfig.Version`. Verification failure writes nothing.
 5. The operator's reconciliation loop picks up the change and starts a
    preparer.
 6. The preparer clones/fetches, pulls, or imports the image, then writes

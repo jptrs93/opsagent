@@ -9,6 +9,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
+	gitrepo "github.com/jptrs93/opsagent/backend/lib/repo/git"
 )
 
 var RepoRequiredErr = apigen.NewApiErr("Repository is required", "missing_repo", http.StatusBadRequest)
@@ -46,14 +47,12 @@ func (h *Handler) validateNixDockerBuildSource(ctx apigen.Context, src *apigen.V
 
 	res := apigen.ValidateNixDockerBuildSourceResponse{}
 	selectedBranch := src.SelectedBranch
-	needToResolveDefaultCommit := src.CheckFlakePath && selectedCommitID(src.SelectedCommit) == ""
-	commitsBranch := selectedBranch
-
-	if src.CheckRepo || src.CheckBranch || src.RefreshAvailableBranches || needToResolveDefaultCommit {
+	needBranchListing := src.CheckBranch || src.RefreshAvailableBranches || (src.CheckRepo && !src.CheckCommit && !src.CheckFlakePath)
+	if needBranchListing {
 		branches, err := h.GitVersions.ListBranches(ctx, repo)
 		if err != nil {
-			slog.Warn("listing git branches", "repo", repo, "err", err)
-			errMessage := fmt.Sprintf("Failed checking repo '%v' branches: %v", repo, err)
+			slog.Warn("listing git branches", "err", err)
+			errMessage := fmt.Sprintf("Failed checking repository branches: %v", err)
 			res.AvailableBranches = apigen.AvailableBranches{Loaded: true, Errormessage: &errMessage}
 			if src.CheckRepo {
 				res.CheckedRepoUrl = repo
@@ -63,90 +62,119 @@ func (h *Handler) validateNixDockerBuildSource(ctx apigen.Context, src *apigen.V
 				res.CheckedBranch = selectedBranch
 				res.BranchCheck = validationErr(errMessage)
 			}
-			if src.CheckCommit {
-				res.CheckedCommit = src.SelectedCommit
-				res.CommitCheck = validationErr(errMessage)
-			}
-			if src.CheckFlakePath {
-				res.CheckedFlakePath = src.SelectedFlakePath
-				res.NixFlakeFile = validationErr(errMessage)
-			}
-			return &apigen.ValidateSourceResponse{NixDockerBuild: &res}, nil
-		}
-
-		res.AvailableBranches = apigen.AvailableBranches{Loaded: true, Branches: branches}
-		if src.CheckRepo {
-			res.CheckedRepoUrl = repo
-			res.GitRepository = validationOK("Repo accessible.")
-		}
-		if src.CheckBranch {
-			res.CheckedBranch = selectedBranch
-			if slices.Contains(branches, selectedBranch) {
-				res.BranchCheck = validationOK("Branch exists.")
-			} else {
-				res.BranchCheck = validationErr(fmt.Sprintf("Branch '%v' doesn't exist.", selectedBranch))
-			}
-		}
-		if commitsBranch == "" {
-			commitsBranch = selectedValidationBranch(branches, "")
-		}
-	}
-
-	defaultCommitID := ""
-	if src.CheckCommit || src.RefreshAvailableCommits || needToResolveDefaultCommit {
-		commits, err := h.GitVersions.ListCommits(ctx, repo, commitsBranch, 25)
-		if err != nil {
-			slog.Warn("listing git repo commits", "branch", commitsBranch, "repo", repo, "err", err)
-			errMessage := fmt.Sprintf("Failed listing branch '%v' commits: %v", commitsBranch, err)
-			if src.CheckCommit {
-				res.CheckedCommit = src.SelectedCommit
-				res.CommitCheck = validationErr(errMessage)
-			}
-			if src.CheckFlakePath && needToResolveDefaultCommit {
-				res.CheckedFlakePath = src.SelectedFlakePath
-				res.NixFlakeFile = validationErr(errMessage)
-			}
-			res.AvailableCommits = apigen.AvailableCommits{Loaded: true, Branch: commitsBranch, Errormessage: &errMessage}
 		} else {
-			res.AvailableCommits = apigen.AvailableCommits{Loaded: true, Branch: commitsBranch, Commits: commits}
-			if src.CheckCommit {
-				res.CheckedCommit = src.SelectedCommit
-				commitID := selectedCommitID(src.SelectedCommit)
-				if slices.ContainsFunc(commits, func(version *apigen.Version) bool { return version != nil && version.ID == commitID }) {
-					res.CommitCheck = validationOK("Commit exists.")
+			res.AvailableBranches = apigen.AvailableBranches{Loaded: true, Branches: branches}
+			if src.CheckRepo {
+				res.CheckedRepoUrl = repo
+				res.GitRepository = validationOK("Repo accessible.")
+			}
+			if src.CheckBranch {
+				res.CheckedBranch = selectedBranch
+				if slices.Contains(branches, selectedBranch) {
+					res.BranchCheck = validationOK("Branch exists.")
 				} else {
-					slog.Warn(fmt.Sprintf("commit %v doesn't exist on branch %v", commitID, commitsBranch))
-					res.CommitCheck = validationErr(fmt.Sprintf("Could not find commit '%v' in branch '%v'.", commitID, commitsBranch))
+					res.BranchCheck = validationErr(fmt.Sprintf("Branch '%v' doesn't exist.", selectedBranch))
 				}
 			}
-			if needToResolveDefaultCommit && len(commits) > 0 && commits[0] != nil {
-				defaultCommitID = strings.TrimSpace(commits[0].ID)
-			}
-			// TODO: this only checks the first page of branch commits. If an older
-			// selected commit should remain valid, replace this with an exact branch
-			// membership check in GitManager.
 		}
 	}
 
-	if src.CheckFlakePath && !res.NixFlakeFile.Checked {
-		commitID := defaultCommitID
-		if src.SelectedCommit != nil {
-			commitID = selectedCommitID(src.SelectedCommit)
-		}
-		res.CheckedFlakePath = src.SelectedFlakePath
-		if commitID == "" {
-			res.NixFlakeFile = validationErr("No commits found for selected branch.")
-			return &apigen.ValidateSourceResponse{NixDockerBuild: &res}, nil
-		}
-		exists, err := h.GitVersions.PathExists(ctx, repo, src.SelectedFlakePath, commitID)
+	if src.RefreshAvailableCommits {
+		commits, err := h.GitVersions.ListCommits(ctx, repo, selectedBranch, 25)
 		if err != nil {
-			slog.Warn("checking flake path", "repo", repo, "commit", commitID, "err", err)
-			errMessage := fmt.Sprintf("Error checking path '%v' on commit '%v': %v", src.SelectedFlakePath, commitID, err)
-			res.NixFlakeFile = validationErr(errMessage)
-		} else if !exists {
-			res.NixFlakeFile = validationErr(fmt.Sprintf("Flake path '%v' doesn't exist on commit '%v'", src.SelectedFlakePath, commitID))
+			slog.Warn("listing git repo commits", "branch", selectedBranch, "err", err)
+			errMessage := fmt.Sprintf("Failed listing branch '%v' commits: %v", selectedBranch, err)
+			res.AvailableCommits = apigen.AvailableCommits{Loaded: true, Branch: selectedBranch, Errormessage: &errMessage}
 		} else {
-			res.NixFlakeFile = validationOK(fmt.Sprintf("Flake path '%v' exists", src.SelectedFlakePath))
+			res.AvailableCommits = apigen.AvailableCommits{Loaded: true, Branch: selectedBranch, Commits: commits}
+		}
+	}
+
+	commitID := selectedCommitID(src.SelectedCommit)
+	if src.CheckFlakePath && commitID == "" {
+		res.CheckedFlakePath = src.SelectedFlakePath
+		if selectedBranch != "" {
+			commits, err := h.GitVersions.ListCommits(ctx, repo, selectedBranch, 1)
+			if err != nil {
+				slog.Warn("resolving selected branch head", "branch", selectedBranch, "err", err)
+				res.NixFlakeFile = validationErr(fmt.Sprintf("Failed resolving branch '%v' head: %v", selectedBranch, err))
+			} else if len(commits) == 0 || commits[0] == nil {
+				res.NixFlakeFile = validationErr(fmt.Sprintf("No commits found for branch '%v'.", selectedBranch))
+			} else {
+				commitID = commits[0].ID
+			}
+		} else {
+			resolvedCommit, _, err := h.GitVersions.DefaultCommit(ctx, repo)
+			if err != nil {
+				slog.Warn("resolving git remote HEAD", "err", err)
+				res.NixFlakeFile = validationErr(fmt.Sprintf("Failed resolving the repository default commit: %v", err))
+			} else {
+				commitID = resolvedCommit
+			}
+		}
+	}
+
+	if src.CheckCommit && src.CheckFlakePath {
+		res.CheckedRepoUrl = repo
+		res.CheckedCommit = src.SelectedCommit
+		res.CheckedFlakePath = src.SelectedFlakePath
+		commitValid, err := h.GitVersions.ValidateNixSource(ctx, repo, commitID, src.SelectedFlakePath)
+		if err != nil {
+			slog.Warn("validating exact Nix source", "commit", commitID, "err", err)
+			if src.CheckRepo {
+				if commitValid {
+					res.GitRepository = validationOK("Repo accessible.")
+				} else {
+					res.GitRepository = validationErr(fmt.Sprintf("Could not verify repository access: %v", err))
+				}
+			}
+			if commitValid {
+				res.CommitCheck = validationOK("Commit exists.")
+			} else {
+				res.CommitCheck = validationErr(fmt.Sprintf("Could not validate commit '%v': %v", commitID, err))
+			}
+			res.NixFlakeFile = validationErr(fmt.Sprintf("Could not validate flake path '%v' at commit '%v': %v", src.SelectedFlakePath, commitID, err))
+		} else {
+			if src.CheckRepo {
+				res.GitRepository = validationOK("Repo accessible.")
+			}
+			res.CommitCheck = validationOK("Commit exists.")
+			res.NixFlakeFile = validationOK(fmt.Sprintf("Flake path '%v' is a regular file.", src.SelectedFlakePath))
+		}
+	} else if src.CheckCommit {
+		res.CheckedRepoUrl = repo
+		res.CheckedCommit = src.SelectedCommit
+		if err := h.GitVersions.ValidateCommit(ctx, repo, commitID); err != nil {
+			slog.Warn("validating exact git commit", "commit", commitID, "err", err)
+			if src.CheckRepo {
+				res.GitRepository = validationErr(fmt.Sprintf("Could not verify repository access: %v", err))
+			}
+			res.CommitCheck = validationErr(fmt.Sprintf("Could not validate commit '%v': %v", commitID, err))
+		} else {
+			if src.CheckRepo {
+				res.GitRepository = validationOK("Repo accessible.")
+			}
+			res.CommitCheck = validationOK("Commit exists.")
+		}
+	} else if src.CheckFlakePath && !res.NixFlakeFile.Checked {
+		res.CheckedRepoUrl = repo
+		res.CheckedFlakePath = src.SelectedFlakePath
+		commitValid, err := h.GitVersions.ValidateNixSource(ctx, repo, commitID, src.SelectedFlakePath)
+		if err != nil {
+			slog.Warn("validating exact Nix source", "commit", commitID, "err", err)
+			if src.CheckRepo {
+				if commitValid {
+					res.GitRepository = validationOK("Repo accessible.")
+				} else {
+					res.GitRepository = validationErr(fmt.Sprintf("Could not verify repository access: %v", err))
+				}
+			}
+			res.NixFlakeFile = validationErr(fmt.Sprintf("Could not validate flake path '%v' at commit '%v': %v", src.SelectedFlakePath, commitID, err))
+		} else {
+			if src.CheckRepo {
+				res.GitRepository = validationOK("Repo accessible.")
+			}
+			res.NixFlakeFile = validationOK(fmt.Sprintf("Flake path '%v' is a regular file.", src.SelectedFlakePath))
 		}
 	}
 
@@ -174,6 +202,11 @@ func validateNixDockerBuildValidateRequest(src *apigen.ValidateNixDockerBuildSou
 	}
 	if src.CheckFlakePath && src.SelectedFlakePath == "" {
 		return apigen.NewApiErr("Selected flake path is required", "missing_selected_flake_path", http.StatusBadRequest)
+	}
+	if src.CheckFlakePath {
+		if _, err := gitrepo.CleanFlakePath(src.SelectedFlakePath); err != nil {
+			return apigen.NewApiErr(fmt.Sprintf("Invalid selected flake path: %v", err), "invalid_selected_flake_path", http.StatusBadRequest)
+		}
 	}
 	return nil
 }
@@ -241,18 +274,4 @@ func countValidationSources(req *apigen.ValidateSourceRequest) int {
 		count++
 	}
 	return count
-}
-
-func selectedValidationBranch(branches []string, requested string) string {
-	branch := strings.TrimSpace(requested)
-	if len(branches) == 0 {
-		return ""
-	}
-	if branch == "" {
-		branch = "main"
-		if !containsString(branches, branch) {
-			branch = branches[0]
-		}
-	}
-	return branch
 }

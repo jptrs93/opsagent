@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/lib/log/logfilter"
 	"github.com/jptrs93/opsagent/backend/lib/log/logreader"
+	gitrepo "github.com/jptrs93/opsagent/backend/lib/repo/git"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
@@ -67,6 +69,14 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 	}
 	if err := h.validateAddressEnvRefs(req.NodeID, 0, spec, snapshot); err != nil {
 		return nil, err
+	}
+	if err := validateNixDesiredVersion(spec, req.DesiredState); err != nil {
+		return nil, err
+	}
+	if req.DesiredState.Running {
+		if err := h.verifyRunningNixSource(ctx, spec, req.DesiredState); err != nil {
+			return nil, err
+		}
 	}
 
 	cfg := h.Store.MustCreateDeploymentForNode(ctx, &cid, req.NodeID, spec, req.DesiredState)
@@ -139,6 +149,34 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 		desired.Version = req.TargetVersion
 		desired.Running = true
 		desiredUpdate = &desired
+	}
+
+	effectiveSpec := &cfg.Spec
+	if spec != nil {
+		effectiveSpec = spec
+	}
+	effectiveDesired := cfg.DesiredState
+	if desiredUpdate != nil {
+		effectiveDesired = *desiredUpdate
+	}
+	desiredVersionSourceChanged := !sameDesiredVersionSource(cfg.Spec.Prepare, effectiveSpec.Prepare)
+	if !effectiveDesired.Running && desiredVersionSourceChanged {
+		desired = effectiveDesired
+		desired.Version = ""
+		desiredUpdate = &desired
+		effectiveDesired = desired
+	}
+	nixChanged := !sameNixBuildConfig(cfg.Spec.Prepare.NixDockerBuild, effectiveSpec.Prepare.NixDockerBuild)
+	if effectiveSpec.Prepare.NixDockerBuild != nil && !req.Stop && (nixChanged || desiredUpdate != nil) {
+		if err := validateNixDesiredVersion(effectiveSpec, effectiveDesired); err != nil {
+			return nil, err
+		}
+	}
+	if effectiveDesired.Running && effectiveSpec.Prepare.NixDockerBuild != nil &&
+		(!cfg.DesiredState.Running || effectiveDesired.Version != cfg.DesiredState.Version || nixChanged) {
+		if err := h.verifyRunningNixSource(ctx, effectiveSpec, effectiveDesired); err != nil {
+			return nil, err
+		}
 	}
 
 	if req.SpaceID != nil || spec != nil || desiredUpdate != nil {
@@ -252,7 +290,16 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 		if err != nil {
 			return nil, fmt.Errorf("listing branches: %w", err)
 		}
-		branch := selectedValidationBranch(branches, req.SelectedBranch)
+		branch := strings.TrimSpace(req.SelectedBranch)
+		if branch == "" {
+			_, branch, err = h.GitVersions.DefaultCommit(ctx, repo)
+			if err != nil || !slices.Contains(branches, branch) {
+				branch = branches[0]
+				if slices.Contains(branches, "main") {
+					branch = "main"
+				}
+			}
+		}
 		commits := []*apigen.Version{}
 		if branch != "" {
 			commits, err = h.GitVersions.ListCommits(ctx, repo, branch, 25)
@@ -967,6 +1014,11 @@ func validatePrepareConfig(prepare *apigen.PrepareConfig) error {
 		if prepare.NixDockerBuild.Flake == "" {
 			return invalidConfigErrf("prepare.nixDockerBuild: flake is required")
 		}
+		flakePath, err := gitrepo.CleanFlakePath(prepare.NixDockerBuild.Flake)
+		if err != nil {
+			return invalidConfigErrf("prepare.nixDockerBuild.flake: %v", err)
+		}
+		prepare.NixDockerBuild.Flake = flakePath
 		target := prepare.NixDockerBuild.Target
 		if target != "" && (target != strings.TrimSpace(target) || !strings.HasPrefix(target, ".#")) {
 			return invalidConfigErrf("prepare.nixDockerBuild.target: must be a local flake selector starting with .#")
@@ -981,6 +1033,61 @@ func validatePrepareConfig(prepare *apigen.PrepareConfig) error {
 		}
 	}
 	return nil
+}
+
+func validateNixDesiredVersion(spec *apigen.DeploymentSpec, desired apigen.DesiredState) error {
+	if spec == nil || spec.Prepare.NixDockerBuild == nil {
+		return nil
+	}
+	if desired.Version == "" {
+		if desired.Running {
+			return invalidConfigErrf("desiredState.version is required for a running Nix deployment")
+		}
+		return nil
+	}
+	if err := gitrepo.ValidateFullCommitHash(desired.Version); err != nil {
+		return invalidConfigErrf("desiredState.version: %v", err)
+	}
+	return nil
+}
+
+func (h *Handler) verifyRunningNixSource(ctx apigen.Context, spec *apigen.DeploymentSpec, desired apigen.DesiredState) error {
+	nix := spec.Prepare.NixDockerBuild
+	if nix == nil {
+		return nil
+	}
+	if h.GitVersions == nil {
+		return apigen.NewApiErr("Nix source verification is not configured", "nix_source_verification_unavailable", http.StatusServiceUnavailable)
+	}
+	if _, err := h.GitVersions.ValidateNixSource(ctx, nix.Repo, desired.Version, nix.Flake); err != nil {
+		return apigen.NewApiErr(fmt.Sprintf("Nix source verification failed: %v", err), "nix_source_verification_failed", http.StatusBadRequest)
+	}
+	return nil
+}
+
+func sameNixBuildConfig(a, b *apigen.NixDockerBuildConfig) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func sameDesiredVersionSource(a, b apigen.PrepareConfig) bool {
+	switch {
+	case a.NixDockerBuild != nil && b.NixDockerBuild != nil:
+		aFlake, aErr := gitrepo.CleanFlakePath(a.NixDockerBuild.Flake)
+		bFlake, bErr := gitrepo.CleanFlakePath(b.NixDockerBuild.Flake)
+		if aErr != nil || bErr != nil {
+			return a.NixDockerBuild.Repo == b.NixDockerBuild.Repo && a.NixDockerBuild.Flake == b.NixDockerBuild.Flake
+		}
+		return a.NixDockerBuild.Repo == b.NixDockerBuild.Repo && aFlake == bFlake
+	case a.ContainerImage != nil && b.ContainerImage != nil:
+		return a.ContainerImage.Image == b.ContainerImage.Image
+	case a.GithubRelease != nil && b.GithubRelease != nil:
+		return a.GithubRelease.Repo == b.GithubRelease.Repo && a.GithubRelease.Asset == b.GithubRelease.Asset
+	default:
+		return false
+	}
 }
 
 // validateContainerPairing enforces that public deployments only use the

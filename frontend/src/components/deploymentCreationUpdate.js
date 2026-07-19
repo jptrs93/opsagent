@@ -1,343 +1,604 @@
 import van from "vanjs-core";
-import {capi} from "../capi/index.js";
 import {
-    buildValidateSourceRequest,
     deploymentConfigToForm,
     emptyDeploymentForm,
     formToDeploymentIdentifier,
     formToSpec,
-    hasTrustedSourceValidation,
-    imageVersionFromReference,
-    sourceCheckFromValidation,
-    sourceValidationKey,
-    validationSourceResult,
+    replaceDeploymentFormFromConfig,
 } from "./deploymentForm.js";
+import {
+    attestExactNixValidationResponse,
+    attestImageDiscoveryResponse,
+    attestNixCommitDiscoveryResponse,
+    attestNixRepositoryResponse,
+    buildExactNixValidationRequest,
+    buildImageDiscoveryRequest,
+    buildNixCommitDiscoveryRequest,
+    buildNixRepositoryDiscoveryRequest,
+    FULL_GIT_COMMIT_RE,
+    imageDiscoveryKey,
+    imageVersionFromReference,
+    nixCommitDiscoveryKey,
+    nixExactValidationKey,
+    nixRepositoryDiscoveryKey,
+    SOURCE_DOCKER_IMAGE,
+    SOURCE_GITHUB_RELEASE,
+    SOURCE_NIX_DOCKER,
+    validateLocalFlakePath,
+} from "./deploymentSource.js";
 
-export const SOURCE_NIX_DOCKER = 'nixDockerBuild';
-export const SOURCE_DOCKER_IMAGE = 'containerImage';
-export const SOURCE_GITHUB_RELEASE = 'githubRelease';
+export {SOURCE_DOCKER_IMAGE, SOURCE_GITHUB_RELEASE, SOURCE_NIX_DOCKER} from "./deploymentSource.js";
 
-const idleValidity = () => ({status: 'idle', message: '', fieldKey: ''});
-const checkingValidity = (message, fieldKey) => ({status: 'checking', message, fieldKey});
-
-const preserveOkValidity = (previous, next) => {
-    if (previous?.status === 'ok' && previous.fieldKey === next.fieldKey && next.status !== 'ok') return previous;
-    return next;
-};
+const idleStatus = () => ({status: 'idle', message: '', key: ''});
+const checkingStatus = (key, message) => ({status: 'checking', message, key});
+const errorStatus = (key, message) => ({status: 'error', message, key});
+const okStatus = (key, message) => ({status: 'ok', message, key});
 
 export class DeploymentCreationUpdate {
-    constructor({deployment = null, deploymentConfig = null} = {}) {
+    constructor({deployment = null, deploymentConfig = null, validateSource} = {}) {
+        if (typeof validateSource !== 'function') throw new Error('validateSource is required');
+        this.validateSource = validateSource;
         this.existingState = deployment;
         this.form = deploymentConfig ? deploymentConfigToForm(deploymentConfig) : emptyDeploymentForm();
-        this.form.deploymentCreationUpdate = this;
         this.desiredRunning = van.state(deployment ? Boolean(deployment.desiredRunning) : true);
+        this.documentRevision = van.state(0);
         this.initialSpecKey = JSON.stringify(formToSpec(this.form));
         this.initialSpaceId = Number(this.form.spaceId.val || 0);
-        this.initialSourceKey = this.sourceKey();
-        const hasExistingNixVersion = deployment?.variant === SOURCE_NIX_DOCKER && Boolean(deployment.deployedVersion);
-        const hasExistingImageVersion = deployment?.variant === SOURCE_DOCKER_IMAGE && Boolean(imageVersionFromReference(this.form.containerImage.val) || deployment.deployedVersion);
+        this.initialSource = this.persistedSource();
 
+        const deployedNixVersion = deployment?.variant === SOURCE_NIX_DOCKER ? (deployment.deployedVersion || '') : '';
+        const explicitImageVersion = imageVersionFromReference(this.form.containerImage.val);
+        const deployedImageVersion = deployment?.variant === SOURCE_DOCKER_IMAGE ? (deployment.deployedVersion || '') : '';
         this.nixDockerBuild = {
             selectedBranch: van.state(''),
-            selectedCommit: van.state(deployment?.variant === SOURCE_NIX_DOCKER ? (deployment.deployedVersion || '') : ''),
-            selectedCommitSourceKey: van.state(hasExistingNixVersion ? this.initialSourceKey : ''),
+            selectedCommit: van.state(deployedNixVersion),
             branches: van.state([]),
             commits: van.state([]),
+            repository: van.state(idleStatus()),
+            commitDiscovery: van.state(idleStatus()),
+            exactValidation: van.state(idleStatus()),
         };
         this.containerImage = {
-            selectedTag: van.state(deployment?.variant === SOURCE_DOCKER_IMAGE ? (imageVersionFromReference(this.form.containerImage.val) || deployment.deployedVersion || '') : ''),
-            selectedTagSourceKey: van.state(hasExistingImageVersion ? this.initialSourceKey : ''),
-            tags: van.state(deployment?.variant === SOURCE_DOCKER_IMAGE && deployment.deployedVersion
-                ? [{id: deployment.deployedVersion, label: 'Current'}]
-                : []),
+            selectedTag: van.state(explicitImageVersion || deployedImageVersion),
+            tags: van.state(deployedImageVersion ? [{id: deployedImageVersion, label: 'Current'}] : []),
+            discovery: van.state(idleStatus()),
         };
         this.githubRelease = {
             selectedRelease: van.state(deployment?.variant === SOURCE_GITHUB_RELEASE ? (deployment.deployedVersion || '') : ''),
             releases: van.state([]),
+            discovery: van.state(idleStatus()),
         };
 
-        /** @type {Map<string, Map<string, Array>>} */
-        this.cachedRepoBranchCommitOptions = new Map();
-        this.cachedRepoBranchCommitOptionsVersion = van.state(0);
-        this.validationGeneration = 0;
-
-        this.repoValid = van.state(idleValidity());
-        this.flakePathValid = van.state(idleValidity());
-        this.imageValid = van.state(idleValidity());
-        this.updateValidityFromCheck(this.form.repoCheck.val);
+        this.loadingVersions = van.state(false);
+        this.versionError = van.state('');
+        this.versionRequestDescription = van.state('');
+        this.requestSequences = {repository: 0, commits: 0, exact: 0, image: 0, release: 0};
+        this.flakeValidationTimer = null;
+        this.document = {
+            read: () => this.toDocument(),
+            replace: document => this.replaceDocument(document),
+            revision: this.documentRevision,
+        };
     }
 
-    sourceKey() {
-        return sourceValidationKey(this.form);
-    }
-
-    repoValidityKey(sourceType = this.form.sourceType.val, repo = this.currentSourceID()) {
-        return `${sourceType}:${(repo || '').trim()}`;
-    }
-
-    flakeValidityKey(repo = this.form.nixRepo.val, flake = this.form.nixFlake.val) {
-        return `${SOURCE_NIX_DOCKER}:${(repo || '').trim()}:${(flake || '').trim()}`;
+    persistedSource() {
+        return {
+            type: this.form.sourceType.val,
+            repo: this.form.nixRepo.val.trim(),
+            flake: this.form.nixFlake.val.trim(),
+            image: this.form.containerImage.val.trim(),
+        };
     }
 
     currentSourceID() {
-        if (this.form.sourceType.val === SOURCE_DOCKER_IMAGE) return this.form.containerImage.val.trim();
-        return this.form.nixRepo.val.trim();
+        return this.form.sourceType.val === SOURCE_DOCKER_IMAGE
+            ? this.form.containerImage.val.trim()
+            : this.form.nixRepo.val.trim();
     }
 
-    beginValidation() {
-        return {
-            generation: ++this.validationGeneration,
-            sourceType: this.form.sourceType.val,
-            repo: this.currentSourceID(),
-            sourceKey: this.sourceKey(),
-        };
+    repositoryStatus() {
+        const key = nixRepositoryDiscoveryKey(this.form.nixRepo.val);
+        const status = this.nixDockerBuild.repository.val;
+        return this.form.sourceType.val === SOURCE_NIX_DOCKER && status.key === key ? status : idleStatus();
     }
 
-    isCurrentValidation(request) {
-        return request.generation === this.validationGeneration
-            && request.sourceType === this.form.sourceType.val
-            && request.repo === this.currentSourceID()
-            && request.sourceKey === this.sourceKey();
+    flakeStatus() {
+        if (this.form.sourceType.val !== SOURCE_NIX_DOCKER || !this.form.nixFlake.val.trim()) return idleStatus();
+        const local = validateLocalFlakePath(this.form.nixFlake.val);
+        if (!local.ok) return errorStatus('', local.message);
+        const key = nixExactValidationKey(
+            this.form.nixRepo.val,
+            this.nixDockerBuild.selectedCommit.val,
+            this.form.nixFlake.val,
+        );
+        const status = this.nixDockerBuild.exactValidation.val;
+        return status.key === key ? status : idleStatus();
     }
 
-    activeRepoCheck() {
-        const c = this.form.repoCheck.val;
-        const repo = this.currentSourceID();
-        if (!repo || c.sourceType !== this.form.sourceType.val || c.repo !== repo || c.sourceKey !== this.sourceKey()) {
-            return {status: repo ? 'idle' : 'empty', message: ''};
+    imageStatus() {
+        const key = imageDiscoveryKey(this.form.containerImage.val);
+        const status = this.containerImage.discovery.val;
+        return this.form.sourceType.val === SOURCE_DOCKER_IMAGE && status.key === key ? status : idleStatus();
+    }
+
+    sourcePathInvalidReason() {
+        if (this.form.sourceType.val === SOURCE_DOCKER_IMAGE && this.imageStatus().status === 'error') {
+            return 'Image path invalid.';
         }
-        return c;
-    }
-
-    updateCachedRepoBranchCommitOptions(validateResult) {
-        const sourceResult = validateResult?.nixDockerBuild;
-        if (!sourceResult) return;
-        const repoName = this.form.nixRepo.val.trim();
-        if (!repoName) return;
-        const branchMap = new Map(this.cachedRepoBranchCommitOptions.get(repoName) || []);
-        for (const branch of sourceResult.availableBranches?.branches || []) {
-            if (!branchMap.has(branch)) branchMap.set(branch, []);
+        if (this.form.sourceType.val === SOURCE_NIX_DOCKER && this.repositoryStatus().status === 'error') {
+            return 'Nix repository path invalid.';
         }
-        const branch = sourceResult.availableCommits?.branch || '';
-        const commits = sourceResult.availableCommits?.commits || [];
-        if (branch || commits.length > 0) {
-            branchMap.set(branch, commits);
+        return '';
+    }
+
+    cancel(kind) {
+        this.requestSequences[kind] += 1;
+    }
+
+    isCurrent(kind, sequence, key, currentKey) {
+        return this.requestSequences[kind] === sequence && key === currentKey();
+    }
+
+    updateVersionActivity() {
+        const states = [
+            this.nixDockerBuild.repository.val,
+            this.nixDockerBuild.commitDiscovery.val,
+            this.nixDockerBuild.exactValidation.val,
+            this.containerImage.discovery.val,
+            this.githubRelease.discovery.val,
+        ];
+        this.loadingVersions.val = states.some(state => state.status === 'checking');
+        if (!this.loadingVersions.val) this.versionRequestDescription.val = '';
+    }
+
+    invalidateExactValidation() {
+        this.cancel('exact');
+        this.nixDockerBuild.exactValidation.val = idleStatus();
+        this.updateVersionActivity();
+    }
+
+    cancelSourceRequests() {
+        for (const kind of Object.keys(this.requestSequences)) this.cancel(kind);
+        if (this.nixDockerBuild.repository.val.status === 'checking') this.nixDockerBuild.repository.val = idleStatus();
+        if (this.nixDockerBuild.commitDiscovery.val.status === 'checking') this.nixDockerBuild.commitDiscovery.val = idleStatus();
+        if (this.nixDockerBuild.exactValidation.val.status === 'checking') this.nixDockerBuild.exactValidation.val = idleStatus();
+        if (this.containerImage.discovery.val.status === 'checking') this.containerImage.discovery.val = idleStatus();
+        if (this.githubRelease.discovery.val.status === 'checking') this.githubRelease.discovery.val = idleStatus();
+        this.updateVersionActivity();
+    }
+
+    onSourceTypeChange() {
+        this.cancel('repository');
+        this.cancel('commits');
+        this.cancel('image');
+        this.invalidateExactValidation();
+        this.versionError.val = '';
+        this.nixDockerBuild.repository.val = idleStatus();
+        this.nixDockerBuild.commitDiscovery.val = idleStatus();
+        this.containerImage.discovery.val = idleStatus();
+        this.nixDockerBuild.branches.val = [];
+        this.nixDockerBuild.commits.val = [];
+        this.nixDockerBuild.selectedBranch.val = '';
+        this.nixDockerBuild.selectedCommit.val = '';
+        this.containerImage.tags.val = [];
+        this.containerImage.selectedTag.val = imageVersionFromReference(this.form.containerImage.val);
+        this.updateVersionActivity();
+    }
+
+    onRepositoryInput() {
+        this.cancel('repository');
+        this.cancel('commits');
+        this.invalidateExactValidation();
+        this.versionError.val = '';
+        this.nixDockerBuild.repository.val = idleStatus();
+        this.nixDockerBuild.commitDiscovery.val = idleStatus();
+        this.nixDockerBuild.branches.val = [];
+        this.nixDockerBuild.commits.val = [];
+        this.nixDockerBuild.selectedBranch.val = '';
+        this.nixDockerBuild.selectedCommit.val = '';
+        this.updateVersionActivity();
+    }
+
+    onFlakeInput() {
+        this.invalidateExactValidation();
+        if (this.flakeValidationTimer) clearTimeout(this.flakeValidationTimer);
+        if (this.desiredRunning.val && this.nixDockerBuild.selectedCommit.val) {
+            this.flakeValidationTimer = setTimeout(() => void this.validateExactNixSelection(), 250);
+            this.flakeValidationTimer.unref?.();
         }
-        this.cachedRepoBranchCommitOptions.set(repoName, branchMap);
-        this.cachedRepoBranchCommitOptionsVersion.val += 1;
     }
 
-    branchCommitOptions(repoName = this.form.nixRepo.val.trim()) {
-        this.cachedRepoBranchCommitOptionsVersion.val;
-        return this.cachedRepoBranchCommitOptions.get(repoName) || new Map();
+    onFlakeBlur() {
+        if (this.flakeValidationTimer) clearTimeout(this.flakeValidationTimer);
+        this.flakeValidationTimer = null;
+        if (this.desiredRunning.val) void this.validateExactNixSelection();
     }
 
-    setRepoCheckChecking(message = 'Checking repository access...') {
-        const sourceType = this.form.sourceType.val;
-        const repo = this.currentSourceID();
-        const sourceKey = this.sourceKey();
-        this.form.repoCheck.val = {...(this.form.repoCheck.val || {}), status: 'checking', message, repo, sourceType, sourceKey};
-        const repoKey = this.repoValidityKey(sourceType, repo);
-        if (sourceType === SOURCE_DOCKER_IMAGE) {
-            if (!(this.imageValid.val.status === 'ok' && this.imageValid.val.fieldKey === repoKey)) {
-                this.imageValid.val = checkingValidity(message, repoKey);
+    onImageInput() {
+        this.cancel('image');
+        this.versionError.val = '';
+        this.containerImage.discovery.val = idleStatus();
+        this.containerImage.tags.val = [];
+        this.containerImage.selectedTag.val = imageVersionFromReference(this.form.containerImage.val);
+        this.updateVersionActivity();
+    }
+
+    async onRepositoryBlur() {
+        return this.loadVersions({preserveSelection: true});
+    }
+
+    async onImageBlur() {
+        if (!this.form.containerImage.val.trim() || imageVersionFromReference(this.form.containerImage.val)) return;
+        return this.discoverImageVersions({preserveSelection: true});
+    }
+
+    async discoverRepository({refresh = true} = {}) {
+        const repo = this.form.nixRepo.val.trim();
+        if (!repo) return false;
+        const key = nixRepositoryDiscoveryKey(repo);
+        const sequence = ++this.requestSequences.repository;
+        this.nixDockerBuild.repository.val = checkingStatus(key, 'Checking repository access...');
+        this.versionError.val = '';
+        this.versionRequestDescription.val = 'Refreshing available branches.';
+        this.updateVersionActivity();
+        try {
+            const response = await this.validateSource(buildNixRepositoryDiscoveryRequest(repo, {refresh}));
+            if (!this.isCurrent('repository', sequence, key, () => nixRepositoryDiscoveryKey(this.form.nixRepo.val))) return false;
+            const result = attestNixRepositoryResponse(response, repo);
+            if (!result) throw new Error('Repository response did not attest the requested repository.');
+            if (!result.gitRepository.ok) throw new Error(result.gitRepository.message || 'Repository is not accessible.');
+            if (!result.availableBranches?.loaded || result.availableBranches?.errormessage) {
+                throw new Error(result.availableBranches?.errormessage || 'Unable to list repository branches.');
             }
-        } else {
-            if (!(this.repoValid.val.status === 'ok' && this.repoValid.val.fieldKey === repoKey)) {
-                this.repoValid.val = checkingValidity(message, repoKey);
+            const branches = result.availableBranches.branches || [];
+            this.nixDockerBuild.branches.val = branches;
+            const current = this.nixDockerBuild.selectedBranch.val;
+            this.nixDockerBuild.selectedBranch.val = branches.includes(current)
+                ? current
+                : (branches.includes('main') ? 'main' : (branches[0] || ''));
+            this.nixDockerBuild.repository.val = okStatus(key, result.gitRepository.message || 'Repository accessible.');
+            return true;
+        } catch (error) {
+            if (!this.isCurrent('repository', sequence, key, () => nixRepositoryDiscoveryKey(this.form.nixRepo.val))) return false;
+            const message = error.message || 'Repository validation failed.';
+            this.nixDockerBuild.repository.val = errorStatus(key, message);
+            this.nixDockerBuild.branches.val = [];
+            this.nixDockerBuild.commits.val = [];
+            this.versionError.val = message;
+            return false;
+        } finally {
+            this.updateVersionActivity();
+        }
+    }
+
+    async discoverCommits(branch, {preserveSelection = false, refresh = true} = {}) {
+        const repo = this.form.nixRepo.val.trim();
+        const selectedBranch = (branch || '').trim();
+        if (!repo || !selectedBranch) return false;
+        const key = nixCommitDiscoveryKey(repo, selectedBranch);
+        const sequence = ++this.requestSequences.commits;
+        this.nixDockerBuild.commitDiscovery.val = checkingStatus(key, 'Loading commits...');
+        this.versionError.val = '';
+        this.versionRequestDescription.val = 'Refreshing available commits.';
+        this.updateVersionActivity();
+        try {
+            const response = await this.validateSource(buildNixCommitDiscoveryRequest(repo, selectedBranch, {refresh}));
+            if (!this.isCurrent('commits', sequence, key, () => nixCommitDiscoveryKey(this.form.nixRepo.val, this.nixDockerBuild.selectedBranch.val))) return false;
+            const result = attestNixCommitDiscoveryResponse(response, repo, selectedBranch);
+            if (!result) throw new Error('Commit response did not attest the requested repository and branch.');
+            if (!result.gitRepository.ok) throw new Error(result.gitRepository.message || 'Repository is not accessible.');
+            if (!result.branchCheck.ok) throw new Error(result.branchCheck.message || 'Branch is not accessible.');
+            if (!result.availableCommits?.loaded || result.availableCommits?.errormessage) {
+                throw new Error(result.availableCommits?.errormessage || 'Unable to list branch commits.');
             }
-            const flakeKey = this.flakeValidityKey(repo, this.form.nixFlake.val);
-            if (this.form.nixFlake.val.trim() && !(this.flakePathValid.val.status === 'ok' && this.flakePathValid.val.fieldKey === flakeKey)) {
-                this.flakePathValid.val = checkingValidity('Checking path...', flakeKey);
+            const commits = result.availableCommits.commits || [];
+            const previous = this.nixDockerBuild.selectedCommit.val;
+            const deployed = this.existingState?.variant === SOURCE_NIX_DOCKER ? (this.existingState.deployedVersion || '') : '';
+            const stoppedUpdateWithChangedSource = Boolean(this.existingState && !this.desiredRunning.val && !this.sourceMatchesInitial());
+            this.nixDockerBuild.commits.val = commits;
+            let selectedCommit;
+            if (preserveSelection && previous && (commits.some(item => item.id === previous) || previous === deployed)) {
+                selectedCommit = previous;
+            } else if (preserveSelection && deployed && this.sourceMatchesInitial()) {
+                selectedCommit = deployed;
+            } else if (stoppedUpdateWithChangedSource) {
+                selectedCommit = '';
+            } else {
+                selectedCommit = commits[0]?.id || '';
             }
-        }
-    }
-
-    setRepoCheckError(message) {
-        const sourceType = this.form.sourceType.val;
-        const repo = this.currentSourceID();
-        const sourceKey = this.sourceKey();
-        this.form.repoCheck.val = {...(this.form.repoCheck.val || {}), status: 'error', message, repo, sourceType, sourceKey};
-        this.updateValidityFromCheck(this.form.repoCheck.val);
-    }
-
-    setRepoCheckFromValidation(validateResult, repo = this.currentSourceID(), sourceType = this.form.sourceType.val, sourceKey = this.sourceKey(), opts = {}) {
-        this.form.repoCheck.val = sourceCheckFromValidation(this.form, validateResult, repo, sourceType, sourceKey);
-        this.updateCachedRepoBranchCommitOptions(validateResult);
-        this.updateValidityFromCheck(this.form.repoCheck.val);
-        if (opts.syncVersionOptions !== false) this.syncVersionOptionsFromCheck(this.form.repoCheck.val);
-    }
-
-    updateValidityFromCheck(check) {
-        const sourceType = check?.sourceType || this.form.sourceType.val;
-        if (!check || check.status === 'idle') {
-            this.repoValid.val = idleValidity();
-            this.flakePathValid.val = idleValidity();
-            this.imageValid.val = idleValidity();
-            return;
-        }
-        if (sourceType === SOURCE_DOCKER_IMAGE) {
-            const image = check.image || {};
-            const fieldKey = this.repoValidityKey(sourceType, check.repo);
-            this.imageValid.val = preserveOkValidity(this.imageValid.val, {
-                status: check.status === 'checking' ? 'checking' : (image.ok ? 'ok' : 'error'),
-                message: image.message || check.message || '',
-                fieldKey,
-            });
-            return;
-        }
-        const gitRepository = check.gitRepository || {};
-        const repoKey = this.repoValidityKey(sourceType, check.repo);
-        this.repoValid.val = preserveOkValidity(this.repoValid.val, {
-            status: check.status === 'checking' ? 'checking' : (gitRepository.ok ? 'ok' : 'error'),
-            message: gitRepository.message || check.message || '',
-            fieldKey: repoKey,
-        });
-        const flakePath = this.form.nixFlake.val.trim();
-        if (!flakePath) {
-            this.flakePathValid.val = idleValidity();
-            return;
-        }
-        const nixFlakeFile = check.nixFlakeFile || {};
-        const flakeKey = this.flakeValidityKey(check.repo, flakePath);
-        this.flakePathValid.val = preserveOkValidity(this.flakePathValid.val, {
-            status: check.status === 'checking' ? 'checking' : (nixFlakeFile.ok ? 'ok' : (nixFlakeFile.message ? 'error' : 'idle')),
-            message: nixFlakeFile.message || (nixFlakeFile.ok ? 'Path verified' : ''),
-            fieldKey: flakeKey,
-        });
-    }
-
-    syncVersionOptionsFromCheck(check, {preserveSelection = true} = {}) {
-        if (!check || check.status !== 'ok' || check.sourceKey !== this.sourceKey()) return;
-        if (check.sourceType === SOURCE_DOCKER_IMAGE) {
-            const tags = check.tags || [];
-            this.containerImage.tags.val = tags;
-            if (!preserveSelection || this.containerImage.selectedTagSourceKey.val !== check.sourceKey || !tags.some(v => v.id === this.containerImage.selectedTag.val)) {
-                this.containerImage.selectedTag.val = tags[0]?.id || '';
-                this.containerImage.selectedTagSourceKey.val = this.containerImage.selectedTag.val ? check.sourceKey : '';
+            this.nixDockerBuild.selectedCommit.val = selectedCommit;
+            if (selectedCommit !== previous) {
+                this.invalidateExactValidation();
             }
-            return;
+            this.nixDockerBuild.commitDiscovery.val = okStatus(key, 'Commits loaded.');
+            return true;
+        } catch (error) {
+            if (!this.isCurrent('commits', sequence, key, () => nixCommitDiscoveryKey(this.form.nixRepo.val, this.nixDockerBuild.selectedBranch.val))) return false;
+            const message = error.message || 'Failed to load commits.';
+            this.nixDockerBuild.commitDiscovery.val = errorStatus(key, message);
+            this.nixDockerBuild.commits.val = [];
+            this.versionError.val = message;
+            return false;
+        } finally {
+            this.updateVersionActivity();
         }
-        if (check.sourceType !== SOURCE_NIX_DOCKER) return;
-        const branch = this.currentBranch(check, this.nixDockerBuild.selectedBranch.val);
-        const commits = this.commitsForBranch(branch, check);
-        this.nixDockerBuild.branches.val = check.branches || [];
-        this.nixDockerBuild.commits.val = commits;
+    }
+
+    async selectBranch(branch) {
         this.nixDockerBuild.selectedBranch.val = branch;
-        if (!preserveSelection || this.nixDockerBuild.selectedCommitSourceKey.val !== check.sourceKey || !commits.some(v => v.id === this.nixDockerBuild.selectedCommit.val)) {
-            this.nixDockerBuild.selectedCommit.val = commits[0]?.id || '';
-            this.nixDockerBuild.selectedCommitSourceKey.val = this.nixDockerBuild.selectedCommit.val ? check.sourceKey : '';
-        }
+        this.nixDockerBuild.selectedCommit.val = '';
+        this.nixDockerBuild.commits.val = [];
+        this.invalidateExactValidation();
+        const loaded = await this.discoverCommits(branch, {preserveSelection: false});
+        if (loaded && this.desiredRunning.val) await this.validateExactNixSelection();
+        return loaded;
     }
 
-    currentBranch(check = this.activeRepoCheck(), selectedBranch = this.nixDockerBuild.selectedBranch.val) {
-        if (check.status !== 'ok') return '';
-        if (selectedBranch && (check.commitsByBranch || {})[selectedBranch]) return selectedBranch;
-        const cached = this.branchCommitOptions();
-        if (selectedBranch && cached.has(selectedBranch)) return selectedBranch;
-        const keys = Object.keys(check.commitsByBranch || {});
-        if (keys.length > 0) return keys[0];
-        const branches = check.branches || [];
-        if (branches.includes('main')) return 'main';
-        return branches[0] || '';
+    selectCommit(commit) {
+        this.nixDockerBuild.selectedCommit.val = (commit || '').trim();
+        this.invalidateExactValidation();
+        if (this.desiredRunning.val) void this.validateExactNixSelection();
     }
 
-    commitsForBranch(branch, check = this.activeRepoCheck()) {
-        if (!branch) return [];
-        const cached = this.branchCommitOptions().get(branch);
-        if (cached) return cached;
-        return (check.commitsByBranch || {})[branch] || [];
-    }
-
-    async validateRepo() {
-        const sourceType = this.form.sourceType.val;
-        const repo = this.currentSourceID();
-        if (!repo) {
-            this.form.repoCheck.val = {status: 'idle', message: '', repo: '', sourceType, sourceKey: ''};
-            this.updateValidityFromCheck(this.form.repoCheck.val);
-            return;
-        }
-        const sourceKey = this.sourceKey();
-        const c = this.form.repoCheck.val;
-        if (c.sourceKey === sourceKey && (c.status === 'ok' || c.status === 'error')) return;
-        const request = this.beginValidation();
-        this.setRepoCheckChecking('Checking repository access...');
+    async validateExactNixSelection() {
+        this.invalidateExactValidation();
+        if (!this.desiredRunning.val || this.form.sourceType.val !== SOURCE_NIX_DOCKER) return false;
+        const repo = this.form.nixRepo.val.trim();
+        const commit = this.nixDockerBuild.selectedCommit.val.trim();
+        const flakePath = this.form.nixFlake.val.trim();
+        if (!repo || !FULL_GIT_COMMIT_RE.test(commit) || !validateLocalFlakePath(flakePath).ok) return false;
+        const key = nixExactValidationKey(repo, commit, flakePath);
+        const sequence = ++this.requestSequences.exact;
+        this.nixDockerBuild.exactValidation.val = checkingStatus(key, 'Validating exact commit and flake...');
+        this.versionRequestDescription.val = 'Validating exact commit and flake.';
+        this.updateVersionActivity();
         try {
-            const req = buildValidateSourceRequest(this.form);
-            const res = await capi.postV1RepoValidate(req);
-            console.log('[opendeploy] repo validate response', {request: req, response: res});
-            if (!this.isCurrentValidation(request)) return;
-            this.setRepoCheckFromValidation(res, repo, sourceType, sourceKey);
-        } catch (e) {
-            console.error('[opendeploy] repo validate failed', {error: e, stack: e?.stack});
-            if (!this.isCurrentValidation(request)) return;
-            this.setRepoCheckError(e.message || 'Validation failed.');
+            const response = await this.validateSource(buildExactNixValidationRequest(repo, commit, flakePath));
+            if (!this.isCurrent('exact', sequence, key, () => nixExactValidationKey(
+                this.form.nixRepo.val,
+                this.nixDockerBuild.selectedCommit.val,
+                this.form.nixFlake.val,
+            ))) return false;
+            const result = attestExactNixValidationResponse(response, repo, commit, flakePath);
+            if (!result) throw new Error('Validation response did not attest the current repository, commit, and flake path.');
+            if (!result.gitRepository.ok) throw new Error(result.gitRepository.message || 'Repository is not accessible.');
+            if (!result.commitCheck.ok) throw new Error(result.commitCheck.message || 'Commit is not accessible.');
+            if (!result.nixFlakeFile.ok) throw new Error(result.nixFlakeFile.message || 'Flake path is not a regular file at this commit.');
+            this.nixDockerBuild.exactValidation.val = okStatus(key, result.nixFlakeFile.message || 'Commit and flake verified.');
+            return true;
+        } catch (error) {
+            if (!this.isCurrent('exact', sequence, key, () => nixExactValidationKey(
+                this.form.nixRepo.val,
+                this.nixDockerBuild.selectedCommit.val,
+                this.form.nixFlake.val,
+            ))) return false;
+            this.nixDockerBuild.exactValidation.val = errorStatus(key, error.message || 'Exact source validation failed.');
+            return false;
+        } finally {
+            this.updateVersionActivity();
         }
     }
 
-    async validateSelectedCommit(branch, commit) {
-        if (this.form.sourceType.val !== SOURCE_NIX_DOCKER) return;
-        const selectedCommit = (commit || '').trim();
-        if (!this.form.nixRepo.val.trim() || !selectedCommit) return;
-        const sourceKey = this.sourceKey();
-        const request = this.beginValidation();
-        this.setRepoCheckChecking(this.form.repoCheck.val.message || 'Checking repository access...');
+    hasCurrentExactNixValidation() {
+        const key = nixExactValidationKey(
+            this.form.nixRepo.val,
+            this.nixDockerBuild.selectedCommit.val,
+            this.form.nixFlake.val,
+        );
+        const status = this.nixDockerBuild.exactValidation.val;
+        return status.status === 'ok' && status.key === key;
+    }
+
+    runningNixInvalidReason() {
+        if (this.form.sourceType.val !== SOURCE_NIX_DOCKER) return '';
+        const commit = this.nixDockerBuild.selectedCommit.val.trim();
+        if (commit && !FULL_GIT_COMMIT_RE.test(commit)) return 'Nix versions must be full 40-character commits.';
+        if (!this.desiredRunning.val) return '';
+        if (!FULL_GIT_COMMIT_RE.test(commit)) return 'Select a full 40-character commit before setting the deployment to Running.';
+        const local = validateLocalFlakePath(this.form.nixFlake.val);
+        if (!local.ok) return local.message;
+        if (this.hasCurrentExactNixValidation()) return '';
+        const status = this.flakeStatus();
+        if (status.status === 'checking') return 'Validating the selected commit and flake path.';
+        return status.message || 'Validate the selected commit and flake path before running the deployment.';
+    }
+
+    async discoverImageVersions({preserveSelection = true, refresh = true} = {}) {
+        const image = this.form.containerImage.val.trim();
+        if (!image) return false;
+        const key = imageDiscoveryKey(image);
+        const sequence = ++this.requestSequences.image;
+        this.containerImage.discovery.val = checkingStatus(key, 'Checking image...');
+        this.versionError.val = '';
+        this.versionRequestDescription.val = 'Refreshing available tags.';
+        this.updateVersionActivity();
         try {
-            const req = buildValidateSourceRequest(this.form, {
-                branch,
-                commit: selectedCommit,
-                checkCommit: true,
-                checkFlakePath: Boolean(this.form.nixFlake.val.trim()),
-            });
-            const res = await capi.postV1RepoValidate(req);
-            console.log('[opendeploy] repo validate selected commit response', {request: req, response: res});
-            if (!this.isCurrentValidation(request)) return;
-            this.setRepoCheckFromValidation(res, this.form.nixRepo.val.trim(), SOURCE_NIX_DOCKER, sourceKey);
-        } catch (e) {
-            console.error('[opendeploy] repo validate selected commit failed', {error: e, stack: e?.stack});
-            if (!this.isCurrentValidation(request)) return;
-            this.setRepoCheckError(e.message || 'Validation failed.');
+            const response = await this.validateSource(buildImageDiscoveryRequest(image, {refresh}));
+            if (!this.isCurrent('image', sequence, key, () => imageDiscoveryKey(this.form.containerImage.val))) return false;
+            const result = attestImageDiscoveryResponse(response);
+            if (!result) throw new Error('Image response did not attest the requested image check.');
+            if (!result.image.ok) throw new Error(result.image.message || 'Image is not accessible.');
+            const tags = result.tags || [];
+            const previous = this.containerImage.selectedTag.val;
+            const deployed = this.existingState?.variant === SOURCE_DOCKER_IMAGE ? (this.existingState.deployedVersion || '') : '';
+            const stoppedUpdateWithChangedSource = Boolean(this.existingState && !this.desiredRunning.val && !this.sourceMatchesInitial());
+            this.containerImage.tags.val = tags;
+            if (preserveSelection && previous && (tags.some(item => item.id === previous) || previous === deployed)) {
+                this.containerImage.selectedTag.val = previous;
+            } else if (preserveSelection && deployed && this.sourceMatchesInitial()) {
+                this.containerImage.selectedTag.val = deployed;
+            } else if (stoppedUpdateWithChangedSource) {
+                this.containerImage.selectedTag.val = '';
+            } else {
+                this.containerImage.selectedTag.val = tags[0]?.id || '';
+            }
+            this.containerImage.discovery.val = okStatus(key, result.image.message || 'Image accessible.');
+            return true;
+        } catch (error) {
+            if (!this.isCurrent('image', sequence, key, () => imageDiscoveryKey(this.form.containerImage.val))) return false;
+            const message = error.message || 'Failed to load image tags.';
+            this.containerImage.discovery.val = errorStatus(key, message);
+            this.containerImage.tags.val = [];
+            this.versionError.val = message;
+            return false;
+        } finally {
+            this.updateVersionActivity();
         }
     }
 
-    validationSourceResult(validateResult) {
-        return validationSourceResult(this.form, validateResult);
+    async loadGithubReleases(action, deploymentId, {preserveSelection = true} = {}) {
+        if (typeof action !== 'function') throw new Error('loadDeploymentVersions is required');
+        const key = JSON.stringify(['github-release', Number(deploymentId || 0)]);
+        const sequence = ++this.requestSequences.release;
+        this.githubRelease.discovery.val = checkingStatus(key, 'Loading releases...');
+        this.versionError.val = '';
+        this.versionRequestDescription.val = 'Refreshing available releases.';
+        this.updateVersionActivity();
+        try {
+            const response = await action({deploymentId});
+            if (this.requestSequences.release !== sequence) return false;
+            const releases = response?.githubRelease?.releases || [];
+            const previous = this.githubRelease.selectedRelease.val;
+            const deployed = this.existingState?.deployedVersion || '';
+            this.githubRelease.releases.val = releases;
+            if (preserveSelection && previous && releases.some(item => item.id === previous)) {
+                this.githubRelease.selectedRelease.val = previous;
+            } else if (preserveSelection && deployed && releases.some(item => item.id === deployed)) {
+                this.githubRelease.selectedRelease.val = deployed;
+            } else {
+                this.githubRelease.selectedRelease.val = releases[0]?.id || '';
+            }
+            this.githubRelease.discovery.val = okStatus(key, 'Releases loaded.');
+            return true;
+        } catch (error) {
+            if (this.requestSequences.release !== sequence) return false;
+            const message = error.message || 'Failed to load releases.';
+            this.githubRelease.discovery.val = errorStatus(key, message);
+            this.githubRelease.releases.val = [];
+            this.versionError.val = message;
+            return false;
+        } finally {
+            this.updateVersionActivity();
+        }
     }
 
-    hasTrustedSourceValidation() {
-        return hasTrustedSourceValidation(this.form);
+    async loadVersions({branch = '', preserveSelection = true, refreshAvailableBranches = true} = {}) {
+        if (this.form.sourceType.val === SOURCE_DOCKER_IMAGE) {
+            if (imageVersionFromReference(this.form.containerImage.val)) return true;
+            return this.discoverImageVersions({preserveSelection});
+        }
+        if (this.form.sourceType.val !== SOURCE_NIX_DOCKER) return false;
+        const requestedBranch = branch || this.nixDockerBuild.selectedBranch.val;
+        if (requestedBranch && this.repositoryStatus().status === 'ok' && !refreshAvailableBranches) {
+            this.nixDockerBuild.selectedBranch.val = requestedBranch;
+            const loaded = await this.discoverCommits(requestedBranch, {preserveSelection});
+            if (loaded && this.desiredRunning.val) await this.validateExactNixSelection();
+            return loaded;
+        }
+        const repositoryReady = await this.discoverRepository({refresh: refreshAvailableBranches});
+        if (!repositoryReady) return false;
+        const selectedBranch = this.nixDockerBuild.selectedBranch.val;
+        const loaded = selectedBranch ? await this.discoverCommits(selectedBranch, {preserveSelection}) : true;
+        if (loaded && this.desiredRunning.val) await this.validateExactNixSelection();
+        return loaded;
+    }
+
+    setDesiredRunning(running) {
+        this.desiredRunning.val = Boolean(running);
+        if (this.desiredRunning.val && this.form.sourceType.val === SOURCE_NIX_DOCKER) {
+            void this.validateExactNixSelection();
+        } else {
+            this.invalidateExactValidation();
+        }
     }
 
     selectedTargetVersion() {
         if (this.form.sourceType.val === SOURCE_DOCKER_IMAGE) {
-            const explicitVersion = imageVersionFromReference(this.form.containerImage.val);
-            if (explicitVersion) return explicitVersion;
-            const tag = this.containerImage.selectedTag.val.trim();
-            if (!tag || this.containerImage.selectedTagSourceKey.val !== this.sourceKey()) return '';
-            return this.containerImage.tags.val.some(v => v.id === tag) ? tag : '';
+            return imageVersionFromReference(this.form.containerImage.val) || this.containerImage.selectedTag.val.trim();
         }
-        if (this.form.sourceType.val === SOURCE_NIX_DOCKER) {
-            const commit = this.nixDockerBuild.selectedCommit.val.trim();
-            if (!commit || this.nixDockerBuild.selectedCommitSourceKey.val !== this.sourceKey()) return '';
-            if (this.commitsForBranch(this.nixDockerBuild.selectedBranch.val).some(v => v.id === commit)) return commit;
-            return commit === (this.existingState?.deployedVersion || '') ? commit : '';
-        }
+        if (this.form.sourceType.val === SOURCE_NIX_DOCKER) return this.nixDockerBuild.selectedCommit.val.trim();
         return this.githubRelease.selectedRelease.val.trim();
+    }
+
+    sourceMatchesInitial() {
+        const current = this.persistedSource();
+        return current.type === this.initialSource.type
+            && current.repo === this.initialSource.repo
+            && current.flake === this.initialSource.flake
+            && current.image === this.initialSource.image;
     }
 
     createDesiredVersion() {
         return this.selectedTargetVersion()
-            || (this.existingState?.deployedVersion && this.sourceKey() === this.initialSourceKey ? this.existingState.deployedVersion : '');
+            || (this.existingState?.deployedVersion && this.sourceMatchesInitial() ? this.existingState.deployedVersion : '');
     }
 
-    toCreatePayload() {
-        const targetVersion = this.createDesiredVersion();
+    toDocument() {
         return {
             configId: formToDeploymentIdentifier(this.form),
             nodeId: Number(this.form.nodeId.val || 0),
             spec: formToSpec(this.form),
             desiredState: {
-                version: targetVersion,
+                version: this.createDesiredVersion(),
+                running: Boolean(this.desiredRunning.val),
+            },
+        };
+    }
+
+    replaceDocument(document) {
+        const previousSource = this.persistedSource();
+        const configId = document?.configId || {};
+        const spec = document?.spec || {};
+        const desiredState = document?.desiredState || {};
+        replaceDeploymentFormFromConfig(this.form, {
+            id: Number(this.form.deploymentId.val || 0),
+            configId: {
+                name: configId.name || '',
+                spaceId: Number(configId.spaceId || 0),
+            },
+            nodeId: Number(document?.nodeId || 0),
+            spec,
+        });
+        const nextSource = this.persistedSource();
+        const sourceChanged = previousSource.type !== nextSource.type
+            || previousSource.repo !== nextSource.repo
+            || previousSource.image !== nextSource.image;
+        if (sourceChanged) {
+            this.cancel('repository');
+            this.cancel('commits');
+            this.cancel('image');
+            this.nixDockerBuild.repository.val = idleStatus();
+            this.nixDockerBuild.commitDiscovery.val = idleStatus();
+            this.nixDockerBuild.branches.val = [];
+            this.nixDockerBuild.commits.val = [];
+            this.nixDockerBuild.selectedBranch.val = '';
+            this.containerImage.discovery.val = idleStatus();
+            this.containerImage.tags.val = [];
+        }
+        this.invalidateExactValidation();
+        this.desiredRunning.val = Boolean(desiredState.running);
+        const version = (desiredState.version || '').trim();
+        if (this.form.sourceType.val === SOURCE_DOCKER_IMAGE) {
+            this.containerImage.selectedTag.val = version;
+        } else if (this.form.sourceType.val === SOURCE_NIX_DOCKER) {
+            this.nixDockerBuild.selectedCommit.val = version;
+        } else {
+            this.githubRelease.selectedRelease.val = version;
+        }
+        this.documentRevision.val += 1;
+        this.updateVersionActivity();
+        if (this.desiredRunning.val && this.form.sourceType.val === SOURCE_NIX_DOCKER) {
+            void this.validateExactNixSelection();
+        }
+    }
+
+    toCreatePayload() {
+        return {
+            configId: formToDeploymentIdentifier(this.form),
+            nodeId: Number(this.form.nodeId.val || 0),
+            spec: formToSpec(this.form),
+            desiredState: {
+                version: this.createDesiredVersion(),
                 running: this.desiredRunning.val,
             },
         };
@@ -358,7 +619,10 @@ export class DeploymentCreationUpdate {
         const targetVersion = internalGithubRelease
             ? this.githubRelease.selectedRelease.val.trim()
             : this.selectedTargetVersion();
-        if (targetVersion && (targetVersion !== (this.existingState.deployedVersion || '') || !this.existingState.desiredRunning)) {
+        if (!this.desiredRunning.val && this.existingState.desiredRunning) {
+            payload.stop = true;
+        } else if (this.desiredRunning.val && targetVersion
+            && (targetVersion !== (this.existingState.deployedVersion || '') || !this.existingState.desiredRunning)) {
             payload.targetVersion = targetVersion;
         }
         return payload;

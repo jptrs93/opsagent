@@ -182,15 +182,15 @@ export async function createNixDockerDeployment(page, {
     await step(`validate repository ${name}`, async () => {
       await repoInput.fill(repo);
       await flakeInput.click();
-      await validateRequests.expectCount(1, 'expected one validate call after setting repository URL');
-      await validateRequests.expectResponseCount(1, 'expected the repository validation response');
+      await validateRequests.expectCount(2, 'expected repository and commit discovery after setting repository URL');
+      await validateRequests.expectResponseCount(2, 'expected repository and commit discovery responses');
     });
 
     await step(`validate flake path ${name}`, async () => {
       await flakeInput.fill(flake);
       await flakeInput.blur();
-      await validateRequests.expectCount(2, 'expected a second validate call after setting flake path');
-      await validateRequests.expectResponseCount(2, 'expected the flake validation response');
+      await validateRequests.expectCount(3, 'expected exact source validation after setting flake path');
+      await validateRequests.expectResponseCount(3, 'expected the exact source validation response');
       await expectPathValidation(dialog);
     });
 
@@ -201,14 +201,14 @@ export async function createNixDockerDeployment(page, {
       const refreshButton = dialog.getByRole('button', {name: 'Refresh'});
       await expect(refreshButton).toBeEnabled();
       await refreshButton.click();
-      await validateRequests.expectCount(3, 'expected a validate call after refreshing versions');
-      await validateRequests.expectResponseCount(3, 'expected the refreshed version response');
+      await validateRequests.expectCount(6, 'expected repository, commit, and exact validation during refresh');
+      await validateRequests.expectResponseCount(6, 'expected refreshed repository, commit, and exact validation responses');
       await expectPathValidation(dialog);
       await expect(commitSelect).not.toHaveValue('', {timeout: LONG_UI_TIMEOUT});
       await expect(dialog.getByText('d is not a function')).toHaveCount(0);
     });
 
-    await step(`verify source validation settled ${name}`, () => validateRequests.expectStableCount(3, 'expected only the repo, flake, and refresh validate calls'));
+    await step(`verify source validation settled ${name}`, () => validateRequests.expectStableCount(6, 'expected discovery and exact validation requests to settle'));
   } finally {
     validateRequests.stop();
   }
@@ -261,7 +261,7 @@ export async function updateNixDockerDeployment(page, {
     await row.getByRole('button', {name: 'Update'}).click();
   });
 
-  const dialog = page.locator('.fixed.inset-0.z-50').filter({hasText: 'Update deployment'}).last();
+  const dialog = page.getByTestId('update-deployment-dialog');
   await expect(dialog).toBeVisible();
 
   await step(`configure update ${name}`, async () => {
@@ -274,7 +274,12 @@ export async function updateNixDockerDeployment(page, {
   await step(`submit update ${name}`, async () => {
     const submit = dialog.getByRole('button', {name: 'Update deployment'});
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
+    const updateResponse = page.waitForResponse(response => {
+      const request = response.request();
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployment/update';
+    }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
+    expect((await updateResponse).ok()).toBe(true);
     await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
   });
 }
@@ -669,7 +674,13 @@ async function createContainerImageDeployment(page, {
   const submit = byTestId(dialog, 'create-deployment-submit', dialog.getByRole('button', {name: 'Create'}));
   await step(`submit container deployment ${name}`, async () => {
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
+    const createResponse = page.waitForResponse(response => {
+      const request = response.request();
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployment/create';
+    }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
+    expect((await createResponse).ok()).toBe(true);
+    await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
   });
 
   const row = deploymentRow(page, {name, machine});
@@ -821,14 +832,19 @@ async function upgradeOpenDeployAgent(page, {machine, version}) {
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await row.getByRole('button', {name: 'Update'}).click();
 
-  const dialog = page.locator('.fixed.inset-0.z-50').filter({hasText: 'Update deployment'}).last();
+  const dialog = page.getByTestId('update-deployment-dialog');
   await expect(dialog).toBeVisible();
   const releaseSelect = field(dialog, 'Release').locator('select');
   await expect.poll(async () => {
     return await releaseSelect.locator('option').evaluateAll(options => options.map(o => o.value));
   }, {message: `expected ${version} release option`, timeout: RELEASE_OPTIONS_TIMEOUT}).toContain(version);
   await releaseSelect.selectOption(version);
+  const updateResponse = page.waitForResponse(response => {
+    const request = response.request();
+    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployment/update';
+  }, {timeout: LONG_UI_TIMEOUT});
   await dialog.getByRole('button', {name: 'Update deployment'}).click();
+  expect((await updateResponse).ok()).toBe(true);
   await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
 }
 
@@ -933,7 +949,7 @@ async function waitForHealthyApp(page) {
 }
 
 async function waitForOptionalPathValidation(dialog) {
-  const pathVerified = dialog.getByText(/Path verified|Flake path '.+' exists/);
+  const pathVerified = dialog.getByText(/Path verified|Flake path '.+' (?:exists|is a regular file)/);
   const validationFailed = dialog.getByText(/Git repository not accessible|Unable to validate flake path|Flake path not found|Selected commit not found/);
   return Promise.race([
     pathVerified.waitFor({state: 'visible', timeout: OPTIONAL_VALIDATION_TIMEOUT}).then(() => true).catch(() => false),
@@ -943,7 +959,7 @@ async function waitForOptionalPathValidation(dialog) {
 
 async function expectPathValidation(dialog) {
   if (await waitForOptionalPathValidation(dialog)) return;
-  await expect(dialog.getByText(/Path verified|Flake path '.+' exists/)).toBeVisible({timeout: 1});
+  await expect(dialog.getByText(/Path verified|Flake path '.+' (?:exists|is a regular file)/)).toBeVisible({timeout: 1});
 }
 
 function byTestId(root, testID, fallback) {
@@ -1011,8 +1027,14 @@ async function setDeploymentPortForwarding(dialog, portForwarding) {
     await section.getByRole('button', {name: 'Add port'}).click();
     const row = section.locator('tbody tr').last();
     await row.locator('select').selectOption(String(rule.protocol || PORT_FORWARD_TCP));
-    await row.locator('input').nth(0).fill(String(rule.hostPort));
-    await row.locator('input').nth(1).fill(String(rule.containerPort));
+    const hostPortInput = row.locator('input').nth(0);
+    await hostPortInput.pressSequentially(String(rule.hostPort));
+    await expect(hostPortInput).toBeFocused();
+    await expect(hostPortInput).toHaveValue(String(rule.hostPort));
+    const containerPortInput = row.locator('input').nth(1);
+    await containerPortInput.pressSequentially(String(rule.containerPort));
+    await expect(containerPortInput).toBeFocused();
+    await expect(containerPortInput).toHaveValue(String(rule.containerPort));
   }
   await pane.getByTitle('Close').click();
   await expect(pane).toBeHidden({timeout: LONG_UI_TIMEOUT});
@@ -1029,9 +1051,20 @@ async function setDeploymentIngress(dialog, ingress) {
   for (const route of routes) {
     await byTestId(section, 'deployment-add-ingress-route', section.getByRole('button', {name: 'Add route'})).click();
     const row = byTestId(section, 'deployment-ingress-row', section.locator('tbody tr')).last();
-    await byTestId(row, 'deployment-ingress-hostname-input', row.locator('input').nth(0)).fill(route.hostname);
-    if (route.hostPort) await byTestId(row, 'deployment-ingress-host-port-input', row.locator('input').nth(1)).fill(String(route.hostPort));
-    await byTestId(row, 'deployment-ingress-container-port-input', row.locator('input').nth(2)).fill(String(route.containerPort));
+    const hostnameInput = byTestId(row, 'deployment-ingress-hostname-input', row.locator('input').nth(0));
+    await hostnameInput.pressSequentially(route.hostname);
+    await expect(hostnameInput).toBeFocused();
+    await expect(hostnameInput).toHaveValue(route.hostname);
+    if (route.hostPort) {
+      const hostPortInput = byTestId(row, 'deployment-ingress-host-port-input', row.locator('input').nth(1));
+      await hostPortInput.pressSequentially(String(route.hostPort));
+      await expect(hostPortInput).toBeFocused();
+      await expect(hostPortInput).toHaveValue(String(route.hostPort));
+    }
+    const containerPortInput = byTestId(row, 'deployment-ingress-container-port-input', row.locator('input').nth(2));
+    await containerPortInput.pressSequentially(String(route.containerPort));
+    await expect(containerPortInput).toBeFocused();
+    await expect(containerPortInput).toHaveValue(String(route.containerPort));
   }
   await pane.getByTitle('Close').click();
   await expect(pane).toBeHidden({timeout: LONG_UI_TIMEOUT});
@@ -1095,6 +1128,8 @@ async function setDeploymentAssetMount(dialog, {asset, path: mountPath}) {
   await expect(pathInput).toHaveValue(mountPath);
   await pathInput.blur();
   await expect(dialog.getByText('1 mounted asset')).toBeVisible();
+  await pane.getByTitle('Close').click();
+  await expect(pane).toBeHidden({timeout: LONG_UI_TIMEOUT});
 }
 
 async function expectOutputText(page, text) {

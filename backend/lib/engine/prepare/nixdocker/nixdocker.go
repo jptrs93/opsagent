@@ -247,32 +247,19 @@ func isContextDone(err error) bool {
 }
 
 func checkedOutFlakePath(repoDir string, flake string) (string, error) {
-	clean, err := cleanRepoPath(flake)
+	clean, err := repogit.CleanFlakePath(flake)
 	if err != nil {
 		return "", err
 	}
 	path := filepath.Join(repoDir, clean)
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		return "", fmt.Errorf("flake file not found at %s: %w", clean, err)
 	}
-	if info.IsDir() {
-		return "", fmt.Errorf("flake path is a directory: %s", clean)
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("flake path is not a regular file: %s", clean)
 	}
 	return path, nil
-}
-
-func cleanRepoPath(path string) (string, error) {
-	clean := filepath.Clean(filepath.FromSlash(strings.TrimSpace(path)))
-	if clean == "." || filepath.IsAbs(clean) {
-		return "", fmt.Errorf("path must be relative to the repository")
-	}
-	for _, part := range strings.Split(clean, string(filepath.Separator)) {
-		if part == ".." {
-			return "", fmt.Errorf("path must stay within the repository")
-		}
-	}
-	return clean, nil
 }
 
 func resolveImageStreamPath(artifactPath string) (string, error) {

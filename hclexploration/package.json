@@ -1,0 +1,27 @@
+{
+  "name": "opendeploy-hcl-exploration",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.20.0",
+    "@codemirror/commands": "^6.10.0",
+    "@codemirror/language": "^6.11.3",
+    "@codemirror/lint": "^6.9.2",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.6",
+    "@tailwindcss/vite": "^4.1.17",
+    "codemirror": "^6.0.2",
+    "codemirror-lang-hcl": "^0.1.0",
+    "tailwindcss": "^4.1.17",
+    "vanjs-core": "^1.6.0"
+  },
+  "devDependencies": {
+    "vite": "7.1.7"
+  }
+}

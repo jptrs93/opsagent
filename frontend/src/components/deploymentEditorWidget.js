@@ -1,0 +1,360 @@
+import van from "vanjs-core";
+import {spinnerButton} from "./spinnerbutton.js";
+import {formInvalidReason} from "./deploymentForm.js";
+import {deploymentConfigUiHasOpenPane, deploymentConfigUiWidget} from "./deploymentConfigUiWidget.js";
+import {DeploymentCreationUpdate, SOURCE_DOCKER_IMAGE, SOURCE_NIX_DOCKER} from "./deploymentCreationUpdate.js";
+import {imageVersionFromReference} from "./deploymentSource.js";
+
+const {div, span, button, p} = van.tags;
+
+const stateValue = (value) => value && typeof value === 'object' && 'val' in value ? value.val : value;
+const asState = (value, fallback) => value && typeof value === 'object' && 'val' in value
+    ? value
+    : van.state(value ?? fallback);
+
+export function deploymentEditorWidget(opts) {
+    const mode = opts.mode;
+    if (mode !== 'create' && mode !== 'update') throw new Error(`Unsupported deployment editor mode: ${mode}`);
+
+    const actions = opts.actions || {};
+    if (typeof actions.validateSource !== 'function') throw new Error('actions.validateSource is required');
+    if (mode === 'create' && typeof actions.createDeployment !== 'function') throw new Error('actions.createDeployment is required');
+    if (mode === 'update' && typeof actions.updateDeployment !== 'function') throw new Error('actions.updateDeployment is required');
+
+    const catalogs = opts.catalogs || {};
+    const spaces = catalogs.spaces || [];
+    const deployments = catalogs.deployments || [];
+    const assets = catalogs.assets || [];
+    const secretRefs = catalogs.secretRefs || [];
+    const configRefs = catalogs.configRefs || [];
+    const nodes = asState(catalogs.nodes, []);
+    const nodesLoaded = asState(catalogs.nodesLoaded, mode === 'update' || typeof actions.loadNodes !== 'function');
+    const deployment = opts.deployment || null;
+    const deploymentConfig = opts.deploymentConfig || null;
+    const deploymentUpdate = new DeploymentCreationUpdate({
+        deployment,
+        deploymentConfig,
+        validateSource: actions.validateSource,
+    });
+    const form = deploymentUpdate.form;
+    const editorMode = van.state('ui');
+
+    if (mode === 'create' && opts.fork) {
+        form.deploymentId.val = 0;
+        form.name.val = '';
+        form.spaceId.val = 1;
+        form.nodeId.val = 0;
+    }
+
+    const internalDeployment = mode === 'update' && isInternalOpenDeployDeployment(deployment);
+    const internalGithubRelease = mode === 'update' && deployment?.variant === 'githubRelease';
+    const internalOpenDeployRelease = internalDeployment || internalGithubRelease;
+    const canEditState = mode === 'create' || (!internalDeployment && deployment?.runnerType !== 'systemd');
+    const requestDescription = van.state('');
+    const errorMsg = van.state('');
+    let requestSeq = 0;
+
+    const startRequest = (description) => {
+        const seq = ++requestSeq;
+        requestDescription.val = description;
+        return () => {
+            if (requestSeq === seq) requestDescription.val = '';
+        };
+    };
+
+    const withRequest = async (description, action) => {
+        const endRequest = startRequest(description);
+        try {
+            return await action();
+        } finally {
+            endRequest();
+        }
+    };
+
+    const notifySuccess = (kind, payload, result) => {
+        if (opts.onSuccess) opts.onSuccess({kind, payload, result, form, deploymentUpdate});
+    };
+
+    if (mode === 'create' && typeof actions.loadNodes === 'function') {
+        void loadNodes(actions.loadNodes, nodes, nodesLoaded, form, errorMsg);
+    }
+
+    const loadVersions = async (branch, loadOpts = {}) => {
+        if (internalOpenDeployRelease) {
+            return deploymentUpdate.loadGithubReleases(actions.loadDeploymentVersions, deployment.id, loadOpts);
+        }
+        return deploymentUpdate.loadVersions({
+            branch,
+            preserveSelection: loadOpts.preserveSelection,
+            refreshAvailableBranches: loadOpts.refreshAvailableBranches,
+        });
+    };
+
+    if (mode === 'create' && !internalOpenDeployRelease
+        && deploymentUpdate.desiredRunning.val && form.sourceType.val === SOURCE_NIX_DOCKER) {
+        void deploymentUpdate.validateExactNixSelection();
+    }
+
+    if (mode === 'update' && deployment?.variant
+        && (internalOpenDeployRelease
+            || deployment.variant === SOURCE_NIX_DOCKER
+            || (deployment.variant === SOURCE_DOCKER_IMAGE && !imageVersionFromReference(form.containerImage.val)))) {
+        void loadVersions('', {preserveSelection: true});
+    }
+
+    const documentInvalidReason = () => {
+        if (!(mode === 'update' && internalOpenDeployRelease)) {
+            const sourcePathReason = deploymentUpdate.sourcePathInvalidReason();
+            if (sourcePathReason) return sourcePathReason;
+            const reason = formInvalidReason(form, {
+                nodeOptions: stateValue(nodes) || [],
+                deployments: stateValue(deployments) || [],
+            });
+            if (reason) return reason;
+            const runningNixReason = deploymentUpdate.runningNixInvalidReason();
+            if (runningNixReason) return runningNixReason;
+        }
+        if (canEditState && deploymentUpdate.desiredRunning.val
+            && form.sourceType.val !== SOURCE_NIX_DOCKER
+            && !deploymentUpdate.createDesiredVersion()) {
+            return 'Select a version before setting the deployment to Running.';
+        }
+        return '';
+    };
+
+    let codeWidget = null;
+    const codeEditorStatus = van.state('idle');
+    const codeEditorError = van.state('');
+    const invalidReason = () => editorMode.val === 'code'
+        ? (codeEditorError.val || (codeEditorStatus.val === 'loading' ? 'Loading code editor.' : '') || codeWidget?.invalidReason() || documentInvalidReason())
+        : documentInvalidReason();
+
+    const doSubmit = async () => withRequest(mode === 'create' ? 'Creating deployment.' : 'Updating deployment.', async () => {
+        errorMsg.val = '';
+        const reason = invalidReason();
+        if (reason) {
+            errorMsg.val = reason;
+            throw new Error(reason);
+        }
+        const payload = mode === 'create'
+            ? deploymentUpdate.toCreatePayload()
+            : deploymentUpdate.toUpdatePayload({internalGithubRelease: internalOpenDeployRelease, versionOnly: internalDeployment});
+        try {
+            const result = mode === 'create'
+                ? await actions.createDeployment(payload)
+                : await actions.updateDeployment(payload);
+            if (mode === 'create' && !result?.id) throw new Error('Create response did not include a deployment ID');
+            notifySuccess(mode, payload, result);
+        } catch (e) {
+            errorMsg.val = e.message || (mode === 'create' ? 'Failed to create deployment' : 'Deploy failed');
+            throw e;
+        }
+    });
+
+    const submitButton = spinnerButton(
+        mode === 'create' ? 'Create' : 'Update deployment',
+        doSubmit,
+        'btn-primary text-sm py-1.5 px-4',
+        'button',
+        () => Boolean(invalidReason()),
+    );
+    if (mode === 'create') submitButton.dataset.testid = 'create-deployment-submit';
+
+    const uiWidget = deploymentConfigUiWidget({
+        mode,
+        form,
+        deployment,
+        deploymentUpdate,
+        internalDeployment,
+        internalOpenDeployRelease,
+        canEditState,
+        spaces,
+        nodes,
+        nodesLoaded,
+        assets,
+        secretRefs,
+        configRefs,
+        deployments,
+        saveAsset: request => withRequest('Saving asset.', async () => {
+            if (typeof actions.saveAsset !== 'function') throw new Error('actions.saveAsset is required');
+            return actions.saveAsset(request);
+        }),
+        onRefresh: () => loadVersions(deploymentUpdate.nixDockerBuild.selectedBranch.val, {
+            refreshAvailableBranches: true,
+            preserveSelection: true,
+        }),
+    });
+    const codeAvailable = () => !internalOpenDeployRelease && !internalDeployment
+        && (mode === 'create' || deployment?.runnerType === 'container')
+        && stateValue(nodesLoaded) !== false
+        && !requestDescription.val
+        && !deploymentUpdate.versionRequestDescription.val;
+    const codeHost = div(
+        {class: 'flex h-full min-h-0 min-w-0 flex-1 items-center justify-center bg-gray-950'},
+        p({class: 'text-xs text-gray-500'}, 'Loading code editor...'),
+    );
+    const ensureCodeWidget = async () => {
+        if (codeWidget) return codeWidget;
+        if (codeEditorStatus.val === 'loading') return null;
+        codeEditorStatus.val = 'loading';
+        codeEditorError.val = '';
+        try {
+            const {deploymentConfigCodeWidget} = await import('./deploymentConfigCodeWidget.js');
+            codeWidget = deploymentConfigCodeWidget({
+                document: deploymentUpdate.document,
+                catalogs: {spaces, nodes, assets, secretRefs, configRefs, deployments},
+                constraints: mode === 'update' ? {
+                    immutableName: form.name.val,
+                    immutableNodeId: form.nodeId.val,
+                    updateMode: true,
+                    initialVersion: deploymentUpdate.createDesiredVersion(),
+                } : {},
+            });
+            codeHost.replaceChildren(codeWidget.element);
+            codeEditorStatus.val = 'ready';
+            return codeWidget;
+        } catch (error) {
+            codeEditorStatus.val = 'error';
+            codeEditorError.val = error.message || 'Failed to load code editor.';
+            codeHost.replaceChildren(p({class: 'text-xs text-red-400'}, codeEditorError.val));
+            return null;
+        }
+    };
+    const selectEditorMode = nextMode => {
+        if (nextMode === 'code' && !codeAvailable()) return;
+        editorMode.val = nextMode;
+        if (nextMode === 'code') {
+            deploymentUpdate.cancelSourceRequests();
+            requestDescription.val = '';
+            void ensureCodeWidget().then(widget => {
+                if (widget && editorMode.val === 'code') requestAnimationFrame(() => widget.activate());
+            });
+        }
+    };
+    const hasOpenPane = () => editorMode.val === 'ui'
+        && deploymentConfigUiHasOpenPane(form, internalDeployment);
+    const editorHeight = opts.maxHeight || '88vh';
+    const modeToggle = editorModeToggle({editorMode, codeAvailable, selectEditorMode});
+
+    return div(
+        {
+            class: 'bg-gray-900 border border-gray-600 rounded-lg shadow-[0_28px_90px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden',
+            'data-testid': mode === 'create' ? 'create-deployment-dialog' : 'update-deployment-dialog',
+            style: () => `width: ${hasOpenPane() ? 1560 : 1120}px; max-width: 100%; height: ${editorHeight}; max-height: ${editorHeight};`,
+        },
+        div(
+            {class: 'flex-1 min-h-0 min-w-0 pt-2'},
+            div(
+                {class: () => editorMode.val === 'ui' ? 'flex h-full min-h-0 min-w-0' : 'hidden'},
+                uiWidget,
+            ),
+            div(
+                {class: () => editorMode.val === 'code' ? 'flex h-full min-h-0 min-w-0' : 'hidden'},
+                codeHost,
+            ),
+        ),
+        () => errorMsg.val
+            ? div({class: 'bg-gray-950/80 px-4 pt-2'}, p({class: 'text-xs text-red-400'}, errorMsg.val))
+            : '',
+        editorFooter({
+            mode,
+            modeToggle,
+            invalidReason,
+            requestDescription: van.derive(() => requestDescription.val || deploymentUpdate.versionRequestDescription.val),
+            submitButton,
+            onCancel: opts.onCancel,
+        }),
+    );
+}
+
+async function loadNodes(action, nodes, nodesLoaded, form, errorMsg) {
+    try {
+        const result = await action();
+        nodes.val = [...(result?.machines || [])]
+            .filter(node => Number(node?.id || 0))
+            .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        if (!form.nodeId.val && nodes.val.length === 1) form.nodeId.val = nodes.val[0].id;
+    } catch (e) {
+        errorMsg.val = e.message || 'Failed to load cluster nodes';
+        nodes.val = [];
+    } finally {
+        nodesLoaded.val = true;
+    }
+}
+
+function editorModeToggle(args) {
+    const modeButton = (label, mode) => button({
+        type: 'button',
+        role: 'tab',
+        'data-testid': `deployment-editor-mode-${mode}`,
+        'aria-selected': () => String(args.editorMode.val === mode),
+        disabled: () => mode === 'code' && !args.codeAvailable(),
+        title: () => mode === 'code' && !args.codeAvailable() ? 'Code editing is unavailable until configuration data is loaded and current requests finish' : '',
+        class: () => args.editorMode.val === mode
+            ? 'rounded-md bg-gray-700 px-2.5 py-1 text-[11px] font-medium text-gray-100 shadow-sm cursor-pointer'
+            : 'rounded-md px-2.5 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-800 hover:text-gray-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed',
+        onclick: () => args.selectEditorMode(mode),
+    }, label);
+
+    return div(
+        {class: 'flex shrink-0 rounded-lg bg-black/20 p-0.5', role: 'tablist', 'aria-label': 'Configuration editor mode'},
+        modeButton('UI', 'ui'),
+        modeButton('Code', 'code'),
+    );
+}
+
+function editorFooter(args) {
+    if (args.mode === 'create') {
+        return div(
+            {class: 'flex shrink-0 items-center justify-between gap-4 bg-gray-950/90 px-4 py-2.5'},
+            args.modeToggle,
+            div(
+                {class: 'flex min-w-0 items-center justify-end gap-3'},
+                () => args.invalidReason()
+                    ? p({class: 'truncate text-xs text-amber-300', 'data-testid': 'create-validation-reason'}, args.invalidReason())
+                    : '',
+                cancelButton(args.onCancel),
+                args.submitButton,
+            ),
+        );
+    }
+
+    return div(
+        {class: 'flex shrink-0 items-center justify-between gap-3 bg-gray-950/90 px-4 py-2.5'},
+        div(
+            {class: 'flex min-w-0 items-center gap-3'},
+            args.modeToggle,
+            requestStatus(args.requestDescription),
+        ),
+        div(
+            {class: 'flex min-w-0 items-center justify-end gap-3'},
+            () => args.invalidReason()
+                ? p({class: 'truncate text-xs text-amber-400'}, args.invalidReason())
+                : '',
+            cancelButton(args.onCancel),
+            args.submitButton,
+        ),
+    );
+}
+
+function cancelButton(onCancel) {
+    return button({
+        class: 'text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5',
+        onclick: onCancel,
+        type: 'button',
+    }, 'Cancel');
+}
+
+function requestStatus(requestDescription) {
+    return span(
+        {class: () => requestDescription.val ? 'inline-flex items-center gap-2 text-xs text-gray-400' : 'invisible text-xs'},
+        span({class: 'w-[1.1em] h-[1.1em] border-[0.15em] border-gray-500/30 border-t-gray-300 rounded-full animate-spin'}),
+        span(() => requestDescription.val || 'Idle'),
+    );
+}
+
+function isInternalOpenDeployDeployment(deployment) {
+    const name = deployment?.name || deployment?.configId?.name || '';
+    const spaceID = Number(deployment?.spaceId ?? deployment?.configId?.spaceId ?? -1);
+    return spaceID === 0 && (name === 'opendeploy' || name === 'opendeploy-net');
+}

@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:deployment-editor": "vite --open /fixtures/deployment-editor/",
+    "check:deployment-editor": "node fixtures/deployment-editor/deploymentSourceCheck.js && node fixtures/deployment-editor/roundTripCheck.js",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -12,7 +14,15 @@
     "vite": "7.1.7"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/commands": "^6.10.4",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/lint": "^6.9.7",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.6",
     "@tailwindcss/vite": "^4.1.17",
+    "codemirror": "^6.0.2",
+    "codemirror-lang-hcl": "^0.1.0",
     "tailwindcss": "^4.1.17",
     "vanjs-core": "^1.6.0",
     "vanjs-feather": "^0.1.7"

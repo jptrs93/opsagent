@@ -1,6 +1,7 @@
 package webuihandler
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"mime"
@@ -20,6 +21,14 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
+type GitSourceProvider interface {
+	ListBranches(context.Context, string) ([]string, error)
+	ListCommits(context.Context, string, string, int) ([]*apigen.Version, error)
+	DefaultCommit(context.Context, string) (string, string, error)
+	ValidateCommit(context.Context, string, string) error
+	ValidateNixSource(context.Context, string, string, string) (bool, error)
+}
+
 type Handler struct {
 	staticFS       fs.FS
 	PasskeyService *authu.PasskeyService[*apigen.InternalUser]
@@ -32,7 +41,7 @@ type Handler struct {
 	ConfigService         *config.Service
 	Config                *apigen.Settings
 	Github                githubcredentials.Provider
-	GitVersions           *versionprovider.GitVersionProvider
+	GitVersions           GitSourceProvider
 	GithubReleaseVersions *versionprovider.GithubReleaseVersionProvider
 
 	// Secrets is the primary-only encrypted secrets store. Deployment preparation
@@ -56,7 +65,7 @@ type Dependencies struct {
 	Assets                *assetstore.Store
 	ConfigService         *config.Service
 	Github                githubcredentials.Provider
-	GitVersions           *versionprovider.GitVersionProvider
+	GitVersions           GitSourceProvider
 	GithubReleaseVersions *versionprovider.GithubReleaseVersionProvider
 	Secrets               *secrets.Manager
 }

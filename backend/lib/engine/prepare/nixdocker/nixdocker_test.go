@@ -38,6 +38,22 @@ func TestCheckedOutFlakePathRejectsMissingFile(t *testing.T) {
 	}
 }
 
+func TestCheckedOutFlakePathRejectsNonRegularAndWrongBasename(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoDir, "real.nix"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real.nix", filepath.Join(repoDir, "flake.nix")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := checkedOutFlakePath(repoDir, "flake.nix"); err == nil {
+		t.Fatal("expected symlink rejection")
+	}
+	if _, err := checkedOutFlakePath(repoDir, "real.nix"); err == nil {
+		t.Fatal("expected non-flake.nix basename rejection")
+	}
+}
+
 func TestNixBuildArgs(t *testing.T) {
 	base := []string{
 		"--extra-experimental-features", "nix-command flakes",

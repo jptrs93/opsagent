@@ -1,6 +1,8 @@
 package webuihandler
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -15,6 +17,9 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
+
+const testNixCommit = "0123456789abcdef0123456789abcdef01234567"
+const testNixCommit2 = "89abcdef0123456789abcdef0123456789abcdef"
 
 func findSystemDeployment(t *testing.T, store *sqlite.PrimaryStorage, machine string) *apigen.DeploymentConfig {
 	t.Helper()
@@ -67,6 +72,315 @@ func TestValidateDeploymentSpecNixDockerBuild(t *testing.T) {
 	if spec.Runner.Container.User != "1000" {
 		t.Fatalf("container user = %q", spec.Runner.Container.User)
 	}
+}
+
+func TestValidateDeploymentSpecCanonicalizesSafeFlakePath(t *testing.T) {
+	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+		Prepare:    apigen.PrepareConfig{NixDockerBuild: &apigen.NixDockerBuildConfig{Repo: "github.com/acme/web", Flake: "./nix/../flake.nix"}},
+		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+		Networking: hostNetworking(),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := spec.Prepare.NixDockerBuild.Flake; got != "flake.nix" {
+		t.Fatalf("flake = %q, want flake.nix", got)
+	}
+
+	for _, flake := range []string{"/flake.nix", "../flake.nix", "nix/default.nix"} {
+		t.Run(flake, func(t *testing.T) {
+			_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
+				Prepare:    apigen.PrepareConfig{NixDockerBuild: &apigen.NixDockerBuildConfig{Repo: "github.com/acme/web", Flake: flake}},
+				Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+				Networking: hostNetworking(),
+			}, nil)
+			if err == nil {
+				t.Fatalf("flake path %q was accepted", flake)
+			}
+		})
+	}
+}
+
+func TestDeploymentCreateEnforcesRunningNixSource(t *testing.T) {
+	t.Run("running verifies before persistence", func(t *testing.T) {
+		store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+		node := store.EnsurePrimaryNode("primary", "primary")
+		provider := &fakeGitSourceProvider{sourceCommitValid: true}
+		h := &Handler{Store: store, GitVersions: provider}
+
+		cfg, err := h.PostV1DeploymentCreate(apigen.Context{Ctx: context.Background()}, nixCreateRequest(node.ID, "web", true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg == nil || len(provider.validateCalls) != 1 {
+			t.Fatalf("config/provider calls = %v/%v", cfg, provider.validateCalls)
+		}
+	})
+
+	t.Run("verification failure persists nothing", func(t *testing.T) {
+		store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+		node := store.EnsurePrimaryNode("primary", "primary")
+		provider := &fakeGitSourceProvider{sourceErr: errors.New("remote unavailable")}
+		h := &Handler{Store: store, GitVersions: provider}
+
+		_, err := h.PostV1DeploymentCreate(apigen.Context{Ctx: context.Background()}, nixCreateRequest(node.ID, "web", true))
+		if err == nil {
+			t.Fatal("expected source verification failure")
+		}
+		if got := len(store.ListActiveDeploymentConfigs()); got != 0 {
+			t.Fatalf("persisted deployments = %d, want 0", got)
+		}
+	})
+
+	t.Run("stopped skips provider", func(t *testing.T) {
+		store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+		node := store.EnsurePrimaryNode("primary", "primary")
+		provider := &fakeGitSourceProvider{sourceErr: errors.New("must not be called")}
+		h := &Handler{Store: store, GitVersions: provider}
+
+		cfg, err := h.PostV1DeploymentCreate(apigen.Context{Ctx: context.Background()}, nixCreateRequest(node.ID, "web", false))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.DesiredState.Running || len(provider.validateCalls) != 0 {
+			t.Fatalf("config/provider calls = %+v/%v", cfg.DesiredState, provider.validateCalls)
+		}
+	})
+
+	t.Run("stopped still requires immutable version syntax", func(t *testing.T) {
+		store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+		node := store.EnsurePrimaryNode("primary", "primary")
+		provider := &fakeGitSourceProvider{}
+		h := &Handler{Store: store, GitVersions: provider}
+		req := nixCreateRequest(node.ID, "web", false)
+		req.DesiredState.Version = "main"
+
+		if _, err := h.PostV1DeploymentCreate(apigen.Context{Ctx: context.Background()}, req); err == nil {
+			t.Fatal("expected mutable version rejection")
+		}
+		if len(provider.validateCalls) != 0 || len(store.ListActiveDeploymentConfigs()) != 0 {
+			t.Fatalf("provider calls/deployments = %v/%d", provider.validateCalls, len(store.ListActiveDeploymentConfigs()))
+		}
+	})
+
+	t.Run("stopped permits an empty desired version", func(t *testing.T) {
+		store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+		node := store.EnsurePrimaryNode("primary", "primary")
+		provider := &fakeGitSourceProvider{}
+		h := &Handler{Store: store, GitVersions: provider}
+		req := nixCreateRequest(node.ID, "web", false)
+		req.DesiredState.Version = ""
+
+		cfg, err := h.PostV1DeploymentCreate(apigen.Context{Ctx: context.Background()}, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.DesiredState.Version != "" || cfg.DesiredState.Running {
+			t.Fatalf("desired state = %+v, want stopped with no version", cfg.DesiredState)
+		}
+		if len(provider.validateCalls) != 0 || len(store.ListActiveDeploymentConfigs()) != 1 {
+			t.Fatalf("provider calls/deployments = %v/%d", provider.validateCalls, len(store.ListActiveDeploymentConfigs()))
+		}
+	})
+}
+
+func TestDeploymentUpdateEnforcesEffectiveRunningNixTransitions(t *testing.T) {
+	t.Run("starting stopped verifies and failure does not update", func(t *testing.T) {
+		h, cfg, provider := newNixDeploymentHandler(t, false)
+		provider.sourceErr = errors.New("remote unavailable")
+		req := &apigen.DeploymentUpdateRequest{DeploymentID: cfg.ID, Version: cfg.Version + 1, TargetVersion: testNixCommit}
+		if _, err := h.PostV1DeploymentUpdate(apigen.Context{Ctx: context.Background()}, req); err == nil {
+			t.Fatal("expected source verification failure")
+		}
+		unchanged := h.findConfigByID(cfg.ID)
+		if unchanged.Version != cfg.Version || unchanged.DesiredState.Running {
+			t.Fatalf("deployment changed after failed verification: %+v", unchanged)
+		}
+		provider.sourceErr = nil
+		provider.sourceCommitValid = true
+		if _, err := h.PostV1DeploymentUpdate(apigen.Context{Ctx: context.Background()}, req); err != nil {
+			t.Fatal(err)
+		}
+		if len(provider.validateCalls) != 2 {
+			t.Fatalf("source calls = %v", provider.validateCalls)
+		}
+	})
+
+	t.Run("target version change verifies", func(t *testing.T) {
+		h, cfg, provider := newNixDeploymentHandler(t, true)
+		provider.validateCalls = nil
+		_, err := h.PostV1DeploymentUpdate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentUpdateRequest{
+			DeploymentID: cfg.ID, Version: cfg.Version + 1, TargetVersion: testNixCommit2,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(provider.validateCalls) != 1 || provider.validateCalls[0].commit != testNixCommit2 {
+			t.Fatalf("source calls = %+v", provider.validateCalls)
+		}
+	})
+
+	t.Run("Nix spec change while running verifies", func(t *testing.T) {
+		h, cfg, provider := newNixDeploymentHandler(t, true)
+		provider.validateCalls = nil
+		spec := nixDeploymentSpec("github.com/acme/other", "nix/app/flake.nix")
+		_, err := h.PostV1DeploymentUpdate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentUpdateRequest{
+			DeploymentID: cfg.ID, Version: cfg.Version + 1, Spec: spec,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(provider.validateCalls) != 1 || provider.validateCalls[0].repo != "github.com/acme/other" || provider.validateCalls[0].commit != testNixCommit {
+			t.Fatalf("source calls = %+v", provider.validateCalls)
+		}
+	})
+
+	t.Run("stop and stopped edits skip provider", func(t *testing.T) {
+		h, cfg, provider := newNixDeploymentHandler(t, true)
+		provider.validateCalls = nil
+		spec := nixDeploymentSpec("github.com/acme/inaccessible", "flake.nix")
+		if _, err := h.PostV1DeploymentUpdate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentUpdateRequest{
+			DeploymentID: cfg.ID, Version: cfg.Version + 1, Stop: true, Spec: spec,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		stopped := h.findConfigByID(cfg.ID)
+		spec = nixDeploymentSpec("github.com/acme/still-inaccessible", "flake.nix")
+		if _, err := h.PostV1DeploymentUpdate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentUpdateRequest{
+			DeploymentID: cfg.ID, Version: stopped.Version + 1, Spec: spec,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if len(provider.validateCalls) != 0 {
+			t.Fatalf("source calls = %+v", provider.validateCalls)
+		}
+		if updated := h.findConfigByID(cfg.ID); updated.DesiredState.Version != "" || updated.DesiredState.Running {
+			t.Fatalf("desired state after stopped source change = %+v, want empty stopped version", updated.DesiredState)
+		}
+	})
+
+	t.Run("unrelated and source no-op updates skip provider", func(t *testing.T) {
+		h, cfg, provider := newNixDeploymentHandler(t, true)
+		provider.validateCalls = nil
+		sameSpace := cfg.ConfigID.SpaceID
+		if _, err := h.PostV1DeploymentUpdate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentUpdateRequest{
+			DeploymentID: cfg.ID, Version: cfg.Version + 1, SpaceID: &sameSpace,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		updated := h.findConfigByID(cfg.ID)
+		if _, err := h.PostV1DeploymentUpdate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentUpdateRequest{
+			DeploymentID: updated.ID, Version: updated.Version + 1, TargetVersion: testNixCommit,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if len(provider.validateCalls) != 0 {
+			t.Fatalf("source calls = %+v", provider.validateCalls)
+		}
+	})
+
+	t.Run("stopping while changing source kind clears incompatible version", func(t *testing.T) {
+		store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+		node := store.EnsurePrimaryNode("primary", "primary")
+		provider := &fakeGitSourceProvider{sourceErr: errors.New("must not be called")}
+		h := &Handler{Store: store, GitVersions: provider}
+		cfg, err := h.PostV1DeploymentCreate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentCreateRequest{
+			ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "web"},
+			NodeID:   node.ID,
+			Spec: apigen.DeploymentSpec{
+				Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+				Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+				Networking: hostNetworking(),
+			},
+			DesiredState: apigen.DesiredState{Version: "latest", Running: true},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.PostV1DeploymentUpdate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentUpdateRequest{
+			DeploymentID: cfg.ID,
+			Version:      cfg.Version + 1,
+			Stop:         true,
+			Spec:         nixDeploymentSpec("github.com/acme/app", "flake.nix"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		updated := h.findConfigByID(cfg.ID)
+		if updated.DesiredState.Version != "" || updated.DesiredState.Running {
+			t.Fatalf("desired state = %+v, want stopped with empty version", updated.DesiredState)
+		}
+		if len(provider.validateCalls) != 0 {
+			t.Fatalf("source calls = %+v", provider.validateCalls)
+		}
+	})
+}
+
+func TestDeploymentVersionsUsesRemoteDefaultBranch(t *testing.T) {
+	h, cfg, provider := newNixDeploymentHandler(t, false)
+	provider.branches = []string{"main", "trunk"}
+	provider.defaultBranch = "trunk"
+	provider.defaultCommit = testNixCommit
+	provider.commits = []*apigen.Version{{ID: testNixCommit}}
+
+	versions, err := h.PostV1DeploymentVersions(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentVersionsRequest{
+		DeploymentID: cfg.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if versions.NixDockerBuild.SelectedBranch != "trunk" {
+		t.Fatalf("selected branch = %q, want trunk", versions.NixDockerBuild.SelectedBranch)
+	}
+	if provider.defaultCommitCalls != 1 || provider.listCommitsCalls != 1 {
+		t.Fatalf("default/commit calls = %d/%d", provider.defaultCommitCalls, provider.listCommitsCalls)
+	}
+}
+
+func TestDeploymentVersionsFallsBackWhenRemoteHeadIsUnavailable(t *testing.T) {
+	h, cfg, provider := newNixDeploymentHandler(t, false)
+	provider.branches = []string{"release", "main"}
+	provider.defaultErr = errors.New("remote HEAD is unavailable")
+	provider.commits = []*apigen.Version{{ID: testNixCommit}}
+
+	versions, err := h.PostV1DeploymentVersions(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentVersionsRequest{
+		DeploymentID: cfg.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if versions.NixDockerBuild.SelectedBranch != "main" {
+		t.Fatalf("selected branch = %q, want main fallback", versions.NixDockerBuild.SelectedBranch)
+	}
+}
+
+func nixCreateRequest(nodeID int32, name string, running bool) *apigen.DeploymentCreateRequest {
+	return &apigen.DeploymentCreateRequest{
+		ConfigID:     apigen.DeploymentIdentifier{SpaceID: 1, Name: name},
+		NodeID:       nodeID,
+		Spec:         nixDeploymentSpec("github.com/acme/app", "flake.nix"),
+		DesiredState: apigen.DesiredState{Version: testNixCommit, Running: running},
+	}
+}
+
+func nixDeploymentSpec(repo, flake string) apigen.DeploymentSpec {
+	return apigen.DeploymentSpec{
+		Prepare:    apigen.PrepareConfig{NixDockerBuild: &apigen.NixDockerBuildConfig{Repo: repo, Flake: flake}},
+		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+		Networking: hostNetworking(),
+	}
+}
+
+func newNixDeploymentHandler(t *testing.T, running bool) (*Handler, *apigen.DeploymentConfig, *fakeGitSourceProvider) {
+	t.Helper()
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	node := store.EnsurePrimaryNode("primary", "primary")
+	provider := &fakeGitSourceProvider{sourceCommitValid: true}
+	h := &Handler{Store: store, GitVersions: provider}
+	cfg, err := h.PostV1DeploymentCreate(apigen.Context{Ctx: context.Background()}, nixCreateRequest(node.ID, "web", running))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h, cfg, provider
 }
 
 func TestValidateDeploymentSpecRejectsNonLocalNixTarget(t *testing.T) {
