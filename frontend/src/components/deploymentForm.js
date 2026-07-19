@@ -135,7 +135,7 @@ export function deploymentForm(form, opts = {}) {
     };
 
     return div(
-        {class: "flex flex-col gap-4"},
+        {class: "flex flex-col gap-[1.125rem]"},
         opts.hideIdentity ? '' : collapsibleSection(
             "Deployment identity",
             form.identitySectionOpen,

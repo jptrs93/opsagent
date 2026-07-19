@@ -41,7 +41,7 @@ export function deploymentConfigUiWidget(args) {
     return div(
         {class: 'flex flex-1 min-h-0 min-w-0'},
         div(
-            {class: 'flex-1 min-h-0 overflow-auto p-3 flex flex-col gap-4'},
+            {class: 'flex-1 min-h-0 overflow-auto px-3 py-3.5 flex flex-col gap-[1.125rem]'},
             deploymentForm(form, {
                 identityLocked: mode === 'update',
                 hideIdentity: internalDeployment,

@@ -99,11 +99,21 @@ export class DeploymentCreationUpdate {
     repositoryStatus() {
         const key = nixRepositoryDiscoveryKey(this.form.nixRepo.val);
         const status = this.nixDockerBuild.repository.val;
-        return this.form.sourceType.val === SOURCE_NIX_DOCKER && status.key === key ? status : idleStatus();
+        if (this.form.sourceType.val !== SOURCE_NIX_DOCKER) return idleStatus();
+        if (status.key === key && status.status !== 'error') return status;
+        if (this.initialRepositoryTrusted()) return okStatus(key, 'Current repository.');
+        return status.key === key ? status : idleStatus();
     }
 
     flakeStatus() {
         if (this.form.sourceType.val !== SOURCE_NIX_DOCKER || !this.form.nixFlake.val.trim()) return idleStatus();
+        if (this.initialNixSourceTrusted()) {
+            return okStatus(nixExactValidationKey(
+                this.form.nixRepo.val,
+                this.nixDockerBuild.selectedCommit.val,
+                this.form.nixFlake.val,
+            ), 'Current source.');
+        }
         const local = validateLocalFlakePath(this.form.nixFlake.val);
         if (!local.ok) return errorStatus('', local.message);
         const key = nixExactValidationKey(
@@ -118,7 +128,10 @@ export class DeploymentCreationUpdate {
     imageStatus() {
         const key = imageDiscoveryKey(this.form.containerImage.val);
         const status = this.containerImage.discovery.val;
-        return this.form.sourceType.val === SOURCE_DOCKER_IMAGE && status.key === key ? status : idleStatus();
+        if (this.form.sourceType.val !== SOURCE_DOCKER_IMAGE) return idleStatus();
+        if (status.key === key && status.status !== 'error') return status;
+        if (this.initialImageTrusted()) return okStatus(key, 'Current image.');
+        return status.key === key ? status : idleStatus();
     }
 
     sourcePathInvalidReason() {
@@ -397,6 +410,7 @@ export class DeploymentCreationUpdate {
         if (!FULL_GIT_COMMIT_RE.test(commit)) return 'Select a full 40-character commit before setting the deployment to Running.';
         const local = validateLocalFlakePath(this.form.nixFlake.val);
         if (!local.ok) return local.message;
+        if (this.initialNixSourceTrusted()) return '';
         if (this.hasCurrentExactNixValidation()) return '';
         const status = this.flakeStatus();
         if (status.status === 'checking') return 'Validating the selected commit and flake path.';
@@ -526,6 +540,26 @@ export class DeploymentCreationUpdate {
             && current.repo === this.initialSource.repo
             && current.flake === this.initialSource.flake
             && current.image === this.initialSource.image;
+    }
+
+    initialRepositoryTrusted() {
+        return Boolean(this.existingState?.desiredRunning)
+            && this.form.sourceType.val === SOURCE_NIX_DOCKER
+            && this.initialSource.type === SOURCE_NIX_DOCKER
+            && this.form.nixRepo.val.trim() === this.initialSource.repo;
+    }
+
+    initialImageTrusted() {
+        return Boolean(this.existingState?.desiredRunning)
+            && this.form.sourceType.val === SOURCE_DOCKER_IMAGE
+            && this.initialSource.type === SOURCE_DOCKER_IMAGE
+            && this.form.containerImage.val.trim() === this.initialSource.image;
+    }
+
+    initialNixSourceTrusted() {
+        return this.initialRepositoryTrusted()
+            && this.form.nixFlake.val.trim() === this.initialSource.flake
+            && this.nixDockerBuild.selectedCommit.val.trim() === (this.existingState?.deployedVersion || '');
     }
 
     createDesiredVersion() {

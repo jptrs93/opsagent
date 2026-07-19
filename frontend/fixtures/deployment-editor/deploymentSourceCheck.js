@@ -12,6 +12,7 @@ import {
     SOURCE_NIX_DOCKER,
     validateLocalFlakePath,
 } from "../../src/components/deploymentSource.js";
+import {fixturePresets} from "./mockData.js";
 
 const COMMIT_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const COMMIT_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -161,5 +162,38 @@ duplicateNameModel.form.deploymentId.val = 10;
 assert.notEqual(formInvalidReason(duplicateNameModel.form, {
     deployments: [{config: {id: 10, configId: {name: 'api', spaceId: 1}}}],
 }), 'Deployment name is unavailable in this space.');
+
+// A persisted running source remains trusted across failed discovery refreshes.
+const runningImagePreset = fixturePresets.updateContainer;
+const trustedImageModel = new DeploymentCreationUpdate({
+    deployment: runningImagePreset.deployment,
+    deploymentConfig: runningImagePreset.deploymentConfig,
+    validateSource: async () => { throw new Error('Fixture source validation failure'); },
+});
+await trustedImageModel.discoverImageVersions();
+assert.equal(trustedImageModel.imageStatus().status, 'ok');
+assert.equal(trustedImageModel.sourcePathInvalidReason(), '');
+trustedImageModel.form.containerImage.val = 'ghcr.io/acme/changed';
+trustedImageModel.onImageInput();
+await trustedImageModel.discoverImageVersions();
+assert.equal(trustedImageModel.imageStatus().status, 'error');
+assert.equal(trustedImageModel.sourcePathInvalidReason(), 'Image path invalid.');
+
+const runningNixPreset = fixturePresets.updateNixStopped;
+const trustedNixModel = new DeploymentCreationUpdate({
+    deployment: {...runningNixPreset.deployment, desiredRunning: true},
+    deploymentConfig: runningNixPreset.deploymentConfig,
+    validateSource: async () => { throw new Error('Fixture source validation failure'); },
+});
+assert.equal(trustedNixModel.repositoryStatus().status, 'ok');
+assert.equal(trustedNixModel.runningNixInvalidReason(), '');
+await trustedNixModel.discoverRepository();
+assert.equal(trustedNixModel.repositoryStatus().status, 'ok');
+assert.equal(trustedNixModel.sourcePathInvalidReason(), '');
+trustedNixModel.form.nixRepo.val = 'github.com/acme/changed';
+trustedNixModel.onRepositoryInput();
+await trustedNixModel.discoverRepository();
+assert.equal(trustedNixModel.repositoryStatus().status, 'error');
+assert.equal(trustedNixModel.sourcePathInvalidReason(), 'Nix repository path invalid.');
 
 console.log('Deployment source state checks passed.');
