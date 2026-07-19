@@ -2284,14 +2284,13 @@ class Handler(BaseHTTPRequestHandler):
 
 HTTPServer(("0.0.0.0", %d), Handler).serve_forever()
 PY
-pkill -f /tmp/opendeploy-ipv4-egress-listener.py || true
+if [[ -f /tmp/opendeploy-ipv4-egress-listener.pid ]]; then
+  kill "$(cat /tmp/opendeploy-ipv4-egress-listener.pid)" 2>/dev/null || true
+fi
 nohup python3 /tmp/opendeploy-ipv4-egress-listener.py >/tmp/opendeploy-ipv4-egress-listener.log 2>&1 &
-for _ in $(seq 1 10); do
-  curl -fsS http://127.0.0.1:%d/ >/dev/null && exit 0
-  sleep 1
-done
-cat /tmp/opendeploy-ipv4-egress-listener.log
-exit 1`, ipv4EgressListenerPort, ipv4EgressListenerPort)
+echo $! >/tmp/opendeploy-ipv4-egress-listener.pid
+sleep 1
+curl -fsS http://127.0.0.1:%d/ >/dev/null`, ipv4EgressListenerPort, ipv4EgressListenerPort)
 	return c.vmBash(c.Secondary2Name, script)
 }
 

@@ -291,6 +291,10 @@ function itemID(item, type) {
     return item?.id;
 }
 
+function isVersionedResource(type) {
+    return type === "asset" || type === "secret" || type === "config";
+}
+
 function scopedItems(items, type, spaceId) {
     return items.filter(item => {
         if (item?.deleted || deploymentConfig(item)?.deleted) return false;
@@ -326,17 +330,17 @@ function nameForID(catalogs, type, id, spaceId) {
                 : type === "secret" ? catalogs.secretRefs
                     : type === "config" ? catalogs.configRefs
                         : catalogs.deployments;
-    const item = findByID(collection, type, id, type === "space" || type === "node" ? undefined : spaceId);
+    const item = findByID(collection, type, id, type === "deployment" ? spaceId : undefined);
     return itemName(item, type) || placeholder(type, id);
 }
 
-function versionedReferenceForID(catalogs, type, id, spaceId, pinVersions) {
+function versionedReferenceForID(catalogs, type, id, pinVersions) {
     const collection = type === "asset" ? catalogs.assets
         : type === "secret" ? catalogs.secretRefs : catalogs.configRefs;
-    const item = findByID(collection, type, id, spaceId);
+    const item = findByID(collection, type, id);
     const name = itemName(item, type) || placeholder(type, id);
     const version = Number(item?.version || 0);
-    const latestVersion = scopedItems(collection, type, spaceId)
+    const latestVersion = scopedItems(collection, type)
         .filter(candidate => itemName(candidate, type) === name)
         .reduce((latest, candidate) => Math.max(latest, Number(candidate?.version || 0)), 0);
     const pinnedVersion = version > 0 && (pinVersions || version < latestVersion)
@@ -355,16 +359,16 @@ function deploymentReferenceForID(catalogs, functionName, id) {
 
 function envValueToHcl(value, catalogs, spaceId, pinVersions) {
     if (value?.secretId !== undefined && value.secretId !== null) {
-        return versionedReferenceForID(catalogs, "secret", value.secretId, spaceId, pinVersions);
+        return versionedReferenceForID(catalogs, "secret", value.secretId, pinVersions);
     }
     if (value?.configId !== undefined && value.configId !== null) {
-        return versionedReferenceForID(catalogs, "config", value.configId, spaceId, pinVersions);
+        return versionedReferenceForID(catalogs, "config", value.configId, pinVersions);
     }
     if (value?.addressDeploymentId !== undefined && value.addressDeploymentId !== null) {
         return deploymentReferenceForID(catalogs, "address", value.addressDeploymentId);
     }
     if (value?.assetId || value?.asset) {
-        return versionedReferenceForID(catalogs, "asset", value.assetId, spaceId, pinVersions);
+        return versionedReferenceForID(catalogs, "asset", value.assetId, pinVersions);
     }
     return quote(value?.value ?? "");
 }
@@ -460,7 +464,7 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
         mounts.push(`mount(${source}, ${quote(mount?.container)}${mountOption("read_only", mount?.readonly)})`);
     }
     for (const mount of container.assetMounts || []) {
-        const source = versionedReferenceForID(refs, "asset", mount?.assetId, spaceId, pinVersions);
+        const source = versionedReferenceForID(refs, "asset", mount?.assetId, pinVersions);
         mounts.push(`mount(${source}, ${quote(mount?.path)}${mountOption("executable", mount?.executable)})`);
     }
     if (mounts.length) {
@@ -599,12 +603,9 @@ function resolveNamed(text, diagnostics, expression, type, name, catalogs, space
                 : type === "secret" ? catalogs.secretRefs
                     : type === "config" ? catalogs.configRefs
                         : catalogs.deployments;
-    let matches = scopedItems(collection, type, type === "space" || type === "node" ? undefined : spaceId)
+    let matches = scopedItems(collection, type, type === "deployment" ? spaceId : undefined)
         .filter(item => itemName(item, type) === name);
-    if (matches.length === 0 && options.allowGlobalFallback) {
-        matches = scopedItems(collection, type, undefined).filter(item => itemName(item, type) === name);
-    }
-    if (type === "asset" || type === "secret" || type === "config") {
+    if (isVersionedResource(type)) {
         if (options.version !== undefined && options.version !== null) {
             matches = matches.filter(item => Number(item?.version || 0) === Number(options.version));
         } else {
@@ -614,7 +615,8 @@ function resolveNamed(text, diagnostics, expression, type, name, catalogs, space
     }
     matches = uniqueByID(matches, type);
     if (matches.length === 0) {
-        diagnostics.push(diagnostic(text, expression, `No ${type} named ${quote(name)} exists${type === "node" ? " in the cluster" : type === "space" ? "" : " in the selected space"}.`));
+        const scope = type === "node" ? " in the cluster" : type === "deployment" ? " in the selected space" : "";
+        diagnostics.push(diagnostic(text, expression, `No ${type} named ${quote(name)} exists${scope}.`));
         return null;
     }
     if (matches.length > 1) {

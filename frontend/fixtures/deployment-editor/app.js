@@ -71,7 +71,14 @@ const actions = {
     loadDeploymentVersions: async request => {
         record('load-deployment-versions', request);
         await wait();
-        return {githubRelease: {releases: imageTags}};
+        if (request.deploymentId === 102) {
+            return {deploymentId: request.deploymentId, nixDockerBuild: {
+                branches: nixBranches,
+                selectedBranch: 'main',
+                commits: nixCommits.main,
+            }};
+        }
+        return {deploymentId: request.deploymentId, containerImage: {tags: imageTags}};
     },
     saveAsset: async request => {
         record('save-asset', request);

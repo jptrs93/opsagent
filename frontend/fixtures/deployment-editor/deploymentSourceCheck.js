@@ -12,7 +12,7 @@ import {
     SOURCE_NIX_DOCKER,
     validateLocalFlakePath,
 } from "../../src/components/deploymentSource.js";
-import {fixturePresets} from "./mockData.js";
+import {fixturePresets, nixBranches, nixCommits} from "./mockData.js";
 
 const COMMIT_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const COMMIT_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -195,5 +195,80 @@ trustedNixModel.onRepositoryInput();
 await trustedNixModel.discoverRepository();
 assert.equal(trustedNixModel.repositoryStatus().status, 'error');
 assert.equal(trustedNixModel.sourcePathInvalidReason(), 'Nix repository path invalid.');
+
+// Existing deployment initialization loads choices once without revalidating the persisted source.
+let initialValidateCalls = 0;
+const initialVersionRequests = [];
+const initialNixDeployment = {...runningNixPreset.deployment, desiredRunning: true};
+const initialNixModel = new DeploymentCreationUpdate({
+    deployment: initialNixDeployment,
+    deploymentConfig: runningNixPreset.deploymentConfig,
+    validateSource: async () => {
+        initialValidateCalls += 1;
+        return {};
+    },
+});
+const initialVersionsLoaded = await initialNixModel.loadExistingDeploymentVersions(async request => {
+    initialVersionRequests.push(request);
+    return {
+        deploymentId: request.deploymentId,
+        nixDockerBuild: {
+            branches: nixBranches,
+            selectedBranch: 'main',
+            commits: nixCommits.main,
+        },
+    };
+}, initialNixDeployment.id);
+assert.equal(initialVersionsLoaded, true);
+assert.deepEqual(initialVersionRequests, [{deploymentId: initialNixDeployment.id}]);
+assert.equal(initialValidateCalls, 0);
+assert.equal(initialNixModel.nixDockerBuild.selectedBranch.val, 'main');
+assert.equal(initialNixModel.nixDockerBuild.selectedCommit.val, initialNixDeployment.deployedVersion);
+assert.equal(initialNixModel.nixDockerBuild.exactValidation.val.status, 'idle');
+assert.equal(initialNixModel.runningNixInvalidReason(), '');
+
+const branchRequests = [];
+initialNixModel.validateSource = async request => {
+    branchRequests.push(request);
+    const source = request.nixDockerBuild;
+    return {nixDockerBuild: {
+        checkedRepoUrl: source.repoUrl,
+        gitRepository: {checked: true, ok: true, message: 'Repository accessible.'},
+        checkedBranch: source.selectedBranch,
+        branchCheck: {checked: true, ok: true, message: 'Branch exists.'},
+        availableCommits: {
+            loaded: true,
+            branch: source.selectedBranch,
+            commits: nixCommits['release/2026-07'],
+        },
+    }};
+};
+assert.equal(await initialNixModel.selectBranch('release/2026-07'), true);
+assert.equal(branchRequests.length, 1);
+assert.equal(branchRequests[0].nixDockerBuild.refreshAvailableCommits, true);
+assert.equal(initialNixModel.nixDockerBuild.selectedCommit.val, initialNixDeployment.deployedVersion);
+assert.equal(initialNixModel.nixDockerBuild.commits.val.some(
+    commit => commit.id === initialNixDeployment.deployedVersion,
+), false);
+assert.equal(initialNixModel.nixDockerBuild.exactValidation.val.status, 'idle');
+
+const staleInitialVersions = deferred();
+const staleInitialModel = new DeploymentCreationUpdate({
+    deployment: initialNixDeployment,
+    deploymentConfig: runningNixPreset.deploymentConfig,
+    validateSource: async () => ({}),
+});
+const staleInitialLoad = staleInitialModel.loadExistingDeploymentVersions(
+    () => staleInitialVersions.promise,
+    initialNixDeployment.id,
+);
+staleInitialModel.form.nixRepo.val = 'github.com/acme/changed';
+staleInitialModel.onRepositoryInput();
+staleInitialVersions.resolve({
+    deploymentId: initialNixDeployment.id,
+    nixDockerBuild: {branches: nixBranches, selectedBranch: 'main', commits: nixCommits.main},
+});
+assert.equal(await staleInitialLoad, false);
+assert.deepEqual(staleInitialModel.nixDockerBuild.branches.val, []);
 
 console.log('Deployment source state checks passed.');

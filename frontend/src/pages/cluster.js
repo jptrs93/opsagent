@@ -179,9 +179,7 @@ function backupStatusBadge(status) {
             : status?.configured
                 ? "bg-yellow-950 text-yellow-300 border-yellow-800"
                 : "bg-gray-800 text-gray-300 border-gray-700";
-    return span({class: `px-2 py-1 rounded border text-xs font-medium`, "data-testid": "backup-replication-status"},
-        span({class: klass + " px-2 py-1 rounded border"}, label),
-    );
+    return span({class: klass + " px-2 py-1 rounded border text-xs font-medium", "data-testid": "backup-replication-status"}, label);
 }
 
 function backupStatusLabel(status) {

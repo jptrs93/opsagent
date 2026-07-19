@@ -106,8 +106,8 @@ Cluster secrets/configs requests carry immutable row IDs. The primary authorizes
 | POST | `/v1/assets/list` | `EmptyRequest` | `AssetList` | ANY_OF default |
 | POST | `/v1/assets/get` | `AssetGetRequest` | `Asset` | ANY_OF default |
 | POST | `/v1/assets/set` | `AssetSetRequest` | `Asset` | ANY_OF default |
-| POST | `/v1/assets/upload` | raw file body, `key`/`format` query params | `Asset` | ANY_OF default |
-| POST | `/v1/assets/rename` | `key`/`name` query params | `Asset` | ANY_OF default |
+| POST | `/v1/assets/upload` | raw file body, `name`/`format`/`space_id` query params | `Asset` | ANY_OF default |
+| POST | `/v1/assets/rename` | `AssetRenameRequest` | `Asset` | ANY_OF default |
 | POST | `/v1/assets/delete` | `AssetDeleteRequest` | — | ANY_OF default |
 | POST | `/v1/spaces/create` | `SpaceSetRequest` | `Space` | ANY_OF default |
 | POST | `/v1/spaces/update` | `SpaceSetRequest` | `Space` | ANY_OF default |
@@ -117,7 +117,7 @@ User-managed configs and encrypted secrets are immutable versioned rows. Saving 
 
 `POST /v1/secrets/reveal` is the only user-facing API that returns decrypted secret plaintext. It accepts `SecretRevealRequest.id` for exact-version reveal; list/state APIs return metadata only.
 
-Assets are versioned plaintext file blobs recorded in `assets`. Rows are immutable; setting an existing key creates a new version with a numeric asset id. List and state stream APIs expose only `AssetMeta`, not blob content. Blobs up to and including 10 MiB are stored inline. Larger blobs use local primary storage while Backup is disabled and S3 while Backup is enabled; changing Backup starts an asynchronous placement transition. Storage placement is transparent to these asset endpoints. Workers stream required asset blobs on demand over the mTLS cluster asset endpoint during preparation. See [Assets](assets.md) for storage modes, transition status, retention, restore, and compatibility.
+Assets are versioned plaintext file blobs recorded in `assets`. Setting an existing key creates a new version with a numeric asset id. Rename changes the key for every version without creating a version or changing IDs and rejects an existing destination key. List and state stream APIs expose only `AssetMeta`, not blob content. Blobs up to and including 10 MiB are stored inline. Larger blobs use local primary storage while Backup is disabled and S3 while Backup is enabled; changing Backup starts an asynchronous placement transition. Storage placement is transparent to these asset endpoints. Workers stream required asset blobs on demand over the mTLS cluster asset endpoint during preparation. See [Assets](assets.md) for storage modes, transition status, retention, restore, and compatibility.
 
 ### Enrollment
 | Method | Path | Request | Response | Policy |

@@ -168,7 +168,7 @@ function catalogCompletionOptions(namespace, catalogs, text, insideQuotes, selec
     for (const item of collection) {
         if (item?.deleted || deploymentConfig(item)?.deleted) continue;
         const itemSpaceID = catalogSpaceID(item, type);
-        if (type !== "space" && type !== "node" && spaceID !== null
+        if (type === "deployment" && spaceID !== null
             && itemSpaceID !== undefined && itemSpaceID !== null
             && Number(itemSpaceID) !== Number(spaceID)) continue;
         const name = catalogName(item, type);
@@ -189,13 +189,9 @@ function catalogVersionCompletionOptions(namespace, catalogs, text, name) {
     const refs = catalogArrays(catalogs);
     const collection = namespace === "asset" ? refs.assets
         : namespace === "secret" ? refs.secretRefs : refs.configRefs;
-    const spaceID = selectedSpaceID(text, refs);
     const versions = new Map();
     for (const item of collection) {
         if (item?.deleted || catalogName(item, namespace) !== name) continue;
-        const itemSpaceID = catalogSpaceID(item, namespace);
-        if (spaceID !== null && itemSpaceID !== undefined && itemSpaceID !== null
-            && Number(itemSpaceID) !== Number(spaceID)) continue;
         const version = Number(item?.version || 0);
         if (version > 0) versions.set(version, {
             label: String(version),

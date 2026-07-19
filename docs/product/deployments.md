@@ -141,9 +141,11 @@ grouped by space. Each card displays:
 
 ## Deploy workflow
 
-1. The user clicks "Update" on a card. The overlay fetches available
-   versions via `POST /v1/deployment/versions` or source validation — 25 most
-   recent commits per Nix scope (branches), or available image tags.
+1. The user clicks "Update" on a card. The overlay fetches available versions
+   for the persisted source with one `POST /v1/deployment/versions` request —
+   25 most recent commits for the selected Nix branch, or available image tags.
+   Source validation requests begin only after relevant source, version, flake,
+   or running-state edits require them.
 2. The user picks a version (and optionally edits the deployment spec) and submits.
 3. The frontend calls `POST /v1/deployment/update` with the target version
    and, if the spec was edited, the new typed `spec`.

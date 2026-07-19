@@ -353,6 +353,24 @@ func TestDeploymentVersionsFallsBackWhenRemoteHeadIsUnavailable(t *testing.T) {
 	}
 }
 
+func TestDeploymentVersionsHandlesRepositoryWithoutBranches(t *testing.T) {
+	h, cfg, provider := newNixDeploymentHandler(t, false)
+	provider.defaultErr = errors.New("remote HEAD is unavailable")
+
+	versions, err := h.PostV1DeploymentVersions(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentVersionsRequest{
+		DeploymentID: cfg.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if versions.NixDockerBuild.SelectedBranch != "" || len(versions.NixDockerBuild.Commits) != 0 {
+		t.Fatalf("versions = %+v, want no selected branch or commits", versions.NixDockerBuild)
+	}
+	if provider.listCommitsCalls != 0 {
+		t.Fatalf("list commits calls = %d, want 0", provider.listCommitsCalls)
+	}
+}
+
 func nixCreateRequest(nodeID int32, name string, running bool) *apigen.DeploymentCreateRequest {
 	return &apigen.DeploymentCreateRequest{
 		ConfigID:     apigen.DeploymentIdentifier{SpaceID: 1, Name: name},
@@ -409,12 +427,9 @@ func (r fakeAssetResolver) GetAssetByID(assetID int32) (*apigen.Asset, bool) {
 
 type fakeSecretResolver map[int32]string
 
-func (r fakeSecretResolver) List() []secrets.Meta {
-	out := make([]secrets.Meta, 0, len(r))
-	for id := range r {
-		out = append(out, secrets.Meta{ID: id})
-	}
-	return out
+func (r fakeSecretResolver) MetaByID(id int32) (secrets.Meta, bool) {
+	_, ok := r[id]
+	return secrets.Meta{ID: id}, ok
 }
 
 type fakeConfigResolver map[int32]string

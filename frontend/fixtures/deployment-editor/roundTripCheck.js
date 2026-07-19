@@ -25,9 +25,9 @@ const catalogs = {
 
 const collisionCatalogs = {
     ...catalogs,
-    assets: [...mockAssets, {id: 299, key: 'nginx.conf', version: 4, format: 'text'}],
-    secretRefs: [...mockSecretRefs, {id: 399, name: 'database-password', version: 5}],
-    configRefs: [...mockConfigRefs, {id: 499, name: 'database-host', version: 3}],
+    assets: [...mockAssets, {id: 299, key: 'nginx.conf', version: 4, format: 'text', spaceId: 2}],
+    secretRefs: [...mockSecretRefs, {id: 399, name: 'database-password', version: 5, spaceId: 2}],
+    configRefs: [...mockConfigRefs, {id: 499, name: 'database-host', version: 3, spaceId: 2}],
     deployments: [...mockDeployments, {
         config: {id: 999, nodeId: 11, configId: {name: 'api', spaceId: 2}},
         status: {},
@@ -73,6 +73,23 @@ assert.match(latestHcl, /secret\("database-password"\)/);
 assert.match(latestHcl, /config\("database-host"\)/);
 assert.match(latestHcl, /asset\("nginx\.conf"\)/);
 assert.doesNotMatch(latestHcl, /(?:secret|config|asset)\("[^"]+", \{ version = \d+ \}\)/);
+
+const crossSpaceDocument = structuredClone(canonicalDocument);
+crossSpaceDocument.configId.spaceId = 2;
+const crossSpaceHcl = deploymentDocumentToHcl(crossSpaceDocument, catalogs, {pinVersions: true});
+assert.doesNotMatch(crossSpaceHcl, /__unresolved/);
+assert.match(crossSpaceHcl, /secret\("database-password", \{ version = 4 \}\)/);
+assert.match(crossSpaceHcl, /config\("database-host", \{ version = 2 \}\)/);
+assert.match(crossSpaceHcl, /asset\("nginx\.conf", \{ version = 3 \}\)/);
+const crossSpaceParsed = parseDeploymentHcl(crossSpaceHcl, catalogs);
+assert.ok(crossSpaceParsed.document);
+assert.equal(crossSpaceParsed.document.spec.runner.container.envVars.DATABASE_PASSWORD.secretId, 301);
+assert.equal(crossSpaceParsed.document.spec.runner.container.envVars.DATABASE_HOST.configId, 401);
+assert.equal(crossSpaceParsed.document.spec.runner.container.assetMounts[0].assetId, 201);
+
+const missingReferenceDocument = structuredClone(canonicalDocument);
+missingReferenceDocument.spec.runner.container.envVars.DATABASE_PASSWORD.secretId = 9999;
+assert.match(deploymentDocumentToHcl(missingReferenceDocument, catalogs), /secret\("__unresolved_secret_9999"\)/);
 
 const updateModel = modelFor(fixturePresets.updateContainer);
 const changedHcl = deploymentDocumentToHcl(updateModel.toDocument(), catalogs, {pinVersions: true})

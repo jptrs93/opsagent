@@ -1,8 +1,11 @@
 package sqlite
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
+
+	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
 func TestAssetsAreVersionedAndImmutable(t *testing.T) {
@@ -52,5 +55,60 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	store.DeleteAsset("nginx.conf")
 	if _, ok := store.GetAsset("nginx.conf", 0); ok {
 		t.Fatal("asset still found after delete")
+	}
+}
+
+func TestRenameAssetPreservesVersions(t *testing.T) {
+	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	v1 := store.SetAsset("old-name", "text", []byte("one"))
+	v2 := store.SetAssetStored("old-name", "binary", "local://2", 12_000_000, []byte{})
+
+	renamed, err := store.RenameAsset("old-name", "new-name")
+	if err != nil {
+		t.Fatalf("rename asset: %v", err)
+	}
+	if renamed.ID != v2.ID || renamed.Key != "new-name" || renamed.Version != 2 {
+		t.Fatalf("renamed latest = %+v", renamed)
+	}
+	if _, ok := store.GetAsset("old-name", 0); ok {
+		t.Fatal("old asset key still exists")
+	}
+
+	versions := store.ListAssetVersionsByKeyIncludingPending("new-name")
+	if len(versions) != 2 {
+		t.Fatalf("renamed versions = %d, want 2", len(versions))
+	}
+	want := []*apigen.Asset{v1, v2}
+	for i, got := range versions {
+		if got.ID != want[i].ID || got.Key != "new-name" || got.SpaceID != want[i].SpaceID ||
+			got.Version != want[i].Version || got.Format != want[i].Format || got.Location != want[i].Location ||
+			got.SizeBytes != want[i].SizeBytes || string(got.Blob) != string(want[i].Blob) ||
+			!got.CreatedAt.Equal(want[i].CreatedAt) {
+			t.Fatalf("renamed version %d = %+v, want original metadata %+v with new key", i+1, got, want[i])
+		}
+	}
+
+	v3 := store.SetAsset("new-name", "text", []byte("three"))
+	if v3.Version != 3 {
+		t.Fatalf("version after rename = %d, want 3", v3.Version)
+	}
+}
+
+func TestRenameAssetRejectsExistingKey(t *testing.T) {
+	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	source := store.SetAsset("source", "text", []byte("source"))
+	destination := store.SetAsset("destination", "text", []byte("destination"))
+
+	if _, err := store.RenameAsset("source", "destination"); !errors.Is(err, ErrAssetAlreadyExists) {
+		t.Fatalf("rename collision error = %v, want %v", err, ErrAssetAlreadyExists)
+	}
+	if got, ok := store.GetAsset("source", 0); !ok || got.ID != source.ID {
+		t.Fatalf("source after collision = %+v, ok=%v", got, ok)
+	}
+	if got, ok := store.GetAsset("destination", 0); !ok || got.ID != destination.ID {
+		t.Fatalf("destination after collision = %+v, ok=%v", got, ok)
+	}
+	if _, err := store.RenameAsset("missing", "unused"); !errors.Is(err, ErrAssetNotFound) {
+		t.Fatalf("missing source error = %v, want %v", err, ErrAssetNotFound)
 	}
 }

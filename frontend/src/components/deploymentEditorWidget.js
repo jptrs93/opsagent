@@ -81,7 +81,7 @@ export function deploymentEditorWidget(opts) {
 
     const loadVersions = async (branch, loadOpts = {}) => {
         if (internalOpenDeployRelease) {
-            return deploymentUpdate.loadGithubReleases(actions.loadDeploymentVersions, deployment.id, loadOpts);
+            return deploymentUpdate.loadExistingDeploymentVersions(actions.loadDeploymentVersions, deployment.id, loadOpts);
         }
         return deploymentUpdate.loadVersions({
             branch,
@@ -99,7 +99,11 @@ export function deploymentEditorWidget(opts) {
         && (internalOpenDeployRelease
             || deployment.variant === SOURCE_NIX_DOCKER
             || (deployment.variant === SOURCE_DOCKER_IMAGE && !imageVersionFromReference(form.containerImage.val)))) {
-        void loadVersions('', {preserveSelection: true});
+        void deploymentUpdate.loadExistingDeploymentVersions(
+            actions.loadDeploymentVersions,
+            deployment.id,
+            {preserveSelection: true},
+        );
     }
 
     const documentInvalidReason = () => {

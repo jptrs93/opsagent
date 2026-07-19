@@ -18,18 +18,18 @@ export const mockSpaces = [
 ];
 
 export const mockAssets = [
-    {id: 201, key: 'nginx.conf', version: 3, format: 'text'},
-    {id: 202, key: 'branding/logo.svg', version: 1, format: 'binary'},
+    {id: 201, key: 'nginx.conf', version: 3, format: 'text', spaceId: 1},
+    {id: 202, key: 'branding/logo.svg', version: 1, format: 'binary', spaceId: 1},
 ];
 
 export const mockSecretRefs = [
-    {id: 301, name: 'database-password', version: 4},
-    {id: 302, name: 'github-token', version: 2},
+    {id: 301, name: 'database-password', version: 4, spaceId: 1},
+    {id: 302, name: 'github-token', version: 2, spaceId: 1},
 ];
 
 export const mockConfigRefs = [
-    {id: 401, name: 'database-host', version: 2},
-    {id: 402, name: 'feature-flags', version: 7},
+    {id: 401, name: 'database-host', version: 2, spaceId: 1},
+    {id: 402, name: 'feature-flags', version: 7, spaceId: 1},
 ];
 
 const apiConfig = {

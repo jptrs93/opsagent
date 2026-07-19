@@ -294,9 +294,12 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 		if branch == "" {
 			_, branch, err = h.GitVersions.DefaultCommit(ctx, repo)
 			if err != nil || !slices.Contains(branches, branch) {
-				branch = branches[0]
-				if slices.Contains(branches, "main") {
-					branch = "main"
+				branch = ""
+				if len(branches) > 0 {
+					branch = branches[0]
+					if slices.Contains(branches, "main") {
+						branch = "main"
+					}
 				}
 			}
 		}
@@ -691,8 +694,8 @@ type deploymentAssetResolver interface {
 	GetAssetByID(assetID int32) (*apigen.Asset, bool)
 }
 
-type deploymentSecretLister interface {
-	List() []secrets.Meta
+type deploymentSecretResolver interface {
+	MetaByID(id int32) (secrets.Meta, bool)
 }
 
 type deploymentConfigResolver interface {
@@ -707,7 +710,7 @@ func validateDeploymentSpecWithAssets(spec *apigen.DeploymentSpec, assets deploy
 	return validateDeploymentSpecWithResolvers(spec, assets, nil, nil)
 }
 
-func validateDeploymentSpecWithResolvers(spec *apigen.DeploymentSpec, assets deploymentAssetResolver, secretStore deploymentSecretLister, configs deploymentConfigResolver) (*apigen.DeploymentSpec, error) {
+func validateDeploymentSpecWithResolvers(spec *apigen.DeploymentSpec, assets deploymentAssetResolver, secretStore deploymentSecretResolver, configs deploymentConfigResolver) (*apigen.DeploymentSpec, error) {
 	if spec == nil {
 		return nil, invalidConfigErrf("prepare is required")
 	}
@@ -922,22 +925,16 @@ func portForwardProtocolName(protocol apigen.PortForwardProtocol) string {
 	}
 }
 
-func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec, secretStore deploymentSecretLister, configs deploymentConfigResolver) error {
+func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec, secretStore deploymentSecretResolver, configs deploymentConfigResolver) error {
 	if spec == nil || spec.Runner.Container.IsZero() || len(spec.Runner.Container.EnvVars) == 0 {
 		return nil
 	}
 	cfg := &apigen.DeploymentConfig{Spec: *spec}
-	knownSecrets := map[int32]bool{}
-	if secretStore != nil {
-		for _, meta := range secretStore.List() {
-			knownSecrets[meta.ID] = true
-		}
-	}
 	for _, id := range runtimeinputs.SecretRefs(cfg) {
 		if secretStore == nil {
 			return invalidConfigErrf("runner.container.envVars: secrets cannot be resolved here")
 		}
-		if !knownSecrets[id] {
+		if _, ok := secretStore.MetaByID(id); !ok {
 			return invalidConfigErrf("runner.container.envVars: unknown secret id %d", id)
 		}
 	}

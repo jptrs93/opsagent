@@ -230,10 +230,14 @@ export function assetsPage() {
                 uploadProgressLoaded.val = loaded;
                 uploadProgressTotal.val = total || file.size;
             });
-            await reloadRows();
             uploadProgressStatus.val = "Uploaded";
             uploadedAssetKey.val = asset.key;
             uploadedAssetName.val = asset.key;
+            try {
+                await reloadRows();
+            } catch (e) {
+                error.val = e.message;
+            }
         } catch (e) {
             uploadProgressStatus.val = "Upload failed";
             uploadError.val = e.message;
@@ -250,9 +254,13 @@ export function assetsPage() {
             uploadError.val = "";
             uploadRenameSaving.val = true;
             const asset = await capi.postV1AssetsRename({key: uploadedAssetKey.val, newKey: name});
-            await reloadRows();
             uploadedAssetKey.val = asset.key;
             uploadedAssetName.val = asset.key;
+            try {
+                await reloadRows();
+            } catch (e) {
+                error.val = e.message;
+            }
         } catch (e) {
             uploadError.val = e.message;
         } finally {

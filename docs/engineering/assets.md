@@ -4,8 +4,8 @@ Assets are versioned user-managed file blobs intended for config files that can 
 
 ## Current implementation
 
-- Storage table: `assets` stores immutable versions with an auto-incremented numeric `id` and unique `(key, version)`.
-- Asset content and version metadata are immutable. Saving an existing key appends the next integer version; `location` changes only after a durable storage transition.
+- Storage table: `assets` stores versioned rows with an auto-incremented numeric `id` and unique `(key, version)`.
+- Asset content and version metadata are immutable. Saving an existing key appends the next integer version; `location` changes only after a durable storage transition. Renaming changes the group key across every version without changing IDs, versions, content, or locations.
 - Deployment configs pin assets by immutable asset row ID; the key/version are display and selection metadata.
 - Latest metadata is listed via `/v1/assets/list`; the blob is fetched explicitly via `/v1/assets/get`.
 - Assets up to 10 MiB are stored inline in the primary DB.
@@ -13,6 +13,7 @@ Assets are versioned user-managed file blobs intended for config files that can 
 - The UI does not load large asset content for preview/edit. It shows a "too large to show" message while deployments and worker mounts still fetch the blob transparently.
 - `format` is a UI/editor hint such as `text`, `nginx`, `yaml`, or `json`.
 - `location` is empty for inline assets, `local://<id>` for primary-local large assets, and `s3://...` for S3-backed large assets. A `pending://...` location is used only for an unpublished, interrupted large-asset upload; public asset queries exclude those rows until recovery finishes the upload.
+- Asset rename rejects an existing destination key and preserves the complete version history. Existing deployments remain valid because they pin immutable asset IDs; their stored display key is refreshed only when the deployment config is updated.
 - `asset_migrations` records each complete local-to-S3 or S3-to-local transition with its old and new `opendeploy_config` row IDs, durable status, timestamps, and latest error. Individual asset locations are the per-asset progress markers; there is no migration-item table.
 - Primary/secondary startup creates the fixed local large-asset and materialized-asset cache roots up front. Asset operations create files inside those roots but do not recreate missing roots.
 

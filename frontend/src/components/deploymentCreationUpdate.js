@@ -72,7 +72,7 @@ export class DeploymentCreationUpdate {
         this.loadingVersions = van.state(false);
         this.versionError = van.state('');
         this.versionRequestDescription = van.state('');
-        this.requestSequences = {repository: 0, commits: 0, exact: 0, image: 0, release: 0};
+        this.requestSequences = {repository: 0, commits: 0, exact: 0, image: 0, versions: 0};
         this.flakeValidationTimer = null;
         this.document = {
             read: () => this.toDocument(),
@@ -94,6 +94,14 @@ export class DeploymentCreationUpdate {
         return this.form.sourceType.val === SOURCE_DOCKER_IMAGE
             ? this.form.containerImage.val.trim()
             : this.form.nixRepo.val.trim();
+    }
+
+    deploymentVersionsKey(deploymentId) {
+        const sourceType = this.form.sourceType.val;
+        const source = sourceType === SOURCE_NIX_DOCKER
+            ? this.form.nixRepo.val.trim()
+            : (sourceType === SOURCE_DOCKER_IMAGE ? this.form.containerImage.val.trim() : '');
+        return JSON.stringify(['deployment-versions', Number(deploymentId || 0), sourceType, source]);
     }
 
     repositoryStatus() {
@@ -181,6 +189,7 @@ export class DeploymentCreationUpdate {
     }
 
     onSourceTypeChange() {
+        this.cancel('versions');
         this.cancel('repository');
         this.cancel('commits');
         this.cancel('image');
@@ -199,6 +208,7 @@ export class DeploymentCreationUpdate {
     }
 
     onRepositoryInput() {
+        this.cancel('versions');
         this.cancel('repository');
         this.cancel('commits');
         this.invalidateExactValidation();
@@ -228,6 +238,7 @@ export class DeploymentCreationUpdate {
     }
 
     onImageInput() {
+        this.cancel('versions');
         this.cancel('image');
         this.versionError.val = '';
         this.containerImage.discovery.val = idleStatus();
@@ -310,7 +321,7 @@ export class DeploymentCreationUpdate {
             const stoppedUpdateWithChangedSource = Boolean(this.existingState && !this.desiredRunning.val && !this.sourceMatchesInitial());
             this.nixDockerBuild.commits.val = commits;
             let selectedCommit;
-            if (preserveSelection && previous && (commits.some(item => item.id === previous) || previous === deployed)) {
+            if (preserveSelection && previous) {
                 selectedCommit = previous;
             } else if (preserveSelection && deployed && this.sourceMatchesInitial()) {
                 selectedCommit = deployed;
@@ -339,11 +350,12 @@ export class DeploymentCreationUpdate {
 
     async selectBranch(branch) {
         this.nixDockerBuild.selectedBranch.val = branch;
-        this.nixDockerBuild.selectedCommit.val = '';
         this.nixDockerBuild.commits.val = [];
-        this.invalidateExactValidation();
-        const loaded = await this.discoverCommits(branch, {preserveSelection: false});
-        if (loaded && this.desiredRunning.val) await this.validateExactNixSelection();
+        const loaded = await this.discoverCommits(branch, {preserveSelection: true});
+        if (loaded && this.desiredRunning.val
+            && !this.initialNixSourceTrusted() && !this.hasCurrentExactNixValidation()) {
+            await this.validateExactNixSelection();
+        }
         return loaded;
     }
 
@@ -460,35 +472,110 @@ export class DeploymentCreationUpdate {
         }
     }
 
-    async loadGithubReleases(action, deploymentId, {preserveSelection = true} = {}) {
+    async loadExistingDeploymentVersions(action, deploymentId, {preserveSelection = true} = {}) {
         if (typeof action !== 'function') throw new Error('loadDeploymentVersions is required');
-        const key = JSON.stringify(['github-release', Number(deploymentId || 0)]);
-        const sequence = ++this.requestSequences.release;
-        this.githubRelease.discovery.val = checkingStatus(key, 'Loading releases...');
+        const sourceType = this.form.sourceType.val;
+        const key = this.deploymentVersionsKey(deploymentId);
+        const sequence = ++this.requestSequences.versions;
         this.versionError.val = '';
-        this.versionRequestDescription.val = 'Refreshing available releases.';
+        this.versionRequestDescription.val = 'Loading available versions.';
+        if (sourceType === SOURCE_NIX_DOCKER) {
+            this.nixDockerBuild.repository.val = checkingStatus(
+                nixRepositoryDiscoveryKey(this.form.nixRepo.val),
+                'Loading repository versions...',
+            );
+            this.nixDockerBuild.commitDiscovery.val = checkingStatus(key, 'Loading commits...');
+        } else if (sourceType === SOURCE_DOCKER_IMAGE) {
+            this.containerImage.discovery.val = checkingStatus(imageDiscoveryKey(this.form.containerImage.val), 'Loading tags...');
+        } else {
+            this.githubRelease.discovery.val = checkingStatus(key, 'Loading releases...');
+        }
         this.updateVersionActivity();
+        const isCurrent = () => this.requestSequences.versions === sequence
+            && this.deploymentVersionsKey(deploymentId) === key;
         try {
             const response = await action({deploymentId});
-            if (this.requestSequences.release !== sequence) return false;
-            const releases = response?.githubRelease?.releases || [];
-            const previous = this.githubRelease.selectedRelease.val;
-            const deployed = this.existingState?.deployedVersion || '';
-            this.githubRelease.releases.val = releases;
-            if (preserveSelection && previous && releases.some(item => item.id === previous)) {
-                this.githubRelease.selectedRelease.val = previous;
-            } else if (preserveSelection && deployed && releases.some(item => item.id === deployed)) {
-                this.githubRelease.selectedRelease.val = deployed;
-            } else {
-                this.githubRelease.selectedRelease.val = releases[0]?.id || '';
+            if (!isCurrent()) return false;
+            if (Number(response?.deploymentId || 0) !== Number(deploymentId || 0)) {
+                throw new Error('Version response did not attest the requested deployment.');
             }
-            this.githubRelease.discovery.val = okStatus(key, 'Releases loaded.');
+
+            if (sourceType === SOURCE_NIX_DOCKER) {
+                const result = response?.nixDockerBuild;
+                if (!result) throw new Error('Version response did not include Nix versions.');
+                const branches = result.branches || [];
+                const selectedBranch = (result.selectedBranch || '').trim();
+                const commits = result.commits || [];
+                const previous = this.nixDockerBuild.selectedCommit.val;
+                const deployed = this.existingState?.deployedVersion || '';
+                this.nixDockerBuild.branches.val = branches;
+                this.nixDockerBuild.selectedBranch.val = selectedBranch;
+                this.nixDockerBuild.commits.val = commits;
+                if (preserveSelection && previous && (commits.some(item => item.id === previous) || previous === deployed)) {
+                    this.nixDockerBuild.selectedCommit.val = previous;
+                } else if (preserveSelection && deployed && this.sourceMatchesInitial()) {
+                    this.nixDockerBuild.selectedCommit.val = deployed;
+                } else {
+                    this.nixDockerBuild.selectedCommit.val = commits[0]?.id || '';
+                }
+                this.nixDockerBuild.repository.val = okStatus(
+                    nixRepositoryDiscoveryKey(this.form.nixRepo.val),
+                    'Repository accessible.',
+                );
+                this.nixDockerBuild.commitDiscovery.val = okStatus(
+                    nixCommitDiscoveryKey(this.form.nixRepo.val, selectedBranch),
+                    'Commits loaded.',
+                );
+            } else if (sourceType === SOURCE_DOCKER_IMAGE) {
+                const result = response?.containerImage;
+                if (!result) throw new Error('Version response did not include image tags.');
+                const tags = result.tags || [];
+                const previous = this.containerImage.selectedTag.val;
+                const deployed = this.existingState?.deployedVersion || '';
+                this.containerImage.tags.val = tags;
+                if (preserveSelection && previous && (tags.some(item => item.id === previous) || previous === deployed)) {
+                    this.containerImage.selectedTag.val = previous;
+                } else if (preserveSelection && deployed && this.sourceMatchesInitial()) {
+                    this.containerImage.selectedTag.val = deployed;
+                } else {
+                    this.containerImage.selectedTag.val = tags[0]?.id || '';
+                }
+                this.containerImage.discovery.val = okStatus(
+                    imageDiscoveryKey(this.form.containerImage.val),
+                    'Image accessible.',
+                );
+            } else {
+                const result = response?.githubRelease;
+                if (!result) throw new Error('Version response did not include releases.');
+                const releases = result.releases || [];
+                const previous = this.githubRelease.selectedRelease.val;
+                const deployed = this.existingState?.deployedVersion || '';
+                this.githubRelease.releases.val = releases;
+                if (preserveSelection && previous && releases.some(item => item.id === previous)) {
+                    this.githubRelease.selectedRelease.val = previous;
+                } else if (preserveSelection && deployed && releases.some(item => item.id === deployed)) {
+                    this.githubRelease.selectedRelease.val = deployed;
+                } else {
+                    this.githubRelease.selectedRelease.val = releases[0]?.id || '';
+                }
+                this.githubRelease.discovery.val = okStatus(key, 'Releases loaded.');
+            }
             return true;
         } catch (error) {
-            if (this.requestSequences.release !== sequence) return false;
-            const message = error.message || 'Failed to load releases.';
-            this.githubRelease.discovery.val = errorStatus(key, message);
-            this.githubRelease.releases.val = [];
+            if (!isCurrent()) return false;
+            const message = error.message || 'Failed to load deployment versions.';
+            if (sourceType === SOURCE_NIX_DOCKER) {
+                this.nixDockerBuild.repository.val = errorStatus(nixRepositoryDiscoveryKey(this.form.nixRepo.val), message);
+                this.nixDockerBuild.commitDiscovery.val = errorStatus(key, message);
+                this.nixDockerBuild.branches.val = [];
+                this.nixDockerBuild.commits.val = [];
+            } else if (sourceType === SOURCE_DOCKER_IMAGE) {
+                this.containerImage.discovery.val = errorStatus(imageDiscoveryKey(this.form.containerImage.val), message);
+                this.containerImage.tags.val = [];
+            } else {
+                this.githubRelease.discovery.val = errorStatus(key, message);
+                this.githubRelease.releases.val = [];
+            }
             this.versionError.val = message;
             return false;
         } finally {
@@ -598,6 +685,7 @@ export class DeploymentCreationUpdate {
             || previousSource.repo !== nextSource.repo
             || previousSource.image !== nextSource.image;
         if (sourceChanged) {
+            this.cancel('versions');
             this.cancel('repository');
             this.cancel('commits');
             this.cancel('image');
