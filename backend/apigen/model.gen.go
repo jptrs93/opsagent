@@ -411,6 +411,11 @@ type AssetSetRequest struct {
 	SpaceID int32
 }
 
+type AssetRenameRequest struct {
+	Key    string
+	NewKey string
+}
+
 type AssetDeleteRequest struct {
 	Key string
 }

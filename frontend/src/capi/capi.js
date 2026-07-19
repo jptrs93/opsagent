@@ -35,6 +35,7 @@ import {
   decodeWebAuthNOptionsResponse,
   encodeAssetDeleteRequest,
   encodeAssetGetRequest,
+  encodeAssetRenameRequest,
   encodeAssetSetRequest,
   encodeClusterConfigsRequest,
   encodeClusterSecretsRequest,
@@ -699,10 +700,11 @@ export class Capi {
   }
 
   /**
+   * @param {AssetRenameRequest} payload
    * @returns {Promise<Asset>}
    */
-  async postV1AssetsRename() {
-    const response = await this.#request("/v1/assets/rename", { method: 'POST' });
+  async postV1AssetsRename(payload) {
+    const response = await this.#request("/v1/assets/rename", { method: 'POST', body: encodeAssetRenameRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }

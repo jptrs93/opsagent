@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,11 +17,33 @@ func main() {
 	fmt.Printf("nixdockerbuild1 env OPENDEPLOY_E2E_CONFIG=%s\n", os.Getenv("OPENDEPLOY_E2E_CONFIG"))
 	fmt.Printf("nixdockerbuild1 env OPENDEPLOY_E2E_SECRET=%s\n", os.Getenv("OPENDEPLOY_E2E_SECRET"))
 	printAssetMount("/tmp")
+	checkIPv4Egress()
 
 	for count := 1; ; count++ {
 		fmt.Printf("nixdockerbuild1 count=%d time=%s\n", count, time.Now().Format(time.RFC3339))
 		time.Sleep(10 * time.Second)
 	}
+}
+
+func checkIPv4Egress() {
+	url := os.Getenv("OPENDEPLOY_E2E_IPV4_EGRESS_URL")
+	if url == "" {
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	response, err := client.Get(url)
+	if err != nil {
+		fmt.Printf("nixdockerbuild1 ipv4 egress error=%v\n", err)
+		return
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		fmt.Printf("nixdockerbuild1 ipv4 egress error=%v\n", err)
+		return
+	}
+	fmt.Printf("nixdockerbuild1 ipv4 egress observed source=%s status=%d\n", strings.TrimSpace(string(body)), response.StatusCode)
 }
 
 func printAssetMount(root string) {

@@ -183,7 +183,7 @@ const eventPanel = div(
 
 van.add(document.body,
     div(
-        {class: 'flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,#172554_0,transparent_28rem)]'},
+        {class: 'flex h-full min-h-0 flex-col'},
         header(
             {class: 'shrink-0 border-b border-gray-800 bg-gray-950/85 px-4 py-3 backdrop-blur md:px-6'},
             div(

@@ -258,6 +258,22 @@ func (s *Store) DeleteAsset(ctx context.Context, key string) error {
 	}
 	return nil
 }
+
+func (s *Store) RenameAsset(ctx context.Context, oldKey, newKey string) (*apigen.Asset, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	asset, err := s.DB.RenameAsset(oldKey, newKey)
+	if err != nil {
+		return nil, err
+	}
+	versions := s.DB.ListAssetVersionsByKey(newKey)
+	for _, version := range versions {
+		s.DB.NotifyAssetUpdate(version)
+	}
+	return asset, nil
+}
+
 func (s *Store) openS3Asset(ctx context.Context, location string) (io.ReadCloser, error) {
 	bucket, key, err := parseS3Location(location)
 	if err != nil {

@@ -220,9 +220,7 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetsRename(cp.Empty) returns (Asset) {
-    option (cp.url) = "/v1/assets/rename";
-    option (cp.go_custom) = true;
+  rpc PostV1AssetsRename(AssetRenameRequest) returns (Asset) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -646,6 +644,11 @@ message AssetSetRequest {
   string format = 2;
   bytes blob = 3;
   int32 space_id = 4;
+}
+
+message AssetRenameRequest {
+  string key = 1;
+  string new_key = 2;
 }
 
 message AssetDeleteRequest {

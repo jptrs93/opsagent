@@ -2567,6 +2567,38 @@ func DecodeAssetSetRequest(b []byte) (*AssetSetRequest, error) {
 	return &m, nil
 }
 
+func (m *AssetRenameRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	b = AppendStringField(b, m.NewKey, 2)
+	return b
+}
+
+func DecodeAssetRenameRequest(b []byte) (*AssetRenameRequest, error) {
+	var m AssetRenameRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 2:
+			b, m.NewKey, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *AssetDeleteRequest) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Key, 1)

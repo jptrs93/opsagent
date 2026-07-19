@@ -20,6 +20,8 @@ import (
 	"time"
 )
 
+const ipv4EgressListenerPort = 18080
+
 const mockUpgradeVersion = "v1.0.0"
 
 var tlsIngressHosts = []string{
@@ -395,6 +397,7 @@ func (c *config) run() error {
 		{"hosts", "syncing VM /etc/hosts entries", c.syncHostsAll},
 		{"ca", "installing test CA into cluster VMs", c.installTestCAAll},
 		{"cluster", "installing primary and secondary services", c.installCluster},
+		{"IPv4 egress listener", "starting receiver on the second worker", c.startIPv4EgressListener},
 	}
 	for _, step := range steps {
 		if err := c.step(step.name, step.description, step.fn); err != nil {
@@ -2262,6 +2265,36 @@ func (c *config) playwrightDockerScript(command string) string {
 	return proxy + " sleep 1 && " + command
 }
 
+func (c *config) startIPv4EgressListener() error {
+	script := fmt.Sprintf(`set -euo pipefail
+cat > /tmp/opendeploy-ipv4-egress-listener.py <<'PY'
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = self.client_address[0].encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        pass
+
+HTTPServer(("0.0.0.0", %d), Handler).serve_forever()
+PY
+pkill -f /tmp/opendeploy-ipv4-egress-listener.py || true
+nohup python3 /tmp/opendeploy-ipv4-egress-listener.py >/tmp/opendeploy-ipv4-egress-listener.log 2>&1 &
+for _ in $(seq 1 10); do
+  curl -fsS http://127.0.0.1:%d/ >/dev/null && exit 0
+  sleep 1
+done
+cat /tmp/opendeploy-ipv4-egress-listener.log
+exit 1`, ipv4EgressListenerPort, ipv4EgressListenerPort)
+	return c.vmBash(c.Secondary2Name, script)
+}
+
 func (c *config) runPlaywrightFlows() error {
 	flowArgs := []string{}
 	for _, flow := range strings.Split(env("FLOWS", "bootstrap-enroll-nixdocker"), ",") {
@@ -2279,6 +2312,14 @@ func (c *config) runPlaywrightFlows() error {
 		return err
 	}
 	worker2MachineID, err := c.workerEnrollmentMachineID(c.Secondary2Name)
+	if err != nil {
+		return err
+	}
+	worker1IPv4, err := c.vmIPv4(c.SecondaryName)
+	if err != nil {
+		return err
+	}
+	worker2IPv4, err := c.vmIPv4(c.Secondary2Name)
 	if err != nil {
 		return err
 	}
@@ -2304,22 +2345,24 @@ func (c *config) runPlaywrightFlows() error {
 	}
 	logf("Upgrade target version: %s", upgradeVersion)
 	envPairs := map[string]string{
-		"OPD_BASE_URL":             c.PlaywrightBaseURL,
-		"OPD_BACKEND_S3_ENDPOINT":  "http://" + c.SecondaryName + ":9000",
-		"OPD_IGNORE_HTTPS_ERRORS":  "true",
-		"OPD_SECONDARY_HOST":       secondaryHost,
-		"OPD_TLS_INGRESS_HOST":     tlsIngressHost,
-		"OPD_TLS_INGRESS_PORT":     tlsIngressPort,
-		"OPD_WORKER_1_MACHINE_ID":  worker1MachineID,
-		"OPD_WORKER_2_MACHINE_ID":  worker2MachineID,
-		"OPD_SETUP_PASSWORD":       envFile["OPD_SETUP_PASSWORD"],
-		"OPD_INSTALL_VERSION":      envFile["OPD_INSTALL_VERSION"],
-		"OPD_UPGRADE_VERSION":      upgradeVersion,
-		"OPD_BACKUP_RESTORE":       boolString(c.BackupRestore),
-		"OPD_BACKUP_RESTORE_STATE": "/work/test-results/backup-restore.env",
-		"OPD_POSTGRES_IMAGE":       c.PostgresImage,
-		"OPD_MINIO_IMAGE":          c.MinioImage,
-		"OPENDEPLOY_GITHUB_TOKEN":  c.OpenDeployGitHubToken,
+		"OPD_BASE_URL":                    c.PlaywrightBaseURL,
+		"OPD_BACKEND_S3_ENDPOINT":         "http://" + c.SecondaryName + ":9000",
+		"OPD_IGNORE_HTTPS_ERRORS":         "true",
+		"OPD_SECONDARY_HOST":              secondaryHost,
+		"OPD_TLS_INGRESS_HOST":            tlsIngressHost,
+		"OPD_TLS_INGRESS_PORT":            tlsIngressPort,
+		"OPD_WORKER_1_MACHINE_ID":         worker1MachineID,
+		"OPD_WORKER_2_MACHINE_ID":         worker2MachineID,
+		"OPD_IPV4_EGRESS_URL":             fmt.Sprintf("http://%s:%d/", worker2IPv4, ipv4EgressListenerPort),
+		"OPD_IPV4_EGRESS_EXPECTED_SOURCE": worker1IPv4,
+		"OPD_SETUP_PASSWORD":              envFile["OPD_SETUP_PASSWORD"],
+		"OPD_INSTALL_VERSION":             envFile["OPD_INSTALL_VERSION"],
+		"OPD_UPGRADE_VERSION":             upgradeVersion,
+		"OPD_BACKUP_RESTORE":              boolString(c.BackupRestore),
+		"OPD_BACKUP_RESTORE_STATE":        "/work/test-results/backup-restore.env",
+		"OPD_POSTGRES_IMAGE":              c.PostgresImage,
+		"OPD_MINIO_IMAGE":                 c.MinioImage,
+		"OPENDEPLOY_GITHUB_TOKEN":         c.OpenDeployGitHubToken,
 	}
 	for key, value := range tlsIngressEnv {
 		envPairs[key] = value

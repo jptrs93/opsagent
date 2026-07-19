@@ -544,7 +544,7 @@ export function commandPane(form) {
             field("Working directory", input({
                 type: "text",
                 class: textInputClass(),
-                placeholder: "/app",
+                placeholder: "/data",
                 value: form.containerWorkingDir.rawVal,
                 oninput: e => { form.containerWorkingDir.val = e.target.value; },
             }), "Leave blank to use the image default working directory."),

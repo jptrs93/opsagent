@@ -949,8 +949,11 @@ func (c *OpsagentHttpV1Capi) PostV1AssetsUpload(ctx context.Context) (*Asset, er
 	return DecodeAsset(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1AssetsRename(ctx context.Context) (*Asset, error) {
-	resp, err := c.do(ctx, "POST", "/v1/assets/rename", nil, "application/protobuf", "application/protobuf")
+func (c *OpsagentHttpV1Capi) PostV1AssetsRename(ctx context.Context, req *AssetRenameRequest) (*Asset, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AssetsRename request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/assets/rename", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}

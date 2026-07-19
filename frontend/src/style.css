@@ -10,6 +10,7 @@
 
     body {
         @apply text-gray-100 bg-gray-950;
+        background-image: radial-gradient(circle at top left, #172554 0, transparent 28rem);
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 }

@@ -334,6 +334,11 @@
  * @property {number} spaceId
  */
 /**
+ * @typedef {Object} AssetRenameRequest
+ * @property {string} key
+ * @property {string} newKey
+ */
+/**
  * @typedef {Object} AssetDeleteRequest
  * @property {string} key
  */
@@ -4969,6 +4974,69 @@ function decodeAssetSetRequestMessage(reader, length) {
 export function decodeAssetSetRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeAssetSetRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AssetRenameRequest} message
+ * @param {Writer} writer
+ */
+export function writeAssetRenameRequest(message, writer) {
+    if (message.key !== undefined && message.key !== null && message.key !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.key);
+    }
+    if (message.newKey !== undefined && message.newKey !== null && message.newKey !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.newKey);
+    }
+}
+
+
+/**
+ * @param {AssetRenameRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAssetRenameRequest(message) {
+    const writer = Writer.create();
+    writeAssetRenameRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AssetRenameRequest}
+ */
+function decodeAssetRenameRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {key: "", newKey: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.key = reader.string();
+                break;
+            }
+            case 2: {
+                message.newKey = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AssetRenameRequest}
+ */
+export function decodeAssetRenameRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAssetRenameRequestMessage(reader);
 }
 
 

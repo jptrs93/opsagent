@@ -4,12 +4,18 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"time"
 
 	"github.com/jptrs93/goutil/pubsubu"
 	"github.com/jptrs93/opsagent/backend/apigen"
+)
+
+var (
+	ErrAssetNotFound      = errors.New("asset not found")
+	ErrAssetAlreadyExists = errors.New("asset already exists")
 )
 
 func assetRowToProto(r Asset) *apigen.Asset {
@@ -281,32 +287,48 @@ func (s *PrimaryStorage) UpdateAssetLocation(id int32, location string) *apigen.
 	return assetRowToProto(r)
 }
 
-func (s *PrimaryStorage) RenameAsset(oldKey, newKey string) (*apigen.Asset, bool) {
+func (s *PrimaryStorage) RenameAsset(oldKey, newKey string) (*apigen.Asset, error) {
 	if oldKey == newKey {
-		return s.GetAsset(oldKey, 0)
+		asset, ok := s.GetAsset(oldKey, 0)
+		if !ok {
+			return nil, ErrAssetNotFound
+		}
+		return asset, nil
 	}
 
 	ctx := context.Background()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	res, err := s.db.ExecContext(ctx, `UPDATE assets SET key = ? WHERE key = ?`, newKey, oldKey)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		panic(fmt.Sprintf("RenameAsset: %v", err))
+		return nil, fmt.Errorf("begin asset rename: %w", err)
 	}
-	rows, err := res.RowsAffected()
-	if err != nil {
-		panic(fmt.Sprintf("RenameAsset rows affected: %v", err))
+	defer tx.Rollback()
+
+	var exists int
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM assets WHERE key = ? LIMIT 1`, newKey).Scan(&exists); err == nil {
+		return nil, ErrAssetAlreadyExists
+	} else if err != sql.ErrNoRows {
+		return nil, fmt.Errorf("check asset rename destination: %w", err)
 	}
-	if rows == 0 {
-		return nil, false
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM assets WHERE key = ? LIMIT 1`, oldKey).Scan(&exists); err == sql.ErrNoRows {
+		return nil, ErrAssetNotFound
+	} else if err != nil {
+		return nil, fmt.Errorf("check asset rename source: %w", err)
 	}
 
-	r, err := s.q.GetLatestAsset(ctx, newKey)
-	if err != nil {
-		panic(fmt.Sprintf("RenameAsset latest: %v", err))
+	if _, err := tx.ExecContext(ctx, `UPDATE assets SET key = ? WHERE key = ?`, newKey, oldKey); err != nil {
+		return nil, fmt.Errorf("rename asset: %w", err)
 	}
-	return assetRowToProto(r), true
+	r, err := s.q.WithTx(tx).GetLatestAsset(ctx, newKey)
+	if err != nil {
+		return nil, fmt.Errorf("get renamed asset: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit asset rename: %w", err)
+	}
+	return assetRowToProto(r), nil
 }
 
 func (s *PrimaryStorage) DeleteAssetVersionByID(id int32) {

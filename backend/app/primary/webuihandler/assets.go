@@ -10,11 +10,13 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
 var (
-	AssetKeyRequiredErr = apigen.NewApiErr("Asset key is required", "asset_key_required", http.StatusBadRequest)
-	AssetNotFoundErr    = apigen.NewApiErr("Asset not found", "asset_not_found", http.StatusNotFound)
+	AssetKeyRequiredErr   = apigen.NewApiErr("Asset key is required", "asset_key_required", http.StatusBadRequest)
+	AssetNotFoundErr      = apigen.NewApiErr("Asset not found", "asset_not_found", http.StatusNotFound)
+	AssetAlreadyExistsErr = apigen.NewApiErr("Asset key already exists", "asset_key_exists", http.StatusBadRequest)
 )
 
 func validateUploadAssetName(raw string) (string, error) {
@@ -121,30 +123,20 @@ func (h *Handler) PostV1AssetsUpload(ctx apigen.Context, request *http.Request, 
 	return nil
 }
 
-func (h *Handler) PostV1AssetsRename(ctx apigen.Context, request *http.Request, writer http.ResponseWriter) error {
-	query := request.URL.Query()
-	key := strings.TrimSpace(query.Get("key"))
-	if key == "" {
-		return AssetKeyRequiredErr
+func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRenameRequest) (*apigen.Asset, error) {
+	key := strings.TrimSpace(req.Key)
+	newKey := strings.TrimSpace(req.NewKey)
+	if key == "" || newKey == "" {
+		return nil, AssetKeyRequiredErr
 	}
-	name, err := validateUploadAssetName(query.Get("name"))
-	if err != nil {
-		return err
+	asset, err := h.Assets.RenameAsset(ctx, key, newKey)
+	if errors.Is(err, sqlite.ErrAssetAlreadyExists) {
+		return nil, AssetAlreadyExistsErr
 	}
-	newKey := h.uniqueAssetName(name, key)
-	asset, ok := h.Store.RenameAsset(key, newKey)
-	if !ok {
-		return AssetNotFoundErr
+	if errors.Is(err, sqlite.ErrAssetNotFound) {
+		return nil, AssetNotFoundErr
 	}
-	versions := h.Store.ListAssetVersionsByKey(newKey)
-	for _, version := range versions {
-		h.Store.NotifyAssetUpdate(version)
-	}
-	if len(versions) == 0 {
-		h.Store.NotifyAssetUpdate(asset)
-	}
-	apigen.Respond(ctx, request, writer, asset, nil)
-	return nil
+	return asset, err
 }
 
 func (h *Handler) PostV1AssetsDelete(ctx apigen.Context, req *apigen.AssetDeleteRequest) error {
