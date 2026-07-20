@@ -53,11 +53,9 @@ in `POST /v1/deployment/update`. Its name and `nodeId` placement are fixed at
 creation; its space can be changed through the update path.
 
 `nodeId` is the required canonical placement and references `ClusterNode.id`.
-`DeploymentIdentity.machine` remains deprecated compatibility metadata: the
-public create boundary derives it from the selected node's immutable identifier,
-but placement, lookup, duplicate detection, and execution do not use it. Every
-stored deployment has a positive canonical `nodeId`. Deployment history entries
-carry the deployment's current identity and node placement as display metadata.
+Every stored deployment has a positive canonical `nodeId`. Deployment history
+entries carry the deployment's current identity and node placement as display
+metadata.
 
 ### Prepare variants
 
@@ -124,7 +122,7 @@ Driven by the runner. Tracks the running container task with `running_pid`,
 
 ## Deployment identification
 
-Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployment/create`. Human-readable metadata is stored as `DeploymentConfig.Identity`, and application identity is `{nodeId, spaceId, name}`. SQLite temporarily retains its legacy active index on `{spaceId, machine, name}`; the compatibility column is mechanically derived from the node and is not used by application identity checks. All API requests, storage keys, and log file paths use the integer `id`.
+Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployment/create`. Human-readable metadata is stored as `DeploymentConfig.Identity`, and application identity is `{nodeId, spaceId, name}`. SQLite enforces that identity with a partial unique index over active deployments. All API requests, storage keys, and log file paths use the integer `id`.
 
 Deleting a deployment releases its human-readable identity tuple but retains its ID, configuration history, status history, logs, volumes, and other ID-owned records. Creating a deployment later with the same space, node, and name creates a completely new and independent deployment with a fresh ID and version history. It does not restore, continue, or otherwise inherit the deleted deployment.
 

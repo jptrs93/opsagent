@@ -989,8 +989,9 @@ message LogLineBatch {
 
 
 message DeploymentIdentity {
+  reserved 2;
+  reserved "machine";
   int32 space_id = 1;
-  string machine = 2 [deprecated = true]; // Legacy certificate identifier; placement uses DeploymentConfig.node_id.
   string name = 3;
 }
 

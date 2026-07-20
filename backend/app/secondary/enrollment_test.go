@@ -130,7 +130,6 @@ func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.Enrol
 			Spec:   *sqlite.SystemDeploymentSpec(),
 			Identity: apigen.DeploymentIdentity{
 				SpaceID: internaldeploy.SpaceID,
-				Machine: machine,
 				Name:    internaldeploy.SelfName,
 			},
 		}},
@@ -140,7 +139,6 @@ func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.Enrol
 			Spec:   *sqlite.NetproxyDeploymentSpec(),
 			Identity: apigen.DeploymentIdentity{
 				SpaceID: internaldeploy.SpaceID,
-				Machine: machine,
 				Name:    internaldeploy.NetproxyName,
 			},
 		}},

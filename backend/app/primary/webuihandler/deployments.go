@@ -43,12 +43,10 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 	if req.NodeID <= 0 {
 		return nil, invalidConfigErrf("nodeId is required")
 	}
-	machine, err := h.Store.NodeIdentifierByID(req.NodeID)
+	_, err := h.Store.NodeIdentifierByID(req.NodeID)
 	if err != nil {
 		return nil, invalidConfigErrf("node is not registered")
 	}
-	// The certificate identifier remains compatibility data; placement is nodeId.
-	identity.Machine = machine
 	if internaldeploy.IsInternalIdentity(identity) {
 		return nil, invalidConfigErrf("opendeploy system deployment identity is internal-only")
 	}

@@ -4682,14 +4682,12 @@ func DecodeLogLineBatch(b []byte) (*LogLineBatch, error) {
 
 func (m DeploymentIdentity) IsZero() bool {
 	return m.SpaceID == 0 &&
-		m.Machine == "" &&
 		m.Name == ""
 }
 
 func (m *DeploymentIdentity) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.SpaceID, 1)
-	b = AppendStringField(b, m.Machine, 2)
 	b = AppendStringField(b, m.Name, 3)
 	return b
 }
@@ -4707,8 +4705,6 @@ func DecodeDeploymentIdentity(b []byte) (*DeploymentIdentity, error) {
 		switch num {
 		case 1:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.Machine, err = ConsumeString(b, typ)
 		case 3:
 			b, m.Name, err = ConsumeString(b, typ)
 		default:

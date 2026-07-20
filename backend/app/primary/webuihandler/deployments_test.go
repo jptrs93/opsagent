@@ -1420,12 +1420,9 @@ func TestDeploymentIdentityIsScopedByNodeID(t *testing.T) {
 		})
 	}
 
-	first, err := create(nodeA.ID, 1)
+	_, err := create(nodeA.ID, 1)
 	if err != nil {
 		t.Fatalf("create first deployment: %v", err)
-	}
-	if first.Identity.Machine != nodeA.Identifier {
-		t.Fatalf("create compatibility machine = %q, want %q", first.Identity.Machine, nodeA.Identifier)
 	}
 	if _, err := create(nodeA.ID, 1); err != DuplicateDeploymentErr {
 		t.Fatalf("same-node duplicate err = %v, want %v", err, DuplicateDeploymentErr)

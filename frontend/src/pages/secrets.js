@@ -5,7 +5,7 @@ import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {valueOverlay} from "../components/valueOverlay.js";
 import {formatDateTime} from "../lib/date.js";
-import {checkIcon, copyIcon, expandIcon, eyeOffIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
+import {checkIcon, copyIcon, editIcon, expandIcon, eyeOffIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
 import {deploymentsS, machinesS, primaryConfigS, secretMetasS, secretsStatusS, spacesS, userConfigsS} from "../state/deployments.js";
 
@@ -30,7 +30,8 @@ export function isLong(value, element) {
 const iconButton = (child, onclick, cls = "", attrs = {}) => button({
     type: "button",
     ...attrs,
-    class: `p-1.5 rounded text-gray-400 hover:text-gray-100 hover:bg-surface-hover transition-colors cursor-pointer ${cls}`,
+    class: `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-gray-400 hover:text-gray-100 ` +
+        `hover:bg-surface-hover transition-colors cursor-pointer ${cls}`,
     onclick,
 }, child);
 
@@ -372,6 +373,21 @@ export function secretsPage() {
         rows.val = filteredAndSortedRows(localRows || []);
     };
 
+    const loadSecretValue = async (row) => {
+        if (row.loaded.val || row.isNew) return true;
+        try {
+            error.val = null;
+            const res = await capi.postV1SecretsReveal({id: row.referenceId});
+            row.value.val = new TextDecoder().decode(res.value);
+            row.orig.value = row.value.val;
+            row.loaded.val = true;
+            return true;
+        } catch (e) {
+            error.val = e.message;
+            return false;
+        }
+    };
+
     const toggleReveal = async (row) => {
         if (row.revealed.val) {
             row.revealed.val = false;
@@ -382,17 +398,18 @@ export function secretsPage() {
             }
             return;
         }
-        if (!row.loaded.val && !row.isNew) {
-            try {
-                error.val = null;
-                const res = await capi.postV1SecretsReveal({id: row.referenceId});
-                row.value.val = new TextDecoder().decode(res.value);
-                row.orig.value = row.value.val;
-                row.loaded.val = true;
-            } catch (e) { error.val = e.message; return; }
-        }
+        if (!await loadSecretValue(row)) return;
         row.revealed.val = true;
         if (isLong(row.value.val, row.valueInput)) valueTarget.val = row;
+    };
+
+    const editRowValue = async (row) => {
+        if (row.saving.val) return;
+        if (row.type === "secret") {
+            if (!await loadSecretValue(row)) return;
+            row.revealed.val = true;
+        }
+        queueMicrotask(() => row.valueInput?.isConnected && row.valueInput.focus());
     };
 
     const secretValueForCopy = async (row) => {
@@ -565,55 +582,55 @@ export function secretsPage() {
                 () => !unlockCode.val.trim())),
     ) : "";
 
-    const cellInput = (state, placeholder, mono, extra = {}) => input({
-        class: `w-full bg-transparent px-2 py-1 rounded border border-transparent ` +
-            `hover:border-gray-700 focus:border-brand focus:outline-none ${mono ? "font-mono" : ""}`,
-        placeholder,
-        value: state,
-        oninput: (e) => state.val = e.target.value,
-        ...extra,
-    });
-
     const typeBadge = (type) => span({
         class: `inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${type === "secret"
             ? "bg-purple-500/15 text-purple-300"
             : "bg-blue-500/15 text-blue-300"}`,
     }, type === "secret" ? "Secret" : "Config");
 
-    const configValueInput = (row) => div({class: "flex items-center gap-1"},
-        cellInput(row.value, "value", true, {disabled: row.saving}),
-        iconButton(expandIcon(), () => valueTarget.val = row, "shrink-0", {
-            title: "Expand config value",
-            "aria-label": "Expand config value",
-            disabled: row.saving,
-        }),
-    );
+    const valueInputClass = "w-full bg-transparent px-2 py-1 rounded border border-transparent " +
+        "hover:border-gray-700 focus:border-brand focus:outline-none font-mono";
+
+    const configValueInput = (row) => inlineEditableInput({
+        value: row.value,
+        dirty: () => row.isNew || valueDirty(row),
+        disabled: row.saving,
+        oninput: event => { row.value.val = event.target.value; },
+        onSave: () => saveValue(row),
+        onDiscard: () => discardValue(row),
+        inputClass: valueInputClass,
+        inputRef: element => { row.valueInput = element; },
+        placeholder: "value",
+        ariaLabel: `Config value ${row.orig.name}`,
+        saveAriaLabel: `Save config value ${row.orig.name}`,
+        discardAriaLabel: `Discard config value change for ${row.orig.name}`,
+    });
 
     const secretValueInput = (row) => {
-        const valueInput = input({
-            class: "flex-1 min-w-0 bg-transparent px-2 py-1 rounded border border-transparent " +
-                "hover:border-gray-700 focus:border-brand focus:outline-none font-mono",
-            type: "text",
-            autocomplete: "off",
-            disabled: row.saving,
-            readOnly: () => !(row.isNew || row.revealed.val),
-            style: () => row.revealed.val ? "" : "-webkit-text-security: disc;",
-            placeholder: row.isNew ? "value" : DEFAULT_SECRET_MASK,
+        return inlineEditableInput({
             value: () => row.isNew || row.revealed.val ? row.value.val : "",
+            dirty: () => row.isNew || valueDirty(row),
+            disabled: row.saving,
+            inputAttrs: {
+                type: "text",
+                autocomplete: "off",
+                readOnly: () => !(row.isNew || row.revealed.val),
+                style: () => row.revealed.val ? "" : "-webkit-text-security: disc;",
+            },
+            inputClass: valueInputClass,
+            inputRef: element => { row.valueInput = element; },
+            placeholder: row.isNew ? "value" : DEFAULT_SECRET_MASK,
             oninput: (e) => {
                 if (!row.isNew && !row.revealed.val) return;
                 row.value.val = e.target.value;
                 row.valueDirty.val = true;
             },
+            onSave: () => saveValue(row),
+            onDiscard: () => discardValue(row),
+            ariaLabel: `Secret value ${row.orig.name}`,
+            saveAriaLabel: `Save secret value ${row.orig.name}`,
+            discardAriaLabel: `Discard secret value change for ${row.orig.name}`,
         });
-        row.valueInput = valueInput;
-        return div({class: "flex items-center gap-1"},
-            valueInput,
-            iconButton(() => row.revealed.val ? eyeOffIcon() : eyeOpenIcon(),
-                () => toggleReveal(row), "disabled:cursor-not-allowed disabled:opacity-50", {
-                    disabled: row.saving,
-                }),
-        );
     };
 
     const usageButton = (row) => {
@@ -653,21 +670,35 @@ export function secretsPage() {
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => usageButton(row)),
         td({class: "py-1 pr-3"}, row.type === "secret" ? secretValueInput(row) : configValueInput(row)),
         td({class: "py-1 pl-2 pr-5 text-left whitespace-nowrap w-px"},
-            () => row.isNew || valueDirty(row)
-                ? div({class: "flex items-center justify-start gap-2"},
-                    smallBtn("Save", () => saveValue(row), "bg-brand text-white hover:bg-blue-600",
-                        () => row.saving.val || (row.isNew && !row.name.val.trim())),
-                    smallBtn("Discard", () => discardValue(row), "bg-gray-700 text-gray-200 hover:bg-gray-600",
-                        () => row.saving.val))
-                : div({class: "flex items-center justify-start gap-1"},
-                    iconButton(() => row.copied.val
-                        ? checkIcon({class: "w-4 h-4 text-green-400"})
-                        : copyIcon(), () => copyRowValue(row), "disabled:cursor-not-allowed disabled:opacity-50", {
-                        title: () => row.copied.val ? "Copied" : `Copy ${row.type} value`,
-                        "aria-label": () => row.copied.val ? "Copied" : `Copy ${row.type} value`,
+            div({class: "flex items-center justify-start gap-1"},
+                iconButton(editIcon(), () => { void editRowValue(row); },
+                    "disabled:cursor-not-allowed disabled:opacity-50", {
+                        title: `Edit ${row.type} value`,
+                        "aria-label": `Edit ${row.type} value`,
                         disabled: row.saving,
                     }),
-                    iconButton(trashIcon(), () => requestDeleteRow(row), "hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50", {
+                row.type === "secret"
+                    ? iconButton(() => row.revealed.val ? eyeOffIcon() : eyeOpenIcon(),
+                        () => { void toggleReveal(row); }, "disabled:cursor-not-allowed disabled:opacity-50", {
+                            title: () => row.revealed.val ? "Hide secret value" : "Reveal secret value",
+                            "aria-label": () => row.revealed.val ? "Hide secret value" : "Reveal secret value",
+                            disabled: row.saving,
+                        })
+                    : iconButton(expandIcon(), () => valueTarget.val = row,
+                        "disabled:cursor-not-allowed disabled:opacity-50", {
+                            title: "Expand config value",
+                            "aria-label": "Expand config value",
+                            disabled: row.saving,
+                        }),
+                iconButton(() => row.copied.val
+                    ? checkIcon({class: "w-4 h-4 text-green-400"})
+                    : copyIcon(), () => { void copyRowValue(row); }, "disabled:cursor-not-allowed disabled:opacity-50", {
+                    title: () => row.copied.val ? "Copied" : `Copy ${row.type} value`,
+                    "aria-label": () => row.copied.val ? "Copied" : `Copy ${row.type} value`,
+                    disabled: row.saving,
+                }),
+                iconButton(trashIcon(), () => requestDeleteRow(row),
+                    "hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50", {
                         title: `Delete ${row.type}`,
                         "aria-label": `Delete ${row.type}`,
                         disabled: row.saving,
@@ -781,7 +812,7 @@ export function secretsPage() {
         );
     };
 
-    const tableClass = "w-full min-w-[82rem] table-fixed text-sm";
+    const tableClass = "w-full min-w-[84rem] table-fixed text-sm";
 
     const tableCols = () => colgroup(
         col({style: "width:7rem"}),
@@ -789,8 +820,8 @@ export function secretsPage() {
         col({style: "width:7rem"}),
         col({style: "width:12rem"}),
         col({style: "width:8rem"}),
-        col({style: "width:24rem"}),
-        col({style: "width:6rem"}),
+        col({style: "width:22rem"}),
+        col({style: "width:10rem"}),
     );
 
     const sortableHeader = (key, label, cls = "") => th({class: `pb-2 pr-3 font-medium ${cls}`},

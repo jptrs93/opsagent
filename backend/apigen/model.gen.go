@@ -677,7 +677,6 @@ type LogLineBatch struct {
 
 type DeploymentIdentity struct {
 	SpaceID int32
-	Machine string
 	Name    string
 }
 

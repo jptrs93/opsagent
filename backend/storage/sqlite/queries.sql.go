@@ -23,15 +23,14 @@ func (q *Queries) CountDeploymentsForSpace(ctx context.Context, spaceID int64) (
 
 const createDeploymentConfig = `-- name: CreateDeploymentConfig :one
 
-INSERT INTO deployment_configs (node_id, space_id, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_configs (node_id, space_id, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING deployment_id, created_at
 `
 
 type CreateDeploymentConfigParams struct {
 	NodeID         int64
 	SpaceID        int64
-	Machine        string
 	Name           string
 	CreatedAt      int64
 	Version        int64
@@ -56,7 +55,6 @@ func (q *Queries) CreateDeploymentConfig(ctx context.Context, arg CreateDeployme
 	row := q.db.QueryRowContext(ctx, createDeploymentConfig,
 		arg.NodeID,
 		arg.SpaceID,
-		arg.Machine,
 		arg.Name,
 		arg.CreatedAt,
 		arg.Version,
@@ -245,7 +243,7 @@ func (q *Queries) GetConfigHistoryDesiredVersion(ctx context.Context, arg GetCon
 }
 
 const getDeploymentConfig = `-- name: GetDeploymentConfig :one
-SELECT deployment_id, node_id, space_id, machine, name, created_at, version, updated_at, updated_by,
+SELECT deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE deployment_id = ?
@@ -258,7 +256,6 @@ func (q *Queries) GetDeploymentConfig(ctx context.Context, deploymentID int64) (
 		&i.DeploymentID,
 		&i.NodeID,
 		&i.SpaceID,
-		&i.Machine,
 		&i.Name,
 		&i.CreatedAt,
 		&i.Version,
@@ -807,7 +804,7 @@ func (q *Queries) InsertUserConfig(ctx context.Context, arg InsertUserConfigPara
 }
 
 const listAllDeploymentConfigs = `-- name: ListAllDeploymentConfigs :many
-SELECT deployment_id, node_id, space_id, machine, name, created_at, version, updated_at, updated_by,
+SELECT deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE deleted = 0
@@ -826,7 +823,6 @@ func (q *Queries) ListAllDeploymentConfigs(ctx context.Context) ([]DeploymentCon
 			&i.DeploymentID,
 			&i.NodeID,
 			&i.SpaceID,
-			&i.Machine,
 			&i.Name,
 			&i.CreatedAt,
 			&i.Version,
@@ -1644,12 +1640,11 @@ func (q *Queries) UpdateSpace(ctx context.Context, arg UpdateSpaceParams) (Space
 }
 
 const upsertDeploymentConfig = `-- name: UpsertDeploymentConfig :exec
-INSERT INTO deployment_configs (deployment_id, node_id, space_id, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_configs (deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(deployment_id) DO UPDATE SET
     node_id = excluded.node_id,
     space_id = excluded.space_id,
-    machine = excluded.machine,
     name = excluded.name,
     created_at = excluded.created_at,
     version = excluded.version,
@@ -1665,7 +1660,6 @@ type UpsertDeploymentConfigParams struct {
 	DeploymentID   int64
 	NodeID         int64
 	SpaceID        int64
-	Machine        string
 	Name           string
 	CreatedAt      int64
 	Version        int64
@@ -1682,7 +1676,6 @@ func (q *Queries) UpsertDeploymentConfig(ctx context.Context, arg UpsertDeployme
 		arg.DeploymentID,
 		arg.NodeID,
 		arg.SpaceID,
-		arg.Machine,
 		arg.Name,
 		arg.CreatedAt,
 		arg.Version,

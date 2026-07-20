@@ -68,12 +68,7 @@ export function orderDeploymentConfig(config) {
 
 export function cleanDeploymentConfig(config) {
     if (!config) return undefined;
-    const cleaned = {...config};
-    if (cleaned.identity) {
-        cleaned.identity = {...cleaned.identity};
-        delete cleaned.identity.machine;
-    }
-    return omitZeroValues(cleaned);
+    return omitZeroValues(config);
 }
 
 export function deploymentConfigToYaml(config) {

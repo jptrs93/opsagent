@@ -57,7 +57,7 @@ The dashboard uses a split-pane layout:
 - Shows primary + worker machines and connection state via `GET /v1/cluster/status`.
 - Allows editing a machine's display name without changing its certificate or deployment identity.
 
-Deployment node selectors render `ClusterNode.name` and submit `ClusterNode.id` as `DeploymentCreateRequest.nodeId`. The backend copies the node's immutable identifier into deprecated `DeploymentIdentity.machine` compatibility metadata.
+Deployment node selectors render `ClusterNode.name` and submit `ClusterNode.id` as `DeploymentCreateRequest.nodeId`.
 
 ## Deployment editor
 

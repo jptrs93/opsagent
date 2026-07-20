@@ -1,7 +1,7 @@
 import van from "vanjs-core";
 import {checkIcon, xIcon} from "../lib/icons.js";
 
-const {button, div, input} = van.tags;
+const {button, div, input, textarea} = van.tags;
 
 const valueOf = value => typeof value === "function" ? value() : (value?.val ?? value);
 
@@ -13,7 +13,11 @@ export function inlineEditableInput({
     onDiscard,
     valid = true,
     disabled = false,
+    multiline = false,
+    inputAttrs = {},
     inputClass = "",
+    containerClass = "",
+    inputRef,
     placeholder = "",
     ariaLabel = "Editable name",
     saveAriaLabel = "Save name",
@@ -24,6 +28,8 @@ export function inlineEditableInput({
     const isDirty = () => Boolean(valueOf(dirty));
     const isDisabled = () => saving.val || Boolean(valueOf(disabled));
     const saveDisabled = () => isDisabled() || !Boolean(valueOf(valid));
+    const saveActionDisabled = () => !isDirty() || saveDisabled();
+    const discardActionDisabled = () => !isDirty() || isDisabled();
 
     const save = async () => {
         if (!isDirty() || saveDisabled()) return;
@@ -41,7 +47,9 @@ export function inlineEditableInput({
         queueMicrotask(() => inputElement?.isConnected && inputElement.focus());
     };
 
-    inputElement = input({
+    const inputTag = multiline ? textarea : input;
+    inputElement = inputTag({
+        ...inputAttrs,
         class: `min-w-0 flex-1 ${inputClass}`,
         value,
         placeholder,
@@ -51,7 +59,7 @@ export function inlineEditableInput({
         oninput,
         onkeydown: event => {
             if (event.isComposing || !isDirty()) return;
-            if (event.key === "Enter") {
+            if (event.key === "Enter" && (!multiline || event.metaKey || event.ctrlKey)) {
                 event.preventDefault();
                 void save();
             } else if (event.key === "Escape") {
@@ -60,23 +68,28 @@ export function inlineEditableInput({
             }
         },
     });
+    inputRef?.(inputElement);
 
     return div(
         {
-            class: "flex w-full min-w-0 items-center gap-1",
+            class: `flex w-full min-w-0 gap-1 ${multiline ? "items-start" : "items-center"} ${containerClass}`,
             onclick: event => event.stopPropagation(),
         },
         inputElement,
-        () => isDirty() ? div(
-            {class: "flex shrink-0 items-center gap-1"},
+        div(
+            {
+                class: () => `flex shrink-0 items-center gap-1 ${multiline ? "mt-1" : ""} ${
+                    isDirty() ? "" : "invisible pointer-events-none"}`,
+                "aria-hidden": () => String(!isDirty()),
+            },
             button({
                 type: "button",
                 title: saveAriaLabel,
                 "aria-label": saveAriaLabel,
-                disabled: saveDisabled,
+                disabled: saveActionDisabled,
                 class: () => `inline-flex h-7 w-7 items-center justify-center rounded border border-blue-500/40 ` +
                     `bg-blue-500/15 text-blue-300 transition-colors hover:bg-blue-500/25 ${
-                        saveDisabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
+                        saveActionDisabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
                 onclick: event => {
                     event.stopPropagation();
                     void save();
@@ -86,15 +99,15 @@ export function inlineEditableInput({
                 type: "button",
                 title: discardAriaLabel,
                 "aria-label": discardAriaLabel,
-                disabled: isDisabled,
+                disabled: discardActionDisabled,
                 class: () => `inline-flex h-7 w-7 items-center justify-center rounded border border-gray-600 ` +
                     `bg-gray-800 text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-100 ${
-                        isDisabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
+                        discardActionDisabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
                 onclick: event => {
                     event.stopPropagation();
                     discard();
                 },
             }, xIcon()),
-        ) : "",
+        ),
     );
 }

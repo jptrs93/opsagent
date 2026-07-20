@@ -36,7 +36,6 @@ type DeploymentConfig struct {
 	DeploymentID   int64
 	NodeID         int64
 	SpaceID        int64
-	Machine        string
 	Name           string
 	CreatedAt      int64
 	Version        int64

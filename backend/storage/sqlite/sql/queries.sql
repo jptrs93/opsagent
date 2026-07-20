@@ -4,23 +4,22 @@
 -- auto-allocates its deployment_id. Deleted deployments do not reserve their
 -- former identity tuple.
 -- name: CreateDeploymentConfig :one
-INSERT INTO deployment_configs (node_id, space_id, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_configs (node_id, space_id, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING deployment_id, created_at;
 
 -- name: GetDeploymentConfig :one
-SELECT deployment_id, node_id, space_id, machine, name, created_at, version, updated_at, updated_by,
+SELECT deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE deployment_id = ?;
 
 -- name: UpsertDeploymentConfig :exec
-INSERT INTO deployment_configs (deployment_id, node_id, space_id, machine, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_configs (deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(deployment_id) DO UPDATE SET
     node_id = excluded.node_id,
     space_id = excluded.space_id,
-    machine = excluded.machine,
     name = excluded.name,
     created_at = excluded.created_at,
     version = excluded.version,
@@ -49,7 +48,7 @@ SET node_id = ?, desired_version = ?, desired_running = ?, version = version + 1
 WHERE deployment_id = ?;
 
 -- name: ListAllDeploymentConfigs :many
-SELECT deployment_id, node_id, space_id, machine, name, created_at, version, updated_at, updated_by,
+SELECT deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
 FROM deployment_configs
 WHERE deleted = 0;

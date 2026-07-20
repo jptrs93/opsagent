@@ -403,7 +403,6 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 		DeploymentID:   dbID,
 		NodeID:         existing.NodeID,
 		SpaceID:        spaceID,
-		Machine:        existing.Machine,
 		Name:           existing.Name,
 		CreatedAt:      existing.CreatedAt,
 		Version:        existing.Version + 1,
@@ -536,7 +535,6 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 		DeploymentID:   dbID,
 		NodeID:         existing.NodeID,
 		SpaceID:        existing.SpaceID,
-		Machine:        existing.Machine,
 		Name:           existing.Name,
 		CreatedAt:      existing.CreatedAt,
 		Version:        newVersion,
@@ -602,7 +600,6 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymen
 		DeploymentID:   dbID,
 		NodeID:         existing.NodeID,
 		SpaceID:        int64(spaceID),
-		Machine:        existing.Machine,
 		Name:           existing.Name,
 		CreatedAt:      existing.CreatedAt,
 		Version:        newVersion,
@@ -637,7 +634,7 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymen
 }
 
 // MustCreateDeploymentForNode creates a deployment with an explicit canonical
-// node assignment. The legacy machine index value is derived from the node.
+// node assignment.
 func (s *PrimaryStorage) MustCreateDeploymentForNode(ctx apigen.Context, cid *apigen.DeploymentIdentity, nodeID int32, spec *apigen.DeploymentSpec, desired apigen.DesiredState) *apigen.DeploymentConfig {
 	if nodeID <= 0 {
 		panic("deployment node ID must be positive")
@@ -671,7 +668,6 @@ func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *ap
 	defer tx.Rollback()
 
 	q := s.q.WithTx(tx)
-	legacyMachine := mustGetNodeIdentifierByID(bgCtx, q, nodeID)
 
 	var specBlob []byte
 	if spec != nil {
@@ -681,7 +677,6 @@ func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *ap
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
 		NodeID:         int64(nodeID),
 		SpaceID:        int64(cid.SpaceID),
-		Machine:        legacyMachine,
 		Name:           cid.Name,
 		CreatedAt:      now,
 		Version:        1,
@@ -720,7 +715,6 @@ func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *ap
 		DeploymentID:   dbID,
 		NodeID:         int64(nodeID),
 		SpaceID:        int64(cid.SpaceID),
-		Machine:        legacyMachine,
 		Name:           cid.Name,
 		CreatedAt:      row.CreatedAt,
 		Version:        1,
@@ -782,11 +776,9 @@ func (s *PrimaryStorage) EnsureSystemDeployment(nodeID int32, opendeployVersion 
 		desiredRunning = 1
 	}
 
-	legacyMachine := mustGetNodeIdentifierByID(bgCtx, q, nodeID)
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
 		NodeID:         int64(nodeID),
 		SpaceID:        int64(cid.SpaceID),
-		Machine:        legacyMachine,
 		Name:           cid.Name,
 		CreatedAt:      now,
 		Version:        1,
@@ -824,7 +816,6 @@ func (s *PrimaryStorage) EnsureSystemDeployment(nodeID int32, opendeployVersion 
 		DeploymentID:   dbID,
 		NodeID:         int64(nodeID),
 		SpaceID:        int64(cid.SpaceID),
-		Machine:        legacyMachine,
 		Name:           cid.Name,
 		CreatedAt:      row.CreatedAt,
 		Version:        1,
@@ -886,11 +877,9 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, opendeployVersio
 
 	q := s.q.WithTx(tx)
 	now := time.Now().UnixMilli()
-	legacyMachine := mustGetNodeIdentifierByID(bgCtx, q, nodeID)
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
 		NodeID:         int64(nodeID),
 		SpaceID:        int64(cid.SpaceID),
-		Machine:        legacyMachine,
 		Name:           cid.Name,
 		CreatedAt:      now,
 		Version:        1,
@@ -928,7 +917,6 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, opendeployVersio
 		DeploymentID:   dbID,
 		NodeID:         int64(nodeID),
 		SpaceID:        int64(cid.SpaceID),
-		Machine:        legacyMachine,
 		Name:           cid.Name,
 		CreatedAt:      row.CreatedAt,
 		Version:        1,
@@ -964,7 +952,6 @@ func (s *PrimaryStorage) repairDeploymentSpecLocked(deploymentID int32, spec *ap
 		DeploymentID:   dbID,
 		NodeID:         existing.NodeID,
 		SpaceID:        existing.SpaceID,
-		Machine:        existing.Machine,
 		Name:           existing.Name,
 		CreatedAt:      existing.CreatedAt,
 		Version:        newVersion,
@@ -1173,7 +1160,6 @@ func configProtoToUpsertParams(cfg *apigen.DeploymentConfig) UpsertDeploymentCon
 		DeploymentID:   int64(cfg.ID),
 		NodeID:         int64(cfg.NodeID),
 		SpaceID:        int64(cfg.Identity.SpaceID),
-		Machine:        fmt.Sprintf("node-%d", cfg.NodeID), // Legacy secondary index compatibility only.
 		Name:           cfg.Identity.Name,
 		CreatedAt:      timeToMillis(cfg.CreatedAt),
 		Version:        int64(cfg.Version),
@@ -1196,7 +1182,6 @@ func configRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
 		NodeID: int32(r.NodeID),
 		Identity: apigen.DeploymentIdentity{
 			SpaceID: int32(r.SpaceID),
-			Machine: r.Machine,
 			Name:    r.Name,
 		},
 		CreatedAt: millisToTime(r.CreatedAt),
@@ -1222,7 +1207,6 @@ func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfi
 		NodeID: int32(p.NodeID),
 		Identity: apigen.DeploymentIdentity{
 			SpaceID: int32(p.SpaceID),
-			Machine: p.Machine,
 			Name:    p.Name,
 		},
 		CreatedAt: millisToTime(p.CreatedAt),
@@ -1236,15 +1220,6 @@ func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfi
 		},
 		Deleted: p.Deleted != 0,
 	}
-}
-
-func mustGetNodeIdentifierByID(ctx context.Context, q *Queries, nodeID int32) string {
-	var identifier string
-	err := q.db.QueryRowContext(ctx, `SELECT identifier FROM nodes WHERE id = ?`, nodeID).Scan(&identifier)
-	if err != nil {
-		panic(fmt.Sprintf("get identifier for node %d: %v", nodeID, err))
-	}
-	return identifier
 }
 
 func spaceRowToProto(row Space) *apigen.Space {

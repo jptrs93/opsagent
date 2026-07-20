@@ -3,7 +3,6 @@ CREATE TABLE IF NOT EXISTS deployment_configs (
     deployment_id   INTEGER PRIMARY KEY,
     node_id         INTEGER NOT NULL DEFAULT -1,
     space_id        INTEGER NOT NULL DEFAULT 1,
-    machine         TEXT    NOT NULL DEFAULT '',
     name            TEXT    NOT NULL DEFAULT '',
     created_at      INTEGER NOT NULL DEFAULT 0,  -- epoch ms; creation time of this deployment
     version         INTEGER NOT NULL DEFAULT 0,
@@ -15,8 +14,8 @@ CREATE TABLE IF NOT EXISTS deployment_configs (
     deleted         INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_deployment_configs_active_identity
-    ON deployment_configs(space_id, machine, name)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deployment_configs_active_node_identity
+    ON deployment_configs(node_id, space_id, name)
     WHERE deleted = 0;
 
 CREATE TABLE IF NOT EXISTS spaces (

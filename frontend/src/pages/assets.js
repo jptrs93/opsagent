@@ -11,7 +11,7 @@ import {spinnerButton} from "../components/spinnerbutton.js";
 import {assetMetasS, deploymentsS, machinesS, spacesS} from "../state/deployments.js";
 import {loginS} from "../state/login.js";
 
-const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, textarea, colgroup, col } = van.tags;
+const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -400,8 +400,6 @@ export function assetsPage() {
         return `${Math.min(100, Math.round((uploadProgressLoaded.val / total) * 100))}%`;
     };
 
-    const saveAssetLabel = () => original.key ? "Save new version" : "Create asset";
-
     const assetNameEditor = (asset) => {
         let draft = assetNameDrafts.get(asset.key);
         if (!draft) {
@@ -494,9 +492,12 @@ export function assetsPage() {
                     td({class: "py-1 pl-2 text-right whitespace-nowrap w-px"},
                         button({
                             type: "button",
+                            title: `Delete asset ${row.key}`,
+                            "aria-label": `Delete asset ${row.key}`,
                             disabled: () => Boolean(assetMutationKey.val),
-                            class: () => `p-1.5 rounded text-gray-400 hover:text-red-400 hover:bg-surface transition-colors ${
-                                assetMutationKey.val ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
+                            class: () => `inline-flex h-7 w-7 items-center justify-center rounded text-gray-400 ` +
+                                `hover:bg-surface hover:text-red-400 transition-colors ${assetMutationKey.val
+                                    ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
                             onclick: (e) => { e.stopPropagation(); requestDeleteAsset(row); },
                         }, trashIcon())),
                 ))),
@@ -556,29 +557,32 @@ export function assetsPage() {
                 p({class: "font-medium text-gray-300"}, "This asset is too large to show."),
                 p({class: "text-xs text-gray-500 mt-1"}, "The full content remains available for deployment mounts."),
             ),
-        ) : textarea({
-            class: "text-input font-mono text-sm flex-1 min-h-0 resize-none leading-relaxed",
-            spellcheck: "false",
-            placeholder: "Paste config file contents here",
+        ) : inlineEditableInput({
             value: draftContent,
+            dirty: isDirty,
+            valid: () => Boolean(draftKey.val.trim()),
             disabled: () => Boolean(assetMutationKey.val),
+            multiline: true,
+            inputAttrs: {spellcheck: "false"},
+            inputClass: "text-input h-full font-mono text-sm min-h-0 resize-none leading-relaxed",
+            containerClass: "flex-1 min-h-0",
+            placeholder: "Paste config file contents here",
             oninput: (e) => draftContent.val = e.target.value,
+            onSave: saveAsset,
+            onDiscard: () => {
+                if (original.key) {
+                    draftContent.val = original.content;
+                } else {
+                    clearDraft();
+                }
+            },
+            ariaLabel: original.key ? `Content for asset ${original.key}` : "New asset content",
+            saveAriaLabel: original.key ? `Save new version of asset ${original.key}` : "Create asset",
+            discardAriaLabel: original.key ? `Discard content changes for asset ${original.key}` : "Discard new asset",
         }),
-        div({class: "flex items-center justify-between gap-3"},
-            p({class: "text-xs text-gray-500"}, () => draftLarge.val
-                ? `${fmtSize(draftSizeBytes.val)} large asset`
-                : `${encoder.encode(draftContent.val).length} bytes inline`),
-            div({class: "flex items-center gap-2"},
-                smallBtn("Discard", () => {
-                    if (original.key) {
-                        draftContent.val = original.content;
-                    } else {
-                        clearDraft();
-                    }
-                }, "bg-gray-700 text-gray-200 hover:bg-gray-600", () => Boolean(assetMutationKey.val) || !isDirty()),
-                smallBtn(saveAssetLabel, saveAsset, "bg-brand text-white hover:bg-blue-600",
-                    () => Boolean(assetMutationKey.val) || !draftKey.val.trim() || !isDirty())),
-        ),
+        p({class: "text-xs text-gray-500"}, () => draftLarge.val
+            ? `${fmtSize(draftSizeBytes.val)} large asset`
+            : `${encoder.encode(draftContent.val).length} bytes inline`),
     );
 
     const leftPane = () => div(

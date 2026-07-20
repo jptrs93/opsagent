@@ -600,7 +600,6 @@
 /**
  * @typedef {Object} DeploymentIdentity
  * @property {number} spaceId
- * @property {string} machine
  * @property {string} name
  */
 /**
@@ -8136,9 +8135,6 @@ export function writeDeploymentIdentity(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.spaceId);
     }
-    if (message.machine !== undefined && message.machine !== null && message.machine !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.machine);
-    }
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.name);
     }
@@ -8163,16 +8159,12 @@ export function encodeDeploymentIdentity(message) {
  */
 function decodeDeploymentIdentityMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {spaceId: 0, machine: "", name: "" };
+    const message = {spaceId: 0, name: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.spaceId = reader.int32();
-                break;
-            }
-            case 2: {
-                message.machine = reader.string();
                 break;
             }
             case 3: {

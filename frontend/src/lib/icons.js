@@ -39,6 +39,11 @@ export const eyeOffIcon = (attrs) => svg(iconAttrs(attrs),
     line({x1: "2", y1: "2", x2: "22", y2: "22"}),
 );
 
+export const editIcon = (attrs) => svg(iconAttrs(attrs),
+    path({d: "M12 20h9"}),
+    path({d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"}),
+);
+
 export const expandIcon = (attrs) => svg(iconAttrs(attrs),
     polyline({points: "15 3 21 3 21 9"}),
     polyline({points: "9 21 3 21 3 15"}),

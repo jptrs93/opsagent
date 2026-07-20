@@ -18,7 +18,7 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 	cfg := &apigen.DeploymentConfig{
 		ID:           7,
 		NodeID:       23,
-		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Machine: "m1", Name: "api"},
+		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Name: "api"},
 		Version:      3,
 		UpdatedAt:    time.UnixMilli(1000),
 		Spec:         *nonEmptySpec(),
@@ -79,7 +79,7 @@ func TestSecondaryRejectsMissingNodeID(t *testing.T) {
 	}()
 	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
 		ID:           7,
-		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Machine: "m1", Name: "api"},
+		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Name: "api"},
 		Version:      1,
 		UpdatedAt:    time.UnixMilli(1000),
 		Spec:         *nonEmptySpec(),
@@ -93,7 +93,7 @@ func TestSecondaryRetiresStaleActiveDeploymentKeyBeforeCachingNewDeployment(t *t
 	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
 		ID:           7,
 		NodeID:       23,
-		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Machine: "legacy-a", Name: "api"},
+		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Name: "api"},
 		Version:      4,
 		UpdatedAt:    time.UnixMilli(1000),
 		Spec:         *nonEmptySpec(),
@@ -103,7 +103,7 @@ func TestSecondaryRetiresStaleActiveDeploymentKeyBeforeCachingNewDeployment(t *t
 	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
 		ID:           8,
 		NodeID:       23,
-		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Machine: "legacy-b", Name: "api"},
+		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Name: "api"},
 		Version:      1,
 		UpdatedAt:    time.UnixMilli(2000),
 		Spec:         *nonEmptySpec(),
@@ -112,7 +112,7 @@ func TestSecondaryRetiresStaleActiveDeploymentKeyBeforeCachingNewDeployment(t *t
 	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
 		ID:           9,
 		NodeID:       24,
-		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Machine: "legacy-c", Name: "api"},
+		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Name: "api"},
 		Version:      1,
 		UpdatedAt:    time.UnixMilli(3000),
 		Spec:         *nonEmptySpec(),

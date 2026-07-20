@@ -23,9 +23,7 @@ func (h *Handler) PostV1GenerateExportedConfig(ctx apigen.Context, req *apigen.E
 		if deployment == nil {
 			continue
 		}
-		copy := *deployment
-		copy.Identity.Machine = ""
-		exportedDeployments = append(exportedDeployments, &copy)
+		exportedDeployments = append(exportedDeployments, deployment)
 	}
 	configs := h.Store.ListUserConfigs()
 	secrets := h.listSecretMetas()
