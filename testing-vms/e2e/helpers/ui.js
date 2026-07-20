@@ -795,6 +795,7 @@ function requestTLSIngress(hostname) {
   const ca = Buffer.from(process.env.OPD_TLS_INGRESS_CA_B64 || '', 'base64');
   if (ca.length === 0) return Promise.reject(new Error('OPD_TLS_INGRESS_CA_B64 is required'));
   return new Promise((resolve, reject) => {
+    let fingerprint;
     const req = https.request({
       host: tunnelHost,
       port: tunnelPort,
@@ -804,9 +805,9 @@ function requestTLSIngress(hostname) {
       headers: {host: hostname},
       ca,
       rejectUnauthorized: true,
+      agent: false,
     }, response => {
       let body = '';
-      const fingerprint = response.socket?.getPeerCertificate().fingerprint256;
       response.setEncoding('utf8');
       response.on('data', chunk => { body += chunk; });
       response.on('end', () => {
@@ -817,6 +818,9 @@ function requestTLSIngress(hostname) {
         resolve({body, fingerprint});
       });
     });
+    req.on('socket', socket => socket.on('secureConnect', () => {
+      fingerprint = socket.getPeerCertificate().fingerprint256;
+    }));
     req.setTimeout(10_000, () => req.destroy(new Error(`TLS ingress ${hostname} timed out`)));
     req.on('error', reject);
     req.end();

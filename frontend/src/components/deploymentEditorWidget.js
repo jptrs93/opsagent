@@ -234,7 +234,7 @@ export function deploymentEditorWidget(opts) {
             style: () => `width: ${hasOpenPane() ? 1560 : 1120}px; max-width: 100%; height: ${editorHeight}; max-height: ${editorHeight};`,
         },
         div(
-            {class: 'flex-1 min-h-0 min-w-0 pt-2'},
+            {class: 'flex-1 min-h-0 min-w-0'},
             div(
                 {class: () => editorMode.val === 'ui' ? 'flex h-full min-h-0 min-w-0' : 'hidden'},
                 uiWidget,

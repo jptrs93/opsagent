@@ -522,7 +522,7 @@ export function commandPane(form) {
             ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
             : "hidden"},
         div(
-            {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
+            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Command"),
             button({
                 type: "button",
@@ -642,7 +642,7 @@ export function networkingPane(form) {
             ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
             : "hidden"},
         div(
-            {class: "flex items-center justify-between gap-3 px-3 py-2 border-b border-gray-700"},
+            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-3 py-2"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Networking"),
             button({
                 type: "button",
@@ -894,7 +894,7 @@ export function upgradeStrategyPane(form) {
             ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
             : "hidden"},
         div(
-            {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
+            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Upgrade strategy"),
             button({
                 type: "button",
@@ -932,7 +932,7 @@ export function resourcesPane(form) {
             ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
             : "hidden"},
         div(
-            {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
+            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Resources"),
             button({
                 type: "button",
@@ -1190,7 +1190,7 @@ export function assetMountsPane(form, opts = {}) {
             ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
             : "hidden"},
         div(
-            {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
+            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Mounted assets"),
             button({
                 type: "button",
@@ -1321,7 +1321,7 @@ export function volumeMountsPane(form, opts = {}) {
             ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
             : "hidden"},
         div(
-            {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
+            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Mounted volumes"),
             button({
                 type: "button",
@@ -1388,7 +1388,7 @@ export function assetEditorPane(form, opts = {}) {
             ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
             : "hidden"},
         div(
-            {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
+            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Create asset"),
             button({
                 type: "button",
@@ -1459,7 +1459,7 @@ export function envVarsPane(form, opts = {}) {
             ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
             : "hidden"},
         div(
-            {class: "flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-700"},
+            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Environment variables"),
             button({
                 type: "button",
