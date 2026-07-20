@@ -64,21 +64,26 @@ const referenceHighlighting = ViewPlugin.fromClass(class {
 export function syntaxDiagnostics(state) {
     const diagnostics = [];
     const text = state.doc.toString();
-    const nativeVersionReferences = [];
-    const versionReferencePattern = /\b(?:secret|config|asset)\(\s*"(?:\\.|[^"\\\n])+"\s*,\s*\{\s*version\s*=\s*\d+\s*\}\s*\)/g;
-    let match;
-    while ((match = versionReferencePattern.exec(text))) {
-        nativeVersionReferences.push({from: match.index, to: match.index + match[0].length});
+    const nativeReferences = [];
+    const nativeReferencePatterns = [
+        /\b(?:secret|config|asset)\(\s*"(?:\\.|[^"\\\n])+"\s*,\s*\{\s*version\s*=\s*\d+\s*\}\s*\)/g,
+        /\b(?:address|deployment)\(\s*"(?:\\.|[^"\\\n])+"\s*,\s*"(?:\\.|[^"\\\n])+"\s*,?\s*\)/g,
+    ];
+    for (const pattern of nativeReferencePatterns) {
+        let match;
+        while ((match = pattern.exec(text))) {
+            nativeReferences.push({from: match.index, to: match.index + match[0].length});
+        }
     }
     const cursor = syntaxTree(state).cursor();
     do {
         if (cursor.type.isError) {
-            if (nativeVersionReferences.some(range => cursor.from >= range.from && cursor.to <= range.to)) continue;
+            if (nativeReferences.some(range => cursor.from >= range.from && cursor.to <= range.to)) continue;
             const before = state.sliceDoc(Math.max(0, cursor.from - 120), cursor.from);
             // The bundled grammar reports a zero-width error after a valid
             // function call used as an object value; native HCL accepts it.
             const functionObjectBoundary = cursor.from === cursor.to
-                && /(?:(?:secret|config|asset)\(\s*"[^"\n]+"(?:\s*,\s*\{\s*version\s*=\s*\d+\s*\})?\s*\)|(?:address|deployment|space|node)\(\s*"[^"\n]+"\s*\)),?\s*$/.test(before);
+                && /(?:(?:secret|config|asset)\(\s*"[^"\n]+"(?:\s*,\s*\{\s*version\s*=\s*\d+\s*\})?\s*\)|(?:address|deployment)\(\s*"[^"\n]+"\s*,\s*"[^"\n]+"\s*\)|(?:space|node)\(\s*"[^"\n]+"\s*\)),?\s*$/.test(before);
             if (functionObjectBoundary) continue;
             const from = Math.min(cursor.from, Math.max(0, state.doc.length - 1));
             diagnostics.push({
@@ -96,8 +101,11 @@ function diagnosticsFor(state) {
     return [...syntaxDiagnostics(state), ...validateDeploymentHcl(state.doc.toString())];
 }
 
-function catalogOptions(namespace, referenceCatalog, insideQuotes) {
-    return referenceCatalog[namespace].map(item => ({
+function catalogOptions(namespace, referenceCatalog, insideQuotes, selectedSpaceId) {
+    const items = namespace === "deployment" && selectedSpaceId !== undefined
+        ? referenceCatalog[namespace].filter(item => Number(item.spaceId) === Number(selectedSpaceId))
+        : referenceCatalog[namespace];
+    return items.map(item => ({
         label: item.key,
         apply: insideQuotes ? item.key : JSON.stringify(item.key),
         type: "variable",
@@ -137,15 +145,41 @@ export function schemaCompletion(context) {
             validFor: /^[0-9]*$/,
         };
     }
-    const reference = /(secret|config|asset|address|deployment|space|node)\(\s*(?:"([^"]*)|([A-Za-z0-9_.-]*))$/.exec(prefix);
+    const deploymentName = /(address|deployment)\(\s*"((?:\\.|[^"\\])*)"\s*,\s*(?:"([^"\n]*)|([A-Za-z0-9_.-]*))$/.exec(prefix);
+    if (deploymentName) {
+        let spaceName;
+        try {
+            spaceName = JSON.parse(`"${deploymentName[2]}"`);
+        } catch {
+            return null;
+        }
+        const spaceId = referenceCatalog.space.find(item => item.key === spaceName)?.id;
+        const partial = deploymentName[3] ?? deploymentName[4] ?? "";
+        const insideQuotes = deploymentName[3] !== undefined;
+        return {
+            from: context.pos - partial.length,
+            options: spaceId === undefined ? [] : catalogOptions("deployment", referenceCatalog, insideQuotes, spaceId),
+            validFor: insideQuotes ? /^[^"\n]*$/ : /^[A-Za-z0-9_.-]*$/,
+        };
+    }
+    const deploymentSpace = /(address|deployment)\(\s*(?:"([^"\n]*)|([A-Za-z0-9_.-]*))$/.exec(prefix);
+    if (deploymentSpace) {
+        const partial = deploymentSpace[2] ?? deploymentSpace[3] ?? "";
+        const insideQuotes = deploymentSpace[2] !== undefined;
+        return {
+            from: context.pos - partial.length,
+            options: catalogOptions("space", referenceCatalog, insideQuotes),
+            validFor: insideQuotes ? /^[^"\n]*$/ : /^[A-Za-z0-9_.-]*$/,
+        };
+    }
+    const reference = /(secret|config|asset|space|node)\(\s*(?:"([^"]*)|([A-Za-z0-9_.-]*))$/.exec(prefix);
     if (reference) {
         const functionName = reference[1];
-        const namespace = functionName === "address" ? "deployment" : functionName;
         const partial = reference[2] ?? reference[3] ?? "";
         const insideQuotes = reference[2] !== undefined;
         return {
             from: context.pos - partial.length,
-            options: catalogOptions(namespace, referenceCatalog, insideQuotes),
+            options: catalogOptions(functionName, referenceCatalog, insideQuotes),
             validFor: insideQuotes ? /^[^"]*$/ : /^[A-Za-z0-9_.-]*$/,
         };
     }

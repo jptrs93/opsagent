@@ -5,6 +5,7 @@ configuration as HCL. It does not communicate with the OpenDeploy API.
 
 ```sh
 pnpm install
+pnpm run check
 pnpm run dev
 ```
 
@@ -15,8 +16,9 @@ and blank scratch tabs retain independent drafts in browser local storage.
 `src/mockStateStream.js` mirrors the snapshot fields emitted by
 `PostV1StateStream`. Completion catalogs are derived from its spaces, nodes,
 deployments, secret references, user-config references, and asset metadata.
-Space-owned references are filtered using the `identity.space` value in the
-document, with the mock production space as the fallback for a blank document.
+Space-owned versioned references are filtered using the `identity.space` value
+in the document, with the mock production space as the fallback for a blank
+document. Deployment references explicitly select their space.
 References such as `secret("database.password")` resolve to immutable API IDs
 only when saved; an omitted asset, secret, or config version resolves to the
 latest version, while `{ version = number }` pins one explicitly. Every
@@ -31,8 +33,10 @@ and version configuration, anticipating future pod-like multi-container
 deployments.
 
 Runtime storage is a list of composable expressions. `mount` combines a
-`default_volume()`, `asset("name")`, or `deployment("name")` source with a
-container path and optional settings.
+`default_volume()`, `asset("name")`, or
+`deployment("space", "deployment")` source with a container path and optional
+settings. Environment addresses use the matching
+`address("space", "deployment")` form.
 
 Networking has an explicit `mode`. Its `ingress` attribute is a list of
 `port_forward(...)` and `tls_passthrough(...)` expressions. A port forward's

@@ -57,8 +57,8 @@ function selectedSpace(state, document) {
         || spaces[0];
 }
 
-function stateItem(key, id, detail, version) {
-    return {key, id, detail, version};
+function stateItem(key, id, detail, version, spaceId) {
+    return {key, id, detail, version, spaceId};
 }
 
 export function referenceCatalogForDocument(document, state = mockStateStreamState) {
@@ -77,8 +77,14 @@ export function referenceCatalogForDocument(document, state = mockStateStreamSta
         asset: (state.assetsSnapshot?.items || []).filter(inSelectedSpace)
             .map(item => stateItem(item.key, item.id, `${item.format || "file"} asset, version ${item.version}`, item.version)),
         deployment: (state.deploymentsSnapshot?.items || [])
-            .filter(item => !item.config?.deleted && item.config?.configId?.spaceId === space?.id)
-            .map(item => stateItem(item.config.configId.name, item.config.id, `Deployment version ${item.config.version}`)),
+            .filter(item => !item.config?.deleted)
+            .map(item => stateItem(
+                item.config.configId.name,
+                item.config.id,
+                `Deployment version ${item.config.version}`,
+                undefined,
+                item.config.configId.spaceId,
+            )),
     };
 }
 

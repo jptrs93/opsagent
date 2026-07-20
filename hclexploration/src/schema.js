@@ -25,7 +25,7 @@ export const schemaSections = [
         name: "Named references",
         signature: "space(\"name\") | asset(\"name\"[, { version = number }])",
         description: "Every symbolic resource uses a typed function with a quoted name. Versioned resources default to latest.",
-        fields: ["space(\"name\")", "node(\"name\")", "secret(\"name\"[, { version = number }])", "config(\"name\"[, { version = number }])", "asset(\"name\"[, { version = number }])", "deployment(\"name\")", "address(\"name\")"],
+        fields: ["space(\"name\")", "node(\"name\")", "secret(\"name\"[, { version = number }])", "config(\"name\"[, { version = number }])", "asset(\"name\"[, { version = number }])", "deployment(\"space\", \"deployment\")", "address(\"space\", \"deployment\")"],
     },
     {
         name: "Networking",
@@ -58,10 +58,10 @@ export const completionOptions = [
     {label: "secret", type: "function", info: "Reference a secret by name and optional version"},
     {label: "config", type: "function", info: "Reference a config by name and optional version"},
     {label: "asset", type: "function", info: "Reference an asset by name and optional version"},
-    {label: "deployment", type: "function", info: "Reference a deployment by stable name"},
+    {label: "deployment", type: "function", info: "Reference a deployment by space and stable name"},
     {label: "space", type: "function", info: "Reference a space by stable name"},
     {label: "node", type: "function", info: "Reference a cluster node by stable name"},
-    {label: "address", type: "function", info: "Reference a deployment address by stable name"},
+    {label: "address", type: "function", info: "Reference a deployment address by space and stable name"},
     {label: "port_forward", type: "function", info: "Forward a TCP or UDP host port"},
     {label: "tls_passthrough", type: "function", info: "Route TLS by SNI without termination"},
     ...[
@@ -340,8 +340,32 @@ const referenceNamespaces = {
     secret: "secret",
     config: "config",
     asset: "asset",
-    address: "deployment",
 };
+
+function validateDeploymentReference(diagnostics, expression, functionName, referenceCatalog) {
+    const call = parseCall(expression.value);
+    const signature = `${functionName}("space", "deployment")`;
+    if (!call || call.name !== functionName || call.args.length !== 2) {
+        diagnostics.push({...expression, severity: "error", message: `Reference must use ${signature}.`});
+        return;
+    }
+    const spaceName = literalString(call.args[0]);
+    const deploymentName = literalString(call.args[1]);
+    if (!spaceName || !deploymentName) {
+        diagnostics.push({...expression, severity: "error", message: `${signature} requires two non-empty quoted names.`});
+        return;
+    }
+    const space = referenceCatalog.space.find(item => item.key === spaceName);
+    if (!space) {
+        diagnostics.push({...expression, severity: "warning", message: `No space named “${spaceName}” exists.`});
+        return;
+    }
+    const deployment = referenceCatalog.deployment.find(item => item.key === deploymentName
+        && Number(item.spaceId) === Number(space.id));
+    if (!deployment) {
+        diagnostics.push({...expression, severity: "warning", message: `No deployment named “${deploymentName}” exists in space “${spaceName}”.`});
+    }
+}
 
 function validateReferenceExpression(diagnostics, expression, referenceCatalog) {
     const call = parseCall(expression.value);
@@ -350,9 +374,12 @@ function validateReferenceExpression(diagnostics, expression, referenceCatalog) 
         return;
     }
     const functionName = call.name;
-    const versioned = functionName !== "address";
-    if (call.args.length < 1 || call.args.length > (versioned ? 2 : 1)) {
-        const signature = versioned ? `${functionName}(\"name\"[, { version = number }])` : 'address("name")';
+    if (functionName === "address") {
+        validateDeploymentReference(diagnostics, expression, functionName, referenceCatalog);
+        return;
+    }
+    if (call.args.length < 1 || call.args.length > 2) {
+        const signature = `${functionName}(\"name\"[, { version = number }])`;
         diagnostics.push({...expression, severity: "error", message: `Reference must use ${signature}.`});
         return;
     }
@@ -367,7 +394,7 @@ function validateReferenceExpression(diagnostics, expression, referenceCatalog) 
         version = validateVersionOptions(diagnostics, expression, call.args[1], `${functionName} reference`);
         if (version === null) return;
     }
-    const resource = functionName === "address" ? "Deployment" : `${functionName[0].toUpperCase()}${functionName.slice(1)}`;
+    const resource = `${functionName[0].toUpperCase()}${functionName.slice(1)}`;
     validateCatalogKey(diagnostics, expression, key, namespace, resource, referenceCatalog, version);
 }
 
@@ -475,13 +502,11 @@ function validateMountsExpression(diagnostics, expression, referenceCatalog) {
             } else {
                 diagnostics.push({...expression, severity: "error", message: 'Asset mount sources must use asset("name"[, { version = number }]).'});
             }
-        } else if (source?.name === "deployment" && source.args.length === 1) {
+        } else if (source?.name === "deployment") {
             sourceType = "deployment";
-            const key = literalString(source.args[0]);
-            if (key) validateCatalogKey(diagnostics, expression, key, "deployment", "Deployment", referenceCatalog);
-            else diagnostics.push({...expression, severity: "error", message: 'Deployment mount sources must use deployment("name").'});
+            validateDeploymentReference(diagnostics, {...expression, value: mountCall.args[0]}, "deployment", referenceCatalog);
         } else {
-            diagnostics.push({...expression, severity: "error", message: "Mount source must be default_volume(), asset(\"name\"), or deployment(\"name\")."});
+            diagnostics.push({...expression, severity: "error", message: "Mount source must be default_volume(), asset(\"name\"), or deployment(\"space\", \"deployment\")."});
         }
 
         if (literalString(mountCall.args[1]) === null) {

@@ -357,22 +357,27 @@ const referenceHighlighting = ViewPlugin.fromClass(class {
     }
 }, {decorations: plugin => plugin.decorations});
 
-function nativeVersionReferenceRanges(text) {
+function nativeReferenceRanges(text) {
     const ranges = [];
-    const pattern = /\b(?:secret|config|asset)\(\s*"(?:\\.|[^"\\\n])+"\s*,\s*\{\s*version\s*=\s*\d+\s*\}\s*\)/g;
-    let match;
-    while ((match = pattern.exec(text))) ranges.push({from: match.index, to: match.index + match[0].length});
+    const patterns = [
+        /\b(?:secret|config|asset)\(\s*"(?:\\.|[^"\\\n])+"\s*,\s*\{\s*version\s*=\s*\d+\s*\}\s*\)/g,
+        /\b(?:address|deployment)\(\s*"(?:\\.|[^"\\\n])+"\s*,\s*"(?:\\.|[^"\\\n])+"\s*,?\s*\)/g,
+    ];
+    for (const pattern of patterns) {
+        let match;
+        while ((match = pattern.exec(text))) ranges.push({from: match.index, to: match.index + match[0].length});
+    }
     return ranges;
 }
 
 export function syntaxDiagnostics(state) {
     const diagnostics = [];
     const seen = new Set();
-    const nativeVersionReferences = nativeVersionReferenceRanges(state.doc.toString());
+    const nativeReferences = nativeReferenceRanges(state.doc.toString());
     const cursor = syntaxTree(state).cursor();
     do {
         if (!cursor.type.isError) continue;
-        if (nativeVersionReferences.some(range => cursor.from >= range.from && cursor.to <= range.to)) continue;
+        if (nativeReferences.some(range => cursor.from >= range.from && cursor.to <= range.to)) continue;
         const before = state.sliceDoc(Math.max(0, cursor.from - 120), cursor.from);
         const functionObjectBoundary = cursor.from === cursor.to
             && /(?:(?:secret|config|asset)\(\s*"[^"\n]+"(?:\s*,\s*\{\s*version\s*=\s*\d+\s*\})?\s*\)|(?:address|deployment)\(\s*"[^"\n]+"\s*,\s*"[^"\n]+"\s*\)|(?:space|node)\(\s*"[^"\n]+"\s*\)),?\s*$/.test(before);

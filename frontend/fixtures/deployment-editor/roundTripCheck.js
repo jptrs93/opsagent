@@ -179,6 +179,23 @@ const qualifiedHcl = deploymentDocumentToHcl(qualifiedModel.toDocument(), collis
 assert.match(qualifiedHcl, /address\("production", "api"\)/);
 const qualifiedParsed = parseDeploymentHcl(qualifiedHcl, collisionCatalogs);
 assert.equal(qualifiedParsed.document.spec.runner.container.envVars.API_ADDRESS.addressDeploymentId, 101);
+assert.equal(qualifiedParsed.document.spec.runner.container.envVars.API_ADDRESS.addressSpaceId, 1);
+const qualifiedEditorState = EditorState.create({doc: qualifiedHcl, extensions: [hcl()]});
+assert.deepEqual(syntaxDiagnostics(qualifiedEditorState), []);
+
+const multilineAddressHcl = qualifiedHcl.replace(
+    'address("production", "api")',
+    'address(\n        "production",\n        "api",\n      )',
+);
+assert.ok(parseDeploymentHcl(multilineAddressHcl, collisionCatalogs).document);
+assert.deepEqual(syntaxDiagnostics(EditorState.create({doc: multilineAddressHcl, extensions: [hcl()]})), []);
+
+const malformedAddressHcl = qualifiedHcl.replace(
+    'address("production", "api")',
+    'address("production", "api"',
+);
+assert.equal(parseDeploymentHcl(malformedAddressHcl, collisionCatalogs).document, null);
+assert.ok(syntaxDiagnostics(EditorState.create({doc: malformedAddressHcl, extensions: [hcl()]})).length > 0);
 
 const deploymentMountDocument = structuredClone(qualifiedModel.toDocument());
 deploymentMountDocument.spec.runner.container.mounts = [{
@@ -190,6 +207,7 @@ const deploymentMountHcl = deploymentDocumentToHcl(deploymentMountDocument, coll
 assert.match(deploymentMountHcl, /deployment\("production", "database"\)/);
 const deploymentMountParsed = parseDeploymentHcl(deploymentMountHcl, collisionCatalogs);
 assert.equal(deploymentMountParsed.document.spec.runner.container.mounts[0].host, '/var/lib/opendeploy-volumes/103/default');
+assert.deepEqual(syntaxDiagnostics(EditorState.create({doc: deploymentMountHcl, extensions: [hcl()]})), []);
 
 const oldDeploymentReference = parseDeploymentHcl(qualifiedHcl.replace(
     'address("production", "api")',

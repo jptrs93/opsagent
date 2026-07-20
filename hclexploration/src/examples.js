@@ -24,7 +24,7 @@ deployment {
       LOG_LEVEL         = "info"
       DATABASE_URL      = config("database.url", { version = 5 })
       DATABASE_PASSWORD = secret("database.password")
-      CACHE_ADDRESS     = address("redis.cache")
+      CACHE_ADDRESS     = address("production", "redis.cache")
       LICENSE_FILE      = asset("application.license")
     }
 
@@ -32,7 +32,7 @@ deployment {
       mount(default_volume(), "/var/lib/payments"),
       mount(asset("payments_settings"), "/etc/payments/settings.toml"),
       mount(asset("application.license"), "/etc/payments/license.key"),
-      mount(deployment("report.archive"), "/archive", {
+      mount(deployment("production", "report.archive"), "/archive", {
         read_only = true
       }),
     ]
@@ -87,7 +87,7 @@ deployment {
 
     env_vars {
       QUEUE_NAME    = "reports"
-      CACHE_ADDRESS = address("redis.cache")
+      CACHE_ADDRESS = address("production", "redis.cache")
     }
 
     mounts = [

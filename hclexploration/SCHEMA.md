@@ -39,7 +39,7 @@ deployment {
       SECRET_VALUE  = secret("<name>"[, { version = number }])
       CONFIG_VALUE  = config("<name>"[, { version = number }])
       ASSET_VALUE   = asset("<name>"[, { version = number }])
-      ADDRESS_VALUE = address("<name>")
+      ADDRESS_VALUE = address("<space-name>", "<deployment-name>")
     }
 
     mounts = [
@@ -48,7 +48,7 @@ deployment {
       mount(asset("<asset-name>"[, { version = number }]), string, {
         executable = bool
       }),
-      mount(deployment("<deployment-name>"), string, {
+      mount(deployment("<space-name>", "<deployment-name>"), string, {
         read_only = bool
       }),
     ]
@@ -93,10 +93,11 @@ model.
 
 Every symbolic resource is a typed function with a quoted name:
 `space("production")`, `node("worker_03")`, `asset("payments.settings")`, and
-`deployment("report.archive")`. Environment variables use the same reference
-functions. `address("redis.cache")` remains a direct deployment-address
-shorthand rather than nesting `deployment` inside `address`. Quoted names keep
-dots and other punctuation unambiguous.
+`deployment("production", "report.archive")`. Environment variables use the
+same reference functions. Deployment and address references explicitly name
+their space, for example `address("production", "redis.cache")`, so they remain
+globally addressable without nesting another reference function. Quoted names
+keep dots and other punctuation unambiguous.
 
 Assets, secrets, and configs accept an optional `{ version = number }` argument.
 Omitting it resolves the latest version in the selected space. Existing
