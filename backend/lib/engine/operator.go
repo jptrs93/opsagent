@@ -58,7 +58,6 @@ func (op DeploymentOperator) RunAll(predicate storage.DeploymentPredicate) {
 	for _, dep := range deps {
 		running[dep.Config.ID] = struct{}{}
 		slog.InfoContext(logu.ExtendLogContext(context.Background(), "dep", dep.Config.ID), "RunAll: launching operator from snapshot",
-			"id", dep.Config.ID,
 			"name", configName(&dep.Config),
 			"seqNo", dep.Config.Version,
 			"desiredRunning", dep.Config.DesiredState.Running,
@@ -79,7 +78,6 @@ func (op DeploymentOperator) RunAll(predicate storage.DeploymentPredicate) {
 			if _, ok := running[v.Config.ID]; !ok {
 				running[v.Config.ID] = struct{}{}
 				slog.InfoContext(logu.ExtendLogContext(context.Background(), "dep", v.Config.ID), "RunAll: launching operator for new deployment",
-					"id", v.Config.ID,
 					"name", configName(&v.Config),
 					"seqNo", v.Config.Version,
 				)

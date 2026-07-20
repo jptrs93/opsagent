@@ -169,7 +169,7 @@ func (s *deploymentStore) notifyFromCache(id int32) {
 		name = fmt.Sprintf("%d:%d:%s", cfg.Identity.SpaceID, cfg.NodeID, cfg.Identity.Name)
 	}
 	slog.Info("store: notifyFromCache",
-		"id", id,
+		"dep", id,
 		"name", name,
 		"configSeqNo", cfg.Version,
 		"hasPreparer", st != nil && !st.Preparer.IsZero(),
@@ -202,7 +202,7 @@ func (s *deploymentStore) withRunningVersion(cfg *apigen.DeploymentConfig, st ap
 	})
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			slog.Warn("store: resolve running version", "id", st.DeploymentID, "version", ver, "err", err)
+			slog.Warn("store: resolve running version", "dep", st.DeploymentID, "version", ver, "err", err)
 		}
 		return st
 	}

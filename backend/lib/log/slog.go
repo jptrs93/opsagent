@@ -2,12 +2,15 @@ package log
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
+
+	"github.com/jptrs93/goutil/logu"
 )
 
 type SlogHandler struct {
@@ -26,7 +29,7 @@ func (h *SlogHandler) Enabled(_ context.Context, level slog.Level) bool {
 	return level >= h.level
 }
 
-func (h *SlogHandler) Handle(_ context.Context, r slog.Record) error {
+func (h *SlogHandler) Handle(ctx context.Context, r slog.Record) error {
 	var b strings.Builder
 	appendLogfmtField(&b, "time", r.Time.UTC().Format(time.RFC3339Nano))
 	appendLogfmtField(&b, "level", r.Level.String())
@@ -39,6 +42,15 @@ func (h *SlogHandler) Handle(_ context.Context, r slog.Record) error {
 		return true
 	})
 	b.WriteByte('\n')
+	if lc := logu.GetLogContext(ctx); lc != nil {
+		for _, item := range lc.Items {
+			value := any(true)
+			if item.Value != nil {
+				value = *item.Value
+			}
+			appendLogfmtField(&b, item.Name, fmt.Sprintf("%v", value))
+		}
+	}
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
