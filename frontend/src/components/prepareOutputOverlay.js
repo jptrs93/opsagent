@@ -42,7 +42,7 @@ export function prepareOutputOverlay(deploymentId, deploymentLabel, onClose) {
     void startStream();
 
     const outputPre = pre(
-        {"data-testid": "prepare-output-text", class: "h-full w-full overflow-auto bg-gray-950 p-4 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
+        {"data-testid": "prepare-output-text", class: "app-scroll h-full w-full overflow-auto bg-gray-950 p-4 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
         () => outputText.val || 'Waiting for prepare output...',
     );
 

@@ -669,8 +669,8 @@ export function secretsPage() {
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap"}, formatDateTime(row.createdAt, "-")),
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => usageButton(row)),
         td({class: "py-1 pr-3"}, row.type === "secret" ? secretValueInput(row) : configValueInput(row)),
-        td({class: "py-1 pl-2 pr-5 text-left whitespace-nowrap w-px"},
-            div({class: "flex items-center justify-start gap-1"},
+        td({class: "py-1 pl-2 pr-1 text-right whitespace-nowrap w-px"},
+            div({class: "flex items-center justify-end gap-1"},
                 iconButton(editIcon(), () => { void editRowValue(row); },
                     "disabled:cursor-not-allowed disabled:opacity-50", {
                         title: `Edit ${row.type} value`,
@@ -821,7 +821,7 @@ export function secretsPage() {
         col({style: "width:12rem"}),
         col({style: "width:8rem"}),
         col({style: "width:22rem"}),
-        col({style: "width:10rem"}),
+        col({style: "width:9rem"}),
     );
 
     const sortableHeader = (key, label, cls = "") => th({class: `pb-2 pr-3 font-medium ${cls}`},
@@ -842,7 +842,7 @@ export function secretsPage() {
                 sortableHeader("created", "Created"),
                 sortableHeader("inUse", "In use by"),
                 sortableHeader("value", "Value"),
-                th({class: "pb-2 pr-5 w-px"}, ""),
+                th({class: "pb-2 pr-1 w-px"}, ""),
             )),
     );
 
@@ -881,11 +881,11 @@ export function secretsPage() {
                 return p({class: "text-gray-400 text-sm"}, "No secrets or configs match your search.");
             }
             return div(
-                {class: "h-full min-h-0 overflow-x-auto overflow-y-hidden"},
+                {class: "app-scroll-x h-full min-h-0 overflow-x-auto overflow-y-hidden"},
                 div(
                     {class: "h-full min-h-0 flex flex-col"},
-                    div({class: "flex-none pr-3"}, tableHeader()),
-                    div({class: "deployment-table-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-3"}, tableBody(visibleRows)),
+                    div({class: "flex-none pr-1"}, tableHeader()),
+                    div({class: "deployment-table-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1"}, tableBody(visibleRows)),
                 ),
             );
         }),

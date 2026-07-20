@@ -59,7 +59,7 @@ export function exportConfigOverlay(onClose) {
                 ),
                 div({class: "flex-1 min-h-0 bg-gray-950 overflow-hidden"},
                     pre(
-                        {class: "h-full w-full overflow-auto p-4 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
+                        {class: "app-scroll h-full w-full overflow-auto p-4 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
                         () => outputText.val || (loading.val ? 'Generating export...' : error.val),
                     ),
                 ),

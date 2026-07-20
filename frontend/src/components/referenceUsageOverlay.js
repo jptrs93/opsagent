@@ -4,7 +4,7 @@ const { button, div, h2, p, span, table, tbody, td, th, thead, tr } = van.tags;
 
 export function referenceUsageOverlay(resourceType, resourceName, deployments, settings, onClose) {
     const deploymentTable = deployments.length ? div(
-        {class: "overflow-x-auto rounded-lg border border-gray-700"},
+        {class: "app-scroll-x overflow-x-auto rounded-lg border border-gray-700"},
         table(
             {class: "w-full min-w-[34rem] text-sm"},
             thead(
@@ -54,7 +54,7 @@ export function referenceUsageOverlay(resourceType, resourceName, deployments, s
                     button({type: "button", class: "shrink-0 cursor-pointer px-3 py-1.5 text-sm text-gray-400 hover:text-gray-100", onclick: onClose}, "Close"),
                 ),
                 div(
-                    {class: "min-h-0 overflow-y-auto p-4 space-y-5"},
+                    {class: "app-scroll min-h-0 overflow-y-auto p-4 space-y-5"},
                     div(
                         h2({class: "mb-2 text-sm font-semibold text-gray-200"}, `Deployments (${deployments.length})`),
                         deploymentTable,

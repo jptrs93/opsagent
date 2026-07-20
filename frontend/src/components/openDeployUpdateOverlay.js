@@ -76,7 +76,7 @@ export function openDeployUpdateOverlay(deployment, onClose) {
             style: 'width: 1120px; max-width: 100%; max-height: 88vh;',
         },
         div(
-            {class: 'min-w-0 overflow-auto px-3 py-3.5'},
+            {class: 'app-scroll min-w-0 overflow-auto px-3 py-3.5'},
             div(
                 {class: 'flex flex-col gap-2'},
                 div(

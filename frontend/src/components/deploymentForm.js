@@ -532,7 +532,7 @@ export function commandPane(form) {
             }, xIcon({size: 16})),
         ),
         div(
-            {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-4 p-4"},
+            {class: "app-scroll flex-1 min-h-0 overflow-auto flex flex-col gap-4 p-4"},
             field("Command arguments", textarea({
                 "data-testid": "deployment-container-command-textarea",
                 rows: 8,
@@ -652,7 +652,7 @@ export function networkingPane(form) {
             }, xIcon({size: 16})),
         ),
         div(
-            {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-3"},
+            {class: "app-scroll flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-3"},
             div(
                 {class: "grid grid-cols-1 items-end gap-2 rounded-sm border border-gray-700 bg-gray-900/40 p-3 md:grid-cols-[9rem_minmax(0,1fr)]"},
                 selectField("Mode", form.networkingMode, [
@@ -904,7 +904,7 @@ export function upgradeStrategyPane(form) {
             }, xIcon({size: 16})),
         ),
         div(
-            {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-4 p-4"},
+            {class: "app-scroll flex-1 min-h-0 overflow-auto flex flex-col gap-4 p-4"},
             selectField("Strategy", form.containerUpgradeStrategy, [
                 {value: String(CONTAINER_UPGRADE_RECREATE), label: "Re-create"},
                 {value: String(CONTAINER_UPGRADE_ROLLOVER), label: "Rollover"},
@@ -942,7 +942,7 @@ export function resourcesPane(form) {
             }, xIcon({size: 16})),
         ),
         div(
-            {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-4 p-4"},
+            {class: "app-scroll flex-1 min-h-0 overflow-auto flex flex-col gap-4 p-4"},
             div(
                 {class: "flex flex-col gap-3 rounded-sm border border-gray-700 bg-gray-900/40 p-4"},
                 label({class: "flex items-center gap-2 text-sm text-gray-200"},
@@ -1200,7 +1200,7 @@ export function assetMountsPane(form, opts = {}) {
             }, xIcon({size: 16})),
         ),
         div(
-            {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-4"},
+            {class: "app-scroll flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-4"},
             () => div({class: "flex flex-col gap-3"}, ...rows().map(rowEl)),
             div({class: "flex items-center justify-between gap-2"},
                 button({
@@ -1331,7 +1331,7 @@ export function volumeMountsPane(form, opts = {}) {
             }, xIcon({size: 16})),
         ),
         div(
-            {class: "flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-4"},
+            {class: "app-scroll flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-4"},
             defaultVolumeCard(form),
             paneSectionDivider("Mount another deployment's default volume"),
             p({class: "text-[11px] text-gray-500 -mt-2"}, "Only deployments on the selected node are shown."),
@@ -1469,7 +1469,7 @@ export function envVarsPane(form, opts = {}) {
             }, xIcon({size: 16})),
         ),
         div(
-            {class: "flex-1 min-h-0 flex flex-col p-3 overflow-auto"},
+            {class: "app-scroll flex-1 min-h-0 flex flex-col p-3 overflow-auto"},
             table({class: "w-full text-xs border-collapse"},
                 thead(
                     tr({class: "text-left text-gray-400 border-b border-gray-700"},

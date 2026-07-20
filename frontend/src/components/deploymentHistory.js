@@ -143,7 +143,7 @@ export function deploymentHistory(deploymentId, label, onClose, onRevertTargetVe
             ),
         ),
         div(
-            {class: "flex-1 min-h-0 overflow-auto p-2"},
+            {class: "app-scroll flex-1 min-h-0 overflow-auto p-2"},
             () => {
                 if (entries.val === null) {
                     return p({class: "p-4 text-sm text-gray-500"}, "Loading...");

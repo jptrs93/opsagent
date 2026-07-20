@@ -880,7 +880,7 @@ export function settingsPage() {
                     }, () => recoveryExampleOpen.val ? "Hide example" : "Show example"),
                 ),
                 () => recoveryExampleOpen.val ? pre({
-                    class: "bg-gray-950 rounded-lg p-3 text-gray-200 font-mono text-xs whitespace-pre-wrap break-words overflow-x-auto",
+                    class: "app-scroll-x bg-gray-950 rounded-lg p-3 text-gray-200 font-mono text-xs whitespace-pre-wrap break-words overflow-x-auto",
                 }, recoveryInstallExample()) : "",
             ),
         );
