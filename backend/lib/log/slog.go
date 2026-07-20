@@ -33,6 +33,16 @@ func (h *SlogHandler) Handle(ctx context.Context, r slog.Record) error {
 	var b strings.Builder
 	appendLogfmtField(&b, "time", r.Time.UTC().Format(time.RFC3339Nano))
 	appendLogfmtField(&b, "level", r.Level.String())
+	if lc := logu.GetLogContext(ctx); lc != nil {
+		for _, item := range lc.Items {
+			value := any(true)
+			if item.Value != nil {
+				value = *item.Value
+			}
+			appendLogfmtField(&b, item.Name, fmtValue(value))
+		}
+	}
+
 	appendLogfmtField(&b, "msg", r.Message)
 	for _, attr := range h.attrs {
 		h.appendAttr(&b, attr)
@@ -42,20 +52,17 @@ func (h *SlogHandler) Handle(ctx context.Context, r slog.Record) error {
 		return true
 	})
 	b.WriteByte('\n')
-	if lc := logu.GetLogContext(ctx); lc != nil {
-		for _, item := range lc.Items {
-			value := any(true)
-			if item.Value != nil {
-				value = *item.Value
-			}
-			appendLogfmtField(&b, item.Name, fmt.Sprintf("%v", value))
-		}
-	}
-
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	_, err := io.WriteString(h.out, b.String())
 	return err
+}
+
+func fmtValue(value any) string {
+	if s, ok := value.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("value")
 }
 
 func (h *SlogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
