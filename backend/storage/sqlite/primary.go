@@ -301,14 +301,16 @@ func (s *PrimaryStorage) MustFetchDeploymentHistory(deploymentID int32) []*apige
 	}
 	// Get the identity and created_at from cache for display.
 	var identity apigen.DeploymentIdentity
+	var nodeID int32
 	var createdAt time.Time
 	if cfg, ok := s.configCache[deploymentID]; ok {
 		identity = cfg.Identity
+		nodeID = cfg.NodeID
 		createdAt = cfg.CreatedAt
 	}
 	out := make([]*apigen.DeploymentConfig, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, configHistoryRowToProto(dbID, identity, createdAt, r))
+		out = append(out, configHistoryRowToProto(dbID, nodeID, identity, createdAt, r))
 	}
 	return out
 }
@@ -1137,13 +1139,14 @@ func statusToHistory(s DeploymentStatus) DeploymentStatusHistory {
 	}
 }
 
-func configHistoryRowToProto(dbID int64, identity apigen.DeploymentIdentity, createdAt time.Time, r DeploymentConfigHistory) *apigen.DeploymentConfig {
+func configHistoryRowToProto(dbID int64, nodeID int32, identity apigen.DeploymentIdentity, createdAt time.Time, r DeploymentConfigHistory) *apigen.DeploymentConfig {
 	spec, err := apigen.DecodeDeploymentSpec(r.SpecBlob)
 	if err != nil {
 		slog.Error("failed decoding deployment spec", "deploymentID", dbID, "version", r.Version, "err", err)
 	}
 	return &apigen.DeploymentConfig{
 		ID:        int32(dbID),
+		NodeID:    nodeID,
 		Identity:  identity,
 		CreatedAt: createdAt,
 		Version:   int32(r.Version),

@@ -152,6 +152,18 @@ function selectedSpaceID(text, refs) {
     return refs.spaces.find(item => !item?.deleted && item?.name === name)?.id ?? null;
 }
 
+function selectedNodeID(text, refs) {
+    const match = /\bnode\s*=\s*node\(\s*("(?:\\.|[^"\\])*")\s*\)/.exec(text);
+    if (!match) return null;
+    let name;
+    try {
+        name = JSON.parse(match[1]);
+    } catch {
+        return null;
+    }
+    return refs.nodes.find(item => !item?.deleted && item?.name === name)?.id ?? null;
+}
+
 function catalogCompletionOptions(namespace, catalogs, text, insideQuotes, selectedSpaceOverride) {
     const refs = catalogArrays(catalogs);
     const type = namespace === "address" ? "deployment" : namespace;
@@ -163,6 +175,7 @@ function catalogCompletionOptions(namespace, catalogs, text, insideQuotes, selec
                         : refs.deployments;
     if (selectedSpaceOverride === null) return [];
     const spaceID = selectedSpaceOverride !== undefined ? selectedSpaceOverride : selectedSpaceID(text, refs);
+    const nodeID = type === "deployment" ? selectedNodeID(text, refs) : null;
     const options = new Map();
 
     for (const item of collection) {
@@ -171,6 +184,8 @@ function catalogCompletionOptions(namespace, catalogs, text, insideQuotes, selec
         if (type === "deployment" && spaceID !== null
             && itemSpaceID !== undefined && itemSpaceID !== null
             && Number(itemSpaceID) !== Number(spaceID)) continue;
+        if (type === "deployment" && nodeID !== null
+            && Number(deploymentConfig(item)?.nodeId) !== Number(nodeID)) continue;
         const name = catalogName(item, type);
         if (!name) continue;
         const quoted = JSON.stringify(String(name));

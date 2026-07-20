@@ -57,7 +57,7 @@ creation; its space can be changed through the update path.
 public create boundary derives it from the selected node's immutable identifier,
 but placement, lookup, duplicate detection, and execution do not use it. Every
 stored deployment has a positive canonical `nodeId`. Deployment history entries
-omit `nodeId`.
+carry the deployment's current identity and node placement as display metadata.
 
 ### Prepare variants
 

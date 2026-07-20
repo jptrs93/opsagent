@@ -464,14 +464,14 @@ export function assetsPage() {
             if (rows.val.length === 0) return p({class: "text-gray-400 text-sm"}, "No assets yet. Click Add asset.");
             if (visibleRows.length === 0) return p({class: "text-gray-400 text-sm"}, "No assets match your search.");
             return table(
-                {class: "w-full min-w-[49rem] table-fixed text-sm"},
+                {class: "w-full table-fixed text-sm"},
                 colgroup(
-                    col({style: "width:18rem"}),
-                    col({style: "width:12rem"}),
-                    col({style: "width:6rem"}),
-                    col({style: "width:5rem"}),
-                    col({style: "width:6rem"}),
-                    col({style: "width:2rem"}),
+                    col({style: "width:38%"}),
+                    col({style: "width:24%"}),
+                    col({style: "width:11%"}),
+                    col({style: "width:10%"}),
+                    col({style: "width:12%"}),
+                    col({style: "width:5%"}),
                 ),
                 thead(tr({class: "text-left text-gray-400 border-b border-gray-700"},
                     th({class: "pb-2 pr-3 font-medium"}, "Key"),
@@ -487,10 +487,10 @@ export function assetsPage() {
                         onclick: () => loadAsset(row.key),
                     },
                     td({class: "py-1 pr-3 min-w-0"}, assetNameEditor(row)),
-                    td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap"}, formatDateTime(row.createdAt, "-")),
+                    td({class: "py-1 pr-3 text-gray-400 truncate", title: formatDateTime(row.createdAt, "-")}, formatDateTime(row.createdAt, "-")),
                     td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => usageButton(row)),
                     td({class: "py-1 pr-3 text-gray-300"}, `v${row.version}`),
-                    td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap"}, fmtSize(row.sizeBytes || 0)),
+                    td({class: "py-1 pr-3 text-gray-400 truncate"}, fmtSize(row.sizeBytes || 0)),
                     td({class: "py-1 pl-2 text-right whitespace-nowrap w-px"},
                         button({
                             type: "button",

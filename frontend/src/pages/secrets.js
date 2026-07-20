@@ -83,6 +83,7 @@ export function secretsPage() {
             createdAt: config ? config.createdAt : null,
             copied: van.state(false),
             saving: van.state(false),
+            nameAliases: new Set(),
             orig: {
                 name: config ? config.name : "",
                 value: config ? config.value : "",
@@ -105,6 +106,7 @@ export function secretsPage() {
             valueDirty: van.state(false),
             copied: van.state(false),
             saving: van.state(false),
+            nameAliases: new Set(),
             orig: {name: meta ? meta.name : "", value: ""},
         };
     };
@@ -159,8 +161,9 @@ export function secretsPage() {
     const itemReferenceIDs = (row) => {
         const name = row.orig.name || rawStateValue(row.name).trim();
         if (!name) return new Set();
+        const names = new Set([name, ...(row.nameAliases || [])]);
         return new Set((row.type === "secret" ? (secretMetasS.val || []) : (userConfigsS.val || []))
-            .filter(item => item?.name === name)
+            .filter(item => names.has(item?.name))
             .map(item => Number(item.id || 0))
             .filter(Boolean));
     };
@@ -262,6 +265,11 @@ export function secretsPage() {
             ...(status.unlocked ? latestSecrets.map(meta => itemKey("secret", meta)) : []),
             ...latestConfigs.map(config => itemKey("config", config)),
         ]);
+        for (const row of currentRows) {
+            for (const alias of row.nameAliases || []) {
+                if (!streamKeys.has(`${row.type}:${alias}`)) row.nameAliases.delete(alias);
+            }
+        }
         for (const key of pendingDeletes) {
             if (!streamKeys.has(key)) pendingDeletes.delete(key);
         }
@@ -269,7 +277,10 @@ export function secretsPage() {
             const current = existing.get(key);
             if (!current) return make();
             if (current._saved && confirmsSaved(current)) current._saved = false;
-            return (isDirty(current) || current._saved || current.saving.val) ? current : make();
+            if (isDirty(current) || current._saved || current.saving.val) return current;
+            const next = make();
+            next.nameAliases = new Set(current.nameAliases || []);
+            return next;
         };
         const secretRows = status.unlocked
             ? latestSecrets
@@ -415,15 +426,22 @@ export function secretsPage() {
             return;
         }
         const oldKey = rowKey(row);
+        const oldName = row.orig.name;
         pendingDeletes.add(oldKey);
         row.saving.val = true;
         try {
             error.val = null;
+            let saved;
             if (row.type === "secret") {
-                await capi.postV1SecretsRename({name: row.orig.name, newName: name});
+                saved = await capi.postV1SecretsRename({name: oldName, newName: name});
             } else {
-                await capi.postV1UserConfigsRename({name: row.orig.name, newName: name});
+                saved = await capi.postV1UserConfigsRename({name: oldName, newName: name});
             }
+            row.nameAliases.add(oldName);
+            row.referenceId = Number(saved?.id || row.referenceId || 0);
+            row.version = Number(saved?.version || row.version || 0);
+            row.createdAt = saved?.createdAt || row.createdAt;
+            if (row.type === "secret" && saved) row.meta = saved;
             row.name.val = name;
             row._saved = true;
             row.orig.name = name;

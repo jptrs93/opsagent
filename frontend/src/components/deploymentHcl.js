@@ -605,6 +605,9 @@ function resolveNamed(text, diagnostics, expression, type, name, catalogs, space
                         : catalogs.deployments;
     let matches = scopedItems(collection, type, type === "deployment" ? spaceId : undefined)
         .filter(item => itemName(item, type) === name);
+    if (type === "deployment" && options.nodeId !== undefined && options.nodeId !== null) {
+        matches = matches.filter(item => Number(deploymentConfig(item)?.nodeId) === Number(options.nodeId));
+    }
     if (isVersionedResource(type)) {
         if (options.version !== undefined && options.version !== null) {
             matches = matches.filter(item => Number(item?.version || 0) === Number(options.version));
@@ -626,7 +629,7 @@ function resolveNamed(text, diagnostics, expression, type, name, catalogs, space
     return matches[0];
 }
 
-function deploymentReference(text, diagnostics, expression, catalogs) {
+function deploymentReference(text, diagnostics, expression, catalogs, nodeId) {
     if (expression.kind !== "call" || !["address", "deployment"].includes(expression.name)
         || expression.args.length !== 2
         || expression.args.some(argument => argument.kind !== "string" || !argument.value)) {
@@ -635,7 +638,7 @@ function deploymentReference(text, diagnostics, expression, catalogs) {
     }
     const space = resolveNamed(text, diagnostics, expression.args[0], "space", expression.args[0].value, catalogs);
     if (!space) return null;
-    return resolveNamed(text, diagnostics, expression, "deployment", expression.args[1].value, catalogs, Number(space.id));
+    return resolveNamed(text, diagnostics, expression, "deployment", expression.args[1].value, catalogs, Number(space.id), {nodeId});
 }
 
 function typedReference(text, diagnostics, attr, functionName, type, catalogs, spaceId) {
@@ -679,7 +682,7 @@ function referenceVersion(text, diagnostics, expression, description) {
     return integerValue(text, diagnostics, version, `${description} version`, 1) ?? undefined;
 }
 
-function parseMounts(text, diagnostics, attr, catalogs, spaceId, container) {
+function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, container) {
     container.disableDataVolume = true;
     if (!attr) return;
     if (attr.value.kind !== "list") {
@@ -732,7 +735,7 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, container) {
         }
         if (source.name === "deployment") {
             const options = optionsExpression ? validateObject(text, diagnostics, optionsExpression, new Set(["read_only"])) : new Map();
-            const deployment = deploymentReference(text, diagnostics, source, catalogs);
+            const deployment = deploymentReference(text, diagnostics, source, catalogs, nodeId);
             if (!deployment) continue;
             const host = `${DEPLOYMENT_VOLUME_PREFIX}${deploymentConfig(deployment).id}/default`;
             mounts.push({
@@ -757,7 +760,7 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, container) {
     if (assetMounts.length) container.assetMounts = assetMounts;
 }
 
-function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, container) {
+function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId, container) {
     if (!block && !attr) return;
     if (block && attr) diagnostics.push(diagnostic(text, attr, "env_vars must be declared only once."));
     if (block) validateMembers(text, diagnostics, block, new Set(), new Set(), true);
@@ -791,7 +794,7 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, contain
         const type = value.name === "address" ? "deployment" : value.name;
         let item;
         if (value.name === "address") {
-            item = deploymentReference(text, diagnostics, value, catalogs);
+            item = deploymentReference(text, diagnostics, value, catalogs, nodeId);
         } else {
             const version = referenceVersion(text, diagnostics, value.args[1], `${value.name[0].toUpperCase()}${value.name.slice(1)} reference`);
             item = resolveNamed(text, diagnostics, value, type, value.args[0].value, catalogs, spaceId, {
@@ -951,8 +954,8 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
             if (dataMountPathAttr && dataMountPath !== null) container.dataMountPath = dataMountPath;
         }
 
-        parseEnvVars(text, diagnostics, firstBlock(containerBlock, "env_vars"), firstAttribute(containerBlock, "env_vars"), catalogs, spaceId, container);
-        parseMounts(text, diagnostics, firstAttribute(containerBlock, "mounts"), catalogs, spaceId, container);
+        parseEnvVars(text, diagnostics, firstBlock(containerBlock, "env_vars"), firstAttribute(containerBlock, "env_vars"), catalogs, spaceId, nodeId, container);
+        parseMounts(text, diagnostics, firstAttribute(containerBlock, "mounts"), catalogs, spaceId, nodeId, container);
 
         const resources = firstBlock(containerBlock, "resources");
         if (resources) {

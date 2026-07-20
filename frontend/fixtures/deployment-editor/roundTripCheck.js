@@ -20,7 +20,10 @@ const catalogs = {
     assets: mockAssets,
     secretRefs: mockSecretRefs,
     configRefs: mockConfigRefs,
-    deployments: mockDeployments,
+    deployments: [...mockDeployments, {
+        config: {id: 998, nodeId: 12, identity: {name: 'api', spaceId: 1}},
+        status: {},
+    }],
 };
 
 const collisionCatalogs = {

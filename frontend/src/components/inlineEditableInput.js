@@ -20,6 +20,7 @@ export function inlineEditableInput({
     discardAriaLabel = "Discard name change",
 }) {
     const saving = van.state(false);
+    let inputElement;
     const isDirty = () => Boolean(valueOf(dirty));
     const isDisabled = () => saving.val || Boolean(valueOf(disabled));
     const saveDisabled = () => isDisabled() || !Boolean(valueOf(valid));
@@ -31,37 +32,41 @@ export function inlineEditableInput({
             await onSave();
         } finally {
             saving.val = false;
+            queueMicrotask(() => inputElement?.isConnected && inputElement.focus());
         }
     };
     const discard = () => {
         if (!isDirty() || isDisabled()) return;
         onDiscard();
+        queueMicrotask(() => inputElement?.isConnected && inputElement.focus());
     };
+
+    inputElement = input({
+        class: `min-w-0 flex-1 ${inputClass}`,
+        value,
+        placeholder,
+        disabled: isDisabled,
+        "aria-label": ariaLabel,
+        "aria-invalid": () => isDirty() && !Boolean(valueOf(valid)),
+        oninput,
+        onkeydown: event => {
+            if (event.isComposing || !isDirty()) return;
+            if (event.key === "Enter") {
+                event.preventDefault();
+                void save();
+            } else if (event.key === "Escape") {
+                event.preventDefault();
+                discard();
+            }
+        },
+    });
 
     return div(
         {
             class: "flex w-full min-w-0 items-center gap-1",
             onclick: event => event.stopPropagation(),
         },
-        input({
-            class: `min-w-0 flex-1 ${inputClass}`,
-            value,
-            placeholder,
-            disabled: isDisabled,
-            "aria-label": ariaLabel,
-            "aria-invalid": () => isDirty() && !Boolean(valueOf(valid)),
-            oninput,
-            onkeydown: event => {
-                if (event.isComposing || !isDirty()) return;
-                if (event.key === "Enter") {
-                    event.preventDefault();
-                    void save();
-                } else if (event.key === "Escape") {
-                    event.preventDefault();
-                    discard();
-                }
-            },
-        }),
+        inputElement,
         () => isDirty() ? div(
             {class: "flex shrink-0 items-center gap-1"},
             button({

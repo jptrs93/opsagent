@@ -355,8 +355,8 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 		t.Fatalf("history length = %d, want 2", len(history))
 	}
 	for _, entry := range history {
-		if entry.NodeID != 0 {
-			t.Fatalf("history version %d node ID = %d, want 0", entry.Version, entry.NodeID)
+		if entry.NodeID != node.ID {
+			t.Fatalf("history version %d node ID = %d, want %d", entry.Version, entry.NodeID, node.ID)
 		}
 	}
 }

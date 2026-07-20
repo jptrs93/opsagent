@@ -322,7 +322,7 @@ export function isFormValid(form, opts = {}) {
 
 export function formInvalidReason(form, opts = {}) {
     if (!nameValid(form)) return 'Deployment name is required.';
-    if (deploymentNameTaken(form, opts.deployments || [])) return 'Deployment name is unavailable in this space.';
+    if (deploymentNameTaken(form, opts.deployments || [])) return 'Deployment name is unavailable on this node and in this space.';
     const nodeId = Number(form.nodeId.val || 0);
     if (!nodeId) return 'Node is required.';
     const nodeOptions = opts.nodeOptions || [];
@@ -2220,6 +2220,7 @@ function nameValid(form) {
 function deploymentNameTaken(form, deployments) {
     const name = form.name.val.trim();
     const spaceId = Number(form.spaceId.val);
+    const nodeId = Number(form.nodeId.val);
     const deploymentId = Number(form.deploymentId.val || 0);
     if (!name) return false;
     return deployments.some(deployment => {
@@ -2229,6 +2230,7 @@ function deploymentNameTaken(form, deployments) {
         if (deploymentId && candidateId === deploymentId) return false;
         return !config?.deleted && !deployment?.deleted
             && identity.name === name
-            && Number(identity.spaceId) === spaceId;
+            && Number(identity.spaceId) === spaceId
+            && Number(config?.nodeId ?? deployment?.nodeId) === nodeId;
     });
 }
