@@ -24,6 +24,8 @@ const ipv4EgressListenerPort = 18080
 
 const mockUpgradeVersion = "v1.0.0"
 
+var mockAdditionalReleaseVersions = []string{"v1.0.1", "v1.0.2", "v1.0.3"}
+
 var tlsIngressHosts = []string{
 	"one.ingress.opendeploy.test",
 	"two.ingress.opendeploy.test",
@@ -244,7 +246,7 @@ func loadConfig(resolveLatestRelease bool) (*config, error) {
 	c.RepoMirrorDisk = env("OPD_VM_REPO_MIRROR_DISK", "80GiB")
 
 	if c.usesSelfBootstrap() {
-		c.RepoMirrorReleases = env("OPD_REPO_MIRROR_RELEASES", c.SelfVersion+" "+mockUpgradeVersion)
+		c.RepoMirrorReleases = env("OPD_REPO_MIRROR_RELEASES", strings.Join(append([]string{c.SelfVersion, mockUpgradeVersion}, mockAdditionalReleaseVersions...), " "))
 		c.RepoMirrorLatest = env("OPD_REPO_MIRROR_LATEST", mockUpgradeVersion)
 	} else {
 		c.RepoMirrorReleases = env("OPD_REPO_MIRROR_RELEASES", c.InstallVersion+" "+c.UpgradeVersion)

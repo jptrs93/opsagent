@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/goutil/pubsubu"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -84,6 +85,7 @@ func (s *deploymentStore) MustWriteDeploymentStatus(deploymentID int32, f func(*
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := context.Background()
+	ctx = logu.ExtendLogContext(ctx, "dep", deploymentID)
 
 	current := s.statusCache[deploymentID]
 	if current == nil {
@@ -113,6 +115,11 @@ func (s *deploymentStore) MustWriteDeploymentStatus(deploymentID int32, f func(*
 	}
 
 	s.statusCache[deploymentID] = current
+	slog.InfoContext(ctx, "deployment status transaction published",
+		"updatedAt", current.UpdatedAt,
+		"preparerStatus", current.Preparer.Status,
+		"runnerStatus", current.Runner.Status,
+	)
 	s.notifyFromCache(deploymentID)
 }
 

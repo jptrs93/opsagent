@@ -329,6 +329,13 @@ export async function upgradeOpenDeployAgents(page, {
   if (afterUpgrade) await afterUpgrade();
 }
 
+export async function upgradeOpenDeployNet(page, {machine, version} = {}) {
+  if (!machine) throw new Error('machine is required');
+  if (!version) throw new Error('upgrade version is required');
+  await upgradeOpenDeployDeployment(page, {name: 'opendeploy-net', machine, version});
+  await expectOpenDeployDeploymentVersion(page, {name: 'opendeploy-net', machine, version});
+}
+
 async function waitForLoadableApp(page) {
   const appReady = byTestId(page, 'nav-status', page.getByText('Deployments'))
     .or(byTestId(page, 'login-passkey-button', page.getByRole('button', {name: 'Sign in with passkey'})))
@@ -838,21 +845,33 @@ export async function expectPrepareOutput(page, name, expectedText) {
   await expect(page.getByTestId('prepare-output-overlay')).toBeHidden();
 }
 
-export async function expectDeploymentRestartCount(page, name, count) {
+export async function deploymentRestartCount(page, {name, machine} = {}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
-  const row = byTestId(page, `deployment-row-${name}`, page.locator('tr').filter({hasText: name}));
+  const row = byTestId(page, `deployment-row-${name}`, deploymentRow(page, {name, machine}));
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  const text = await row.getByTestId(`deployment-restarts-${name}`).textContent();
+  return Number.parseInt(text || '0', 10) || 0;
+}
+
+export async function expectDeploymentRestartCount(page, nameOrOpts, count) {
+  const {name, machine, expectedCount} = typeof nameOrOpts === 'string'
+    ? {name: nameOrOpts, expectedCount: count}
+    : {name: nameOrOpts.name, machine: nameOrOpts.machine, expectedCount: nameOrOpts.count};
   await expect.poll(async () => {
-    const text = await row.getByTestId(`deployment-restarts-${name}`).textContent();
-    return Number.parseInt(text || '0', 10) || 0;
-  }, {message: `expected ${name} to restart ${count} times`, timeout: RESTART_TIMEOUT}).toBe(count);
+    return await deploymentRestartCount(page, {name, machine});
+  }, {message: `expected ${name} to restart ${expectedCount} times`, timeout: RESTART_TIMEOUT}).toBe(expectedCount);
+  const row = byTestId(page, `deployment-row-${name}`, deploymentRow(page, {name, machine}));
   await expect(row.getByTitle('View run output')).toContainText('Running', {timeout: LONG_UI_TIMEOUT});
 }
 
 async function upgradeOpenDeployAgent(page, {machine, version}) {
+  return upgradeOpenDeployDeployment(page, {name: 'opendeploy', machine, version});
+}
+
+async function upgradeOpenDeployDeployment(page, {name, machine, version}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
   await showOpendeployDeployments(page);
-  const row = deploymentRow(page, {name: 'opendeploy', machine});
+  const row = deploymentRow(page, {name, machine});
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await row.getByRole('button', {name: 'Update'}).click();
 
@@ -873,9 +892,13 @@ async function upgradeOpenDeployAgent(page, {machine, version}) {
 }
 
 export async function expectOpenDeployAgentVersion(page, {machine, version}) {
+  return expectOpenDeployDeploymentVersion(page, {name: 'opendeploy', machine, version});
+}
+
+async function expectOpenDeployDeploymentVersion(page, {name, machine, version}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
   await showOpendeployDeployments(page);
-  const row = deploymentRow(page, {name: 'opendeploy', machine});
+  const row = deploymentRow(page, {name, machine});
   await expect(row).toContainText(version, {timeout: UPGRADE_TIMEOUT});
   await expect(row.getByTitle('View run output')).toContainText('Running', {timeout: UPGRADE_TIMEOUT});
 }
@@ -909,9 +932,10 @@ async function clusterMachineRow(page, machine, timeout = LONG_UI_TIMEOUT) {
   return match;
 }
 
-async function expectDeploymentRunning(page, name) {
+export async function expectDeploymentRunning(page, opts = {}) {
+  const {name, machine} = typeof opts === 'string' ? {name: opts} : opts;
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
-  const row = deploymentRow(page, {name});
+  const row = deploymentRow(page, {name, machine});
   const prepareStatus = row.getByTestId(`deployment-prepare-status-${name}`);
   await expect(prepareStatus).toContainText(/\b(ready|failed)\b/, {timeout: PREPARATION_TIMEOUT});
 

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/goutil/ptru"
 	"github.com/jptrs93/goutil/pubsubu"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
@@ -232,6 +233,7 @@ func (s *PrimaryStorage) MustWriteReplicatedDeploymentStatus(st *apigen.Deployme
 		return
 	}
 	ctx := context.Background()
+	ctx = logu.ExtendLogContext(ctx, "dep", st.DeploymentID)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -283,6 +285,12 @@ func (s *PrimaryStorage) MustWriteReplicatedDeploymentStatus(st *apigen.Deployme
 	if err := tx.Commit(); err != nil {
 		panic(fmt.Sprintf("commit: %v", err))
 	}
+	slog.InfoContext(ctx, "deployment status transaction published",
+		"updatedAt", st.UpdatedAt,
+		"preparerStatus", st.Preparer.Status,
+		"runnerStatus", st.Runner.Status,
+		"updatedCache", !st.UpdatedAt.Before(cached),
+	)
 
 	if !st.UpdatedAt.Before(cached) {
 		s.statusCache[st.DeploymentID] = st

@@ -17,15 +17,19 @@ import {
   createPostgresClientDeployment,
   createPostgresDeployment,
   createSecret,
+  deploymentRestartCount,
+  expectDeploymentRestartCount,
   expectBackupStorageDisabled,
   expectDeploymentOutput,
   expectReferenceUsage,
   expectOpenDeployAgentVersion,
   expectOpenDeployLogs,
+  expectDeploymentRunning,
   runBackupRestoreSetup,
   signOutAndLoginWithPasskey,
   uploadAsset,
   upgradeOpenDeployAgents,
+  upgradeOpenDeployNet,
 } from '../helpers/ui.js';
 
 const PRE_MIGRATION_LARGE_ASSETS = [
@@ -491,6 +495,24 @@ export const orderedCases = [
     },
     async run(ctx) {
       await runBackupRestoreSetup(ctx.page);
+    },
+  },
+  {
+    id: 'opendeploy-net-upgraded-on-worker-1',
+    title: 'upgrade opendeploy-net on worker-1',
+    description: 'Upgrades worker-1 netproxy and verifies its virtual-network containers remain running.',
+    requires: ['postgres-address-client-deployment-created'],
+    async run(ctx) {
+      const virtualWorkloads = ['nixdockerbuild-virtual', 'rollover-virtual', 'port-forward-virtual', 'postgres18', 'postgresclient', 'postgresclient-address'];
+      const restartCounts = new Map();
+      for (const name of virtualWorkloads) {
+        restartCounts.set(name, await deploymentRestartCount(ctx.page, {name, machine: 'worker-1'}));
+      }
+      await upgradeOpenDeployNet(ctx.page, {machine: 'worker-1', version: 'v1.0.1'});
+      for (const name of virtualWorkloads) {
+        await expectDeploymentRunning(ctx.page, {name, machine: 'worker-1'});
+        await expectDeploymentRestartCount(ctx.page, {name, machine: 'worker-1', count: restartCounts.get(name)});
+      }
     },
   },
 ];

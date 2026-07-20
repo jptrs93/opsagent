@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/goutil/pubsubu"
 	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
@@ -56,7 +57,7 @@ func (op DeploymentOperator) RunAll(predicate storage.DeploymentPredicate) {
 	running := map[int32]struct{}{}
 	for _, dep := range deps {
 		running[dep.Config.ID] = struct{}{}
-		slog.Info("RunAll: launching operator from snapshot",
+		slog.InfoContext(logu.ExtendLogContext(context.Background(), "dep", dep.Config.ID), "RunAll: launching operator from snapshot",
 			"id", dep.Config.ID,
 			"name", configName(&dep.Config),
 			"seqNo", dep.Config.Version,
@@ -77,7 +78,7 @@ func (op DeploymentOperator) RunAll(predicate storage.DeploymentPredicate) {
 			}
 			if _, ok := running[v.Config.ID]; !ok {
 				running[v.Config.ID] = struct{}{}
-				slog.Info("RunAll: launching operator for new deployment",
+				slog.InfoContext(logu.ExtendLogContext(context.Background(), "dep", v.Config.ID), "RunAll: launching operator for new deployment",
 					"id", v.Config.ID,
 					"name", configName(&v.Config),
 					"seqNo", v.Config.Version,
@@ -98,7 +99,8 @@ func (op DeploymentOperator) Run(
 	status *apigen.DeploymentStatus) {
 	id := config.ID
 	depName := configName(config)
-	slog.Info("deployment operator started", "dep", depName)
+	ctx := logu.ExtendLogContext(context.Background(), "dep", id)
+	slog.InfoContext(ctx, "deployment operator started", "name", depName)
 
 	sub := subs.Subscribe(func(prev, dws apigen.DeploymentWithStatus) bool {
 		return dws.Config.ID == id
@@ -106,21 +108,21 @@ func (op DeploymentOperator) Run(
 	var currentPreparer *prepare.Handle
 	var currentRunner runner.Runner
 	if config.DesiredState.Running {
-		slog.Info("Run: reattaching running preparer",
-			"dep", depName,
+		slog.InfoContext(ctx, "Run: reattaching running preparer",
+			"name", depName,
 			"preparerStatus", fmtPreparerStatus(status.Preparer),
 			"configSeqNo", config.Version,
 		)
 		currentPreparer = op.reAttachPreparer(config, status.Preparer)
-		slog.Info("Run: reattaching running runner",
-			"dep", depName,
+		slog.InfoContext(ctx, "Run: reattaching running runner",
+			"name", depName,
 			"runnerStatus", fmtRunnerStatus(status.Runner),
 			"configSeqNo", config.Version,
 		)
 		currentRunner = runner.ReAttachRunning(op.Store, op.RuntimeInputs, config, status.Runner)
 	} else {
-		slog.Info("Run: initializing stopped deployment",
-			"dep", depName,
+		slog.InfoContext(ctx, "Run: initializing stopped deployment",
+			"name", depName,
 			"preparerStatus", fmtPreparerStatus(status.Preparer),
 			"runnerStatus", fmtRunnerStatus(status.Runner),
 			"configSeqNo", config.Version,
@@ -140,7 +142,7 @@ func (op DeploymentOperator) Run(
 			if !config.DesiredState.Running {
 				continue
 			}
-			slog.Warn("Run: local artifact missing, preparing current config again", "dep", depName, "configSeqNo", config.Version)
+			slog.WarnContext(ctx, "Run: local artifact missing, preparing current config again", "name", depName, "configSeqNo", config.Version)
 			if candidate != nil {
 				candidate.Stop()
 				candidate = nil
@@ -157,7 +159,7 @@ func (op DeploymentOperator) Run(
 				continue
 			}
 			if result.err != nil {
-				slog.Warn("Run: rollover candidate failed readiness", "dep", depName, "configSeqNo", result.version, "err", result.err)
+				slog.WarnContext(ctx, "Run: rollover candidate failed readiness", "name", depName, "configSeqNo", result.version, "err", result.err)
 				artifactMissing := errors.Is(result.err, ctrd.ErrImageUnavailable)
 				candidate.Stop()
 				candidate = nil
@@ -170,15 +172,15 @@ func (op DeploymentOperator) Run(
 				}
 				continue
 			}
-			slog.Info("Run: rollover candidate ready, promoting candidate", "dep", depName, "configSeqNo", result.version)
+			slog.InfoContext(ctx, "Run: rollover candidate ready, promoting candidate", "name", depName, "configSeqNo", result.version)
 			if err := candidate.Promote(); err != nil {
-				slog.Warn("Run: rollover candidate promotion failed", "dep", depName, "configSeqNo", result.version, "err", err)
+				slog.WarnContext(ctx, "Run: rollover candidate promotion failed", "name", depName, "configSeqNo", result.version, "err", result.err)
 				candidate.Stop()
 				candidate = nil
 				candidateReady = nil
 				continue
 			}
-			slog.Info("Run: rollover candidate promoted, stopping old runner", "dep", depName, "configSeqNo", result.version)
+			slog.InfoContext(ctx, "Run: rollover candidate promoted, stopping old runner", "name", depName, "configSeqNo", result.version)
 			currentRunner.Stop()
 			currentRunner = candidate
 			candidate = nil
@@ -196,7 +198,7 @@ func (op DeploymentOperator) Run(
 			}
 			switch {
 			case config.Deleted:
-				slog.Info("Run: deployment deleted, shutting down", "dep", depName)
+				slog.InfoContext(ctx, "Run: deployment deleted, shutting down", "name", depName)
 				currentPreparer.Cancel()
 				if candidate != nil {
 					candidate.Stop()
@@ -205,7 +207,7 @@ func (op DeploymentOperator) Run(
 				sub.UnsubscribeFunc()
 				return
 			case !config.DesiredState.Running:
-				slog.Info("Run: desired running=false, stopping runner", "dep", depName)
+				slog.InfoContext(ctx, "Run: desired running=false, stopping runner", "name", depName)
 				if candidate != nil {
 					candidate.Stop()
 					candidate = nil
@@ -213,8 +215,8 @@ func (op DeploymentOperator) Run(
 				}
 				currentRunner.Stop()
 			case config.Version > currentPreparer.Version() && config.DesiredState.Running:
-				slog.Info("Run: config ahead of preparer, starting new prepare",
-					"dep", depName,
+				slog.InfoContext(ctx, "Run: config ahead of preparer, starting new prepare",
+					"name", depName,
 					"configSeqNo", config.Version, "preparerSeqNo", currentPreparer.Version())
 				if candidate != nil {
 					candidate.Stop()
@@ -224,8 +226,8 @@ func (op DeploymentOperator) Run(
 				currentPreparer.Cancel()
 				currentPreparer = op.startPreparer(config)
 			case preparerReady(status, config.Version) && config.Version > currentRunner.Version() && candidate == nil && (!artifactRepairPending || artifactRepairStarted):
-				slog.Info("Run: preparer ready, creating runner",
-					"dep", depName,
+				slog.InfoContext(ctx, "Run: preparer ready, creating runner",
+					"name", depName,
 					"artifact", status.Preparer.Artifact, "configSeqNo", config.Version)
 				if containerUpgradeStrategy(config) == apigen.ContainerUpgradeStrategy_ROLLOVER {
 					candidate = runner.CreateRolloverCandidate(op.Store, op.RuntimeInputs, config, status)
@@ -237,7 +239,7 @@ func (op DeploymentOperator) Run(
 				artifactRepairPending = false
 				artifactRepairStarted = false
 			default:
-				slog.Debug("Run: nothing to do on update", "dep", depName)
+				slog.DebugContext(ctx, "Run: nothing to do on update", "name", depName)
 			}
 		}
 	}
@@ -249,6 +251,7 @@ func (op DeploymentOperator) startPreparer(dep *apigen.DeploymentConfig) *prepar
 		return prepare.Finished(dep.Version)
 	}
 	handle, ctx := prepare.NewHandle(dep.Version)
+	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
 	go func() {
 		defer handle.Complete()
 		artifact, status := op.prepare(ctx, dep)
@@ -258,6 +261,7 @@ func (op DeploymentOperator) startPreparer(dep *apigen.DeploymentConfig) *prepar
 }
 
 func (op DeploymentOperator) prepare(ctx context.Context, dep *apigen.DeploymentConfig) (string, apigen.PreparationStatus) {
+	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
 	log, logPath, err := preparerlog.New(ctx, dep)
 	if err != nil {
 		slog.ErrorContext(ctx, "creating prepare log file failed", "path", logPath, "err", err)
@@ -296,9 +300,10 @@ func (op DeploymentOperator) prepare(ctx context.Context, dep *apigen.Deployment
 // startup. Preparations themselves are not resumable: completed artifacts are
 // reused after checking runtime inputs, while incomplete work starts again.
 func (op DeploymentOperator) reAttachPreparer(dep *apigen.DeploymentConfig, prev apigen.PreparerStatus) *prepare.Handle {
+	ctx := logu.ExtendLogContext(context.Background(), "dep", dep.ID)
 	if prev.DeploymentConfigVersion == dep.Version && prev.Status == apigen.PreparationStatus_READY {
-		if err := op.RuntimeInputs.EnsureReady(context.Background(), dep); err != nil {
-			slog.Error("reAttachPreparer: prepared runtime inputs unavailable", "configVersion", dep.Version, "err", err)
+		if err := op.RuntimeInputs.EnsureReady(ctx, dep); err != nil {
+			slog.ErrorContext(ctx, "reAttachPreparer: prepared runtime inputs unavailable", "configVersion", dep.Version, "err", err)
 			return op.startPreparer(dep)
 		}
 		if dep.Spec.Runner.Systemd.IsZero() {
@@ -306,19 +311,19 @@ func (op DeploymentOperator) reAttachPreparer(dep *apigen.DeploymentConfig, prev
 			if imageReady == nil {
 				imageReady = ctrd.Default.ImageReady
 			}
-			if err := imageReady(context.Background(), prev.Artifact); err != nil {
-				slog.Warn("reAttachPreparer: prepared image unavailable, preparing current config again", "configVersion", dep.Version, "artifact", prev.Artifact, "err", err)
+			if err := imageReady(ctx, prev.Artifact); err != nil {
+				slog.WarnContext(ctx, "reAttachPreparer: prepared image unavailable, preparing current config again", "configVersion", dep.Version, "artifact", prev.Artifact, "err", err)
 				return op.startPreparer(dep)
 			}
 		}
 		return prepare.Finished(dep.Version)
 	}
 	if !dep.Spec.Runner.Systemd.IsZero() && prev.IsZero() && dep.DesiredState.Version != "" {
-		slog.Info("reAttachPreparer: systemd deployment already installed", "deploymentConfigVersion", dep.Version)
+		slog.InfoContext(ctx, "reAttachPreparer: systemd deployment already installed", "deploymentConfigVersion", dep.Version)
 		return prepare.Finished(dep.Version)
 	}
 	if dep.DesiredState.Version == "" {
-		slog.Info("reAttachPreparer: no version to prepare", "deploymentConfigVersion", dep.Version)
+		slog.InfoContext(ctx, "reAttachPreparer: no version to prepare", "deploymentConfigVersion", dep.Version)
 		return prepare.Finished(dep.Version)
 	}
 	return op.startPreparer(dep)

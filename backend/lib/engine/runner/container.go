@@ -105,7 +105,7 @@ func containerID(deploymentID int32, configVersion int32) string {
 }
 
 func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
 	configVersion := preparerStatus.DeploymentConfigVersion
 	r := buildContainerRunner(ctx, cancel, store, inputs, dep, configVersion)
 	r.publish.Store(true)
@@ -121,7 +121,7 @@ func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.Runti
 }
 
 func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
 	configVersion := preparerStatus.DeploymentConfigVersion
 	r := buildContainerRunner(ctx, cancel, store, inputs, dep, configVersion)
 	r.readiness = &readinessConfig{timeout: containerReadinessTimeout(dep.Spec.Runner.Container.ReadinessSignal)}
@@ -137,7 +137,7 @@ func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinpu
 }
 
 func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
 	r := buildContainerRunner(ctx, cancel, store, inputs, dep, prev.DeploymentConfigVersion)
 	r.publish.Store(true)
 	r.status = prev
@@ -240,7 +240,7 @@ func (r *containerRunner) Stop() {
 		// Graceful: SIGTERM, give the container time to exit (the run loop's
 		// monitor wakes on real exit and writes STOPPED), then SIGKILL.
 		if err := task.Kill(context.Background(), syscall.SIGTERM); err != nil {
-			slog.Warn("sending SIGTERM to container failed", "id", r.containerID, "err", err)
+			slog.WarnContext(r.ctx, "sending SIGTERM to container failed", "id", r.containerID, "err", err)
 		}
 		select {
 		case <-r.done:
@@ -249,7 +249,7 @@ func (r *containerRunner) Stop() {
 		case <-time.After(3 * time.Second):
 		}
 		if err := task.Kill(context.Background(), syscall.SIGKILL); err != nil {
-			slog.Warn("sending SIGKILL to container failed", "id", r.containerID, "err", err)
+			slog.WarnContext(r.ctx, "sending SIGKILL to container failed", "id", r.containerID, "err", err)
 		}
 	}
 	// Break out of the monitor/backoff loop and wait for it to finish, then
@@ -563,7 +563,7 @@ func (r *containerRunner) shouldPublishStopped() bool {
 
 func (r *containerRunner) logContainerEvent(action string, runNumber int32, mounts []ctrd.Mount) {
 	counts := countEnvVars(r.envVars)
-	slog.Info(fmt.Sprintf(
+	slog.InfoContext(r.ctx, fmt.Sprintf(
 		"container %s deployment='%s' config_version=%d run_number=%d mount_paths='%s' dev_shm_size_kb=%d file_descriptor_limit=%d env_plain_count=%d env_config_count=%d env_secret_count=%d env_asset_count=%d",
 		action,
 		r.deploymentName,

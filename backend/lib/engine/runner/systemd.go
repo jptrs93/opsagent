@@ -38,7 +38,7 @@ var systemctlRestartCommand = systemctlRestart
 // deployment. For OpenDeploy self-management, reaching this code proves the
 // service is running; polling systemd only adds transient restart-state races.
 func reAttachSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig, runnerStatus apigen.RunnerStatus) *systemdRunner {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
 	sys := dep.Spec.Runner.Systemd
 	runnerStatus.RunningArtifact = resolveSystemdRunnerArtifact(sys.BinPath)
 	runnerStatus.RunningPid = int32(os.Getpid())
@@ -61,7 +61,7 @@ func reAttachSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentCo
 // systemd deployment. It does not restart or install anything; it publishes the
 // already-running current process.
 func observeExistingSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig) *systemdRunner {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
 	sys := dep.Spec.Runner.Systemd
 	r := &systemdRunner{
 		ctx:          ctx,
@@ -88,7 +88,7 @@ func observeExistingSystemdRunner(store storage.OperatorStore, dep *apigen.Deplo
 // Called only from runner.Create when the operator has a new artifact ready.
 // No retries — if install or restart fails, it writes CRASHED and exits.
 func newSystemdRunnerWithRestart(store storage.OperatorStore, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *systemdRunner {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
 	sys := dep.Spec.Runner.Systemd
 	r := &systemdRunner{
 		ctx:          ctx,

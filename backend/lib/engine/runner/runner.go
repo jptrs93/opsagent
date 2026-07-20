@@ -6,8 +6,10 @@
 package runner
 
 import (
+	"context"
 	"log/slog"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -37,7 +39,7 @@ func Create(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, de
 	if status != nil {
 		preparer = status.Preparer
 	}
-	slog.Info("runner.Create", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion, "systemd", useSystemd(dep))
+	slog.InfoContext(deploymentLogContext(dep), "runner.Create", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion, "systemd", useSystemd(dep))
 	switch {
 	case useSystemd(dep):
 		return newSystemdRunnerWithRestart(store, dep, preparer)
@@ -50,7 +52,7 @@ func CreateRolloverCandidate(store storage.OperatorStore, inputs *runtimeinputs.
 	if status != nil {
 		preparer = status.Preparer
 	}
-	slog.Info("runner.CreateRolloverCandidate", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion)
+	slog.InfoContext(deploymentLogContext(dep), "runner.CreateRolloverCandidate", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion)
 	return newRolloverContainerRunner(store, inputs, dep, preparer)
 }
 
@@ -61,13 +63,13 @@ func CreateRolloverCandidate(store storage.OperatorStore, inputs *runtimeinputs.
 func ReAttachRunning(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
 	if prev.IsZero() {
 		if useSystemd(dep) {
-			slog.Info("runner.ReAttachRunning: observing existing systemd unit without previous runner status")
+			slog.InfoContext(deploymentLogContext(dep), "runner.ReAttachRunning: observing existing systemd unit without previous runner status")
 			return observeExistingSystemdRunner(store, dep)
 		}
-		slog.Info("runner.ReAttachRunning: no previous runner, returning stopped")
+		slog.InfoContext(deploymentLogContext(dep), "runner.ReAttachRunning: no previous runner, returning stopped")
 		return Stopped()
 	}
-	slog.Info("runner.ReAttachRunning: reattaching",
+	slog.InfoContext(deploymentLogContext(dep), "runner.ReAttachRunning: reattaching",
 		"prevStatus", prev.Status, "prevPid", prev.RunningPid,
 		"prevArtifact", prev.RunningArtifact, "prevSeqNo", prev.DeploymentConfigVersion)
 	switch {
@@ -82,10 +84,10 @@ func ReAttachRunning(store storage.OperatorStore, inputs *runtimeinputs.RuntimeI
 // and delete it; they never start a fresh task from this path.
 func ReAttachStopped(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
 	if prev.IsZero() {
-		slog.Info("runner.ReAttachStopped: no previous runner, returning stopped")
+		slog.InfoContext(deploymentLogContext(dep), "runner.ReAttachStopped: no previous runner, returning stopped")
 		return Stopped()
 	}
-	slog.Info("runner.ReAttachStopped: reconciling stopped deployment",
+	slog.InfoContext(deploymentLogContext(dep), "runner.ReAttachStopped: reconciling stopped deployment",
 		"prevStatus", prev.Status, "prevPid", prev.RunningPid,
 		"prevArtifact", prev.RunningArtifact, "prevSeqNo", prev.DeploymentConfigVersion)
 	if useSystemd(dep) {
@@ -105,4 +107,8 @@ func (stoppedRunner) ArtifactMissing() <-chan struct{} { return nil }
 
 func useSystemd(dep *apigen.DeploymentConfig) bool {
 	return !dep.Spec.Runner.Systemd.IsZero()
+}
+
+func deploymentLogContext(dep *apigen.DeploymentConfig) context.Context {
+	return logu.ExtendLogContext(context.Background(), "dep", dep.ID)
 }
