@@ -456,9 +456,9 @@ export function statusPage(onOpenLogs = () => {}) {
         ),
     );
 
-    const spaceDividerRow = (space, isFirst) => tr(
+    const spaceDividerRow = (space, isFirst, columnCount) => tr(
         td(
-            {colSpan: 10, class: `${isFirst ? 'pt-2 pb-3' : 'py-3'} px-0`},
+            {colSpan: columnCount, class: `${isFirst ? 'pt-2 pb-3' : 'py-3'} px-0`},
             div(
                 {class: "flex items-center gap-3"},
                 span({class: "text-xs font-semibold tracking-wide text-blue-300 whitespace-nowrap"}, spaceLabel(space)),
@@ -474,7 +474,7 @@ export function statusPage(onOpenLogs = () => {}) {
             ...groups.flatMap((group, index) => {
                 const space = (spacesS.val || []).find(s => s.id === group.spaceId) || {id: group.spaceId, name: `space ${group.spaceId}`};
                 return [
-                    spaceDividerRow(space, index === 0),
+                    spaceDividerRow(space, index === 0, 9),
                     ...group.rows.map(row => statusRowNode(row, false)),
                 ];
             }),
