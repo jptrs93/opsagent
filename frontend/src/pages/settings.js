@@ -128,7 +128,7 @@ const settingsSections = [
             {label: "Web UI ACME hosts", key: "ACME_HOSTS", type: "text", setting: (cfg) => cfg.httpsWeb?.acmeHosts, apply: (doc, item) => { doc.httpsWeb.acmeHosts = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
             {label: "Web UI ACME email", key: "ACME_EMAIL", type: "text", setting: (cfg) => cfg.httpsWeb?.acmeEmail, apply: (doc, item) => { doc.httpsWeb.acmeEmail = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
             {label: "Web UI HTTP enabled", key: "WEB_HTTP_ENABLED", type: "bool", setting: (cfg) => cfg.httpWeb?.enabled, apply: (doc, item) => { doc.httpWeb.enabled = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value === "true"}; }},
-            {label: "Web UI HTTP listen", key: "WEB_HTTP_LISTEN", type: "text", setting: (cfg) => cfg.httpWeb?.listen, apply: (doc, item) => { doc.httpWeb.listen = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
+            {label: "Web UI HTTP listen", key: "WEB_HTTP_LISTEN", type: "text", setting: (cfg) => cfg.httpWeb?.listen, apply: (doc, item) => { doc.httpWeb.listen = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }, visible: (draft) => effectiveDraftBoolValue(draft?.WEB_HTTP_ENABLED)},
         ],
     },
     {
