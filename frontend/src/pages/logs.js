@@ -108,6 +108,7 @@ export function logsPage(selectedDeploymentId) {
     const logDirCopied = van.state(false);
     let activeAbort = null;
     let autoSearchedDeploymentId = 0;
+    let outputPre;
 
     const spaceSelect = select({
         "data-testid": "logs-space-select",
@@ -235,7 +236,14 @@ export function logsPage(selectedDeploymentId) {
                 }
                 const lines = batch.lines || [];
                 count += lines.length;
-                output.val += lines.map(formatLine).join('');
+                let batchOutput = '';
+                for (let i = lines.length - 1; i >= 0; i--) {
+                    batchOutput += formatLine(lines[i]);
+                }
+                // The API supplies the newest matching records first so it can
+                // enforce its newest-lines limit. Prepend each reversed batch
+                // to display the selected records in chronological order.
+                output.val = batchOutput + output.val;
             }
             status.val = count >= DEFAULT_LOG_LINE_LIMIT
                 ? `Showing newest ${DEFAULT_LOG_LINE_LIMIT.toLocaleString()} log lines.`
@@ -252,6 +260,7 @@ export function logsPage(selectedDeploymentId) {
                 refreshedAt,
                 logDir,
             };
+            setTimeout(() => { outputPre.scrollTop = outputPre.scrollHeight; }, 0);
         } catch (e) {
             if (e.name !== 'AbortError') {
                 status.val = `Search failed: ${e.message || e}`;
@@ -304,7 +313,13 @@ export function logsPage(selectedDeploymentId) {
         }
         const lineWord = search.count === 1 ? 'log line' : 'log lines';
         const versionText = search.configVersion ? ` config v${search.configVersion}` : ' all versions';
-        return `Showing${versionText} logs for ${search.deploymentName} from ${formatSummaryDate(search.start)} to ${formatSummaryDate(search.end)}. Result ${search.count.toLocaleString()} ${lineWord}. Refreshed ${durationAgo(search.refreshedAt)}.`;
+        return span(
+            `Showing${versionText} logs for ${search.deploymentName} from `,
+            span({class: "font-semibold text-gray-300"}, formatSummaryDate(search.start)),
+            " to ",
+            span({class: "font-semibold text-gray-300"}, formatSummaryDate(search.end)),
+            `. Result ${search.count.toLocaleString()} ${lineWord}. Refreshed ${durationAgo(search.refreshedAt)}.`,
+        );
     };
 
     const copyLogDir = async () => {
@@ -395,8 +410,7 @@ export function logsPage(selectedDeploymentId) {
             }, () => loading.val ? 'Searching...' : 'Search'),
         ),
         div(
-            {class: "px-1 grid grid-cols-1 items-center gap-x-4 gap-y-1 text-xs md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"},
-            p({class: "min-w-0 text-gray-400"}, summaryLine),
+            {class: "px-1 grid grid-cols-1 items-center gap-x-4 gap-y-1 text-xs md:grid-cols-[auto_minmax(0,1fr)_auto]"},
             input({
                 "data-testid": "logs-result-filter-input",
                 class: "input h-7 w-full px-2 py-1 text-xs md:w-64",
@@ -404,11 +418,12 @@ export function logsPage(selectedDeploymentId) {
                 value: () => resultSearchStr.val,
                 oninput: (e) => { resultSearchStr.val = e.target.value; },
             }),
+            p({class: "min-w-0 text-gray-400 md:whitespace-nowrap"}, summaryLine),
             logDirLine,
         ),
         p({class: "sr-only", "aria-live": "polite"}, () => status.val),
-        pre(
-            {"data-testid": "logs-output", class: "rounded-lg bg-gray-950 border border-gray-800 p-3 overflow-auto flex-1 min-h-0 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
+        outputPre = pre(
+            {"data-testid": "logs-output", class: "app-scroll rounded-lg bg-gray-950 border border-gray-800 p-3 overflow-auto flex-1 min-h-0 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
             filteredOutput,
         ),
     );

@@ -1,7 +1,7 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {inlineEditableInput} from "../components/inlineEditableInput.js";
-import {backupStatusS, deploymentsStreamS, enrollmentsS, machinesS, primaryConfigS, userConfigsS} from "../state/deployments.js";
+import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, primaryConfigS, userConfigsS} from "../state/deployments.js";
 
 const { button, code, div, h2, input, p, span, table, tbody, td, th, thead, tr } = van.tags;
 
@@ -29,7 +29,7 @@ export function clusterPage() {
     loadEnrollmentInfo();
 
     const copyInstallCommand = async () => {
-        const command = secondaryInstallCommand(config.val?.config?.settings, enrollmentInfo.val);
+        const command = secondaryInstallCommand(config.val?.config?.settings, enrollmentInfo.val, primaryOpenDeployVersion());
         if (!command) return;
         await navigator.clipboard.writeText(command);
         copied.val = true;
@@ -37,7 +37,7 @@ export function clusterPage() {
     };
 
     return div(
-        {class: "flex-1 min-h-0 overflow-auto p-3 flex flex-col gap-3"},
+        {class: "app-scroll flex-1 min-h-0 overflow-auto p-3 flex flex-col gap-3"},
         () => {
             if (deploymentsStreamS.val.status !== "connected" && machinesS.val.length === 0) {
                 return p({class: "text-gray-400"}, "Loading...");
@@ -61,9 +61,9 @@ export function clusterPage() {
                             {class: "w-full text-sm"},
                             thead(
                                 tr({class: "text-left text-gray-400 border-b border-gray-700"},
-                                    th({class: "pb-2 pr-6 w-[24rem]"}, "Node"),
-                                    th({class: "pb-2 pr-6"}, "Role"),
-                                    th({class: "pb-2 pr-6"}, "Status"),
+                                    th({class: "pb-2 pr-3 w-[24rem]"}, "Node"),
+                                    th({class: "pb-2 pr-3"}, "Role"),
+                                    th({class: "pb-2 pr-3"}, "Status"),
                                     th({class: "pb-2"}, "Connected since"),
                                 )
                             ),
@@ -128,8 +128,8 @@ function machineRow(machine) {
     };
 
     return tr(
-        {class: "border-b border-gray-800 last:border-0 align-top", "data-testid": `machine-row-${machine.identifier}`},
-        td({class: "py-3 pr-6 text-white font-medium w-[24rem]"},
+        {class: "border-b border-gray-800 last:border-0 align-middle", "data-testid": `machine-row-${machine.identifier}`},
+        td({class: "py-1 pr-3 text-white font-medium w-[24rem]"},
             inlineEditableInput({
                 value: name,
                 dirty: () => name.val !== originalName.val,
@@ -145,17 +145,17 @@ function machineRow(machine) {
             }),
             () => error.val ? p({class: "mt-1 text-xs text-red-400"}, error.val) : '',
         ),
-        td({class: "py-3 pr-6"},
+        td({class: "py-1 pr-3"},
             machine.isPrimary
                 ? span({class: "text-blue-400"}, "primary")
                 : span({class: "text-gray-300"}, "secondary")
         ),
-        td({class: "py-3 pr-6"},
+        td({class: "py-1 pr-3"},
             machine.connected
                 ? span({class: "text-green-400"}, "connected")
                 : span({class: "text-red-400"}, "disconnected")
         ),
-        td({class: "py-3 text-gray-400"},
+        td({class: "py-1 text-gray-400"},
             machine.isPrimary ? '-' : formatTime(machine.connectedAt)
         ),
     );
@@ -233,7 +233,7 @@ function secondaryInstallPanel(config, enrollmentInfo, configError, copied, onCo
                 {
                     type: "button",
                     class: "btn-secondary text-sm py-1.5 px-3 shrink-0",
-                    disabled: () => !secondaryInstallCommand(config.val?.config?.settings, enrollmentInfo.val),
+                    disabled: () => !secondaryInstallCommand(config.val?.config?.settings, enrollmentInfo.val, primaryOpenDeployVersion()),
                     onclick: onCopy,
                 },
                 () => copied.val ? "Copied" : "Copy",
@@ -241,29 +241,41 @@ function secondaryInstallPanel(config, enrollmentInfo, configError, copied, onCo
         ),
         () => configError.val
             ? p({class: "text-xs text-red-400"}, configError.val)
-            : installCommandBlock(secondaryInstallCommand(config.val?.config?.settings, enrollmentInfo.val)),
+            : installCommandBlock(secondaryInstallCommand(config.val?.config?.settings, enrollmentInfo.val, primaryOpenDeployVersion())),
     );
 }
 
 function installCommandBlock(command) {
     if (!command) {
-        return p({class: "text-xs text-gray-500"}, "Loading primary cluster addresses and enrollment fingerprint...");
+        return p({class: "text-xs text-gray-500"}, "Loading primary version, cluster addresses, and enrollment fingerprint...");
     }
-    return code({class: "block overflow-x-auto whitespace-pre rounded bg-gray-950 p-3 text-xs text-gray-200"}, command);
+    return code({class: "app-scroll-x block overflow-x-auto whitespace-pre rounded bg-gray-950 p-3 text-xs text-gray-200"}, command);
 }
 
-function secondaryInstallCommand(config, enrollmentInfo) {
+function primaryOpenDeployVersion() {
+    const primaryID = Number(machinesS.val.find(machine => machine.isPrimary)?.id || 0);
+    if (!primaryID) return "";
+    const deployment = deploymentsS.val.find(item =>
+        Number(item.config?.nodeId || 0) === primaryID &&
+        Number(item.config?.identity?.spaceId || 0) === 0 &&
+        item.config?.identity?.name === "opendeploy",
+    );
+    return (deployment?.status?.runner?.runningVersion || deployment?.config?.desiredState?.version || "").trim();
+}
+
+function secondaryInstallCommand(config, enrollmentInfo, version) {
     const clusterListen = resolveStringSetting(config?.cluster?.listen);
     const enrollmentListen = resolveStringSetting(config?.cluster?.enrollmentListen);
     const enrollmentFingerprint = (enrollmentInfo?.enrollmentTlsSpkiSha256 || "").trim();
-    if (!clusterListen || !enrollmentListen || !enrollmentFingerprint) return "";
+    if (!clusterListen || !enrollmentListen || !enrollmentFingerprint || !version) return "";
     const clusterAddr = dialAddress(clusterListen);
     const enrollmentAddr = dialAddress(enrollmentListen);
     if (!clusterAddr || !enrollmentAddr) return "";
     return `curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/install_secondary.sh | bash -s -- \\
-  --cluster-addr "${clusterAddr}" \\
-  --enrollment-addr "${enrollmentAddr}" \\
-  --enrollment-fingerprint "${enrollmentFingerprint}"`;
+   --cluster-addr "${clusterAddr}" \\
+   --enrollment-addr "${enrollmentAddr}" \\
+   --enrollment-fingerprint "${enrollmentFingerprint}" \\
+   --version "${version}"`;
 }
 
 function resolveStringSetting(setting) {

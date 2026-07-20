@@ -36,8 +36,10 @@ func (m *Manager) Promote(oldNet, candidate *ContainerNet, stable netip.Addr) er
 	return fmt.Errorf("virtual networking requires linux")
 }
 
-func (m *Manager) TeardownContainerNet(containerID string, deploymentID int32) {}
+func (m *Manager) TeardownContainerNet(cn *ContainerNet) {}
 
-func (m *Manager) CleanupContainerNets(deploymentID int32, keep func(containerID string) bool) {}
+func (m *Manager) TeardownContainerNetState(containerID string, deploymentID int32) {}
+
+func (m *Manager) CleanupContainerNets(deploymentID int32, keep []*ContainerNet) {}
 
 func (m *Manager) reconcileNft() error { return nil }

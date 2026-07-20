@@ -192,7 +192,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
             formatMaybeDate(deployment.deployedAt, 'unknown'),
         ),
         td(
-            {class: "py-2 pl-3 pr-5 align-middle text-right whitespace-nowrap"},
+            {class: "py-2 pl-3 pr-1 align-middle text-right whitespace-nowrap"},
             div(
                 {class: "inline-flex items-center justify-end gap-1"},
                 button({
@@ -214,7 +214,6 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
                 }, ".."),
             ),
         ),
-        td({class: "p-0", "aria-hidden": "true"}, ""),
     );
 }
 

@@ -63,8 +63,18 @@ const editorTheme = EditorView.theme({
         minHeight: "0",
         overflowX: "auto",
         overflowY: "auto",
-        scrollbarColor: "#374151 transparent",
+        scrollbarGutter: "stable",
+        scrollbarColor: "#4b5563 #111827",
+        scrollbarWidth: "thin",
     },
+    ".cm-scroller::-webkit-scrollbar": {width: "8px", height: "8px"},
+    ".cm-scroller::-webkit-scrollbar-track": {background: "#111827"},
+    ".cm-scroller::-webkit-scrollbar-thumb": {
+        background: "#4b5563",
+        border: "2px solid #111827",
+        borderRadius: "999px",
+    },
+    ".cm-scroller::-webkit-scrollbar-thumb:hover": {background: "#6b7280"},
     ".cm-gutters": {
         backgroundColor: "#111827",
         color: "#4b5563",
@@ -456,7 +466,7 @@ export function deploymentConfigCodeWidget(args) {
             ),
             () => diagnostics.val.length
                 ? div(
-                    {class: "max-h-28 overflow-y-auto px-3 pb-2"},
+                    {class: "app-scroll max-h-28 overflow-y-auto px-3 pb-2"},
                     ...diagnostics.val.map(item => {
                         const line = currentText.slice(0, Math.max(0, item.from || 0)).split("\n").length;
                         const error = item.severity === "error";

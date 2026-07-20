@@ -125,7 +125,7 @@ export function referencePicker({
             if (!open.val || valueOf(disabled)) return '';
             const items = matches();
             return ul(
-                {class: "absolute z-50 mt-1 max-h-44 w-full overflow-auto rounded-md border border-gray-700 bg-gray-900 shadow-xl"},
+                {class: "app-scroll absolute z-50 mt-1 max-h-44 w-full overflow-auto rounded-md border border-gray-700 bg-gray-900 shadow-xl"},
                 ...(items.length === 0
                     ? [li({class: "px-2 py-1.5 text-gray-500"}, allRefs().length ? noMatchesLabel : emptyLabel)]
                     : items.map((ref, index) => li({
