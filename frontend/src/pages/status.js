@@ -4,6 +4,7 @@ import {deploymentsS, deploymentsStreamS, machinesS, spacesS} from "../state/dep
 import {statusRow} from "../components/statusCard.js";
 import {deploymentHistory} from "../components/deploymentHistory.js";
 import {deployOverlay} from "../components/deployOverlay.js";
+import {openDeployUpdateOverlay} from "../components/openDeployUpdateOverlay.js";
 import {createOverlay} from "../components/createOverlay.js";
 import {prepareOutputOverlay} from "../components/prepareOutputOverlay.js";
 import {exportConfigOverlay} from "../components/exportConfigOverlay.js";
@@ -21,6 +22,12 @@ const MAX_SIDEBAR_PCT = 80;
 const OPENDEPLOY_SPACE_ID = 0;
 const STATUS_RUNNING = 2;
 const STATUS_STOPPED = 3;
+
+const isOpenDeployDeployment = deployment => {
+    const name = deployment?.name || deployment?.configId?.name || '';
+    const spaceId = Number(deployment?.spaceId ?? deployment?.configId?.spaceId ?? -1);
+    return spaceId === OPENDEPLOY_SPACE_ID && (name === 'opendeploy' || name === 'opendeploy-net');
+};
 
 function loadSidebarWidth() {
     try {
@@ -240,7 +247,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
         const nodeMissing = Boolean(nodeId) && !machinesByNodeId.has(nodeId);
         const existingStatus = runner.status || 0;
         const uiExistingStatus = nodeMissing && existingStatus === STATUS_RUNNING ? 0 : existingStatus;
-        const systemDeployment = spaceId === OPENDEPLOY_SPACE_ID && ['opendeploy', 'opendeploy-net'].includes(cid.name || '');
+        const systemDeployment = isOpenDeployDeployment({spaceId, name: cid.name});
 
         return {
             id,
@@ -331,6 +338,10 @@ export function statusPage(onOpenLogs = () => {}) {
     };
 
     const onUpdate = (deployment) => {
+        if (isOpenDeployDeployment(deployment)) {
+            overlayNode.val = openDeployUpdateOverlay(deployment, closeOverlay);
+            return;
+        }
         const rawConfig = findRawConfig(deployment.id);
         overlayNode.val = deployOverlay(deployment, rawConfig, closeOverlay);
     };

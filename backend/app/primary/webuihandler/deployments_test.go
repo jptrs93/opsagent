@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,7 +14,10 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
+	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/lib/network"
+	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
+	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
@@ -368,6 +372,72 @@ func TestDeploymentVersionsHandlesRepositoryWithoutBranches(t *testing.T) {
 	}
 	if provider.listCommitsCalls != 0 {
 		t.Fatalf("list commits calls = %d, want 0", provider.listCommitsCalls)
+	}
+}
+
+func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "github upstream failure marker", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	client := githubrepo.NewClient(githubcredentials.SecretProvider{}, githubrepo.WithAPIBaseURL(server.URL))
+	provider := versionprovider.NewGithubReleaseVersionProviderWithClient(client)
+	tests := []struct {
+		name             string
+		createDeployment func(*testing.T, *sqlite.PrimaryStorage) *apigen.DeploymentConfig
+		provider         *versionprovider.GithubReleaseVersionProvider
+		wantInternal     string
+	}{
+		{
+			name: "opendeploy-net special branch",
+			createDeployment: func(_ *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig {
+				return store.EnsureNetproxyDeployment("primary", "v1.2.3")
+			},
+			provider:     provider,
+			wantInternal: "listing releases: github api 503: github upstream failure marker",
+		},
+		{
+			name: "GitHub release config branch",
+			createDeployment: func(t *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig {
+				store.EnsureSystemDeployment("primary", "v1.2.3")
+				return findSystemDeployment(t, store, "primary")
+			},
+			provider:     provider,
+			wantInternal: "listing releases: github api 503: github upstream failure marker",
+		},
+		{
+			name: "unconfigured provider",
+			createDeployment: func(t *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig {
+				store.EnsureSystemDeployment("primary", "v1.2.3")
+				return findSystemDeployment(t, store, "primary")
+			},
+			wantInternal: "github release version loading is not configured",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+			store.EnsurePrimaryNode("primary", "primary")
+			cfg := tt.createDeployment(t, store)
+			h := &Handler{Store: store, GithubReleaseVersions: tt.provider}
+
+			_, err := h.PostV1DeploymentVersions(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentVersionsRequest{DeploymentID: cfg.ID})
+			var apiErr apigen.ApiErr
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("err = %#v, want apigen.ApiErr", err)
+			}
+			if apiErr.Code != http.StatusBadGateway {
+				t.Errorf("status = %d, want %d", apiErr.Code, http.StatusBadGateway)
+			}
+			if apiErr.DisplayErr != githubReleaseVersionsDisplayErr {
+				t.Errorf("display error = %q, want %q", apiErr.DisplayErr, githubReleaseVersionsDisplayErr)
+			}
+			if !strings.Contains(apiErr.InternalErr, tt.wantInternal) {
+				t.Errorf("internal error = %q, want containing %q", apiErr.InternalErr, tt.wantInternal)
+			}
+		})
 	}
 }
 
@@ -962,6 +1032,25 @@ func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 				},
 			},
 			want: "hostname",
+		},
+		{
+			name: "tls passthrough on netproxy DNS port",
+			spec: apigen.DeploymentSpec{
+				Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+				Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+				Networking: apigen.NetworkingConfig{
+					Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+					Ingress: []*apigen.Ingress{{
+						Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+						Hostname: "dns.example.com",
+						TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
+							HostPort:      53,
+							ContainerPort: 443,
+						},
+					}},
+				},
+			},
+			want: "hostPort 53 is reserved for opendeploy-net DNS",
 		},
 	}
 	for _, tt := range tests {

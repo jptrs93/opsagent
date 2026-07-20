@@ -65,6 +65,7 @@ type containerRunner struct {
 	devShmSizeKB   int64
 	fileDescLimit  int64
 	configVersion  int32
+	latestVersion  int32
 	dataVolumeHost string // host dir to create+chown for the default data volume ("" = disabled)
 	dataVolumeUser string // user the data volume should be owned by
 	readiness      *readinessConfig
@@ -172,6 +173,7 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		command:         cfg.Command,
 		cwd:             cfg.WorkingDir,
 		networking:      dep.Spec.Networking,
+		latestVersion:   dep.Version,
 	}
 	r.mounts, r.dataVolumeHost = containerMounts(dep)
 	r.devShmSizeKB = int64(cfg.DevShmSizeKb)
@@ -257,7 +259,7 @@ func (r *containerRunner) Stop() {
 	if task != nil {
 		r.deleteTask(task)
 	}
-	r.cleanupContainerNet(r.getContainerNet())
+	r.cleanupContainerNetState()
 }
 
 func (r *containerRunner) run() {
@@ -273,19 +275,35 @@ func (r *containerRunner) run() {
 			r.setTask(task)
 			if r.startupMode == containerStartupReattachStopped {
 				r.stopAdoptedTask(task)
+				r.cleanupContainerNetState()
 				if r.shouldPublishStopped() {
 					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
 				}
 				return
 			}
-			r.monitorTask(task)
-			hadProcess = true
-			if !r.stopping.Load() {
-				r.updateStatus(apigen.RunningStatus_CRASHED, int32(task.Pid()))
+			if err := r.recoverContainerNet(); err != nil {
+				slog.ErrorContext(r.ctx, "recovering adopted container network failed", "id", r.containerID, "err", err)
+				r.stopAdoptedTask(task)
+				r.cleanupContainerNetState()
+				hadProcess = true
+				r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+			} else {
+				if r.usesLatestNetworkConfig() {
+					r.updateStatus(apigen.RunningStatus_RUNNING, int32(task.Pid()))
+				}
+				r.monitorTask(task)
+				r.deleteTask(task)
+				r.setTask(nil)
+				r.cleanupContainerNetState()
+				hadProcess = true
+				if !r.stopping.Load() {
+					r.updateStatus(apigen.RunningStatus_CRASHED, int32(task.Pid()))
+				}
 			}
 		} else {
 			r.logContainerEvent("re-attach-miss", r.currentRunNumber(), r.mounts)
 			if r.startupMode == containerStartupReattachStopped {
+				r.cleanupContainerNetState()
 				if r.shouldPublishStopped() {
 					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
 				}
@@ -844,6 +862,48 @@ func (r *containerRunner) setupContainerNet(runNumber int32, candidate bool) (*n
 	return cn, resolvConfPath, nil
 }
 
+func (r *containerRunner) recoverContainerNet() error {
+	var addr netip.Addr
+	if r.usesLatestNetworkConfig() {
+		if !r.virtualNetwork() {
+			return nil
+		}
+		stable, err := r.stableAddr()
+		if err != nil {
+			return err
+		}
+		addr = stable
+	} else {
+		if len(r.status.Endpoints) == 0 {
+			return nil
+		}
+		var err error
+		addr, err = netip.ParseAddr(r.status.Endpoints[0].Address)
+		if err != nil {
+			return fmt.Errorf("parsing persisted container address: %w", err)
+		}
+	}
+	network.Default.CleanupContainerNets(r.deploymentID, func(containerID string) bool {
+		return containerID == r.containerID
+	})
+	cn, err := network.Default.RecoverContainerNet(r.containerID, r.deploymentID, addr)
+	if err != nil {
+		return err
+	}
+	r.setContainerNet(cn)
+	if r.usesLatestNetworkConfig() {
+		if err := r.publishContainerNet(cn, addr); err != nil {
+			return fmt.Errorf("publishing recovered container network: %w", err)
+		}
+	}
+	slog.InfoContext(r.ctx, "adopted container network recovered", "id", r.containerID, "addr", cn.Addr, "v4", cn.V4, "veth", cn.HostVeth)
+	return nil
+}
+
+func (r *containerRunner) usesLatestNetworkConfig() bool {
+	return r.configVersion == r.latestVersion || network.Default.IsNetproxyDeployment(r.deploymentID)
+}
+
 func containerNetAddresses(prefix network.Prefix, spaceID, deploymentID, runNumber int32, candidate bool) (netip.Addr, []netip.Addr, error) {
 	stable, err := prefix.InstanceAddr(spaceID, deploymentID, 0)
 	if err != nil {
@@ -938,6 +998,14 @@ func (r *containerRunner) cleanupContainerNet(cn *network.ContainerNet) {
 	network.Default.DropCurrentNet(r.deploymentID, cn.ContainerID)
 	network.Default.TeardownContainerNet(cn.ContainerID, r.deploymentID)
 	r.setContainerNet(nil)
+}
+
+func (r *containerRunner) cleanupContainerNetState() {
+	if cn := r.getContainerNet(); cn != nil {
+		r.cleanupContainerNet(cn)
+		return
+	}
+	network.Default.TeardownContainerNet(r.containerID, r.deploymentID)
 }
 
 func (r *containerRunner) setContainerNet(cn *network.ContainerNet) {

@@ -168,6 +168,7 @@ func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	defer cancel()
 	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, &apigen.DeploymentConfig{
 		ID:       7,
+		Version:  3,
 		ConfigID: apigen.DeploymentIdentifier{SpaceID: 5},
 		Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
 			DisableDataVolume:   true,
@@ -183,6 +184,9 @@ func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	}
 	if r.spaceID != 5 {
 		t.Fatalf("spaceID = %d, want 5", r.spaceID)
+	}
+	if r.latestVersion != 3 {
+		t.Fatalf("latestVersion = %d, want 3", r.latestVersion)
 	}
 }
 
@@ -200,6 +204,19 @@ func TestContainerRunnerSignalsMissingArtifactOnce(t *testing.T) {
 	case <-r.ArtifactMissing():
 		t.Fatal("missing artifact signal was queued more than once")
 	default:
+	}
+}
+
+func TestUsesLatestNetworkConfigAcrossNetproxyVersionUpgrade(t *testing.T) {
+	previous := network.Default
+	network.SetDefault(network.New(network.GeneratePrefix(), 7))
+	t.Cleanup(func() { network.SetDefault(previous) })
+
+	if !(&containerRunner{deploymentID: 7, configVersion: 1, latestVersion: 2}).usesLatestNetworkConfig() {
+		t.Fatal("netproxy version-only upgrade should use the current internal network config")
+	}
+	if (&containerRunner{deploymentID: 8, configVersion: 1, latestVersion: 2}).usesLatestNetworkConfig() {
+		t.Fatal("ordinary deployment with an older runner must not use the latest network config")
 	}
 }
 

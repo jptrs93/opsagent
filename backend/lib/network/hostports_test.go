@@ -10,12 +10,17 @@ import (
 
 func TestReconcileNetproxyHostPortsUsesRenderedIngress(t *testing.T) {
 	m := New(GeneratePrefix(), 42)
+	m.netproxyIngressPorts = map[uint16]struct{}{443: {}, 8443: {}}
+	m.reconcileNetproxyHostPortsLocked()
+	if _, ok := m.hostPorts[42]; ok {
+		t.Fatal("netproxy host ports were recorded before its network was recovered")
+	}
+
 	m.current[42] = &ContainerNet{
 		ContainerID: "netproxy-run",
 		Addr:        netip.MustParseAddr("fd00::42"),
 		V4:          netip.MustParseAddr("100.64.0.2"),
 	}
-	m.netproxyIngressPorts = map[uint16]struct{}{443: {}, 8443: {}}
 	m.reconcileNetproxyHostPortsLocked()
 
 	entry, ok := m.hostPorts[42]

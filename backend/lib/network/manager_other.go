@@ -28,6 +28,10 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 	return nil, fmt.Errorf("virtual networking requires linux")
 }
 
+func (m *Manager) RecoverContainerNet(containerID string, deploymentID int32, addr netip.Addr) (*ContainerNet, error) {
+	return nil, fmt.Errorf("virtual networking requires linux")
+}
+
 func (m *Manager) Promote(oldNet, candidate *ContainerNet, stable netip.Addr) error {
 	return fmt.Errorf("virtual networking requires linux")
 }

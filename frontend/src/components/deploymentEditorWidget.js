@@ -46,10 +46,7 @@ export function deploymentEditorWidget(opts) {
         form.nodeId.val = 0;
     }
 
-    const internalDeployment = mode === 'update' && isInternalOpenDeployDeployment(deployment);
-    const internalGithubRelease = mode === 'update' && deployment?.variant === 'githubRelease';
-    const internalOpenDeployRelease = internalDeployment || internalGithubRelease;
-    const canEditState = mode === 'create' || (!internalDeployment && deployment?.runnerType !== 'systemd');
+    const canEditState = mode === 'create' || deployment?.runnerType !== 'systemd';
     const requestDescription = van.state('');
     const errorMsg = van.state('');
     let requestSeq = 0;
@@ -80,9 +77,6 @@ export function deploymentEditorWidget(opts) {
     }
 
     const loadVersions = async (branch, loadOpts = {}) => {
-        if (internalOpenDeployRelease) {
-            return deploymentUpdate.loadExistingDeploymentVersions(actions.loadDeploymentVersions, deployment.id, loadOpts);
-        }
         return deploymentUpdate.loadVersions({
             branch,
             preserveSelection: loadOpts.preserveSelection,
@@ -90,14 +84,12 @@ export function deploymentEditorWidget(opts) {
         });
     };
 
-    if (mode === 'create' && !internalOpenDeployRelease
-        && deploymentUpdate.desiredRunning.val && form.sourceType.val === SOURCE_NIX_DOCKER) {
+    if (mode === 'create' && deploymentUpdate.desiredRunning.val && form.sourceType.val === SOURCE_NIX_DOCKER) {
         void deploymentUpdate.validateExactNixSelection();
     }
 
     if (mode === 'update' && deployment?.variant
-        && (internalOpenDeployRelease
-            || deployment.variant === SOURCE_NIX_DOCKER
+        && (deployment.variant === SOURCE_NIX_DOCKER
             || (deployment.variant === SOURCE_DOCKER_IMAGE && !imageVersionFromReference(form.containerImage.val)))) {
         void deploymentUpdate.loadExistingDeploymentVersions(
             actions.loadDeploymentVersions,
@@ -107,17 +99,15 @@ export function deploymentEditorWidget(opts) {
     }
 
     const documentInvalidReason = () => {
-        if (!(mode === 'update' && internalOpenDeployRelease)) {
-            const sourcePathReason = deploymentUpdate.sourcePathInvalidReason();
-            if (sourcePathReason) return sourcePathReason;
-            const reason = formInvalidReason(form, {
-                nodeOptions: stateValue(nodes) || [],
-                deployments: stateValue(deployments) || [],
-            });
-            if (reason) return reason;
-            const runningNixReason = deploymentUpdate.runningNixInvalidReason();
-            if (runningNixReason) return runningNixReason;
-        }
+        const sourcePathReason = deploymentUpdate.sourcePathInvalidReason();
+        if (sourcePathReason) return sourcePathReason;
+        const reason = formInvalidReason(form, {
+            nodeOptions: stateValue(nodes) || [],
+            deployments: stateValue(deployments) || [],
+        });
+        if (reason) return reason;
+        const runningNixReason = deploymentUpdate.runningNixInvalidReason();
+        if (runningNixReason) return runningNixReason;
         if (canEditState && deploymentUpdate.desiredRunning.val
             && form.sourceType.val !== SOURCE_NIX_DOCKER
             && !deploymentUpdate.createDesiredVersion()) {
@@ -142,7 +132,7 @@ export function deploymentEditorWidget(opts) {
         }
         const payload = mode === 'create'
             ? deploymentUpdate.toCreatePayload()
-            : deploymentUpdate.toUpdatePayload({internalGithubRelease: internalOpenDeployRelease, versionOnly: internalDeployment});
+            : deploymentUpdate.toUpdatePayload();
         try {
             const result = mode === 'create'
                 ? await actions.createDeployment(payload)
@@ -169,8 +159,6 @@ export function deploymentEditorWidget(opts) {
         form,
         deployment,
         deploymentUpdate,
-        internalDeployment,
-        internalOpenDeployRelease,
         canEditState,
         spaces,
         nodes,
@@ -188,8 +176,7 @@ export function deploymentEditorWidget(opts) {
             preserveSelection: true,
         }),
     });
-    const codeAvailable = () => !internalOpenDeployRelease && !internalDeployment
-        && (mode === 'create' || deployment?.runnerType === 'container')
+    const codeAvailable = () => (mode === 'create' || deployment?.runnerType === 'container')
         && stateValue(nodesLoaded) !== false
         && !requestDescription.val
         && !deploymentUpdate.versionRequestDescription.val;
@@ -236,7 +223,7 @@ export function deploymentEditorWidget(opts) {
         }
     };
     const hasOpenPane = () => editorMode.val === 'ui'
-        && deploymentConfigUiHasOpenPane(form, internalDeployment);
+        && deploymentConfigUiHasOpenPane(form);
     const editorHeight = opts.maxHeight || '88vh';
     const modeToggle = editorModeToggle({editorMode, codeAvailable, selectEditorMode});
 
@@ -355,10 +342,4 @@ function requestStatus(requestDescription) {
         span({class: 'w-[1.1em] h-[1.1em] border-[0.15em] border-gray-500/30 border-t-gray-300 rounded-full animate-spin'}),
         span(() => requestDescription.val || 'Idle'),
     );
-}
-
-function isInternalOpenDeployDeployment(deployment) {
-    const name = deployment?.name || deployment?.configId?.name || '';
-    const spaceID = Number(deployment?.spaceId ?? deployment?.configId?.spaceId ?? -1);
-    return spaceID === 0 && (name === 'opendeploy' || name === 'opendeploy-net');
 }

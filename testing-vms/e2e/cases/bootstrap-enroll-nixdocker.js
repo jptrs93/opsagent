@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import {caseDef as nixDockerBaselineCase} from './nix-docker-baseline.js';
 import {caseDef as nixDockerVirtualNetworkCase} from './nix-docker-virtual-network.js';
 import {hostRolloverCase, virtualPortForwardingCase, virtualRolloverCase} from './rollover-networking.js';
-import {tlsPassthroughCases} from './tls-passthrough.js';
+import {expectTLSPassthroughRoutes, tlsPassthroughCases} from './tls-passthrough.js';
 import {installVirtualAuthenticator} from '../helpers/webauthn.js';
 import {
   acceptWaitingWorker,
@@ -442,7 +442,13 @@ export const orderedCases = [
     description: 'Upgrades worker and primary OpenDeploy agents to the expected upgrade version.',
     requires: ['worker-enrolled'],
     async run(ctx) {
-      await upgradeOpenDeployAgents(ctx.page, {version: requiredEnv('OPD_UPGRADE_VERSION')});
+      await upgradeOpenDeployAgents(ctx.page, {
+        version: requiredEnv('OPD_UPGRADE_VERSION'),
+        afterWorkerUpgrade: async workerName => {
+          if (workerName === 'worker-2') await expectTLSPassthroughRoutes();
+        },
+        afterUpgrade: expectTLSPassthroughRoutes,
+      });
     },
   },
   {

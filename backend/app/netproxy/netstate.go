@@ -18,16 +18,16 @@ import (
 
 type deploymentStore interface {
 	FetchDeploymentSnapshot(predicate storage.DeploymentPredicate) []apigen.DeploymentWithStatus
-	SubscribeDeploymentUpdates(predicate storage.DeploymentPredicate) (chan apigen.DeploymentWithStatus, func())
+	MustFetchSnapshotAndSubscribe(predicate storage.DeploymentPredicate) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus, func())
 }
 
 // RunNetStateWriter writes full protobuf netstate snapshots for the local
 // netproxy process. It is intentionally full-state and idempotent.
 func RunNetStateWriter(ctx context.Context, store deploymentStore, predicate storage.DeploymentPredicate, machine, path string) {
 	seq := initialNetStateSequence(path)
-	write := func() {
+	write := func(items []apigen.DeploymentWithStatus) {
 		seq++
-		state := RenderNetState(seq, machine, store.FetchDeploymentSnapshot(predicate))
+		state := RenderNetState(seq, machine, items)
 		if err := WriteNetState(path, state); err != nil {
 			slog.Warn("writing netproxy netstate failed", "path", path, "err", err)
 			return
@@ -36,9 +36,9 @@ func RunNetStateWriter(ctx context.Context, store deploymentStore, predicate sto
 			slog.Warn("reconciling netproxy ingress forwarding failed", "err", err)
 		}
 	}
-	write()
-	updates, unsub := store.SubscribeDeploymentUpdates(predicate)
+	snapshot, updates, unsub := store.MustFetchSnapshotAndSubscribe(predicate)
 	defer unsub()
+	write(snapshot)
 	for {
 		select {
 		case <-ctx.Done():
@@ -47,7 +47,7 @@ func RunNetStateWriter(ctx context.Context, store deploymentStore, predicate sto
 			if !ok {
 				return
 			}
-			write()
+			write(store.FetchDeploymentSnapshot(predicate))
 		}
 	}
 }
@@ -112,7 +112,7 @@ func renderIngress(item apigen.DeploymentWithStatus, endpoints []*apigen.Endpoin
 		if port == 0 {
 			port = 443
 		}
-		if port < 1 || port > 65535 || route.TlsPassthroughConfig.ContainerPort < 1 || route.TlsPassthroughConfig.ContainerPort > 65535 {
+		if port == netproxyDNSPort || port < 1 || port > 65535 || route.TlsPassthroughConfig.ContainerPort < 1 || route.TlsPassthroughConfig.ContainerPort > 65535 {
 			continue
 		}
 		backends := make([]*apigen.IngressBackend, 0, len(endpoints))

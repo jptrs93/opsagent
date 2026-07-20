@@ -113,7 +113,7 @@ func ingressStateFromSnapshot(netState *apigen.NetState) *ingressState {
 		}
 		port := ingress.TlsPassthrough.HostPort
 		hostname, ok := ingressHostnameForProxy(ingress.Hostname)
-		if port < 1 || port > 65535 || !ok {
+		if port == netproxyDNSPort || port < 1 || port > 65535 || !ok {
 			continue
 		}
 		byHostname := state.routes[uint16(port)]

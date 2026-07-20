@@ -118,7 +118,7 @@ export async function expectOpenDeployLogs(page) {
   expect(netproxyValue, 'expected opendeploy-net deployment option').not.toBe('');
   await deploymentSelect.selectOption(netproxyValue);
   await page.getByTestId('logs-search-button').click();
-  await expectOutputText(page, 'opendeploy net starting');
+  await expectOutputText(page, 'starting opendeploy-net');
 }
 
 export async function acceptWaitingWorker(page, {machineID, workerName, expectNoPending = false} = {}) {
@@ -307,12 +307,18 @@ export async function createNixDockerCrasherDeployment(page, {
   ]));
 }
 
-export async function upgradeOpenDeployAgents(page, {version, workerNames = ['worker-1', 'worker-2']} = {}) {
+export async function upgradeOpenDeployAgents(page, {
+  version,
+  workerNames = ['worker-1', 'worker-2'],
+  afterWorkerUpgrade,
+  afterUpgrade,
+} = {}) {
   if (!version) throw new Error('upgrade version is required');
   for (const workerName of workerNames) {
     await upgradeOpenDeployAgent(page, {machine: workerName, version});
     await expectOpenDeployAgentVersion(page, {machine: workerName, version});
     await expectMachineConnected(page, workerName);
+    if (afterWorkerUpgrade) await afterWorkerUpgrade(workerName);
   }
   await upgradeOpenDeployAgent(page, {machine: 'primary', version});
   await waitForHealthyApp(page);
@@ -320,6 +326,7 @@ export async function upgradeOpenDeployAgents(page, {version, workerNames = ['wo
   await expectAuthenticatedDeploymentsPage(page);
   await expectOpenDeployAgentVersion(page, {machine: 'primary', version});
   for (const workerName of workerNames) await expectOpenDeployAgentVersion(page, {machine: workerName, version});
+  if (afterUpgrade) await afterUpgrade();
 }
 
 async function waitForLoadableApp(page) {

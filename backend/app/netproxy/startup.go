@@ -12,7 +12,10 @@ import (
 	"golang.org/x/time/rate"
 )
 
-const operationalWarningInterval = 30 * time.Second
+const (
+	operationalWarningInterval = 30 * time.Second
+	netproxyDNSPort            = int32(53)
+)
 
 // Run starts the netproxy DNS and ingress services using process configuration.
 func Run(ctx context.Context) error {
@@ -21,7 +24,7 @@ func Run(ctx context.Context) error {
 	if listen == "" {
 		listen = ":53"
 	}
-	slog.Info("opendeploy net starting", "state_path", statePath, "dns_listen", listen)
+	slog.Info("starting opendeploy-net", "state_path", statePath, "dns_listen", listen)
 	states := netstatewatch.New(statePath)
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return states.Run(ctx) })

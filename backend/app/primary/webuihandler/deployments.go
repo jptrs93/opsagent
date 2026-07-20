@@ -32,6 +32,8 @@ var DeploymentNotFoundErr = apigen.NewApiErr("Deployment not found", "deployment
 
 var DuplicateDeploymentErr = apigen.NewApiErr("A deployment with this name, space, and machine already exists", "duplicate_deployment", http.StatusConflict)
 
+const githubReleaseVersionsDisplayErr = "Releases could not be loaded from GitHub. Please try again."
+
 func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentConfig, error) {
 	cid := req.ConfigID
 	if cid.Name == "" {
@@ -268,11 +270,11 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 	}
 	if sqlite.IsNetproxyDeploymentConfig(cfg) {
 		if h.GithubReleaseVersions == nil {
-			return nil, fmt.Errorf("github release version loading is not configured")
+			return nil, githubReleaseVersionsErr(fmt.Errorf("github release version loading is not configured"))
 		}
 		releases, err := h.GithubReleaseVersions.ListReleases(ctx, internaldeploy.Repo)
 		if err != nil {
-			return nil, fmt.Errorf("listing releases: %w", err)
+			return nil, githubReleaseVersionsErr(fmt.Errorf("listing releases: %w", err))
 		}
 		return &apigen.DeploymentVersions{
 			DeploymentID:  req.DeploymentID,
@@ -320,11 +322,11 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 		}, nil
 	case cfg.Spec.Prepare.GithubRelease != nil:
 		if h.GithubReleaseVersions == nil {
-			return nil, fmt.Errorf("github release version loading is not configured")
+			return nil, githubReleaseVersionsErr(fmt.Errorf("github release version loading is not configured"))
 		}
 		releases, err := h.GithubReleaseVersions.ListReleases(ctx, cfg.Spec.Prepare.GithubRelease.Repo)
 		if err != nil {
-			return nil, fmt.Errorf("listing releases: %w", err)
+			return nil, githubReleaseVersionsErr(fmt.Errorf("listing releases: %w", err))
 		}
 		return &apigen.DeploymentVersions{
 			DeploymentID:  req.DeploymentID,
@@ -342,6 +344,10 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 	default:
 		return nil, DeploymentNotFoundErr
 	}
+}
+
+func githubReleaseVersionsErr(err error) apigen.ApiErr {
+	return apigen.NewApiErr(githubReleaseVersionsDisplayErr, err.Error(), http.StatusBadGateway)
 }
 
 func (h *Handler) PostV1DeploymentLogSearch(ctx apigen.Context, req *apigen.LogSearchRequest) iter.Seq2[*apigen.LogLineBatch, error] {
@@ -788,7 +794,10 @@ func validatePortForwarding(portForwarding []*apigen.PortForward) error {
 	return nil
 }
 
-const defaultIngressHostPort = int32(443)
+const (
+	defaultIngressHostPort = int32(443)
+	netproxyDNSPort        = int32(53)
+)
 
 func validateIngress(ingress []*apigen.Ingress) error {
 	seen := map[ingressRouteKey]bool{}
@@ -813,7 +822,11 @@ func validateIngress(ingress []*apigen.Ingress) error {
 		if cfg.ContainerPort < 1 || cfg.ContainerPort > 65535 {
 			return invalidConfigErrf("networking.ingress.tlsPassthroughConfig.containerPort must be between 1 and 65535")
 		}
-		key := ingressRouteKey{hostPort: ingressHostPort(cfg.HostPort), hostname: hostname}
+		hostPort := ingressHostPort(cfg.HostPort)
+		if hostPort == netproxyDNSPort {
+			return invalidConfigErrf("networking.ingress.tlsPassthroughConfig.hostPort %d is reserved for opendeploy-net DNS", hostPort)
+		}
+		key := ingressRouteKey{hostPort: hostPort, hostname: hostname}
 		if seen[key] {
 			return invalidConfigErrf("networking.ingress: duplicate TLS_PASSTHROUGH route for %s on host port %d", hostname, key.hostPort)
 		}

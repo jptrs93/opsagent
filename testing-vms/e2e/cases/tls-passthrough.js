@@ -35,6 +35,10 @@ async function expectRoute(route) {
   });
 }
 
+export async function expectTLSPassthroughRoutes() {
+  for (const route of routes) await expectRoute(route);
+}
+
 export const tlsPassthroughCases = [
   {
     id: 'tls-ingress-certificates-created',
@@ -97,7 +101,7 @@ export const tlsPassthroughCases = [
     description: 'Verifies hostname trust, certificate identity, SNI, and response routing for all three HTTPS backends.',
     requires: ['tls-ingress-routes-added'],
     async run() {
-      for (const route of routes) await expectRoute(route);
+      await expectTLSPassthroughRoutes();
       await expectTLSIngressUnavailable('unknown.ingress.opendeploy.test', {timeout: 30_000});
     },
   },
@@ -128,7 +132,7 @@ export const tlsPassthroughCases = [
     requires: ['tls-ingress-route-removal-verified'],
     async run(ctx) {
       await updateNixDockerDeployment(ctx.page, {name: deploymentName(routes[1]), machine: 'worker-2', ingress: ingress(routes[1])});
-      for (const route of routes) await expectRoute(route);
+      await expectTLSPassthroughRoutes();
     },
   },
 ];

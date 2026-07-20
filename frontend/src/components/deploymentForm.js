@@ -121,7 +121,7 @@ export function deploymentConfigToForm(cfg) {
 
 export function deploymentForm(form, opts = {}) {
     const sourceController = opts.sourceController;
-    if (!opts.hideArtifactSource && !sourceController) throw new Error('sourceController is required');
+    if (!sourceController) throw new Error('sourceController is required');
     const identityLocked = Boolean(opts.identityLocked);
     const executionTitle = opts.executionTitle || "Runtime";
     const showIdentityLockedNotice = (message) => {
@@ -136,7 +136,7 @@ export function deploymentForm(form, opts = {}) {
 
     return div(
         {class: "flex flex-col gap-[1.125rem]"},
-        opts.hideIdentity ? '' : collapsibleSection(
+        collapsibleSection(
             "Deployment identity",
             form.identitySectionOpen,
             div(
@@ -176,7 +176,7 @@ export function deploymentForm(form, opts = {}) {
                     : '',
             ),
         ),
-        opts.hideArtifactSource ? '' : collapsibleSection(
+        collapsibleSection(
             "Artifact source",
             form.sourceSectionOpen,
             div(
@@ -197,7 +197,7 @@ export function deploymentForm(form, opts = {}) {
                 () => nixSourceFields(form, sourceController),
             ),
         ),
-        opts.hideExecution ? '' : collapsibleSection(
+        collapsibleSection(
             executionTitle,
             form.runtimeSectionOpen,
             div(

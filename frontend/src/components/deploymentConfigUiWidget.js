@@ -24,8 +24,6 @@ export function deploymentConfigUiWidget(args) {
         form,
         deployment,
         deploymentUpdate,
-        internalDeployment,
-        internalOpenDeployRelease,
         canEditState,
         spaces,
         nodes,
@@ -44,9 +42,6 @@ export function deploymentConfigUiWidget(args) {
             {class: 'flex-1 min-h-0 overflow-auto px-3 py-3.5 flex flex-col gap-[1.125rem]'},
             deploymentForm(form, {
                 identityLocked: mode === 'update',
-                hideIdentity: internalDeployment,
-                hideArtifactSource: internalOpenDeployRelease,
-                hideExecution: internalOpenDeployRelease,
                 spaceOptions: spaces,
                 nodeOptions: nodes,
                 nodeOptionsLoaded: nodesLoaded,
@@ -61,31 +56,29 @@ export function deploymentConfigUiWidget(args) {
                 form,
                 deployment,
                 deploymentUpdate,
-                internalOpenDeployRelease,
                 loadingVersions: deploymentUpdate.loadingVersions,
-                versionError: deploymentUpdate.versionError,
                 onRefresh,
             }) : '',
             canEditState ? deploymentStateSection(form, deploymentUpdate) : '',
         ),
-        () => internalDeployment ? '' : envVarsPane(form, {
+        envVarsPane(form, {
             assets,
             secretRefs,
             configRefs,
             deployments,
         }),
-        () => internalDeployment ? '' : commandPane(form),
-        () => internalDeployment ? '' : volumeMountsPane(form, {deployments, spaces}),
-        () => internalDeployment ? '' : assetMountsPane(form, {assets: stateValue(assets) || [], enableAssetEditor: true}),
-        () => internalDeployment ? '' : upgradeStrategyPane(form),
-        () => internalDeployment ? '' : resourcesPane(form),
-        () => internalDeployment ? '' : networkingPane(form),
-        () => internalDeployment ? '' : assetEditorPane(form, {saveAsset}),
+        commandPane(form),
+        volumeMountsPane(form, {deployments, spaces}),
+        assetMountsPane(form, {assets: stateValue(assets) || [], enableAssetEditor: true}),
+        upgradeStrategyPane(form),
+        resourcesPane(form),
+        networkingPane(form),
+        assetEditorPane(form, {saveAsset}),
     );
 }
 
-export function deploymentConfigUiHasOpenPane(form, internalDeployment) {
-    return !internalDeployment && (
+export function deploymentConfigUiHasOpenPane(form) {
+    return (
         form.envPaneOpen.val
         || form.commandPaneOpen.val
         || form.assetMountsPaneOpen.val
@@ -98,7 +91,6 @@ export function deploymentConfigUiHasOpenPane(form, internalDeployment) {
 }
 
 function versionSection(args) {
-    if (args.internalOpenDeployRelease) return githubReleaseVersionSection(args);
     if (args.form.sourceType.val === SOURCE_DOCKER_IMAGE) return imageVersionSection(args);
     return nixVersionSection(args);
 }
@@ -221,33 +213,6 @@ function nixVersionSection(args) {
                 ),
                 refreshButton(args, !repositoryReady),
             ),
-        ),
-    );
-}
-
-function githubReleaseVersionSection(args) {
-    const releases = args.deploymentUpdate.githubRelease.releases.val;
-    const selectedRelease = args.deploymentUpdate.githubRelease.selectedRelease.val;
-    const message = args.loadingVersions.val ? 'Loading releases...' : args.versionError.val;
-    return collapsibleSection(
-        'Version',
-        args.form.versionSectionOpen,
-        div(
-            {class: 'grid grid-cols-1 items-end gap-x-3 gap-y-2 md:grid-cols-[minmax(0,1fr)_auto]'},
-            label(
-                {class: 'flex flex-col gap-1 text-xs text-gray-400'},
-                span('Release'),
-                select({
-                    class: selectClass(),
-                    value: selectedRelease,
-                    disabled: args.loadingVersions.val || Boolean(args.versionError.val) || releases.length === 0,
-                    onchange: e => { args.deploymentUpdate.githubRelease.selectedRelease.val = e.target.value; },
-                },
-                    option({value: '', disabled: true, selected: !selectedRelease}, message || (releases.length ? 'Select a release...' : 'No releases loaded')),
-                    ...releases.map(v => option({value: v.id, selected: v.id === selectedRelease}, versionLabel(v))),
-                ),
-            ),
-            refreshButton(args),
         ),
     );
 }

@@ -1,6 +1,5 @@
 export const SOURCE_NIX_DOCKER = 'nixDockerBuild';
 export const SOURCE_DOCKER_IMAGE = 'containerImage';
-export const SOURCE_GITHUB_RELEASE = 'githubRelease';
 
 export const FULL_GIT_COMMIT_RE = /^[0-9a-f]{40}$/i;
 

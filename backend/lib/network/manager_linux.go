@@ -176,6 +176,39 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 	}, nil
 }
 
+// RecoverContainerNet reconstructs manager ownership for a running container
+// whose network namespace survived an agent restart.
+func (m *Manager) RecoverContainerNet(containerID string, deploymentID int32, addr netip.Addr) (*ContainerNet, error) {
+	if !addr.Is6() {
+		return nil, fmt.Errorf("container address must be IPv6, got %v", addr)
+	}
+	netnsPath := filepath.Join(netnsRunDir, containerID)
+	if _, err := os.Stat(netnsPath); err != nil {
+		return nil, fmt.Errorf("finding netns %s: %w", containerID, err)
+	}
+	for slot := range v4SlotsPerDeployment {
+		hostVeth := hostVethName(deploymentID, slot)
+		link, err := netlink.LinkByName(hostVeth)
+		if err != nil || link.Attrs().Alias != containerID {
+			continue
+		}
+		hostV4, containerV4, err := V4Pair(deploymentID, slot)
+		if err != nil {
+			return nil, err
+		}
+		return &ContainerNet{
+			ContainerID: containerID,
+			NetnsPath:   netnsPath,
+			HostVeth:    hostVeth,
+			Addr:        addr,
+			V4:          containerV4,
+			HostV4:      hostV4,
+			Slot:        slot,
+		}, nil
+	}
+	return nil, fmt.Errorf("finding veth for container %s", containerID)
+}
+
 // Promote flips the stable instance address to the candidate by replacing the
 // host route only. The candidate must already have the stable address assigned
 // before workload start; this keeps the promotion path compatible with Kata,

@@ -112,6 +112,23 @@ func TestIngressStateFromNetState(t *testing.T) {
 	}
 }
 
+func TestIngressStateFromNetStateIgnoresDNSPort(t *testing.T) {
+	state := ingressStateFromSnapshot(&apigen.NetState{
+		Seq: 1,
+		Ingress: []*apigen.NetIngress{{
+			Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+			Hostname: "dns.example.com",
+			TlsPassthrough: &apigen.TlsPassthroughNetIngress{
+				HostPort: netproxyDNSPort,
+			},
+		}},
+	})
+
+	if len(state.routes) != 0 {
+		t.Fatalf("routes = %+v, want DNS port route ignored", state.routes)
+	}
+}
+
 func TestIngressForwardsInspectedClientHello(t *testing.T) {
 	var logOutput bytes.Buffer
 	previousLogger := slog.Default()
