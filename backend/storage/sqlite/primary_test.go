@@ -181,7 +181,7 @@ func TestEnsureNetproxyDeploymentRepairsExistingSpec(t *testing.T) {
 	store.MustUpdateDeploymentSpec(apigen.Context{}, cfg.ID, broken)
 	brokenVersion := store.configCache[cfg.ID].Version
 
-	repaired := store.EnsureNetproxyDeployment(node.ID, "v0.0.200")
+	repaired := store.EnsureNetproxyDeployment(node.ID, "v0.0.201")
 	if repaired.Version <= brokenVersion {
 		t.Fatalf("version = %d, want above broken version %d", repaired.Version, brokenVersion)
 	}
@@ -214,25 +214,25 @@ func TestEnsureNetproxyDeploymentRepairsSpecOnceConcurrently(t *testing.T) {
 	}
 }
 
-func TestEnsureNetproxyDeploymentUpdatesDesiredStateOnceConcurrently(t *testing.T) {
+func TestEnsureNetproxyDeploymentPreservesDesiredStateConcurrently(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	node := testNode(store, "primary")
 	cfg := store.EnsureNetproxyDeployment(node.ID, "v0.0.200")
-	store.MustSetDeploymentDesiredState(apigen.Context{}, cfg.ID, apigen.DesiredState{Version: "v0.0.199", Running: true})
-	staleVersion := store.configCache[cfg.ID].Version
+	store.MustSetDeploymentDesiredState(apigen.Context{}, cfg.ID, apigen.DesiredState{Version: "v0.0.199", Running: false})
+	manualVersion := store.configCache[cfg.ID].Version
 
 	var wg sync.WaitGroup
 	for range 8 {
-		wg.Go(func() { store.EnsureNetproxyDeployment(node.ID, "v0.0.200") })
+		wg.Go(func() { store.EnsureNetproxyDeployment(node.ID, "v0.0.201") })
 	}
 	wg.Wait()
 
 	updated := store.configCache[cfg.ID]
-	if updated.Version != staleVersion+1 {
-		t.Fatalf("version = %d, want one desired-state update above %d", updated.Version, staleVersion)
+	if updated.Version != manualVersion {
+		t.Fatalf("version = %d, want unchanged manual version %d", updated.Version, manualVersion)
 	}
-	if updated.DesiredState.Version != "v0.0.200" || !updated.DesiredState.Running {
-		t.Fatalf("desired state = %+v, want running v0.0.200", updated.DesiredState)
+	if updated.DesiredState.Version != "v0.0.199" || updated.DesiredState.Running {
+		t.Fatalf("desired state = %+v, want stopped v0.0.199", updated.DesiredState)
 	}
 }
 
@@ -247,17 +247,17 @@ func TestEnsureNetproxyDeploymentRequiresExplicitVersion(t *testing.T) {
 	store.EnsureNetproxyDeployment(node.ID, "")
 }
 
-func TestEnsureNetproxyDeploymentReconcilesExistingVersion(t *testing.T) {
+func TestEnsureNetproxyDeploymentPreservesExistingVersion(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	node := testNode(store, "primary")
 	cfg := store.EnsureNetproxyDeployment(node.ID, "v0.0.200")
 
 	again := store.EnsureNetproxyDeployment(node.ID, "v0.0.201")
-	if again.DesiredState.Version != "v0.0.201" {
-		t.Fatalf("desired version = %q, want v0.0.201", again.DesiredState.Version)
+	if again.DesiredState.Version != "v0.0.200" {
+		t.Fatalf("desired version = %q, want preserved v0.0.200", again.DesiredState.Version)
 	}
-	if again.Version <= cfg.Version {
-		t.Fatalf("version = %d, want above %d", again.Version, cfg.Version)
+	if again.Version != cfg.Version {
+		t.Fatalf("version = %d, want unchanged %d", again.Version, cfg.Version)
 	}
 }
 

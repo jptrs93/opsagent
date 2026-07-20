@@ -895,6 +895,10 @@ export async function expectOpenDeployAgentVersion(page, {machine, version}) {
   return expectOpenDeployDeploymentVersion(page, {name: 'opendeploy', machine, version});
 }
 
+export async function expectOpenDeployNetVersion(page, {machine, version}) {
+  return expectOpenDeployDeploymentVersion(page, {name: 'opendeploy-net', machine, version});
+}
+
 async function expectOpenDeployDeploymentVersion(page, {name, machine, version}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
   await showOpendeployDeployments(page);

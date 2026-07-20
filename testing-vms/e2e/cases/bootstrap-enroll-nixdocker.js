@@ -23,6 +23,7 @@ import {
   expectDeploymentOutput,
   expectReferenceUsage,
   expectOpenDeployAgentVersion,
+  expectOpenDeployNetVersion,
   expectOpenDeployLogs,
   expectDeploymentRunning,
   runBackupRestoreSetup,
@@ -467,7 +468,12 @@ export const orderedCases = [
           }
           if (workerName === 'worker-2') await expectTLSPassthroughRoutes();
         },
-        afterUpgrade: expectTLSPassthroughRoutes,
+        afterUpgrade: async () => {
+          for (const machine of ['primary', 'worker-1', 'worker-2']) {
+            await expectOpenDeployNetVersion(ctx.page, {machine, version: requiredEnv('OPD_INSTALL_VERSION')});
+          }
+          await expectTLSPassthroughRoutes();
+        },
       });
     },
   },

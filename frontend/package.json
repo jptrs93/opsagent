@@ -3,10 +3,11 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "dev:deployment-editor": "vite --open /fixtures/deployment-editor/",
-    "check:deployment-editor": "node fixtures/deployment-editor/deploymentSourceCheck.js && node fixtures/deployment-editor/roundTripCheck.js",
+    "scripts": {
+      "dev": "vite",
+      "dev:deployment-editor": "vite --open /fixtures/deployment-editor/",
+      "dev:deployment-status": "vite --open /fixtures/deployment-status/",
+      "check:deployment-editor": "node fixtures/deployment-editor/deploymentSourceCheck.js && node fixtures/deployment-editor/roundTripCheck.js",
     "build": "vite build",
     "preview": "vite preview"
   },

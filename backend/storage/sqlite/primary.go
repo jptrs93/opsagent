@@ -838,12 +838,12 @@ func (s *PrimaryStorage) EnsureSystemDeployment(nodeID int32, opendeployVersion 
 }
 
 // EnsureNetproxyDeployment creates the per-node opendeploy-net internal
-// deployment when missing and keeps it on the running OpenDeploy version.
-func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, opendeployVersion string) *apigen.DeploymentConfig {
+// deployment when missing. Existing desired state is administrator-managed.
+func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, initialVersion string) *apigen.DeploymentConfig {
 	if nodeID <= 0 {
 		panic("deployment node ID must be positive")
 	}
-	desiredVersion := strings.TrimSpace(opendeployVersion)
+	desiredVersion := strings.TrimSpace(initialVersion)
 	if desiredVersion == "" {
 		panic("EnsureNetproxyDeployment requires an explicit OpenDeploy version")
 	}
@@ -861,14 +861,8 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, opendeployVersio
 				s.repairDeploymentSpecLocked(cfg.ID, desiredSpec, "netproxy")
 				cfg = s.configCache[cfg.ID]
 			}
-			if cfg.DesiredState.Version == desiredVersion && cfg.DesiredState.Running {
-				s.mu.Unlock()
-				return cfg
-			}
-			s.mustSetDeploymentDesiredStateLocked(apigen.Context{}, cfg.ID, apigen.DesiredState{Version: desiredVersion, Running: true})
-			updated := s.configCache[cfg.ID]
 			s.mu.Unlock()
-			return updated
+			return cfg
 		}
 	}
 	defer s.mu.Unlock()

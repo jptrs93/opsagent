@@ -86,6 +86,8 @@ For virtual-mode containers, the runner asks `backend/lib/network` to create net
 
 When an agent restarts, containerd tasks and their network namespaces can remain running. Reattachment opens the surviving named namespace and identifies its deterministic host veth by the mutual peer indexes of namespace `eth0` and the host link. Veth aliases are not used for ownership. Recovery restores the stable host route and records the host ifindex before removing unretained slots, so a current task is never deleted as stale and delayed teardown cannot delete a link whose name has since been reused. A task on the current config republishes its host-port state; the internal netproxy also republishes across its version-only upgrades. Older application tasks retain recovered metadata for safe teardown but wait for their prepared replacement before using a newer networking config. If required reconstruction fails, the adopted task is replaced rather than left running without its forwarding rules.
 
+Each node gets an `opendeploy-net` deployment when it is first created or enrolled, initially using the primary release available at that time. Agent upgrades and primary restarts do not change an existing netproxy's desired version or running state. Administrators update netproxy deployments explicitly and are responsible for selecting versions compatible with the agents and rendered netstate format.
+
 The container receives a generated `resolv.conf` pointing at the machine-local netproxy DNS address once the netproxy deployment id is known. The netproxy deployment itself uses the host resolver to avoid a DNS dependency cycle.
 
 ## Netproxy Services
@@ -125,7 +127,7 @@ The run-scoped address is not the address clients use after promotion. It exists
 
 The node/space/deployment/kind/field layout replaced the earlier kind/deployment/field layout before user virtual-mode deployments existed. The persisted cluster ULA `/48` does not change. Existing host-mode deployments are unaffected.
 
-The only pre-existing virtual-mode workload is the per-machine `opendeploy-net` internal deployment in space `0`. An agent can reattach its old container and network namespace across an upgrade, so each `opendeploy-net` deployment must be redeployed to the new OpenDeploy version after upgrading. The normal deployment replacement tears down the old namespace and recreates it with the newly derived address; no database or prefix migration is required.
+The only pre-existing virtual-mode workload is the per-machine `opendeploy-net` internal deployment in space `0`. An agent can reattach its old container and network namespace across an upgrade, so each `opendeploy-net` deployment must be redeployed to a compatible OpenDeploy version after upgrading. Primary startup creates missing netproxy deployments but does not change existing desired versions or running state; administrators update each netproxy explicitly and are responsible for agent/netproxy compatibility. The normal deployment replacement tears down the old namespace and recreates it with the newly derived address; no database or prefix migration is required.
 
 ## Ingress Shape
 

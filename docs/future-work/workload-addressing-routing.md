@@ -186,4 +186,4 @@ Not implemented yet:
 
 The cluster ULA `/48` remains unchanged. The layout replaces the earlier kind/deployment/field format before any user deployment used virtual mode. Host-mode deployments are unaffected.
 
-Existing per-machine `opendeploy-net` deployments are the only virtual-mode workloads. They may remain attached to an old-address network namespace immediately after the agent upgrade. Redeploy each one to the new OpenDeploy version; normal container replacement tears down the old namespace and derives the correct space-0 logical address. No automatic address migration or database rewrite is required.
+Existing per-machine `opendeploy-net` deployments are the only virtual-mode workloads. They may remain attached to an old-address network namespace immediately after the agent upgrade. Administrators must explicitly redeploy each one to a compatible OpenDeploy version; normal container replacement tears down the old namespace and derives the correct space-0 logical address. No automatic address migration or database rewrite is required.
