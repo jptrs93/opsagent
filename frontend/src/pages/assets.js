@@ -456,7 +456,7 @@ export function assetsPage() {
                     class: () => `${assetActionClass} ${uploadSaving.val ? "opacity-50 cursor-not-allowed" : ""}`,
                     onclick: () => { if (!uploadSaving.val) uploadPicker.click(); },
                 }, "Upload asset"))),
-        div({class: "flex-1 min-h-0 overflow-auto"}, () => {
+        div({class: "deployment-table-scroll flex-1 min-h-0 overflow-auto"}, () => {
             if (rows.val === null) return p({class: "text-gray-400 text-sm"}, "Loading...");
             const visibleRows = filteredRows();
             if (rows.val.length === 0) return p({class: "text-gray-400 text-sm"}, "No assets yet. Click Add asset.");
