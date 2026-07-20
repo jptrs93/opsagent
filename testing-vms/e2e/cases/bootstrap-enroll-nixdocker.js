@@ -444,11 +444,27 @@ export const orderedCases = [
     id: 'opendeploy-agents-upgraded',
     title: 'upgrade opendeploy agents',
     description: 'Upgrades worker and primary OpenDeploy agents to the expected upgrade version.',
-    requires: ['worker-enrolled'],
+    requires: ['nix-docker-virtual-network', 'virtual-network-rollover', 'virtual-port-forwarding', 'tls-ingress-route-restored'],
     async run(ctx) {
+      const virtualWorkloads = [
+        {name: 'nixdockerbuild-virtual', machine: 'worker-1'},
+        {name: 'rollover-virtual', machine: 'worker-1'},
+        {name: 'port-forward-virtual', machine: 'worker-1'},
+        {name: 'tls-ingress-one', machine: 'worker-2'},
+        {name: 'tls-ingress-two', machine: 'worker-2'},
+        {name: 'tls-ingress-three', machine: 'worker-2'},
+      ];
+      const restartCounts = new Map();
+      for (const workload of virtualWorkloads) {
+        restartCounts.set(workload.name, await deploymentRestartCount(ctx.page, workload));
+      }
       await upgradeOpenDeployAgents(ctx.page, {
         version: requiredEnv('OPD_UPGRADE_VERSION'),
         afterWorkerUpgrade: async workerName => {
+          for (const workload of virtualWorkloads.filter(item => item.machine === workerName)) {
+            await expectDeploymentRunning(ctx.page, workload);
+            await expectDeploymentRestartCount(ctx.page, {...workload, count: restartCounts.get(workload.name)});
+          }
           if (workerName === 'worker-2') await expectTLSPassthroughRoutes();
         },
         afterUpgrade: expectTLSPassthroughRoutes,

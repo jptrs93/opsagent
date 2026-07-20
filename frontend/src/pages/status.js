@@ -426,7 +426,6 @@ export function statusPage(onOpenLogs = () => {}) {
         col({style: "width:7rem"}),
         col({style: "width:8rem"}),
         col({style: "width:11.5rem"}),
-        col({style: "width:1rem"}),
     );
 
     const deploymentTableHeader = (showSpaceColumn) => table(
@@ -444,8 +443,7 @@ export function statusPage(onOpenLogs = () => {}) {
                 tableHeader("Restarts", headerTips.restarts, "py-3 px-3 font-medium"),
                 tableHeader("Deployed by", headerTips.deployedBy, "py-3 px-3 font-medium"),
                 tableHeader("Deployed at", headerTips.deployedAt, "py-3 px-3 font-medium"),
-                tableHeader("Actions", headerTips.actions, "py-3 pl-3 pr-5 font-medium text-right", true),
-                th({class: "p-0 bg-surface", "aria-hidden": "true"}, ""),
+                tableHeader("Actions", headerTips.actions, "py-3 pl-3 pr-1 font-medium text-right", true),
             ),
         ),
     );
@@ -552,8 +550,8 @@ export function statusPage(onOpenLogs = () => {}) {
             {class: "w-full min-h-0 flex-1 overflow-x-auto overflow-y-hidden"},
             div(
                 {class: "h-full min-h-0 flex flex-col"},
-                div({class: "flex-none pr-3"}, headerNode),
-                div({class: "deployment-table-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-3"}, bodyNode),
+                div({class: "flex-none pr-1"}, headerNode),
+                div({class: "deployment-table-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1"}, bodyNode),
             ),
         ),
     );

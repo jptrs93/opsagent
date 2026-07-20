@@ -27,6 +27,11 @@
     focus:outline-none focus:ring-1 focus:ring-brand;
 }
 
+.input {
+    @apply px-2 py-1 rounded-[0.3rem] bg-gray-800 text-gray-100 border border-gray-600
+    focus:outline-none focus:ring-1 focus:ring-brand;
+}
+
 .search-input {
     @apply w-56 py-1.5 text-sm rounded-[0.3rem];
 }

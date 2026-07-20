@@ -32,9 +32,10 @@ func SetDefault(manager *Manager) {
 }
 
 type Manager struct {
-	mu        sync.Mutex
-	prefix    Prefix
-	hasPrefix bool
+	mu          sync.Mutex
+	containerMu sync.Mutex
+	prefix      Prefix
+	hasPrefix   bool
 
 	// netproxyDeploymentID identifies this machine's netproxy system
 	// deployment; the local DNS address derives from it.
@@ -70,13 +71,51 @@ type HostPortRule struct {
 
 // ContainerNet describes the netns wiring of one running container.
 type ContainerNet struct {
-	ContainerID string
-	NetnsPath   string     // bind-mount path for the OCI spec network namespace
-	HostVeth    string     // host-side veth name
-	Addr        netip.Addr // routed v6 address (stable instance addr, or run addr for candidates)
-	V4          netip.Addr // container-side machine-local v4
-	HostV4      netip.Addr
-	Slot        int
+	ContainerID   string
+	NetnsPath     string     // bind-mount path for the OCI spec network namespace
+	HostVeth      string     // host-side veth name
+	HostVethIndex int        // host-side ifindex, used to reject a reused interface name during teardown
+	Addr          netip.Addr // routed v6 address (stable instance addr, or run addr for candidates)
+	V4            netip.Addr // container-side machine-local v4
+	HostV4        netip.Addr
+	Slot          int
+}
+
+type retainedContainerNets struct {
+	containerIDs map[string]struct{}
+	hostVeths    map[string]struct{}
+}
+
+func newRetainedContainerNets(nets []*ContainerNet) retainedContainerNets {
+	retained := retainedContainerNets{
+		containerIDs: make(map[string]struct{}, len(nets)),
+		hostVeths:    make(map[string]struct{}, len(nets)),
+	}
+	for _, cn := range nets {
+		if cn == nil {
+			continue
+		}
+		retained.containerIDs[cn.ContainerID] = struct{}{}
+		retained.hostVeths[cn.HostVeth] = struct{}{}
+	}
+	return retained
+}
+
+func (r retainedContainerNets) keepsContainer(containerID string) bool {
+	_, ok := r.containerIDs[containerID]
+	return ok
+}
+
+func (r retainedContainerNets) keepsHostVeth(hostVeth string) bool {
+	_, ok := r.hostVeths[hostVeth]
+	return ok
+}
+
+func vethPeerIndexesMatch(hostIndex, hostPeerIndex, containerIndex, containerPeerIndex int) bool {
+	// IFLA_LINK is exposed as ParentIndex. For veths it contains the peer's
+	// ifindex, including when the peer is in another network namespace.
+	return hostIndex > 0 && containerIndex > 0 &&
+		hostPeerIndex == containerIndex && containerPeerIndex == hostIndex
 }
 
 // SetPrefix installs the cluster ULA prefix (from primary config locally, or

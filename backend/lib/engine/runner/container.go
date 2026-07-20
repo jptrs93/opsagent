@@ -275,7 +275,7 @@ func (r *containerRunner) run() {
 			r.setTask(task)
 			if r.startupMode == containerStartupReattachStopped {
 				r.stopAdoptedTask(task)
-				r.cleanupContainerNetState()
+				r.cleanupDeploymentNetState()
 				if r.shouldPublishStopped() {
 					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
 				}
@@ -284,7 +284,7 @@ func (r *containerRunner) run() {
 			if err := r.recoverContainerNet(); err != nil {
 				slog.ErrorContext(r.ctx, "recovering adopted container network failed", "containerID", r.containerID, "err", err)
 				r.stopAdoptedTask(task)
-				r.cleanupContainerNetState()
+				r.cleanupDeploymentNetState()
 				hadProcess = true
 				r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 			} else {
@@ -302,8 +302,8 @@ func (r *containerRunner) run() {
 			}
 		} else {
 			r.logContainerEvent("re-attach-miss", r.currentRunNumber(), r.mounts)
+			r.cleanupDeploymentNetState()
 			if r.startupMode == containerStartupReattachStopped {
-				r.cleanupContainerNetState()
 				if r.shouldPublishStopped() {
 					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
 				}
@@ -826,14 +826,6 @@ func (r *containerRunner) setupContainerNet(runNumber int32, candidate bool) (*n
 	if !r.virtualNetwork() {
 		return nil, "", nil
 	}
-	if !candidate {
-		// A replaced runner may have been adopted after an agent restart, so it
-		// has no tracked ContainerNet for Stop to tear down. Remove its stale
-		// namespace/veth before allocating the normal runner's single slot.
-		network.Default.CleanupContainerNets(r.deploymentID, func(containerID string) bool {
-			return containerID == r.containerID
-		})
-	}
 	prefix, ok := network.Default.PrefixValue()
 	if !ok {
 		return nil, "", fmt.Errorf("virtual network prefix is not known")
@@ -883,9 +875,6 @@ func (r *containerRunner) recoverContainerNet() error {
 			return fmt.Errorf("parsing persisted container address: %w", err)
 		}
 	}
-	network.Default.CleanupContainerNets(r.deploymentID, func(containerID string) bool {
-		return containerID == r.containerID
-	})
 	cn, err := network.Default.RecoverContainerNet(r.containerID, r.deploymentID, addr)
 	if err != nil {
 		return err
@@ -996,7 +985,7 @@ func (r *containerRunner) cleanupContainerNet(cn *network.ContainerNet) {
 		slog.WarnContext(r.ctx, "clearing host ports failed", "containerID", cn.ContainerID, "err", err)
 	}
 	network.Default.DropCurrentNet(r.deploymentID, cn.ContainerID)
-	network.Default.TeardownContainerNet(cn.ContainerID, r.deploymentID)
+	network.Default.TeardownContainerNet(cn)
 	r.setContainerNet(nil)
 }
 
@@ -1005,7 +994,16 @@ func (r *containerRunner) cleanupContainerNetState() {
 		r.cleanupContainerNet(cn)
 		return
 	}
-	network.Default.TeardownContainerNet(r.containerID, r.deploymentID)
+	network.Default.TeardownContainerNetState(r.containerID, r.deploymentID)
+}
+
+func (r *containerRunner) cleanupDeploymentNetState() {
+	if err := network.Default.ClearHostPorts(r.deploymentID, r.containerID); err != nil {
+		slog.WarnContext(r.ctx, "clearing host ports failed", "containerID", r.containerID, "err", err)
+	}
+	network.Default.DropCurrentNet(r.deploymentID, r.containerID)
+	network.Default.CleanupContainerNets(r.deploymentID, nil)
+	r.setContainerNet(nil)
 }
 
 func (r *containerRunner) setContainerNet(cn *network.ContainerNet) {

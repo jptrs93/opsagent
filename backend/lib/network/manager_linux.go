@@ -90,9 +90,11 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 			return nil, fmt.Errorf("deprecated container address must be IPv6, got %v", addr)
 		}
 	}
+	m.containerMu.Lock()
+	defer m.containerMu.Unlock()
 
 	// Recreate from scratch so a crash respawn never inherits half-built state.
-	m.TeardownContainerNet(spec.ContainerID, spec.DeploymentID)
+	m.teardownContainerNet(spec.ContainerID, spec.DeploymentID, "", 0)
 
 	slot, err := freeV4Slot(spec.DeploymentID)
 	if err != nil {
@@ -111,18 +113,19 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 	defer nsHandle.Close()
 
 	cleanup := func(setupErr error) (*ContainerNet, error) {
-		m.TeardownContainerNet(spec.ContainerID, spec.DeploymentID)
+		m.teardownContainerNet(spec.ContainerID, spec.DeploymentID, hostVeth, 0)
 		return nil, setupErr
 	}
 
 	// veth pair in the host ns; peer moves into the container ns.
 	peerName := fmt.Sprintf("odp%ds%d", spec.DeploymentID, slot)
 	veth := &netlink.Veth{
-		LinkAttrs: netlink.LinkAttrs{Name: hostVeth, MTU: vethMTU, Alias: spec.ContainerID},
+		LinkAttrs: netlink.LinkAttrs{Name: hostVeth, MTU: vethMTU},
 		PeerName:  peerName,
 	}
 	if err := netlink.LinkAdd(veth); err != nil {
-		return cleanup(fmt.Errorf("creating veth %s: %w", hostVeth, err))
+		deleteNamedNetns(spec.ContainerID)
+		return nil, fmt.Errorf("creating veth %s: %w", hostVeth, err)
 	}
 	peer, err := netlink.LinkByName(peerName)
 	if err != nil {
@@ -166,47 +169,52 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 	slog.Info("container netns configured",
 		"container", spec.ContainerID, "addr", spec.Addr, "deprecatedAddrs", spec.DeprecatedAddrs, "v4", contV4, "veth", hostVeth)
 	return &ContainerNet{
-		ContainerID: spec.ContainerID,
-		NetnsPath:   filepath.Join(netnsRunDir, spec.ContainerID),
-		HostVeth:    hostVeth,
-		Addr:        spec.Addr,
-		V4:          contV4,
-		HostV4:      hostV4,
-		Slot:        slot,
+		ContainerID:   spec.ContainerID,
+		NetnsPath:     filepath.Join(netnsRunDir, spec.ContainerID),
+		HostVeth:      hostVeth,
+		HostVethIndex: hostLink.Attrs().Index,
+		Addr:          spec.Addr,
+		V4:            contV4,
+		HostV4:        hostV4,
+		Slot:          slot,
 	}, nil
 }
 
 // RecoverContainerNet reconstructs manager ownership for a running container
 // whose network namespace survived an agent restart.
 func (m *Manager) RecoverContainerNet(containerID string, deploymentID int32, addr netip.Addr) (*ContainerNet, error) {
+	if err := m.EnsureBase(); err != nil {
+		return nil, err
+	}
 	if !addr.Is6() {
 		return nil, fmt.Errorf("container address must be IPv6, got %v", addr)
 	}
+	m.containerMu.Lock()
+	defer m.containerMu.Unlock()
 	netnsPath := filepath.Join(netnsRunDir, containerID)
-	if _, err := os.Stat(netnsPath); err != nil {
-		return nil, fmt.Errorf("finding netns %s: %w", containerID, err)
+	hostLink, slot, err := findContainerVeth(containerID, deploymentID)
+	if err != nil {
+		return nil, err
 	}
-	for slot := range v4SlotsPerDeployment {
-		hostVeth := hostVethName(deploymentID, slot)
-		link, err := netlink.LinkByName(hostVeth)
-		if err != nil || link.Attrs().Alias != containerID {
-			continue
-		}
-		hostV4, containerV4, err := V4Pair(deploymentID, slot)
-		if err != nil {
-			return nil, err
-		}
-		return &ContainerNet{
-			ContainerID: containerID,
-			NetnsPath:   netnsPath,
-			HostVeth:    hostVeth,
-			Addr:        addr,
-			V4:          containerV4,
-			HostV4:      hostV4,
-			Slot:        slot,
-		}, nil
+	hostV4, containerV4, err := V4Pair(deploymentID, slot)
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("finding veth for container %s", containerID)
+	if err := replaceHostRoute(addr, hostLink.Attrs().Index); err != nil {
+		return nil, fmt.Errorf("restoring host route for %v: %w", addr, err)
+	}
+	cn := &ContainerNet{
+		ContainerID:   containerID,
+		NetnsPath:     netnsPath,
+		HostVeth:      hostLink.Attrs().Name,
+		HostVethIndex: hostLink.Attrs().Index,
+		Addr:          addr,
+		V4:            containerV4,
+		HostV4:        hostV4,
+		Slot:          slot,
+	}
+	m.cleanupContainerNets(deploymentID, []*ContainerNet{cn})
+	return cn, nil
 }
 
 // Promote flips the stable instance address to the candidate by replacing the
@@ -222,10 +230,15 @@ func (m *Manager) Promote(_ *ContainerNet, candidate *ContainerNet, stable netip
 	if !stable.Is6() {
 		return fmt.Errorf("promote: stable address must be IPv6, got %v", stable)
 	}
+	m.containerMu.Lock()
+	defer m.containerMu.Unlock()
 
 	hostLink, err := netlink.LinkByName(candidate.HostVeth)
 	if err != nil {
 		return fmt.Errorf("promote: candidate host veth: %w", err)
+	}
+	if candidate.HostVethIndex > 0 && hostLink.Attrs().Index != candidate.HostVethIndex {
+		return fmt.Errorf("promote: candidate host veth %s was replaced", candidate.HostVeth)
 	}
 	if err := replaceHostRoute(stable, hostLink.Attrs().Index); err != nil {
 		return fmt.Errorf("promote: flipping host route: %w", err)
@@ -235,53 +248,86 @@ func (m *Manager) Promote(_ *ContainerNet, candidate *ContainerNet, stable netip
 	return nil
 }
 
-// TeardownContainerNet removes the container's netns (destroying the veth pair
-// and with it the host route) and any leftover host-side veth carrying this
-// container id as its alias.
-func (m *Manager) TeardownContainerNet(containerID string, deploymentID int32) {
-	if err := netns.DeleteNamed(containerID); err != nil && !errors.Is(err, os.ErrNotExist) {
-		slog.Warn("deleting netns", "container", containerID, "err", err)
+// TeardownContainerNet removes the exact network tracked for a container.
+func (m *Manager) TeardownContainerNet(cn *ContainerNet) {
+	if cn == nil {
+		return
 	}
-	// A veth whose peer was never moved (failed setup) survives netns deletion.
-	for slot := range v4SlotsPerDeployment {
-		link, err := netlink.LinkByName(hostVethName(deploymentID, slot))
-		if err != nil {
-			continue
+	m.containerMu.Lock()
+	defer m.containerMu.Unlock()
+	hostVeth := cn.HostVeth
+	if cn.HostVethIndex == 0 {
+		hostVeth = ""
+	}
+	m.teardownContainerNet(cn.ContainerID, 0, hostVeth, cn.HostVethIndex)
+}
+
+// TeardownContainerNetState removes one untracked container's network by
+// proving its host peer through the surviving named namespace.
+func (m *Manager) TeardownContainerNetState(containerID string, deploymentID int32) {
+	m.containerMu.Lock()
+	defer m.containerMu.Unlock()
+	m.teardownContainerNet(containerID, deploymentID, "", 0)
+}
+
+func (m *Manager) teardownContainerNet(containerID string, deploymentID int32, hostVeth string, hostVethIndex int) {
+	if hostVeth == "" {
+		if link, _, err := findContainerVeth(containerID, deploymentID); err == nil {
+			hostVeth = link.Attrs().Name
+			hostVethIndex = link.Attrs().Index
 		}
-		if link.Attrs().Alias == containerID {
+	}
+	if hostVeth != "" {
+		link, err := netlink.LinkByName(hostVeth)
+		if err == nil && (hostVethIndex == 0 || link.Attrs().Index == hostVethIndex) {
 			if err := netlink.LinkDel(link); err != nil {
-				slog.Warn("deleting leftover veth", "veth", link.Attrs().Name, "err", err)
+				slog.Warn("deleting container veth", "veth", hostVeth, "container", containerID, "err", err)
 			}
 		}
 	}
+	deleteNamedNetns(containerID)
 }
 
 // CleanupContainerNets removes stale netns and veth state for a deployment,
-// keeping only container ids accepted by keep. A failed or adopted container
-// can leave a host veth after its named netns has disappeared, so inspect both
-// sources of kernel state.
-func (m *Manager) CleanupContainerNets(deploymentID int32, keep func(containerID string) bool) {
+// keeping only the explicitly supplied networks. A failed container can leave
+// a host veth after its named netns has disappeared, so inspect both sources of
+// kernel state.
+func (m *Manager) CleanupContainerNets(deploymentID int32, keep []*ContainerNet) {
+	m.containerMu.Lock()
+	defer m.containerMu.Unlock()
+	m.cleanupContainerNets(deploymentID, keep)
+}
+
+func (m *Manager) cleanupContainerNets(deploymentID int32, keep []*ContainerNet) {
+	retained := newRetainedContainerNets(keep)
 	prefix := fmt.Sprintf("opendeploy-%d-", deploymentID)
 	entries, err := os.ReadDir(netnsRunDir)
 	if err == nil {
 		for _, e := range entries {
 			name := e.Name()
-			if !strings.HasPrefix(name, prefix) || keep(name) {
+			if !strings.HasPrefix(name, prefix) || retained.keepsContainer(name) {
 				continue
 			}
 			slog.Info("cleaning up stale container netns", "netns", name)
-			m.TeardownContainerNet(name, deploymentID)
+			m.teardownContainerNet(name, deploymentID, "", 0)
 		}
 	}
 	for slot := range v4SlotsPerDeployment {
-		link, linkErr := netlink.LinkByName(hostVethName(deploymentID, slot))
-		if linkErr != nil || keep(link.Attrs().Alias) {
+		hostVeth := hostVethName(deploymentID, slot)
+		link, linkErr := netlink.LinkByName(hostVeth)
+		if linkErr != nil || retained.keepsHostVeth(hostVeth) {
 			continue
 		}
-		slog.Info("cleaning up stale container veth", "veth", link.Attrs().Name, "container", link.Attrs().Alias)
+		slog.Info("cleaning up stale container veth", "veth", link.Attrs().Name)
 		if err := netlink.LinkDel(link); err != nil {
 			slog.Warn("deleting stale container veth", "veth", link.Attrs().Name, "err", err)
 		}
+	}
+}
+
+func deleteNamedNetns(containerID string) {
+	if err := netns.DeleteNamed(containerID); err != nil && !errors.Is(err, os.ErrNotExist) {
+		slog.Warn("deleting netns", "container", containerID, "err", err)
 	}
 }
 
@@ -289,6 +335,35 @@ func (m *Manager) CleanupContainerNets(deploymentID int32, keep func(containerID
 
 func hostVethName(deploymentID int32, slot int) string {
 	return "od" + strconv.Itoa(int(deploymentID)) + "s" + strconv.Itoa(slot)
+}
+
+func findContainerVeth(containerID string, deploymentID int32) (netlink.Link, int, error) {
+	nsHandle, err := netns.GetFromName(containerID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("opening netns %s: %w", containerID, err)
+	}
+	defer nsHandle.Close()
+	nsNetlink, err := netlink.NewHandleAt(nsHandle)
+	if err != nil {
+		return nil, 0, fmt.Errorf("opening netlink handle in netns %s: %w", containerID, err)
+	}
+	defer nsNetlink.Close()
+	containerLink, err := nsNetlink.LinkByName(containerIface)
+	if err != nil {
+		return nil, 0, fmt.Errorf("finding %s in netns %s: %w", containerIface, containerID, err)
+	}
+	containerAttrs := containerLink.Attrs()
+	for slot := range v4SlotsPerDeployment {
+		hostLink, err := netlink.LinkByName(hostVethName(deploymentID, slot))
+		if err != nil || hostLink.Type() != "veth" {
+			continue
+		}
+		hostAttrs := hostLink.Attrs()
+		if vethPeerIndexesMatch(hostAttrs.Index, hostAttrs.ParentIndex, containerAttrs.Index, containerAttrs.ParentIndex) {
+			return hostLink, slot, nil
+		}
+	}
+	return nil, 0, fmt.Errorf("finding veth peer for container %s", containerID)
 }
 
 // freeV4Slot picks the first slot whose host veth does not exist. Slots are
