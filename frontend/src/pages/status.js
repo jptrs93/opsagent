@@ -550,7 +550,8 @@ export function statusPage(onOpenLogs = () => {}) {
             {class: "app-scroll-x w-full min-h-0 flex-1 overflow-x-auto overflow-y-hidden"},
             div(
                 {class: "h-full min-h-0 flex flex-col"},
-                div({class: "flex-none pr-1"}, headerNode),
+                // Match the body's 8px stable scrollbar gutter plus its 4px padding.
+                div({class: "flex-none pr-3"}, headerNode),
                 div({class: "deployment-table-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1"}, bodyNode),
             ),
         ),

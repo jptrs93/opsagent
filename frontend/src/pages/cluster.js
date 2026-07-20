@@ -138,7 +138,7 @@ function machineRow(machine) {
                 oninput: event => { name.val = event.target.value; },
                 onSave: rename,
                 onDiscard: () => { name.val = originalName.val; },
-                inputClass: "input w-full min-w-36",
+                inputClass: "w-full min-w-36 bg-transparent px-2 py-1 rounded border border-transparent hover:border-gray-700 focus:border-brand focus:outline-none font-mono",
                 ariaLabel: `Node name for ${machine.identifier}`,
                 saveAriaLabel: `Save node name ${machine.identifier}`,
                 discardAriaLabel: `Discard node name change for ${machine.identifier}`,
