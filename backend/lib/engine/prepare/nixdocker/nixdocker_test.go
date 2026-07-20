@@ -1,11 +1,19 @@
 package nixdocker
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/preparerlog"
 )
+
+const testCommit = "0123456789ABCDEF0123456789ABCDEF01234567"
 
 func TestCheckedOutFlakePathRequiresLocalFile(t *testing.T) {
 	repoDir := t.TempDir()
@@ -66,6 +74,97 @@ func TestNixBuildArgs(t *testing.T) {
 	want := append(append([]string(nil), base...), ".#radkitRpaClientImage")
 	if got := nixBuildArgs(".#radkitRpaClientImage"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("target args = %q, want %q", got, want)
+	}
+}
+
+func TestImageRefUsesBuildInputsAndCommit(t *testing.T) {
+	nix := &apigen.NixDockerBuildConfig{
+		Repo:   "github.com/acme/platform",
+		Flake:  "services/api/flake.nix",
+		Target: ".#apiImage",
+	}
+	ref := imageRef(nix, testCommit)
+	if !strings.HasPrefix(ref, "opendeploy.local/nix-docker-build/v1/") {
+		t.Fatalf("image ref = %q, want v1 cache namespace", ref)
+	}
+	if !strings.HasSuffix(ref, ":"+strings.ToLower(testCommit)) {
+		t.Fatalf("image ref = %q, want lowercase commit tag", ref)
+	}
+
+	same := imageRef(&apigen.NixDockerBuildConfig{
+		Repo:   nix.Repo,
+		Flake:  nix.Flake,
+		Target: nix.Target,
+	}, strings.ToLower(testCommit))
+	if same != ref {
+		t.Fatalf("equivalent build ref = %q, want %q", same, ref)
+	}
+
+	changes := []*apigen.NixDockerBuildConfig{
+		{Repo: "github.com/acme/other", Flake: nix.Flake, Target: nix.Target},
+		{Repo: nix.Repo, Flake: "services/worker/flake.nix", Target: nix.Target},
+		{Repo: nix.Repo, Flake: nix.Flake, Target: ".#workerImage"},
+	}
+	for _, changed := range changes {
+		if got := imageRef(changed, testCommit); got == ref {
+			t.Errorf("changed build inputs reused image ref %q", got)
+		}
+	}
+	if imageSourceKey(nix, "linux", "amd64") == imageSourceKey(nix, "linux", "arm64") {
+		t.Fatal("platform change did not change image source key")
+	}
+}
+
+func TestPrepareReusesReadyImageBeforeCheckout(t *testing.T) {
+	dep := testNixDeployment()
+	log, _, err := preparerlog.New(context.Background(), dep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+
+	p := New(nil)
+	var checkedRef string
+	p.imageReady = func(_ context.Context, ref string) error {
+		checkedRef = ref
+		return nil
+	}
+	artifact, status := p.Prepare(context.Background(), dep, log)
+	wantRef := imageRef(dep.Spec.Prepare.NixDockerBuild, dep.DesiredState.Version)
+	if status != apigen.PreparationStatus_READY {
+		t.Fatalf("status = %v, want READY", status)
+	}
+	if artifact != wantRef || checkedRef != wantRef {
+		t.Fatalf("artifact/checked ref = %q/%q, want %q", artifact, checkedRef, wantRef)
+	}
+}
+
+func TestPrepareFailsOnContainerdCacheCheckError(t *testing.T) {
+	dep := testNixDeployment()
+	log, _, err := preparerlog.New(context.Background(), dep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+
+	p := New(nil)
+	p.imageReady = func(context.Context, string) error { return errors.New("containerd unavailable") }
+	artifact, status := p.Prepare(context.Background(), dep, log)
+	if status != apigen.PreparationStatus_FAILED || artifact != "" {
+		t.Fatalf("artifact/status = %q/%v, want empty/FAILED", artifact, status)
+	}
+}
+
+func testNixDeployment() *apigen.DeploymentConfig {
+	return &apigen.DeploymentConfig{
+		ID:      987654,
+		Version: 3,
+		Spec: apigen.DeploymentSpec{Prepare: apigen.PrepareConfig{NixDockerBuild: &apigen.NixDockerBuildConfig{
+			Repo:   "github.com/acme/platform",
+			Flake:  "services/api/flake.nix",
+			Target: ".#apiImage",
+		}}},
+		DesiredState: apigen.DesiredState{Version: testCommit, Running: true},
 	}
 }
 

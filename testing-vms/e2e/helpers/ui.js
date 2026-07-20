@@ -701,7 +701,12 @@ export async function createAsset(page, {key, content} = {}) {
 
   await page.getByPlaceholder('nginx.conf').fill(key);
   await page.getByPlaceholder('Paste config file contents here').fill(content);
-  await page.getByRole('button', {name: 'Save new version'}).click();
+  const createResponse = page.waitForResponse(response => {
+    const request = response.request();
+    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/assets/set';
+  }, {timeout: LONG_UI_TIMEOUT});
+  await page.getByRole('button', {name: 'Create asset'}).click();
+  expect((await createResponse).ok()).toBe(true);
   await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(key))})).toBeVisible();
 }
 
@@ -717,11 +722,19 @@ export async function uploadAsset(page, {key, content, fileName = key} = {}) {
     mimeType: 'application/octet-stream',
     buffer: Buffer.from(content),
   });
+  const overlay = page.locator('.fixed.inset-0.z-50').filter({hasText: 'Upload asset'}).last();
+  await expect(overlay).toBeVisible();
+  const uploadResponse = page.waitForResponse(response => {
+    const request = response.request();
+    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/assets/upload';
+  }, {timeout: ASSET_UPLOAD_TIMEOUT});
+  await overlay.getByRole('button', {name: 'Upload'}).click();
+  expect((await uploadResponse).ok()).toBe(true);
   const assetRow = page.getByRole('row', {name: new RegExp(escapeRegExp(fileName))});
   await expect(assetRow).toBeVisible({timeout: ASSET_UPLOAD_TIMEOUT});
-  const overlay = page.locator('.fixed.inset-0.z-50').filter({hasText: 'Upload successful. Asset created.'}).last();
-  if (await overlay.isVisible().catch(() => false)) {
-    await overlay.getByRole('button', {name: 'Close'}).click();
+  const closeButton = overlay.getByRole('button', {name: 'Close'});
+  if (await closeButton.isVisible().catch(() => false)) {
+    await closeButton.click();
     await expect(overlay).toBeHidden({timeout: LONG_UI_TIMEOUT});
   }
   await assetRow.click();

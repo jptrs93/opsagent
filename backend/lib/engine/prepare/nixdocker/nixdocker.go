@@ -5,6 +5,8 @@ package nixdocker
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +31,10 @@ import (
 type Preparer struct {
 	gitManager *repogit.Manager
 	sem        chan struct{}
+	imageReady func(context.Context, string) error
 }
+
+const imageCacheSchemaVersion = "v1"
 
 // New creates a Nix Docker preparer. Builds are limited to one concurrent Nix
 // invocation per Preparer instance to avoid thrashing the Nix store.
@@ -36,6 +42,7 @@ func New(gitManager *repogit.Manager) *Preparer {
 	return &Preparer{
 		gitManager: gitManager,
 		sem:        make(chan struct{}, 1),
+		imageReady: ctrd.Default.ImageReady,
 	}
 }
 
@@ -48,9 +55,20 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 		return "", apigen.PreparationStatus_FAILED
 	}
 
+	nix := dep.Spec.Prepare.NixDockerBuild
+	localImageRef := imageRef(nix, version)
+	log.Write("checking for reusable image %s", localImageRef)
+	if err := p.imageReady(ctx, localImageRef); err == nil {
+		log.Write("reusing existing image %s", localImageRef)
+		return localImageRef, apigen.PreparationStatus_READY
+	} else if !errors.Is(err, ctrd.ErrImageUnavailable) {
+		log.Error("checking reusable image: %v", err)
+		return "", apigen.PreparationStatus_FAILED
+	}
+	log.Write("reusable image not found; building %s", localImageRef)
+
 	logPath := dep.PrepareOutputPath()
 	slog.InfoContext(ctx, "nix docker build starting", "log_path", logPath)
-	nix := dep.Spec.Prepare.NixDockerBuild
 	log.Write("checking out repository %s at version %s", nix.Repo, version)
 	checkoutStarted := time.Now()
 	repoDir, err := p.gitManager.EnsureCheckout(ctx, nix.Repo, version, log.Output())
@@ -86,7 +104,6 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 		return "", apigen.PreparationStatus_FAILED
 	}
 
-	localImageRef := imageRef(dep.ID, version)
 	log.Write("importing image stream %s as %s", streamPath, localImageRef)
 	imageStreamStarted := time.Now()
 	if err := p.importStream(ctx, streamPath, localImageRef, log); err != nil {
@@ -301,8 +318,22 @@ func formatImageSize(size int64) string {
 	return fmt.Sprintf("%d B", size)
 }
 
-func imageRef(deploymentID int32, version string) string {
-	return fmt.Sprintf("opendeploy.local/nix-docker-build/%d:%s", deploymentID, sanitizeImageTag(version))
+func imageRef(nix *apigen.NixDockerBuildConfig, version string) string {
+	return fmt.Sprintf(
+		"opendeploy.local/nix-docker-build/%s/%s:%s",
+		imageCacheSchemaVersion,
+		imageSourceKey(nix, runtime.GOOS, runtime.GOARCH),
+		sanitizeImageTag(strings.ToLower(version)),
+	)
+}
+
+func imageSourceKey(nix *apigen.NixDockerBuildConfig, goos, goarch string) string {
+	h := sha256.New()
+	for _, value := range []string{nix.Repo, nix.Flake, nix.Target, goos, goarch} {
+		_, _ = fmt.Fprintf(h, "%d:", len(value))
+		_, _ = io.WriteString(h, value)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func sanitizeImageTag(s string) string {
