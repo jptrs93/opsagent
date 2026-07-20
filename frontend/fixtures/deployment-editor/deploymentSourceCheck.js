@@ -56,6 +56,16 @@ const exactResponse = (repo, commit, flakePath, ok = true) => ({
     },
 });
 
+const commitResponse = (repo, branch, commits) => ({
+    nixDockerBuild: {
+        checkedRepoUrl: repo,
+        gitRepository: {checked: true, ok: true, message: 'Repository accessible.'},
+        checkedBranch: branch,
+        branchCheck: {checked: true, ok: true, message: 'Branch exists.'},
+        availableCommits: {loaded: true, branch, commits},
+    },
+});
+
 function configuredNixModel(validateSource, running = false) {
     const model = new DeploymentCreationUpdate({validateSource});
     model.form.name.val = 'api';
@@ -84,7 +94,7 @@ secondRepo.resolve(repositoryResponse('github.com/acme/other', ['main']));
 await secondDiscovery;
 assert.deepEqual(staleModel.nixDockerBuild.branches.val, ['main']);
 
-// Changing the selected commit immediately invalidates an exact attestation.
+// Create flows exact-validate each newly selected commit.
 const exactRequests = [];
 const exactModel = configuredNixModel(request => {
     const pending = deferred();
@@ -156,11 +166,11 @@ const duplicateNameModel = new DeploymentCreationUpdate({validateSource: async (
 duplicateNameModel.form.name.val = 'api';
 duplicateNameModel.form.spaceId.val = 1;
 assert.equal(formInvalidReason(duplicateNameModel.form, {
-    deployments: [{config: {id: 10, configId: {name: 'api', spaceId: 1}}}],
+    deployments: [{config: {id: 10, identity: {name: 'api', spaceId: 1}}}],
 }), 'Deployment name is unavailable in this space.');
 duplicateNameModel.form.deploymentId.val = 10;
 assert.notEqual(formInvalidReason(duplicateNameModel.form, {
-    deployments: [{config: {id: 10, configId: {name: 'api', spaceId: 1}}}],
+    deployments: [{config: {id: 10, identity: {name: 'api', spaceId: 1}}}],
 }), 'Deployment name is unavailable in this space.');
 
 // A persisted running source remains trusted across failed discovery refreshes.
@@ -227,6 +237,20 @@ assert.equal(initialNixModel.nixDockerBuild.selectedCommit.val, initialNixDeploy
 assert.equal(initialNixModel.nixDockerBuild.exactValidation.val.status, 'idle');
 assert.equal(initialNixModel.runningNixInvalidReason(), '');
 
+const forkCreateRequests = [];
+const forkCreateModel = new DeploymentCreationUpdate({
+    mode: 'create',
+    deployment: initialNixDeployment,
+    deploymentConfig: runningNixPreset.deploymentConfig,
+    validateSource: async request => {
+        forkCreateRequests.push(request);
+        const source = request.nixDockerBuild;
+        return exactResponse(source.repoUrl, source.selectedCommit.id, source.selectedFlakePath);
+    },
+});
+assert.equal(await forkCreateModel.validateExactNixSelection(), true);
+assert.equal(forkCreateRequests.length, 1);
+
 const branchRequests = [];
 initialNixModel.validateSource = async request => {
     branchRequests.push(request);
@@ -251,6 +275,75 @@ assert.equal(initialNixModel.nixDockerBuild.commits.val.some(
     commit => commit.id === initialNixDeployment.deployedVersion,
 ), false);
 assert.equal(initialNixModel.nixDockerBuild.exactValidation.val.status, 'idle');
+
+// Existing updates trust unchanged persisted repositories and flakes across version discovery and selection.
+const trustedUpdateRequests = [];
+const trustedUpdateModel = new DeploymentCreationUpdate({
+    deployment: initialNixDeployment,
+    deploymentConfig: runningNixPreset.deploymentConfig,
+    validateSource: async request => {
+        trustedUpdateRequests.push(request);
+        const source = request.nixDockerBuild;
+        if (source.refreshAvailableBranches) return repositoryResponse(source.repoUrl, nixBranches);
+        if (source.refreshAvailableCommits) {
+            return commitResponse(source.repoUrl, source.selectedBranch, nixCommits[source.selectedBranch]);
+        }
+        return exactResponse(source.repoUrl, source.selectedCommit.id, source.selectedFlakePath);
+    },
+});
+trustedUpdateModel.selectCommit(COMMIT_B);
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(trustedUpdateRequests.length, 0);
+assert.equal(trustedUpdateModel.runningNixInvalidReason(), '');
+assert.equal(trustedUpdateModel.toUpdatePayload().targetVersion, COMMIT_B);
+
+assert.equal(await trustedUpdateModel.selectBranch('release/2026-07'), true);
+assert.equal(trustedUpdateRequests.length, 1);
+assert.equal(trustedUpdateRequests[0].nixDockerBuild.refreshAvailableCommits, true);
+assert.equal(trustedUpdateRequests.filter(request => request.nixDockerBuild.checkCommit).length, 0);
+assert.equal(trustedUpdateModel.nixDockerBuild.selectedCommit.val, COMMIT_B);
+
+assert.equal(await trustedUpdateModel.loadVersions(), true);
+assert.equal(trustedUpdateRequests.length, 3);
+assert.equal(trustedUpdateRequests.filter(request => request.nixDockerBuild.refreshAvailableBranches).length, 1);
+assert.equal(trustedUpdateRequests.filter(request => request.nixDockerBuild.refreshAvailableCommits).length, 2);
+assert.equal(trustedUpdateRequests.filter(request => request.nixDockerBuild.checkCommit).length, 0);
+assert.equal(trustedUpdateModel.nixDockerBuild.selectedCommit.val, COMMIT_B);
+
+const replacement = trustedUpdateModel.toDocument();
+replacement.desiredState.version = COMMIT_A;
+trustedUpdateModel.replaceDocument(replacement);
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(trustedUpdateRequests.filter(request => request.nixDockerBuild.checkCommit).length, 0);
+assert.equal(trustedUpdateModel.toUpdatePayload().targetVersion, COMMIT_A);
+
+trustedUpdateModel.form.nixFlake.val = 'services/changed/flake.nix';
+assert.equal(await trustedUpdateModel.validateExactNixSelection(), true);
+assert.equal(trustedUpdateRequests.filter(request => request.nixDockerBuild.checkCommit).length, 1);
+trustedUpdateModel.form.nixFlake.val = runningNixPreset.deploymentConfig.spec.prepare.nixDockerBuild.flake;
+assert.equal(await trustedUpdateModel.validateExactNixSelection(), true);
+assert.equal(trustedUpdateRequests.filter(request => request.nixDockerBuild.checkCommit).length, 1);
+
+trustedUpdateModel.form.nixRepo.val = 'github.com/acme/changed';
+assert.equal(await trustedUpdateModel.validateExactNixSelection(), true);
+assert.equal(trustedUpdateRequests.filter(request => request.nixDockerBuild.checkCommit).length, 2);
+
+// Persisted repo and flake values are also trusted when starting an existing stopped deployment.
+const stoppedStartRequests = [];
+const stoppedStartModel = new DeploymentCreationUpdate({
+    deployment: runningNixPreset.deployment,
+    deploymentConfig: runningNixPreset.deploymentConfig,
+    validateSource: async request => {
+        stoppedStartRequests.push(request);
+        const source = request.nixDockerBuild;
+        return exactResponse(source.repoUrl, source.selectedCommit.id, source.selectedFlakePath);
+    },
+});
+stoppedStartModel.setDesiredRunning(true);
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(stoppedStartRequests.length, 0);
+assert.equal(stoppedStartModel.runningNixInvalidReason(), '');
+assert.equal(stoppedStartModel.toUpdatePayload().targetVersion, runningNixPreset.deployment.deployedVersion);
 
 const staleInitialVersions = deferred();
 const staleInitialModel = new DeploymentCreationUpdate({

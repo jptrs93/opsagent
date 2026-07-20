@@ -280,16 +280,16 @@ func (s *PrimaryStorage) NodeIdentifierByID(nodeID int32) (string, error) {
 	return identifier, err
 }
 
-func (s *PrimaryStorage) PrimaryNodeIdentifier() (string, error) {
+func (s *PrimaryStorage) PrimaryNodeID() (int32, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var identifier string
+	var nodeID int32
 	err := s.db.QueryRowContext(context.Background(), `
-		SELECT identifier
+		SELECT id
 		FROM nodes
 		WHERE EXISTS (SELECT 1 FROM json_each(nodes.roles) WHERE value = ?)
-		LIMIT 1`, NodeRolePrimary).Scan(&identifier)
-	return identifier, err
+		LIMIT 1`, NodeRolePrimary).Scan(&nodeID)
+	return nodeID, err
 }
 
 func (s *PrimaryStorage) RenameNode(identifier, name string) (*apigen.ClusterNode, error) {

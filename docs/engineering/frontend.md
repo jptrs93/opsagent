@@ -45,7 +45,7 @@ The dashboard uses a split-pane layout:
 
 ### Status (`pages/status.js`)
 - Consumes live deployment state from `POST /v1/state/stream` (binary protobuf stream via `AsyncIterable<State>`).
-- Renders one card per deployment, sorted by OPENDEPLOY-last, then environment, name, machine, and id (deterministic across stream reconnects).
+- Renders one card per deployment, sorted by OPENDEPLOY-last, then environment, name, node, and id (deterministic across stream reconnects).
 - "Add deployment" button opens `components/createOverlay.js` to POST a typed `DeploymentCreateRequest` via `POST /v1/deployment/create`.
 - Each card (`components/statusCard.js`) shows status badge, deployment info (deployed by/at/version), runtime info (restarts/last restart), prepare status, and an Update button that opens `components/deployOverlay.js`. Running cards expose a stop icon; stopped cards with a known version expose a start icon.
 - The deploy overlay fetches available versions on demand via `POST /v1/deployment/versions`, lets the user edit the deployment spec form, and submits a typed `DeploymentUpdateRequest` via `POST /v1/deployment/update`.
@@ -57,14 +57,14 @@ The dashboard uses a split-pane layout:
 - Shows primary + worker machines and connection state via `GET /v1/cluster/status`.
 - Allows editing a machine's display name without changing its certificate or deployment identity.
 
-Deployment machine selectors render `ClusterNode.name` but submit the immutable `ClusterNode.identifier` as `DeploymentIdentifier.machine`.
+Deployment node selectors render `ClusterNode.name` and submit `ClusterNode.id` as `DeploymentCreateRequest.nodeId`. The backend copies the node's immutable identifier into deprecated `DeploymentIdentity.machine` compatibility metadata.
 
 ## Deployment editor
 
 - `components/deploymentEditorWidget.js` owns the card shell, API actions, submission, and the persistent header/footer.
 - `components/deploymentConfigUiWidget.js` and `components/deploymentConfigCodeWidget.js` are independent middle surfaces.
 - `DeploymentCreationUpdate.document` is their shared API-shaped authoring boundary: `read()` returns identity, placement, spec, version, and desired state; `replace()` atomically applies a valid document.
-- `components/deploymentSource.js` defines pure source keys, validation requests, response attestation, and local flake-path rules. Existing update overlays hydrate persisted-source choices with one `POST /v1/deployment/versions` request; source validation is deferred until a relevant source, selected version, flake path, or running-state change requires it. `DeploymentCreationUpdate` owns independently sequenced repository, branch-commit, exact Nix, image discovery, and persisted-version state; only a trusted persisted source or exact repository-wide commit and flake validation permits Running Nix submissions.
+- `components/deploymentSource.js` defines pure source keys, validation requests, response attestation, and local flake-path rules. Existing update overlays hydrate persisted-source choices with one `POST /v1/deployment/versions` request. Their persisted Nix repository and flake path remain frontend-trusted while unchanged, including across commit selection, branch discovery, refresh, and stopped-to-running transitions; full commit and local flake-path checks still apply, and the backend authoritatively verifies running updates before persistence. Creates and updates with an edited repository or flake path require exact frontend preflight validation. `DeploymentCreationUpdate` owns independently sequenced repository, branch-commit, exact Nix, image discovery, and persisted-version state.
 - Nix branches are discovery filters rather than persisted deployment state. Changing branches refreshes the commit list without changing or revalidating the selected commit; when that commit is absent from the returned branch it remains available as an injected option until the user explicitly selects another commit.
 - `components/deploymentHcl.js` implements the bounded HCL serializer/parser and resolves symbolic catalog references to API IDs. It does not evaluate general HCL expressions or interpolation.
 - HCL places `node = node("name")` directly in the root `deployment` block; the API-shaped authoring document continues to expose the resolved placement as `nodeId`.

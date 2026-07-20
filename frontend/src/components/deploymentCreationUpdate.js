@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {
     deploymentConfigToForm,
     emptyDeploymentForm,
-    formToDeploymentIdentifier,
+    formToDeploymentIdentity,
     formToSpec,
     replaceDeploymentFormFromConfig,
 } from "./deploymentForm.js";
@@ -34,9 +34,12 @@ const errorStatus = (key, message) => ({status: 'error', message, key});
 const okStatus = (key, message) => ({status: 'ok', message, key});
 
 export class DeploymentCreationUpdate {
-    constructor({deployment = null, deploymentConfig = null, validateSource} = {}) {
+    constructor({mode = null, deployment = null, deploymentConfig = null, validateSource} = {}) {
         if (typeof validateSource !== 'function') throw new Error('validateSource is required');
+        const editorMode = mode || (deployment ? 'update' : 'create');
+        if (editorMode !== 'create' && editorMode !== 'update') throw new Error(`Unsupported deployment editor mode: ${editorMode}`);
         this.validateSource = validateSource;
+        this.mode = editorMode;
         this.existingState = deployment;
         this.form = deploymentConfig ? deploymentConfigToForm(deploymentConfig) : emptyDeploymentForm();
         this.desiredRunning = van.state(deployment ? Boolean(deployment.desiredRunning) : true);
@@ -355,6 +358,7 @@ export class DeploymentCreationUpdate {
         const commit = this.nixDockerBuild.selectedCommit.val.trim();
         const flakePath = this.form.nixFlake.val.trim();
         if (!repo || !FULL_GIT_COMMIT_RE.test(commit) || !validateLocalFlakePath(flakePath).ok) return false;
+        if (this.initialNixSourceTrusted()) return true;
         const key = nixExactValidationKey(repo, commit, flakePath);
         const sequence = ++this.requestSequences.exact;
         this.nixDockerBuild.exactValidation.val = checkingStatus(key, 'Validating exact commit and flake...');
@@ -589,7 +593,8 @@ export class DeploymentCreationUpdate {
     }
 
     initialRepositoryTrusted() {
-        return Boolean(this.existingState?.desiredRunning)
+        return this.mode === 'update'
+            && Boolean(this.existingState)
             && this.form.sourceType.val === SOURCE_NIX_DOCKER
             && this.initialSource.type === SOURCE_NIX_DOCKER
             && this.form.nixRepo.val.trim() === this.initialSource.repo;
@@ -604,8 +609,7 @@ export class DeploymentCreationUpdate {
 
     initialNixSourceTrusted() {
         return this.initialRepositoryTrusted()
-            && this.form.nixFlake.val.trim() === this.initialSource.flake
-            && this.nixDockerBuild.selectedCommit.val.trim() === (this.existingState?.deployedVersion || '');
+            && this.form.nixFlake.val.trim() === this.initialSource.flake;
     }
 
     createDesiredVersion() {
@@ -615,7 +619,7 @@ export class DeploymentCreationUpdate {
 
     toDocument() {
         return {
-            configId: formToDeploymentIdentifier(this.form),
+            identity: formToDeploymentIdentity(this.form),
             nodeId: Number(this.form.nodeId.val || 0),
             spec: formToSpec(this.form),
             desiredState: {
@@ -627,14 +631,14 @@ export class DeploymentCreationUpdate {
 
     replaceDocument(document) {
         const previousSource = this.persistedSource();
-        const configId = document?.configId || {};
+        const identity = document?.identity || {};
         const spec = document?.spec || {};
         const desiredState = document?.desiredState || {};
         replaceDeploymentFormFromConfig(this.form, {
             id: Number(this.form.deploymentId.val || 0),
-            configId: {
-                name: configId.name || '',
-                spaceId: Number(configId.spaceId || 0),
+            identity: {
+                name: identity.name || '',
+                spaceId: Number(identity.spaceId || 0),
             },
             nodeId: Number(document?.nodeId || 0),
             spec,
@@ -673,7 +677,7 @@ export class DeploymentCreationUpdate {
 
     toCreatePayload() {
         return {
-            configId: formToDeploymentIdentifier(this.form),
+            identity: formToDeploymentIdentity(this.form),
             nodeId: Number(this.form.nodeId.val || 0),
             spec: formToSpec(this.form),
             desiredState: {

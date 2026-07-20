@@ -47,8 +47,8 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	}
 	certificateIdentifier := certu.MustCertCommonNameFromPEM(clusterMaterial.PrimaryCert)
 	primaryNode := primaryRuntime.store.EnsurePrimaryNode("primary", certificateIdentifier)
-	machineIdentifier := primaryNode.Identifier
-	slog.Info(fmt.Sprintf("opendeploy starting primary version=%v machine=%v", version.Version, machineIdentifier))
+	nodeIdentifier := primaryNode.Identifier
+	slog.Info(fmt.Sprintf("opendeploy starting primary version=%v nodeIdentifier=%v", version.Version, nodeIdentifier))
 	webUIHandler, err := webuihandler.New(staticFS, primaryNode.ID, primaryRuntime.webUIHandlerDependencies())
 	if err != nil {
 		return fmt.Errorf("creating web UI handler: %w", err)
@@ -56,7 +56,7 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	primaryDeployments := storage.DeploymentPredicate(func(cfg apigen.DeploymentConfig) bool {
 		return cfg.NodeID == primaryNode.ID
 	})
-	primaryRuntime.start(ctx, primaryDeployments, machineIdentifier)
+	primaryRuntime.start(ctx, primaryDeployments, primaryNode.ID, nodeIdentifier)
 	assetReconcileDone := primaryRuntime.assets.StartReconciler(ctx)
 	backupDone := backup.StartReplication(ctx, primaryRuntime.configService, primaryRuntime.secrets, primaryRuntime.store, primaryRuntime.assets)
 	defer func() {

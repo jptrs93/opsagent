@@ -163,7 +163,7 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		store:           store,
 		runtimeInputs:   inputs,
 		deploymentID:    dep.ID,
-		spaceID:         dep.ConfigID.SpaceID,
+		spaceID:         dep.Identity.SpaceID,
 		deploymentName:  containerDeploymentName(dep),
 		nodeID:          dep.NodeID,
 		containerID:     containerID(dep.ID, configVersion),
@@ -186,8 +186,8 @@ func containerDeploymentName(dep *apigen.DeploymentConfig) string {
 	if dep == nil {
 		return "<nil>"
 	}
-	if !dep.ConfigID.IsZero() {
-		return fmt.Sprintf("%d:%d:%s", dep.ConfigID.SpaceID, dep.NodeID, dep.ConfigID.Name)
+	if !dep.Identity.IsZero() {
+		return fmt.Sprintf("%d:%d:%s", dep.Identity.SpaceID, dep.NodeID, dep.Identity.Name)
 	}
 	return fmt.Sprintf("id=%d", dep.ID)
 }

@@ -20,11 +20,11 @@ A deployment is created by posting a `DeploymentCreateRequest` to
 
 ```json
 {
-  "configId": {
+  "identity": {
     "name": "coflip_server",
-    "spaceId": 1,
-    "machine": "192.168.1.100"
+    "spaceId": 1
   },
+  "nodeId": 1,
   "spec": {
     "prepare": {
       "nixDockerBuild": {
@@ -49,13 +49,15 @@ A deployment is created by posting a `DeploymentCreateRequest` to
 ```
 
 The spec of an existing deployment is updated by posting the typed `spec` field
-in `POST /v1/deployment/update`. Its `name` and `machine` identity fields are
-fixed at creation; its space can be changed through the update path.
+in `POST /v1/deployment/update`. Its name and `nodeId` placement are fixed at
+creation; its space can be changed through the update path.
 
-Current deployment config responses also include `nodeId`, the numeric
-`ClusterNode.id` corresponding to the stable `machine` identifier. A value of
-`-1` means the node could not be resolved. Deployment history entries omit the
-field. The frontend currently retains it without using it for behavior.
+`nodeId` is the required canonical placement and references `ClusterNode.id`.
+`DeploymentIdentity.machine` remains deprecated compatibility metadata: the
+public create boundary derives it from the selected node's immutable identifier,
+but placement, lookup, duplicate detection, and execution do not use it. Every
+stored deployment has a positive canonical `nodeId`. Deployment history entries
+omit `nodeId`.
 
 ### Prepare variants
 
@@ -122,14 +124,14 @@ Driven by the runner. Tracks the running container task with `running_pid`,
 
 ## Deployment identification
 
-Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployment/create`. The `DeploymentIdentifier{spaceId, machine, name}` tuple is human-readable metadata stored on `DeploymentConfig.ConfigID` and must be unique among active deployments. All API requests, storage keys, and log file paths use the integer `id`.
+Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployment/create`. Human-readable metadata is stored as `DeploymentConfig.Identity`, and application identity is `{nodeId, spaceId, name}`. SQLite temporarily retains its legacy active index on `{spaceId, machine, name}`; the compatibility column is mechanically derived from the node and is not used by application identity checks. All API requests, storage keys, and log file paths use the integer `id`.
 
-Deleting a deployment releases its human-readable identity tuple but retains its ID, configuration history, status history, logs, volumes, and other ID-owned records. Creating a deployment later with the same space, machine, and name creates a completely new and independent deployment with a fresh ID and version history. It does not restore, continue, or otherwise inherit the deleted deployment.
+Deleting a deployment releases its human-readable identity tuple but retains its ID, configuration history, status history, logs, volumes, and other ID-owned records. Creating a deployment later with the same space, node, and name creates a completely new and independent deployment with a fresh ID and version history. It does not restore, continue, or otherwise inherit the deleted deployment.
 
 ## Deployment status display
 
 The status page shows one card per deployment, sorted with
-OPENDEPLOY last, then by space, name, machine, and id. Deployments can also be
+OPENDEPLOY last, then by space, name, node, and id. Deployments can also be
 grouped by space. Each card displays:
 
 - Deployment name with history link
@@ -144,8 +146,10 @@ grouped by space. Each card displays:
 1. The user clicks "Update" on a card. The overlay fetches available versions
    for the persisted source with one `POST /v1/deployment/versions` request —
    25 most recent commits for the selected Nix branch, or available image tags.
-   Source validation requests begin only after relevant source, version, flake,
-   or running-state edits require them.
+   For Nix updates, selecting a commit, changing branch, refreshing discovery,
+   or starting a stopped deployment does not exact-validate an unchanged
+   persisted repository and flake path in the frontend. Editing the repository
+   or flake path still requires exact frontend preflight validation.
 2. The user picks a version (and optionally edits the deployment spec) and submits.
 3. The frontend calls `POST /v1/deployment/update` with the target version
    and, if the spec was edited, the new typed `spec`.

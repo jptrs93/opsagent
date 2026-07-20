@@ -18,7 +18,7 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 	cfg := &apigen.DeploymentConfig{
 		ID:           7,
 		NodeID:       23,
-		ConfigID:     apigen.DeploymentIdentifier{SpaceID: 1, Machine: "m1", Name: "api"},
+		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Machine: "m1", Name: "api"},
 		Version:      3,
 		UpdatedAt:    time.UnixMilli(1000),
 		Spec:         *nonEmptySpec(),
@@ -51,8 +51,8 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 		t.Fatalf("expected 1 deployment for m1, got %d", len(got))
 	}
 	rc := got[0].Config
-	if rc.NodeID != 23 || rc.Version != 3 || rc.ConfigID.SpaceID != 1 || rc.ConfigID.Name != "api" || rc.ConfigID.Machine != "m1" {
-		t.Fatalf("config not round-tripped: %+v / %+v", rc, rc.ConfigID)
+	if rc.NodeID != 23 || rc.Version != 3 || rc.Identity.SpaceID != 1 || rc.Identity.Name != "api" {
+		t.Fatalf("config not round-tripped: %+v / %+v", rc, rc.Identity)
 	}
 	rs := got[0].Status
 	if rs.Preparer.Status != apigen.PreparationStatus_READY || rs.Preparer.Artifact != "art" {
@@ -69,33 +69,31 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSecondaryNormalizesMissingNodeID(t *testing.T) {
+func TestSecondaryRejectsMissingNodeID(t *testing.T) {
 	store := NewSecondaryStorage(filepath.Join(t.TempDir(), "secondary.db"))
 	defer store.db.Close()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("missing node ID was accepted")
+		}
+	}()
 	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
 		ID:           7,
-		ConfigID:     apigen.DeploymentIdentifier{SpaceID: 1, Machine: "m1", Name: "api"},
+		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Machine: "m1", Name: "api"},
 		Version:      1,
 		UpdatedAt:    time.UnixMilli(1000),
 		Spec:         *nonEmptySpec(),
 		DesiredState: apigen.DesiredState{Version: "v1", Running: true},
 	})
-
-	configs, _, unsub := store.MustFetchSnapshotAndSubscribe(nil)
-	unsub()
-	if len(configs) != 1 || configs[0].Config.NodeID != -1 {
-		t.Fatalf("missing node ID normalized to %+v, want -1", configs)
-	}
 }
 
-func TestSecondaryRetiresStaleActiveIdentityBeforeCachingNewDeployment(t *testing.T) {
+func TestSecondaryRetiresStaleActiveDeploymentKeyBeforeCachingNewDeployment(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "secondary.db")
 	store := NewSecondaryStorage(dbPath)
-	identity := apigen.DeploymentIdentifier{SpaceID: 1, Machine: "m1", Name: "api"}
 	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
 		ID:           7,
 		NodeID:       23,
-		ConfigID:     identity,
+		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Machine: "legacy-a", Name: "api"},
 		Version:      4,
 		UpdatedAt:    time.UnixMilli(1000),
 		Spec:         *nonEmptySpec(),
@@ -105,11 +103,20 @@ func TestSecondaryRetiresStaleActiveIdentityBeforeCachingNewDeployment(t *testin
 	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
 		ID:           8,
 		NodeID:       23,
-		ConfigID:     identity,
+		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Machine: "legacy-b", Name: "api"},
 		Version:      1,
 		UpdatedAt:    time.UnixMilli(2000),
 		Spec:         *nonEmptySpec(),
 		DesiredState: apigen.DesiredState{Version: "v2", Running: true},
+	})
+	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
+		ID:           9,
+		NodeID:       24,
+		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Machine: "legacy-c", Name: "api"},
+		Version:      1,
+		UpdatedAt:    time.UnixMilli(3000),
+		Spec:         *nonEmptySpec(),
+		DesiredState: apigen.DesiredState{Version: "v3", Running: true},
 	})
 
 	if stale := store.configCache[7]; stale == nil || !stale.Deleted || stale.DesiredState.Running {
@@ -123,8 +130,8 @@ func TestSecondaryRetiresStaleActiveIdentityBeforeCachingNewDeployment(t *testin
 		t.Fatalf("persisted stale deployment = %+v, want deleted and stopped", staleRow)
 	}
 	active := store.FetchDeploymentSnapshot(nil)
-	if len(active) != 1 || active[0].Config.ID != 8 {
-		t.Fatalf("active cached deployments = %+v, want only deployment 8", active)
+	if len(active) != 2 {
+		t.Fatalf("active cached deployments = %+v, want deployments 8 and 9", active)
 	}
 
 	if err := store.db.Close(); err != nil {
@@ -133,8 +140,8 @@ func TestSecondaryRetiresStaleActiveIdentityBeforeCachingNewDeployment(t *testin
 	store = NewSecondaryStorage(dbPath)
 	defer store.db.Close()
 	active = store.FetchDeploymentSnapshot(nil)
-	if len(active) != 1 || active[0].Config.ID != 8 {
-		t.Fatalf("persisted active deployments = %+v, want only deployment 8", active)
+	if len(active) != 2 {
+		t.Fatalf("persisted active deployments = %+v, want deployments 8 and 9", active)
 	}
 }
 

@@ -1,5 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
+import {inlineEditableInput} from "../components/inlineEditableInput.js";
 import {backupStatusS, deploymentsStreamS, enrollmentsS, machinesS, primaryConfigS, userConfigsS} from "../state/deployments.js";
 
 const { button, code, div, h2, input, p, span, table, tbody, td, th, thead, tr } = van.tags;
@@ -60,7 +61,7 @@ export function clusterPage() {
                             {class: "w-full text-sm"},
                             thead(
                                 tr({class: "text-left text-gray-400 border-b border-gray-700"},
-                                    th({class: "pb-2 pr-6"}, "Node"),
+                                    th({class: "pb-2 pr-6 w-[24rem]"}, "Node"),
                                     th({class: "pb-2 pr-6"}, "Role"),
                                     th({class: "pb-2 pr-6"}, "Status"),
                                     th({class: "pb-2"}, "Connected since"),
@@ -101,17 +102,24 @@ export function clusterPage() {
 }
 
 function machineRow(machine) {
+    const originalName = van.state(machine.name || '');
     const name = van.state(machine.name || '');
     const saving = van.state(false);
     const error = van.state('');
 
     const rename = async () => {
         const nextName = name.val.trim();
-        if (!nextName || nextName === machine.name || saving.val) return;
+        if (!nextName || saving.val) return;
+        if (nextName === originalName.val) {
+            name.val = originalName.val;
+            return;
+        }
         saving.val = true;
         error.val = '';
         try {
             await capi.postV1ClusterRename({identifier: machine.identifier, name: nextName});
+            originalName.val = nextName;
+            name.val = nextName;
         } catch (e) {
             error.val = e.message || 'Failed to rename node';
         } finally {
@@ -121,22 +129,20 @@ function machineRow(machine) {
 
     return tr(
         {class: "border-b border-gray-800 last:border-0 align-top", "data-testid": `machine-row-${machine.identifier}`},
-        td({class: "py-3 pr-6 text-white font-medium"},
-            div({class: "flex items-center gap-2"},
-                input({
-                    class: "input w-full min-w-36",
-                    value: name,
-                    "aria-label": `Node name for ${machine.identifier}`,
-                    oninput: e => { name.val = e.target.value; },
-                    onkeydown: e => { if (e.key === 'Enter') rename(); },
-                }),
-                button({
-                    type: "button",
-                    class: "btn-secondary text-xs py-1 px-2 shrink-0",
-                    disabled: () => saving.val || !name.val.trim() || name.val.trim() === machine.name,
-                    onclick: rename,
-                }, () => saving.val ? "Saving..." : "Save"),
-            ),
+        td({class: "py-3 pr-6 text-white font-medium w-[24rem]"},
+            inlineEditableInput({
+                value: name,
+                dirty: () => name.val !== originalName.val,
+                valid: () => Boolean(name.val.trim()),
+                disabled: saving,
+                oninput: event => { name.val = event.target.value; },
+                onSave: rename,
+                onDiscard: () => { name.val = originalName.val; },
+                inputClass: "input w-full min-w-36",
+                ariaLabel: `Node name for ${machine.identifier}`,
+                saveAriaLabel: `Save node name ${machine.identifier}`,
+                discardAriaLabel: `Discard node name change for ${machine.identifier}`,
+            }),
             () => error.val ? p({class: "mt-1 text-xs text-red-400"}, error.val) : '',
         ),
         td({class: "py-3 pr-6"},

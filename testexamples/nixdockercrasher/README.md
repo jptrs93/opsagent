@@ -17,10 +17,11 @@ Example deployment request shape:
 
 ```json
 {
-  "configId": {
+  "identity": {
     "name": "nixdockercrasher",
-    "machine": "primary"
+    "spaceId": 1
   },
+  "nodeId": 1,
   "spec": {
     "prepare": {
       "nixDockerBuild": {

@@ -276,13 +276,13 @@ function deploymentConfig(item) {
 }
 
 function itemSpace(item, type) {
-    if (type === "deployment") return deploymentConfig(item)?.configId?.spaceId;
+    if (type === "deployment") return deploymentConfig(item)?.identity?.spaceId;
     return item?.spaceId;
 }
 
 function itemName(item, type) {
     if (type === "asset") return item?.key;
-    if (type === "deployment") return deploymentConfig(item)?.configId?.name;
+    if (type === "deployment") return deploymentConfig(item)?.identity?.name;
     return item?.name;
 }
 
@@ -396,13 +396,13 @@ function mountOption(name, value) {
 export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     const refs = normalizedCatalogs(catalogs);
     const doc = document || {};
-    const configId = doc.configId || {};
+    const identity = doc.identity || {};
     const spec = doc.spec || {};
     const prepare = spec.prepare || {};
     const container = spec.runner?.container || {};
     const networking = spec.networking || {};
     const desiredState = doc.desiredState || {};
-    const spaceId = configId.spaceId;
+    const spaceId = identity.spaceId;
     const pinVersions = Boolean(options.pinVersions);
     const lines = [];
     const add = (depth, line = "") => lines.push(`${"  ".repeat(depth)}${line}`);
@@ -411,7 +411,7 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     add(1, `node = node(${quote(nameForID(refs, "node", doc.nodeId))})`);
     add(0);
     add(1, "identity {");
-    add(2, `name = ${quote(configId.name)}`);
+    add(2, `name = ${quote(identity.name)}`);
     add(2, `space = space(${quote(nameForID(refs, "space", spaceId))})`);
     add(1, "}");
     add(0);
@@ -804,7 +804,7 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, contain
         if (value.name === "asset") setEnv(entry.name, {asset: item.key, assetId: Number(item.id)});
         if (value.name === "address") {
             const config = deploymentConfig(item);
-            setEnv(entry.name, {addressDeploymentId: Number(config.id), addressSpaceId: Number(config.configId.spaceId)});
+            setEnv(entry.name, {addressDeploymentId: Number(config.id), addressSpaceId: Number(config.identity.spaceId)});
         }
     }
     container.envVars = envVars;
@@ -1026,7 +1026,7 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
 
     if (diagnostics.some(item => item.severity === "error")) return null;
     return {
-        configId: {name, spaceId},
+        identity: {name, spaceId},
         nodeId,
         spec: {prepare, runner: {container}, networking},
         desiredState: {version, running},

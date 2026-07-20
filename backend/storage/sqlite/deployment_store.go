@@ -158,8 +158,8 @@ func (s *deploymentStore) notifyFromCache(id int32) {
 	}
 	st := s.statusCache[id]
 	name := ""
-	if !cfg.ConfigID.IsZero() {
-		name = fmt.Sprintf("%d:%d:%s", cfg.ConfigID.SpaceID, cfg.NodeID, cfg.ConfigID.Name)
+	if !cfg.Identity.IsZero() {
+		name = fmt.Sprintf("%d:%d:%s", cfg.Identity.SpaceID, cfg.NodeID, cfg.Identity.Name)
 	}
 	slog.Info("store: notifyFromCache",
 		"id", id,

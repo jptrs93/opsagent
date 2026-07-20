@@ -74,7 +74,7 @@ export function emptyDeploymentForm() {
 }
 
 export function deploymentConfigToForm(cfg) {
-    const cid = cfg?.configId || {};
+    const identity = cfg?.identity || {};
     const spec = cfg?.spec || {};
     const prepare = spec.prepare || {};
     const runner = spec.runner || {};
@@ -86,8 +86,8 @@ export function deploymentConfigToForm(cfg) {
     const fileDescriptorLimit = Number(container.fileDescriptorLimit || 0);
     return makeFormState({
         deploymentId: cfg.id || 0,
-        name: cid.name || '',
-        spaceId: cid.spaceId ?? DEFAULT_SPACE_ID,
+        name: identity.name || '',
+        spaceId: identity.spaceId ?? DEFAULT_SPACE_ID,
         nodeId: cfg.nodeId || 0,
         sourceType: prepare.containerImage ? SOURCE_DOCKER_IMAGE : SOURCE_NIX_DOCKER,
         nixRepo: nixDocker.repo || '',
@@ -217,7 +217,7 @@ export function deploymentForm(form, opts = {}) {
     );
 }
 
-export function formToDeploymentIdentifier(form) {
+export function formToDeploymentIdentity(form) {
     return {
         name: form.name.val.trim(),
         spaceId: Number(form.spaceId.val || DEFAULT_SPACE_ID),
@@ -1446,7 +1446,7 @@ export function envVarsPane(form, opts = {}) {
             rows.map(row => `${row.id}:${row.type || 'value'}:${row.addressDeploymentId || 0}:${row.addressSpaceId || 0}:${row.asset || ''}:${row.assetId || 0}:${row.version || 0}`).join('|'),
             secretRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
             configRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
-            `${form.nodeId.val}:${deployments().map(item => `${item.config?.id || 0}:${item.config?.nodeId || 0}:${item.config?.configId?.spaceId ?? 0}:${item.config?.configId?.name || ''}:${item.config?.spec?.networking?.mode || 0}:${item.config?.deleted ? 1 : 0}`).join('|')}`,
+            `${form.nodeId.val}:${deployments().map(item => `${item.config?.id || 0}:${item.config?.nodeId || 0}:${item.config?.identity?.spaceId ?? 0}:${item.config?.identity?.name || ''}:${item.config?.spec?.networking?.mode || 0}:${item.config?.deleted ? 1 : 0}`).join('|')}`,
             assets().map(asset => `${asset.id}:${asset.key}:${asset.version}`).join('|'),
         ].join('::');
         if (signature === envRowsSignature) return;
@@ -1602,7 +1602,7 @@ function envAddressAutocomplete(form, row, deployments) {
             selectedKey.val = deployment.config.id;
             updateEnvRow(form, row.id, {
                 addressDeploymentId: deployment.config.id,
-                addressSpaceId: deployment.config.configId?.spaceId ?? 0,
+                addressSpaceId: deployment.config.identity?.spaceId ?? 0,
             });
         },
     });
@@ -1624,7 +1624,7 @@ function addressOptionsForRow(form, row, deployments) {
 
 function addressOptionLabel(item) {
     const config = item?.config || {};
-    const id = config.configId || {};
+    const id = config.identity || {};
     return `${id.name || 'deployment'} (space ${id.spaceId ?? 0}, #${config.id || 0})`;
 }
 
@@ -1921,7 +1921,7 @@ function optionDeployments(opts) {
 }
 
 function deploymentVolumeLabel(deployment, spaces) {
-    const id = deployment.config?.configId || {};
+    const id = deployment.config?.identity || {};
     const space = spaceName(id.spaceId, spaces);
     return `${id.name || `deployment ${deployment.config?.id}`} (${space})`;
 }
@@ -2224,11 +2224,11 @@ function deploymentNameTaken(form, deployments) {
     if (!name) return false;
     return deployments.some(deployment => {
         const config = deployment?.config || deployment?.currentConfig || deployment;
-        const configId = config?.configId || deployment?.configId || {};
+        const identity = config?.identity || deployment?.identity || {};
         const candidateId = Number(config?.id || deployment?.id || 0);
         if (deploymentId && candidateId === deploymentId) return false;
         return !config?.deleted && !deployment?.deleted
-            && configId.name === name
-            && Number(configId.spaceId) === spaceId;
+            && identity.name === name
+            && Number(identity.spaceId) === spaceId;
     });
 }

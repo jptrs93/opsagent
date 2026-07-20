@@ -8,29 +8,33 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-func TestInvalidateMachineRuntimeStatePreservesConfigAndHistory(t *testing.T) {
+func testNode(store *PrimaryStorage, identifier string) *Node {
+	return store.EnsurePrimaryNode(identifier, identifier)
+}
+
+func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := NewPrimaryStorage(dbPath)
 	defer func() { _ = store.Close() }()
 
-	create := func(machine, name string, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
-		return store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{
+	primaryNode := testNode(store, "primary")
+	workerNode := testNode(store, "worker")
+	create := func(nodeID int32, name string, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
+		return store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
 			SpaceID: DefaultSpaceID,
-			Machine: machine,
 			Name:    name,
-		}, spec, apigen.DesiredState{Version: "v1", Running: true})
+		}, nodeID, spec, apigen.DesiredState{Version: "v1", Running: true})
 	}
 	containerSpec := &apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "example/app"}},
 		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
 	}
-	primary := create("primary", "app", containerSpec)
-	worker := create("worker", "app", containerSpec)
-	system := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{
+	primary := create(primaryNode.ID, "app", containerSpec)
+	worker := create(workerNode.ID, "app", containerSpec)
+	system := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
 		SpaceID: OpendeploySpaceID,
-		Machine: "primary",
 		Name:    systemDeploymentName,
-	}, SystemDeploymentSpec(), apigen.DesiredState{Version: "v1", Running: true})
+	}, primaryNode.ID, SystemDeploymentSpec(), apigen.DesiredState{Version: "v1", Running: true})
 
 	seedStatus := func(cfg *apigen.DeploymentConfig, artifact string) {
 		store.MustWriteDeploymentStatus(cfg.ID, func(status *apigen.DeploymentStatus) bool {
@@ -50,7 +54,7 @@ func TestInvalidateMachineRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	primaryConfigHistoryCount := len(store.MustFetchDeploymentHistory(primary.ID))
 	primaryConfigVersion := primary.Version
 
-	count, err := store.InvalidateMachineRuntimeState("primary")
+	count, err := store.InvalidateNodeRuntimeState(primaryNode.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,15 +97,16 @@ func TestInvalidateMachineRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 
 func TestEnsureSystemDeploymentRepairsExistingSpec(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	cid := &apigen.DeploymentIdentifier{SpaceID: OpendeploySpaceID, Machine: "primary", Name: systemDeploymentName}
-	created := store.MustCreateDeployment(apigen.Context{}, cid, &apigen.DeploymentSpec{
+	node := testNode(store, "primary")
+	cid := &apigen.DeploymentIdentity{SpaceID: OpendeploySpaceID, Name: systemDeploymentName}
+	created := store.MustCreateDeploymentForNode(apigen.Context{}, cid, node.ID, &apigen.DeploymentSpec{
 		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
 		Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_HOST},
 	}, apigen.DesiredState{})
 	store.MustSetDeploymentDesiredState(apigen.Context{}, created.ID, apigen.DesiredState{Version: "v0.0.194", Running: true})
 
-	store.EnsureSystemDeployment("primary", "v0.0.195")
+	store.EnsureSystemDeployment(node.ID, "v0.0.195")
 
 	var repaired *apigen.DeploymentConfig
 	for _, cfg := range store.ListActiveDeploymentConfigs() {
@@ -126,15 +131,16 @@ func TestEnsureSystemDeploymentRepairsExistingSpec(t *testing.T) {
 
 func TestEnsureNetproxyDeploymentCreatesInternalConfig(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	cfg := store.EnsureNetproxyDeployment("primary", "v0.0.200")
+	node := testNode(store, "primary")
+	cfg := store.EnsureNetproxyDeployment(node.ID, "v0.0.200")
 	if cfg == nil {
 		t.Fatal("netproxy config not returned")
 	}
-	if cfg.ConfigID.SpaceID != OpendeploySpaceID || cfg.ConfigID.Machine != "primary" || cfg.ConfigID.Name != netproxyDeploymentName {
-		t.Fatalf("unexpected config id: %+v", cfg.ConfigID)
+	if cfg.NodeID != node.ID || cfg.Identity.SpaceID != OpendeploySpaceID || cfg.Identity.Name != netproxyDeploymentName {
+		t.Fatalf("unexpected config id: %+v", cfg.Identity)
 	}
 	if !IsNetproxyDeploymentConfig(cfg) || !IsInternalDeploymentConfig(cfg) {
-		t.Fatalf("netproxy config not recognized as internal: %+v", cfg.ConfigID)
+		t.Fatalf("netproxy config not recognized as internal: %+v", cfg.Identity)
 	}
 	if !cfg.DesiredState.Running || cfg.DesiredState.Version != "v0.0.200" {
 		t.Fatalf("desired state = %+v, want running v0.0.200", cfg.DesiredState)
@@ -145,21 +151,37 @@ func TestEnsureNetproxyDeploymentCreatesInternalConfig(t *testing.T) {
 	if got := cfg.Spec.Runner.Container.FileDescriptorLimit; got != netproxyFileDescriptorLimit {
 		t.Fatalf("file descriptor limit = %d, want %d", got, netproxyFileDescriptorLimit)
 	}
-	again := store.EnsureNetproxyDeployment("primary", "v0.0.200")
+	again := store.EnsureNetproxyDeployment(node.ID, "v0.0.200")
 	if again.Version != cfg.Version {
 		t.Fatalf("ensure bumped unchanged netproxy version from %d to %d", cfg.Version, again.Version)
 	}
 }
 
+func TestInternalDeploymentsAreScopedByNodeID(t *testing.T) {
+	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	nodeA := testNode(store, "node-a")
+	nodeB := testNode(store, "node-b")
+
+	a := store.EnsureNetproxyDeployment(nodeA.ID, "v0.0.200")
+	b := store.EnsureNetproxyDeployment(nodeB.ID, "v0.0.200")
+	if a.ID == b.ID || a.NodeID != nodeA.ID || b.NodeID != nodeB.ID {
+		t.Fatalf("netproxy deployments not scoped by node: a=%+v b=%+v", a, b)
+	}
+	if a.Identity.SpaceID != b.Identity.SpaceID || a.Identity.Name != b.Identity.Name {
+		t.Fatalf("internal identities differ across nodes: a=%+v b=%+v", a.Identity, b.Identity)
+	}
+}
+
 func TestEnsureNetproxyDeploymentRepairsExistingSpec(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	cfg := store.EnsureNetproxyDeployment("primary", "v0.0.200")
+	node := testNode(store, "primary")
+	cfg := store.EnsureNetproxyDeployment(node.ID, "v0.0.200")
 	broken := NetproxyDeploymentSpec()
 	broken.Runner.Container.FileDescriptorLimit = 128
 	store.MustUpdateDeploymentSpec(apigen.Context{}, cfg.ID, broken)
 	brokenVersion := store.configCache[cfg.ID].Version
 
-	repaired := store.EnsureNetproxyDeployment("primary", "v0.0.200")
+	repaired := store.EnsureNetproxyDeployment(node.ID, "v0.0.200")
 	if repaired.Version <= brokenVersion {
 		t.Fatalf("version = %d, want above broken version %d", repaired.Version, brokenVersion)
 	}
@@ -173,7 +195,8 @@ func TestEnsureNetproxyDeploymentRepairsExistingSpec(t *testing.T) {
 
 func TestEnsureNetproxyDeploymentRepairsSpecOnceConcurrently(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	cfg := store.EnsureNetproxyDeployment("primary", "v0.0.200")
+	node := testNode(store, "primary")
+	cfg := store.EnsureNetproxyDeployment(node.ID, "v0.0.200")
 	broken := NetproxyDeploymentSpec()
 	broken.Runner.Container.FileDescriptorLimit = 128
 	store.MustUpdateDeploymentSpec(apigen.Context{}, cfg.ID, broken)
@@ -181,7 +204,7 @@ func TestEnsureNetproxyDeploymentRepairsSpecOnceConcurrently(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 8 {
-		wg.Go(func() { store.EnsureNetproxyDeployment("primary", "v0.0.200") })
+		wg.Go(func() { store.EnsureNetproxyDeployment(node.ID, "v0.0.200") })
 	}
 	wg.Wait()
 
@@ -193,13 +216,14 @@ func TestEnsureNetproxyDeploymentRepairsSpecOnceConcurrently(t *testing.T) {
 
 func TestEnsureNetproxyDeploymentUpdatesDesiredStateOnceConcurrently(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	cfg := store.EnsureNetproxyDeployment("primary", "v0.0.200")
+	node := testNode(store, "primary")
+	cfg := store.EnsureNetproxyDeployment(node.ID, "v0.0.200")
 	store.MustSetDeploymentDesiredState(apigen.Context{}, cfg.ID, apigen.DesiredState{Version: "v0.0.199", Running: true})
 	staleVersion := store.configCache[cfg.ID].Version
 
 	var wg sync.WaitGroup
 	for range 8 {
-		wg.Go(func() { store.EnsureNetproxyDeployment("primary", "v0.0.200") })
+		wg.Go(func() { store.EnsureNetproxyDeployment(node.ID, "v0.0.200") })
 	}
 	wg.Wait()
 
@@ -214,19 +238,21 @@ func TestEnsureNetproxyDeploymentUpdatesDesiredStateOnceConcurrently(t *testing.
 
 func TestEnsureNetproxyDeploymentRequiresExplicitVersion(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	node := testNode(store, "primary")
 	defer func() {
 		if recover() == nil {
 			t.Fatal("EnsureNetproxyDeployment did not panic without version")
 		}
 	}()
-	store.EnsureNetproxyDeployment("primary", "")
+	store.EnsureNetproxyDeployment(node.ID, "")
 }
 
 func TestEnsureNetproxyDeploymentReconcilesExistingVersion(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	cfg := store.EnsureNetproxyDeployment("primary", "v0.0.200")
+	node := testNode(store, "primary")
+	cfg := store.EnsureNetproxyDeployment(node.ID, "v0.0.200")
 
-	again := store.EnsureNetproxyDeployment("primary", "v0.0.201")
+	again := store.EnsureNetproxyDeployment(node.ID, "v0.0.201")
 	if again.DesiredState.Version != "v0.0.201" {
 		t.Fatalf("desired version = %q, want v0.0.201", again.DesiredState.Version)
 	}
@@ -308,11 +334,10 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 	defer store.Close()
 	node := store.EnsurePrimaryNode("primary", "primary-id")
 
-	cfg := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
 		SpaceID: DefaultSpaceID,
-		Machine: "primary-id",
 		Name:    "api",
-	}, SystemDeploymentSpec(), apigen.DesiredState{Version: "v1", Running: true})
+	}, node.ID, SystemDeploymentSpec(), apigen.DesiredState{Version: "v1", Running: true})
 	if cfg.NodeID != node.ID {
 		t.Fatalf("created node ID = %d, want %d", cfg.NodeID, node.ID)
 	}
@@ -340,7 +365,7 @@ func TestRenameNodePreservesIdentifier(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 	primaryNode := store.EnsurePrimaryNode("primary", "primary-id")
-	store.EnsureSystemDeployment("primary-id", "v1")
+	store.EnsureSystemDeployment(primaryNode.ID, "v1")
 
 	node, err := store.RenameNode("primary-id", "control plane")
 	if err != nil {
@@ -352,7 +377,7 @@ func TestRenameNodePreservesIdentifier(t *testing.T) {
 	configs := store.FetchDeploymentSnapshot(func(cfg apigen.DeploymentConfig) bool {
 		return cfg.NodeID == primaryNode.ID
 	})
-	if len(configs) == 0 || configs[0].Config.ConfigID.Machine != "primary-id" {
+	if len(configs) == 0 || configs[0].Config.NodeID != primaryNode.ID {
 		t.Fatalf("deployment targets after rename = %+v", configs)
 	}
 }

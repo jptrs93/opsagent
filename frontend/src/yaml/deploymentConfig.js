@@ -57,7 +57,7 @@ function writeValue(value, indent) {
 
 export function orderDeploymentConfig(config) {
     const ordered = {};
-    for (const key of ['id', 'nodeId', 'configId', 'createdAt', 'version', 'updatedAt', 'updatedBy', 'spec', 'desiredState', 'deleted']) {
+    for (const key of ['id', 'nodeId', 'identity', 'createdAt', 'version', 'updatedAt', 'updatedBy', 'spec', 'desiredState', 'deleted']) {
         if (config[key] !== undefined) ordered[key] = config[key];
     }
     for (const [key, value] of Object.entries(config)) {
@@ -69,9 +69,9 @@ export function orderDeploymentConfig(config) {
 export function cleanDeploymentConfig(config) {
     if (!config) return undefined;
     const cleaned = {...config};
-    if (cleaned.configId) {
-        cleaned.configId = {...cleaned.configId};
-        delete cleaned.configId.machine;
+    if (cleaned.identity) {
+        cleaned.identity = {...cleaned.identity};
+        delete cleaned.identity.machine;
     }
     return omitZeroValues(cleaned);
 }

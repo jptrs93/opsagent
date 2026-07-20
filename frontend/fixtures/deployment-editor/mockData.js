@@ -36,7 +36,7 @@ const apiConfig = {
     id: 101,
     version: 7,
     nodeId: 11,
-    configId: {name: 'api', spaceId: 1},
+    identity: {name: 'api', spaceId: 1},
     spec: {
         prepare: {containerImage: {image: 'ghcr.io/acme/api'}},
         runner: {container: {
@@ -67,7 +67,7 @@ const workerConfig = {
     id: 102,
     version: 5,
     nodeId: 11,
-    configId: {name: 'worker', spaceId: 2},
+    identity: {name: 'worker', spaceId: 2},
     spec: {
         prepare: {nixDockerBuild: {repo: 'github.com/acme/platform', flake: 'services/worker/flake.nix', target: '.#worker-image'}},
         runner: {container: {
@@ -86,7 +86,7 @@ const databaseConfig = {
     id: 103,
     version: 2,
     nodeId: 11,
-    configId: {name: 'database', spaceId: 1},
+    identity: {name: 'database', spaceId: 1},
     spec: {
         prepare: {containerImage: {image: 'postgres:17'}},
         runner: {container: {disableDataVolume: false, upgradeStrategy: 1}},

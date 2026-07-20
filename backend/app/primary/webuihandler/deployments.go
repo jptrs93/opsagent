@@ -21,6 +21,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/log/logreader"
 	gitrepo "github.com/jptrs93/opsagent/backend/lib/repo/git"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
@@ -30,13 +31,13 @@ var NoPrepareOutputErr = apigen.NewApiErr("No prepare output found", "prepare_ou
 var InvalidConfigErr = apigen.NewApiErr("", "invalid_config", http.StatusBadRequest)
 var DeploymentNotFoundErr = apigen.NewApiErr("Deployment not found", "deployment_not_found", http.StatusNotFound)
 
-var DuplicateDeploymentErr = apigen.NewApiErr("A deployment with this name, space, and machine already exists", "duplicate_deployment", http.StatusConflict)
+var DuplicateDeploymentErr = apigen.NewApiErr("A deployment with this name, space, and node already exists", "duplicate_deployment", http.StatusConflict)
 
 const githubReleaseVersionsDisplayErr = "Releases could not be loaded from GitHub. Please try again."
 
 func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentConfig, error) {
-	cid := req.ConfigID
-	if cid.Name == "" {
+	identity := req.Identity
+	if identity.Name == "" {
 		return nil, invalidConfigErrf("name is required")
 	}
 	if req.NodeID <= 0 {
@@ -47,8 +48,8 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 		return nil, invalidConfigErrf("node is not registered")
 	}
 	// The certificate identifier remains compatibility data; placement is nodeId.
-	cid.Machine = machine
-	if internaldeploy.IsInternalIdentifier(cid) {
+	identity.Machine = machine
+	if internaldeploy.IsInternalIdentity(identity) {
 		return nil, invalidConfigErrf("opendeploy system deployment identity is internal-only")
 	}
 	spec, err := h.validateDeploymentSpec(&req.Spec)
@@ -62,7 +63,7 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 	// Check for duplicate before creating.
 	snapshot := h.Store.FetchDeploymentSnapshot(nil)
 	for _, dws := range snapshot {
-		if dws.Config.ConfigID == cid && !dws.Config.Deleted {
+		if storage.DeploymentKeyMatches(dws.Config, req.NodeID, identity) && !dws.Config.Deleted {
 			return nil, DuplicateDeploymentErr
 		}
 	}
@@ -81,7 +82,7 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 		}
 	}
 
-	cfg := h.Store.MustCreateDeploymentForNode(ctx, &cid, req.NodeID, spec, req.DesiredState)
+	cfg := h.Store.MustCreateDeploymentForNode(ctx, &identity, req.NodeID, spec, req.DesiredState)
 	return cfg, nil
 }
 
@@ -102,19 +103,19 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 
 	var spec *apigen.DeploymentSpec
 	if req.SpaceID != nil {
-		nextID := cfg.ConfigID
-		nextID.SpaceID = *req.SpaceID
-		if internaldeploy.IsInternalIdentifier(nextID) {
+		nextIdentity := cfg.Identity
+		nextIdentity.SpaceID = *req.SpaceID
+		if internaldeploy.IsInternalIdentity(nextIdentity) {
 			return nil, invalidConfigErrf("opendeploy system deployment identity is internal-only")
 		}
-		if cfg.ConfigID.SpaceID != *req.SpaceID {
+		if cfg.Identity.SpaceID != *req.SpaceID {
 			for _, dws := range h.Store.FetchDeploymentSnapshot(nil) {
-				if dws.Config.ID != req.DeploymentID && dws.Config.ConfigID == nextID && !dws.Config.Deleted {
+				if dws.Config.ID != req.DeploymentID && storage.DeploymentKeyMatches(dws.Config, cfg.NodeID, nextIdentity) && !dws.Config.Deleted {
 					return nil, DuplicateDeploymentErr
 				}
 			}
 		}
-		if cfg.ConfigID.SpaceID != *req.SpaceID && h.deploymentUsesAddressID(int32Set([]int32{cfg.ID})) {
+		if cfg.Identity.SpaceID != *req.SpaceID && h.deploymentUsesAddressID(int32Set([]int32{cfg.ID})) {
 			// TODO: Rewrite dependent address refs and roll their runners in one coordinated migration.
 			return nil, invalidConfigErrf("deployment space cannot change while address references exist")
 		}
@@ -988,7 +989,7 @@ func (h *Handler) validateAddressEnvRefs(nodeID, deploymentID int32, spec *apige
 		if target.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			return invalidConfigErrf("runner.container.envVars.%s: address deployment must use virtual networking", key)
 		}
-		if value.AddressSpaceID == nil || target.ConfigID.SpaceID != *value.AddressSpaceID {
+		if value.AddressSpaceID == nil || target.Identity.SpaceID != *value.AddressSpaceID {
 			return invalidConfigErrf("runner.container.envVars.%s: address space does not match deployment", key)
 		}
 	}

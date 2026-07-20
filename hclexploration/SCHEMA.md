@@ -10,7 +10,7 @@ deployment {
 
   identity {
     name  = string # required
-    space = space("<name>") # required, resolves to config_id.space_id
+    space = space("<name>") # required, resolves to identity.space_id
   }
 
   # Repeatable to support pod-like multi-container deployments in the future.

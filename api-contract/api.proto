@@ -931,7 +931,7 @@ message DeploymentUpdateRequest {
 }
 
 message DeploymentCreateRequest {
-  DeploymentIdentifier config_id = 1 [(cp.go_value) = true];
+  DeploymentIdentity identity = 1 [(cp.go_value) = true];
   DeploymentSpec spec = 2 [(cp.go_value) = true];
   DesiredState desired_state = 3 [(cp.go_value) = true];
   int32 node_id = 4; // required canonical target node
@@ -988,7 +988,7 @@ message LogLineBatch {
 }
 
 
-message DeploymentIdentifier {
+message DeploymentIdentity {
   int32 space_id = 1;
   string machine = 2 [deprecated = true]; // Legacy certificate identifier; placement uses DeploymentConfig.node_id.
   string name = 3;
@@ -1012,8 +1012,8 @@ message DeploymentDeleteRequest {
 
 message DeploymentConfig {
   int32 id = 8;                          // primary key (integer deployment id)
-  int32 node_id = 10;                    // canonical ClusterNode.id; -1 when unresolved
-  DeploymentIdentifier config_id = 1 [(cp.go_value) = true];    // human-readable identity (display metadata)
+  int32 node_id = 10;                    // required canonical ClusterNode.id
+  DeploymentIdentity identity = 1 [(cp.go_value) = true];       // human-readable identity (display metadata)
   int32 version = 2;                      // per-deployment monotonically increasing config version
   int64 updated_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int32 updated_by = 4;
@@ -1327,7 +1327,7 @@ message MsgToMaster {
 message NetState {
   int64 seq = 1;               // monotonic; consumers ignore snapshots with seq <= last applied
   bytes ula_prefix = 2;        // 6-byte ULA /48 prefix
-  string machine = 3;          // machine this snapshot was rendered for
+  string node_identifier = 3;  // immutable identifier of the node this snapshot was rendered for
   repeated DnsService dns_services = 4;
   repeated string upstream_resolvers = 5; // host's upstream DNS servers, "ip" or "ip:port"
   repeated NetIngress ingress = 6;

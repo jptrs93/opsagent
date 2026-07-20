@@ -24,7 +24,7 @@ func (h *Handler) PostV1GenerateExportedConfig(ctx apigen.Context, req *apigen.E
 			continue
 		}
 		copy := *deployment
-		copy.ConfigID.Machine = ""
+		copy.Identity.Machine = ""
 		exportedDeployments = append(exportedDeployments, &copy)
 	}
 	configs := h.Store.ListUserConfigs()

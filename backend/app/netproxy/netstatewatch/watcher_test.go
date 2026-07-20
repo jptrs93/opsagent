@@ -71,7 +71,7 @@ func TestPublishLogsAcceptedNetstateSummary(t *testing.T) {
 	w := New("netstate.pb")
 	state := &apigen.NetState{
 		Seq:               7,
-		Machine:           "primary",
+		NodeIdentifier:    "primary",
 		DnsServices:       []*apigen.DnsService{{Endpoints: []*apigen.Endpoint{{}, {}}}},
 		UpstreamResolvers: []string{"192.0.2.53"},
 		Ingress:           []*apigen.NetIngress{{}},
@@ -83,7 +83,7 @@ func TestPublishLogsAcceptedNetstateSummary(t *testing.T) {
 	for _, want := range []string{
 		"msg=\"netstate loaded\"",
 		"seq=7",
-		"machine=primary",
+		"nodeIdentifier=primary",
 		"dns_services=1",
 		"dns_endpoints=2",
 		"upstream_resolvers=1",

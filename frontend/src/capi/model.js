@@ -542,7 +542,7 @@
  */
 /**
  * @typedef {Object} DeploymentCreateRequest
- * @property {DeploymentIdentifier} configId
+ * @property {DeploymentIdentity} identity
  * @property {DeploymentSpec} spec
  * @property {DesiredState} desiredState
  * @property {number} nodeId
@@ -598,7 +598,7 @@
  * @property {string} logDir
  */
 /**
- * @typedef {Object} DeploymentIdentifier
+ * @typedef {Object} DeploymentIdentity
  * @property {number} spaceId
  * @property {string} machine
  * @property {string} name
@@ -623,7 +623,7 @@
  * @typedef {Object} DeploymentConfig
  * @property {number} id
  * @property {number} nodeId
- * @property {DeploymentIdentifier} configId
+ * @property {DeploymentIdentity} identity
  * @property {number} version
  * @property {Date} updatedAt
  * @property {number} updatedBy
@@ -868,7 +868,7 @@
  * @typedef {Object} NetState
  * @property {number} seq
  * @property {Uint8Array} ulaPrefix
- * @property {string} machine
+ * @property {string} nodeIdentifier
  * @property {DnsService[]} dnsServices
  * @property {string[]} upstreamResolvers
  * @property {NetIngress[]} ingress
@@ -7443,9 +7443,9 @@ export function decodeDeploymentUpdateRequest(buffer) {
  * @param {Writer} writer
  */
 export function writeDeploymentCreateRequest(message, writer) {
-    if (message.configId !== undefined && message.configId !== null) {
+    if (message.identity !== undefined && message.identity !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeDeploymentIdentifier(message.configId, writer);
+        writeDeploymentIdentity(message.identity, writer);
         writer.ldelim();
     }
     if (message.spec !== undefined && message.spec !== null) {
@@ -7482,12 +7482,12 @@ export function encodeDeploymentCreateRequest(message) {
  */
 function decodeDeploymentCreateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {configId: undefined, spec: undefined, desiredState: undefined, nodeId: 0 };
+    const message = {identity: undefined, spec: undefined, desiredState: undefined, nodeId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.configId = decodeDeploymentIdentifierMessage(reader, reader.uint32());
+                message.identity = decodeDeploymentIdentityMessage(reader, reader.uint32());
                 break;
             }
             case 2: {
@@ -8129,10 +8129,10 @@ export function decodeLogLineBatch(buffer) {
 
 
 /**
- * @param {DeploymentIdentifier} message
+ * @param {DeploymentIdentity} message
  * @param {Writer} writer
  */
-export function writeDeploymentIdentifier(message, writer) {
+export function writeDeploymentIdentity(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.spaceId);
     }
@@ -8146,12 +8146,12 @@ export function writeDeploymentIdentifier(message, writer) {
 
 
 /**
- * @param {DeploymentIdentifier} message
+ * @param {DeploymentIdentity} message
  * @returns {Uint8Array}
  */
-export function encodeDeploymentIdentifier(message) {
+export function encodeDeploymentIdentity(message) {
     const writer = Writer.create();
-    writeDeploymentIdentifier(message, writer);
+    writeDeploymentIdentity(message, writer);
     return writer.finish();
 }
 
@@ -8159,9 +8159,9 @@ export function encodeDeploymentIdentifier(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {DeploymentIdentifier}
+ * @returns {DeploymentIdentity}
  */
-function decodeDeploymentIdentifierMessage(reader, length) {
+function decodeDeploymentIdentityMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {spaceId: 0, machine: "", name: "" };
     while (reader.pos < end) {
@@ -8189,11 +8189,11 @@ function decodeDeploymentIdentifierMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {DeploymentIdentifier}
+ * @returns {DeploymentIdentity}
  */
-export function decodeDeploymentIdentifier(buffer) {
+export function decodeDeploymentIdentity(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentIdentifierMessage(reader);
+    return decodeDeploymentIdentityMessage(reader);
 }
 
 
@@ -8411,9 +8411,9 @@ export function writeDeploymentConfig(message, writer) {
     if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
         writer.uint32(tag(10, WIRE.VARINT)).int32(message.nodeId);
     }
-    if (message.configId !== undefined && message.configId !== null) {
+    if (message.identity !== undefined && message.identity !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeDeploymentIdentifier(message.configId, writer);
+        writeDeploymentIdentity(message.identity, writer);
         writer.ldelim();
     }
     if (message.version !== undefined && message.version !== null && message.version !== 0) {
@@ -8462,7 +8462,7 @@ export function encodeDeploymentConfig(message) {
  */
 function decodeDeploymentConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, nodeId: 0, configId: undefined, version: 0, updatedAt: new Date(0), updatedBy: 0, spec: undefined, desiredState: undefined, deleted: false, createdAt: new Date(0) };
+    const message = {id: 0, nodeId: 0, identity: undefined, version: 0, updatedAt: new Date(0), updatedBy: 0, spec: undefined, desiredState: undefined, deleted: false, createdAt: new Date(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -8475,7 +8475,7 @@ function decodeDeploymentConfigMessage(reader, length) {
                 break;
             }
             case 1: {
-                message.configId = decodeDeploymentIdentifierMessage(reader, reader.uint32());
+                message.identity = decodeDeploymentIdentityMessage(reader, reader.uint32());
                 break;
             }
             case 2: {
@@ -11257,8 +11257,8 @@ export function writeNetState(message, writer) {
     if (message.ulaPrefix && message.ulaPrefix.length > 0) {
         writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.ulaPrefix);
     }
-    if (message.machine !== undefined && message.machine !== null && message.machine !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.machine);
+    if (message.nodeIdentifier !== undefined && message.nodeIdentifier !== null && message.nodeIdentifier !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.nodeIdentifier);
     }
     if (message.dnsServices && message.dnsServices.length > 0) {
         for (const item of message.dnsServices) {
@@ -11300,7 +11300,7 @@ export function encodeNetState(message) {
  */
 function decodeNetStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {seq: 0, ulaPrefix: new Uint8Array(0), machine: "", dnsServices: [], upstreamResolvers: [], ingress: [] };
+    const message = {seq: 0, ulaPrefix: new Uint8Array(0), nodeIdentifier: "", dnsServices: [], upstreamResolvers: [], ingress: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11313,7 +11313,7 @@ function decodeNetStateMessage(reader, length) {
                 break;
             }
             case 3: {
-                message.machine = reader.string();
+                message.nodeIdentifier = reader.string();
                 break;
             }
             case 4: {

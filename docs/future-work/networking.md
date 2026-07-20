@@ -159,7 +159,7 @@ Each machine runs a small built-in DNS server (`miekg/dns`) inside the netproxy 
 
 - `{name}.{environment}.internal` → AAAA records for READY instance addresses, low TTL, shuffled.
 - `{ordinal}.{name}.{environment}.internal` → a specific instance.
-- Names derive from `DeploymentIdentifier`; underscores normalize to hyphens with collision validation at create time.
+- Names derive from `DeploymentIdentity`; underscores normalize to hyphens with collision validation at create time.
 - Discovery is always on. It is not a feature enabled in the networking panel; a deployment has a name the moment it exists.
 
 Unmatched queries are forwarded upstream, so public DNS keeps working unchanged.

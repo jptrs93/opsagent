@@ -101,7 +101,7 @@ func TestRenderNetStateRendersTlsPassthroughIngress(t *testing.T) {
 	state := RenderNetState(7, "node-a", []apigen.DeploymentWithStatus{{
 		Config: apigen.DeploymentConfig{
 			ID:       42,
-			ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "database"},
+			Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "database"},
 			Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 				Ingress: []*apigen.Ingress{{
@@ -119,6 +119,9 @@ func TestRenderNetStateRendersTlsPassthroughIngress(t *testing.T) {
 		}}}},
 	}})
 
+	if state.NodeIdentifier != "node-a" {
+		t.Fatalf("node identifier = %q, want node-a", state.NodeIdentifier)
+	}
 	if got := len(state.Ingress); got != 1 {
 		t.Fatalf("ingress count = %d, want 1", got)
 	}

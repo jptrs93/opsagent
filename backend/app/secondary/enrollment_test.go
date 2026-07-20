@@ -101,7 +101,7 @@ func TestMustLoadRuntimeConfigLoadsCachedBootstrapState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParsePrefix: %v", err)
 	}
-	if cfg.TLS == nil || cfg.MachineName != "worker-1" || cfg.NodeID != 2 || cfg.ClusterPrefix != wantPrefix || cfg.NetDeploymentID != 11 {
+	if cfg.TLS == nil || cfg.NodeIdentifier != "worker-1" || cfg.NodeID != 2 || cfg.ClusterPrefix != wantPrefix || cfg.NetDeploymentID != 11 {
 		t.Fatalf("runtime config = %+v", cfg)
 	}
 }
@@ -128,7 +128,7 @@ func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.Enrol
 			ID:     10,
 			NodeID: 2,
 			Spec:   *sqlite.SystemDeploymentSpec(),
-			ConfigID: apigen.DeploymentIdentifier{
+			Identity: apigen.DeploymentIdentity{
 				SpaceID: internaldeploy.SpaceID,
 				Machine: machine,
 				Name:    internaldeploy.SelfName,
@@ -138,7 +138,7 @@ func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.Enrol
 			ID:     11,
 			NodeID: 2,
 			Spec:   *sqlite.NetproxyDeploymentSpec(),
-			ConfigID: apigen.DeploymentIdentifier{
+			Identity: apigen.DeploymentIdentity{
 				SpaceID: internaldeploy.SpaceID,
 				Machine: machine,
 				Name:    internaldeploy.NetproxyName,

@@ -4284,9 +4284,9 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 
 func (m *DeploymentCreateRequest) Encode() []byte {
 	var b []byte
-	if !m.ConfigID.IsZero() {
+	if !m.Identity.IsZero() {
 		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.ConfigID.Encode())
+		b = AppendBytes(b, m.Identity.Encode())
 	}
 	if !m.Spec.IsZero() {
 		b = AppendTag(b, 2, BytesType)
@@ -4315,10 +4315,10 @@ func DecodeDeploymentCreateRequest(b []byte) (*DeploymentCreateRequest, error) {
 		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentIdentifier
-				item, err = DecodeDeploymentIdentifier(msgBytes)
+				var item *DeploymentIdentity
+				item, err = DecodeDeploymentIdentity(msgBytes)
 				if err == nil {
-					m.ConfigID = *item
+					m.Identity = *item
 				}
 			}
 		case 2:
@@ -4680,13 +4680,13 @@ func DecodeLogLineBatch(b []byte) (*LogLineBatch, error) {
 	return &m, nil
 }
 
-func (m DeploymentIdentifier) IsZero() bool {
+func (m DeploymentIdentity) IsZero() bool {
 	return m.SpaceID == 0 &&
 		m.Machine == "" &&
 		m.Name == ""
 }
 
-func (m *DeploymentIdentifier) Encode() []byte {
+func (m *DeploymentIdentity) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.SpaceID, 1)
 	b = AppendStringField(b, m.Machine, 2)
@@ -4694,8 +4694,8 @@ func (m *DeploymentIdentifier) Encode() []byte {
 	return b
 }
 
-func DecodeDeploymentIdentifier(b []byte) (*DeploymentIdentifier, error) {
-	var m DeploymentIdentifier
+func DecodeDeploymentIdentity(b []byte) (*DeploymentIdentity, error) {
+	var m DeploymentIdentity
 	var num Number
 	var typ Type
 	var err error
@@ -4865,7 +4865,7 @@ func DecodeDeploymentDeleteRequest(b []byte) (*DeploymentDeleteRequest, error) {
 func (m DeploymentConfig) IsZero() bool {
 	return m.ID == 0 &&
 		m.NodeID == 0 &&
-		m.ConfigID.IsZero() &&
+		m.Identity.IsZero() &&
 		m.Version == 0 &&
 		m.UpdatedAt.IsZero() &&
 		m.UpdatedBy == 0 &&
@@ -4879,9 +4879,9 @@ func (m *DeploymentConfig) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 8)
 	b = AppendInt32Field(b, m.NodeID, 10)
-	if !m.ConfigID.IsZero() {
+	if !m.Identity.IsZero() {
 		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.ConfigID.Encode())
+		b = AppendBytes(b, m.Identity.Encode())
 	}
 	b = AppendInt32Field(b, m.Version, 2)
 	b = AppendInt64FromTime(b, m.UpdatedAt, 3)
@@ -4918,10 +4918,10 @@ func DecodeDeploymentConfig(b []byte) (*DeploymentConfig, error) {
 		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentIdentifier
-				item, err = DecodeDeploymentIdentifier(msgBytes)
+				var item *DeploymentIdentity
+				item, err = DecodeDeploymentIdentity(msgBytes)
 				if err == nil {
-					m.ConfigID = *item
+					m.Identity = *item
 				}
 			}
 		case 2:
@@ -6770,7 +6770,7 @@ func (m *NetState) Encode() []byte {
 	var b []byte
 	b = AppendInt64Field(b, m.Seq, 1)
 	b = AppendBytesField(b, m.UlaPrefix, 2)
-	b = AppendStringField(b, m.Machine, 3)
+	b = AppendStringField(b, m.NodeIdentifier, 3)
 	for _, item := range m.DnsServices {
 		if item == nil {
 			continue
@@ -6806,7 +6806,7 @@ func DecodeNetState(b []byte) (*NetState, error) {
 		case 2:
 			b, m.UlaPrefix, err = ConsumeBytesCopy(b, typ)
 		case 3:
-			b, m.Machine, err = ConsumeString(b, typ)
+			b, m.NodeIdentifier, err = ConsumeString(b, typ)
 		case 4:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {

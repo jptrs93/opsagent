@@ -1010,50 +1010,6 @@ func (q *Queries) ListDeploymentConfigHistory(ctx context.Context, deploymentID 
 	return items, nil
 }
 
-const listDeploymentConfigsByMachine = `-- name: ListDeploymentConfigsByMachine :many
-SELECT deployment_id, node_id, space_id, machine, name, created_at, version, updated_at, updated_by,
-       spec_blob, desired_version, desired_running, deleted
-FROM deployment_configs
-WHERE machine = ? AND deleted = 0
-`
-
-func (q *Queries) ListDeploymentConfigsByMachine(ctx context.Context, machine string) ([]DeploymentConfig, error) {
-	rows, err := q.db.QueryContext(ctx, listDeploymentConfigsByMachine, machine)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []DeploymentConfig
-	for rows.Next() {
-		var i DeploymentConfig
-		if err := rows.Scan(
-			&i.DeploymentID,
-			&i.NodeID,
-			&i.SpaceID,
-			&i.Machine,
-			&i.Name,
-			&i.CreatedAt,
-			&i.Version,
-			&i.UpdatedAt,
-			&i.UpdatedBy,
-			&i.SpecBlob,
-			&i.DesiredVersion,
-			&i.DesiredRunning,
-			&i.Deleted,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listDeploymentStatusHistory = `-- name: ListDeploymentStatusHistory :many
 SELECT deployment_id, updated_at,
        preparer_config_version, preparer_artifact, preparer_status,
@@ -1552,31 +1508,31 @@ func (q *Queries) RenameUserConfig(ctx context.Context, arg RenameUserConfigPara
 	return err
 }
 
-const retireOtherActiveDeploymentConfigsWithIdentity = `-- name: RetireOtherActiveDeploymentConfigsWithIdentity :exec
+const retireOtherActiveDeploymentConfigsWithKey = `-- name: RetireOtherActiveDeploymentConfigsWithKey :exec
 UPDATE deployment_configs
 SET desired_running = 0,
     deleted = 1
 WHERE deployment_id != ?
+  AND node_id = ?
   AND space_id = ?
-  AND machine = ?
   AND name = ?
   AND deleted = 0
 `
 
-type RetireOtherActiveDeploymentConfigsWithIdentityParams struct {
+type RetireOtherActiveDeploymentConfigsWithKeyParams struct {
 	DeploymentID int64
+	NodeID       int64
 	SpaceID      int64
-	Machine      string
 	Name         string
 }
 
 // A secondary may miss a deletion while disconnected. Retire any stale local
-// row before caching the primary's new independent deployment with that tuple.
-func (q *Queries) RetireOtherActiveDeploymentConfigsWithIdentity(ctx context.Context, arg RetireOtherActiveDeploymentConfigsWithIdentityParams) error {
-	_, err := q.db.ExecContext(ctx, retireOtherActiveDeploymentConfigsWithIdentity,
+// row before caching the primary's new independent deployment with that key.
+func (q *Queries) RetireOtherActiveDeploymentConfigsWithKey(ctx context.Context, arg RetireOtherActiveDeploymentConfigsWithKeyParams) error {
+	_, err := q.db.ExecContext(ctx, retireOtherActiveDeploymentConfigsWithKey,
 		arg.DeploymentID,
+		arg.NodeID,
 		arg.SpaceID,
-		arg.Machine,
 		arg.Name,
 	)
 	return err

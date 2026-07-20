@@ -157,12 +157,12 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 	if err != nil {
 		return nil, err
 	}
-	h.store.EnsureSystemDeployment(sess.requestingMachineID, version.Version)
-	h.store.EnsureNetproxyDeployment(sess.requestingMachineID, version.Version)
 	nodeID, err := h.store.NodeIDByIdentifier(sess.requestingMachineID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve enrolled worker %q: %w", sess.requestingMachineID, err)
 	}
+	h.store.EnsureSystemDeployment(nodeID, version.Version)
+	h.store.EnsureNetproxyDeployment(nodeID, version.Version)
 	predicate := storage.DeploymentPredicate(func(cfg apigen.DeploymentConfig) bool {
 		return cfg.NodeID == nodeID
 	})

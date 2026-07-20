@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage"
 )
 
 // SecondaryStorage is the storage layer for secondary (primary) nodes.
@@ -26,12 +27,14 @@ func (s *SecondaryStorage) MustWriteDeploymentConfig(cfg *apigen.DeploymentConfi
 	ctx := context.Background()
 	id := cfg.ID
 	stored := *cfg
-	stored.NodeID = normalizeDeploymentNodeID(stored.NodeID)
+	if stored.NodeID <= 0 {
+		panic("deployment node ID must be positive")
+	}
 	_, exists := s.configCache[id]
 	retiredIDs := make([]int32, 0)
 	if !stored.Deleted {
 		for existingID, existing := range s.configCache {
-			if existingID != id && !existing.Deleted && existing.ConfigID == stored.ConfigID {
+			if existingID != id && !existing.Deleted && storage.DeploymentKeyMatches(*existing, stored.NodeID, stored.Identity) {
 				retiredIDs = append(retiredIDs, existingID)
 			}
 		}
@@ -45,13 +48,13 @@ func (s *SecondaryStorage) MustWriteDeploymentConfig(cfg *apigen.DeploymentConfi
 	q := s.q.WithTx(tx)
 
 	if !stored.Deleted {
-		if err := q.RetireOtherActiveDeploymentConfigsWithIdentity(ctx, RetireOtherActiveDeploymentConfigsWithIdentityParams{
+		if err := q.RetireOtherActiveDeploymentConfigsWithKey(ctx, RetireOtherActiveDeploymentConfigsWithKeyParams{
 			DeploymentID: int64(id),
-			SpaceID:      int64(stored.ConfigID.SpaceID),
-			Machine:      stored.ConfigID.Machine,
-			Name:         stored.ConfigID.Name,
+			NodeID:       int64(stored.NodeID),
+			SpaceID:      int64(stored.Identity.SpaceID),
+			Name:         stored.Identity.Name,
 		}); err != nil {
-			panic(fmt.Sprintf("RetireOtherActiveDeploymentConfigsWithIdentity: %v", err))
+			panic(fmt.Sprintf("RetireOtherActiveDeploymentConfigsWithKey: %v", err))
 		}
 	}
 	if err := q.UpsertDeploymentConfig(ctx, configProtoToUpsertParams(&stored)); err != nil {

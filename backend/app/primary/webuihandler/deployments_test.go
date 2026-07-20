@@ -25,15 +25,20 @@ import (
 const testNixCommit = "0123456789abcdef0123456789abcdef01234567"
 const testNixCommit2 = "89abcdef0123456789abcdef0123456789abcdef"
 
-func findSystemDeployment(t *testing.T, store *sqlite.PrimaryStorage, machine string) *apigen.DeploymentConfig {
+func findSystemDeployment(t *testing.T, store *sqlite.PrimaryStorage, nodeID int32) *apigen.DeploymentConfig {
 	t.Helper()
 	for _, cfg := range store.ListActiveDeploymentConfigs() {
-		if sqlite.IsSystemDeploymentConfig(cfg) && cfg.ConfigID.Machine == machine {
+		if sqlite.IsSystemDeploymentConfig(cfg) && cfg.NodeID == nodeID {
 			return cfg
 		}
 	}
-	t.Fatalf("system deployment for %s not found", machine)
+	t.Fatalf("system deployment for node %d not found", nodeID)
 	return nil
+}
+
+func createTestDeployment(store *sqlite.PrimaryStorage, nodeIdentifier string, identity apigen.DeploymentIdentity, spec *apigen.DeploymentSpec, desired apigen.DesiredState) *apigen.DeploymentConfig {
+	node := store.EnsurePrimaryNode(nodeIdentifier, nodeIdentifier)
+	return store.MustCreateDeploymentForNode(apigen.Context{}, &identity, node.ID, spec, desired)
 }
 
 func hostNetworking() apigen.NetworkingConfig {
@@ -266,7 +271,7 @@ func TestDeploymentUpdateEnforcesEffectiveRunningNixTransitions(t *testing.T) {
 	t.Run("unrelated and source no-op updates skip provider", func(t *testing.T) {
 		h, cfg, provider := newNixDeploymentHandler(t, true)
 		provider.validateCalls = nil
-		sameSpace := cfg.ConfigID.SpaceID
+		sameSpace := cfg.Identity.SpaceID
 		if _, err := h.PostV1DeploymentUpdate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentUpdateRequest{
 			DeploymentID: cfg.ID, Version: cfg.Version + 1, SpaceID: &sameSpace,
 		}); err != nil {
@@ -289,7 +294,7 @@ func TestDeploymentUpdateEnforcesEffectiveRunningNixTransitions(t *testing.T) {
 		provider := &fakeGitSourceProvider{sourceErr: errors.New("must not be called")}
 		h := &Handler{Store: store, GitVersions: provider}
 		cfg, err := h.PostV1DeploymentCreate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentCreateRequest{
-			ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "web"},
+			Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "web"},
 			NodeID:   node.ID,
 			Spec: apigen.DeploymentSpec{
 				Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
@@ -392,7 +397,8 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 		{
 			name: "opendeploy-net special branch",
 			createDeployment: func(_ *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig {
-				return store.EnsureNetproxyDeployment("primary", "v1.2.3")
+				node := store.EnsurePrimaryNode("primary", "primary")
+				return store.EnsureNetproxyDeployment(node.ID, "v1.2.3")
 			},
 			provider:     provider,
 			wantInternal: "listing releases: github api 503: github upstream failure marker",
@@ -400,8 +406,9 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 		{
 			name: "GitHub release config branch",
 			createDeployment: func(t *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig {
-				store.EnsureSystemDeployment("primary", "v1.2.3")
-				return findSystemDeployment(t, store, "primary")
+				node := store.EnsurePrimaryNode("primary", "primary")
+				store.EnsureSystemDeployment(node.ID, "v1.2.3")
+				return findSystemDeployment(t, store, node.ID)
 			},
 			provider:     provider,
 			wantInternal: "listing releases: github api 503: github upstream failure marker",
@@ -409,8 +416,9 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 		{
 			name: "unconfigured provider",
 			createDeployment: func(t *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig {
-				store.EnsureSystemDeployment("primary", "v1.2.3")
-				return findSystemDeployment(t, store, "primary")
+				node := store.EnsurePrimaryNode("primary", "primary")
+				store.EnsureSystemDeployment(node.ID, "v1.2.3")
+				return findSystemDeployment(t, store, node.ID)
 			},
 			wantInternal: "github release version loading is not configured",
 		},
@@ -443,7 +451,7 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 
 func nixCreateRequest(nodeID int32, name string, running bool) *apigen.DeploymentCreateRequest {
 	return &apigen.DeploymentCreateRequest{
-		ConfigID:     apigen.DeploymentIdentifier{SpaceID: 1, Name: name},
+		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Name: name},
 		NodeID:       nodeID,
 		Spec:         nixDeploymentSpec("github.com/acme/app", "flake.nix"),
 		DesiredState: apigen.DesiredState{Version: testNixCommit, Running: running},
@@ -776,7 +784,8 @@ func TestValidateDeploymentSpecRejectsSystemdRunner(t *testing.T) {
 
 func TestDeploymentUpdateRejectsSystemDeploymentSpecUpdate(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	store.EnsureSystemDeployment("primary", "v0.0.194")
+	node := store.EnsurePrimaryNode("primary", "primary")
+	store.EnsureSystemDeployment(node.ID, "v0.0.194")
 	var system *apigen.DeploymentConfig
 	for _, cfg := range store.ListActiveDeploymentConfigs() {
 		if sqlite.IsSystemDeploymentConfig(cfg) {
@@ -1152,7 +1161,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	create := func(name string, nodeID int32, networking apigen.NetworkingConfig, env map[string]*apigen.EnvVarValue) *apigen.DeploymentConfig {
 		t.Helper()
 		cfg, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-			ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: name},
+			Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: name},
 			NodeID:   nodeID,
 			Spec: apigen.DeploymentSpec{
 				Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
@@ -1178,7 +1187,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 
 	wrongSpace := int32(2)
 	_, err = h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "wrong-space"},
+		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "wrong-space"},
 		NodeID:   primary.ID,
 		Spec: apigen.DeploymentSpec{
 			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
@@ -1195,7 +1204,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	remote := create("remote", worker.ID, virtualNetworking(), nil)
 	remoteID := remote.ID
 	_, err = h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "cross-node"},
+		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "cross-node"},
 		NodeID:   primary.ID,
 		Spec: apigen.DeploymentSpec{
 			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
@@ -1248,7 +1257,7 @@ func TestDeploymentCreatePersistsInitialStoppedDesiredState(t *testing.T) {
 	h := &Handler{Store: store}
 
 	cfg, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "web"},
+		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "web"},
 		NodeID:   primary.ID,
 		Spec: apigen.DeploymentSpec{
 			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
@@ -1291,7 +1300,7 @@ func TestDeploymentCreateRejectsIngressClaimsAlreadyUsedOnNode(t *testing.T) {
 		}
 	}
 	_, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "database"},
+		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "database"},
 		NodeID:   primary.ID,
 		Spec: apigen.DeploymentSpec{
 			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "postgres"}},
@@ -1303,7 +1312,7 @@ func TestDeploymentCreateRejectsIngressClaimsAlreadyUsedOnNode(t *testing.T) {
 		t.Fatalf("creating first ingress deployment: %v", err)
 	}
 	_, err = h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "database-copy"},
+		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "database-copy"},
 		NodeID:   primary.ID,
 		Spec: apigen.DeploymentSpec{
 			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "postgres"}},
@@ -1315,7 +1324,7 @@ func TestDeploymentCreateRejectsIngressClaimsAlreadyUsedOnNode(t *testing.T) {
 		t.Fatalf("err = %v, want duplicate ingress claim rejection", err)
 	}
 	_, err = h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "direct"},
+		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "direct"},
 		NodeID:   primary.ID,
 		Spec: apigen.DeploymentSpec{
 			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
@@ -1357,7 +1366,7 @@ func TestDeploymentCreateRejectsPrimaryIngressOnPort443(t *testing.T) {
 		}
 	}
 	_, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "primary-database"},
+		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "primary-database"},
 		NodeID:   primary.ID,
 		Spec:     spec(),
 	})
@@ -1365,7 +1374,7 @@ func TestDeploymentCreateRejectsPrimaryIngressOnPort443(t *testing.T) {
 		t.Fatalf("err = %v, want primary :443 reservation", err)
 	}
 	_, err = h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		ConfigID: apigen.DeploymentIdentifier{SpaceID: 1, Name: "worker-database"},
+		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "worker-database"},
 		NodeID:   worker.ID,
 		Spec:     spec(),
 	})
@@ -1380,7 +1389,7 @@ func TestDeploymentCreateRejectsInternalIdentity(t *testing.T) {
 	h := &Handler{Store: store}
 
 	_, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		ConfigID: apigen.DeploymentIdentifier{SpaceID: sqlite.OpendeploySpaceID, Name: "opendeploy-net"},
+		Identity: apigen.DeploymentIdentity{SpaceID: sqlite.OpendeploySpaceID, Name: "opendeploy-net"},
 		NodeID:   primary.ID,
 		Spec: apigen.DeploymentSpec{
 			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
@@ -1393,9 +1402,54 @@ func TestDeploymentCreateRejectsInternalIdentity(t *testing.T) {
 	}
 }
 
+func TestDeploymentIdentityIsScopedByNodeID(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	nodeA := store.EnsurePrimaryNode("node-a", "node-a-id")
+	nodeB := store.EnsurePrimaryNode("node-b", "node-b-id")
+	h := &Handler{Store: store}
+	spec := apigen.DeploymentSpec{
+		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
+		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+		Networking: hostNetworking(),
+	}
+	create := func(nodeID, spaceID int32) (*apigen.DeploymentConfig, error) {
+		return h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+			Identity: apigen.DeploymentIdentity{SpaceID: spaceID, Name: "web"},
+			NodeID:   nodeID,
+			Spec:     spec,
+		})
+	}
+
+	first, err := create(nodeA.ID, 1)
+	if err != nil {
+		t.Fatalf("create first deployment: %v", err)
+	}
+	if first.Identity.Machine != nodeA.Identifier {
+		t.Fatalf("create compatibility machine = %q, want %q", first.Identity.Machine, nodeA.Identifier)
+	}
+	if _, err := create(nodeA.ID, 1); err != DuplicateDeploymentErr {
+		t.Fatalf("same-node duplicate err = %v, want %v", err, DuplicateDeploymentErr)
+	}
+	if _, err := create(nodeB.ID, 1); err != nil {
+		t.Fatalf("same identity on another node: %v", err)
+	}
+	otherSpace, err := create(nodeA.ID, 2)
+	if err != nil {
+		t.Fatalf("create deployment in another space: %v", err)
+	}
+	spaceID := int32(1)
+	if _, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID: otherSpace.ID,
+		Version:      otherSpace.Version + 1,
+		SpaceID:      &spaceID,
+	}); err != DuplicateDeploymentErr {
+		t.Fatalf("space move duplicate err = %v, want %v", err, DuplicateDeploymentErr)
+	}
+}
+
 func TestDeploymentUpdatePreservesLegacyHostNetworking(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
+	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &apigen.DeploymentSpec{
 		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
 		Networking: hostNetworking(),
@@ -1422,7 +1476,7 @@ func TestDeploymentUpdatePreservesLegacyHostNetworking(t *testing.T) {
 
 func TestDeploymentUpdatePreservesExistingVirtualNetworking(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
+	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &apigen.DeploymentSpec{
 		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
 		Networking: virtualNetworking(),
@@ -1453,12 +1507,12 @@ func TestDeploymentUpdateAcceptsManagedDefaultVolumeMount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("secrets.Initialize failed: %v", err)
 	}
-	source := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "database"}, &apigen.DeploymentSpec{
+	source := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "database"}, &apigen.DeploymentSpec{
 		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "postgres"}},
 		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
 		Networking: hostNetworking(),
 	}, apigen.DesiredState{})
-	target := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
+	target := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &apigen.DeploymentSpec{
 		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 		Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
 			Mounts: []*apigen.ContainerMount{{
@@ -1490,7 +1544,7 @@ func TestDeploymentUpdateAcceptsManagedDefaultVolumeMount(t *testing.T) {
 
 func TestDeploymentDeleteRequiresStoppedDeployment(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
+	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &apigen.DeploymentSpec{
 		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
 		Networking: hostNetworking(),
@@ -1499,7 +1553,7 @@ func TestDeploymentDeleteRequiresStoppedDeployment(t *testing.T) {
 		s.Runner.Status = apigen.RunningStatus_RUNNING
 		return true
 	})
-	h := &Handler{Store: store}
+	h := &Handler{Store: store, NodeID: created.NodeID}
 
 	_, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
 		DeploymentID:  created.ID,
@@ -1519,11 +1573,11 @@ func TestDeploymentDeleteRequiresStoppedDeployment(t *testing.T) {
 	}
 }
 
-func TestDeploymentDeleteAllowsRunningMissingMachineDeployment(t *testing.T) {
+func TestDeploymentDeleteAllowsRunningDisconnectedNodeDeployment(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
-	store.EnsurePrimaryNode("worker", "worker-a")
-	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "worker-a", Name: "web"}, &apigen.DeploymentSpec{
+	worker := store.EnsurePrimaryNode("worker", "worker-a")
+	created := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, worker.ID, &apigen.DeploymentSpec{
 		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
 		Networking: hostNetworking(),
@@ -1546,9 +1600,9 @@ func TestDeploymentDeleteAllowsRunningMissingMachineDeployment(t *testing.T) {
 func TestDeploymentDeleteAllowsStaleDisconnectedSystemDeployment(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
-	store.EnsurePrimaryNode("worker", "worker-a")
-	store.EnsureSystemDeployment("worker-a", "v0.0.194")
-	system := findSystemDeployment(t, store, "worker-a")
+	worker := store.EnsurePrimaryNode("worker", "worker-a")
+	store.EnsureSystemDeployment(worker.ID, "v0.0.194")
+	system := findSystemDeployment(t, store, worker.ID)
 	store.MustWriteDeploymentStatus(system.ID, func(s *apigen.DeploymentStatus) bool {
 		// The node is disconnected, so this status is stale metadata and should not
 		// block cleanup.
@@ -1573,8 +1627,8 @@ func TestDeploymentDeleteAllowsStaleDisconnectedSystemDeployment(t *testing.T) {
 func TestDeploymentDeleteRejectsPrimarySystemDeployment(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
-	store.EnsureSystemDeployment("primary", "v0.0.194")
-	system := findSystemDeployment(t, store, "primary")
+	store.EnsureSystemDeployment(primary.ID, "v0.0.194")
+	system := findSystemDeployment(t, store, primary.ID)
 	store.MustWriteDeploymentStatus(system.ID, func(s *apigen.DeploymentStatus) bool {
 		s.Runner.Status = apigen.RunningStatus_STOPPED
 		return true
@@ -1593,7 +1647,7 @@ func TestDeploymentDeleteRejectsPrimarySystemDeployment(t *testing.T) {
 
 func TestDeploymentDeleteSoftDeletesStoppedDeployment(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
+	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &apigen.DeploymentSpec{
 		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
 		Networking: hostNetworking(),
@@ -1633,7 +1687,7 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 	create := func(version string) *apigen.DeploymentConfig {
 		t.Helper()
 		cfg, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-			ConfigID:     apigen.DeploymentIdentifier{SpaceID: 1, Name: "web"},
+			Identity:     apigen.DeploymentIdentity{SpaceID: 1, Name: "web"},
 			NodeID:       primary.ID,
 			Spec:         spec,
 			DesiredState: apigen.DesiredState{Version: version, Running: false},
@@ -1683,7 +1737,7 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 
 func TestDeploymentUpdateCombinesSpaceAndDesiredStateInSingleConfigVersion(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
+	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &apigen.DeploymentSpec{
 		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
 		Networking: hostNetworking(),
@@ -1708,8 +1762,8 @@ func TestDeploymentUpdateCombinesSpaceAndDesiredStateInSingleConfigVersion(t *te
 	if cfg.Version != created.Version+1 {
 		t.Fatalf("version = %d, want %d", cfg.Version, created.Version+1)
 	}
-	if cfg.ConfigID.SpaceID != spaceID {
-		t.Fatalf("space = %d, want %d", cfg.ConfigID.SpaceID, spaceID)
+	if cfg.Identity.SpaceID != spaceID {
+		t.Fatalf("space = %d, want %d", cfg.Identity.SpaceID, spaceID)
 	}
 	if cfg.DesiredState.Version != "1.25" || !cfg.DesiredState.Running {
 		t.Fatalf("desired state = %+v, want running 1.25", cfg.DesiredState)
@@ -1721,7 +1775,7 @@ func TestDeploymentUpdateCombinesSpaceAndDesiredStateInSingleConfigVersion(t *te
 
 func TestDeploymentUpdateRejectsStaleExpectedVersion(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
+	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &apigen.DeploymentSpec{
 		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
 		Networking: hostNetworking(),
@@ -1741,7 +1795,7 @@ func TestDeploymentUpdateRejectsStaleExpectedVersion(t *testing.T) {
 
 func TestDeploymentUpdateRequiresExpectedVersion(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	created := store.MustCreateDeployment(apigen.Context{}, &apigen.DeploymentIdentifier{SpaceID: 1, Machine: "primary", Name: "web"}, &apigen.DeploymentSpec{
+	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &apigen.DeploymentSpec{
 		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
 		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
 		Networking: hostNetworking(),

@@ -132,7 +132,7 @@ func (w *Watcher) publish(next *apigen.NetState) {
 	}
 	slog.Info("netstate loaded",
 		"seq", next.Seq,
-		"machine", next.Machine,
+		"nodeIdentifier", next.NodeIdentifier,
 		"dns_services", len(next.DnsServices),
 		"dns_endpoints", endpointCount,
 		"upstream_resolvers", len(next.UpstreamResolvers),

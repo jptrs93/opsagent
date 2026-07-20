@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestDeploymentIdentityIndexMigration(t *testing.T) {
+func TestDeploymentIdentityCompatibilityIndex(t *testing.T) {
 	openers := map[string]func(string) *sql.DB{
 		"primary":   func(path string) *sql.DB { return NewPrimaryStorage(path).db },
 		"secondary": func(path string) *sql.DB { return NewSecondaryStorage(path).db },
@@ -15,7 +15,6 @@ func TestDeploymentIdentityIndexMigration(t *testing.T) {
 	for name, open := range openers {
 		t.Run(name, func(t *testing.T) {
 			dbPath := filepath.Join(t.TempDir(), name+".db")
-			seedLegacyDeploymentIdentityIndex(t, dbPath)
 			db := open(dbPath)
 			assertActiveDeploymentIdentityIndex(t, db)
 
@@ -29,10 +28,6 @@ func TestDeploymentIdentityIndexMigration(t *testing.T) {
 			if err := db.Close(); err != nil {
 				t.Fatal(err)
 			}
-
-			db = open(dbPath)
-			defer db.Close()
-			assertActiveDeploymentIdentityIndex(t, db)
 		})
 	}
 }
@@ -52,24 +47,6 @@ func assertActiveDeploymentIdentityIndex(t *testing.T, db *sql.DB) {
 	}
 	if legacyCount != 0 {
 		t.Fatal("legacy deployment identity index still exists")
-	}
-}
-
-func seedLegacyDeploymentIdentityIndex(t *testing.T, dbPath string) {
-	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if _, err := db.Exec(schema); err != nil {
-		t.Fatalf("create schema: %v", err)
-	}
-	if _, err := db.Exec(`
-		DROP INDEX idx_deployment_configs_active_identity;
-		CREATE UNIQUE INDEX idx_deployment_configs_identity
-		ON deployment_configs(space_id, machine, name);`); err != nil {
-		t.Fatalf("seed legacy index: %v", err)
 	}
 }
 

@@ -32,6 +32,7 @@ export function deploymentEditorWidget(opts) {
     const deployment = opts.deployment || null;
     const deploymentConfig = opts.deploymentConfig || null;
     const deploymentUpdate = new DeploymentCreationUpdate({
+        mode,
         deployment,
         deploymentConfig,
         validateSource: actions.validateSource,

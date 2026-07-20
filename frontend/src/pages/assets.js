@@ -2,6 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {handleErr} from "../capi/err.js";
 import {decodeAsset} from "../capi/model.js";
+import {inlineEditableInput} from "../components/inlineEditableInput.js";
 import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {closeIcon, trashIcon} from "../lib/icons.js";
 import {formatDateTime} from "../lib/date.js";
@@ -10,7 +11,7 @@ import {spinnerButton} from "../components/spinnerbutton.js";
 import {assetMetasS, deploymentsS, machinesS, spacesS} from "../state/deployments.js";
 import {loginS} from "../state/login.js";
 
-const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, textarea } = van.tags;
+const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, textarea, colgroup, col } = van.tags;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -94,7 +95,6 @@ export function assetsPage() {
     const uploadOverlayOpen = van.state(false);
     const uploadFile = van.state(null);
     const uploadSaving = van.state(false);
-    const uploadRenameSaving = van.state(false);
     const uploadError = van.state("");
     const uploadProgressStatus = van.state("");
     const uploadProgressName = van.state("");
@@ -105,6 +105,8 @@ export function assetsPage() {
     const deleteTarget = van.state(null);
     const deleteSaving = van.state(false);
     const usageTarget = van.state(null);
+    const assetMutationKey = van.state("");
+    const assetNameDrafts = new Map();
 
     const draftKey = van.state("");
     const draftContent = van.state("");
@@ -112,6 +114,7 @@ export function assetsPage() {
     const draftCreatedAt = van.state(null);
     const draftLarge = van.state(false);
     const draftSizeBytes = van.state(0);
+    const draftRevision = van.state(0);
     const original = {key: "", content: "", version: 0, large: false};
 
     const setOriginal = (asset) => {
@@ -129,6 +132,7 @@ export function assetsPage() {
         draftCreatedAt.val = asset.createdAt || null;
         draftLarge.val = original.large;
         draftSizeBytes.val = asset.sizeBytes || (asset.blob ? asset.blob.length : 0);
+        draftRevision.val += 1;
     };
 
     const clearDraft = () => {
@@ -143,10 +147,15 @@ export function assetsPage() {
         draftCreatedAt.val = null;
         draftLarge.val = false;
         draftSizeBytes.val = 0;
+        draftRevision.val += 1;
     };
 
-    const isDirty = () => draftKey.val.trim() !== original.key
-        || (!draftLarge.val && draftContent.val !== original.content);
+    const isDirty = () => {
+        draftRevision.val;
+        return !original.key
+            ? Boolean(draftKey.val.trim()) || draftContent.val !== original.content
+            : !draftLarge.val && draftContent.val !== original.content;
+    };
 
     const reloadRows = async () => {
         const res = await capi.postV1AssetsList({});
@@ -195,7 +204,6 @@ export function assetsPage() {
         uploadOverlayOpen.val = true;
         uploadFile.val = file;
         uploadSaving.val = false;
-        uploadRenameSaving.val = false;
         uploadProgressStatus.val = "Ready";
         uploadProgressName.val = file.name;
         uploadProgressLoaded.val = 0;
@@ -205,7 +213,7 @@ export function assetsPage() {
     };
 
     const closeUploadOverlay = () => {
-        if (uploadSaving.val || uploadRenameSaving.val) return;
+        if (uploadSaving.val) return;
         uploadOverlayOpen.val = false;
         uploadFile.val = null;
         uploadError.val = "";
@@ -220,7 +228,6 @@ export function assetsPage() {
             error.val = null;
             uploadError.val = "";
             uploadSaving.val = true;
-            uploadRenameSaving.val = false;
             uploadProgressStatus.val = "Uploading";
             uploadProgressName.val = file.name;
             uploadProgressLoaded.val = 0;
@@ -246,60 +253,64 @@ export function assetsPage() {
         }
     };
 
-    const saveUploadedAssetName = async () => {
-        const name = uploadedAssetName.val.trim();
-        if (!name) { error.val = "Asset name is required"; return; }
-        try {
-            error.val = null;
-            uploadError.val = "";
-            uploadRenameSaving.val = true;
-            const asset = await capi.postV1AssetsRename({key: uploadedAssetKey.val, newKey: name});
-            uploadedAssetKey.val = asset.key;
-            uploadedAssetName.val = asset.key;
-            try {
-                await reloadRows();
-            } catch (e) {
-                error.val = e.message;
-            }
-        } catch (e) {
-            uploadError.val = e.message;
-        } finally {
-            uploadRenameSaving.val = false;
-        }
-    };
-
     const saveAsset = async () => {
         const key = draftKey.val.trim();
         if (!key) { error.val = "Asset key is required"; return; }
+        if (assetMutationKey.val) return;
         const isNew = !original.key;
-        const keyChanged = !isNew && key !== original.key;
         const contentChanged = !draftLarge.val && draftContent.val !== original.content;
-        const content = draftContent.val;
+        assetMutationKey.val = key;
         try {
             error.val = null;
-            let asset;
-            if (keyChanged) {
-                asset = await capi.postV1AssetsRename({key: original.key, newKey: key});
-                selected.val = asset.key;
-                setDraft(asset);
-                if (contentChanged) draftContent.val = content;
-            }
-            if (isNew || contentChanged) {
-                asset = await capi.postV1AssetsSet({
-                    key,
-                    format: "text",
-                    blob: encoder.encode(content),
-                });
-            }
+            if (!isNew && !contentChanged) return;
+            const asset = await capi.postV1AssetsSet({
+                key,
+                format: "text",
+                blob: encoder.encode(draftContent.val),
+            });
             selected.val = asset.key;
             setDraft(asset);
             await reloadRows();
         } catch (e) {
             error.val = e.message;
+        } finally {
+            if (assetMutationKey.val === key) assetMutationKey.val = "";
+        }
+    };
+
+    const renameAsset = async (key, newKey, draft) => {
+        if (assetMutationKey.val) return null;
+        assetMutationKey.val = key;
+        try {
+            error.val = null;
+            const asset = await capi.postV1AssetsRename({key, newKey});
+            if (selected.val === key) {
+                selected.val = asset.key;
+                original.key = asset.key;
+                draftKey.val = asset.key;
+                draftRevision.val += 1;
+            }
+            draft.originalName.val = asset.key;
+            draft.name.val = asset.key;
+            assetNameDrafts.delete(key);
+            assetNameDrafts.set(asset.key, draft);
+            rows.val = (rows.val || []).map(row => row.key === key ? {...row, ...asset, key: asset.key} : row);
+            try {
+                await reloadRows();
+            } catch (e) {
+                error.val = e.message;
+            }
+            return asset;
+        } catch (e) {
+            error.val = e.message;
+            return null;
+        } finally {
+            if (assetMutationKey.val === key) assetMutationKey.val = "";
         }
     };
 
     const requestDeleteAsset = (asset) => {
+        if (assetMutationKey.val) return;
         deleteTarget.val = asset;
     };
 
@@ -315,6 +326,7 @@ export function assetsPage() {
             deleteSaving.val = true;
             error.val = null;
             await capi.postV1AssetsDelete({key: target.key});
+            assetNameDrafts.delete(target.key);
             if (selected.val === target.key) clearDraft();
             await reloadRows();
             deleteTarget.val = null;
@@ -388,14 +400,37 @@ export function assetsPage() {
         return `${Math.min(100, Math.round((uploadProgressLoaded.val / total) * 100))}%`;
     };
 
-    const uploadNameDirty = () => uploadedAssetName.val.trim() !== uploadedAssetKey.val;
+    const saveAssetLabel = () => original.key ? "Save new version" : "Create asset";
 
-    const saveAssetLabel = () => {
-        if (!original.key) return "Create asset";
-        if (draftKey.val.trim() !== original.key && (draftLarge.val || draftContent.val === original.content)) {
-            return "Rename";
+    const assetNameEditor = (asset) => {
+        let draft = assetNameDrafts.get(asset.key);
+        if (!draft) {
+            draft = {originalName: van.state(asset.key), name: van.state(asset.key)};
+            assetNameDrafts.set(asset.key, draft);
         }
-        return "Save new version";
+        const {originalName, name} = draft;
+        return inlineEditableInput({
+            value: name,
+            dirty: () => name.val !== originalName.val,
+            valid: () => Boolean(name.val.trim()),
+            disabled: () => Boolean(assetMutationKey.val),
+            oninput: event => { name.val = event.target.value; },
+            onSave: async () => {
+                const nextName = name.val.trim();
+                if (nextName === originalName.val) {
+                    name.val = originalName.val;
+                    return;
+                }
+                const previousName = originalName.val;
+                await renameAsset(previousName, nextName, draft);
+            },
+            onDiscard: () => { name.val = originalName.val; },
+            inputClass: "w-full bg-transparent px-2 py-1 rounded border border-transparent hover:border-gray-700 focus:border-brand focus:outline-none font-mono",
+            placeholder: "asset name",
+            ariaLabel: `Asset name ${asset.key}`,
+            saveAriaLabel: `Save asset name ${asset.key}`,
+            discardAriaLabel: `Discard asset name change for ${asset.key}`,
+        });
     };
 
     const assetActionClass = "flex items-center gap-1 whitespace-nowrap text-sm px-3 py-1.5 rounded-lg bg-gray-700 " +
@@ -429,7 +464,15 @@ export function assetsPage() {
             if (rows.val.length === 0) return p({class: "text-gray-400 text-sm"}, "No assets yet. Click Add asset.");
             if (visibleRows.length === 0) return p({class: "text-gray-400 text-sm"}, "No assets match your search.");
             return table(
-                {class: "w-full text-sm"},
+                {class: "w-full min-w-[49rem] table-fixed text-sm"},
+                colgroup(
+                    col({style: "width:18rem"}),
+                    col({style: "width:12rem"}),
+                    col({style: "width:6rem"}),
+                    col({style: "width:5rem"}),
+                    col({style: "width:6rem"}),
+                    col({style: "width:2rem"}),
+                ),
                 thead(tr({class: "text-left text-gray-400 border-b border-gray-700"},
                     th({class: "pb-2 pr-3 font-medium"}, "Key"),
                     th({class: "pb-2 pr-3 font-medium"}, "Created"),
@@ -443,16 +486,17 @@ export function assetsPage() {
                             selected.val === row.key ? "bg-surface-hover" : "hover:bg-surface-hover"}`,
                         onclick: () => loadAsset(row.key),
                     },
-                    td({class: "py-2 pr-3 min-w-0"},
-                        div({class: "font-mono text-gray-100 truncate"}, row.key)),
-                    td({class: "py-2 pr-3 text-gray-400 whitespace-nowrap"}, formatDateTime(row.createdAt, "-")),
-                    td({class: "py-2 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => usageButton(row)),
-                    td({class: "py-2 pr-3 text-gray-300"}, `v${row.version}`),
-                    td({class: "py-2 pr-3 text-gray-400 whitespace-nowrap"}, fmtSize(row.sizeBytes || 0)),
-                    td({class: "py-2 pl-2 text-right whitespace-nowrap w-px"},
+                    td({class: "py-1 pr-3 min-w-0"}, assetNameEditor(row)),
+                    td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap"}, formatDateTime(row.createdAt, "-")),
+                    td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => usageButton(row)),
+                    td({class: "py-1 pr-3 text-gray-300"}, `v${row.version}`),
+                    td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap"}, fmtSize(row.sizeBytes || 0)),
+                    td({class: "py-1 pl-2 text-right whitespace-nowrap w-px"},
                         button({
                             type: "button",
-                            class: "p-1.5 rounded text-gray-400 hover:text-red-400 hover:bg-surface transition-colors cursor-pointer",
+                            disabled: () => Boolean(assetMutationKey.val),
+                            class: () => `p-1.5 rounded text-gray-400 hover:text-red-400 hover:bg-surface transition-colors ${
+                                assetMutationKey.val ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
                             onclick: (e) => { e.stopPropagation(); requestDeleteAsset(row); },
                         }, trashIcon())),
                 ))),
@@ -485,10 +529,8 @@ export function assetsPage() {
             div({class: "min-w-0"},
                 () => draftVersion.val ? h2({class: "text-base font-semibold"}, `Editing ${draftKey.val}`) : "",
                 () => draftVersion.val
-                    ? p({class: "text-xs text-gray-400"}, () =>
-                        draftKey.val.trim() !== original.key && (draftLarge.val || draftContent.val === original.content)
-                            ? `Version ${draftVersion.val} created ${fmtDate(draftCreatedAt.val)}. Renaming preserves every version.`
-                            : `Version ${draftVersion.val} created ${fmtDate(draftCreatedAt.val)}. Saving content creates version ${draftVersion.val + 1}.`)
+                    ? p({class: "text-xs text-gray-400"},
+                        `Version ${draftVersion.val} created ${fmtDate(draftCreatedAt.val)}. Saving content creates version ${draftVersion.val + 1}.`)
                     : ""),
             div({class: "flex items-center gap-2"},
                 span({class: "text-xs text-gray-500 whitespace-nowrap"}, () => loadingAsset.val ? "Loading..." : ""),
@@ -499,12 +541,15 @@ export function assetsPage() {
                     onclick: clearDraft,
                 }, closeIcon()))),
         div({class: "grid grid-cols-1 gap-3"},
-            labelField("Key", input({
-                class: "text-input font-mono",
-                placeholder: "nginx.conf",
-                value: draftKey,
-                oninput: (e) => draftKey.val = e.target.value,
-            }))),
+            () => original.key
+                ? labelField("Key", div({class: "text-input font-mono text-gray-300"}, draftKey))
+                : labelField("Key", input({
+                    class: "text-input font-mono",
+                    placeholder: "nginx.conf",
+                    value: draftKey,
+                    disabled: () => Boolean(assetMutationKey.val),
+                    oninput: (e) => draftKey.val = e.target.value,
+                }))),
         () => draftLarge.val ? div(
             {class: "text-input flex-1 min-h-0 flex items-center justify-center text-center text-sm text-gray-400"},
             div(
@@ -516,6 +561,7 @@ export function assetsPage() {
             spellcheck: "false",
             placeholder: "Paste config file contents here",
             value: draftContent,
+            disabled: () => Boolean(assetMutationKey.val),
             oninput: (e) => draftContent.val = e.target.value,
         }),
         div({class: "flex items-center justify-between gap-3"},
@@ -525,14 +571,13 @@ export function assetsPage() {
             div({class: "flex items-center gap-2"},
                 smallBtn("Discard", () => {
                     if (original.key) {
-                        draftKey.val = original.key;
                         draftContent.val = original.content;
                     } else {
                         clearDraft();
                     }
-                }, "bg-gray-700 text-gray-200 hover:bg-gray-600", () => !isDirty()),
+                }, "bg-gray-700 text-gray-200 hover:bg-gray-600", () => Boolean(assetMutationKey.val) || !isDirty()),
                 smallBtn(saveAssetLabel, saveAsset, "bg-brand text-white hover:bg-blue-600",
-                    () => !draftKey.val.trim() || !isDirty())),
+                    () => Boolean(assetMutationKey.val) || !draftKey.val.trim() || !isDirty())),
         ),
     );
 
@@ -571,28 +616,19 @@ export function assetsPage() {
                     oninput: (e) => uploadedAssetName.val = e.target.value,
                 })),
             ) : "",
-            () => uploadedAssetKey.val && !uploadSaving.val ? labelField("Name", input({
-                class: "text-input font-mono",
-                value: uploadedAssetName,
-                disabled: uploadRenameSaving,
-                oninput: (e) => uploadedAssetName.val = e.target.value,
-            })) : "",
+            () => uploadedAssetKey.val && !uploadSaving.val
+                ? labelField("Name", div({class: "text-input font-mono text-gray-300"}, uploadedAssetName))
+                : "",
             () => uploadError.val ? p({class: "text-sm text-red-400"}, uploadError) : "",
             () => !uploadedAssetKey.val && !uploadSaving.val ? div({class: "flex items-center justify-end gap-2"},
                 smallBtn("Cancel", closeUploadOverlay, "bg-gray-700 text-gray-200 hover:bg-gray-600"),
                 smallBtn(uploadProgressStatus.val === "Upload failed" ? "Retry upload" : "Upload", uploadAsset,
                     "bg-brand text-white hover:bg-blue-600", () => !uploadedAssetName.val.trim()),
             ) : "",
-            () => uploadedAssetKey.val && !uploadSaving.val && uploadNameDirty() ? div({class: "flex items-center justify-end gap-2"},
-                smallBtn("Discard", () => { uploadedAssetName.val = uploadedAssetKey.val; }, "bg-gray-700 text-gray-200 hover:bg-gray-600", () => uploadRenameSaving.val),
-                smallBtn("Save", saveUploadedAssetName, "bg-brand text-white hover:bg-blue-600", () => uploadRenameSaving.val || !uploadedAssetName.val.trim()),
-            ) : "",
             () => uploadedAssetKey.val && !uploadSaving.val ? div({class: "flex justify-end pt-1"},
                 button({
                     type: "button",
-                    disabled: uploadRenameSaving,
-                    class: () => `text-sm px-3 py-1.5 rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors ${
-                        uploadRenameSaving.val ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`,
+                    class: "text-sm px-3 py-1.5 rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer",
                     onclick: closeUploadOverlay,
                 }, "Close"),
             ) : "",

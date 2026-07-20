@@ -24,7 +24,7 @@ type runtimeConfig struct {
 	TLS                *tls.Config
 	PrimaryClusterAddr string
 	PrimaryName        string // primary certificate DNS/IP SAN for TLS server name verification
-	MachineName        string
+	NodeIdentifier     string
 	NodeID             int32
 	DataDir            string
 	GitCacheDir        string
@@ -55,7 +55,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	nixDockerPreparer := nixdocker.New(gitManager)
 	githubReleaseImagePreparer := githubreleaseimage.New(cfg.ReleasesDir, githubClient)
 
-	go netproxy.RunNetStateWriter(ctx, store, nil, cfg.MachineName, cfg.NetproxyStatePath)
+	go netproxy.RunNetStateWriter(ctx, store, nil, cfg.NodeIdentifier, cfg.NetproxyStatePath)
 	go engine.DeploymentOperator{
 		Store:              store,
 		GithubRelease:      githubReleasePreparer,

@@ -41,8 +41,8 @@ func preparerReady(status *apigen.DeploymentStatus, seqNo int32) bool {
 }
 
 func configName(cfg *apigen.DeploymentConfig) string {
-	if !cfg.ConfigID.IsZero() {
-		return fmt.Sprintf("%d:%d:%s", cfg.ConfigID.SpaceID, cfg.NodeID, cfg.ConfigID.Name)
+	if !cfg.Identity.IsZero() {
+		return fmt.Sprintf("%d:%d:%s", cfg.Identity.SpaceID, cfg.NodeID, cfg.Identity.Name)
 	}
 	return fmt.Sprintf("id=%d", cfg.ID)
 }

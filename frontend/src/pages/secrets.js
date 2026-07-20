@@ -1,5 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
+import {inlineEditableInput} from "../components/inlineEditableInput.js";
 import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {valueOverlay} from "../components/valueOverlay.js";
@@ -81,6 +82,7 @@ export function secretsPage() {
             value: van.state(config ? config.value : ""),
             createdAt: config ? config.createdAt : null,
             copied: van.state(false),
+            saving: van.state(false),
             orig: {
                 name: config ? config.name : "",
                 value: config ? config.value : "",
@@ -102,13 +104,16 @@ export function secretsPage() {
             loaded: van.state(isNew),
             valueDirty: van.state(false),
             copied: van.state(false),
+            saving: van.state(false),
             orig: {name: meta ? meta.name : "", value: ""},
         };
     };
 
-    const isDirty = (row) => row.type === "config"
-        ? row.isNew || row.name.val !== row.orig.name || row.value.val !== row.orig.value
-        : row.isNew || row.name.val !== row.orig.name || row.valueDirty.val;
+    const nameDirty = (row) => row.name.val !== row.orig.name;
+    const valueDirty = (row) => row.type === "config"
+        ? row.value.val !== row.orig.value
+        : row.valueDirty.val;
+    const isDirty = (row) => row.isNew || nameDirty(row) || valueDirty(row);
 
     const rowKey = (row) => row.orig.name ? `${row.type}:${row.orig.name}` : row.localKey;
     const itemKey = (type, item) => `${type}:${item.name}`;
@@ -264,7 +269,7 @@ export function secretsPage() {
             const current = existing.get(key);
             if (!current) return make();
             if (current._saved && confirmsSaved(current)) current._saved = false;
-            return (isDirty(current) || current._saved) ? current : make();
+            return (isDirty(current) || current._saved || current.saving.val) ? current : make();
         };
         const secretRows = status.unlocked
             ? latestSecrets
@@ -275,6 +280,7 @@ export function secretsPage() {
             .filter(config => !pendingDeletes.has(itemKey("config", config)))
             .map(config => preserveOrMake(itemKey("config", config), () => makeConfigRow(config), row => row.name.val.trim() === config.name && row.value.val === config.value));
         const carried = currentRows.filter(row => {
+            if (row.saving.val) return pendingDeletes.has(rowKey(row)) || !streamKeys.has(rowKey(row));
             if (row.isNew && !row._saved) return true;
             return row._saved && row.orig.name && !streamKeys.has(rowKey(row));
         });
@@ -400,72 +406,79 @@ export function secretsPage() {
         }
     };
 
-    const saveConfigRow = async (row, name) => {
-        const oldKey = `config:${row.orig.name}`;
-        const renamed = !row.isNew && row.orig.name !== name;
-        if (renamed) pendingDeletes.add(oldKey);
-        try {
-            let saved = null;
-            if (renamed) {
-                saved = await capi.postV1UserConfigsRename({name: row.orig.name, newName: name});
-            }
-            if (row.isNew || row.value.val !== row.orig.value) {
-                saved = await capi.postV1UserConfigsSet({
-                    name,
-                    value: row.value.val,
-                });
-            }
-            return saved;
-        } catch (e) {
-            if (renamed) pendingDeletes.delete(oldKey);
-            throw e;
-        }
-    };
-
-    const saveSecretRow = async (row, name) => {
-        const oldKey = `secret:${row.orig.name}`;
-        const renamed = !row.isNew && row.orig.name !== name;
-        if (renamed) pendingDeletes.add(oldKey);
-        try {
-            if (renamed) {
-                await capi.postV1SecretsRename({name: row.orig.name, newName: name});
-            }
-            if (row.isNew || row.valueDirty.val) {
-                await capi.postV1SecretsSet({
-                    name,
-                    value: new TextEncoder().encode(row.value.val),
-                });
-            }
-        } catch (e) {
-            if (renamed) pendingDeletes.delete(oldKey);
-            throw e;
-        }
-    };
-
-    const saveRow = async (row) => {
+    const saveName = async (row) => {
+        if (row.isNew || row.saving.val) return;
         const name = row.name.val.trim();
         if (!name) { error.val = `${row.type === "secret" ? "Secret" : "Config"} name is required`; return; }
+        if (name === row.orig.name) {
+            row.name.val = row.orig.name;
+            return;
+        }
+        const oldKey = rowKey(row);
+        pendingDeletes.add(oldKey);
+        row.saving.val = true;
         try {
             error.val = null;
-            if (row.type === "secret") await saveSecretRow(row, name);
-            else await saveConfigRow(row, name);
-            row.isNew = false;
+            if (row.type === "secret") {
+                await capi.postV1SecretsRename({name: row.orig.name, newName: name});
+            } else {
+                await capi.postV1UserConfigsRename({name: row.orig.name, newName: name});
+            }
+            row.name.val = name;
             row._saved = true;
             row.orig.name = name;
+            syncRowsFromUniverse();
+        } catch (e) {
+            pendingDeletes.delete(oldKey);
+            error.val = e.message;
+            syncRowsFromUniverse();
+        } finally {
+            row.saving.val = false;
+        }
+    };
+
+    const saveValue = async (row) => {
+        if (row.saving.val) return;
+        const wasNew = row.isNew;
+        const name = row.isNew ? row.name.val.trim() : row.orig.name;
+        if (!name) { error.val = `${row.type === "secret" ? "Secret" : "Config"} name is required`; return; }
+        row.saving.val = true;
+        try {
+            error.val = null;
+            let saved;
             if (row.type === "config") {
+                saved = await capi.postV1UserConfigsSet({name, value: row.value.val});
                 row.orig.value = row.value.val;
             } else {
+                saved = await capi.postV1SecretsSet({name, value: new TextEncoder().encode(row.value.val)});
+                row.orig.value = row.value.val;
+                row.loaded.val = true;
                 row.valueDirty.val = false;
             }
+            row.referenceId = Number(saved?.id || row.referenceId || 0);
+            row.version = Number(saved?.version || row.version || 0);
+            row.createdAt = saved?.createdAt || row.createdAt;
+            if (row.type === "secret" && saved) row.meta = saved;
+            row.isNew = false;
+            if (wasNew) {
+                row.name.val = name;
+                row.orig.name = name;
+            }
+            row._saved = true;
             syncRowsFromUniverse();
         } catch (e) {
             error.val = e.message;
+        } finally {
+            row.saving.val = false;
         }
     };
 
-    const discardRow = (row) => {
-        if (row.isNew) { removeRow(row); return; }
+    const discardName = (row) => {
         row.name.val = row.orig.name;
+    };
+
+    const discardValue = (row) => {
+        if (row.isNew) { removeRow(row); return; }
         if (row.type === "config") {
             row.value.val = row.orig.value;
             return;
@@ -550,10 +563,11 @@ export function secretsPage() {
     }, type === "secret" ? "Secret" : "Config");
 
     const configValueInput = (row) => div({class: "flex items-center gap-1"},
-        cellInput(row.value, "value", true),
+        cellInput(row.value, "value", true, {disabled: row.saving}),
         iconButton(expandIcon(), () => valueTarget.val = row, "shrink-0", {
             title: "Expand config value",
             "aria-label": "Expand config value",
+            disabled: row.saving,
         }),
     );
 
@@ -563,6 +577,7 @@ export function secretsPage() {
                 "hover:border-gray-700 focus:border-brand focus:outline-none font-mono",
             type: "text",
             autocomplete: "off",
+            disabled: row.saving,
             readOnly: () => !(row.isNew || row.revealed.val),
             style: () => row.revealed.val ? "" : "-webkit-text-security: disc;",
             placeholder: row.isNew ? "value" : DEFAULT_SECRET_MASK,
@@ -577,7 +592,9 @@ export function secretsPage() {
         return div({class: "flex items-center gap-1"},
             valueInput,
             iconButton(() => row.revealed.val ? eyeOffIcon() : eyeOpenIcon(),
-                () => toggleReveal(row)),
+                () => toggleReveal(row), "disabled:cursor-not-allowed disabled:opacity-50", {
+                    disabled: row.saving,
+                }),
         );
     };
 
@@ -594,30 +611,48 @@ export function secretsPage() {
         }, String(count));
     };
 
+    const nameInput = (row) => inlineEditableInput({
+        value: row.name,
+        dirty: () => !row.isNew && nameDirty(row),
+        valid: () => Boolean(row.name.val.trim()),
+        disabled: row.saving,
+        oninput: event => { row.name.val = event.target.value; },
+        onSave: () => saveName(row),
+        onDiscard: () => discardName(row),
+        inputClass: "w-full bg-transparent px-2 py-1 rounded border border-transparent hover:border-gray-700 focus:border-brand focus:outline-none font-mono",
+        placeholder: "name",
+        ariaLabel: `${row.type === "secret" ? "Secret" : "Config"} name ${row.orig.name}`,
+        saveAriaLabel: `Save ${row.type} name ${row.orig.name}`,
+        discardAriaLabel: `Discard ${row.type} name change for ${row.orig.name}`,
+    });
+
     const rowEl = (row) => tr(
         {class: "border-b border-gray-800 last:border-0 align-middle"},
         td({class: "py-1 pr-3 w-px whitespace-nowrap"}, typeBadge(row.type)),
-        td({class: "py-1 pr-3 w-1/3"}, cellInput(row.name, "name", true)),
+        td({class: "py-1 pr-3 w-1/3"}, nameInput(row)),
         td({class: "py-1 pr-3 text-gray-300 whitespace-nowrap"}, `v${row.version || 0}`),
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap"}, formatDateTime(row.createdAt, "-")),
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => usageButton(row)),
         td({class: "py-1 pr-3"}, row.type === "secret" ? secretValueInput(row) : configValueInput(row)),
         td({class: "py-1 pl-2 pr-5 text-left whitespace-nowrap w-px"},
-            () => isDirty(row)
+            () => row.isNew || valueDirty(row)
                 ? div({class: "flex items-center justify-start gap-2"},
-                    smallBtn("Save", () => saveRow(row), "bg-brand text-white hover:bg-blue-600",
-                        () => !row.name.val.trim()),
-                    smallBtn("Discard", () => discardRow(row), "bg-gray-700 text-gray-200 hover:bg-gray-600"))
+                    smallBtn("Save", () => saveValue(row), "bg-brand text-white hover:bg-blue-600",
+                        () => row.saving.val || (row.isNew && !row.name.val.trim())),
+                    smallBtn("Discard", () => discardValue(row), "bg-gray-700 text-gray-200 hover:bg-gray-600",
+                        () => row.saving.val))
                 : div({class: "flex items-center justify-start gap-1"},
                     iconButton(() => row.copied.val
                         ? checkIcon({class: "w-4 h-4 text-green-400"})
-                        : copyIcon(), () => copyRowValue(row), "", {
+                        : copyIcon(), () => copyRowValue(row), "disabled:cursor-not-allowed disabled:opacity-50", {
                         title: () => row.copied.val ? "Copied" : `Copy ${row.type} value`,
                         "aria-label": () => row.copied.val ? "Copied" : `Copy ${row.type} value`,
+                        disabled: row.saving,
                     }),
-                    iconButton(trashIcon(), () => requestDeleteRow(row), "hover:text-red-400", {
+                    iconButton(trashIcon(), () => requestDeleteRow(row), "hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50", {
                         title: `Delete ${row.type}`,
                         "aria-label": `Delete ${row.type}`,
+                        disabled: row.saving,
                     }))),
     );
 

@@ -29,7 +29,7 @@ const collisionCatalogs = {
     secretRefs: [...mockSecretRefs, {id: 399, name: 'database-password', version: 5, spaceId: 2}],
     configRefs: [...mockConfigRefs, {id: 499, name: 'database-host', version: 3, spaceId: 2}],
     deployments: [...mockDeployments, {
-        config: {id: 999, nodeId: 11, configId: {name: 'api', spaceId: 2}},
+        config: {id: 999, nodeId: 11, identity: {name: 'api', spaceId: 2}},
         status: {},
     }],
 };
@@ -47,7 +47,7 @@ for (const presetName of ['updateContainer', 'updateNixStopped']) {
     const before = model.toDocument();
     const text = deploymentDocumentToHcl(before, catalogs, {pinVersions: true});
     const parsed = parseDeploymentHcl(text, catalogs, {
-        immutableName: before.configId.name,
+        immutableName: before.identity.name,
         immutableNodeId: before.nodeId,
         updateMode: true,
         initialVersion: before.desiredState.version,
@@ -75,7 +75,7 @@ assert.match(latestHcl, /asset\("nginx\.conf"\)/);
 assert.doesNotMatch(latestHcl, /(?:secret|config|asset)\("[^"]+", \{ version = \d+ \}\)/);
 
 const crossSpaceDocument = structuredClone(canonicalDocument);
-crossSpaceDocument.configId.spaceId = 2;
+crossSpaceDocument.identity.spaceId = 2;
 const crossSpaceHcl = deploymentDocumentToHcl(crossSpaceDocument, catalogs, {pinVersions: true});
 assert.doesNotMatch(crossSpaceHcl, /__unresolved/);
 assert.match(crossSpaceHcl, /secret\("database-password", \{ version = 4 \}\)/);

@@ -40,13 +40,13 @@ func Run(ctx context.Context) {
 		}
 	}
 	runtimeCfg := MustLoadRuntimeConfig(cfg, caPath, certPath, keyPath)
-	slog.Info(fmt.Sprintf("opendeploy starting secondary version=%v machine=%v clusterAddr=%v primaryName=%v", version.Version, runtimeCfg.MachineName, runtimeCfg.PrimaryClusterAddr, runtimeCfg.PrimaryName))
+	slog.Info(fmt.Sprintf("opendeploy starting secondary version=%v nodeIdentifier=%v clusterAddr=%v primaryName=%v", version.Version, runtimeCfg.NodeIdentifier, runtimeCfg.PrimaryClusterAddr, runtimeCfg.PrimaryName))
 	run(ctx, runtimeCfg)
 }
 
 func MustLoadRuntimeConfig(cfg ainit.StaticConfiguration, caPath, certPath, keyPath string) runtimeConfig {
 	tlsCfg := certu.MustLoadTLSConfig(caPath, certPath, keyPath)
-	machineName := certu.MustCertLoadCommonName(certPath)
+	nodeIdentifier := certu.MustCertLoadCommonName(certPath)
 	store := sqlite.NewSecondaryStorage(filepath.Join(cfg.DataDir, "secondary.db"))
 
 	b, ok := store.FetchLocalKV(sqlite.LocalKVClusterNetwork)
@@ -77,7 +77,7 @@ func MustLoadRuntimeConfig(cfg ainit.StaticConfiguration, caPath, certPath, keyP
 		TLS:                tlsCfg,
 		PrimaryClusterAddr: cfg.PrimaryClusterAddr,
 		PrimaryName:        cfg.PrimaryName,
-		MachineName:        machineName,
+		NodeIdentifier:     nodeIdentifier,
 		NodeID:             nodeID,
 		DataDir:            cfg.DataDir,
 		GitCacheDir:        cfg.GitCacheDir,

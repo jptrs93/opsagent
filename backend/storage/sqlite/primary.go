@@ -17,6 +17,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage"
 )
 
 const OpendeploySpaceID int32 = internaldeploy.SpaceID
@@ -36,16 +37,16 @@ func normalizedUserSpaceID(spaceID int32) int32 {
 	return spaceID
 }
 
-func IsSystemDeploymentIdentifier(cid apigen.DeploymentIdentifier) bool {
-	return internaldeploy.IsSelfIdentifier(cid)
+func IsSystemDeploymentIdentity(identity apigen.DeploymentIdentity) bool {
+	return internaldeploy.IsSelfIdentity(identity)
 }
 
 func IsSystemDeploymentConfig(cfg *apigen.DeploymentConfig) bool {
-	return cfg != nil && IsSystemDeploymentIdentifier(cfg.ConfigID)
+	return cfg != nil && IsSystemDeploymentIdentity(cfg.Identity)
 }
 
-func IsNetproxyDeploymentIdentifier(cid apigen.DeploymentIdentifier) bool {
-	return internaldeploy.IsNetproxyIdentifier(cid)
+func IsNetproxyDeploymentIdentity(identity apigen.DeploymentIdentity) bool {
+	return internaldeploy.IsNetproxyIdentity(identity)
 }
 
 func IsNetproxyDeploymentConfig(cfg *apigen.DeploymentConfig) bool {
@@ -53,7 +54,7 @@ func IsNetproxyDeploymentConfig(cfg *apigen.DeploymentConfig) bool {
 }
 
 func IsInternalDeploymentConfig(cfg *apigen.DeploymentConfig) bool {
-	return cfg != nil && internaldeploy.IsInternalIdentifier(cfg.ConfigID)
+	return cfg != nil && internaldeploy.IsInternalIdentity(cfg.Identity)
 }
 
 func SystemDeploymentSpec() *apigen.DeploymentSpec {
@@ -168,10 +169,13 @@ func (s *PrimaryStorage) ListActiveDeploymentConfigs() []*apigen.DeploymentConfi
 	return out
 }
 
-// InvalidateMachineRuntimeState clears machine-local observations that cannot
+// InvalidateNodeRuntimeState clears node-local observations that cannot
 // survive restoring the primary database onto a replacement host. Desired
 // config and status history remain unchanged.
-func (s *PrimaryStorage) InvalidateMachineRuntimeState(machine string) (int64, error) {
+func (s *PrimaryStorage) InvalidateNodeRuntimeState(nodeID int32) (int64, error) {
+	if nodeID <= 0 {
+		return 0, fmt.Errorf("deployment node ID must be positive")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -190,18 +194,18 @@ func (s *PrimaryStorage) InvalidateMachineRuntimeState(machine string) (int64, e
 		WHERE deployment_id IN (
 			SELECT deployment_id
 			FROM deployment_configs
-			WHERE machine = ?
+			WHERE node_id = ?
 				AND NOT (space_id = ? AND name = ?)
-		)`, machine, OpendeploySpaceID, systemDeploymentName)
+		)`, nodeID, OpendeploySpaceID, systemDeploymentName)
 	if err != nil {
-		return 0, fmt.Errorf("invalidate runtime state for machine %q: %w", machine, err)
+		return 0, fmt.Errorf("invalidate runtime state for node %d: %w", nodeID, err)
 	}
 	count, err := result.RowsAffected()
 	if err != nil {
-		return 0, fmt.Errorf("count invalidated runtime state for machine %q: %w", machine, err)
+		return 0, fmt.Errorf("count invalidated runtime state for node %d: %w", nodeID, err)
 	}
 	for id, cfg := range s.configCache {
-		if cfg.ConfigID.Machine != machine || IsSystemDeploymentConfig(cfg) {
+		if cfg.NodeID != nodeID || IsSystemDeploymentConfig(cfg) {
 			continue
 		}
 		status := s.statusCache[id]
@@ -295,16 +299,16 @@ func (s *PrimaryStorage) MustFetchDeploymentHistory(deploymentID int32) []*apige
 	if err != nil {
 		panic(fmt.Sprintf("ListDeploymentConfigHistory: %v", err))
 	}
-	// Get the config_id and created_at from cache for display.
-	var cid apigen.DeploymentIdentifier
+	// Get the identity and created_at from cache for display.
+	var identity apigen.DeploymentIdentity
 	var createdAt time.Time
 	if cfg, ok := s.configCache[deploymentID]; ok {
-		cid = cfg.ConfigID
+		identity = cfg.Identity
 		createdAt = cfg.CreatedAt
 	}
 	out := make([]*apigen.DeploymentConfig, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, configHistoryRowToProto(dbID, cid, createdAt, r))
+		out = append(out, configHistoryRowToProto(dbID, identity, createdAt, r))
 	}
 	return out
 }
@@ -630,31 +634,23 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymen
 	s.notifyFromCache(deploymentID)
 }
 
-// MustCreateDeployment preserves the legacy machine-identifier API for internal
-// callers. New placement-aware callers must use MustCreateDeploymentForNode.
-func (s *PrimaryStorage) MustCreateDeployment(ctx apigen.Context, cid *apigen.DeploymentIdentifier, spec *apigen.DeploymentSpec, desired apigen.DesiredState) *apigen.DeploymentConfig {
-	nodeID := mustGetNodeIDByIdentifier(context.Background(), s.q, cid.Machine)
-	return s.mustCreateDeploymentForNode(ctx, cid, int32(nodeID), spec, desired)
-}
-
 // MustCreateDeploymentForNode creates a deployment with an explicit canonical
-// node assignment. ConfigID.Machine is retained only for worker certificate
-// compatibility and must already have been resolved by the caller.
-func (s *PrimaryStorage) MustCreateDeploymentForNode(ctx apigen.Context, cid *apigen.DeploymentIdentifier, nodeID int32, spec *apigen.DeploymentSpec, desired apigen.DesiredState) *apigen.DeploymentConfig {
+// node assignment. The legacy machine index value is derived from the node.
+func (s *PrimaryStorage) MustCreateDeploymentForNode(ctx apigen.Context, cid *apigen.DeploymentIdentity, nodeID int32, spec *apigen.DeploymentSpec, desired apigen.DesiredState) *apigen.DeploymentConfig {
 	if nodeID <= 0 {
 		panic("deployment node ID must be positive")
 	}
 	return s.mustCreateDeploymentForNode(ctx, cid, nodeID, spec, desired)
 }
 
-func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *apigen.DeploymentIdentifier, nodeID int32, spec *apigen.DeploymentSpec, desired apigen.DesiredState) *apigen.DeploymentConfig {
+func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *apigen.DeploymentIdentity, nodeID int32, spec *apigen.DeploymentSpec, desired apigen.DesiredState) *apigen.DeploymentConfig {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Reject if a non-deleted deployment with the same identifier already exists.
+	// Reject if a non-deleted deployment with the same semantic key already exists.
 	for _, cfg := range s.configCache {
-		if cfg.ConfigID == *cid && !cfg.Deleted {
-			panic(fmt.Sprintf("deployment %d/%s/%s already exists", cid.SpaceID, cid.Machine, cid.Name))
+		if storage.DeploymentKeyMatches(*cfg, nodeID, *cid) && !cfg.Deleted {
+			panic(fmt.Sprintf("deployment node=%d space=%d name=%q already exists", nodeID, cid.SpaceID, cid.Name))
 		}
 	}
 
@@ -673,6 +669,7 @@ func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *ap
 	defer tx.Rollback()
 
 	q := s.q.WithTx(tx)
+	legacyMachine := mustGetNodeIdentifierByID(bgCtx, q, nodeID)
 
 	var specBlob []byte
 	if spec != nil {
@@ -682,7 +679,7 @@ func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *ap
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
 		NodeID:         int64(nodeID),
 		SpaceID:        int64(cid.SpaceID),
-		Machine:        cid.Machine,
+		Machine:        legacyMachine,
 		Name:           cid.Name,
 		CreatedAt:      now,
 		Version:        1,
@@ -721,7 +718,7 @@ func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *ap
 		DeploymentID:   dbID,
 		NodeID:         int64(nodeID),
 		SpaceID:        int64(cid.SpaceID),
-		Machine:        cid.Machine,
+		Machine:        legacyMachine,
 		Name:           cid.Name,
 		CreatedAt:      row.CreatedAt,
 		Version:        1,
@@ -739,14 +736,16 @@ func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *ap
 }
 
 // EnsureSystemDeployment creates the OPENDEPLOY opendeploy deployment for
-// the given machine if it does not already exist. When opendeployVersion is
+// the given node if it does not already exist. When opendeployVersion is
 // known, first-time system deployments are marked desired-running at that
 // version so the systemd runner can observe the already-running service.
-func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersion string) {
+func (s *PrimaryStorage) EnsureSystemDeployment(nodeID int32, opendeployVersion string) {
+	if nodeID <= 0 {
+		panic("deployment node ID must be positive")
+	}
 	opendeployVersion = strings.TrimSpace(opendeployVersion)
-	cid := apigen.DeploymentIdentifier{
+	cid := apigen.DeploymentIdentity{
 		SpaceID: OpendeploySpaceID,
-		Machine: machine,
 		Name:    systemDeploymentName,
 	}
 
@@ -755,9 +754,9 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 
 	// Check if it already exists.
 	for _, cfg := range s.configCache {
-		if cfg.ConfigID == cid && !cfg.Deleted {
+		if storage.DeploymentKeyMatches(*cfg, nodeID, cid) && !cfg.Deleted {
 			if !isSystemDeploymentSpec(&cfg.Spec) {
-				slog.Warn("repairing system deployment spec", "machine", machine, "deploymentID", cfg.ID)
+				slog.Warn("repairing system deployment spec", "nodeID", nodeID, "deploymentID", cfg.ID)
 				s.repairDeploymentSpecLocked(cfg.ID, SystemDeploymentSpec(), "system")
 			}
 			return
@@ -781,11 +780,11 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 		desiredRunning = 1
 	}
 
-	nodeID := mustGetNodeIDByIdentifier(bgCtx, q, cid.Machine)
+	legacyMachine := mustGetNodeIdentifierByID(bgCtx, q, nodeID)
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
-		NodeID:         nodeID,
+		NodeID:         int64(nodeID),
 		SpaceID:        int64(cid.SpaceID),
-		Machine:        cid.Machine,
+		Machine:        legacyMachine,
 		Name:           cid.Name,
 		CreatedAt:      now,
 		Version:        1,
@@ -821,9 +820,9 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 	id := int32(dbID)
 	s.configCache[id] = upsertParamsToProto(UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
-		NodeID:         nodeID,
+		NodeID:         int64(nodeID),
 		SpaceID:        int64(cid.SpaceID),
-		Machine:        cid.Machine,
+		Machine:        legacyMachine,
 		Name:           cid.Name,
 		CreatedAt:      row.CreatedAt,
 		Version:        1,
@@ -834,28 +833,30 @@ func (s *PrimaryStorage) EnsureSystemDeployment(machine string, opendeployVersio
 		Deleted:        0,
 	})
 	s.notifyFromCache(id)
-	slog.Info("created system deployment", "machine", machine, "version", opendeployVersion)
+	slog.Info("created system deployment", "nodeID", nodeID, "version", opendeployVersion)
 }
 
-// EnsureNetproxyDeployment creates the per-machine opendeploy-net internal
+// EnsureNetproxyDeployment creates the per-node opendeploy-net internal
 // deployment when missing and keeps it on the running OpenDeploy version.
-func (s *PrimaryStorage) EnsureNetproxyDeployment(machine string, opendeployVersion string) *apigen.DeploymentConfig {
+func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, opendeployVersion string) *apigen.DeploymentConfig {
+	if nodeID <= 0 {
+		panic("deployment node ID must be positive")
+	}
 	desiredVersion := strings.TrimSpace(opendeployVersion)
 	if desiredVersion == "" {
 		panic("EnsureNetproxyDeployment requires an explicit OpenDeploy version")
 	}
-	cid := apigen.DeploymentIdentifier{
+	cid := apigen.DeploymentIdentity{
 		SpaceID: OpendeploySpaceID,
-		Machine: machine,
 		Name:    netproxyDeploymentName,
 	}
 	desiredSpec := NetproxyDeploymentSpec()
 
 	s.mu.Lock()
 	for _, cfg := range s.configCache {
-		if cfg.ConfigID == cid && !cfg.Deleted {
+		if storage.DeploymentKeyMatches(*cfg, nodeID, cid) && !cfg.Deleted {
 			if !bytes.Equal(cfg.Spec.Encode(), desiredSpec.Encode()) {
-				slog.Warn("repairing netproxy deployment spec", "machine", machine, "deploymentID", cfg.ID)
+				slog.Warn("repairing netproxy deployment spec", "nodeID", nodeID, "deploymentID", cfg.ID)
 				s.repairDeploymentSpecLocked(cfg.ID, desiredSpec, "netproxy")
 				cfg = s.configCache[cfg.ID]
 			}
@@ -883,11 +884,11 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(machine string, opendeployVers
 
 	q := s.q.WithTx(tx)
 	now := time.Now().UnixMilli()
-	nodeID := mustGetNodeIDByIdentifier(bgCtx, q, cid.Machine)
+	legacyMachine := mustGetNodeIdentifierByID(bgCtx, q, nodeID)
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
-		NodeID:         nodeID,
+		NodeID:         int64(nodeID),
 		SpaceID:        int64(cid.SpaceID),
-		Machine:        cid.Machine,
+		Machine:        legacyMachine,
 		Name:           cid.Name,
 		CreatedAt:      now,
 		Version:        1,
@@ -923,9 +924,9 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(machine string, opendeployVers
 	id := int32(dbID)
 	s.configCache[id] = upsertParamsToProto(UpsertDeploymentConfigParams{
 		DeploymentID:   dbID,
-		NodeID:         nodeID,
+		NodeID:         int64(nodeID),
 		SpaceID:        int64(cid.SpaceID),
-		Machine:        cid.Machine,
+		Machine:        legacyMachine,
 		Name:           cid.Name,
 		CreatedAt:      row.CreatedAt,
 		Version:        1,
@@ -936,7 +937,7 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(machine string, opendeployVers
 		Deleted:        0,
 	})
 	s.notifyFromCache(id)
-	slog.Info("created netproxy deployment", "machine", machine, "version", desiredVersion)
+	slog.Info("created netproxy deployment", "nodeID", nodeID, "version", desiredVersion)
 	return s.configCache[id]
 }
 
@@ -1136,14 +1137,14 @@ func statusToHistory(s DeploymentStatus) DeploymentStatusHistory {
 	}
 }
 
-func configHistoryRowToProto(dbID int64, cid apigen.DeploymentIdentifier, createdAt time.Time, r DeploymentConfigHistory) *apigen.DeploymentConfig {
+func configHistoryRowToProto(dbID int64, identity apigen.DeploymentIdentity, createdAt time.Time, r DeploymentConfigHistory) *apigen.DeploymentConfig {
 	spec, err := apigen.DecodeDeploymentSpec(r.SpecBlob)
 	if err != nil {
 		slog.Error("failed decoding deployment spec", "deploymentID", dbID, "version", r.Version, "err", err)
 	}
 	return &apigen.DeploymentConfig{
 		ID:        int32(dbID),
-		ConfigID:  cid,
+		Identity:  identity,
 		CreatedAt: createdAt,
 		Version:   int32(r.Version),
 		UpdatedAt: time.UnixMilli(r.UpdatedAt),
@@ -1167,10 +1168,10 @@ func configProtoToUpsertParams(cfg *apigen.DeploymentConfig) UpsertDeploymentCon
 	}
 	return UpsertDeploymentConfigParams{
 		DeploymentID:   int64(cfg.ID),
-		NodeID:         int64(normalizeDeploymentNodeID(cfg.NodeID)),
-		SpaceID:        int64(cfg.ConfigID.SpaceID),
-		Machine:        cfg.ConfigID.Machine,
-		Name:           cfg.ConfigID.Name,
+		NodeID:         int64(cfg.NodeID),
+		SpaceID:        int64(cfg.Identity.SpaceID),
+		Machine:        fmt.Sprintf("node-%d", cfg.NodeID), // Legacy secondary index compatibility only.
+		Name:           cfg.Identity.Name,
 		CreatedAt:      timeToMillis(cfg.CreatedAt),
 		Version:        int64(cfg.Version),
 		UpdatedAt:      cfg.UpdatedAt.UnixMilli(),
@@ -1190,7 +1191,7 @@ func configRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
 	return &apigen.DeploymentConfig{
 		ID:     int32(r.DeploymentID),
 		NodeID: int32(r.NodeID),
-		ConfigID: apigen.DeploymentIdentifier{
+		Identity: apigen.DeploymentIdentity{
 			SpaceID: int32(r.SpaceID),
 			Machine: r.Machine,
 			Name:    r.Name,
@@ -1216,7 +1217,7 @@ func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfi
 	return &apigen.DeploymentConfig{
 		ID:     int32(p.DeploymentID),
 		NodeID: int32(p.NodeID),
-		ConfigID: apigen.DeploymentIdentifier{
+		Identity: apigen.DeploymentIdentity{
 			SpaceID: int32(p.SpaceID),
 			Machine: p.Machine,
 			Name:    p.Name,
@@ -1234,21 +1235,13 @@ func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfi
 	}
 }
 
-func mustGetNodeIDByIdentifier(ctx context.Context, q *Queries, identifier string) int64 {
-	var nodeID int64
-	err := q.db.QueryRowContext(ctx, `
-		SELECT COALESCE((SELECT id FROM nodes WHERE identifier = ?), -1)`, identifier).Scan(&nodeID)
+func mustGetNodeIdentifierByID(ctx context.Context, q *Queries, nodeID int32) string {
+	var identifier string
+	err := q.db.QueryRowContext(ctx, `SELECT identifier FROM nodes WHERE id = ?`, nodeID).Scan(&identifier)
 	if err != nil {
-		panic(fmt.Sprintf("get node ID by identifier %q: %v", identifier, err))
+		panic(fmt.Sprintf("get identifier for node %d: %v", nodeID, err))
 	}
-	return nodeID
-}
-
-func normalizeDeploymentNodeID(nodeID int32) int32 {
-	if nodeID <= 0 {
-		return -1
-	}
-	return nodeID
+	return identifier
 }
 
 func spaceRowToProto(row Space) *apigen.Space {

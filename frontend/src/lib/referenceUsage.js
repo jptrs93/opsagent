@@ -7,7 +7,7 @@ export function deploymentUsages(deployments, spaces, machines, usesDeployment) 
         const config = deployment?.config;
         if (!config || config.deleted || !usesDeployment(deployment)) return [];
 
-        const identity = config.configId || {};
+        const identity = config.identity || {};
         const spaceId = Number(identity.spaceId || 0);
         return [{
             id: Number(config.id || 0),

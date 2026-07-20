@@ -619,7 +619,7 @@ type DeploymentUpdateRequest struct {
 }
 
 type DeploymentCreateRequest struct {
-	ConfigID     DeploymentIdentifier
+	Identity     DeploymentIdentity
 	Spec         DeploymentSpec
 	DesiredState DesiredState
 	NodeID       int32
@@ -675,7 +675,7 @@ type LogLineBatch struct {
 	LogDir string
 }
 
-type DeploymentIdentifier struct {
+type DeploymentIdentity struct {
 	SpaceID int32
 	Machine string
 	Name    string
@@ -700,7 +700,7 @@ type DeploymentDeleteRequest struct {
 type DeploymentConfig struct {
 	ID           int32
 	NodeID       int32
-	ConfigID     DeploymentIdentifier
+	Identity     DeploymentIdentity
 	Version      int32
 	UpdatedAt    time.Time
 	UpdatedBy    int32
@@ -945,7 +945,7 @@ type MsgToMaster struct {
 type NetState struct {
 	Seq               int64
 	UlaPrefix         []byte
-	Machine           string
+	NodeIdentifier    string
 	DnsServices       []*DnsService
 	UpstreamResolvers []string
 	Ingress           []*NetIngress

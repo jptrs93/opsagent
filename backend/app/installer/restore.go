@@ -136,9 +136,9 @@ func restoredPrimaryName(opts installOptions) string {
 
 func invalidateRestoredPrimaryRuntimeState(dbPath string, own owner) error {
 	store := sqlite.NewPrimaryStorage(dbPath)
-	identifier, err := store.PrimaryNodeIdentifier()
+	nodeID, err := store.PrimaryNodeID()
 	if err == nil {
-		count, err := store.InvalidateMachineRuntimeState(identifier)
+		count, err := store.InvalidateNodeRuntimeState(nodeID)
 		if err == nil {
 			info("invalidated runtime state for %d replacement-primary deployments", count)
 		}

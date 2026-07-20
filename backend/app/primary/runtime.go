@@ -115,17 +115,17 @@ func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
 	}
 }
 
-func (r *runtime) start(ctx context.Context, predicate storage.DeploymentPredicate, machineIdentifier string) {
-	r.store.EnsureSystemDeployment(machineIdentifier, version.Version)
-	r.store.SetNodeStatusByIdentifier(machineIdentifier, true, time.Now())
-	netproxyCfg := r.store.EnsureNetproxyDeployment(machineIdentifier, version.Version)
+func (r *runtime) start(ctx context.Context, predicate storage.DeploymentPredicate, nodeID int32, nodeIdentifier string) {
+	r.store.EnsureSystemDeployment(nodeID, version.Version)
+	r.store.SetNodeStatusByIdentifier(nodeIdentifier, true, time.Now())
+	netproxyCfg := r.store.EnsureNetproxyDeployment(nodeID, version.Version)
 	network.Default.SetNetproxyDeploymentID(netproxyCfg.ID)
 	for _, node := range r.store.ListNodes() {
-		if node.Identifier != "" && node.Identifier != machineIdentifier {
-			r.store.EnsureNetproxyDeployment(node.Identifier, version.Version)
+		if node.ID != nodeID {
+			r.store.EnsureNetproxyDeployment(node.ID, version.Version)
 		}
 	}
 
-	go netproxy.RunNetStateWriter(ctx, r.store, predicate, machineIdentifier, ainit.StaticConfig.NetproxyStatePath)
+	go netproxy.RunNetStateWriter(ctx, r.store, predicate, nodeIdentifier, ainit.StaticConfig.NetproxyStatePath)
 	go r.operator.RunAll(predicate)
 }

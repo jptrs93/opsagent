@@ -41,10 +41,10 @@ export const mockStateStreamState = {
     },
     deploymentsSnapshot: {
         items: [
-            {config: {id: 17, configId: {spaceId: 1, name: "redis.cache"}, version: 12}, status: {state: "running"}},
-            {config: {id: 21, configId: {spaceId: 1, name: "metrics_gateway"}, version: 8}, status: {state: "running"}},
-            {config: {id: 28, configId: {spaceId: 1, name: "report.archive"}, version: 4}, status: {state: "stopped"}},
-            {config: {id: 211, configId: {spaceId: 2, name: "staging_redis"}, version: 2}, status: {state: "running"}},
+            {config: {id: 17, identity: {spaceId: 1, name: "redis.cache"}, version: 12}, status: {state: "running"}},
+            {config: {id: 21, identity: {spaceId: 1, name: "metrics_gateway"}, version: 8}, status: {state: "running"}},
+            {config: {id: 28, identity: {spaceId: 1, name: "report.archive"}, version: 4}, status: {state: "stopped"}},
+            {config: {id: 211, identity: {spaceId: 2, name: "staging_redis"}, version: 2}, status: {state: "running"}},
         ],
     },
 };
@@ -79,11 +79,11 @@ export function referenceCatalogForDocument(document, state = mockStateStreamSta
         deployment: (state.deploymentsSnapshot?.items || [])
             .filter(item => !item.config?.deleted)
             .map(item => stateItem(
-                item.config.configId.name,
+                item.config.identity.name,
                 item.config.id,
                 `Deployment version ${item.config.version}`,
                 undefined,
-                item.config.configId.spaceId,
+                item.config.identity.spaceId,
             )),
     };
 }

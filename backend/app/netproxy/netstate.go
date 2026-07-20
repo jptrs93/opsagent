@@ -23,11 +23,11 @@ type deploymentStore interface {
 
 // RunNetStateWriter writes full protobuf netstate snapshots for the local
 // netproxy process. It is intentionally full-state and idempotent.
-func RunNetStateWriter(ctx context.Context, store deploymentStore, predicate storage.DeploymentPredicate, machine, path string) {
+func RunNetStateWriter(ctx context.Context, store deploymentStore, predicate storage.DeploymentPredicate, nodeIdentifier, path string) {
 	seq := initialNetStateSequence(path)
 	write := func(items []apigen.DeploymentWithStatus) {
 		seq++
-		state := RenderNetState(seq, machine, items)
+		state := RenderNetState(seq, nodeIdentifier, items)
 		if err := WriteNetState(path, state); err != nil {
 			slog.Warn("writing netproxy netstate failed", "path", path, "err", err)
 			return
@@ -69,7 +69,7 @@ func initialNetStateSequence(path string) int64 {
 	return max(state.Seq, 0)
 }
 
-func RenderNetState(seq int64, machine string, items []apigen.DeploymentWithStatus) *apigen.NetState {
+func RenderNetState(seq int64, nodeIdentifier string, items []apigen.DeploymentWithStatus) *apigen.NetState {
 	prefix, _ := network.Default.PrefixValue()
 	services := make([]*apigen.DnsService, 0, len(items))
 	ingress := make([]*apigen.NetIngress, 0)
@@ -83,15 +83,15 @@ func RenderNetState(seq int64, machine string, items []apigen.DeploymentWithStat
 			continue
 		}
 		services = append(services, &apigen.DnsService{
-			Name:        dnsLabel(item.Config.ConfigID.Name),
-			Environment: spaceDNSName(item.Config.ConfigID.SpaceID),
+			Name:        dnsLabel(item.Config.Identity.Name),
+			Environment: spaceDNSName(item.Config.Identity.SpaceID),
 			Endpoints:   ready,
 		})
 	}
 	return &apigen.NetState{
 		Seq:               seq,
 		UlaPrefix:         prefix.Bytes(),
-		Machine:           machine,
+		NodeIdentifier:    nodeIdentifier,
 		DnsServices:       services,
 		UpstreamResolvers: hostResolvers(),
 		Ingress:           ingress,

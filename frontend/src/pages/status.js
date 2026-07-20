@@ -24,8 +24,8 @@ const STATUS_RUNNING = 2;
 const STATUS_STOPPED = 3;
 
 const isOpenDeployDeployment = deployment => {
-    const name = deployment?.name || deployment?.configId?.name || '';
-    const spaceId = Number(deployment?.spaceId ?? deployment?.configId?.spaceId ?? -1);
+    const name = deployment?.name || deployment?.identity?.name || '';
+    const spaceId = Number(deployment?.spaceId ?? deployment?.identity?.spaceId ?? -1);
     return spaceId === OPENDEPLOY_SPACE_ID && (name === 'opendeploy' || name === 'opendeploy-net');
 };
 
@@ -118,9 +118,9 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
     const label = currentConfig
         ? formatDeploymentLabel({
             id: deploymentId,
-            spaceName: `space ${currentConfig.configId?.spaceId ?? 0}`,
+            spaceName: `space ${currentConfig.identity?.spaceId ?? 0}`,
             node: currentConfig.nodeId ? nodeDisplayName(currentConfig.nodeId, machinesS.val) : '',
-            name: currentConfig.configId?.name || '',
+            name: currentConfig.identity?.name || '',
         })
         : `#${deploymentId}`;
 
@@ -221,7 +221,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
 
     return deployments.filter(d => d.config && d.config.id && !d.config.deleted).map((d) => {
         const id = d.config.id; // integer
-        const cid = d.config.configId || {};
+        const identity = d.config.identity || {};
         const spec = d.config.spec || {};
         const desired = d.config.desiredState || {};
         const runner = d.status?.runner || {};
@@ -241,17 +241,17 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
         }
 
         const runnerType = spec.runner?.systemd ? 'systemd' : 'container';
-        const spaceId = cid.spaceId || 0;
+        const spaceId = identity.spaceId || 0;
         const nodeId = Number(d.config.nodeId || 0);
         const node = nodeDisplayName(nodeId, machines);
         const nodeMissing = Boolean(nodeId) && !machinesByNodeId.has(nodeId);
         const existingStatus = runner.status || 0;
         const uiExistingStatus = nodeMissing && existingStatus === STATUS_RUNNING ? 0 : existingStatus;
-        const systemDeployment = isOpenDeployDeployment({spaceId, name: cid.name});
+        const systemDeployment = isOpenDeployDeployment({spaceId, name: identity.name});
 
         return {
             id,
-            name: cid.name || '',
+            name: identity.name || '',
             node,
             nodeId,
             spaceId,
