@@ -49,6 +49,26 @@ func (p *GitVersionProvider) ListCommits(ctx context.Context, repo string, branc
 	return out, nil
 }
 
+func (p *GitVersionProvider) DiscoverVersions(ctx context.Context, repo string, requestedBranch string, limit int) ([]string, string, []*apigen.Version, error) {
+	if repo == "" {
+		return nil, "", nil, fmt.Errorf("git repo missing")
+	}
+	discovery, err := p.git.DiscoverVersions(ctx, repo, requestedBranch, limit)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	commits := make([]*apigen.Version, 0, len(discovery.Commits))
+	for _, c := range discovery.Commits {
+		commits = append(commits, &apigen.Version{
+			ID:     c.Hash,
+			Label:  commitSubject(c.Message),
+			Author: c.Author,
+			Time:   c.Time,
+		})
+	}
+	return discovery.Branches, discovery.SelectedBranch, commits, nil
+}
+
 func (p *GitVersionProvider) DefaultCommit(ctx context.Context, repo string) (string, string, error) {
 	if repo == "" {
 		return "", "", fmt.Errorf("git repo missing")

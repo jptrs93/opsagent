@@ -18,11 +18,12 @@ type fakeGitSourceProvider struct {
 	sourceCommitValid bool
 	sourceErr         error
 
-	listBranchesCalls  int
-	listCommitsCalls   int
-	defaultCommitCalls int
-	validateCalls      []fakeNixSourceCall
-	validateCommitIDs  []string
+	listBranchesCalls     int
+	listCommitsCalls      int
+	discoverVersionsCalls int
+	defaultCommitCalls    int
+	validateCalls         []fakeNixSourceCall
+	validateCommitIDs     []string
 }
 
 type fakeNixSourceCall struct {
@@ -39,6 +40,28 @@ func (f *fakeGitSourceProvider) ListBranches(context.Context, string) ([]string,
 func (f *fakeGitSourceProvider) ListCommits(context.Context, string, string, int) ([]*apigen.Version, error) {
 	f.listCommitsCalls++
 	return f.commits, nil
+}
+
+func (f *fakeGitSourceProvider) DiscoverVersions(_ context.Context, _ string, requestedBranch string, _ int) ([]string, string, []*apigen.Version, error) {
+	f.discoverVersionsCalls++
+	branch := requestedBranch
+	if branch == "" {
+		for _, candidate := range []string{"main", "master", "prod"} {
+			for _, available := range f.branches {
+				if available == candidate {
+					branch = candidate
+					break
+				}
+			}
+			if branch != "" {
+				break
+			}
+		}
+		if branch == "" && len(f.branches) > 0 {
+			branch = f.branches[0]
+		}
+	}
+	return f.branches, branch, f.commits, nil
 }
 
 func (f *fakeGitSourceProvider) DefaultCommit(context.Context, string) (string, string, error) {

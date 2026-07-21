@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,12 @@ type CommitInfo struct {
 	Author  string
 	Time    time.Time
 	Branch  string
+}
+
+type VersionDiscovery struct {
+	Branches       []string
+	SelectedBranch string
+	Commits        []CommitInfo
 }
 
 var fullCommitHashPattern = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
@@ -188,6 +195,78 @@ func (g *Manager) GetCommitLog(ctx context.Context, repoURL string, branch strin
 		commits = append(commits, ci)
 	}
 	return commits, nil
+}
+
+// DiscoverVersions fetches remote branches once, then reads branches and commits
+// from the local metadata cache.
+func (g *Manager) DiscoverVersions(ctx context.Context, repoURL string, requestedBranch string, limit int) (*VersionDiscovery, error) {
+	if limit <= 0 {
+		limit = 25
+	}
+	repoDir, err := g.ensureMetadataRepo(ctx, repoURL)
+	if err != nil {
+		return nil, err
+	}
+	lock := g.repoLock(repoURL)
+	lock.Lock()
+	defer lock.Unlock()
+
+	if _, err := g.runGit(ctx, repoDir, "fetch", "--prune", fmt.Sprintf("--depth=%d", limit), "--filter=tree:0", "origin", "+refs/heads/*:refs/remotes/origin/*"); err != nil {
+		return nil, err
+	}
+	out, err := g.runGit(ctx, repoDir, "for-each-ref", "--format=%(refname:strip=3)", "refs/remotes/origin")
+	if err != nil {
+		return nil, err
+	}
+	branches := []string{}
+	for _, branch := range strings.Fields(out) {
+		if branch != "HEAD" {
+			branches = append(branches, branch)
+		}
+	}
+	selectedBranch := selectVersionBranch(branches, requestedBranch)
+	result := &VersionDiscovery{Branches: branches, SelectedBranch: selectedBranch}
+	if selectedBranch == "" {
+		return result, nil
+	}
+
+	out, err = g.runGit(ctx, repoDir, "log", fmt.Sprintf("--max-count=%d", limit), "--format=%H%x00%s%x00%an%x00%cI%x1e", "refs/remotes/origin/"+selectedBranch)
+	if err != nil {
+		return nil, err
+	}
+	for i, record := range strings.Split(out, "\x1e") {
+		record = strings.TrimSpace(record)
+		if record == "" {
+			continue
+		}
+		fields := strings.Split(record, "\x00")
+		if len(fields) < 4 {
+			continue
+		}
+		commitTime, _ := time.Parse(time.RFC3339, fields[3])
+		ci := CommitInfo{Hash: fields[0], Message: fields[1], Author: fields[2], Time: commitTime}
+		if i == 0 {
+			ci.Branch = selectedBranch
+		}
+		result.Commits = append(result.Commits, ci)
+	}
+	return result, nil
+}
+
+func selectVersionBranch(branches []string, requestedBranch string) string {
+	requestedBranch = strings.TrimSpace(requestedBranch)
+	if requestedBranch != "" && slices.Contains(branches, requestedBranch) {
+		return requestedBranch
+	}
+	for _, preferred := range []string{"main", "master", "prod"} {
+		if slices.Contains(branches, preferred) {
+			return preferred
+		}
+	}
+	if len(branches) > 0 {
+		return branches[0]
+	}
+	return ""
 }
 
 // ValidateExactCommit verifies that commit is a full hash available from the

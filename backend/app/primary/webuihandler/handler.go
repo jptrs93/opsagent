@@ -24,6 +24,7 @@ import (
 type GitSourceProvider interface {
 	ListBranches(context.Context, string) ([]string, error)
 	ListCommits(context.Context, string, string, int) ([]*apigen.Version, error)
+	DiscoverVersions(context.Context, string, string, int) ([]string, string, []*apigen.Version, error)
 	DefaultCommit(context.Context, string) (string, string, error)
 	ValidateCommit(context.Context, string, string) error
 	ValidateNixSource(context.Context, string, string, string) (bool, error)

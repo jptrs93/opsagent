@@ -324,31 +324,9 @@ func TestDeploymentUpdateEnforcesEffectiveRunningNixTransitions(t *testing.T) {
 	})
 }
 
-func TestDeploymentVersionsUsesRemoteDefaultBranch(t *testing.T) {
+func TestDeploymentVersionsUsesCombinedDiscovery(t *testing.T) {
 	h, cfg, provider := newNixDeploymentHandler(t, false)
 	provider.branches = []string{"main", "trunk"}
-	provider.defaultBranch = "trunk"
-	provider.defaultCommit = testNixCommit
-	provider.commits = []*apigen.Version{{ID: testNixCommit}}
-
-	versions, err := h.PostV1DeploymentVersions(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentVersionsRequest{
-		DeploymentID: cfg.ID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if versions.NixDockerBuild.SelectedBranch != "trunk" {
-		t.Fatalf("selected branch = %q, want trunk", versions.NixDockerBuild.SelectedBranch)
-	}
-	if provider.defaultCommitCalls != 1 || provider.listCommitsCalls != 1 {
-		t.Fatalf("default/commit calls = %d/%d", provider.defaultCommitCalls, provider.listCommitsCalls)
-	}
-}
-
-func TestDeploymentVersionsFallsBackWhenRemoteHeadIsUnavailable(t *testing.T) {
-	h, cfg, provider := newNixDeploymentHandler(t, false)
-	provider.branches = []string{"release", "main"}
-	provider.defaultErr = errors.New("remote HEAD is unavailable")
 	provider.commits = []*apigen.Version{{ID: testNixCommit}}
 
 	versions, err := h.PostV1DeploymentVersions(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentVersionsRequest{
@@ -358,7 +336,26 @@ func TestDeploymentVersionsFallsBackWhenRemoteHeadIsUnavailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	if versions.NixDockerBuild.SelectedBranch != "main" {
-		t.Fatalf("selected branch = %q, want main fallback", versions.NixDockerBuild.SelectedBranch)
+		t.Fatalf("selected branch = %q, want main", versions.NixDockerBuild.SelectedBranch)
+	}
+	if provider.discoverVersionsCalls != 1 || provider.defaultCommitCalls != 0 || provider.listCommitsCalls != 0 {
+		t.Fatalf("discover/default/commit calls = %d/%d/%d", provider.discoverVersionsCalls, provider.defaultCommitCalls, provider.listCommitsCalls)
+	}
+}
+
+func TestDeploymentVersionsFallsBackToPreferredLocalBranch(t *testing.T) {
+	h, cfg, provider := newNixDeploymentHandler(t, false)
+	provider.branches = []string{"release", "prod"}
+	provider.commits = []*apigen.Version{{ID: testNixCommit}}
+
+	versions, err := h.PostV1DeploymentVersions(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentVersionsRequest{
+		DeploymentID: cfg.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if versions.NixDockerBuild.SelectedBranch != "prod" {
+		t.Fatalf("selected branch = %q, want prod fallback", versions.NixDockerBuild.SelectedBranch)
 	}
 }
 
@@ -377,6 +374,9 @@ func TestDeploymentVersionsHandlesRepositoryWithoutBranches(t *testing.T) {
 	}
 	if provider.listCommitsCalls != 0 {
 		t.Fatalf("list commits calls = %d, want 0", provider.listCommitsCalls)
+	}
+	if provider.discoverVersionsCalls != 1 {
+		t.Fatalf("discover calls = %d, want 1", provider.discoverVersionsCalls)
 	}
 }
 

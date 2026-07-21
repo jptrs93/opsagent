@@ -15,3 +15,4 @@ testing-vms/.mock-artifacts/
 testing-vms/test-results/
 testing-vms/playwright-report/
 testing-vms/images/playwright/packer_cache/
+socks_proxy.sh

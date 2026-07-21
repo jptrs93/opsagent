@@ -75,6 +75,7 @@ func TestManagerUsesGitForDiscovery(t *testing.T) {
 	}
 	runTestGit(t, repoDir, "add", ".")
 	runTestGit(t, repoDir, "commit", "-m", "initial commit")
+	runTestGit(t, repoDir, "branch", "-M", "prod")
 	runTestGit(t, repoDir, "checkout", "-b", "feature")
 	if err := os.WriteFile(filepath.Join(repoDir, "app.txt"), []byte("feature\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -98,6 +99,17 @@ func TestManagerUsesGitForDiscovery(t *testing.T) {
 	}
 	if len(commits) == 0 || commits[0].Hash != featureCommit || commits[0].Message != "feature commit" {
 		t.Fatalf("GetCommitLog()[0] = %#v, want feature commit %s", commits, featureCommit)
+	}
+
+	discovery, err := git.DiscoverVersions(ctx, repoDir, "", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if discovery.SelectedBranch != "prod" {
+		t.Fatalf("selected branch = %q, want prod", discovery.SelectedBranch)
+	}
+	if len(discovery.Commits) == 0 {
+		t.Fatal("expected commits for selected branch")
 	}
 
 }

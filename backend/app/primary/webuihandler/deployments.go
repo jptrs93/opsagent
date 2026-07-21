@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -287,29 +286,9 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 			return nil, fmt.Errorf("git version loading is not configured")
 		}
 		repo := cfg.Spec.Prepare.NixDockerBuild.Repo
-		branches, err := h.GitVersions.ListBranches(ctx, repo)
+		branches, branch, commits, err := h.GitVersions.DiscoverVersions(ctx, repo, req.SelectedBranch, 25)
 		if err != nil {
-			return nil, fmt.Errorf("listing branches: %w", err)
-		}
-		branch := strings.TrimSpace(req.SelectedBranch)
-		if branch == "" {
-			_, branch, err = h.GitVersions.DefaultCommit(ctx, repo)
-			if err != nil || !slices.Contains(branches, branch) {
-				branch = ""
-				if len(branches) > 0 {
-					branch = branches[0]
-					if slices.Contains(branches, "main") {
-						branch = "main"
-					}
-				}
-			}
-		}
-		commits := []*apigen.Version{}
-		if branch != "" {
-			commits, err = h.GitVersions.ListCommits(ctx, repo, branch, 25)
-			if err != nil {
-				return nil, fmt.Errorf("listing commits: %w", err)
-			}
+			return nil, fmt.Errorf("discovering versions: %w", err)
 		}
 		return &apigen.DeploymentVersions{
 			DeploymentID: req.DeploymentID,
