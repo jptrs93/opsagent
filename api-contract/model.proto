@@ -523,6 +523,12 @@ message NetMapStatus {
   string reconciliation_error = 4;
 }
 
+// ClusterHello is the first frame sent by a worker on each authenticated
+// cluster session.
+message ClusterHello {
+  string underlay_address = 1;
+}
+
 message MsgToMaster {
   DeploymentStatus status_write = 1;
   bytes log_data = 2;
@@ -531,6 +537,7 @@ message MsgToMaster {
   LogLineBatch log_lines = 5 [(cp.go_value) = true];
   LocalRouteReport local_route_report = 6;
   NetMapStatus net_map_status = 7;
+  ClusterHello cluster_hello = 8;
 }
 
 // === Dataplane netstate ===

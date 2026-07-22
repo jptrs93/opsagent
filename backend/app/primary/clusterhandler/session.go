@@ -189,6 +189,8 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 // handleIncoming dispatches one frame from the worker.
 func (s *Session) handleIncoming(msg *apigen.MsgToMaster) {
 	switch {
+	case msg.ClusterHello != nil:
+		s.handleClusterHello(msg.ClusterHello)
 	case msg.StatusWrite != nil:
 		s.handleStatusWrite(msg.StatusWrite)
 	case msg.NetMapStatus != nil:
@@ -205,6 +207,25 @@ func (s *Session) handleIncoming(msg *apigen.MsgToMaster) {
 	case msg.LogEnd:
 		s.routeLogChunk(msg.LogRequestID, logChunk{end: true})
 	}
+}
+
+func (s *Session) handleClusterHello(hello *apigen.ClusterHello) {
+	underlayAddress, err := s.store.NormalizeNodeUnderlay(s.identifier, hello.UnderlayAddress)
+	if err != nil {
+		slog.Warn("worker sent invalid underlay address", "node_id", s.NodeID, "underlay_address", hello.UnderlayAddress, "err", err)
+		return
+	}
+	for _, node := range s.store.ListNodes() {
+		if node == nil || node.ID != s.NodeID {
+			continue
+		}
+		if len(node.Addresses) == 1 && node.Addresses[0] == underlayAddress {
+			return
+		}
+		s.store.MustSetNodeAddresses(s.NodeID, []string{underlayAddress})
+		return
+	}
+	slog.Warn("worker cluster hello references unknown node", "node_id", s.NodeID)
 }
 
 // routeLogChunk sends a log chunk to the channel for the given request ID.

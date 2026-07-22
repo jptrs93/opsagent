@@ -113,3 +113,37 @@ func TestSessionRoutingUsesNodeID(t *testing.T) {
 		t.Fatalf("missing node error = %v, want node ID %d", err, node.ID+1)
 	}
 }
+
+func TestSessionClusterHelloUpdatesAuthenticatedNodeUnderlay(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	defer store.Close()
+	primary := store.EnsurePrimaryNode("primary", "primary")
+	store.MustSetNodeAddresses(primary.ID, []string{"192.0.2.1"})
+	worker := store.EnsurePrimaryNode("worker", "worker-cn")
+	store.MustSetNodeAddresses(worker.ID, []string{"192.0.2.2"})
+	sess := newSession(context.Background(), func() {}, worker.ID, worker.Identifier, deploymentPredicateForNode(worker.ID), store, nil)
+
+	sess.handleIncoming(&apigen.MsgToMaster{ClusterHello: &apigen.ClusterHello{UnderlayAddress: " 192.0.2.3 "}})
+	if got := nodeAddresses(t, store, worker.ID); len(got) != 1 || got[0] != "192.0.2.3" {
+		t.Fatalf("worker addresses = %v, want [192.0.2.3]", got)
+	}
+	if got := nodeAddresses(t, store, primary.ID); len(got) != 1 || got[0] != "192.0.2.1" {
+		t.Fatalf("primary addresses = %v, want [192.0.2.1]", got)
+	}
+
+	sess.handleIncoming(&apigen.MsgToMaster{ClusterHello: &apigen.ClusterHello{UnderlayAddress: "2001:db8::3"}})
+	if got := nodeAddresses(t, store, worker.ID); len(got) != 1 || got[0] != "192.0.2.3" {
+		t.Fatalf("invalid hello changed worker addresses to %v", got)
+	}
+}
+
+func nodeAddresses(t *testing.T, store *sqlite.PrimaryStorage, nodeID int32) []string {
+	t.Helper()
+	for _, node := range store.ListNodes() {
+		if node.ID == nodeID {
+			return node.Addresses
+		}
+	}
+	t.Fatalf("node %d not found", nodeID)
+	return nil
+}

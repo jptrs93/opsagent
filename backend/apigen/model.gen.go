@@ -68,6 +68,15 @@ const (
 	EndpointState_ENDPOINT_DOWN              EndpointState = 3
 )
 
+type FilePermission int32
+
+const (
+	FilePermission_FILE_PERMISSION_UNSPECIFIED FilePermission = 0
+	FilePermission_READ_WRITE                  FilePermission = 1
+	FilePermission_READ                        FilePermission = 2
+	FilePermission_EXECUTE                     FilePermission = 3
+)
+
 type AccessPolicyType int32
 
 const (
@@ -417,6 +426,121 @@ type ValidateSourceResponse struct {
 type ValidateContainerImageSourceResponse struct {
 	Image ValidationResult
 	Tags  []*Version
+}
+
+type DeploymentConfig2 struct {
+	ID        int32
+	NodeID    int32
+	Identity  DeploymentIdentity
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	UpdatedBy int32
+	Version   int32
+	Spec      *DeploymentSpec2
+	Deleted   bool
+}
+
+type DeploymentSpec2 struct {
+	Networking     *NetworkingConfig
+	Container1spec *ContainerSpec
+	Container2spec *ContainerSpec
+	Container3spec *ContainerSpec
+	Microvmspec    *MicroVMSpec
+	Vmspec         *VMSpec
+	Systemdspec    *SystemdSpec
+}
+
+type MicroVMSpec struct {
+}
+
+type VMSpec struct {
+}
+
+type SystemdSpec struct {
+	Source  *GithubRelease
+	Runtime *SystemdRuntime
+	Version string
+	Running bool
+}
+
+type GithubRelease struct {
+	Repo  string
+	Asset string
+}
+
+type SystemdRuntime struct {
+	Name    string
+	BinPath string
+}
+
+type ContainerSpec struct {
+	Source          ContainerBundleSource
+	Runtime         ContainerRuntime
+	Version         string
+	Running         bool
+	UpgradeStrategy ContainerUpgradeStrategy
+	ReadinessSignal *ContainerReadinessSignal
+}
+
+type ContainerBundleSource struct {
+	Nixdockerbuild *NixDockerBuild2
+	Remoteimage    *RemoteDockerImage
+}
+
+type NixDockerBuild2 struct {
+	Repo   string
+	Flake  string
+	Target string
+}
+
+type RemoteDockerImage struct {
+	Image string
+}
+
+type ContainerRuntime struct {
+	User                  string
+	EnvVars               map[string]*EnvVarValue2
+	OverrideCommand       []string
+	OverrideWorkingDir    string
+	DefaultVolume         DefaultVolumeMount
+	CrossDeploymentMounts []*CrossDeploymentMount
+	AssetMounts           []*AssetMount2
+	Mounts                []*CustomHostMount
+	DevShmSizeKb          int32
+	FileDescriptorLimit   int32
+}
+
+type DefaultVolumeMount struct {
+	ContainerPath string
+	Disabled      bool
+}
+
+type CrossDeploymentMount struct {
+	DeploymentID  int32
+	ContainerPath string
+	Permission    FilePermission
+}
+
+type EnvVarValue2 struct {
+	SecretID            *int32
+	ConfigID            *int32
+	Value               *string
+	Asset               string
+	AssetID             int32
+	AddressDeploymentID *int32
+	AddressSpaceID      *int32
+}
+
+type CustomHostMount struct {
+	HostPath      string
+	ContainerPath string
+	Permission    FilePermission
+}
+
+type AssetMount2 struct {
+	AssetID       int32
+	ContainerPath string
+	Permission    FilePermission
 }
 
 type EnrollmentWorkerMsg struct {
@@ -882,6 +1006,10 @@ type NetMapStatus struct {
 	ReconciliationError string
 }
 
+type ClusterHello struct {
+	UnderlayAddress string
+}
+
 type MsgToMaster struct {
 	StatusWrite      *DeploymentStatus
 	LogData          []byte
@@ -890,6 +1018,7 @@ type MsgToMaster struct {
 	LogLines         LogLineBatch
 	LocalRouteReport *LocalRouteReport
 	NetMapStatus     *NetMapStatus
+	ClusterHello     *ClusterHello
 }
 
 type NetState struct {

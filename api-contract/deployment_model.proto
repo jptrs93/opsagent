@@ -540,14 +540,13 @@ message RemoteDockerImage {
 message ContainerRuntime {
   string user = 1;                                // OCI process.user (uid, uid:gid, or name); empty = image default
   map<string, EnvVarValue2> env_vars = 2;         // env vars; values can be literal, secret/config/address ref, or asset
-  repeated string override_command = 3;                    // optional argv override (entrypoint+cmd); empty = image default
-  string override_working_dir = 4;                         // optional OCI process.cwd; empty = image default
+  repeated string override_command = 3;           // optional argv override (entrypoint+cmd); empty = image default
+  string override_working_dir = 4;                // optional OCI process.cwd; empty = image default
 
-  DefaultVolumeMount default_volume = 5;
+  DefaultVolumeMount default_volume = 5 [(cp.go_value) = true];
   repeated CrossDeploymentMount cross_deployment_mounts = 6;
   repeated AssetMount2 asset_mounts = 8; // OpenDeploy-managed readonly asset file mounts
-  
-  repeated ContainerMount2 mounts = 7;            // additional host bind mounts
+  repeated CustomHostMount mounts = 7; // Intended as an override pathway for edge cases that cannot be supports via other mount options.
 
   int32 dev_shm_size_kb = 13;                     // optional /dev/shm tmpfs size override in KiB
   int32 file_descriptor_limit = 14;               // optional RLIMIT_NOFILE override; unset uses the OpenDeploy default
@@ -561,6 +560,7 @@ message DefaultVolumeMount {
 message CrossDeploymentMount {
   int32 deployment_id = 1;
   string container_path = 2;
+  FilePermission permission = 3;
 }
 
 message EnvVarValue2 {
@@ -576,14 +576,21 @@ message EnvVarValue2 {
   optional int32 address_space_id = 7;
 }
 
-message ContainerMount2 {
-  string host = 1;      // host path (must already exist; opsagent does not create these)
-  string container = 2; // destination path inside the container
-  bool readonly = 3;
+message CustomHostMount {
+  string host_path = 1;      // host path (must already exist; opsagent does not create these)
+  string container_path = 2;
+  FilePermission permission = 3;
 }
 
 message AssetMount2 {
-  int32 asset_id = 1;   // immutable asset row id, used for local cache/downloads
+  int32 asset_id = 1;
   string container_path = 2;
-  bool executable = 3;  // mount read-only with execute bits enabled
+  FilePermission permission = 3;
+}
+
+enum FilePermission {
+  FILE_PERMISSION_UNSPECIFIED = 0;
+  READ_WRITE = 1;
+  READ = 2;
+  EXECUTE = 3;
 }

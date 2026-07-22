@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/jptrs93/goutil/pubsubu"
@@ -136,6 +138,33 @@ func (s *PrimaryStorage) MustSetNodeAddresses(id int32, addresses []string) *Nod
 	}
 	s.nodeSubs.Notify(*nodeToAPI(node))
 	return node
+}
+
+// NormalizeNodeUnderlay canonicalizes an optional underlay address and ensures
+// it uses the same address family as the other nodes in the cluster.
+func (s *PrimaryStorage) NormalizeNodeUnderlay(identifier, raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", nil
+	}
+	addr, err := netip.ParseAddr(value)
+	if err != nil || addr.Zone() != "" {
+		return "", fmt.Errorf("invalid underlay address %q", value)
+	}
+	addr = addr.Unmap()
+	for _, node := range s.ListNodes() {
+		if node == nil || node.Identifier == identifier || len(node.Addresses) == 0 || strings.TrimSpace(node.Addresses[0]) == "" {
+			continue
+		}
+		existing, err := netip.ParseAddr(strings.TrimSpace(node.Addresses[0]))
+		if err != nil || existing.Zone() != "" {
+			return "", fmt.Errorf("node %d has invalid stored underlay address", node.ID)
+		}
+		if existing.Unmap().BitLen() != addr.BitLen() {
+			return "", fmt.Errorf("underlay address family differs from cluster")
+		}
+	}
+	return addr.String(), nil
 }
 
 func (s *PrimaryStorage) ListNodes() []*Node {

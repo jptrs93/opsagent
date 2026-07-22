@@ -36,7 +36,14 @@ func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *sqlite.Se
 	const maxBackoff = 30 * time.Second
 	for ctx.Err() == nil {
 		connectedAt := time.Now()
-		err := runSession(ctx, capi, store, cfg.NodeID)
+		underlayAddress := cfg.UnderlayAddress
+		var err error
+		if underlayAddress == "" {
+			underlayAddress, err = resolveDefaultUnderlayAddress(cfg.PrimaryClusterAddr)
+		}
+		if err == nil {
+			err = runSession(ctx, capi, store, cfg.NodeID, underlayAddress)
+		}
 		if ctx.Err() != nil {
 			return
 		}
@@ -105,11 +112,14 @@ func (t *logStreamTracker) remove(requestID string) {
 // the primary's messages (snapshot, config updates, log requests) from the
 // response stream, applying them to the local store. Returns when the stream
 // ends (error or clean EOF).
-func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *sqlite.SecondaryStorage, nodeID int32) error {
+func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *sqlite.SecondaryStorage, nodeID int32, underlayAddress string) error {
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	out := &outbox{ch: make(chan *apigen.MsgToMaster, 64), ctx: sessCtx}
+	// The hello must lead the request stream so the primary can publish an
+	// updated network map as soon as this worker reconnects.
+	out.Send(&apigen.MsgToMaster{ClusterHello: &apigen.ClusterHello{UnderlayAddress: underlayAddress}})
 	if prefix, ok := network.Default.PrefixValue(); ok {
 		status, err := cachedClusterNetMapStatus(store, nodeID, prefix, "")
 		if err != nil {

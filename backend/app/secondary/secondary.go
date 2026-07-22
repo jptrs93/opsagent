@@ -25,6 +25,7 @@ type runtimeConfig struct {
 	TLS                *tls.Config
 	PrimaryClusterAddr string
 	PrimaryName        string // primary certificate DNS/IP SAN for TLS server name verification
+	UnderlayAddress    string // explicit tunnel endpoint; otherwise resolved for every reconnect
 	NodeIdentifier     string
 	NodeID             int32
 	DataDir            string

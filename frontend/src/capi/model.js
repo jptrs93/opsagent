@@ -342,6 +342,121 @@
  * @property {Version[]} tags
  */
 /**
+ * @typedef {Object} DeploymentConfig2
+ * @property {number} id
+ * @property {number} nodeId
+ * @property {DeploymentIdentity} identity
+ * @property {Date} createdAt
+ * @property {Date} updatedAt
+ * @property {number} updatedBy
+ * @property {number} version
+ * @property {DeploymentSpec2} spec
+ * @property {boolean} deleted
+ */
+/**
+ * @typedef {Object} DeploymentSpec2
+ * @property {NetworkingConfig} networking
+ * @property {ContainerSpec} container1spec
+ * @property {ContainerSpec} container2spec
+ * @property {ContainerSpec} container3spec
+ * @property {MicroVMSpec} microvmspec
+ * @property {VMSpec} vmspec
+ * @property {SystemdSpec} systemdspec
+ */
+/**
+ * @typedef {Object} MicroVMSpec
+ */
+/**
+ * @typedef {Object} VMSpec
+ */
+/**
+ * @typedef {Object} SystemdSpec
+ * @property {GithubRelease} source
+ * @property {SystemdRuntime} runtime
+ * @property {string} version
+ * @property {boolean} running
+ */
+/**
+ * @typedef {Object} GithubRelease
+ * @property {string} repo
+ * @property {string} asset
+ */
+/**
+ * @typedef {Object} SystemdRuntime
+ * @property {string} name
+ * @property {string} binPath
+ */
+/**
+ * @typedef {Object} ContainerSpec
+ * @property {ContainerBundleSource} source
+ * @property {ContainerRuntime} runtime
+ * @property {string} version
+ * @property {boolean} running
+ * @property {number} upgradeStrategy
+ * @property {ContainerReadinessSignal} readinessSignal
+ */
+/**
+ * @typedef {Object} ContainerBundleSource
+ * @property {NixDockerBuild2} nixdockerbuild
+ * @property {RemoteDockerImage} remoteimage
+ */
+/**
+ * @typedef {Object} NixDockerBuild2
+ * @property {string} repo
+ * @property {string} flake
+ * @property {string} target
+ */
+/**
+ * @typedef {Object} RemoteDockerImage
+ * @property {string} image
+ */
+/**
+ * @typedef {Object} ContainerRuntime
+ * @property {string} user
+ * @property {Object.<string, EnvVarValue2>} envVars
+ * @property {string[]} overrideCommand
+ * @property {string} overrideWorkingDir
+ * @property {DefaultVolumeMount} defaultVolume
+ * @property {CrossDeploymentMount[]} crossDeploymentMounts
+ * @property {AssetMount2[]} assetMounts
+ * @property {CustomHostMount[]} mounts
+ * @property {number} devShmSizeKb
+ * @property {number} fileDescriptorLimit
+ */
+/**
+ * @typedef {Object} DefaultVolumeMount
+ * @property {string} containerPath
+ * @property {boolean} disabled
+ */
+/**
+ * @typedef {Object} CrossDeploymentMount
+ * @property {number} deploymentId
+ * @property {string} containerPath
+ * @property {number} permission
+ */
+/**
+ * @typedef {Object} EnvVarValue2
+ * @property {number} secretId
+ * @property {number} configId
+ * @property {string} value
+ * @property {string} asset
+ * @property {number} assetId
+ * @property {number} addressDeploymentId
+ * @property {number} addressSpaceId
+ */
+/**
+ * @typedef {Object} CustomHostMount
+ * @property {string} hostPath
+ * @property {string} containerPath
+ * @property {number} permission
+ */
+/**
+ * @typedef {Object} AssetMount2
+ * @property {number} assetId
+ * @property {string} containerPath
+ * @property {number} permission
+ */
+/**
  * @typedef {Object} EnrollmentWorkerMsg
  * @property {EnrollmentHello} hello
  */
@@ -805,6 +920,10 @@
  * @property {string} reconciliationError
  */
 /**
+ * @typedef {Object} ClusterHello
+ * @property {string} underlayAddress
+ */
+/**
  * @typedef {Object} MsgToMaster
  * @property {DeploymentStatus} statusWrite
  * @property {Uint8Array} logData
@@ -813,6 +932,7 @@
  * @property {LogLineBatch} logLines
  * @property {LocalRouteReport} localRouteReport
  * @property {NetMapStatus} netMapStatus
+ * @property {ClusterHello} clusterHello
  */
 /**
  * @typedef {Object} NetState
@@ -4956,6 +5076,1362 @@ function decodeValidateContainerImageSourceResponseMessage(reader, length) {
 export function decodeValidateContainerImageSourceResponse(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeValidateContainerImageSourceResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {DeploymentConfig2} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentConfig2(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.nodeId);
+    }
+    if (message.identity !== undefined && message.identity !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeDeploymentIdentity(message.identity, writer);
+        writer.ldelim();
+    }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.updatedAt instanceof Date && message.updatedAt.getTime() !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.updatedAt.getTime()));
+    }
+    if (message.updatedBy !== undefined && message.updatedBy !== null && message.updatedBy !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.updatedBy);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.version);
+    }
+    if (message.spec !== undefined && message.spec !== null) {
+        writer.uint32(tag(8, WIRE.LDELIM)).fork();
+        writeDeploymentSpec2(message.spec, writer);
+        writer.ldelim();
+    }
+    if (message.deleted === true) {
+        writer.uint32(tag(9, WIRE.VARINT)).bool(message.deleted);
+    }
+}
+
+
+/**
+ * @param {DeploymentConfig2} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentConfig2(message) {
+    const writer = Writer.create();
+    writeDeploymentConfig2(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentConfig2}
+ */
+function decodeDeploymentConfig2Message(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, nodeId: 0, identity: undefined, createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0, version: 0, spec: undefined, deleted: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.nodeId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.identity = decodeDeploymentIdentityMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 5: {
+                message.updatedAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 6: {
+                message.updatedBy = reader.int32();
+                break;
+            }
+            case 7: {
+                message.version = reader.int32();
+                break;
+            }
+            case 8: {
+                message.spec = decodeDeploymentSpec2Message(reader, reader.uint32());
+                break;
+            }
+            case 9: {
+                message.deleted = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentConfig2}
+ */
+export function decodeDeploymentConfig2(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentConfig2Message(reader);
+}
+
+
+
+/**
+ * @param {DeploymentSpec2} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentSpec2(message, writer) {
+    if (message.networking !== undefined && message.networking !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeNetworkingConfig(message.networking, writer);
+        writer.ldelim();
+    }
+    if (message.container1spec !== undefined && message.container1spec !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeContainerSpec(message.container1spec, writer);
+        writer.ldelim();
+    }
+    if (message.container2spec !== undefined && message.container2spec !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeContainerSpec(message.container2spec, writer);
+        writer.ldelim();
+    }
+    if (message.container3spec !== undefined && message.container3spec !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeContainerSpec(message.container3spec, writer);
+        writer.ldelim();
+    }
+    if (message.microvmspec !== undefined && message.microvmspec !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeMicroVMSpec(message.microvmspec, writer);
+        writer.ldelim();
+    }
+    if (message.vmspec !== undefined && message.vmspec !== null) {
+        writer.uint32(tag(6, WIRE.LDELIM)).fork();
+        writeVMSpec(message.vmspec, writer);
+        writer.ldelim();
+    }
+    if (message.systemdspec !== undefined && message.systemdspec !== null) {
+        writer.uint32(tag(7, WIRE.LDELIM)).fork();
+        writeSystemdSpec(message.systemdspec, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {DeploymentSpec2} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentSpec2(message) {
+    const writer = Writer.create();
+    writeDeploymentSpec2(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentSpec2}
+ */
+function decodeDeploymentSpec2Message(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {networking: undefined, container1spec: undefined, container2spec: undefined, container3spec: undefined, microvmspec: undefined, vmspec: undefined, systemdspec: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.networking = decodeNetworkingConfigMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.container1spec = decodeContainerSpecMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.container2spec = decodeContainerSpecMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.container3spec = decodeContainerSpecMessage(reader, reader.uint32());
+                break;
+            }
+            case 5: {
+                message.microvmspec = decodeMicroVMSpecMessage(reader, reader.uint32());
+                break;
+            }
+            case 6: {
+                message.vmspec = decodeVMSpecMessage(reader, reader.uint32());
+                break;
+            }
+            case 7: {
+                message.systemdspec = decodeSystemdSpecMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentSpec2}
+ */
+export function decodeDeploymentSpec2(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentSpec2Message(reader);
+}
+
+
+
+/**
+ * @param {MicroVMSpec} message
+ * @param {Writer} writer
+ */
+export function writeMicroVMSpec(message, writer) {
+}
+
+
+/**
+ * @param {MicroVMSpec} message
+ * @returns {Uint8Array}
+ */
+export function encodeMicroVMSpec(message) {
+    const writer = Writer.create();
+    writeMicroVMSpec(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {MicroVMSpec}
+ */
+function decodeMicroVMSpecMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = { };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {MicroVMSpec}
+ */
+export function decodeMicroVMSpec(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeMicroVMSpecMessage(reader);
+}
+
+
+
+/**
+ * @param {VMSpec} message
+ * @param {Writer} writer
+ */
+export function writeVMSpec(message, writer) {
+}
+
+
+/**
+ * @param {VMSpec} message
+ * @returns {Uint8Array}
+ */
+export function encodeVMSpec(message) {
+    const writer = Writer.create();
+    writeVMSpec(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {VMSpec}
+ */
+function decodeVMSpecMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = { };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {VMSpec}
+ */
+export function decodeVMSpec(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeVMSpecMessage(reader);
+}
+
+
+
+/**
+ * @param {SystemdSpec} message
+ * @param {Writer} writer
+ */
+export function writeSystemdSpec(message, writer) {
+    if (message.source !== undefined && message.source !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeGithubRelease(message.source, writer);
+        writer.ldelim();
+    }
+    if (message.runtime !== undefined && message.runtime !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeSystemdRuntime(message.runtime, writer);
+        writer.ldelim();
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.version);
+    }
+    if (message.running === true) {
+        writer.uint32(tag(4, WIRE.VARINT)).bool(message.running);
+    }
+}
+
+
+/**
+ * @param {SystemdSpec} message
+ * @returns {Uint8Array}
+ */
+export function encodeSystemdSpec(message) {
+    const writer = Writer.create();
+    writeSystemdSpec(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SystemdSpec}
+ */
+function decodeSystemdSpecMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {source: undefined, runtime: undefined, version: "", running: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.source = decodeGithubReleaseMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.runtime = decodeSystemdRuntimeMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.version = reader.string();
+                break;
+            }
+            case 4: {
+                message.running = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SystemdSpec}
+ */
+export function decodeSystemdSpec(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSystemdSpecMessage(reader);
+}
+
+
+
+/**
+ * @param {GithubRelease} message
+ * @param {Writer} writer
+ */
+export function writeGithubRelease(message, writer) {
+    if (message.repo !== undefined && message.repo !== null && message.repo !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.repo);
+    }
+    if (message.asset !== undefined && message.asset !== null && message.asset !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.asset);
+    }
+}
+
+
+/**
+ * @param {GithubRelease} message
+ * @returns {Uint8Array}
+ */
+export function encodeGithubRelease(message) {
+    const writer = Writer.create();
+    writeGithubRelease(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {GithubRelease}
+ */
+function decodeGithubReleaseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {repo: "", asset: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.repo = reader.string();
+                break;
+            }
+            case 2: {
+                message.asset = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {GithubRelease}
+ */
+export function decodeGithubRelease(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeGithubReleaseMessage(reader);
+}
+
+
+
+/**
+ * @param {SystemdRuntime} message
+ * @param {Writer} writer
+ */
+export function writeSystemdRuntime(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.binPath !== undefined && message.binPath !== null && message.binPath !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.binPath);
+    }
+}
+
+
+/**
+ * @param {SystemdRuntime} message
+ * @returns {Uint8Array}
+ */
+export function encodeSystemdRuntime(message) {
+    const writer = Writer.create();
+    writeSystemdRuntime(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SystemdRuntime}
+ */
+function decodeSystemdRuntimeMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "", binPath: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 2: {
+                message.binPath = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SystemdRuntime}
+ */
+export function decodeSystemdRuntime(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSystemdRuntimeMessage(reader);
+}
+
+
+
+/**
+ * @param {ContainerSpec} message
+ * @param {Writer} writer
+ */
+export function writeContainerSpec(message, writer) {
+    if (message.source !== undefined && message.source !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeContainerBundleSource(message.source, writer);
+        writer.ldelim();
+    }
+    if (message.runtime !== undefined && message.runtime !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeContainerRuntime(message.runtime, writer);
+        writer.ldelim();
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.version);
+    }
+    if (message.running === true) {
+        writer.uint32(tag(4, WIRE.VARINT)).bool(message.running);
+    }
+    if (message.upgradeStrategy !== undefined && message.upgradeStrategy !== null && message.upgradeStrategy !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.upgradeStrategy);
+    }
+    if (message.readinessSignal !== undefined && message.readinessSignal !== null) {
+        writer.uint32(tag(6, WIRE.LDELIM)).fork();
+        writeContainerReadinessSignal(message.readinessSignal, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {ContainerSpec} message
+ * @returns {Uint8Array}
+ */
+export function encodeContainerSpec(message) {
+    const writer = Writer.create();
+    writeContainerSpec(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ContainerSpec}
+ */
+function decodeContainerSpecMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {source: undefined, runtime: undefined, version: "", running: false, upgradeStrategy: 0, readinessSignal: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.source = decodeContainerBundleSourceMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.runtime = decodeContainerRuntimeMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.version = reader.string();
+                break;
+            }
+            case 4: {
+                message.running = reader.bool();
+                break;
+            }
+            case 5: {
+                message.upgradeStrategy = reader.int32();
+                break;
+            }
+            case 6: {
+                message.readinessSignal = decodeContainerReadinessSignalMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ContainerSpec}
+ */
+export function decodeContainerSpec(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeContainerSpecMessage(reader);
+}
+
+
+
+/**
+ * @param {ContainerBundleSource} message
+ * @param {Writer} writer
+ */
+export function writeContainerBundleSource(message, writer) {
+    if (message.nixdockerbuild !== undefined && message.nixdockerbuild !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeNixDockerBuild2(message.nixdockerbuild, writer);
+        writer.ldelim();
+    }
+    if (message.remoteimage !== undefined && message.remoteimage !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeRemoteDockerImage(message.remoteimage, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {ContainerBundleSource} message
+ * @returns {Uint8Array}
+ */
+export function encodeContainerBundleSource(message) {
+    const writer = Writer.create();
+    writeContainerBundleSource(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ContainerBundleSource}
+ */
+function decodeContainerBundleSourceMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {nixdockerbuild: undefined, remoteimage: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.nixdockerbuild = decodeNixDockerBuild2Message(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.remoteimage = decodeRemoteDockerImageMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ContainerBundleSource}
+ */
+export function decodeContainerBundleSource(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeContainerBundleSourceMessage(reader);
+}
+
+
+
+/**
+ * @param {NixDockerBuild2} message
+ * @param {Writer} writer
+ */
+export function writeNixDockerBuild2(message, writer) {
+    if (message.repo !== undefined && message.repo !== null && message.repo !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.repo);
+    }
+    if (message.flake !== undefined && message.flake !== null && message.flake !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.flake);
+    }
+    if (message.target !== undefined && message.target !== null && message.target !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.target);
+    }
+}
+
+
+/**
+ * @param {NixDockerBuild2} message
+ * @returns {Uint8Array}
+ */
+export function encodeNixDockerBuild2(message) {
+    const writer = Writer.create();
+    writeNixDockerBuild2(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NixDockerBuild2}
+ */
+function decodeNixDockerBuild2Message(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {repo: "", flake: "", target: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.repo = reader.string();
+                break;
+            }
+            case 2: {
+                message.flake = reader.string();
+                break;
+            }
+            case 3: {
+                message.target = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NixDockerBuild2}
+ */
+export function decodeNixDockerBuild2(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNixDockerBuild2Message(reader);
+}
+
+
+
+/**
+ * @param {RemoteDockerImage} message
+ * @param {Writer} writer
+ */
+export function writeRemoteDockerImage(message, writer) {
+    if (message.image !== undefined && message.image !== null && message.image !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.image);
+    }
+}
+
+
+/**
+ * @param {RemoteDockerImage} message
+ * @returns {Uint8Array}
+ */
+export function encodeRemoteDockerImage(message) {
+    const writer = Writer.create();
+    writeRemoteDockerImage(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {RemoteDockerImage}
+ */
+function decodeRemoteDockerImageMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {image: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.image = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {RemoteDockerImage}
+ */
+export function decodeRemoteDockerImage(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeRemoteDockerImageMessage(reader);
+}
+
+
+
+/**
+ * @param {ContainerRuntime} message
+ * @param {Writer} writer
+ */
+export function writeContainerRuntime(message, writer) {
+    if (message.user !== undefined && message.user !== null && message.user !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.user);
+    }
+    if (message.envVars && Object.keys(message.envVars).length > 0) {
+        for (const [rawKey, value] of Object.entries(message.envVars)) {
+            const key = rawKey;
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writer.uint32(tag(1, WIRE.LDELIM)).string(key);
+            if (value) {
+                writer.uint32(tag(2, WIRE.LDELIM)).fork();
+                writeEnvVarValue2(value, writer);
+                writer.ldelim();
+            }
+            writer.ldelim();
+        }
+    }
+    if (message.overrideCommand && message.overrideCommand.length > 0) {
+        for (const item of message.overrideCommand) {
+            writer.uint32(tag(3, WIRE.LDELIM)).string(item);
+        }
+    }
+    if (message.overrideWorkingDir !== undefined && message.overrideWorkingDir !== null && message.overrideWorkingDir !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.overrideWorkingDir);
+    }
+    if (message.defaultVolume !== undefined && message.defaultVolume !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeDefaultVolumeMount(message.defaultVolume, writer);
+        writer.ldelim();
+    }
+    if (message.crossDeploymentMounts && message.crossDeploymentMounts.length > 0) {
+        for (const item of message.crossDeploymentMounts) {
+            writer.uint32(tag(6, WIRE.LDELIM)).fork();
+            writeCrossDeploymentMount(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.assetMounts && message.assetMounts.length > 0) {
+        for (const item of message.assetMounts) {
+            writer.uint32(tag(8, WIRE.LDELIM)).fork();
+            writeAssetMount2(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.mounts && message.mounts.length > 0) {
+        for (const item of message.mounts) {
+            writer.uint32(tag(7, WIRE.LDELIM)).fork();
+            writeCustomHostMount(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.devShmSizeKb !== undefined && message.devShmSizeKb !== null && message.devShmSizeKb !== 0) {
+        writer.uint32(tag(13, WIRE.VARINT)).int32(message.devShmSizeKb);
+    }
+    if (message.fileDescriptorLimit !== undefined && message.fileDescriptorLimit !== null && message.fileDescriptorLimit !== 0) {
+        writer.uint32(tag(14, WIRE.VARINT)).int32(message.fileDescriptorLimit);
+    }
+}
+
+
+/**
+ * @param {ContainerRuntime} message
+ * @returns {Uint8Array}
+ */
+export function encodeContainerRuntime(message) {
+    const writer = Writer.create();
+    writeContainerRuntime(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ContainerRuntime}
+ */
+function decodeContainerRuntimeMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {user: "", envVars: {}, overrideCommand: [], overrideWorkingDir: "", defaultVolume: undefined, crossDeploymentMounts: [], assetMounts: [], mounts: [], devShmSizeKb: 0, fileDescriptorLimit: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.user = reader.string();
+                break;
+            }
+            case 2: {
+                const end2 = reader.uint32() + reader.pos;
+                let key = "";
+                let value = undefined;
+                while (reader.pos < end2) {
+                    const tag2 = reader.uint32();
+                    switch (tag2 >>> 3) {
+                        case 1:
+                            key = reader.string();
+                            break;
+                        case 2:
+                            value = decodeEnvVarValue2Message(reader, reader.uint32());
+                            break;
+                        default:
+                            reader.skipType(tag2 & 7);
+                    }
+                }
+                if (!message.envVars) { message.envVars = {}; }
+                message.envVars[String(key)] = value;
+                break;
+            }
+            case 3: {
+                message.overrideCommand.push(reader.string());
+                break;
+            }
+            case 4: {
+                message.overrideWorkingDir = reader.string();
+                break;
+            }
+            case 5: {
+                message.defaultVolume = decodeDefaultVolumeMountMessage(reader, reader.uint32());
+                break;
+            }
+            case 6: {
+                message.crossDeploymentMounts.push(decodeCrossDeploymentMountMessage(reader, reader.uint32()));
+                break;
+            }
+            case 8: {
+                message.assetMounts.push(decodeAssetMount2Message(reader, reader.uint32()));
+                break;
+            }
+            case 7: {
+                message.mounts.push(decodeCustomHostMountMessage(reader, reader.uint32()));
+                break;
+            }
+            case 13: {
+                message.devShmSizeKb = reader.int32();
+                break;
+            }
+            case 14: {
+                message.fileDescriptorLimit = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ContainerRuntime}
+ */
+export function decodeContainerRuntime(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeContainerRuntimeMessage(reader);
+}
+
+
+
+/**
+ * @param {DefaultVolumeMount} message
+ * @param {Writer} writer
+ */
+export function writeDefaultVolumeMount(message, writer) {
+    if (message.containerPath !== undefined && message.containerPath !== null && message.containerPath !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.containerPath);
+    }
+    if (message.disabled === true) {
+        writer.uint32(tag(2, WIRE.VARINT)).bool(message.disabled);
+    }
+}
+
+
+/**
+ * @param {DefaultVolumeMount} message
+ * @returns {Uint8Array}
+ */
+export function encodeDefaultVolumeMount(message) {
+    const writer = Writer.create();
+    writeDefaultVolumeMount(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DefaultVolumeMount}
+ */
+function decodeDefaultVolumeMountMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {containerPath: "", disabled: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.containerPath = reader.string();
+                break;
+            }
+            case 2: {
+                message.disabled = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DefaultVolumeMount}
+ */
+export function decodeDefaultVolumeMount(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDefaultVolumeMountMessage(reader);
+}
+
+
+
+/**
+ * @param {CrossDeploymentMount} message
+ * @param {Writer} writer
+ */
+export function writeCrossDeploymentMount(message, writer) {
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
+    }
+    if (message.containerPath !== undefined && message.containerPath !== null && message.containerPath !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.containerPath);
+    }
+    if (message.permission !== undefined && message.permission !== null && message.permission !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.permission);
+    }
+}
+
+
+/**
+ * @param {CrossDeploymentMount} message
+ * @returns {Uint8Array}
+ */
+export function encodeCrossDeploymentMount(message) {
+    const writer = Writer.create();
+    writeCrossDeploymentMount(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {CrossDeploymentMount}
+ */
+function decodeCrossDeploymentMountMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {deploymentId: 0, containerPath: "", permission: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.deploymentId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.containerPath = reader.string();
+                break;
+            }
+            case 3: {
+                message.permission = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {CrossDeploymentMount}
+ */
+export function decodeCrossDeploymentMount(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeCrossDeploymentMountMessage(reader);
+}
+
+
+
+/**
+ * @param {EnvVarValue2} message
+ * @param {Writer} writer
+ */
+export function writeEnvVarValue2(message, writer) {
+    if (message.secretId !== undefined && message.secretId !== null) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.secretId);
+    }
+    if (message.configId !== undefined && message.configId !== null) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.configId);
+    }
+    if (message.value !== undefined && message.value !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
+    }
+    if (message.asset !== undefined && message.asset !== null && message.asset !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.asset);
+    }
+    if (message.assetId !== undefined && message.assetId !== null && message.assetId !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.assetId);
+    }
+    if (message.addressDeploymentId !== undefined && message.addressDeploymentId !== null) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.addressDeploymentId);
+    }
+    if (message.addressSpaceId !== undefined && message.addressSpaceId !== null) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.addressSpaceId);
+    }
+}
+
+
+/**
+ * @param {EnvVarValue2} message
+ * @returns {Uint8Array}
+ */
+export function encodeEnvVarValue2(message) {
+    const writer = Writer.create();
+    writeEnvVarValue2(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {EnvVarValue2}
+ */
+function decodeEnvVarValue2Message(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {secretId: undefined, configId: undefined, value: undefined, asset: "", assetId: 0, addressDeploymentId: undefined, addressSpaceId: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.secretId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.configId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.value = reader.string();
+                break;
+            }
+            case 4: {
+                message.asset = reader.string();
+                break;
+            }
+            case 5: {
+                message.assetId = reader.int32();
+                break;
+            }
+            case 6: {
+                message.addressDeploymentId = reader.int32();
+                break;
+            }
+            case 7: {
+                message.addressSpaceId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {EnvVarValue2}
+ */
+export function decodeEnvVarValue2(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeEnvVarValue2Message(reader);
+}
+
+
+
+/**
+ * @param {CustomHostMount} message
+ * @param {Writer} writer
+ */
+export function writeCustomHostMount(message, writer) {
+    if (message.hostPath !== undefined && message.hostPath !== null && message.hostPath !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.hostPath);
+    }
+    if (message.containerPath !== undefined && message.containerPath !== null && message.containerPath !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.containerPath);
+    }
+    if (message.permission !== undefined && message.permission !== null && message.permission !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.permission);
+    }
+}
+
+
+/**
+ * @param {CustomHostMount} message
+ * @returns {Uint8Array}
+ */
+export function encodeCustomHostMount(message) {
+    const writer = Writer.create();
+    writeCustomHostMount(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {CustomHostMount}
+ */
+function decodeCustomHostMountMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {hostPath: "", containerPath: "", permission: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.hostPath = reader.string();
+                break;
+            }
+            case 2: {
+                message.containerPath = reader.string();
+                break;
+            }
+            case 3: {
+                message.permission = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {CustomHostMount}
+ */
+export function decodeCustomHostMount(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeCustomHostMountMessage(reader);
+}
+
+
+
+/**
+ * @param {AssetMount2} message
+ * @param {Writer} writer
+ */
+export function writeAssetMount2(message, writer) {
+    if (message.assetId !== undefined && message.assetId !== null && message.assetId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.assetId);
+    }
+    if (message.containerPath !== undefined && message.containerPath !== null && message.containerPath !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.containerPath);
+    }
+    if (message.permission !== undefined && message.permission !== null && message.permission !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.permission);
+    }
+}
+
+
+/**
+ * @param {AssetMount2} message
+ * @returns {Uint8Array}
+ */
+export function encodeAssetMount2(message) {
+    const writer = Writer.create();
+    writeAssetMount2(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AssetMount2}
+ */
+function decodeAssetMount2Message(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {assetId: 0, containerPath: "", permission: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.assetId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.containerPath = reader.string();
+                break;
+            }
+            case 3: {
+                message.permission = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AssetMount2}
+ */
+export function decodeAssetMount2(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAssetMount2Message(reader);
 }
 
 
@@ -10523,6 +11999,62 @@ export function decodeNetMapStatus(buffer) {
 
 
 /**
+ * @param {ClusterHello} message
+ * @param {Writer} writer
+ */
+export function writeClusterHello(message, writer) {
+    if (message.underlayAddress !== undefined && message.underlayAddress !== null && message.underlayAddress !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.underlayAddress);
+    }
+}
+
+
+/**
+ * @param {ClusterHello} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterHello(message) {
+    const writer = Writer.create();
+    writeClusterHello(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterHello}
+ */
+function decodeClusterHelloMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {underlayAddress: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.underlayAddress = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterHello}
+ */
+export function decodeClusterHello(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterHelloMessage(reader);
+}
+
+
+
+/**
  * @param {MsgToMaster} message
  * @param {Writer} writer
  */
@@ -10556,6 +12088,11 @@ export function writeMsgToMaster(message, writer) {
         writeNetMapStatus(message.netMapStatus, writer);
         writer.ldelim();
     }
+    if (message.clusterHello !== undefined && message.clusterHello !== null) {
+        writer.uint32(tag(8, WIRE.LDELIM)).fork();
+        writeClusterHello(message.clusterHello, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -10577,7 +12114,7 @@ export function encodeMsgToMaster(message) {
  */
 function decodeMsgToMasterMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {statusWrite: undefined, logData: new Uint8Array(0), logEnd: false, logRequestId: "", logLines: undefined, localRouteReport: undefined, netMapStatus: undefined };
+    const message = {statusWrite: undefined, logData: new Uint8Array(0), logEnd: false, logRequestId: "", logLines: undefined, localRouteReport: undefined, netMapStatus: undefined, clusterHello: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10607,6 +12144,10 @@ function decodeMsgToMasterMessage(reader, length) {
             }
             case 7: {
                 message.netMapStatus = decodeNetMapStatusMessage(reader, reader.uint32());
+                break;
+            }
+            case 8: {
+                message.clusterHello = decodeClusterHelloMessage(reader, reader.uint32());
                 break;
             }
             default:

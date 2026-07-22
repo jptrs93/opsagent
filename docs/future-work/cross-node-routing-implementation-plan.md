@@ -110,7 +110,6 @@ until the tunnel reconciler is implemented.
 
 The following do not exist yet:
 
-- Post-enrollment underlay-address updates from connected workers.
 - Fixed `ip6tnl` or SIT interface reconciliation.
 - Remote logical `/128` route reconciliation.
 - Complete reporting and distribution of temporary run-scoped routes.

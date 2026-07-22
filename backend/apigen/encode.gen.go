@@ -2619,6 +2619,901 @@ func DecodeValidateContainerImageSourceResponse(b []byte) (*ValidateContainerIma
 	return &m, nil
 }
 
+func (m *DeploymentConfig2) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt32Field(b, m.NodeID, 2)
+	if !m.Identity.IsZero() {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Identity.Encode())
+	}
+	b = AppendInt64FromTime(b, m.CreatedAt, 4)
+	b = AppendInt64FromTime(b, m.UpdatedAt, 5)
+	b = AppendInt32Field(b, m.UpdatedBy, 6)
+	b = AppendInt32Field(b, m.Version, 7)
+	if m.Spec != nil {
+		b = AppendTag(b, 8, BytesType)
+		b = AppendBytes(b, m.Spec.Encode())
+	}
+	b = AppendBoolField(b, m.Deleted, 9)
+	return b
+}
+
+func DecodeDeploymentConfig2(b []byte) (*DeploymentConfig2, error) {
+	var m DeploymentConfig2
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.NodeID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentIdentity
+				item, err = DecodeDeploymentIdentity(msgBytes)
+				if err == nil {
+					m.Identity = *item
+				}
+			}
+		case 4:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 5:
+			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 6:
+			b, m.UpdatedBy, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		case 8:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentSpec2
+				item, err = DecodeDeploymentSpec2(msgBytes)
+				if err == nil {
+					m.Spec = item
+				}
+			}
+		case 9:
+			b, m.Deleted, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *DeploymentSpec2) Encode() []byte {
+	var b []byte
+	if m.Networking != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Networking.Encode())
+	}
+	if m.Container1spec != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Container1spec.Encode())
+	}
+	if m.Container2spec != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Container2spec.Encode())
+	}
+	if m.Container3spec != nil {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.Container3spec.Encode())
+	}
+	if m.Microvmspec != nil {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.Microvmspec.Encode())
+	}
+	if m.Vmspec != nil {
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, m.Vmspec.Encode())
+	}
+	if m.Systemdspec != nil {
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.Systemdspec.Encode())
+	}
+	return b
+}
+
+func DecodeDeploymentSpec2(b []byte) (*DeploymentSpec2, error) {
+	var m DeploymentSpec2
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetworkingConfig
+				item, err = DecodeNetworkingConfig(msgBytes)
+				if err == nil {
+					m.Networking = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ContainerSpec
+				item, err = DecodeContainerSpec(msgBytes)
+				if err == nil {
+					m.Container1spec = item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ContainerSpec
+				item, err = DecodeContainerSpec(msgBytes)
+				if err == nil {
+					m.Container2spec = item
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ContainerSpec
+				item, err = DecodeContainerSpec(msgBytes)
+				if err == nil {
+					m.Container3spec = item
+				}
+			}
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *MicroVMSpec
+				item, err = DecodeMicroVMSpec(msgBytes)
+				if err == nil {
+					m.Microvmspec = item
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *VMSpec
+				item, err = DecodeVMSpec(msgBytes)
+				if err == nil {
+					m.Vmspec = item
+				}
+			}
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SystemdSpec
+				item, err = DecodeSystemdSpec(msgBytes)
+				if err == nil {
+					m.Systemdspec = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *MicroVMSpec) Encode() []byte {
+	var b []byte
+	return b
+}
+
+func DecodeMicroVMSpec(b []byte) (*MicroVMSpec, error) {
+	var m MicroVMSpec
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *VMSpec) Encode() []byte {
+	var b []byte
+	return b
+}
+
+func DecodeVMSpec(b []byte) (*VMSpec, error) {
+	var m VMSpec
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SystemdSpec) Encode() []byte {
+	var b []byte
+	if m.Source != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Source.Encode())
+	}
+	if m.Runtime != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Runtime.Encode())
+	}
+	b = AppendStringField(b, m.Version, 3)
+	b = AppendBoolField(b, m.Running, 4)
+	return b
+}
+
+func DecodeSystemdSpec(b []byte) (*SystemdSpec, error) {
+	var m SystemdSpec
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *GithubRelease
+				item, err = DecodeGithubRelease(msgBytes)
+				if err == nil {
+					m.Source = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SystemdRuntime
+				item, err = DecodeSystemdRuntime(msgBytes)
+				if err == nil {
+					m.Runtime = item
+				}
+			}
+		case 3:
+			b, m.Version, err = ConsumeString(b, typ)
+		case 4:
+			b, m.Running, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *GithubRelease) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Repo, 1)
+	b = AppendStringField(b, m.Asset, 2)
+	return b
+}
+
+func DecodeGithubRelease(b []byte) (*GithubRelease, error) {
+	var m GithubRelease
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Repo, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Asset, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SystemdRuntime) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendStringField(b, m.BinPath, 2)
+	return b
+}
+
+func DecodeSystemdRuntime(b []byte) (*SystemdRuntime, error) {
+	var m SystemdRuntime
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.BinPath, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ContainerSpec) Encode() []byte {
+	var b []byte
+	if !m.Source.IsZero() {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Source.Encode())
+	}
+	if !m.Runtime.IsZero() {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Runtime.Encode())
+	}
+	b = AppendStringField(b, m.Version, 3)
+	b = AppendBoolField(b, m.Running, 4)
+	b = AppendInt32Field(b, int32(m.UpgradeStrategy), 5)
+	if m.ReadinessSignal != nil {
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, m.ReadinessSignal.Encode())
+	}
+	return b
+}
+
+func DecodeContainerSpec(b []byte) (*ContainerSpec, error) {
+	var m ContainerSpec
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ContainerBundleSource
+				item, err = DecodeContainerBundleSource(msgBytes)
+				if err == nil {
+					m.Source = *item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ContainerRuntime
+				item, err = DecodeContainerRuntime(msgBytes)
+				if err == nil {
+					m.Runtime = *item
+				}
+			}
+		case 3:
+			b, m.Version, err = ConsumeString(b, typ)
+		case 4:
+			b, m.Running, err = ConsumeBool(b, typ)
+		case 5:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.UpgradeStrategy = ContainerUpgradeStrategy(raw)
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ContainerReadinessSignal
+				item, err = DecodeContainerReadinessSignal(msgBytes)
+				if err == nil {
+					m.ReadinessSignal = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m ContainerBundleSource) IsZero() bool {
+	return m.Nixdockerbuild == nil &&
+		m.Remoteimage == nil
+}
+
+func (m *ContainerBundleSource) Encode() []byte {
+	var b []byte
+	if m.Nixdockerbuild != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Nixdockerbuild.Encode())
+	}
+	if m.Remoteimage != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Remoteimage.Encode())
+	}
+	return b
+}
+
+func DecodeContainerBundleSource(b []byte) (*ContainerBundleSource, error) {
+	var m ContainerBundleSource
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NixDockerBuild2
+				item, err = DecodeNixDockerBuild2(msgBytes)
+				if err == nil {
+					m.Nixdockerbuild = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *RemoteDockerImage
+				item, err = DecodeRemoteDockerImage(msgBytes)
+				if err == nil {
+					m.Remoteimage = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NixDockerBuild2) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Repo, 1)
+	b = AppendStringField(b, m.Flake, 2)
+	b = AppendStringField(b, m.Target, 3)
+	return b
+}
+
+func DecodeNixDockerBuild2(b []byte) (*NixDockerBuild2, error) {
+	var m NixDockerBuild2
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Repo, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Flake, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Target, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *RemoteDockerImage) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Image, 1)
+	return b
+}
+
+func DecodeRemoteDockerImage(b []byte) (*RemoteDockerImage, error) {
+	var m RemoteDockerImage
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Image, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m ContainerRuntime) IsZero() bool {
+	return m.User == "" &&
+		len(m.EnvVars) == 0 &&
+		len(m.OverrideCommand) == 0 &&
+		m.OverrideWorkingDir == "" &&
+		m.DefaultVolume.IsZero() &&
+		len(m.CrossDeploymentMounts) == 0 &&
+		len(m.AssetMounts) == 0 &&
+		len(m.Mounts) == 0 &&
+		m.DevShmSizeKb == 0 &&
+		m.FileDescriptorLimit == 0
+}
+
+func (m *ContainerRuntime) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.User, 1)
+	b = AppendMap(b, m.EnvVars, 2, AppendFieldDecorator(AppendStringField, 1), AppendMessageFieldDecorator[*EnvVarValue2](2))
+	b = AppendRepeated(b, m.OverrideCommand, AppendFieldDecorator(AppendStringField, 3))
+	b = AppendStringField(b, m.OverrideWorkingDir, 4)
+	if !m.DefaultVolume.IsZero() {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.DefaultVolume.Encode())
+	}
+	for _, item := range m.CrossDeploymentMounts {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	for _, item := range m.AssetMounts {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 8, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	for _, item := range m.Mounts {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	b = AppendInt32Field(b, m.DevShmSizeKb, 13)
+	b = AppendInt32Field(b, m.FileDescriptorLimit, 14)
+	return b
+}
+
+func DecodeContainerRuntime(b []byte) (*ContainerRuntime, error) {
+	var m ContainerRuntime
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.User, err = ConsumeString(b, typ)
+		case 2:
+			if m.EnvVars == nil {
+				m.EnvVars = make(map[string]*EnvVarValue2)
+			}
+			b, err = ConsumeMapEntry(b, typ, m.EnvVars, ConsumeString, ConsumeMessageDecorator(DecodeEnvVarValue2))
+		case 3:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.OverrideCommand = append(m.OverrideCommand, item)
+			}
+		case 4:
+			b, m.OverrideWorkingDir, err = ConsumeString(b, typ)
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DefaultVolumeMount
+				item, err = DecodeDefaultVolumeMount(msgBytes)
+				if err == nil {
+					m.DefaultVolume = *item
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *CrossDeploymentMount
+				item, err = DecodeCrossDeploymentMount(msgBytes)
+				if err == nil {
+					m.CrossDeploymentMounts = append(m.CrossDeploymentMounts, item)
+				}
+			}
+		case 8:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AssetMount2
+				item, err = DecodeAssetMount2(msgBytes)
+				if err == nil {
+					m.AssetMounts = append(m.AssetMounts, item)
+				}
+			}
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *CustomHostMount
+				item, err = DecodeCustomHostMount(msgBytes)
+				if err == nil {
+					m.Mounts = append(m.Mounts, item)
+				}
+			}
+		case 13:
+			b, m.DevShmSizeKb, err = ConsumeVarInt32(b, typ)
+		case 14:
+			b, m.FileDescriptorLimit, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m DefaultVolumeMount) IsZero() bool {
+	return m.ContainerPath == "" &&
+		m.Disabled == false
+}
+
+func (m *DefaultVolumeMount) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.ContainerPath, 1)
+	b = AppendBoolField(b, m.Disabled, 2)
+	return b
+}
+
+func DecodeDefaultVolumeMount(b []byte) (*DefaultVolumeMount, error) {
+	var m DefaultVolumeMount
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ContainerPath, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Disabled, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *CrossDeploymentMount) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DeploymentID, 1)
+	b = AppendStringField(b, m.ContainerPath, 2)
+	b = AppendInt32Field(b, int32(m.Permission), 3)
+	return b
+}
+
+func DecodeCrossDeploymentMount(b []byte) (*CrossDeploymentMount, error) {
+	var m CrossDeploymentMount
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.ContainerPath, err = ConsumeString(b, typ)
+		case 3:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Permission = FilePermission(raw)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *EnvVarValue2) Encode() []byte {
+	var b []byte
+	b = AppendInt32FieldOpt(b, m.SecretID, 1)
+	b = AppendInt32FieldOpt(b, m.ConfigID, 2)
+	b = AppendStringFieldOpt(b, m.Value, 3)
+	b = AppendStringField(b, m.Asset, 4)
+	b = AppendInt32Field(b, m.AssetID, 5)
+	b = AppendInt32FieldOpt(b, m.AddressDeploymentID, 6)
+	b = AppendInt32FieldOpt(b, m.AddressSpaceID, 7)
+	return b
+}
+
+func DecodeEnvVarValue2(b []byte) (*EnvVarValue2, error) {
+	var m EnvVarValue2
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.SecretID, err = ConsumeVarInt32Opt(b, typ)
+		case 2:
+			b, m.ConfigID, err = ConsumeVarInt32Opt(b, typ)
+		case 3:
+			b, m.Value, err = ConsumeStringOpt(b, typ)
+		case 4:
+			b, m.Asset, err = ConsumeString(b, typ)
+		case 5:
+			b, m.AssetID, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.AddressDeploymentID, err = ConsumeVarInt32Opt(b, typ)
+		case 7:
+			b, m.AddressSpaceID, err = ConsumeVarInt32Opt(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *CustomHostMount) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.HostPath, 1)
+	b = AppendStringField(b, m.ContainerPath, 2)
+	b = AppendInt32Field(b, int32(m.Permission), 3)
+	return b
+}
+
+func DecodeCustomHostMount(b []byte) (*CustomHostMount, error) {
+	var m CustomHostMount
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.HostPath, err = ConsumeString(b, typ)
+		case 2:
+			b, m.ContainerPath, err = ConsumeString(b, typ)
+		case 3:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Permission = FilePermission(raw)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AssetMount2) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.AssetID, 1)
+	b = AppendStringField(b, m.ContainerPath, 2)
+	b = AppendInt32Field(b, int32(m.Permission), 3)
+	return b
+}
+
+func DecodeAssetMount2(b []byte) (*AssetMount2, error) {
+	var m AssetMount2
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.AssetID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.ContainerPath, err = ConsumeString(b, typ)
+		case 3:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Permission = FilePermission(raw)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *EnrollmentWorkerMsg) Encode() []byte {
 	var b []byte
 	if m.Hello != nil {
@@ -6002,6 +6897,35 @@ func DecodeNetMapStatus(b []byte) (*NetMapStatus, error) {
 	return &m, nil
 }
 
+func (m *ClusterHello) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.UnderlayAddress, 1)
+	return b
+}
+
+func DecodeClusterHello(b []byte) (*ClusterHello, error) {
+	var m ClusterHello
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.UnderlayAddress, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *MsgToMaster) Encode() []byte {
 	var b []byte
 	if m.StatusWrite != nil {
@@ -6022,6 +6946,10 @@ func (m *MsgToMaster) Encode() []byte {
 	if m.NetMapStatus != nil {
 		b = AppendTag(b, 7, BytesType)
 		b = AppendBytes(b, m.NetMapStatus.Encode())
+	}
+	if m.ClusterHello != nil {
+		b = AppendTag(b, 8, BytesType)
+		b = AppendBytes(b, m.ClusterHello.Encode())
 	}
 	return b
 }
@@ -6078,6 +7006,15 @@ func DecodeMsgToMaster(b []byte) (*MsgToMaster, error) {
 				item, err = DecodeNetMapStatus(msgBytes)
 				if err == nil {
 					m.NetMapStatus = item
+				}
+			}
+		case 8:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterHello
+				item, err = DecodeClusterHello(msgBytes)
+				if err == nil {
+					m.ClusterHello = item
 				}
 			}
 		default:

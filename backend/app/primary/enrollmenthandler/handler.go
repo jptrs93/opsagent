@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -102,7 +101,7 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 			return
 		}
 		opendeployVersion := strings.TrimSpace(hello.OpendeployVersion)
-		underlayAddress, err := h.normalizeEnrollmentUnderlay(requestingMachineID, hello.UnderlayAddress)
+		underlayAddress, err := h.store.NormalizeNodeUnderlay(requestingMachineID, hello.UnderlayAddress)
 		if err != nil {
 			yield(nil, err)
 			return
@@ -162,7 +161,7 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 	if sess == nil {
 		return nil, EnrollmentNotConnectedErr
 	}
-	if _, err := h.normalizeEnrollmentUnderlay(sess.requestingMachineID, sess.underlayAddress); err != nil {
+	if _, err := h.store.NormalizeNodeUnderlay(sess.requestingMachineID, sess.underlayAddress); err != nil {
 		return nil, err
 	}
 	caCert, workerCert, err := certu.SignWorkerCertificateRequest(h.secrets, sess.csrPEM, sess.requestingMachineID)
@@ -216,31 +215,6 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 		return nil, ctx.Err()
 	}
 	return status, nil
-}
-
-func (h *Handler) normalizeEnrollmentUnderlay(identifier, raw string) (string, error) {
-	value := strings.TrimSpace(raw)
-	if value == "" {
-		return "", nil
-	}
-	addr, err := netip.ParseAddr(value)
-	if err != nil || addr.Zone() != "" {
-		return "", fmt.Errorf("invalid enrollment underlay address %q", value)
-	}
-	addr = addr.Unmap()
-	for _, node := range h.store.ListNodes() {
-		if node == nil || node.Identifier == identifier || len(node.Addresses) == 0 || strings.TrimSpace(node.Addresses[0]) == "" {
-			continue
-		}
-		existing, err := netip.ParseAddr(strings.TrimSpace(node.Addresses[0]))
-		if err != nil || existing.Zone() != "" {
-			return "", fmt.Errorf("node %d has invalid stored underlay address", node.ID)
-		}
-		if existing.Unmap().BitLen() != addr.BitLen() {
-			return "", fmt.Errorf("enrollment underlay address family differs from cluster")
-		}
-	}
-	return addr.String(), nil
 }
 
 func enrollmentBootstrapDeployments(snapshot []apigen.DeploymentWithStatus) (*apigen.DeploymentWithStatus, *apigen.DeploymentWithStatus) {
