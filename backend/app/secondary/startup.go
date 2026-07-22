@@ -23,6 +23,14 @@ func Run(ctx context.Context) {
 	}
 	caPath, certPath, keyPath := certu.WorkerTLSPaths(cfg.TLSDir)
 	if !certu.WorkerTLSMaterialExists(caPath, certPath, keyPath) {
+		underlayAddress := cfg.UnderlayAddress
+		if underlayAddress == "" {
+			var err error
+			underlayAddress, err = resolveDefaultUnderlayAddress(cfg.PrimaryClusterAddr)
+			if err != nil {
+				panic(err)
+			}
+		}
 		if cfg.PrimaryEnrollmentFingerprint == "" {
 			panic("OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT must be set before worker enrollment")
 		}
@@ -35,6 +43,7 @@ func Run(ctx context.Context) {
 			ClusterCertPath:              certPath,
 			ClusterKeyPath:               keyPath,
 			OpendeployVersion:            version.Version,
+			UnderlayAddress:              underlayAddress,
 		}); err != nil {
 			panic(fmt.Sprintf("worker enrollment: %v", err))
 		}
@@ -48,19 +57,7 @@ func MustLoadRuntimeConfig(cfg ainit.StaticConfiguration, caPath, certPath, keyP
 	tlsCfg := certu.MustLoadTLSConfig(caPath, certPath, keyPath)
 	nodeIdentifier := certu.MustCertLoadCommonName(certPath)
 	store := sqlite.NewSecondaryStorage(filepath.Join(cfg.DataDir, "secondary.db"))
-
-	b, ok := store.FetchLocalKV(sqlite.LocalKVClusterNetwork)
-	if !ok {
-		panic("cached cluster network is missing")
-	}
-	info, err := apigen.DecodeClusterNetworkInfo(b)
-	if err != nil {
-		panic(fmt.Sprintf("decoding cached cluster network: %v", err))
-	}
-	prefix, err := network.ParsePrefix(info.UlaPrefix)
-	if err != nil {
-		panic(fmt.Sprintf("parsing cached cluster network: %v", err))
-	}
+	defer store.Close()
 
 	var netDeploymentID, nodeID int32
 	for _, item := range store.FetchDeploymentSnapshot(nil) {
@@ -71,6 +68,26 @@ func MustLoadRuntimeConfig(cfg ainit.StaticConfiguration, caPath, certPath, keyP
 	}
 	if netDeploymentID == 0 || nodeID <= 0 {
 		panic("cached netproxy deployment has no valid node ID")
+	}
+
+	var prefix network.Prefix
+	if _, mapPrefix, ok, err := cachedClusterNetMap(store, nodeID, network.Prefix{}); err != nil {
+		panic(err)
+	} else if ok {
+		prefix = mapPrefix
+	} else {
+		b, ok := store.FetchLocalKV(sqlite.LocalKVClusterNetwork)
+		if !ok {
+			panic("cached cluster network is missing")
+		}
+		info, err := apigen.DecodeClusterNetworkInfo(b)
+		if err != nil {
+			panic(fmt.Sprintf("decoding cached cluster network: %v", err))
+		}
+		prefix, err = network.ParsePrefix(info.UlaPrefix)
+		if err != nil {
+			panic(fmt.Sprintf("parsing cached cluster network: %v", err))
+		}
 	}
 
 	return runtimeConfig{

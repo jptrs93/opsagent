@@ -77,349 +77,6 @@ const (
 	AccessPolicyType_ANY_OF                         AccessPolicyType = 3
 )
 
-type EnrollmentWorkerMsg struct {
-	Hello *EnrollmentHello
-}
-
-type EnrollmentHello struct {
-	RequestingMachineID      string
-	WorkerCertificateRequest []byte
-	OpendeployVersion        string
-}
-
-type EnrollmentPrimaryMsg struct {
-	RequestStatus *EnrollmentRequestStatus
-	Accepted      *EnrollmentAccepted
-}
-
-type EnrollmentRequestStatus struct {
-	ID                  int32
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	RequestingIpAddress string
-	RequestingMachineID string
-	Status              string
-	OpendeployVersion   string
-}
-
-type EnrollmentRequestList struct {
-	Items []*EnrollmentRequestStatus
-}
-
-type EnrollmentInfo struct {
-	EnrollmentTlsSpkiSha256 string
-}
-
-type EnrollmentAcceptRequest struct {
-	ID         int32
-	WorkerName string
-}
-
-type EnrollmentAccepted struct {
-	ID                int32
-	WorkerName        string
-	CaCertificate     []byte
-	WorkerCertificate []byte
-	ClusterNetwork    *ClusterNetworkInfo
-	NodeDeployment    *DeploymentWithStatus
-	NodeNetDeployment *DeploymentWithStatus
-}
-
-type GithubCredentials struct {
-	Token     string
-	ChangedAt time.Time
-}
-
-type BackupStatus struct {
-	Configured            bool
-	Running               bool
-	InSync                bool
-	LocalTxid             uint64
-	RemoteTxid            uint64
-	LastSuccessfulSyncAt  time.Time
-	Error                 string
-	AssetMigrationRunning bool
-	AssetPending          uint32
-	AssetTargetS3         bool
-	AssetError            string
-}
-
-type ClusterSecretsRequest struct {
-	Ids []int32
-}
-
-type ClusterSecretValue struct {
-	ID    int32
-	Value []byte
-}
-
-type ClusterSecretsResponse struct {
-	Items []*ClusterSecretValue
-}
-
-type ClusterConfigsRequest struct {
-	Ids []int32
-}
-
-type ClusterConfigValue struct {
-	ID    int32
-	Value string
-}
-
-type ClusterConfigsResponse struct {
-	Items []*ClusterConfigValue
-}
-
-type SecretRef struct {
-	ID int32
-}
-
-type ConfigRef struct {
-	ID int32
-}
-
-type StringSetting struct {
-	Value     string
-	ConfigRef ConfigRef
-}
-
-type BoolSetting struct {
-	Value     bool
-	ConfigRef ConfigRef
-}
-
-type Config struct {
-	Settings           Settings
-	MasterPasswordHash string
-	NetworkUlaPrefix   []byte
-}
-
-type ConfigVersion struct {
-	Version   int64
-	UpdatedAt time.Time
-	Config    Config
-}
-
-type Settings struct {
-	HttpWeb     HttpWebSettings
-	HttpsWeb    HttpsWebSettings
-	Cluster     ClusterSettings
-	Repo        RepoSettings
-	Backup      BackupSettings
-	LargeAssets LargeAssetsSettings
-}
-
-type HttpWebSettings struct {
-	Enabled BoolSetting
-	Listen  StringSetting
-}
-
-type HttpsWebSettings struct {
-	Enabled        BoolSetting
-	Listen         StringSetting
-	TlsSelfManaged BoolSetting
-	TlsCertPem     SecretRef
-	AcmeHosts      StringSetting
-	AcmeEmail      StringSetting
-}
-
-type ClusterSettings struct {
-	Listen           StringSetting
-	EnrollmentListen StringSetting
-}
-
-type RepoSettings struct {
-	GithubToken SecretRef
-}
-
-type BackupSettings struct {
-	Enabled           BoolSetting
-	S3AccessKeyID     StringSetting
-	S3SecretAccessKey SecretRef
-	S3Bucket          StringSetting
-	S3Path            StringSetting
-	S3Region          StringSetting
-	S3Endpoint        StringSetting
-}
-
-type LargeAssetsSettings struct {
-	UseSeparateS3     BoolSetting
-	S3AccessKeyID     StringSetting
-	S3SecretAccessKey SecretRef
-	S3Bucket          StringSetting
-	S3Path            StringSetting
-	S3Region          StringSetting
-	S3Endpoint        StringSetting
-}
-
-type ExportedConfigBlob struct {
-	Blob []byte
-}
-
-type EmptyRequest struct {
-}
-
-type MasterPasswordRequest struct {
-	Password string
-	Username string
-}
-
-type MasterPasswordVerifyRequest struct {
-	Password string
-}
-
-type MasterPasswordSaveRequest struct {
-	Password string
-}
-
-type LoginResponse struct {
-	Token  string
-	UserID int32
-	Scopes []string
-	Name   string
-	Expiry time.Time
-}
-
-type WebAuthNOptionsResponse struct {
-	SessionID   string
-	OptionsJson []byte
-}
-
-type WebAuthNFinishRequest struct {
-	SessionID      string
-	CredentialJson []byte
-}
-
-type SecretMeta struct {
-	Name      string
-	CreatedAt time.Time
-	UpdatedBy int32
-	ID        int32
-	Deleted   bool
-	SpaceID   int32
-	Version   int32
-}
-
-type SecretList struct {
-	Items []*SecretMeta
-}
-
-type SecretSetRequest struct {
-	Name    string
-	Value   []byte
-	SpaceID int32
-}
-
-type SecretRenameRequest struct {
-	Name    string
-	NewName string
-}
-
-type SecretDeleteRequest struct {
-	Name string
-}
-
-type SecretRevealRequest struct {
-	Name string
-	ID   int32
-}
-
-type SecretRevealResponse struct {
-	Value []byte
-}
-
-type SecretsStatusResponse struct {
-	Unlocked           bool
-	RecoveryConfigured bool
-}
-
-type SecretRecoveryCodeResponse struct {
-	Code string
-}
-
-type SecretUnlockRequest struct {
-	Code string
-}
-
-type UserConfig struct {
-	Name      string
-	Value     string
-	CreatedAt time.Time
-	UpdatedBy int32
-	ID        int32
-	Deleted   bool
-	SpaceID   int32
-	Version   int32
-}
-
-type UserConfigList struct {
-	Items []*UserConfig
-}
-
-type UserConfigSetRequest struct {
-	Name    string
-	Value   string
-	SpaceID int32
-}
-
-type UserConfigRenameRequest struct {
-	Name    string
-	NewName string
-}
-
-type UserConfigDeleteRequest struct {
-	Name string
-}
-
-type AssetMeta struct {
-	Key       string
-	CreatedAt time.Time
-	Version   int32
-	Format    string
-	Location  string
-	SizeBytes int32
-	ID        int32
-	SpaceID   int32
-	Deleted   bool
-}
-
-type Asset struct {
-	Key       string
-	CreatedAt time.Time
-	Version   int32
-	Format    string
-	Location  string
-	Blob      []byte
-	ID        int32
-	SpaceID   int32
-	SizeBytes int32
-}
-
-type AssetList struct {
-	Items []*AssetMeta
-}
-
-type AssetGetRequest struct {
-	Key     string
-	Version int32
-}
-
-type AssetSetRequest struct {
-	Key     string
-	Format  string
-	Blob    []byte
-	SpaceID int32
-}
-
-type AssetRenameRequest struct {
-	Key    string
-	NewKey string
-}
-
-type AssetDeleteRequest struct {
-	Key string
-}
-
 type NixDockerBuildConfig struct {
 	Repo   string
 	Flake  string
@@ -517,96 +174,6 @@ type NetworkingConfig struct {
 	Mode           NetworkingMode
 	PortForwarding []*PortForward
 	Ingress        []*Ingress
-}
-
-type State struct {
-	Heartbeat                bool
-	DeploymentsSnapshot      *DeploymentWithStatusSnapshot
-	DeploymentUpdate         *DeploymentWithStatus
-	UsersSnapshot            []*User
-	UserUpdate               *User
-	EnrollmentsSnapshot      *EnrollmentRequestList
-	EnrollmentUpdate         *EnrollmentRequestStatus
-	SecretsSnapshot          *SecretReferenceList
-	SecretUpdate             *SecretReference
-	UserConfigsSnapshot      *UserConfigReferenceList
-	UserConfigUpdate         *UserConfigReference
-	SecretsStatusSnapshot    *SecretsStatusResponse
-	SecretMetasSnapshot      *SecretList
-	SecretMetaUpdate         *SecretMeta
-	UserConfigValuesSnapshot *UserConfigList
-	UserConfigValueUpdate    *UserConfig
-	SpacesSnapshot           *SpaceList
-	SpaceUpdate              *Space
-	AssetsSnapshot           *AssetList
-	AssetUpdate              *AssetMeta
-	NodesSnapshot            *ClusterNodeList
-	NodeUpdate               *ClusterNode
-	NodeStatusesSnapshot     *ClusterNodeStatusList
-	NodeStatusUpdate         *ClusterNodeStatus
-	BackupStatusSnapshot     *BackupStatus
-	BackupStatusUpdate       *BackupStatus
-	ConfigSnapshot           ConfigVersion
-}
-
-type Space struct {
-	ID      int32
-	Name    string
-	Deleted bool
-}
-
-type SpaceList struct {
-	Items []*Space
-}
-
-type SpaceSetRequest struct {
-	ID   int32
-	Name string
-}
-
-type SpaceDeleteRequest struct {
-	ID int32
-}
-
-type SecretReference struct {
-	ID      int32
-	Name    string
-	Deleted bool
-	SpaceID int32
-	Version int32
-}
-
-type SecretReferenceList struct {
-	Items []*SecretReference
-}
-
-type UserConfigReference struct {
-	ID      int32
-	Name    string
-	Deleted bool
-	SpaceID int32
-	Version int32
-}
-
-type UserConfigReferenceList struct {
-	Items []*UserConfigReference
-}
-
-type DeploymentWithStatusSnapshot struct {
-	Items []*DeploymentWithStatus
-}
-
-type ClusterMachineList struct {
-	Items []*ClusterMachine
-}
-
-type DeploymentHistoryEntry struct {
-	Config *DeploymentConfig
-	Status *DeploymentStatus
-}
-
-type DeploymentHistory struct {
-	Entries []*DeploymentHistoryEntry
 }
 
 type DeploymentUpdateRequest struct {
@@ -852,6 +419,356 @@ type ValidateContainerImageSourceResponse struct {
 	Tags  []*Version
 }
 
+type EnrollmentWorkerMsg struct {
+	Hello *EnrollmentHello
+}
+
+type EnrollmentHello struct {
+	RequestingMachineID      string
+	WorkerCertificateRequest []byte
+	OpendeployVersion        string
+	UnderlayAddress          string
+}
+
+type EnrollmentPrimaryMsg struct {
+	RequestStatus *EnrollmentRequestStatus
+	Accepted      *EnrollmentAccepted
+}
+
+type EnrollmentRequestStatus struct {
+	ID                  int32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	RequestingIpAddress string
+	RequestingMachineID string
+	Status              string
+	OpendeployVersion   string
+	UnderlayAddress     string
+}
+
+type EnrollmentRequestList struct {
+	Items []*EnrollmentRequestStatus
+}
+
+type EnrollmentInfo struct {
+	EnrollmentTlsSpkiSha256 string
+}
+
+type EnrollmentAcceptRequest struct {
+	ID         int32
+	WorkerName string
+}
+
+type EnrollmentAccepted struct {
+	ID                int32
+	WorkerName        string
+	CaCertificate     []byte
+	WorkerCertificate []byte
+	ClusterNetwork    *ClusterNetworkInfo
+	NodeDeployment    *DeploymentWithStatus
+	NodeNetDeployment *DeploymentWithStatus
+	ClusterNetMap     *ClusterNetMap
+}
+
+type GithubCredentials struct {
+	Token     string
+	ChangedAt time.Time
+}
+
+type BackupStatus struct {
+	Configured            bool
+	Running               bool
+	InSync                bool
+	LocalTxid             uint64
+	RemoteTxid            uint64
+	LastSuccessfulSyncAt  time.Time
+	Error                 string
+	AssetMigrationRunning bool
+	AssetPending          uint32
+	AssetTargetS3         bool
+	AssetError            string
+}
+
+type ClusterSecretsRequest struct {
+	Ids []int32
+}
+
+type ClusterSecretValue struct {
+	ID    int32
+	Value []byte
+}
+
+type ClusterSecretsResponse struct {
+	Items []*ClusterSecretValue
+}
+
+type ClusterConfigsRequest struct {
+	Ids []int32
+}
+
+type ClusterConfigValue struct {
+	ID    int32
+	Value string
+}
+
+type ClusterConfigsResponse struct {
+	Items []*ClusterConfigValue
+}
+
+type EmptyRequest struct {
+}
+
+type MasterPasswordRequest struct {
+	Password string
+	Username string
+}
+
+type MasterPasswordVerifyRequest struct {
+	Password string
+}
+
+type MasterPasswordSaveRequest struct {
+	Password string
+}
+
+type LoginResponse struct {
+	Token  string
+	UserID int32
+	Scopes []string
+	Name   string
+	Expiry time.Time
+}
+
+type WebAuthNOptionsResponse struct {
+	SessionID   string
+	OptionsJson []byte
+}
+
+type WebAuthNFinishRequest struct {
+	SessionID      string
+	CredentialJson []byte
+}
+
+type SecretMeta struct {
+	Name      string
+	CreatedAt time.Time
+	UpdatedBy int32
+	ID        int32
+	Deleted   bool
+	SpaceID   int32
+	Version   int32
+}
+
+type SecretList struct {
+	Items []*SecretMeta
+}
+
+type SecretSetRequest struct {
+	Name    string
+	Value   []byte
+	SpaceID int32
+}
+
+type SecretRenameRequest struct {
+	Name    string
+	NewName string
+}
+
+type SecretDeleteRequest struct {
+	Name string
+}
+
+type SecretRevealRequest struct {
+	Name string
+	ID   int32
+}
+
+type SecretRevealResponse struct {
+	Value []byte
+}
+
+type SecretsStatusResponse struct {
+	Unlocked           bool
+	RecoveryConfigured bool
+}
+
+type SecretRecoveryCodeResponse struct {
+	Code string
+}
+
+type SecretUnlockRequest struct {
+	Code string
+}
+
+type UserConfig struct {
+	Name      string
+	Value     string
+	CreatedAt time.Time
+	UpdatedBy int32
+	ID        int32
+	Deleted   bool
+	SpaceID   int32
+	Version   int32
+}
+
+type UserConfigList struct {
+	Items []*UserConfig
+}
+
+type UserConfigSetRequest struct {
+	Name    string
+	Value   string
+	SpaceID int32
+}
+
+type UserConfigRenameRequest struct {
+	Name    string
+	NewName string
+}
+
+type UserConfigDeleteRequest struct {
+	Name string
+}
+
+type AssetMeta struct {
+	Key       string
+	CreatedAt time.Time
+	Version   int32
+	Format    string
+	Location  string
+	SizeBytes int32
+	ID        int32
+	SpaceID   int32
+	Deleted   bool
+}
+
+type Asset struct {
+	Key       string
+	CreatedAt time.Time
+	Version   int32
+	Format    string
+	Location  string
+	Blob      []byte
+	ID        int32
+	SpaceID   int32
+	SizeBytes int32
+}
+
+type AssetList struct {
+	Items []*AssetMeta
+}
+
+type AssetGetRequest struct {
+	Key     string
+	Version int32
+}
+
+type AssetSetRequest struct {
+	Key     string
+	Format  string
+	Blob    []byte
+	SpaceID int32
+}
+
+type AssetRenameRequest struct {
+	Key    string
+	NewKey string
+}
+
+type AssetDeleteRequest struct {
+	Key string
+}
+
+type State struct {
+	Heartbeat                bool
+	DeploymentsSnapshot      *DeploymentWithStatusSnapshot
+	DeploymentUpdate         *DeploymentWithStatus
+	UsersSnapshot            []*User
+	UserUpdate               *User
+	EnrollmentsSnapshot      *EnrollmentRequestList
+	EnrollmentUpdate         *EnrollmentRequestStatus
+	SecretsSnapshot          *SecretReferenceList
+	SecretUpdate             *SecretReference
+	UserConfigsSnapshot      *UserConfigReferenceList
+	UserConfigUpdate         *UserConfigReference
+	SecretsStatusSnapshot    *SecretsStatusResponse
+	SecretMetasSnapshot      *SecretList
+	SecretMetaUpdate         *SecretMeta
+	UserConfigValuesSnapshot *UserConfigList
+	UserConfigValueUpdate    *UserConfig
+	SpacesSnapshot           *SpaceList
+	SpaceUpdate              *Space
+	AssetsSnapshot           *AssetList
+	AssetUpdate              *AssetMeta
+	NodesSnapshot            *ClusterNodeList
+	NodeUpdate               *ClusterNode
+	NodeStatusesSnapshot     *ClusterNodeStatusList
+	NodeStatusUpdate         *ClusterNodeStatus
+	BackupStatusSnapshot     *BackupStatus
+	BackupStatusUpdate       *BackupStatus
+	ConfigSnapshot           ConfigVersion
+}
+
+type Space struct {
+	ID      int32
+	Name    string
+	Deleted bool
+}
+
+type SpaceList struct {
+	Items []*Space
+}
+
+type SpaceSetRequest struct {
+	ID   int32
+	Name string
+}
+
+type SpaceDeleteRequest struct {
+	ID int32
+}
+
+type SecretReference struct {
+	ID      int32
+	Name    string
+	Deleted bool
+	SpaceID int32
+	Version int32
+}
+
+type SecretReferenceList struct {
+	Items []*SecretReference
+}
+
+type UserConfigReference struct {
+	ID      int32
+	Name    string
+	Deleted bool
+	SpaceID int32
+	Version int32
+}
+
+type UserConfigReferenceList struct {
+	Items []*UserConfigReference
+}
+
+type DeploymentWithStatusSnapshot struct {
+	Items []*DeploymentWithStatus
+}
+
+type ClusterMachineList struct {
+	Items []*ClusterMachine
+}
+
+type DeploymentHistoryEntry struct {
+	Config *DeploymentConfig
+	Status *DeploymentStatus
+}
+
+type DeploymentHistory struct {
+	Entries []*DeploymentHistoryEntry
+}
+
 type User struct {
 	ID   int32
 	Name string
@@ -927,18 +844,52 @@ type MsgToWorker struct {
 	StopLogRequestID     string
 	LogSearchRequest     *LogSearchRequest
 	ClusterNetwork       *ClusterNetworkInfo
+	ClusterNetMap        *ClusterNetMap
 }
 
 type ClusterNetworkInfo struct {
 	UlaPrefix []byte
 }
 
+type ClusterNetMap struct {
+	Generation   string
+	Sequence     int64
+	TargetNodeID int32
+	UlaPrefix    []byte
+	Nodes        []*ClusterNetMapNode
+	Routes       []*ClusterNetMapRoute
+}
+
+type ClusterNetMapNode struct {
+	NodeID          int32
+	UnderlayAddress string
+}
+
+type ClusterNetMapRoute struct {
+	LogicalAddress string
+	HostingNodeID  int32
+}
+
+type LocalRouteReport struct {
+	Revision         int64
+	LogicalAddresses []string
+}
+
+type NetMapStatus struct {
+	AcceptedGeneration  string
+	PersistedSequence   int64
+	AppliedSequence     int64
+	ReconciliationError string
+}
+
 type MsgToMaster struct {
-	StatusWrite  *DeploymentStatus
-	LogData      []byte
-	LogEnd       bool
-	LogRequestID string
-	LogLines     LogLineBatch
+	StatusWrite      *DeploymentStatus
+	LogData          []byte
+	LogEnd           bool
+	LogRequestID     string
+	LogLines         LogLineBatch
+	LocalRouteReport *LocalRouteReport
+	NetMapStatus     *NetMapStatus
 }
 
 type NetState struct {
@@ -970,6 +921,92 @@ type TlsPassthroughNetIngress struct {
 type IngressBackend struct {
 	Address string
 	Port    int32
+}
+
+type SecretRef struct {
+	ID int32
+}
+
+type ConfigRef struct {
+	ID int32
+}
+
+type StringSetting struct {
+	Value     string
+	ConfigRef ConfigRef
+}
+
+type BoolSetting struct {
+	Value     bool
+	ConfigRef ConfigRef
+}
+
+type Config struct {
+	Settings           Settings
+	MasterPasswordHash string
+	NetworkUlaPrefix   []byte
+}
+
+type ConfigVersion struct {
+	Version   int64
+	UpdatedAt time.Time
+	Config    Config
+}
+
+type Settings struct {
+	HttpWeb     HttpWebSettings
+	HttpsWeb    HttpsWebSettings
+	Cluster     ClusterSettings
+	Repo        RepoSettings
+	Backup      BackupSettings
+	LargeAssets LargeAssetsSettings
+}
+
+type HttpWebSettings struct {
+	Enabled BoolSetting
+	Listen  StringSetting
+}
+
+type HttpsWebSettings struct {
+	Enabled        BoolSetting
+	Listen         StringSetting
+	TlsSelfManaged BoolSetting
+	TlsCertPem     SecretRef
+	AcmeHosts      StringSetting
+	AcmeEmail      StringSetting
+}
+
+type ClusterSettings struct {
+	Listen           StringSetting
+	EnrollmentListen StringSetting
+}
+
+type RepoSettings struct {
+	GithubToken SecretRef
+}
+
+type BackupSettings struct {
+	Enabled           BoolSetting
+	S3AccessKeyID     StringSetting
+	S3SecretAccessKey SecretRef
+	S3Bucket          StringSetting
+	S3Path            StringSetting
+	S3Region          StringSetting
+	S3Endpoint        StringSetting
+}
+
+type LargeAssetsSettings struct {
+	UseSeparateS3     BoolSetting
+	S3AccessKeyID     StringSetting
+	S3SecretAccessKey SecretRef
+	S3Bucket          StringSetting
+	S3Path            StringSetting
+	S3Region          StringSetting
+	S3Endpoint        StringSetting
+}
+
+type ExportedConfigBlob struct {
+	Blob []byte
 }
 
 type AccessPolicy struct {

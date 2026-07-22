@@ -1,0 +1,354 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/options.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+
+
+
+enum ContainerUpgradeStrategy2 {
+  CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED = 0;
+  RECREATE = 1;
+  ROLLOVER = 2;
+}
+
+message ContainerReadinessSignal2 {
+  int32 timeout_seconds = 1; // 0 = default timeout
+}
+
+// === Networking config ===
+
+// NetworkingMode is pinned to the config version. Create/update requests must
+// include networking; the UI defaults new deployments to VIRTUAL unless HOST is
+// explicitly chosen, and UNSPECIFIED is rejected on new writes.
+// Restarts and respawns re-read the immutable spec version, so an existing
+// deployment's networking never changes without a new config version.
+enum NetworkingMode2 {
+  NETWORKING_MODE_UNSPECIFIED = 0; // invalid for deployment config writes
+  NETWORKING_MODE_VIRTUAL = 1;     // per-container netns on the virtual IPv6 network
+  NETWORKING_MODE_HOST = 2;        // explicit opt-out: host network namespace
+}
+
+enum PortForwardProtocol2 {
+  PORT_FORWARD_PROTOCOL_UNSPECIFIED = 0;
+  PORT_FORWARD_PROTOCOL_TCP = 1;
+  PORT_FORWARD_PROTOCOL_UDP = 2;
+}
+
+message PortForward2 {
+  PortForwardProtocol2 protocol = 1;
+  int32 host_port = 2;      // port published on the machine's host interfaces
+  int32 container_port = 3; // port inside the virtual-mode container netns
+}
+
+enum IngressKind2 {
+  INGRESS_KIND_UNSPECIFIED = 0;
+  INGRESS_KIND_TLS_PASSTHROUGH = 1;
+}
+
+// TlsPassthroughConfig configures a TLS connection forwarded by SNI without
+// terminating TLS. host_port zero uses the default HTTPS port (443).
+message TlsPassthroughConfig2 {
+  int32 host_port = 1;
+  int32 container_port = 2;
+}
+
+// Ingress is a public route declared by a workload. Each kind owns its
+// configuration so future route kinds do not acquire unrelated fields.
+message Ingress2 {
+  IngressKind2 kind = 1;
+  string hostname = 2;
+  TlsPassthroughConfig2 tls_passthrough_config = 3;
+}
+
+message NetworkingConfig {
+  NetworkingMode2 mode = 1;
+  repeated PortForward2 port_forwarding = 2; // virtual mode only; DNAT on host interfaces
+  repeated Ingress2 ingress = 3;
+}
+
+
+
+// === Deployment status messages ===
+
+enum RunningStatus {
+  DEPLOYMENT_STATUS_UNKNOWN = 0;
+  NO_DEPLOYMENT = 1;
+  RUNNING = 2;
+  STOPPED = 3;
+  STARTING = 4;
+  CRASHED = 5;
+}
+
+enum PreparationStatus {
+  PREPARATION_STATUS_UNKNOWN = 0;
+  PREPARING = 2;
+  DOWNLOADING = 3;
+  READY = 4;
+  FAILED = 5;
+  PULLING = 6; // pulling a container image into the content store
+}
+
+
+// === Deployment update / version request messages ===
+
+message DeploymentUpdateRequest2 {
+  int32 deployment_id = 5;
+  string target_version = 2;
+  bool stop = 3;
+  int32 version = 4;
+  DeploymentSpec2 spec = 6 [(cp.go_value) = true];  // optional: update deployment spec
+  optional int32 space_id = 7;                     // optional: move deployment to another space
+}
+
+message DeploymentCreateRequest2 {
+  DeploymentIdentity identity = 1 [(cp.go_value) = true];
+  int32 node_id = 2;
+  DeploymentSpec2 spec = 3 [(cp.go_value) = true];
+}
+
+message DeploymentHistoryRequest {
+  int32 deployment_id = 1;
+}
+
+message PrepareOutputRequest {
+  int32 deployment_id = 3;
+  int32 version = 2;  // config version whose log to stream (0 = latest)
+}
+
+message PrepareOutputChunk {
+  bytes data = 1;
+}
+
+message RunOutputRequest {
+  int32 deployment_id = 3;
+  int32 version = 2;  // config version whose log to stream (0 = latest)
+}
+
+message DeploymentLogRequest {
+  RunOutputRequest runner_output = 1;
+  PrepareOutputRequest preparer_output = 2;
+  string request_id = 3;  // Unique ID for multiplexing parallel log streams over a single cluster session.
+}
+
+message LogSearchRequest {
+  int32 deployment_id = 1;
+  int64 time_start = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int64 time_end = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  string level_min = 4;
+  map<string, string> search_keys = 5;
+  string request_id = 6;  // Internal: multiplexes worker log-search streams.
+  int32 log_line_limit = 7;
+  int32 config_version = 8;  // Deployment config version to search (0 = all versions).
+  string search_str = 9;     // Exact case-sensitive substring filter applied per log line.
+  int32 target_node_id = 10; // Required for system log searches (deployment_id = 0).
+}
+
+message LogLine {
+  int64 time = 1;     // Unix nanoseconds.
+  int32 version = 2;  // Deployment config version.
+  int32 run = 3;      // Run/restart number.
+  int32 stream = 4;   // 0 = stdout, 1 = stderr.
+  bytes line = 5;     // Raw log line bytes.
+}
+
+message LogLineBatch {
+  repeated LogLine lines = 1;
+  string log_dir = 2;  // Absolute worker path to this deployment's run log directory.
+}
+
+
+message DeploymentIdentity {
+  int32 space_id = 1;
+  string name = 3;
+}
+
+message DeploymentDeleteRequest {
+  int32 deployment_id = 1;
+  int32 version = 2; // expected next config version
+}
+
+
+message DeploymentWithStatus2 {
+  DeploymentConfig2 Config = 1 [(cp.go_value) = true];
+  DeploymentStatus status = 2 [(cp.go_value) = true];
+}
+
+message DeploymentStatus {
+  // Hybrid logical clock assigned by the node that owns the deployment:
+  // max(wall_clock_now, prev+1ns). Monotonic per deployment, so it doubles as
+  // both the status's wall-clock time and its identity/ordering key (it backs
+  // the deployment_status_history primary key and gates replication). May run
+  // a few ns ahead of true wall-clock under same-tick writes or clock
+  // regressions. Tag 7 (not 1) so older cluster peers skip it gracefully
+  // during a rolling upgrade rather than mis-decoding the old int64 field.
+  google.protobuf.Timestamp updated_at = 7;
+  int32 deployment_id = 6;  // integer deployment id
+  PreparerStatus preparer = 4 [(cp.go_value) = true];
+  RunnerStatus runner = 5 [(cp.go_value) = true];
+}
+
+message PreparerStatus {
+  int32 deployment_config_version = 1;
+  string artifact = 2;
+  PreparationStatus status = 3;
+}
+
+message RunnerStatus {
+  int32 deployment_config_version = 1;
+  int32 running_pid = 2;
+  string running_artifact= 3;
+  RunningStatus status = 4;
+  int32 number_of_restarts = 6;
+  int64 last_restart_at = 7 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  // Version string (commit/tag) the running artifact was built from. Derived at
+  // read time by resolving deployment_config_version against the config history;
+  // not persisted on the status row.
+  string running_version = 8;
+  // Virtual-network endpoints, one per instance ordinal (always ordinal 0
+  // today). Empty for host-network deployments.
+  repeated Endpoint endpoints = 9;
+  // Networking diagnostics surfaced on the status card (e.g. an IPv4-only
+  // listener that is unreachable at its instance address).
+  repeated string network_diagnostics = 10;
+}
+
+enum EndpointState {
+  ENDPOINT_STATE_UNSPECIFIED = 0;
+  ENDPOINT_READY = 1;    // in the endpoint set: resolves in DNS, receives traffic
+  ENDPOINT_DRAINING = 2; // removed from the set ahead of SIGTERM
+  ENDPOINT_DOWN = 3;     // instance not running
+}
+
+// Endpoint is one instance of a deployment on the virtual network. Modeled as
+// a set with per-endpoint state from day one (see networking design); every
+// set has exactly one member until multi-instance deployments exist.
+message Endpoint {
+  int32 ordinal = 1;      // instance ordinal (0-based)
+  string address = 2;     // stable instance address (kind 0)
+  string machine = 3 [deprecated = true]; // Legacy hosting machine identifier.
+  EndpointState state = 4;
+  int32 node_id = 5;      // canonical hosting node
+}
+
+
+
+// Version is the shared display shape for a deployable source item: a git
+// commit, a container tag, or a GitHub release tag.
+message Version {
+  string id = 1;
+  string label = 2;
+  string author = 3;
+  int64 time = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+}
+
+// DeploymentVersions returns source-specific deployable versions for one deployment.
+message DeploymentVersions {
+  int32 deployment_id = 1;
+  DeploymentNixDockerBuildVersions nix_docker_build = 2;
+  DeploymentGithubReleaseVersions github_release = 3;
+  DeploymentContainerImageVersions container_image = 4;
+}
+
+message DeploymentNixDockerBuildVersions {
+  repeated string branches = 1;
+  string selected_branch = 2;
+  repeated Version commits = 3;
+}
+
+message DeploymentGithubReleaseVersions {
+  repeated Version releases = 1;
+}
+
+message DeploymentContainerImageVersions {
+  repeated Version tags = 1;
+}
+
+// DeploymentVersionsRequest fetches available versions for a deployment on demand.
+message DeploymentVersionsRequest {
+  int32 deployment_id = 1;
+  string selected_branch = 2;  // optional: specific git branch to list commits for
+}
+
+// ValidateSourceRequest checks an image source's accessibility before a
+// deployment using it is created/updated. Exactly one source field must be set.
+message ValidateSourceRequest {
+  ValidateNixDockerBuildSource nix_docker_build = 2;
+  ValidateContainerImageSource container_image = 4;
+}
+
+message ValidateNixDockerBuildSource {
+  string repo_url = 1;     // e.g. "github.com/owner/repo"
+  string selected_branch = 2;       // optional branch/scope whose versions should be listed
+  Version selected_commit = 3;       // optional exact commit to validate
+  string selected_flake_path = 4;   // optional path to flake.nix; when empty, path is not validated
+
+  bool refresh_available_branches = 5; // force loading available branches
+  bool refresh_available_commits = 6; // force loading commits for selected_branch
+
+  bool check_repo = 7;
+  bool check_branch = 8;
+  bool check_commit = 9; // validate commit exists
+  bool check_flake_path = 10; // validate flake_path exists at branch/commit
+}
+
+message ValidateNixDockerBuildSourceResponse {
+  string checked_repo_url = 1;
+  ValidationResult git_repository = 2 [(cp.go_value) = true];
+  string checked_branch = 3;
+  ValidationResult branch_check = 4 [(cp.go_value) = true];
+  Version checked_commit = 5;
+  ValidationResult commit_check = 6 [(cp.go_value) = true];
+  string checked_flake_path = 7;
+  ValidationResult nix_flake_file = 8 [(cp.go_value) = true];
+
+  AvailableBranches available_branches = 9 [(cp.go_value) = true];
+  AvailableCommits available_commits = 10 [(cp.go_value) = true];
+}
+
+message AvailableCommits {
+  bool loaded = 1;
+  string branch = 2;
+  optional string errorMessage = 3;
+  repeated Version commits = 4;
+}
+
+message AvailableBranches {
+  bool loaded = 1;
+  optional string errorMessage = 2;
+  repeated string branches = 3;
+}
+
+message RepoValidationResult {
+  bool checked = 1;
+  string repo_url = 2;
+  bool ok = 3;
+  string message = 4;  // human-readable result, safe to display to the user
+}
+
+
+message ValidationResult {
+  bool checked = 1;
+  bool ok = 2;
+  string message = 3;  // human-readable result, safe to display to the user
+}
+
+
+message ValidateContainerImageSource {
+  string image = 1;        // image repository without tag; e.g. "ghcr.io/owner/app"
+  bool refresh_versions = 2; // list available image tags/versions
+}
+
+message ValidateSourceResponse {
+  ValidateNixDockerBuildSourceResponse nix_docker_build = 2;
+  ValidateContainerImageSourceResponse container_image = 4;
+}
+
+message ValidateContainerImageSourceResponse {
+  ValidationResult image = 1 [(cp.go_value) = true];
+  repeated Version tags = 2;
+}

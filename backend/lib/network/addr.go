@@ -5,11 +5,7 @@
 // Addresses are pure functions of existing identifiers. Layout of the 80 bits
 // after the cluster /48:
 //
-//	<node:17> : <space:17> : <deployment:26> : <kind:4> : <field:16>
-//
-// Node zero denotes a logical address. Cross-machine routing fills the source
-// and destination node fields to produce locator addresses, then zeros them
-// again before logical policy and workload delivery.
+//	<reserved:17=0> : <space:17> : <deployment:26> : <kind:4> : <field:16>
 package network
 
 import (
@@ -20,27 +16,23 @@ import (
 )
 
 const (
-	NodeBits       = 17
+	ReservedBits   = 17
 	SpaceBits      = 17
 	DeploymentBits = 26
 	KindBits       = 4
 	FieldBits      = 16
 
-	LogicalNodeID   uint32 = 0
-	MaxNodeID       uint32 = 1<<NodeBits - 1
-	MaxSpaceID      int32  = 1<<SpaceBits - 1
-	MaxDeploymentID int32  = 1<<DeploymentBits - 1
-	MaxField        int32  = 1<<FieldBits - 1
+	MaxSpaceID      int32 = 1<<SpaceBits - 1
+	MaxDeploymentID int32 = 1<<DeploymentBits - 1
+	MaxField        int32 = 1<<FieldBits - 1
 
-	NodePrefixBits       = PrefixLen*8 + NodeBits
-	SpacePrefixBits      = NodePrefixBits + SpaceBits
+	LogicalPrefixBits    = PrefixLen*8 + ReservedBits
+	SpacePrefixBits      = LogicalPrefixBits + SpaceBits
 	DeploymentPrefixBits = SpacePrefixBits + DeploymentBits
 	KindPrefixBits       = DeploymentPrefixBits + KindBits
 
-	nodeShift       = SpaceBits + DeploymentBits + KindBits
 	spaceShift      = DeploymentBits + KindBits
 	deploymentShift = KindBits
-	nodeMask        = uint64(MaxNodeID) << nodeShift
 )
 
 // Kind distinguishes addresses owned by one deployment. Values 3-15 are
@@ -88,7 +80,7 @@ func (p Prefix) IsZero() bool { return p == Prefix{} }
 
 func (p Prefix) Bytes() []byte { return p[:] }
 
-// CIDR returns the /48 covering logical and locator addresses in the cluster.
+// CIDR returns the /48 covering the cluster's logical addresses.
 func (p Prefix) CIDR() netip.Prefix {
 	var a [16]byte
 	copy(a[:], p[:])
@@ -97,10 +89,29 @@ func (p Prefix) CIDR() netip.Prefix {
 
 func (p Prefix) String() string { return p.CIDR().String() }
 
-func (p Prefix) addr(nodeID uint32, spaceID, deploymentID int32, kind Kind, field uint16) (netip.Addr, error) {
-	if nodeID > MaxNodeID {
-		return netip.Addr{}, fmt.Errorf("network node id %d exceeds %d-bit maximum %d", nodeID, NodeBits, MaxNodeID)
+// ValidateRoutedAddr verifies an address that may appear as a direct workload
+// route. Service and reserved kinds are not directly routed.
+func (p Prefix) ValidateRoutedAddr(addr netip.Addr) error {
+	if !addr.Is6() || addr.Zone() != "" || !p.CIDR().Contains(addr) {
+		return fmt.Errorf("address %s is outside cluster prefix %s", addr, p)
 	}
+	raw := addr.As16()
+	upper := binary.BigEndian.Uint64(raw[6:14])
+	if upper>>(64-ReservedBits) != 0 {
+		return fmt.Errorf("address %s has non-zero reserved bits", addr)
+	}
+	kind := Kind(upper & (1<<KindBits - 1))
+	if kind != KindInstance && kind != KindRun {
+		return fmt.Errorf("address %s has unroutable kind %d", addr, kind)
+	}
+	deploymentID := int32((upper >> deploymentShift) & (1<<DeploymentBits - 1))
+	if deploymentID == 0 {
+		return fmt.Errorf("address %s has zero deployment id", addr)
+	}
+	return nil
+}
+
+func (p Prefix) addr(spaceID, deploymentID int32, kind Kind, field uint16) (netip.Addr, error) {
 	if spaceID < 0 || spaceID > MaxSpaceID {
 		return netip.Addr{}, fmt.Errorf("space id %d is outside 0..%d", spaceID, MaxSpaceID)
 	}
@@ -111,8 +122,7 @@ func (p Prefix) addr(nodeID uint32, spaceID, deploymentID int32, kind Kind, fiel
 		return netip.Addr{}, fmt.Errorf("address kind %d exceeds %d-bit maximum", kind, KindBits)
 	}
 
-	upper := uint64(nodeID)<<nodeShift |
-		uint64(uint32(spaceID))<<spaceShift |
+	upper := uint64(uint32(spaceID))<<spaceShift |
 		uint64(uint32(deploymentID))<<deploymentShift |
 		uint64(kind)
 	var a [16]byte
@@ -129,13 +139,13 @@ func (p Prefix) InstanceAddr(spaceID, deploymentID, ordinal int32) (netip.Addr, 
 	if ordinal < 0 || ordinal > MaxField {
 		return netip.Addr{}, fmt.Errorf("instance ordinal %d is outside 0..%d", ordinal, MaxField)
 	}
-	return p.addr(LogicalNodeID, spaceID, deploymentID, KindInstance, uint16(ordinal))
+	return p.addr(spaceID, deploymentID, KindInstance, uint16(ordinal))
 }
 
 // ServiceAddr returns the logical virtual address representing a deployment.
 // It remains unrouted until socket-level load balancing is implemented.
 func (p Prefix) ServiceAddr(spaceID, deploymentID int32) (netip.Addr, error) {
-	return p.addr(LogicalNodeID, spaceID, deploymentID, KindService, 0)
+	return p.addr(spaceID, deploymentID, KindService, 0)
 }
 
 // RunAddr returns a logical temporary address for a rollover candidate. Run
@@ -144,22 +154,12 @@ func (p Prefix) RunAddr(spaceID, deploymentID, runNumber int32) (netip.Addr, err
 	if runNumber < 1 {
 		return netip.Addr{}, fmt.Errorf("run number must be positive, got %d", runNumber)
 	}
-	return p.addr(LogicalNodeID, spaceID, deploymentID, KindRun, uint16(uint32(runNumber)))
-}
-
-// NodeCIDR returns the locator prefix owned by a node. Node zero is the logical
-// address root; real routing node ids start at one.
-func (p Prefix) NodeCIDR(nodeID uint32) (netip.Prefix, error) {
-	a, err := p.addr(nodeID, 0, 0, KindInstance, 0)
-	if err != nil {
-		return netip.Prefix{}, err
-	}
-	return netip.PrefixFrom(a, NodePrefixBits), nil
+	return p.addr(spaceID, deploymentID, KindRun, uint16(uint32(runNumber)))
 }
 
 // SpaceCIDR covers every logical address in one space.
 func (p Prefix) SpaceCIDR(spaceID int32) (netip.Prefix, error) {
-	a, err := p.addr(LogicalNodeID, spaceID, 0, KindInstance, 0)
+	a, err := p.addr(spaceID, 0, KindInstance, 0)
 	if err != nil {
 		return netip.Prefix{}, err
 	}
@@ -168,35 +168,9 @@ func (p Prefix) SpaceCIDR(spaceID int32) (netip.Prefix, error) {
 
 // DeploymentCIDR covers every logical kind and field owned by a deployment.
 func (p Prefix) DeploymentCIDR(spaceID, deploymentID int32) (netip.Prefix, error) {
-	a, err := p.addr(LogicalNodeID, spaceID, deploymentID, KindInstance, 0)
+	a, err := p.addr(spaceID, deploymentID, KindInstance, 0)
 	if err != nil {
 		return netip.Prefix{}, err
 	}
 	return netip.PrefixFrom(a, DeploymentPrefixBits), nil
-}
-
-// WithNode fills or zeros the node field without changing space, deployment,
-// kind, or field. It is the address operation used by future cross-node
-// logical-to-locator translation.
-func (p Prefix) WithNode(addr netip.Addr, nodeID uint32) (netip.Addr, error) {
-	if !addr.Is6() || !p.CIDR().Contains(addr) {
-		return netip.Addr{}, fmt.Errorf("address %v is outside cluster prefix %s", addr, p)
-	}
-	if nodeID > MaxNodeID {
-		return netip.Addr{}, fmt.Errorf("network node id %d exceeds %d-bit maximum %d", nodeID, NodeBits, MaxNodeID)
-	}
-	a := addr.As16()
-	upper := binary.BigEndian.Uint64(a[6:14])
-	upper = upper&^nodeMask | uint64(nodeID)<<nodeShift
-	binary.BigEndian.PutUint64(a[6:14], upper)
-	return netip.AddrFrom16(a), nil
-}
-
-// NodeID returns the logical zero or routing node encoded in a cluster address.
-func (p Prefix) NodeID(addr netip.Addr) (uint32, error) {
-	if !addr.Is6() || !p.CIDR().Contains(addr) {
-		return 0, fmt.Errorf("address %v is outside cluster prefix %s", addr, p)
-	}
-	a := addr.As16()
-	return uint32(binary.BigEndian.Uint64(a[6:14]) >> nodeShift), nil
 }

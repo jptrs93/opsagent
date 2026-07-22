@@ -41,6 +41,7 @@ type Session struct {
 	predicate     storage.DeploymentPredicate
 	store         *sqlite.PrimaryStorage
 	networkPrefix network.Prefix
+	networkMaps   networkMapProvider
 
 	// outbox carries frames destined for the worker. It is never closed;
 	// senders fall through on sessCtx.Done so they never block past teardown.
@@ -59,16 +60,17 @@ type logChunk struct {
 	end    bool
 }
 
-func newSession(sessCtx context.Context, cancel context.CancelFunc, nodeID int32, identifier string, predicate storage.DeploymentPredicate, store *sqlite.PrimaryStorage) *Session {
+func newSession(sessCtx context.Context, cancel context.CancelFunc, nodeID int32, identifier string, predicate storage.DeploymentPredicate, store *sqlite.PrimaryStorage, networkMaps networkMapProvider) *Session {
 	return &Session{
-		sessCtx:    sessCtx,
-		cancel:     cancel,
-		NodeID:     nodeID,
-		identifier: identifier,
-		predicate:  predicate,
-		store:      store,
-		outbox:     make(chan *apigen.MsgToWorker, outboxSize),
-		logStreams: make(map[string]chan logChunk),
+		sessCtx:     sessCtx,
+		cancel:      cancel,
+		NodeID:      nodeID,
+		identifier:  identifier,
+		predicate:   predicate,
+		store:       store,
+		networkMaps: networkMaps,
+		outbox:      make(chan *apigen.MsgToWorker, outboxSize),
+		logStreams:  make(map[string]chan logChunk),
 	}
 }
 
@@ -93,6 +95,13 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 
 	snapshot, updatesCh, unsubUpdates := s.store.MustFetchSnapshotAndSubscribe(s.predicate)
 	defer unsubUpdates()
+	var netMap *apigen.ClusterNetMap
+	var netMapUpdates <-chan *apigen.ClusterNetMap
+	if s.networkMaps != nil {
+		var unsubscribeNetMaps func()
+		netMap, netMapUpdates, unsubscribeNetMaps = s.networkMaps.SnapshotAndSubscribe(s.NodeID)
+		defer unsubscribeNetMaps()
+	}
 	items := make([]*apigen.DeploymentWithStatus, 0, len(snapshot))
 	for i := range snapshot {
 		items = append(items, &snapshot[i])
@@ -146,6 +155,11 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 			return
 		}
 	}
+	if netMap != nil {
+		if !yield(&apigen.MsgToWorker{ClusterNetMap: netMap}, nil) {
+			return
+		}
+	}
 	// Send the snapshot first so the worker's stream call returns promptly.
 	if !yield(initial, nil) {
 		return
@@ -160,6 +174,14 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 			if !yield(msg, nil) {
 				return
 			}
+		case next, ok := <-netMapUpdates:
+			if !ok {
+				netMapUpdates = nil
+				continue
+			}
+			if next != nil && !yield(&apigen.MsgToWorker{ClusterNetMap: next}, nil) {
+				return
+			}
 		}
 	}
 }
@@ -169,6 +191,13 @@ func (s *Session) handleIncoming(msg *apigen.MsgToMaster) {
 	switch {
 	case msg.StatusWrite != nil:
 		s.handleStatusWrite(msg.StatusWrite)
+	case msg.NetMapStatus != nil:
+		slog.Info("worker network map status",
+			"node_id", s.NodeID,
+			"generation", msg.NetMapStatus.AcceptedGeneration,
+			"persisted_sequence", msg.NetMapStatus.PersistedSequence,
+			"applied_sequence", msg.NetMapStatus.AppliedSequence,
+			"error", msg.NetMapStatus.ReconciliationError)
 	case len(msg.LogData) > 0:
 		s.routeLogChunk(msg.LogRequestID, logChunk{data: msg.LogData})
 	case !msg.LogLines.IsZero():

@@ -60,7 +60,7 @@ func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 	m1 := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, m1Node.ID, spec, apigen.DesiredState{Version: "1", Running: true})
 	m2 := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, m2Node.ID, spec, apigen.DesiredState{Version: "1", Running: true})
 
-	sess := newSession(context.Background(), func() {}, m1Node.ID, "m1", deploymentPredicateForNode(m1Node.ID), store)
+	sess := newSession(context.Background(), func() {}, m1Node.ID, "m1", deploymentPredicateForNode(m1Node.ID), store, nil)
 	crossMachine := &apigen.DeploymentStatus{DeploymentID: m2.ID, Runner: apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING}}
 	crossMachine.BumpUpdatedAt()
 	sess.handleStatusWrite(crossMachine)
@@ -79,8 +79,8 @@ func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 func TestSessionRoutingUsesNodeID(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("worker", "worker-cn")
-	handler := New(store, nil, nil, nil, network.Prefix{})
-	sess := newSession(context.Background(), func() {}, node.ID, "worker-cn", deploymentPredicateForNode(node.ID), store)
+	handler := New(store, nil, nil, nil, network.Prefix{}, nil)
+	sess := newSession(context.Background(), func() {}, node.ID, "worker-cn", deploymentPredicateForNode(node.ID), store, nil)
 	handler.registerSession(node.ID, "worker-cn", sess)
 	t.Cleanup(func() { handler.unregisterSession(node.ID, "worker-cn", sess) })
 

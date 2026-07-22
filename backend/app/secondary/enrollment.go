@@ -28,6 +28,7 @@ type EnrollmentConfig struct {
 	ClusterCertPath              string
 	ClusterKeyPath               string
 	OpendeployVersion            string
+	UnderlayAddress              string
 }
 
 func Enroll(ctx context.Context, cfg EnrollmentConfig) error {
@@ -90,7 +91,7 @@ func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, ma
 	}
 
 	reqs := func(yield func(*apigen.EnrollmentWorkerMsg, error) bool) {
-		if !yield(&apigen.EnrollmentWorkerMsg{Hello: &apigen.EnrollmentHello{RequestingMachineID: machineID, WorkerCertificateRequest: csrPEM, OpendeployVersion: strings.TrimSpace(cfg.OpendeployVersion)}}, nil) {
+		if !yield(&apigen.EnrollmentWorkerMsg{Hello: &apigen.EnrollmentHello{RequestingMachineID: machineID, WorkerCertificateRequest: csrPEM, OpendeployVersion: strings.TrimSpace(cfg.OpendeployVersion), UnderlayAddress: cfg.UnderlayAddress}}, nil) {
 			return
 		}
 		<-ctx.Done()
@@ -135,12 +136,26 @@ func cacheEnrollmentBootstrapState(cfg EnrollmentConfig, accepted *apigen.Enroll
 		return fmt.Errorf("accepted enrollment response missing node net deployment")
 	}
 	store := sqlite.NewSecondaryStorage(filepath.Join(cfg.DataDir, "secondary.db"))
-	if _, err := network.ParsePrefix(info.UlaPrefix); err != nil {
+	defer store.Close()
+	prefix, err := network.ParsePrefix(info.UlaPrefix)
+	if err != nil {
 		return fmt.Errorf("parsing enrollment cluster network: %w", err)
+	}
+	if accepted.ClusterNetMap != nil {
+		nodeID := accepted.NodeNetDeployment.Config.NodeID
+		if _, _, err := validateClusterNetMap(accepted.ClusterNetMap, nodeID, prefix); err != nil {
+			return fmt.Errorf("validating enrollment cluster network map: %w", err)
+		}
 	}
 	store.MustSetLocalKV(sqlite.LocalKVClusterNetwork, info.Encode())
 	cacheEnrollmentDeployment(store, accepted.NodeDeployment)
 	cacheEnrollmentDeployment(store, accepted.NodeNetDeployment)
+	if accepted.ClusterNetMap != nil {
+		nodeID := accepted.NodeNetDeployment.Config.NodeID
+		if _, err := acceptClusterNetMap(store, accepted.ClusterNetMap, nodeID, prefix); err != nil {
+			return fmt.Errorf("accepting enrollment cluster network map: %w", err)
+		}
+	}
 	return nil
 }
 

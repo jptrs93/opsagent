@@ -1203,7 +1203,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 
 	remote := create("remote", worker.ID, virtualNetworking(), nil)
 	remoteID := remote.ID
-	_, err = h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+	crossNode, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "cross-node"},
 		NodeID:   primary.ID,
 		Spec: apigen.DeploymentSpec{
@@ -1214,8 +1214,11 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 			Networking: hostNetworking(),
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "same node") {
-		t.Fatalf("err = %v, want cross-node rejection", err)
+	if err != nil {
+		t.Fatalf("cross-node address reference: %v", err)
+	}
+	if got := crossNode.Spec.Runner.Container.EnvVars["REMOTE_ADDR"]; got.AddressDeploymentID == nil || *got.AddressDeploymentID != remoteID {
+		t.Fatalf("cross-node address ref = %+v", got)
 	}
 
 	nextSpaceID := int32(2)
@@ -1609,7 +1612,7 @@ func TestDeploymentDeleteAllowsStaleDisconnectedSystemDeployment(t *testing.T) {
 	h := &Handler{
 		Store:   store,
 		NodeID:  primary.ID,
-		Cluster: clusterhandler.New(store, nil, nil, nil, network.Prefix{}),
+		Cluster: clusterhandler.New(store, nil, nil, nil, network.Prefix{}, nil),
 	}
 
 	err := h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: system.ID, Version: system.Version + 1})
@@ -1633,7 +1636,7 @@ func TestDeploymentDeleteRejectsPrimarySystemDeployment(t *testing.T) {
 	h := &Handler{
 		Store:   store,
 		NodeID:  primary.ID,
-		Cluster: clusterhandler.New(store, nil, nil, nil, network.Prefix{}),
+		Cluster: clusterhandler.New(store, nil, nil, nil, network.Prefix{}, nil),
 	}
 
 	err := h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: system.ID, Version: system.Version + 1})

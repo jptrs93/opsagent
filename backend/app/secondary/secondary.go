@@ -3,6 +3,7 @@ package secondary
 import (
 	"context"
 	"crypto/tls"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"time"
@@ -44,6 +45,13 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	primaryURL := "https://" + cfg.PrimaryClusterAddr
 	githubCredentials := NewPrimaryGithubCredentialsProvider(primaryURL, primaryHTTPClient)
 	network.SetDefault(network.New(cfg.ClusterPrefix, cfg.NetDeploymentID))
+	if clusterMap, _, ok, err := cachedClusterNetMap(store, cfg.NodeID, cfg.ClusterPrefix); err != nil {
+		slog.Warn("loading cached cluster network map failed", "err", err)
+	} else if ok {
+		if err := reconcileClusterNetMap(clusterMap, cfg.NodeID, cfg.ClusterPrefix); err != nil {
+			slog.Warn("reconciling cached cluster network map failed", "err", err)
+		}
+	}
 
 	assetProvider := NewPrimaryAssetProvider(primaryURL, primaryHTTPClient)
 	secretProvider := NewPrimarySecretProvider(primaryURL, primaryHTTPClient)

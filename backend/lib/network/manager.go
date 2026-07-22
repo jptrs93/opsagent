@@ -86,6 +86,29 @@ type ContainerNet struct {
 	Slot          int
 }
 
+// Tunnel describes one fixed protocol-41 tunnel to a remote cluster node.
+// Local and Remote must belong to the same underlay address family.
+type Tunnel struct {
+	NodeID int32
+	Local  netip.Addr
+	Remote netip.Addr
+}
+
+// RemoteRoute selects a tunnel for one logical workload address.
+type RemoteRoute struct {
+	Addr   netip.Addr
+	NodeID int32
+}
+
+// Topology is the complete remote dataplane state derived from a network-map
+// snapshot. Local workload routes remain owned by container lifecycle methods.
+type Topology struct {
+	Prefix      Prefix
+	LocalNodeID int32
+	Tunnels     []Tunnel
+	Routes      []RemoteRoute
+}
+
 type retainedContainerNets struct {
 	containerIDs map[string]struct{}
 	hostVeths    map[string]struct{}

@@ -2,7 +2,7 @@
 
 ## Overview
 
-OpenDeploy has a machine-local virtual networking implementation for container deployments. It is implemented in-process in the agent, with the Linux kernel as the dataplane. The cross-machine mesh, L7 ingress proxy, and network policy design remain future work; see `docs/future-work/networking.md`.
+OpenDeploy has a machine-local virtual networking implementation for container deployments. It is implemented in-process in the agent, with the Linux kernel as the dataplane. Cross-machine IP-in-IP routing, the L7 ingress proxy, and network policy remain future work; see `docs/future-work/networking.md`.
 
 ## Current Scope
 
@@ -13,6 +13,10 @@ Implemented today:
 - Virtual-mode containers run in a dedicated Linux network namespace with a veth pair.
 - Each virtual-mode container receives a derived stable IPv6 instance address and a machine-local IPv4 address for egress.
 - The host installs `/128` routes to local virtual-mode containers.
+- OpenDeploy-owned host routes use a dedicated route-protocol tag, and an `unreachable` cluster ULA `/48` route prevents unknown logical destinations from reaching the host default route.
+- Each node records one underlay address. The primary uses `--underlay-address` or derives it from its cluster listener; a worker uses the flag or derives the source address selected for its primary cluster connection and includes it in enrollment.
+- The primary renders deterministic, versioned full network maps containing node underlay addresses and stable virtual-workload placements. It durably preserves their generation and sequence, coalesces updates for connected workers, and includes a targeted map in enrollment when publication succeeds.
+- Workers validate and persist accepted maps before exposing their prefix to runtime networking. They reject stale sequences, conflicting snapshots, wrong targets, mixed underlay families, invalid route layouts, and returns to retired generations; cached maps survive primary outages and agent restarts.
 - IPv4 egress is masqueraded from a fixed machine-local private range.
 - `portForwarding` publishes virtual-mode container TCP/UDP ports through nftables DNAT on the machine's host interfaces.
 - ROLLOVER in virtual mode starts a candidate on a run-scoped IPv6 address and promotes it by flipping the stable-address host route.
@@ -22,8 +26,8 @@ Implemented today:
 
 Not implemented yet:
 
-- WireGuard mesh and cross-machine workload routing.
-- Distributed netmap containing machine peers, keys, endpoints, routes, and policy state.
+- Fixed IPv6-in-IPv6 or IPv6-in-IPv4 node tunnels and cross-machine workload routing.
+- Runtime reporting and distribution of temporary rollover routes. Current maps contain primary-derived stable placements only.
 - Source anti-spoofing and destination ingress policy.
 - Embedded public L7 ingress proxy, including TLS termination and ACME certificate distribution.
 - Service virtual addresses and socket-level load balancing.
@@ -56,15 +60,15 @@ Addresses are pure functions of the ULA prefix, space, deployment, kind, and fie
 The IPv6 layout after the `/48` prefix is:
 
 ```text
-<node:17> : <space:17> : <deployment:26> : <kind:4> : <field:16>
+<reserved:17=0> : <space:17> : <deployment:26> : <kind:4> : <field:16>
 ```
 
-Node `0` identifies the logical address applications, DNS, endpoint status, and policy use. Nonzero node values are reserved for the future cross-machine locator translation described in `docs/future-work/workload-addressing-routing.md`; the current machine-local implementation only creates node-zero logical addresses.
+The first 17 bits are fixed at zero for logical addresses used by applications, DNS, endpoint status, and policy. The field is retained as part of the implemented address ABI; nonzero values are reserved and are not used for cross-machine routing. The future design routes the unchanged logical address through fixed node tunnels as described in `docs/future-work/workload-addressing-routing.md`.
 
 The resulting logical prefix hierarchy is:
 
 - Cluster: `/48`.
-- Logical address root (`node = 0`): `/65`.
+- Logical address root (`reserved = 0`): `/65`.
 - Space: `/82`.
 - Deployment across every kind and field: `/108`.
 - Kind: `/112`.
@@ -76,7 +80,7 @@ Current kinds:
 - Kind `1`: service address, currently unrouted.
 - Kind `2`: run-scoped address used as a rollover candidate's preferred outbound source during warmup.
 
-Kinds `3` through `15` are reserved. The hard address-layout limits are 131,071 nonzero node ids, 131,072 spaces, 67,108,864 deployment ids, 16 kinds, and 65,536 field values per kind. Run fields may wrap because only concurrently live temporary runs must be distinct; stable instance ordinals do not wrap.
+Kinds `3` through `15` are reserved. The hard address-layout limits are 131,072 spaces, 67,108,864 deployment ids, 16 kinds, and 65,536 field values per kind. Run fields may wrap because only concurrently live temporary runs must be distinct; stable instance ordinals do not wrap.
 
 Space is part of logical network identity. Moving a deployment to another space changes its instance, service, and run addresses and is therefore a connection-breaking security-domain migration. Moving an instance between nodes does not change its logical address.
 
@@ -85,6 +89,14 @@ Space is part of logical network identity. Moving a deployment to another space 
 For virtual-mode containers, the runner asks `backend/lib/network` to create network state before starting the containerd task. The network manager creates the named netns, veth pair, container-side addresses, default routes, host-side gateway addresses, and host route. The containerd wrapper joins the pre-created network namespace through the OCI spec. Host veth names are deterministic deployment slots: `od<deploymentID>s0` for the first live network and `od<deploymentID>s1` for a concurrent rollover candidate.
 
 When an agent restarts, containerd tasks and their network namespaces can remain running. Reattachment opens the surviving named namespace and identifies its deterministic host veth by the mutual peer indexes of namespace `eth0` and the host link. Veth aliases are not used for ownership. Recovery restores the stable host route and records the host ifindex before removing unretained slots, so a current task is never deleted as stale and delayed teardown cannot delete a link whose name has since been reused. A task on the current config republishes its host-port state; the internal netproxy also republishes across its version-only upgrades. Older application tasks retain recovered metadata for safe teardown but wait for their prepared replacement before using a newer networking config. If required reconstruction fails, the adopted task is replaced rather than left running without its forwarding rules.
+
+The primary persists one target-neutral `ClusterNetMap` in `local_kv`. Its
+generation survives ordinary restarts and its sequence advances only when
+deterministically rendered node or stable-placement content changes. Session
+delivery clones the map with the mTLS-authenticated node ID and uses a
+capacity-one latest-value channel. Workers persist their targeted accepted map
+and retired generation IDs atomically. `NetMapStatus` currently reports durable
+acceptance; applied sequence remains zero until tunnel reconciliation exists.
 
 Each node gets an `opendeploy-net` deployment when it is first created or enrolled, initially using the primary release available at that time. Agent upgrades and primary restarts do not change an existing netproxy's desired version or running state. Administrators update netproxy deployments explicitly and are responsible for selecting versions compatible with the agents and rendered netstate format.
 

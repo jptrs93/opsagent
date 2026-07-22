@@ -102,6 +102,7 @@ type StaticConfiguration struct {
 	PrimaryEnrollmentAddr        string `env:"OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR,"`        // secondaries only: primary's unauthenticated enrollment address
 	PrimaryEnrollmentFingerprint string `env:"OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT,"` // secondaries only: sha256 SPKI fingerprint for enrollment TLS pinning
 	PrimaryName                  string `env:"OPENDEPLOY_PRIMARY_NAME,primary"`            // primary cert DNS name; secondaries use it for TLS verification when dialing by IP
+	UnderlayAddress              string `env:"OPENDEPLOY_UNDERLAY_ADDRESS,"`               // optional; derived from cluster connectivity when empty
 
 	PasskeyExtraOrigins []string `env:"OPENDEPLOY_PASSKEY_EXTRA_ORIGINS,"`
 }

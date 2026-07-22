@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	// vethMTU accounts for WireGuard overhead on a 1500 underlay so the Phase 2
-	// mesh does not need per-container MTU churn.
+	// vethMTU leaves room for either an IPv4 or IPv6 outer tunnel header on a
+	// normal 1500-byte underlay.
 	vethMTU = 1420
 
 	containerIface = "eth0"
@@ -72,7 +72,16 @@ func (m *Manager) EnsureBase() error {
 		defer m.mu.Unlock()
 		m.baseErr = m.reconcileNft()
 	})
-	return m.baseErr
+	if m.baseErr != nil {
+		return m.baseErr
+	}
+	prefix, ok := m.PrefixValue()
+	if ok {
+		if err := reconcileClusterFallbackRoute(prefix); err != nil {
+			return fmt.Errorf("installing cluster fallback route: %w", err)
+		}
+	}
+	return nil
 }
 
 // SetupContainerNet creates (or recreates) the network namespace, veth pair,
@@ -162,7 +171,8 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 	if err := netlink.LinkSetUp(hostLink); err != nil {
 		return cleanup(fmt.Errorf("bringing host veth up: %w", err))
 	}
-	if err := replaceHostRoute(spec.Addr, hostLink.Attrs().Index); err != nil {
+	prefix, _ := m.PrefixValue()
+	if err := reconcileLocalWorkloadRoute(prefix, spec.Addr, hostLink.Attrs().Index); err != nil {
 		return cleanup(fmt.Errorf("adding host route for %v: %w", spec.Addr, err))
 	}
 
@@ -203,7 +213,8 @@ func (m *Manager) RecoverContainerNet(containerID string, deploymentID int32, ad
 	if err != nil {
 		return nil, err
 	}
-	if err := replaceHostRoute(addr, hostLink.Attrs().Index); err != nil {
+	prefix, _ := m.PrefixValue()
+	if err := reconcileLocalWorkloadRoute(prefix, addr, hostLink.Attrs().Index); err != nil {
 		return nil, fmt.Errorf("restoring host route for %v: %w", addr, err)
 	}
 	cn := &ContainerNet{
@@ -242,10 +253,11 @@ func (m *Manager) Promote(_ *ContainerNet, candidate *ContainerNet, stable netip
 	if err != nil {
 		return fmt.Errorf("promote: candidate host veth: %w", err)
 	}
-	if candidate.HostVethIndex > 0 && hostLink.Attrs().Index != candidate.HostVethIndex {
+	if candidate.HostVethIndex <= 0 || hostLink.Type() != "veth" || hostLink.Attrs().Index != candidate.HostVethIndex {
 		return fmt.Errorf("promote: candidate host veth %s was replaced", candidate.HostVeth)
 	}
-	if err := replaceHostRoute(stable, hostLink.Attrs().Index); err != nil {
+	prefix, _ := m.PrefixValue()
+	if err := reconcileLocalWorkloadRoute(prefix, stable, hostLink.Attrs().Index); err != nil {
 		return fmt.Errorf("promote: flipping host route: %w", err)
 	}
 
@@ -482,13 +494,6 @@ func addContainerV6Addr(h *netlink.Handle, link netlink.Link, addr netip.Addr, d
 		return fmt.Errorf("assigning container v6 address %v: %w", addr, err)
 	}
 	return nil
-}
-
-func replaceHostRoute(addr netip.Addr, linkIndex int) error {
-	return netlink.RouteReplace(&netlink.Route{
-		LinkIndex: linkIndex,
-		Dst:       netipPrefixToIPNet(netip.PrefixFrom(addr, 128)),
-	})
 }
 
 func netipPrefixToIPNet(p netip.Prefix) *net.IPNet {

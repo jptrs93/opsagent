@@ -496,10 +496,23 @@ export const orderedCases = [
     },
   },
   {
+    id: 'postgres-cross-node-client-deployment-created',
+    title: 'verify cross-node virtual networking',
+    description: 'Connects a worker-2 virtual-network client to Postgres on worker-1 through its stable virtual address and verifies writes and reads.',
+    requires: ['postgres-client-deployment-created', 'worker-2-enrolled'],
+    async run(ctx) {
+      await createPostgresClientDeployment(ctx.page, {
+        name: 'postgresclient-worker-2',
+        machine: 'worker-2',
+        postgresHost: {type: 'address', name: 'postgres18'},
+      });
+    },
+  },
+  {
     id: 'postgres-address-client-deployment-created',
     title: 'verify direct virtual address reference',
     description: 'Connects a second virtual-network client to Postgres through an Address-typed environment variable.',
-    requires: ['postgres-client-deployment-created'],
+    requires: ['postgres-cross-node-client-deployment-created'],
     async run(ctx) {
       await createPostgresClientDeployment(ctx.page, {
         name: 'postgresclient-address',
@@ -523,7 +536,7 @@ export const orderedCases = [
     id: 'opendeploy-net-upgraded-on-worker-1',
     title: 'upgrade opendeploy-net on worker-1',
     description: 'Upgrades worker-1 netproxy and verifies its virtual-network containers remain running.',
-    requires: ['postgres-address-client-deployment-created'],
+    requires: ['postgres-address-client-deployment-created', 'postgres-cross-node-client-deployment-created'],
     async run(ctx) {
       const virtualWorkloads = ['nixdockerbuild-virtual', 'rollover-virtual', 'port-forward-virtual', 'postgres18', 'postgresclient', 'postgresclient-address'];
       const restartCounts = new Map();
@@ -535,6 +548,7 @@ export const orderedCases = [
         await expectDeploymentRunning(ctx.page, {name, machine: 'worker-1'});
         await expectDeploymentRestartCount(ctx.page, {name, machine: 'worker-1', count: restartCounts.get(name)});
       }
+      await expectDeploymentRunning(ctx.page, {name: 'postgresclient-worker-2', machine: 'worker-2'});
     },
   },
 ];

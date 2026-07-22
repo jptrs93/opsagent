@@ -2,7 +2,7 @@
 
 ## Overview
 
-The API is HTTP + binary protobuf v3. The contract is defined in `api-contract/api.proto` — message types, RPC definitions, and per-route access policies. Go and JS code is generated from the proto schema using [cleanproto](https://github.com/jptrs93/cleanproto/blob/main/README.md).
+The API is HTTP + binary protobuf v3. Services, RPC definitions, and per-route access policies are defined in `api-contract/api.proto`; model messages are split across `api-contract/*_model.proto`. Go and JS code is generated from the proto schema using [cleanproto](https://github.com/jptrs93/cleanproto/blob/main/README.md).
 
 ## Code generation
 
@@ -83,8 +83,16 @@ Key generated files:
 | GET | `/v1/cluster/asset?asset_id=<id>` | query params | raw asset bytes with `X-Opsagent-Asset-*` headers | NO_AUTH over mTLS cluster listener |
 | GET | `/v1/cluster/secrets` | `ClusterSecretsRequest` | `ClusterSecretsResponse` | NO_AUTH over mTLS cluster listener |
 | GET | `/v1/cluster/configs` | `ClusterConfigsRequest` | `ClusterConfigsResponse` | NO_AUTH over mTLS cluster listener |
+| POST | `/v1/cluster/connect` | stream `MsgToMaster` | stream `MsgToWorker` | NO_AUTH over mTLS cluster listener |
 
 Cluster secrets/configs requests carry immutable row IDs. The primary authorizes those IDs against the deployment refs allowed for the requesting worker, decrypts/fetches only those rows, and the worker keeps the plaintext values in memory.
+
+`/v1/cluster/connect` is the long-lived bidirectional worker session. HTTP/2
+request and response bodies contain unsigned-varint-length-prefixed protobuf
+frames. The primary sends legacy cluster-prefix state, the latest targeted
+`ClusterNetMap`, and the deployment snapshot at session start. Later complete
+network maps use latest-value coalescing rather than queueing obsolete versions.
+Workers send durable `NetMapStatus` acknowledgements on the request stream.
 
 ### Settings, Secrets, Configs, Assets, Spaces
 | Method | Path | Request | Response | Policy |
@@ -131,7 +139,7 @@ Workers use `EnrollmentV1` only when local cluster CA/cert/key material is missi
 
 ## Adding new endpoints
 
-1. Add the RPC and any new message types to `api-contract/api.proto`.
+1. Add the RPC to `api-contract/api.proto` and new message types to the appropriate `api-contract/*_model.proto` file.
 2. Run `bash api-contract/proto_generate.sh`.
 3. Implement the handler method in the matching package under `backend/app/primary`: `webuihandler`, `clusterhandler`, or `enrollmenthandler`.
 4. The JS client method is generated automatically in `frontend/src/capi/capi.js`.

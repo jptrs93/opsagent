@@ -90,6 +90,7 @@ type Handler struct {
 	githubCredentials githubcredentials.Provider
 	secrets           *secrets.Manager
 	networkPrefix     network.Prefix
+	networkMaps       networkMapProvider
 
 	mu          sync.RWMutex
 	sessions    map[int32]*Session  // node ID → session
@@ -100,14 +101,19 @@ type assetProvider interface {
 	OpenAsset(ctx context.Context, assetID int32) (*apigen.Asset, io.ReadCloser, error)
 }
 
+type networkMapProvider interface {
+	SnapshotAndSubscribe(nodeID int32) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func())
+}
+
 // New creates a cluster handler.
-func New(store *sqlite.PrimaryStorage, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager, networkPrefix network.Prefix) *Handler {
+func New(store *sqlite.PrimaryStorage, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager, networkPrefix network.Prefix, networkMaps networkMapProvider) *Handler {
 	return &Handler{
 		store:             store,
 		assets:            assets,
 		githubCredentials: githubCredentials,
 		secrets:           secretsMgr,
 		networkPrefix:     networkPrefix,
+		networkMaps:       networkMaps,
 		sessions:          make(map[int32]*Session),
 		connectedAt:       make(map[int32]time.Time),
 	}
@@ -321,7 +327,7 @@ func (p *Handler) PostV1ClusterConnect(authCtx apigen.Context, reqs iter.Seq2[*a
 		sessCtx, cancel := context.WithCancel(authCtx)
 		defer cancel()
 
-		sess := newSession(sessCtx, cancel, nodeID, machine, predicate, p.store)
+		sess := newSession(sessCtx, cancel, nodeID, machine, predicate, p.store, p.networkMaps)
 		sess.networkPrefix = p.networkPrefix
 		p.registerSession(nodeID, machine, sess)
 		defer p.unregisterSession(nodeID, machine, sess)

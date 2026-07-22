@@ -112,7 +112,7 @@ The current networking implementation is machine-local. See `docs/engineering/ne
 
 The runner only consumes networking primitives. It derives the stable instance address from the cluster ULA prefix and deployment id, asks the network manager to prepare state, passes the netns path to containerd, writes a generated `resolv.conf` when netproxy DNS is known, and writes endpoint status back to storage.
 
-Cross-machine routing, WireGuard, ingress, and policy enforcement are outside the current runner path.
+Cross-machine IP-in-IP routing, ingress, and policy enforcement are outside the current runner path.
 
 `systemdRunner` is internal-only for the OpenDeploy self-deployment. It symlinks the downloaded binary to the configured bin path, writes `STARTING`, and asks systemd to restart the unit. The old process does not poll systemd after requesting restart; the restarted process marks itself `RUNNING` when the operator reattaches. Public API validation rejects systemd runner config.
 

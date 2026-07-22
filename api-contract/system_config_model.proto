@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/options.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message SecretRef {
+  reserved 1, 2;
+  int32 id = 3;
+}
+
+message ConfigRef {
+  reserved 1, 2;
+  int32 id = 3;
+}
+
+message StringSetting {
+  string value = 1;
+  ConfigRef config_ref = 2 [(cp.go_value) = true];
+}
+
+message BoolSetting {
+  bool value = 1;
+  ConfigRef config_ref = 2 [(cp.go_value) = true];
+}
+
+message Config {
+  Settings settings = 1 [(cp.go_value) = true];
+  string master_password_hash = 2;
+  // RFC 4193 ULA /48 prefix (6 bytes) for the virtual network. Generated
+  // randomly at first primary startup, then immutable. Not user-editable.
+  bytes network_ula_prefix = 3;
+}
+
+// ConfigVersion identifies one persisted primary configuration revision. State
+// stream snapshots always clear Config.master_password_hash before publishing.
+message ConfigVersion {
+  int64 version = 1;
+  int64 updated_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  Config config = 3 [(cp.go_value) = true];
+}
+
+message Settings {
+  HttpWebSettings http_web = 1 [(cp.go_value) = true];
+  HttpsWebSettings https_web = 2 [(cp.go_value) = true];
+  ClusterSettings cluster = 3 [(cp.go_value) = true];
+  RepoSettings repo = 4 [(cp.go_value) = true];
+  BackupSettings backup = 5 [(cp.go_value) = true];
+  LargeAssetsSettings large_assets = 6 [(cp.go_value) = true];
+}
+
+message HttpWebSettings {
+  BoolSetting enabled = 1 [(cp.go_value) = true];
+  StringSetting listen = 2 [(cp.go_value) = true];
+}
+
+message HttpsWebSettings {
+  BoolSetting enabled = 1 [(cp.go_value) = true];
+  StringSetting listen = 2 [(cp.go_value) = true];
+  BoolSetting tls_self_managed = 3 [(cp.go_value) = true];
+  SecretRef tls_cert_pem = 4 [(cp.go_value) = true];
+  StringSetting acme_hosts = 5 [(cp.go_value) = true];
+  StringSetting acme_email = 6 [(cp.go_value) = true];
+}
+
+message ClusterSettings {
+  StringSetting listen = 1 [(cp.go_value) = true];
+  StringSetting enrollment_listen = 2 [(cp.go_value) = true];
+}
+
+message RepoSettings {
+  SecretRef github_token = 1 [(cp.go_value) = true];
+}
+
+message BackupSettings {
+  BoolSetting enabled = 1 [(cp.go_value) = true];
+  StringSetting s3_access_key_id = 2 [(cp.go_value) = true];
+  SecretRef s3_secret_access_key = 3 [(cp.go_value) = true];
+  StringSetting s3_bucket = 4 [(cp.go_value) = true];
+  StringSetting s3_path = 5 [(cp.go_value) = true];
+  StringSetting s3_region = 6 [(cp.go_value) = true];
+  StringSetting s3_endpoint = 7 [(cp.go_value) = true];
+}
+
+message LargeAssetsSettings {
+  // Field 1 was previously s3_enabled. Keeping the field number maps existing
+  // enabled installations to the separate S3 configuration they already use.
+  BoolSetting use_separate_s3 = 1 [(cp.go_value) = true];
+  StringSetting s3_access_key_id = 2 [(cp.go_value) = true];
+  SecretRef s3_secret_access_key = 3 [(cp.go_value) = true];
+  StringSetting s3_bucket = 4 [(cp.go_value) = true];
+  StringSetting s3_path = 5 [(cp.go_value) = true];
+  StringSetting s3_region = 6 [(cp.go_value) = true];
+  StringSetting s3_endpoint = 7 [(cp.go_value) = true];
+}
+
+message ExportedConfigBlob {
+  bytes blob = 1;
+}

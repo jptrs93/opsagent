@@ -78,7 +78,10 @@ func applyEnvOverrides(content []byte, opts installOptions) []byte {
 	if opts.primaryName != nil {
 		values["OPENDEPLOY_PRIMARY_NAME"] = *opts.primaryName
 	}
-	return applyEnvValues(content, values, []string{"OPENDEPLOY_PASSKEY_EXTRA_ORIGINS", "OPENDEPLOY_PRIMARY_CLUSTER_ADDR", "OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR", "OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT", "OPENDEPLOY_PRIMARY_NAME"})
+	if opts.underlayAddress != nil {
+		values["OPENDEPLOY_UNDERLAY_ADDRESS"] = *opts.underlayAddress
+	}
+	return applyEnvValues(content, values, []string{"OPENDEPLOY_PASSKEY_EXTRA_ORIGINS", "OPENDEPLOY_PRIMARY_CLUSTER_ADDR", "OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR", "OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT", "OPENDEPLOY_PRIMARY_NAME", "OPENDEPLOY_UNDERLAY_ADDRESS"})
 }
 
 func stripInitialEnvValues(content []byte) []byte {

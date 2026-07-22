@@ -61,31 +61,6 @@ func TestLogicalAddressLayout(t *testing.T) {
 		if tt.got != want {
 			t.Errorf("%s = %s, want %s", tt.name, tt.got, want)
 		}
-		nodeID, err := p.NodeID(tt.got)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if nodeID != LogicalNodeID {
-			t.Errorf("%s node id = %d, want logical node %d", tt.name, nodeID, LogicalNodeID)
-		}
-	}
-}
-
-func TestNodeTranslationOnlyChangesNode(t *testing.T) {
-	p := GeneratePrefix()
-	logical := mustAddr(p.InstanceAddr(17, 42, 9))
-	locator := mustAddr(p.WithNode(logical, 12345))
-
-	nodeID, err := p.NodeID(locator)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if nodeID != 12345 {
-		t.Fatalf("locator node id = %d, want 12345", nodeID)
-	}
-	restored := mustAddr(p.WithNode(locator, LogicalNodeID))
-	if restored != logical {
-		t.Fatalf("restored logical address = %s, want %s", restored, logical)
 	}
 }
 
@@ -97,21 +72,12 @@ func TestAddressPrefixes(t *testing.T) {
 	run := mustAddr(p.RunAddr(17, 42, 9))
 	otherDeployment := mustAddr(p.InstanceAddr(17, 43, 0))
 	otherSpace := mustAddr(p.InstanceAddr(18, 42, 0))
-	remote := mustAddr(p.WithNode(instance0, 7))
-
-	nodeBlock, err := p.NodeCIDR(7)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if nodeBlock.Bits() != NodePrefixBits || !nodeBlock.Contains(remote) || nodeBlock.Contains(instance0) {
-		t.Fatalf("node block %s does not isolate node locator addresses", nodeBlock)
-	}
 
 	spaceBlock, err := p.SpaceCIDR(17)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spaceBlock.Bits() != SpacePrefixBits || !spaceBlock.Contains(instance0) || !spaceBlock.Contains(otherDeployment) || spaceBlock.Contains(otherSpace) || spaceBlock.Contains(remote) {
+	if spaceBlock.Bits() != SpacePrefixBits || !spaceBlock.Contains(instance0) || !spaceBlock.Contains(otherDeployment) || spaceBlock.Contains(otherSpace) {
 		t.Fatalf("space block %s does not isolate one logical space", spaceBlock)
 	}
 
@@ -141,9 +107,6 @@ func TestAddressLimits(t *testing.T) {
 	if _, err := p.InstanceAddr(1, 1, MaxField+1); err == nil {
 		t.Fatal("oversized instance ordinal accepted")
 	}
-	if _, err := p.NodeCIDR(MaxNodeID + 1); err == nil {
-		t.Fatal("oversized node id accepted")
-	}
 }
 
 func TestRunAddressFieldWraps(t *testing.T) {
@@ -158,9 +121,26 @@ func TestRunAddressFieldWraps(t *testing.T) {
 	}
 }
 
-func TestWithNodeRejectsAddressOutsideCluster(t *testing.T) {
+func TestValidateRoutedAddr(t *testing.T) {
 	p := GeneratePrefix()
-	if _, err := p.WithNode(netip.MustParseAddr("fd00::1"), 1); err == nil {
-		t.Fatal("address outside cluster accepted")
+	instance := mustAddr(p.InstanceAddr(1, 2, 0))
+	run := mustAddr(p.RunAddr(1, 2, 3))
+	wrappedRun := mustAddr(p.RunAddr(1, 2, 1<<FieldBits))
+	service := mustAddr(p.ServiceAddr(1, 2))
+	for _, addr := range []netip.Addr{instance, run, wrappedRun} {
+		if err := p.ValidateRoutedAddr(addr); err != nil {
+			t.Fatalf("ValidateRoutedAddr(%s): %v", addr, err)
+		}
+	}
+	if err := p.ValidateRoutedAddr(service); err == nil {
+		t.Fatal("service address was accepted as a direct route")
+	}
+	other := mustAddr(GeneratePrefix().InstanceAddr(1, 2, 0))
+	if err := p.ValidateRoutedAddr(other); err == nil {
+		t.Fatal("out-of-prefix address was accepted")
+	}
+	zeroDeployment := mustAddr(p.InstanceAddr(1, 0, 0))
+	if err := p.ValidateRoutedAddr(zeroDeployment); err == nil {
+		t.Fatal("zero deployment id was accepted")
 	}
 }

@@ -1,32 +1,32 @@
 # Networking
 
-Design for the built-in networking layer: per-workload addressing, cross-machine mesh, service discovery, ingress, network policy, and load balancing. Machine-local virtual networking and TLS passthrough ingress are partially implemented; the cross-machine mesh, L7 ingress, policy, and load-balancing sections remain future work. See `docs/engineering/networking.md` for the current implementation.
+Design for the built-in networking layer: per-workload addressing, cross-machine routing, service discovery, ingress, network policy, and load balancing. Machine-local virtual networking and TLS passthrough ingress are partially implemented; cross-machine routing, L7 ingress, policy, and load balancing remain future work. See `docs/engineering/networking.md` for the current implementation and `docs/future-work/cross-node-routing-implementation-plan.md` for the ordered cross-node implementation plan.
 
 ## Goals and principles
 
 - Batteries included: one built-in network implementation, no plugin ecosystem. All components ship in the opendeploy binary; per machine there is the agent plus one netproxy system deployment (see Component model).
 - The primary is control plane only. It computes and distributes networking state; it is never on the datapath. A primary outage degrades to "no topology changes", never "traffic stops".
-- No NAT-based service translation (no kube-proxy equivalent). Workload logical addresses are stable and identity-bound. Cross-node transport performs stateless logical/locator rewriting only at the mesh boundary.
+- No NAT-based service translation (no kube-proxy equivalent). Workload logical addresses are stable and identity-bound. Cross-node transport preserves the complete logical packet inside a stateless IPv6-in-IPv6 or IPv6-in-IPv4 envelope.
 - Addresses are derived, not allocated. There is no IPAM state, allocator, or reuse policy.
-- One logical workload network. Every space is a durable tenant/security domain with its own logical prefix, not a separate host-level virtual network or WireGuard device.
+- One logical workload network. Every space is a durable tenant/security domain with its own logical prefix, not a separate host-level virtual network or tunnel set.
 - Network policy is a default security boundary: same-space traffic is allowed, cross-space traffic is denied unless explicitly allowed, and workload source addresses are validated at the host attachment boundary.
 - Configuration lives on the deployment config (a `networking` section edited in a side panel). Cluster-scoped knobs are limited to settings (ingress machines) and are validated cluster-wide.
-- Boring, debuggable dataplane first (netlink, WireGuard, nftables — inspectable with `ip`, `wg`, `nft`). eBPF is a later optimization, never a prerequisite.
+- Boring, debuggable dataplane first (netlink, fixed `ip6tnl` or SIT interfaces, nftables — inspectable with `ip` and `nft`). eBPF is a later optimization, never a prerequisite.
 
-Reference designs: Tailscale (coordination server + cryptokey routing + netmap distribution + MagicDNS), Fly.io (containerd + WireGuard mesh + 6PN structured IPv6 addressing + built-in proxy).
+The initial fixed-tunnel full mesh targets clusters of at most approximately 100 nodes. Larger topologies require a later flow-based tunnel or bounded-degree routing design, without changing logical workload addresses.
 
 ## Addressing
 
 ### Virtual network
 
-The virtual network is IPv6-only, using an RFC 4193 ULA `/48` prefix generated randomly by primary installation and persisted. There is no operator-supplied network configuration and no realistic collision with corporate networks, cloud VPCs, other OpenDeploy clusters, or Tailscale.
+The virtual network is IPv6-only, using an RFC 4193 ULA `/48` prefix generated randomly by primary installation and persisted. There is no operator-supplied network configuration and no realistic collision with corporate networks, cloud VPCs, or other OpenDeploy clusters.
 
 ### Address layout
 
 Addresses are pure functions of existing identifiers. Layout of the 80 host bits after the `/48` prefix:
 
 ```
-<ULA /48> : <node:17> : <space:17> : <deployment:26> : <kind:4> : <field:16>
+<ULA /48> : <reserved:17=0> : <space:17> : <deployment:26> : <kind:4> : <field:16>
 ```
 
 | Kind | Meaning | Field |
@@ -38,16 +38,15 @@ Addresses are pure functions of existing identifiers. Layout of the 80 host bits
 
 Properties:
 
-- Node `0` denotes logical addresses. A nonzero node id denotes a cross-node routing locator. Logical-to-locator translation changes only the node bits.
+- The reserved field is always zero. It preserves the implemented address ABI but never carries node placement.
 - An instance is `(space id, deployment id, ordinal)`. Its logical address survives restarts, upgrades, and node rescheduling. Moving it to another space changes its logical address.
 - Every logical space is one `/82`, making same-space policy a prefix rule.
 - All logical addresses of one deployment share one `/108` across every kind and field.
-- Every routing node owns one `/65` locator prefix containing every space and workload currently placed on that node.
 - Service addresses (kind 1) are reserved from day one but not routed until socket-level load balancing exists (see Load balancing). Connecting to an unrouted service address fails cleanly.
 - Space and deployment ids are never recycled, so logical prefixes are never reused.
 - Run fields wrap after 16 bits because only concurrently live temporary runs must be distinct. Instance ordinals do not wrap.
 
-Hard limits are 131,071 nonzero node ids, 131,072 spaces, 67,108,864 deployment ids, 16 kinds, and 65,536 values per kind.
+Hard limits are 131,072 spaces, 67,108,864 deployment ids, 16 kinds, and 65,536 values per kind.
 
 ### Spaces and address derivation
 
@@ -55,7 +54,7 @@ Space is part of logical network identity because a space is a tenant/security d
 
 ### IPv4 egress
 
-Containers keep a machine-local IPv4 path for internet egress: a fixed private range reused identically on every machine (not routable off-host), masqueraded to the host's default interface. IPv4 is never used for mesh, service, or ingress-to-backend traffic.
+Containers keep a machine-local IPv4 path for internet egress: a fixed private range reused identically on every machine (not routable off-host), masqueraded to the host's default interface. IPv4 is never used for cross-node workload, service, or ingress-to-backend traffic.
 
 ### Application requirements
 
@@ -68,7 +67,7 @@ OpenDeploy detects IPv4-only listeners from the container netns (`/proc/net/tcp6
 
 Two distinct concerns with opposite operational profiles:
 
-1. **Networking reconciler** (control plane): programs WireGuard peers, netns/veths, host routes, and nftables from the netmap. Privileged (NET_ADMIN), but its availability is irrelevant to traffic — the virtual network's dataplane is the kernel, and kernel state persists across restarts. There is no userspace daemon for the network itself.
+1. **Networking reconciler** (control plane): programs fixed node tunnels, netns/veths, host routes, and nftables from the netmap. Privileged (NET_ADMIN), but its availability is irrelevant to traffic — the virtual network's dataplane is the kernel, and kernel state persists across restarts. There is no userspace daemon for the network itself.
 2. **Userspace datapath services**: the DNS server and ingress proxy. Unprivileged, but process lifetime is traffic availability.
 
 Layout per machine:
@@ -80,7 +79,7 @@ Layout per machine:
 
 - Auto-created per enrolled machine; internal-only spec variants (like `githubRelease`/`systemd` today), redacted from public create/update, not user-deletable.
 - Image: the agent synthesizes a single-layer OCI image from its own release binary and imports it via the existing `ctrd.Import` path — no registry, no external build. The deployment version tracks the opendeploy release; agent upgrades bump it.
-- Runs unprivileged in its own netns like any workload; reaches backends over the mesh like any workload. Public traffic arrives via `portForwarding` DNAT (no privileged ports; `net.ipv4.ip_unprivileged_port_start` is per-netns, so binding `:53` for DNS inside its namespace is a sysctl, not a capability).
+- Runs unprivileged in its own netns like any workload; reaches backends through ordinary logical routes like any workload. Public traffic arrives via `portForwarding` DNAT (no privileged ports; `net.ipv4.ip_unprivileged_port_start` is per-netns, so binding `:53` for DNS inside its namespace is a sysctl, not a capability).
 - Upgrades use ROLLOVER with a refinement: `portForwarding` DNAT targets the container's kind-2 run address rather than the stable instance address. Rewriting the DNAT rule affects only new flows (established connections keep translating via their conntrack entries), so public connections drain gracefully on the old container while new ones land on the new — a cleaner handoff than listener-FD passing.
 - System deployments use a tight crash-backoff curve (not the standard 1–60s exponential), and the agent reattaches/respawns the netproxy deployment first on boot.
 - Configuration interface: a single protobuf netstate file (routes, endpoint states, exposed domains, certificate material, ACME challenge tokens — defined in `api-contract`), written by the agent with atomic write-rename into the deployment's data volume and watched by the proxy via inotify. Full snapshots, no deltas or streams. The netproxy process is a pure state consumer: it self-configures from the file at start (agent may be down) and reacts to updates in milliseconds. Direct read access to the node's main database was rejected: it would expose secrets and cluster state to the internet-facing process, and would freeze internal storage schemas as a cross-version API between independently-upgrading processes; the netstate message uses the same protobuf evolution discipline as the rest of the API contract.
@@ -93,47 +92,43 @@ Failure behavior: agent down → routing, DNS, and ingress unaffected (container
 
 ### Per-machine composition
 
-- One `wg0` WireGuard device per machine holding its mesh peers (kernel WireGuard via `wgctrl`).
 - One netns + veth pair per container (pure Go via `vishvananda/netlink`; no CNI).
-- No bridge. Plain host routes glue local logical `/128`s to veths. Cross-node packets are translated to node-scoped locators before entering `wg0` and restored to logical addresses after leaving it.
-- MTU on veth and `wg0` accounts for WireGuard overhead (1420 on a 1500 underlay).
+- One fixed tunnel interface per remote node, configured from the local and remote nodes' reachable underlay addresses: `ip6tnl` for IPv6 or SIT for IPv4.
+- No bridge. Plain host routes glue local logical `/128`s to veths and remote logical `/128`s to fixed node tunnels.
+- An `unreachable` route for the cluster ULA `/48` prevents unknown workload addresses from escaping through the host's default route.
+- The initial 1420 workload MTU leaves room for either a 40-byte outer IPv6 header or a 20-byte outer IPv4 header on a normal 1500-byte underlay.
 
-### Node-prefix cryptokey routing
+### Fixed node tunnels
 
-WireGuard `allowed_ips` maps each remote node's locator `/65` to that node's public key. Workload starts, stops, space moves, and placement changes do not alter WireGuard configuration; node membership, keys, endpoints, and mesh topology do. The source prefix check proves which node sent a locator, not which workload on that node originated it. Host attachment anti-spoofing and receiver-side logical policy are still required. All cross-machine traffic is encrypted and machine-authenticated with zero per-service configuration.
+Each pair of nodes has matching fixed IPv6-in-IPv6 or IPv6-in-IPv4 interfaces. A tunnel stores endpoint and device configuration but no per-flow connection state. The kernel independently prepends or removes an outer IP header for every packet; the inner logical packet and its transport checksums never change.
+
+The initial transport is unauthenticated and unencrypted. The underlay must provide mutually reachable same-family addresses and permit protocol 41. Source-address filtering does not provide cryptographic node identity. This tradeoff keeps the base dataplane minimal and is explicit in the product design.
 
 ### Cross-machine packet walk
 
 Instance on machine A sends to an instance address hosted on machine B:
 
 1. Container netns: default route via the host-side veth (link-local next hop); the packet crosses the veth pair.
-2. Host A validates the logical source at the workload attachment. Local logical destinations keep node `0` and route directly by `/128 → veth`.
-3. For a remote destination, the placement map supplies machine B's 17-bit node id. Host A fills node A into the logical source and node B into the logical destination, preserving space, deployment, kind, and field. Transport checksums and ICMPv6 embedded headers must be adjusted without per-flow NAT state.
-4. WireGuard selects machine B because its peer owns B's locator `/65`, encrypts the packet, and rejects inbound source locators outside the sending peer's `/65`.
-5. Host B verifies the destination locator names itself, zeros both node fields, applies logical destination ingress policy, and routes the restored logical destination via its local `/128 → veth` route.
+2. Host A validates the logical source at the workload attachment. Local logical destinations route directly by `/128 → veth`.
+3. For a remote destination, the logical `/128` route selects node B's fixed tunnel interface.
+4. The kernel prepends an outer IPv4 or IPv6 header addressed from node A's underlay address to node B's and sends protocol 41 traffic through the physical network.
+5. Node B's matching tunnel removes the outer header and reinjects the unchanged logical packet.
+6. Host B verifies that the logical destination is locally placed, applies logical destination ingress policy, and routes it via the local `/128 → veth` route.
 
-When an instance moves machines, its logical address does not change. The placement map changes from the old node id to the new one; WireGuard peer configuration is unchanged. Stale translations reach the old node and are dropped because it no longer owns the destination endpoint.
+When an instance moves machines, its logical address does not change. Every informed node replaces that workload's `/128` route to select the new node tunnel. The tunnel interfaces themselves do not change. A stale source may temporarily send through the old node; if that node has the new route it can forward the unchanged inner packet one additional hop, otherwise the cluster-prefix fallback rejects it.
 
-The translation mechanism must handle TCP, UDP, and ICMPv6 checksum adjustment, fragments, ICMPv6 errors carrying translated headers, and placement changes while packets are in flight. Encapsulation remains a fallback if stateless rewriting proves too complex, at the cost of another IPv6 header and a lower effective MTU.
+### Underlay endpoints and scale
 
-### WireGuard availability
+Each machine reports one reachable underlay address to the primary. Address family is inferred from the address, and all nodes initially use the same family. NAT traversal and relaying are out of scope. The primary machine participates like every other node.
 
-WireGuard is not installed or bundled; it is a kernel feature (mainline since 5.6, backported to Ubuntu 20.04's 5.4). OpenDeploy creates `wg0` via netlink (auto-loading the module) and configures keys/peers/`allowed_ips` via `wgctrl-go` generic netlink. The `wg` CLI is not required; it remains a debugging convenience. Install/enrollment runs a preflight check (create the link or probe the module) and fails with a clear error on kernels without WireGuard (e.g. RHEL 8 era). Userspace `wireguard-go` fallback is out of scope; kernel WireGuard is a hard requirement for Phase 2.
-
-### Keys and endpoints
-
-- Workers generate their WireGuard keypair locally during enrollment; the public key rides alongside the CSR. Private keys never leave the machine (same invariant as cluster TLS keys).
-- Each machine reports its reachable endpoint(s) to the primary; the netmap carries peer endpoints as data. Machines must be directly reachable at this stage — NAT traversal (STUN/DERP-style relaying) is explicitly out of scope, but the endpoint-as-data shape leaves room for a relay later without redesign.
-- The primary machine is itself a mesh peer.
-
-A direct full mesh is acceptable only for an initial modest node count. At the 20,000-node target, roughly 400 million directed peer relationships are not acceptable even if workload churn never changes WireGuard. The locator `/65` design therefore must also support bounded-degree routing through redundant site/region gateways or another hierarchical next-hop topology. A node's locator prefix remains unchanged whether the next WireGuard peer is the destination node or a gateway.
+A cluster with `N` nodes creates `N - 1` fixed tunnel interfaces per node and `N * (N - 1)` interface objects cluster-wide. This is accepted for the initial limit of approximately 100 nodes. Before materially exceeding that limit, the transport must move to one flow-based tunnel per node or a bounded-degree gateway topology while retaining the same logical-address and placement APIs.
 
 ## Netmap distribution
 
 The primary computes a per-machine netmap and pushes it over the existing mTLS cluster stream (same shape as secrets/config distribution).
 
-- Workers reconcile peers, `allowed_ips`, placement maps, host routes, nftables filters, and DNS data idempotently. Full snapshots are acceptable initially; the 20,000-node/100,000-deployment target requires incremental, sharded distribution and bounded peer sets.
-- Filtered per machine: a machine only learns peers and addresses it legitimately needs.
+- Workers reconcile node tunnels, placement routes, nftables filters, and DNS data idempotently. Full snapshots are acceptable for the initial approximately 100-node target; later scale requires incremental and sharded distribution.
+- Filtered per machine: a machine only learns placements and addresses it legitimately needs.
 - Persisted last-known-good: the worker stores the latest netmap in its local database and programs the dataplane from it on boot, before reaching the primary. Invariant: existing traffic flows do not depend on primary availability.
 
 Netmap content (schema sketch):
@@ -142,9 +137,9 @@ Netmap content (schema sketch):
 NetMap {
   seq                      // monotonic per machine
   ula_prefix
-  machines:  [{machine_id, network_node_id, wg_public_key, endpoints, locator_prefix}]
+  machines:  [{machine_id, underlay_ipv6}]
   services:  [{deployment_id, space_id, name, environment, service_address,
-                endpoints: [{ordinal, logical_address, network_node_id, state}], // READY | DRAINING | DOWN
+                endpoints: [{ordinal, logical_address, machine_id, state}], // READY | DRAINING | DOWN
                 explicit_allowed_from: [deployment_id]}]
 }
 ```
@@ -166,7 +161,7 @@ Unmatched queries are forwarded upstream, so public DNS keeps working unchanged.
 
 ## Ingress (reverse proxy)
 
-An L7 proxy running on machines designated as ingress machines in settings (default: all machines once the mesh exists).
+An L7 proxy running on machines designated as ingress machines in settings (default: all machines once cross-node routing exists).
 
 ### Process model
 
@@ -174,12 +169,12 @@ The proxy runs inside the netproxy system deployment (see Component model): a co
 
 ### Behavior
 
-- Receives public IPv4 `:80`/`:443` traffic (and `::` where the machine has public IPv6) via `portForwarding` DNAT into its netns. The proxy is the address-family boundary: accept public v4, dial the backend's ULA instance address over the mesh.
+- Receives public IPv4 `:80`/`:443` traffic (and `::` where the machine has public IPv6) via `portForwarding` DNAT into its netns. The proxy is the address-family boundary: accept public v4, dial the backend's ULA instance address through logical host routing.
 - Built on `net/http`/`httputil.ReverseProxy` with certmagic for automatic ACME issuance/renewal. v1 protocol scope: HTTPS termination, HTTP/1.1, HTTP/2, WebSockets, `X-Forwarded-*` headers.
 - Routing state updates live from the netmap; no config-file reloads.
 - Drain-aware: the proxy stops selecting DRAINING endpoints for new requests and finishes in-flight ones. During a single-instance promotion it holds new requests for the sub-second route flip and releases them to the new instance (zero failed requests).
 - The proxy owns `:80`/`:443` on ingress machines. The OpenDeploy web UI is served as a route through the same proxy (unifying the existing web ACME config), and raw `portForwarding` claims on 80/443 are rejected on ingress machines.
-- The same host-listener-to-mesh pattern later supports raw TCP/UDP passthrough exposure (with PROXY protocol for source addresses).
+- The same host-listener-to-logical-route pattern later supports raw TCP/UDP passthrough exposure (with PROXY protocol for source addresses).
 
 ### Route configuration and collision rules
 
@@ -196,13 +191,13 @@ than sharing passthrough fields. HTTPS route claims will be `(hostname, pathPref
 
 ### Multi-node ingress
 
-With the mesh, every ingress machine can serve every route; public DNS holds one A record per ingress machine. DNS round-robin is the availability model: a dead node's record persists until TTL expiry, partially mitigated by client retry across A records. Floating IPs, VRRP, and managed-DNS health checks are out of scope (underlay concerns); users needing faster failover use their DNS provider's health checks.
+With cross-node routing, every ingress machine can serve every route; public DNS holds one A record per ingress machine. DNS round-robin is the availability model: a dead node's record persists until TTL expiry, partially mitigated by client retry across A records. Floating IPs, VRRP, and managed-DNS health checks are out of scope (underlay concerns); users needing faster failover use their DNS provider's health checks.
 
 Multi-node ingress requires shared certificate and ACME state: an HTTP-01 challenge may arrive at any node, and issuance must happen once. Issuance runs centrally in the primary's agent (certmagic with storage over primary storage; certificate material in the encrypted secrets store). Challenge tokens and issued certificates reach ingress machines through the netstate file (see Component model), so proxies serve challenges and TLS without owning any ACME state.
 
 ## Network policy
 
-OpenDeploy has one cluster logical workload network. Each space has a derived `/82` logical subprefix, but isolation is enforced by policy rather than separate VRFs, WireGuard devices, or independently generated ULA networks.
+OpenDeploy has one cluster logical workload network. Each space has a derived `/82` logical subprefix, but isolation is enforced by policy rather than separate VRFs, tunnel fabrics, or independently generated ULA networks.
 
 Default stance:
 
@@ -219,16 +214,16 @@ Enforcement has two mandatory layers:
 
 For workload-to-workload isolation, destination ingress policy plus source anti-spoofing is sufficient. A separate workload egress policy is not required for the v1 default boundary. Egress policy remains useful later for internet/private-network controls, host-service access, control-plane protection, and exfiltration-sensitive deployments.
 
-Policies are expressed in logical workload terms: space, deployment, labels later, protocol, and port. The default same-space allow compiles to the source space's `/82`; explicit cross-space rules compile to deployment prefixes and port/protocol matches. Same-host and cross-host traffic hit the same destination-side policy after any reverse translation. WireGuard authenticates the sending node and locator `/65`, not the logical workload identity.
+Policies are expressed in logical workload terms: space, deployment, labels later, protocol, and port. The default same-space allow compiles to the source space's `/82`; explicit cross-space rules compile to deployment prefixes and port/protocol matches. Same-host and cross-host traffic hit the same destination-side policy after tunnel decapsulation. Fixed tunnel endpoints identify the expected sending underlay address but do not cryptographically authenticate it.
 
-Policy evaluates node-zero logical source and destination addresses before outbound translation and after inbound reverse translation. Locator addresses are routing state, not policy identity.
+Policy always evaluates the unchanged logical source and destination addresses. Underlay addresses and tunnel interfaces are routing state, not workload policy identity.
 
 ## Load balancing
 
 kube-proxy exists to translate stable virtual addresses to ephemeral endpoints. Stable instance addresses remove the need. Balancing arrives in stages; users only ever set a replica count.
 
 1. **DNS over ready endpoint sets** (ships with the netmap). Health-aware by construction: not-ready instances do not resolve. Known limits (client caching, long-lived connection pinning) are acceptable for internal traffic.
-2. **eBPF socket-level balancing** (`cgroup/connect6` hook via `cilium/ebpf`). Rewrites `connect()` calls to the kind-1 service address into a chosen READY logical instance address, per connection, before any packet exists. No service DNAT or conntrack is required; cross-node routing subsequently translates that instance address to a locator. The hook's backend map is programmed from the same netmap. This is when service addresses start routing.
+2. **eBPF socket-level balancing** (`cgroup/connect6` hook via `cilium/ebpf`). Rewrites `connect()` calls to the kind-1 service address into a chosen READY logical instance address, per connection, before any packet exists. No service DNAT or conntrack is required; ordinary logical routing then selects a local attachment or fixed node tunnel. The hook's backend map is programmed from the same netmap. This is when service addresses start routing.
 3. **L7 east-west through the embedded proxy** (opt-in, per deployment): retries, traffic splitting, per-route metrics for HTTP workloads. Ingress traffic already gets endpoint-set balancing from stage 1.
 
 Interim DNAT-based virtual IPs are explicitly rejected; before stage 2, service addresses simply do not route.
@@ -262,7 +257,7 @@ Default rolling recreate, one ordinal at a time, behind the endpoint set:
 
 Surge mode (no capacity dip) applies the single-instance candidate flow per ordinal — same primitive.
 
-Cross-machine moves (scheduler relocating an ordinal) update the logical-address-to-node placement map: start the new instance on the target under a temporary address, publish the placement flip, then drain and stop the source. WireGuard `allowed_ips` do not change. Propagation is eventually consistent; stale translations reach the old node and are dropped until clients retransmit using the new placement. This is the one rollover variant where the primary is on the critical path, which is acceptable because scheduler moves are already control-plane acts.
+Cross-machine moves (scheduler relocating an ordinal) update the logical-address-to-node placement map: start the new instance on the target under a temporary address, publish the placement flip, then drain and stop the source. Every informed node replaces the instance `/128` route to select the target's fixed tunnel; tunnel configuration does not change. Propagation is eventually consistent. A stale route may reach the old node and take one additional routed tunnel hop after that node learns the new placement, or fail until the source receives the update. This is the one rollover variant where the primary is on the critical path, which is acceptable because scheduler moves are already control-plane acts.
 
 Daemon sets are the rolling recreate loop iterated over machines; each replacement is machine-local.
 
@@ -296,7 +291,7 @@ The networking mode is pinned to the config version, not the container lifetime:
 
 ### Host-network mode as a permanent option
 
-Host networking remains a supported explicit opt-out (`networking: {mode: host}`), not just a legacy state. The launch path must exist indefinitely for never-redeployed deployments, so exposing it costs only validation and documentation. Genuine use cases: LAN discovery protocols that DNAT cannot forward (mDNS/SSDP — Home Assistant, Plex), network-infrastructure workloads that must see host interfaces (VPN/DHCP servers, monitoring agents, packet capture), and very wide or dynamic port ranges. A host-mode deployment forfeits the virtual-network guarantees: no stable instance address, no `.internal` DNS record, no `allowedFrom` policy, and no mesh reachability. Host-mode ROLLOVER remains cooperative: the candidate must defer binding conflicting host ports until after readiness. Expected to be a niche opt-out, dominated by the multicast case.
+Host networking remains a supported explicit opt-out (`networking: {mode: host}`), not just a legacy state. The launch path must exist indefinitely for never-redeployed deployments, so exposing it costs only validation and documentation. Genuine use cases: LAN discovery protocols that DNAT cannot forward (mDNS/SSDP — Home Assistant, Plex), network-infrastructure workloads that must see host interfaces (VPN/DHCP servers, monitoring agents, packet capture), and very wide or dynamic port ranges. A host-mode deployment forfeits the virtual-network guarantees: no stable instance address, no `.internal` DNS record, no `allowedFrom` policy, and no cross-node logical reachability. Host-mode ROLLOVER remains cooperative: the candidate must defer binding conflicting host ports until after readiness. Expected to be a niche opt-out, dominated by the multicast case.
 
 ## Implementation phases
 
@@ -304,9 +299,9 @@ Each phase is independently shippable and usable; later phases can wait.
 
 ### Phase 1 — Machine-local virtual network
 
-The dataplane on each machine, no cross-machine mesh yet.
+The dataplane on each machine, without cross-machine routing yet.
 
-- ULA prefix generation and persistence on the primary; derived logical address functions (kinds 0–2) using node `0`, space, deployment, kind, and field.
+- ULA prefix generation and persistence on the primary; derived logical address functions (kinds 0–2) using the reserved zero field, space, deployment, kind, and field.
 - Netns/veth per container, host routes, IPv4 egress NAT, MTU handling.
 - Attachment source anti-spoofing and generated default ingress policy for machine-local traffic: same-space allow, cross-space deny.
 - Endpoint-set-shaped state (n=1) with READY/DRAINING, readiness generalized to set membership.
@@ -319,20 +314,21 @@ The dataplane on each machine, no cross-machine mesh yet.
 
 Usable outcome: containers are isolated with stable addresses, same-machine deployments in the same space discover and reach each other by name, cross-space traffic is denied by default, external reachability works via `portForwarding`, and rollover is genuinely zero-downtime. Cross-machine traffic continues via host addresses and published ports, as today.
 
-### Phase 2 — Cluster mesh
+### Phase 2 — Cross-node routing
 
-- Stable 17-bit network node ids and WireGuard keypairs in enrollment (existing machines: key exchange over the established mTLS cluster channel); `wg0` peers/next hops; machine endpoint reporting.
+- Reachable IPv4 or IPv6 underlay-address reporting and distribution through enrollment and the existing mTLS cluster channel.
+- Fixed `ip6tnl` or SIT interface reconciliation for every remote node, with an initial cluster limit of approximately 100 nodes.
 - Netmap computation, per-machine filtering, distribution over the cluster stream, worker-side persistence and idempotent reconciliation.
-- Stateless logical/locator translation around WireGuard, node `/65` routing via `allowed_ips`, cluster-wide DNS, and the same logical policy across machines.
+- Remote logical `/128` routes selecting fixed node tunnels, cluster-ULA `unreachable` fallback routes, cluster-wide DNS, and the same logical policy across machines.
 
-Usable outcome: same-space instances reach same-space instances by name across machines, encrypted, with the primary off the datapath. Cross-space traffic remains denied unless explicitly allowed.
+Usable outcome: same-space instances reach same-space instances by name across machines, with the primary off the datapath. Cross-space traffic remains denied unless explicitly allowed. Base cross-node transport is not encrypted or cryptographically authenticated.
 
 ### Phase 3 — Ingress
 
 Incremental within the phase:
 
 - 3a: ingress role enabled in the existing netproxy system deployment (`portForwarding` 80/443 DNAT to its run address), certmagic ACME (certmagic `Storage` over primary storage), `ingress` config with collision validation, longest-prefix routing to local-machine backends. Works with Phase 1 alone on single-machine clusters.
-- 3b: cross-machine backends over the mesh (requires Phase 2); multi-node ingress with per-node public DNS records.
+- 3b: cross-machine backends over logical tunnel routes (requires Phase 2); multi-node ingress with per-node public DNS records.
 - 3c: rollover integration — drain awareness and hold-and-release during promotions; web UI served through the proxy.
 
 Usable outcome: `ingress: {hostname}` gives a deployment a public HTTPS endpoint with automatic certificates; raw `portForwarding` becomes the exception rather than the norm.
@@ -357,7 +353,7 @@ Coupled to the scheduler/replicas backlog item; networking consumes placements a
 
 Decisions Phase 1 must honor so later phases are additive:
 
-- Address functions include service kind 1 and node-field fill/zero helpers even though only logical instance kind 0 and run kind 2 route in Phase 1.
+- Address functions include service kind 1 and preserve the reserved zero field even though only logical instance kind 0 and run kind 2 route in Phase 1. Node-field fill/zero helpers are obsolete and should be removed.
 - Netmap/state schema uses endpoint sets with per-endpoint state from the start.
 - The worker's reconciler is full-state and idempotent from the start, even while state is locally produced rather than primary-distributed.
 - Status schema anticipates `(deployment, ordinal)` granularity (ordinal 0 today).

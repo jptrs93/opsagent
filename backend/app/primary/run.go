@@ -8,11 +8,13 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/backup"
 	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
 	"github.com/jptrs93/opsagent/backend/app/primary/clusterserver"
 	"github.com/jptrs93/opsagent/backend/app/primary/enrollmenthandler"
+	"github.com/jptrs93/opsagent/backend/app/primary/netmappublisher"
 	"github.com/jptrs93/opsagent/backend/app/primary/webui"
 	"github.com/jptrs93/opsagent/backend/app/primary/webuihandler"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/ratelimit"
@@ -47,6 +49,16 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	}
 	certificateIdentifier := certu.MustCertCommonNameFromPEM(clusterMaterial.PrimaryCert)
 	primaryNode := primaryRuntime.store.EnsurePrimaryNode("primary", certificateIdentifier)
+	initialConfig := primaryRuntime.configService.Snapshot()
+	underlayAddress := ainit.StaticConfig.UnderlayAddress
+	if underlayAddress == "" {
+		clusterListen := primaryRuntime.configService.MustLoadConfigStringValue(initialConfig.Settings.Cluster.Listen)
+		underlayAddress, err = resolvePrimaryUnderlayAddress(clusterListen)
+		if err != nil {
+			return err
+		}
+	}
+	primaryNode = primaryRuntime.store.MustSetNodeAddresses(primaryNode.ID, []string{underlayAddress})
 	nodeIdentifier := primaryNode.Identifier
 	slog.Info(fmt.Sprintf("opendeploy starting primary version=%v nodeIdentifier=%v", version.Version, nodeIdentifier))
 	webUIHandler, err := webuihandler.New(staticFS, primaryNode.ID, primaryRuntime.webUIHandlerDependencies())
@@ -57,6 +69,11 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		return cfg.NodeID == primaryNode.ID
 	})
 	primaryRuntime.start(ctx, primaryDeployments, primaryNode.ID, nodeIdentifier)
+	networkMaps, err := netmappublisher.New(primaryRuntime.store, primaryRuntime.configService.NetworkPrefix())
+	if err != nil {
+		return fmt.Errorf("creating network map publisher: %w", err)
+	}
+	go networkMaps.Run(ctx)
 	assetReconcileDone := primaryRuntime.assets.StartReconciler(ctx)
 	backupDone := backup.StartReplication(ctx, primaryRuntime.configService, primaryRuntime.secrets, primaryRuntime.store, primaryRuntime.assets)
 	defer func() {
@@ -64,14 +81,13 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		<-backupDone
 		<-assetReconcileDone
 	}()
-	initialConfig := primaryRuntime.configService.Snapshot()
 	enrollmentFingerprint, err := certu.CertificatePEMSPKISHA256(clusterMaterial.PrimaryCert)
 	if err != nil {
 		return fmt.Errorf("computing enrollment TLS fingerprint: %w", err)
 	}
 	// Primary cluster and enrollment listeners start for every primary.
-	clusterHandler := clusterhandler.New(primaryRuntime.store, primaryRuntime.assets, primaryRuntime.github, primaryRuntime.secrets, primaryRuntime.configService.NetworkPrefix())
-	enrollmentHandler := enrollmenthandler.New(primaryRuntime.store, primaryRuntime.secrets, primaryRuntime.configService, enrollmentFingerprint)
+	clusterHandler := clusterhandler.New(primaryRuntime.store, primaryRuntime.assets, primaryRuntime.github, primaryRuntime.secrets, primaryRuntime.configService.NetworkPrefix(), networkMaps)
+	enrollmentHandler := enrollmenthandler.New(primaryRuntime.store, primaryRuntime.secrets, primaryRuntime.configService, enrollmentFingerprint, networkMaps)
 	webUIHandler.Cluster = clusterHandler
 	webUIHandler.Enrollment = enrollmentHandler
 	enrollmentMiddlewares := []apigen.MiddlewareFunc{

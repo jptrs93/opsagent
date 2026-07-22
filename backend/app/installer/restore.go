@@ -143,6 +143,9 @@ func invalidateRestoredPrimaryRuntimeState(dbPath string, own owner) error {
 			info("invalidated runtime state for %d replacement-primary deployments", count)
 		}
 	}
+	if deleteErr := store.DeleteLocalKV(sqlite.LocalKVPrimaryClusterNetMap); deleteErr != nil && err == nil {
+		err = fmt.Errorf("reset restored cluster network map generation: %w", deleteErr)
+	}
 	if err != nil {
 		_ = store.Close()
 		return err

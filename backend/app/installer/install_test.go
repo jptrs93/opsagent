@@ -120,6 +120,25 @@ func TestParseInstallSecondaryStoresEnrollmentFingerprint(t *testing.T) {
 	}
 }
 
+func TestParseInstallStoresOptionalUnderlayAddress(t *testing.T) {
+	_, opts, err := parseInstallSecondary([]string{
+		"--cluster-addr", "primary:9443",
+		"--enrollment-addr", "primary:9444",
+		"--enrollment-fingerprint", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"--underlay-address", "10.0.0.2",
+	})
+	if err != nil {
+		t.Fatalf("parseInstallSecondary: %v", err)
+	}
+	if opts.underlayAddress == nil || *opts.underlayAddress != "10.0.0.2" {
+		t.Fatalf("underlay address = %v, want 10.0.0.2", opts.underlayAddress)
+	}
+	env := string(renderEnvTemplate(opts))
+	if !strings.Contains(env, "OPENDEPLOY_UNDERLAY_ADDRESS=10.0.0.2") {
+		t.Fatalf("env missing underlay address:\n%s", env)
+	}
+}
+
 func TestRenderOpenDeployUnitUsesRestartAlways(t *testing.T) {
 	unit := renderOpenDeployUnit(installOptions{role: "primary"})
 	if !strings.Contains(string(unit), "Restart=always") {

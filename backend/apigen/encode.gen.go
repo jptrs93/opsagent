@@ -2,2632 +2,6 @@
 
 package apigen
 
-func (m *EnrollmentWorkerMsg) Encode() []byte {
-	var b []byte
-	if m.Hello != nil {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.Hello.Encode())
-	}
-	return b
-}
-
-func DecodeEnrollmentWorkerMsg(b []byte) (*EnrollmentWorkerMsg, error) {
-	var m EnrollmentWorkerMsg
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *EnrollmentHello
-				item, err = DecodeEnrollmentHello(msgBytes)
-				if err == nil {
-					m.Hello = item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *EnrollmentHello) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.RequestingMachineID, 1)
-	b = AppendBytesField(b, m.WorkerCertificateRequest, 2)
-	b = AppendStringField(b, m.OpendeployVersion, 3)
-	return b
-}
-
-func DecodeEnrollmentHello(b []byte) (*EnrollmentHello, error) {
-	var m EnrollmentHello
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.RequestingMachineID, err = ConsumeString(b, typ)
-		case 2:
-			b, m.WorkerCertificateRequest, err = ConsumeBytesCopy(b, typ)
-		case 3:
-			b, m.OpendeployVersion, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *EnrollmentPrimaryMsg) Encode() []byte {
-	var b []byte
-	if m.RequestStatus != nil {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.RequestStatus.Encode())
-	}
-	if m.Accepted != nil {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.Accepted.Encode())
-	}
-	return b
-}
-
-func DecodeEnrollmentPrimaryMsg(b []byte) (*EnrollmentPrimaryMsg, error) {
-	var m EnrollmentPrimaryMsg
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *EnrollmentRequestStatus
-				item, err = DecodeEnrollmentRequestStatus(msgBytes)
-				if err == nil {
-					m.RequestStatus = item
-				}
-			}
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *EnrollmentAccepted
-				item, err = DecodeEnrollmentAccepted(msgBytes)
-				if err == nil {
-					m.Accepted = item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *EnrollmentRequestStatus) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendInt64FromTime(b, m.CreatedAt, 2)
-	b = AppendInt64FromTime(b, m.UpdatedAt, 3)
-	b = AppendStringField(b, m.RequestingIpAddress, 4)
-	b = AppendStringField(b, m.RequestingMachineID, 5)
-	b = AppendStringField(b, m.Status, 6)
-	b = AppendStringField(b, m.OpendeployVersion, 7)
-	return b
-}
-
-func DecodeEnrollmentRequestStatus(b []byte) (*EnrollmentRequestStatus, error) {
-	var m EnrollmentRequestStatus
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 3:
-			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 4:
-			b, m.RequestingIpAddress, err = ConsumeString(b, typ)
-		case 5:
-			b, m.RequestingMachineID, err = ConsumeString(b, typ)
-		case 6:
-			b, m.Status, err = ConsumeString(b, typ)
-		case 7:
-			b, m.OpendeployVersion, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *EnrollmentRequestList) Encode() []byte {
-	var b []byte
-	for _, item := range m.Items {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeEnrollmentRequestList(b []byte) (*EnrollmentRequestList, error) {
-	var m EnrollmentRequestList
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *EnrollmentRequestStatus
-				item, err = DecodeEnrollmentRequestStatus(msgBytes)
-				if err == nil {
-					m.Items = append(m.Items, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *EnrollmentInfo) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.EnrollmentTlsSpkiSha256, 1)
-	return b
-}
-
-func DecodeEnrollmentInfo(b []byte) (*EnrollmentInfo, error) {
-	var m EnrollmentInfo
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.EnrollmentTlsSpkiSha256, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *EnrollmentAcceptRequest) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendStringField(b, m.WorkerName, 2)
-	return b
-}
-
-func DecodeEnrollmentAcceptRequest(b []byte) (*EnrollmentAcceptRequest, error) {
-	var m EnrollmentAcceptRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.WorkerName, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *EnrollmentAccepted) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendStringField(b, m.WorkerName, 2)
-	b = AppendBytesField(b, m.CaCertificate, 3)
-	b = AppendBytesField(b, m.WorkerCertificate, 4)
-	if m.ClusterNetwork != nil {
-		b = AppendTag(b, 5, BytesType)
-		b = AppendBytes(b, m.ClusterNetwork.Encode())
-	}
-	if m.NodeDeployment != nil {
-		b = AppendTag(b, 6, BytesType)
-		b = AppendBytes(b, m.NodeDeployment.Encode())
-	}
-	if m.NodeNetDeployment != nil {
-		b = AppendTag(b, 7, BytesType)
-		b = AppendBytes(b, m.NodeNetDeployment.Encode())
-	}
-	return b
-}
-
-func DecodeEnrollmentAccepted(b []byte) (*EnrollmentAccepted, error) {
-	var m EnrollmentAccepted
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.WorkerName, err = ConsumeString(b, typ)
-		case 3:
-			b, m.CaCertificate, err = ConsumeBytesCopy(b, typ)
-		case 4:
-			b, m.WorkerCertificate, err = ConsumeBytesCopy(b, typ)
-		case 5:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ClusterNetworkInfo
-				item, err = DecodeClusterNetworkInfo(msgBytes)
-				if err == nil {
-					m.ClusterNetwork = item
-				}
-			}
-		case 6:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentWithStatus
-				item, err = DecodeDeploymentWithStatus(msgBytes)
-				if err == nil {
-					m.NodeDeployment = item
-				}
-			}
-		case 7:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentWithStatus
-				item, err = DecodeDeploymentWithStatus(msgBytes)
-				if err == nil {
-					m.NodeNetDeployment = item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *GithubCredentials) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Token, 1)
-	b = AppendInt64FromTime(b, m.ChangedAt, 2)
-	return b
-}
-
-func DecodeGithubCredentials(b []byte) (*GithubCredentials, error) {
-	var m GithubCredentials
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Token, err = ConsumeString(b, typ)
-		case 2:
-			b, m.ChangedAt, err = ConsumeTimeFromInt64(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *BackupStatus) Encode() []byte {
-	var b []byte
-	b = AppendBoolField(b, m.Configured, 1)
-	b = AppendBoolField(b, m.Running, 2)
-	b = AppendBoolField(b, m.InSync, 3)
-	b = AppendUint64Field(b, m.LocalTxid, 4)
-	b = AppendUint64Field(b, m.RemoteTxid, 5)
-	b = AppendInt64FromTime(b, m.LastSuccessfulSyncAt, 6)
-	b = AppendStringField(b, m.Error, 7)
-	b = AppendBoolField(b, m.AssetMigrationRunning, 8)
-	b = AppendUint32Field(b, m.AssetPending, 9)
-	b = AppendBoolField(b, m.AssetTargetS3, 10)
-	b = AppendStringField(b, m.AssetError, 11)
-	return b
-}
-
-func DecodeBackupStatus(b []byte) (*BackupStatus, error) {
-	var m BackupStatus
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Configured, err = ConsumeBool(b, typ)
-		case 2:
-			b, m.Running, err = ConsumeBool(b, typ)
-		case 3:
-			b, m.InSync, err = ConsumeBool(b, typ)
-		case 4:
-			b, m.LocalTxid, err = ConsumeVarUint64(b, typ)
-		case 5:
-			b, m.RemoteTxid, err = ConsumeVarUint64(b, typ)
-		case 6:
-			b, m.LastSuccessfulSyncAt, err = ConsumeTimeFromInt64(b, typ)
-		case 7:
-			b, m.Error, err = ConsumeString(b, typ)
-		case 8:
-			b, m.AssetMigrationRunning, err = ConsumeBool(b, typ)
-		case 9:
-			b, m.AssetPending, err = ConsumeVarUint32(b, typ)
-		case 10:
-			b, m.AssetTargetS3, err = ConsumeBool(b, typ)
-		case 11:
-			b, m.AssetError, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *ClusterSecretsRequest) Encode() []byte {
-	var b []byte
-	b = AppendRepeatedCompact(b, m.Ids, 1, AppendCompactDecorator(AppendInt32Compact))
-	return b
-}
-
-func DecodeClusterSecretsRequest(b []byte) (*ClusterSecretsRequest, error) {
-	var m ClusterSecretsRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Ids, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt32)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *ClusterSecretValue) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendBytesField(b, m.Value, 2)
-	return b
-}
-
-func DecodeClusterSecretValue(b []byte) (*ClusterSecretValue, error) {
-	var m ClusterSecretValue
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.Value, err = ConsumeBytesCopy(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *ClusterSecretsResponse) Encode() []byte {
-	var b []byte
-	for _, item := range m.Items {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeClusterSecretsResponse(b []byte) (*ClusterSecretsResponse, error) {
-	var m ClusterSecretsResponse
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ClusterSecretValue
-				item, err = DecodeClusterSecretValue(msgBytes)
-				if err == nil {
-					m.Items = append(m.Items, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *ClusterConfigsRequest) Encode() []byte {
-	var b []byte
-	b = AppendRepeatedCompact(b, m.Ids, 1, AppendCompactDecorator(AppendInt32Compact))
-	return b
-}
-
-func DecodeClusterConfigsRequest(b []byte) (*ClusterConfigsRequest, error) {
-	var m ClusterConfigsRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Ids, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt32)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *ClusterConfigValue) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendStringField(b, m.Value, 2)
-	return b
-}
-
-func DecodeClusterConfigValue(b []byte) (*ClusterConfigValue, error) {
-	var m ClusterConfigValue
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.Value, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *ClusterConfigsResponse) Encode() []byte {
-	var b []byte
-	for _, item := range m.Items {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeClusterConfigsResponse(b []byte) (*ClusterConfigsResponse, error) {
-	var m ClusterConfigsResponse
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ClusterConfigValue
-				item, err = DecodeClusterConfigValue(msgBytes)
-				if err == nil {
-					m.Items = append(m.Items, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m SecretRef) IsZero() bool {
-	return m.ID == 0
-}
-
-func (m *SecretRef) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.ID, 3)
-	return b
-}
-
-func DecodeSecretRef(b []byte) (*SecretRef, error) {
-	var m SecretRef
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 3:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m ConfigRef) IsZero() bool {
-	return m.ID == 0
-}
-
-func (m *ConfigRef) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.ID, 3)
-	return b
-}
-
-func DecodeConfigRef(b []byte) (*ConfigRef, error) {
-	var m ConfigRef
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 3:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m StringSetting) IsZero() bool {
-	return m.Value == "" &&
-		m.ConfigRef.IsZero()
-}
-
-func (m *StringSetting) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Value, 1)
-	if !m.ConfigRef.IsZero() {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.ConfigRef.Encode())
-	}
-	return b
-}
-
-func DecodeStringSetting(b []byte) (*StringSetting, error) {
-	var m StringSetting
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Value, err = ConsumeString(b, typ)
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ConfigRef
-				item, err = DecodeConfigRef(msgBytes)
-				if err == nil {
-					m.ConfigRef = *item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m BoolSetting) IsZero() bool {
-	return m.Value == false &&
-		m.ConfigRef.IsZero()
-}
-
-func (m *BoolSetting) Encode() []byte {
-	var b []byte
-	b = AppendBoolField(b, m.Value, 1)
-	if !m.ConfigRef.IsZero() {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.ConfigRef.Encode())
-	}
-	return b
-}
-
-func DecodeBoolSetting(b []byte) (*BoolSetting, error) {
-	var m BoolSetting
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Value, err = ConsumeBool(b, typ)
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ConfigRef
-				item, err = DecodeConfigRef(msgBytes)
-				if err == nil {
-					m.ConfigRef = *item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m Config) IsZero() bool {
-	return m.Settings.IsZero() &&
-		m.MasterPasswordHash == "" &&
-		len(m.NetworkUlaPrefix) == 0
-}
-
-func (m *Config) Encode() []byte {
-	var b []byte
-	if !m.Settings.IsZero() {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.Settings.Encode())
-	}
-	b = AppendStringField(b, m.MasterPasswordHash, 2)
-	b = AppendBytesField(b, m.NetworkUlaPrefix, 3)
-	return b
-}
-
-func DecodeConfig(b []byte) (*Config, error) {
-	var m Config
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *Settings
-				item, err = DecodeSettings(msgBytes)
-				if err == nil {
-					m.Settings = *item
-				}
-			}
-		case 2:
-			b, m.MasterPasswordHash, err = ConsumeString(b, typ)
-		case 3:
-			b, m.NetworkUlaPrefix, err = ConsumeBytesCopy(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m ConfigVersion) IsZero() bool {
-	return m.Version == 0 &&
-		m.UpdatedAt.IsZero() &&
-		m.Config.IsZero()
-}
-
-func (m *ConfigVersion) Encode() []byte {
-	var b []byte
-	b = AppendInt64Field(b, m.Version, 1)
-	b = AppendInt64FromTime(b, m.UpdatedAt, 2)
-	if !m.Config.IsZero() {
-		b = AppendTag(b, 3, BytesType)
-		b = AppendBytes(b, m.Config.Encode())
-	}
-	return b
-}
-
-func DecodeConfigVersion(b []byte) (*ConfigVersion, error) {
-	var m ConfigVersion
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Version, err = ConsumeVarInt64(b, typ)
-		case 2:
-			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 3:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *Config
-				item, err = DecodeConfig(msgBytes)
-				if err == nil {
-					m.Config = *item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m Settings) IsZero() bool {
-	return m.HttpWeb.IsZero() &&
-		m.HttpsWeb.IsZero() &&
-		m.Cluster.IsZero() &&
-		m.Repo.IsZero() &&
-		m.Backup.IsZero() &&
-		m.LargeAssets.IsZero()
-}
-
-func (m *Settings) Encode() []byte {
-	var b []byte
-	if !m.HttpWeb.IsZero() {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.HttpWeb.Encode())
-	}
-	if !m.HttpsWeb.IsZero() {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.HttpsWeb.Encode())
-	}
-	if !m.Cluster.IsZero() {
-		b = AppendTag(b, 3, BytesType)
-		b = AppendBytes(b, m.Cluster.Encode())
-	}
-	if !m.Repo.IsZero() {
-		b = AppendTag(b, 4, BytesType)
-		b = AppendBytes(b, m.Repo.Encode())
-	}
-	if !m.Backup.IsZero() {
-		b = AppendTag(b, 5, BytesType)
-		b = AppendBytes(b, m.Backup.Encode())
-	}
-	if !m.LargeAssets.IsZero() {
-		b = AppendTag(b, 6, BytesType)
-		b = AppendBytes(b, m.LargeAssets.Encode())
-	}
-	return b
-}
-
-func DecodeSettings(b []byte) (*Settings, error) {
-	var m Settings
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *HttpWebSettings
-				item, err = DecodeHttpWebSettings(msgBytes)
-				if err == nil {
-					m.HttpWeb = *item
-				}
-			}
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *HttpsWebSettings
-				item, err = DecodeHttpsWebSettings(msgBytes)
-				if err == nil {
-					m.HttpsWeb = *item
-				}
-			}
-		case 3:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ClusterSettings
-				item, err = DecodeClusterSettings(msgBytes)
-				if err == nil {
-					m.Cluster = *item
-				}
-			}
-		case 4:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *RepoSettings
-				item, err = DecodeRepoSettings(msgBytes)
-				if err == nil {
-					m.Repo = *item
-				}
-			}
-		case 5:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *BackupSettings
-				item, err = DecodeBackupSettings(msgBytes)
-				if err == nil {
-					m.Backup = *item
-				}
-			}
-		case 6:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *LargeAssetsSettings
-				item, err = DecodeLargeAssetsSettings(msgBytes)
-				if err == nil {
-					m.LargeAssets = *item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m HttpWebSettings) IsZero() bool {
-	return m.Enabled.IsZero() &&
-		m.Listen.IsZero()
-}
-
-func (m *HttpWebSettings) Encode() []byte {
-	var b []byte
-	if !m.Enabled.IsZero() {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.Enabled.Encode())
-	}
-	if !m.Listen.IsZero() {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.Listen.Encode())
-	}
-	return b
-}
-
-func DecodeHttpWebSettings(b []byte) (*HttpWebSettings, error) {
-	var m HttpWebSettings
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *BoolSetting
-				item, err = DecodeBoolSetting(msgBytes)
-				if err == nil {
-					m.Enabled = *item
-				}
-			}
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *StringSetting
-				item, err = DecodeStringSetting(msgBytes)
-				if err == nil {
-					m.Listen = *item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m HttpsWebSettings) IsZero() bool {
-	return m.Enabled.IsZero() &&
-		m.Listen.IsZero() &&
-		m.TlsSelfManaged.IsZero() &&
-		m.TlsCertPem.IsZero() &&
-		m.AcmeHosts.IsZero() &&
-		m.AcmeEmail.IsZero()
-}
-
-func (m *HttpsWebSettings) Encode() []byte {
-	var b []byte
-	if !m.Enabled.IsZero() {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.Enabled.Encode())
-	}
-	if !m.Listen.IsZero() {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.Listen.Encode())
-	}
-	if !m.TlsSelfManaged.IsZero() {
-		b = AppendTag(b, 3, BytesType)
-		b = AppendBytes(b, m.TlsSelfManaged.Encode())
-	}
-	if !m.TlsCertPem.IsZero() {
-		b = AppendTag(b, 4, BytesType)
-		b = AppendBytes(b, m.TlsCertPem.Encode())
-	}
-	if !m.AcmeHosts.IsZero() {
-		b = AppendTag(b, 5, BytesType)
-		b = AppendBytes(b, m.AcmeHosts.Encode())
-	}
-	if !m.AcmeEmail.IsZero() {
-		b = AppendTag(b, 6, BytesType)
-		b = AppendBytes(b, m.AcmeEmail.Encode())
-	}
-	return b
-}
-
-func DecodeHttpsWebSettings(b []byte) (*HttpsWebSettings, error) {
-	var m HttpsWebSettings
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *BoolSetting
-				item, err = DecodeBoolSetting(msgBytes)
-				if err == nil {
-					m.Enabled = *item
-				}
-			}
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *StringSetting
-				item, err = DecodeStringSetting(msgBytes)
-				if err == nil {
-					m.Listen = *item
-				}
-			}
-		case 3:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *BoolSetting
-				item, err = DecodeBoolSetting(msgBytes)
-				if err == nil {
-					m.TlsSelfManaged = *item
-				}
-			}
-		case 4:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *SecretRef
-				item, err = DecodeSecretRef(msgBytes)
-				if err == nil {
-					m.TlsCertPem = *item
-				}
-			}
-		case 5:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *StringSetting
-				item, err = DecodeStringSetting(msgBytes)
-				if err == nil {
-					m.AcmeHosts = *item
-				}
-			}
-		case 6:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *StringSetting
-				item, err = DecodeStringSetting(msgBytes)
-				if err == nil {
-					m.AcmeEmail = *item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m ClusterSettings) IsZero() bool {
-	return m.Listen.IsZero() &&
-		m.EnrollmentListen.IsZero()
-}
-
-func (m *ClusterSettings) Encode() []byte {
-	var b []byte
-	if !m.Listen.IsZero() {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.Listen.Encode())
-	}
-	if !m.EnrollmentListen.IsZero() {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.EnrollmentListen.Encode())
-	}
-	return b
-}
-
-func DecodeClusterSettings(b []byte) (*ClusterSettings, error) {
-	var m ClusterSettings
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *StringSetting
-				item, err = DecodeStringSetting(msgBytes)
-				if err == nil {
-					m.Listen = *item
-				}
-			}
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *StringSetting
-				item, err = DecodeStringSetting(msgBytes)
-				if err == nil {
-					m.EnrollmentListen = *item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m RepoSettings) IsZero() bool {
-	return m.GithubToken.IsZero()
-}
-
-func (m *RepoSettings) Encode() []byte {
-	var b []byte
-	if !m.GithubToken.IsZero() {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.GithubToken.Encode())
-	}
-	return b
-}
-
-func DecodeRepoSettings(b []byte) (*RepoSettings, error) {
-	var m RepoSettings
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *SecretRef
-				item, err = DecodeSecretRef(msgBytes)
-				if err == nil {
-					m.GithubToken = *item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m BackupSettings) IsZero() bool {
-	return m.Enabled.IsZero() &&
-		m.S3AccessKeyID.IsZero() &&
-		m.S3SecretAccessKey.IsZero() &&
-		m.S3Bucket.IsZero() &&
-		m.S3Path.IsZero() &&
-		m.S3Region.IsZero() &&
-		m.S3Endpoint.IsZero()
-}
-
-func (m *BackupSettings) Encode() []byte {
-	var b []byte
-	if !m.Enabled.IsZero() {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.Enabled.Encode())
-	}
-	if !m.S3AccessKeyID.IsZero() {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.S3AccessKeyID.Encode())
-	}
-	if !m.S3SecretAccessKey.IsZero() {
-		b = AppendTag(b, 3, BytesType)
-		b = AppendBytes(b, m.S3SecretAccessKey.Encode())
-	}
-	if !m.S3Bucket.IsZero() {
-		b = AppendTag(b, 4, BytesType)
-		b = AppendBytes(b, m.S3Bucket.Encode())
-	}
-	if !m.S3Path.IsZero() {
-		b = AppendTag(b, 5, BytesType)
-		b = AppendBytes(b, m.S3Path.Encode())
-	}
-	if !m.S3Region.IsZero() {
-		b = AppendTag(b, 6, BytesType)
-		b = AppendBytes(b, m.S3Region.Encode())
-	}
-	if !m.S3Endpoint.IsZero() {
-		b = AppendTag(b, 7, BytesType)
-		b = AppendBytes(b, m.S3Endpoint.Encode())
-	}
-	return b
-}
-
-func DecodeBackupSettings(b []byte) (*BackupSettings, error) {
-	var m BackupSettings
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *BoolSetting
-				item, err = DecodeBoolSetting(msgBytes)
-				if err == nil {
-					m.Enabled = *item
-				}
-			}
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *StringSetting
-				item, err = DecodeStringSetting(msgBytes)
-				if err == nil {
-					m.S3AccessKeyID = *item
-				}
-			}
-		case 3:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *SecretRef
-				item, err = DecodeSecretRef(msgBytes)
-				if err == nil {
-					m.S3SecretAccessKey = *item
-				}
-			}
-		case 4:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *StringSetting
-				item, err = DecodeStringSetting(msgBytes)
-				if err == nil {
-					m.S3Bucket = *item
-				}
-			}
-		case 5:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *StringSetting
-				item, err = DecodeStringSetting(msgBytes)
-				if err == nil {
-					m.S3Path = *item
-				}
-			}
-		case 6:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *StringSetting
-				item, err = DecodeStringSetting(msgBytes)
-				if err == nil {
-					m.S3Region = *item
-				}
-			}
-		case 7:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *StringSetting
-				item, err = DecodeStringSetting(msgBytes)
-				if err == nil {
-					m.S3Endpoint = *item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m LargeAssetsSettings) IsZero() bool {
-	return m.UseSeparateS3.IsZero() &&
-		m.S3AccessKeyID.IsZero() &&
-		m.S3SecretAccessKey.IsZero() &&
-		m.S3Bucket.IsZero() &&
-		m.S3Path.IsZero() &&
-		m.S3Region.IsZero() &&
-		m.S3Endpoint.IsZero()
-}
-
-func (m *LargeAssetsSettings) Encode() []byte {
-	var b []byte
-	if !m.UseSeparateS3.IsZero() {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.UseSeparateS3.Encode())
-	}
-	if !m.S3AccessKeyID.IsZero() {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.S3AccessKeyID.Encode())
-	}
-	if !m.S3SecretAccessKey.IsZero() {
-		b = AppendTag(b, 3, BytesType)
-		b = AppendBytes(b, m.S3SecretAccessKey.Encode())
-	}
-	if !m.S3Bucket.IsZero() {
-		b = AppendTag(b, 4, BytesType)
-		b = AppendBytes(b, m.S3Bucket.Encode())
-	}
-	if !m.S3Path.IsZero() {
-		b = AppendTag(b, 5, BytesType)
-		b = AppendBytes(b, m.S3Path.Encode())
-	}
-	if !m.S3Region.IsZero() {
-		b = AppendTag(b, 6, BytesType)
-		b = AppendBytes(b, m.S3Region.Encode())
-	}
-	if !m.S3Endpoint.IsZero() {
-		b = AppendTag(b, 7, BytesType)
-		b = AppendBytes(b, m.S3Endpoint.Encode())
-	}
-	return b
-}
-
-func DecodeLargeAssetsSettings(b []byte) (*LargeAssetsSettings, error) {
-	var m LargeAssetsSettings
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *BoolSetting
-				item, err = DecodeBoolSetting(msgBytes)
-				if err == nil {
-					m.UseSeparateS3 = *item
-				}
-			}
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *StringSetting
-				item, err = DecodeStringSetting(msgBytes)
-				if err == nil {
-					m.S3AccessKeyID = *item
-				}
-			}
-		case 3:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *SecretRef
-				item, err = DecodeSecretRef(msgBytes)
-				if err == nil {
-					m.S3SecretAccessKey = *item
-				}
-			}
-		case 4:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *StringSetting
-				item, err = DecodeStringSetting(msgBytes)
-				if err == nil {
-					m.S3Bucket = *item
-				}
-			}
-		case 5:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *StringSetting
-				item, err = DecodeStringSetting(msgBytes)
-				if err == nil {
-					m.S3Path = *item
-				}
-			}
-		case 6:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *StringSetting
-				item, err = DecodeStringSetting(msgBytes)
-				if err == nil {
-					m.S3Region = *item
-				}
-			}
-		case 7:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *StringSetting
-				item, err = DecodeStringSetting(msgBytes)
-				if err == nil {
-					m.S3Endpoint = *item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *ExportedConfigBlob) Encode() []byte {
-	var b []byte
-	b = AppendBytesField(b, m.Blob, 1)
-	return b
-}
-
-func DecodeExportedConfigBlob(b []byte) (*ExportedConfigBlob, error) {
-	var m ExportedConfigBlob
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Blob, err = ConsumeBytesCopy(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *EmptyRequest) Encode() []byte {
-	var b []byte
-	return b
-}
-
-func DecodeEmptyRequest(b []byte) (*EmptyRequest, error) {
-	var m EmptyRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *MasterPasswordRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Password, 1)
-	b = AppendStringField(b, m.Username, 2)
-	return b
-}
-
-func DecodeMasterPasswordRequest(b []byte) (*MasterPasswordRequest, error) {
-	var m MasterPasswordRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Password, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Username, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *MasterPasswordVerifyRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Password, 1)
-	return b
-}
-
-func DecodeMasterPasswordVerifyRequest(b []byte) (*MasterPasswordVerifyRequest, error) {
-	var m MasterPasswordVerifyRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Password, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *MasterPasswordSaveRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Password, 1)
-	return b
-}
-
-func DecodeMasterPasswordSaveRequest(b []byte) (*MasterPasswordSaveRequest, error) {
-	var m MasterPasswordSaveRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Password, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *LoginResponse) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Token, 1)
-	b = AppendInt32Field(b, m.UserID, 2)
-	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 3))
-	b = AppendStringField(b, m.Name, 4)
-	b = AppendInt64FromTime(b, m.Expiry, 5)
-	return b
-}
-
-func DecodeLoginResponse(b []byte) (*LoginResponse, error) {
-	var m LoginResponse
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Token, err = ConsumeString(b, typ)
-		case 2:
-			b, m.UserID, err = ConsumeVarInt32(b, typ)
-		case 3:
-			var item string
-			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
-			if err == nil {
-				m.Scopes = append(m.Scopes, item)
-			}
-		case 4:
-			b, m.Name, err = ConsumeString(b, typ)
-		case 5:
-			b, m.Expiry, err = ConsumeTimeFromInt64(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *WebAuthNOptionsResponse) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.SessionID, 1)
-	b = AppendBytesField(b, m.OptionsJson, 2)
-	return b
-}
-
-func DecodeWebAuthNOptionsResponse(b []byte) (*WebAuthNOptionsResponse, error) {
-	var m WebAuthNOptionsResponse
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.SessionID, err = ConsumeString(b, typ)
-		case 2:
-			b, m.OptionsJson, err = ConsumeBytesCopy(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *WebAuthNFinishRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.SessionID, 1)
-	b = AppendBytesField(b, m.CredentialJson, 2)
-	return b
-}
-
-func DecodeWebAuthNFinishRequest(b []byte) (*WebAuthNFinishRequest, error) {
-	var m WebAuthNFinishRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.SessionID, err = ConsumeString(b, typ)
-		case 2:
-			b, m.CredentialJson, err = ConsumeBytesCopy(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SecretMeta) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Name, 1)
-	b = AppendInt64FromTime(b, m.CreatedAt, 3)
-	b = AppendInt32Field(b, m.UpdatedBy, 5)
-	b = AppendInt32Field(b, m.ID, 6)
-	b = AppendBoolField(b, m.Deleted, 7)
-	b = AppendInt32Field(b, m.SpaceID, 8)
-	b = AppendInt32Field(b, m.Version, 9)
-	return b
-}
-
-func DecodeSecretMeta(b []byte) (*SecretMeta, error) {
-	var m SecretMeta
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Name, err = ConsumeString(b, typ)
-		case 3:
-			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 5:
-			b, m.UpdatedBy, err = ConsumeVarInt32(b, typ)
-		case 6:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 7:
-			b, m.Deleted, err = ConsumeBool(b, typ)
-		case 8:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 9:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SecretList) Encode() []byte {
-	var b []byte
-	for _, item := range m.Items {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeSecretList(b []byte) (*SecretList, error) {
-	var m SecretList
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *SecretMeta
-				item, err = DecodeSecretMeta(msgBytes)
-				if err == nil {
-					m.Items = append(m.Items, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SecretSetRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Name, 1)
-	b = AppendBytesField(b, m.Value, 3)
-	b = AppendInt32Field(b, m.SpaceID, 4)
-	return b
-}
-
-func DecodeSecretSetRequest(b []byte) (*SecretSetRequest, error) {
-	var m SecretSetRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Name, err = ConsumeString(b, typ)
-		case 3:
-			b, m.Value, err = ConsumeBytesCopy(b, typ)
-		case 4:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SecretRenameRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Name, 1)
-	b = AppendStringField(b, m.NewName, 2)
-	return b
-}
-
-func DecodeSecretRenameRequest(b []byte) (*SecretRenameRequest, error) {
-	var m SecretRenameRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Name, err = ConsumeString(b, typ)
-		case 2:
-			b, m.NewName, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SecretDeleteRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Name, 1)
-	return b
-}
-
-func DecodeSecretDeleteRequest(b []byte) (*SecretDeleteRequest, error) {
-	var m SecretDeleteRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Name, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SecretRevealRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Name, 1)
-	b = AppendInt32Field(b, m.ID, 2)
-	return b
-}
-
-func DecodeSecretRevealRequest(b []byte) (*SecretRevealRequest, error) {
-	var m SecretRevealRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Name, err = ConsumeString(b, typ)
-		case 2:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SecretRevealResponse) Encode() []byte {
-	var b []byte
-	b = AppendBytesField(b, m.Value, 1)
-	return b
-}
-
-func DecodeSecretRevealResponse(b []byte) (*SecretRevealResponse, error) {
-	var m SecretRevealResponse
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Value, err = ConsumeBytesCopy(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SecretsStatusResponse) Encode() []byte {
-	var b []byte
-	b = AppendBoolField(b, m.Unlocked, 1)
-	b = AppendBoolField(b, m.RecoveryConfigured, 2)
-	return b
-}
-
-func DecodeSecretsStatusResponse(b []byte) (*SecretsStatusResponse, error) {
-	var m SecretsStatusResponse
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Unlocked, err = ConsumeBool(b, typ)
-		case 2:
-			b, m.RecoveryConfigured, err = ConsumeBool(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SecretRecoveryCodeResponse) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Code, 1)
-	return b
-}
-
-func DecodeSecretRecoveryCodeResponse(b []byte) (*SecretRecoveryCodeResponse, error) {
-	var m SecretRecoveryCodeResponse
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Code, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SecretUnlockRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Code, 1)
-	return b
-}
-
-func DecodeSecretUnlockRequest(b []byte) (*SecretUnlockRequest, error) {
-	var m SecretUnlockRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Code, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *UserConfig) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Name, 1)
-	b = AppendStringField(b, m.Value, 3)
-	b = AppendInt64FromTime(b, m.CreatedAt, 4)
-	b = AppendInt32Field(b, m.UpdatedBy, 6)
-	b = AppendInt32Field(b, m.ID, 7)
-	b = AppendBoolField(b, m.Deleted, 8)
-	b = AppendInt32Field(b, m.SpaceID, 9)
-	b = AppendInt32Field(b, m.Version, 10)
-	return b
-}
-
-func DecodeUserConfig(b []byte) (*UserConfig, error) {
-	var m UserConfig
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Name, err = ConsumeString(b, typ)
-		case 3:
-			b, m.Value, err = ConsumeString(b, typ)
-		case 4:
-			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 6:
-			b, m.UpdatedBy, err = ConsumeVarInt32(b, typ)
-		case 7:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 8:
-			b, m.Deleted, err = ConsumeBool(b, typ)
-		case 9:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 10:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *UserConfigList) Encode() []byte {
-	var b []byte
-	for _, item := range m.Items {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeUserConfigList(b []byte) (*UserConfigList, error) {
-	var m UserConfigList
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *UserConfig
-				item, err = DecodeUserConfig(msgBytes)
-				if err == nil {
-					m.Items = append(m.Items, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *UserConfigSetRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Name, 1)
-	b = AppendStringField(b, m.Value, 3)
-	b = AppendInt32Field(b, m.SpaceID, 4)
-	return b
-}
-
-func DecodeUserConfigSetRequest(b []byte) (*UserConfigSetRequest, error) {
-	var m UserConfigSetRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Name, err = ConsumeString(b, typ)
-		case 3:
-			b, m.Value, err = ConsumeString(b, typ)
-		case 4:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *UserConfigRenameRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Name, 1)
-	b = AppendStringField(b, m.NewName, 2)
-	return b
-}
-
-func DecodeUserConfigRenameRequest(b []byte) (*UserConfigRenameRequest, error) {
-	var m UserConfigRenameRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Name, err = ConsumeString(b, typ)
-		case 2:
-			b, m.NewName, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *UserConfigDeleteRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Name, 1)
-	return b
-}
-
-func DecodeUserConfigDeleteRequest(b []byte) (*UserConfigDeleteRequest, error) {
-	var m UserConfigDeleteRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Name, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *AssetMeta) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Key, 1)
-	b = AppendInt64FromTime(b, m.CreatedAt, 2)
-	b = AppendInt32Field(b, m.Version, 3)
-	b = AppendStringField(b, m.Format, 4)
-	b = AppendStringField(b, m.Location, 5)
-	b = AppendInt32Field(b, m.SizeBytes, 6)
-	b = AppendInt32Field(b, m.ID, 7)
-	b = AppendInt32Field(b, m.SpaceID, 8)
-	b = AppendBoolField(b, m.Deleted, 9)
-	return b
-}
-
-func DecodeAssetMeta(b []byte) (*AssetMeta, error) {
-	var m AssetMeta
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Key, err = ConsumeString(b, typ)
-		case 2:
-			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 3:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
-		case 4:
-			b, m.Format, err = ConsumeString(b, typ)
-		case 5:
-			b, m.Location, err = ConsumeString(b, typ)
-		case 6:
-			b, m.SizeBytes, err = ConsumeVarInt32(b, typ)
-		case 7:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 8:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 9:
-			b, m.Deleted, err = ConsumeBool(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *Asset) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Key, 1)
-	b = AppendInt64FromTime(b, m.CreatedAt, 2)
-	b = AppendInt32Field(b, m.Version, 3)
-	b = AppendStringField(b, m.Format, 4)
-	b = AppendStringField(b, m.Location, 5)
-	b = AppendBytesField(b, m.Blob, 6)
-	b = AppendInt32Field(b, m.ID, 7)
-	b = AppendInt32Field(b, m.SpaceID, 8)
-	b = AppendInt32Field(b, m.SizeBytes, 9)
-	return b
-}
-
-func DecodeAsset(b []byte) (*Asset, error) {
-	var m Asset
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Key, err = ConsumeString(b, typ)
-		case 2:
-			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 3:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
-		case 4:
-			b, m.Format, err = ConsumeString(b, typ)
-		case 5:
-			b, m.Location, err = ConsumeString(b, typ)
-		case 6:
-			b, m.Blob, err = ConsumeBytesCopy(b, typ)
-		case 7:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 8:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 9:
-			b, m.SizeBytes, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *AssetList) Encode() []byte {
-	var b []byte
-	for _, item := range m.Items {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeAssetList(b []byte) (*AssetList, error) {
-	var m AssetList
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *AssetMeta
-				item, err = DecodeAssetMeta(msgBytes)
-				if err == nil {
-					m.Items = append(m.Items, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *AssetGetRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Key, 1)
-	b = AppendInt32Field(b, m.Version, 2)
-	return b
-}
-
-func DecodeAssetGetRequest(b []byte) (*AssetGetRequest, error) {
-	var m AssetGetRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Key, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *AssetSetRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Key, 1)
-	b = AppendStringField(b, m.Format, 2)
-	b = AppendBytesField(b, m.Blob, 3)
-	b = AppendInt32Field(b, m.SpaceID, 4)
-	return b
-}
-
-func DecodeAssetSetRequest(b []byte) (*AssetSetRequest, error) {
-	var m AssetSetRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Key, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Format, err = ConsumeString(b, typ)
-		case 3:
-			b, m.Blob, err = ConsumeBytesCopy(b, typ)
-		case 4:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *AssetRenameRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Key, 1)
-	b = AppendStringField(b, m.NewKey, 2)
-	return b
-}
-
-func DecodeAssetRenameRequest(b []byte) (*AssetRenameRequest, error) {
-	var m AssetRenameRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Key, err = ConsumeString(b, typ)
-		case 2:
-			b, m.NewKey, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *AssetDeleteRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Key, 1)
-	return b
-}
-
-func DecodeAssetDeleteRequest(b []byte) (*AssetDeleteRequest, error) {
-	var m AssetDeleteRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Key, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 func (m *NixDockerBuildConfig) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Repo, 1)
@@ -3355,866 +729,6 @@ func DecodeNetworkingConfig(b []byte) (*NetworkingConfig, error) {
 				item, err = DecodeIngress(msgBytes)
 				if err == nil {
 					m.Ingress = append(m.Ingress, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *State) Encode() []byte {
-	var b []byte
-	b = AppendBoolField(b, m.Heartbeat, 1)
-	if m.DeploymentsSnapshot != nil {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.DeploymentsSnapshot.Encode())
-	}
-	if m.DeploymentUpdate != nil {
-		b = AppendTag(b, 3, BytesType)
-		b = AppendBytes(b, m.DeploymentUpdate.Encode())
-	}
-	for _, item := range m.UsersSnapshot {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 6, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	if m.UserUpdate != nil {
-		b = AppendTag(b, 7, BytesType)
-		b = AppendBytes(b, m.UserUpdate.Encode())
-	}
-	if m.EnrollmentsSnapshot != nil {
-		b = AppendTag(b, 10, BytesType)
-		b = AppendBytes(b, m.EnrollmentsSnapshot.Encode())
-	}
-	if m.EnrollmentUpdate != nil {
-		b = AppendTag(b, 11, BytesType)
-		b = AppendBytes(b, m.EnrollmentUpdate.Encode())
-	}
-	if m.SecretsSnapshot != nil {
-		b = AppendTag(b, 12, BytesType)
-		b = AppendBytes(b, m.SecretsSnapshot.Encode())
-	}
-	if m.SecretUpdate != nil {
-		b = AppendTag(b, 13, BytesType)
-		b = AppendBytes(b, m.SecretUpdate.Encode())
-	}
-	if m.UserConfigsSnapshot != nil {
-		b = AppendTag(b, 14, BytesType)
-		b = AppendBytes(b, m.UserConfigsSnapshot.Encode())
-	}
-	if m.UserConfigUpdate != nil {
-		b = AppendTag(b, 15, BytesType)
-		b = AppendBytes(b, m.UserConfigUpdate.Encode())
-	}
-	if m.SecretsStatusSnapshot != nil {
-		b = AppendTag(b, 16, BytesType)
-		b = AppendBytes(b, m.SecretsStatusSnapshot.Encode())
-	}
-	if m.SecretMetasSnapshot != nil {
-		b = AppendTag(b, 17, BytesType)
-		b = AppendBytes(b, m.SecretMetasSnapshot.Encode())
-	}
-	if m.SecretMetaUpdate != nil {
-		b = AppendTag(b, 18, BytesType)
-		b = AppendBytes(b, m.SecretMetaUpdate.Encode())
-	}
-	if m.UserConfigValuesSnapshot != nil {
-		b = AppendTag(b, 19, BytesType)
-		b = AppendBytes(b, m.UserConfigValuesSnapshot.Encode())
-	}
-	if m.UserConfigValueUpdate != nil {
-		b = AppendTag(b, 20, BytesType)
-		b = AppendBytes(b, m.UserConfigValueUpdate.Encode())
-	}
-	if m.SpacesSnapshot != nil {
-		b = AppendTag(b, 21, BytesType)
-		b = AppendBytes(b, m.SpacesSnapshot.Encode())
-	}
-	if m.SpaceUpdate != nil {
-		b = AppendTag(b, 22, BytesType)
-		b = AppendBytes(b, m.SpaceUpdate.Encode())
-	}
-	if m.AssetsSnapshot != nil {
-		b = AppendTag(b, 23, BytesType)
-		b = AppendBytes(b, m.AssetsSnapshot.Encode())
-	}
-	if m.AssetUpdate != nil {
-		b = AppendTag(b, 24, BytesType)
-		b = AppendBytes(b, m.AssetUpdate.Encode())
-	}
-	if m.NodesSnapshot != nil {
-		b = AppendTag(b, 25, BytesType)
-		b = AppendBytes(b, m.NodesSnapshot.Encode())
-	}
-	if m.NodeUpdate != nil {
-		b = AppendTag(b, 26, BytesType)
-		b = AppendBytes(b, m.NodeUpdate.Encode())
-	}
-	if m.NodeStatusesSnapshot != nil {
-		b = AppendTag(b, 27, BytesType)
-		b = AppendBytes(b, m.NodeStatusesSnapshot.Encode())
-	}
-	if m.NodeStatusUpdate != nil {
-		b = AppendTag(b, 28, BytesType)
-		b = AppendBytes(b, m.NodeStatusUpdate.Encode())
-	}
-	if m.BackupStatusSnapshot != nil {
-		b = AppendTag(b, 29, BytesType)
-		b = AppendBytes(b, m.BackupStatusSnapshot.Encode())
-	}
-	if m.BackupStatusUpdate != nil {
-		b = AppendTag(b, 30, BytesType)
-		b = AppendBytes(b, m.BackupStatusUpdate.Encode())
-	}
-	if !m.ConfigSnapshot.IsZero() {
-		b = AppendTag(b, 31, BytesType)
-		b = AppendBytes(b, m.ConfigSnapshot.Encode())
-	}
-	return b
-}
-
-func DecodeState(b []byte) (*State, error) {
-	var m State
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Heartbeat, err = ConsumeBool(b, typ)
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentWithStatusSnapshot
-				item, err = DecodeDeploymentWithStatusSnapshot(msgBytes)
-				if err == nil {
-					m.DeploymentsSnapshot = item
-				}
-			}
-		case 3:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentWithStatus
-				item, err = DecodeDeploymentWithStatus(msgBytes)
-				if err == nil {
-					m.DeploymentUpdate = item
-				}
-			}
-		case 6:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *User
-				item, err = DecodeUser(msgBytes)
-				if err == nil {
-					m.UsersSnapshot = append(m.UsersSnapshot, item)
-				}
-			}
-		case 7:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *User
-				item, err = DecodeUser(msgBytes)
-				if err == nil {
-					m.UserUpdate = item
-				}
-			}
-		case 10:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *EnrollmentRequestList
-				item, err = DecodeEnrollmentRequestList(msgBytes)
-				if err == nil {
-					m.EnrollmentsSnapshot = item
-				}
-			}
-		case 11:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *EnrollmentRequestStatus
-				item, err = DecodeEnrollmentRequestStatus(msgBytes)
-				if err == nil {
-					m.EnrollmentUpdate = item
-				}
-			}
-		case 12:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *SecretReferenceList
-				item, err = DecodeSecretReferenceList(msgBytes)
-				if err == nil {
-					m.SecretsSnapshot = item
-				}
-			}
-		case 13:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *SecretReference
-				item, err = DecodeSecretReference(msgBytes)
-				if err == nil {
-					m.SecretUpdate = item
-				}
-			}
-		case 14:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *UserConfigReferenceList
-				item, err = DecodeUserConfigReferenceList(msgBytes)
-				if err == nil {
-					m.UserConfigsSnapshot = item
-				}
-			}
-		case 15:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *UserConfigReference
-				item, err = DecodeUserConfigReference(msgBytes)
-				if err == nil {
-					m.UserConfigUpdate = item
-				}
-			}
-		case 16:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *SecretsStatusResponse
-				item, err = DecodeSecretsStatusResponse(msgBytes)
-				if err == nil {
-					m.SecretsStatusSnapshot = item
-				}
-			}
-		case 17:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *SecretList
-				item, err = DecodeSecretList(msgBytes)
-				if err == nil {
-					m.SecretMetasSnapshot = item
-				}
-			}
-		case 18:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *SecretMeta
-				item, err = DecodeSecretMeta(msgBytes)
-				if err == nil {
-					m.SecretMetaUpdate = item
-				}
-			}
-		case 19:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *UserConfigList
-				item, err = DecodeUserConfigList(msgBytes)
-				if err == nil {
-					m.UserConfigValuesSnapshot = item
-				}
-			}
-		case 20:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *UserConfig
-				item, err = DecodeUserConfig(msgBytes)
-				if err == nil {
-					m.UserConfigValueUpdate = item
-				}
-			}
-		case 21:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *SpaceList
-				item, err = DecodeSpaceList(msgBytes)
-				if err == nil {
-					m.SpacesSnapshot = item
-				}
-			}
-		case 22:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *Space
-				item, err = DecodeSpace(msgBytes)
-				if err == nil {
-					m.SpaceUpdate = item
-				}
-			}
-		case 23:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *AssetList
-				item, err = DecodeAssetList(msgBytes)
-				if err == nil {
-					m.AssetsSnapshot = item
-				}
-			}
-		case 24:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *AssetMeta
-				item, err = DecodeAssetMeta(msgBytes)
-				if err == nil {
-					m.AssetUpdate = item
-				}
-			}
-		case 25:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ClusterNodeList
-				item, err = DecodeClusterNodeList(msgBytes)
-				if err == nil {
-					m.NodesSnapshot = item
-				}
-			}
-		case 26:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ClusterNode
-				item, err = DecodeClusterNode(msgBytes)
-				if err == nil {
-					m.NodeUpdate = item
-				}
-			}
-		case 27:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ClusterNodeStatusList
-				item, err = DecodeClusterNodeStatusList(msgBytes)
-				if err == nil {
-					m.NodeStatusesSnapshot = item
-				}
-			}
-		case 28:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ClusterNodeStatus
-				item, err = DecodeClusterNodeStatus(msgBytes)
-				if err == nil {
-					m.NodeStatusUpdate = item
-				}
-			}
-		case 29:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *BackupStatus
-				item, err = DecodeBackupStatus(msgBytes)
-				if err == nil {
-					m.BackupStatusSnapshot = item
-				}
-			}
-		case 30:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *BackupStatus
-				item, err = DecodeBackupStatus(msgBytes)
-				if err == nil {
-					m.BackupStatusUpdate = item
-				}
-			}
-		case 31:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ConfigVersion
-				item, err = DecodeConfigVersion(msgBytes)
-				if err == nil {
-					m.ConfigSnapshot = *item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *Space) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendStringField(b, m.Name, 2)
-	b = AppendBoolField(b, m.Deleted, 3)
-	return b
-}
-
-func DecodeSpace(b []byte) (*Space, error) {
-	var m Space
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.Name, err = ConsumeString(b, typ)
-		case 3:
-			b, m.Deleted, err = ConsumeBool(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SpaceList) Encode() []byte {
-	var b []byte
-	for _, item := range m.Items {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeSpaceList(b []byte) (*SpaceList, error) {
-	var m SpaceList
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *Space
-				item, err = DecodeSpace(msgBytes)
-				if err == nil {
-					m.Items = append(m.Items, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SpaceSetRequest) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendStringField(b, m.Name, 2)
-	return b
-}
-
-func DecodeSpaceSetRequest(b []byte) (*SpaceSetRequest, error) {
-	var m SpaceSetRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.Name, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SpaceDeleteRequest) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
-	return b
-}
-
-func DecodeSpaceDeleteRequest(b []byte) (*SpaceDeleteRequest, error) {
-	var m SpaceDeleteRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SecretReference) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendStringField(b, m.Name, 2)
-	b = AppendBoolField(b, m.Deleted, 3)
-	b = AppendInt32Field(b, m.SpaceID, 4)
-	b = AppendInt32Field(b, m.Version, 5)
-	return b
-}
-
-func DecodeSecretReference(b []byte) (*SecretReference, error) {
-	var m SecretReference
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.Name, err = ConsumeString(b, typ)
-		case 3:
-			b, m.Deleted, err = ConsumeBool(b, typ)
-		case 4:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 5:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SecretReferenceList) Encode() []byte {
-	var b []byte
-	for _, item := range m.Items {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeSecretReferenceList(b []byte) (*SecretReferenceList, error) {
-	var m SecretReferenceList
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *SecretReference
-				item, err = DecodeSecretReference(msgBytes)
-				if err == nil {
-					m.Items = append(m.Items, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *UserConfigReference) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendStringField(b, m.Name, 2)
-	b = AppendBoolField(b, m.Deleted, 3)
-	b = AppendInt32Field(b, m.SpaceID, 4)
-	b = AppendInt32Field(b, m.Version, 5)
-	return b
-}
-
-func DecodeUserConfigReference(b []byte) (*UserConfigReference, error) {
-	var m UserConfigReference
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.Name, err = ConsumeString(b, typ)
-		case 3:
-			b, m.Deleted, err = ConsumeBool(b, typ)
-		case 4:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 5:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *UserConfigReferenceList) Encode() []byte {
-	var b []byte
-	for _, item := range m.Items {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeUserConfigReferenceList(b []byte) (*UserConfigReferenceList, error) {
-	var m UserConfigReferenceList
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *UserConfigReference
-				item, err = DecodeUserConfigReference(msgBytes)
-				if err == nil {
-					m.Items = append(m.Items, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *DeploymentWithStatusSnapshot) Encode() []byte {
-	var b []byte
-	for _, item := range m.Items {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeDeploymentWithStatusSnapshot(b []byte) (*DeploymentWithStatusSnapshot, error) {
-	var m DeploymentWithStatusSnapshot
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentWithStatus
-				item, err = DecodeDeploymentWithStatus(msgBytes)
-				if err == nil {
-					m.Items = append(m.Items, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *ClusterMachineList) Encode() []byte {
-	var b []byte
-	for _, item := range m.Items {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeClusterMachineList(b []byte) (*ClusterMachineList, error) {
-	var m ClusterMachineList
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ClusterMachine
-				item, err = DecodeClusterMachine(msgBytes)
-				if err == nil {
-					m.Items = append(m.Items, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *DeploymentHistoryEntry) Encode() []byte {
-	var b []byte
-	if m.Config != nil {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.Config.Encode())
-	}
-	if m.Status != nil {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.Status.Encode())
-	}
-	return b
-}
-
-func DecodeDeploymentHistoryEntry(b []byte) (*DeploymentHistoryEntry, error) {
-	var m DeploymentHistoryEntry
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentConfig
-				item, err = DecodeDeploymentConfig(msgBytes)
-				if err == nil {
-					m.Config = item
-				}
-			}
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentStatus
-				item, err = DecodeDeploymentStatus(msgBytes)
-				if err == nil {
-					m.Status = item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *DeploymentHistory) Encode() []byte {
-	var b []byte
-	for _, item := range m.Entries {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeDeploymentHistory(b []byte) (*DeploymentHistory, error) {
-	var m DeploymentHistory
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentHistoryEntry
-				item, err = DecodeDeploymentHistoryEntry(msgBytes)
-				if err == nil {
-					m.Entries = append(m.Entries, item)
 				}
 			}
 		default:
@@ -6105,6 +2619,2572 @@ func DecodeValidateContainerImageSourceResponse(b []byte) (*ValidateContainerIma
 	return &m, nil
 }
 
+func (m *EnrollmentWorkerMsg) Encode() []byte {
+	var b []byte
+	if m.Hello != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Hello.Encode())
+	}
+	return b
+}
+
+func DecodeEnrollmentWorkerMsg(b []byte) (*EnrollmentWorkerMsg, error) {
+	var m EnrollmentWorkerMsg
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *EnrollmentHello
+				item, err = DecodeEnrollmentHello(msgBytes)
+				if err == nil {
+					m.Hello = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *EnrollmentHello) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.RequestingMachineID, 1)
+	b = AppendBytesField(b, m.WorkerCertificateRequest, 2)
+	b = AppendStringField(b, m.OpendeployVersion, 3)
+	b = AppendStringField(b, m.UnderlayAddress, 4)
+	return b
+}
+
+func DecodeEnrollmentHello(b []byte) (*EnrollmentHello, error) {
+	var m EnrollmentHello
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.RequestingMachineID, err = ConsumeString(b, typ)
+		case 2:
+			b, m.WorkerCertificateRequest, err = ConsumeBytesCopy(b, typ)
+		case 3:
+			b, m.OpendeployVersion, err = ConsumeString(b, typ)
+		case 4:
+			b, m.UnderlayAddress, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *EnrollmentPrimaryMsg) Encode() []byte {
+	var b []byte
+	if m.RequestStatus != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.RequestStatus.Encode())
+	}
+	if m.Accepted != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Accepted.Encode())
+	}
+	return b
+}
+
+func DecodeEnrollmentPrimaryMsg(b []byte) (*EnrollmentPrimaryMsg, error) {
+	var m EnrollmentPrimaryMsg
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *EnrollmentRequestStatus
+				item, err = DecodeEnrollmentRequestStatus(msgBytes)
+				if err == nil {
+					m.RequestStatus = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *EnrollmentAccepted
+				item, err = DecodeEnrollmentAccepted(msgBytes)
+				if err == nil {
+					m.Accepted = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *EnrollmentRequestStatus) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt64FromTime(b, m.CreatedAt, 2)
+	b = AppendInt64FromTime(b, m.UpdatedAt, 3)
+	b = AppendStringField(b, m.RequestingIpAddress, 4)
+	b = AppendStringField(b, m.RequestingMachineID, 5)
+	b = AppendStringField(b, m.Status, 6)
+	b = AppendStringField(b, m.OpendeployVersion, 7)
+	b = AppendStringField(b, m.UnderlayAddress, 8)
+	return b
+}
+
+func DecodeEnrollmentRequestStatus(b []byte) (*EnrollmentRequestStatus, error) {
+	var m EnrollmentRequestStatus
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 4:
+			b, m.RequestingIpAddress, err = ConsumeString(b, typ)
+		case 5:
+			b, m.RequestingMachineID, err = ConsumeString(b, typ)
+		case 6:
+			b, m.Status, err = ConsumeString(b, typ)
+		case 7:
+			b, m.OpendeployVersion, err = ConsumeString(b, typ)
+		case 8:
+			b, m.UnderlayAddress, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *EnrollmentRequestList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeEnrollmentRequestList(b []byte) (*EnrollmentRequestList, error) {
+	var m EnrollmentRequestList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *EnrollmentRequestStatus
+				item, err = DecodeEnrollmentRequestStatus(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *EnrollmentInfo) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.EnrollmentTlsSpkiSha256, 1)
+	return b
+}
+
+func DecodeEnrollmentInfo(b []byte) (*EnrollmentInfo, error) {
+	var m EnrollmentInfo
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.EnrollmentTlsSpkiSha256, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *EnrollmentAcceptRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendStringField(b, m.WorkerName, 2)
+	return b
+}
+
+func DecodeEnrollmentAcceptRequest(b []byte) (*EnrollmentAcceptRequest, error) {
+	var m EnrollmentAcceptRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.WorkerName, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *EnrollmentAccepted) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendStringField(b, m.WorkerName, 2)
+	b = AppendBytesField(b, m.CaCertificate, 3)
+	b = AppendBytesField(b, m.WorkerCertificate, 4)
+	if m.ClusterNetwork != nil {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.ClusterNetwork.Encode())
+	}
+	if m.NodeDeployment != nil {
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, m.NodeDeployment.Encode())
+	}
+	if m.NodeNetDeployment != nil {
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.NodeNetDeployment.Encode())
+	}
+	if m.ClusterNetMap != nil {
+		b = AppendTag(b, 8, BytesType)
+		b = AppendBytes(b, m.ClusterNetMap.Encode())
+	}
+	return b
+}
+
+func DecodeEnrollmentAccepted(b []byte) (*EnrollmentAccepted, error) {
+	var m EnrollmentAccepted
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.WorkerName, err = ConsumeString(b, typ)
+		case 3:
+			b, m.CaCertificate, err = ConsumeBytesCopy(b, typ)
+		case 4:
+			b, m.WorkerCertificate, err = ConsumeBytesCopy(b, typ)
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNetworkInfo
+				item, err = DecodeClusterNetworkInfo(msgBytes)
+				if err == nil {
+					m.ClusterNetwork = item
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentWithStatus
+				item, err = DecodeDeploymentWithStatus(msgBytes)
+				if err == nil {
+					m.NodeDeployment = item
+				}
+			}
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentWithStatus
+				item, err = DecodeDeploymentWithStatus(msgBytes)
+				if err == nil {
+					m.NodeNetDeployment = item
+				}
+			}
+		case 8:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNetMap
+				item, err = DecodeClusterNetMap(msgBytes)
+				if err == nil {
+					m.ClusterNetMap = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *GithubCredentials) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Token, 1)
+	b = AppendInt64FromTime(b, m.ChangedAt, 2)
+	return b
+}
+
+func DecodeGithubCredentials(b []byte) (*GithubCredentials, error) {
+	var m GithubCredentials
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Token, err = ConsumeString(b, typ)
+		case 2:
+			b, m.ChangedAt, err = ConsumeTimeFromInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *BackupStatus) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Configured, 1)
+	b = AppendBoolField(b, m.Running, 2)
+	b = AppendBoolField(b, m.InSync, 3)
+	b = AppendUint64Field(b, m.LocalTxid, 4)
+	b = AppendUint64Field(b, m.RemoteTxid, 5)
+	b = AppendInt64FromTime(b, m.LastSuccessfulSyncAt, 6)
+	b = AppendStringField(b, m.Error, 7)
+	b = AppendBoolField(b, m.AssetMigrationRunning, 8)
+	b = AppendUint32Field(b, m.AssetPending, 9)
+	b = AppendBoolField(b, m.AssetTargetS3, 10)
+	b = AppendStringField(b, m.AssetError, 11)
+	return b
+}
+
+func DecodeBackupStatus(b []byte) (*BackupStatus, error) {
+	var m BackupStatus
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Configured, err = ConsumeBool(b, typ)
+		case 2:
+			b, m.Running, err = ConsumeBool(b, typ)
+		case 3:
+			b, m.InSync, err = ConsumeBool(b, typ)
+		case 4:
+			b, m.LocalTxid, err = ConsumeVarUint64(b, typ)
+		case 5:
+			b, m.RemoteTxid, err = ConsumeVarUint64(b, typ)
+		case 6:
+			b, m.LastSuccessfulSyncAt, err = ConsumeTimeFromInt64(b, typ)
+		case 7:
+			b, m.Error, err = ConsumeString(b, typ)
+		case 8:
+			b, m.AssetMigrationRunning, err = ConsumeBool(b, typ)
+		case 9:
+			b, m.AssetPending, err = ConsumeVarUint32(b, typ)
+		case 10:
+			b, m.AssetTargetS3, err = ConsumeBool(b, typ)
+		case 11:
+			b, m.AssetError, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterSecretsRequest) Encode() []byte {
+	var b []byte
+	b = AppendRepeatedCompact(b, m.Ids, 1, AppendCompactDecorator(AppendInt32Compact))
+	return b
+}
+
+func DecodeClusterSecretsRequest(b []byte) (*ClusterSecretsRequest, error) {
+	var m ClusterSecretsRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Ids, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt32)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterSecretValue) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendBytesField(b, m.Value, 2)
+	return b
+}
+
+func DecodeClusterSecretValue(b []byte) (*ClusterSecretValue, error) {
+	var m ClusterSecretValue
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Value, err = ConsumeBytesCopy(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterSecretsResponse) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeClusterSecretsResponse(b []byte) (*ClusterSecretsResponse, error) {
+	var m ClusterSecretsResponse
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterSecretValue
+				item, err = DecodeClusterSecretValue(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterConfigsRequest) Encode() []byte {
+	var b []byte
+	b = AppendRepeatedCompact(b, m.Ids, 1, AppendCompactDecorator(AppendInt32Compact))
+	return b
+}
+
+func DecodeClusterConfigsRequest(b []byte) (*ClusterConfigsRequest, error) {
+	var m ClusterConfigsRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Ids, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt32)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterConfigValue) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendStringField(b, m.Value, 2)
+	return b
+}
+
+func DecodeClusterConfigValue(b []byte) (*ClusterConfigValue, error) {
+	var m ClusterConfigValue
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Value, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterConfigsResponse) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeClusterConfigsResponse(b []byte) (*ClusterConfigsResponse, error) {
+	var m ClusterConfigsResponse
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterConfigValue
+				item, err = DecodeClusterConfigValue(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *EmptyRequest) Encode() []byte {
+	var b []byte
+	return b
+}
+
+func DecodeEmptyRequest(b []byte) (*EmptyRequest, error) {
+	var m EmptyRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *MasterPasswordRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Password, 1)
+	b = AppendStringField(b, m.Username, 2)
+	return b
+}
+
+func DecodeMasterPasswordRequest(b []byte) (*MasterPasswordRequest, error) {
+	var m MasterPasswordRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Password, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Username, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *MasterPasswordVerifyRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Password, 1)
+	return b
+}
+
+func DecodeMasterPasswordVerifyRequest(b []byte) (*MasterPasswordVerifyRequest, error) {
+	var m MasterPasswordVerifyRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Password, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *MasterPasswordSaveRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Password, 1)
+	return b
+}
+
+func DecodeMasterPasswordSaveRequest(b []byte) (*MasterPasswordSaveRequest, error) {
+	var m MasterPasswordSaveRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Password, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *LoginResponse) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Token, 1)
+	b = AppendInt32Field(b, m.UserID, 2)
+	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 3))
+	b = AppendStringField(b, m.Name, 4)
+	b = AppendInt64FromTime(b, m.Expiry, 5)
+	return b
+}
+
+func DecodeLoginResponse(b []byte) (*LoginResponse, error) {
+	var m LoginResponse
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Token, err = ConsumeString(b, typ)
+		case 2:
+			b, m.UserID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Scopes = append(m.Scopes, item)
+			}
+		case 4:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 5:
+			b, m.Expiry, err = ConsumeTimeFromInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *WebAuthNOptionsResponse) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.SessionID, 1)
+	b = AppendBytesField(b, m.OptionsJson, 2)
+	return b
+}
+
+func DecodeWebAuthNOptionsResponse(b []byte) (*WebAuthNOptionsResponse, error) {
+	var m WebAuthNOptionsResponse
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.SessionID, err = ConsumeString(b, typ)
+		case 2:
+			b, m.OptionsJson, err = ConsumeBytesCopy(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *WebAuthNFinishRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.SessionID, 1)
+	b = AppendBytesField(b, m.CredentialJson, 2)
+	return b
+}
+
+func DecodeWebAuthNFinishRequest(b []byte) (*WebAuthNFinishRequest, error) {
+	var m WebAuthNFinishRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.SessionID, err = ConsumeString(b, typ)
+		case 2:
+			b, m.CredentialJson, err = ConsumeBytesCopy(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretMeta) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendInt64FromTime(b, m.CreatedAt, 3)
+	b = AppendInt32Field(b, m.UpdatedBy, 5)
+	b = AppendInt32Field(b, m.ID, 6)
+	b = AppendBoolField(b, m.Deleted, 7)
+	b = AppendInt32Field(b, m.SpaceID, 8)
+	b = AppendInt32Field(b, m.Version, 9)
+	return b
+}
+
+func DecodeSecretMeta(b []byte) (*SecretMeta, error) {
+	var m SecretMeta
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 5:
+			b, m.UpdatedBy, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.Deleted, err = ConsumeBool(b, typ)
+		case 8:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 9:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeSecretList(b []byte) (*SecretList, error) {
+	var m SecretList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretMeta
+				item, err = DecodeSecretMeta(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretSetRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendBytesField(b, m.Value, 3)
+	b = AppendInt32Field(b, m.SpaceID, 4)
+	return b
+}
+
+func DecodeSecretSetRequest(b []byte) (*SecretSetRequest, error) {
+	var m SecretSetRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Value, err = ConsumeBytesCopy(b, typ)
+		case 4:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretRenameRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendStringField(b, m.NewName, 2)
+	return b
+}
+
+func DecodeSecretRenameRequest(b []byte) (*SecretRenameRequest, error) {
+	var m SecretRenameRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.NewName, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretDeleteRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	return b
+}
+
+func DecodeSecretDeleteRequest(b []byte) (*SecretDeleteRequest, error) {
+	var m SecretDeleteRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretRevealRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendInt32Field(b, m.ID, 2)
+	return b
+}
+
+func DecodeSecretRevealRequest(b []byte) (*SecretRevealRequest, error) {
+	var m SecretRevealRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretRevealResponse) Encode() []byte {
+	var b []byte
+	b = AppendBytesField(b, m.Value, 1)
+	return b
+}
+
+func DecodeSecretRevealResponse(b []byte) (*SecretRevealResponse, error) {
+	var m SecretRevealResponse
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Value, err = ConsumeBytesCopy(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretsStatusResponse) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Unlocked, 1)
+	b = AppendBoolField(b, m.RecoveryConfigured, 2)
+	return b
+}
+
+func DecodeSecretsStatusResponse(b []byte) (*SecretsStatusResponse, error) {
+	var m SecretsStatusResponse
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Unlocked, err = ConsumeBool(b, typ)
+		case 2:
+			b, m.RecoveryConfigured, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretRecoveryCodeResponse) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Code, 1)
+	return b
+}
+
+func DecodeSecretRecoveryCodeResponse(b []byte) (*SecretRecoveryCodeResponse, error) {
+	var m SecretRecoveryCodeResponse
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Code, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretUnlockRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Code, 1)
+	return b
+}
+
+func DecodeSecretUnlockRequest(b []byte) (*SecretUnlockRequest, error) {
+	var m SecretUnlockRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Code, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *UserConfig) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendStringField(b, m.Value, 3)
+	b = AppendInt64FromTime(b, m.CreatedAt, 4)
+	b = AppendInt32Field(b, m.UpdatedBy, 6)
+	b = AppendInt32Field(b, m.ID, 7)
+	b = AppendBoolField(b, m.Deleted, 8)
+	b = AppendInt32Field(b, m.SpaceID, 9)
+	b = AppendInt32Field(b, m.Version, 10)
+	return b
+}
+
+func DecodeUserConfig(b []byte) (*UserConfig, error) {
+	var m UserConfig
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Value, err = ConsumeString(b, typ)
+		case 4:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 6:
+			b, m.UpdatedBy, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 8:
+			b, m.Deleted, err = ConsumeBool(b, typ)
+		case 9:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 10:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *UserConfigList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeUserConfigList(b []byte) (*UserConfigList, error) {
+	var m UserConfigList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *UserConfig
+				item, err = DecodeUserConfig(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *UserConfigSetRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendStringField(b, m.Value, 3)
+	b = AppendInt32Field(b, m.SpaceID, 4)
+	return b
+}
+
+func DecodeUserConfigSetRequest(b []byte) (*UserConfigSetRequest, error) {
+	var m UserConfigSetRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Value, err = ConsumeString(b, typ)
+		case 4:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *UserConfigRenameRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendStringField(b, m.NewName, 2)
+	return b
+}
+
+func DecodeUserConfigRenameRequest(b []byte) (*UserConfigRenameRequest, error) {
+	var m UserConfigRenameRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.NewName, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *UserConfigDeleteRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	return b
+}
+
+func DecodeUserConfigDeleteRequest(b []byte) (*UserConfigDeleteRequest, error) {
+	var m UserConfigDeleteRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AssetMeta) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	b = AppendInt64FromTime(b, m.CreatedAt, 2)
+	b = AppendInt32Field(b, m.Version, 3)
+	b = AppendStringField(b, m.Format, 4)
+	b = AppendStringField(b, m.Location, 5)
+	b = AppendInt32Field(b, m.SizeBytes, 6)
+	b = AppendInt32Field(b, m.ID, 7)
+	b = AppendInt32Field(b, m.SpaceID, 8)
+	b = AppendBoolField(b, m.Deleted, 9)
+	return b
+}
+
+func DecodeAssetMeta(b []byte) (*AssetMeta, error) {
+	var m AssetMeta
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 2:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.Format, err = ConsumeString(b, typ)
+		case 5:
+			b, m.Location, err = ConsumeString(b, typ)
+		case 6:
+			b, m.SizeBytes, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 8:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 9:
+			b, m.Deleted, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *Asset) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	b = AppendInt64FromTime(b, m.CreatedAt, 2)
+	b = AppendInt32Field(b, m.Version, 3)
+	b = AppendStringField(b, m.Format, 4)
+	b = AppendStringField(b, m.Location, 5)
+	b = AppendBytesField(b, m.Blob, 6)
+	b = AppendInt32Field(b, m.ID, 7)
+	b = AppendInt32Field(b, m.SpaceID, 8)
+	b = AppendInt32Field(b, m.SizeBytes, 9)
+	return b
+}
+
+func DecodeAsset(b []byte) (*Asset, error) {
+	var m Asset
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 2:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.Format, err = ConsumeString(b, typ)
+		case 5:
+			b, m.Location, err = ConsumeString(b, typ)
+		case 6:
+			b, m.Blob, err = ConsumeBytesCopy(b, typ)
+		case 7:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 8:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 9:
+			b, m.SizeBytes, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AssetList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeAssetList(b []byte) (*AssetList, error) {
+	var m AssetList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AssetMeta
+				item, err = DecodeAssetMeta(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AssetGetRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	b = AppendInt32Field(b, m.Version, 2)
+	return b
+}
+
+func DecodeAssetGetRequest(b []byte) (*AssetGetRequest, error) {
+	var m AssetGetRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AssetSetRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	b = AppendStringField(b, m.Format, 2)
+	b = AppendBytesField(b, m.Blob, 3)
+	b = AppendInt32Field(b, m.SpaceID, 4)
+	return b
+}
+
+func DecodeAssetSetRequest(b []byte) (*AssetSetRequest, error) {
+	var m AssetSetRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Format, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Blob, err = ConsumeBytesCopy(b, typ)
+		case 4:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AssetRenameRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	b = AppendStringField(b, m.NewKey, 2)
+	return b
+}
+
+func DecodeAssetRenameRequest(b []byte) (*AssetRenameRequest, error) {
+	var m AssetRenameRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 2:
+			b, m.NewKey, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AssetDeleteRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	return b
+}
+
+func DecodeAssetDeleteRequest(b []byte) (*AssetDeleteRequest, error) {
+	var m AssetDeleteRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Key, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *State) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Heartbeat, 1)
+	if m.DeploymentsSnapshot != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.DeploymentsSnapshot.Encode())
+	}
+	if m.DeploymentUpdate != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.DeploymentUpdate.Encode())
+	}
+	for _, item := range m.UsersSnapshot {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	if m.UserUpdate != nil {
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.UserUpdate.Encode())
+	}
+	if m.EnrollmentsSnapshot != nil {
+		b = AppendTag(b, 10, BytesType)
+		b = AppendBytes(b, m.EnrollmentsSnapshot.Encode())
+	}
+	if m.EnrollmentUpdate != nil {
+		b = AppendTag(b, 11, BytesType)
+		b = AppendBytes(b, m.EnrollmentUpdate.Encode())
+	}
+	if m.SecretsSnapshot != nil {
+		b = AppendTag(b, 12, BytesType)
+		b = AppendBytes(b, m.SecretsSnapshot.Encode())
+	}
+	if m.SecretUpdate != nil {
+		b = AppendTag(b, 13, BytesType)
+		b = AppendBytes(b, m.SecretUpdate.Encode())
+	}
+	if m.UserConfigsSnapshot != nil {
+		b = AppendTag(b, 14, BytesType)
+		b = AppendBytes(b, m.UserConfigsSnapshot.Encode())
+	}
+	if m.UserConfigUpdate != nil {
+		b = AppendTag(b, 15, BytesType)
+		b = AppendBytes(b, m.UserConfigUpdate.Encode())
+	}
+	if m.SecretsStatusSnapshot != nil {
+		b = AppendTag(b, 16, BytesType)
+		b = AppendBytes(b, m.SecretsStatusSnapshot.Encode())
+	}
+	if m.SecretMetasSnapshot != nil {
+		b = AppendTag(b, 17, BytesType)
+		b = AppendBytes(b, m.SecretMetasSnapshot.Encode())
+	}
+	if m.SecretMetaUpdate != nil {
+		b = AppendTag(b, 18, BytesType)
+		b = AppendBytes(b, m.SecretMetaUpdate.Encode())
+	}
+	if m.UserConfigValuesSnapshot != nil {
+		b = AppendTag(b, 19, BytesType)
+		b = AppendBytes(b, m.UserConfigValuesSnapshot.Encode())
+	}
+	if m.UserConfigValueUpdate != nil {
+		b = AppendTag(b, 20, BytesType)
+		b = AppendBytes(b, m.UserConfigValueUpdate.Encode())
+	}
+	if m.SpacesSnapshot != nil {
+		b = AppendTag(b, 21, BytesType)
+		b = AppendBytes(b, m.SpacesSnapshot.Encode())
+	}
+	if m.SpaceUpdate != nil {
+		b = AppendTag(b, 22, BytesType)
+		b = AppendBytes(b, m.SpaceUpdate.Encode())
+	}
+	if m.AssetsSnapshot != nil {
+		b = AppendTag(b, 23, BytesType)
+		b = AppendBytes(b, m.AssetsSnapshot.Encode())
+	}
+	if m.AssetUpdate != nil {
+		b = AppendTag(b, 24, BytesType)
+		b = AppendBytes(b, m.AssetUpdate.Encode())
+	}
+	if m.NodesSnapshot != nil {
+		b = AppendTag(b, 25, BytesType)
+		b = AppendBytes(b, m.NodesSnapshot.Encode())
+	}
+	if m.NodeUpdate != nil {
+		b = AppendTag(b, 26, BytesType)
+		b = AppendBytes(b, m.NodeUpdate.Encode())
+	}
+	if m.NodeStatusesSnapshot != nil {
+		b = AppendTag(b, 27, BytesType)
+		b = AppendBytes(b, m.NodeStatusesSnapshot.Encode())
+	}
+	if m.NodeStatusUpdate != nil {
+		b = AppendTag(b, 28, BytesType)
+		b = AppendBytes(b, m.NodeStatusUpdate.Encode())
+	}
+	if m.BackupStatusSnapshot != nil {
+		b = AppendTag(b, 29, BytesType)
+		b = AppendBytes(b, m.BackupStatusSnapshot.Encode())
+	}
+	if m.BackupStatusUpdate != nil {
+		b = AppendTag(b, 30, BytesType)
+		b = AppendBytes(b, m.BackupStatusUpdate.Encode())
+	}
+	if !m.ConfigSnapshot.IsZero() {
+		b = AppendTag(b, 31, BytesType)
+		b = AppendBytes(b, m.ConfigSnapshot.Encode())
+	}
+	return b
+}
+
+func DecodeState(b []byte) (*State, error) {
+	var m State
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Heartbeat, err = ConsumeBool(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentWithStatusSnapshot
+				item, err = DecodeDeploymentWithStatusSnapshot(msgBytes)
+				if err == nil {
+					m.DeploymentsSnapshot = item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentWithStatus
+				item, err = DecodeDeploymentWithStatus(msgBytes)
+				if err == nil {
+					m.DeploymentUpdate = item
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *User
+				item, err = DecodeUser(msgBytes)
+				if err == nil {
+					m.UsersSnapshot = append(m.UsersSnapshot, item)
+				}
+			}
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *User
+				item, err = DecodeUser(msgBytes)
+				if err == nil {
+					m.UserUpdate = item
+				}
+			}
+		case 10:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *EnrollmentRequestList
+				item, err = DecodeEnrollmentRequestList(msgBytes)
+				if err == nil {
+					m.EnrollmentsSnapshot = item
+				}
+			}
+		case 11:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *EnrollmentRequestStatus
+				item, err = DecodeEnrollmentRequestStatus(msgBytes)
+				if err == nil {
+					m.EnrollmentUpdate = item
+				}
+			}
+		case 12:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretReferenceList
+				item, err = DecodeSecretReferenceList(msgBytes)
+				if err == nil {
+					m.SecretsSnapshot = item
+				}
+			}
+		case 13:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretReference
+				item, err = DecodeSecretReference(msgBytes)
+				if err == nil {
+					m.SecretUpdate = item
+				}
+			}
+		case 14:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *UserConfigReferenceList
+				item, err = DecodeUserConfigReferenceList(msgBytes)
+				if err == nil {
+					m.UserConfigsSnapshot = item
+				}
+			}
+		case 15:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *UserConfigReference
+				item, err = DecodeUserConfigReference(msgBytes)
+				if err == nil {
+					m.UserConfigUpdate = item
+				}
+			}
+		case 16:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretsStatusResponse
+				item, err = DecodeSecretsStatusResponse(msgBytes)
+				if err == nil {
+					m.SecretsStatusSnapshot = item
+				}
+			}
+		case 17:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretList
+				item, err = DecodeSecretList(msgBytes)
+				if err == nil {
+					m.SecretMetasSnapshot = item
+				}
+			}
+		case 18:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretMeta
+				item, err = DecodeSecretMeta(msgBytes)
+				if err == nil {
+					m.SecretMetaUpdate = item
+				}
+			}
+		case 19:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *UserConfigList
+				item, err = DecodeUserConfigList(msgBytes)
+				if err == nil {
+					m.UserConfigValuesSnapshot = item
+				}
+			}
+		case 20:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *UserConfig
+				item, err = DecodeUserConfig(msgBytes)
+				if err == nil {
+					m.UserConfigValueUpdate = item
+				}
+			}
+		case 21:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SpaceList
+				item, err = DecodeSpaceList(msgBytes)
+				if err == nil {
+					m.SpacesSnapshot = item
+				}
+			}
+		case 22:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Space
+				item, err = DecodeSpace(msgBytes)
+				if err == nil {
+					m.SpaceUpdate = item
+				}
+			}
+		case 23:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AssetList
+				item, err = DecodeAssetList(msgBytes)
+				if err == nil {
+					m.AssetsSnapshot = item
+				}
+			}
+		case 24:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AssetMeta
+				item, err = DecodeAssetMeta(msgBytes)
+				if err == nil {
+					m.AssetUpdate = item
+				}
+			}
+		case 25:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNodeList
+				item, err = DecodeClusterNodeList(msgBytes)
+				if err == nil {
+					m.NodesSnapshot = item
+				}
+			}
+		case 26:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNode
+				item, err = DecodeClusterNode(msgBytes)
+				if err == nil {
+					m.NodeUpdate = item
+				}
+			}
+		case 27:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNodeStatusList
+				item, err = DecodeClusterNodeStatusList(msgBytes)
+				if err == nil {
+					m.NodeStatusesSnapshot = item
+				}
+			}
+		case 28:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNodeStatus
+				item, err = DecodeClusterNodeStatus(msgBytes)
+				if err == nil {
+					m.NodeStatusUpdate = item
+				}
+			}
+		case 29:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *BackupStatus
+				item, err = DecodeBackupStatus(msgBytes)
+				if err == nil {
+					m.BackupStatusSnapshot = item
+				}
+			}
+		case 30:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *BackupStatus
+				item, err = DecodeBackupStatus(msgBytes)
+				if err == nil {
+					m.BackupStatusUpdate = item
+				}
+			}
+		case 31:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ConfigVersion
+				item, err = DecodeConfigVersion(msgBytes)
+				if err == nil {
+					m.ConfigSnapshot = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *Space) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendStringField(b, m.Name, 2)
+	b = AppendBoolField(b, m.Deleted, 3)
+	return b
+}
+
+func DecodeSpace(b []byte) (*Space, error) {
+	var m Space
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Deleted, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SpaceList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeSpaceList(b []byte) (*SpaceList, error) {
+	var m SpaceList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Space
+				item, err = DecodeSpace(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SpaceSetRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendStringField(b, m.Name, 2)
+	return b
+}
+
+func DecodeSpaceSetRequest(b []byte) (*SpaceSetRequest, error) {
+	var m SpaceSetRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Name, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SpaceDeleteRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	return b
+}
+
+func DecodeSpaceDeleteRequest(b []byte) (*SpaceDeleteRequest, error) {
+	var m SpaceDeleteRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretReference) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendStringField(b, m.Name, 2)
+	b = AppendBoolField(b, m.Deleted, 3)
+	b = AppendInt32Field(b, m.SpaceID, 4)
+	b = AppendInt32Field(b, m.Version, 5)
+	return b
+}
+
+func DecodeSecretReference(b []byte) (*SecretReference, error) {
+	var m SecretReference
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Deleted, err = ConsumeBool(b, typ)
+		case 4:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretReferenceList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeSecretReferenceList(b []byte) (*SecretReferenceList, error) {
+	var m SecretReferenceList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretReference
+				item, err = DecodeSecretReference(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *UserConfigReference) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendStringField(b, m.Name, 2)
+	b = AppendBoolField(b, m.Deleted, 3)
+	b = AppendInt32Field(b, m.SpaceID, 4)
+	b = AppendInt32Field(b, m.Version, 5)
+	return b
+}
+
+func DecodeUserConfigReference(b []byte) (*UserConfigReference, error) {
+	var m UserConfigReference
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Deleted, err = ConsumeBool(b, typ)
+		case 4:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *UserConfigReferenceList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeUserConfigReferenceList(b []byte) (*UserConfigReferenceList, error) {
+	var m UserConfigReferenceList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *UserConfigReference
+				item, err = DecodeUserConfigReference(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *DeploymentWithStatusSnapshot) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeDeploymentWithStatusSnapshot(b []byte) (*DeploymentWithStatusSnapshot, error) {
+	var m DeploymentWithStatusSnapshot
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentWithStatus
+				item, err = DecodeDeploymentWithStatus(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterMachineList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeClusterMachineList(b []byte) (*ClusterMachineList, error) {
+	var m ClusterMachineList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterMachine
+				item, err = DecodeClusterMachine(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *DeploymentHistoryEntry) Encode() []byte {
+	var b []byte
+	if m.Config != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Config.Encode())
+	}
+	if m.Status != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Status.Encode())
+	}
+	return b
+}
+
+func DecodeDeploymentHistoryEntry(b []byte) (*DeploymentHistoryEntry, error) {
+	var m DeploymentHistoryEntry
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentConfig
+				item, err = DecodeDeploymentConfig(msgBytes)
+				if err == nil {
+					m.Config = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentStatus
+				item, err = DecodeDeploymentStatus(msgBytes)
+				if err == nil {
+					m.Status = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *DeploymentHistory) Encode() []byte {
+	var b []byte
+	for _, item := range m.Entries {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeDeploymentHistory(b []byte) (*DeploymentHistory, error) {
+	var m DeploymentHistory
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentHistoryEntry
+				item, err = DecodeDeploymentHistoryEntry(msgBytes)
+				if err == nil {
+					m.Entries = append(m.Entries, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *User) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
@@ -6581,6 +5661,10 @@ func (m *MsgToWorker) Encode() []byte {
 		b = AppendTag(b, 8, BytesType)
 		b = AppendBytes(b, m.ClusterNetwork.Encode())
 	}
+	if m.ClusterNetMap != nil {
+		b = AppendTag(b, 9, BytesType)
+		b = AppendBytes(b, m.ClusterNetMap.Encode())
+	}
 	return b
 }
 
@@ -6661,6 +5745,15 @@ func DecodeMsgToWorker(b []byte) (*MsgToWorker, error) {
 					m.ClusterNetwork = item
 				}
 			}
+		case 9:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNetMap
+				item, err = DecodeClusterNetMap(msgBytes)
+				if err == nil {
+					m.ClusterNetMap = item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -6700,6 +5793,215 @@ func DecodeClusterNetworkInfo(b []byte) (*ClusterNetworkInfo, error) {
 	return &m, nil
 }
 
+func (m *ClusterNetMap) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Generation, 1)
+	b = AppendInt64Field(b, m.Sequence, 2)
+	b = AppendInt32Field(b, m.TargetNodeID, 3)
+	b = AppendBytesField(b, m.UlaPrefix, 4)
+	for _, item := range m.Nodes {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	for _, item := range m.Routes {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeClusterNetMap(b []byte) (*ClusterNetMap, error) {
+	var m ClusterNetMap
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Generation, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Sequence, err = ConsumeVarInt64(b, typ)
+		case 3:
+			b, m.TargetNodeID, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.UlaPrefix, err = ConsumeBytesCopy(b, typ)
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNetMapNode
+				item, err = DecodeClusterNetMapNode(msgBytes)
+				if err == nil {
+					m.Nodes = append(m.Nodes, item)
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNetMapRoute
+				item, err = DecodeClusterNetMapRoute(msgBytes)
+				if err == nil {
+					m.Routes = append(m.Routes, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterNetMapNode) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.NodeID, 1)
+	b = AppendStringField(b, m.UnderlayAddress, 2)
+	return b
+}
+
+func DecodeClusterNetMapNode(b []byte) (*ClusterNetMapNode, error) {
+	var m ClusterNetMapNode
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.NodeID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.UnderlayAddress, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterNetMapRoute) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.LogicalAddress, 1)
+	b = AppendInt32Field(b, m.HostingNodeID, 2)
+	return b
+}
+
+func DecodeClusterNetMapRoute(b []byte) (*ClusterNetMapRoute, error) {
+	var m ClusterNetMapRoute
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.LogicalAddress, err = ConsumeString(b, typ)
+		case 2:
+			b, m.HostingNodeID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *LocalRouteReport) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.Revision, 1)
+	b = AppendRepeated(b, m.LogicalAddresses, AppendFieldDecorator(AppendStringField, 2))
+	return b
+}
+
+func DecodeLocalRouteReport(b []byte) (*LocalRouteReport, error) {
+	var m LocalRouteReport
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Revision, err = ConsumeVarInt64(b, typ)
+		case 2:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.LogicalAddresses = append(m.LogicalAddresses, item)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NetMapStatus) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.AcceptedGeneration, 1)
+	b = AppendInt64Field(b, m.PersistedSequence, 2)
+	b = AppendInt64Field(b, m.AppliedSequence, 3)
+	b = AppendStringField(b, m.ReconciliationError, 4)
+	return b
+}
+
+func DecodeNetMapStatus(b []byte) (*NetMapStatus, error) {
+	var m NetMapStatus
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.AcceptedGeneration, err = ConsumeString(b, typ)
+		case 2:
+			b, m.PersistedSequence, err = ConsumeVarInt64(b, typ)
+		case 3:
+			b, m.AppliedSequence, err = ConsumeVarInt64(b, typ)
+		case 4:
+			b, m.ReconciliationError, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *MsgToMaster) Encode() []byte {
 	var b []byte
 	if m.StatusWrite != nil {
@@ -6712,6 +6014,14 @@ func (m *MsgToMaster) Encode() []byte {
 	if !m.LogLines.IsZero() {
 		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, m.LogLines.Encode())
+	}
+	if m.LocalRouteReport != nil {
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, m.LocalRouteReport.Encode())
+	}
+	if m.NetMapStatus != nil {
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.NetMapStatus.Encode())
 	}
 	return b
 }
@@ -6750,6 +6060,24 @@ func DecodeMsgToMaster(b []byte) (*MsgToMaster, error) {
 				item, err = DecodeLogLineBatch(msgBytes)
 				if err == nil {
 					m.LogLines = *item
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LocalRouteReport
+				item, err = DecodeLocalRouteReport(msgBytes)
+				if err == nil {
+					m.LocalRouteReport = item
+				}
+			}
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetMapStatus
+				item, err = DecodeNetMapStatus(msgBytes)
+				if err == nil {
+					m.NetMapStatus = item
 				}
 			}
 		default:
@@ -7004,6 +6332,945 @@ func DecodeIngressBackend(b []byte) (*IngressBackend, error) {
 			b, m.Address, err = ConsumeString(b, typ)
 		case 2:
 			b, m.Port, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m SecretRef) IsZero() bool {
+	return m.ID == 0
+}
+
+func (m *SecretRef) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 3)
+	return b
+}
+
+func DecodeSecretRef(b []byte) (*SecretRef, error) {
+	var m SecretRef
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 3:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m ConfigRef) IsZero() bool {
+	return m.ID == 0
+}
+
+func (m *ConfigRef) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 3)
+	return b
+}
+
+func DecodeConfigRef(b []byte) (*ConfigRef, error) {
+	var m ConfigRef
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 3:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m StringSetting) IsZero() bool {
+	return m.Value == "" &&
+		m.ConfigRef.IsZero()
+}
+
+func (m *StringSetting) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Value, 1)
+	if !m.ConfigRef.IsZero() {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.ConfigRef.Encode())
+	}
+	return b
+}
+
+func DecodeStringSetting(b []byte) (*StringSetting, error) {
+	var m StringSetting
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Value, err = ConsumeString(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ConfigRef
+				item, err = DecodeConfigRef(msgBytes)
+				if err == nil {
+					m.ConfigRef = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m BoolSetting) IsZero() bool {
+	return m.Value == false &&
+		m.ConfigRef.IsZero()
+}
+
+func (m *BoolSetting) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Value, 1)
+	if !m.ConfigRef.IsZero() {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.ConfigRef.Encode())
+	}
+	return b
+}
+
+func DecodeBoolSetting(b []byte) (*BoolSetting, error) {
+	var m BoolSetting
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Value, err = ConsumeBool(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ConfigRef
+				item, err = DecodeConfigRef(msgBytes)
+				if err == nil {
+					m.ConfigRef = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m Config) IsZero() bool {
+	return m.Settings.IsZero() &&
+		m.MasterPasswordHash == "" &&
+		len(m.NetworkUlaPrefix) == 0
+}
+
+func (m *Config) Encode() []byte {
+	var b []byte
+	if !m.Settings.IsZero() {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Settings.Encode())
+	}
+	b = AppendStringField(b, m.MasterPasswordHash, 2)
+	b = AppendBytesField(b, m.NetworkUlaPrefix, 3)
+	return b
+}
+
+func DecodeConfig(b []byte) (*Config, error) {
+	var m Config
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Settings
+				item, err = DecodeSettings(msgBytes)
+				if err == nil {
+					m.Settings = *item
+				}
+			}
+		case 2:
+			b, m.MasterPasswordHash, err = ConsumeString(b, typ)
+		case 3:
+			b, m.NetworkUlaPrefix, err = ConsumeBytesCopy(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m ConfigVersion) IsZero() bool {
+	return m.Version == 0 &&
+		m.UpdatedAt.IsZero() &&
+		m.Config.IsZero()
+}
+
+func (m *ConfigVersion) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.Version, 1)
+	b = AppendInt64FromTime(b, m.UpdatedAt, 2)
+	if !m.Config.IsZero() {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Config.Encode())
+	}
+	return b
+}
+
+func DecodeConfigVersion(b []byte) (*ConfigVersion, error) {
+	var m ConfigVersion
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Version, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Config
+				item, err = DecodeConfig(msgBytes)
+				if err == nil {
+					m.Config = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m Settings) IsZero() bool {
+	return m.HttpWeb.IsZero() &&
+		m.HttpsWeb.IsZero() &&
+		m.Cluster.IsZero() &&
+		m.Repo.IsZero() &&
+		m.Backup.IsZero() &&
+		m.LargeAssets.IsZero()
+}
+
+func (m *Settings) Encode() []byte {
+	var b []byte
+	if !m.HttpWeb.IsZero() {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.HttpWeb.Encode())
+	}
+	if !m.HttpsWeb.IsZero() {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.HttpsWeb.Encode())
+	}
+	if !m.Cluster.IsZero() {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Cluster.Encode())
+	}
+	if !m.Repo.IsZero() {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.Repo.Encode())
+	}
+	if !m.Backup.IsZero() {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.Backup.Encode())
+	}
+	if !m.LargeAssets.IsZero() {
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, m.LargeAssets.Encode())
+	}
+	return b
+}
+
+func DecodeSettings(b []byte) (*Settings, error) {
+	var m Settings
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *HttpWebSettings
+				item, err = DecodeHttpWebSettings(msgBytes)
+				if err == nil {
+					m.HttpWeb = *item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *HttpsWebSettings
+				item, err = DecodeHttpsWebSettings(msgBytes)
+				if err == nil {
+					m.HttpsWeb = *item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterSettings
+				item, err = DecodeClusterSettings(msgBytes)
+				if err == nil {
+					m.Cluster = *item
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *RepoSettings
+				item, err = DecodeRepoSettings(msgBytes)
+				if err == nil {
+					m.Repo = *item
+				}
+			}
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *BackupSettings
+				item, err = DecodeBackupSettings(msgBytes)
+				if err == nil {
+					m.Backup = *item
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LargeAssetsSettings
+				item, err = DecodeLargeAssetsSettings(msgBytes)
+				if err == nil {
+					m.LargeAssets = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m HttpWebSettings) IsZero() bool {
+	return m.Enabled.IsZero() &&
+		m.Listen.IsZero()
+}
+
+func (m *HttpWebSettings) Encode() []byte {
+	var b []byte
+	if !m.Enabled.IsZero() {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Enabled.Encode())
+	}
+	if !m.Listen.IsZero() {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Listen.Encode())
+	}
+	return b
+}
+
+func DecodeHttpWebSettings(b []byte) (*HttpWebSettings, error) {
+	var m HttpWebSettings
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *BoolSetting
+				item, err = DecodeBoolSetting(msgBytes)
+				if err == nil {
+					m.Enabled = *item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = DecodeStringSetting(msgBytes)
+				if err == nil {
+					m.Listen = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m HttpsWebSettings) IsZero() bool {
+	return m.Enabled.IsZero() &&
+		m.Listen.IsZero() &&
+		m.TlsSelfManaged.IsZero() &&
+		m.TlsCertPem.IsZero() &&
+		m.AcmeHosts.IsZero() &&
+		m.AcmeEmail.IsZero()
+}
+
+func (m *HttpsWebSettings) Encode() []byte {
+	var b []byte
+	if !m.Enabled.IsZero() {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Enabled.Encode())
+	}
+	if !m.Listen.IsZero() {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Listen.Encode())
+	}
+	if !m.TlsSelfManaged.IsZero() {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.TlsSelfManaged.Encode())
+	}
+	if !m.TlsCertPem.IsZero() {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.TlsCertPem.Encode())
+	}
+	if !m.AcmeHosts.IsZero() {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.AcmeHosts.Encode())
+	}
+	if !m.AcmeEmail.IsZero() {
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, m.AcmeEmail.Encode())
+	}
+	return b
+}
+
+func DecodeHttpsWebSettings(b []byte) (*HttpsWebSettings, error) {
+	var m HttpsWebSettings
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *BoolSetting
+				item, err = DecodeBoolSetting(msgBytes)
+				if err == nil {
+					m.Enabled = *item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = DecodeStringSetting(msgBytes)
+				if err == nil {
+					m.Listen = *item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *BoolSetting
+				item, err = DecodeBoolSetting(msgBytes)
+				if err == nil {
+					m.TlsSelfManaged = *item
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretRef
+				item, err = DecodeSecretRef(msgBytes)
+				if err == nil {
+					m.TlsCertPem = *item
+				}
+			}
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = DecodeStringSetting(msgBytes)
+				if err == nil {
+					m.AcmeHosts = *item
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = DecodeStringSetting(msgBytes)
+				if err == nil {
+					m.AcmeEmail = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m ClusterSettings) IsZero() bool {
+	return m.Listen.IsZero() &&
+		m.EnrollmentListen.IsZero()
+}
+
+func (m *ClusterSettings) Encode() []byte {
+	var b []byte
+	if !m.Listen.IsZero() {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Listen.Encode())
+	}
+	if !m.EnrollmentListen.IsZero() {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.EnrollmentListen.Encode())
+	}
+	return b
+}
+
+func DecodeClusterSettings(b []byte) (*ClusterSettings, error) {
+	var m ClusterSettings
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = DecodeStringSetting(msgBytes)
+				if err == nil {
+					m.Listen = *item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = DecodeStringSetting(msgBytes)
+				if err == nil {
+					m.EnrollmentListen = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m RepoSettings) IsZero() bool {
+	return m.GithubToken.IsZero()
+}
+
+func (m *RepoSettings) Encode() []byte {
+	var b []byte
+	if !m.GithubToken.IsZero() {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.GithubToken.Encode())
+	}
+	return b
+}
+
+func DecodeRepoSettings(b []byte) (*RepoSettings, error) {
+	var m RepoSettings
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretRef
+				item, err = DecodeSecretRef(msgBytes)
+				if err == nil {
+					m.GithubToken = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m BackupSettings) IsZero() bool {
+	return m.Enabled.IsZero() &&
+		m.S3AccessKeyID.IsZero() &&
+		m.S3SecretAccessKey.IsZero() &&
+		m.S3Bucket.IsZero() &&
+		m.S3Path.IsZero() &&
+		m.S3Region.IsZero() &&
+		m.S3Endpoint.IsZero()
+}
+
+func (m *BackupSettings) Encode() []byte {
+	var b []byte
+	if !m.Enabled.IsZero() {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Enabled.Encode())
+	}
+	if !m.S3AccessKeyID.IsZero() {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.S3AccessKeyID.Encode())
+	}
+	if !m.S3SecretAccessKey.IsZero() {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.S3SecretAccessKey.Encode())
+	}
+	if !m.S3Bucket.IsZero() {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.S3Bucket.Encode())
+	}
+	if !m.S3Path.IsZero() {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.S3Path.Encode())
+	}
+	if !m.S3Region.IsZero() {
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, m.S3Region.Encode())
+	}
+	if !m.S3Endpoint.IsZero() {
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.S3Endpoint.Encode())
+	}
+	return b
+}
+
+func DecodeBackupSettings(b []byte) (*BackupSettings, error) {
+	var m BackupSettings
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *BoolSetting
+				item, err = DecodeBoolSetting(msgBytes)
+				if err == nil {
+					m.Enabled = *item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = DecodeStringSetting(msgBytes)
+				if err == nil {
+					m.S3AccessKeyID = *item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretRef
+				item, err = DecodeSecretRef(msgBytes)
+				if err == nil {
+					m.S3SecretAccessKey = *item
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = DecodeStringSetting(msgBytes)
+				if err == nil {
+					m.S3Bucket = *item
+				}
+			}
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = DecodeStringSetting(msgBytes)
+				if err == nil {
+					m.S3Path = *item
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = DecodeStringSetting(msgBytes)
+				if err == nil {
+					m.S3Region = *item
+				}
+			}
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = DecodeStringSetting(msgBytes)
+				if err == nil {
+					m.S3Endpoint = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m LargeAssetsSettings) IsZero() bool {
+	return m.UseSeparateS3.IsZero() &&
+		m.S3AccessKeyID.IsZero() &&
+		m.S3SecretAccessKey.IsZero() &&
+		m.S3Bucket.IsZero() &&
+		m.S3Path.IsZero() &&
+		m.S3Region.IsZero() &&
+		m.S3Endpoint.IsZero()
+}
+
+func (m *LargeAssetsSettings) Encode() []byte {
+	var b []byte
+	if !m.UseSeparateS3.IsZero() {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.UseSeparateS3.Encode())
+	}
+	if !m.S3AccessKeyID.IsZero() {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.S3AccessKeyID.Encode())
+	}
+	if !m.S3SecretAccessKey.IsZero() {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.S3SecretAccessKey.Encode())
+	}
+	if !m.S3Bucket.IsZero() {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.S3Bucket.Encode())
+	}
+	if !m.S3Path.IsZero() {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.S3Path.Encode())
+	}
+	if !m.S3Region.IsZero() {
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, m.S3Region.Encode())
+	}
+	if !m.S3Endpoint.IsZero() {
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.S3Endpoint.Encode())
+	}
+	return b
+}
+
+func DecodeLargeAssetsSettings(b []byte) (*LargeAssetsSettings, error) {
+	var m LargeAssetsSettings
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *BoolSetting
+				item, err = DecodeBoolSetting(msgBytes)
+				if err == nil {
+					m.UseSeparateS3 = *item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = DecodeStringSetting(msgBytes)
+				if err == nil {
+					m.S3AccessKeyID = *item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretRef
+				item, err = DecodeSecretRef(msgBytes)
+				if err == nil {
+					m.S3SecretAccessKey = *item
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = DecodeStringSetting(msgBytes)
+				if err == nil {
+					m.S3Bucket = *item
+				}
+			}
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = DecodeStringSetting(msgBytes)
+				if err == nil {
+					m.S3Path = *item
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = DecodeStringSetting(msgBytes)
+				if err == nil {
+					m.S3Region = *item
+				}
+			}
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = DecodeStringSetting(msgBytes)
+				if err == nil {
+					m.S3Endpoint = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ExportedConfigBlob) Encode() []byte {
+	var b []byte
+	b = AppendBytesField(b, m.Blob, 1)
+	return b
+}
+
+func DecodeExportedConfigBlob(b []byte) (*ExportedConfigBlob, error) {
+	var m ExportedConfigBlob
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Blob, err = ConsumeBytesCopy(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

@@ -232,6 +232,7 @@ const refreshMachinesFromNodes = () => {
             isPrimary: (node.roles || []).includes(0),
             connected: status.isConnected === true,
             connectedAt: status.lastConnectedAt,
+            addresses: node.addresses || [],
         };
     }));
 };

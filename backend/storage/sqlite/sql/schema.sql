@@ -204,6 +204,7 @@ CREATE TABLE IF NOT EXISTS enrollment_requests (
     requesting_ip_address    TEXT    NOT NULL DEFAULT '',
     requesting_machine_id    TEXT    NOT NULL,
     opendeploy_version       TEXT    NOT NULL DEFAULT '',
+    underlay_address         TEXT    NOT NULL DEFAULT '',
     status                   TEXT    NOT NULL DEFAULT 'waiting'
 );
 

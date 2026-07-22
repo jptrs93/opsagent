@@ -35,6 +35,14 @@ func nodeRolesJSON(roles []int32) string {
 	return string(b)
 }
 
+func nodeAddressesJSON(addresses []string) string {
+	b, err := json.Marshal(addresses)
+	if err != nil {
+		panic(fmt.Sprintf("marshal node addresses: %v", err))
+	}
+	return string(b)
+}
+
 func parseNodeRoles(s string) []int32 {
 	var roles []int32
 	if err := json.Unmarshal([]byte(s), &roles); err != nil {
@@ -95,15 +103,16 @@ func insertNode(ctx context.Context, execer nodeExecer, enrollmentID any, name, 
 	return node, nil
 }
 
-func upsertEnrolledNode(ctx context.Context, execer nodeExecer, enrollmentID any, name, identifier string, roles []int32) (*Node, error) {
+func upsertEnrolledNode(ctx context.Context, execer nodeExecer, enrollmentID any, name, identifier string, roles []int32, addresses []string) (*Node, error) {
 	node, err := scanNodeRows(execer.QueryRowContext(ctx, `
 		INSERT INTO nodes (enrollment_id, enrolled_at, name, identifier, roles, addresses, wg_public_key)
-		VALUES (?, ?, ?, ?, ?, '[]', '')
+		VALUES (?, ?, ?, ?, ?, ?, '')
 		ON CONFLICT(identifier) DO UPDATE SET
 			enrollment_id = COALESCE(nodes.enrollment_id, excluded.enrollment_id),
 			name = excluded.name,
-			roles = excluded.roles
-		RETURNING id, enrollment_id, enrolled_at, name, identifier, roles, addresses, wg_public_key`, enrollmentID, time.Now().UnixMilli(), name, identifier, nodeRolesJSON(roles)))
+			roles = excluded.roles,
+			addresses = excluded.addresses
+		RETURNING id, enrollment_id, enrolled_at, name, identifier, roles, addresses, wg_public_key`, enrollmentID, time.Now().UnixMilli(), name, identifier, nodeRolesJSON(roles), nodeAddressesJSON(addresses)))
 	if err != nil {
 		return nil, err
 	}
@@ -116,9 +125,26 @@ func upsertEnrolledNode(ctx context.Context, execer nodeExecer, enrollmentID any
 	return node, nil
 }
 
+func (s *PrimaryStorage) MustSetNodeAddresses(id int32, addresses []string) *Node {
+	s.mu.Lock()
+	node, err := scanNodeRows(s.db.QueryRowContext(context.Background(), `
+		UPDATE nodes SET addresses = ? WHERE id = ?
+		RETURNING id, enrollment_id, enrolled_at, name, identifier, roles, addresses, wg_public_key`, nodeAddressesJSON(addresses), int64(id)))
+	s.mu.Unlock()
+	if err != nil {
+		panic(fmt.Sprintf("set node addresses: %v", err))
+	}
+	s.nodeSubs.Notify(*nodeToAPI(node))
+	return node
+}
+
 func (s *PrimaryStorage) ListNodes() []*Node {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.listNodesLocked()
+}
+
+func (s *PrimaryStorage) listNodesLocked() []*Node {
 	rows, err := s.db.QueryContext(context.Background(), `
 		SELECT id, enrollment_id, enrolled_at, name, identifier, roles, addresses, wg_public_key
 		FROM nodes
@@ -139,6 +165,14 @@ func (s *PrimaryStorage) ListNodes() []*Node {
 		panic(fmt.Sprintf("iterate nodes: %v", err))
 	}
 	return out
+}
+
+// FetchNetworkMapInputs returns node and deployment state from one storage
+// critical section so the publisher never renders a mixed-time snapshot.
+func (s *PrimaryStorage) FetchNetworkMapInputs() ([]*Node, []apigen.DeploymentWithStatus) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listNodesLocked(), s.snapshotLocked(nil)
 }
 
 type nodeScanner interface {

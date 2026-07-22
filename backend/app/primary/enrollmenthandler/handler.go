@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/config"
@@ -28,6 +31,8 @@ type enrollmentSession struct {
 	requestingMachineID string
 	opendeployVersion   string
 	csrPEM              []byte
+	underlayAddress     string
+	requestUpdatedAt    time.Time
 	accepted            chan *apigen.EnrollmentAccepted
 }
 
@@ -38,17 +43,24 @@ type Handler struct {
 	secrets        *secrets.Manager
 	configService  *config.Service
 	tlsFingerprint string
+	networkMaps    networkMapProvider
 
 	mu       sync.Mutex
 	sessions map[int32]*enrollmentSession
 }
 
-func New(store *sqlite.PrimaryStorage, secretsMgr *secrets.Manager, configService *config.Service, tlsFingerprint string) *Handler {
+type networkMapProvider interface {
+	Refresh() error
+	SnapshotForNode(nodeID int32) *apigen.ClusterNetMap
+}
+
+func New(store *sqlite.PrimaryStorage, secretsMgr *secrets.Manager, configService *config.Service, tlsFingerprint string, networkMaps networkMapProvider) *Handler {
 	return &Handler{
 		store:          store,
 		secrets:        secretsMgr,
 		configService:  configService,
 		tlsFingerprint: tlsFingerprint,
+		networkMaps:    networkMaps,
 		sessions:       make(map[int32]*enrollmentSession),
 	}
 }
@@ -90,13 +102,20 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 			return
 		}
 		opendeployVersion := strings.TrimSpace(hello.OpendeployVersion)
+		underlayAddress, err := h.normalizeEnrollmentUnderlay(requestingMachineID, hello.UnderlayAddress)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
 
-		status := h.store.MustUpsertEnrollmentRequest(enrollmentRequestIP(ctx), requestingMachineID, opendeployVersion)
+		status := h.store.MustUpsertEnrollmentRequest(enrollmentRequestIP(ctx), requestingMachineID, opendeployVersion, underlayAddress)
 		sess := &enrollmentSession{
 			id:                  status.ID,
 			requestingMachineID: requestingMachineID,
 			opendeployVersion:   opendeployVersion,
 			csrPEM:              hello.WorkerCertificateRequest,
+			underlayAddress:     underlayAddress,
+			requestUpdatedAt:    status.UpdatedAt,
 			accepted:            make(chan *apigen.EnrollmentAccepted, 1),
 		}
 		h.registerEnrollmentSession(sess)
@@ -143,6 +162,9 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 	if sess == nil {
 		return nil, EnrollmentNotConnectedErr
 	}
+	if _, err := h.normalizeEnrollmentUnderlay(sess.requestingMachineID, sess.underlayAddress); err != nil {
+		return nil, err
+	}
 	caCert, workerCert, err := certu.SignWorkerCertificateRequest(h.secrets, sess.csrPEM, sess.requestingMachineID)
 	if errors.Is(err, secrets.ErrLocked) || errors.Is(err, secrets.ErrNotFound) {
 		return nil, EnrollmentSigningNotConfiguredErr
@@ -150,9 +172,9 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 	if err != nil {
 		return nil, fmt.Errorf("signing worker CSR: %w", err)
 	}
-	status, err := h.store.AcceptEnrollmentRequest(req.ID, workerName)
-	if errors.Is(err, sqlite.ErrNotFound) {
-		return nil, EnrollmentNotFoundErr
+	status, err := h.store.AcceptEnrollmentRequest(req.ID, workerName, sess.requestingMachineID, sess.underlayAddress, sess.requestUpdatedAt)
+	if errors.Is(err, sqlite.ErrEnrollmentRequestChanged) {
+		return nil, EnrollmentNotConnectedErr
 	}
 	if err != nil {
 		return nil, err
@@ -170,6 +192,14 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 	if nodeDeployment == nil || nodeNetDeployment == nil {
 		return nil, fmt.Errorf("enrollment bootstrap deployments missing for worker %q", sess.requestingMachineID)
 	}
+	var netMap *apigen.ClusterNetMap
+	if h.networkMaps != nil {
+		if err := h.networkMaps.Refresh(); err != nil {
+			slog.Error("refreshing enrollment network map failed", "node_id", nodeID, "err", err)
+		} else {
+			netMap = h.networkMaps.SnapshotForNode(nodeID)
+		}
+	}
 	accepted := &apigen.EnrollmentAccepted{
 		ID:                req.ID,
 		WorkerName:        workerName,
@@ -178,6 +208,7 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 		ClusterNetwork:    &apigen.ClusterNetworkInfo{UlaPrefix: h.configService.NetworkPrefix().Bytes()},
 		NodeDeployment:    nodeDeployment,
 		NodeNetDeployment: nodeNetDeployment,
+		ClusterNetMap:     netMap,
 	}
 	select {
 	case sess.accepted <- accepted:
@@ -185,6 +216,31 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 		return nil, ctx.Err()
 	}
 	return status, nil
+}
+
+func (h *Handler) normalizeEnrollmentUnderlay(identifier, raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", nil
+	}
+	addr, err := netip.ParseAddr(value)
+	if err != nil || addr.Zone() != "" {
+		return "", fmt.Errorf("invalid enrollment underlay address %q", value)
+	}
+	addr = addr.Unmap()
+	for _, node := range h.store.ListNodes() {
+		if node == nil || node.Identifier == identifier || len(node.Addresses) == 0 || strings.TrimSpace(node.Addresses[0]) == "" {
+			continue
+		}
+		existing, err := netip.ParseAddr(strings.TrimSpace(node.Addresses[0]))
+		if err != nil || existing.Zone() != "" {
+			return "", fmt.Errorf("node %d has invalid stored underlay address", node.ID)
+		}
+		if existing.Unmap().BitLen() != addr.BitLen() {
+			return "", fmt.Errorf("enrollment underlay address family differs from cluster")
+		}
+	}
+	return addr.String(), nil
 }
 
 func enrollmentBootstrapDeployments(snapshot []apigen.DeploymentWithStatus) (*apigen.DeploymentWithStatus, *apigen.DeploymentWithStatus) {

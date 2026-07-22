@@ -67,3 +67,21 @@ func TestApplyRestoredPrimaryConfigOverrides(t *testing.T) {
 		t.Fatalf("AcmeHosts = %#v, want [new.example.com]", got)
 	}
 }
+
+func TestInvalidateRestoredPrimaryRuntimeStateResetsNetworkMapGeneration(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "primary.db")
+	store := sqlite.NewPrimaryStorage(dbPath)
+	store.EnsurePrimaryNode("primary", "primary-id")
+	store.MustSetLocalKV(sqlite.LocalKVPrimaryClusterNetMap, []byte("old publication"))
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := invalidateRestoredPrimaryRuntimeState(dbPath, noChown); err != nil {
+		t.Fatal(err)
+	}
+	store = sqlite.NewPrimaryStorage(dbPath)
+	defer store.Close()
+	if _, ok := store.FetchLocalKV(sqlite.LocalKVPrimaryClusterNetMap); ok {
+		t.Fatal("restored primary retained its old network map generation")
+	}
+}

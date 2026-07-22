@@ -63,6 +63,7 @@ export function clusterPage() {
                                 tr({class: "text-left text-gray-400 border-b border-gray-700"},
                                     th({class: "pb-2 pr-3 w-[24rem]"}, "Node"),
                                     th({class: "pb-2 pr-3"}, "Role"),
+                                    th({class: "pb-2 pr-3"}, "Address"),
                                     th({class: "pb-2 pr-3"}, "Status"),
                                     th({class: "pb-2"}, "Connected since"),
                                 )
@@ -150,6 +151,7 @@ function machineRow(machine) {
                 ? span({class: "text-blue-400"}, "primary")
                 : span({class: "text-gray-300"}, "secondary")
         ),
+        td({class: "py-1 pr-3 font-mono text-gray-300"}, (machine.addresses || []).join(", ") || "-"),
         td({class: "py-1 pr-3"},
             machine.connected
                 ? span({class: "text-green-400"}, "connected")

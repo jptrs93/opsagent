@@ -9,7 +9,8 @@
 - Define the behavior for auto-upgrading deployments that depend on changed assets, configs, or secrets.
 - Add "used by" information for assets, configs, secrets, and spaces. Show how many deployments use each item and which deployments use it.
 - Expand the machines page to show more machine details, including network interfaces, IP addresses, CPU cores, architecture, RAM, and disk space.
-- Continue the built-in networking layer. Machine-local virtual networking and port forwarding exist; remaining work includes cross-machine WireGuard mesh, network policy, ingress, and service load balancing. Design in [future-work/networking.md](../future-work/networking.md).
+- Continue the built-in networking layer. Machine-local virtual networking and port forwarding exist; remaining work includes fixed IP-in-IP cross-machine routing, network policy, ingress, and service load balancing. Design in [future-work/networking.md](../future-work/networking.md).
+- Add strict underlay-address validation and cluster-wide address-family consistency checks before tunnel reconciliation is enabled.
 - Major feature: add resource monitoring for workloads.
 - Add resource requests and limits to deployment configuration.
 - Major feature: allow deployments to be defined without specifying a machine. Add a scheduler that automatically schedules deployments onto machines.

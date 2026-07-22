@@ -960,9 +960,6 @@ func (h *Handler) validateAddressEnvRefs(nodeID, deploymentID int32, spec *apige
 		if target == nil || target.Deleted {
 			return invalidConfigErrf("runner.container.envVars.%s: unknown address deployment id %d", key, targetID)
 		}
-		if target.NodeID != nodeID {
-			return invalidConfigErrf("runner.container.envVars.%s: address deployment must be on the same node", key)
-		}
 		if target.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			return invalidConfigErrf("runner.container.envVars.%s: address deployment must use virtual networking", key)
 		}

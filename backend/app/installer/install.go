@@ -51,11 +51,12 @@ type installOptions struct {
 	enrollmentAddr        *string
 	enrollmentFingerprint *string
 	primaryName           *string
+	underlayAddress       *string
 	restore               *restoreOptions
 }
 
 func (o installOptions) hasEnvOverrides() bool {
-	return o.passkeyExtraOrigins != nil || o.clusterAddr != nil || o.enrollmentAddr != nil || o.enrollmentFingerprint != nil || o.primaryName != nil
+	return o.passkeyExtraOrigins != nil || o.clusterAddr != nil || o.enrollmentAddr != nil || o.enrollmentFingerprint != nil || o.primaryName != nil || o.underlayAddress != nil
 }
 
 func (o installOptions) hasPrimaryConfigOverrides() bool {

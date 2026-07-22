@@ -15,7 +15,7 @@ OpenDeploy-owned routed L3 networking
 + DNS-first service discovery
 ```
 
-OpenDeploy should own L3 identity, routes, nftables, WireGuard, DNS state, endpoint state, and policy. Runtimes should only provide a way to attach a workload to the host dataplane.
+OpenDeploy should own L3 identity, routes, fixed node tunnels, nftables, DNS state, endpoint state, and policy. Runtimes should only provide a way to attach a workload to the host dataplane.
 
 ## Runtime decision
 
@@ -50,11 +50,11 @@ These components should not depend on runc or Kata:
 
 | Component | Responsibility |
 |---|---|
-| ULA address derivation | Stable addresses, service addresses, run addresses, machine addresses |
+| ULA address derivation | Stable logical addresses, service addresses, and run addresses |
 | Endpoint state | `READY`, `DRAINING`, `DOWN` membership in endpoint sets |
 | Host routes | Route local workload addresses to the active attachment |
 | nftables | Host ports, IPv4 egress masquerade, anti-spoofing, policy |
-| WireGuard | Cross-machine mesh between hosts |
+| Fixed `ip6tnl` or SIT interfaces | Cross-machine IPv6-in-IPv6 or IPv6-in-IPv4 transport between hosts |
 | DNS netstate | Service discovery from endpoint sets |
 | Ingress routing state | Public route claims, backend endpoint selection, ACME material distribution |
 
@@ -80,7 +80,7 @@ workload -> virtio-net -> Cloud Hypervisor TAP -> Kata TC redirect -> host veth 
 Cross-machine packet path:
 
 ```
-workload -> host attachment -> host route -> wg0 -> remote host route -> remote attachment -> workload
+workload -> host attachment -> host route -> fixed node tunnel -> remote host route -> remote attachment -> workload
 ```
 
 This preserves the core goals from `networking.md`:
@@ -88,8 +88,8 @@ This preserves the core goals from `networking.md`:
 - The primary remains control plane only.
 - Existing traffic does not depend on the primary.
 - The host kernel remains the dataplane.
-- Wire packets carry workload addresses, not service NAT addresses.
-- Debugging uses `ip`, `wg`, `nft`, and containerd/Kata tools.
+- Inner packets carry unchanged workload addresses, not service NAT addresses.
+- Debugging uses `ip`, `nft`, and containerd/Kata tools.
 
 ## Rollover direction
 
@@ -230,7 +230,7 @@ Important bottlenecks:
 |---|---|
 | virtio-net and guest kernel overhead | All Kata workload traffic |
 | TC redirect overhead | Kata netns/veth to TAP attachment |
-| WireGuard CPU | Cross-machine traffic |
+| IP-in-IP encapsulation and underlay | Cross-machine traffic |
 | conntrack pressure | DNAT, host ports, service VIPs, IPv4 egress |
 | nftables rule scale | Host ports, policies, anti-spoofing |
 | proxy CPU and memory | Ingress and L7 east-west traffic |
@@ -241,8 +241,8 @@ Operational rules:
 - Use nftables sets and maps instead of long linear rule chains.
 - Avoid conntrack on default east-west traffic.
 - Use conntrack where it provides value: host ports, public ingress, IPv4 egress, and targeted graceful rollover.
-- Keep WireGuard on the host, not inside each guest.
-- Configure MTU once for the full path: guest virtio-net, Kata TAP, veth, and WireGuard.
+- Keep fixed node tunnels on the host, not inside each guest.
+- Configure MTU once for the full path: guest virtio-net, Kata TAP, veth, fixed node tunnel, and underlay.
 - Enable multiqueue or equivalent virtio-net scaling where Cloud Hypervisor and Kata support it.
 - Enforce anti-spoofing at the host attachment boundary.
 

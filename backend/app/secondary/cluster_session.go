@@ -110,6 +110,14 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 	defer cancel()
 
 	out := &outbox{ch: make(chan *apigen.MsgToMaster, 64), ctx: sessCtx}
+	if prefix, ok := network.Default.PrefixValue(); ok {
+		status, err := cachedClusterNetMapStatus(store, nodeID, prefix, "")
+		if err != nil {
+			slog.Warn("loading cached network map status failed", "err", err)
+		} else if status != nil {
+			out.Send(&apigen.MsgToMaster{NetMapStatus: status})
+		}
+	}
 
 	// Subscribe to local deployment updates to push status back to primary.
 	statusCh, unsub := store.SubscribeDeploymentUpdates(func(cfg apigen.DeploymentConfig) bool { return cfg.NodeID == nodeID })
@@ -169,6 +177,8 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *sqlite.Seconda
 		msgType = "run_log_request"
 	case msg.ClusterNetwork != nil:
 		msgType = "cluster_network"
+	case msg.ClusterNetMap != nil:
+		msgType = "cluster_net_map"
 	}
 	slog.Info("received message from primary", "type", msgType)
 
@@ -180,6 +190,24 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *sqlite.Seconda
 	case msg.ClusterNetwork != nil:
 		if err := applyClusterNetwork(store, msg.ClusterNetwork); err != nil {
 			slog.Warn("installing cluster network failed", "err", err)
+		}
+	case msg.ClusterNetMap != nil:
+		expectedPrefix, _ := network.Default.PrefixValue()
+		status, err := acceptClusterNetMap(store, msg.ClusterNetMap, nodeID, expectedPrefix)
+		if err != nil {
+			slog.Warn("accepting cluster network map failed", "err", err)
+			status, _ = cachedClusterNetMapStatus(store, nodeID, expectedPrefix, err.Error())
+			if status == nil {
+				status = &apigen.NetMapStatus{ReconciliationError: err.Error()}
+			}
+		} else if err := reconcileClusterNetMap(msg.ClusterNetMap, nodeID, expectedPrefix); err != nil {
+			slog.Warn("reconciling cluster network map failed", "err", err)
+			status.ReconciliationError = err.Error()
+		} else {
+			status.AppliedSequence = status.PersistedSequence
+		}
+		if status != nil {
+			out.Send(&apigen.MsgToMaster{NetMapStatus: status})
 		}
 	case msg.StopLogRequestID != "":
 		tracker.stop(msg.StopLogRequestID)

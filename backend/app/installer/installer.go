@@ -94,6 +94,7 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 	enrollmentListenRaw := fs.String("enrollment-listen", "", "set the initial enrollment listen address (for example :9444)")
 	acmeHostsRaw := fs.String("acme-hosts", "", "set the initial ACME hostnames (comma-separated)")
 	primaryNameRaw := fs.String("primary-name", "", "set OPENDEPLOY_PRIMARY_NAME for the primary certificate DNS name")
+	underlayAddressRaw := fs.String("underlay-address", "", "set the node address used for cross-node tunnels")
 	restoreBackupRaw := fs.String("restore-backup", "", "restore primary.db from S3 before first boot (true or false)")
 	restoreS3AccessKeyIDRaw := fs.String("restore-s3-access-key-id", "", "S3 access key id for backup restore")
 	restoreS3SecretAccessKeyRaw := fs.String("restore-s3-secret-access-key", "", "S3 secret access key for backup restore")
@@ -189,6 +190,13 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 				return
 			}
 			opts.primaryName = &v
+		case "underlay-address":
+			v := strings.TrimSpace(*underlayAddressRaw)
+			if err := validateInstallStringFlag("--underlay-address", v); err != nil && parseErr == nil {
+				parseErr = err
+				return
+			}
+			opts.underlayAddress = &v
 		case "restore-backup":
 			restoreBackupSet = true
 			v, err := strconv.ParseBool(*restoreBackupRaw)
@@ -232,6 +240,7 @@ func parseInstallSecondary(args []string) (string, installOptions, error) {
 	enrollmentAddrRaw := fs.String("enrollment-addr", "", "set OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR for the primary enrollment address")
 	enrollmentFingerprintRaw := fs.String("enrollment-fingerprint", "", "set OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT for enrollment TLS pinning")
 	primaryNameRaw := fs.String("primary-name", "", "set OPENDEPLOY_PRIMARY_NAME for primary TLS verification (default runtime value: primary)")
+	underlayAddressRaw := fs.String("underlay-address", "", "set the node address used for cross-node tunnels")
 	fs.BoolVar(&dryRun, "dry-run", false, "print the actions that would be taken without performing them")
 	_ = fs.Parse(args)
 
@@ -267,6 +276,13 @@ func parseInstallSecondary(args []string) (string, installOptions, error) {
 				return
 			}
 			opts.primaryName = &v
+		case "underlay-address":
+			v := strings.TrimSpace(*underlayAddressRaw)
+			if err := validateInstallStringFlag("--underlay-address", v); err != nil && parseErr == nil {
+				parseErr = err
+				return
+			}
+			opts.underlayAddress = &v
 		}
 	})
 	if parseErr != nil {
@@ -295,8 +311,8 @@ func usage(prog string) {
 	fmt.Fprintf(os.Stderr, `%[1]s install / uninstall — provision, upgrade, and remove opendeploy
 
 Usage:
-  %[1]s install primary [--version vX.Y.Z|latest] [--http-only true] [--web-listen :8080] [--web-tls-self-managed true] [--web-tls-cert-pem-file cert.pem] [--passkey-extra-origins https://host:8443] [--cluster-listen :9443] [--enrollment-listen :9444] [--acme-hosts host1,host2] [--primary-name primary] [--restore-backup true --restore-s3-access-key-id ... --restore-s3-secret-access-key ... --restore-s3-bucket ... --restore-s3-path ... --restore-s3-region ... --recovery-code ...] [--dry-run]
-  %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 --enrollment-fingerprint sha256:<hex> [--version vX.Y.Z|latest] [--primary-name primary] [--dry-run]
+  %[1]s install primary [--version vX.Y.Z|latest] [--http-only true] [--web-listen :8080] [--web-tls-self-managed true] [--web-tls-cert-pem-file cert.pem] [--passkey-extra-origins https://host:8443] [--cluster-listen :9443] [--enrollment-listen :9444] [--underlay-address 10.0.0.1] [--acme-hosts host1,host2] [--primary-name primary] [--restore-backup true --restore-s3-access-key-id ... --restore-s3-secret-access-key ... --restore-s3-bucket ... --restore-s3-path ... --restore-s3-region ... --recovery-code ...] [--dry-run]
+  %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 --enrollment-fingerprint sha256:<hex> [--underlay-address 10.0.0.2] [--version vX.Y.Z|latest] [--primary-name primary] [--dry-run]
   %[1]s uninstall [--purge] [--yes] [--dry-run]
 
 Commands:

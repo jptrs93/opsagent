@@ -106,6 +106,32 @@ func TestMustLoadRuntimeConfigLoadsCachedBootstrapState(t *testing.T) {
 	}
 }
 
+func TestCacheEnrollmentBootstrapStatePersistsNetworkMap(t *testing.T) {
+	dataDir := t.TempDir()
+	accepted := enrollmentAcceptedWithBootstrap(t, "worker-1")
+	accepted.ClusterNetMap = &apigen.ClusterNetMap{
+		Generation:   "generation-a",
+		Sequence:     1,
+		TargetNodeID: 2,
+		UlaPrefix:    accepted.ClusterNetwork.UlaPrefix,
+		Nodes: []*apigen.ClusterNetMapNode{
+			{NodeID: 2, UnderlayAddress: "192.0.2.2"},
+		},
+	}
+	if err := cacheEnrollmentBootstrapState(EnrollmentConfig{DataDir: dataDir}, accepted); err != nil {
+		t.Fatal(err)
+	}
+	store := sqlite.NewSecondaryStorage(filepath.Join(dataDir, "secondary.db"))
+	defer store.Close()
+	cached, _, ok, err := cachedClusterNetMap(store, 2, network.Prefix{})
+	if err != nil || !ok {
+		t.Fatalf("cached map: ok=%v err=%v", ok, err)
+	}
+	if cached.Generation != "generation-a" || cached.Sequence != 1 || cached.TargetNodeID != 2 {
+		t.Fatalf("cached map = %+v", cached)
+	}
+}
+
 func TestMustLoadRuntimeConfigRequiresCachedBootstrapState(t *testing.T) {
 	dataDir := t.TempDir()
 	caPath, certPath, keyPath := writeRuntimeTLS(t, dataDir, "worker-1")
