@@ -7,7 +7,7 @@ import {EditorView} from "@codemirror/view";
 const {div} = van.tags;
 
 const codeEditorTheme = EditorView.theme({
-    "&": {height: "100%", color: "#f3f4f6", backgroundColor: "#1f2937"},
+    "&": {height: "100%", color: "#f3f4f6", backgroundColor: "#111827"},
     ".cm-scroller": {overflow: "auto", scrollbarColor: "#4b5563 #111827", scrollbarWidth: "thin"},
     ".cm-scroller::-webkit-scrollbar": {width: "8px", height: "8px"},
     ".cm-scroller::-webkit-scrollbar-track": {background: "#111827"},
@@ -25,7 +25,7 @@ const codeEditorTheme = EditorView.theme({
         caretColor: "#93c5fd",
     },
     ".cm-line": {padding: "0 12px"},
-    ".cm-gutters": {backgroundColor: "#1f2937", color: "#6b7280", border: "none"},
+    ".cm-gutters": {backgroundColor: "#111827", color: "#6b7280", border: "none"},
     ".cm-activeLine": {backgroundColor: "#273449"},
     ".cm-activeLineGutter": {backgroundColor: "#273449", color: "#9ca3af"},
     ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection": {
