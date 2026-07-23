@@ -86,79 +86,8 @@ const (
 	AccessPolicyType_ANY_OF                         AccessPolicyType = 3
 )
 
-type NixDockerBuildConfig struct {
-	Repo   string
-	Flake  string
-	Target string
-}
-
-type GithubReleaseConfig struct {
-	Repo  string
-	Asset string
-	Tag   string
-}
-
-type ContainerImageConfig struct {
-	Image string
-}
-
-type PrepareConfig struct {
-	GithubRelease  *GithubReleaseConfig
-	ContainerImage *ContainerImageConfig
-	NixDockerBuild *NixDockerBuildConfig
-}
-
-type EnvVarValue struct {
-	SecretID            *int32
-	ConfigID            *int32
-	Value               *string
-	Asset               string
-	AssetID             int32
-	AddressDeploymentID *int32
-	AddressSpaceID      *int32
-}
-
-type SystemdRunnerConfig struct {
-	Name    string
-	BinPath string
-}
-
-type ContainerMount struct {
-	Host      string
-	Container string
-	Readonly  bool
-}
-
-type ContainerAssetMount struct {
-	Asset      string
-	Path       string
-	Format     string
-	AssetID    int32
-	Executable bool
-}
-
 type ContainerReadinessSignal struct {
 	TimeoutSeconds int32
-}
-
-type ContainerRunnerConfig struct {
-	User                string
-	EnvVars             map[string]*EnvVarValue
-	Command             []string
-	WorkingDir          string
-	DataMountPath       string
-	DisableDataVolume   bool
-	Mounts              []*ContainerMount
-	AssetMounts         []*ContainerAssetMount
-	UpgradeStrategy     ContainerUpgradeStrategy
-	ReadinessSignal     *ContainerReadinessSignal
-	DevShmSizeKb        int32
-	FileDescriptorLimit int32
-}
-
-type RunnerConfig struct {
-	Systemd   SystemdRunnerConfig
-	Container ContainerRunnerConfig
 }
 
 type PortForward struct {
@@ -254,33 +183,9 @@ type DeploymentIdentity struct {
 	Name    string
 }
 
-type DeploymentSpec struct {
-	Prepare    PrepareConfig
-	Runner     RunnerConfig
-	Networking NetworkingConfig
-}
-
-type DesiredState struct {
-	Version string
-	Running bool
-}
-
 type DeploymentDeleteRequest struct {
 	DeploymentID int32
 	Version      int32
-}
-
-type DeploymentConfig struct {
-	ID           int32
-	NodeID       int32
-	Identity     DeploymentIdentity
-	Version      int32
-	UpdatedAt    time.Time
-	UpdatedBy    int32
-	Spec         DeploymentSpec
-	DesiredState DesiredState
-	Deleted      bool
-	CreatedAt    time.Time
 }
 
 type DeploymentWithStatus struct {

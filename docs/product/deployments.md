@@ -83,7 +83,7 @@ responses redact its runtime details.
 
 `spec.networking` controls container network mode and published ports.
 
-- New create/update requests must set an explicit networking mode. Legacy specs without networking are migrated to explicit `HOST` on startup.
+- Create/update requests must set an explicit networking mode.
 - `HOST` joins the host network namespace.
 - `VIRTUAL` creates a per-container network namespace with a derived IPv6 instance address and machine-local IPv4 egress address.
 - `portForwarding` publishes host-interface TCP or UDP ports to container ports through nftables DNAT and requires `VIRTUAL`, e.g. `{protocol: TCP, hostPort: 443, containerPort: 443}`.
@@ -100,11 +100,8 @@ change. Every bump is persisted to `deployment_config_history` so the UI
 can reconstruct the sequence of changes.
 
 SQLite persists `DeploymentSpec2` in both the current-config and config-history
-rows. The V2 rollout includes a temporary startup migration shared by primary
-and secondary storage: before caches are loaded, it transactionally decodes all
-legacy specs, folds the legacy desired-state columns into the selected workload,
-rewrites every current and historical blob, and records completion in local
-machine state. Normal readers and writers only handle V2 blobs.
+rows. The selected workload's `version` and `running` fields are the only
+authoritative desired state.
 
 ## Deployment state
 
@@ -163,7 +160,7 @@ grouped by space. Each card displays:
 2. The user picks a version (and optionally edits the deployment spec) and submits.
 3. The frontend calls `POST /v1/deployment/update` with the target version
    and, if the spec was edited, the new typed `spec`.
-4. For an effective running Nix transition, the backend verifies the exact remote commit and regular `flake.nix` tree entry, then writes the V2 spec with the selected workload's version and `running=true`, and bumps `DeploymentConfig2.Version`. Verification failure writes nothing.
+4. For an effective running Nix transition, the backend verifies the exact remote commit and regular `flake.nix` tree entry, then writes the spec with the selected workload's version and `running=true`, and bumps `DeploymentConfig2.Version`. Verification failure writes nothing.
 5. The operator's reconciliation loop picks up the change and starts a
    preparer.
 6. The preparer clones/fetches, pulls, or imports the image, then writes

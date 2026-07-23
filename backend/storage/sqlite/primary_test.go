@@ -11,6 +11,48 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
+func TestPrimaryStorageIgnoresRetiredDesiredStateColumns(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "primary.db")
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(schema); err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`ALTER TABLE deployment_configs ADD COLUMN desired_version TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE deployment_configs ADD COLUMN desired_running INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE deployment_config_history ADD COLUMN desired_version TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE deployment_config_history ADD COLUMN desired_running INTEGER NOT NULL DEFAULT 0`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewPrimaryStorage(dbPath)
+	node := testNode(store, "primary")
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
+		SpaceID: DefaultSpaceID,
+		Name:    "api",
+	}, node.ID, testSpecWithState("v1", true))
+	store.MustSetDeploymentWorkloadState(apigen.Context{}, cfg.ID, "v2", false)
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store = NewPrimaryStorage(dbPath)
+	defer store.Close()
+	reloaded := store.configCache[cfg.ID]
+	if reloaded == nil || reloaded.WorkloadVersion() != "v2" || reloaded.WorkloadRunning() {
+		t.Fatalf("reloaded deployment = %+v, want stopped v2", reloaded)
+	}
+}
+
 func TestPrimaryMigrationAddsEnrollmentUnderlayAddress(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	db, err := sql.Open("sqlite", "file:"+dbPath)
@@ -414,7 +456,7 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 	}
 }
 
-func TestSetDeploymentWorkloadStateReencodesSpecAndMirrors(t *testing.T) {
+func TestSetDeploymentWorkloadStateReencodesSpec(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := NewPrimaryStorage(dbPath)
 	node := testNode(store, "primary")
@@ -429,7 +471,7 @@ func TestSetDeploymentWorkloadStateReencodesSpecAndMirrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read updated deployment: %v", err)
 	}
-	assertPersistedWorkloadState(t, row.SpecBlob, row.DesiredVersion, row.DesiredRunning, "v2", false)
+	assertPersistedWorkloadState(t, row.SpecBlob, "v2", false)
 	history, err := store.q.ListDeploymentConfigHistory(context.Background(), int64(cfg.ID))
 	if err != nil {
 		t.Fatalf("read updated deployment history: %v", err)
@@ -438,7 +480,7 @@ func TestSetDeploymentWorkloadStateReencodesSpecAndMirrors(t *testing.T) {
 		t.Fatalf("history length = %d, want 2", len(history))
 	}
 	latest := history[len(history)-1]
-	assertPersistedWorkloadState(t, latest.SpecBlob, latest.DesiredVersion, latest.DesiredRunning, "v2", false)
+	assertPersistedWorkloadState(t, latest.SpecBlob, "v2", false)
 
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
@@ -451,7 +493,7 @@ func TestSetDeploymentWorkloadStateReencodesSpecAndMirrors(t *testing.T) {
 	}
 }
 
-func assertPersistedWorkloadState(t *testing.T, blob []byte, mirrorVersion string, mirrorRunning int64, wantVersion string, wantRunning bool) {
+func assertPersistedWorkloadState(t *testing.T, blob []byte, wantVersion string, wantRunning bool) {
 	t.Helper()
 	spec, err := apigen.DecodeDeploymentSpec2(blob)
 	if err != nil {
@@ -459,9 +501,6 @@ func assertPersistedWorkloadState(t *testing.T, blob []byte, mirrorVersion strin
 	}
 	if spec.WorkloadVersion() != wantVersion || spec.WorkloadRunning() != wantRunning {
 		t.Fatalf("persisted workload = %q/%v, want %q/%v", spec.WorkloadVersion(), spec.WorkloadRunning(), wantVersion, wantRunning)
-	}
-	if mirrorVersion != wantVersion || (mirrorRunning != 0) != wantRunning {
-		t.Fatalf("persisted mirrors = %q/%d, want %q/%v", mirrorVersion, mirrorRunning, wantVersion, wantRunning)
 	}
 }
 

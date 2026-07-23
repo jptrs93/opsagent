@@ -68,33 +68,33 @@ A completed database restore point created in Backup mode refers to the retained
 
 Existing asset rows with `s3://` locations remain valid and readable from their recorded bucket and key. Existing installations that enabled the former independent large-asset S3 setting remain opted into separate large-asset S3 configuration, so those rows are not reinterpreted as objects in the shared Backup location. A legacy S3 row is transition input: its active S3 object remains usable until a required destination copy is durable.
 
-## Phase 2: container mounts
+## Container mounts
 
-Asset mounts are defined under the container runner, separate from raw host mounts:
+Asset mounts are defined under `container1Spec.runtime`, separate from raw host mounts:
 
 ```yaml
-runner:
-  container:
+container1Spec:
+  runtime:
     assetMounts:
-      - asset: nginx.conf
-        assetId: 12
-        path: /etc/nginx/nginx.conf
-      - asset: site.conf
-        assetId: 33
-        path: /etc/nginx/conf.d/site.conf
-      - asset: init.sh
-        path: /docker-entrypoint-initdb.d/init.sh
-        executable: true  # read-only mount with execute bits enabled
+      - assetId: 12
+        containerPath: /etc/nginx/nginx.conf
+        permission: READ_ONLY
+      - assetId: 33
+        containerPath: /etc/nginx/conf.d/site.conf
+        permission: READ_ONLY
+      - assetId: 47
+        containerPath: /docker-entrypoint-initdb.d/init.sh
+        permission: READ_EXECUTE
 ```
 
 Current semantics:
 
-- Resolve the selected asset row when the deployment config is created or updated, then store the immutable numeric asset id plus display key, format, and mount path in config history. Asset content is not embedded in deployment configs.
+- Resolve the selected asset row when the deployment config is created or updated, then store its immutable numeric ID, container path, and permission in config history. Asset content is not embedded in deployment configs.
 - During preparation, call `preparer.EnsureAssetsReady` before the deployment reaches READY.
 - On the primary, the asset provider streams inline blobs from the primary DB and large blobs from their active local or S3 location without changing the mount contract.
 - On a secondary, the asset provider streams the blob on demand from the primary over the mTLS cluster endpoint `/v1/cluster/asset?asset_id=<id>`.
 - Materialize/cache assets on each target machine at `/var/lib/opendeploy-assets/<asset-id>` or `/var/lib/opendeploy-assets/<asset-id>_x` for executable mounts.
-- Mount materialized files read-only into the container. Explicit asset mounts may set `executable: true` to enable execute bits; implicit env asset mounts are always read-only/non-executable.
+- Mount materialized files read-only into the container. Explicit asset mounts may use `READ_EXECUTE` to enable execute bits; implicit env asset mounts are always read-only/non-executable.
 - Reject paths that are empty, relative, directories, or dangerous container destinations.
 - Fail deployment preparation if an asset ID no longer exists.
 - Keep `container1Spec.runtime.mounts` for raw host bind mounts; use `assetMounts` only for OpenDeploy-managed config files.

@@ -4,19 +4,19 @@
 -- auto-allocates its deployment_id. Deleted deployments do not reserve their
 -- former identity tuple.
 -- name: CreateDeploymentConfig :one
-INSERT INTO deployment_configs (node_id, space_id, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_configs (node_id, space_id, name, created_at, version, updated_at, updated_by, spec_blob, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING deployment_id, created_at;
 
 -- name: GetDeploymentConfig :one
 SELECT deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by,
-       spec_blob, desired_version, desired_running, deleted
+       spec_blob, deleted
 FROM deployment_configs
 WHERE deployment_id = ?;
 
 -- name: UpsertDeploymentConfig :exec
-INSERT INTO deployment_configs (deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_configs (deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by, spec_blob, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(deployment_id) DO UPDATE SET
     node_id = excluded.node_id,
     space_id = excluded.space_id,
@@ -26,13 +26,11 @@ ON CONFLICT(deployment_id) DO UPDATE SET
     updated_at = excluded.updated_at,
     updated_by = excluded.updated_by,
     spec_blob = excluded.spec_blob,
-    desired_version = excluded.desired_version,
-    desired_running = excluded.desired_running,
     deleted = excluded.deleted;
 
 -- name: ListAllDeploymentConfigs :many
 SELECT deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by,
-       spec_blob, desired_version, desired_running, deleted
+       spec_blob, deleted
 FROM deployment_configs
 WHERE deleted = 0;
 
@@ -58,12 +56,11 @@ SELECT COUNT(*) FROM deployment_configs WHERE space_id = ? AND deleted = 0;
 -- === deployment_config_history ===
 
 -- name: InsertDeploymentConfigHistory :exec
-INSERT INTO deployment_config_history (deployment_id, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO deployment_config_history (deployment_id, version, updated_at, updated_by, spec_blob, deleted)
+VALUES (?, ?, ?, ?, ?, ?);
 
 -- name: ListDeploymentConfigHistory :many
-SELECT deployment_id, version, updated_at, updated_by, spec_blob,
-       desired_version, desired_running, deleted
+SELECT deployment_id, version, updated_at, updated_by, spec_blob, deleted
 FROM deployment_config_history
 WHERE deployment_id = ?
 ORDER BY version ASC;

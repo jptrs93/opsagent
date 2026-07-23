@@ -23,23 +23,21 @@ func (q *Queries) CountDeploymentsForSpace(ctx context.Context, spaceID int64) (
 
 const createDeploymentConfig = `-- name: CreateDeploymentConfig :one
 
-INSERT INTO deployment_configs (node_id, space_id, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_configs (node_id, space_id, name, created_at, version, updated_at, updated_by, spec_blob, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING deployment_id, created_at
 `
 
 type CreateDeploymentConfigParams struct {
-	NodeID         int64
-	SpaceID        int64
-	Name           string
-	CreatedAt      int64
-	Version        int64
-	UpdatedAt      int64
-	UpdatedBy      int64
-	SpecBlob       []byte
-	DesiredVersion string
-	DesiredRunning int64
-	Deleted        int64
+	NodeID    int64
+	SpaceID   int64
+	Name      string
+	CreatedAt int64
+	Version   int64
+	UpdatedAt int64
+	UpdatedBy int64
+	SpecBlob  []byte
+	Deleted   int64
 }
 
 type CreateDeploymentConfigRow struct {
@@ -61,8 +59,6 @@ func (q *Queries) CreateDeploymentConfig(ctx context.Context, arg CreateDeployme
 		arg.UpdatedAt,
 		arg.UpdatedBy,
 		arg.SpecBlob,
-		arg.DesiredVersion,
-		arg.DesiredRunning,
 		arg.Deleted,
 	)
 	var i CreateDeploymentConfigRow
@@ -244,7 +240,7 @@ func (q *Queries) GetConfigHistorySpecBlob(ctx context.Context, arg GetConfigHis
 
 const getDeploymentConfig = `-- name: GetDeploymentConfig :one
 SELECT deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by,
-       spec_blob, desired_version, desired_running, deleted
+       spec_blob, deleted
 FROM deployment_configs
 WHERE deployment_id = ?
 `
@@ -262,8 +258,6 @@ func (q *Queries) GetDeploymentConfig(ctx context.Context, deploymentID int64) (
 		&i.UpdatedAt,
 		&i.UpdatedBy,
 		&i.SpecBlob,
-		&i.DesiredVersion,
-		&i.DesiredRunning,
 		&i.Deleted,
 	)
 	return i, err
@@ -649,19 +643,17 @@ func (q *Queries) InsertAssetMigration(ctx context.Context, arg InsertAssetMigra
 
 const insertDeploymentConfigHistory = `-- name: InsertDeploymentConfigHistory :exec
 
-INSERT INTO deployment_config_history (deployment_id, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_config_history (deployment_id, version, updated_at, updated_by, spec_blob, deleted)
+VALUES (?, ?, ?, ?, ?, ?)
 `
 
 type InsertDeploymentConfigHistoryParams struct {
-	DeploymentID   int64
-	Version        int64
-	UpdatedAt      int64
-	UpdatedBy      int64
-	SpecBlob       []byte
-	DesiredVersion string
-	DesiredRunning int64
-	Deleted        int64
+	DeploymentID int64
+	Version      int64
+	UpdatedAt    int64
+	UpdatedBy    int64
+	SpecBlob     []byte
+	Deleted      int64
 }
 
 // === deployment_config_history ===
@@ -672,8 +664,6 @@ func (q *Queries) InsertDeploymentConfigHistory(ctx context.Context, arg InsertD
 		arg.UpdatedAt,
 		arg.UpdatedBy,
 		arg.SpecBlob,
-		arg.DesiredVersion,
-		arg.DesiredRunning,
 		arg.Deleted,
 	)
 	return err
@@ -805,7 +795,7 @@ func (q *Queries) InsertUserConfig(ctx context.Context, arg InsertUserConfigPara
 
 const listAllDeploymentConfigs = `-- name: ListAllDeploymentConfigs :many
 SELECT deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by,
-       spec_blob, desired_version, desired_running, deleted
+       spec_blob, deleted
 FROM deployment_configs
 WHERE deleted = 0
 `
@@ -829,8 +819,6 @@ func (q *Queries) ListAllDeploymentConfigs(ctx context.Context) ([]DeploymentCon
 			&i.UpdatedAt,
 			&i.UpdatedBy,
 			&i.SpecBlob,
-			&i.DesiredVersion,
-			&i.DesiredRunning,
 			&i.Deleted,
 		); err != nil {
 			return nil, err
@@ -967,8 +955,7 @@ func (q *Queries) ListAssetVersionsByKey(ctx context.Context, key string) ([]Ass
 }
 
 const listDeploymentConfigHistory = `-- name: ListDeploymentConfigHistory :many
-SELECT deployment_id, version, updated_at, updated_by, spec_blob,
-       desired_version, desired_running, deleted
+SELECT deployment_id, version, updated_at, updated_by, spec_blob, deleted
 FROM deployment_config_history
 WHERE deployment_id = ?
 ORDER BY version ASC
@@ -989,8 +976,6 @@ func (q *Queries) ListDeploymentConfigHistory(ctx context.Context, deploymentID 
 			&i.UpdatedAt,
 			&i.UpdatedBy,
 			&i.SpecBlob,
-			&i.DesiredVersion,
-			&i.DesiredRunning,
 			&i.Deleted,
 		); err != nil {
 			return nil, err
@@ -1583,8 +1568,8 @@ func (q *Queries) UpdateSpace(ctx context.Context, arg UpdateSpaceParams) (Space
 }
 
 const upsertDeploymentConfig = `-- name: UpsertDeploymentConfig :exec
-INSERT INTO deployment_configs (deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by, spec_blob, desired_version, desired_running, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_configs (deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by, spec_blob, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(deployment_id) DO UPDATE SET
     node_id = excluded.node_id,
     space_id = excluded.space_id,
@@ -1594,24 +1579,20 @@ ON CONFLICT(deployment_id) DO UPDATE SET
     updated_at = excluded.updated_at,
     updated_by = excluded.updated_by,
     spec_blob = excluded.spec_blob,
-    desired_version = excluded.desired_version,
-    desired_running = excluded.desired_running,
     deleted = excluded.deleted
 `
 
 type UpsertDeploymentConfigParams struct {
-	DeploymentID   int64
-	NodeID         int64
-	SpaceID        int64
-	Name           string
-	CreatedAt      int64
-	Version        int64
-	UpdatedAt      int64
-	UpdatedBy      int64
-	SpecBlob       []byte
-	DesiredVersion string
-	DesiredRunning int64
-	Deleted        int64
+	DeploymentID int64
+	NodeID       int64
+	SpaceID      int64
+	Name         string
+	CreatedAt    int64
+	Version      int64
+	UpdatedAt    int64
+	UpdatedBy    int64
+	SpecBlob     []byte
+	Deleted      int64
 }
 
 func (q *Queries) UpsertDeploymentConfig(ctx context.Context, arg UpsertDeploymentConfigParams) error {
@@ -1625,8 +1606,6 @@ func (q *Queries) UpsertDeploymentConfig(ctx context.Context, arg UpsertDeployme
 		arg.UpdatedAt,
 		arg.UpdatedBy,
 		arg.SpecBlob,
-		arg.DesiredVersion,
-		arg.DesiredRunning,
 		arg.Deleted,
 	)
 	return err

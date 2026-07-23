@@ -9,8 +9,6 @@ CREATE TABLE IF NOT EXISTS deployment_configs (
     updated_at      INTEGER NOT NULL,  -- epoch ms
     updated_by      INTEGER NOT NULL DEFAULT 0,
     spec_blob       BLOB    NOT NULL,
-    desired_version TEXT    NOT NULL DEFAULT '',  -- the desired version should uniquely identify that version and not be re-used over time
-    desired_running INTEGER NOT NULL DEFAULT 0,
     deleted         INTEGER NOT NULL DEFAULT 0
 );
 
@@ -32,8 +30,6 @@ CREATE TABLE IF NOT EXISTS deployment_config_history (
     updated_at      INTEGER NOT NULL,  -- epoch ms
     updated_by      INTEGER NOT NULL DEFAULT 0,
     spec_blob       BLOB    NOT NULL,
-    desired_version TEXT    NOT NULL DEFAULT '',
-    desired_running INTEGER NOT NULL DEFAULT 0,
     deleted         INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (deployment_id, version)
 );

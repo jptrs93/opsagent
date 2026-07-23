@@ -384,7 +384,6 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 	if update.Spec != nil {
 		specBlob = spec.Encode()
 	}
-	desiredVersion, desiredRunning := desiredMirrors(spec)
 	deleted := existing.Deleted
 	if update.Deleted != nil {
 		deleted = boolToInt(*update.Deleted)
@@ -392,8 +391,6 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 
 	if spaceID == existing.SpaceID &&
 		bytes.Equal(specBlob, existing.SpecBlob) &&
-		desiredVersion == existing.DesiredVersion &&
-		desiredRunning == existing.DesiredRunning &&
 		deleted == existing.Deleted {
 		if err := tx.Commit(); err != nil {
 			panic(fmt.Sprintf("commit: %v", err))
@@ -402,31 +399,27 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 	}
 
 	params := UpsertDeploymentConfigParams{
-		DeploymentID:   dbID,
-		NodeID:         existing.NodeID,
-		SpaceID:        spaceID,
-		Name:           existing.Name,
-		CreatedAt:      existing.CreatedAt,
-		Version:        existing.Version + 1,
-		UpdatedAt:      now,
-		UpdatedBy:      userID,
-		SpecBlob:       specBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        deleted,
+		DeploymentID: dbID,
+		NodeID:       existing.NodeID,
+		SpaceID:      spaceID,
+		Name:         existing.Name,
+		CreatedAt:    existing.CreatedAt,
+		Version:      existing.Version + 1,
+		UpdatedAt:    now,
+		UpdatedBy:    userID,
+		SpecBlob:     specBlob,
+		Deleted:      deleted,
 	}
 	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
 		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
-		DeploymentID:   dbID,
-		Version:        params.Version,
-		UpdatedAt:      params.UpdatedAt,
-		UpdatedBy:      params.UpdatedBy,
-		SpecBlob:       params.SpecBlob,
-		DesiredVersion: params.DesiredVersion,
-		DesiredRunning: params.DesiredRunning,
-		Deleted:        params.Deleted,
+		DeploymentID: dbID,
+		Version:      params.Version,
+		UpdatedAt:    params.UpdatedAt,
+		UpdatedBy:    params.UpdatedBy,
+		SpecBlob:     params.SpecBlob,
+		Deleted:      params.Deleted,
 	}); err != nil {
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
 	}
@@ -470,33 +463,28 @@ func (s *PrimaryStorage) mustSetDeploymentWorkloadStateLocked(ctx apigen.Context
 	if err := spec.SetWorkloadState(version, running); err != nil {
 		panic(fmt.Sprintf("update deployment workload state: %v", err))
 	}
-	desiredVersion, desiredRunning := desiredMirrors(spec)
 	params := UpsertDeploymentConfigParams{
-		DeploymentID:   dbID,
-		NodeID:         existing.NodeID,
-		SpaceID:        existing.SpaceID,
-		Name:           existing.Name,
-		CreatedAt:      existing.CreatedAt,
-		Version:        existing.Version + 1,
-		UpdatedAt:      now,
-		UpdatedBy:      userID,
-		SpecBlob:       spec.Encode(),
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        existing.Deleted,
+		DeploymentID: dbID,
+		NodeID:       existing.NodeID,
+		SpaceID:      existing.SpaceID,
+		Name:         existing.Name,
+		CreatedAt:    existing.CreatedAt,
+		Version:      existing.Version + 1,
+		UpdatedAt:    now,
+		UpdatedBy:    userID,
+		SpecBlob:     spec.Encode(),
+		Deleted:      existing.Deleted,
 	}
 	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
 		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
-		DeploymentID:   dbID,
-		Version:        params.Version,
-		UpdatedAt:      params.UpdatedAt,
-		UpdatedBy:      params.UpdatedBy,
-		SpecBlob:       params.SpecBlob,
-		DesiredVersion: params.DesiredVersion,
-		DesiredRunning: params.DesiredRunning,
-		Deleted:        params.Deleted,
+		DeploymentID: dbID,
+		Version:      params.Version,
+		UpdatedAt:    params.UpdatedAt,
+		UpdatedBy:    params.UpdatedBy,
+		SpecBlob:     params.SpecBlob,
+		Deleted:      params.Deleted,
 	}); err != nil {
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
 	}
@@ -543,35 +531,30 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 		panic(fmt.Sprintf("preserve deployment workload state: %v", err))
 	}
 	specBlob := storedSpec.Encode()
-	desiredVersion, desiredRunning := desiredMirrors(storedSpec)
 
 	newVersion := existing.Version + 1
 	params := UpsertDeploymentConfigParams{
-		DeploymentID:   dbID,
-		NodeID:         existing.NodeID,
-		SpaceID:        existing.SpaceID,
-		Name:           existing.Name,
-		CreatedAt:      existing.CreatedAt,
-		Version:        newVersion,
-		UpdatedAt:      now,
-		UpdatedBy:      userID,
-		SpecBlob:       specBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        existing.Deleted,
+		DeploymentID: dbID,
+		NodeID:       existing.NodeID,
+		SpaceID:      existing.SpaceID,
+		Name:         existing.Name,
+		CreatedAt:    existing.CreatedAt,
+		Version:      newVersion,
+		UpdatedAt:    now,
+		UpdatedBy:    userID,
+		SpecBlob:     specBlob,
+		Deleted:      existing.Deleted,
 	}
 	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
 		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
-		DeploymentID:   dbID,
-		Version:        newVersion,
-		UpdatedAt:      now,
-		UpdatedBy:      userID,
-		SpecBlob:       specBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        existing.Deleted,
+		DeploymentID: dbID,
+		Version:      newVersion,
+		UpdatedAt:    now,
+		UpdatedBy:    userID,
+		SpecBlob:     specBlob,
+		Deleted:      existing.Deleted,
 	}); err != nil {
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
 	}
@@ -609,36 +592,29 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymen
 	if existing.SpaceID == int64(spaceID) {
 		return
 	}
-	spec := mustDecodeDeploymentSpec2(existing.SpecBlob, dbID, existing.Version)
-	desiredVersion, desiredRunning := desiredMirrors(spec)
-
 	newVersion := existing.Version + 1
 	params := UpsertDeploymentConfigParams{
-		DeploymentID:   dbID,
-		NodeID:         existing.NodeID,
-		SpaceID:        int64(spaceID),
-		Name:           existing.Name,
-		CreatedAt:      existing.CreatedAt,
-		Version:        newVersion,
-		UpdatedAt:      now,
-		UpdatedBy:      userID,
-		SpecBlob:       existing.SpecBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        existing.Deleted,
+		DeploymentID: dbID,
+		NodeID:       existing.NodeID,
+		SpaceID:      int64(spaceID),
+		Name:         existing.Name,
+		CreatedAt:    existing.CreatedAt,
+		Version:      newVersion,
+		UpdatedAt:    now,
+		UpdatedBy:    userID,
+		SpecBlob:     existing.SpecBlob,
+		Deleted:      existing.Deleted,
 	}
 	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
 		panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
-		DeploymentID:   dbID,
-		Version:        newVersion,
-		UpdatedAt:      now,
-		UpdatedBy:      userID,
-		SpecBlob:       existing.SpecBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        existing.Deleted,
+		DeploymentID: dbID,
+		Version:      newVersion,
+		UpdatedAt:    now,
+		UpdatedBy:    userID,
+		SpecBlob:     existing.SpecBlob,
+		Deleted:      existing.Deleted,
 	}); err != nil {
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
 	}
@@ -690,20 +666,17 @@ func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *ap
 		panic("deployment spec must not be nil")
 	}
 	specBlob := spec.Encode()
-	desiredVersion, desiredRunning := desiredMirrors(spec)
 
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
-		NodeID:         int64(nodeID),
-		SpaceID:        int64(cid.SpaceID),
-		Name:           cid.Name,
-		CreatedAt:      now,
-		Version:        1,
-		UpdatedAt:      now,
-		UpdatedBy:      userID,
-		SpecBlob:       specBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        0,
+		NodeID:    int64(nodeID),
+		SpaceID:   int64(cid.SpaceID),
+		Name:      cid.Name,
+		CreatedAt: now,
+		Version:   1,
+		UpdatedAt: now,
+		UpdatedBy: userID,
+		SpecBlob:  specBlob,
+		Deleted:   0,
 	})
 	if err != nil {
 		panic(fmt.Sprintf("CreateDeploymentConfig: %v", err))
@@ -711,14 +684,12 @@ func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *ap
 	dbID := row.DeploymentID
 
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
-		DeploymentID:   dbID,
-		Version:        1,
-		UpdatedAt:      now,
-		UpdatedBy:      userID,
-		SpecBlob:       specBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        0,
+		DeploymentID: dbID,
+		Version:      1,
+		UpdatedAt:    now,
+		UpdatedBy:    userID,
+		SpecBlob:     specBlob,
+		Deleted:      0,
 	}); err != nil {
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory (create): %v", err))
 	}
@@ -730,18 +701,16 @@ func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *ap
 	}
 
 	cfg := upsertParamsToProto(UpsertDeploymentConfigParams{
-		DeploymentID:   dbID,
-		NodeID:         int64(nodeID),
-		SpaceID:        int64(cid.SpaceID),
-		Name:           cid.Name,
-		CreatedAt:      row.CreatedAt,
-		Version:        1,
-		UpdatedAt:      now,
-		UpdatedBy:      userID,
-		SpecBlob:       specBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        0,
+		DeploymentID: dbID,
+		NodeID:       int64(nodeID),
+		SpaceID:      int64(cid.SpaceID),
+		Name:         cid.Name,
+		CreatedAt:    row.CreatedAt,
+		Version:      1,
+		UpdatedAt:    now,
+		UpdatedBy:    userID,
+		SpecBlob:     specBlob,
+		Deleted:      0,
 	})
 	id := int32(dbID)
 	s.configCache[id] = cfg
@@ -782,7 +751,6 @@ func (s *PrimaryStorage) EnsureSystemDeployment(nodeID int32, opendeployVersion 
 		panic(fmt.Sprintf("initialize system deployment state: %v", err))
 	}
 	specBlob := spec.Encode()
-	desiredVersion, desiredRunning := desiredMirrors(spec)
 
 	bgCtx := context.Background()
 	tx, err := s.db.BeginTx(bgCtx, nil)
@@ -794,16 +762,14 @@ func (s *PrimaryStorage) EnsureSystemDeployment(nodeID int32, opendeployVersion 
 	q := s.q.WithTx(tx)
 	now := time.Now().UnixMilli()
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
-		NodeID:         int64(nodeID),
-		SpaceID:        int64(cid.SpaceID),
-		Name:           cid.Name,
-		CreatedAt:      now,
-		Version:        1,
-		UpdatedAt:      now,
-		SpecBlob:       specBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        0,
+		NodeID:    int64(nodeID),
+		SpaceID:   int64(cid.SpaceID),
+		Name:      cid.Name,
+		CreatedAt: now,
+		Version:   1,
+		UpdatedAt: now,
+		SpecBlob:  specBlob,
+		Deleted:   0,
 	})
 	if err != nil {
 		panic(fmt.Sprintf("CreateDeploymentConfig (system): %v", err))
@@ -811,13 +777,11 @@ func (s *PrimaryStorage) EnsureSystemDeployment(nodeID int32, opendeployVersion 
 	dbID := row.DeploymentID
 
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
-		DeploymentID:   dbID,
-		Version:        1,
-		UpdatedAt:      now,
-		SpecBlob:       specBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        0,
+		DeploymentID: dbID,
+		Version:      1,
+		UpdatedAt:    now,
+		SpecBlob:     specBlob,
+		Deleted:      0,
 	}); err != nil {
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory (system): %v", err))
 	}
@@ -830,17 +794,15 @@ func (s *PrimaryStorage) EnsureSystemDeployment(nodeID int32, opendeployVersion 
 
 	id := int32(dbID)
 	s.configCache[id] = upsertParamsToProto(UpsertDeploymentConfigParams{
-		DeploymentID:   dbID,
-		NodeID:         int64(nodeID),
-		SpaceID:        int64(cid.SpaceID),
-		Name:           cid.Name,
-		CreatedAt:      row.CreatedAt,
-		Version:        1,
-		UpdatedAt:      now,
-		SpecBlob:       specBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        0,
+		DeploymentID: dbID,
+		NodeID:       int64(nodeID),
+		SpaceID:      int64(cid.SpaceID),
+		Name:         cid.Name,
+		CreatedAt:    row.CreatedAt,
+		Version:      1,
+		UpdatedAt:    now,
+		SpecBlob:     specBlob,
+		Deleted:      0,
 	})
 	s.notifyFromCache(id)
 	slog.Info("created system deployment", "nodeID", nodeID, "version", opendeployVersion)
@@ -884,7 +846,6 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, initialVersion s
 		panic(fmt.Sprintf("initialize netproxy deployment state: %v", err))
 	}
 	specBlob := spec.Encode()
-	desiredVersion, desiredRunning := desiredMirrors(spec)
 
 	bgCtx := context.Background()
 	tx, err := s.db.BeginTx(bgCtx, nil)
@@ -896,16 +857,14 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, initialVersion s
 	q := s.q.WithTx(tx)
 	now := time.Now().UnixMilli()
 	row, err := q.CreateDeploymentConfig(bgCtx, CreateDeploymentConfigParams{
-		NodeID:         int64(nodeID),
-		SpaceID:        int64(cid.SpaceID),
-		Name:           cid.Name,
-		CreatedAt:      now,
-		Version:        1,
-		UpdatedAt:      now,
-		SpecBlob:       specBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        0,
+		NodeID:    int64(nodeID),
+		SpaceID:   int64(cid.SpaceID),
+		Name:      cid.Name,
+		CreatedAt: now,
+		Version:   1,
+		UpdatedAt: now,
+		SpecBlob:  specBlob,
+		Deleted:   0,
 	})
 	if err != nil {
 		panic(fmt.Sprintf("CreateDeploymentConfig (netproxy): %v", err))
@@ -913,13 +872,11 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, initialVersion s
 	dbID := row.DeploymentID
 
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
-		DeploymentID:   dbID,
-		Version:        1,
-		UpdatedAt:      now,
-		SpecBlob:       specBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        0,
+		DeploymentID: dbID,
+		Version:      1,
+		UpdatedAt:    now,
+		SpecBlob:     specBlob,
+		Deleted:      0,
 	}); err != nil {
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory (netproxy): %v", err))
 	}
@@ -932,17 +889,15 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, initialVersion s
 
 	id := int32(dbID)
 	s.configCache[id] = upsertParamsToProto(UpsertDeploymentConfigParams{
-		DeploymentID:   dbID,
-		NodeID:         int64(nodeID),
-		SpaceID:        int64(cid.SpaceID),
-		Name:           cid.Name,
-		CreatedAt:      row.CreatedAt,
-		Version:        1,
-		UpdatedAt:      now,
-		SpecBlob:       specBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        0,
+		DeploymentID: dbID,
+		NodeID:       int64(nodeID),
+		SpaceID:      int64(cid.SpaceID),
+		Name:         cid.Name,
+		CreatedAt:    row.CreatedAt,
+		Version:      1,
+		UpdatedAt:    now,
+		SpecBlob:     specBlob,
+		Deleted:      0,
 	})
 	s.notifyFromCache(id)
 	slog.Info("created netproxy deployment", "nodeID", nodeID, "version", desiredVersion)
@@ -970,34 +925,29 @@ func (s *PrimaryStorage) repairDeploymentSpecLocked(deploymentID int32, spec *ap
 		panic(fmt.Sprintf("preserve %s deployment workload state: %v", label, err))
 	}
 	specBlob := storedSpec.Encode()
-	desiredVersion, desiredRunning := desiredMirrors(storedSpec)
 	newVersion := existing.Version + 1
 	params := UpsertDeploymentConfigParams{
-		DeploymentID:   dbID,
-		NodeID:         existing.NodeID,
-		SpaceID:        existing.SpaceID,
-		Name:           existing.Name,
-		CreatedAt:      existing.CreatedAt,
-		Version:        newVersion,
-		UpdatedAt:      now,
-		UpdatedBy:      0,
-		SpecBlob:       specBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        existing.Deleted,
+		DeploymentID: dbID,
+		NodeID:       existing.NodeID,
+		SpaceID:      existing.SpaceID,
+		Name:         existing.Name,
+		CreatedAt:    existing.CreatedAt,
+		Version:      newVersion,
+		UpdatedAt:    now,
+		UpdatedBy:    0,
+		SpecBlob:     specBlob,
+		Deleted:      existing.Deleted,
 	}
 	if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
 		panic(fmt.Sprintf("UpsertDeploymentConfig (%s repair): %v", label, err))
 	}
 	if err := q.InsertDeploymentConfigHistory(bgCtx, InsertDeploymentConfigHistoryParams{
-		DeploymentID:   dbID,
-		Version:        newVersion,
-		UpdatedAt:      now,
-		UpdatedBy:      0,
-		SpecBlob:       specBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        existing.Deleted,
+		DeploymentID: dbID,
+		Version:      newVersion,
+		UpdatedAt:    now,
+		UpdatedBy:    0,
+		SpecBlob:     specBlob,
+		Deleted:      existing.Deleted,
 	}); err != nil {
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory (%s repair): %v", label, err))
 	}
@@ -1173,20 +1123,17 @@ func configProtoToUpsertParams(cfg *apigen.DeploymentConfig2) UpsertDeploymentCo
 	if !cfg.Spec.IsZero() {
 		specBlob = cfg.Spec.Encode()
 	}
-	desiredVersion, desiredRunning := desiredMirrors(&cfg.Spec)
 	return UpsertDeploymentConfigParams{
-		DeploymentID:   int64(cfg.ID),
-		NodeID:         int64(cfg.NodeID),
-		SpaceID:        int64(cfg.Identity.SpaceID),
-		Name:           cfg.Identity.Name,
-		CreatedAt:      timeToMillis(cfg.CreatedAt),
-		Version:        int64(cfg.Version),
-		UpdatedAt:      cfg.UpdatedAt.UnixMilli(),
-		UpdatedBy:      int64(cfg.UpdatedBy),
-		SpecBlob:       specBlob,
-		DesiredVersion: desiredVersion,
-		DesiredRunning: desiredRunning,
-		Deleted:        boolToInt(cfg.Deleted),
+		DeploymentID: int64(cfg.ID),
+		NodeID:       int64(cfg.NodeID),
+		SpaceID:      int64(cfg.Identity.SpaceID),
+		Name:         cfg.Identity.Name,
+		CreatedAt:    timeToMillis(cfg.CreatedAt),
+		Version:      int64(cfg.Version),
+		UpdatedAt:    cfg.UpdatedAt.UnixMilli(),
+		UpdatedBy:    int64(cfg.UpdatedBy),
+		SpecBlob:     specBlob,
+		Deleted:      boolToInt(cfg.Deleted),
 	}
 }
 
@@ -1239,10 +1186,6 @@ func mustDecodeDeploymentSpec2(blob []byte, deploymentID, version int64) *apigen
 		panic(fmt.Sprintf("decode deployment %d version %d spec: %v", deploymentID, version, err))
 	}
 	return spec
-}
-
-func desiredMirrors(spec *apigen.DeploymentSpec2) (string, int64) {
-	return spec.WorkloadVersion(), boolToInt(spec.WorkloadRunning())
 }
 
 func spaceRowToProto(row Space) *apigen.Space {

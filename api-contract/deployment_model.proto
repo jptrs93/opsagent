@@ -7,69 +7,6 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-message NixDockerBuildConfig {
-  string repo = 1;
-  string flake = 2; // path to flake.nix relative to repo root
-  string target = 3; // optional local flake target, e.g. .#radkitRpaClientImage; output must stream an OCI/Docker image tar
-}
-
-// Internal-only source for the OPENDEPLOY deployment. Public deployment create/update validation rejects this branch.
-message GithubReleaseConfig {
-  string repo = 1;
-  string asset = 2;             // asset name (optional; falls back to the architecture-specific asset or first asset)
-  string tag = 3;               // optional explicit tag
-  reserved 4;
-  reserved "download_script";
-}
-
-message ContainerImageConfig {
-  string image = 1; // image repository ref, e.g. "docker.io/library/nginx". The
-                    // version tag/digest comes from DesiredState.Version.
-}
-
-message PrepareConfig {
-  // field 1 was nix_build; do not reuse.
-  GithubReleaseConfig github_release = 2;
-  ContainerImageConfig container_image = 3;
-  NixDockerBuildConfig nix_docker_build = 4;
-  // field 5 was self_image; do not reuse.
-}
-
-message EnvVarValue {
-  optional int32 secret_id = 1;
-  optional int32 config_id = 2;
-  optional string value = 3;
-  string asset = 4;     // display asset key copied from the resolved asset row
-  int32 asset_id = 5;   // immutable asset row id, used for local cache/downloads
-  reserved 6;
-  // A virtual deployment's stable instance address. Both fields are required
-  // together so workers can derive the address without querying deployment state.
-  optional int32 address_deployment_id = 7;
-  optional int32 address_space_id = 8;
-}
-
-// Internal-only runner for the OPENDEPLOY deployment. Public deployment
-// create/update validation rejects this branch.
-message SystemdRunnerConfig {
-  string name = 1;     // systemd unit name
-  string bin_path = 2; // where the artifact is installed on disk
-}
-
-message ContainerMount {
-  string host = 1;      // host path (must already exist; opsagent does not create these)
-  string container = 2; // destination path inside the container
-  bool readonly = 3;
-}
-
-message ContainerAssetMount {
-  string asset = 1;     // legacy denormalized asset key; asset_id is authoritative
-  reserved 2;
-  string path = 3;      // destination file path inside the container
-  string format = 4;    // legacy denormalized asset format
-  int32 asset_id = 5;   // immutable asset row id, used for local cache/downloads
-  bool executable = 6;  // mount read-only with execute bits enabled
-}
-
 enum ContainerUpgradeStrategy {
   CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED = 0;
   RECREATE = 1;
@@ -78,28 +15,6 @@ enum ContainerUpgradeStrategy {
 
 message ContainerReadinessSignal {
   int32 timeout_seconds = 1; // 0 = default timeout
-}
-
-message ContainerRunnerConfig {
-  reserved 11, 12;
-  string user = 1;             // OCI process.user (uid, uid:gid, or name); empty = image default
-  map<string, EnvVarValue> env_vars = 2; // env vars; values can be literal, secret/config/address ref, or asset
-  repeated string command = 3; // optional argv override (entrypoint+cmd); empty = image default
-  string working_dir = 4;      // optional OCI process.cwd; empty = image default
-  string data_mount_path = 5;  // override the default data-volume mount point inside the container
-  bool disable_data_volume = 6;// opt out of the default per-deployment data volume
-  repeated ContainerMount mounts = 7; // additional host bind mounts
-  repeated ContainerAssetMount asset_mounts = 8; // OpenDeploy-managed readonly asset file mounts
-  ContainerUpgradeStrategy upgrade_strategy = 9; // default/unspecified = RECREATE
-  ContainerReadinessSignal readiness_signal = 10; // used by ROLLOVER
-  int32 dev_shm_size_kb = 13; // optional /dev/shm tmpfs size override in KiB
-  int32 file_descriptor_limit = 14; // optional RLIMIT_NOFILE override; unset uses the OpenDeploy default
-}
-
-message RunnerConfig {
-  // field 1 was os_process; do not reuse.
-  SystemdRunnerConfig systemd = 2 [(cp.go_value) = true];
-  ContainerRunnerConfig container = 3 [(cp.go_value) = true];
 }
 
 // === Networking config ===
@@ -252,35 +167,10 @@ message DeploymentIdentity {
   string name = 3;
 }
 
-message DeploymentSpec {
-  PrepareConfig prepare = 1 [(cp.go_value) = true];
-  RunnerConfig runner = 2 [(cp.go_value) = true];
-  NetworkingConfig networking = 3 [(cp.go_value) = true];
-}
-
-message DesiredState {
-  string version = 1;
-  bool running = 2;
-}
-
 message DeploymentDeleteRequest {
   int32 deployment_id = 1;
   int32 version = 2; // expected next config version
 }
-
-message DeploymentConfig {
-  int32 id = 8;                          // primary key (integer deployment id)
-  int32 node_id = 10;                    // required canonical ClusterNode.id
-  DeploymentIdentity identity = 1 [(cp.go_value) = true];       // human-readable identity (display metadata)
-  int32 version = 2;                      // per-deployment monotonically increasing config version
-  int64 updated_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int32 updated_by = 4;
-  DeploymentSpec spec = 5 [(cp.go_value) = true];
-  DesiredState desired_state = 6 [(cp.go_value) = true];
-  bool deleted = 7;
-  int64 created_at = 9 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];  // first-seen time of this deployment identity
-}
-
 
 message DeploymentWithStatus {
   DeploymentConfig2 Config = 1 [(cp.go_value) = true];
@@ -466,9 +356,6 @@ message ValidateContainerImageSourceResponse {
   repeated Version tags = 2;
 }
 
-
-
-// === V2 version of deployment config:
 
 
 message DeploymentConfig2 {

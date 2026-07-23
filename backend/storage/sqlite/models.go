@@ -33,29 +33,25 @@ type AssetMigration struct {
 }
 
 type DeploymentConfig struct {
-	DeploymentID   int64
-	NodeID         int64
-	SpaceID        int64
-	Name           string
-	CreatedAt      int64
-	Version        int64
-	UpdatedAt      int64
-	UpdatedBy      int64
-	SpecBlob       []byte
-	DesiredVersion string
-	DesiredRunning int64
-	Deleted        int64
+	DeploymentID int64
+	NodeID       int64
+	SpaceID      int64
+	Name         string
+	CreatedAt    int64
+	Version      int64
+	UpdatedAt    int64
+	UpdatedBy    int64
+	SpecBlob     []byte
+	Deleted      int64
 }
 
 type DeploymentConfigHistory struct {
-	DeploymentID   int64
-	Version        int64
-	UpdatedAt      int64
-	UpdatedBy      int64
-	SpecBlob       []byte
-	DesiredVersion string
-	DesiredRunning int64
-	Deleted        int64
+	DeploymentID int64
+	Version      int64
+	UpdatedAt    int64
+	UpdatedBy    int64
+	SpecBlob     []byte
+	Deleted      int64
 }
 
 type DeploymentStatus struct {

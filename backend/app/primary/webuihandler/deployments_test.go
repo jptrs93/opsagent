@@ -1124,7 +1124,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	}
 }
 
-func TestDeploymentCreatePersistsInitialStoppedDesiredState(t *testing.T) {
+func TestDeploymentCreatePersistsInitialStoppedWorkloadState(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	h := &Handler{Store: store}

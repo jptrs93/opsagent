@@ -94,12 +94,10 @@ frames. The primary sends legacy cluster-prefix state, the latest targeted
 network maps use latest-value coalescing rather than queueing obsolete versions.
 Workers send durable `NetMapStatus` acknowledgements on the request stream.
 
-The DeploymentConfig2 rollout changes deployment payloads in the existing
-cluster envelopes and therefore requires a coordinated primary/worker release;
-mixed V1/V2 binaries are not supported during this one-time migration. Both
-sides exchange cluster protocol version `2` before applying any state; a
-version mismatch terminates the session and retries after the normal reconnect
-delay.
+Cluster sessions use protocol version `2`. Workers require the primary's
+version marker before applying state, and the primary cancels sessions whose
+worker hello reports a different version. A mismatch retries after the normal
+reconnect delay.
 
 ### Settings, Secrets, Configs, Assets, Spaces
 | Method | Path | Request | Response | Policy |
@@ -128,7 +126,7 @@ delay.
 | POST | `/v1/spaces/update` | `SpaceSetRequest` | `Space` | ANY_OF default |
 | POST | `/v1/spaces/delete` | `SpaceDeleteRequest` | — | ANY_OF default |
 
-User-managed configs and encrypted secrets are immutable versioned rows. Saving an existing name appends version `vN` with a new numeric row ID; settings refs and deployment env refs pin exact rows with `ConfigRef.id`, `SecretRef.id`, `EnvVarValue.configId`, and `EnvVarValue.secretId`. Rename changes the display name for all versions of a secret/config group without creating a new version. Delete hard-deletes the whole group and is rejected while any settings or deployment config still references one of its row IDs.
+User-managed configs and encrypted secrets are immutable versioned rows. Saving an existing name appends version `vN` with a new numeric row ID; settings refs and deployment env refs pin exact rows with `ConfigRef.id`, `SecretRef.id`, `EnvVarValue2.configId`, and `EnvVarValue2.secretId`. Rename changes the display name for all versions of a secret/config group without creating a new version. Delete hard-deletes the whole group and is rejected while any settings or deployment config still references one of its row IDs.
 
 `POST /v1/secrets/reveal` is the only user-facing API that returns decrypted secret plaintext. It accepts `SecretRevealRequest.id` for exact-version reveal; list/state APIs return metadata only.
 

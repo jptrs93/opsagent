@@ -121,7 +121,7 @@ func TestSecondaryRetiresStaleActiveDeploymentKeyBeforeCachingNewDeployment(t *t
 	if err != nil {
 		t.Fatalf("read stale deployment row: %v", err)
 	}
-	if staleRow.Deleted == 0 || staleRow.DesiredRunning != 0 {
+	if staleRow.Deleted == 0 {
 		t.Fatalf("persisted stale deployment = %+v, want deleted and stopped", staleRow)
 	}
 	staleSpec, err := apigen.DecodeDeploymentSpec2(staleRow.SpecBlob)
