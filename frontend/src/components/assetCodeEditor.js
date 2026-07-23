@@ -1,10 +1,10 @@
 import van from "vanjs-core";
 import {basicSetup} from "codemirror";
+import {yaml} from "@codemirror/lang-yaml";
 import {Compartment, EditorState} from "@codemirror/state";
-import {EditorView, keymap} from "@codemirror/view";
-import {checkIcon, xIcon} from "../lib/icons.js";
+import {EditorView} from "@codemirror/view";
 
-const {button, div} = van.tags;
+const {div} = van.tags;
 
 const codeEditorTheme = EditorView.theme({
     "&": {height: "100%", color: "#f3f4f6", backgroundColor: "#1f2937"},
@@ -36,32 +36,16 @@ const codeEditorTheme = EditorView.theme({
 
 const stateValue = value => typeof value === "function" ? value() : (value?.val ?? value);
 
-export function yamlAssetEditor({value, dirty, valid, disabled, onSave, onDiscard, ariaLabel, saveAriaLabel, discardAriaLabel}) {
-    const saving = van.state(false);
+export function assetCodeEditor({
+    value,
+    disabled,
+    ariaLabel,
+    yamlSyntax = false,
+}) {
     const editable = new Compartment();
     let view;
 
-    const isDirty = () => Boolean(stateValue(dirty));
-    const isDisabled = () => saving.val || Boolean(stateValue(disabled));
-    const saveDisabled = () => isDisabled() || !Boolean(stateValue(valid));
-    const saveActionDisabled = () => !isDirty() || saveDisabled();
-    const discardActionDisabled = () => !isDirty() || isDisabled();
-
-    const save = async () => {
-        if (saveActionDisabled()) return;
-        saving.val = true;
-        try {
-            await onSave();
-        } finally {
-            saving.val = false;
-            queueMicrotask(() => view?.focus());
-        }
-    };
-    const discard = () => {
-        if (discardActionDisabled()) return;
-        onDiscard();
-        queueMicrotask(() => view?.focus());
-    };
+    const isDisabled = () => Boolean(stateValue(disabled));
 
     const host = div({
         class: "h-full min-h-0 flex-1 overflow-hidden rounded-lg border border-gray-600 focus-within:ring-1 focus-within:ring-brand",
@@ -77,14 +61,8 @@ export function yamlAssetEditor({value, dirty, valid, disabled, onSave, onDiscar
                 extensions: [
                     basicSetup,
                     codeEditorTheme,
+                    ...(yamlSyntax ? [yaml()] : []),
                     editable.of(EditorView.editable.of(!isDisabled())),
-                    keymap.of([{
-                        key: "Mod-Enter",
-                        run: () => { void save(); return true; },
-                    }, {
-                        key: "Escape",
-                        run: () => { discard(); return true; },
-                    }]),
                     EditorView.updateListener.of(update => {
                         if (update.docChanged) value.val = update.state.doc.toString();
                     }),
@@ -107,30 +85,5 @@ export function yamlAssetEditor({value, dirty, valid, disabled, onSave, onDiscar
         return "";
     });
 
-    return div(
-        {class: "flex h-full w-full min-w-0 items-start gap-1", onclick: event => event.stopPropagation()},
-        host,
-        div(
-            {
-                class: () => `flex shrink-0 items-center gap-1 mt-1 ${isDirty() ? "" : "invisible pointer-events-none"}`,
-                "aria-hidden": () => String(!isDirty()),
-            },
-            button({
-                type: "button",
-                title: saveAriaLabel,
-                "aria-label": saveAriaLabel,
-                disabled: saveActionDisabled,
-                class: () => `inline-flex h-7 w-7 items-center justify-center rounded border border-blue-500/40 bg-blue-500/15 text-blue-300 transition-colors hover:bg-blue-500/25 ${saveActionDisabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
-                onclick: event => { event.stopPropagation(); void save(); },
-            }, checkIcon()),
-            button({
-                type: "button",
-                title: discardAriaLabel,
-                "aria-label": discardAriaLabel,
-                disabled: discardActionDisabled,
-                class: () => `inline-flex h-7 w-7 items-center justify-center rounded border border-gray-600 bg-gray-800 text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-100 ${discardActionDisabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
-                onclick: event => { event.stopPropagation(); discard(); },
-            }, xIcon()),
-        ),
-    );
+    return div({class: "h-full w-full min-w-0", onclick: event => event.stopPropagation()}, host);
 }

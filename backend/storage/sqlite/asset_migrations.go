@@ -57,10 +57,10 @@ func (s *PrimaryStorage) FinishAssetMigration(id int64) AssetMigration {
 	return migration
 }
 
-func (s *PrimaryStorage) FetchOpenDeployConfigByID(id int64) (OpendeployConfig, error) {
+func (s *PrimaryStorage) FetchOpenDeployConfigByID(id int64) (SystemConfigRevision, error) {
 	config, err := s.q.GetConfigByID(context.Background(), id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return OpendeployConfig{}, ErrNotFound
+		return SystemConfigRevision{}, ErrNotFound
 	}
 	return config, err
 }
@@ -85,7 +85,7 @@ func (s *PrimaryStorage) AppendOpenDeploySettingsWithAssetMigration(blob []byte,
 		return 0, nil, err
 	}
 	result, err := tx.ExecContext(ctx, `
-INSERT INTO opendeploy_config (updated_at, config_blob) VALUES (?, ?)
+INSERT INTO system_config_revisions (updated_at, config_blob) VALUES (?, ?)
 `, time.Now().UnixMilli(), blob)
 	if err != nil {
 		return 0, nil, err

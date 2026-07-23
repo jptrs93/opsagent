@@ -5,7 +5,7 @@ import {sidebar} from "../components/sidebar.js";
 import {statusPage} from "./status.js";
 import {clusterPage} from "./cluster.js";
 import {secretsPage} from "./secrets.js";
-import {assetsPage, preloadYamlAssetEditor} from "./assets.js";
+import {assetsPage, preloadAssetCodeEditor} from "./assets.js";
 import {settingsPage} from "./settings.js";
 import {logsPage} from "./logs.js";
 import {preloadDeploymentConfigCodeWidget} from "../components/deploymentEditorWidget.js";
@@ -27,7 +27,7 @@ export function dashboard() {
     };
 
     requestAnimationFrame(() => {
-        preloadYamlAssetEditor();
+        preloadAssetCodeEditor();
         preloadDeploymentConfigCodeWidget();
     });
 

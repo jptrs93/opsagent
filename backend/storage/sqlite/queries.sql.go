@@ -115,7 +115,7 @@ func (q *Queries) DeleteSpace(ctx context.Context, id int64) error {
 }
 
 const deleteUserConfig = `-- name: DeleteUserConfig :exec
-DELETE FROM user_configs WHERE name = ?
+DELETE FROM configs WHERE name = ?
 `
 
 func (q *Queries) DeleteUserConfig(ctx context.Context, name string) error {
@@ -210,12 +210,12 @@ func (q *Queries) GetAssetVersion(ctx context.Context, arg GetAssetVersionParams
 }
 
 const getConfigByID = `-- name: GetConfigByID :one
-SELECT id, updated_at, config_blob FROM opendeploy_config WHERE id = ?
+SELECT id, updated_at, config_blob FROM system_config_revisions WHERE id = ?
 `
 
-func (q *Queries) GetConfigByID(ctx context.Context, id int64) (OpendeployConfig, error) {
+func (q *Queries) GetConfigByID(ctx context.Context, id int64) (SystemConfigRevision, error) {
 	row := q.db.QueryRowContext(ctx, getConfigByID, id)
-	var i OpendeployConfig
+	var i SystemConfigRevision
 	err := row.Scan(&i.ID, &i.UpdatedAt, &i.ConfigBlob)
 	return i, err
 }
@@ -289,12 +289,12 @@ func (q *Queries) GetLatestAsset(ctx context.Context, key string) (Asset, error)
 }
 
 const getLatestConfig = `-- name: GetLatestConfig :one
-select id, updated_at, config_blob from opendeploy_config order by id desc limit 1
+select id, updated_at, config_blob from system_config_revisions order by id desc limit 1
 `
 
-func (q *Queries) GetLatestConfig(ctx context.Context) (OpendeployConfig, error) {
+func (q *Queries) GetLatestConfig(ctx context.Context) (SystemConfigRevision, error) {
 	row := q.db.QueryRowContext(ctx, getLatestConfig)
-	var i OpendeployConfig
+	var i SystemConfigRevision
 	err := row.Scan(&i.ID, &i.UpdatedAt, &i.ConfigBlob)
 	return i, err
 }
@@ -340,7 +340,7 @@ func (q *Queries) GetNextSecretVersion(ctx context.Context, name string) (int64,
 
 const getNextUserConfigVersion = `-- name: GetNextUserConfigVersion :one
 SELECT COALESCE(MAX(version), 0) + 1
-FROM user_configs
+FROM configs
 WHERE name = ?
 `
 
@@ -502,14 +502,14 @@ func (q *Queries) GetUser(ctx context.Context, id int64) (User, error) {
 
 const getUserConfig = `-- name: GetUserConfig :one
 SELECT id, name, version, space_id, value, created_at, updated_by
-FROM user_configs WHERE name = ?
+FROM configs WHERE name = ?
 ORDER BY version DESC
 LIMIT 1
 `
 
-func (q *Queries) GetUserConfig(ctx context.Context, name string) (UserConfig, error) {
+func (q *Queries) GetUserConfig(ctx context.Context, name string) (Config, error) {
 	row := q.db.QueryRowContext(ctx, getUserConfig, name)
-	var i UserConfig
+	var i Config
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -524,12 +524,12 @@ func (q *Queries) GetUserConfig(ctx context.Context, name string) (UserConfig, e
 
 const getUserConfigByID = `-- name: GetUserConfigByID :one
 SELECT id, name, version, space_id, value, created_at, updated_by
-FROM user_configs WHERE id = ?
+FROM configs WHERE id = ?
 `
 
-func (q *Queries) GetUserConfigByID(ctx context.Context, id int64) (UserConfig, error) {
+func (q *Queries) GetUserConfigByID(ctx context.Context, id int64) (Config, error) {
 	row := q.db.QueryRowContext(ctx, getUserConfigByID, id)
-	var i UserConfig
+	var i Config
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -544,7 +544,7 @@ func (q *Queries) GetUserConfigByID(ctx context.Context, id int64) (UserConfig, 
 
 const getUserConfigVersion = `-- name: GetUserConfigVersion :one
 SELECT id, name, version, space_id, value, created_at, updated_by
-FROM user_configs WHERE name = ? AND version = ?
+FROM configs WHERE name = ? AND version = ?
 `
 
 type GetUserConfigVersionParams struct {
@@ -552,9 +552,9 @@ type GetUserConfigVersionParams struct {
 	Version int64
 }
 
-func (q *Queries) GetUserConfigVersion(ctx context.Context, arg GetUserConfigVersionParams) (UserConfig, error) {
+func (q *Queries) GetUserConfigVersion(ctx context.Context, arg GetUserConfigVersionParams) (Config, error) {
 	row := q.db.QueryRowContext(ctx, getUserConfigVersion, arg.Name, arg.Version)
-	var i UserConfig
+	var i Config
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -757,7 +757,7 @@ func (q *Queries) InsertSecret(ctx context.Context, arg InsertSecretParams) (Sec
 }
 
 const insertUserConfig = `-- name: InsertUserConfig :one
-INSERT INTO user_configs (name, version, space_id, value, created_at, updated_by)
+INSERT INTO configs (name, version, space_id, value, created_at, updated_by)
 VALUES (?, ?, ?, ?, ?, ?)
 RETURNING id, name, version, space_id, value, created_at, updated_by
 `
@@ -771,7 +771,7 @@ type InsertUserConfigParams struct {
 	UpdatedBy int64
 }
 
-func (q *Queries) InsertUserConfig(ctx context.Context, arg InsertUserConfigParams) (UserConfig, error) {
+func (q *Queries) InsertUserConfig(ctx context.Context, arg InsertUserConfigParams) (Config, error) {
 	row := q.db.QueryRowContext(ctx, insertUserConfig,
 		arg.Name,
 		arg.Version,
@@ -780,7 +780,7 @@ func (q *Queries) InsertUserConfig(ctx context.Context, arg InsertUserConfigPara
 		arg.CreatedAt,
 		arg.UpdatedBy,
 	)
-	var i UserConfig
+	var i Config
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -880,18 +880,18 @@ func (q *Queries) ListAllDeploymentStatuses(ctx context.Context) ([]DeploymentSt
 
 const listAllUserConfigs = `-- name: ListAllUserConfigs :many
 SELECT id, name, version, space_id, value, created_at, updated_by
-FROM user_configs ORDER BY name, version
+FROM configs ORDER BY name, version
 `
 
-func (q *Queries) ListAllUserConfigs(ctx context.Context) ([]UserConfig, error) {
+func (q *Queries) ListAllUserConfigs(ctx context.Context) ([]Config, error) {
 	rows, err := q.db.QueryContext(ctx, listAllUserConfigs)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []UserConfig
+	var items []Config
 	for rows.Next() {
-		var i UserConfig
+		var i Config
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -1324,19 +1324,19 @@ func (q *Queries) ListSpaces(ctx context.Context) ([]Space, error) {
 
 const listUserConfigVersionsByName = `-- name: ListUserConfigVersionsByName :many
 SELECT id, name, version, space_id, value, created_at, updated_by
-FROM user_configs WHERE name = ?
+FROM configs WHERE name = ?
 ORDER BY version ASC
 `
 
-func (q *Queries) ListUserConfigVersionsByName(ctx context.Context, name string) ([]UserConfig, error) {
+func (q *Queries) ListUserConfigVersionsByName(ctx context.Context, name string) ([]Config, error) {
 	rows, err := q.db.QueryContext(ctx, listUserConfigVersionsByName, name)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []UserConfig
+	var items []Config
 	for rows.Next() {
-		var i UserConfig
+		var i Config
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -1362,25 +1362,25 @@ func (q *Queries) ListUserConfigVersionsByName(ctx context.Context, name string)
 const listUserConfigs = `-- name: ListUserConfigs :many
 
 SELECT c.id, c.name, c.version, c.space_id, c.value, c.created_at, c.updated_by
-FROM user_configs c
+FROM configs c
 JOIN (
     SELECT name, MAX(version) AS version
-    FROM user_configs
+    FROM configs
     GROUP BY name
 ) latest ON latest.name = c.name AND latest.version = c.version
 ORDER BY c.name
 `
 
-// === user_configs ===
-func (q *Queries) ListUserConfigs(ctx context.Context) ([]UserConfig, error) {
+// === configs ===
+func (q *Queries) ListUserConfigs(ctx context.Context) ([]Config, error) {
 	rows, err := q.db.QueryContext(ctx, listUserConfigs)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []UserConfig
+	var items []Config
 	for rows.Next() {
-		var i UserConfig
+		var i Config
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -1476,7 +1476,7 @@ func (q *Queries) RenameSecret(ctx context.Context, arg RenameSecretParams) erro
 }
 
 const renameUserConfig = `-- name: RenameUserConfig :exec
-UPDATE user_configs SET name = ? WHERE name = ?
+UPDATE configs SET name = ? WHERE name = ?
 `
 
 type RenameUserConfigParams struct {

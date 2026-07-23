@@ -14,7 +14,7 @@ Assets are versioned user-managed file blobs intended for config files that can 
 - `format` is a UI/editor hint such as `text`, `nginx`, `yaml`, or `json`.
 - `location` is empty for inline assets, `local://<id>` for primary-local large assets, and `s3://...` for S3-backed large assets. A `pending://...` location is used only for an unpublished, interrupted large-asset upload; public asset queries exclude those rows until recovery finishes the upload.
 - Asset rename rejects an existing destination key and preserves the complete version history. Existing deployments remain valid because they pin immutable asset IDs; their stored display key is refreshed only when the deployment config is updated.
-- `asset_migrations` records each complete local-to-S3 or S3-to-local transition with its old and new `opendeploy_config` row IDs, durable status, timestamps, and latest error. Individual asset locations are the per-asset progress markers; there is no migration-item table.
+- `asset_migrations` records each complete local-to-S3 or S3-to-local transition with its old and new `system_config_revisions` row IDs, durable status, timestamps, and latest error. Individual asset locations are the per-asset progress markers; there is no migration-item table.
 - Primary/secondary startup creates the fixed local large-asset and materialized-asset cache roots up front. Asset operations create files inside those roots but do not recreate missing roots.
 
 ## Large-asset storage modes

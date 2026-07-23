@@ -11,7 +11,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-func userConfigRowToProto(r UserConfig) *apigen.UserConfig {
+func userConfigRowToProto(r Config) *apigen.UserConfig {
 	return &apigen.UserConfig{
 		ID:        int32(r.ID),
 		Name:      r.Name,
