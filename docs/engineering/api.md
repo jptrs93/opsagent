@@ -96,7 +96,10 @@ Workers send durable `NetMapStatus` acknowledgements on the request stream.
 
 The DeploymentConfig2 rollout changes deployment payloads in the existing
 cluster envelopes and therefore requires a coordinated primary/worker release;
-mixed V1/V2 binaries are not supported during this one-time migration.
+mixed V1/V2 binaries are not supported during this one-time migration. Both
+sides exchange cluster protocol version `2` before applying any state; a
+version mismatch terminates the session and retries after the normal reconnect
+delay.
 
 ### Settings, Secrets, Configs, Assets, Spaces
 | Method | Path | Request | Response | Policy |

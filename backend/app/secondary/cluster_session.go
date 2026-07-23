@@ -2,6 +2,7 @@ package secondary
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -119,7 +120,10 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 	out := &outbox{ch: make(chan *apigen.MsgToMaster, 64), ctx: sessCtx}
 	// The hello must lead the request stream so the primary can publish an
 	// updated network map as soon as this worker reconnects.
-	out.Send(&apigen.MsgToMaster{ClusterHello: &apigen.ClusterHello{UnderlayAddress: underlayAddress}})
+	out.Send(&apigen.MsgToMaster{ClusterHello: &apigen.ClusterHello{
+		UnderlayAddress:        underlayAddress,
+		ClusterProtocolVersion: apigen.ClusterProtocolVersion,
+	}})
 	if prefix, ok := network.Default.PrefixValue(); ok {
 		status, err := cachedClusterNetMapStatus(store, nodeID, prefix, "")
 		if err != nil {
@@ -152,11 +156,19 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 	}
 
 	connected := false
+	protocolConfirmed := false
 	var sessErr error
 	for msg, err := range capi.PostV1ClusterConnect(sessCtx, reqs) {
 		if err != nil {
 			sessErr = err
 			break
+		}
+		if !protocolConfirmed {
+			if msg.ClusterProtocolVersion != apigen.ClusterProtocolVersion {
+				return fmt.Errorf("cluster protocol mismatch: primary sent %d, worker requires %d", msg.ClusterProtocolVersion, apigen.ClusterProtocolVersion)
+			}
+			protocolConfirmed = true
+			continue
 		}
 		if !connected {
 			connected = true

@@ -958,15 +958,16 @@ type ClusterStatusResponse struct {
 }
 
 type MsgToWorker struct {
-	DeploymentsSnapshot  *DeploymentWithStatusSnapshot
-	DeploymentUpdate     *DeploymentConfig2
-	PrepareLogRequest    *PrepareOutputRequest
-	RunLogRequest        *RunOutputRequest
-	DeploymentLogRequest *DeploymentLogRequest
-	StopLogRequestID     string
-	LogSearchRequest     *LogSearchRequest
-	ClusterNetwork       *ClusterNetworkInfo
-	ClusterNetMap        *ClusterNetMap
+	DeploymentsSnapshot    *DeploymentWithStatusSnapshot
+	DeploymentUpdate       *DeploymentConfig2
+	PrepareLogRequest      *PrepareOutputRequest
+	RunLogRequest          *RunOutputRequest
+	DeploymentLogRequest   *DeploymentLogRequest
+	StopLogRequestID       string
+	LogSearchRequest       *LogSearchRequest
+	ClusterNetwork         *ClusterNetworkInfo
+	ClusterNetMap          *ClusterNetMap
+	ClusterProtocolVersion int32
 }
 
 type ClusterNetworkInfo struct {
@@ -1005,7 +1006,8 @@ type NetMapStatus struct {
 }
 
 type ClusterHello struct {
-	UnderlayAddress string
+	UnderlayAddress        string
+	ClusterProtocolVersion int32
 }
 
 type MsgToMaster struct {

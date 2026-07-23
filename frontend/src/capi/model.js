@@ -881,6 +881,7 @@
  * @property {LogSearchRequest} logSearchRequest
  * @property {ClusterNetworkInfo} clusterNetwork
  * @property {ClusterNetMap} clusterNetMap
+ * @property {number} clusterProtocolVersion
  */
 /**
  * @typedef {Object} ClusterNetworkInfo
@@ -920,6 +921,7 @@
 /**
  * @typedef {Object} ClusterHello
  * @property {string} underlayAddress
+ * @property {number} clusterProtocolVersion
  */
 /**
  * @typedef {Object} MsgToMaster
@@ -11477,6 +11479,9 @@ export function writeMsgToWorker(message, writer) {
         writeClusterNetMap(message.clusterNetMap, writer);
         writer.ldelim();
     }
+    if (message.clusterProtocolVersion !== undefined && message.clusterProtocolVersion !== null && message.clusterProtocolVersion !== 0) {
+        writer.uint32(tag(10, WIRE.VARINT)).int32(message.clusterProtocolVersion);
+    }
 }
 
 
@@ -11498,7 +11503,7 @@ export function encodeMsgToWorker(message) {
  */
 function decodeMsgToWorkerMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentsSnapshot: undefined, deploymentUpdate: undefined, prepareLogRequest: undefined, runLogRequest: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", logSearchRequest: undefined, clusterNetwork: undefined, clusterNetMap: undefined };
+    const message = {deploymentsSnapshot: undefined, deploymentUpdate: undefined, prepareLogRequest: undefined, runLogRequest: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", logSearchRequest: undefined, clusterNetwork: undefined, clusterNetMap: undefined, clusterProtocolVersion: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11536,6 +11541,10 @@ function decodeMsgToWorkerMessage(reader, length) {
             }
             case 9: {
                 message.clusterNetMap = decodeClusterNetMapMessage(reader, reader.uint32());
+                break;
+            }
+            case 10: {
+                message.clusterProtocolVersion = reader.int32();
                 break;
             }
             default:
@@ -11988,6 +11997,9 @@ export function writeClusterHello(message, writer) {
     if (message.underlayAddress !== undefined && message.underlayAddress !== null && message.underlayAddress !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.underlayAddress);
     }
+    if (message.clusterProtocolVersion !== undefined && message.clusterProtocolVersion !== null && message.clusterProtocolVersion !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.clusterProtocolVersion);
+    }
 }
 
 
@@ -12009,12 +12021,16 @@ export function encodeClusterHello(message) {
  */
 function decodeClusterHelloMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {underlayAddress: "" };
+    const message = {underlayAddress: "", clusterProtocolVersion: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.underlayAddress = reader.string();
+                break;
+            }
+            case 2: {
+                message.clusterProtocolVersion = reader.int32();
                 break;
             }
             default:

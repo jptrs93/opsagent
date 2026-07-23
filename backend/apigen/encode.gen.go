@@ -6553,6 +6553,7 @@ func (m *MsgToWorker) Encode() []byte {
 		b = AppendTag(b, 9, BytesType)
 		b = AppendBytes(b, m.ClusterNetMap.Encode())
 	}
+	b = AppendInt32Field(b, m.ClusterProtocolVersion, 10)
 	return b
 }
 
@@ -6642,6 +6643,8 @@ func DecodeMsgToWorker(b []byte) (*MsgToWorker, error) {
 					m.ClusterNetMap = item
 				}
 			}
+		case 10:
+			b, m.ClusterProtocolVersion, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -6893,6 +6896,7 @@ func DecodeNetMapStatus(b []byte) (*NetMapStatus, error) {
 func (m *ClusterHello) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.UnderlayAddress, 1)
+	b = AppendInt32Field(b, m.ClusterProtocolVersion, 2)
 	return b
 }
 
@@ -6909,6 +6913,8 @@ func DecodeClusterHello(b []byte) (*ClusterHello, error) {
 		switch num {
 		case 1:
 			b, m.UnderlayAddress, err = ConsumeString(b, typ)
+		case 2:
+			b, m.ClusterProtocolVersion, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

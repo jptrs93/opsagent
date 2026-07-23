@@ -147,6 +147,9 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 		}
 	}()
 
+	if !yield(&apigen.MsgToWorker{ClusterProtocolVersion: apigen.ClusterProtocolVersion}, nil) {
+		return
+	}
 	// Cluster network parameters precede the snapshot so the worker can program
 	// its netproxy before acting on any deployment config.
 	if !s.networkPrefix.IsZero() {
@@ -210,6 +213,11 @@ func (s *Session) handleIncoming(msg *apigen.MsgToMaster) {
 }
 
 func (s *Session) handleClusterHello(hello *apigen.ClusterHello) {
+	if hello.ClusterProtocolVersion != apigen.ClusterProtocolVersion {
+		slog.Warn("worker cluster protocol mismatch", "node_id", s.NodeID, "got", hello.ClusterProtocolVersion, "want", apigen.ClusterProtocolVersion)
+		s.cancel()
+		return
+	}
 	underlayAddress, err := s.store.NormalizeNodeUnderlay(s.identifier, hello.UnderlayAddress)
 	if err != nil {
 		slog.Warn("worker sent invalid underlay address", "node_id", s.NodeID, "underlay_address", hello.UnderlayAddress, "err", err)

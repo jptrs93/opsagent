@@ -8,6 +8,8 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 )
 
+const ClusterProtocolVersion int32 = 2
+
 // BumpUpdatedAt advances UpdatedAt as a hybrid logical clock: it takes the
 // current wall clock, but never returns a value <= the previous one (it adds
 // a nanosecond instead). This keeps the value monotonic per deployment across
