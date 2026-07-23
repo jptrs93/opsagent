@@ -8,6 +8,7 @@ import {formatDateTime} from "../lib/date.js";
 import {checkIcon, copyIcon, editIcon, expandIcon, eyeOffIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
 import {deploymentsS, machinesS, primaryConfigS, secretMetasS, secretsStatusS, spacesS, userConfigsS} from "../state/deployments.js";
+import {containerWorkload} from "../lib/deploymentConfig.js";
 
 const { div, h2, p, span, input, textarea, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
 const DEFAULT_SECRET_MASK = "••••••••••••••••";
@@ -172,7 +173,7 @@ export function secretsPage() {
         if (!referenceIDs.size) return false;
         const cfg = deployment?.config;
         if (!cfg || cfg.deleted) return false;
-        const envVars = cfg.spec?.runner?.container?.envVars || {};
+        const envVars = containerWorkload(cfg)?.runtime?.envVars || {};
         return Object.values(envVars).some(value => referenceIDs.has(Number(value?.[row.type === "secret" ? "secretId" : "configId"] || 0)));
     };
     const usageForRow = (row) => {
@@ -305,7 +306,7 @@ export function secretsPage() {
             status,
             secrets: (secretMetasS.val || []).map(item => [item.id, item.name, item.version, item.createdAt, item.updatedBy]),
             configs: (userConfigsS.val || []).map(item => [item.id, item.name, item.version, item.value, item.createdAt, item.updatedBy]),
-            deploymentRefs: (deploymentsS.val || []).map(item => [item.config?.id, item.config?.version, item.config?.deleted, item.config?.spec?.runner?.container?.envVars]),
+            deploymentRefs: (deploymentsS.val || []).map(item => [item.config?.id, item.config?.version, item.config?.deleted, containerWorkload(item.config)?.runtime?.envVars]),
             configVersion: primaryConfigS.val?.version,
         });
         if (signature === streamSignature) return;

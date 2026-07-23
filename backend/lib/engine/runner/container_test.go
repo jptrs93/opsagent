@@ -2,9 +2,11 @@ package runner
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
@@ -90,7 +92,7 @@ func TestCountEnvVars(t *testing.T) {
 	plain := "value"
 	secretID := int32(1)
 	configID := int32(2)
-	got := countEnvVars(map[string]*apigen.EnvVarValue{
+	got := countEnvVars(map[string]*apigen.EnvVarValue2{
 		"PLAIN":  {Value: &plain},
 		"SECRET": {SecretID: &secretID},
 		"CONFIG": {ConfigID: &configID},
@@ -129,21 +131,21 @@ func TestDefaultVolumeDest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := defaultVolumeDest(tt.user, tt.override); got != tt.want {
-				t.Fatalf("defaultVolumeDest(%q, %q) = %q, want %q", tt.user, tt.override, got, tt.want)
+			if got := defaultVolumeDest(tt.override); got != tt.want {
+				t.Fatalf("defaultVolumeDest(%q) = %q, want %q", tt.override, got, tt.want)
 			}
 		})
 	}
 }
 
 func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
-	dep := &apigen.DeploymentConfig{
+	dep := &apigen.DeploymentConfig2{
 		ID: 7,
-		Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
-			DisableDataVolume: true,
-			AssetMounts: []*apigen.ContainerAssetMount{
-				{AssetID: 8, Path: "/etc/app.conf"},
-				{AssetID: 9, Path: "/docker-entrypoint-initdb.d/init.sh", Executable: true},
+		Spec: apigen.DeploymentSpec2{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
+			DefaultVolume: apigen.DefaultVolumeMount{Disabled: true},
+			AssetMounts: []*apigen.AssetMount2{
+				{AssetID: 8, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY},
+				{AssetID: 9, ContainerPath: "/docker-entrypoint-initdb.d/init.sh", Permission: apigen.FilePermission_READ_EXECUTE},
 			},
 		}}},
 	}
@@ -166,12 +168,12 @@ func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, &apigen.DeploymentConfig{
+	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, &apigen.DeploymentConfig2{
 		ID:       7,
 		Version:  3,
 		Identity: apigen.DeploymentIdentity{SpaceID: 5},
-		Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
-			DisableDataVolume:   true,
+		Spec: apigen.DeploymentSpec2{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
+			DefaultVolume:       apigen.DefaultVolumeMount{Disabled: true},
 			DevShmSizeKb:        65536,
 			FileDescriptorLimit: 4096,
 		}}},
@@ -187,6 +189,40 @@ func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	}
 	if r.latestVersion != 3 {
 		t.Fatalf("latestVersion = %d, want 3", r.latestVersion)
+	}
+}
+
+func TestContainerMountsTranslatesV2MountsAndPermissions(t *testing.T) {
+	oldVolumesDir := ainit.StaticConfig.VolumesDir
+	ainit.StaticConfig.VolumesDir = "/var/lib/opendeploy-volumes"
+	t.Cleanup(func() { ainit.StaticConfig.VolumesDir = oldVolumesDir })
+
+	dep := &apigen.DeploymentConfig2{
+		ID: 7,
+		Spec: apigen.DeploymentSpec2{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
+			DefaultVolume: apigen.DefaultVolumeMount{ContainerPath: "/state"},
+			CrossDeploymentMounts: []*apigen.CrossDeploymentMount{
+				{DeploymentID: 12, ContainerPath: "/shared-ro", Permission: apigen.FilePermission_READ_ONLY},
+				{DeploymentID: 13, ContainerPath: "/shared-rw", Permission: apigen.FilePermission_READ_WRITE},
+			},
+			Mounts: []*apigen.CustomHostMount{
+				{HostPath: "/host/config", ContainerPath: "/config", Permission: apigen.FilePermission_READ_ONLY},
+			},
+		}}},
+	}
+
+	mounts, dataHost := containerMounts(dep)
+	if dataHost != "/var/lib/opendeploy-volumes/7/default" {
+		t.Fatalf("dataHost = %q", dataHost)
+	}
+	want := []ctrd.Mount{
+		{Source: "/var/lib/opendeploy-volumes/7/default", Dest: "/state"},
+		{Source: "/var/lib/opendeploy-volumes/12/default", Dest: "/shared-ro", ReadOnly: true},
+		{Source: "/var/lib/opendeploy-volumes/13/default", Dest: "/shared-rw"},
+		{Source: "/host/config", Dest: "/config", ReadOnly: true},
+	}
+	if !reflect.DeepEqual(mounts, want) {
+		t.Fatalf("mounts = %#v; want %#v", mounts, want)
 	}
 }
 

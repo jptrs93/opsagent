@@ -78,7 +78,7 @@ func TestNixBuildArgs(t *testing.T) {
 }
 
 func TestImageRefUsesBuildInputsAndCommit(t *testing.T) {
-	nix := &apigen.NixDockerBuildConfig{
+	nix := &apigen.NixDockerBuild2{
 		Repo:   "github.com/acme/platform",
 		Flake:  "services/api/flake.nix",
 		Target: ".#apiImage",
@@ -91,7 +91,7 @@ func TestImageRefUsesBuildInputsAndCommit(t *testing.T) {
 		t.Fatalf("image ref = %q, want lowercase commit tag", ref)
 	}
 
-	same := imageRef(&apigen.NixDockerBuildConfig{
+	same := imageRef(&apigen.NixDockerBuild2{
 		Repo:   nix.Repo,
 		Flake:  nix.Flake,
 		Target: nix.Target,
@@ -100,7 +100,7 @@ func TestImageRefUsesBuildInputsAndCommit(t *testing.T) {
 		t.Fatalf("equivalent build ref = %q, want %q", same, ref)
 	}
 
-	changes := []*apigen.NixDockerBuildConfig{
+	changes := []*apigen.NixDockerBuild2{
 		{Repo: "github.com/acme/other", Flake: nix.Flake, Target: nix.Target},
 		{Repo: nix.Repo, Flake: "services/worker/flake.nix", Target: nix.Target},
 		{Repo: nix.Repo, Flake: nix.Flake, Target: ".#workerImage"},
@@ -130,7 +130,7 @@ func TestPrepareReusesReadyImageBeforeCheckout(t *testing.T) {
 		return nil
 	}
 	artifact, status := p.Prepare(context.Background(), dep, log)
-	wantRef := imageRef(dep.Spec.Prepare.NixDockerBuild, dep.DesiredState.Version)
+	wantRef := imageRef(dep.Spec.Container().Source.NixDockerBuild, dep.WorkloadVersion())
 	if status != apigen.PreparationStatus_READY {
 		t.Fatalf("status = %v, want READY", status)
 	}
@@ -155,16 +155,19 @@ func TestPrepareFailsOnContainerdCacheCheckError(t *testing.T) {
 	}
 }
 
-func testNixDeployment() *apigen.DeploymentConfig {
-	return &apigen.DeploymentConfig{
+func testNixDeployment() *apigen.DeploymentConfig2 {
+	return &apigen.DeploymentConfig2{
 		ID:      987654,
 		Version: 3,
-		Spec: apigen.DeploymentSpec{Prepare: apigen.PrepareConfig{NixDockerBuild: &apigen.NixDockerBuildConfig{
-			Repo:   "github.com/acme/platform",
-			Flake:  "services/api/flake.nix",
-			Target: ".#apiImage",
-		}}},
-		DesiredState: apigen.DesiredState{Version: testCommit, Running: true},
+		Spec: apigen.DeploymentSpec2{Container1Spec: &apigen.ContainerSpec{
+			Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild2{
+				Repo:   "github.com/acme/platform",
+				Flake:  "services/api/flake.nix",
+				Target: ".#apiImage",
+			}},
+			Version: testCommit,
+			Running: true,
+		}},
 	}
 }
 

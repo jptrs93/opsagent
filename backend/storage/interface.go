@@ -2,9 +2,9 @@ package storage
 
 import "github.com/jptrs93/opsagent/backend/apigen"
 
-type DeploymentPredicate func(apigen.DeploymentConfig) bool
+type DeploymentPredicate func(apigen.DeploymentConfig2) bool
 
-func DeploymentKeyMatches(cfg apigen.DeploymentConfig, nodeID int32, identity apigen.DeploymentIdentity) bool {
+func DeploymentKeyMatches(cfg apigen.DeploymentConfig2, nodeID int32, identity apigen.DeploymentIdentity) bool {
 	return cfg.NodeID == nodeID &&
 		cfg.Identity.SpaceID == identity.SpaceID &&
 		cfg.Identity.Name == identity.Name

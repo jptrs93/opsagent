@@ -90,12 +90,24 @@ const actions = {
     createDeployment: async request => {
         record('create-deployment', request);
         await wait(400);
-        return {id: nextDeploymentID++, ...request};
+        return {id: nextDeploymentID++, version: 1, ...request};
     },
     updateDeployment: async request => {
         record(request.stop ? 'stop-deployment' : (request.targetVersion ? 'deploy-version' : 'update-deployment'), request);
         await wait(400);
-        return {running: !request.stop, version: request.targetVersion || ''};
+        const current = mockDeployments.find(item => item.config.id === request.deploymentId)?.config || {};
+        const config = structuredClone(current);
+        config.version = request.version;
+        if (request.spec) config.spec = structuredClone(request.spec);
+        const workload = config.spec?.container1Spec || config.spec?.systemdSpec;
+        if (workload) {
+            if (request.stop) workload.running = false;
+            if (request.targetVersion) {
+                workload.version = request.targetVersion;
+                workload.running = true;
+            }
+        }
+        return config;
     },
 };
 

@@ -16,18 +16,20 @@ func TestBuildAllowedRefs(t *testing.T) {
 	secretID := int32(7)
 	configID := int32(9)
 	refs := buildAllowedRefs([]apigen.DeploymentWithStatus{{
-		Config: apigen.DeploymentConfig{
+		Config: apigen.DeploymentConfig2{
 			ID: 42,
-			Spec: apigen.DeploymentSpec{
-				Prepare: apigen.PrepareConfig{NixDockerBuild: &apigen.NixDockerBuildConfig{Repo: "github.com/acme/app", Flake: "flake.nix"}},
-				Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
-					EnvVars: map[string]*apigen.EnvVarValue{
-						"SECRET": &apigen.EnvVarValue{SecretID: &secretID},
-						"CONFIG": &apigen.EnvVarValue{ConfigID: &configID},
-						"ASSET":  &apigen.EnvVarValue{Asset: "app.env", AssetID: 3},
+			Spec: apigen.DeploymentSpec2{
+				Container1Spec: &apigen.ContainerSpec{
+					Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild2{Repo: "github.com/acme/app", Flake: "flake.nix"}},
+					Runtime: apigen.ContainerRuntime{
+						EnvVars: map[string]*apigen.EnvVarValue2{
+							"SECRET": {SecretID: &secretID},
+							"CONFIG": {ConfigID: &configID},
+							"ASSET":  {Asset: "app.env", AssetID: 3},
+						},
+						AssetMounts: []*apigen.AssetMount2{{AssetID: 4, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_ONLY}},
 					},
-					AssetMounts: []*apigen.ContainerAssetMount{&apigen.ContainerAssetMount{Asset: "nginx.conf", AssetID: 4, Path: "/etc/nginx/nginx.conf"}},
-				}},
+				},
 			},
 		},
 	}})
@@ -53,12 +55,15 @@ func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	m1Node := store.EnsurePrimaryNode("m1", "m1")
 	m2Node := store.EnsurePrimaryNode("m2", "m2")
-	spec := &apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "docker.io/library/nginx"}},
-		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+	spec := &apigen.DeploymentSpec2{
+		Container1Spec: &apigen.ContainerSpec{
+			Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "docker.io/library/nginx"}},
+			Version: "1",
+			Running: true,
+		},
 	}
-	m1 := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, m1Node.ID, spec, apigen.DesiredState{Version: "1", Running: true})
-	m2 := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, m2Node.ID, spec, apigen.DesiredState{Version: "1", Running: true})
+	m1 := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, m1Node.ID, spec)
+	m2 := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, m2Node.ID, spec)
 
 	sess := newSession(context.Background(), func() {}, m1Node.ID, "m1", deploymentPredicateForNode(m1Node.ID), store, nil)
 	crossMachine := &apigen.DeploymentStatus{DeploymentID: m2.ID, Runner: apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING}}

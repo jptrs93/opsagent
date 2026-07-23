@@ -11,6 +11,7 @@ import {exportConfigOverlay} from "../components/exportConfigOverlay.js";
 import {deploymentConfigOverlay} from "../components/deploymentJsonOverlay.js";
 import {capi} from "../capi/index.js";
 import {nodeDisplayName} from "../lib/machines.js";
+import {deploymentWorkload} from "../lib/deploymentConfig.js";
 
 const { div, h2, p, button, input, table, thead, tbody, tr, th, td, span, colgroup, col } = van.tags;
 
@@ -112,7 +113,7 @@ function deleteDeploymentOverlay(deployment, close) {
 function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCurrentConfig, close) {
     const saving = van.state(false);
     const error = van.state('');
-    const targetVersion = historyConfig?.desiredState?.version || '';
+    const targetVersion = deploymentWorkload(historyConfig)?.version || '';
     const historyVersion = historyConfig?.version || 0;
     const currentConfig = getCurrentConfig();
     const label = currentConfig
@@ -138,11 +139,17 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
         }
         saving.val = true;
         try {
-            await capi.postV1DeploymentUpdate({
+            const request = {
                 deploymentId,
-                targetVersion,
                 version: (current.version || 0) + 1,
-            });
+            };
+            if (current.spec?.container1Spec) {
+                request.spec = structuredClone(current.spec);
+                request.spec.container1Spec.version = targetVersion;
+            } else {
+                request.targetVersion = targetVersion;
+            }
+            await capi.postV1DeploymentUpdate(request);
             close();
         } catch (e) {
             error.val = e?.message || 'Reverting target version failed.';
@@ -157,7 +164,7 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
             {class: "card w-full max-w-lg flex flex-col gap-4 shadow-2xl"},
             h2({class: "text-base font-semibold"}, "Revert target version"),
             p({class: "text-sm text-gray-300"}, `Revert ${label} to the target version from config v${historyVersion}?`),
-            p({class: "text-xs text-gray-400"}, "This only changes the desired target version. It does not restore any other config fields from that history entry."),
+            p({class: "text-xs text-gray-400"}, "This only changes the desired target version and preserves the deployment's current running or stopped state."),
             div(
                 {class: "rounded-lg border border-gray-700 bg-gray-950/60 px-3 py-2 font-mono text-xs text-blue-200 break-all"},
                 targetVersion || 'No target version',
@@ -223,24 +230,26 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
         const id = d.config.id; // integer
         const identity = d.config.identity || {};
         const spec = d.config.spec || {};
-        const desired = d.config.desiredState || {};
+        const container = spec.container1Spec || null;
+        const workload = deploymentWorkload(d.config) || {};
+        const source = container?.source || {};
         const runner = d.status?.runner || {};
         const prep = d.status?.preparer || {};
 
         let variant = '';
         let repo = '';
-        if (spec.prepare?.nixDockerBuild) {
+        if (source.nixDockerBuild) {
             variant = 'nixDockerBuild';
-            repo = spec.prepare.nixDockerBuild.repo || '';
-        } else if (spec.prepare?.githubRelease) {
+            repo = source.nixDockerBuild.repo || '';
+        } else if (spec.systemdSpec?.source) {
             variant = 'githubRelease';
-            repo = spec.prepare.githubRelease.repo || '';
-        } else if (spec.prepare?.containerImage) {
+            repo = spec.systemdSpec.source.repo || '';
+        } else if (source.remoteImage) {
             variant = 'containerImage';
-            repo = spec.prepare.containerImage.image || '';
+            repo = source.remoteImage.image || '';
         }
 
-        const runnerType = spec.runner?.systemd ? 'systemd' : 'container';
+        const runnerType = spec.systemdSpec ? 'systemd' : 'container';
         const spaceId = identity.spaceId || 0;
         const nodeId = Number(d.config.nodeId || 0);
         const node = nodeDisplayName(nodeId, machines);
@@ -270,10 +279,10 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             lastRestartAt: runner.lastRestartAt,
             deployedBy: d.config.updatedBy || 0,
             deployedAt: d.config.updatedAt,
-            deployedVersion: desired.version || '',
-            desiredRunning: Boolean(desired.running),
+            deployedVersion: workload.version || '',
+            desiredRunning: Boolean(workload.running),
             prepareStatus: prep.status || 0,
-            prepareVersion: desired.version || '',
+            prepareVersion: workload.version || '',
             currentVersion: d.config.version || 0,
         };
     });

@@ -224,22 +224,22 @@ func (q *Queries) GetConfigByID(ctx context.Context, id int64) (OpendeployConfig
 	return i, err
 }
 
-const getConfigHistoryDesiredVersion = `-- name: GetConfigHistoryDesiredVersion :one
-SELECT desired_version
+const getConfigHistorySpecBlob = `-- name: GetConfigHistorySpecBlob :one
+SELECT spec_blob
 FROM deployment_config_history
 WHERE deployment_id = ? AND version = ?
 `
 
-type GetConfigHistoryDesiredVersionParams struct {
+type GetConfigHistorySpecBlobParams struct {
 	DeploymentID int64
 	Version      int64
 }
 
-func (q *Queries) GetConfigHistoryDesiredVersion(ctx context.Context, arg GetConfigHistoryDesiredVersionParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, getConfigHistoryDesiredVersion, arg.DeploymentID, arg.Version)
-	var desired_version string
-	err := row.Scan(&desired_version)
-	return desired_version, err
+func (q *Queries) GetConfigHistorySpecBlob(ctx context.Context, arg GetConfigHistorySpecBlobParams) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, getConfigHistorySpecBlob, arg.DeploymentID, arg.Version)
+	var spec_blob []byte
+	err := row.Scan(&spec_blob)
+	return spec_blob, err
 }
 
 const getDeploymentConfig = `-- name: GetDeploymentConfig :one
@@ -1504,36 +1504,6 @@ func (q *Queries) RenameUserConfig(ctx context.Context, arg RenameUserConfigPara
 	return err
 }
 
-const retireOtherActiveDeploymentConfigsWithKey = `-- name: RetireOtherActiveDeploymentConfigsWithKey :exec
-UPDATE deployment_configs
-SET desired_running = 0,
-    deleted = 1
-WHERE deployment_id != ?
-  AND node_id = ?
-  AND space_id = ?
-  AND name = ?
-  AND deleted = 0
-`
-
-type RetireOtherActiveDeploymentConfigsWithKeyParams struct {
-	DeploymentID int64
-	NodeID       int64
-	SpaceID      int64
-	Name         string
-}
-
-// A secondary may miss a deletion while disconnected. Retire any stale local
-// row before caching the primary's new independent deployment with that key.
-func (q *Queries) RetireOtherActiveDeploymentConfigsWithKey(ctx context.Context, arg RetireOtherActiveDeploymentConfigsWithKeyParams) error {
-	_, err := q.db.ExecContext(ctx, retireOtherActiveDeploymentConfigsWithKey,
-		arg.DeploymentID,
-		arg.NodeID,
-		arg.SpaceID,
-		arg.Name,
-	)
-	return err
-}
-
 const startAssetMigration = `-- name: StartAssetMigration :one
 UPDATE asset_migrations
 SET status = 'running', started_at = CASE WHEN started_at = 0 THEN ? ELSE started_at END,
@@ -1593,33 +1563,6 @@ func (q *Queries) UpdateAssetLocation(ctx context.Context, arg UpdateAssetLocati
 		&i.Blob,
 	)
 	return i, err
-}
-
-const updateDesiredState = `-- name: UpdateDesiredState :exec
-UPDATE deployment_configs
-SET node_id = ?, desired_version = ?, desired_running = ?, version = version + 1, updated_at = ?, updated_by = ?
-WHERE deployment_id = ?
-`
-
-type UpdateDesiredStateParams struct {
-	NodeID         int64
-	DesiredVersion string
-	DesiredRunning int64
-	UpdatedAt      int64
-	UpdatedBy      int64
-	DeploymentID   int64
-}
-
-func (q *Queries) UpdateDesiredState(ctx context.Context, arg UpdateDesiredStateParams) error {
-	_, err := q.db.ExecContext(ctx, updateDesiredState,
-		arg.NodeID,
-		arg.DesiredVersion,
-		arg.DesiredRunning,
-		arg.UpdatedAt,
-		arg.UpdatedBy,
-		arg.DeploymentID,
-	)
-	return err
 }
 
 const updateSpace = `-- name: UpdateSpace :one

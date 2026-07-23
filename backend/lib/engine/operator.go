@@ -41,7 +41,7 @@ func preparerReady(status *apigen.DeploymentStatus, seqNo int32) bool {
 		status.Preparer.Status == apigen.PreparationStatus_READY
 }
 
-func configName(cfg *apigen.DeploymentConfig) string {
+func configName(cfg *apigen.DeploymentConfig2) string {
 	if !cfg.Identity.IsZero() {
 		return fmt.Sprintf("%d:%d:%s", cfg.Identity.SpaceID, cfg.NodeID, cfg.Identity.Name)
 	}
@@ -60,8 +60,8 @@ func (op DeploymentOperator) RunAll(predicate storage.DeploymentPredicate) {
 		slog.InfoContext(logu.ExtendLogContext(context.Background(), "dep", dep.Config.ID), "RunAll: launching operator from snapshot",
 			"name", configName(&dep.Config),
 			"seqNo", dep.Config.Version,
-			"desiredRunning", dep.Config.DesiredState.Running,
-			"desiredVersion", dep.Config.DesiredState.Version,
+			"desiredRunning", dep.Config.WorkloadRunning(),
+			"desiredVersion", dep.Config.WorkloadVersion(),
 			"hasPreparer", !dep.Status.Preparer.IsZero(),
 			"hasRunner", !dep.Status.Runner.IsZero(),
 		)
@@ -93,7 +93,7 @@ func (op DeploymentOperator) RunAll(predicate storage.DeploymentPredicate) {
 
 func (op DeploymentOperator) Run(
 	subs *pubsubu.PubSub[apigen.DeploymentWithStatus],
-	config *apigen.DeploymentConfig,
+	config *apigen.DeploymentConfig2,
 	status *apigen.DeploymentStatus) {
 	id := config.ID
 	depName := configName(config)
@@ -105,7 +105,7 @@ func (op DeploymentOperator) Run(
 	})
 	var currentPreparer *prepare.Handle
 	var currentRunner runner.Runner
-	if config.DesiredState.Running {
+	if config.WorkloadRunning() {
 		slog.InfoContext(ctx, "Run: reattaching running preparer",
 			"name", depName,
 			"preparerStatus", fmtPreparerStatus(status.Preparer),
@@ -137,7 +137,7 @@ func (op DeploymentOperator) Run(
 	for {
 		select {
 		case <-currentRunner.ArtifactMissing():
-			if !config.DesiredState.Running {
+			if !config.WorkloadRunning() {
 				continue
 			}
 			slog.WarnContext(ctx, "Run: local artifact missing, preparing current config again", "name", depName, "configSeqNo", config.Version)
@@ -162,7 +162,7 @@ func (op DeploymentOperator) Run(
 				candidate.Stop()
 				candidate = nil
 				candidateReady = nil
-				if artifactMissing && config.DesiredState.Running {
+				if artifactMissing && config.WorkloadRunning() {
 					currentPreparer.Cancel()
 					currentPreparer = op.startPreparer(config)
 					artifactRepairPending = true
@@ -204,7 +204,7 @@ func (op DeploymentOperator) Run(
 				currentRunner.Stop()
 				sub.UnsubscribeFunc()
 				return
-			case !config.DesiredState.Running:
+			case !config.WorkloadRunning():
 				slog.InfoContext(ctx, "Run: desired running=false, stopping runner", "name", depName)
 				if candidate != nil {
 					candidate.Stop()
@@ -212,7 +212,7 @@ func (op DeploymentOperator) Run(
 					candidateReady = nil
 				}
 				currentRunner.Stop()
-			case config.Version > currentPreparer.Version() && config.DesiredState.Running:
+			case config.Version > currentPreparer.Version() && config.WorkloadRunning():
 				slog.InfoContext(ctx, "Run: config ahead of preparer, starting new prepare",
 					"name", depName,
 					"configSeqNo", config.Version, "preparerSeqNo", currentPreparer.Version())
@@ -243,8 +243,8 @@ func (op DeploymentOperator) Run(
 	}
 }
 
-func (op DeploymentOperator) startPreparer(dep *apigen.DeploymentConfig) *prepare.Handle {
-	if dep.DesiredState.Version == "" {
+func (op DeploymentOperator) startPreparer(dep *apigen.DeploymentConfig2) *prepare.Handle {
+	if dep.WorkloadVersion() == "" {
 		prepare.WriteStatus(op.Store, dep, "", apigen.PreparationStatus_FAILED)
 		return prepare.Finished(dep.Version)
 	}
@@ -258,7 +258,7 @@ func (op DeploymentOperator) startPreparer(dep *apigen.DeploymentConfig) *prepar
 	return handle
 }
 
-func (op DeploymentOperator) prepare(ctx context.Context, dep *apigen.DeploymentConfig) (string, apigen.PreparationStatus) {
+func (op DeploymentOperator) prepare(ctx context.Context, dep *apigen.DeploymentConfig2) (string, apigen.PreparationStatus) {
 	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
 	log, logPath, err := preparerlog.New(ctx, dep)
 	if err != nil {
@@ -275,17 +275,18 @@ func (op DeploymentOperator) prepare(ctx context.Context, dep *apigen.Deployment
 	}
 	log.Write("runtime inputs ready")
 
+	container := dep.Spec.Container()
 	switch {
-	case dep.Spec.Prepare.GithubRelease != nil:
+	case dep.Spec.SystemdSpec != nil && dep.Spec.SystemdSpec.Source != nil:
 		prepare.WriteStatus(op.Store, dep, "", apigen.PreparationStatus_DOWNLOADING)
 		return op.GithubRelease.Prepare(ctx, dep, log)
-	case dep.Spec.Prepare.NixDockerBuild != nil:
+	case container != nil && container.Source.NixDockerBuild != nil:
 		prepare.WriteStatus(op.Store, dep, "", apigen.PreparationStatus_PREPARING)
 		return op.NixDocker.Prepare(ctx, dep, log)
-	case dep.Spec.Prepare.ContainerImage != nil && dep.Spec.Prepare.ContainerImage.Image == internaldeploy.NetproxyImage:
+	case container != nil && container.Source.RemoteImage != nil && container.Source.RemoteImage.Image == internaldeploy.NetproxyImage:
 		prepare.WriteStatus(op.Store, dep, "", apigen.PreparationStatus_PREPARING)
 		return op.GithubReleaseImage.Prepare(ctx, dep, log)
-	case dep.Spec.Prepare.ContainerImage != nil:
+	case container != nil && container.Source.RemoteImage != nil:
 		prepare.WriteStatus(op.Store, dep, "", apigen.PreparationStatus_PULLING)
 		return containerimage.Prepare(ctx, dep, log)
 	default:
@@ -297,14 +298,14 @@ func (op DeploymentOperator) prepare(ctx context.Context, dep *apigen.Deployment
 // reAttachPreparer restores the preparation side of an operator after process
 // startup. Preparations themselves are not resumable: completed artifacts are
 // reused after checking runtime inputs, while incomplete work starts again.
-func (op DeploymentOperator) reAttachPreparer(dep *apigen.DeploymentConfig, prev apigen.PreparerStatus) *prepare.Handle {
+func (op DeploymentOperator) reAttachPreparer(dep *apigen.DeploymentConfig2, prev apigen.PreparerStatus) *prepare.Handle {
 	ctx := logu.ExtendLogContext(context.Background(), "dep", dep.ID)
 	if prev.DeploymentConfigVersion == dep.Version && prev.Status == apigen.PreparationStatus_READY {
 		if err := op.RuntimeInputs.EnsureReady(ctx, dep); err != nil {
 			slog.ErrorContext(ctx, "reAttachPreparer: prepared runtime inputs unavailable", "configVersion", dep.Version, "err", err)
 			return op.startPreparer(dep)
 		}
-		if dep.Spec.Runner.Systemd.IsZero() {
+		if dep.Spec.SystemdSpec == nil {
 			imageReady := op.ImageReady
 			if imageReady == nil {
 				imageReady = ctrd.Default.ImageReady
@@ -316,11 +317,11 @@ func (op DeploymentOperator) reAttachPreparer(dep *apigen.DeploymentConfig, prev
 		}
 		return prepare.Finished(dep.Version)
 	}
-	if !dep.Spec.Runner.Systemd.IsZero() && prev.IsZero() && dep.DesiredState.Version != "" {
+	if dep.Spec.SystemdSpec != nil && prev.IsZero() && dep.WorkloadVersion() != "" {
 		slog.InfoContext(ctx, "reAttachPreparer: systemd deployment already installed", "deploymentConfigVersion", dep.Version)
 		return prepare.Finished(dep.Version)
 	}
-	if dep.DesiredState.Version == "" {
+	if dep.WorkloadVersion() == "" {
 		slog.InfoContext(ctx, "reAttachPreparer: no version to prepare", "deploymentConfigVersion", dep.Version)
 		return prepare.Finished(dep.Version)
 	}
@@ -341,11 +342,15 @@ func waitForRolloverCandidate(candidate runner.RolloverCandidate, version int32)
 	return ch
 }
 
-func containerUpgradeStrategy(config *apigen.DeploymentConfig) apigen.ContainerUpgradeStrategy {
+func containerUpgradeStrategy(config *apigen.DeploymentConfig2) apigen.ContainerUpgradeStrategy {
 	if config == nil {
 		return apigen.ContainerUpgradeStrategy_RECREATE
 	}
-	strategy := config.Spec.Runner.Container.UpgradeStrategy
+	container := config.Spec.Container()
+	if container == nil {
+		return apigen.ContainerUpgradeStrategy_RECREATE
+	}
+	strategy := container.UpgradeStrategy
 	if strategy == apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED {
 		return apigen.ContainerUpgradeStrategy_RECREATE
 	}

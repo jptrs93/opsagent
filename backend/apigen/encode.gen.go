@@ -42,7 +42,6 @@ func (m *GithubReleaseConfig) Encode() []byte {
 	b = AppendStringField(b, m.Repo, 1)
 	b = AppendStringField(b, m.Asset, 2)
 	b = AppendStringField(b, m.Tag, 3)
-	b = AppendStringField(b, m.DownloadScript, 4)
 	return b
 }
 
@@ -63,8 +62,6 @@ func DecodeGithubReleaseConfig(b []byte) (*GithubReleaseConfig, error) {
 			b, m.Asset, err = ConsumeString(b, typ)
 		case 3:
 			b, m.Tag, err = ConsumeString(b, typ)
-		case 4:
-			b, m.DownloadScript, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -778,8 +775,8 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 		case 6:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentSpec
-				item, err = DecodeDeploymentSpec(msgBytes)
+				var item *DeploymentSpec2
+				item, err = DecodeDeploymentSpec2(msgBytes)
 				if err == nil {
 					m.Spec = *item
 				}
@@ -805,10 +802,6 @@ func (m *DeploymentCreateRequest) Encode() []byte {
 	if !m.Spec.IsZero() {
 		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, m.Spec.Encode())
-	}
-	if !m.DesiredState.IsZero() {
-		b = AppendTag(b, 3, BytesType)
-		b = AppendBytes(b, m.DesiredState.Encode())
 	}
 	b = AppendInt32Field(b, m.NodeID, 4)
 	return b
@@ -838,19 +831,10 @@ func DecodeDeploymentCreateRequest(b []byte) (*DeploymentCreateRequest, error) {
 		case 2:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentSpec
-				item, err = DecodeDeploymentSpec(msgBytes)
+				var item *DeploymentSpec2
+				item, err = DecodeDeploymentSpec2(msgBytes)
 				if err == nil {
 					m.Spec = *item
-				}
-			}
-		case 3:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DesiredState
-				item, err = DecodeDesiredState(msgBytes)
-				if err == nil {
-					m.DesiredState = *item
 				}
 			}
 		case 4:
@@ -1372,19 +1356,6 @@ func DecodeDeploymentDeleteRequest(b []byte) (*DeploymentDeleteRequest, error) {
 	return &m, nil
 }
 
-func (m DeploymentConfig) IsZero() bool {
-	return m.ID == 0 &&
-		m.NodeID == 0 &&
-		m.Identity.IsZero() &&
-		m.Version == 0 &&
-		m.UpdatedAt.IsZero() &&
-		m.UpdatedBy == 0 &&
-		m.Spec.IsZero() &&
-		m.DesiredState.IsZero() &&
-		m.Deleted == false &&
-		m.CreatedAt.IsZero()
-}
-
 func (m *DeploymentConfig) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 8)
@@ -1500,8 +1471,8 @@ func DecodeDeploymentWithStatus(b []byte) (*DeploymentWithStatus, error) {
 		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentConfig
-				item, err = DecodeDeploymentConfig(msgBytes)
+				var item *DeploymentConfig2
+				item, err = DecodeDeploymentConfig2(msgBytes)
 				if err == nil {
 					m.Config = *item
 				}
@@ -2619,6 +2590,18 @@ func DecodeValidateContainerImageSourceResponse(b []byte) (*ValidateContainerIma
 	return &m, nil
 }
 
+func (m DeploymentConfig2) IsZero() bool {
+	return m.ID == 0 &&
+		m.NodeID == 0 &&
+		m.Identity.IsZero() &&
+		m.CreatedAt.IsZero() &&
+		m.UpdatedAt.IsZero() &&
+		m.UpdatedBy == 0 &&
+		m.Version == 0 &&
+		m.Spec.IsZero() &&
+		m.Deleted == false
+}
+
 func (m *DeploymentConfig2) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
@@ -2631,7 +2614,7 @@ func (m *DeploymentConfig2) Encode() []byte {
 	b = AppendInt64FromTime(b, m.UpdatedAt, 5)
 	b = AppendInt32Field(b, m.UpdatedBy, 6)
 	b = AppendInt32Field(b, m.Version, 7)
-	if m.Spec != nil {
+	if !m.Spec.IsZero() {
 		b = AppendTag(b, 8, BytesType)
 		b = AppendBytes(b, m.Spec.Encode())
 	}
@@ -2678,7 +2661,7 @@ func DecodeDeploymentConfig2(b []byte) (*DeploymentConfig2, error) {
 				var item *DeploymentSpec2
 				item, err = DecodeDeploymentSpec2(msgBytes)
 				if err == nil {
-					m.Spec = item
+					m.Spec = *item
 				}
 			}
 		case 9:
@@ -2693,35 +2676,45 @@ func DecodeDeploymentConfig2(b []byte) (*DeploymentConfig2, error) {
 	return &m, nil
 }
 
+func (m DeploymentSpec2) IsZero() bool {
+	return m.Networking.IsZero() &&
+		m.Container1Spec == nil &&
+		m.Container2Spec == nil &&
+		m.Container3Spec == nil &&
+		m.MicroVmSpec == nil &&
+		m.VmSpec == nil &&
+		m.SystemdSpec == nil
+}
+
 func (m *DeploymentSpec2) Encode() []byte {
 	var b []byte
-	if m.Networking != nil {
+	if !m.Networking.IsZero() {
 		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, m.Networking.Encode())
 	}
-	if m.Container1spec != nil {
+	if m.Container1Spec != nil {
 		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.Container1spec.Encode())
+		b = AppendBytes(b, m.Container1Spec.Encode())
 	}
-	if m.Container2spec != nil {
+	if m.Container2Spec != nil {
 		b = AppendTag(b, 3, BytesType)
-		b = AppendBytes(b, m.Container2spec.Encode())
+		b = AppendBytes(b, m.Container2Spec.Encode())
 	}
-	if m.Container3spec != nil {
+	if m.Container3Spec != nil {
 		b = AppendTag(b, 4, BytesType)
-		b = AppendBytes(b, m.Container3spec.Encode())
+		b = AppendBytes(b, m.Container3Spec.Encode())
 	}
-	if m.Microvmspec != nil {
+	if m.MicroVmSpec != nil {
 		b = AppendTag(b, 5, BytesType)
-		b = AppendBytes(b, m.Microvmspec.Encode())
+		b = AppendBytes(b, m.MicroVmSpec.Encode())
 	}
-	if m.Vmspec != nil {
+	if m.VmSpec != nil {
 		b = AppendTag(b, 6, BytesType)
-		b = AppendBytes(b, m.Vmspec.Encode())
+		b = AppendBytes(b, m.VmSpec.Encode())
 	}
-	if m.Systemdspec != nil {
+	if m.SystemdSpec != nil {
 		b = AppendTag(b, 7, BytesType)
-		b = AppendBytes(b, m.Systemdspec.Encode())
+		b = AppendBytes(b, m.SystemdSpec.Encode())
 	}
 	return b
 }
@@ -2744,7 +2737,7 @@ func DecodeDeploymentSpec2(b []byte) (*DeploymentSpec2, error) {
 				var item *NetworkingConfig
 				item, err = DecodeNetworkingConfig(msgBytes)
 				if err == nil {
-					m.Networking = item
+					m.Networking = *item
 				}
 			}
 		case 2:
@@ -2753,7 +2746,7 @@ func DecodeDeploymentSpec2(b []byte) (*DeploymentSpec2, error) {
 				var item *ContainerSpec
 				item, err = DecodeContainerSpec(msgBytes)
 				if err == nil {
-					m.Container1spec = item
+					m.Container1Spec = item
 				}
 			}
 		case 3:
@@ -2762,7 +2755,7 @@ func DecodeDeploymentSpec2(b []byte) (*DeploymentSpec2, error) {
 				var item *ContainerSpec
 				item, err = DecodeContainerSpec(msgBytes)
 				if err == nil {
-					m.Container2spec = item
+					m.Container2Spec = item
 				}
 			}
 		case 4:
@@ -2771,7 +2764,7 @@ func DecodeDeploymentSpec2(b []byte) (*DeploymentSpec2, error) {
 				var item *ContainerSpec
 				item, err = DecodeContainerSpec(msgBytes)
 				if err == nil {
-					m.Container3spec = item
+					m.Container3Spec = item
 				}
 			}
 		case 5:
@@ -2780,7 +2773,7 @@ func DecodeDeploymentSpec2(b []byte) (*DeploymentSpec2, error) {
 				var item *MicroVMSpec
 				item, err = DecodeMicroVMSpec(msgBytes)
 				if err == nil {
-					m.Microvmspec = item
+					m.MicroVmSpec = item
 				}
 			}
 		case 6:
@@ -2789,7 +2782,7 @@ func DecodeDeploymentSpec2(b []byte) (*DeploymentSpec2, error) {
 				var item *VMSpec
 				item, err = DecodeVMSpec(msgBytes)
 				if err == nil {
-					m.Vmspec = item
+					m.VmSpec = item
 				}
 			}
 		case 7:
@@ -2798,7 +2791,7 @@ func DecodeDeploymentSpec2(b []byte) (*DeploymentSpec2, error) {
 				var item *SystemdSpec
 				item, err = DecodeSystemdSpec(msgBytes)
 				if err == nil {
-					m.Systemdspec = item
+					m.SystemdSpec = item
 				}
 			}
 		default:
@@ -3066,19 +3059,19 @@ func DecodeContainerSpec(b []byte) (*ContainerSpec, error) {
 }
 
 func (m ContainerBundleSource) IsZero() bool {
-	return m.Nixdockerbuild == nil &&
-		m.Remoteimage == nil
+	return m.NixDockerBuild == nil &&
+		m.RemoteImage == nil
 }
 
 func (m *ContainerBundleSource) Encode() []byte {
 	var b []byte
-	if m.Nixdockerbuild != nil {
+	if m.NixDockerBuild != nil {
 		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.Nixdockerbuild.Encode())
+		b = AppendBytes(b, m.NixDockerBuild.Encode())
 	}
-	if m.Remoteimage != nil {
+	if m.RemoteImage != nil {
 		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.Remoteimage.Encode())
+		b = AppendBytes(b, m.RemoteImage.Encode())
 	}
 	return b
 }
@@ -3101,7 +3094,7 @@ func DecodeContainerBundleSource(b []byte) (*ContainerBundleSource, error) {
 				var item *NixDockerBuild2
 				item, err = DecodeNixDockerBuild2(msgBytes)
 				if err == nil {
-					m.Nixdockerbuild = item
+					m.NixDockerBuild = item
 				}
 			}
 		case 2:
@@ -3110,7 +3103,7 @@ func DecodeContainerBundleSource(b []byte) (*ContainerBundleSource, error) {
 				var item *RemoteDockerImage
 				item, err = DecodeRemoteDockerImage(msgBytes)
 				if err == nil {
-					m.Remoteimage = item
+					m.RemoteImage = item
 				}
 			}
 		default:
@@ -6012,8 +6005,8 @@ func DecodeDeploymentHistoryEntry(b []byte) (*DeploymentHistoryEntry, error) {
 		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentConfig
-				item, err = DecodeDeploymentConfig(msgBytes)
+				var item *DeploymentConfig2
+				item, err = DecodeDeploymentConfig2(msgBytes)
 				if err == nil {
 					m.Config = item
 				}
@@ -6587,8 +6580,8 @@ func DecodeMsgToWorker(b []byte) (*MsgToWorker, error) {
 		case 2:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentConfig
-				item, err = DecodeDeploymentConfig(msgBytes)
+				var item *DeploymentConfig2
+				item, err = DecodeDeploymentConfig2(msgBytes)
 				if err == nil {
 					m.DeploymentUpdate = item
 				}

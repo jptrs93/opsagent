@@ -73,8 +73,8 @@ type FilePermission int32
 const (
 	FilePermission_FILE_PERMISSION_UNSPECIFIED FilePermission = 0
 	FilePermission_READ_WRITE                  FilePermission = 1
-	FilePermission_READ                        FilePermission = 2
-	FilePermission_EXECUTE                     FilePermission = 3
+	FilePermission_READ_ONLY                   FilePermission = 2
+	FilePermission_READ_EXECUTE                FilePermission = 3
 )
 
 type AccessPolicyType int32
@@ -93,10 +93,9 @@ type NixDockerBuildConfig struct {
 }
 
 type GithubReleaseConfig struct {
-	Repo           string
-	Asset          string
-	Tag            string
-	DownloadScript string
+	Repo  string
+	Asset string
+	Tag   string
 }
 
 type ContainerImageConfig struct {
@@ -190,15 +189,14 @@ type DeploymentUpdateRequest struct {
 	TargetVersion string
 	Stop          bool
 	Version       int32
-	Spec          DeploymentSpec
+	Spec          DeploymentSpec2
 	SpaceID       *int32
 }
 
 type DeploymentCreateRequest struct {
-	Identity     DeploymentIdentity
-	Spec         DeploymentSpec
-	DesiredState DesiredState
-	NodeID       int32
+	Identity DeploymentIdentity
+	Spec     DeploymentSpec2
+	NodeID   int32
 }
 
 type DeploymentHistoryRequest struct {
@@ -286,7 +284,7 @@ type DeploymentConfig struct {
 }
 
 type DeploymentWithStatus struct {
-	Config DeploymentConfig
+	Config DeploymentConfig2
 	Status DeploymentStatus
 }
 
@@ -436,18 +434,18 @@ type DeploymentConfig2 struct {
 	UpdatedAt time.Time
 	UpdatedBy int32
 	Version   int32
-	Spec      *DeploymentSpec2
+	Spec      DeploymentSpec2
 	Deleted   bool
 }
 
 type DeploymentSpec2 struct {
-	Networking     *NetworkingConfig
-	Container1spec *ContainerSpec
-	Container2spec *ContainerSpec
-	Container3spec *ContainerSpec
-	Microvmspec    *MicroVMSpec
-	Vmspec         *VMSpec
-	Systemdspec    *SystemdSpec
+	Networking     NetworkingConfig
+	Container1Spec *ContainerSpec
+	Container2Spec *ContainerSpec
+	Container3Spec *ContainerSpec
+	MicroVmSpec    *MicroVMSpec
+	VmSpec         *VMSpec
+	SystemdSpec    *SystemdSpec
 }
 
 type MicroVMSpec struct {
@@ -483,8 +481,8 @@ type ContainerSpec struct {
 }
 
 type ContainerBundleSource struct {
-	Nixdockerbuild *NixDockerBuild2
-	Remoteimage    *RemoteDockerImage
+	NixDockerBuild *NixDockerBuild2
+	RemoteImage    *RemoteDockerImage
 }
 
 type NixDockerBuild2 struct {
@@ -885,7 +883,7 @@ type ClusterMachineList struct {
 }
 
 type DeploymentHistoryEntry struct {
-	Config *DeploymentConfig
+	Config *DeploymentConfig2
 	Status *DeploymentStatus
 }
 
@@ -961,7 +959,7 @@ type ClusterStatusResponse struct {
 
 type MsgToWorker struct {
 	DeploymentsSnapshot  *DeploymentWithStatusSnapshot
-	DeploymentUpdate     *DeploymentConfig
+	DeploymentUpdate     *DeploymentConfig2
 	PrepareLogRequest    *PrepareOutputRequest
 	RunLogRequest        *RunOutputRequest
 	DeploymentLogRequest *DeploymentLogRequest

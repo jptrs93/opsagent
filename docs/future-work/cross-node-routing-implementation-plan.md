@@ -438,7 +438,7 @@ kernel state where possible and is retried from the complete desired snapshot.
 
 For the current single-instance model, the primary derives ordinal-zero stable
 addresses from deployment space and deployment IDs and maps them to
-`DeploymentConfig.NodeID`.
+`DeploymentConfig2.NodeID`.
 
 ### Same-node rollover
 

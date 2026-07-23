@@ -8,13 +8,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
-	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/lib/log/logfilter"
 	"github.com/jptrs93/opsagent/backend/lib/log/logreader"
@@ -34,7 +32,7 @@ var DuplicateDeploymentErr = apigen.NewApiErr("A deployment with this name, spac
 
 const githubReleaseVersionsDisplayErr = "Releases could not be loaded from GitHub. Please try again."
 
-func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentConfig, error) {
+func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentConfig2, error) {
 	identity := req.Identity
 	if identity.Name == "" {
 		return nil, invalidConfigErrf("name is required")
@@ -53,7 +51,7 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 	if err != nil {
 		return nil, err
 	}
-	if err := h.validateManagedVolumeMounts(spec, req.NodeID, 0); err != nil {
+	if err := h.validateCrossDeploymentMountSources(spec, req.NodeID, 0); err != nil {
 		return nil, err
 	}
 
@@ -70,20 +68,20 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 	if err := h.validateAddressEnvRefs(req.NodeID, 0, spec, snapshot); err != nil {
 		return nil, err
 	}
-	if err := validateNixDesiredVersion(spec, req.DesiredState); err != nil {
+	if err := validateNixWorkloadVersion(spec); err != nil {
 		return nil, err
 	}
-	if req.DesiredState.Running {
-		if err := h.verifyRunningNixSource(ctx, spec, req.DesiredState); err != nil {
+	if spec.WorkloadRunning() {
+		if err := h.verifyRunningNixSource(ctx, spec); err != nil {
 			return nil, err
 		}
 	}
 
-	cfg := h.Store.MustCreateDeploymentForNode(ctx, &identity, req.NodeID, spec, req.DesiredState)
+	cfg := h.Store.MustCreateDeploymentForNode(ctx, &identity, req.NodeID, spec)
 	return cfg, nil
 }
 
-func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequest) (*apigen.DesiredState, error) {
+func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequest) (*apigen.DeploymentConfig2, error) {
 	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr
 	}
@@ -98,7 +96,7 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 		return nil, invalidConfigErrf("opendeploy system deployment identity and spec are internal-only")
 	}
 
-	var spec *apigen.DeploymentSpec
+	var spec *apigen.DeploymentSpec2
 	if req.SpaceID != nil {
 		nextIdentity := cfg.Identity
 		nextIdentity.SpaceID = *req.SpaceID
@@ -126,7 +124,7 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 		if err := h.validateNodeNetworkingClaims(cfg.NodeID, cfg.ID, validated); err != nil {
 			return nil, err
 		}
-		if err := h.validateManagedVolumeMounts(validated, cfg.NodeID, cfg.ID); err != nil {
+		if err := h.validateCrossDeploymentMountSources(validated, cfg.NodeID, cfg.ID); err != nil {
 			return nil, err
 		}
 		if err := h.validateAddressEnvRefs(cfg.NodeID, cfg.ID, validated, h.Store.FetchDeploymentSnapshot(nil)); err != nil {
@@ -138,60 +136,60 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 		spec = validated
 	}
 
-	desired := apigen.DesiredState{}
-	var desiredUpdate *apigen.DesiredState
-	if req.Stop {
-		desired.Running = false
-		// Preserve the existing version so a subsequent "start" can reuse it.
-		desired.Version = cfg.DesiredState.Version
-		desiredUpdate = &desired
-	} else if req.TargetVersion != "" {
-		desired.Version = req.TargetVersion
-		desired.Running = true
-		desiredUpdate = &desired
+	effectiveSpec, err := cloneDeploymentSpec(&cfg.Spec)
+	if err != nil {
+		return nil, err
 	}
-
-	effectiveSpec := &cfg.Spec
 	if spec != nil {
 		effectiveSpec = spec
 	}
-	effectiveDesired := cfg.DesiredState
-	if desiredUpdate != nil {
-		effectiveDesired = *desiredUpdate
+	stateChanged := false
+	if req.Stop {
+		// Preserve the existing version so a subsequent "start" can reuse it.
+		if err := effectiveSpec.SetWorkloadState(cfg.WorkloadVersion(), false); err != nil {
+			return nil, invalidConfigErrf("spec: %v", err)
+		}
+		stateChanged = true
+	} else if req.TargetVersion != "" {
+		if err := effectiveSpec.SetWorkloadState(req.TargetVersion, true); err != nil {
+			return nil, invalidConfigErrf("spec: %v", err)
+		}
+		stateChanged = true
 	}
-	desiredVersionSourceChanged := !sameDesiredVersionSource(cfg.Spec.Prepare, effectiveSpec.Prepare)
-	if !effectiveDesired.Running && desiredVersionSourceChanged {
-		desired = effectiveDesired
-		desired.Version = ""
-		desiredUpdate = &desired
-		effectiveDesired = desired
+
+	desiredVersionSourceChanged := !sameDesiredVersionSource(&cfg.Spec, effectiveSpec)
+	if !effectiveSpec.WorkloadRunning() && desiredVersionSourceChanged {
+		if err := effectiveSpec.SetWorkloadState("", false); err != nil {
+			return nil, invalidConfigErrf("spec: %v", err)
+		}
+		stateChanged = true
 	}
-	nixChanged := !sameNixBuildConfig(cfg.Spec.Prepare.NixDockerBuild, effectiveSpec.Prepare.NixDockerBuild)
-	if effectiveSpec.Prepare.NixDockerBuild != nil && !req.Stop && (nixChanged || desiredUpdate != nil) {
-		if err := validateNixDesiredVersion(effectiveSpec, effectiveDesired); err != nil {
+	nixChanged := !sameNixBuildConfig(nixSource(&cfg.Spec), nixSource(effectiveSpec))
+	if nixSource(effectiveSpec) != nil && !req.Stop && (nixChanged || stateChanged || spec != nil) {
+		if err := validateNixWorkloadVersion(effectiveSpec); err != nil {
 			return nil, err
 		}
 	}
-	if effectiveDesired.Running && effectiveSpec.Prepare.NixDockerBuild != nil &&
-		(!cfg.DesiredState.Running || effectiveDesired.Version != cfg.DesiredState.Version || nixChanged) {
-		if err := h.verifyRunningNixSource(ctx, effectiveSpec, effectiveDesired); err != nil {
+	if effectiveSpec.WorkloadRunning() && nixSource(effectiveSpec) != nil &&
+		(!cfg.WorkloadRunning() || effectiveSpec.WorkloadVersion() != cfg.WorkloadVersion() || nixChanged) {
+		if err := h.verifyRunningNixSource(ctx, effectiveSpec); err != nil {
 			return nil, err
 		}
 	}
 
-	if req.SpaceID != nil || spec != nil || desiredUpdate != nil {
+	if req.SpaceID != nil || spec != nil || stateChanged {
 		current, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, sqlite.DeploymentConfigUpdate{
 			ExpectedVersion: req.Version,
 			SpaceID:         req.SpaceID,
-			Spec:            spec,
-			DesiredState:    desiredUpdate,
+			Spec:            effectiveSpec,
 		})
 		if !versionOK {
 			return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, current.Version+1)
 		}
+		return current, nil
 	}
 
-	return &desired, nil
+	return cfg, nil
 }
 
 func (h *Handler) PostV1DeploymentDelete(ctx apigen.Context, req *apigen.DeploymentDeleteRequest) error {
@@ -217,10 +215,16 @@ func (h *Handler) PostV1DeploymentDelete(ctx apigen.Context, req *apigen.Deploym
 		return ReferenceInUseErr
 	}
 	deleted := true
-	desired := apigen.DesiredState{Version: cfg.DesiredState.Version, Running: false}
+	spec, err := cloneDeploymentSpec(&cfg.Spec)
+	if err != nil {
+		return err
+	}
+	if err := spec.SetWorkloadState(spec.WorkloadVersion(), false); err != nil {
+		return invalidConfigErrf("spec: %v", err)
+	}
 	_, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, sqlite.DeploymentConfigUpdate{
 		ExpectedVersion: req.Version,
-		DesiredState:    &desired,
+		Spec:            spec,
 		Deleted:         &deleted,
 	})
 	if !versionOK {
@@ -229,7 +233,7 @@ func (h *Handler) PostV1DeploymentDelete(ctx apigen.Context, req *apigen.Deploym
 	return nil
 }
 
-func (h *Handler) canDeleteStaleDisconnectedSystemDeployment(cfg *apigen.DeploymentConfig) bool {
+func (h *Handler) canDeleteStaleDisconnectedSystemDeployment(cfg *apigen.DeploymentConfig2) bool {
 	if cfg.NodeID <= 0 || cfg.NodeID == h.NodeID || h.Cluster == nil {
 		return false
 	}
@@ -237,7 +241,7 @@ func (h *Handler) canDeleteStaleDisconnectedSystemDeployment(cfg *apigen.Deploym
 	return !connected
 }
 
-func (h *Handler) canDeleteDeployment(cfg *apigen.DeploymentConfig, status *apigen.DeploymentStatus) bool {
+func (h *Handler) canDeleteDeployment(cfg *apigen.DeploymentConfig2, status *apigen.DeploymentStatus) bool {
 	if status == nil {
 		return false
 	}
@@ -263,7 +267,7 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 	}
 
 	cfg := h.findConfigByID(req.DeploymentID)
-	if cfg == nil || cfg.Spec.Prepare.IsZero() {
+	if cfg == nil || cfg.Spec.IsZero() {
 		return nil, DeploymentNotFoundErr
 	}
 	if sqlite.IsNetproxyDeploymentConfig(cfg) {
@@ -280,12 +284,13 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 		}, nil
 	}
 
+	container := cfg.Spec.Container()
 	switch {
-	case cfg.Spec.Prepare.NixDockerBuild != nil:
+	case container != nil && container.Source.NixDockerBuild != nil:
 		if h.GitVersions == nil {
 			return nil, fmt.Errorf("git version loading is not configured")
 		}
-		repo := cfg.Spec.Prepare.NixDockerBuild.Repo
+		repo := container.Source.NixDockerBuild.Repo
 		branches, branch, commits, err := h.GitVersions.DiscoverVersions(ctx, repo, req.SelectedBranch, 25)
 		if err != nil {
 			return nil, fmt.Errorf("discovering versions: %w", err)
@@ -298,11 +303,11 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 				Commits:        commits,
 			},
 		}, nil
-	case cfg.Spec.Prepare.GithubRelease != nil:
+	case cfg.Spec.SystemdSpec != nil && cfg.Spec.SystemdSpec.Source != nil:
 		if h.GithubReleaseVersions == nil {
 			return nil, githubReleaseVersionsErr(fmt.Errorf("github release version loading is not configured"))
 		}
-		releases, err := h.GithubReleaseVersions.ListReleases(ctx, cfg.Spec.Prepare.GithubRelease.Repo)
+		releases, err := h.GithubReleaseVersions.ListReleases(ctx, cfg.Spec.SystemdSpec.Source.Repo)
 		if err != nil {
 			return nil, githubReleaseVersionsErr(fmt.Errorf("listing releases: %w", err))
 		}
@@ -310,8 +315,8 @@ func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.Deplo
 			DeploymentID:  req.DeploymentID,
 			GithubRelease: &apigen.DeploymentGithubReleaseVersions{Releases: releases},
 		}, nil
-	case cfg.Spec.Prepare.ContainerImage != nil:
-		tags, err := versionprovider.ListContainerImageTags(ctx, cfg.Spec.Prepare.ContainerImage.Image)
+	case container != nil && container.Source.RemoteImage != nil:
+		tags, err := versionprovider.ListContainerImageTags(ctx, container.Source.RemoteImage.Image)
 		if err != nil {
 			return nil, fmt.Errorf("listing container image tags: %w", err)
 		}
@@ -644,7 +649,7 @@ func toAPILogLine(line logreader.LogLine) *apigen.LogLine {
 }
 
 // findConfigByID looks up a deployment config from the store's snapshot by integer ID.
-func (h *Handler) findConfigByID(deploymentID int32) *apigen.DeploymentConfig {
+func (h *Handler) findConfigByID(deploymentID int32) *apigen.DeploymentConfig2 {
 	snapshot := h.Store.FetchDeploymentSnapshot(nil)
 	for _, dws := range snapshot {
 		if dws.Config.ID == deploymentID {
@@ -686,38 +691,55 @@ type deploymentConfigResolver interface {
 	ResolveConfig(id int32) (string, bool)
 }
 
-func (h *Handler) validateDeploymentSpec(spec *apigen.DeploymentSpec) (*apigen.DeploymentSpec, error) {
+func (h *Handler) validateDeploymentSpec(spec *apigen.DeploymentSpec2) (*apigen.DeploymentSpec2, error) {
 	return validateDeploymentSpecWithResolvers(spec, h.Store, h.Secrets, h.Store)
 }
 
-func validateDeploymentSpecWithAssets(spec *apigen.DeploymentSpec, assets deploymentAssetResolver) (*apigen.DeploymentSpec, error) {
+func validateDeploymentSpecWithAssets(spec *apigen.DeploymentSpec2, assets deploymentAssetResolver) (*apigen.DeploymentSpec2, error) {
 	return validateDeploymentSpecWithResolvers(spec, assets, nil, nil)
 }
 
-func validateDeploymentSpecWithResolvers(spec *apigen.DeploymentSpec, assets deploymentAssetResolver, secretStore deploymentSecretResolver, configs deploymentConfigResolver) (*apigen.DeploymentSpec, error) {
+func validateDeploymentSpecWithResolvers(spec *apigen.DeploymentSpec2, assets deploymentAssetResolver, secretStore deploymentSecretResolver, configs deploymentConfigResolver) (*apigen.DeploymentSpec2, error) {
 	if spec == nil {
-		return nil, invalidConfigErrf("prepare is required")
+		return nil, invalidConfigErrf("spec is required")
 	}
-	out := *spec
-	if err := validatePrepareConfig(&out.Prepare); err != nil {
+	out, err := cloneDeploymentSpec(spec)
+	if err != nil {
+		return nil, invalidConfigErrf("spec is invalid: %v", err)
+	}
+	if out.SystemdSpec != nil {
+		return nil, invalidConfigErrf("systemdSpec is internal-only")
+	}
+	if out.Container1Spec == nil {
+		return nil, invalidConfigErrf("container1Spec is required")
+	}
+	if out.Container2Spec != nil || out.Container3Spec != nil || out.MicroVmSpec != nil || out.VmSpec != nil {
+		return nil, invalidConfigErrf("only container1Spec is currently supported")
+	}
+	container := out.Container1Spec
+	if err := validateContainerSource(&container.Source); err != nil {
 		return nil, err
 	}
-	if err := validateRunnerConfig(&out.Runner, &out.Prepare, assets); err != nil {
+	if err := validateContainerSpec(container, assets); err != nil {
 		return nil, err
 	}
-	if err := validateContainerPairing(&out.Prepare, &out.Runner); err != nil {
+	if err := validateNetworkingConfig(&out.Networking); err != nil {
 		return nil, err
 	}
-	if err := validateNetworkingConfig(&out.Networking, &out.Runner); err != nil {
+	if err := validateRuntimeEnvRefs(out, secretStore, configs); err != nil {
 		return nil, err
 	}
-	if err := validateRuntimeEnvRefs(&out, secretStore, configs); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return out, nil
 }
 
-func validateNetworkingConfig(cfg *apigen.NetworkingConfig, runner *apigen.RunnerConfig) error {
+func cloneDeploymentSpec(spec *apigen.DeploymentSpec2) (*apigen.DeploymentSpec2, error) {
+	if spec == nil {
+		return nil, nil
+	}
+	return apigen.DecodeDeploymentSpec2(spec.Encode())
+}
+
+func validateNetworkingConfig(cfg *apigen.NetworkingConfig) error {
 	if cfg == nil {
 		return nil
 	}
@@ -843,13 +865,13 @@ func ingressHostname(value string) (string, bool) {
 	return hostname, true
 }
 
-func (h *Handler) validateNodeNetworkingClaims(nodeID, deploymentID int32, candidate *apigen.DeploymentSpec) error {
+func (h *Handler) validateNodeNetworkingClaims(nodeID, deploymentID int32, candidate *apigen.DeploymentSpec2) error {
 	if candidate == nil {
 		return nil
 	}
 	routes := map[ingressRouteKey]int32{}
 	tcpPorts := map[int32]int32{}
-	add := func(id int32, spec apigen.DeploymentSpec) error {
+	add := func(id int32, spec apigen.DeploymentSpec2) error {
 		if spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			return nil
 		}
@@ -916,227 +938,218 @@ func portForwardProtocolName(protocol apigen.PortForwardProtocol) string {
 	}
 }
 
-func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec, secretStore deploymentSecretResolver, configs deploymentConfigResolver) error {
-	if spec == nil || spec.Runner.Container.IsZero() || len(spec.Runner.Container.EnvVars) == 0 {
+func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec2, secretStore deploymentSecretResolver, configs deploymentConfigResolver) error {
+	if spec == nil || spec.Container() == nil || len(spec.Container().Runtime.EnvVars) == 0 {
 		return nil
 	}
-	cfg := &apigen.DeploymentConfig{Spec: *spec}
-	for _, id := range runtimeinputs.SecretRefs(cfg) {
-		if secretStore == nil {
-			return invalidConfigErrf("runner.container.envVars: secrets cannot be resolved here")
+	for _, value := range spec.Container().Runtime.EnvVars {
+		if value.SecretID != nil {
+			if secretStore == nil {
+				return invalidConfigErrf("container1Spec.runtime.envVars: secrets cannot be resolved here")
+			}
+			if _, ok := secretStore.MetaByID(*value.SecretID); !ok {
+				return invalidConfigErrf("container1Spec.runtime.envVars: unknown secret id %d", *value.SecretID)
+			}
 		}
-		if _, ok := secretStore.MetaByID(id); !ok {
-			return invalidConfigErrf("runner.container.envVars: unknown secret id %d", id)
-		}
-	}
-	for _, id := range runtimeinputs.ConfigRefs(cfg) {
-		if configs == nil {
-			return invalidConfigErrf("runner.container.envVars: configs cannot be resolved here")
-		}
-		if _, ok := configs.ResolveConfig(id); !ok {
-			return invalidConfigErrf("runner.container.envVars: unknown config id %d", id)
+		if value.ConfigID != nil {
+			if configs == nil {
+				return invalidConfigErrf("container1Spec.runtime.envVars: configs cannot be resolved here")
+			}
+			if _, ok := configs.ResolveConfig(*value.ConfigID); !ok {
+				return invalidConfigErrf("container1Spec.runtime.envVars: unknown config id %d", *value.ConfigID)
+			}
 		}
 	}
 	return nil
 }
 
-func (h *Handler) validateAddressEnvRefs(nodeID, deploymentID int32, spec *apigen.DeploymentSpec, snapshot []apigen.DeploymentWithStatus) error {
-	if spec == nil || spec.Runner.Container.IsZero() {
+func (h *Handler) validateAddressEnvRefs(nodeID, deploymentID int32, spec *apigen.DeploymentSpec2, snapshot []apigen.DeploymentWithStatus) error {
+	if spec == nil || spec.Container() == nil {
 		return nil
 	}
-	configs := make(map[int32]*apigen.DeploymentConfig, len(snapshot))
+	configs := make(map[int32]*apigen.DeploymentConfig2, len(snapshot))
 	for i := range snapshot {
 		configs[snapshot[i].Config.ID] = &snapshot[i].Config
 	}
-	for key, value := range spec.Runner.Container.EnvVars {
+	for key, value := range spec.Container().Runtime.EnvVars {
 		if value == nil || value.AddressDeploymentID == nil {
 			continue
 		}
 		targetID := *value.AddressDeploymentID
 		if targetID == deploymentID && deploymentID != 0 {
-			return invalidConfigErrf("runner.container.envVars.%s: deployment cannot reference its own address", key)
+			return invalidConfigErrf("container1Spec.runtime.envVars.%s: deployment cannot reference its own address", key)
 		}
 		target := configs[targetID]
 		if target == nil || target.Deleted {
-			return invalidConfigErrf("runner.container.envVars.%s: unknown address deployment id %d", key, targetID)
+			return invalidConfigErrf("container1Spec.runtime.envVars.%s: unknown address deployment id %d", key, targetID)
 		}
 		if target.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
-			return invalidConfigErrf("runner.container.envVars.%s: address deployment must use virtual networking", key)
+			return invalidConfigErrf("container1Spec.runtime.envVars.%s: address deployment must use virtual networking", key)
 		}
 		if value.AddressSpaceID == nil || target.Identity.SpaceID != *value.AddressSpaceID {
-			return invalidConfigErrf("runner.container.envVars.%s: address space does not match deployment", key)
+			return invalidConfigErrf("container1Spec.runtime.envVars.%s: address space does not match deployment", key)
 		}
 	}
 	return nil
 }
 
-func validatePrepareConfig(prepare *apigen.PrepareConfig) error {
-	if prepare == nil || prepare.IsZero() {
-		return invalidConfigErrf("prepare is required")
+func validateContainerSource(source *apigen.ContainerBundleSource) error {
+	if source == nil {
+		return invalidConfigErrf("container1Spec.source is required")
 	}
-	hasNixDocker := prepare.NixDockerBuild != nil
-	hasGH := prepare.GithubRelease != nil
-	hasContainer := prepare.ContainerImage != nil
-	set := 0
-	for _, b := range []bool{hasNixDocker, hasGH, hasContainer} {
-		if b {
-			set++
-		}
-	}
-	if set == 0 {
-		return invalidConfigErrf("prepare: one of nixDockerBuild or containerImage must be set")
-	}
-	if set > 1 {
-		return invalidConfigErrf("prepare: only one of nixDockerBuild or containerImage may be set")
-	}
-	if hasGH {
-		return invalidConfigErrf("prepare.githubRelease is internal-only")
+	hasNixDocker := source.NixDockerBuild != nil
+	hasRemoteImage := source.RemoteImage != nil
+	if hasNixDocker == hasRemoteImage {
+		return invalidConfigErrf("container1Spec.source: exactly one of nixDockerBuild or remoteImage must be set")
 	}
 	if hasNixDocker {
-		if prepare.NixDockerBuild.Repo == "" {
-			return invalidConfigErrf("prepare.nixDockerBuild: repo is required")
+		if source.NixDockerBuild.Repo == "" {
+			return invalidConfigErrf("container1Spec.source.nixDockerBuild: repo is required")
 		}
-		if prepare.NixDockerBuild.Flake == "" {
-			return invalidConfigErrf("prepare.nixDockerBuild: flake is required")
+		if source.NixDockerBuild.Flake == "" {
+			return invalidConfigErrf("container1Spec.source.nixDockerBuild: flake is required")
 		}
-		flakePath, err := gitrepo.CleanFlakePath(prepare.NixDockerBuild.Flake)
+		flakePath, err := gitrepo.CleanFlakePath(source.NixDockerBuild.Flake)
 		if err != nil {
-			return invalidConfigErrf("prepare.nixDockerBuild.flake: %v", err)
+			return invalidConfigErrf("container1Spec.source.nixDockerBuild.flake: %v", err)
 		}
-		prepare.NixDockerBuild.Flake = flakePath
-		target := prepare.NixDockerBuild.Target
+		source.NixDockerBuild.Flake = flakePath
+		target := source.NixDockerBuild.Target
 		if target != "" && (target != strings.TrimSpace(target) || !strings.HasPrefix(target, ".#")) {
-			return invalidConfigErrf("prepare.nixDockerBuild.target: must be a local flake selector starting with .#")
+			return invalidConfigErrf("container1Spec.source.nixDockerBuild.target: must be a local flake selector starting with .#")
 		}
 	}
-	if hasContainer {
-		if prepare.ContainerImage.Image == "" {
-			return invalidConfigErrf("prepare.containerImage: image is required")
+	if hasRemoteImage {
+		if source.RemoteImage.Image == "" {
+			return invalidConfigErrf("container1Spec.source.remoteImage: image is required")
 		}
-		if prepare.ContainerImage.Image == internaldeploy.NetproxyImage {
-			return invalidConfigErrf("prepare.containerImage: opendeploy-net image is internal-only")
+		if source.RemoteImage.Image == internaldeploy.NetproxyImage {
+			return invalidConfigErrf("container1Spec.source.remoteImage: opendeploy-net image is internal-only")
 		}
 	}
 	return nil
 }
 
-func validateNixDesiredVersion(spec *apigen.DeploymentSpec, desired apigen.DesiredState) error {
-	if spec == nil || spec.Prepare.NixDockerBuild == nil {
+func validateNixWorkloadVersion(spec *apigen.DeploymentSpec2) error {
+	if nixSource(spec) == nil {
 		return nil
 	}
-	if desired.Version == "" {
-		if desired.Running {
-			return invalidConfigErrf("desiredState.version is required for a running Nix deployment")
+	version := spec.WorkloadVersion()
+	if version == "" {
+		if spec.WorkloadRunning() {
+			return invalidConfigErrf("container1Spec.version is required for a running Nix deployment")
 		}
 		return nil
 	}
-	if err := gitrepo.ValidateFullCommitHash(desired.Version); err != nil {
-		return invalidConfigErrf("desiredState.version: %v", err)
+	if err := gitrepo.ValidateFullCommitHash(version); err != nil {
+		return invalidConfigErrf("container1Spec.version: %v", err)
 	}
 	return nil
 }
 
-func (h *Handler) verifyRunningNixSource(ctx apigen.Context, spec *apigen.DeploymentSpec, desired apigen.DesiredState) error {
-	nix := spec.Prepare.NixDockerBuild
+func (h *Handler) verifyRunningNixSource(ctx apigen.Context, spec *apigen.DeploymentSpec2) error {
+	nix := nixSource(spec)
 	if nix == nil {
 		return nil
 	}
 	if h.GitVersions == nil {
 		return apigen.NewApiErr("Nix source verification is not configured", "nix_source_verification_unavailable", http.StatusServiceUnavailable)
 	}
-	if _, err := h.GitVersions.ValidateNixSource(ctx, nix.Repo, desired.Version, nix.Flake); err != nil {
+	if _, err := h.GitVersions.ValidateNixSource(ctx, nix.Repo, spec.WorkloadVersion(), nix.Flake); err != nil {
 		return apigen.NewApiErr(fmt.Sprintf("Nix source verification failed: %v", err), "nix_source_verification_failed", http.StatusBadRequest)
 	}
 	return nil
 }
 
-func sameNixBuildConfig(a, b *apigen.NixDockerBuildConfig) bool {
+func nixSource(spec *apigen.DeploymentSpec2) *apigen.NixDockerBuild2 {
+	if spec == nil || spec.Container() == nil {
+		return nil
+	}
+	return spec.Container().Source.NixDockerBuild
+}
+
+func sameNixBuildConfig(a, b *apigen.NixDockerBuild2) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
 	return *a == *b
 }
 
-func sameDesiredVersionSource(a, b apigen.PrepareConfig) bool {
+func sameDesiredVersionSource(a, b *apigen.DeploymentSpec2) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	aContainer, bContainer := a.Container(), b.Container()
 	switch {
-	case a.NixDockerBuild != nil && b.NixDockerBuild != nil:
-		aFlake, aErr := gitrepo.CleanFlakePath(a.NixDockerBuild.Flake)
-		bFlake, bErr := gitrepo.CleanFlakePath(b.NixDockerBuild.Flake)
+	case aContainer != nil && bContainer != nil && aContainer.Source.NixDockerBuild != nil && bContainer.Source.NixDockerBuild != nil:
+		aNix, bNix := aContainer.Source.NixDockerBuild, bContainer.Source.NixDockerBuild
+		aFlake, aErr := gitrepo.CleanFlakePath(aNix.Flake)
+		bFlake, bErr := gitrepo.CleanFlakePath(bNix.Flake)
 		if aErr != nil || bErr != nil {
-			return a.NixDockerBuild.Repo == b.NixDockerBuild.Repo && a.NixDockerBuild.Flake == b.NixDockerBuild.Flake
+			return aNix.Repo == bNix.Repo && aNix.Flake == bNix.Flake
 		}
-		return a.NixDockerBuild.Repo == b.NixDockerBuild.Repo && aFlake == bFlake
-	case a.ContainerImage != nil && b.ContainerImage != nil:
-		return a.ContainerImage.Image == b.ContainerImage.Image
-	case a.GithubRelease != nil && b.GithubRelease != nil:
-		return a.GithubRelease.Repo == b.GithubRelease.Repo && a.GithubRelease.Asset == b.GithubRelease.Asset
+		return aNix.Repo == bNix.Repo && aFlake == bFlake
+	case aContainer != nil && bContainer != nil && aContainer.Source.RemoteImage != nil && bContainer.Source.RemoteImage != nil:
+		return aContainer.Source.RemoteImage.Image == bContainer.Source.RemoteImage.Image
+	case a.SystemdSpec != nil && b.SystemdSpec != nil && a.SystemdSpec.Source != nil && b.SystemdSpec.Source != nil:
+		return a.SystemdSpec.Source.Repo == b.SystemdSpec.Source.Repo && a.SystemdSpec.Source.Asset == b.SystemdSpec.Source.Asset
 	default:
 		return false
 	}
 }
 
-// validateContainerPairing enforces that public deployments only use the
-// container runner. An omitted runner means all-default container config.
-func validateContainerPairing(_ *apigen.PrepareConfig, runner *apigen.RunnerConfig) error {
-	if runner != nil && !runner.Systemd.IsZero() {
-		return invalidConfigErrf("runner.systemd is internal-only")
+func validateContainerSpec(container *apigen.ContainerSpec, assets deploymentAssetResolver) error {
+	if container == nil {
+		return invalidConfigErrf("container1Spec is required")
 	}
+	validateContainerCommand(&container.Runtime)
+	if err := validateEnvVars("container1Spec.runtime.envVars", container.Runtime.EnvVars); err != nil {
+		return err
+	}
+	if err := validateContainerUpgrade(container); err != nil {
+		return err
+	}
+	if err := validateContainerDevShmSizeKb(&container.Runtime); err != nil {
+		return err
+	}
+	if err := validateContainerFileDescriptorLimit(&container.Runtime); err != nil {
+		return err
+	}
+	if err := validateDefaultVolume(&container.Runtime.DefaultVolume); err != nil {
+		return err
+	}
+	if err := resolveEnvAssetRefs("container1Spec.runtime.envVars", container.Runtime.EnvVars, assets); err != nil {
+		return err
+	}
+	if err := validateCustomHostMounts(container.Runtime.Mounts); err != nil {
+		return err
+	}
+	if err := validateCrossDeploymentMounts(container.Runtime.CrossDeploymentMounts); err != nil {
+		return err
+	}
+	assetMounts, err := resolveAssetMounts(container.Runtime.AssetMounts, assets)
+	if err != nil {
+		return err
+	}
+	container.Runtime.AssetMounts = assetMounts
 	return nil
 }
 
-func validateRunnerConfig(runner *apigen.RunnerConfig, prepare *apigen.PrepareConfig, assets deploymentAssetResolver) error {
-	if runner == nil || runner.IsZero() {
-		return nil
-	}
-	hasSystemd := !runner.Systemd.IsZero()
-	hasContainer := !runner.Container.IsZero()
-	if hasSystemd {
-		return invalidConfigErrf("runner.systemd is internal-only")
-	}
-	if hasContainer {
-		validateContainerCommand(&runner.Container)
-		if err := validateEnvVars("runner.container.envVars", runner.Container.EnvVars); err != nil {
-			return err
-		}
-		if err := validateContainerUpgrade(&runner.Container); err != nil {
-			return err
-		}
-		if err := validateContainerDevShmSizeKb(&runner.Container); err != nil {
-			return err
-		}
-		if err := validateContainerFileDescriptorLimit(&runner.Container); err != nil {
-			return err
-		}
-		if err := resolveEnvAssetRefs("runner.container.envVars", runner.Container.EnvVars, assets); err != nil {
-			return err
-		}
-		if err := validateContainerMounts(runner.Container.Mounts); err != nil {
-			return err
-		}
-		assetMounts, err := resolveAssetMounts(runner.Container.AssetMounts, assets)
-		if err != nil {
-			return err
-		}
-		runner.Container.AssetMounts = assetMounts
-	}
-	return nil
-}
-
-func validateContainerCommand(cfg *apigen.ContainerRunnerConfig) {
-	if cfg == nil || len(cfg.Command) == 0 {
+func validateContainerCommand(cfg *apigen.ContainerRuntime) {
+	if cfg == nil || len(cfg.OverrideCommand) == 0 {
 		return
 	}
-	out := make([]string, 0, len(cfg.Command))
-	for _, arg := range cfg.Command {
+	out := make([]string, 0, len(cfg.OverrideCommand))
+	for _, arg := range cfg.OverrideCommand {
 		arg = strings.TrimSpace(arg)
 		if arg != "" {
 			out = append(out, arg)
 		}
 	}
-	cfg.Command = out
+	cfg.OverrideCommand = out
 }
 
-func validateContainerUpgrade(cfg *apigen.ContainerRunnerConfig) error {
+func validateContainerUpgrade(cfg *apigen.ContainerSpec) error {
 	if cfg == nil {
 		return nil
 	}
@@ -1146,69 +1159,111 @@ func validateContainerUpgrade(cfg *apigen.ContainerRunnerConfig) error {
 	case apigen.ContainerUpgradeStrategy_RECREATE:
 		cfg.ReadinessSignal = nil
 	case apigen.ContainerUpgradeStrategy_ROLLOVER:
-		if cfg.EnvVars != nil {
-			if _, ok := cfg.EnvVars["OPENDEPLOY_READINESS_SOCK_PATH"]; ok {
-				return invalidConfigErrf("runner.container.envVars: OPENDEPLOY_READINESS_SOCK_PATH is reserved for rollover readiness")
+		if cfg.Runtime.EnvVars != nil {
+			if _, ok := cfg.Runtime.EnvVars["OPENDEPLOY_READINESS_SOCK_PATH"]; ok {
+				return invalidConfigErrf("container1Spec.runtime.envVars: OPENDEPLOY_READINESS_SOCK_PATH is reserved for rollover readiness")
 			}
 		}
 		if cfg.ReadinessSignal == nil {
 			cfg.ReadinessSignal = &apigen.ContainerReadinessSignal{}
 		}
 		if cfg.ReadinessSignal.TimeoutSeconds < 0 {
-			return invalidConfigErrf("runner.container.readinessSignal.timeoutSeconds must be non-negative")
+			return invalidConfigErrf("container1Spec.readinessSignal.timeoutSeconds must be non-negative")
 		}
 	default:
-		return invalidConfigErrf("runner.container.upgradeStrategy: unsupported value %d", cfg.UpgradeStrategy)
+		return invalidConfigErrf("container1Spec.upgradeStrategy: unsupported value %d", cfg.UpgradeStrategy)
 	}
 	return nil
 }
 
-func validateContainerDevShmSizeKb(cfg *apigen.ContainerRunnerConfig) error {
+func validateContainerDevShmSizeKb(cfg *apigen.ContainerRuntime) error {
 	if cfg == nil || cfg.DevShmSizeKb == 0 {
 		return nil
 	}
 	if cfg.DevShmSizeKb < 0 {
-		return invalidConfigErrf("runner.container.devShmSizeKb must be non-negative")
+		return invalidConfigErrf("container1Spec.runtime.devShmSizeKb must be non-negative")
 	}
 	return nil
 }
 
-func validateContainerFileDescriptorLimit(cfg *apigen.ContainerRunnerConfig) error {
+func validateContainerFileDescriptorLimit(cfg *apigen.ContainerRuntime) error {
 	if cfg == nil || cfg.FileDescriptorLimit == 0 {
 		return nil
 	}
 	if cfg.FileDescriptorLimit < 0 {
-		return invalidConfigErrf("runner.container.fileDescriptorLimit must be non-negative")
+		return invalidConfigErrf("container1Spec.runtime.fileDescriptorLimit must be non-negative")
 	}
 	return nil
 }
 
-func validateContainerMounts(mounts []*apigen.ContainerMount) error {
+func validateDefaultVolume(mount *apigen.DefaultVolumeMount) error {
+	if mount == nil || mount.ContainerPath == "" {
+		return nil
+	}
+	path, err := cleanContainerPath(mount.ContainerPath)
+	if err != nil {
+		return invalidConfigErrf("container1Spec.runtime.defaultVolume.containerPath: %v", err)
+	}
+	mount.ContainerPath = path
+	return nil
+}
+
+func validateCustomHostMounts(mounts []*apigen.CustomHostMount) error {
 	for _, m := range mounts {
-		if m == nil || strings.TrimSpace(m.Host) == "" || strings.TrimSpace(m.Container) == "" {
-			return invalidConfigErrf("runner.container.mounts: host and container are both required")
+		if m == nil || strings.TrimSpace(m.HostPath) == "" || strings.TrimSpace(m.ContainerPath) == "" {
+			return invalidConfigErrf("container1Spec.runtime.mounts: hostPath and containerPath are both required")
 		}
-		host := strings.TrimSpace(m.Host)
-		container := strings.TrimSpace(m.Container)
+		host := strings.TrimSpace(m.HostPath)
+		container := strings.TrimSpace(m.ContainerPath)
 		if !filepath.IsAbs(host) {
-			return invalidConfigErrf("runner.container.mounts: host path must be absolute")
-		}
-		if !filepath.IsAbs(container) {
-			return invalidConfigErrf("runner.container.mounts: container path must be absolute")
+			return invalidConfigErrf("container1Spec.runtime.mounts: hostPath must be absolute")
 		}
 		if filepath.Clean(host) != host || host == "/" {
-			return invalidConfigErrf("runner.container.mounts: host path must be a clean absolute path")
+			return invalidConfigErrf("container1Spec.runtime.mounts: hostPath must be a clean absolute path")
 		}
-		if filepath.Clean(container) != container || container == "/" {
-			return invalidConfigErrf("runner.container.mounts: container path must be a clean absolute path")
+		cleaned, err := cleanContainerPath(container)
+		if err != nil {
+			return invalidConfigErrf("container1Spec.runtime.mounts.containerPath: %v", err)
 		}
 		if containerHostMountDenied(host) {
-			return invalidConfigErrf("runner.container.mounts: host path %q is not allowed", host)
+			return invalidConfigErrf("container1Spec.runtime.mounts: host path %q is not allowed", host)
 		}
-		m.Host = host
-		m.Container = container
+		if !validMountPermission(m.Permission) {
+			return invalidConfigErrf("container1Spec.runtime.mounts: permission is required")
+		}
+		m.HostPath = host
+		m.ContainerPath = cleaned
 	}
 	return nil
+}
+
+func validateCrossDeploymentMounts(mounts []*apigen.CrossDeploymentMount) error {
+	for _, mount := range mounts {
+		if mount == nil || mount.DeploymentID <= 0 {
+			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: deploymentId is required")
+		}
+		path, err := cleanContainerPath(mount.ContainerPath)
+		if err != nil {
+			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts.containerPath: %v", err)
+		}
+		if !validMountPermission(mount.Permission) {
+			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: permission is required")
+		}
+		mount.ContainerPath = path
+	}
+	return nil
+}
+
+func cleanContainerPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || path == "/" {
+		return "", fmt.Errorf("must be a clean absolute path other than root")
+	}
+	return path, nil
+}
+
+func validMountPermission(permission apigen.FilePermission) bool {
+	return permission == apigen.FilePermission_READ_WRITE || permission == apigen.FilePermission_READ_ONLY
 }
 
 var deniedContainerHostMountRoots = []string{
@@ -1233,9 +1288,6 @@ var deniedContainerHostMountRoots = []string{
 
 func containerHostMountDenied(host string) bool {
 	host = filepath.Clean(host)
-	if managedDefaultVolumeHost(host) {
-		return false
-	}
 	for _, root := range deniedContainerHostMountRoots {
 		if pathEqualOrUnder(host, root) {
 			return true
@@ -1244,51 +1296,27 @@ func containerHostMountDenied(host string) bool {
 	return false
 }
 
-// managedDefaultVolumeHost permits sharing the specific data-volume leaf that
-// the deployment-volume UI exposes, without allowing arbitrary OpenDeploy data.
-func managedDefaultVolumeHost(host string) bool {
-	_, ok := managedDefaultVolumeDeploymentID(host)
-	return ok
-}
-
-func managedDefaultVolumeDeploymentID(host string) (int32, bool) {
-	const root = "/var/lib/opendeploy-volumes/"
-	rel, ok := strings.CutPrefix(host, root)
-	if !ok {
-		return 0, false
-	}
-	id, volume, ok := strings.Cut(rel, "/")
-	if !ok || volume != "default" || id == "" {
-		return 0, false
-	}
-	deploymentID, err := strconv.ParseInt(id, 10, 32)
-	if err != nil || deploymentID <= 0 || strconv.FormatInt(deploymentID, 10) != id {
-		return 0, false
-	}
-	return int32(deploymentID), true
-}
-
-func (h *Handler) validateManagedVolumeMounts(spec *apigen.DeploymentSpec, nodeID, currentID int32) error {
-	if spec == nil || spec.Runner.Container.IsZero() {
+func (h *Handler) validateCrossDeploymentMountSources(spec *apigen.DeploymentSpec2, nodeID, currentID int32) error {
+	if spec == nil || spec.Container() == nil {
 		return nil
 	}
-	for _, mount := range spec.Runner.Container.Mounts {
+	for _, mount := range spec.Container().Runtime.CrossDeploymentMounts {
 		if mount == nil {
 			continue
 		}
-		volumeDeploymentID, ok := managedDefaultVolumeDeploymentID(mount.Host)
-		if !ok {
-			continue
+		if mount.DeploymentID == currentID && currentID != 0 {
+			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: a deployment cannot mount its own default volume")
 		}
-		if volumeDeploymentID == currentID && currentID != 0 {
-			return invalidConfigErrf("runner.container.mounts: a deployment cannot mount its own default volume")
-		}
-		source := h.findConfigByID(volumeDeploymentID)
+		source := h.findConfigByID(mount.DeploymentID)
 		if source == nil || source.Deleted {
-			return invalidConfigErrf("runner.container.mounts: source deployment %d does not exist", volumeDeploymentID)
+			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: source deployment %d does not exist", mount.DeploymentID)
 		}
 		if source.NodeID != nodeID {
-			return invalidConfigErrf("runner.container.mounts: source deployment %d is on a different node", volumeDeploymentID)
+			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: source deployment %d is on a different node", mount.DeploymentID)
+		}
+		container := source.Spec.Container()
+		if container == nil || container.Runtime.DefaultVolume.Disabled {
+			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: source deployment %d has no default volume", mount.DeploymentID)
 		}
 	}
 	return nil
@@ -1299,45 +1327,42 @@ func pathEqualOrUnder(path, root string) bool {
 	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
 }
 
-func resolveAssetMounts(in []*apigen.ContainerAssetMount, assets deploymentAssetResolver) ([]*apigen.ContainerAssetMount, error) {
+func resolveAssetMounts(in []*apigen.AssetMount2, assets deploymentAssetResolver) ([]*apigen.AssetMount2, error) {
 	if len(in) == 0 {
 		return nil, nil
 	}
 	if assets == nil {
-		return nil, invalidConfigErrf("runner.container.assetMounts: assets cannot be resolved here")
+		return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: assets cannot be resolved here")
 	}
-	out := make([]*apigen.ContainerAssetMount, 0, len(in))
+	out := make([]*apigen.AssetMount2, 0, len(in))
 	for _, m := range in {
 		if m == nil {
-			return nil, invalidConfigErrf("runner.container.assetMounts: asset and path are both required")
+			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: asset and path are both required")
 		}
-		path := strings.TrimSpace(m.Path)
+		path := strings.TrimSpace(m.ContainerPath)
 		if m.AssetID <= 0 || path == "" {
-			return nil, invalidConfigErrf("runner.container.assetMounts: assetId and path are both required")
+			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: assetId and path are both required")
 		}
 		if !filepath.IsAbs(path) {
-			return nil, invalidConfigErrf("runner.container.assetMounts: path must be absolute")
+			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: path must be absolute")
 		}
 		cleanPath := filepath.Clean(path)
 		if cleanPath != path || cleanPath == "/" || strings.HasSuffix(path, "/") {
-			return nil, invalidConfigErrf("runner.container.assetMounts: path must be an absolute file path")
+			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: path must be an absolute file path")
 		}
 		asset, ok := assets.GetAssetByID(m.AssetID)
 		if !ok {
-			return nil, invalidConfigErrf("runner.container.assetMounts: asset id %d not found", m.AssetID)
+			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: asset id %d not found", m.AssetID)
 		}
-		out = append(out, &apigen.ContainerAssetMount{
-			Asset:      asset.Key,
-			Path:       cleanPath,
-			Format:     asset.Format,
-			AssetID:    asset.ID,
-			Executable: m.Executable,
-		})
+		if m.Permission != apigen.FilePermission_READ_ONLY && m.Permission != apigen.FilePermission_READ_EXECUTE {
+			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: permission must be READ_ONLY or READ_EXECUTE")
+		}
+		out = append(out, &apigen.AssetMount2{AssetID: asset.ID, ContainerPath: cleanPath, Permission: m.Permission})
 	}
 	return out, nil
 }
 
-func resolveEnvAssetRefs(scope string, env map[string]*apigen.EnvVarValue, assets deploymentAssetResolver) error {
+func resolveEnvAssetRefs(scope string, env map[string]*apigen.EnvVarValue2, assets deploymentAssetResolver) error {
 	for key, value := range env {
 		if value.AssetID <= 0 {
 			continue
@@ -1357,9 +1382,9 @@ func resolveEnvAssetRefs(scope string, env map[string]*apigen.EnvVarValue, asset
 
 // validateEnvVars trims and validates env keys and typed values. Duplicate keys
 // after trimming are rejected so the resulting process environment is unambiguous.
-func validateEnvVars(scope string, in map[string]*apigen.EnvVarValue) error {
+func validateEnvVars(scope string, in map[string]*apigen.EnvVarValue2) error {
 	seen := make(map[string]struct{}, len(in))
-	out := make(map[string]*apigen.EnvVarValue, len(in))
+	out := make(map[string]*apigen.EnvVarValue2, len(in))
 	for rawKey, value := range in {
 		key := strings.TrimSpace(rawKey)
 		if key == "" {

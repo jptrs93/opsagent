@@ -37,6 +37,7 @@ func mustInit(dbPath, migrations string) *sql.DB {
 	}
 	migrateVersionedSecretConfigTables(db)
 	applyMigrations(db, migrations)
+	migrateDeploymentConfigsV2(db)
 	return db
 }
 

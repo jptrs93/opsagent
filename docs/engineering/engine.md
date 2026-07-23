@@ -23,16 +23,16 @@ Key files:
 
 ## Data Model
 
-Public deployment configs have two steps:
-
-- `prepare` produces a containerd image ref. Public variants are `nixDockerBuild` and `containerImage`.
-- `runner` runs the image. Public deployments use only `runner.container`; omitted runner config means all-default container settings.
+Public deployment configs currently select exactly one workload. A container
+workload is stored in `spec.container1Spec`, with its artifact source in
+`source`, process and mount settings in `runtime`, and desired `version` and
+`running` state on the workload itself. Public source variants are
+`nixDockerBuild` and `remoteImage`.
 
 Internal exceptions:
 
-- `prepare.githubRelease` is retained for the OpenDeploy self-deployment.
-- `runner.systemd` is retained for the OpenDeploy self-deployment.
-- Public create/update validation rejects both internal branches, and public state/history responses redact `runner.systemd` to an empty `runner` object.
+- `spec.systemdSpec` is retained for the OpenDeploy self-deployment.
+- Public create/update validation rejects the internal branch, and public state/history responses redact its `runtime` while retaining source and workload state.
 
 `PreparerStatus.Artifact` is the resolved runtime artifact. For public deployments this is always a local containerd image ref. For the internal system deployment it is the downloaded OpenDeploy binary path consumed by the internal systemd runner.
 
@@ -45,7 +45,7 @@ Internal exceptions:
 Decision flow:
 
 - `config.Deleted` — cancel preparer, stop runner, unsubscribe.
-- `!config.DesiredState.Running` — stop runner.
+- `!config.WorkloadRunning()` — stop runner.
 - `config.Version > currentPreparer.Version()` — cancel old prepare and start a new one.
 - `preparerReady(status, config.Version) && config.Version > currentRunner.Version()` — stop old runner and create a new one.
 - A persisted `READY` container image that is absent or not unpacked locally — prepare the same config version again without changing desired-state history.
@@ -53,15 +53,15 @@ Decision flow:
 
 `Stop()` is synchronous. The operator waits until the runner has stopped and written terminal status before moving on. Same-version artifact repair waits until the replacement preparation has published a non-`READY` transition before accepting its terminal `READY`, so a queued runner update carrying the stale preparer status cannot restart the missing image.
 
-Container deployments can opt into `runner.container.upgradeStrategy = ROLLOVER`. The operator starts an unpublished candidate runner for the prepared config version, waits for its readiness signal, promotes it, and stops the old runner. If the candidate exits, times out, or fails before readiness, the operator stops the candidate and keeps the old runner active. The default/unspecified strategy is `RECREATE`, which preserves the stop-then-start behavior above. Virtual networking can promote without host-port bind contention; host networking requires the workload to defer binding conflicting host ports until after readiness.
+Container deployments can opt into `container1Spec.upgradeStrategy = ROLLOVER`. The operator starts an unpublished candidate runner for the prepared config version, waits for its readiness signal, promotes it, and stops the old runner. If the candidate exits, times out, or fails before readiness, the operator stops the candidate and keeps the old runner active. The default/unspecified strategy is `RECREATE`, which preserves the stop-then-start behavior above. Virtual networking can promote without host-port bind contention; host networking requires the workload to defer binding conflicting host ports until after readiness.
 
 ## Preparers
 
-`nixdocker.Preparer` derives a node-local image ref from a cache schema version, the Nix repository/flake/target, the node platform, and `DesiredState.Version`. The ref is `opendeploy.local/nix-docker-build/v1/{sourceHash}:{commit}` and is intentionally independent of deployment ID and runtime-only config. After acquiring the node-wide Nix build semaphore, the preparer reuses that image when it is already present and unpacked in containerd. A cache miss asks `repo/git.Manager` to prepare a local checkout of the configured Git repo at the desired commit, verifies the configured repository-relative `flake.nix` path is still a regular file in that checkout, and runs `nix build --no-update-lock-file --no-link --print-out-paths -L` in the configured flake directory. An optional local `target` such as `.#radkitRpaClientImage` is appended to that command; an empty target builds the default output. It executes the resulting image stream and pipes it into `ctrd.Client.Import`. Bumping the cache schema version creates a new image namespace and lazily invalidates images produced under older preparer semantics.
+`nixdocker.Preparer` derives a node-local image ref from a cache schema version, the Nix repository/flake/target, the node platform, and `ContainerSpec.Version`. The ref is `opendeploy.local/nix-docker-build/v1/{sourceHash}:{commit}` and is intentionally independent of deployment ID and runtime-only config. After acquiring the node-wide Nix build semaphore, the preparer reuses that image when it is already present and unpacked in containerd. A cache miss asks `repo/git.Manager` to prepare a local checkout of the configured Git repo at the desired commit, verifies the configured repository-relative `flake.nix` path is still a regular file in that checkout, and runs `nix build --no-update-lock-file --no-link --print-out-paths -L` in the configured flake directory. An optional local `target` such as `.#radkitRpaClientImage` is appended to that command; an empty target builds the default output. It executes the resulting image stream and pipes it into `ctrd.Client.Import`. Bumping the cache schema version creates a new image namespace and lazily invalidates images produced under older preparer semantics.
 
 The primary validates every effective transition to a running Nix source before persisting it. The desired version must be a full commit hash; validation contacts the remote, fetches that exact repository-wide commit, verifies its identity, and checks the Git tree entry for the flake path is a regular file rather than a directory, symlink, submodule, or missing path. Branches and 25-entry commit lists are discovery data only. Stopped deployments retain structural validation but may save sources that are currently inaccessible. Checkout validation remains defense in depth on the machine that prepares the deployment. Validation, version discovery, and preparation share the Git manager and its bare partial metadata cache under the data directory.
 
-`containerimage.Preparer` pulls `prepare.containerImage.image` plus the desired tag/digest into containerd and unpacks it. Pulls are anonymous in the current phase.
+`containerimage.Preparer` pulls `container1Spec.source.remoteImage.image` plus the workload version tag/digest into containerd and unpacks it. Pulls are anonymous in the current phase.
 
 `githubrelease.Preparer` is internal-only. It downloads the executable used by the OpenDeploy self-deployment. `githubreleaseimage.Preparer` independently downloads the architecture-specific OpenDeploy binary and packages it into the internal `opendeploy-net` OCI image. Both consume the shared `repo/github.Client`; neither concrete preparer depends on the other.
 

@@ -30,23 +30,6 @@ ON CONFLICT(deployment_id) DO UPDATE SET
     desired_running = excluded.desired_running,
     deleted = excluded.deleted;
 
--- A secondary may miss a deletion while disconnected. Retire any stale local
--- row before caching the primary's new independent deployment with that key.
--- name: RetireOtherActiveDeploymentConfigsWithKey :exec
-UPDATE deployment_configs
-SET desired_running = 0,
-    deleted = 1
-WHERE deployment_id != ?
-  AND node_id = ?
-  AND space_id = ?
-  AND name = ?
-  AND deleted = 0;
-
--- name: UpdateDesiredState :exec
-UPDATE deployment_configs
-SET node_id = ?, desired_version = ?, desired_running = ?, version = version + 1, updated_at = ?, updated_by = ?
-WHERE deployment_id = ?;
-
 -- name: ListAllDeploymentConfigs :many
 SELECT deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by,
        spec_blob, desired_version, desired_running, deleted
@@ -85,8 +68,8 @@ FROM deployment_config_history
 WHERE deployment_id = ?
 ORDER BY version ASC;
 
--- name: GetConfigHistoryDesiredVersion :one
-SELECT desired_version
+-- name: GetConfigHistorySpecBlob :one
+SELECT spec_blob
 FROM deployment_config_history
 WHERE deployment_id = ? AND version = ?;
 

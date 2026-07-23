@@ -14,12 +14,13 @@ import (
 
 // Prepare pulls and unpacks a registry image for immediate use by the
 // container runner.
-func Prepare(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.PreparationStatus) {
-	version := dep.DesiredState.Version
+func Prepare(ctx context.Context, dep *apigen.DeploymentConfig2, log *preparerlog.Log) (string, apigen.PreparationStatus) {
+	container := dep.Spec.Container()
+	version := dep.WorkloadVersion()
 	logPath := dep.PrepareOutputPath()
-	ref, err := imageref.Ref(dep.Spec.Prepare.ContainerImage.Image, version)
+	ref, err := imageref.Ref(container.Source.RemoteImage.Image, version)
 	if err != nil {
-		slog.ErrorContext(ctx, "container image ref invalid", "image", dep.Spec.Prepare.ContainerImage.Image, "err", err)
+		slog.ErrorContext(ctx, "container image ref invalid", "image", container.Source.RemoteImage.Image, "err", err)
 		return "", apigen.PreparationStatus_FAILED
 	}
 	slog.InfoContext(ctx, "image pull starting", "ref", ref, "log_path", logPath)

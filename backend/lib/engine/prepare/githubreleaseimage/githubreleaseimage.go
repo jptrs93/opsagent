@@ -31,8 +31,8 @@ func New(releasesDir string, githubClient *github.Client) *Preparer {
 	}
 }
 
-func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.PreparationStatus) {
-	version := dep.DesiredState.Version
+func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig2, log *preparerlog.Log) (string, apigen.PreparationStatus) {
+	version := dep.WorkloadVersion()
 	if strings.TrimSpace(version) == "" {
 		log.Error("opendeploy-net requires an explicit desired version")
 		return "", apigen.PreparationStatus_FAILED

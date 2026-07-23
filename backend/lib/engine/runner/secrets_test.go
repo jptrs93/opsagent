@@ -24,7 +24,7 @@ func (f fakeRuntimeInputProvider) FetchConfigs(context.Context, []int32) (map[in
 }
 
 func TestResolveEnv(t *testing.T) {
-	in := map[string]*apigen.EnvVarValue{
+	in := map[string]*apigen.EnvVarValue2{
 		"PLAIN":   {Value: ptrString("value")},
 		"DB_PASS": {SecretID: ptrInt32(1)},
 		"TOKEN":   {SecretID: ptrInt32(2)},
@@ -36,8 +36,8 @@ func TestResolveEnv(t *testing.T) {
 		configs: map[int32]string{3: "db.local"},
 	}
 	inputs := runtimeinputs.New(nil, provider, provider)
-	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-		Container: apigen.ContainerRunnerConfig{EnvVars: in},
+	dep := &apigen.DeploymentConfig2{Spec: apigen.DeploymentSpec2{Container1Spec: &apigen.ContainerSpec{
+		Runtime: apigen.ContainerRuntime{EnvVars: in},
 	}}}
 	if err := inputs.EnsureSecretsReady(context.Background(), dep); err != nil {
 		t.Fatalf("EnsureSecretsReady: %v", err)
@@ -63,26 +63,26 @@ func TestResolveEnv(t *testing.T) {
 
 func TestResolveEnvUnknownSecretFailsClosed(t *testing.T) {
 	inputs := runtimeinputs.New(nil, nil, nil)
-	if _, err := resolveEnv(inputs, map[string]*apigen.EnvVarValue{"X": {SecretID: ptrInt32(1)}}); err == nil {
+	if _, err := resolveEnv(inputs, map[string]*apigen.EnvVarValue2{"X": {SecretID: ptrInt32(1)}}); err == nil {
 		t.Fatal("expected error for unknown secret")
 	}
 }
 
 func TestResolveEnvUnknownConfigFailsClosed(t *testing.T) {
 	inputs := runtimeinputs.New(nil, nil, nil)
-	if _, err := resolveEnv(inputs, map[string]*apigen.EnvVarValue{"X": {ConfigID: ptrInt32(1)}}); err == nil {
+	if _, err := resolveEnv(inputs, map[string]*apigen.EnvVarValue2{"X": {ConfigID: ptrInt32(1)}}); err == nil {
 		t.Fatal("expected error for unknown config")
 	}
 }
 
 func TestResolveEnvRejectsAmbiguousValue(t *testing.T) {
-	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{"X": {Value: ptrString("plain"), SecretID: ptrInt32(1)}}); err == nil {
+	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue2{"X": {Value: ptrString("plain"), SecretID: ptrInt32(1)}}); err == nil {
 		t.Fatal("expected error for ambiguous env value")
 	}
 }
 
 func TestResolveEnvRejectsUnresolvedAsset(t *testing.T) {
-	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{"X": {Asset: "app.conf"}}); err == nil {
+	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue2{"X": {Asset: "app.conf"}}); err == nil {
 		t.Fatal("expected error for unresolved asset")
 	}
 }
@@ -95,7 +95,7 @@ func TestResolveEnvAddressRefDerivesStableAddress(t *testing.T) {
 
 	deploymentID := int32(7)
 	spaceID := int32(5)
-	out, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{
+	out, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue2{
 		"UPSTREAM_ADDR": {AddressDeploymentID: &deploymentID, AddressSpaceID: &spaceID},
 	})
 	if err != nil {
@@ -113,7 +113,7 @@ func TestResolveEnvAddressRefDerivesStableAddress(t *testing.T) {
 
 func TestResolveEnvAddressRefFailsClosed(t *testing.T) {
 	deploymentID := int32(7)
-	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{
+	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue2{
 		"UPSTREAM_ADDR": {AddressDeploymentID: &deploymentID},
 	}); err == nil {
 		t.Fatal("expected incomplete address reference to fail")
@@ -121,11 +121,11 @@ func TestResolveEnvAddressRefFailsClosed(t *testing.T) {
 }
 
 func TestContainerMountsIncludesImplicitAssetEnvMount(t *testing.T) {
-	dep := &apigen.DeploymentConfig{
-		Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{
-				DisableDataVolume: true,
-				EnvVars: map[string]*apigen.EnvVarValue{
+	dep := &apigen.DeploymentConfig2{
+		Spec: apigen.DeploymentSpec2{Container1Spec: &apigen.ContainerSpec{
+			Runtime: apigen.ContainerRuntime{
+				DefaultVolume: apigen.DefaultVolumeMount{Disabled: true},
+				EnvVars: map[string]*apigen.EnvVarValue2{
 					"APP_CONFIG":   {Asset: "app.conf", AssetID: 12},
 					"APP_CONFIG_2": {Asset: "app.conf", AssetID: 12},
 				},

@@ -60,7 +60,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	runtimeInputs := runtimeinputs.New(assetProvider, secretProvider, configProvider)
 	gitManager := git.NewManager(cfg.GitCacheDir, githubCredentials)
 	githubClient := githubrepo.NewClient(githubCredentials)
-	githubReleasePreparer := githubrelease.New(cfg.ReleasesDir, githubClient, githubCredentials)
+	githubReleasePreparer := githubrelease.New(cfg.ReleasesDir, githubClient)
 	nixDockerPreparer := nixdocker.New(gitManager)
 	githubReleaseImagePreparer := githubreleaseimage.New(cfg.ReleasesDir, githubClient)
 
@@ -71,7 +71,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 		NixDocker:          nixDockerPreparer,
 		GithubReleaseImage: githubReleaseImagePreparer,
 		RuntimeInputs:      runtimeInputs,
-	}.RunAll(func(dep apigen.DeploymentConfig) bool { return dep.NodeID == cfg.NodeID })
+	}.RunAll(func(dep apigen.DeploymentConfig2) bool { return dep.NodeID == cfg.NodeID })
 
 	runPrimaryConnLoop(ctx, cfg, store, primaryHTTPClient)
 }

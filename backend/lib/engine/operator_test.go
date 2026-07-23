@@ -53,7 +53,7 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 	tests := []struct {
 		name      string
 		status    apigen.PreparerStatus
-		configure func(*apigen.DeploymentConfig)
+		configure func(*apigen.DeploymentConfig2)
 	}{
 		{
 			name:   "ready artifact is reused",
@@ -62,8 +62,13 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 		{
 			name:   "installed system deployment is reused",
 			status: apigen.PreparerStatus{},
-			configure: func(dep *apigen.DeploymentConfig) {
-				dep.Spec.Runner.Systemd = apigen.SystemdRunnerConfig{Name: "opendeploy.service"}
+			configure: func(dep *apigen.DeploymentConfig2) {
+				dep.Spec.Container1Spec = nil
+				dep.Spec.SystemdSpec = &apigen.SystemdSpec{
+					Source:  &apigen.GithubRelease{},
+					Runtime: &apigen.SystemdRuntime{Name: "opendeploy.service"},
+					Version: "v1",
+				}
 			},
 		},
 	}
@@ -75,11 +80,11 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 				RuntimeInputs: runtimeinputs.New(nil, nil, nil),
 				ImageReady:    func(context.Context, string) error { return nil },
 			}
-			dep := &apigen.DeploymentConfig{
-				Version:      4,
-				DesiredState: apigen.DesiredState{Version: "v1"},
-				Spec: apigen.DeploymentSpec{Prepare: apigen.PrepareConfig{
-					NixDockerBuild: &apigen.NixDockerBuildConfig{},
+			dep := &apigen.DeploymentConfig2{
+				Version: 4,
+				Spec: apigen.DeploymentSpec2{Container1Spec: &apigen.ContainerSpec{
+					Source:  apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild2{}},
+					Version: "v1",
 				}},
 			}
 			if tt.configure != nil {
@@ -101,15 +106,17 @@ func TestStartPreparerStopsBeforeArtifactWhenRuntimeInputsFail(t *testing.T) {
 	defer func() { ainit.StaticConfig.PrepareOutputDir = oldOutputDir }()
 
 	secretID := int32(7)
-	dep := &apigen.DeploymentConfig{
-		ID:           11,
-		Version:      3,
-		DesiredState: apigen.DesiredState{Version: "v1"},
-		Spec: apigen.DeploymentSpec{
-			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "registry.example/app"}},
-			Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
-				"TOKEN": {SecretID: &secretID},
-			}}},
+	dep := &apigen.DeploymentConfig2{
+		ID:      11,
+		Version: 3,
+		Spec: apigen.DeploymentSpec2{
+			Container1Spec: &apigen.ContainerSpec{
+				Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}},
+				Version: "v1",
+				Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue2{
+					"TOKEN": {SecretID: &secretID},
+				}},
+			},
 		},
 	}
 	store := &recordingOperatorStore{}
@@ -145,12 +152,11 @@ func TestReAttachPreparerRepreparesUnavailableImage(t *testing.T) {
 			return errors.New("image unavailable")
 		},
 	}
-	dep := &apigen.DeploymentConfig{
-		ID:           12,
-		Version:      4,
-		DesiredState: apigen.DesiredState{Version: "v1", Running: true},
-		Spec: apigen.DeploymentSpec{
-			Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+	dep := &apigen.DeploymentConfig2{
+		ID:      12,
+		Version: 4,
+		Spec: apigen.DeploymentSpec2{
+			Container1Spec: &apigen.ContainerSpec{Version: "v1", Running: true},
 		},
 	}
 

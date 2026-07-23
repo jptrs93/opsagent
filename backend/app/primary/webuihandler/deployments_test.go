@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +24,7 @@ import (
 const testNixCommit = "0123456789abcdef0123456789abcdef01234567"
 const testNixCommit2 = "89abcdef0123456789abcdef0123456789abcdef"
 
-func findSystemDeployment(t *testing.T, store *sqlite.PrimaryStorage, nodeID int32) *apigen.DeploymentConfig {
+func findSystemDeployment(t *testing.T, store *sqlite.PrimaryStorage, nodeID int32) *apigen.DeploymentConfig2 {
 	t.Helper()
 	for _, cfg := range store.ListActiveDeploymentConfigs() {
 		if sqlite.IsSystemDeploymentConfig(cfg) && cfg.NodeID == nodeID {
@@ -36,9 +35,9 @@ func findSystemDeployment(t *testing.T, store *sqlite.PrimaryStorage, nodeID int
 	return nil
 }
 
-func createTestDeployment(store *sqlite.PrimaryStorage, nodeIdentifier string, identity apigen.DeploymentIdentity, spec *apigen.DeploymentSpec, desired apigen.DesiredState) *apigen.DeploymentConfig {
+func createTestDeployment(store *sqlite.PrimaryStorage, nodeIdentifier string, identity apigen.DeploymentIdentity, spec *apigen.DeploymentSpec2) *apigen.DeploymentConfig2 {
 	node := store.EnsurePrimaryNode(nodeIdentifier, nodeIdentifier)
-	return store.MustCreateDeploymentForNode(apigen.Context{}, &identity, node.ID, spec, desired)
+	return store.MustCreateDeploymentForNode(apigen.Context{}, &identity, node.ID, spec)
 }
 
 func hostNetworking() apigen.NetworkingConfig {
@@ -49,58 +48,65 @@ func virtualNetworking() apigen.NetworkingConfig {
 	return apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}
 }
 
+func remoteDeploymentSpec(image string, networking apigen.NetworkingConfig) apigen.DeploymentSpec2 {
+	return apigen.DeploymentSpec2{
+		Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: image}}},
+		Networking:     networking,
+	}
+}
+
 func TestValidateDeploymentSpecNixDockerBuild(t *testing.T) {
-	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{
-			NixDockerBuild: &apigen.NixDockerBuildConfig{
+	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec2{
+		Container1Spec: &apigen.ContainerSpec{
+			Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild2{
 				Repo:   "github.com/acme/web",
 				Flake:  "nix/web/flake.nix",
 				Target: ".#webImage",
-			},
-		},
-		Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{User: "1000"},
+			}},
+			Runtime: apigen.ContainerRuntime{User: "1000"},
 		},
 		Networking: hostNetworking(),
 	}, nil)
 	if err != nil {
 		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
 	}
-	if spec.Prepare.NixDockerBuild == nil {
+	if spec.Container1Spec.Source.NixDockerBuild == nil {
 		t.Fatal("nixDockerBuild is nil")
 	}
-	if spec.Prepare.NixDockerBuild.Repo != "github.com/acme/web" {
-		t.Fatalf("repo = %q", spec.Prepare.NixDockerBuild.Repo)
+	if spec.Container1Spec.Source.NixDockerBuild.Repo != "github.com/acme/web" {
+		t.Fatalf("repo = %q", spec.Container1Spec.Source.NixDockerBuild.Repo)
 	}
-	if spec.Prepare.NixDockerBuild.Flake != "nix/web/flake.nix" {
-		t.Fatalf("flake = %q", spec.Prepare.NixDockerBuild.Flake)
+	if spec.Container1Spec.Source.NixDockerBuild.Flake != "nix/web/flake.nix" {
+		t.Fatalf("flake = %q", spec.Container1Spec.Source.NixDockerBuild.Flake)
 	}
-	if spec.Prepare.NixDockerBuild.Target != ".#webImage" {
-		t.Fatalf("target = %q", spec.Prepare.NixDockerBuild.Target)
+	if spec.Container1Spec.Source.NixDockerBuild.Target != ".#webImage" {
+		t.Fatalf("target = %q", spec.Container1Spec.Source.NixDockerBuild.Target)
 	}
-	if spec.Runner.Container.User != "1000" {
-		t.Fatalf("container user = %q", spec.Runner.Container.User)
+	if spec.Container1Spec.Runtime.User != "1000" {
+		t.Fatalf("container user = %q", spec.Container1Spec.Runtime.User)
 	}
 }
 
 func TestValidateDeploymentSpecCanonicalizesSafeFlakePath(t *testing.T) {
-	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare:    apigen.PrepareConfig{NixDockerBuild: &apigen.NixDockerBuildConfig{Repo: "github.com/acme/web", Flake: "./nix/../flake.nix"}},
-		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec2{
+		Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{
+			NixDockerBuild: &apigen.NixDockerBuild2{Repo: "github.com/acme/web", Flake: "./nix/../flake.nix"},
+		}},
 		Networking: hostNetworking(),
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := spec.Prepare.NixDockerBuild.Flake; got != "flake.nix" {
+	if got := spec.Container1Spec.Source.NixDockerBuild.Flake; got != "flake.nix" {
 		t.Fatalf("flake = %q, want flake.nix", got)
 	}
 
 	for _, flake := range []string{"/flake.nix", "../flake.nix", "nix/default.nix"} {
 		t.Run(flake, func(t *testing.T) {
-			_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-				Prepare:    apigen.PrepareConfig{NixDockerBuild: &apigen.NixDockerBuildConfig{Repo: "github.com/acme/web", Flake: flake}},
-				Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+			_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec2{
+				Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{
+					NixDockerBuild: &apigen.NixDockerBuild2{Repo: "github.com/acme/web", Flake: flake},
+				}},
 				Networking: hostNetworking(),
 			}, nil)
 			if err == nil {
@@ -151,8 +157,8 @@ func TestDeploymentCreateEnforcesRunningNixSource(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.DesiredState.Running || len(provider.validateCalls) != 0 {
-			t.Fatalf("config/provider calls = %+v/%v", cfg.DesiredState, provider.validateCalls)
+		if cfg.WorkloadRunning() || len(provider.validateCalls) != 0 {
+			t.Fatalf("config/provider calls = %+v/%v", cfg.Spec.Container1Spec, provider.validateCalls)
 		}
 	})
 
@@ -162,7 +168,7 @@ func TestDeploymentCreateEnforcesRunningNixSource(t *testing.T) {
 		provider := &fakeGitSourceProvider{}
 		h := &Handler{Store: store, GitVersions: provider}
 		req := nixCreateRequest(node.ID, "web", false)
-		req.DesiredState.Version = "main"
+		req.Spec.Container1Spec.Version = "main"
 
 		if _, err := h.PostV1DeploymentCreate(apigen.Context{Ctx: context.Background()}, req); err == nil {
 			t.Fatal("expected mutable version rejection")
@@ -178,14 +184,14 @@ func TestDeploymentCreateEnforcesRunningNixSource(t *testing.T) {
 		provider := &fakeGitSourceProvider{}
 		h := &Handler{Store: store, GitVersions: provider}
 		req := nixCreateRequest(node.ID, "web", false)
-		req.DesiredState.Version = ""
+		req.Spec.Container1Spec.Version = ""
 
 		cfg, err := h.PostV1DeploymentCreate(apigen.Context{Ctx: context.Background()}, req)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.DesiredState.Version != "" || cfg.DesiredState.Running {
-			t.Fatalf("desired state = %+v, want stopped with no version", cfg.DesiredState)
+		if cfg.WorkloadVersion() != "" || cfg.WorkloadRunning() {
+			t.Fatalf("workload state = %+v, want stopped with no version", cfg.Spec.Container1Spec)
 		}
 		if len(provider.validateCalls) != 0 || len(store.ListActiveDeploymentConfigs()) != 1 {
 			t.Fatalf("provider calls/deployments = %v/%d", provider.validateCalls, len(store.ListActiveDeploymentConfigs()))
@@ -202,7 +208,7 @@ func TestDeploymentUpdateEnforcesEffectiveRunningNixTransitions(t *testing.T) {
 			t.Fatal("expected source verification failure")
 		}
 		unchanged := h.findConfigByID(cfg.ID)
-		if unchanged.Version != cfg.Version || unchanged.DesiredState.Running {
+		if unchanged.Version != cfg.Version || unchanged.WorkloadRunning() {
 			t.Fatalf("deployment changed after failed verification: %+v", unchanged)
 		}
 		provider.sourceErr = nil
@@ -225,6 +231,24 @@ func TestDeploymentUpdateEnforcesEffectiveRunningNixTransitions(t *testing.T) {
 			t.Fatal(err)
 		}
 		if len(provider.validateCalls) != 1 || provider.validateCalls[0].commit != testNixCommit2 {
+			t.Fatalf("source calls = %+v", provider.validateCalls)
+		}
+	})
+
+	t.Run("stop preserves persisted version instead of request spec version", func(t *testing.T) {
+		h, cfg, provider := newNixDeploymentHandler(t, true)
+		provider.validateCalls = nil
+		spec := nixDeploymentSpecWithState("github.com/acme/app", "flake.nix", "main", true)
+		if _, err := h.PostV1DeploymentUpdate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentUpdateRequest{
+			DeploymentID: cfg.ID, Version: cfg.Version + 1, Stop: true, Spec: spec,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		updated := h.findConfigByID(cfg.ID)
+		if updated.WorkloadVersion() != testNixCommit || updated.WorkloadRunning() {
+			t.Fatalf("workload state = %q/%v, want %q/false", updated.WorkloadVersion(), updated.WorkloadRunning(), testNixCommit)
+		}
+		if len(provider.validateCalls) != 0 {
 			t.Fatalf("source calls = %+v", provider.validateCalls)
 		}
 	})
@@ -254,7 +278,7 @@ func TestDeploymentUpdateEnforcesEffectiveRunningNixTransitions(t *testing.T) {
 			t.Fatal(err)
 		}
 		stopped := h.findConfigByID(cfg.ID)
-		spec = nixDeploymentSpec("github.com/acme/still-inaccessible", "flake.nix")
+		spec = nixDeploymentSpecWithState("github.com/acme/still-inaccessible", "flake.nix", "", false)
 		if _, err := h.PostV1DeploymentUpdate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentUpdateRequest{
 			DeploymentID: cfg.ID, Version: stopped.Version + 1, Spec: spec,
 		}); err != nil {
@@ -263,8 +287,8 @@ func TestDeploymentUpdateEnforcesEffectiveRunningNixTransitions(t *testing.T) {
 		if len(provider.validateCalls) != 0 {
 			t.Fatalf("source calls = %+v", provider.validateCalls)
 		}
-		if updated := h.findConfigByID(cfg.ID); updated.DesiredState.Version != "" || updated.DesiredState.Running {
-			t.Fatalf("desired state after stopped source change = %+v, want empty stopped version", updated.DesiredState)
+		if updated := h.findConfigByID(cfg.ID); updated.WorkloadVersion() != "" || updated.WorkloadRunning() {
+			t.Fatalf("workload state after stopped source change = %+v, want empty stopped version", updated.Spec.Container1Spec)
 		}
 	})
 
@@ -296,12 +320,14 @@ func TestDeploymentUpdateEnforcesEffectiveRunningNixTransitions(t *testing.T) {
 		cfg, err := h.PostV1DeploymentCreate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentCreateRequest{
 			Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "web"},
 			NodeID:   node.ID,
-			Spec: apigen.DeploymentSpec{
-				Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-				Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+			Spec: apigen.DeploymentSpec2{
+				Container1Spec: &apigen.ContainerSpec{
+					Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "nginx"}},
+					Version: "latest",
+					Running: true,
+				},
 				Networking: hostNetworking(),
 			},
-			DesiredState: apigen.DesiredState{Version: "latest", Running: true},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -315,8 +341,8 @@ func TestDeploymentUpdateEnforcesEffectiveRunningNixTransitions(t *testing.T) {
 			t.Fatal(err)
 		}
 		updated := h.findConfigByID(cfg.ID)
-		if updated.DesiredState.Version != "" || updated.DesiredState.Running {
-			t.Fatalf("desired state = %+v, want stopped with empty version", updated.DesiredState)
+		if updated.WorkloadVersion() != "" || updated.WorkloadRunning() {
+			t.Fatalf("workload state = %+v, want stopped with empty version", updated.Spec.Container1Spec)
 		}
 		if len(provider.validateCalls) != 0 {
 			t.Fatalf("source calls = %+v", provider.validateCalls)
@@ -390,13 +416,13 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 	provider := versionprovider.NewGithubReleaseVersionProviderWithClient(client)
 	tests := []struct {
 		name             string
-		createDeployment func(*testing.T, *sqlite.PrimaryStorage) *apigen.DeploymentConfig
+		createDeployment func(*testing.T, *sqlite.PrimaryStorage) *apigen.DeploymentConfig2
 		provider         *versionprovider.GithubReleaseVersionProvider
 		wantInternal     string
 	}{
 		{
 			name: "opendeploy-net special branch",
-			createDeployment: func(_ *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig {
+			createDeployment: func(_ *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig2 {
 				node := store.EnsurePrimaryNode("primary", "primary")
 				return store.EnsureNetproxyDeployment(node.ID, "v1.2.3")
 			},
@@ -405,7 +431,7 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 		},
 		{
 			name: "GitHub release config branch",
-			createDeployment: func(t *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig {
+			createDeployment: func(t *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig2 {
 				node := store.EnsurePrimaryNode("primary", "primary")
 				store.EnsureSystemDeployment(node.ID, "v1.2.3")
 				return findSystemDeployment(t, store, node.ID)
@@ -415,7 +441,7 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 		},
 		{
 			name: "unconfigured provider",
-			createDeployment: func(t *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig {
+			createDeployment: func(t *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig2 {
 				node := store.EnsurePrimaryNode("primary", "primary")
 				store.EnsureSystemDeployment(node.ID, "v1.2.3")
 				return findSystemDeployment(t, store, node.ID)
@@ -451,22 +477,28 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 
 func nixCreateRequest(nodeID int32, name string, running bool) *apigen.DeploymentCreateRequest {
 	return &apigen.DeploymentCreateRequest{
-		Identity:     apigen.DeploymentIdentity{SpaceID: 1, Name: name},
-		NodeID:       nodeID,
-		Spec:         nixDeploymentSpec("github.com/acme/app", "flake.nix"),
-		DesiredState: apigen.DesiredState{Version: testNixCommit, Running: running},
+		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: name},
+		NodeID:   nodeID,
+		Spec:     nixDeploymentSpecWithState("github.com/acme/app", "flake.nix", testNixCommit, running),
 	}
 }
 
-func nixDeploymentSpec(repo, flake string) apigen.DeploymentSpec {
-	return apigen.DeploymentSpec{
-		Prepare:    apigen.PrepareConfig{NixDockerBuild: &apigen.NixDockerBuildConfig{Repo: repo, Flake: flake}},
-		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
+func nixDeploymentSpec(repo, flake string) apigen.DeploymentSpec2 {
+	return nixDeploymentSpecWithState(repo, flake, testNixCommit, true)
+}
+
+func nixDeploymentSpecWithState(repo, flake, version string, running bool) apigen.DeploymentSpec2 {
+	return apigen.DeploymentSpec2{
+		Container1Spec: &apigen.ContainerSpec{
+			Source:  apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild2{Repo: repo, Flake: flake}},
+			Version: version,
+			Running: running,
+		},
 		Networking: hostNetworking(),
 	}
 }
 
-func newNixDeploymentHandler(t *testing.T, running bool) (*Handler, *apigen.DeploymentConfig, *fakeGitSourceProvider) {
+func newNixDeploymentHandler(t *testing.T, running bool) (*Handler, *apigen.DeploymentConfig2, *fakeGitSourceProvider) {
 	t.Helper()
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("primary", "primary")
@@ -480,11 +512,10 @@ func newNixDeploymentHandler(t *testing.T, running bool) (*Handler, *apigen.Depl
 }
 
 func TestValidateDeploymentSpecRejectsNonLocalNixTarget(t *testing.T) {
-	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{NixDockerBuild: &apigen.NixDockerBuildConfig{
-			Repo: "github.com/acme/web", Flake: "flake.nix", Target: "github:acme/web#image",
+	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec2{
+		Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{
+			NixDockerBuild: &apigen.NixDockerBuild2{Repo: "github.com/acme/web", Flake: "flake.nix", Target: "github:acme/web#image"},
 		}},
-		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
 		Networking: hostNetworking(),
 	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "local flake selector") {
@@ -527,29 +558,19 @@ func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
 			Format:    "nginx",
 		},
 	}
-	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{
-			ContainerImage: &apigen.ContainerImageConfig{Image: "nginx:latest"},
-		},
-		Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{
-				AssetMounts: []*apigen.ContainerAssetMount{{
-					AssetID:    42,
-					Path:       "/etc/nginx/nginx.conf",
-					Executable: true,
-				}},
-			},
-		},
-		Networking: hostNetworking(),
-	}, assets)
+	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
+	input.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount2{{
+		AssetID: 42, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_EXECUTE,
+	}}
+	spec, err := validateDeploymentSpecWithAssets(&input, assets)
 	if err != nil {
 		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
 	}
-	mounts := spec.Runner.Container.AssetMounts
+	mounts := spec.Container1Spec.Runtime.AssetMounts
 	if len(mounts) != 1 {
 		t.Fatalf("asset mounts len = %d", len(mounts))
 	}
-	if mounts[0].AssetID != 42 || mounts[0].Asset != "nginx.conf" || mounts[0].Path != "/etc/nginx/nginx.conf" || mounts[0].Format != "nginx" || !mounts[0].Executable {
+	if mounts[0].AssetID != 42 || mounts[0].ContainerPath != "/etc/nginx/nginx.conf" || mounts[0].Permission != apigen.FilePermission_READ_EXECUTE {
 		t.Fatalf("asset mount not resolved: %+v", mounts[0])
 	}
 }
@@ -562,162 +583,127 @@ func TestValidateDeploymentSpecResolvesEnvAssetRefs(t *testing.T) {
 			Version: 7,
 		},
 	}
-	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{
-			ContainerImage: &apigen.ContainerImageConfig{Image: "nginx:latest"},
-		},
-		Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{
-				EnvVars: map[string]*apigen.EnvVarValue{
-					"APP_CONFIG": {AssetID: 51},
-				},
-			},
-		},
-		Networking: hostNetworking(),
-	}, assets)
+	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{"APP_CONFIG": {AssetID: 51}}
+	spec, err := validateDeploymentSpecWithAssets(&input, assets)
 	if err != nil {
 		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
 	}
-	value := spec.Runner.Container.EnvVars["APP_CONFIG"]
+	value := spec.Container1Spec.Runtime.EnvVars["APP_CONFIG"]
 	if value.Asset != "app.conf" || value.AssetID != 51 {
 		t.Fatalf("env asset ref not resolved: %+v", value)
 	}
 }
 
 func TestValidateDeploymentSpecRejectsUnknownEnvAssetRef(t *testing.T) {
-	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{
-			ContainerImage: &apigen.ContainerImageConfig{Image: "nginx:latest"},
-		},
-		Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{
-				EnvVars: map[string]*apigen.EnvVarValue{
-					"APP_CONFIG": {AssetID: 999},
-				},
-			},
-		},
-		Networking: hostNetworking(),
-	}, fakeAssetResolver{})
+	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{"APP_CONFIG": {AssetID: 999}}
+	_, err := validateDeploymentSpecWithAssets(&input, fakeAssetResolver{})
 	if err == nil || !strings.Contains(err.Error(), `asset id 999 not found`) {
 		t.Fatalf("err = %v, want unknown asset", err)
 	}
 }
 
 func TestValidateDeploymentSpecAcceptsHostMounts(t *testing.T) {
-	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{
-			ContainerImage: &apigen.ContainerImageConfig{Image: "nginx:latest"},
-		},
-		Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{
-				Mounts: []*apigen.ContainerMount{{
-					Host:      " /home/ubuntu/coflip-server/data ",
-					Container: " /data ",
-					Readonly:  false,
-				}},
-			},
-		},
-		Networking: hostNetworking(),
-	}, nil)
+	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
+	input.Container1Spec.Runtime.Mounts = []*apigen.CustomHostMount{{
+		HostPath: " /home/ubuntu/coflip-server/data ", ContainerPath: " /data ", Permission: apigen.FilePermission_READ_WRITE,
+	}}
+	spec, err := validateDeploymentSpecWithAssets(&input, nil)
 	if err != nil {
 		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
 	}
-	mount := spec.Runner.Container.Mounts[0]
-	if mount.Host != "/home/ubuntu/coflip-server/data" || mount.Container != "/data" || mount.Readonly {
+	mount := spec.Container1Spec.Runtime.Mounts[0]
+	if mount.HostPath != "/home/ubuntu/coflip-server/data" || mount.ContainerPath != "/data" || mount.Permission != apigen.FilePermission_READ_WRITE {
 		t.Fatalf("mount not normalized: %+v", mount)
 	}
 }
 
+func TestValidateDeploymentSpecValidatesV2Mounts(t *testing.T) {
+	t.Run("default volume path", func(t *testing.T) {
+		input := remoteDeploymentSpec("nginx", hostNetworking())
+		input.Container1Spec.Runtime.DefaultVolume.ContainerPath = "data"
+		if _, err := validateDeploymentSpecWithAssets(&input, nil); err == nil || !strings.Contains(err.Error(), "defaultVolume.containerPath") {
+			t.Fatalf("err = %v, want invalid default volume path", err)
+		}
+	})
+
+	t.Run("custom mount permission", func(t *testing.T) {
+		input := remoteDeploymentSpec("nginx", hostNetworking())
+		input.Container1Spec.Runtime.Mounts = []*apigen.CustomHostMount{{HostPath: "/srv/data", ContainerPath: "/data"}}
+		if _, err := validateDeploymentSpecWithAssets(&input, nil); err == nil || !strings.Contains(err.Error(), "permission") {
+			t.Fatalf("err = %v, want custom mount permission rejection", err)
+		}
+	})
+
+	t.Run("cross-deployment mount permission", func(t *testing.T) {
+		input := remoteDeploymentSpec("nginx", hostNetworking())
+		input.Container1Spec.Runtime.CrossDeploymentMounts = []*apigen.CrossDeploymentMount{{DeploymentID: 2, ContainerPath: "/data"}}
+		if _, err := validateDeploymentSpecWithAssets(&input, nil); err == nil || !strings.Contains(err.Error(), "permission") {
+			t.Fatalf("err = %v, want cross-deployment mount permission rejection", err)
+		}
+	})
+
+	t.Run("asset mount permission", func(t *testing.T) {
+		input := remoteDeploymentSpec("nginx", hostNetworking())
+		input.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount2{{AssetID: 1, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_WRITE}}
+		assets := fakeAssetResolver{"app.conf": {ID: 1, Key: "app.conf"}}
+		if _, err := validateDeploymentSpecWithAssets(&input, assets); err == nil || !strings.Contains(err.Error(), "READ_ONLY or READ_EXECUTE") {
+			t.Fatalf("err = %v, want asset mount permission rejection", err)
+		}
+	})
+}
+
 func TestValidateDeploymentSpecNormalizesContainerCommand(t *testing.T) {
-	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{
-			ContainerImage: &apigen.ContainerImageConfig{Image: "nginx:latest"},
-		},
-		Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{
-				Command: []string{" /app/server ", "", " --listen ", " :8080 ", "   "},
-			},
-		},
-		Networking: hostNetworking(),
-	}, nil)
+	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
+	input.Container1Spec.Runtime.OverrideCommand = []string{" /app/server ", "", " --listen ", " :8080 ", "   "}
+	spec, err := validateDeploymentSpecWithAssets(&input, nil)
 	if err != nil {
 		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
 	}
 	want := []string{"/app/server", "--listen", ":8080"}
-	if got := spec.Runner.Container.Command; strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+	if got := spec.Container1Spec.Runtime.OverrideCommand; strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("command = %#v, want %#v", got, want)
 	}
 }
 
 func TestValidateDeploymentSpecAcceptsDevShmSizeKb(t *testing.T) {
-	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{
-			ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"},
-		},
-		Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{
-				DevShmSizeKb: 65536,
-			},
-		},
-		Networking: hostNetworking(),
-	}, nil)
+	input := remoteDeploymentSpec("postgres:16", hostNetworking())
+	input.Container1Spec.Runtime.DevShmSizeKb = 65536
+	spec, err := validateDeploymentSpecWithAssets(&input, nil)
 	if err != nil {
 		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
 	}
-	if spec.Runner.Container.DevShmSizeKb != 65536 {
-		t.Fatalf("devShmSizeKb = %d, want 65536", spec.Runner.Container.DevShmSizeKb)
+	if spec.Container1Spec.Runtime.DevShmSizeKb != 65536 {
+		t.Fatalf("devShmSizeKb = %d, want 65536", spec.Container1Spec.Runtime.DevShmSizeKb)
 	}
 }
 
 func TestValidateDeploymentSpecRejectsInvalidDevShmSizeKb(t *testing.T) {
-	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{
-			ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"},
-		},
-		Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{
-				DevShmSizeKb: -1,
-			},
-		},
-		Networking: hostNetworking(),
-	}, nil)
+	input := remoteDeploymentSpec("postgres:16", hostNetworking())
+	input.Container1Spec.Runtime.DevShmSizeKb = -1
+	_, err := validateDeploymentSpecWithAssets(&input, nil)
 	if err == nil || !strings.Contains(err.Error(), "devShmSizeKb") {
 		t.Fatalf("err = %v, want invalid devShmSizeKb", err)
 	}
 }
 
 func TestValidateDeploymentSpecAcceptsFileDescriptorLimit(t *testing.T) {
-	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{
-			ContainerImage: &apigen.ContainerImageConfig{Image: "nginx:latest"},
-		},
-		Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{
-				FileDescriptorLimit: 4096,
-			},
-		},
-		Networking: hostNetworking(),
-	}, nil)
+	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
+	input.Container1Spec.Runtime.FileDescriptorLimit = 4096
+	spec, err := validateDeploymentSpecWithAssets(&input, nil)
 	if err != nil {
 		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
 	}
-	if spec.Runner.Container.FileDescriptorLimit != 4096 {
-		t.Fatalf("fileDescriptorLimit = %d, want 4096", spec.Runner.Container.FileDescriptorLimit)
+	if spec.Container1Spec.Runtime.FileDescriptorLimit != 4096 {
+		t.Fatalf("fileDescriptorLimit = %d, want 4096", spec.Container1Spec.Runtime.FileDescriptorLimit)
 	}
 }
 
 func TestValidateDeploymentSpecRejectsInvalidFileDescriptorLimit(t *testing.T) {
-	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{
-			ContainerImage: &apigen.ContainerImageConfig{Image: "nginx:latest"},
-		},
-		Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{
-				FileDescriptorLimit: -1,
-			},
-		},
-		Networking: hostNetworking(),
-	}, nil)
+	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
+	input.Container1Spec.Runtime.FileDescriptorLimit = -1
+	_, err := validateDeploymentSpecWithAssets(&input, nil)
 	if err == nil || !strings.Contains(err.Error(), "fileDescriptorLimit") {
 		t.Fatalf("err = %v, want invalid fileDescriptorLimit", err)
 	}
@@ -746,17 +732,11 @@ func TestValidateDeploymentSpecRejectsInvalidHostMounts(t *testing.T) {
 		{name: "systemd unit dir", host: "/etc/systemd/system", container: "/data"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-				Prepare: apigen.PrepareConfig{
-					ContainerImage: &apigen.ContainerImageConfig{Image: "nginx:latest"},
-				},
-				Runner: apigen.RunnerConfig{
-					Container: apigen.ContainerRunnerConfig{
-						Mounts: []*apigen.ContainerMount{{Host: tc.host, Container: tc.container}},
-					},
-				},
-				Networking: hostNetworking(),
-			}, nil)
+			input := remoteDeploymentSpec("nginx:latest", hostNetworking())
+			input.Container1Spec.Runtime.Mounts = []*apigen.CustomHostMount{{
+				HostPath: tc.host, ContainerPath: tc.container, Permission: apigen.FilePermission_READ_WRITE,
+			}}
+			_, err := validateDeploymentSpecWithAssets(&input, nil)
 			if err == nil {
 				t.Fatal("expected invalid host mount")
 			}
@@ -765,15 +745,10 @@ func TestValidateDeploymentSpecRejectsInvalidHostMounts(t *testing.T) {
 }
 
 func TestValidateDeploymentSpecRejectsSystemdRunner(t *testing.T) {
-	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{
-			NixDockerBuild: &apigen.NixDockerBuildConfig{
-				Repo:  "github.com/acme/web",
-				Flake: "nix/web/flake.nix",
-			},
-		},
-		Runner: apigen.RunnerConfig{
-			Systemd: apigen.SystemdRunnerConfig{Name: "opendeploy", BinPath: "/var/lib/opendeploy/bin/opendeploy"},
+	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec2{
+		SystemdSpec: &apigen.SystemdSpec{
+			Source:  &apigen.GithubRelease{Repo: "github.com/acme/web"},
+			Runtime: &apigen.SystemdRuntime{Name: "opendeploy", BinPath: "/var/lib/opendeploy/bin/opendeploy"},
 		},
 		Networking: hostNetworking(),
 	}, nil)
@@ -786,7 +761,7 @@ func TestDeploymentUpdateRejectsSystemDeploymentSpecUpdate(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("primary", "primary")
 	store.EnsureSystemDeployment(node.ID, "v0.0.194")
-	var system *apigen.DeploymentConfig
+	var system *apigen.DeploymentConfig2
 	for _, cfg := range store.ListActiveDeploymentConfigs() {
 		if sqlite.IsSystemDeploymentConfig(cfg) {
 			system = cfg
@@ -801,11 +776,7 @@ func TestDeploymentUpdateRejectsSystemDeploymentSpecUpdate(t *testing.T) {
 	_, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
 		DeploymentID: system.ID,
 		Version:      system.Version + 1,
-		Spec: apigen.DeploymentSpec{
-			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-			Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{UpgradeStrategy: apigen.ContainerUpgradeStrategy_RECREATE}},
-			Networking: hostNetworking(),
-		},
+		Spec:         remoteDeploymentSpec("nginx", hostNetworking()),
 	})
 	if err == nil || !strings.Contains(err.Error(), "internal-only") {
 		t.Fatalf("err = %v, want internal-only rejection", err)
@@ -813,39 +784,27 @@ func TestDeploymentUpdateRejectsSystemDeploymentSpecUpdate(t *testing.T) {
 }
 
 func TestValidateDeploymentSpecAcceptsKnownEnvRefs(t *testing.T) {
-	_, err := validateDeploymentSpecWithResolvers(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{
-			ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"},
-		},
-		Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
-				"PGUSER":     {SecretID: ptrInt32(6)},
-				"PGDATABASE": {ConfigID: ptrInt32(18)},
-			}},
-		},
-		Networking: hostNetworking(),
-	}, nil, fakeSecretResolver{6: "postgres"}, fakeConfigResolver{18: "postgres"})
+	input := remoteDeploymentSpec("postgres:16", hostNetworking())
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{
+		"PGUSER": {SecretID: ptrInt32(6)}, "PGDATABASE": {ConfigID: ptrInt32(18)},
+	}
+	_, err := validateDeploymentSpecWithResolvers(&input, nil, fakeSecretResolver{6: "postgres"}, fakeConfigResolver{18: "postgres"})
 	if err != nil {
 		t.Fatalf("validateDeploymentSpecWithResolvers failed: %v", err)
 	}
 }
 
 func TestValidateDeploymentSpecRejectsMissingNetworking(t *testing.T) {
-	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-	}, nil)
+	input := remoteDeploymentSpec("nginx", apigen.NetworkingConfig{})
+	_, err := validateDeploymentSpecWithAssets(&input, nil)
 	if err == nil || !strings.Contains(err.Error(), "networking is required") {
 		t.Fatalf("err = %v, want networking required", err)
 	}
 }
 
 func TestValidateDeploymentSpecAcceptsExplicitHostNetworking(t *testing.T) {
-	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-		Networking: hostNetworking(),
-	}, nil)
+	input := remoteDeploymentSpec("nginx", hostNetworking())
+	spec, err := validateDeploymentSpecWithAssets(&input, nil)
 	if err != nil {
 		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
 	}
@@ -855,13 +814,9 @@ func TestValidateDeploymentSpecAcceptsExplicitHostNetworking(t *testing.T) {
 }
 
 func TestValidateDeploymentSpecAcceptsHostNetworkingRollover(t *testing.T) {
-	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-		Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
-			UpgradeStrategy: apigen.ContainerUpgradeStrategy_ROLLOVER,
-		}},
-		Networking: hostNetworking(),
-	}, nil)
+	input := remoteDeploymentSpec("nginx", hostNetworking())
+	input.Container1Spec.UpgradeStrategy = apigen.ContainerUpgradeStrategy_ROLLOVER
+	spec, err := validateDeploymentSpecWithAssets(&input, nil)
 	if err != nil {
 		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
 	}
@@ -871,17 +826,14 @@ func TestValidateDeploymentSpecAcceptsHostNetworkingRollover(t *testing.T) {
 }
 
 func TestValidateDeploymentSpecAcceptsVirtualPortForwarding(t *testing.T) {
-	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-		Networking: apigen.NetworkingConfig{
-			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-			PortForwarding: []*apigen.PortForward{
-				{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080},
-				{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_UDP, HostPort: 18080, ContainerPort: 8080},
-			},
+	input := remoteDeploymentSpec("nginx", apigen.NetworkingConfig{
+		Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+		PortForwarding: []*apigen.PortForward{
+			{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080},
+			{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_UDP, HostPort: 18080, ContainerPort: 8080},
 		},
-	}, nil)
+	})
+	spec, err := validateDeploymentSpecWithAssets(&input, nil)
 	if err != nil {
 		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
 	}
@@ -891,20 +843,17 @@ func TestValidateDeploymentSpecAcceptsVirtualPortForwarding(t *testing.T) {
 }
 
 func TestValidateDeploymentSpecAcceptsTlsPassthroughIngress(t *testing.T) {
-	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-		Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-		Networking: apigen.NetworkingConfig{
-			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-			Ingress: []*apigen.Ingress{{
-				Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
-				Hostname: "db.example.com",
-				TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
-					ContainerPort: 5432,
-				},
-			}},
-		},
-	}, nil)
+	input := remoteDeploymentSpec("nginx", apigen.NetworkingConfig{
+		Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+		Ingress: []*apigen.Ingress{{
+			Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+			Hostname: "db.example.com",
+			TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
+				ContainerPort: 5432,
+			},
+		}},
+	})
+	spec, err := validateDeploymentSpecWithAssets(&input, nil)
 	if err != nil {
 		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
 	}
@@ -915,156 +864,112 @@ func TestValidateDeploymentSpecAcceptsTlsPassthroughIngress(t *testing.T) {
 
 func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 	tests := []struct {
-		name string
-		spec apigen.DeploymentSpec
-		want string
+		name       string
+		networking apigen.NetworkingConfig
+		want       string
 	}{
 		{
-			name: "unspecified mode with port forwarding",
-			spec: apigen.DeploymentSpec{
-				Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-				Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-				Networking: apigen.NetworkingConfig{PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080}}},
-			},
-			want: "networking.mode is required",
+			name:       "unspecified mode with port forwarding",
+			networking: apigen.NetworkingConfig{PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080}}},
+			want:       "networking.mode is required",
 		},
 		{
 			name: "host mode with port forwarding",
-			spec: apigen.DeploymentSpec{
-				Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-				Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-				Networking: apigen.NetworkingConfig{
-					Mode:           apigen.NetworkingMode_NETWORKING_MODE_HOST,
-					PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080}},
-				},
+			networking: apigen.NetworkingConfig{
+				Mode:           apigen.NetworkingMode_NETWORKING_MODE_HOST,
+				PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080}},
 			},
 			want: "requires virtual mode",
 		},
 		{
 			name: "invalid protocol",
-			spec: apigen.DeploymentSpec{
-				Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-				Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-				Networking: apigen.NetworkingConfig{
-					Mode:           apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-					PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_UNSPECIFIED, HostPort: 18080, ContainerPort: 8080}},
-				},
+			networking: apigen.NetworkingConfig{
+				Mode:           apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+				PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_UNSPECIFIED, HostPort: 18080, ContainerPort: 8080}},
 			},
 			want: "protocol",
 		},
 		{
 			name: "invalid host port",
-			spec: apigen.DeploymentSpec{
-				Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-				Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-				Networking: apigen.NetworkingConfig{
-					Mode:           apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-					PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 0, ContainerPort: 8080}},
-				},
+			networking: apigen.NetworkingConfig{
+				Mode:           apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+				PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 0, ContainerPort: 8080}},
 			},
 			want: "hostPort",
 		},
 		{
 			name: "invalid container port",
-			spec: apigen.DeploymentSpec{
-				Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-				Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-				Networking: apigen.NetworkingConfig{
-					Mode:           apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-					PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 0}},
-				},
+			networking: apigen.NetworkingConfig{
+				Mode:           apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+				PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 0}},
 			},
 			want: "containerPort",
 		},
 		{
 			name: "duplicate same protocol host port",
-			spec: apigen.DeploymentSpec{
-				Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-				Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-				Networking: apigen.NetworkingConfig{
-					Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-					PortForwarding: []*apigen.PortForward{
-						{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080},
-						{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8081},
-					},
+			networking: apigen.NetworkingConfig{
+				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+				PortForwarding: []*apigen.PortForward{
+					{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080},
+					{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8081},
 				},
 			},
 			want: "duplicate TCP host port 18080",
 		},
 		{
 			name: "host mode with ingress",
-			spec: apigen.DeploymentSpec{
-				Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-				Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-				Networking: apigen.NetworkingConfig{
-					Mode: apigen.NetworkingMode_NETWORKING_MODE_HOST,
-					Ingress: []*apigen.Ingress{{
-						Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
-						Hostname: "db.example.com",
-						TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
-							ContainerPort: 5432,
-						},
-					}},
-				},
+			networking: apigen.NetworkingConfig{
+				Mode: apigen.NetworkingMode_NETWORKING_MODE_HOST,
+				Ingress: []*apigen.Ingress{{
+					Kind:                 apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+					Hostname:             "db.example.com",
+					TlsPassthroughConfig: &apigen.TlsPassthroughConfig{ContainerPort: 5432},
+				}},
 			},
 			want: "requires virtual mode",
 		},
 		{
 			name: "tls passthrough without config",
-			spec: apigen.DeploymentSpec{
-				Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-				Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-				Networking: apigen.NetworkingConfig{
-					Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-					Ingress: []*apigen.Ingress{{
-						Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
-						Hostname: "db.example.com",
-					}},
-				},
+			networking: apigen.NetworkingConfig{
+				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+				Ingress: []*apigen.Ingress{{
+					Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+					Hostname: "db.example.com",
+				}},
 			},
 			want: "tlsPassthroughConfig",
 		},
 		{
 			name: "invalid ingress hostname",
-			spec: apigen.DeploymentSpec{
-				Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-				Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-				Networking: apigen.NetworkingConfig{
-					Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-					Ingress: []*apigen.Ingress{{
-						Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
-						Hostname: "not a hostname",
-						TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
-							ContainerPort: 5432,
-						},
-					}},
-				},
+			networking: apigen.NetworkingConfig{
+				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+				Ingress: []*apigen.Ingress{{
+					Kind:                 apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+					Hostname:             "not a hostname",
+					TlsPassthroughConfig: &apigen.TlsPassthroughConfig{ContainerPort: 5432},
+				}},
 			},
 			want: "hostname",
 		},
 		{
 			name: "tls passthrough on netproxy DNS port",
-			spec: apigen.DeploymentSpec{
-				Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-				Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-				Networking: apigen.NetworkingConfig{
-					Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-					Ingress: []*apigen.Ingress{{
-						Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
-						Hostname: "dns.example.com",
-						TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
-							HostPort:      53,
-							ContainerPort: 443,
-						},
-					}},
-				},
+			networking: apigen.NetworkingConfig{
+				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+				Ingress: []*apigen.Ingress{{
+					Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+					Hostname: "dns.example.com",
+					TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
+						HostPort: 53, ContainerPort: 443,
+					},
+				}},
 			},
 			want: "hostPort 53 is reserved for opendeploy-net DNS",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := validateDeploymentSpecWithAssets(&tt.spec, nil)
+			spec := remoteDeploymentSpec("nginx", tt.networking)
+			_, err := validateDeploymentSpecWithAssets(&spec, nil)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("err = %v, want containing %q", err, tt.want)
 			}
@@ -1073,62 +978,37 @@ func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 }
 
 func TestValidateDeploymentSpecRejectsNetproxyImage(t *testing.T) {
-	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: internaldeploy.NetproxyImage}},
-		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-		Networking: hostNetworking(),
-	}, nil)
+	input := remoteDeploymentSpec(internaldeploy.NetproxyImage, hostNetworking())
+	_, err := validateDeploymentSpecWithAssets(&input, nil)
 	if err == nil || !strings.Contains(err.Error(), "internal-only") {
 		t.Fatalf("err = %v, want netproxy image internal-only rejection", err)
 	}
 }
 
 func TestValidateDeploymentSpecRejectsUnknownSecretRef(t *testing.T) {
-	_, err := validateDeploymentSpecWithResolvers(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{
-			ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"},
-		},
-		Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
-				"PGPASSWORD": {SecretID: ptrInt32(99)},
-			}},
-		},
-		Networking: hostNetworking(),
-	}, nil, fakeSecretResolver{}, fakeConfigResolver{})
+	input := remoteDeploymentSpec("postgres:16", hostNetworking())
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{"PGPASSWORD": {SecretID: ptrInt32(99)}}
+	_, err := validateDeploymentSpecWithResolvers(&input, nil, fakeSecretResolver{}, fakeConfigResolver{})
 	if err == nil || !strings.Contains(err.Error(), "unknown secret id 99") {
 		t.Fatalf("err = %v, want unknown secret", err)
 	}
 }
 
 func TestValidateDeploymentSpecRejectsUnknownConfigRef(t *testing.T) {
-	_, err := validateDeploymentSpecWithResolvers(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{
-			ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"},
-		},
-		Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
-				"PGDATABASE": {ConfigID: ptrInt32(99)},
-			}},
-		},
-		Networking: hostNetworking(),
-	}, nil, fakeSecretResolver{}, fakeConfigResolver{})
+	input := remoteDeploymentSpec("postgres:16", hostNetworking())
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{"PGDATABASE": {ConfigID: ptrInt32(99)}}
+	_, err := validateDeploymentSpecWithResolvers(&input, nil, fakeSecretResolver{}, fakeConfigResolver{})
 	if err == nil || !strings.Contains(err.Error(), "unknown config id 99") {
 		t.Fatalf("err = %v, want unknown config", err)
 	}
 }
 
 func TestValidateDeploymentSpecAcceptsLiteralEnvValues(t *testing.T) {
-	_, err := validateDeploymentSpecWithResolvers(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{
-			ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"},
-		},
-		Runner: apigen.RunnerConfig{
-			Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
-				"LITERAL": {Value: ptrString("${s:not.real} and ${c:not.real}")},
-			}},
-		},
-		Networking: hostNetworking(),
-	}, nil, fakeSecretResolver{}, fakeConfigResolver{})
+	input := remoteDeploymentSpec("postgres:16", hostNetworking())
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{
+		"LITERAL": {Value: ptrString("${s:not.real} and ${c:not.real}")},
+	}
+	_, err := validateDeploymentSpecWithResolvers(&input, nil, fakeSecretResolver{}, fakeConfigResolver{})
 	if err != nil {
 		t.Fatalf("validateDeploymentSpecWithResolvers failed: %v", err)
 	}
@@ -1136,13 +1016,9 @@ func TestValidateDeploymentSpecAcceptsLiteralEnvValues(t *testing.T) {
 
 func TestValidateDeploymentSpecRejectsIncompleteAddressRef(t *testing.T) {
 	deploymentID := int32(7)
-	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "postgres:16"}},
-		Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
-			"UPSTREAM": {AddressDeploymentID: &deploymentID},
-		}}},
-		Networking: hostNetworking(),
-	}, nil)
+	input := remoteDeploymentSpec("postgres:16", hostNetworking())
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{"UPSTREAM": {AddressDeploymentID: &deploymentID}}
+	_, err := validateDeploymentSpecWithAssets(&input, nil)
 	if err == nil || !strings.Contains(err.Error(), "required together") {
 		t.Fatalf("err = %v, want incomplete address rejection", err)
 	}
@@ -1158,16 +1034,14 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	}
 	h := &Handler{Store: store, Secrets: secretsManager}
 
-	create := func(name string, nodeID int32, networking apigen.NetworkingConfig, env map[string]*apigen.EnvVarValue) *apigen.DeploymentConfig {
+	create := func(name string, nodeID int32, networking apigen.NetworkingConfig, env map[string]*apigen.EnvVarValue2) *apigen.DeploymentConfig2 {
 		t.Helper()
+		spec := remoteDeploymentSpec("nginx", networking)
+		spec.Container1Spec.Runtime.EnvVars = env
 		cfg, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: name},
 			NodeID:   nodeID,
-			Spec: apigen.DeploymentSpec{
-				Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-				Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{EnvVars: env}},
-				Networking: networking,
-			},
+			Spec:     spec,
 		})
 		if err != nil {
 			t.Fatalf("PostV1DeploymentCreate %s: %v", name, err)
@@ -1178,10 +1052,10 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	target := create("database", primary.ID, virtualNetworking(), nil)
 	addressDeploymentID := target.ID
 	addressSpaceID := int32(1)
-	consumer := create("web", primary.ID, hostNetworking(), map[string]*apigen.EnvVarValue{
+	consumer := create("web", primary.ID, hostNetworking(), map[string]*apigen.EnvVarValue2{
 		"DATABASE_ADDR": {AddressDeploymentID: &addressDeploymentID, AddressSpaceID: &addressSpaceID},
 	})
-	if got := consumer.Spec.Runner.Container.EnvVars["DATABASE_ADDR"]; got.AddressDeploymentID == nil || got.AddressSpaceID == nil {
+	if got := consumer.Spec.Container1Spec.Runtime.EnvVars["DATABASE_ADDR"]; got.AddressDeploymentID == nil || got.AddressSpaceID == nil {
 		t.Fatalf("address ref was not stored: %+v", got)
 	}
 
@@ -1189,13 +1063,13 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	_, err = h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "wrong-space"},
 		NodeID:   primary.ID,
-		Spec: apigen.DeploymentSpec{
-			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-			Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
+		Spec: func() apigen.DeploymentSpec2 {
+			spec := remoteDeploymentSpec("nginx", hostNetworking())
+			spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{
 				"DATABASE_ADDR": {AddressDeploymentID: &addressDeploymentID, AddressSpaceID: &wrongSpace},
-			}}},
-			Networking: hostNetworking(),
-		},
+			}
+			return spec
+		}(),
 	})
 	if err == nil || !strings.Contains(err.Error(), "address space does not match") {
 		t.Fatalf("err = %v, want address-space rejection", err)
@@ -1206,18 +1080,18 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	crossNode, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "cross-node"},
 		NodeID:   primary.ID,
-		Spec: apigen.DeploymentSpec{
-			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-			Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
+		Spec: func() apigen.DeploymentSpec2 {
+			spec := remoteDeploymentSpec("nginx", hostNetworking())
+			spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{
 				"REMOTE_ADDR": {AddressDeploymentID: &remoteID, AddressSpaceID: &addressSpaceID},
-			}}},
-			Networking: hostNetworking(),
-		},
+			}
+			return spec
+		}(),
 	})
 	if err != nil {
 		t.Fatalf("cross-node address reference: %v", err)
 	}
-	if got := crossNode.Spec.Runner.Container.EnvVars["REMOTE_ADDR"]; got.AddressDeploymentID == nil || *got.AddressDeploymentID != remoteID {
+	if got := crossNode.Spec.Container1Spec.Runtime.EnvVars["REMOTE_ADDR"]; got.AddressDeploymentID == nil || *got.AddressDeploymentID != remoteID {
 		t.Fatalf("cross-node address ref = %+v", got)
 	}
 
@@ -1234,11 +1108,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	_, err = h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
 		DeploymentID: target.ID,
 		Version:      target.Version + 1,
-		Spec: apigen.DeploymentSpec{
-			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-			Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-			Networking: hostNetworking(),
-		},
+		Spec:         remoteDeploymentSpec("nginx", hostNetworking()),
 	})
 	if err == nil || !strings.Contains(err.Error(), "cannot leave virtual mode") {
 		t.Fatalf("err = %v, want virtual-networking removal rejection", err)
@@ -1262,12 +1132,11 @@ func TestDeploymentCreatePersistsInitialStoppedDesiredState(t *testing.T) {
 	cfg, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "web"},
 		NodeID:   primary.ID,
-		Spec: apigen.DeploymentSpec{
-			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-			Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-			Networking: hostNetworking(),
-		},
-		DesiredState: apigen.DesiredState{Version: "1.25", Running: false},
+		Spec: func() apigen.DeploymentSpec2 {
+			spec := remoteDeploymentSpec("nginx", hostNetworking())
+			spec.Container1Spec.Version = "1.25"
+			return spec
+		}(),
 	})
 	if err != nil {
 		t.Fatalf("PostV1DeploymentCreate failed: %v", err)
@@ -1275,13 +1144,13 @@ func TestDeploymentCreatePersistsInitialStoppedDesiredState(t *testing.T) {
 	if cfg.Version != 1 {
 		t.Fatalf("version = %d, want initial config version 1", cfg.Version)
 	}
-	if cfg.DesiredState.Version != "1.25" || cfg.DesiredState.Running {
-		t.Fatalf("desired state = %+v, want stopped 1.25", cfg.DesiredState)
+	if cfg.WorkloadVersion() != "1.25" || cfg.WorkloadRunning() {
+		t.Fatalf("workload state = %+v, want stopped 1.25", cfg.Spec.Container1Spec)
 	}
 	if history := store.MustFetchDeploymentHistory(cfg.ID); len(history) != 1 {
 		t.Fatalf("history len = %d, want create only", len(history))
-	} else if history[0].DesiredState.Version != "1.25" || history[0].DesiredState.Running {
-		t.Fatalf("history desired state = %+v, want stopped 1.25", history[0].DesiredState)
+	} else if history[0].WorkloadVersion() != "1.25" || history[0].WorkloadRunning() {
+		t.Fatalf("history workload state = %+v, want stopped 1.25", history[0].Spec.Container1Spec)
 	}
 }
 
@@ -1305,11 +1174,7 @@ func TestDeploymentCreateRejectsIngressClaimsAlreadyUsedOnNode(t *testing.T) {
 	_, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "database"},
 		NodeID:   primary.ID,
-		Spec: apigen.DeploymentSpec{
-			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "postgres"}},
-			Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-			Networking: ingress("db.example.com"),
-		},
+		Spec:     remoteDeploymentSpec("postgres", ingress("db.example.com")),
 	})
 	if err != nil {
 		t.Fatalf("creating first ingress deployment: %v", err)
@@ -1317,11 +1182,7 @@ func TestDeploymentCreateRejectsIngressClaimsAlreadyUsedOnNode(t *testing.T) {
 	_, err = h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "database-copy"},
 		NodeID:   primary.ID,
-		Spec: apigen.DeploymentSpec{
-			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "postgres"}},
-			Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-			Networking: ingress("DB.EXAMPLE.COM"),
-		},
+		Spec:     remoteDeploymentSpec("postgres", ingress("DB.EXAMPLE.COM")),
 	})
 	if err == nil || !strings.Contains(err.Error(), "already claimed") {
 		t.Fatalf("err = %v, want duplicate ingress claim rejection", err)
@@ -1329,18 +1190,14 @@ func TestDeploymentCreateRejectsIngressClaimsAlreadyUsedOnNode(t *testing.T) {
 	_, err = h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "direct"},
 		NodeID:   primary.ID,
-		Spec: apigen.DeploymentSpec{
-			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-			Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-			Networking: apigen.NetworkingConfig{
-				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				PortForwarding: []*apigen.PortForward{{
-					Protocol:      apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP,
-					HostPort:      8443,
-					ContainerPort: 443,
-				}},
-			},
-		},
+		Spec: remoteDeploymentSpec("nginx", apigen.NetworkingConfig{
+			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+			PortForwarding: []*apigen.PortForward{{
+				Protocol:      apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP,
+				HostPort:      8443,
+				ContainerPort: 443,
+			}},
+		}),
 	})
 	if err == nil || !strings.Contains(err.Error(), "conflicts with ingress") {
 		t.Fatalf("err = %v, want raw port conflict rejection", err)
@@ -1352,21 +1209,17 @@ func TestDeploymentCreateRejectsPrimaryIngressOnPort443(t *testing.T) {
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	worker := store.EnsurePrimaryNode("worker", "worker")
 	h := &Handler{Store: store, NodeID: primary.ID}
-	spec := func() apigen.DeploymentSpec {
-		return apigen.DeploymentSpec{
-			Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "postgres"}},
-			Runner:  apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-			Networking: apigen.NetworkingConfig{
-				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				Ingress: []*apigen.Ingress{{
-					Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
-					Hostname: "db.example.com",
-					TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
-						ContainerPort: 5432,
-					},
-				}},
-			},
-		}
+	spec := func() apigen.DeploymentSpec2 {
+		return remoteDeploymentSpec("postgres", apigen.NetworkingConfig{
+			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+			Ingress: []*apigen.Ingress{{
+				Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+				Hostname: "db.example.com",
+				TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
+					ContainerPort: 5432,
+				},
+			}},
+		})
 	}
 	_, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "primary-database"},
@@ -1394,11 +1247,7 @@ func TestDeploymentCreateRejectsInternalIdentity(t *testing.T) {
 	_, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		Identity: apigen.DeploymentIdentity{SpaceID: sqlite.OpendeploySpaceID, Name: "opendeploy-net"},
 		NodeID:   primary.ID,
-		Spec: apigen.DeploymentSpec{
-			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-			Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-			Networking: hostNetworking(),
-		},
+		Spec:     remoteDeploymentSpec("nginx", hostNetworking()),
 	})
 	if err == nil || !strings.Contains(err.Error(), "internal-only") {
 		t.Fatalf("err = %v, want internal identity rejection", err)
@@ -1410,12 +1259,8 @@ func TestDeploymentIdentityIsScopedByNodeID(t *testing.T) {
 	nodeA := store.EnsurePrimaryNode("node-a", "node-a-id")
 	nodeB := store.EnsurePrimaryNode("node-b", "node-b-id")
 	h := &Handler{Store: store}
-	spec := apigen.DeploymentSpec{
-		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-		Networking: hostNetworking(),
-	}
-	create := func(nodeID, spaceID int32) (*apigen.DeploymentConfig, error) {
+	spec := remoteDeploymentSpec("nginx", hostNetworking())
+	create := func(nodeID, spaceID int32) (*apigen.DeploymentConfig2, error) {
 		return h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			Identity: apigen.DeploymentIdentity{SpaceID: spaceID, Name: "web"},
 			NodeID:   nodeID,
@@ -1449,21 +1294,14 @@ func TestDeploymentIdentityIsScopedByNodeID(t *testing.T) {
 
 func TestDeploymentUpdatePreservesLegacyHostNetworking(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &apigen.DeploymentSpec{
-		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-		Networking: hostNetworking(),
-	}, apigen.DesiredState{})
+	initial := remoteDeploymentSpec("nginx", hostNetworking())
+	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
 	h := &Handler{Store: store}
 
 	_, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
 		DeploymentID: created.ID,
 		Version:      created.Version + 1,
-		Spec: apigen.DeploymentSpec{
-			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx:1.26"}},
-			Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-			Networking: hostNetworking(),
-		},
+		Spec:         remoteDeploymentSpec("nginx:1.26", hostNetworking()),
 	})
 	if err != nil {
 		t.Fatalf("PostV1DeploymentUpdate failed: %v", err)
@@ -1476,21 +1314,14 @@ func TestDeploymentUpdatePreservesLegacyHostNetworking(t *testing.T) {
 
 func TestDeploymentUpdatePreservesExistingVirtualNetworking(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &apigen.DeploymentSpec{
-		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-		Networking: virtualNetworking(),
-	}, apigen.DesiredState{})
+	initial := remoteDeploymentSpec("nginx", virtualNetworking())
+	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
 	h := &Handler{Store: store}
 
 	_, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
 		DeploymentID: created.ID,
 		Version:      created.Version + 1,
-		Spec: apigen.DeploymentSpec{
-			Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx:1.26"}},
-			Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-			Networking: virtualNetworking(),
-		},
+		Spec:         remoteDeploymentSpec("nginx:1.26", virtualNetworking()),
 	})
 	if err != nil {
 		t.Fatalf("PostV1DeploymentUpdate failed: %v", err)
@@ -1501,31 +1332,23 @@ func TestDeploymentUpdatePreservesExistingVirtualNetworking(t *testing.T) {
 	}
 }
 
-func TestDeploymentUpdateAcceptsManagedDefaultVolumeMount(t *testing.T) {
+func TestDeploymentUpdateAcceptsCrossDeploymentMount(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	secretsManager, err := secrets.Initialize(t.TempDir(), store)
 	if err != nil {
 		t.Fatalf("secrets.Initialize failed: %v", err)
 	}
-	source := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "database"}, &apigen.DeploymentSpec{
-		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "postgres"}},
-		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-		Networking: hostNetworking(),
-	}, apigen.DesiredState{})
-	target := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &apigen.DeploymentSpec{
-		Prepare: apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-		Runner: apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{
-			Mounts: []*apigen.ContainerMount{{
-				Host:      "/var/lib/opendeploy-volumes/" + strconv.Itoa(int(source.ID)) + "/default",
-				Container: "/var/lib/postgresql/data",
-			}},
-		}},
-		Networking: hostNetworking(),
-	}, apigen.DesiredState{})
+	sourceSpec := remoteDeploymentSpec("postgres", hostNetworking())
+	source := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "database"}, &sourceSpec)
+	targetSpec := remoteDeploymentSpec("nginx", hostNetworking())
+	targetSpec.Container1Spec.Runtime.CrossDeploymentMounts = []*apigen.CrossDeploymentMount{{
+		DeploymentID: source.ID, ContainerPath: "/var/lib/postgresql/data", Permission: apigen.FilePermission_READ_WRITE,
+	}}
+	target := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &targetSpec)
 	h := &Handler{Store: store, Secrets: secretsManager}
 
 	spec := target.Spec
-	spec.Runner.Container.EnvVars = map[string]*apigen.EnvVarValue{
+	spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{
 		"LOG_LEVEL": {Value: ptrString("debug")},
 	}
 	_, err = h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
@@ -1537,18 +1360,16 @@ func TestDeploymentUpdateAcceptsManagedDefaultVolumeMount(t *testing.T) {
 		t.Fatalf("PostV1DeploymentUpdate failed: %v", err)
 	}
 	updated := h.findConfigByID(target.ID)
-	if got := updated.Spec.Runner.Container.EnvVars["LOG_LEVEL"].Value; got == nil || *got != "debug" {
-		t.Fatalf("LOG_LEVEL = %+v, want debug", updated.Spec.Runner.Container.EnvVars["LOG_LEVEL"])
+	if got := updated.Spec.Container1Spec.Runtime.EnvVars["LOG_LEVEL"].Value; got == nil || *got != "debug" {
+		t.Fatalf("LOG_LEVEL = %+v, want debug", updated.Spec.Container1Spec.Runtime.EnvVars["LOG_LEVEL"])
 	}
 }
 
 func TestDeploymentDeleteRequiresStoppedDeployment(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &apigen.DeploymentSpec{
-		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-		Networking: hostNetworking(),
-	}, apigen.DesiredState{Version: "1.25", Running: false})
+	initial := remoteDeploymentSpec("nginx", hostNetworking())
+	initial.Container1Spec.Version = "1.25"
+	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
 	store.MustWriteDeploymentStatus(created.ID, func(s *apigen.DeploymentStatus) bool {
 		s.Runner.Status = apigen.RunningStatus_RUNNING
 		return true
@@ -1577,11 +1398,10 @@ func TestDeploymentDeleteAllowsRunningDisconnectedNodeDeployment(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	worker := store.EnsurePrimaryNode("worker", "worker-a")
-	created := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, worker.ID, &apigen.DeploymentSpec{
-		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-		Networking: hostNetworking(),
-	}, apigen.DesiredState{Version: "1.25", Running: true})
+	initial := remoteDeploymentSpec("nginx", hostNetworking())
+	initial.Container1Spec.Version = "1.25"
+	initial.Container1Spec.Running = true
+	created := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, worker.ID, &initial)
 	store.MustWriteDeploymentStatus(created.ID, func(s *apigen.DeploymentStatus) bool {
 		s.Runner.Status = apigen.RunningStatus_RUNNING
 		return true
@@ -1647,11 +1467,9 @@ func TestDeploymentDeleteRejectsPrimarySystemDeployment(t *testing.T) {
 
 func TestDeploymentDeleteSoftDeletesStoppedDeployment(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &apigen.DeploymentSpec{
-		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-		Networking: hostNetworking(),
-	}, apigen.DesiredState{Version: "1.25", Running: false})
+	initial := remoteDeploymentSpec("nginx", hostNetworking())
+	initial.Container1Spec.Version = "1.25"
+	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
 	store.MustWriteDeploymentStatus(created.ID, func(s *apigen.DeploymentStatus) bool {
 		s.Runner.Status = apigen.RunningStatus_STOPPED
 		return true
@@ -1670,7 +1488,7 @@ func TestDeploymentDeleteSoftDeletesStoppedDeployment(t *testing.T) {
 		t.Fatalf("history len = %d, want 2", len(history))
 	}
 	deleted := history[len(history)-1]
-	if !deleted.Deleted || deleted.DesiredState.Running || deleted.DesiredState.Version != "1.25" {
+	if !deleted.Deleted || deleted.WorkloadRunning() || deleted.WorkloadVersion() != "1.25" {
 		t.Fatalf("deleted history entry = %+v", deleted)
 	}
 }
@@ -1679,18 +1497,14 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	h := &Handler{Store: store}
-	spec := apigen.DeploymentSpec{
-		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-		Networking: hostNetworking(),
-	}
-	create := func(version string) *apigen.DeploymentConfig {
+	create := func(version string) *apigen.DeploymentConfig2 {
 		t.Helper()
+		spec := remoteDeploymentSpec("nginx", hostNetworking())
+		spec.Container1Spec.Version = version
 		cfg, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-			Identity:     apigen.DeploymentIdentity{SpaceID: 1, Name: "web"},
-			NodeID:       primary.ID,
-			Spec:         spec,
-			DesiredState: apigen.DesiredState{Version: version, Running: false},
+			Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "web"},
+			NodeID:   primary.ID,
+			Spec:     spec,
 		})
 		if err != nil {
 			t.Fatalf("PostV1DeploymentCreate: %v", err)
@@ -1717,8 +1531,8 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 	if second.Version != 1 {
 		t.Fatalf("new deployment version = %d, want 1", second.Version)
 	}
-	if second.DesiredState.Version != "1.26" {
-		t.Fatalf("new deployment desired state = %+v", second.DesiredState)
+	if second.WorkloadVersion() != "1.26" {
+		t.Fatalf("new deployment workload state = %+v", second.Spec.Container1Spec)
 	}
 
 	firstHistory := store.MustFetchDeploymentHistory(first.ID)
@@ -1735,13 +1549,10 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 	}
 }
 
-func TestDeploymentUpdateCombinesSpaceAndDesiredStateInSingleConfigVersion(t *testing.T) {
+func TestDeploymentUpdateCombinesSpaceAndWorkloadStateInSingleConfigVersion(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &apigen.DeploymentSpec{
-		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-		Networking: hostNetworking(),
-	}, apigen.DesiredState{})
+	initial := remoteDeploymentSpec("nginx", hostNetworking())
+	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
 	h := &Handler{Store: store}
 
 	spaceID := int32(2)
@@ -1765,8 +1576,8 @@ func TestDeploymentUpdateCombinesSpaceAndDesiredStateInSingleConfigVersion(t *te
 	if cfg.Identity.SpaceID != spaceID {
 		t.Fatalf("space = %d, want %d", cfg.Identity.SpaceID, spaceID)
 	}
-	if cfg.DesiredState.Version != "1.25" || !cfg.DesiredState.Running {
-		t.Fatalf("desired state = %+v, want running 1.25", cfg.DesiredState)
+	if cfg.WorkloadVersion() != "1.25" || !cfg.WorkloadRunning() {
+		t.Fatalf("workload state = %+v, want running 1.25", cfg.Spec.Container1Spec)
 	}
 	if history := store.MustFetchDeploymentHistory(created.ID); len(history) != 2 {
 		t.Fatalf("history len = %d, want create + one combined update", len(history))
@@ -1775,11 +1586,8 @@ func TestDeploymentUpdateCombinesSpaceAndDesiredStateInSingleConfigVersion(t *te
 
 func TestDeploymentUpdateRejectsStaleExpectedVersion(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &apigen.DeploymentSpec{
-		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-		Networking: hostNetworking(),
-	}, apigen.DesiredState{})
+	initial := remoteDeploymentSpec("nginx", hostNetworking())
+	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
 	h := &Handler{Store: store}
 
 	_, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
@@ -1795,11 +1603,8 @@ func TestDeploymentUpdateRejectsStaleExpectedVersion(t *testing.T) {
 
 func TestDeploymentUpdateRequiresExpectedVersion(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &apigen.DeploymentSpec{
-		Prepare:    apigen.PrepareConfig{ContainerImage: &apigen.ContainerImageConfig{Image: "nginx"}},
-		Runner:     apigen.RunnerConfig{Container: apigen.ContainerRunnerConfig{}},
-		Networking: hostNetworking(),
-	}, apigen.DesiredState{})
+	initial := remoteDeploymentSpec("nginx", hostNetworking())
+	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
 	h := &Handler{Store: store}
 
 	_, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{

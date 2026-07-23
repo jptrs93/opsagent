@@ -38,23 +38,26 @@ const apiConfig = {
     nodeId: 11,
     identity: {name: 'api', spaceId: 1},
     spec: {
-        prepare: {containerImage: {image: 'ghcr.io/acme/api'}},
-        runner: {container: {
-            user: '1000:1000',
-            command: ['/app/api', 'serve'],
-            dataMountPath: '/var/lib/api',
-            disableDataVolume: false,
-            envVars: {
-                APP_ENV: {value: 'production'},
-                DATABASE_PASSWORD: {secretId: 301},
-                DATABASE_HOST: {configId: 401},
+        container1Spec: {
+            source: {remoteImage: {image: 'ghcr.io/acme/api'}},
+            runtime: {
+                user: '1000:1000',
+                overrideCommand: ['/app/api', 'serve'],
+                defaultVolume: {containerPath: '/var/lib/api', disabled: false},
+                envVars: {
+                    APP_ENV: {value: 'production'},
+                    DATABASE_PASSWORD: {secretId: 301},
+                    DATABASE_HOST: {configId: 401},
+                },
+                assetMounts: [{assetId: 201, containerPath: '/etc/api/nginx.conf', permission: 2}],
+                devShmSizeKb: 131072,
+                fileDescriptorLimit: 4096,
             },
-            assetMounts: [{assetId: 201, asset: 'nginx.conf', version: 3, path: '/etc/api/nginx.conf'}],
+            version: 'v2.8.1',
+            running: true,
             upgradeStrategy: 2,
             readinessSignal: {timeoutSeconds: 90},
-            devShmSizeKb: 131072,
-            fileDescriptorLimit: 4096,
-        }},
+        },
         networking: {
             mode: 1,
             portForwarding: [{protocol: 1, hostPort: 8443, containerPort: 8080}],
@@ -69,15 +72,19 @@ const workerConfig = {
     nodeId: 11,
     identity: {name: 'worker', spaceId: 2},
     spec: {
-        prepare: {nixDockerBuild: {repo: 'github.com/acme/platform', flake: 'services/worker/flake.nix', target: '.#worker-image'}},
-        runner: {container: {
-            disableDataVolume: false,
-            envVars: {
-                APP_ENV: {value: 'staging'},
-                API_ADDRESS: {addressDeploymentId: 101, addressSpaceId: 1},
+        container1Spec: {
+            source: {nixDockerBuild: {repo: 'github.com/acme/platform', flake: 'services/worker/flake.nix', target: '.#worker-image'}},
+            runtime: {
+                defaultVolume: {disabled: false},
+                envVars: {
+                    APP_ENV: {value: 'staging'},
+                    API_ADDRESS: {addressDeploymentId: 101, addressSpaceId: 1},
+                },
             },
+            version: 'c48d9b6f9c4a9a92b9f4dd25bfe5a3c671eca444',
+            running: false,
             upgradeStrategy: 1,
-        }},
+        },
         networking: {mode: 1},
     },
 };
@@ -88,8 +95,13 @@ const databaseConfig = {
     nodeId: 11,
     identity: {name: 'database', spaceId: 1},
     spec: {
-        prepare: {containerImage: {image: 'postgres:17'}},
-        runner: {container: {disableDataVolume: false, upgradeStrategy: 1}},
+        container1Spec: {
+            source: {remoteImage: {image: 'postgres:17'}},
+            runtime: {defaultVolume: {disabled: false}},
+            version: '17',
+            running: true,
+            upgradeStrategy: 1,
+        },
         networking: {mode: 1},
     },
 };

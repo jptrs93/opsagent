@@ -22,6 +22,6 @@ func IsInternalIdentity(identity apigen.DeploymentIdentity) bool {
 	return IsSelfIdentity(identity) || IsNetproxyIdentity(identity)
 }
 
-func IsNetproxyConfig(cfg *apigen.DeploymentConfig) bool {
+func IsNetproxyConfig(cfg *apigen.DeploymentConfig2) bool {
 	return cfg != nil && IsNetproxyIdentity(cfg.Identity)
 }

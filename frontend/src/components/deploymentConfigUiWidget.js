@@ -69,7 +69,7 @@ export function deploymentConfigUiWidget(args) {
         }),
         commandPane(form),
         volumeMountsPane(form, {deployments, spaces}),
-        assetMountsPane(form, {assets: stateValue(assets) || [], enableAssetEditor: true}),
+        assetMountsPane(form, {assets, enableAssetEditor: true}),
         upgradeStrategyPane(form),
         resourcesPane(form),
         networkingPane(form),

@@ -95,7 +95,7 @@ func newRuntime() (*runtime, error) {
 		secrets:               secretsMgr,
 		operator: engine.DeploymentOperator{
 			Store:              store,
-			GithubRelease:      githubrelease.New(ainit.StaticConfig.ReleasesDir, githubClient, githubCredentials),
+			GithubRelease:      githubrelease.New(ainit.StaticConfig.ReleasesDir, githubClient),
 			NixDocker:          nixdocker.New(gitManager),
 			GithubReleaseImage: githubreleaseimage.New(ainit.StaticConfig.ReleasesDir, githubClient),
 			RuntimeInputs:      runtimeInputs,

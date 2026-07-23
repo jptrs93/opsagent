@@ -2,6 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {formatClockTime, formatHistoryTime} from "../lib/date.js";
 import {resolveUserDisplayName} from "../lib/users.js";
+import {deploymentWorkload} from "../lib/deploymentConfig.js";
 
 const { div, h2, span, button, p } = van.tags;
 
@@ -24,12 +25,12 @@ const runnerStatusLabels = {
 
 function describeConfigEntry(config, prevConfig) {
     const parts = [];
-    const desired = config.desiredState || {};
+    const desired = deploymentWorkload(config) || {};
 
     if (!prevConfig) {
         parts.push('created');
     } else {
-        const prevDesired = prevConfig.desiredState || {};
+        const prevDesired = deploymentWorkload(prevConfig) || {};
         if (desired.version !== prevDesired.version && desired.version) {
             parts.push(`version=${desired.version.substring(0, 7)}`);
         }
@@ -203,7 +204,7 @@ export function deploymentHistory(deploymentId, label, onClose, onRevertTargetVe
                         const desc = describeConfigEntry(e.config, info?.prev);
                         const userName = resolveUserDisplayName(e.config.updatedBy);
                         const user = userName ? ` [${userName}]` : '';
-                        const targetVersion = e.config.desiredState?.version || '';
+                        const targetVersion = deploymentWorkload(e.config)?.version || '';
                         const canRevertTargetVersion = targetVersion && e.config.version !== currentConfigVersion;
                         return div(
                             {class: "px-3 py-0.5 text-xs font-mono text-orange-400"},

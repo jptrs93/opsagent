@@ -226,7 +226,7 @@ func render(prefix network.Prefix, nodes []*sqlite.Node, deployments []apigen.De
 	routes := make([]*apigen.ClusterNetMapRoute, 0, len(deployments))
 	for _, item := range deployments {
 		cfg := item.Config
-		if cfg.ID <= 0 || cfg.NodeID <= 0 || cfg.Deleted || !cfg.DesiredState.Running ||
+		if cfg.ID <= 0 || cfg.NodeID <= 0 || cfg.Deleted || !cfg.WorkloadRunning() ||
 			cfg.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}

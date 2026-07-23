@@ -23,7 +23,7 @@ type requiredAssetRef struct {
 	Executable bool
 }
 
-func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
+func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.DeploymentConfig2) error {
 	refs := RequiredAssetRefs(cfg)
 	if len(refs) == 0 {
 		return nil
@@ -85,23 +85,27 @@ func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.Deplo
 	return nil
 }
 
-func RequiredAssetRefs(cfg *apigen.DeploymentConfig) []requiredAssetRef {
+func RequiredAssetRefs(cfg *apigen.DeploymentConfig2) []requiredAssetRef {
 	if cfg == nil {
 		return nil
 	}
-	container := cfg.Spec.Runner.Container
-	refs := make([]requiredAssetRef, 0, len(container.AssetMounts)+len(container.EnvVars))
-	for _, m := range container.AssetMounts {
+	container := cfg.Spec.Container()
+	if container == nil {
+		return nil
+	}
+	runtime := container.Runtime
+	refs := make([]requiredAssetRef, 0, len(runtime.AssetMounts)+len(runtime.EnvVars))
+	for _, m := range runtime.AssetMounts {
 		if m == nil {
 			continue
 		}
 		refs = append(refs, requiredAssetRef{
-			Label:      fmt.Sprintf("asset mount %q", m.Asset),
+			Label:      fmt.Sprintf("asset mount %d", m.AssetID),
 			AssetID:    m.AssetID,
-			Executable: m.Executable,
+			Executable: m.Permission == apigen.FilePermission_READ_EXECUTE,
 		})
 	}
-	for key, value := range container.EnvVars {
+	for key, value := range runtime.EnvVars {
 		if value == nil || value.AssetID <= 0 {
 			continue
 		}

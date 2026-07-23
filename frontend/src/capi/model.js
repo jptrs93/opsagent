@@ -10,7 +10,6 @@
  * @property {string} repo
  * @property {string} asset
  * @property {string} tag
- * @property {string} downloadScript
  */
 /**
  * @typedef {Object} ContainerImageConfig
@@ -104,14 +103,13 @@
  * @property {string} targetVersion
  * @property {boolean} stop
  * @property {number} version
- * @property {DeploymentSpec} spec
+ * @property {DeploymentSpec2} spec
  * @property {number} spaceId
  */
 /**
  * @typedef {Object} DeploymentCreateRequest
  * @property {DeploymentIdentity} identity
- * @property {DeploymentSpec} spec
- * @property {DesiredState} desiredState
+ * @property {DeploymentSpec2} spec
  * @property {number} nodeId
  */
 /**
@@ -200,7 +198,7 @@
  */
 /**
  * @typedef {Object} DeploymentWithStatus
- * @property {DeploymentConfig} config
+ * @property {DeploymentConfig2} config
  * @property {DeploymentStatus} status
  */
 /**
@@ -356,12 +354,12 @@
 /**
  * @typedef {Object} DeploymentSpec2
  * @property {NetworkingConfig} networking
- * @property {ContainerSpec} container1spec
- * @property {ContainerSpec} container2spec
- * @property {ContainerSpec} container3spec
- * @property {MicroVMSpec} microvmspec
- * @property {VMSpec} vmspec
- * @property {SystemdSpec} systemdspec
+ * @property {ContainerSpec} container1Spec
+ * @property {ContainerSpec} container2Spec
+ * @property {ContainerSpec} container3Spec
+ * @property {MicroVMSpec} microVmSpec
+ * @property {VMSpec} vmSpec
+ * @property {SystemdSpec} systemdSpec
  */
 /**
  * @typedef {Object} MicroVMSpec
@@ -397,8 +395,8 @@
  */
 /**
  * @typedef {Object} ContainerBundleSource
- * @property {NixDockerBuild2} nixdockerbuild
- * @property {RemoteDockerImage} remoteimage
+ * @property {NixDockerBuild2} nixDockerBuild
+ * @property {RemoteDockerImage} remoteImage
  */
 /**
  * @typedef {Object} NixDockerBuild2
@@ -799,7 +797,7 @@
  */
 /**
  * @typedef {Object} DeploymentHistoryEntry
- * @property {DeploymentConfig} config
+ * @property {DeploymentConfig2} config
  * @property {DeploymentStatus} status
  */
 /**
@@ -875,7 +873,7 @@
 /**
  * @typedef {Object} MsgToWorker
  * @property {DeploymentWithStatusSnapshot} deploymentsSnapshot
- * @property {DeploymentConfig} deploymentUpdate
+ * @property {DeploymentConfig2} deploymentUpdate
  * @property {PrepareOutputRequest} prepareLogRequest
  * @property {RunOutputRequest} runLogRequest
  * @property {DeploymentLogRequest} deploymentLogRequest
@@ -1158,9 +1156,6 @@ export function writeGithubReleaseConfig(message, writer) {
     if (message.tag !== undefined && message.tag !== null && message.tag !== "") {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.tag);
     }
-    if (message.downloadScript !== undefined && message.downloadScript !== null && message.downloadScript !== "") {
-        writer.uint32(tag(4, WIRE.LDELIM)).string(message.downloadScript);
-    }
 }
 
 
@@ -1182,7 +1177,7 @@ export function encodeGithubReleaseConfig(message) {
  */
 function decodeGithubReleaseConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {repo: "", asset: "", tag: "", downloadScript: "" };
+    const message = {repo: "", asset: "", tag: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1196,10 +1191,6 @@ function decodeGithubReleaseConfigMessage(reader, length) {
             }
             case 3: {
                 message.tag = reader.string();
-                break;
-            }
-            case 4: {
-                message.downloadScript = reader.string();
                 break;
             }
             default:
@@ -2265,7 +2256,7 @@ export function writeDeploymentUpdateRequest(message, writer) {
     }
     if (message.spec !== undefined && message.spec !== null) {
         writer.uint32(tag(6, WIRE.LDELIM)).fork();
-        writeDeploymentSpec(message.spec, writer);
+        writeDeploymentSpec2(message.spec, writer);
         writer.ldelim();
     }
     if (message.spaceId !== undefined && message.spaceId !== null) {
@@ -2313,7 +2304,7 @@ function decodeDeploymentUpdateRequestMessage(reader, length) {
                 break;
             }
             case 6: {
-                message.spec = decodeDeploymentSpecMessage(reader, reader.uint32());
+                message.spec = decodeDeploymentSpec2Message(reader, reader.uint32());
                 break;
             }
             case 7: {
@@ -2351,12 +2342,7 @@ export function writeDeploymentCreateRequest(message, writer) {
     }
     if (message.spec !== undefined && message.spec !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeDeploymentSpec(message.spec, writer);
-        writer.ldelim();
-    }
-    if (message.desiredState !== undefined && message.desiredState !== null) {
-        writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeDesiredState(message.desiredState, writer);
+        writeDeploymentSpec2(message.spec, writer);
         writer.ldelim();
     }
     if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
@@ -2383,7 +2369,7 @@ export function encodeDeploymentCreateRequest(message) {
  */
 function decodeDeploymentCreateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {identity: undefined, spec: undefined, desiredState: undefined, nodeId: 0 };
+    const message = {identity: undefined, spec: undefined, nodeId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2392,11 +2378,7 @@ function decodeDeploymentCreateRequestMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.spec = decodeDeploymentSpecMessage(reader, reader.uint32());
-                break;
-            }
-            case 3: {
-                message.desiredState = decodeDesiredStateMessage(reader, reader.uint32());
+                message.spec = decodeDeploymentSpec2Message(reader, reader.uint32());
                 break;
             }
             case 4: {
@@ -3426,7 +3408,7 @@ export function decodeDeploymentConfig(buffer) {
 export function writeDeploymentWithStatus(message, writer) {
     if (message.config !== undefined && message.config !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeDeploymentConfig(message.config, writer);
+        writeDeploymentConfig2(message.config, writer);
         writer.ldelim();
     }
     if (message.status !== undefined && message.status !== null) {
@@ -3460,7 +3442,7 @@ function decodeDeploymentWithStatusMessage(reader, length) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.config = decodeDeploymentConfigMessage(reader, reader.uint32());
+                message.config = decodeDeploymentConfig2Message(reader, reader.uint32());
                 break;
             }
             case 2: {
@@ -5206,34 +5188,34 @@ export function writeDeploymentSpec2(message, writer) {
         writeNetworkingConfig(message.networking, writer);
         writer.ldelim();
     }
-    if (message.container1spec !== undefined && message.container1spec !== null) {
+    if (message.container1Spec !== undefined && message.container1Spec !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeContainerSpec(message.container1spec, writer);
+        writeContainerSpec(message.container1Spec, writer);
         writer.ldelim();
     }
-    if (message.container2spec !== undefined && message.container2spec !== null) {
+    if (message.container2Spec !== undefined && message.container2Spec !== null) {
         writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeContainerSpec(message.container2spec, writer);
+        writeContainerSpec(message.container2Spec, writer);
         writer.ldelim();
     }
-    if (message.container3spec !== undefined && message.container3spec !== null) {
+    if (message.container3Spec !== undefined && message.container3Spec !== null) {
         writer.uint32(tag(4, WIRE.LDELIM)).fork();
-        writeContainerSpec(message.container3spec, writer);
+        writeContainerSpec(message.container3Spec, writer);
         writer.ldelim();
     }
-    if (message.microvmspec !== undefined && message.microvmspec !== null) {
+    if (message.microVmSpec !== undefined && message.microVmSpec !== null) {
         writer.uint32(tag(5, WIRE.LDELIM)).fork();
-        writeMicroVMSpec(message.microvmspec, writer);
+        writeMicroVMSpec(message.microVmSpec, writer);
         writer.ldelim();
     }
-    if (message.vmspec !== undefined && message.vmspec !== null) {
+    if (message.vmSpec !== undefined && message.vmSpec !== null) {
         writer.uint32(tag(6, WIRE.LDELIM)).fork();
-        writeVMSpec(message.vmspec, writer);
+        writeVMSpec(message.vmSpec, writer);
         writer.ldelim();
     }
-    if (message.systemdspec !== undefined && message.systemdspec !== null) {
+    if (message.systemdSpec !== undefined && message.systemdSpec !== null) {
         writer.uint32(tag(7, WIRE.LDELIM)).fork();
-        writeSystemdSpec(message.systemdspec, writer);
+        writeSystemdSpec(message.systemdSpec, writer);
         writer.ldelim();
     }
 }
@@ -5257,7 +5239,7 @@ export function encodeDeploymentSpec2(message) {
  */
 function decodeDeploymentSpec2Message(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {networking: undefined, container1spec: undefined, container2spec: undefined, container3spec: undefined, microvmspec: undefined, vmspec: undefined, systemdspec: undefined };
+    const message = {networking: undefined, container1Spec: undefined, container2Spec: undefined, container3Spec: undefined, microVmSpec: undefined, vmSpec: undefined, systemdSpec: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5266,27 +5248,27 @@ function decodeDeploymentSpec2Message(reader, length) {
                 break;
             }
             case 2: {
-                message.container1spec = decodeContainerSpecMessage(reader, reader.uint32());
+                message.container1Spec = decodeContainerSpecMessage(reader, reader.uint32());
                 break;
             }
             case 3: {
-                message.container2spec = decodeContainerSpecMessage(reader, reader.uint32());
+                message.container2Spec = decodeContainerSpecMessage(reader, reader.uint32());
                 break;
             }
             case 4: {
-                message.container3spec = decodeContainerSpecMessage(reader, reader.uint32());
+                message.container3Spec = decodeContainerSpecMessage(reader, reader.uint32());
                 break;
             }
             case 5: {
-                message.microvmspec = decodeMicroVMSpecMessage(reader, reader.uint32());
+                message.microVmSpec = decodeMicroVMSpecMessage(reader, reader.uint32());
                 break;
             }
             case 6: {
-                message.vmspec = decodeVMSpecMessage(reader, reader.uint32());
+                message.vmSpec = decodeVMSpecMessage(reader, reader.uint32());
                 break;
             }
             case 7: {
-                message.systemdspec = decodeSystemdSpecMessage(reader, reader.uint32());
+                message.systemdSpec = decodeSystemdSpecMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -5715,14 +5697,14 @@ export function decodeContainerSpec(buffer) {
  * @param {Writer} writer
  */
 export function writeContainerBundleSource(message, writer) {
-    if (message.nixdockerbuild !== undefined && message.nixdockerbuild !== null) {
+    if (message.nixDockerBuild !== undefined && message.nixDockerBuild !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeNixDockerBuild2(message.nixdockerbuild, writer);
+        writeNixDockerBuild2(message.nixDockerBuild, writer);
         writer.ldelim();
     }
-    if (message.remoteimage !== undefined && message.remoteimage !== null) {
+    if (message.remoteImage !== undefined && message.remoteImage !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeRemoteDockerImage(message.remoteimage, writer);
+        writeRemoteDockerImage(message.remoteImage, writer);
         writer.ldelim();
     }
 }
@@ -5746,16 +5728,16 @@ export function encodeContainerBundleSource(message) {
  */
 function decodeContainerBundleSourceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {nixdockerbuild: undefined, remoteimage: undefined };
+    const message = {nixDockerBuild: undefined, remoteImage: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.nixdockerbuild = decodeNixDockerBuild2Message(reader, reader.uint32());
+                message.nixDockerBuild = decodeNixDockerBuild2Message(reader, reader.uint32());
                 break;
             }
             case 2: {
-                message.remoteimage = decodeRemoteDockerImageMessage(reader, reader.uint32());
+                message.remoteImage = decodeRemoteDockerImageMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -10530,7 +10512,7 @@ export function decodeClusterMachineList(buffer) {
 export function writeDeploymentHistoryEntry(message, writer) {
     if (message.config !== undefined && message.config !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeDeploymentConfig(message.config, writer);
+        writeDeploymentConfig2(message.config, writer);
         writer.ldelim();
     }
     if (message.status !== undefined && message.status !== null) {
@@ -10564,7 +10546,7 @@ function decodeDeploymentHistoryEntryMessage(reader, length) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.config = decodeDeploymentConfigMessage(reader, reader.uint32());
+                message.config = decodeDeploymentConfig2Message(reader, reader.uint32());
                 break;
             }
             case 2: {
@@ -11459,7 +11441,7 @@ export function writeMsgToWorker(message, writer) {
     }
     if (message.deploymentUpdate !== undefined && message.deploymentUpdate !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeDeploymentConfig(message.deploymentUpdate, writer);
+        writeDeploymentConfig2(message.deploymentUpdate, writer);
         writer.ldelim();
     }
     if (message.prepareLogRequest !== undefined && message.prepareLogRequest !== null) {
@@ -11525,7 +11507,7 @@ function decodeMsgToWorkerMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.deploymentUpdate = decodeDeploymentConfigMessage(reader, reader.uint32());
+                message.deploymentUpdate = decodeDeploymentConfig2Message(reader, reader.uint32());
                 break;
             }
             case 3: {

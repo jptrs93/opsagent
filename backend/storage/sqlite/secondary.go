@@ -25,7 +25,7 @@ func (s *SecondaryStorage) Close() error {
 	return s.db.Close()
 }
 
-func (s *SecondaryStorage) MustWriteDeploymentConfig(cfg *apigen.DeploymentConfig) {
+func (s *SecondaryStorage) MustWriteDeploymentConfig(cfg *apigen.DeploymentConfig2) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := context.Background()
@@ -51,14 +51,14 @@ func (s *SecondaryStorage) MustWriteDeploymentConfig(cfg *apigen.DeploymentConfi
 	defer tx.Rollback()
 	q := s.q.WithTx(tx)
 
-	if !stored.Deleted {
-		if err := q.RetireOtherActiveDeploymentConfigsWithKey(ctx, RetireOtherActiveDeploymentConfigsWithKeyParams{
-			DeploymentID: int64(id),
-			NodeID:       int64(stored.NodeID),
-			SpaceID:      int64(stored.Identity.SpaceID),
-			Name:         stored.Identity.Name,
-		}); err != nil {
-			panic(fmt.Sprintf("RetireOtherActiveDeploymentConfigsWithKey: %v", err))
+	for _, retiredID := range retiredIDs {
+		retired := *s.configCache[retiredID]
+		retired.Deleted = true
+		if err := retired.SetWorkloadState(retired.WorkloadVersion(), false); err != nil {
+			panic(fmt.Sprintf("retire deployment %d: %v", retiredID, err))
+		}
+		if err := q.UpsertDeploymentConfig(ctx, configProtoToUpsertParams(&retired)); err != nil {
+			panic(fmt.Sprintf("persist retired deployment %d: %v", retiredID, err))
 		}
 	}
 	if err := q.UpsertDeploymentConfig(ctx, configProtoToUpsertParams(&stored)); err != nil {
@@ -74,7 +74,9 @@ func (s *SecondaryStorage) MustWriteDeploymentConfig(cfg *apigen.DeploymentConfi
 	for _, retiredID := range retiredIDs {
 		retired := *s.configCache[retiredID]
 		retired.Deleted = true
-		retired.DesiredState.Running = false
+		if err := retired.SetWorkloadState(retired.WorkloadVersion(), false); err != nil {
+			panic(fmt.Sprintf("retire cached deployment %d: %v", retiredID, err))
+		}
 		s.configCache[retiredID] = &retired
 		s.notifyFromCache(retiredID)
 	}

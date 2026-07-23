@@ -131,7 +131,7 @@ hclModel.nixDockerBuild.selectedBranch.val = 'main';
 hclModel.nixDockerBuild.branches.val = ['main'];
 hclModel.nixDockerBuild.commits.val = [{id: COMMIT_A, label: 'Discovered'}];
 const hclDocument = hclModel.toDocument();
-hclDocument.desiredState.version = COMMIT_B;
+    hclDocument.spec.container1Spec.version = COMMIT_B;
 hclModel.replaceDocument(hclDocument);
 assert.equal(hclModel.nixDockerBuild.selectedCommit.val, COMMIT_B);
 assert.deepEqual(hclModel.nixDockerBuild.branches.val, ['main']);
@@ -194,9 +194,11 @@ assert.equal(trustedImageModel.imageStatus().status, 'error');
 assert.equal(trustedImageModel.sourcePathInvalidReason(), 'Image path invalid.');
 
 const runningNixPreset = fixturePresets.updateNixStopped;
+const runningNixConfig = structuredClone(runningNixPreset.deploymentConfig);
+runningNixConfig.spec.container1Spec.running = true;
 const trustedNixModel = new DeploymentCreationUpdate({
     deployment: {...runningNixPreset.deployment, desiredRunning: true},
-    deploymentConfig: runningNixPreset.deploymentConfig,
+    deploymentConfig: runningNixConfig,
     validateSource: async () => { throw new Error('Fixture source validation failure'); },
 });
 assert.equal(trustedNixModel.repositoryStatus().status, 'ok');
@@ -216,7 +218,7 @@ const initialVersionRequests = [];
 const initialNixDeployment = {...runningNixPreset.deployment, desiredRunning: true};
 const initialNixModel = new DeploymentCreationUpdate({
     deployment: initialNixDeployment,
-    deploymentConfig: runningNixPreset.deploymentConfig,
+    deploymentConfig: runningNixConfig,
     validateSource: async () => {
         initialValidateCalls += 1;
         return {};
@@ -245,7 +247,7 @@ const forkCreateRequests = [];
 const forkCreateModel = new DeploymentCreationUpdate({
     mode: 'create',
     deployment: initialNixDeployment,
-    deploymentConfig: runningNixPreset.deploymentConfig,
+    deploymentConfig: runningNixConfig,
     validateSource: async request => {
         forkCreateRequests.push(request);
         const source = request.nixDockerBuild;
@@ -284,7 +286,7 @@ assert.equal(initialNixModel.nixDockerBuild.exactValidation.val.status, 'idle');
 const trustedUpdateRequests = [];
 const trustedUpdateModel = new DeploymentCreationUpdate({
     deployment: initialNixDeployment,
-    deploymentConfig: runningNixPreset.deploymentConfig,
+    deploymentConfig: runningNixConfig,
     validateSource: async request => {
         trustedUpdateRequests.push(request);
         const source = request.nixDockerBuild;
@@ -300,6 +302,7 @@ await new Promise(resolve => setTimeout(resolve, 0));
 assert.equal(trustedUpdateRequests.length, 0);
 assert.equal(trustedUpdateModel.runningNixInvalidReason(), '');
 assert.equal(trustedUpdateModel.toUpdatePayload().targetVersion, COMMIT_B);
+assert.equal(trustedUpdateModel.toUpdatePayload().spec, undefined);
 
 assert.equal(await trustedUpdateModel.selectBranch('release/2026-07'), true);
 assert.equal(trustedUpdateRequests.length, 1);
@@ -315,7 +318,7 @@ assert.equal(trustedUpdateRequests.filter(request => request.nixDockerBuild.chec
 assert.equal(trustedUpdateModel.nixDockerBuild.selectedCommit.val, COMMIT_B);
 
 const replacement = trustedUpdateModel.toDocument();
-replacement.desiredState.version = COMMIT_A;
+replacement.spec.container1Spec.version = COMMIT_A;
 trustedUpdateModel.replaceDocument(replacement);
 await new Promise(resolve => setTimeout(resolve, 0));
 assert.equal(trustedUpdateRequests.filter(request => request.nixDockerBuild.checkCommit).length, 0);
@@ -324,7 +327,7 @@ assert.equal(trustedUpdateModel.toUpdatePayload().targetVersion, COMMIT_A);
 trustedUpdateModel.form.nixFlake.val = 'services/changed/flake.nix';
 assert.equal(await trustedUpdateModel.validateExactNixSelection(), true);
 assert.equal(trustedUpdateRequests.filter(request => request.nixDockerBuild.checkCommit).length, 1);
-trustedUpdateModel.form.nixFlake.val = runningNixPreset.deploymentConfig.spec.prepare.nixDockerBuild.flake;
+trustedUpdateModel.form.nixFlake.val = runningNixPreset.deploymentConfig.spec.container1Spec.source.nixDockerBuild.flake;
 assert.equal(await trustedUpdateModel.validateExactNixSelection(), true);
 assert.equal(trustedUpdateRequests.filter(request => request.nixDockerBuild.checkCommit).length, 1);
 
@@ -352,7 +355,7 @@ assert.equal(stoppedStartModel.toUpdatePayload().targetVersion, runningNixPreset
 const staleInitialVersions = deferred();
 const staleInitialModel = new DeploymentCreationUpdate({
     deployment: initialNixDeployment,
-    deploymentConfig: runningNixPreset.deploymentConfig,
+    deploymentConfig: runningNixConfig,
     validateSource: async () => ({}),
 });
 const staleInitialLoad = staleInitialModel.loadExistingDeploymentVersions(

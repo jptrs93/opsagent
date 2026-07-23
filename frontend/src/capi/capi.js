@@ -7,10 +7,9 @@ import {
   decodeClusterNode,
   decodeClusterSecretsResponse,
   decodeClusterStatusResponse,
-  decodeDeploymentConfig,
+  decodeDeploymentConfig2,
   decodeDeploymentHistory,
   decodeDeploymentVersions,
-  decodeDesiredState,
   decodeEnrollmentInfo,
   decodeEnrollmentPrimaryMsg,
   decodeEnrollmentRequestList,
@@ -297,14 +296,14 @@ export class Capi {
 
   /**
    * @param {DeploymentUpdateRequest} payload
-   * @returns {Promise<DesiredState>}
+   * @returns {Promise<DeploymentConfig2>}
    */
   async postV1DeploymentUpdate(payload) {
     const response = await this.#request("/v1/deployment/update", { method: 'POST', body: encodeDeploymentUpdateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeDesiredState(await response.arrayBuffer());
+    return decodeDeploymentConfig2(await response.arrayBuffer());
   }
 
   /**
@@ -392,14 +391,14 @@ export class Capi {
 
   /**
    * @param {DeploymentCreateRequest} payload
-   * @returns {Promise<DeploymentConfig>}
+   * @returns {Promise<DeploymentConfig2>}
    */
   async postV1DeploymentCreate(payload) {
     const response = await this.#request("/v1/deployment/create", { method: 'POST', body: encodeDeploymentCreateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeDeploymentConfig(await response.arrayBuffer());
+    return decodeDeploymentConfig2(await response.arrayBuffer());
   }
 
   /**

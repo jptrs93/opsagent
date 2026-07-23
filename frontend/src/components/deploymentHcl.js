@@ -7,8 +7,10 @@ const PROTOCOL_UDP = 2;
 const INGRESS_TLS_PASSTHROUGH = 1;
 const UPGRADE_RECREATE = 1;
 const UPGRADE_ROLLOVER = 2;
+const PERMISSION_READ_WRITE = 1;
+const PERMISSION_READ_ONLY = 2;
+const PERMISSION_READ_EXECUTE = 3;
 const DEFAULT_DATA_PATH = "/data";
-const DEPLOYMENT_VOLUME_PREFIX = "/var/lib/opendeploy-volumes/";
 
 export const deploymentHclCompletionOptions = [
     {label: "deployment", type: "keyword", info: "Root deployment block"},
@@ -373,12 +375,6 @@ function envValueToHcl(value, catalogs, spaceId, pinVersions) {
     return quote(value?.value ?? "");
 }
 
-function deploymentMountID(host) {
-    const escaped = DEPLOYMENT_VOLUME_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const match = new RegExp(`^${escaped}([0-9]+)/default$`).exec(host || "");
-    return match ? Number(match[1]) : null;
-}
-
 function imageReferenceVersion(raw) {
     let image = String(raw || "").trim();
     image = image.replace(/^docker:\/\//, "").replace(/^https?:\/\//, "").replace(/\/$/, "");
@@ -398,10 +394,11 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     const doc = document || {};
     const identity = doc.identity || {};
     const spec = doc.spec || {};
-    const prepare = spec.prepare || {};
-    const container = spec.runner?.container || {};
+    const container = spec.container1Spec || {};
+    const source = container.source || {};
+    const runtime = container.runtime || {};
+    const defaultVolume = runtime.defaultVolume || {};
     const networking = spec.networking || {};
-    const desiredState = doc.desiredState || {};
     const spaceId = identity.spaceId;
     const pinVersions = Boolean(options.pinVersions);
     const lines = [];
@@ -417,33 +414,33 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     add(0);
     add(1, "container {");
     add(2, "source {");
-    if (prepare.nixDockerBuild) {
-        const source = prepare.nixDockerBuild;
+    if (source.nixDockerBuild) {
+        const nixSource = source.nixDockerBuild;
         add(3, "nix_docker_build {");
-        add(4, `repo = ${quote(source.repo)}`);
-        add(4, `flake = ${quote(source.flake)}`);
-        if (source.target) add(4, `target = ${quote(source.target)}`);
+        add(4, `repo = ${quote(nixSource.repo)}`);
+        add(4, `flake = ${quote(nixSource.flake)}`);
+        if (nixSource.target) add(4, `target = ${quote(nixSource.target)}`);
         add(3, "}");
     } else {
         add(3, "container_image {");
-        add(4, `image = ${quote(prepare.containerImage?.image)}`);
+        add(4, `image = ${quote(source.remoteImage?.image)}`);
         add(3, "}");
     }
     add(2, "}");
 
-    const hasProcess = Boolean(container.user || container.workingDir || (container.command || []).length
-        || (container.disableDataVolume && container.dataMountPath));
+    const hasProcess = Boolean(runtime.user || runtime.overrideWorkingDir || (runtime.overrideCommand || []).length
+        || (defaultVolume.disabled && defaultVolume.containerPath));
     if (hasProcess) {
         add(0);
         add(2, "process {");
-        if (container.user) add(3, `user = ${quote(container.user)}`);
-        if ((container.command || []).length) add(3, `command = [${container.command.map(quote).join(", ")}]`);
-        if (container.workingDir) add(3, `working_dir = ${quote(container.workingDir)}`);
-        if (container.disableDataVolume && container.dataMountPath) add(3, `data_mount_path = ${quote(container.dataMountPath)}`);
+        if (runtime.user) add(3, `user = ${quote(runtime.user)}`);
+        if ((runtime.overrideCommand || []).length) add(3, `command = [${runtime.overrideCommand.map(quote).join(", ")}]`);
+        if (runtime.overrideWorkingDir) add(3, `working_dir = ${quote(runtime.overrideWorkingDir)}`);
+        if (defaultVolume.disabled && defaultVolume.containerPath) add(3, `data_mount_path = ${quote(defaultVolume.containerPath)}`);
         add(2, "}");
     }
 
-    const envVars = container.envVars || {};
+    const envVars = runtime.envVars || {};
     const envNames = Object.keys(envVars).sort();
     if (envNames.length) {
         add(0);
@@ -453,19 +450,20 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     }
 
     const mounts = [];
-    if (!container.disableDataVolume) {
-        mounts.push(`mount(default_volume(), ${quote(container.dataMountPath || DEFAULT_DATA_PATH)})`);
+    if (!defaultVolume.disabled) {
+        mounts.push(`mount(default_volume(), ${quote(defaultVolume.containerPath || DEFAULT_DATA_PATH)})`);
     }
-    for (const mount of container.mounts || []) {
-        const deploymentId = deploymentMountID(mount?.host);
-        const source = deploymentId === null
-            ? `host_path(${quote(mount?.host)})`
-            : deploymentReferenceForID(refs, "deployment", deploymentId);
-        mounts.push(`mount(${source}, ${quote(mount?.container)}${mountOption("read_only", mount?.readonly)})`);
+    for (const mount of runtime.crossDeploymentMounts || []) {
+        const mountSource = deploymentReferenceForID(refs, "deployment", mount?.deploymentId);
+        mounts.push(`mount(${mountSource}, ${quote(mount?.containerPath)}${mountOption("read_only", mount?.permission === PERMISSION_READ_ONLY)})`);
     }
-    for (const mount of container.assetMounts || []) {
-        const source = versionedReferenceForID(refs, "asset", mount?.assetId, pinVersions);
-        mounts.push(`mount(${source}, ${quote(mount?.path)}${mountOption("executable", mount?.executable)})`);
+    for (const mount of runtime.mounts || []) {
+        const mountSource = `host_path(${quote(mount?.hostPath)})`;
+        mounts.push(`mount(${mountSource}, ${quote(mount?.containerPath)}${mountOption("read_only", mount?.permission === PERMISSION_READ_ONLY)})`);
+    }
+    for (const mount of runtime.assetMounts || []) {
+        const mountSource = versionedReferenceForID(refs, "asset", mount?.assetId, pinVersions);
+        mounts.push(`mount(${mountSource}, ${quote(mount?.containerPath)}${mountOption("executable", mount?.permission === PERMISSION_READ_EXECUTE)})`);
     }
     if (mounts.length) {
         add(0);
@@ -474,11 +472,11 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
         add(2, "]");
     }
 
-    if (container.devShmSizeKb || container.fileDescriptorLimit) {
+    if (runtime.devShmSizeKb || runtime.fileDescriptorLimit) {
         add(0);
         add(2, "resources {");
-        if (container.devShmSizeKb) add(3, `dev_shm_size_kb = ${Number(container.devShmSizeKb)}`);
-        if (container.fileDescriptorLimit) add(3, `file_descriptor_limit = ${Number(container.fileDescriptorLimit)}`);
+        if (runtime.devShmSizeKb) add(3, `dev_shm_size_kb = ${Number(runtime.devShmSizeKb)}`);
+        if (runtime.fileDescriptorLimit) add(3, `file_descriptor_limit = ${Number(runtime.fileDescriptorLimit)}`);
         add(2, "}");
     }
 
@@ -493,7 +491,7 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     }
 
     add(0);
-    add(2, `version = ${quote(desiredState.version)}`);
+    add(2, `version = ${quote(container.version)}`);
     add(1, "}");
     add(0);
     add(1, "network {");
@@ -521,7 +519,7 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     }
     add(1, "}");
     add(0);
-    add(1, `desired_running = ${desiredState.running ? "true" : "false"}`);
+    add(1, `desired_running = ${container.running ? "true" : "false"}`);
     add(0, "}");
     return `${lines.join("\n")}\n`;
 }
@@ -682,8 +680,9 @@ function referenceVersion(text, diagnostics, expression, description) {
     return integerValue(text, diagnostics, version, `${description} version`, 1) ?? undefined;
 }
 
-function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, container) {
-    container.disableDataVolume = true;
+function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, runtime) {
+    runtime.defaultVolume ||= {};
+    runtime.defaultVolume.disabled = true;
     if (!attr) return;
     if (attr.value.kind !== "list") {
         diagnostics.push(diagnostic(text, attr.value, "mounts must be a list of mount(...) calls."));
@@ -710,8 +709,8 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, contain
             defaultVolumes++;
             if (defaultVolumes > 1) diagnostics.push(diagnostic(text, source, "Only one default volume mount is allowed."));
             if (optionsExpression) diagnostics.push(diagnostic(text, optionsExpression, "Default volume mounts do not accept options."));
-            container.disableDataVolume = false;
-            if (pathExpression.value !== DEFAULT_DATA_PATH) container.dataMountPath = pathExpression.value;
+            runtime.defaultVolume.disabled = false;
+            if (pathExpression.value !== DEFAULT_DATA_PATH) runtime.defaultVolume.containerPath = pathExpression.value;
             continue;
         }
         if (source.name === "asset" && source.args.length >= 1 && source.args.length <= 2
@@ -722,14 +721,13 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, contain
             });
             const options = optionsExpression ? validateObject(text, diagnostics, optionsExpression, new Set(["executable"])) : new Map();
             if (asset) {
-                const mount = {
-                    asset: asset.key,
+                assetMounts.push({
                     assetId: Number(asset.id),
-                    path: pathExpression.value,
-                    executable: optionBoolean(text, diagnostics, options, "executable"),
-                };
-                if (asset.format) mount.format = asset.format;
-                assetMounts.push(mount);
+                    containerPath: pathExpression.value,
+                    permission: optionBoolean(text, diagnostics, options, "executable")
+                        ? PERMISSION_READ_EXECUTE
+                        : PERMISSION_READ_ONLY,
+                });
             }
             continue;
         }
@@ -737,27 +735,33 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, contain
             const options = optionsExpression ? validateObject(text, diagnostics, optionsExpression, new Set(["read_only"])) : new Map();
             const deployment = deploymentReference(text, diagnostics, source, catalogs, nodeId);
             if (!deployment) continue;
-            const host = `${DEPLOYMENT_VOLUME_PREFIX}${deploymentConfig(deployment).id}/default`;
             mounts.push({
-                host,
-                container: pathExpression.value,
-                readonly: optionBoolean(text, diagnostics, options, "read_only"),
+                deploymentId: Number(deploymentConfig(deployment).id),
+                containerPath: pathExpression.value,
+                permission: optionBoolean(text, diagnostics, options, "read_only")
+                    ? PERMISSION_READ_ONLY
+                    : PERMISSION_READ_WRITE,
             });
             continue;
         }
         if (source.name === "host_path" && source.args.length === 1 && source.args[0].kind === "string") {
             const options = optionsExpression ? validateObject(text, diagnostics, optionsExpression, new Set(["read_only"])) : new Map();
             mounts.push({
-                host: source.args[0].value,
-                container: pathExpression.value,
-                readonly: optionBoolean(text, diagnostics, options, "read_only"),
+                hostPath: source.args[0].value,
+                containerPath: pathExpression.value,
+                permission: optionBoolean(text, diagnostics, options, "read_only")
+                    ? PERMISSION_READ_ONLY
+                    : PERMISSION_READ_WRITE,
             });
             continue;
         }
         diagnostics.push(diagnostic(text, source, 'Mount source must be default_volume(), asset("key"[, { version = number }]), deployment("space", "deployment"), or host_path("/host").'));
     }
-    if (mounts.length) container.mounts = mounts;
-    if (assetMounts.length) container.assetMounts = assetMounts;
+    const crossDeploymentMounts = mounts.filter(mount => mount.deploymentId);
+    const customMounts = mounts.filter(mount => mount.hostPath);
+    if (crossDeploymentMounts.length) runtime.crossDeploymentMounts = crossDeploymentMounts;
+    if (customMounts.length) runtime.mounts = customMounts;
+    if (assetMounts.length) runtime.assetMounts = assetMounts;
 }
 
 function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId, container) {
@@ -895,8 +899,9 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
     const containers = members(deployment, "block", "container");
     if (containers.length !== 1) diagnostics.push(diagnostic(text, containers[1] || deployment, "Deployment requires exactly one container block."));
     const containerBlock = containers[0];
-    const prepare = {};
-    const container = {disableDataVolume: true, upgradeStrategy: UPGRADE_RECREATE};
+    const sourceSpec = {};
+    const runtime = {defaultVolume: {disabled: true}};
+    const container = {source: sourceSpec, runtime, upgradeStrategy: UPGRADE_RECREATE};
     let version = null;
     let versionAttr = null;
     if (containerBlock) {
@@ -912,7 +917,7 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
             if (variant?.name === "container_image") {
                 validateMembers(text, diagnostics, variant, new Set(["image"]), new Set());
                 const image = stringValue(text, diagnostics, requireAttribute(text, diagnostics, variant, "image"), "Container image", {nonempty: true});
-                if (image !== null) prepare.containerImage = {image};
+                if (image !== null) sourceSpec.remoteImage = {image};
             }
             if (variant?.name === "nix_docker_build") {
                 validateMembers(text, diagnostics, variant, new Set(["repo", "flake", "target"]), new Set());
@@ -926,8 +931,8 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
                 const target = stringValue(text, diagnostics, targetAttr, "Nix target");
                 if (target !== null && target !== "" && !target.startsWith(".#")) diagnostics.push(diagnostic(text, targetAttr.value, 'Nix target must begin with ".#".'));
                 if (repo !== null && flake !== null) {
-                    prepare.nixDockerBuild = {repo, flake};
-                    if (targetAttr && target !== null) prepare.nixDockerBuild.target = target;
+                    sourceSpec.nixDockerBuild = {repo, flake};
+                    if (targetAttr && target !== null) sourceSpec.nixDockerBuild.target = target;
                 }
             }
         }
@@ -937,35 +942,35 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
             validateMembers(text, diagnostics, process, new Set(["user", "command", "working_dir", "data_mount_path"]), new Set());
             const userAttr = firstAttribute(process, "user");
             const user = stringValue(text, diagnostics, userAttr, "Process user");
-            if (userAttr && user !== null) container.user = user;
+            if (userAttr && user !== null) runtime.user = user;
             const commandAttr = firstAttribute(process, "command");
             if (commandAttr) {
                 if (commandAttr.value.kind !== "list" || commandAttr.value.items.some(item => item.kind !== "string")) {
                     diagnostics.push(diagnostic(text, commandAttr.value, "Process command must be a list of quoted strings."));
                 } else {
-                    container.command = commandAttr.value.items.map(item => item.value);
+                    runtime.overrideCommand = commandAttr.value.items.map(item => item.value);
                 }
             }
             const workingDirAttr = firstAttribute(process, "working_dir");
             const workingDir = stringValue(text, diagnostics, workingDirAttr, "Process working_dir");
-            if (workingDirAttr && workingDir !== null) container.workingDir = workingDir;
+            if (workingDirAttr && workingDir !== null) runtime.overrideWorkingDir = workingDir;
             const dataMountPathAttr = firstAttribute(process, "data_mount_path");
             const dataMountPath = stringValue(text, diagnostics, dataMountPathAttr, "Process data_mount_path");
-            if (dataMountPathAttr && dataMountPath !== null) container.dataMountPath = dataMountPath;
+            if (dataMountPathAttr && dataMountPath !== null) runtime.defaultVolume.containerPath = dataMountPath;
         }
 
-        parseEnvVars(text, diagnostics, firstBlock(containerBlock, "env_vars"), firstAttribute(containerBlock, "env_vars"), catalogs, spaceId, nodeId, container);
-        parseMounts(text, diagnostics, firstAttribute(containerBlock, "mounts"), catalogs, spaceId, nodeId, container);
+        parseEnvVars(text, diagnostics, firstBlock(containerBlock, "env_vars"), firstAttribute(containerBlock, "env_vars"), catalogs, spaceId, nodeId, runtime);
+        parseMounts(text, diagnostics, firstAttribute(containerBlock, "mounts"), catalogs, spaceId, nodeId, runtime);
 
         const resources = firstBlock(containerBlock, "resources");
         if (resources) {
             validateMembers(text, diagnostics, resources, new Set(["dev_shm_size_kb", "file_descriptor_limit"]), new Set());
             const devShmAttr = firstAttribute(resources, "dev_shm_size_kb");
             const devShm = integerValue(text, diagnostics, devShmAttr, "dev_shm_size_kb", 1);
-            if (devShmAttr && devShm !== null) container.devShmSizeKb = devShm;
+            if (devShmAttr && devShm !== null) runtime.devShmSizeKb = devShm;
             const limitAttr = firstAttribute(resources, "file_descriptor_limit");
             const limit = integerValue(text, diagnostics, limitAttr, "file_descriptor_limit", 1);
-            if (limitAttr && limit !== null) container.fileDescriptorLimit = limit;
+            if (limitAttr && limit !== null) runtime.fileDescriptorLimit = limit;
         }
 
         const upgrade = firstBlock(containerBlock, "upgrade");
@@ -1006,10 +1011,10 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
     if (running && version !== null && !version) {
         diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, "Version cannot be empty while desired_running is true."));
     }
-    if (prepare.nixDockerBuild && version && !FULL_GIT_COMMIT_RE.test(version)) {
+    if (sourceSpec.nixDockerBuild && version && !FULL_GIT_COMMIT_RE.test(version)) {
         diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, "Nix versions must be full 40-character commits."));
     }
-    const explicitImageVersion = imageReferenceVersion(prepare.containerImage?.image);
+    const explicitImageVersion = imageReferenceVersion(sourceSpec.remoteImage?.image);
     if (explicitImageVersion && version !== null && version !== explicitImageVersion) {
         diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, `Version must match ${quote(explicitImageVersion)} from the image reference.`));
     }
@@ -1028,11 +1033,12 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
     }
 
     if (diagnostics.some(item => item.severity === "error")) return null;
+    container.version = version;
+    container.running = running;
     return {
         identity: {name, spaceId},
         nodeId,
-        spec: {prepare, runner: {container}, networking},
-        desiredState: {version, running},
+        spec: {container1Spec: container, networking},
     };
 }
 

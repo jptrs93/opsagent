@@ -127,7 +127,7 @@ func TestRenderOmitsDeploymentsWithoutDesiredVirtualWorkloads(t *testing.T) {
 	host := virtualDeployment(11, 1, 3)
 	host.Spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
 	stopped := virtualDeployment(12, 1, 3)
-	stopped.DesiredState.Running = false
+	stopped.Spec.Container1Spec.Running = false
 	deleted := virtualDeployment(13, 1, 3)
 	deleted.Deleted = true
 	got, err := render(prefix, nodes, []apigen.DeploymentWithStatus{
@@ -162,14 +162,17 @@ func TestPublishLatestDoesNotBlockIfSubscriberDrains(t *testing.T) {
 	}
 }
 
-func virtualDeployment(id, nodeID, spaceID int32) apigen.DeploymentConfig {
-	return apigen.DeploymentConfig{
+func virtualDeployment(id, nodeID, spaceID int32) apigen.DeploymentConfig2 {
+	return apigen.DeploymentConfig2{
 		ID:       id,
 		NodeID:   nodeID,
 		Identity: apigen.DeploymentIdentity{SpaceID: spaceID},
-		Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
-			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-		}},
-		DesiredState: apigen.DesiredState{Running: true},
+		Spec: apigen.DeploymentSpec2{
+			Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL},
+			Container1Spec: &apigen.ContainerSpec{
+				Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}},
+				Running: true,
+			},
+		},
 	}
 }

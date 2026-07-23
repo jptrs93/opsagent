@@ -21,7 +21,7 @@ type deploymentStore struct {
 
 	mu sync.Mutex
 
-	configCache map[int32]*apigen.DeploymentConfig
+	configCache map[int32]*apigen.DeploymentConfig2
 	statusCache map[int32]*apigen.DeploymentStatus
 	subs        *pubsubu.PubSub[apigen.DeploymentWithStatus]
 }
@@ -30,7 +30,7 @@ func newDeploymentStore(db *sql.DB) *deploymentStore {
 	s := &deploymentStore{
 		db:          db,
 		q:           New(db),
-		configCache: make(map[int32]*apigen.DeploymentConfig),
+		configCache: make(map[int32]*apigen.DeploymentConfig2),
 		statusCache: make(map[int32]*apigen.DeploymentStatus),
 		subs:        &pubsubu.PubSub[apigen.DeploymentWithStatus]{},
 	}
@@ -184,7 +184,7 @@ func (s *deploymentStore) notifyFromCache(id int32) {
 // steady-state case) is served from the in-memory cache; an older version, seen
 // only while a rollout is in flight, falls back to a primary-key lookup in
 // deployment_config_history.
-func (s *deploymentStore) withRunningVersion(cfg *apigen.DeploymentConfig, st apigen.DeploymentStatus) apigen.DeploymentStatus {
+func (s *deploymentStore) withRunningVersion(cfg *apigen.DeploymentConfig2, st apigen.DeploymentStatus) apigen.DeploymentStatus {
 	if st.Runner.IsZero() {
 		return st
 	}
@@ -193,10 +193,10 @@ func (s *deploymentStore) withRunningVersion(cfg *apigen.DeploymentConfig, st ap
 		return st
 	}
 	if cfg != nil && ver == cfg.Version {
-		st.Runner.RunningVersion = cfg.DesiredState.Version
+		st.Runner.RunningVersion = cfg.WorkloadVersion()
 		return st
 	}
-	dv, err := s.q.GetConfigHistoryDesiredVersion(context.Background(), GetConfigHistoryDesiredVersionParams{
+	blob, err := s.q.GetConfigHistorySpecBlob(context.Background(), GetConfigHistorySpecBlobParams{
 		DeploymentID: int64(st.DeploymentID),
 		Version:      int64(ver),
 	})
@@ -206,7 +206,8 @@ func (s *deploymentStore) withRunningVersion(cfg *apigen.DeploymentConfig, st ap
 		}
 		return st
 	}
-	st.Runner.RunningVersion = dv
+	spec := mustDecodeDeploymentSpec2(blob, int64(st.DeploymentID), int64(ver))
+	st.Runner.RunningVersion = spec.WorkloadVersion()
 	return st
 }
 

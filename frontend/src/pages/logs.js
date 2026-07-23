@@ -43,7 +43,7 @@ function selectedDeployment(items, id) {
 function isSystemDeployment(item) {
     const identity = item?.config?.identity || {};
     return identity.name === SYSTEM_DEPLOYMENT_NAME && (
-        deploymentSpaceID(item) === SYSTEM_SPACE_ID || Boolean(item?.config?.spec?.runner?.systemd)
+        deploymentSpaceID(item) === SYSTEM_SPACE_ID || Boolean(item?.config?.spec?.systemdSpec)
     );
 }
 

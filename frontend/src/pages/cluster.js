@@ -2,6 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {inlineEditableInput} from "../components/inlineEditableInput.js";
 import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, primaryConfigS, userConfigsS} from "../state/deployments.js";
+import {deploymentWorkload} from "../lib/deploymentConfig.js";
 
 const { button, code, div, h2, input, p, span, table, tbody, td, th, thead, tr } = van.tags;
 
@@ -262,7 +263,7 @@ function primaryOpenDeployVersion() {
         Number(item.config?.identity?.spaceId || 0) === 0 &&
         item.config?.identity?.name === "opendeploy",
     );
-    return (deployment?.status?.runner?.runningVersion || deployment?.config?.desiredState?.version || "").trim();
+    return (deployment?.status?.runner?.runningVersion || deploymentWorkload(deployment?.config)?.version || "").trim();
 }
 
 function secondaryInstallCommand(config, enrollmentInfo, version) {

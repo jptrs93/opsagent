@@ -62,7 +62,7 @@ service OpsagentHttpV1 {
   }
 
   // Deployment updates (deploy, stop, etc.)
-  rpc PostV1DeploymentUpdate(DeploymentUpdateRequest) returns (DesiredState) {
+  rpc PostV1DeploymentUpdate(DeploymentUpdateRequest) returns (DeploymentConfig2) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -95,7 +95,7 @@ service OpsagentHttpV1 {
   }
 
   // Create a new deployment.
-  rpc PostV1DeploymentCreate(DeploymentCreateRequest) returns (DeploymentConfig) {
+  rpc PostV1DeploymentCreate(DeploymentCreateRequest) returns (DeploymentConfig2) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 

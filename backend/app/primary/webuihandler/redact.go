@@ -11,13 +11,15 @@ func redactDeploymentWithStatus(in *apigen.DeploymentWithStatus) *apigen.Deploym
 	return &out
 }
 
-func redactDeploymentConfig(in *apigen.DeploymentConfig) *apigen.DeploymentConfig {
+func redactDeploymentConfig(in *apigen.DeploymentConfig2) *apigen.DeploymentConfig2 {
 	if in == nil {
 		return nil
 	}
 	out := *in
-	if !out.Spec.Runner.Systemd.IsZero() {
-		out.Spec.Runner = apigen.RunnerConfig{}
+	if out.Spec.SystemdSpec != nil {
+		systemd := *out.Spec.SystemdSpec
+		systemd.Runtime = nil
+		out.Spec.SystemdSpec = &systemd
 	}
 	return &out
 }

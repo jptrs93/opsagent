@@ -61,8 +61,8 @@ Key generated files:
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | POST | `/v1/state/stream` | — | stream `State` | ANY_OF default |
-| POST | `/v1/deployment/create` | `DeploymentCreateRequest` | `DeploymentConfig` | ANY_OF default |
-| POST | `/v1/deployment/update` | `DeploymentUpdateRequest` | `DesiredState` | ANY_OF default |
+| POST | `/v1/deployment/create` | `DeploymentCreateRequest` | `DeploymentConfig2` | ANY_OF default |
+| POST | `/v1/deployment/update` | `DeploymentUpdateRequest` | `DeploymentConfig2` | ANY_OF default |
 | POST | `/v1/deployment/history` | `DeploymentHistoryRequest` | `DeploymentHistory` | ANY_OF default |
 | POST | `/v1/deployment/log-search` | `LogSearchRequest` | stream `LogLine` | ANY_OF default |
 | POST | `/v1/deployment/prepare-output` | `PrepareOutputRequest` | stream `PrepareOutputChunk` | ANY_OF default |
@@ -93,6 +93,10 @@ frames. The primary sends legacy cluster-prefix state, the latest targeted
 `ClusterNetMap`, and the deployment snapshot at session start. Later complete
 network maps use latest-value coalescing rather than queueing obsolete versions.
 Workers send durable `NetMapStatus` acknowledgements on the request stream.
+
+The DeploymentConfig2 rollout changes deployment payloads in the existing
+cluster envelopes and therefore requires a coordinated primary/worker release;
+mixed V1/V2 binaries are not supported during this one-time migration.
 
 ### Settings, Secrets, Configs, Assets, Spaces
 | Method | Path | Request | Response | Policy |

@@ -43,8 +43,8 @@ func (f *fakeConfigProvider) FetchConfigs(ctx context.Context, ids []int32) (map
 }
 
 func TestSecretRefsFindsUniqueSortedEnvRefs(t *testing.T) {
-	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-		Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
+	dep := &apigen.DeploymentConfig2{Spec: apigen.DeploymentSpec2{Container1Spec: &apigen.ContainerSpec{
+		Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue2{
 			"DB":    {SecretID: ptrInt32(6)},
 			"MIX":   {ConfigID: ptrInt32(3)},
 			"TOKEN": {SecretID: ptrInt32(2)},
@@ -59,8 +59,8 @@ func TestSecretRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 }
 
 func TestConfigRefsFindsUniqueSortedEnvRefs(t *testing.T) {
-	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-		Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
+	dep := &apigen.DeploymentConfig2{Spec: apigen.DeploymentSpec2{Container1Spec: &apigen.ContainerSpec{
+		Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue2{
 			"URL":    {ConfigID: ptrInt32(18)},
 			"DUP":    {ConfigID: ptrInt32(18)},
 			"OTHER":  {ConfigID: ptrInt32(2)},
@@ -75,10 +75,10 @@ func TestConfigRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 }
 
 func TestRequiredAssetRefsIncludesExplicitAndEnvAssets(t *testing.T) {
-	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-		Container: apigen.ContainerRunnerConfig{
-			AssetMounts: []*apigen.ContainerAssetMount{{Asset: "explicit.conf", AssetID: 8, Executable: true}},
-			EnvVars: map[string]*apigen.EnvVarValue{
+	dep := &apigen.DeploymentConfig2{Spec: apigen.DeploymentSpec2{Container1Spec: &apigen.ContainerSpec{
+		Runtime: apigen.ContainerRuntime{
+			AssetMounts: []*apigen.AssetMount2{{AssetID: 8, Permission: apigen.FilePermission_READ_EXECUTE}},
+			EnvVars: map[string]*apigen.EnvVarValue2{
 				"APP_CONFIG": {Asset: "implicit.conf", AssetID: 12},
 				"PLAIN":      {Value: ptrString("value")},
 			},
@@ -89,7 +89,7 @@ func TestRequiredAssetRefsIncludesExplicitAndEnvAssets(t *testing.T) {
 	if len(refs) != 2 {
 		t.Fatalf("refs len = %d; want 2", len(refs))
 	}
-	if refs[0].AssetID != 8 || refs[0].Label != `asset mount "explicit.conf"` || !refs[0].Executable {
+	if refs[0].AssetID != 8 || refs[0].Label != "asset mount 8" || !refs[0].Executable {
 		t.Fatalf("refs[0] = %+v", refs[0])
 	}
 	if refs[1].AssetID != 12 || refs[1].Label != `asset env var "APP_CONFIG"` || refs[1].Executable {
@@ -115,8 +115,8 @@ func TestEnsureSecretsReadyFetchesBatch(t *testing.T) {
 	fake := &fakeSecretProvider{}
 	inputs := New(nil, fake, nil)
 
-	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-		Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
+	dep := &apigen.DeploymentConfig2{Spec: apigen.DeploymentSpec2{Container1Spec: &apigen.ContainerSpec{
+		Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue2{
 			"A": {SecretID: ptrInt32(1)},
 			"B": {SecretID: ptrInt32(2)},
 		}},
@@ -138,8 +138,8 @@ func TestEnsureConfigsReadyFetchesBatch(t *testing.T) {
 	fake := &fakeConfigProvider{}
 	inputs := New(nil, nil, fake)
 
-	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-		Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
+	dep := &apigen.DeploymentConfig2{Spec: apigen.DeploymentSpec2{Container1Spec: &apigen.ContainerSpec{
+		Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue2{
 			"A": {ConfigID: ptrInt32(1)},
 			"B": {ConfigID: ptrInt32(2)},
 		}},
@@ -160,8 +160,8 @@ func TestEnsureConfigsReadyFetchesBatch(t *testing.T) {
 func TestEnsureSecretsReadyDoesNotCacheIncompleteBatch(t *testing.T) {
 	fake := &fakeSecretProvider{values: map[int32]string{1: "one"}}
 	inputs := New(nil, fake, nil)
-	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Runner: apigen.RunnerConfig{
-		Container: apigen.ContainerRunnerConfig{EnvVars: map[string]*apigen.EnvVarValue{
+	dep := &apigen.DeploymentConfig2{Spec: apigen.DeploymentSpec2{Container1Spec: &apigen.ContainerSpec{
+		Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue2{
 			"A": {SecretID: ptrInt32(1)},
 			"B": {SecretID: ptrInt32(2)},
 		}},

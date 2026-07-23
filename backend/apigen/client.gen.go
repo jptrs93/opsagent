@@ -312,7 +312,7 @@ func (c *OpsagentHttpV1Capi) PostV1StateStream(ctx context.Context) iter.Seq2[*S
 	}
 }
 
-func (c *OpsagentHttpV1Capi) PostV1DeploymentUpdate(ctx context.Context, req *DeploymentUpdateRequest) (*DesiredState, error) {
+func (c *OpsagentHttpV1Capi) PostV1DeploymentUpdate(ctx context.Context, req *DeploymentUpdateRequest) (*DeploymentConfig2, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1DeploymentUpdate request is nil")
 	}
@@ -328,7 +328,7 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentUpdate(ctx context.Context, req *De
 	if err != nil {
 		return nil, err
 	}
-	return DecodeDesiredState(body)
+	return DecodeDeploymentConfig2(body)
 }
 
 func (c *OpsagentHttpV1Capi) PostV1DeploymentDelete(ctx context.Context, req *DeploymentDeleteRequest) error {
@@ -476,7 +476,7 @@ func (c *OpsagentHttpV1Capi) PostV1ClusterRename(ctx context.Context, req *NodeR
 	return DecodeClusterNode(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1DeploymentCreate(ctx context.Context, req *DeploymentCreateRequest) (*DeploymentConfig, error) {
+func (c *OpsagentHttpV1Capi) PostV1DeploymentCreate(ctx context.Context, req *DeploymentCreateRequest) (*DeploymentConfig2, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1DeploymentCreate request is nil")
 	}
@@ -492,7 +492,7 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentCreate(ctx context.Context, req *De
 	if err != nil {
 		return nil, err
 	}
-	return DecodeDeploymentConfig(body)
+	return DecodeDeploymentConfig2(body)
 }
 
 func (c *OpsagentHttpV1Capi) PostV1SpacesCreate(ctx context.Context, req *SpaceSetRequest) (*Space, error) {

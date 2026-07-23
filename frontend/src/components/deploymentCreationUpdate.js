@@ -42,15 +42,20 @@ export class DeploymentCreationUpdate {
         this.mode = editorMode;
         this.existingState = deployment;
         this.form = deploymentConfig ? deploymentConfigToForm(deploymentConfig) : emptyDeploymentForm();
-        this.desiredRunning = van.state(deployment ? Boolean(deployment.desiredRunning) : true);
+        const workload = deploymentConfig?.spec?.container1Spec || deploymentConfig?.spec?.systemdSpec;
+        const initialRunning = editorMode === 'create'
+            ? (deployment ? Boolean(deployment.desiredRunning) : true)
+            : (workload ? Boolean(workload.running) : Boolean(deployment?.desiredRunning));
+        this.desiredRunning = van.state(initialRunning);
         this.documentRevision = van.state(0);
         this.initialSpecKey = JSON.stringify(formToSpec(this.form));
         this.initialSpaceId = Number(this.form.spaceId.val || 0);
         this.initialSource = this.persistedSource();
 
-        const deployedNixVersion = deployment?.variant === SOURCE_NIX_DOCKER ? (deployment.deployedVersion || '') : '';
+        const configuredVersion = workload?.version || deployment?.deployedVersion || '';
+        const deployedNixVersion = deployment?.variant === SOURCE_NIX_DOCKER ? configuredVersion : '';
         const explicitImageVersion = imageVersionFromReference(this.form.containerImage.val);
-        const deployedImageVersion = deployment?.variant === SOURCE_DOCKER_IMAGE ? (deployment.deployedVersion || '') : '';
+        const deployedImageVersion = deployment?.variant === SOURCE_DOCKER_IMAGE ? configuredVersion : '';
         this.nixDockerBuild = {
             selectedBranch: van.state(''),
             selectedCommit: van.state(deployedNixVersion),
@@ -618,14 +623,12 @@ export class DeploymentCreationUpdate {
     }
 
     toDocument() {
+        const version = this.createDesiredVersion();
+        const running = Boolean(this.desiredRunning.val);
         return {
             identity: formToDeploymentIdentity(this.form),
             nodeId: Number(this.form.nodeId.val || 0),
-            spec: formToSpec(this.form),
-            desiredState: {
-                version: this.createDesiredVersion(),
-                running: Boolean(this.desiredRunning.val),
-            },
+            spec: formToSpec(this.form, {version, running}),
         };
     }
 
@@ -633,7 +636,7 @@ export class DeploymentCreationUpdate {
         const previousSource = this.persistedSource();
         const identity = document?.identity || {};
         const spec = document?.spec || {};
-        const desiredState = document?.desiredState || {};
+        const workload = spec.container1Spec || spec.systemdSpec || {};
         replaceDeploymentFormFromConfig(this.form, {
             id: Number(this.form.deploymentId.val || 0),
             identity: {
@@ -661,8 +664,8 @@ export class DeploymentCreationUpdate {
             this.containerImage.tags.val = [];
         }
         this.invalidateExactValidation();
-        this.desiredRunning.val = Boolean(desiredState.running);
-        const version = (desiredState.version || '').trim();
+        this.desiredRunning.val = Boolean(workload.running);
+        const version = (workload.version || '').trim();
         if (this.form.sourceType.val === SOURCE_DOCKER_IMAGE) {
             this.containerImage.selectedTag.val = version;
         } else if (this.form.sourceType.val === SOURCE_NIX_DOCKER) {
@@ -676,14 +679,12 @@ export class DeploymentCreationUpdate {
     }
 
     toCreatePayload() {
+        const version = this.createDesiredVersion();
+        const running = Boolean(this.desiredRunning.val);
         return {
             identity: formToDeploymentIdentity(this.form),
             nodeId: Number(this.form.nodeId.val || 0),
-            spec: formToSpec(this.form),
-            desiredState: {
-                version: this.createDesiredVersion(),
-                running: this.desiredRunning.val,
-            },
+            spec: formToSpec(this.form, {version, running}),
         };
     }
 
@@ -694,7 +695,12 @@ export class DeploymentCreationUpdate {
             version: this.existingState.currentVersion + 1,
         };
         const nextSpec = formToSpec(this.form);
-        if (JSON.stringify(nextSpec) !== this.initialSpecKey) payload.spec = nextSpec;
+        if (JSON.stringify(nextSpec) !== this.initialSpecKey) {
+            payload.spec = formToSpec(this.form, {
+                version: this.createDesiredVersion(),
+                running: Boolean(this.desiredRunning.val),
+            });
+        }
         const nextSpaceId = Number(this.form.spaceId.val || 0);
         if (nextSpaceId !== this.initialSpaceId) payload.spaceId = nextSpaceId;
         const targetVersion = this.selectedTargetVersion();

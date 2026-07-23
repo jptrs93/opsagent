@@ -64,7 +64,7 @@ func requireMachine(ctx context.Context) (string, error) {
 }
 
 func deploymentPredicateForNode(nodeID int32) storage.DeploymentPredicate {
-	return func(cfg apigen.DeploymentConfig) bool {
+	return func(cfg apigen.DeploymentConfig2) bool {
 		return cfg.NodeID == nodeID
 	}
 }
@@ -200,11 +200,14 @@ func buildAllowedRefs(snapshot []apigen.DeploymentWithStatus) clusterAllowedRefs
 		if cfg.ID != 0 {
 			refs.deploymentIDs[cfg.ID] = struct{}{}
 		}
-		if cfg.Spec.Prepare.NixDockerBuild != nil || cfg.Spec.Prepare.GithubRelease != nil {
+		container := cfg.Spec.Container()
+		if (container != nil && container.Source.NixDockerBuild != nil) || cfg.Spec.SystemdSpec != nil {
 			refs.usesGithub = true
 		}
-		container := cfg.Spec.Runner.Container
-		for _, value := range container.EnvVars {
+		if container == nil {
+			continue
+		}
+		for _, value := range container.Runtime.EnvVars {
 			if value == nil {
 				continue
 			}
@@ -218,7 +221,7 @@ func buildAllowedRefs(snapshot []apigen.DeploymentWithStatus) clusterAllowedRefs
 				refs.assetIDs[value.AssetID] = struct{}{}
 			}
 		}
-		for _, mount := range container.AssetMounts {
+		for _, mount := range container.Runtime.AssetMounts {
 			if mount == nil || mount.AssetID <= 0 {
 				continue
 			}

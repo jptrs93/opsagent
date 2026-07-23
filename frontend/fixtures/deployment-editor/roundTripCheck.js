@@ -53,7 +53,7 @@ for (const presetName of ['updateContainer', 'updateNixStopped']) {
         immutableName: before.identity.name,
         immutableNodeId: before.nodeId,
         updateMode: true,
-        initialVersion: before.desiredState.version,
+        initialVersion: before.spec.container1Spec.version,
     });
     assert.deepEqual(parsed.diagnostics, []);
     assert.ok(parsed.document);
@@ -62,6 +62,12 @@ for (const presetName of ['updateContainer', 'updateNixStopped']) {
 }
 
 const canonicalDocument = modelFor(fixturePresets.updateContainer).toDocument();
+assert.equal(Object.hasOwn(canonicalDocument, 'desiredState'), false);
+assert.deepEqual(canonicalDocument.spec.container1Spec.runtime.assetMounts[0], {
+    assetId: 201,
+    containerPath: '/etc/api/nginx.conf',
+    permission: 2,
+});
 const canonicalHcl = deploymentDocumentToHcl(canonicalDocument, catalogs, {pinVersions: true});
 assert.match(canonicalHcl, /^deployment \{\n  node = node\("London edge"\)\n\n  identity \{/);
 assert.match(canonicalHcl, /secret\("database-password", \{ version = 4 \}\)/);
@@ -86,12 +92,12 @@ assert.match(crossSpaceHcl, /config\("database-host", \{ version = 2 \}\)/);
 assert.match(crossSpaceHcl, /asset\("nginx\.conf", \{ version = 3 \}\)/);
 const crossSpaceParsed = parseDeploymentHcl(crossSpaceHcl, catalogs);
 assert.ok(crossSpaceParsed.document);
-assert.equal(crossSpaceParsed.document.spec.runner.container.envVars.DATABASE_PASSWORD.secretId, 301);
-assert.equal(crossSpaceParsed.document.spec.runner.container.envVars.DATABASE_HOST.configId, 401);
-assert.equal(crossSpaceParsed.document.spec.runner.container.assetMounts[0].assetId, 201);
+assert.equal(crossSpaceParsed.document.spec.container1Spec.runtime.envVars.DATABASE_PASSWORD.secretId, 301);
+assert.equal(crossSpaceParsed.document.spec.container1Spec.runtime.envVars.DATABASE_HOST.configId, 401);
+assert.equal(crossSpaceParsed.document.spec.container1Spec.runtime.assetMounts[0].assetId, 201);
 
 const missingReferenceDocument = structuredClone(canonicalDocument);
-missingReferenceDocument.spec.runner.container.envVars.DATABASE_PASSWORD.secretId = 9999;
+missingReferenceDocument.spec.container1Spec.runtime.envVars.DATABASE_PASSWORD.secretId = 9999;
 assert.match(deploymentDocumentToHcl(missingReferenceDocument, catalogs), /secret\("__unresolved_secret_9999"\)/);
 
 const updateModel = modelFor(fixturePresets.updateContainer);
@@ -108,8 +114,15 @@ assert.ok(changed.document);
 updateModel.replaceDocument(changed.document);
 await new Promise(resolve => setTimeout(resolve, 0));
 const payload = updateModel.toUpdatePayload();
-assert.equal(payload.spec.prepare.containerImage.image, 'ghcr.io/acme/api-next');
+assert.equal(payload.spec.container1Spec.source.remoteImage.image, 'ghcr.io/acme/api-next');
+assert.equal(payload.spec.container1Spec.version, 'v3.0.0');
+assert.equal(payload.spec.container1Spec.running, true);
 assert.equal(payload.targetVersion, 'v3.0.0');
+
+const createPayload = modelFor(fixturePresets.fork).toCreatePayload();
+assert.equal(Object.hasOwn(createPayload, 'desiredState'), false);
+assert.equal(createPayload.spec.container1Spec.version, 'v2.8.1');
+assert.equal(createPayload.spec.container1Spec.running, true);
 
 const invalidIdentity = parseDeploymentHcl(changedHcl.replace('name = "api"', 'name = "renamed"'), catalogs, {
     immutableName: 'api',
@@ -121,10 +134,10 @@ assert.equal(invalidIdentity.document, null);
 assert.match(invalidIdentity.diagnostics[0].message, /immutable/);
 
 const unusualEnvDocument = structuredClone(updateModel.toDocument());
-unusualEnvDocument.spec.runner.container.envVars['SERVICE.URL-V2'] = {value: 'https://example.test'};
+unusualEnvDocument.spec.container1Spec.runtime.envVars['SERVICE.URL-V2'] = {value: 'https://example.test'};
 const unusualEnvParsed = parseDeploymentHcl(deploymentDocumentToHcl(unusualEnvDocument, catalogs), catalogs);
 assert.ok(unusualEnvParsed.document);
-assert.equal(unusualEnvParsed.document.spec.runner.container.envVars['SERVICE.URL-V2'].value, 'https://example.test');
+assert.equal(unusualEnvParsed.document.spec.container1Spec.runtime.envVars['SERVICE.URL-V2'].value, 'https://example.test');
 
 const pinnedModel = modelFor(fixturePresets.updateContainer);
 const pinnedHcl = deploymentDocumentToHcl(pinnedModel.toDocument(), collisionCatalogs, {pinVersions: true});
@@ -132,18 +145,18 @@ assert.match(pinnedHcl, /secret\("database-password", \{ version = 4 \}\)/);
 assert.match(pinnedHcl, /config\("database-host", \{ version = 2 \}\)/);
 assert.match(pinnedHcl, /asset\("nginx\.conf", \{ version = 3 \}\)/);
 const pinnedParsed = parseDeploymentHcl(pinnedHcl, collisionCatalogs);
-assert.equal(pinnedParsed.document.spec.runner.container.envVars.DATABASE_PASSWORD.secretId, 301);
-assert.equal(pinnedParsed.document.spec.runner.container.envVars.DATABASE_HOST.configId, 401);
-assert.equal(pinnedParsed.document.spec.runner.container.assetMounts[0].assetId, 201);
+assert.equal(pinnedParsed.document.spec.container1Spec.runtime.envVars.DATABASE_PASSWORD.secretId, 301);
+assert.equal(pinnedParsed.document.spec.container1Spec.runtime.envVars.DATABASE_HOST.configId, 401);
+assert.equal(pinnedParsed.document.spec.container1Spec.runtime.assetMounts[0].assetId, 201);
 
 const latestParsed = parseDeploymentHcl(pinnedHcl
     .replace('secret("database-password", { version = 4 })', 'secret("database-password")')
     .replace('config("database-host", { version = 2 })', 'config("database-host")')
     .replace('asset("nginx.conf", { version = 3 })', 'asset("nginx.conf")'), collisionCatalogs);
 assert.ok(latestParsed.document);
-assert.equal(latestParsed.document.spec.runner.container.envVars.DATABASE_PASSWORD.secretId, 399);
-assert.equal(latestParsed.document.spec.runner.container.envVars.DATABASE_HOST.configId, 499);
-assert.equal(latestParsed.document.spec.runner.container.assetMounts[0].assetId, 299);
+assert.equal(latestParsed.document.spec.container1Spec.runtime.envVars.DATABASE_PASSWORD.secretId, 399);
+assert.equal(latestParsed.document.spec.container1Spec.runtime.envVars.DATABASE_HOST.configId, 499);
+assert.equal(latestParsed.document.spec.container1Spec.runtime.assetMounts[0].assetId, 299);
 
 const oldNumericVersion = parseDeploymentHcl(latestHcl.replace(
     'config("database-host")',
@@ -181,8 +194,8 @@ const qualifiedModel = modelFor(fixturePresets.updateNixStopped);
 const qualifiedHcl = deploymentDocumentToHcl(qualifiedModel.toDocument(), collisionCatalogs);
 assert.match(qualifiedHcl, /address\("production", "api"\)/);
 const qualifiedParsed = parseDeploymentHcl(qualifiedHcl, collisionCatalogs);
-assert.equal(qualifiedParsed.document.spec.runner.container.envVars.API_ADDRESS.addressDeploymentId, 101);
-assert.equal(qualifiedParsed.document.spec.runner.container.envVars.API_ADDRESS.addressSpaceId, 1);
+assert.equal(qualifiedParsed.document.spec.container1Spec.runtime.envVars.API_ADDRESS.addressDeploymentId, 101);
+assert.equal(qualifiedParsed.document.spec.container1Spec.runtime.envVars.API_ADDRESS.addressSpaceId, 1);
 const qualifiedEditorState = EditorState.create({doc: qualifiedHcl, extensions: [hcl()]});
 assert.deepEqual(syntaxDiagnostics(qualifiedEditorState), []);
 
@@ -201,15 +214,15 @@ assert.equal(parseDeploymentHcl(malformedAddressHcl, collisionCatalogs).document
 assert.ok(syntaxDiagnostics(EditorState.create({doc: malformedAddressHcl, extensions: [hcl()]})).length > 0);
 
 const deploymentMountDocument = structuredClone(qualifiedModel.toDocument());
-deploymentMountDocument.spec.runner.container.mounts = [{
-    host: '/var/lib/opendeploy-volumes/103/default',
-    container: '/mnt/database',
-    readonly: true,
+deploymentMountDocument.spec.container1Spec.runtime.crossDeploymentMounts = [{
+    deploymentId: 103,
+    containerPath: '/mnt/database',
+    permission: 2,
 }];
 const deploymentMountHcl = deploymentDocumentToHcl(deploymentMountDocument, collisionCatalogs);
 assert.match(deploymentMountHcl, /deployment\("production", "database"\)/);
 const deploymentMountParsed = parseDeploymentHcl(deploymentMountHcl, collisionCatalogs);
-assert.equal(deploymentMountParsed.document.spec.runner.container.mounts[0].host, '/var/lib/opendeploy-volumes/103/default');
+assert.equal(deploymentMountParsed.document.spec.container1Spec.runtime.crossDeploymentMounts[0].deploymentId, 103);
 assert.deepEqual(syntaxDiagnostics(EditorState.create({doc: deploymentMountHcl, extensions: [hcl()]})), []);
 
 const oldDeploymentReference = parseDeploymentHcl(qualifiedHcl.replace(
@@ -220,19 +233,19 @@ assert.equal(oldDeploymentReference.document, null);
 assert.ok(oldDeploymentReference.diagnostics.some(item => /address\("space", "deployment"\)/.test(item.message)));
 
 const stoppedHcl = deploymentDocumentToHcl(qualifiedModel.toDocument(), catalogs)
-    .replace(qualifiedModel.toDocument().desiredState.version, 'new-stopped-version');
+    .replace(qualifiedModel.toDocument().spec.container1Spec.version, 'new-stopped-version');
 const stoppedVersionChange = parseDeploymentHcl(stoppedHcl, catalogs, {
     immutableName: 'worker',
     immutableNodeId: 11,
     updateMode: true,
-    initialVersion: qualifiedModel.toDocument().desiredState.version,
+    initialVersion: qualifiedModel.toDocument().spec.container1Spec.version,
 });
 assert.equal(stoppedVersionChange.document, null);
 assert.ok(stoppedVersionChange.diagnostics.some(item => /cannot change while.*stopped/.test(item.message)));
 
 const conflictingImageVersion = structuredClone(updateModel.toDocument());
-conflictingImageVersion.spec.prepare.containerImage.image = 'ghcr.io/acme/api:v4';
-conflictingImageVersion.desiredState.version = 'v3';
+conflictingImageVersion.spec.container1Spec.source.remoteImage.image = 'ghcr.io/acme/api:v4';
+conflictingImageVersion.spec.container1Spec.version = 'v3';
 const conflictingImageParsed = parseDeploymentHcl(deploymentDocumentToHcl(conflictingImageVersion, catalogs), catalogs);
 assert.equal(conflictingImageParsed.document, null);
 assert.ok(conflictingImageParsed.diagnostics.some(item => /must match/.test(item.message)));

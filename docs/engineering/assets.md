@@ -97,5 +97,5 @@ Current semantics:
 - Mount materialized files read-only into the container. Explicit asset mounts may set `executable: true` to enable execute bits; implicit env asset mounts are always read-only/non-executable.
 - Reject paths that are empty, relative, directories, or dangerous container destinations.
 - Fail deployment preparation if an asset ID no longer exists.
-- Keep existing `runner.container.mounts` for raw host bind mounts; use `assetMounts` only for OpenDeploy-managed config files.
+- Keep `container1Spec.runtime.mounts` for raw host bind mounts; use `assetMounts` only for OpenDeploy-managed config files.
 - In the UI, use the compact Assets section under environment variables to select key/path/mode or create a new asset in the side pane.

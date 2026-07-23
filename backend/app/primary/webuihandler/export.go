@@ -8,17 +8,17 @@ import (
 )
 
 type exportedConfigBundle struct {
-	Deployments []*apigen.DeploymentConfig `json:"deployments"`
-	Configs     []*apigen.UserConfig       `json:"configs"`
-	Secrets     []*apigen.SecretMeta       `json:"secrets"`
-	Assets      []*apigen.AssetMeta        `json:"assets"`
-	Spaces      []*apigen.Space            `json:"spaces"`
-	Settings    apigen.Settings            `json:"settings"`
+	Deployments []*apigen.DeploymentConfig2 `json:"deployments"`
+	Configs     []*apigen.UserConfig        `json:"configs"`
+	Secrets     []*apigen.SecretMeta        `json:"secrets"`
+	Assets      []*apigen.AssetMeta         `json:"assets"`
+	Spaces      []*apigen.Space             `json:"spaces"`
+	Settings    apigen.Settings             `json:"settings"`
 }
 
 func (h *Handler) PostV1GenerateExportedConfig(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ExportedConfigBlob, error) {
 	deployments := h.Store.ListActiveDeploymentConfigs()
-	exportedDeployments := make([]*apigen.DeploymentConfig, 0, len(deployments))
+	exportedDeployments := make([]*apigen.DeploymentConfig2, 0, len(deployments))
 	for _, deployment := range deployments {
 		if deployment == nil {
 			continue

@@ -57,7 +57,7 @@ function writeValue(value, indent) {
 
 export function orderDeploymentConfig(config) {
     const ordered = {};
-    for (const key of ['id', 'nodeId', 'identity', 'createdAt', 'version', 'updatedAt', 'updatedBy', 'spec', 'desiredState', 'deleted']) {
+    for (const key of ['id', 'nodeId', 'identity', 'createdAt', 'version', 'updatedAt', 'updatedBy', 'spec', 'deleted']) {
         if (config[key] !== undefined) ordered[key] = config[key];
     }
     for (const [key, value] of Object.entries(config)) {

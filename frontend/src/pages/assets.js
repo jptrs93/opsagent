@@ -10,6 +10,7 @@ import {deploymentUsages} from "../lib/referenceUsage.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {assetMetasS, deploymentsS, machinesS, spacesS} from "../state/deployments.js";
 import {loginS} from "../state/login.js";
+import {containerWorkload} from "../lib/deploymentConfig.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
 
@@ -30,6 +31,8 @@ const assetRefMatches = (assetKey, assetIDs, ref) => {
     if (refAssetId) return assetIDs.has(refAssetId);
     return Boolean(assetKey && ref.asset === assetKey);
 };
+
+const assetMountRefMatches = (assetIDs, ref) => assetIDs.has(Number(ref?.assetId || 0));
 
 const latestAssets = (items) => {
     const latest = new Map();
@@ -355,11 +358,11 @@ export function assetsPage() {
     const deploymentUsesAsset = (deployment, asset, assetIDs = assetReferenceIDs(asset)) => {
         const cfg = deployment?.config;
         if (!cfg || cfg.deleted) return false;
-        const container = cfg.spec?.runner?.container || {};
-        const envRefs = Object.values(container.envVars || {});
-        const mountRefs = container.assetMounts || [];
+        const runtime = containerWorkload(cfg)?.runtime || {};
+        const envRefs = Object.values(runtime.envVars || {});
+        const mountRefs = runtime.assetMounts || [];
         return envRefs.some(ref => assetRefMatches(asset.key, assetIDs, ref))
-            || mountRefs.some(ref => assetRefMatches(asset.key, assetIDs, ref));
+            || mountRefs.some(ref => assetMountRefMatches(assetIDs, ref));
     };
 
     const usageForAsset = (asset) => {

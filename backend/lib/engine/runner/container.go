@@ -58,9 +58,9 @@ type containerRunner struct {
 
 	// derived from the deployment config version; not part of RunnerStatus.
 	user           string
-	envVars        map[string]*apigen.EnvVarValue // resolved to "KEY=VALUE" entries at start
-	command        []string                       // argv override; empty = image default
-	cwd            string                         // process cwd; empty = image default
+	envVars        map[string]*apigen.EnvVarValue2 // resolved to "KEY=VALUE" entries at start
+	command        []string                        // argv override; empty = image default
+	cwd            string                          // process cwd; empty = image default
 	mounts         []ctrd.Mount
 	devShmSizeKB   int64
 	fileDescLimit  int64
@@ -104,7 +104,7 @@ func containerID(deploymentID int32, configVersion int32) string {
 	return fmt.Sprintf("opendeploy-%d-v%d", deploymentID, configVersion)
 }
 
-func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
+func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig2, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
 	configVersion := preparerStatus.DeploymentConfigVersion
 	r := buildContainerRunner(ctx, cancel, store, inputs, dep, configVersion)
@@ -120,11 +120,11 @@ func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.Runti
 	return r
 }
 
-func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
+func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig2, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
 	configVersion := preparerStatus.DeploymentConfigVersion
 	r := buildContainerRunner(ctx, cancel, store, inputs, dep, configVersion)
-	r.readiness = &readinessConfig{timeout: containerReadinessTimeout(dep.Spec.Runner.Container.ReadinessSignal)}
+	r.readiness = &readinessConfig{timeout: containerReadinessTimeout(dep.Spec.Container().ReadinessSignal)}
 	r.readyCh = make(chan error, 1)
 	r.status = apigen.RunnerStatus{
 		DeploymentConfigVersion: configVersion,
@@ -136,7 +136,7 @@ func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinpu
 	return r
 }
 
-func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
+func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig2, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
 	r := buildContainerRunner(ctx, cancel, store, inputs, dep, prev.DeploymentConfigVersion)
 	r.publish.Store(true)
@@ -153,8 +153,8 @@ func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Durati
 	return containerReadinessDefaultTimeout
 }
 
-func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
-	cfg := dep.Spec.Runner.Container
+func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig2, configVersion int32) *containerRunner {
+	cfg := dep.Spec.Container().Runtime
 	r := &containerRunner{
 		ctx:             ctx,
 		cancel:          cancel,
@@ -170,8 +170,8 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		configVersion:   configVersion,
 		user:            cfg.User,
 		envVars:         cfg.EnvVars,
-		command:         cfg.Command,
-		cwd:             cfg.WorkingDir,
+		command:         cfg.OverrideCommand,
+		cwd:             cfg.OverrideWorkingDir,
 		networking:      dep.Spec.Networking,
 		latestVersion:   dep.Version,
 	}
@@ -182,7 +182,7 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 	return r
 }
 
-func containerDeploymentName(dep *apigen.DeploymentConfig) string {
+func containerDeploymentName(dep *apigen.DeploymentConfig2) string {
 	if dep == nil {
 		return "<nil>"
 	}
@@ -604,7 +604,7 @@ type envVarCounts struct {
 	asset  int
 }
 
-func countEnvVars(env map[string]*apigen.EnvVarValue) envVarCounts {
+func countEnvVars(env map[string]*apigen.EnvVarValue2) envVarCounts {
 	var counts envVarCounts
 	for _, value := range env {
 		if value == nil {
@@ -1076,29 +1076,43 @@ func (r *containerRunner) syncNetworkStatus() {
 // data volume (unless disabled) followed by any configured mounts. It also
 // returns the default volume's host path (empty when disabled) so the runner can
 // create + chown it at spawn time.
-func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd.Mount, string) {
-	cfg := dep.Spec.Runner.Container
+func containerMounts(dep *apigen.DeploymentConfig2) ([]ctrd.Mount, string) {
+	cfg := dep.Spec.Container().Runtime
 	var mounts []ctrd.Mount
 	var dataHost string
-	if !cfg.DisableDataVolume {
+	if !cfg.DefaultVolume.Disabled {
 		dataHost = defaultVolumeHostDir(dep.ID)
 		mounts = append(mounts, ctrd.Mount{
 			Source: dataHost,
-			Dest:   defaultVolumeDest(cfg.User, cfg.DataMountPath),
+			Dest:   defaultVolumeDest(cfg.DefaultVolume.ContainerPath),
+		})
+	}
+	for _, m := range cfg.CrossDeploymentMounts {
+		if m == nil {
+			continue
+		}
+		mounts = append(mounts, ctrd.Mount{
+			Source:   defaultVolumeHostDir(m.DeploymentID),
+			Dest:     m.ContainerPath,
+			ReadOnly: m.Permission != apigen.FilePermission_READ_WRITE,
 		})
 	}
 	for _, m := range cfg.Mounts {
 		if m == nil {
 			continue
 		}
-		mounts = append(mounts, ctrd.Mount{Source: m.Host, Dest: m.Container, ReadOnly: m.Readonly})
+		mounts = append(mounts, ctrd.Mount{
+			Source:   m.HostPath,
+			Dest:     m.ContainerPath,
+			ReadOnly: m.Permission != apigen.FilePermission_READ_WRITE,
+		})
 	}
 	for _, m := range cfg.AssetMounts {
 		if m == nil {
 			continue
 		}
-		hostPath := runtimeinputs.AssetCachePathWithMode(m.AssetID, m.Executable)
-		mounts = append(mounts, ctrd.Mount{Source: hostPath, Dest: m.Path, ReadOnly: true})
+		hostPath := runtimeinputs.AssetCachePathWithMode(m.AssetID, m.Permission == apigen.FilePermission_READ_EXECUTE)
+		mounts = append(mounts, ctrd.Mount{Source: hostPath, Dest: m.ContainerPath, ReadOnly: true})
 	}
 	implicitMounted := map[string]bool{}
 	envKeys := make([]string, 0, len(cfg.EnvVars))
@@ -1130,7 +1144,7 @@ func defaultVolumeHostDir(deploymentID int32) string {
 
 // defaultVolumeDest is the in-container mount point for the default data volume:
 // the explicit override if set, else /data.
-func defaultVolumeDest(_ string, override string) string {
+func defaultVolumeDest(override string) string {
 	if override != "" {
 		return override
 	}

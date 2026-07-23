@@ -95,6 +95,7 @@ type EnrollmentRequest struct {
 	RequestingIpAddress string
 	RequestingMachineID string
 	OpendeployVersion   string
+	UnderlayAddress     string
 	Status              string
 }
 

@@ -10,10 +10,9 @@ supervises running containers with automatic crash recovery.
 
 ## Deployment config
 
-Each deployment has two explicit steps:
-
-- **`prepare`** — produces an image in containerd. Pick exactly one public variant.
-- **`runner`** — runs the image. Public deployments use only the `container` runner; omitted runner config means all-default container settings.
+Each deployment currently has exactly one workload. Public deployments use
+`spec.container1Spec`, which contains one artifact `source`, its `runtime`
+configuration, and workload-local `version` and `running` desired state.
 
 A deployment is created by posting a `DeploymentCreateRequest` to
 `POST /v1/deployment/create`:
@@ -26,14 +25,15 @@ A deployment is created by posting a `DeploymentCreateRequest` to
   },
   "nodeId": 1,
   "spec": {
-    "prepare": {
-      "nixDockerBuild": {
-        "repo": "github.com/org/repo",
-        "flake": "nix/server/flake.nix"
-      }
-    },
-    "runner": {
-      "container": {
+    "networking": {"mode": 1},
+    "container1Spec": {
+      "source": {
+        "nixDockerBuild": {
+          "repo": "github.com/org/repo",
+          "flake": "nix/server/flake.nix"
+        }
+      },
+      "runtime": {
         "user": "1000",
         "envVars": {
           "LOG_LEVEL": {"value": "info"},
@@ -41,8 +41,10 @@ A deployment is created by posting a `DeploymentCreateRequest` to
           "DB_PASSWORD": {"secretId": 99}
         },
         "devShmSizeKb": 65536,
-        "mounts": [{"host": "/home/ubuntu/coflip-server/data", "container": "/data"}]
-      }
+        "mounts": [{"hostPath": "/home/ubuntu/coflip-server/data", "containerPath": "/data", "permission": 1}]
+      },
+      "version": "0123456789abcdef0123456789abcdef01234567",
+      "running": true
     }
   }
 }
@@ -57,25 +59,25 @@ Every stored deployment has a positive canonical `nodeId`. Deployment history
 entries carry the deployment's current identity and node placement as display
 metadata.
 
-### Prepare variants
+### Source variants
 
 | Variant | Fields | Description |
 |---|---|---|
 | `nixDockerBuild` | `repo`, `flake`, optional `target` | Uses a full commit hash as the desired version. `flake` must be a safe repository-relative path whose basename is `flake.nix` and whose entry at that exact commit is a regular Git file. Before a running config is saved, the primary contacts the remote and verifies the exact repository-wide commit and flake entry. The preparer checks out the commit, rechecks the file, runs `nix build` without updating the lock file, and expects its selected output to be an executable OCI/Docker image stream such as `pkgs.dockerTools.streamLayeredImage`. An empty target builds the default output; a local selector such as `.#radkitRpaClientImage` selects a named flake output. The stream is imported into OpenDeploy's bundled containerd and returned as a local image ref. Must be paired with the `container` runner. |
-| `containerImage` | `image` | Pulls `image:version` (version is the desired tag/digest) into containerd's content store and unpacks it. Phase 1 pulls anonymously — no registry credentials. Must be paired with the `container` runner. |
+| `remoteImage` | `image` | Pulls `image:version` (version is the workload's desired tag/digest) into containerd's content store and unpacks it. Phase 1 pulls anonymously — no registry credentials. |
 
 `githubRelease` remains as an internal-only source for the `OPENDEPLOY`
 self-deployment. Public create/update validation rejects it.
 
-### Runner variants
+### Container runtime
 
 | Variant | Fields | Description |
 |---|---|---|
-| `container` | `user`, `envVars`, `command`, `workingDir`, `dataMountPath`, `disableDataVolume`, `mounts`, `assetMounts`, `upgradeStrategy`, `readinessSignal`, `devShmSizeKb`, `fileDescriptorLimit` | Runs the prepared image as a container via containerd with OpenDeploy-supervised crash/backoff. Networking is controlled by `spec.networking`: host mode joins the host network namespace; virtual mode creates a per-container network namespace. `envVars` is a map from env var name to an `EnvVarValue` with exactly one of literal `value`, pinned `secretId`, pinned `configId`, or asset ref. Every container gets a default per-deployment host data volume at `/var/lib/opendeploy-volumes/{deploymentID}/default`, bind-mounted at `/data` (override with `dataMountPath`, opt out with `disableDataVolume`). `mounts` bind existing absolute host paths from the target machine into absolute container paths, read/write by default or read-only with `readonly: true`. `assetMounts` bind OpenDeploy-managed asset files read-only; set `executable: true` for read+execute script mounts. `upgradeStrategy` defaults to `RECREATE`; `ROLLOVER` starts a candidate container, waits for its Unix-socket readiness signal, promotes it, then stops the old container. `devShmSizeKb` optionally resizes the container's `/dev/shm` tmpfs in KiB; `fileDescriptorLimit` optionally overrides `RLIMIT_NOFILE`, with OpenDeploy otherwise defaulting containers to `2048` for both soft and hard limits. A dedicated binary log consumer writes merged half-hourly stdout/stderr records to `{RunOutputDir}/{deploymentID}/{YYYYMMDD_HHMM}_{version}_{run}.logbin`; `version` is the deployment configuration version and `run` is its restart sequence. `user` maps to the in-container OS user. Requires the `containerImage` or `nixDockerBuild` prepare. Linux only. |
+| `runtime` | `user`, `envVars`, `overrideCommand`, `overrideWorkingDir`, `defaultVolume`, `crossDeploymentMounts`, `mounts`, `assetMounts`, `devShmSizeKb`, `fileDescriptorLimit` | Runs the selected source as a container via containerd with OpenDeploy-supervised crash/backoff. Networking is controlled by `spec.networking`. `envVars` contains typed literal, pinned secret/config, asset, or address references. `defaultVolume` controls the per-deployment data volume. `crossDeploymentMounts` references another same-node deployment by ID; `mounts` is the raw host-path escape hatch. Mount permissions are explicit `READ_WRITE`, `READ_ONLY`, or, where supported, `READ_EXECUTE`. Upgrade strategy and readiness are fields on `container1Spec`. Linux only. |
 
-`systemd` remains as an internal-only runner for the `OPENDEPLOY`
+`systemdSpec` remains an internal-only workload for the `OPENDEPLOY`
 self-deployment. Public create/update validation rejects it, and public state
-responses redact that runner config to an empty `runner` object.
+responses redact its runtime details.
 
 ### Networking
 
@@ -92,18 +94,28 @@ responses redact that runner config to an empty `runner` object.
 
 ### Config versioning
 
-Each deployment's `DeploymentConfig.Version` is a per-deployment
+Each deployment's `DeploymentConfig2.Version` is a per-deployment
 monotonically increasing integer that bumps on any spec or desired-state
 change. Every bump is persisted to `deployment_config_history` so the UI
 can reconstruct the sequence of changes.
+
+SQLite persists `DeploymentSpec2` in both the current-config and config-history
+rows. The V2 rollout includes a temporary startup migration shared by primary
+and secondary storage: before caches are loaded, it transactionally decodes all
+legacy specs, folds the legacy desired-state columns into the selected workload,
+rewrites every current and historical blob, and records completion in local
+machine state. Normal readers and writers only handle V2 blobs.
 
 ## Deployment state
 
 Each deployment's runtime state is structured into sections owned by different components:
 
-### DesiredState
+### Workload desired state
 
-Set by user actions (deploy or stop). Contains the target `version` (commit hash or release tag) and a `running` boolean. Audit fields (`updated_at`, `updated_by`) and the config `version` are on the parent `DeploymentConfig`, not on `DesiredState` itself.
+Set by user actions (deploy or stop). The selected `ContainerSpec` or
+`SystemdSpec` contains the target `version` and `running` boolean. Audit fields
+(`updated_at`, `updated_by`) and the config revision remain on the parent
+`DeploymentConfig2`.
 
 Nix desired versions, when set, are full immutable commit hashes. Branch selection and the 25 most recent commits are discovery aids and are not persisted as source authority. Creating a running Nix deployment, starting one, changing its target commit, or changing its Nix source while it remains running performs synchronous remote commit and flake verification before persistence. Stopped Nix deployments still require structurally valid source fields but may omit the desired version and do not require remote accessibility until they transition to running.
 
@@ -112,7 +124,7 @@ Nix desired versions, when set, are full immutable commit hashes. Branch selecti
 Driven by the preparer. Tracks prepare progress with status values:
 `PREPARING`, `DOWNLOADING`, `READY`, `FAILED`. On success, contains the
 resolved `artifact` (local image ref) and the `deployment_config_version`
-from `DeploymentConfig.Version`.
+from `DeploymentConfig2.Version`.
 
 ### RunnerStatus
 
@@ -122,7 +134,7 @@ Driven by the runner. Tracks the running container task with `running_pid`,
 
 ## Deployment identification
 
-Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployment/create`. Human-readable metadata is stored as `DeploymentConfig.Identity`, and application identity is `{nodeId, spaceId, name}`. SQLite enforces that identity with a partial unique index over active deployments. All API requests, storage keys, and log file paths use the integer `id`.
+Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployment/create`. Human-readable metadata is stored as `DeploymentConfig2.Identity`, and application identity is `{nodeId, spaceId, name}`. SQLite enforces that identity with a partial unique index over active deployments. All API requests, storage keys, and log file paths use the integer `id`.
 
 Deleting a deployment releases its human-readable identity tuple but retains its ID, configuration history, status history, logs, volumes, and other ID-owned records. Creating a deployment later with the same space, node, and name creates a completely new and independent deployment with a fresh ID and version history. It does not restore, continue, or otherwise inherit the deleted deployment.
 
@@ -151,7 +163,7 @@ grouped by space. Each card displays:
 2. The user picks a version (and optionally edits the deployment spec) and submits.
 3. The frontend calls `POST /v1/deployment/update` with the target version
    and, if the spec was edited, the new typed `spec`.
-4. For an effective running Nix transition, the backend verifies the exact remote commit and regular `flake.nix` tree entry, then writes the new spec (if any), sets `DesiredState` (version, running=true), and bumps `DeploymentConfig.Version`. Verification failure writes nothing.
+4. For an effective running Nix transition, the backend verifies the exact remote commit and regular `flake.nix` tree entry, then writes the V2 spec with the selected workload's version and `running=true`, and bumps `DeploymentConfig2.Version`. Verification failure writes nothing.
 5. The operator's reconciliation loop picks up the change and starts a
    preparer.
 6. The preparer clones/fetches, pulls, or imports the image, then writes

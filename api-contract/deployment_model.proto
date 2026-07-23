@@ -16,9 +16,10 @@ message NixDockerBuildConfig {
 // Internal-only source for the OPENDEPLOY deployment. Public deployment create/update validation rejects this branch.
 message GithubReleaseConfig {
   string repo = 1;
-  string asset = 2;             // asset name (optional; falls back to first asset). With download_script, the output file the script leaves in the download dir.
+  string asset = 2;             // asset name (optional; falls back to the architecture-specific asset or first asset)
   string tag = 3;               // optional explicit tag
-  string download_script = 4;   // optional bash script run instead of downloading an asset; receives the version tag as $1, runs in the download dir
+  reserved 4;
+  reserved "download_script";
 }
 
 message ContainerImageConfig {
@@ -61,10 +62,10 @@ message ContainerMount {
 }
 
 message ContainerAssetMount {
-  string asset = 1;     // display asset key copied from the resolved asset row
+  string asset = 1;     // legacy denormalized asset key; asset_id is authoritative
   reserved 2;
   string path = 3;      // destination file path inside the container
-  string format = 4;    // copied from the resolved asset for display/debugging
+  string format = 4;    // legacy denormalized asset format
   int32 asset_id = 5;   // immutable asset row id, used for local cache/downloads
   bool executable = 6;  // mount read-only with execute bits enabled
 }
@@ -181,14 +182,15 @@ message DeploymentUpdateRequest {
   string target_version = 2;
   bool stop = 3;
   int32 version = 4;
-  DeploymentSpec spec = 6 [(cp.go_value) = true];  // optional: update deployment spec
+  DeploymentSpec2 spec = 6 [(cp.go_value) = true]; // optional: update deployment spec
   optional int32 space_id = 7;                     // optional: move deployment to another space
 }
 
 message DeploymentCreateRequest {
   DeploymentIdentity identity = 1 [(cp.go_value) = true];
-  DeploymentSpec spec = 2 [(cp.go_value) = true];
-  DesiredState desired_state = 3 [(cp.go_value) = true];
+  DeploymentSpec2 spec = 2 [(cp.go_value) = true];
+  reserved 3;
+  reserved "desired_state";
   int32 node_id = 4; // required canonical target node
 }
 
@@ -281,7 +283,7 @@ message DeploymentConfig {
 
 
 message DeploymentWithStatus {
-  DeploymentConfig Config = 1 [(cp.go_value) = true];
+  DeploymentConfig2 Config = 1 [(cp.go_value) = true];
   DeploymentStatus status = 2 [(cp.go_value) = true];
 }
 
@@ -477,22 +479,24 @@ message DeploymentConfig2 {
   int64 updated_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int32 updated_by = 6;
   int32 version = 7;  // per-deployment monotonically increasing config version
-  DeploymentSpec2 spec = 8;
+  DeploymentSpec2 spec = 8 [(cp.go_value) = true];
   bool deleted = 9;
 }
 
 message DeploymentSpec2 {
-  NetworkingConfig networking = 1;
+  NetworkingConfig networking = 1 [(cp.go_value) = true];
 
-  // Exactly one type of spec must be set
-  ContainerSpec container1Spec = 2;
+  // Exactly one workload field must currently be set. Future multi-container
+  // support may allow multiple container fields, but container fields must
+  // never be combined with microVM, VM, or systemd fields.
+  ContainerSpec container_1_spec = 2;
 
-  ContainerSpec container2Spec = 3; // todo: for future multi container support only
-  ContainerSpec container3Spec = 4; // todo: for future multi container support only
+  ContainerSpec container_2_spec = 3; // todo: for future multi container support only
+  ContainerSpec container_3_spec = 4; // todo: for future multi container support only
 
-  MicroVMSpec microVMSpec = 5;  // todo: future implementation
-  VMSpec vMSpec = 6;            // todo future implementation
-  SystemdSpec systemdSpec = 7;  // internal opendeploy deployments only
+  MicroVMSpec micro_vm_spec = 5; // todo: future implementation
+  VMSpec vm_spec = 6;            // todo: future implementation
+  SystemdSpec systemd_spec = 7;  // internal opendeploy deployments only
 }
 
 message MicroVMSpec {}
@@ -506,7 +510,7 @@ message SystemdSpec {
 
 message GithubRelease {
   string repo = 1;
-  string asset = 2;  // asset name (optional; falls back to first asset). With download_script, the output file the script leaves in the download dir.
+  string asset = 2;  // asset name (optional; falls back to the architecture-specific asset or first asset)
 }
 message SystemdRuntime{
   string name = 1;     // systemd unit name
@@ -523,8 +527,8 @@ message ContainerSpec {
 }
 
 message ContainerBundleSource {
-  NixDockerBuild2 nixDockerBuild = 1;
-  RemoteDockerImage remoteImage = 2;
+  NixDockerBuild2 nix_docker_build = 1;
+  RemoteDockerImage remote_image = 2;
 }
 
 message NixDockerBuild2 {
@@ -534,7 +538,7 @@ message NixDockerBuild2 {
 }
 
 message RemoteDockerImage {
-  string image = 1; // image repository ref, e.g. "docker.io/library/nginx". The version tag/digest comes from DesiredState.Version.
+  string image = 1; // image repository ref, e.g. "docker.io/library/nginx". The version tag/digest comes from ContainerSpec.version.
 }
 
 message ContainerRuntime {
@@ -591,6 +595,6 @@ message AssetMount2 {
 enum FilePermission {
   FILE_PERMISSION_UNSPECIFIED = 0;
   READ_WRITE = 1;
-  READ = 2;
-  EXECUTE = 3;
+  READ_ONLY = 2;
+  READ_EXECUTE = 3;
 }

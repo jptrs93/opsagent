@@ -9,7 +9,11 @@ func (h *Handler) deploymentUsesSecretID(ids map[int32]struct{}) bool {
 		if item.Config.Deleted {
 			continue
 		}
-		for _, value := range item.Config.Spec.Runner.Container.EnvVars {
+		container := item.Config.Spec.Container()
+		if container == nil {
+			continue
+		}
+		for _, value := range container.Runtime.EnvVars {
 			if value != nil && value.SecretID != nil {
 				if _, ok := ids[*value.SecretID]; ok {
 					return true
@@ -25,7 +29,11 @@ func (h *Handler) deploymentUsesConfigID(ids map[int32]struct{}) bool {
 		if item.Config.Deleted {
 			continue
 		}
-		for _, value := range item.Config.Spec.Runner.Container.EnvVars {
+		container := item.Config.Spec.Container()
+		if container == nil {
+			continue
+		}
+		for _, value := range container.Runtime.EnvVars {
 			if value != nil && value.ConfigID != nil {
 				if _, ok := ids[*value.ConfigID]; ok {
 					return true
@@ -41,7 +49,11 @@ func (h *Handler) deploymentUsesAddressID(ids map[int32]struct{}) bool {
 		if item.Config.Deleted {
 			continue
 		}
-		for _, value := range item.Config.Spec.Runner.Container.EnvVars {
+		container := item.Config.Spec.Container()
+		if container == nil {
+			continue
+		}
+		for _, value := range container.Runtime.EnvVars {
 			if value == nil || value.AddressDeploymentID == nil {
 				continue
 			}

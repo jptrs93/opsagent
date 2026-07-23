@@ -3,7 +3,7 @@ import { capi } from "../capi/index.js";
 import { loginS } from "./login.js";
 
 // deploymentsS holds the current DeploymentWithStatus[] snapshot.
-// Each entry has {config: DeploymentConfig, status: DeploymentStatus}.
+// Each entry has {config: DeploymentConfig2, status: DeploymentStatus}.
 export const deploymentsS = van.state([]);
 // usersMapS holds a Map<userId, userName> for resolving display names.
 export const usersMapS = van.state(new Map());
