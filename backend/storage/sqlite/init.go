@@ -32,36 +32,12 @@ func mustInit(dbPath, migrations string) *sql.DB {
 	if err != nil {
 		panic(fmt.Sprintf("open sqlite: %v", err))
 	}
-	migrateRenamedTable(db, "opendeploy_config", "system_config_revisions")
-	migrateRenamedTable(db, "user_configs", "configs")
 	if _, err := db.Exec(schema); err != nil {
 		panic(fmt.Sprintf("exec schema: %v", err))
 	}
 	migrateVersionedSecretConfigTables(db)
 	applyMigrations(db, migrations)
 	return db
-}
-
-func migrateRenamedTable(db *sql.DB, oldName, newName string) {
-	oldExists := tableExists(db, oldName)
-	newExists := tableExists(db, newName)
-	if oldExists && newExists {
-		panic(fmt.Sprintf("cannot rename table %s to %s: both tables exist", oldName, newName))
-	}
-	if !oldExists {
-		return
-	}
-	if _, err := db.Exec(fmt.Sprintf(`ALTER TABLE %q RENAME TO %q`, oldName, newName)); err != nil {
-		panic(fmt.Sprintf("rename table %s to %s: %v", oldName, newName, err))
-	}
-}
-
-func tableExists(db *sql.DB, table string) bool {
-	var exists bool
-	if err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)`, table).Scan(&exists); err != nil {
-		panic(fmt.Sprintf("check table %s: %v", table, err))
-	}
-	return exists
 }
 
 func migrateVersionedSecretConfigTables(db *sql.DB) {
