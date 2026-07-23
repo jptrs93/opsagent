@@ -151,56 +151,56 @@ ON CONFLICT(kid) DO UPDATE SET key_bytes = excluded.key_bytes;
 -- name: ListPublicKeys :many
 SELECT kid, key_bytes FROM public_keys ORDER BY kid;
 
--- === user_configs ===
+-- === configs ===
 
 -- name: ListUserConfigs :many
 SELECT c.id, c.name, c.version, c.space_id, c.value, c.created_at, c.updated_by
-FROM user_configs c
+FROM configs c
 JOIN (
     SELECT name, MAX(version) AS version
-    FROM user_configs
+    FROM configs
     GROUP BY name
 ) latest ON latest.name = c.name AND latest.version = c.version
 ORDER BY c.name;
 
 -- name: ListAllUserConfigs :many
 SELECT id, name, version, space_id, value, created_at, updated_by
-FROM user_configs ORDER BY name, version;
+FROM configs ORDER BY name, version;
 
 -- name: GetUserConfig :one
 SELECT id, name, version, space_id, value, created_at, updated_by
-FROM user_configs WHERE name = ?
+FROM configs WHERE name = ?
 ORDER BY version DESC
 LIMIT 1;
 
 -- name: GetUserConfigVersion :one
 SELECT id, name, version, space_id, value, created_at, updated_by
-FROM user_configs WHERE name = ? AND version = ?;
+FROM configs WHERE name = ? AND version = ?;
 
 -- name: ListUserConfigVersionsByName :many
 SELECT id, name, version, space_id, value, created_at, updated_by
-FROM user_configs WHERE name = ?
+FROM configs WHERE name = ?
 ORDER BY version ASC;
 
 -- name: GetUserConfigByID :one
 SELECT id, name, version, space_id, value, created_at, updated_by
-FROM user_configs WHERE id = ?;
+FROM configs WHERE id = ?;
 
 -- name: GetNextUserConfigVersion :one
 SELECT COALESCE(MAX(version), 0) + 1
-FROM user_configs
+FROM configs
 WHERE name = ?;
 
 -- name: InsertUserConfig :one
-INSERT INTO user_configs (name, version, space_id, value, created_at, updated_by)
+INSERT INTO configs (name, version, space_id, value, created_at, updated_by)
 VALUES (?, ?, ?, ?, ?, ?)
 RETURNING id, name, version, space_id, value, created_at, updated_by;
 
 -- name: RenameUserConfig :exec
-UPDATE user_configs SET name = ? WHERE name = ?;
+UPDATE configs SET name = ? WHERE name = ?;
 
 -- name: DeleteUserConfig :exec
-DELETE FROM user_configs WHERE name = ?;
+DELETE FROM configs WHERE name = ?;
 
 -- === assets ===
 
@@ -379,10 +379,10 @@ ON CONFLICT(name) DO UPDATE SET
 
 
 -- name: GetLatestConfig :one
-select * from opendeploy_config order by id desc limit 1;
+select * from system_config_revisions order by id desc limit 1;
 
 -- name: GetConfigByID :one
-SELECT id, updated_at, config_blob FROM opendeploy_config WHERE id = ?;
+SELECT id, updated_at, config_blob FROM system_config_revisions WHERE id = ?;
 
 -- === local_kv ===
 

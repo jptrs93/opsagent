@@ -4,7 +4,7 @@ import {handleErr} from "../capi/err.js";
 import {decodeAsset} from "../capi/model.js";
 import {inlineEditableInput} from "../components/inlineEditableInput.js";
 import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
-import {closeIcon, trashIcon} from "../lib/icons.js";
+import {closeIcon, editIcon, trashIcon} from "../lib/icons.js";
 import {formatDateTime} from "../lib/date.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
@@ -18,16 +18,16 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 const isYamlAsset = key => /\.ya?ml$/i.test(key || "");
-let yamlAssetEditorLoader;
+let assetCodeEditorLoader;
 
-const loadYamlAssetEditor = () => {
-    yamlAssetEditorLoader ||= import("../components/yamlAssetEditor.js")
-        .then(module => module.yamlAssetEditor);
-    return yamlAssetEditorLoader;
+const loadAssetCodeEditor = () => {
+    assetCodeEditorLoader ||= import("../components/assetCodeEditor.js")
+        .then(module => module.assetCodeEditor);
+    return assetCodeEditorLoader;
 };
 
-export function preloadYamlAssetEditor() {
-    const preload = () => { void loadYamlAssetEditor().catch(() => {}); };
+export function preloadAssetCodeEditor() {
+    const preload = () => { void loadAssetCodeEditor().catch(() => {}); };
     if (typeof requestIdleCallback === "function") {
         requestIdleCallback(preload, {timeout: 2000});
     } else {
@@ -35,11 +35,11 @@ export function preloadYamlAssetEditor() {
     }
 }
 
-function lazyYamlAssetEditor(args) {
+function lazyAssetCodeEditor(args) {
     const editor = van.state("");
     const loadError = van.state("");
-    loadYamlAssetEditor()
-        .then(yamlAssetEditor => { editor.val = yamlAssetEditor(args); })
+    loadAssetCodeEditor()
+        .then(assetCodeEditor => { editor.val = assetCodeEditor(args); })
         .catch(error => { loadError.val = error.message || "Unable to load YAML editor"; });
 
     return div(
@@ -293,6 +293,10 @@ export function assetsPage() {
         if (assetMutationKey.val) return;
         const isNew = !original.key;
         const contentChanged = !draftLarge.val && draftContent.val !== original.content;
+        if (isNew && !draftContent.val) {
+            error.val = "Asset content cannot be empty.";
+            return;
+        }
         assetMutationKey.val = key;
         try {
             error.val = null;
@@ -498,12 +502,12 @@ export function assetsPage() {
             return table(
                 {class: "w-full table-fixed text-sm"},
                 colgroup(
-                    col({style: "width:38%"}),
+                    col({style: "width:32%"}),
                     col({style: "width:24%"}),
                     col({style: "width:11%"}),
                     col({style: "width:10%"}),
                     col({style: "width:12%"}),
-                    col({style: "width:5%"}),
+                    col({style: "width:11%"}),
                 ),
                 thead(tr({class: "text-left text-gray-400 border-b border-gray-700"},
                     th({class: "pb-2 pr-3 font-medium"}, "Key"),
@@ -513,18 +517,25 @@ export function assetsPage() {
                     th({class: "pb-2 pr-3 font-medium"}, "Size"),
                     th({class: "pb-2 w-px"}, ""))),
                 tbody(...visibleRows.map(row => tr(
-                    {
-                        class: () => `border-b border-gray-800 last:border-0 align-middle cursor-pointer ${
-                            selected.val === row.key ? "bg-surface-hover" : "hover:bg-surface-hover"}`,
-                        onclick: () => loadAsset(row.key),
-                    },
+                    {class: "border-b border-gray-800 last:border-0 align-middle"},
                     td({class: "py-1 pr-3 min-w-0"}, assetNameEditor(row)),
                     td({class: "py-1 pr-3 text-gray-400 truncate", title: formatDateTime(row.createdAt, "-")}, formatDateTime(row.createdAt, "-")),
                     td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => usageButton(row)),
                     td({class: "py-1 pr-3 text-gray-300"}, `v${row.version}`),
                     td({class: "py-1 pr-3 text-gray-400 truncate"}, fmtSize(row.sizeBytes || 0)),
                     td({class: "py-1 pl-2 text-right whitespace-nowrap w-px"},
-                        button({
+                        div({class: "flex items-center justify-end gap-1"},
+                            button({
+                            type: "button",
+                            title: `Edit asset ${row.key}`,
+                            "aria-label": `Edit asset ${row.key}`,
+                            disabled: () => Boolean(assetMutationKey.val),
+                            class: () => `inline-flex h-7 w-7 items-center justify-center rounded text-gray-400 ` +
+                                `hover:bg-surface hover:text-gray-100 transition-colors ${assetMutationKey.val
+                                    ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
+                            onclick: () => loadAsset(row.key),
+                        }, editIcon()),
+                            button({
                             type: "button",
                             title: `Delete asset ${row.key}`,
                             "aria-label": `Delete asset ${row.key}`,
@@ -532,8 +543,8 @@ export function assetsPage() {
                             class: () => `inline-flex h-7 w-7 items-center justify-center rounded text-gray-400 ` +
                                 `hover:bg-surface hover:text-red-400 transition-colors ${assetMutationKey.val
                                     ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
-                            onclick: (e) => { e.stopPropagation(); requestDeleteAsset(row); },
-                        }, trashIcon())),
+                            onclick: () => requestDeleteAsset(row),
+                        }, trashIcon()))),
                 ))),
             );
         }),
@@ -560,31 +571,32 @@ export function assetsPage() {
 
     const editorPanel = () => div(
         {class: "card flex-1 min-w-0 min-h-0 self-stretch flex flex-col gap-4"},
-        div({class: "flex items-start justify-between gap-3"},
-            div({class: "min-w-0"},
-                () => draftVersion.val ? h2({class: "text-base font-semibold"}, `Editing ${draftKey.val}`) : "",
-                () => draftVersion.val
-                    ? p({class: "text-xs text-gray-400"},
-                        `Version ${draftVersion.val} created ${fmtDate(draftCreatedAt.val)}. Saving content creates version ${draftVersion.val + 1}.`)
-                    : ""),
-            div({class: "flex items-center gap-2"},
+        div({class: "flex flex-col gap-1 min-w-0"},
+            div({class: "flex items-center gap-3 min-w-0"},
+                () => {
+                    draftRevision.val;
+                    if (original.key) return h2({class: "min-w-0 flex-1 truncate px-2 py-1 font-mono text-base font-semibold"}, draftKey);
+                    if (!original.key) return input({
+                        class: "min-w-0 flex-1 rounded border border-transparent bg-transparent px-2 py-1 font-mono text-base font-semibold focus:border-brand focus:outline-none",
+                        placeholder: "asset name",
+                        value: draftKey,
+                        disabled: () => Boolean(assetMutationKey.val),
+                        oninput: (e) => draftKey.val = e.target.value,
+                        "aria-label": "New asset name",
+                    });
+                },
                 span({class: "text-xs text-gray-500 whitespace-nowrap"}, () => loadingAsset.val ? "Loading..." : ""),
                 button({
                     type: "button",
                     title: "Close editor",
                     class: "p-1.5 rounded text-gray-400 hover:text-gray-100 hover:bg-surface transition-colors cursor-pointer",
                     onclick: clearDraft,
-                }, closeIcon()))),
-        div({class: "grid grid-cols-1 gap-3"},
-            () => original.key
-                ? labelField("Key", div({class: "text-input font-mono text-gray-300"}, draftKey))
-                : labelField("Key", input({
-                    class: "text-input font-mono",
-                    placeholder: "nginx.conf",
-                    value: draftKey,
-                    disabled: () => Boolean(assetMutationKey.val),
-                    oninput: (e) => draftKey.val = e.target.value,
-                }))),
+                }, closeIcon())),
+            div({class: "min-w-0"},
+                () => draftVersion.val
+                    ? p({class: "text-xs text-gray-400"},
+                        `Version ${draftVersion.val} created ${fmtDate(draftCreatedAt.val)}. Saving content creates version ${draftVersion.val + 1}.`)
+                    : "")),
         () => {
             if (draftLarge.val) return div(
                 {class: "text-input flex-1 min-h-0 flex items-center justify-center text-center text-sm text-gray-400"},
@@ -596,7 +608,7 @@ export function assetsPage() {
             const editorArgs = {
                 value: draftContent,
                 dirty: isDirty,
-                valid: () => Boolean(draftKey.val.trim()),
+                valid: () => Boolean(draftKey.val.trim()) && (Boolean(original.key) || Boolean(draftContent.val)),
                 disabled: () => Boolean(assetMutationKey.val),
                 onSave: saveAsset,
                 onDiscard: () => {
@@ -610,21 +622,28 @@ export function assetsPage() {
                 saveAriaLabel: original.key ? `Save new version of asset ${original.key}` : "Create asset",
                 discardAriaLabel: original.key ? `Discard content changes for asset ${original.key}` : "Discard new asset",
             };
-            return isYamlAsset(draftKey.val)
-                ? lazyYamlAssetEditor(editorArgs)
-                : inlineEditableInput({
-                    ...editorArgs,
-                    multiline: true,
-                    inputAttrs: {spellcheck: "false"},
-                    inputClass: "text-input h-full font-mono text-sm min-h-0 resize-none leading-relaxed",
-                    containerClass: "flex-1 min-h-0",
-                    placeholder: "Paste config file contents here",
-                    oninput: (e) => draftContent.val = e.target.value,
-                });
+            return lazyAssetCodeEditor({...editorArgs, yamlSyntax: isYamlAsset(draftKey.val)});
         },
-        p({class: "text-xs text-gray-500"}, () => draftLarge.val
-            ? `${fmtSize(draftSizeBytes.val)} large asset`
-            : `${encoder.encode(draftContent.val).length} bytes inline`),
+        div({class: "flex shrink-0 items-center justify-between gap-3"},
+            p({class: "text-xs text-gray-500"}, () => draftLarge.val
+                ? `${fmtSize(draftSizeBytes.val)} large asset`
+                : `${encoder.encode(draftContent.val).length} bytes inline`),
+            div({class: "flex items-center gap-3"},
+                () => !original.key && !draftContent.val
+                    ? p({class: "text-xs text-orange-300"}, "Asset content cannot be empty.")
+                    : "",
+                button({
+                    type: "button",
+                    disabled: () => Boolean(assetMutationKey.val) || !draftKey.val.trim()
+                        || (!original.key ? !draftContent.val : !isDirty()),
+                    class: () => `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${assetMutationKey.val
+                        || !draftKey.val.trim() || (!original.key ? !draftContent.val : !isDirty())
+                        ? "cursor-not-allowed bg-gray-700 text-gray-400 opacity-50"
+                        : "cursor-pointer bg-brand text-white hover:bg-blue-600"}`,
+                    onclick: () => { void saveAsset(); },
+                }, () => original.key ? `Save new version (v${draftVersion.val + 1})` : "Create asset"),
+            ),
+        ),
     );
 
     const leftPane = () => div(

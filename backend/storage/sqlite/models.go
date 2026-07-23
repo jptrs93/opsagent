@@ -32,6 +32,16 @@ type AssetMigration struct {
 	FinishedAt         int64
 }
 
+type Config struct {
+	ID        int64
+	Name      string
+	Version   int64
+	SpaceID   int64
+	Value     string
+	CreatedAt int64
+	UpdatedBy int64
+}
+
 type DeploymentConfig struct {
 	DeploymentID int64
 	NodeID       int64
@@ -118,12 +128,6 @@ type NodeStatus struct {
 	IsConnected     int64
 }
 
-type OpendeployConfig struct {
-	ID         int64
-	UpdatedAt  int64
-	ConfigBlob []byte
-}
-
 type PublicKey struct {
 	Kid      string
 	KeyBytes []byte
@@ -155,6 +159,12 @@ type Space struct {
 	Name string
 }
 
+type SystemConfigRevision struct {
+	ID         int64
+	UpdatedAt  int64
+	ConfigBlob []byte
+}
+
 type SystemSecret struct {
 	Name       string
 	SmkVersion int64
@@ -168,14 +178,4 @@ type User struct {
 	ID       int64
 	Name     string
 	DataBlob []byte
-}
-
-type UserConfig struct {
-	ID        int64
-	Name      string
-	Version   int64
-	SpaceID   int64
-	Value     string
-	CreatedAt int64
-	UpdatedBy int64
 }

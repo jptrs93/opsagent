@@ -1,5 +1,6 @@
 import van from "vanjs-core";
 import {basicSetup} from "codemirror";
+import {yaml} from "@codemirror/lang-yaml";
 import {Compartment, EditorState} from "@codemirror/state";
 import {EditorView, keymap} from "@codemirror/view";
 import {checkIcon, xIcon} from "../lib/icons.js";
@@ -36,7 +37,18 @@ const codeEditorTheme = EditorView.theme({
 
 const stateValue = value => typeof value === "function" ? value() : (value?.val ?? value);
 
-export function yamlAssetEditor({value, dirty, valid, disabled, onSave, onDiscard, ariaLabel, saveAriaLabel, discardAriaLabel}) {
+export function assetCodeEditor({
+    value,
+    dirty,
+    valid,
+    disabled,
+    onSave,
+    onDiscard,
+    ariaLabel,
+    saveAriaLabel,
+    discardAriaLabel,
+    yamlSyntax = false,
+}) {
     const saving = van.state(false);
     const editable = new Compartment();
     let view;
@@ -77,6 +89,7 @@ export function yamlAssetEditor({value, dirty, valid, disabled, onSave, onDiscar
                 extensions: [
                     basicSetup,
                     codeEditorTheme,
+                    ...(yamlSyntax ? [yaml()] : []),
                     editable.of(EditorView.editable.of(!isDisabled())),
                     keymap.of([{
                         key: "Mod-Enter",

@@ -1,3 +1,8 @@
+-- One-release migration for existing installations. Remove these statements
+-- after all deployed databases have been opened by this release.
+ALTER TABLE opendeploy_config RENAME TO system_config_revisions;
+ALTER TABLE user_configs RENAME TO configs;
+
 -- Config representing desired state for each deployment. One row per deployment,
 CREATE TABLE IF NOT EXISTS deployment_configs (
     deployment_id   INTEGER PRIMARY KEY,
@@ -80,8 +85,8 @@ CREATE TABLE IF NOT EXISTS public_keys (
     key_bytes BLOB NOT NULL
 );
 
--- Stores the configuration/settings of opendeploy itself
-CREATE TABLE IF NOT EXISTS opendeploy_config (
+-- Append-only revisions of OpenDeploy's own system configuration and settings.
+CREATE TABLE IF NOT EXISTS system_config_revisions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     updated_at  INTEGER NOT NULL,
     config_blob BLOB    NOT NULL
@@ -89,7 +94,7 @@ CREATE TABLE IF NOT EXISTS opendeploy_config (
 
 -- Plain user-managed configuration values. These are intentionally not
 -- encrypted at rest; encrypted credentials belong in secrets instead.
-CREATE TABLE IF NOT EXISTS user_configs (
+CREATE TABLE IF NOT EXISTS configs (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     name         TEXT    NOT NULL,
     version      INTEGER NOT NULL DEFAULT 1,

@@ -196,19 +196,19 @@ func (s *Service) Snapshot() apigen.Config {
 	return s.Subs.Value()
 }
 
-func (s *Service) loadConfig() (apigen.Config, sqlite.OpendeployConfig, error) {
+func (s *Service) loadConfig() (apigen.Config, sqlite.SystemConfigRevision, error) {
 	var res apigen.Config
 	r, err := s.Storage.FetchLatestOpenDeployConfig()
 	if err != nil {
 		if errors.Is(err, sqlite.ErrNotFound) {
-			return res, sqlite.OpendeployConfig{}, fmt.Errorf("primary config is not initialized")
+			return res, sqlite.SystemConfigRevision{}, fmt.Errorf("primary config is not initialized")
 		} else {
-			return res, sqlite.OpendeployConfig{}, fmt.Errorf("FetchLatestOpenDeployConfig: %w", err)
+			return res, sqlite.SystemConfigRevision{}, fmt.Errorf("FetchLatestOpenDeployConfig: %w", err)
 		}
 	}
 	cfg, err := apigen.DecodeConfig(r.ConfigBlob)
 	if err != nil {
-		return res, sqlite.OpendeployConfig{}, fmt.Errorf("DecodeConfig: %w", err)
+		return res, sqlite.SystemConfigRevision{}, fmt.Errorf("DecodeConfig: %w", err)
 	}
 	return normalizeConfig(*cfg), r, nil
 }

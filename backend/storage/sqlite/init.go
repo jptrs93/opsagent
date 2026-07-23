@@ -41,8 +41,8 @@ func mustInit(dbPath, migrations string) *sql.DB {
 }
 
 func migrateVersionedSecretConfigTables(db *sql.DB) {
-	if tableHasColumn(db, "user_configs", "config_group") || tableHasColumn(db, "user_configs", "updated_at") || !tableHasColumn(db, "user_configs", "version") {
-		rebuildUserConfigsTable(db)
+	if tableHasColumn(db, "configs", "config_group") || tableHasColumn(db, "configs", "updated_at") || !tableHasColumn(db, "configs", "version") {
+		rebuildConfigsTable(db)
 	}
 	if tableHasColumn(db, "secrets", "secret_group") || tableHasColumn(db, "secrets", "updated_at") || !tableHasColumn(db, "secrets", "version") {
 		rebuildSecretsTable(db)
@@ -74,10 +74,10 @@ func tableHasColumn(db *sql.DB, table, column string) bool {
 	return false
 }
 
-func rebuildUserConfigsTable(db *sql.DB) {
+func rebuildConfigsTable(db *sql.DB) {
 	const stmts = `
-ALTER TABLE user_configs RENAME TO user_configs_pre_versioning;
-CREATE TABLE user_configs (
+ALTER TABLE configs RENAME TO configs_pre_versioning;
+CREATE TABLE configs (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     name         TEXT    NOT NULL,
     version      INTEGER NOT NULL DEFAULT 1,
@@ -87,12 +87,12 @@ CREATE TABLE user_configs (
     updated_by   INTEGER NOT NULL DEFAULT 0,
     UNIQUE (name, version)
 );
-INSERT INTO user_configs (id, name, version, space_id, value, created_at, updated_by)
+INSERT INTO configs (id, name, version, space_id, value, created_at, updated_by)
 SELECT id, name, 1, space_id, value, created_at, updated_by
-FROM user_configs_pre_versioning;
-DROP TABLE user_configs_pre_versioning;`
+FROM configs_pre_versioning;
+DROP TABLE configs_pre_versioning;`
 	if _, err := db.Exec(stmts); err != nil {
-		panic(fmt.Sprintf("rebuild user_configs: %v", err))
+		panic(fmt.Sprintf("rebuild configs: %v", err))
 	}
 }
 

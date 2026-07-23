@@ -1398,17 +1398,17 @@ func (s *PrimaryStorage) UserCount() int {
 	return len(rows)
 }
 
-func (s *PrimaryStorage) FetchLatestOpenDeployConfig() (OpendeployConfig, error) {
+func (s *PrimaryStorage) FetchLatestOpenDeployConfig() (SystemConfigRevision, error) {
 	r, err := s.q.GetLatestConfig(context.Background())
 	if errors.Is(err, sql.ErrNoRows) {
-		return OpendeployConfig{}, ErrNotFound
+		return SystemConfigRevision{}, ErrNotFound
 	}
 	return r, err
 }
 
 func (s *PrimaryStorage) AppendOpenDeploySettings(blob []byte) (int64, error) {
 	res, err := s.db.ExecContext(context.Background(), `
-INSERT INTO opendeploy_config (updated_at, config_blob) VALUES (?, ?)
+INSERT INTO system_config_revisions (updated_at, config_blob) VALUES (?, ?)
 `, time.Now().UnixMilli(), blob)
 	if err != nil {
 		return 0, err
