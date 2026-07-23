@@ -80,14 +80,14 @@ type OpsagentHttpV1Handler interface {
 	PostV1AuthPasskeyLoginStart(Context, *EmptyRequest) (*WebAuthNOptionsResponse, error)
 	PostV1AuthPasskeyLoginFinish(Context, *WebAuthNFinishRequest) (*LoginResponse, error)
 	PostV1StateStream(Context) iter.Seq2[*State, error]
-	PostV1DeploymentUpdate(Context, *DeploymentUpdateRequest) (*DeploymentConfig2, error)
+	PostV1DeploymentUpdate(Context, *DeploymentUpdateRequest) (*DeploymentConfig, error)
 	PostV1DeploymentDelete(Context, *DeploymentDeleteRequest) error
 	PostV1DeploymentHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
 	PostV1DeploymentLogSearch(Context, *LogSearchRequest) iter.Seq2[*LogLineBatch, error]
 	PostV1DeploymentPrepareOutput(Context, *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error]
 	GetV1ClusterStatus(Context, *http.Request, http.ResponseWriter) error
 	PostV1ClusterRename(Context, *NodeRenameRequest) (*ClusterNode, error)
-	PostV1DeploymentCreate(Context, *DeploymentCreateRequest) (*DeploymentConfig2, error)
+	PostV1DeploymentCreate(Context, *DeploymentCreateRequest) (*DeploymentConfig, error)
 	PostV1SpacesCreate(Context, *SpaceSetRequest) (*Space, error)
 	PostV1SpacesUpdate(Context, *SpaceSetRequest) (*Space, error)
 	PostV1SpacesDelete(Context, *SpaceDeleteRequest) error

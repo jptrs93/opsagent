@@ -150,7 +150,7 @@ func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.Enrol
 		ID:             1,
 		WorkerName:     machine,
 		ClusterNetwork: &apigen.ClusterNetworkInfo{UlaPrefix: prefix.Bytes()},
-		NodeDeployment: &apigen.DeploymentWithStatus{Config: apigen.DeploymentConfig2{
+		NodeDeployment: &apigen.DeploymentWithStatus{Config: apigen.DeploymentConfig{
 			ID:     10,
 			NodeID: 2,
 			Spec:   *sqlite.SystemDeploymentSpec(),
@@ -159,7 +159,7 @@ func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.Enrol
 				Name:    internaldeploy.SelfName,
 			},
 		}},
-		NodeNetDeployment: &apigen.DeploymentWithStatus{Config: apigen.DeploymentConfig2{
+		NodeNetDeployment: &apigen.DeploymentWithStatus{Config: apigen.DeploymentConfig{
 			ID:     11,
 			NodeID: 2,
 			Spec:   *sqlite.NetproxyDeploymentSpec(),

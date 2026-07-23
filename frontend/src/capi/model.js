@@ -32,13 +32,13 @@
  * @property {string} targetVersion
  * @property {boolean} stop
  * @property {number} version
- * @property {DeploymentSpec2} spec
+ * @property {DeploymentSpec} spec
  * @property {number} spaceId
  */
 /**
  * @typedef {Object} DeploymentCreateRequest
  * @property {DeploymentIdentity} identity
- * @property {DeploymentSpec2} spec
+ * @property {DeploymentSpec} spec
  * @property {number} nodeId
  */
 /**
@@ -103,7 +103,7 @@
  */
 /**
  * @typedef {Object} DeploymentWithStatus
- * @property {DeploymentConfig2} config
+ * @property {DeploymentConfig} config
  * @property {DeploymentStatus} status
  */
 /**
@@ -245,7 +245,7 @@
  * @property {Version[]} tags
  */
 /**
- * @typedef {Object} DeploymentConfig2
+ * @typedef {Object} DeploymentConfig
  * @property {number} id
  * @property {number} nodeId
  * @property {DeploymentIdentity} identity
@@ -253,11 +253,11 @@
  * @property {Date} updatedAt
  * @property {number} updatedBy
  * @property {number} version
- * @property {DeploymentSpec2} spec
+ * @property {DeploymentSpec} spec
  * @property {boolean} deleted
  */
 /**
- * @typedef {Object} DeploymentSpec2
+ * @typedef {Object} DeploymentSpec
  * @property {NetworkingConfig} networking
  * @property {ContainerSpec} container1Spec
  * @property {ContainerSpec} container2Spec
@@ -300,11 +300,11 @@
  */
 /**
  * @typedef {Object} ContainerBundleSource
- * @property {NixDockerBuild2} nixDockerBuild
+ * @property {NixDockerBuild} nixDockerBuild
  * @property {RemoteDockerImage} remoteImage
  */
 /**
- * @typedef {Object} NixDockerBuild2
+ * @typedef {Object} NixDockerBuild
  * @property {string} repo
  * @property {string} flake
  * @property {string} target
@@ -316,12 +316,12 @@
 /**
  * @typedef {Object} ContainerRuntime
  * @property {string} user
- * @property {Object.<string, EnvVarValue2>} envVars
+ * @property {Object.<string, EnvVarValue>} envVars
  * @property {string[]} overrideCommand
  * @property {string} overrideWorkingDir
  * @property {DefaultVolumeMount} defaultVolume
  * @property {CrossDeploymentMount[]} crossDeploymentMounts
- * @property {AssetMount2[]} assetMounts
+ * @property {AssetMount[]} assetMounts
  * @property {CustomHostMount[]} mounts
  * @property {number} devShmSizeKb
  * @property {number} fileDescriptorLimit
@@ -338,7 +338,7 @@
  * @property {number} permission
  */
 /**
- * @typedef {Object} EnvVarValue2
+ * @typedef {Object} EnvVarValue
  * @property {number} secretId
  * @property {number} configId
  * @property {string} value
@@ -354,7 +354,7 @@
  * @property {number} permission
  */
 /**
- * @typedef {Object} AssetMount2
+ * @typedef {Object} AssetMount
  * @property {number} assetId
  * @property {string} containerPath
  * @property {number} permission
@@ -702,7 +702,7 @@
  */
 /**
  * @typedef {Object} DeploymentHistoryEntry
- * @property {DeploymentConfig2} config
+ * @property {DeploymentConfig} config
  * @property {DeploymentStatus} status
  */
 /**
@@ -778,7 +778,7 @@
 /**
  * @typedef {Object} MsgToWorker
  * @property {DeploymentWithStatusSnapshot} deploymentsSnapshot
- * @property {DeploymentConfig2} deploymentUpdate
+ * @property {DeploymentConfig} deploymentUpdate
  * @property {PrepareOutputRequest} prepareLogRequest
  * @property {RunOutputRequest} runLogRequest
  * @property {DeploymentLogRequest} deploymentLogRequest
@@ -1337,7 +1337,7 @@ export function writeDeploymentUpdateRequest(message, writer) {
     }
     if (message.spec !== undefined && message.spec !== null) {
         writer.uint32(tag(6, WIRE.LDELIM)).fork();
-        writeDeploymentSpec2(message.spec, writer);
+        writeDeploymentSpec(message.spec, writer);
         writer.ldelim();
     }
     if (message.spaceId !== undefined && message.spaceId !== null) {
@@ -1385,7 +1385,7 @@ function decodeDeploymentUpdateRequestMessage(reader, length) {
                 break;
             }
             case 6: {
-                message.spec = decodeDeploymentSpec2Message(reader, reader.uint32());
+                message.spec = decodeDeploymentSpecMessage(reader, reader.uint32());
                 break;
             }
             case 7: {
@@ -1423,7 +1423,7 @@ export function writeDeploymentCreateRequest(message, writer) {
     }
     if (message.spec !== undefined && message.spec !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeDeploymentSpec2(message.spec, writer);
+        writeDeploymentSpec(message.spec, writer);
         writer.ldelim();
     }
     if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
@@ -1459,7 +1459,7 @@ function decodeDeploymentCreateRequestMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.spec = decodeDeploymentSpec2Message(reader, reader.uint32());
+                message.spec = decodeDeploymentSpecMessage(reader, reader.uint32());
                 break;
             }
             case 4: {
@@ -2225,7 +2225,7 @@ export function decodeDeploymentDeleteRequest(buffer) {
 export function writeDeploymentWithStatus(message, writer) {
     if (message.config !== undefined && message.config !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeDeploymentConfig2(message.config, writer);
+        writeDeploymentConfig(message.config, writer);
         writer.ldelim();
     }
     if (message.status !== undefined && message.status !== null) {
@@ -2259,7 +2259,7 @@ function decodeDeploymentWithStatusMessage(reader, length) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.config = decodeDeploymentConfig2Message(reader, reader.uint32());
+                message.config = decodeDeploymentConfigMessage(reader, reader.uint32());
                 break;
             }
             case 2: {
@@ -3880,10 +3880,10 @@ export function decodeValidateContainerImageSourceResponse(buffer) {
 
 
 /**
- * @param {DeploymentConfig2} message
+ * @param {DeploymentConfig} message
  * @param {Writer} writer
  */
-export function writeDeploymentConfig2(message, writer) {
+export function writeDeploymentConfig(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
     }
@@ -3909,7 +3909,7 @@ export function writeDeploymentConfig2(message, writer) {
     }
     if (message.spec !== undefined && message.spec !== null) {
         writer.uint32(tag(8, WIRE.LDELIM)).fork();
-        writeDeploymentSpec2(message.spec, writer);
+        writeDeploymentSpec(message.spec, writer);
         writer.ldelim();
     }
     if (message.deleted === true) {
@@ -3919,12 +3919,12 @@ export function writeDeploymentConfig2(message, writer) {
 
 
 /**
- * @param {DeploymentConfig2} message
+ * @param {DeploymentConfig} message
  * @returns {Uint8Array}
  */
-export function encodeDeploymentConfig2(message) {
+export function encodeDeploymentConfig(message) {
     const writer = Writer.create();
-    writeDeploymentConfig2(message, writer);
+    writeDeploymentConfig(message, writer);
     return writer.finish();
 }
 
@@ -3932,9 +3932,9 @@ export function encodeDeploymentConfig2(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {DeploymentConfig2}
+ * @returns {DeploymentConfig}
  */
-function decodeDeploymentConfig2Message(reader, length) {
+function decodeDeploymentConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {id: 0, nodeId: 0, identity: undefined, createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0, version: 0, spec: undefined, deleted: false };
     while (reader.pos < end) {
@@ -3969,7 +3969,7 @@ function decodeDeploymentConfig2Message(reader, length) {
                 break;
             }
             case 8: {
-                message.spec = decodeDeploymentSpec2Message(reader, reader.uint32());
+                message.spec = decodeDeploymentSpecMessage(reader, reader.uint32());
                 break;
             }
             case 9: {
@@ -3986,20 +3986,20 @@ function decodeDeploymentConfig2Message(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {DeploymentConfig2}
+ * @returns {DeploymentConfig}
  */
-export function decodeDeploymentConfig2(buffer) {
+export function decodeDeploymentConfig(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentConfig2Message(reader);
+    return decodeDeploymentConfigMessage(reader);
 }
 
 
 
 /**
- * @param {DeploymentSpec2} message
+ * @param {DeploymentSpec} message
  * @param {Writer} writer
  */
-export function writeDeploymentSpec2(message, writer) {
+export function writeDeploymentSpec(message, writer) {
     if (message.networking !== undefined && message.networking !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
         writeNetworkingConfig(message.networking, writer);
@@ -4039,12 +4039,12 @@ export function writeDeploymentSpec2(message, writer) {
 
 
 /**
- * @param {DeploymentSpec2} message
+ * @param {DeploymentSpec} message
  * @returns {Uint8Array}
  */
-export function encodeDeploymentSpec2(message) {
+export function encodeDeploymentSpec(message) {
     const writer = Writer.create();
-    writeDeploymentSpec2(message, writer);
+    writeDeploymentSpec(message, writer);
     return writer.finish();
 }
 
@@ -4052,9 +4052,9 @@ export function encodeDeploymentSpec2(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {DeploymentSpec2}
+ * @returns {DeploymentSpec}
  */
-function decodeDeploymentSpec2Message(reader, length) {
+function decodeDeploymentSpecMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {networking: undefined, container1Spec: undefined, container2Spec: undefined, container3Spec: undefined, microVmSpec: undefined, vmSpec: undefined, systemdSpec: undefined };
     while (reader.pos < end) {
@@ -4098,11 +4098,11 @@ function decodeDeploymentSpec2Message(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {DeploymentSpec2}
+ * @returns {DeploymentSpec}
  */
-export function decodeDeploymentSpec2(buffer) {
+export function decodeDeploymentSpec(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentSpec2Message(reader);
+    return decodeDeploymentSpecMessage(reader);
 }
 
 
@@ -4516,7 +4516,7 @@ export function decodeContainerSpec(buffer) {
 export function writeContainerBundleSource(message, writer) {
     if (message.nixDockerBuild !== undefined && message.nixDockerBuild !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeNixDockerBuild2(message.nixDockerBuild, writer);
+        writeNixDockerBuild(message.nixDockerBuild, writer);
         writer.ldelim();
     }
     if (message.remoteImage !== undefined && message.remoteImage !== null) {
@@ -4550,7 +4550,7 @@ function decodeContainerBundleSourceMessage(reader, length) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.nixDockerBuild = decodeNixDockerBuild2Message(reader, reader.uint32());
+                message.nixDockerBuild = decodeNixDockerBuildMessage(reader, reader.uint32());
                 break;
             }
             case 2: {
@@ -4577,10 +4577,10 @@ export function decodeContainerBundleSource(buffer) {
 
 
 /**
- * @param {NixDockerBuild2} message
+ * @param {NixDockerBuild} message
  * @param {Writer} writer
  */
-export function writeNixDockerBuild2(message, writer) {
+export function writeNixDockerBuild(message, writer) {
     if (message.repo !== undefined && message.repo !== null && message.repo !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.repo);
     }
@@ -4594,12 +4594,12 @@ export function writeNixDockerBuild2(message, writer) {
 
 
 /**
- * @param {NixDockerBuild2} message
+ * @param {NixDockerBuild} message
  * @returns {Uint8Array}
  */
-export function encodeNixDockerBuild2(message) {
+export function encodeNixDockerBuild(message) {
     const writer = Writer.create();
-    writeNixDockerBuild2(message, writer);
+    writeNixDockerBuild(message, writer);
     return writer.finish();
 }
 
@@ -4607,9 +4607,9 @@ export function encodeNixDockerBuild2(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {NixDockerBuild2}
+ * @returns {NixDockerBuild}
  */
-function decodeNixDockerBuild2Message(reader, length) {
+function decodeNixDockerBuildMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {repo: "", flake: "", target: "" };
     while (reader.pos < end) {
@@ -4637,11 +4637,11 @@ function decodeNixDockerBuild2Message(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {NixDockerBuild2}
+ * @returns {NixDockerBuild}
  */
-export function decodeNixDockerBuild2(buffer) {
+export function decodeNixDockerBuild(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeNixDockerBuild2Message(reader);
+    return decodeNixDockerBuildMessage(reader);
 }
 
 
@@ -4717,7 +4717,7 @@ export function writeContainerRuntime(message, writer) {
             writer.uint32(tag(1, WIRE.LDELIM)).string(key);
             if (value) {
                 writer.uint32(tag(2, WIRE.LDELIM)).fork();
-                writeEnvVarValue2(value, writer);
+                writeEnvVarValue(value, writer);
                 writer.ldelim();
             }
             writer.ldelim();
@@ -4746,7 +4746,7 @@ export function writeContainerRuntime(message, writer) {
     if (message.assetMounts && message.assetMounts.length > 0) {
         for (const item of message.assetMounts) {
             writer.uint32(tag(8, WIRE.LDELIM)).fork();
-            writeAssetMount2(item, writer);
+            writeAssetMount(item, writer);
             writer.ldelim();
         }
     }
@@ -4803,7 +4803,7 @@ function decodeContainerRuntimeMessage(reader, length) {
                             key = reader.string();
                             break;
                         case 2:
-                            value = decodeEnvVarValue2Message(reader, reader.uint32());
+                            value = decodeEnvVarValueMessage(reader, reader.uint32());
                             break;
                         default:
                             reader.skipType(tag2 & 7);
@@ -4830,7 +4830,7 @@ function decodeContainerRuntimeMessage(reader, length) {
                 break;
             }
             case 8: {
-                message.assetMounts.push(decodeAssetMount2Message(reader, reader.uint32()));
+                message.assetMounts.push(decodeAssetMountMessage(reader, reader.uint32()));
                 break;
             }
             case 7: {
@@ -4998,10 +4998,10 @@ export function decodeCrossDeploymentMount(buffer) {
 
 
 /**
- * @param {EnvVarValue2} message
+ * @param {EnvVarValue} message
  * @param {Writer} writer
  */
-export function writeEnvVarValue2(message, writer) {
+export function writeEnvVarValue(message, writer) {
     if (message.secretId !== undefined && message.secretId !== null) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.secretId);
     }
@@ -5027,12 +5027,12 @@ export function writeEnvVarValue2(message, writer) {
 
 
 /**
- * @param {EnvVarValue2} message
+ * @param {EnvVarValue} message
  * @returns {Uint8Array}
  */
-export function encodeEnvVarValue2(message) {
+export function encodeEnvVarValue(message) {
     const writer = Writer.create();
-    writeEnvVarValue2(message, writer);
+    writeEnvVarValue(message, writer);
     return writer.finish();
 }
 
@@ -5040,9 +5040,9 @@ export function encodeEnvVarValue2(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {EnvVarValue2}
+ * @returns {EnvVarValue}
  */
-function decodeEnvVarValue2Message(reader, length) {
+function decodeEnvVarValueMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {secretId: undefined, configId: undefined, value: undefined, asset: "", assetId: 0, addressDeploymentId: undefined, addressSpaceId: undefined };
     while (reader.pos < end) {
@@ -5086,11 +5086,11 @@ function decodeEnvVarValue2Message(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {EnvVarValue2}
+ * @returns {EnvVarValue}
  */
-export function decodeEnvVarValue2(buffer) {
+export function decodeEnvVarValue(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeEnvVarValue2Message(reader);
+    return decodeEnvVarValueMessage(reader);
 }
 
 
@@ -5166,10 +5166,10 @@ export function decodeCustomHostMount(buffer) {
 
 
 /**
- * @param {AssetMount2} message
+ * @param {AssetMount} message
  * @param {Writer} writer
  */
-export function writeAssetMount2(message, writer) {
+export function writeAssetMount(message, writer) {
     if (message.assetId !== undefined && message.assetId !== null && message.assetId !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.assetId);
     }
@@ -5183,12 +5183,12 @@ export function writeAssetMount2(message, writer) {
 
 
 /**
- * @param {AssetMount2} message
+ * @param {AssetMount} message
  * @returns {Uint8Array}
  */
-export function encodeAssetMount2(message) {
+export function encodeAssetMount(message) {
     const writer = Writer.create();
-    writeAssetMount2(message, writer);
+    writeAssetMount(message, writer);
     return writer.finish();
 }
 
@@ -5196,9 +5196,9 @@ export function encodeAssetMount2(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {AssetMount2}
+ * @returns {AssetMount}
  */
-function decodeAssetMount2Message(reader, length) {
+function decodeAssetMountMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {assetId: 0, containerPath: "", permission: 0 };
     while (reader.pos < end) {
@@ -5226,11 +5226,11 @@ function decodeAssetMount2Message(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {AssetMount2}
+ * @returns {AssetMount}
  */
-export function decodeAssetMount2(buffer) {
+export function decodeAssetMount(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeAssetMount2Message(reader);
+    return decodeAssetMountMessage(reader);
 }
 
 
@@ -9329,7 +9329,7 @@ export function decodeClusterMachineList(buffer) {
 export function writeDeploymentHistoryEntry(message, writer) {
     if (message.config !== undefined && message.config !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeDeploymentConfig2(message.config, writer);
+        writeDeploymentConfig(message.config, writer);
         writer.ldelim();
     }
     if (message.status !== undefined && message.status !== null) {
@@ -9363,7 +9363,7 @@ function decodeDeploymentHistoryEntryMessage(reader, length) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.config = decodeDeploymentConfig2Message(reader, reader.uint32());
+                message.config = decodeDeploymentConfigMessage(reader, reader.uint32());
                 break;
             }
             case 2: {
@@ -10258,7 +10258,7 @@ export function writeMsgToWorker(message, writer) {
     }
     if (message.deploymentUpdate !== undefined && message.deploymentUpdate !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeDeploymentConfig2(message.deploymentUpdate, writer);
+        writeDeploymentConfig(message.deploymentUpdate, writer);
         writer.ldelim();
     }
     if (message.prepareLogRequest !== undefined && message.prepareLogRequest !== null) {
@@ -10327,7 +10327,7 @@ function decodeMsgToWorkerMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.deploymentUpdate = decodeDeploymentConfig2Message(reader, reader.uint32());
+                message.deploymentUpdate = decodeDeploymentConfigMessage(reader, reader.uint32());
                 break;
             }
             case 3: {

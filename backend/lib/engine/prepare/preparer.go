@@ -55,7 +55,7 @@ func (h *Handle) Version() int32 { return h.deploymentConfigVersion }
 
 // WriteStatus is the single entry point for preparer status writes.
 // It bumps UpdatedAt and guards against stale writes from superseded runs.
-func WriteStatus(store storage.OperatorStore, dep *apigen.DeploymentConfig2, artifact string, status apigen.PreparationStatus) {
+func WriteStatus(store storage.OperatorStore, dep *apigen.DeploymentConfig, artifact string, status apigen.PreparationStatus) {
 	ctx := logu.ExtendLogContext(context.Background(), "dep", dep.ID)
 	slog.InfoContext(ctx, "preparer.writePrepareStatus", "deploymentConfigVersion", dep.Version, "status", status, "artifact", artifact)
 	store.MustWriteDeploymentStatus(dep.ID, func(s *apigen.DeploymentStatus) bool {

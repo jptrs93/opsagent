@@ -16,18 +16,18 @@ func TestBuildAllowedRefs(t *testing.T) {
 	secretID := int32(7)
 	configID := int32(9)
 	refs := buildAllowedRefs([]apigen.DeploymentWithStatus{{
-		Config: apigen.DeploymentConfig2{
+		Config: apigen.DeploymentConfig{
 			ID: 42,
-			Spec: apigen.DeploymentSpec2{
+			Spec: apigen.DeploymentSpec{
 				Container1Spec: &apigen.ContainerSpec{
-					Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild2{Repo: "github.com/acme/app", Flake: "flake.nix"}},
+					Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/app", Flake: "flake.nix"}},
 					Runtime: apigen.ContainerRuntime{
-						EnvVars: map[string]*apigen.EnvVarValue2{
+						EnvVars: map[string]*apigen.EnvVarValue{
 							"SECRET": {SecretID: &secretID},
 							"CONFIG": {ConfigID: &configID},
 							"ASSET":  {Asset: "app.env", AssetID: 3},
 						},
-						AssetMounts: []*apigen.AssetMount2{{AssetID: 4, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_ONLY}},
+						AssetMounts: []*apigen.AssetMount{{AssetID: 4, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_ONLY}},
 					},
 				},
 			},
@@ -55,7 +55,7 @@ func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	m1Node := store.EnsurePrimaryNode("m1", "m1")
 	m2Node := store.EnsurePrimaryNode("m2", "m2")
-	spec := &apigen.DeploymentSpec2{
+	spec := &apigen.DeploymentSpec{
 		Container1Spec: &apigen.ContainerSpec{
 			Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "docker.io/library/nginx"}},
 			Version: "1",

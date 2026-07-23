@@ -41,7 +41,7 @@ func IsSystemDeploymentIdentity(identity apigen.DeploymentIdentity) bool {
 	return internaldeploy.IsSelfIdentity(identity)
 }
 
-func IsSystemDeploymentConfig(cfg *apigen.DeploymentConfig2) bool {
+func IsSystemDeploymentConfig(cfg *apigen.DeploymentConfig) bool {
 	return cfg != nil && IsSystemDeploymentIdentity(cfg.Identity)
 }
 
@@ -49,16 +49,16 @@ func IsNetproxyDeploymentIdentity(identity apigen.DeploymentIdentity) bool {
 	return internaldeploy.IsNetproxyIdentity(identity)
 }
 
-func IsNetproxyDeploymentConfig(cfg *apigen.DeploymentConfig2) bool {
+func IsNetproxyDeploymentConfig(cfg *apigen.DeploymentConfig) bool {
 	return cfg != nil && IsNetproxyDeploymentIdentity(cfg.Identity)
 }
 
-func IsInternalDeploymentConfig(cfg *apigen.DeploymentConfig2) bool {
+func IsInternalDeploymentConfig(cfg *apigen.DeploymentConfig) bool {
 	return cfg != nil && internaldeploy.IsInternalIdentity(cfg.Identity)
 }
 
-func SystemDeploymentSpec() *apigen.DeploymentSpec2 {
-	return &apigen.DeploymentSpec2{
+func SystemDeploymentSpec() *apigen.DeploymentSpec {
+	return &apigen.DeploymentSpec{
 		SystemdSpec: &apigen.SystemdSpec{
 			Source: &apigen.GithubRelease{
 				Repo:  systemDeploymentRepo,
@@ -75,7 +75,7 @@ func SystemDeploymentSpec() *apigen.DeploymentSpec2 {
 	}
 }
 
-func isSystemDeploymentSpec(spec *apigen.DeploymentSpec2) bool {
+func isSystemDeploymentSpec(spec *apigen.DeploymentSpec) bool {
 	if spec == nil || spec.SystemdSpec == nil || spec.SystemdSpec.Source == nil || spec.SystemdSpec.Runtime == nil {
 		return false
 	}
@@ -89,8 +89,8 @@ func isSystemDeploymentSpec(spec *apigen.DeploymentSpec2) bool {
 			spec.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_UNSPECIFIED)
 }
 
-func NetproxyDeploymentSpec() *apigen.DeploymentSpec2 {
-	return &apigen.DeploymentSpec2{
+func NetproxyDeploymentSpec() *apigen.DeploymentSpec {
+	return &apigen.DeploymentSpec{
 		Container1Spec: &apigen.ContainerSpec{
 			Source: apigen.ContainerBundleSource{
 				RemoteImage: &apigen.RemoteDockerImage{Image: internaldeploy.NetproxyImage},
@@ -154,10 +154,10 @@ func (s *PrimaryStorage) Close() error {
 }
 
 // ListActiveDeploymentConfigs returns all non-deleted configs from the cache.
-func (s *PrimaryStorage) ListActiveDeploymentConfigs() []*apigen.DeploymentConfig2 {
+func (s *PrimaryStorage) ListActiveDeploymentConfigs() []*apigen.DeploymentConfig {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]*apigen.DeploymentConfig2, 0, len(s.configCache))
+	out := make([]*apigen.DeploymentConfig, 0, len(s.configCache))
 	for _, cfg := range s.configCache {
 		if !cfg.Deleted {
 			out = append(out, cfg)
@@ -296,7 +296,7 @@ func (s *PrimaryStorage) MustWriteReplicatedDeploymentStatus(st *apigen.Deployme
 
 // --- deployment history ---
 
-func (s *PrimaryStorage) MustFetchDeploymentHistory(deploymentID int32) []*apigen.DeploymentConfig2 {
+func (s *PrimaryStorage) MustFetchDeploymentHistory(deploymentID int32) []*apigen.DeploymentConfig {
 	ctx := context.Background()
 	dbID := int64(deploymentID)
 	rows, err := s.q.ListDeploymentConfigHistory(ctx, dbID)
@@ -312,7 +312,7 @@ func (s *PrimaryStorage) MustFetchDeploymentHistory(deploymentID int32) []*apige
 		nodeID = cfg.NodeID
 		createdAt = cfg.CreatedAt
 	}
-	out := make([]*apigen.DeploymentConfig2, 0, len(rows))
+	out := make([]*apigen.DeploymentConfig, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, configHistoryRowToProto(dbID, nodeID, identity, createdAt, r))
 	}
@@ -338,11 +338,11 @@ func (s *PrimaryStorage) MustFetchDeploymentStatusHistory(deploymentID int32) []
 type DeploymentConfigUpdate struct {
 	ExpectedVersion int32
 	SpaceID         *int32
-	Spec            *apigen.DeploymentSpec2
+	Spec            *apigen.DeploymentSpec
 	Deleted         *bool
 }
 
-func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID int32, update DeploymentConfigUpdate) (*apigen.DeploymentConfig2, bool, bool) {
+func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID int32, update DeploymentConfigUpdate) (*apigen.DeploymentConfig, bool, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -372,10 +372,10 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 		return configRowToProto(existing), false, false
 	}
 
-	spec := mustDecodeDeploymentSpec2(existing.SpecBlob, dbID, existing.Version)
+	spec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.Version)
 	specBlob := existing.SpecBlob
 	if update.Spec != nil {
-		spec = mustDecodeDeploymentSpec2(update.Spec.Encode(), dbID, existing.Version)
+		spec = mustDecodeDeploymentSpec(update.Spec.Encode(), dbID, existing.Version)
 	}
 	spaceID := existing.SpaceID
 	if update.SpaceID != nil {
@@ -459,7 +459,7 @@ func (s *PrimaryStorage) mustSetDeploymentWorkloadStateLocked(ctx apigen.Context
 		panic(fmt.Sprintf("GetDeploymentConfig: %v", err))
 	}
 
-	spec := mustDecodeDeploymentSpec2(existing.SpecBlob, dbID, existing.Version)
+	spec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.Version)
 	if err := spec.SetWorkloadState(version, running); err != nil {
 		panic(fmt.Sprintf("update deployment workload state: %v", err))
 	}
@@ -498,7 +498,7 @@ func (s *PrimaryStorage) mustSetDeploymentWorkloadStateLocked(ctx apigen.Context
 
 // --- deployment spec update ---
 
-func (s *PrimaryStorage) MustUpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec2) {
+func (s *PrimaryStorage) MustUpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -525,8 +525,8 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 	if spec == nil {
 		panic("deployment spec must not be nil")
 	}
-	storedSpec := mustDecodeDeploymentSpec2(spec.Encode(), dbID, existing.Version)
-	existingSpec := mustDecodeDeploymentSpec2(existing.SpecBlob, dbID, existing.Version)
+	storedSpec := mustDecodeDeploymentSpec(spec.Encode(), dbID, existing.Version)
+	existingSpec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.Version)
 	if err := storedSpec.SetWorkloadState(existingSpec.WorkloadVersion(), existingSpec.WorkloadRunning()); err != nil {
 		panic(fmt.Sprintf("preserve deployment workload state: %v", err))
 	}
@@ -628,14 +628,14 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymen
 
 // MustCreateDeploymentForNode creates a deployment with an explicit canonical
 // node assignment.
-func (s *PrimaryStorage) MustCreateDeploymentForNode(ctx apigen.Context, cid *apigen.DeploymentIdentity, nodeID int32, spec *apigen.DeploymentSpec2) *apigen.DeploymentConfig2 {
+func (s *PrimaryStorage) MustCreateDeploymentForNode(ctx apigen.Context, cid *apigen.DeploymentIdentity, nodeID int32, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
 	if nodeID <= 0 {
 		panic("deployment node ID must be positive")
 	}
 	return s.mustCreateDeploymentForNode(ctx, cid, nodeID, spec)
 }
 
-func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *apigen.DeploymentIdentity, nodeID int32, spec *apigen.DeploymentSpec2) *apigen.DeploymentConfig2 {
+func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *apigen.DeploymentIdentity, nodeID int32, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -810,7 +810,7 @@ func (s *PrimaryStorage) EnsureSystemDeployment(nodeID int32, opendeployVersion 
 
 // EnsureNetproxyDeployment creates the per-node opendeploy-net internal
 // deployment when missing. Existing desired state is administrator-managed.
-func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, initialVersion string) *apigen.DeploymentConfig2 {
+func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, initialVersion string) *apigen.DeploymentConfig {
 	if nodeID <= 0 {
 		panic("deployment node ID must be positive")
 	}
@@ -904,7 +904,7 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, initialVersion s
 	return s.configCache[id]
 }
 
-func (s *PrimaryStorage) repairDeploymentSpecLocked(deploymentID int32, spec *apigen.DeploymentSpec2, label string) {
+func (s *PrimaryStorage) repairDeploymentSpecLocked(deploymentID int32, spec *apigen.DeploymentSpec, label string) {
 	bgCtx := context.Background()
 	dbID := int64(deploymentID)
 	now := time.Now().UnixMilli()
@@ -919,8 +919,8 @@ func (s *PrimaryStorage) repairDeploymentSpecLocked(deploymentID int32, spec *ap
 	if err != nil {
 		panic(fmt.Sprintf("GetDeploymentConfig (%s repair): %v", label, err))
 	}
-	storedSpec := mustDecodeDeploymentSpec2(spec.Encode(), dbID, existing.Version)
-	existingSpec := mustDecodeDeploymentSpec2(existing.SpecBlob, dbID, existing.Version)
+	storedSpec := mustDecodeDeploymentSpec(spec.Encode(), dbID, existing.Version)
+	existingSpec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.Version)
 	if err := storedSpec.SetWorkloadState(existingSpec.WorkloadVersion(), existingSpec.WorkloadRunning()); err != nil {
 		panic(fmt.Sprintf("preserve %s deployment workload state: %v", label, err))
 	}
@@ -1100,9 +1100,9 @@ func statusToHistory(s DeploymentStatus) DeploymentStatusHistory {
 	}
 }
 
-func configHistoryRowToProto(dbID int64, nodeID int32, identity apigen.DeploymentIdentity, createdAt time.Time, r DeploymentConfigHistory) *apigen.DeploymentConfig2 {
-	spec := mustDecodeDeploymentSpec2(r.SpecBlob, dbID, r.Version)
-	return &apigen.DeploymentConfig2{
+func configHistoryRowToProto(dbID int64, nodeID int32, identity apigen.DeploymentIdentity, createdAt time.Time, r DeploymentConfigHistory) *apigen.DeploymentConfig {
+	spec := mustDecodeDeploymentSpec(r.SpecBlob, dbID, r.Version)
+	return &apigen.DeploymentConfig{
 		ID:        int32(dbID),
 		NodeID:    nodeID,
 		Identity:  identity,
@@ -1115,10 +1115,10 @@ func configHistoryRowToProto(dbID int64, nodeID int32, identity apigen.Deploymen
 	}
 }
 
-// configProtoToUpsertParams builds upsert params from a full DeploymentConfig2.
+// configProtoToUpsertParams builds upsert params from a full DeploymentConfig.
 // Used by the secondary to persist configs pushed by the primary verbatim: the
 // primary's integer ID is authoritative and written directly.
-func configProtoToUpsertParams(cfg *apigen.DeploymentConfig2) UpsertDeploymentConfigParams {
+func configProtoToUpsertParams(cfg *apigen.DeploymentConfig) UpsertDeploymentConfigParams {
 	var specBlob []byte
 	if !cfg.Spec.IsZero() {
 		specBlob = cfg.Spec.Encode()
@@ -1137,9 +1137,9 @@ func configProtoToUpsertParams(cfg *apigen.DeploymentConfig2) UpsertDeploymentCo
 	}
 }
 
-func configRowToProto(r DeploymentConfig) *apigen.DeploymentConfig2 {
-	spec := mustDecodeDeploymentSpec2(r.SpecBlob, r.DeploymentID, r.Version)
-	return &apigen.DeploymentConfig2{
+func configRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
+	spec := mustDecodeDeploymentSpec(r.SpecBlob, r.DeploymentID, r.Version)
+	return &apigen.DeploymentConfig{
 		ID:     int32(r.DeploymentID),
 		NodeID: int32(r.NodeID),
 		Identity: apigen.DeploymentIdentity{
@@ -1155,9 +1155,9 @@ func configRowToProto(r DeploymentConfig) *apigen.DeploymentConfig2 {
 	}
 }
 
-func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfig2 {
-	spec := mustDecodeDeploymentSpec2(p.SpecBlob, p.DeploymentID, p.Version)
-	return &apigen.DeploymentConfig2{
+func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfig {
+	spec := mustDecodeDeploymentSpec(p.SpecBlob, p.DeploymentID, p.Version)
+	return &apigen.DeploymentConfig{
 		ID:     int32(p.DeploymentID),
 		NodeID: int32(p.NodeID),
 		Identity: apigen.DeploymentIdentity{
@@ -1173,15 +1173,15 @@ func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfi
 	}
 }
 
-func deploymentSpecValue(spec *apigen.DeploymentSpec2) apigen.DeploymentSpec2 {
+func deploymentSpecValue(spec *apigen.DeploymentSpec) apigen.DeploymentSpec {
 	if spec == nil {
-		return apigen.DeploymentSpec2{}
+		return apigen.DeploymentSpec{}
 	}
 	return *spec
 }
 
-func mustDecodeDeploymentSpec2(blob []byte, deploymentID, version int64) *apigen.DeploymentSpec2 {
-	spec, err := apigen.DecodeDeploymentSpec2(blob)
+func mustDecodeDeploymentSpec(blob []byte, deploymentID, version int64) *apigen.DeploymentSpec {
+	spec, err := apigen.DecodeDeploymentSpec(blob)
 	if err != nil {
 		panic(fmt.Sprintf("decode deployment %d version %d spec: %v", deploymentID, version, err))
 	}

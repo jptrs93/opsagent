@@ -35,7 +35,7 @@ Not implemented yet:
 
 ## Configuration
 
-Deployment networking is configured on `DeploymentSpec2.networking`.
+Deployment networking is configured on `DeploymentSpec.networking`.
 
 - `NETWORKING_MODE_HOST` runs the container in the host network namespace.
 - `NETWORKING_MODE_VIRTUAL` runs the container in a managed network namespace.

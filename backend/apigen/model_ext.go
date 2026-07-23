@@ -38,27 +38,27 @@ func RunOutputDeploymentDir(deploymentID int32) string {
 	return filepath.Join(ainit.StaticConfig.RunOutputDir, fmt.Sprintf("%d", deploymentID))
 }
 
-func (d *DeploymentConfig2) PrepareOutputPath() string {
+func (d *DeploymentConfig) PrepareOutputPath() string {
 	return prepareOutputFile(d.ID, d.Version)
 }
 
-func (d *DeploymentConfig2) RunOutputPath() string {
+func (d *DeploymentConfig) RunOutputPath() string {
 	return RunOutputFile(d.ID, d.Version)
 }
 
-func (d *DeploymentConfig2) WorkloadVersion() string {
+func (d *DeploymentConfig) WorkloadVersion() string {
 	return d.Spec.WorkloadVersion()
 }
 
-func (d *DeploymentConfig2) WorkloadRunning() bool {
+func (d *DeploymentConfig) WorkloadRunning() bool {
 	return d.Spec.WorkloadRunning()
 }
 
-func (d *DeploymentConfig2) SetWorkloadState(version string, running bool) error {
+func (d *DeploymentConfig) SetWorkloadState(version string, running bool) error {
 	return d.Spec.SetWorkloadState(version, running)
 }
 
-func (s *DeploymentSpec2) WorkloadVersion() string {
+func (s *DeploymentSpec) WorkloadVersion() string {
 	if container := s.Container(); container != nil {
 		return container.Version
 	}
@@ -68,14 +68,14 @@ func (s *DeploymentSpec2) WorkloadVersion() string {
 	return ""
 }
 
-func (s *DeploymentSpec2) WorkloadRunning() bool {
+func (s *DeploymentSpec) WorkloadRunning() bool {
 	if container := s.Container(); container != nil {
 		return container.Running
 	}
 	return s.SystemdSpec != nil && s.SystemdSpec.Running
 }
 
-func (s *DeploymentSpec2) SetWorkloadState(version string, running bool) error {
+func (s *DeploymentSpec) SetWorkloadState(version string, running bool) error {
 	if container := s.Container(); container != nil {
 		container.Version = version
 		container.Running = running
@@ -89,7 +89,7 @@ func (s *DeploymentSpec2) SetWorkloadState(version string, running bool) error {
 	return fmt.Errorf("deployment spec has no supported workload")
 }
 
-func (s *DeploymentSpec2) Container() *ContainerSpec {
+func (s *DeploymentSpec) Container() *ContainerSpec {
 	for _, container := range []*ContainerSpec{s.Container1Spec, s.Container2Spec, s.Container3Spec} {
 		if container != nil {
 			return container

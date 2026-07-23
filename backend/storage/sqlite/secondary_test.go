@@ -15,7 +15,7 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "secondary.db")
 	store := NewSecondaryStorage(dbPath)
 
-	cfg := &apigen.DeploymentConfig2{
+	cfg := &apigen.DeploymentConfig{
 		ID:        7,
 		NodeID:    23,
 		Identity:  apigen.DeploymentIdentity{SpaceID: 1, Name: "api"},
@@ -76,7 +76,7 @@ func TestSecondaryRejectsMissingNodeID(t *testing.T) {
 			t.Fatal("missing node ID was accepted")
 		}
 	}()
-	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig2{
+	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
 		ID:        7,
 		Identity:  apigen.DeploymentIdentity{SpaceID: 1, Name: "api"},
 		Version:   1,
@@ -88,7 +88,7 @@ func TestSecondaryRejectsMissingNodeID(t *testing.T) {
 func TestSecondaryRetiresStaleActiveDeploymentKeyBeforeCachingNewDeployment(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "secondary.db")
 	store := NewSecondaryStorage(dbPath)
-	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig2{
+	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
 		ID:        7,
 		NodeID:    23,
 		Identity:  apigen.DeploymentIdentity{SpaceID: 1, Name: "api"},
@@ -97,7 +97,7 @@ func TestSecondaryRetiresStaleActiveDeploymentKeyBeforeCachingNewDeployment(t *t
 		Spec:      *testSpecWithState("v1", true),
 	})
 
-	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig2{
+	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
 		ID:        8,
 		NodeID:    23,
 		Identity:  apigen.DeploymentIdentity{SpaceID: 1, Name: "api"},
@@ -105,7 +105,7 @@ func TestSecondaryRetiresStaleActiveDeploymentKeyBeforeCachingNewDeployment(t *t
 		UpdatedAt: time.UnixMilli(2000),
 		Spec:      *testSpecWithState("v2", true),
 	})
-	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig2{
+	store.MustWriteDeploymentConfig(&apigen.DeploymentConfig{
 		ID:        9,
 		NodeID:    24,
 		Identity:  apigen.DeploymentIdentity{SpaceID: 1, Name: "api"},
@@ -124,7 +124,7 @@ func TestSecondaryRetiresStaleActiveDeploymentKeyBeforeCachingNewDeployment(t *t
 	if staleRow.Deleted == 0 {
 		t.Fatalf("persisted stale deployment = %+v, want deleted and stopped", staleRow)
 	}
-	staleSpec, err := apigen.DecodeDeploymentSpec2(staleRow.SpecBlob)
+	staleSpec, err := apigen.DecodeDeploymentSpec(staleRow.SpecBlob)
 	if err != nil {
 		t.Fatalf("decode persisted stale deployment: %v", err)
 	}
@@ -148,8 +148,8 @@ func TestSecondaryRetiresStaleActiveDeploymentKeyBeforeCachingNewDeployment(t *t
 }
 
 // nonEmptySpec returns a valid spec that encodes to non-empty bytes.
-func nonEmptySpec() *apigen.DeploymentSpec2 {
-	return &apigen.DeploymentSpec2{
+func nonEmptySpec() *apigen.DeploymentSpec {
+	return &apigen.DeploymentSpec{
 		Container1Spec: &apigen.ContainerSpec{
 			Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}},
 			Runtime: apigen.ContainerRuntime{User: "1000"},
@@ -158,7 +158,7 @@ func nonEmptySpec() *apigen.DeploymentSpec2 {
 	}
 }
 
-func testSpecWithState(version string, running bool) *apigen.DeploymentSpec2 {
+func testSpecWithState(version string, running bool) *apigen.DeploymentSpec {
 	spec := nonEmptySpec()
 	if err := spec.SetWorkloadState(version, running); err != nil {
 		panic(err)

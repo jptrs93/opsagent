@@ -11,6 +11,17 @@ const stateValue = (value) => value && typeof value === 'object' && 'val' in val
 const asState = (value, fallback) => value && typeof value === 'object' && 'val' in value
     ? value
     : van.state(value ?? fallback);
+let deploymentConfigCodeWidgetLoader;
+
+const loadDeploymentConfigCodeWidget = () => {
+    deploymentConfigCodeWidgetLoader ||= import('./deploymentConfigCodeWidget.js')
+        .then(module => module.deploymentConfigCodeWidget);
+    return deploymentConfigCodeWidgetLoader;
+};
+
+export function preloadDeploymentConfigCodeWidget() {
+    void loadDeploymentConfigCodeWidget().catch(() => {});
+}
 
 export function deploymentEditorWidget(opts) {
     const mode = opts.mode;
@@ -191,7 +202,7 @@ export function deploymentEditorWidget(opts) {
         codeEditorStatus.val = 'loading';
         codeEditorError.val = '';
         try {
-            const {deploymentConfigCodeWidget} = await import('./deploymentConfigCodeWidget.js');
+            const deploymentConfigCodeWidget = await loadDeploymentConfigCodeWidget();
             codeWidget = deploymentConfigCodeWidget({
                 document: deploymentUpdate.document,
                 catalogs: {spaces, nodes, assets, secretRefs, configRefs, deployments},

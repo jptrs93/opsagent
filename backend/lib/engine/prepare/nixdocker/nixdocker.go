@@ -46,7 +46,7 @@ func New(gitManager *repogit.Manager) *Preparer {
 	}
 }
 
-func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig2, log *preparerlog.Log) (string, apigen.PreparationStatus) {
+func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.PreparationStatus) {
 	version := dep.WorkloadVersion()
 	select {
 	case p.sem <- struct{}{}:
@@ -318,7 +318,7 @@ func formatImageSize(size int64) string {
 	return fmt.Sprintf("%d B", size)
 }
 
-func imageRef(nix *apigen.NixDockerBuild2, version string) string {
+func imageRef(nix *apigen.NixDockerBuild, version string) string {
 	return fmt.Sprintf(
 		"opendeploy.local/nix-docker-build/%s/%s:%s",
 		imageCacheSchemaVersion,
@@ -327,7 +327,7 @@ func imageRef(nix *apigen.NixDockerBuild2, version string) string {
 	)
 }
 
-func imageSourceKey(nix *apigen.NixDockerBuild2, goos, goarch string) string {
+func imageSourceKey(nix *apigen.NixDockerBuild, goos, goarch string) string {
 	h := sha256.New()
 	for _, value := range []string{nix.Repo, nix.Flake, nix.Target, goos, goarch} {
 		_, _ = fmt.Fprintf(h, "%d:", len(value))

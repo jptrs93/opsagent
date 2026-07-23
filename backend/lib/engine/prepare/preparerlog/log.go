@@ -21,7 +21,7 @@ type Log struct {
 	mu   sync.Mutex
 }
 
-func New(ctx context.Context, dep *apigen.DeploymentConfig2) (*Log, string, error) {
+func New(ctx context.Context, dep *apigen.DeploymentConfig) (*Log, string, error) {
 	path := dep.PrepareOutputPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, path, fmt.Errorf("creating prepare log dir: %w", err)

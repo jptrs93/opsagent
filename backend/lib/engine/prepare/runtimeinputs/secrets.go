@@ -37,7 +37,7 @@ func New(assets AssetProvider, secrets SecretProvider, configs ConfigProvider) *
 	}
 }
 
-func (r *RuntimeInputs) EnsureSecretsReady(ctx context.Context, cfg *apigen.DeploymentConfig2) error {
+func (r *RuntimeInputs) EnsureSecretsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
 	ids := SecretRefs(cfg)
 	if len(ids) == 0 {
 		return nil
@@ -59,7 +59,7 @@ func (r *RuntimeInputs) EnsureSecretsReady(ctx context.Context, cfg *apigen.Depl
 	return nil
 }
 
-func (r *RuntimeInputs) EnsureReady(ctx context.Context, cfg *apigen.DeploymentConfig2) error {
+func (r *RuntimeInputs) EnsureReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
 	if err := r.EnsureAssetsReady(ctx, cfg); err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func (r *RuntimeInputs) EnsureReady(ctx context.Context, cfg *apigen.DeploymentC
 	return r.EnsureConfigsReady(ctx, cfg)
 }
 
-func (r *RuntimeInputs) EnsureConfigsReady(ctx context.Context, cfg *apigen.DeploymentConfig2) error {
+func (r *RuntimeInputs) EnsureConfigsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
 	ids := ConfigRefs(cfg)
 	if len(ids) == 0 {
 		return nil
@@ -105,7 +105,7 @@ func (r *RuntimeInputs) ResolveConfig(id int32) (string, bool) {
 	return value, ok
 }
 
-func SecretRefs(cfg *apigen.DeploymentConfig2) []int32 {
+func SecretRefs(cfg *apigen.DeploymentConfig) []int32 {
 	if cfg == nil {
 		return nil
 	}
@@ -128,7 +128,7 @@ func SecretRefs(cfg *apigen.DeploymentConfig2) []int32 {
 	return ids
 }
 
-func ConfigRefs(cfg *apigen.DeploymentConfig2) []int32 {
+func ConfigRefs(cfg *apigen.DeploymentConfig) []int32 {
 	if cfg == nil {
 		return nil
 	}

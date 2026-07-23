@@ -160,11 +160,11 @@ func TestSystemdRestartLeavesStatusStartingForRestartedProcess(t *testing.T) {
 	}
 }
 
-func systemdTestDeployment(binPath string) *apigen.DeploymentConfig2 {
-	return &apigen.DeploymentConfig2{
+func systemdTestDeployment(binPath string) *apigen.DeploymentConfig {
+	return &apigen.DeploymentConfig{
 		ID:      1,
 		Version: 7,
-		Spec: apigen.DeploymentSpec2{SystemdSpec: &apigen.SystemdSpec{
+		Spec: apigen.DeploymentSpec{SystemdSpec: &apigen.SystemdSpec{
 			Source:  &apigen.GithubRelease{},
 			Runtime: &apigen.SystemdRuntime{Name: "opendeploy", BinPath: binPath},
 		}},

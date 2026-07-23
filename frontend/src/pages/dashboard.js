@@ -5,9 +5,10 @@ import {sidebar} from "../components/sidebar.js";
 import {statusPage} from "./status.js";
 import {clusterPage} from "./cluster.js";
 import {secretsPage} from "./secrets.js";
-import {assetsPage} from "./assets.js";
+import {assetsPage, preloadYamlAssetEditor} from "./assets.js";
 import {settingsPage} from "./settings.js";
 import {logsPage} from "./logs.js";
+import {preloadDeploymentConfigCodeWidget} from "../components/deploymentEditorWidget.js";
 
 const { div, h1, span } = van.tags;
 
@@ -24,6 +25,11 @@ export function dashboard() {
         selectedLogDeploymentId.val = deploymentId;
         activePage.val = 'logs';
     };
+
+    requestAnimationFrame(() => {
+        preloadYamlAssetEditor();
+        preloadDeploymentConfigCodeWidget();
+    });
 
     return div(
         {class: "h-dvh min-h-dvh w-dvw flex overflow-hidden"},

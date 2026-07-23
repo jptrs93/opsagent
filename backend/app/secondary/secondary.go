@@ -71,7 +71,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 		NixDocker:          nixDockerPreparer,
 		GithubReleaseImage: githubReleaseImagePreparer,
 		RuntimeInputs:      runtimeInputs,
-	}.RunAll(func(dep apigen.DeploymentConfig2) bool { return dep.NodeID == cfg.NodeID })
+	}.RunAll(func(dep apigen.DeploymentConfig) bool { return dep.NodeID == cfg.NodeID })
 
 	runPrimaryConnLoop(ctx, cfg, store, primaryHTTPClient)
 }

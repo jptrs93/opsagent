@@ -94,12 +94,12 @@ responses redact its runtime details.
 
 ### Config versioning
 
-Each deployment's `DeploymentConfig2.Version` is a per-deployment
+Each deployment's `DeploymentConfig.Version` is a per-deployment
 monotonically increasing integer that bumps on any spec or desired-state
 change. Every bump is persisted to `deployment_config_history` so the UI
 can reconstruct the sequence of changes.
 
-SQLite persists `DeploymentSpec2` in both the current-config and config-history
+SQLite persists `DeploymentSpec` in both the current-config and config-history
 rows. The selected workload's `version` and `running` fields are the only
 authoritative desired state.
 
@@ -112,7 +112,7 @@ Each deployment's runtime state is structured into sections owned by different c
 Set by user actions (deploy or stop). The selected `ContainerSpec` or
 `SystemdSpec` contains the target `version` and `running` boolean. Audit fields
 (`updated_at`, `updated_by`) and the config revision remain on the parent
-`DeploymentConfig2`.
+`DeploymentConfig`.
 
 Nix desired versions, when set, are full immutable commit hashes. Branch selection and the 25 most recent commits are discovery aids and are not persisted as source authority. Creating a running Nix deployment, starting one, changing its target commit, or changing its Nix source while it remains running performs synchronous remote commit and flake verification before persistence. Stopped Nix deployments still require structurally valid source fields but may omit the desired version and do not require remote accessibility until they transition to running.
 
@@ -121,7 +121,7 @@ Nix desired versions, when set, are full immutable commit hashes. Branch selecti
 Driven by the preparer. Tracks prepare progress with status values:
 `PREPARING`, `DOWNLOADING`, `READY`, `FAILED`. On success, contains the
 resolved `artifact` (local image ref) and the `deployment_config_version`
-from `DeploymentConfig2.Version`.
+from `DeploymentConfig.Version`.
 
 ### RunnerStatus
 
@@ -131,7 +131,7 @@ Driven by the runner. Tracks the running container task with `running_pid`,
 
 ## Deployment identification
 
-Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployment/create`. Human-readable metadata is stored as `DeploymentConfig2.Identity`, and application identity is `{nodeId, spaceId, name}`. SQLite enforces that identity with a partial unique index over active deployments. All API requests, storage keys, and log file paths use the integer `id`.
+Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployment/create`. Human-readable metadata is stored as `DeploymentConfig.Identity`, and application identity is `{nodeId, spaceId, name}`. SQLite enforces that identity with a partial unique index over active deployments. All API requests, storage keys, and log file paths use the integer `id`.
 
 Deleting a deployment releases its human-readable identity tuple but retains its ID, configuration history, status history, logs, volumes, and other ID-owned records. Creating a deployment later with the same space, node, and name creates a completely new and independent deployment with a fresh ID and version history. It does not restore, continue, or otherwise inherit the deleted deployment.
 
@@ -160,7 +160,7 @@ grouped by space. Each card displays:
 2. The user picks a version (and optionally edits the deployment spec) and submits.
 3. The frontend calls `POST /v1/deployment/update` with the target version
    and, if the spec was edited, the new typed `spec`.
-4. For an effective running Nix transition, the backend verifies the exact remote commit and regular `flake.nix` tree entry, then writes the spec with the selected workload's version and `running=true`, and bumps `DeploymentConfig2.Version`. Verification failure writes nothing.
+4. For an effective running Nix transition, the backend verifies the exact remote commit and regular `flake.nix` tree entry, then writes the spec with the selected workload's version and `running=true`, and bumps `DeploymentConfig.Version`. Verification failure writes nothing.
 5. The operator's reconciliation loop picks up the change and starts a
    preparer.
 6. The preparer clones/fetches, pulls, or imports the image, then writes

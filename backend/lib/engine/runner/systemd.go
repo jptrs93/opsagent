@@ -37,7 +37,7 @@ var systemctlRestartCommand = systemctlRestart
 // reAttachSystemdRunner publishes the current process as the running systemd
 // deployment. For OpenDeploy self-management, reaching this code proves the
 // service is running; polling systemd only adds transient restart-state races.
-func reAttachSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig2, runnerStatus apigen.RunnerStatus) *systemdRunner {
+func reAttachSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig, runnerStatus apigen.RunnerStatus) *systemdRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
 	sys := dep.Spec.SystemdSpec.Runtime
 	runnerStatus.RunningArtifact = resolveSystemdRunnerArtifact(sys.BinPath)
@@ -60,7 +60,7 @@ func reAttachSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentCo
 // observeExistingSystemdRunner is the first-install path for OpenDeploy's own
 // systemd deployment. It does not restart or install anything; it publishes the
 // already-running current process.
-func observeExistingSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig2) *systemdRunner {
+func observeExistingSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig) *systemdRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
 	sys := dep.Spec.SystemdSpec.Runtime
 	r := &systemdRunner{
@@ -87,7 +87,7 @@ func observeExistingSystemdRunner(store storage.OperatorStore, dep *apigen.Deplo
 // process reattaches and publishes RUNNING.
 // Called only from runner.Create when the operator has a new artifact ready.
 // No retries — if install or restart fails, it writes CRASHED and exits.
-func newSystemdRunnerWithRestart(store storage.OperatorStore, dep *apigen.DeploymentConfig2, preparerStatus apigen.PreparerStatus) *systemdRunner {
+func newSystemdRunnerWithRestart(store storage.OperatorStore, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *systemdRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
 	sys := dep.Spec.SystemdSpec.Runtime
 	r := &systemdRunner{

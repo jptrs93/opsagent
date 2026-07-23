@@ -162,12 +162,12 @@ func TestPublishLatestDoesNotBlockIfSubscriberDrains(t *testing.T) {
 	}
 }
 
-func virtualDeployment(id, nodeID, spaceID int32) apigen.DeploymentConfig2 {
-	return apigen.DeploymentConfig2{
+func virtualDeployment(id, nodeID, spaceID int32) apigen.DeploymentConfig {
+	return apigen.DeploymentConfig{
 		ID:       id,
 		NodeID:   nodeID,
 		Identity: apigen.DeploymentIdentity{SpaceID: spaceID},
-		Spec: apigen.DeploymentSpec2{
+		Spec: apigen.DeploymentSpec{
 			Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL},
 			Container1Spec: &apigen.ContainerSpec{
 				Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}},

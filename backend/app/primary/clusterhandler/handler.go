@@ -64,7 +64,7 @@ func requireMachine(ctx context.Context) (string, error) {
 }
 
 func deploymentPredicateForNode(nodeID int32) storage.DeploymentPredicate {
-	return func(cfg apigen.DeploymentConfig2) bool {
+	return func(cfg apigen.DeploymentConfig) bool {
 		return cfg.NodeID == nodeID
 	}
 }

@@ -24,7 +24,7 @@ import (
 const testNixCommit = "0123456789abcdef0123456789abcdef01234567"
 const testNixCommit2 = "89abcdef0123456789abcdef0123456789abcdef"
 
-func findSystemDeployment(t *testing.T, store *sqlite.PrimaryStorage, nodeID int32) *apigen.DeploymentConfig2 {
+func findSystemDeployment(t *testing.T, store *sqlite.PrimaryStorage, nodeID int32) *apigen.DeploymentConfig {
 	t.Helper()
 	for _, cfg := range store.ListActiveDeploymentConfigs() {
 		if sqlite.IsSystemDeploymentConfig(cfg) && cfg.NodeID == nodeID {
@@ -35,7 +35,7 @@ func findSystemDeployment(t *testing.T, store *sqlite.PrimaryStorage, nodeID int
 	return nil
 }
 
-func createTestDeployment(store *sqlite.PrimaryStorage, nodeIdentifier string, identity apigen.DeploymentIdentity, spec *apigen.DeploymentSpec2) *apigen.DeploymentConfig2 {
+func createTestDeployment(store *sqlite.PrimaryStorage, nodeIdentifier string, identity apigen.DeploymentIdentity, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
 	node := store.EnsurePrimaryNode(nodeIdentifier, nodeIdentifier)
 	return store.MustCreateDeploymentForNode(apigen.Context{}, &identity, node.ID, spec)
 }
@@ -48,17 +48,17 @@ func virtualNetworking() apigen.NetworkingConfig {
 	return apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}
 }
 
-func remoteDeploymentSpec(image string, networking apigen.NetworkingConfig) apigen.DeploymentSpec2 {
-	return apigen.DeploymentSpec2{
+func remoteDeploymentSpec(image string, networking apigen.NetworkingConfig) apigen.DeploymentSpec {
+	return apigen.DeploymentSpec{
 		Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: image}}},
 		Networking:     networking,
 	}
 }
 
 func TestValidateDeploymentSpecNixDockerBuild(t *testing.T) {
-	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec2{
+	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
 		Container1Spec: &apigen.ContainerSpec{
-			Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild2{
+			Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{
 				Repo:   "github.com/acme/web",
 				Flake:  "nix/web/flake.nix",
 				Target: ".#webImage",
@@ -88,9 +88,9 @@ func TestValidateDeploymentSpecNixDockerBuild(t *testing.T) {
 }
 
 func TestValidateDeploymentSpecCanonicalizesSafeFlakePath(t *testing.T) {
-	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec2{
+	spec, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
 		Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{
-			NixDockerBuild: &apigen.NixDockerBuild2{Repo: "github.com/acme/web", Flake: "./nix/../flake.nix"},
+			NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/web", Flake: "./nix/../flake.nix"},
 		}},
 		Networking: hostNetworking(),
 	}, nil)
@@ -103,9 +103,9 @@ func TestValidateDeploymentSpecCanonicalizesSafeFlakePath(t *testing.T) {
 
 	for _, flake := range []string{"/flake.nix", "../flake.nix", "nix/default.nix"} {
 		t.Run(flake, func(t *testing.T) {
-			_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec2{
+			_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
 				Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{
-					NixDockerBuild: &apigen.NixDockerBuild2{Repo: "github.com/acme/web", Flake: flake},
+					NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/web", Flake: flake},
 				}},
 				Networking: hostNetworking(),
 			}, nil)
@@ -320,7 +320,7 @@ func TestDeploymentUpdateEnforcesEffectiveRunningNixTransitions(t *testing.T) {
 		cfg, err := h.PostV1DeploymentCreate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentCreateRequest{
 			Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "web"},
 			NodeID:   node.ID,
-			Spec: apigen.DeploymentSpec2{
+			Spec: apigen.DeploymentSpec{
 				Container1Spec: &apigen.ContainerSpec{
 					Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "nginx"}},
 					Version: "latest",
@@ -416,13 +416,13 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 	provider := versionprovider.NewGithubReleaseVersionProviderWithClient(client)
 	tests := []struct {
 		name             string
-		createDeployment func(*testing.T, *sqlite.PrimaryStorage) *apigen.DeploymentConfig2
+		createDeployment func(*testing.T, *sqlite.PrimaryStorage) *apigen.DeploymentConfig
 		provider         *versionprovider.GithubReleaseVersionProvider
 		wantInternal     string
 	}{
 		{
 			name: "opendeploy-net special branch",
-			createDeployment: func(_ *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig2 {
+			createDeployment: func(_ *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig {
 				node := store.EnsurePrimaryNode("primary", "primary")
 				return store.EnsureNetproxyDeployment(node.ID, "v1.2.3")
 			},
@@ -431,7 +431,7 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 		},
 		{
 			name: "GitHub release config branch",
-			createDeployment: func(t *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig2 {
+			createDeployment: func(t *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig {
 				node := store.EnsurePrimaryNode("primary", "primary")
 				store.EnsureSystemDeployment(node.ID, "v1.2.3")
 				return findSystemDeployment(t, store, node.ID)
@@ -441,7 +441,7 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 		},
 		{
 			name: "unconfigured provider",
-			createDeployment: func(t *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig2 {
+			createDeployment: func(t *testing.T, store *sqlite.PrimaryStorage) *apigen.DeploymentConfig {
 				node := store.EnsurePrimaryNode("primary", "primary")
 				store.EnsureSystemDeployment(node.ID, "v1.2.3")
 				return findSystemDeployment(t, store, node.ID)
@@ -483,14 +483,14 @@ func nixCreateRequest(nodeID int32, name string, running bool) *apigen.Deploymen
 	}
 }
 
-func nixDeploymentSpec(repo, flake string) apigen.DeploymentSpec2 {
+func nixDeploymentSpec(repo, flake string) apigen.DeploymentSpec {
 	return nixDeploymentSpecWithState(repo, flake, testNixCommit, true)
 }
 
-func nixDeploymentSpecWithState(repo, flake, version string, running bool) apigen.DeploymentSpec2 {
-	return apigen.DeploymentSpec2{
+func nixDeploymentSpecWithState(repo, flake, version string, running bool) apigen.DeploymentSpec {
+	return apigen.DeploymentSpec{
 		Container1Spec: &apigen.ContainerSpec{
-			Source:  apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild2{Repo: repo, Flake: flake}},
+			Source:  apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: repo, Flake: flake}},
 			Version: version,
 			Running: running,
 		},
@@ -498,7 +498,7 @@ func nixDeploymentSpecWithState(repo, flake, version string, running bool) apige
 	}
 }
 
-func newNixDeploymentHandler(t *testing.T, running bool) (*Handler, *apigen.DeploymentConfig2, *fakeGitSourceProvider) {
+func newNixDeploymentHandler(t *testing.T, running bool) (*Handler, *apigen.DeploymentConfig, *fakeGitSourceProvider) {
 	t.Helper()
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("primary", "primary")
@@ -512,9 +512,9 @@ func newNixDeploymentHandler(t *testing.T, running bool) (*Handler, *apigen.Depl
 }
 
 func TestValidateDeploymentSpecRejectsNonLocalNixTarget(t *testing.T) {
-	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec2{
+	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
 		Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{
-			NixDockerBuild: &apigen.NixDockerBuild2{Repo: "github.com/acme/web", Flake: "flake.nix", Target: "github:acme/web#image"},
+			NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/web", Flake: "flake.nix", Target: "github:acme/web#image"},
 		}},
 		Networking: hostNetworking(),
 	}, nil)
@@ -559,7 +559,7 @@ func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
 		},
 	}
 	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
-	input.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount2{{
+	input.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount{{
 		AssetID: 42, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_EXECUTE,
 	}}
 	spec, err := validateDeploymentSpecWithAssets(&input, assets)
@@ -584,7 +584,7 @@ func TestValidateDeploymentSpecResolvesEnvAssetRefs(t *testing.T) {
 		},
 	}
 	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{"APP_CONFIG": {AssetID: 51}}
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"APP_CONFIG": {AssetID: 51}}
 	spec, err := validateDeploymentSpecWithAssets(&input, assets)
 	if err != nil {
 		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
@@ -597,7 +597,7 @@ func TestValidateDeploymentSpecResolvesEnvAssetRefs(t *testing.T) {
 
 func TestValidateDeploymentSpecRejectsUnknownEnvAssetRef(t *testing.T) {
 	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{"APP_CONFIG": {AssetID: 999}}
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"APP_CONFIG": {AssetID: 999}}
 	_, err := validateDeploymentSpecWithAssets(&input, fakeAssetResolver{})
 	if err == nil || !strings.Contains(err.Error(), `asset id 999 not found`) {
 		t.Fatalf("err = %v, want unknown asset", err)
@@ -646,7 +646,7 @@ func TestValidateDeploymentSpecValidatesV2Mounts(t *testing.T) {
 
 	t.Run("asset mount permission", func(t *testing.T) {
 		input := remoteDeploymentSpec("nginx", hostNetworking())
-		input.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount2{{AssetID: 1, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_WRITE}}
+		input.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount{{AssetID: 1, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_WRITE}}
 		assets := fakeAssetResolver{"app.conf": {ID: 1, Key: "app.conf"}}
 		if _, err := validateDeploymentSpecWithAssets(&input, assets); err == nil || !strings.Contains(err.Error(), "READ_ONLY or READ_EXECUTE") {
 			t.Fatalf("err = %v, want asset mount permission rejection", err)
@@ -745,7 +745,7 @@ func TestValidateDeploymentSpecRejectsInvalidHostMounts(t *testing.T) {
 }
 
 func TestValidateDeploymentSpecRejectsSystemdRunner(t *testing.T) {
-	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec2{
+	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
 		SystemdSpec: &apigen.SystemdSpec{
 			Source:  &apigen.GithubRelease{Repo: "github.com/acme/web"},
 			Runtime: &apigen.SystemdRuntime{Name: "opendeploy", BinPath: "/var/lib/opendeploy/bin/opendeploy"},
@@ -761,7 +761,7 @@ func TestDeploymentUpdateRejectsSystemDeploymentSpecUpdate(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("primary", "primary")
 	store.EnsureSystemDeployment(node.ID, "v0.0.194")
-	var system *apigen.DeploymentConfig2
+	var system *apigen.DeploymentConfig
 	for _, cfg := range store.ListActiveDeploymentConfigs() {
 		if sqlite.IsSystemDeploymentConfig(cfg) {
 			system = cfg
@@ -785,7 +785,7 @@ func TestDeploymentUpdateRejectsSystemDeploymentSpecUpdate(t *testing.T) {
 
 func TestValidateDeploymentSpecAcceptsKnownEnvRefs(t *testing.T) {
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
 		"PGUSER": {SecretID: ptrInt32(6)}, "PGDATABASE": {ConfigID: ptrInt32(18)},
 	}
 	_, err := validateDeploymentSpecWithResolvers(&input, nil, fakeSecretResolver{6: "postgres"}, fakeConfigResolver{18: "postgres"})
@@ -987,7 +987,7 @@ func TestValidateDeploymentSpecRejectsNetproxyImage(t *testing.T) {
 
 func TestValidateDeploymentSpecRejectsUnknownSecretRef(t *testing.T) {
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{"PGPASSWORD": {SecretID: ptrInt32(99)}}
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"PGPASSWORD": {SecretID: ptrInt32(99)}}
 	_, err := validateDeploymentSpecWithResolvers(&input, nil, fakeSecretResolver{}, fakeConfigResolver{})
 	if err == nil || !strings.Contains(err.Error(), "unknown secret id 99") {
 		t.Fatalf("err = %v, want unknown secret", err)
@@ -996,7 +996,7 @@ func TestValidateDeploymentSpecRejectsUnknownSecretRef(t *testing.T) {
 
 func TestValidateDeploymentSpecRejectsUnknownConfigRef(t *testing.T) {
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{"PGDATABASE": {ConfigID: ptrInt32(99)}}
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"PGDATABASE": {ConfigID: ptrInt32(99)}}
 	_, err := validateDeploymentSpecWithResolvers(&input, nil, fakeSecretResolver{}, fakeConfigResolver{})
 	if err == nil || !strings.Contains(err.Error(), "unknown config id 99") {
 		t.Fatalf("err = %v, want unknown config", err)
@@ -1005,7 +1005,7 @@ func TestValidateDeploymentSpecRejectsUnknownConfigRef(t *testing.T) {
 
 func TestValidateDeploymentSpecAcceptsLiteralEnvValues(t *testing.T) {
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
 		"LITERAL": {Value: ptrString("${s:not.real} and ${c:not.real}")},
 	}
 	_, err := validateDeploymentSpecWithResolvers(&input, nil, fakeSecretResolver{}, fakeConfigResolver{})
@@ -1017,7 +1017,7 @@ func TestValidateDeploymentSpecAcceptsLiteralEnvValues(t *testing.T) {
 func TestValidateDeploymentSpecRejectsIncompleteAddressRef(t *testing.T) {
 	deploymentID := int32(7)
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{"UPSTREAM": {AddressDeploymentID: &deploymentID}}
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"UPSTREAM": {AddressDeploymentID: &deploymentID}}
 	_, err := validateDeploymentSpecWithAssets(&input, nil)
 	if err == nil || !strings.Contains(err.Error(), "required together") {
 		t.Fatalf("err = %v, want incomplete address rejection", err)
@@ -1034,7 +1034,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	}
 	h := &Handler{Store: store, Secrets: secretsManager}
 
-	create := func(name string, nodeID int32, networking apigen.NetworkingConfig, env map[string]*apigen.EnvVarValue2) *apigen.DeploymentConfig2 {
+	create := func(name string, nodeID int32, networking apigen.NetworkingConfig, env map[string]*apigen.EnvVarValue) *apigen.DeploymentConfig {
 		t.Helper()
 		spec := remoteDeploymentSpec("nginx", networking)
 		spec.Container1Spec.Runtime.EnvVars = env
@@ -1052,7 +1052,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	target := create("database", primary.ID, virtualNetworking(), nil)
 	addressDeploymentID := target.ID
 	addressSpaceID := int32(1)
-	consumer := create("web", primary.ID, hostNetworking(), map[string]*apigen.EnvVarValue2{
+	consumer := create("web", primary.ID, hostNetworking(), map[string]*apigen.EnvVarValue{
 		"DATABASE_ADDR": {AddressDeploymentID: &addressDeploymentID, AddressSpaceID: &addressSpaceID},
 	})
 	if got := consumer.Spec.Container1Spec.Runtime.EnvVars["DATABASE_ADDR"]; got.AddressDeploymentID == nil || got.AddressSpaceID == nil {
@@ -1063,9 +1063,9 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	_, err = h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "wrong-space"},
 		NodeID:   primary.ID,
-		Spec: func() apigen.DeploymentSpec2 {
+		Spec: func() apigen.DeploymentSpec {
 			spec := remoteDeploymentSpec("nginx", hostNetworking())
-			spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{
+			spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
 				"DATABASE_ADDR": {AddressDeploymentID: &addressDeploymentID, AddressSpaceID: &wrongSpace},
 			}
 			return spec
@@ -1080,9 +1080,9 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	crossNode, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "cross-node"},
 		NodeID:   primary.ID,
-		Spec: func() apigen.DeploymentSpec2 {
+		Spec: func() apigen.DeploymentSpec {
 			spec := remoteDeploymentSpec("nginx", hostNetworking())
-			spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{
+			spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
 				"REMOTE_ADDR": {AddressDeploymentID: &remoteID, AddressSpaceID: &addressSpaceID},
 			}
 			return spec
@@ -1132,7 +1132,7 @@ func TestDeploymentCreatePersistsInitialStoppedWorkloadState(t *testing.T) {
 	cfg, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "web"},
 		NodeID:   primary.ID,
-		Spec: func() apigen.DeploymentSpec2 {
+		Spec: func() apigen.DeploymentSpec {
 			spec := remoteDeploymentSpec("nginx", hostNetworking())
 			spec.Container1Spec.Version = "1.25"
 			return spec
@@ -1209,7 +1209,7 @@ func TestDeploymentCreateRejectsPrimaryIngressOnPort443(t *testing.T) {
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	worker := store.EnsurePrimaryNode("worker", "worker")
 	h := &Handler{Store: store, NodeID: primary.ID}
-	spec := func() apigen.DeploymentSpec2 {
+	spec := func() apigen.DeploymentSpec {
 		return remoteDeploymentSpec("postgres", apigen.NetworkingConfig{
 			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 			Ingress: []*apigen.Ingress{{
@@ -1260,7 +1260,7 @@ func TestDeploymentIdentityIsScopedByNodeID(t *testing.T) {
 	nodeB := store.EnsurePrimaryNode("node-b", "node-b-id")
 	h := &Handler{Store: store}
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
-	create := func(nodeID, spaceID int32) (*apigen.DeploymentConfig2, error) {
+	create := func(nodeID, spaceID int32) (*apigen.DeploymentConfig, error) {
 		return h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			Identity: apigen.DeploymentIdentity{SpaceID: spaceID, Name: "web"},
 			NodeID:   nodeID,
@@ -1348,7 +1348,7 @@ func TestDeploymentUpdateAcceptsCrossDeploymentMount(t *testing.T) {
 	h := &Handler{Store: store, Secrets: secretsManager}
 
 	spec := target.Spec
-	spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue2{
+	spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
 		"LOG_LEVEL": {Value: ptrString("debug")},
 	}
 	_, err = h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
@@ -1497,7 +1497,7 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	h := &Handler{Store: store}
-	create := func(version string) *apigen.DeploymentConfig2 {
+	create := func(version string) *apigen.DeploymentConfig {
 		t.Helper()
 		spec := remoteDeploymentSpec("nginx", hostNetworking())
 		spec.Container1Spec.Version = version

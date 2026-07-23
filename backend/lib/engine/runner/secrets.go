@@ -12,7 +12,7 @@ import (
 
 const implicitAssetContainerDir = "/opendeploy-env-assets"
 
-func resolveEnv(inputs *runtimeinputs.RuntimeInputs, env map[string]*apigen.EnvVarValue2) ([]string, error) {
+func resolveEnv(inputs *runtimeinputs.RuntimeInputs, env map[string]*apigen.EnvVarValue) ([]string, error) {
 	keys := make([]string, 0, len(env))
 	for key := range env {
 		keys = append(keys, key)
@@ -29,7 +29,7 @@ func resolveEnv(inputs *runtimeinputs.RuntimeInputs, env map[string]*apigen.EnvV
 	return out, nil
 }
 
-func resolveEnvValue(inputs *runtimeinputs.RuntimeInputs, key string, v *apigen.EnvVarValue2) (string, error) {
+func resolveEnvValue(inputs *runtimeinputs.RuntimeInputs, key string, v *apigen.EnvVarValue) (string, error) {
 	if v == nil {
 		return "", fmt.Errorf("value is required")
 	}
@@ -67,7 +67,7 @@ func resolveEnvValue(inputs *runtimeinputs.RuntimeInputs, key string, v *apigen.
 	return resolveConfigRef(inputs, *v.ConfigID)
 }
 
-func resolveAddressRef(v *apigen.EnvVarValue2) (string, error) {
+func resolveAddressRef(v *apigen.EnvVarValue) (string, error) {
 	if v.AddressDeploymentID == nil || v.AddressSpaceID == nil {
 		return "", fmt.Errorf("addressDeploymentId and addressSpaceId are required together")
 	}

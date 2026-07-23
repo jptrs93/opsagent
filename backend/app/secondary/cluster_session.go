@@ -134,7 +134,7 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 	}
 
 	// Subscribe to local deployment updates to push status back to primary.
-	statusCh, unsub := store.SubscribeDeploymentUpdates(func(cfg apigen.DeploymentConfig2) bool { return cfg.NodeID == nodeID })
+	statusCh, unsub := store.SubscribeDeploymentUpdates(func(cfg apigen.DeploymentConfig) bool { return cfg.NodeID == nodeID })
 	defer unsub()
 	go statusPushLoop(sessCtx, out, statusCh)
 
@@ -330,7 +330,7 @@ func applySnapshot(out *outbox, store *sqlite.SecondaryStorage, snap *apigen.Dep
 
 // applyConfigUpdate writes a single config update from the primary into the
 // local store.
-func applyConfigUpdate(store *sqlite.SecondaryStorage, cfg *apigen.DeploymentConfig2, nodeID int32) {
+func applyConfigUpdate(store *sqlite.SecondaryStorage, cfg *apigen.DeploymentConfig, nodeID int32) {
 	if cfg == nil || cfg.ID == 0 || cfg.NodeID != nodeID {
 		return
 	}

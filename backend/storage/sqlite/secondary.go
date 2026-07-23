@@ -25,7 +25,7 @@ func (s *SecondaryStorage) Close() error {
 	return s.db.Close()
 }
 
-func (s *SecondaryStorage) MustWriteDeploymentConfig(cfg *apigen.DeploymentConfig2) {
+func (s *SecondaryStorage) MustWriteDeploymentConfig(cfg *apigen.DeploymentConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := context.Background()

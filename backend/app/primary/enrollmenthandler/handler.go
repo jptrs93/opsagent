@@ -184,7 +184,7 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 	}
 	h.store.EnsureSystemDeployment(nodeID, version.Version)
 	h.store.EnsureNetproxyDeployment(nodeID, version.Version)
-	predicate := storage.DeploymentPredicate(func(cfg apigen.DeploymentConfig2) bool {
+	predicate := storage.DeploymentPredicate(func(cfg apigen.DeploymentConfig) bool {
 		return cfg.NodeID == nodeID
 	})
 	nodeDeployment, nodeNetDeployment := enrollmentBootstrapDeployments(h.store.FetchDeploymentSnapshot(predicate))

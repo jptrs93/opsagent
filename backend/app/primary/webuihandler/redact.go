@@ -11,7 +11,7 @@ func redactDeploymentWithStatus(in *apigen.DeploymentWithStatus) *apigen.Deploym
 	return &out
 }
 
-func redactDeploymentConfig(in *apigen.DeploymentConfig2) *apigen.DeploymentConfig2 {
+func redactDeploymentConfig(in *apigen.DeploymentConfig) *apigen.DeploymentConfig {
 	if in == nil {
 		return nil
 	}

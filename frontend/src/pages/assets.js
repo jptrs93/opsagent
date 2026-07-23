@@ -17,6 +17,37 @@ const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgro
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+const isYamlAsset = key => /\.ya?ml$/i.test(key || "");
+let yamlAssetEditorLoader;
+
+const loadYamlAssetEditor = () => {
+    yamlAssetEditorLoader ||= import("../components/yamlAssetEditor.js")
+        .then(module => module.yamlAssetEditor);
+    return yamlAssetEditorLoader;
+};
+
+export function preloadYamlAssetEditor() {
+    const preload = () => { void loadYamlAssetEditor().catch(() => {}); };
+    if (typeof requestIdleCallback === "function") {
+        requestIdleCallback(preload, {timeout: 2000});
+    } else {
+        setTimeout(preload, 0);
+    }
+}
+
+function lazyYamlAssetEditor(args) {
+    const editor = van.state("");
+    const loadError = van.state("");
+    loadYamlAssetEditor()
+        .then(yamlAssetEditor => { editor.val = yamlAssetEditor(args); })
+        .catch(error => { loadError.val = error.message || "Unable to load YAML editor"; });
+
+    return div(
+        {class: "flex-1 min-h-0"},
+        () => editor.val || p({class: "text-sm text-red-400"}, () => loadError.val || "Loading editor..."),
+    );
+}
+
 const fmtDate = (d) => d instanceof Date && !Number.isNaN(d.getTime()) ? d.toLocaleString() : "";
 const fmtSize = (n) => {
     if (!n) return "0 B";
@@ -554,35 +585,43 @@ export function assetsPage() {
                     disabled: () => Boolean(assetMutationKey.val),
                     oninput: (e) => draftKey.val = e.target.value,
                 }))),
-        () => draftLarge.val ? div(
-            {class: "text-input flex-1 min-h-0 flex items-center justify-center text-center text-sm text-gray-400"},
-            div(
-                p({class: "font-medium text-gray-300"}, "This asset is too large to show."),
-                p({class: "text-xs text-gray-500 mt-1"}, "The full content remains available for deployment mounts."),
-            ),
-        ) : inlineEditableInput({
-            value: draftContent,
-            dirty: isDirty,
-            valid: () => Boolean(draftKey.val.trim()),
-            disabled: () => Boolean(assetMutationKey.val),
-            multiline: true,
-            inputAttrs: {spellcheck: "false"},
-            inputClass: "text-input h-full font-mono text-sm min-h-0 resize-none leading-relaxed",
-            containerClass: "flex-1 min-h-0",
-            placeholder: "Paste config file contents here",
-            oninput: (e) => draftContent.val = e.target.value,
-            onSave: saveAsset,
-            onDiscard: () => {
-                if (original.key) {
-                    draftContent.val = original.content;
-                } else {
-                    clearDraft();
-                }
-            },
-            ariaLabel: original.key ? `Content for asset ${original.key}` : "New asset content",
-            saveAriaLabel: original.key ? `Save new version of asset ${original.key}` : "Create asset",
-            discardAriaLabel: original.key ? `Discard content changes for asset ${original.key}` : "Discard new asset",
-        }),
+        () => {
+            if (draftLarge.val) return div(
+                {class: "text-input flex-1 min-h-0 flex items-center justify-center text-center text-sm text-gray-400"},
+                div(
+                    p({class: "font-medium text-gray-300"}, "This asset is too large to show."),
+                    p({class: "text-xs text-gray-500 mt-1"}, "The full content remains available for deployment mounts."),
+                ),
+            );
+            const editorArgs = {
+                value: draftContent,
+                dirty: isDirty,
+                valid: () => Boolean(draftKey.val.trim()),
+                disabled: () => Boolean(assetMutationKey.val),
+                onSave: saveAsset,
+                onDiscard: () => {
+                    if (original.key) {
+                        draftContent.val = original.content;
+                    } else {
+                        clearDraft();
+                    }
+                },
+                ariaLabel: original.key ? `Content for asset ${original.key}` : "New asset content",
+                saveAriaLabel: original.key ? `Save new version of asset ${original.key}` : "Create asset",
+                discardAriaLabel: original.key ? `Discard content changes for asset ${original.key}` : "Discard new asset",
+            };
+            return isYamlAsset(draftKey.val)
+                ? lazyYamlAssetEditor(editorArgs)
+                : inlineEditableInput({
+                    ...editorArgs,
+                    multiline: true,
+                    inputAttrs: {spellcheck: "false"},
+                    inputClass: "text-input h-full font-mono text-sm min-h-0 resize-none leading-relaxed",
+                    containerClass: "flex-1 min-h-0",
+                    placeholder: "Paste config file contents here",
+                    oninput: (e) => draftContent.val = e.target.value,
+                });
+        },
         p({class: "text-xs text-gray-500"}, () => draftLarge.val
             ? `${fmtSize(draftSizeBytes.val)} large asset`
             : `${encoder.encode(draftContent.val).length} bytes inline`),

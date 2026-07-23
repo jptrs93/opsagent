@@ -379,7 +379,7 @@ message ClusterMachineList {
 }
 
 message DeploymentHistoryEntry {
-  DeploymentConfig2 config = 1;
+  DeploymentConfig config = 1;
   DeploymentStatus status = 2;
 }
 
@@ -467,7 +467,7 @@ message ClusterStatusResponse {
 
 message MsgToWorker {
   DeploymentWithStatusSnapshot deployments_snapshot = 1;
-  DeploymentConfig2 deployment_update = 2;
+  DeploymentConfig deployment_update = 2;
   PrepareOutputRequest prepare_log_request = 3;
   RunOutputRequest run_log_request = 4;
   DeploymentLogRequest deployment_log_request = 5;

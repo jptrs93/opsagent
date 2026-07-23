@@ -61,8 +61,8 @@ Key generated files:
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | POST | `/v1/state/stream` | — | stream `State` | ANY_OF default |
-| POST | `/v1/deployment/create` | `DeploymentCreateRequest` | `DeploymentConfig2` | ANY_OF default |
-| POST | `/v1/deployment/update` | `DeploymentUpdateRequest` | `DeploymentConfig2` | ANY_OF default |
+| POST | `/v1/deployment/create` | `DeploymentCreateRequest` | `DeploymentConfig` | ANY_OF default |
+| POST | `/v1/deployment/update` | `DeploymentUpdateRequest` | `DeploymentConfig` | ANY_OF default |
 | POST | `/v1/deployment/history` | `DeploymentHistoryRequest` | `DeploymentHistory` | ANY_OF default |
 | POST | `/v1/deployment/log-search` | `LogSearchRequest` | stream `LogLine` | ANY_OF default |
 | POST | `/v1/deployment/prepare-output` | `PrepareOutputRequest` | stream `PrepareOutputChunk` | ANY_OF default |
@@ -126,7 +126,7 @@ reconnect delay.
 | POST | `/v1/spaces/update` | `SpaceSetRequest` | `Space` | ANY_OF default |
 | POST | `/v1/spaces/delete` | `SpaceDeleteRequest` | — | ANY_OF default |
 
-User-managed configs and encrypted secrets are immutable versioned rows. Saving an existing name appends version `vN` with a new numeric row ID; settings refs and deployment env refs pin exact rows with `ConfigRef.id`, `SecretRef.id`, `EnvVarValue2.configId`, and `EnvVarValue2.secretId`. Rename changes the display name for all versions of a secret/config group without creating a new version. Delete hard-deletes the whole group and is rejected while any settings or deployment config still references one of its row IDs.
+User-managed configs and encrypted secrets are immutable versioned rows. Saving an existing name appends version `vN` with a new numeric row ID; settings refs and deployment env refs pin exact rows with `ConfigRef.id`, `SecretRef.id`, `EnvVarValue.configId`, and `EnvVarValue.secretId`. Rename changes the display name for all versions of a secret/config group without creating a new version. Delete hard-deletes the whole group and is rejected while any settings or deployment config still references one of its row IDs.
 
 `POST /v1/secrets/reveal` is the only user-facing API that returns decrypted secret plaintext. It accepts `SecretRevealRequest.id` for exact-version reveal; list/state APIs return metadata only.
 

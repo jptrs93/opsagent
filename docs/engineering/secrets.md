@@ -114,7 +114,7 @@ cache. Secrets are never written to `secondary.db`.
 
 The operator injects that same `RuntimeInputs` instance into every container
 runner. At process spawn time (`backend/lib/engine/runner/secrets.go`),
-`EnvVarValue2` entries with `secretId` or `configId` are expanded from its
+`EnvVarValue` entries with `secretId` or `configId` are expanded from its
 prepared in-memory caches. Plain `user_configs` values are not encrypted at
 rest. Unknown references, locked secrets, missing primary connectivity during
 prepare, or no prepared value on the node are **fail-closed** errors.

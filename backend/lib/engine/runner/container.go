@@ -58,9 +58,9 @@ type containerRunner struct {
 
 	// derived from the deployment config version; not part of RunnerStatus.
 	user           string
-	envVars        map[string]*apigen.EnvVarValue2 // resolved to "KEY=VALUE" entries at start
-	command        []string                        // argv override; empty = image default
-	cwd            string                          // process cwd; empty = image default
+	envVars        map[string]*apigen.EnvVarValue // resolved to "KEY=VALUE" entries at start
+	command        []string                       // argv override; empty = image default
+	cwd            string                         // process cwd; empty = image default
 	mounts         []ctrd.Mount
 	devShmSizeKB   int64
 	fileDescLimit  int64
@@ -104,7 +104,7 @@ func containerID(deploymentID int32, configVersion int32) string {
 	return fmt.Sprintf("opendeploy-%d-v%d", deploymentID, configVersion)
 }
 
-func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig2, preparerStatus apigen.PreparerStatus) *containerRunner {
+func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
 	configVersion := preparerStatus.DeploymentConfigVersion
 	r := buildContainerRunner(ctx, cancel, store, inputs, dep, configVersion)
@@ -120,7 +120,7 @@ func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.Runti
 	return r
 }
 
-func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig2, preparerStatus apigen.PreparerStatus) *containerRunner {
+func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
 	configVersion := preparerStatus.DeploymentConfigVersion
 	r := buildContainerRunner(ctx, cancel, store, inputs, dep, configVersion)
@@ -136,7 +136,7 @@ func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinpu
 	return r
 }
 
-func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig2, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
+func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
 	r := buildContainerRunner(ctx, cancel, store, inputs, dep, prev.DeploymentConfigVersion)
 	r.publish.Store(true)
@@ -153,7 +153,7 @@ func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Durati
 	return containerReadinessDefaultTimeout
 }
 
-func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig2, configVersion int32) *containerRunner {
+func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
 	cfg := dep.Spec.Container().Runtime
 	r := &containerRunner{
 		ctx:             ctx,
@@ -182,7 +182,7 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 	return r
 }
 
-func containerDeploymentName(dep *apigen.DeploymentConfig2) string {
+func containerDeploymentName(dep *apigen.DeploymentConfig) string {
 	if dep == nil {
 		return "<nil>"
 	}
@@ -604,7 +604,7 @@ type envVarCounts struct {
 	asset  int
 }
 
-func countEnvVars(env map[string]*apigen.EnvVarValue2) envVarCounts {
+func countEnvVars(env map[string]*apigen.EnvVarValue) envVarCounts {
 	var counts envVarCounts
 	for _, value := range env {
 		if value == nil {
@@ -1076,7 +1076,7 @@ func (r *containerRunner) syncNetworkStatus() {
 // data volume (unless disabled) followed by any configured mounts. It also
 // returns the default volume's host path (empty when disabled) so the runner can
 // create + chown it at spawn time.
-func containerMounts(dep *apigen.DeploymentConfig2) ([]ctrd.Mount, string) {
+func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd.Mount, string) {
 	cfg := dep.Spec.Container().Runtime
 	var mounts []ctrd.Mount
 	var dataHost string

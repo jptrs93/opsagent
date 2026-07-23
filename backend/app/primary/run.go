@@ -65,7 +65,7 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	if err != nil {
 		return fmt.Errorf("creating web UI handler: %w", err)
 	}
-	primaryDeployments := storage.DeploymentPredicate(func(cfg apigen.DeploymentConfig2) bool {
+	primaryDeployments := storage.DeploymentPredicate(func(cfg apigen.DeploymentConfig) bool {
 		return cfg.NodeID == primaryNode.ID
 	})
 	primaryRuntime.start(ctx, primaryDeployments, primaryNode.ID, nodeIdentifier)

@@ -32,7 +32,7 @@ var DuplicateDeploymentErr = apigen.NewApiErr("A deployment with this name, spac
 
 const githubReleaseVersionsDisplayErr = "Releases could not be loaded from GitHub. Please try again."
 
-func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentConfig2, error) {
+func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentConfig, error) {
 	identity := req.Identity
 	if identity.Name == "" {
 		return nil, invalidConfigErrf("name is required")
@@ -81,7 +81,7 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 	return cfg, nil
 }
 
-func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequest) (*apigen.DeploymentConfig2, error) {
+func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequest) (*apigen.DeploymentConfig, error) {
 	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr
 	}
@@ -96,7 +96,7 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 		return nil, invalidConfigErrf("opendeploy system deployment identity and spec are internal-only")
 	}
 
-	var spec *apigen.DeploymentSpec2
+	var spec *apigen.DeploymentSpec
 	if req.SpaceID != nil {
 		nextIdentity := cfg.Identity
 		nextIdentity.SpaceID = *req.SpaceID
@@ -233,7 +233,7 @@ func (h *Handler) PostV1DeploymentDelete(ctx apigen.Context, req *apigen.Deploym
 	return nil
 }
 
-func (h *Handler) canDeleteStaleDisconnectedSystemDeployment(cfg *apigen.DeploymentConfig2) bool {
+func (h *Handler) canDeleteStaleDisconnectedSystemDeployment(cfg *apigen.DeploymentConfig) bool {
 	if cfg.NodeID <= 0 || cfg.NodeID == h.NodeID || h.Cluster == nil {
 		return false
 	}
@@ -241,7 +241,7 @@ func (h *Handler) canDeleteStaleDisconnectedSystemDeployment(cfg *apigen.Deploym
 	return !connected
 }
 
-func (h *Handler) canDeleteDeployment(cfg *apigen.DeploymentConfig2, status *apigen.DeploymentStatus) bool {
+func (h *Handler) canDeleteDeployment(cfg *apigen.DeploymentConfig, status *apigen.DeploymentStatus) bool {
 	if status == nil {
 		return false
 	}
@@ -649,7 +649,7 @@ func toAPILogLine(line logreader.LogLine) *apigen.LogLine {
 }
 
 // findConfigByID looks up a deployment config from the store's snapshot by integer ID.
-func (h *Handler) findConfigByID(deploymentID int32) *apigen.DeploymentConfig2 {
+func (h *Handler) findConfigByID(deploymentID int32) *apigen.DeploymentConfig {
 	snapshot := h.Store.FetchDeploymentSnapshot(nil)
 	for _, dws := range snapshot {
 		if dws.Config.ID == deploymentID {
@@ -691,15 +691,15 @@ type deploymentConfigResolver interface {
 	ResolveConfig(id int32) (string, bool)
 }
 
-func (h *Handler) validateDeploymentSpec(spec *apigen.DeploymentSpec2) (*apigen.DeploymentSpec2, error) {
+func (h *Handler) validateDeploymentSpec(spec *apigen.DeploymentSpec) (*apigen.DeploymentSpec, error) {
 	return validateDeploymentSpecWithResolvers(spec, h.Store, h.Secrets, h.Store)
 }
 
-func validateDeploymentSpecWithAssets(spec *apigen.DeploymentSpec2, assets deploymentAssetResolver) (*apigen.DeploymentSpec2, error) {
+func validateDeploymentSpecWithAssets(spec *apigen.DeploymentSpec, assets deploymentAssetResolver) (*apigen.DeploymentSpec, error) {
 	return validateDeploymentSpecWithResolvers(spec, assets, nil, nil)
 }
 
-func validateDeploymentSpecWithResolvers(spec *apigen.DeploymentSpec2, assets deploymentAssetResolver, secretStore deploymentSecretResolver, configs deploymentConfigResolver) (*apigen.DeploymentSpec2, error) {
+func validateDeploymentSpecWithResolvers(spec *apigen.DeploymentSpec, assets deploymentAssetResolver, secretStore deploymentSecretResolver, configs deploymentConfigResolver) (*apigen.DeploymentSpec, error) {
 	if spec == nil {
 		return nil, invalidConfigErrf("spec is required")
 	}
@@ -732,11 +732,11 @@ func validateDeploymentSpecWithResolvers(spec *apigen.DeploymentSpec2, assets de
 	return out, nil
 }
 
-func cloneDeploymentSpec(spec *apigen.DeploymentSpec2) (*apigen.DeploymentSpec2, error) {
+func cloneDeploymentSpec(spec *apigen.DeploymentSpec) (*apigen.DeploymentSpec, error) {
 	if spec == nil {
 		return nil, nil
 	}
-	return apigen.DecodeDeploymentSpec2(spec.Encode())
+	return apigen.DecodeDeploymentSpec(spec.Encode())
 }
 
 func validateNetworkingConfig(cfg *apigen.NetworkingConfig) error {
@@ -865,13 +865,13 @@ func ingressHostname(value string) (string, bool) {
 	return hostname, true
 }
 
-func (h *Handler) validateNodeNetworkingClaims(nodeID, deploymentID int32, candidate *apigen.DeploymentSpec2) error {
+func (h *Handler) validateNodeNetworkingClaims(nodeID, deploymentID int32, candidate *apigen.DeploymentSpec) error {
 	if candidate == nil {
 		return nil
 	}
 	routes := map[ingressRouteKey]int32{}
 	tcpPorts := map[int32]int32{}
-	add := func(id int32, spec apigen.DeploymentSpec2) error {
+	add := func(id int32, spec apigen.DeploymentSpec) error {
 		if spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			return nil
 		}
@@ -938,7 +938,7 @@ func portForwardProtocolName(protocol apigen.PortForwardProtocol) string {
 	}
 }
 
-func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec2, secretStore deploymentSecretResolver, configs deploymentConfigResolver) error {
+func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec, secretStore deploymentSecretResolver, configs deploymentConfigResolver) error {
 	if spec == nil || spec.Container() == nil || len(spec.Container().Runtime.EnvVars) == 0 {
 		return nil
 	}
@@ -963,11 +963,11 @@ func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec2, secretStore deployment
 	return nil
 }
 
-func (h *Handler) validateAddressEnvRefs(nodeID, deploymentID int32, spec *apigen.DeploymentSpec2, snapshot []apigen.DeploymentWithStatus) error {
+func (h *Handler) validateAddressEnvRefs(nodeID, deploymentID int32, spec *apigen.DeploymentSpec, snapshot []apigen.DeploymentWithStatus) error {
 	if spec == nil || spec.Container() == nil {
 		return nil
 	}
-	configs := make(map[int32]*apigen.DeploymentConfig2, len(snapshot))
+	configs := make(map[int32]*apigen.DeploymentConfig, len(snapshot))
 	for i := range snapshot {
 		configs[snapshot[i].Config.ID] = &snapshot[i].Config
 	}
@@ -1030,7 +1030,7 @@ func validateContainerSource(source *apigen.ContainerBundleSource) error {
 	return nil
 }
 
-func validateNixWorkloadVersion(spec *apigen.DeploymentSpec2) error {
+func validateNixWorkloadVersion(spec *apigen.DeploymentSpec) error {
 	if nixSource(spec) == nil {
 		return nil
 	}
@@ -1047,7 +1047,7 @@ func validateNixWorkloadVersion(spec *apigen.DeploymentSpec2) error {
 	return nil
 }
 
-func (h *Handler) verifyRunningNixSource(ctx apigen.Context, spec *apigen.DeploymentSpec2) error {
+func (h *Handler) verifyRunningNixSource(ctx apigen.Context, spec *apigen.DeploymentSpec) error {
 	nix := nixSource(spec)
 	if nix == nil {
 		return nil
@@ -1061,21 +1061,21 @@ func (h *Handler) verifyRunningNixSource(ctx apigen.Context, spec *apigen.Deploy
 	return nil
 }
 
-func nixSource(spec *apigen.DeploymentSpec2) *apigen.NixDockerBuild2 {
+func nixSource(spec *apigen.DeploymentSpec) *apigen.NixDockerBuild {
 	if spec == nil || spec.Container() == nil {
 		return nil
 	}
 	return spec.Container().Source.NixDockerBuild
 }
 
-func sameNixBuildConfig(a, b *apigen.NixDockerBuild2) bool {
+func sameNixBuildConfig(a, b *apigen.NixDockerBuild) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
 	return *a == *b
 }
 
-func sameDesiredVersionSource(a, b *apigen.DeploymentSpec2) bool {
+func sameDesiredVersionSource(a, b *apigen.DeploymentSpec) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
@@ -1296,7 +1296,7 @@ func containerHostMountDenied(host string) bool {
 	return false
 }
 
-func (h *Handler) validateCrossDeploymentMountSources(spec *apigen.DeploymentSpec2, nodeID, currentID int32) error {
+func (h *Handler) validateCrossDeploymentMountSources(spec *apigen.DeploymentSpec, nodeID, currentID int32) error {
 	if spec == nil || spec.Container() == nil {
 		return nil
 	}
@@ -1327,14 +1327,14 @@ func pathEqualOrUnder(path, root string) bool {
 	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
 }
 
-func resolveAssetMounts(in []*apigen.AssetMount2, assets deploymentAssetResolver) ([]*apigen.AssetMount2, error) {
+func resolveAssetMounts(in []*apigen.AssetMount, assets deploymentAssetResolver) ([]*apigen.AssetMount, error) {
 	if len(in) == 0 {
 		return nil, nil
 	}
 	if assets == nil {
 		return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: assets cannot be resolved here")
 	}
-	out := make([]*apigen.AssetMount2, 0, len(in))
+	out := make([]*apigen.AssetMount, 0, len(in))
 	for _, m := range in {
 		if m == nil {
 			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: asset and path are both required")
@@ -1357,12 +1357,12 @@ func resolveAssetMounts(in []*apigen.AssetMount2, assets deploymentAssetResolver
 		if m.Permission != apigen.FilePermission_READ_ONLY && m.Permission != apigen.FilePermission_READ_EXECUTE {
 			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: permission must be READ_ONLY or READ_EXECUTE")
 		}
-		out = append(out, &apigen.AssetMount2{AssetID: asset.ID, ContainerPath: cleanPath, Permission: m.Permission})
+		out = append(out, &apigen.AssetMount{AssetID: asset.ID, ContainerPath: cleanPath, Permission: m.Permission})
 	}
 	return out, nil
 }
 
-func resolveEnvAssetRefs(scope string, env map[string]*apigen.EnvVarValue2, assets deploymentAssetResolver) error {
+func resolveEnvAssetRefs(scope string, env map[string]*apigen.EnvVarValue, assets deploymentAssetResolver) error {
 	for key, value := range env {
 		if value.AssetID <= 0 {
 			continue
@@ -1382,9 +1382,9 @@ func resolveEnvAssetRefs(scope string, env map[string]*apigen.EnvVarValue2, asse
 
 // validateEnvVars trims and validates env keys and typed values. Duplicate keys
 // after trimming are rejected so the resulting process environment is unambiguous.
-func validateEnvVars(scope string, in map[string]*apigen.EnvVarValue2) error {
+func validateEnvVars(scope string, in map[string]*apigen.EnvVarValue) error {
 	seen := make(map[string]struct{}, len(in))
-	out := make(map[string]*apigen.EnvVarValue2, len(in))
+	out := make(map[string]*apigen.EnvVarValue, len(in))
 	for rawKey, value := range in {
 		key := strings.TrimSpace(rawKey)
 		if key == "" {

@@ -94,7 +94,7 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 
 	primaryNode := testNode(store, "primary")
 	workerNode := testNode(store, "worker")
-	create := func(nodeID int32, name string, spec *apigen.DeploymentSpec2) *apigen.DeploymentConfig2 {
+	create := func(nodeID int32, name string, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
 		return store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
 			SpaceID: DefaultSpaceID,
 			Name:    name,
@@ -108,7 +108,7 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 		Name:    systemDeploymentName,
 	}, primaryNode.ID, testSystemSpecWithState("v1", true))
 
-	seedStatus := func(cfg *apigen.DeploymentConfig2, artifact string) {
+	seedStatus := func(cfg *apigen.DeploymentConfig, artifact string) {
 		store.MustWriteDeploymentStatus(cfg.ID, func(status *apigen.DeploymentStatus) bool {
 			status.BumpUpdatedAt()
 			status.DeploymentID = cfg.ID
@@ -176,7 +176,7 @@ func TestEnsureSystemDeploymentRepairsExistingSpec(t *testing.T) {
 
 	store.EnsureSystemDeployment(node.ID, "v0.0.195")
 
-	var repaired *apigen.DeploymentConfig2
+	var repaired *apigen.DeploymentConfig
 	for _, cfg := range store.ListActiveDeploymentConfigs() {
 		if cfg.ID == created.ID {
 			repaired = cfg
@@ -495,7 +495,7 @@ func TestSetDeploymentWorkloadStateReencodesSpec(t *testing.T) {
 
 func assertPersistedWorkloadState(t *testing.T, blob []byte, wantVersion string, wantRunning bool) {
 	t.Helper()
-	spec, err := apigen.DecodeDeploymentSpec2(blob)
+	spec, err := apigen.DecodeDeploymentSpec(blob)
 	if err != nil {
 		t.Fatalf("decode persisted deployment spec: %v", err)
 	}
@@ -517,7 +517,7 @@ func TestRenameNodePreservesIdentifier(t *testing.T) {
 	if node.Name != "control plane" || node.Identifier != "primary-id" {
 		t.Fatalf("renamed node = %+v", node)
 	}
-	configs := store.FetchDeploymentSnapshot(func(cfg apigen.DeploymentConfig2) bool {
+	configs := store.FetchDeploymentSnapshot(func(cfg apigen.DeploymentConfig) bool {
 		return cfg.NodeID == primaryNode.ID
 	})
 	if len(configs) == 0 || configs[0].Config.NodeID != primaryNode.ID {
@@ -525,7 +525,7 @@ func TestRenameNodePreservesIdentifier(t *testing.T) {
 	}
 }
 
-func testSystemSpecWithState(version string, running bool) *apigen.DeploymentSpec2 {
+func testSystemSpecWithState(version string, running bool) *apigen.DeploymentSpec {
 	spec := SystemDeploymentSpec()
 	if err := spec.SetWorkloadState(version, running); err != nil {
 		panic(err)

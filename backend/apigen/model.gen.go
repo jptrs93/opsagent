@@ -118,13 +118,13 @@ type DeploymentUpdateRequest struct {
 	TargetVersion string
 	Stop          bool
 	Version       int32
-	Spec          DeploymentSpec2
+	Spec          DeploymentSpec
 	SpaceID       *int32
 }
 
 type DeploymentCreateRequest struct {
 	Identity DeploymentIdentity
-	Spec     DeploymentSpec2
+	Spec     DeploymentSpec
 	NodeID   int32
 }
 
@@ -189,7 +189,7 @@ type DeploymentDeleteRequest struct {
 }
 
 type DeploymentWithStatus struct {
-	Config DeploymentConfig2
+	Config DeploymentConfig
 	Status DeploymentStatus
 }
 
@@ -331,7 +331,7 @@ type ValidateContainerImageSourceResponse struct {
 	Tags  []*Version
 }
 
-type DeploymentConfig2 struct {
+type DeploymentConfig struct {
 	ID        int32
 	NodeID    int32
 	Identity  DeploymentIdentity
@@ -339,11 +339,11 @@ type DeploymentConfig2 struct {
 	UpdatedAt time.Time
 	UpdatedBy int32
 	Version   int32
-	Spec      DeploymentSpec2
+	Spec      DeploymentSpec
 	Deleted   bool
 }
 
-type DeploymentSpec2 struct {
+type DeploymentSpec struct {
 	Networking     NetworkingConfig
 	Container1Spec *ContainerSpec
 	Container2Spec *ContainerSpec
@@ -386,11 +386,11 @@ type ContainerSpec struct {
 }
 
 type ContainerBundleSource struct {
-	NixDockerBuild *NixDockerBuild2
+	NixDockerBuild *NixDockerBuild
 	RemoteImage    *RemoteDockerImage
 }
 
-type NixDockerBuild2 struct {
+type NixDockerBuild struct {
 	Repo   string
 	Flake  string
 	Target string
@@ -402,12 +402,12 @@ type RemoteDockerImage struct {
 
 type ContainerRuntime struct {
 	User                  string
-	EnvVars               map[string]*EnvVarValue2
+	EnvVars               map[string]*EnvVarValue
 	OverrideCommand       []string
 	OverrideWorkingDir    string
 	DefaultVolume         DefaultVolumeMount
 	CrossDeploymentMounts []*CrossDeploymentMount
-	AssetMounts           []*AssetMount2
+	AssetMounts           []*AssetMount
 	Mounts                []*CustomHostMount
 	DevShmSizeKb          int32
 	FileDescriptorLimit   int32
@@ -424,7 +424,7 @@ type CrossDeploymentMount struct {
 	Permission    FilePermission
 }
 
-type EnvVarValue2 struct {
+type EnvVarValue struct {
 	SecretID            *int32
 	ConfigID            *int32
 	Value               *string
@@ -440,7 +440,7 @@ type CustomHostMount struct {
 	Permission    FilePermission
 }
 
-type AssetMount2 struct {
+type AssetMount struct {
 	AssetID       int32
 	ContainerPath string
 	Permission    FilePermission
@@ -788,7 +788,7 @@ type ClusterMachineList struct {
 }
 
 type DeploymentHistoryEntry struct {
-	Config *DeploymentConfig2
+	Config *DeploymentConfig
 	Status *DeploymentStatus
 }
 
@@ -864,7 +864,7 @@ type ClusterStatusResponse struct {
 
 type MsgToWorker struct {
 	DeploymentsSnapshot    *DeploymentWithStatusSnapshot
-	DeploymentUpdate       *DeploymentConfig2
+	DeploymentUpdate       *DeploymentConfig
 	PrepareLogRequest      *PrepareOutputRequest
 	RunLogRequest          *RunOutputRequest
 	DeploymentLogRequest   *DeploymentLogRequest

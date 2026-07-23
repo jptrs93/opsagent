@@ -28,7 +28,7 @@ func New(releasesDir string, client *github.Client) *Preparer {
 	}
 }
 
-func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig2, log *preparerlog.Log) (string, apigen.PreparationStatus) {
+func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.PreparationStatus) {
 	version := dep.WorkloadVersion()
 	logPath := dep.PrepareOutputPath()
 	slog.InfoContext(ctx, "github release download starting", "log_path", logPath)

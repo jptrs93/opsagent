@@ -49,8 +49,8 @@ func TestRunNetStateWriterProcessesUpdateQueuedWithInitialSnapshot(t *testing.T)
 	network.SetDefault(network.New(network.GeneratePrefix(), 99))
 	t.Cleanup(func() { network.SetDefault(previousNetwork) })
 
-	route := apigen.DeploymentWithStatus{Config: apigen.DeploymentConfig2{
-		Spec: apigen.DeploymentSpec2{Networking: apigen.NetworkingConfig{
+	route := apigen.DeploymentWithStatus{Config: apigen.DeploymentConfig{
+		Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 			Ingress: []*apigen.Ingress{{
 				Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
@@ -99,10 +99,10 @@ func TestRenderNetStateRendersTlsPassthroughIngress(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	network.SetDefault(network.New(prefix, 99))
 	state := RenderNetState(7, "node-a", []apigen.DeploymentWithStatus{{
-		Config: apigen.DeploymentConfig2{
+		Config: apigen.DeploymentConfig{
 			ID:       42,
 			Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "database"},
-			Spec: apigen.DeploymentSpec2{Networking: apigen.NetworkingConfig{
+			Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 				Ingress: []*apigen.Ingress{{
 					Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
@@ -139,8 +139,8 @@ func TestRenderNetStateRendersTlsPassthroughIngress(t *testing.T) {
 
 func TestRenderNetStateKeepsIngressWithoutReadyBackend(t *testing.T) {
 	state := RenderNetState(1, "node-a", []apigen.DeploymentWithStatus{{
-		Config: apigen.DeploymentConfig2{
-			Spec: apigen.DeploymentSpec2{Networking: apigen.NetworkingConfig{
+		Config: apigen.DeploymentConfig{
+			Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 				Ingress: []*apigen.Ingress{{
 					Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
@@ -164,7 +164,7 @@ func TestRenderNetStateKeepsIngressWithoutReadyBackend(t *testing.T) {
 
 func TestRenderNetStateOmitsIngressOnDNSPort(t *testing.T) {
 	state := RenderNetState(1, "node-a", []apigen.DeploymentWithStatus{{
-		Config: apigen.DeploymentConfig2{Spec: apigen.DeploymentSpec2{Networking: apigen.NetworkingConfig{
+		Config: apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 			Ingress: []*apigen.Ingress{{
 				Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,

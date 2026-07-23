@@ -97,13 +97,13 @@ message DeploymentUpdateRequest {
   string target_version = 2;
   bool stop = 3;
   int32 version = 4;
-  DeploymentSpec2 spec = 6 [(cp.go_value) = true]; // optional: update deployment spec
+  DeploymentSpec spec = 6 [(cp.go_value) = true]; // optional: update deployment spec
   optional int32 space_id = 7;                     // optional: move deployment to another space
 }
 
 message DeploymentCreateRequest {
   DeploymentIdentity identity = 1 [(cp.go_value) = true];
-  DeploymentSpec2 spec = 2 [(cp.go_value) = true];
+  DeploymentSpec spec = 2 [(cp.go_value) = true];
   reserved 3;
   reserved "desired_state";
   int32 node_id = 4; // required canonical target node
@@ -173,7 +173,7 @@ message DeploymentDeleteRequest {
 }
 
 message DeploymentWithStatus {
-  DeploymentConfig2 Config = 1 [(cp.go_value) = true];
+  DeploymentConfig Config = 1 [(cp.go_value) = true];
   DeploymentStatus status = 2 [(cp.go_value) = true];
 }
 
@@ -358,7 +358,7 @@ message ValidateContainerImageSourceResponse {
 
 
 
-message DeploymentConfig2 {
+message DeploymentConfig {
   int32 id = 1;
   int32 node_id = 2;
   DeploymentIdentity identity = 3 [(cp.go_value) = true];
@@ -366,11 +366,11 @@ message DeploymentConfig2 {
   int64 updated_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int32 updated_by = 6;
   int32 version = 7;  // per-deployment monotonically increasing config version
-  DeploymentSpec2 spec = 8 [(cp.go_value) = true];
+  DeploymentSpec spec = 8 [(cp.go_value) = true];
   bool deleted = 9;
 }
 
-message DeploymentSpec2 {
+message DeploymentSpec {
   NetworkingConfig networking = 1 [(cp.go_value) = true];
 
   // Exactly one workload field must currently be set. Future multi-container
@@ -414,11 +414,11 @@ message ContainerSpec {
 }
 
 message ContainerBundleSource {
-  NixDockerBuild2 nix_docker_build = 1;
+  NixDockerBuild nix_docker_build = 1;
   RemoteDockerImage remote_image = 2;
 }
 
-message NixDockerBuild2 {
+message NixDockerBuild {
   string repo = 1;
   string flake = 2;   // path to flake.nix relative to repo root
   string target = 3;  // optional local flake target, e.g. .#radkitRpaClientImage; output must stream an OCI/Docker image tar
@@ -430,13 +430,13 @@ message RemoteDockerImage {
 
 message ContainerRuntime {
   string user = 1;                                // OCI process.user (uid, uid:gid, or name); empty = image default
-  map<string, EnvVarValue2> env_vars = 2;         // env vars; values can be literal, secret/config/address ref, or asset
+  map<string, EnvVarValue> env_vars = 2;          // env vars; values can be literal, secret/config/address ref, or asset
   repeated string override_command = 3;           // optional argv override (entrypoint+cmd); empty = image default
   string override_working_dir = 4;                // optional OCI process.cwd; empty = image default
 
   DefaultVolumeMount default_volume = 5 [(cp.go_value) = true];
   repeated CrossDeploymentMount cross_deployment_mounts = 6;
-  repeated AssetMount2 asset_mounts = 8; // OpenDeploy-managed readonly asset file mounts
+  repeated AssetMount asset_mounts = 8; // OpenDeploy-managed readonly asset file mounts
   repeated CustomHostMount mounts = 7; // Intended as an override pathway for edge cases that cannot be supports via other mount options.
 
   int32 dev_shm_size_kb = 13;                     // optional /dev/shm tmpfs size override in KiB
@@ -454,7 +454,7 @@ message CrossDeploymentMount {
   FilePermission permission = 3;
 }
 
-message EnvVarValue2 {
+message EnvVarValue {
   optional int32 secret_id = 1;
   optional int32 config_id = 2;
   optional string value = 3;
@@ -473,7 +473,7 @@ message CustomHostMount {
   FilePermission permission = 3;
 }
 
-message AssetMount2 {
+message AssetMount {
   int32 asset_id = 1;
   string container_path = 2;
   FilePermission permission = 3;

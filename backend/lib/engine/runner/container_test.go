@@ -92,7 +92,7 @@ func TestCountEnvVars(t *testing.T) {
 	plain := "value"
 	secretID := int32(1)
 	configID := int32(2)
-	got := countEnvVars(map[string]*apigen.EnvVarValue2{
+	got := countEnvVars(map[string]*apigen.EnvVarValue{
 		"PLAIN":  {Value: &plain},
 		"SECRET": {SecretID: &secretID},
 		"CONFIG": {ConfigID: &configID},
@@ -139,11 +139,11 @@ func TestDefaultVolumeDest(t *testing.T) {
 }
 
 func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
-	dep := &apigen.DeploymentConfig2{
+	dep := &apigen.DeploymentConfig{
 		ID: 7,
-		Spec: apigen.DeploymentSpec2{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
+		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
 			DefaultVolume: apigen.DefaultVolumeMount{Disabled: true},
-			AssetMounts: []*apigen.AssetMount2{
+			AssetMounts: []*apigen.AssetMount{
 				{AssetID: 8, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY},
 				{AssetID: 9, ContainerPath: "/docker-entrypoint-initdb.d/init.sh", Permission: apigen.FilePermission_READ_EXECUTE},
 			},
@@ -168,11 +168,11 @@ func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, &apigen.DeploymentConfig2{
+	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, &apigen.DeploymentConfig{
 		ID:       7,
 		Version:  3,
 		Identity: apigen.DeploymentIdentity{SpaceID: 5},
-		Spec: apigen.DeploymentSpec2{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
+		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
 			DefaultVolume:       apigen.DefaultVolumeMount{Disabled: true},
 			DevShmSizeKb:        65536,
 			FileDescriptorLimit: 4096,
@@ -197,9 +197,9 @@ func TestContainerMountsTranslatesV2MountsAndPermissions(t *testing.T) {
 	ainit.StaticConfig.VolumesDir = "/var/lib/opendeploy-volumes"
 	t.Cleanup(func() { ainit.StaticConfig.VolumesDir = oldVolumesDir })
 
-	dep := &apigen.DeploymentConfig2{
+	dep := &apigen.DeploymentConfig{
 		ID: 7,
-		Spec: apigen.DeploymentSpec2{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
+		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
 			DefaultVolume: apigen.DefaultVolumeMount{ContainerPath: "/state"},
 			CrossDeploymentMounts: []*apigen.CrossDeploymentMount{
 				{DeploymentID: 12, ContainerPath: "/shared-ro", Permission: apigen.FilePermission_READ_ONLY},
