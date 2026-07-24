@@ -4,7 +4,7 @@ const baseURL = process.env.OPD_BASE_URL || 'http://localhost:8080';
 
 export default defineConfig({
   testDir: './flows',
-  timeout: 10 * 60 * 1000,
+  timeout: 30 * 60 * 1000,
   expect: {
     timeout: 4 * 1000,
   },

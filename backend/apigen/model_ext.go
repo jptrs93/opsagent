@@ -8,7 +8,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 )
 
-const ClusterProtocolVersion int32 = 2
+const ClusterProtocolVersion int32 = 3
 
 // BumpUpdatedAt advances UpdatedAt as a hybrid logical clock: it takes the
 // current wall clock, but never returns a value <= the previous one (it adds
@@ -19,10 +19,12 @@ const ClusterProtocolVersion int32 = 2
 // handshake. UpdatedAt thus serves as both the status's wall-clock time and
 // its monotonic identity/ordering key.
 func (s *DeploymentStatus) BumpUpdatedAt() {
-	if now := time.Now(); now.After(s.UpdatedAt) {
+	now := time.Now().Round(0)
+	previous := s.UpdatedAt.Round(0)
+	if now.After(previous) {
 		s.UpdatedAt = now
 	} else {
-		s.UpdatedAt = s.UpdatedAt.Add(time.Nanosecond)
+		s.UpdatedAt = previous.Add(time.Nanosecond)
 	}
 }
 

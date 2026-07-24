@@ -4,6 +4,7 @@ import {caseDef as nixDockerBaselineCase} from './nix-docker-baseline.js';
 import {caseDef as nixDockerVirtualNetworkCase} from './nix-docker-virtual-network.js';
 import {hostRolloverCase, virtualPortForwardingCase, virtualRolloverCase} from './rollover-networking.js';
 import {expectTLSPassthroughRoutes, tlsPassthroughCases} from './tls-passthrough.js';
+import {pgBackRestCases} from './postgres-pgbackrest.js';
 import {installVirtualAuthenticator} from '../helpers/webauthn.js';
 import {
   acceptWaitingWorker,
@@ -470,7 +471,7 @@ export const orderedCases = [
         },
         afterUpgrade: async () => {
           for (const machine of ['primary', 'worker-1', 'worker-2']) {
-            await expectOpenDeployNetVersion(ctx.page, {machine, version: requiredEnv('OPD_INSTALL_VERSION')});
+            await expectOpenDeployNetVersion(ctx.page, {machine, version: requiredEnv('OPD_UPGRADE_VERSION')});
           }
           await expectTLSPassthroughRoutes();
         },
@@ -551,4 +552,5 @@ export const orderedCases = [
       await expectDeploymentRunning(ctx.page, {name: 'postgresclient-worker-2', machine: 'worker-2'});
     },
   },
+  ...pgBackRestCases,
 ];

@@ -42,7 +42,7 @@ func (f *fakeRouteOperations) RouteDel(route *netlink.Route) error {
 
 func TestWorkloadRouteConstructors(t *testing.T) {
 	prefix := GeneratePrefix()
-	addr, err := prefix.InstanceAddr(12, 34, 0)
+	addr, err := prefix.InboundAddr(12, 34, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestTunnelIdentityAndTopologyValidation(t *testing.T) {
 		t.Fatal("unaliased tunnel was accepted as owned")
 	}
 	prefix := GeneratePrefix()
-	addr, err := prefix.InstanceAddr(1, 10, 0)
+	addr, err := prefix.InboundAddr(1, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,11 +114,11 @@ func TestTunnelIdentityAndTopologyValidation(t *testing.T) {
 
 func TestReconcileLocalWorkloadRouteDeletesOnlyExactLegacyRoute(t *testing.T) {
 	prefix := GeneratePrefix()
-	addr, err := prefix.InstanceAddr(12, 34, 0)
+	addr, err := prefix.InboundAddr(12, 34, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherAddr, err := prefix.InstanceAddr(12, 35, 0)
+	otherAddr, err := prefix.InboundAddr(12, 35, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestReconcileClusterFallbackDeletesOnlyExactLegacyRoute(t *testing.T) {
 func TestReconcileLocalWorkloadRouteRejectsAddressOutsideCluster(t *testing.T) {
 	prefix := GeneratePrefix()
 	otherPrefix := GeneratePrefix()
-	addr, err := otherPrefix.InstanceAddr(12, 34, 0)
+	addr, err := otherPrefix.InboundAddr(12, 34, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestReconcileLocalWorkloadRouteRejectsAddressOutsideCluster(t *testing.T) {
 
 func TestRouteReconciliationPropagatesOperationErrors(t *testing.T) {
 	prefix := GeneratePrefix()
-	addr, err := prefix.InstanceAddr(12, 34, 0)
+	addr, err := prefix.InboundAddr(12, 34, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

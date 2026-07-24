@@ -10,11 +10,11 @@ import (
 
 func TestTopologyFromClusterNetMapUsesOnlyRemoteRouteHosts(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	localAddr, err := prefix.InstanceAddr(1, 10, 0)
+	localAddr, err := prefix.InboundAddr(1, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	remoteAddr, err := prefix.InstanceAddr(1, 11, 0)
+	remoteAddr, err := prefix.InboundAddr(1, 11, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestTopologyFromClusterNetMapUsesOnlyRemoteRouteHosts(t *testing.T) {
 
 func TestTopologyFromClusterNetMapRejectsMissingRouteHostUnderlay(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	addr, err := prefix.InstanceAddr(1, 10, 0)
+	addr, err := prefix.InboundAddr(1, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

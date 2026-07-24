@@ -643,8 +643,8 @@ func (q *Queries) InsertAssetMigration(ctx context.Context, arg InsertAssetMigra
 
 const insertDeploymentConfigHistory = `-- name: InsertDeploymentConfigHistory :exec
 
-INSERT INTO deployment_config_history (deployment_id, version, updated_at, updated_by, spec_blob, deleted)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_config_history (deployment_id, version, updated_at, updated_by, space_id, node_id, spec_blob, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertDeploymentConfigHistoryParams struct {
@@ -652,6 +652,8 @@ type InsertDeploymentConfigHistoryParams struct {
 	Version      int64
 	UpdatedAt    int64
 	UpdatedBy    int64
+	SpaceID      int64
+	NodeID       int64
 	SpecBlob     []byte
 	Deleted      int64
 }
@@ -663,6 +665,8 @@ func (q *Queries) InsertDeploymentConfigHistory(ctx context.Context, arg InsertD
 		arg.Version,
 		arg.UpdatedAt,
 		arg.UpdatedBy,
+		arg.SpaceID,
+		arg.NodeID,
 		arg.SpecBlob,
 		arg.Deleted,
 	)
@@ -955,7 +959,7 @@ func (q *Queries) ListAssetVersionsByKey(ctx context.Context, key string) ([]Ass
 }
 
 const listDeploymentConfigHistory = `-- name: ListDeploymentConfigHistory :many
-SELECT deployment_id, version, updated_at, updated_by, spec_blob, deleted
+SELECT deployment_id, version, updated_at, updated_by, space_id, node_id, spec_blob, deleted
 FROM deployment_config_history
 WHERE deployment_id = ?
 ORDER BY version ASC
@@ -975,6 +979,8 @@ func (q *Queries) ListDeploymentConfigHistory(ctx context.Context, deploymentID 
 			&i.Version,
 			&i.UpdatedAt,
 			&i.UpdatedBy,
+			&i.SpaceID,
+			&i.NodeID,
 			&i.SpecBlob,
 			&i.Deleted,
 		); err != nil {

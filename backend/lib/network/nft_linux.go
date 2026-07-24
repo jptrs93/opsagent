@@ -17,7 +17,7 @@ const nftTableName = "opendeploy"
 // reconcileNft rebuilds the opendeploy nftables tables from the manager's full
 // desired state in one netlink batch: the IPv4 egress masquerade plus DNAT
 // rules for every published host port (v4 to the container's machine-local
-// address, v6 to the stable instance address). Caller holds m.mu.
+// address, v6 to the stable inbound address I). Caller holds m.mu.
 func (m *Manager) reconcileNft() error {
 	c := &nftables.Conn{}
 

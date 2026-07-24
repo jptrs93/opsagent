@@ -16,6 +16,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/lib/log/logfilter"
 	"github.com/jptrs93/opsagent/backend/lib/log/logreader"
+	"github.com/jptrs93/opsagent/backend/lib/network"
 	gitrepo "github.com/jptrs93/opsagent/backend/lib/repo/git"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -46,6 +47,9 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 	}
 	if internaldeploy.IsInternalIdentity(identity) {
 		return nil, invalidConfigErrf("opendeploy system deployment identity is internal-only")
+	}
+	if identity.SpaceID < 0 || identity.SpaceID > network.MaxSpaceID {
+		return nil, invalidConfigErrf("spaceId must be between 0 and %d", network.MaxSpaceID)
 	}
 	spec, err := h.validateDeploymentSpec(&req.Spec)
 	if err != nil {
@@ -98,6 +102,9 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 
 	var spec *apigen.DeploymentSpec
 	if req.SpaceID != nil {
+		if *req.SpaceID < 0 || *req.SpaceID > network.MaxSpaceID {
+			return nil, invalidConfigErrf("spaceId must be between 0 and %d", network.MaxSpaceID)
+		}
 		nextIdentity := cfg.Identity
 		nextIdentity.SpaceID = *req.SpaceID
 		if internaldeploy.IsInternalIdentity(nextIdentity) {
@@ -1474,8 +1481,11 @@ func validateEnvVars(scope string, in map[string]*apigen.EnvVarValue) error {
 			if *value.AddressDeploymentID <= 0 {
 				return invalidConfigErrf("%s.%s: addressDeploymentId must be positive", scope, key)
 			}
-			if *value.AddressSpaceID < 0 {
-				return invalidConfigErrf("%s.%s: addressSpaceId must not be negative", scope, key)
+			if *value.AddressDeploymentID > network.MaxDeploymentID {
+				return invalidConfigErrf("%s.%s: addressDeploymentId must not exceed %d", scope, key, network.MaxDeploymentID)
+			}
+			if *value.AddressSpaceID < 0 || *value.AddressSpaceID > network.MaxSpaceID {
+				return invalidConfigErrf("%s.%s: addressSpaceId must be between 0 and %d", scope, key, network.MaxSpaceID)
 			}
 		}
 		if set != 1 {

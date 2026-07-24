@@ -16,9 +16,17 @@ traversal, and encrypted transport are outside this plan.
 
 ## Fixed decisions
 
-- Every virtual workload has a stable logical RFC 4193 ULA IPv6 `/128`.
-- The logical address contains space and deployment identity but not node
-  placement. Its 17 reserved bits remain zero.
+- Every virtual run has stable inbound RFC 4193 ULA IPv6 address `I` and a
+  run-scoped preferred outbound address `O`. Both are `/128`s.
+- The address ABI is
+  `<ULA:48><space:16><deployment:24><ordinal:12><versionSlot:20><runSlot:8>`
+  and contains no node placement.
+- `I = Address(prefix, space, deployment, ordinal, 0, 0)`. `O` uses nonzero
+  version and run slots normalized from positive full-width values with
+  `((n - 1) % max) + 1`, where `max = 2^bits - 1`.
+- Every virtual run is preassigned both addresses. `I` has `preferred_lft=0`;
+  `O` is preferred and routed for the run's full life, including after rollover
+  promotion. DNS, endpoints, ingress, and Address refs use `I`.
 - A local logical `/128` route selects the workload's host-side veth or TAP.
 - A remote logical `/128` route selects the fixed tunnel for the node currently
   hosting the workload.
@@ -46,11 +54,13 @@ The machine-local dataplane exists in `backend/lib/network`:
 
 - One named network namespace and veth pair is created per virtual container.
 - The workload side is `eth0`; the host side is `od<deployment-id>s<slot>`.
-- The workload receives its logical IPv6 address and a machine-local IPv4
+- The workload receives preassigned `I` and `O` plus a machine-local IPv4
   address used for masqueraded internet egress.
-- The host installs local logical `/128` routes to host-side veth interfaces.
-- ROLLOVER candidates receive a run-scoped address plus the deprecated stable
-  address. Promotion replaces only the stable `/128` host route.
+- The host installs the local `O` `/128` route at setup and the `I` `/128` route
+  when a run is activated.
+- ROLLOVER candidates start with preferred, routed `O` plus non-preferred `I`.
+  Promotion replaces only the `I` host route; `O` remains preferred and routed
+  until that run ends.
 - IPv6 and IPv4 forwarding are enabled by `Manager.EnsureBase`.
 - The workload MTU is 1420.
 
@@ -95,25 +105,25 @@ path.
 
 The primary renders and persists a deterministic full `ClusterNetMap` with an
 opaque generation and monotonic sequence. It contains every known node, its
-underlay address when available, and stable routes derived from running virtual
-deployment identity and placement. Target node IDs are added only when serving
-an authenticated session or enrollment response.
+underlay address when available, observed `I` routes for published virtual
+runners, and `O` routes derived from those runner identities and run metadata.
+Unpublished candidate `O` routes are absent. Target node IDs are added only when
+serving an authenticated session or enrollment response.
 
 Workers validate and atomically persist maps before publishing their prefix to
 runtime networking. Same-generation stale or conflicting snapshots are
 rejected. A new generation retires the previous generation durably so an old
 control-plane history cannot later become current again. Reconnects report the
-cached accepted generation and sequence. Kernel applied sequence remains zero
-until the tunnel reconciler is implemented.
+cached accepted generation and sequence. Workers reconcile fixed tunnels and
+remote `/128` routes, then report the applied sequence.
 
 ### Missing pieces
 
 The following do not exist yet:
 
-- Fixed `ip6tnl` or SIT interface reconciliation.
-- Remote logical `/128` route reconciliation.
-- Complete reporting and distribution of temporary run-scoped routes.
-- Tunnel state derived from the persisted worker map.
+- Applying equivalent remote topology on the primary node.
+- Reporting and distribution of unpublished candidate `O` routes. The current
+  primary map already derives `O` for published `STARTING` and `RUNNING` runners.
 - Source anti-spoofing and destination ingress policy.
 - Cross-node DNS data.
 - Cross-node integration tests and operational diagnostics.
@@ -205,19 +215,18 @@ The primary is authoritative for:
 - canonical node IDs;
 - node underlay addresses;
 - deployment identity and desired node placement;
-- stable instance address derivation;
+- stable inbound `I` derivation and published-run `O` derivation;
 - policy intent.
 
 Workers are authoritative only for machine-local runtime facts that the primary
-cannot derive, especially currently routed temporary run addresses.
+cannot derive, especially the currently routed `O` of an unpublished candidate.
 
 Worker-supplied addresses must always be associated with the node authenticated
 by the mTLS session. A payload must never be allowed to select another node ID.
 
 ### Network map contract
 
-Add a full-snapshot protobuf carried by `MsgToWorker`. A concrete initial shape
-is:
+The implemented full-snapshot protobuf carried by `MsgToWorker` has this shape:
 
 ```text
 ClusterNetMap {
@@ -247,15 +256,17 @@ Properties:
 - The first implementation distributes a complete cluster map. Filtering is a
   later scale optimization.
 
-The primary must derive stable addresses from deployment identity rather than
-trust endpoint addresses received in worker status.
+The primary derives `I` from deployment identity rather than trusting endpoint
+addresses received in worker status. It derives the published runner's `O` from
+runner status; future local-route reports cover unpublished candidate `O`.
 
 ### Worker local-route report
 
-Stable instance placement is available from primary configuration, but a
-ROLLOVER candidate's temporary kind-2 run address exists before promotion and
-is not represented by current endpoint status. Remote replies to candidate
-warmup connections need a route back to that temporary address.
+`I` placement is available from primary configuration, and the primary derives
+`O` for published `STARTING` and `RUNNING` runners. An unpublished ROLLOVER candidate's `O`
+is already assigned and routed locally before promotion but is not represented
+by current runner status. Remote replies to its outbound connections need a
+route back to that `O`.
 
 Add an authenticated full local-route report to `MsgToMaster`:
 
@@ -272,10 +283,11 @@ Requirements:
 - The worker sends it when a local attachment is created, recovered, promoted,
   or removed and at the start of every cluster session.
 - The primary binds it to the authenticated session node.
-- The primary includes reported temporary routes in subsequent network maps.
-- Stable addresses in the report are checked against primary-derived
-  placement; temporary addresses are checked against the cluster prefix and
-  address layout.
+- The primary includes reported unpublished candidate `O` routes in subsequent
+  network maps.
+- Reported `I` values are checked against primary-derived placement. Reported
+  `O` values are decoded and checked against cluster prefix, address ABI,
+  authenticated node, deployment, ordinal, and nonzero slot rules.
 - A disconnected worker's last report remains usable while its workloads are
   expected to survive agent restarts.
 
@@ -436,28 +448,31 @@ kernel state where possible and is retried from the complete desired snapshot.
 
 ### Stable placements
 
-For the current single-instance model, the primary derives ordinal-zero stable
+For the current single-instance model, the primary derives ordinal-zero `I`
 addresses from deployment space and deployment IDs and maps them to
 `DeploymentConfig.NodeID`.
 
 ### Same-node rollover
 
-Candidate creation adds the run-scoped local route and reports it. Promotion
-replaces the stable local route to the candidate veth. The run route remains
-until old candidate cleanup removes it. The stable address does not require a
-cluster placement update because its node does not change.
+Candidate creation adds its `O` local route. Future runtime reporting publishes
+that route for cross-node replies. Promotion replaces the `I` local route to
+the candidate veth; the candidate's `O` route remains for the promoted run's
+full lifetime. `I` does not require a cluster placement update because its node
+does not change. Current maps derive only published `STARTING` and `RUNNING` runner `O` routes,
+so unpublished candidate reporting is still required before cross-node warmup
+is complete.
 
 ### Cross-node movement
 
 Cross-node movement is not implemented by merely changing `NodeID`. The later
 movement sequence must be:
 
-1. Prepare the target attachment and temporary address.
+1. Prepare the target attachment with preassigned `I` and preferred, routed `O`.
 2. Confirm target readiness.
 3. Publish a versioned stable placement change.
 4. Wait for the required map application acknowledgements.
 5. Drain the source workload.
-6. Remove the source attachment and temporary routes.
+6. Remove the source attachment and its run-scoped `O` routes.
 
 During convergence, a stale sender may reach the old node. If that node has the
 new placement route, it may forward the unchanged inner packet one additional
@@ -470,9 +485,9 @@ the logical policy boundary exists.
 
 ### Source anti-spoofing
 
-At each local veth or TAP ingress, allow only addresses assigned to that
-attachment. During rollover this set may include the run address, stable
-address, and configured deprecated stable address.
+At each local veth or TAP ingress, allow only the run's assigned `I` and `O`.
+During rollover both isolated attachments have the same non-preferred `I` and
+their own `O`; routing determines which receives inbound `I` traffic.
 
 Routing cannot provide this check. Without it, a workload can emit packets with
 another workload's logical source identity.
@@ -483,7 +498,7 @@ Before delivery to a workload attachment:
 
 ```text
 deny workload traffic
-allow source from destination space /82
+allow source from destination space /64
 allow explicit cross-space deployment/port/protocol rules
 allow explicit OpenDeploy system paths
 ```
@@ -529,7 +544,8 @@ milestone is intentionally omitted from this plan.
 - Expose a complete local routed-address snapshot from `network.Manager`.
 - Publish it at session start and after setup, recovery, promotion, and teardown.
 - Bind reports to authenticated node identity on the primary.
-- Merge temporary addresses into rendered maps.
+- Merge reported unpublished candidate `O` routes into rendered maps without
+  replacing the currently published runner's `O`.
 - Ensure report replacement removes routes no longer present.
 
 ### Milestone 3: fixed tunnel reconciliation
@@ -568,8 +584,8 @@ milestone is intentionally omitted from this plan.
 - Verify TCP, UDP, and ICMPv6 workload traffic.
 - Verify agent restart from cached state and continued traffic during primary
   outage.
-- Verify candidate warmup traffic receives remote replies through temporary
-  run-address routes.
+- Verify candidate warmup traffic receives remote replies through its reported
+  `O` route and that the same route remains valid after promotion.
 - Verify stale map and tunnel state is removed without touching unrelated host
   networking.
 - Verify same-space access and default cross-space denial.
@@ -632,7 +648,8 @@ The first cross-node routing release is complete when:
 
 - Every participating node has one valid same-family underlay address.
 - Each node reconciles one fixed tunnel per remote participating node.
-- Stable and temporary remote logical `/128` routes select the correct tunnel.
+- Stable inbound `I` and run-scoped outbound `O` remote `/128` routes select the
+  correct tunnel.
 - Cached maps restore forwarding without primary availability.
 - Local routes always take precedence over stale remote placement state.
 - Unknown cluster destinations terminate at the `/48` unreachable fallback.

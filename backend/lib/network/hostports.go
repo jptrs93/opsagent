@@ -21,12 +21,21 @@ type hostPortsEntry struct {
 func (m *Manager) ApplyHostPorts(deploymentID int32, containerID string, rules []HostPortRule) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	previous, hadPrevious := m.hostPorts[deploymentID]
 	if len(rules) == 0 {
 		delete(m.hostPorts, deploymentID)
 	} else {
 		m.hostPorts[deploymentID] = hostPortsEntry{owner: containerID, rules: rules}
 	}
-	return m.reconcileNft()
+	if err := m.reconcileNft(); err != nil {
+		if hadPrevious {
+			m.hostPorts[deploymentID] = previous
+		} else {
+			delete(m.hostPorts, deploymentID)
+		}
+		return err
+	}
+	return nil
 }
 
 // ClearHostPorts removes a deployment's host-port rules if containerID still
@@ -80,9 +89,24 @@ func (m *Manager) PublishNetproxy(cn *ContainerNet) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	previousCurrent, hadCurrent := m.current[m.netproxyDeploymentID]
+	previousPorts, hadPorts := m.hostPorts[m.netproxyDeploymentID]
 	m.current[m.netproxyDeploymentID] = cn
 	m.reconcileNetproxyHostPortsLocked()
-	return m.reconcileNft()
+	if err := m.reconcileNft(); err != nil {
+		if hadCurrent {
+			m.current[m.netproxyDeploymentID] = previousCurrent
+		} else {
+			delete(m.current, m.netproxyDeploymentID)
+		}
+		if hadPorts {
+			m.hostPorts[m.netproxyDeploymentID] = previousPorts
+		} else {
+			delete(m.hostPorts, m.netproxyDeploymentID)
+		}
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) reconcileNetproxyHostPortsLocked() {
@@ -105,7 +129,7 @@ func (m *Manager) reconcileNetproxyHostPortsLocked() {
 			Protocol:   unix.IPPROTO_TCP,
 			HostPort:   uint16(port),
 			TargetPort: uint16(port),
-			TargetV6:   cn.Addr,
+			TargetV6:   cn.InboundAddr,
 			TargetV4:   cn.V4,
 		})
 	}

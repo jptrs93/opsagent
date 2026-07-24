@@ -14,8 +14,8 @@ import (
 type ContainerNetSpec struct {
 	ContainerID              string
 	DeploymentID             int32
-	Addr                     netip.Addr
-	DeprecatedAddrs          []netip.Addr
+	InboundAddr              netip.Addr
+	OutboundAddr             netip.Addr
 	UnprivilegedPortStart    int
 	SetUnprivilegedPortStart bool
 }
@@ -28,11 +28,11 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 	return nil, fmt.Errorf("virtual networking requires linux")
 }
 
-func (m *Manager) RecoverContainerNet(containerID string, deploymentID int32, addr netip.Addr) (*ContainerNet, error) {
+func (m *Manager) RecoverContainerNet(containerID string, deploymentID int32, inboundAddr, outboundAddr netip.Addr) (*ContainerNet, error) {
 	return nil, fmt.Errorf("virtual networking requires linux")
 }
 
-func (m *Manager) Promote(oldNet, candidate *ContainerNet, stable netip.Addr) error {
+func (m *Manager) Activate(candidate *ContainerNet) error {
 	return fmt.Errorf("virtual networking requires linux")
 }
 

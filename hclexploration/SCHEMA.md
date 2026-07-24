@@ -99,6 +99,10 @@ their space, for example `address("production", "redis.cache")`, so they remain
 globally addressable without nesting another reference function. Quoted names
 keep dots and other punctuation unambiguous.
 
+`address(...)` resolves the target deployment's stable inbound virtual address
+`I`. Run-scoped preferred outbound addresses `O` belong to container-run
+lifecycle and are not exposed in authored HCL.
+
 Assets, secrets, and configs accept an optional `{ version = number }` argument.
 Omitting it resolves the latest version in the selected space. Existing
 deployment documents emit the options object so their immutable references

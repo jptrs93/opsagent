@@ -305,16 +305,14 @@ func (s *PrimaryStorage) MustFetchDeploymentHistory(deploymentID int32) []*apige
 	}
 	// Get the identity and created_at from cache for display.
 	var identity apigen.DeploymentIdentity
-	var nodeID int32
 	var createdAt time.Time
 	if cfg, ok := s.configCache[deploymentID]; ok {
 		identity = cfg.Identity
-		nodeID = cfg.NodeID
 		createdAt = cfg.CreatedAt
 	}
 	out := make([]*apigen.DeploymentConfig, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, configHistoryRowToProto(dbID, nodeID, identity, createdAt, r))
+		out = append(out, configHistoryRowToProto(dbID, identity, createdAt, r))
 	}
 	return out
 }
@@ -418,6 +416,8 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 		Version:      params.Version,
 		UpdatedAt:    params.UpdatedAt,
 		UpdatedBy:    params.UpdatedBy,
+		SpaceID:      params.SpaceID,
+		NodeID:       params.NodeID,
 		SpecBlob:     params.SpecBlob,
 		Deleted:      params.Deleted,
 	}); err != nil {
@@ -483,6 +483,8 @@ func (s *PrimaryStorage) mustSetDeploymentWorkloadStateLocked(ctx apigen.Context
 		Version:      params.Version,
 		UpdatedAt:    params.UpdatedAt,
 		UpdatedBy:    params.UpdatedBy,
+		SpaceID:      params.SpaceID,
+		NodeID:       params.NodeID,
 		SpecBlob:     params.SpecBlob,
 		Deleted:      params.Deleted,
 	}); err != nil {
@@ -553,6 +555,8 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 		Version:      newVersion,
 		UpdatedAt:    now,
 		UpdatedBy:    userID,
+		SpaceID:      params.SpaceID,
+		NodeID:       params.NodeID,
 		SpecBlob:     specBlob,
 		Deleted:      existing.Deleted,
 	}); err != nil {
@@ -613,6 +617,8 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymen
 		Version:      newVersion,
 		UpdatedAt:    now,
 		UpdatedBy:    userID,
+		SpaceID:      params.SpaceID,
+		NodeID:       params.NodeID,
 		SpecBlob:     existing.SpecBlob,
 		Deleted:      existing.Deleted,
 	}); err != nil {
@@ -688,6 +694,8 @@ func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *ap
 		Version:      1,
 		UpdatedAt:    now,
 		UpdatedBy:    userID,
+		SpaceID:      int64(cid.SpaceID),
+		NodeID:       int64(nodeID),
 		SpecBlob:     specBlob,
 		Deleted:      0,
 	}); err != nil {
@@ -780,6 +788,8 @@ func (s *PrimaryStorage) EnsureSystemDeployment(nodeID int32, opendeployVersion 
 		DeploymentID: dbID,
 		Version:      1,
 		UpdatedAt:    now,
+		SpaceID:      int64(cid.SpaceID),
+		NodeID:       int64(nodeID),
 		SpecBlob:     specBlob,
 		Deleted:      0,
 	}); err != nil {
@@ -875,6 +885,8 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, initialVersion s
 		DeploymentID: dbID,
 		Version:      1,
 		UpdatedAt:    now,
+		SpaceID:      int64(cid.SpaceID),
+		NodeID:       int64(nodeID),
 		SpecBlob:     specBlob,
 		Deleted:      0,
 	}); err != nil {
@@ -946,6 +958,8 @@ func (s *PrimaryStorage) repairDeploymentSpecLocked(deploymentID int32, spec *ap
 		Version:      newVersion,
 		UpdatedAt:    now,
 		UpdatedBy:    0,
+		SpaceID:      params.SpaceID,
+		NodeID:       params.NodeID,
 		SpecBlob:     specBlob,
 		Deleted:      existing.Deleted,
 	}); err != nil {
@@ -1100,11 +1114,12 @@ func statusToHistory(s DeploymentStatus) DeploymentStatusHistory {
 	}
 }
 
-func configHistoryRowToProto(dbID int64, nodeID int32, identity apigen.DeploymentIdentity, createdAt time.Time, r DeploymentConfigHistory) *apigen.DeploymentConfig {
+func configHistoryRowToProto(dbID int64, identity apigen.DeploymentIdentity, createdAt time.Time, r DeploymentConfigHistory) *apigen.DeploymentConfig {
 	spec := mustDecodeDeploymentSpec(r.SpecBlob, dbID, r.Version)
+	identity.SpaceID = int32(r.SpaceID)
 	return &apigen.DeploymentConfig{
 		ID:        int32(dbID),
-		NodeID:    nodeID,
+		NodeID:    int32(r.NodeID),
 		Identity:  identity,
 		CreatedAt: createdAt,
 		Version:   int32(r.Version),

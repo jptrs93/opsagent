@@ -2,8 +2,9 @@
 
 ## Decision
 
-OpenDeploy gives every workload one stable logical IPv6 address and routes that
-address directly. Cross-node traffic uses fixed IP-in-IP tunnel interfaces:
+OpenDeploy gives every virtual run a stable inbound logical IPv6 address `I`
+and a run-scoped preferred outbound logical IPv6 address `O`, and routes both
+directly. Cross-node traffic uses fixed IP-in-IP tunnel interfaces:
 
 ```text
 logical workload /128 -> local veth/TAP
@@ -23,53 +24,50 @@ replaced by a flow-based tunnel or bounded-degree gateway topology.
 
 ## Logical address layout
 
-The implemented RFC 4193 ULA `/48` address ABI remains:
+The implemented RFC 4193 ULA `/48` address ABI is:
 
 ```text
-<ULA /48> : <reserved:17=0> : <space:17> : <deployment:26> : <kind:4> : <field:16>
+<ULA:48><space:16><deployment:24><ordinal:12><versionSlot:20><runSlot:8>
 ```
-
-The 17 bits after the cluster prefix are always zero for logical workload
-addresses. They are retained to preserve the implemented address ABI but are
-not node identity and are never filled with routing location.
 
 | Field | Bits | Values | Meaning |
 |---|---:|---:|---|
-| Reserved | 17 | `0` | fixed logical-address marker |
-| Space | 17 | 131,072 | durable tenant/security domain |
-| Deployment | 26 | 67,108,864 | stable deployment id; never recycled |
-| Kind | 4 | 16 | deployment address type |
-| Field | 16 | 65,536 | kind-specific ordinal or token |
+| Space | 16 | 65,536 | durable tenant/security domain |
+| Deployment | 24 | 16,777,216 | deployment field value; `0` is invalid |
+| Ordinal | 12 | 4,096 | stable instance ordinal |
+| Version slot | 20 | 1,048,575 nonzero | normalized deployment config version |
+| Run slot | 8 | 255 nonzero | normalized run number |
 
-Kinds:
+For an instance `(space, deployment, ordinal)`, the stable inbound address is
+`I = Address(prefix, space, deployment, ordinal, 0, 0)`. Every virtual run also
+has `O = Address(prefix, space, deployment, ordinal, versionSlot, runSlot)`,
+with both slots nonzero. Positive full-width config versions and run numbers
+are normalized only for address derivation as `((n - 1) % max) + 1`, where
+`max = 2^bits - 1`; their raw values remain unchanged in desired state, status,
+logs, and container IDs. Ordinals do not wrap.
 
-| Kind | Meaning | Field |
-|---|---|---|
-| `0` | Stable instance | instance ordinal |
-| `1` | Virtual service | `0` |
-| `2` | Temporary rollover run | low 16 bits of run number |
-| `3`-`15` | Reserved | undefined |
-
-Run values may wrap because only concurrently live temporary runs must be
-distinct. Instance ordinals do not wrap. Space and deployment ids are part of
-the address ABI and must remain in range.
+Both addresses are assigned before a run starts. `I` has `preferred_lft=0` and
+is routed to whichever run is current. `O` is preferred and routed for the full
+life of its run, including after rollover promotion. DNS, endpoint state,
+ingress, typed Address refs, and direct clients use `I`; `O` is a routable
+source identity, not a discovery address.
 
 The prefix hierarchy is:
 
 ```text
 Cluster ULA                                      /48
-└── Logical root (reserved = 0)                  /65
-    └── Space                                    /82
-        └── Deployment                           /108
-            └── Kind                             /112
+└── Space                                        /64
+    └── Deployment                               /88
+        └── Instance                             /100
+            └── Version slot                     /120
                 └── Address                      /128
 ```
 
-An instance address survives process restarts, deployment upgrades, and moves
-between nodes. Space is deliberately part of identity: moving a deployment
-between spaces changes all of its logical addresses and terminates existing
-connections. DNS, endpoint status, policy, logs, and the product API use only
-logical addresses.
+`I` survives process restarts, deployment upgrades, and moves between nodes.
+Space is deliberately part of identity: moving a deployment between spaces
+changes all of its logical addresses and terminates existing connections. DNS,
+endpoint status, ingress, and the product API expose `I`; routing and policy
+also recognize each live run's `O`.
 
 ## Underlay requirements
 
@@ -239,7 +237,7 @@ The default destination policy is:
 
 ```text
 deny workload traffic
-allow source from destination space /82
+allow source from destination space /64
 allow explicit cross-space deployment/port/protocol rules
 allow explicit OpenDeploy system paths
 ```
@@ -284,24 +282,30 @@ because every member may legitimately contact every other member.
 
 Implemented now:
 
-- The fixed address packing and bounds with the reserved field set to zero.
-- Logical instance, service, and run address derivation.
-- Space `/82` and deployment `/108` prefix helpers.
+- The fixed address packing and bounds for space, deployment, ordinal, version
+  slot, and run slot.
+- Stable inbound `I` and run-scoped outbound `O` derivation, including nonzero
+  slot normalization while retaining full-width versions and run numbers.
+- Space `/64`, deployment `/88`, instance `/100`, and version-slot `/120`
+  prefix helpers.
 - Local netns/veth attachments and local `/128` routes.
 - Dedicated route-protocol ownership and the cluster `/48` unreachable fallback.
 - Optional underlay-address configuration and worker enrollment reporting into
   the node registry.
+- Primary network maps containing observed `I` routes and derived `O` routes for
+  published `STARTING` and `RUNNING` runners.
+- Worker reconciliation of fixed `ip6tnl` or SIT interfaces and remote workload
+  `/128` routes from persisted network maps.
 
 Not implemented yet:
 
-- Post-enrollment node underlay-address distribution.
-- Fixed `ip6tnl` or SIT interface reconciliation.
-- Remote workload `/128` route distribution and reconciliation.
+- Applying equivalent remote topology on the primary node.
 - Cross-node source validation and destination policy.
-- Full placement-map persistence and recovery.
+- Reporting and distribution of unpublished candidate `O` routes, which are
+  already routed locally but are not represented by published runner status.
 
-Existing node-field fill/zero helpers are obsolete under this design and should
-be removed when the cross-node implementation is built.
+Future service virtual addresses require a separate allocation and design.
+The workload address ABI allocates only `I` and `O` and has no service range.
 
 ## Optional secure transport
 

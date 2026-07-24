@@ -71,14 +71,15 @@ func resolveAddressRef(v *apigen.EnvVarValue) (string, error) {
 	if v.AddressDeploymentID == nil || v.AddressSpaceID == nil {
 		return "", fmt.Errorf("addressDeploymentId and addressSpaceId are required together")
 	}
-	if *v.AddressDeploymentID <= 0 || *v.AddressSpaceID < 0 {
+	if *v.AddressDeploymentID <= 0 || *v.AddressDeploymentID > network.MaxDeploymentID ||
+		*v.AddressSpaceID < 0 || *v.AddressSpaceID > network.MaxSpaceID {
 		return "", fmt.Errorf("invalid address reference")
 	}
 	prefix, ok := network.Default.PrefixValue()
 	if !ok {
 		return "", fmt.Errorf("cluster network prefix is unavailable")
 	}
-	addr, err := prefix.InstanceAddr(*v.AddressSpaceID, *v.AddressDeploymentID, 0)
+	addr, err := prefix.InboundAddr(*v.AddressSpaceID, *v.AddressDeploymentID, 0)
 	if err != nil {
 		return "", fmt.Errorf("derive deployment address: %w", err)
 	}

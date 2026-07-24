@@ -85,12 +85,12 @@ responses redact its runtime details.
 
 - Create/update requests must set an explicit networking mode.
 - `HOST` joins the host network namespace.
-- `VIRTUAL` creates a per-container network namespace with a derived IPv6 instance address and machine-local IPv4 egress address.
+- `VIRTUAL` creates a per-run network namespace with stable inbound IPv6 address `I`, run-scoped preferred outbound IPv6 address `O`, and a machine-local IPv4 egress address. Both IPv6 addresses are preassigned; `I` is non-preferred and routed only to the current run, while `O` remains preferred and routed for that run's full lifetime.
 - `portForwarding` publishes host-interface TCP or UDP ports to container ports through nftables DNAT and requires `VIRTUAL`, e.g. `{protocol: TCP, hostPort: 443, containerPort: 443}`.
 - `ingress` currently accepts `TLS_PASSTHROUGH` routes in virtual mode. Each route has a hostname and `tlsPassthroughConfig: {hostPort, containerPort}`; `hostPort: 0` defaults to `443`. Routes are rendered into local netproxy state, which selects by TLS SNI and relays the original TCP stream to a READY backend without TLS termination. The primary node reserves `:443` for the Web UI until both share one listener.
 - Virtual-mode deployments publish endpoint status for `.internal` DNS discovery through the per-machine netproxy deployment.
-- An environment variable of type `Address` selects a same-node virtual deployment and stores its deployment and space IDs. The consuming container receives that target's stable IPv6 instance address when it starts. A target cannot be deleted, moved to another space, or changed out of virtual networking while Address references remain. For a space move, remove the references, move the target, then add them back so they capture its new space ID.
-- Cross-machine virtual networking, policy, and public ingress are not implemented yet.
+- An environment variable of type `Address` selects a same-node virtual deployment and stores its deployment and space IDs. The consuming container receives that target's stable inbound IPv6 address `I` when it starts; run-scoped `O` is never exposed through Address refs. A target cannot be deleted, moved to another space, or changed out of virtual networking while Address references remain. For a space move, remove the references, move the target, then add them back so they capture its new space ID.
+- Workers reconcile cross-machine fixed tunnels and workload routes. Equivalent primary-node remote routing, unpublished candidate `O` distribution, policy, and public ingress remain incomplete.
 
 ### Config versioning
 
@@ -168,7 +168,7 @@ grouped by space. Each card displays:
 7. The operator creates a runner, which writes `RunnerStatus.Status =
    STARTING` then `RUNNING` with the PID.
 
-For container deployments with `upgradeStrategy = ROLLOVER`, step 7 starts a candidate container before stopping the old one. The candidate receives `OPENDEPLOY_READINESS_SOCK_PATH=/run/opendeploy/readiness.sock`; once warmup is complete it writes `ready\n` to that Unix socket. With virtual networking, the candidate can bind the same container port immediately in its own network namespace; OpenDeploy promotes it by flipping the stable-address host route and any `portForwarding` rules, then stops the old container. With host networking, rollover is cooperative: the candidate shares the host network namespace with the old container, so it must not bind conflicting host ports before signaling readiness. After readiness, it should wait until OpenDeploy stops the old container and the port becomes free, then bind and serve.
+For container deployments with `upgradeStrategy = ROLLOVER`, step 7 starts a candidate container before stopping the old one. The candidate receives `OPENDEPLOY_READINESS_SOCK_PATH=/run/opendeploy/readiness.sock`; once warmup is complete it writes `ready\n` to that Unix socket. With virtual networking, the candidate can bind the same container port immediately in its own network namespace. It already has preferred, routed `O` and non-preferred `I`; OpenDeploy promotes it by flipping the `I` host route and any `portForwarding` rules, then stops the old container. Promotion does not change its addresses or source preference, so it keeps using `O` for outbound traffic until that run ends. With host networking, rollover is cooperative: the candidate shares the host network namespace with the old container, so it must not bind conflicting host ports before signaling readiness. After readiness, it should wait until OpenDeploy stops the old container and the port becomes free, then bind and serve.
 
 ## Crash recovery
 

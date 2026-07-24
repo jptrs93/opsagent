@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import van from "vanjs-core";
 import {createEditorValueBridge} from "../../src/components/assetCodeEditor.js";
 import {createValueEditorState} from "../../src/components/valueOverlay.js";
+import {decodeSecretSetRequest, encodeSecretSetRequest} from "../../src/capi/model.js";
 
 const editor = createValueEditorState("persisted\r\nvalue");
 assert.equal(editor.originalValue.val, "persisted\r\nvalue");
@@ -44,5 +45,14 @@ assert.equal(renderCount, 3);
 
 bridge.updateFromEditor("typed-value");
 assert.equal(stagedValue.val, "typed-value");
+
+const setRequest = decodeSecretSetRequest(encodeSecretSetRequest({
+    name: "database-password",
+    value: new TextEncoder().encode("new-value"),
+    updateReferencingDeployments: true,
+    referencingDeployments: [{id: 10, version: 3}, {id: 20, version: 7}],
+}));
+assert.equal(setRequest.updateReferencingDeployments, true);
+assert.deepEqual(setRequest.referencingDeployments, [{id: 10, version: 3}, {id: 20, version: 7}]);
 
 console.log("Secret editor state checks passed.");

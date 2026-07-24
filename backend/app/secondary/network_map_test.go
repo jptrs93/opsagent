@@ -3,6 +3,7 @@ package secondary
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"path/filepath"
 	"testing"
 
@@ -102,12 +103,14 @@ func TestValidateClusterNetMapRejectsInvalidTopology(t *testing.T) {
 		"duplicate route": func(m *apigen.ClusterNetMap) {
 			m.Routes = append(m.Routes, m.Routes[0])
 		},
-		"service route": func(m *apigen.ClusterNetMap) {
-			addr, err := prefix.ServiceAddr(1, 10)
+		"malformed outbound route": func(m *apigen.ClusterNetMap) {
+			addr, err := prefix.OutboundAddr(1, 10, 0, 1, 1)
 			if err != nil {
 				t.Fatal(err)
 			}
-			m.Routes[0].LogicalAddress = addr.String()
+			raw := addr.As16()
+			raw[15] = 0
+			m.Routes[0].LogicalAddress = netip.AddrFrom16(raw).String()
 		},
 	}
 	for name, mutate := range tests {
@@ -123,7 +126,7 @@ func TestValidateClusterNetMapRejectsInvalidTopology(t *testing.T) {
 
 func testClusterNetMap(t *testing.T, prefix network.Prefix, generation string, sequence int64) *apigen.ClusterNetMap {
 	t.Helper()
-	addr, err := prefix.InstanceAddr(1, 10, 0)
+	addr, err := prefix.InboundAddr(1, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -170,6 +170,8 @@ message SecretSetRequest {
   reserved 2;
   bytes value = 3;         // plaintext secret value; encrypted at rest, never returned
   int32 space_id = 4;
+  bool update_referencing_deployments = 5;
+  repeated DeploymentConfigVersionRef referencing_deployments = 6;
 }
 
 message SecretRenameRequest {
@@ -227,6 +229,8 @@ message UserConfigSetRequest {
   reserved 2;
   string value = 3;
   int32 space_id = 4;
+  bool update_referencing_deployments = 5;
+  repeated DeploymentConfigVersionRef referencing_deployments = 6;
 }
 
 message UserConfigRenameRequest {
@@ -482,8 +486,9 @@ message MsgToWorker {
 }
 
 // ClusterNetworkInfo carries the cluster-wide virtual network parameters.
-// Addresses are pure functions of (ula_prefix, kind, deployment id, field), so
-// this is the only distributed IPAM state.
+// Inbound and outbound addresses are pure functions of the ULA prefix, space,
+// deployment, instance ordinal, config version, and run number, so this is the
+// only distributed IPAM state.
 message ClusterNetworkInfo {
   bytes ula_prefix = 1; // 6 bytes: the RFC 4193 ULA /48 prefix, generated once at first primary startup
 }

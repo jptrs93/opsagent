@@ -258,34 +258,31 @@ func TestUsesLatestNetworkConfigAcrossNetproxyVersionUpgrade(t *testing.T) {
 
 func TestContainerNetAddresses(t *testing.T) {
 	p := network.Prefix{0xfd, 0xab, 0xcd, 0xef, 0x12, 0x34}
-	stable, err := p.InstanceAddr(5, 7, 0)
+	inboundWant, err := p.InboundAddr(5, 7, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := p.RunAddr(5, 7, 3)
+	outboundWant, err := p.OutboundAddr(5, 7, 0, 11, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	addr, deprecatedAddrs, err := containerNetAddresses(p, 5, 7, 3, false)
+	inbound, outbound, err := containerNetAddresses(p, 5, 7, 11, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if addr != stable {
-		t.Fatalf("non-candidate addr = %v, want %v", addr, stable)
+	if inbound != inboundWant {
+		t.Fatalf("inbound address = %v, want %v", inbound, inboundWant)
 	}
-	if len(deprecatedAddrs) != 0 {
-		t.Fatalf("non-candidate deprecatedAddrs = %v, want none", deprecatedAddrs)
+	if outbound != outboundWant {
+		t.Fatalf("outbound address = %v, want %v", outbound, outboundWant)
 	}
 
-	addr, deprecatedAddrs, err = containerNetAddresses(p, 5, 7, 3, true)
+	_, nextRun, err := containerNetAddresses(p, 5, 7, 11, 4)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if addr != run {
-		t.Fatalf("candidate addr = %v, want %v", addr, run)
-	}
-	if len(deprecatedAddrs) != 1 || deprecatedAddrs[0] != stable {
-		t.Fatalf("candidate deprecatedAddrs = %v, want [%v]", deprecatedAddrs, stable)
+	if nextRun == outbound {
+		t.Fatal("successive runs received the same outbound address")
 	}
 }

@@ -96,13 +96,13 @@ Run-log reads go through `engine/logreader`. It identifies all candidate `.logbi
 
 Container runner behavior:
 
-- Environment variables are stored as typed `EnvVarValue` entries. Exactly one of literal `value`, `secretId`, `configId`, asset ref, or Address ref is set. An Address ref persists `{addressDeploymentId, addressSpaceId}` and, at spawn, derives the target's stable virtual IPv6 address from the local cluster ULA prefix without fetching target deployment state. Address targets must be virtual-networked on the same node; target deletion, removal of virtual networking, and space moves are rejected while references exist.
+- Environment variables are stored as typed `EnvVarValue` entries. Exactly one of literal `value`, `secretId`, `configId`, asset ref, or Address ref is set. An Address ref persists `{addressDeploymentId, addressSpaceId}` and, at spawn, derives the target's stable inbound virtual IPv6 address `I` from the local cluster ULA prefix without fetching target deployment state. Address refs never expose `O`. Targets must be virtual-networked on the same node; target deletion, removal of virtual networking, and space moves are rejected while references exist.
 - Default data volume is created under `{dataDir}-volumes/{deploymentID}/default` and mounted at `/data`, unless `runtime.defaultVolume.disabled` is set or `runtime.defaultVolume.containerPath` overrides the destination.
 - Additional host mounts and OpenDeploy-managed asset mounts are translated to containerd bind mounts.
 - `devShmSizeKb` optionally resizes the container's default `/dev/shm` tmpfs from containerd's default 64 MiB using a KiB value.
 - `fileDescriptorLimit` optionally overrides the OCI `RLIMIT_NOFILE`; when unset, OpenDeploy sets both soft and hard limits to `2048`.
-- Virtual networking creates a netns/veth pair, a stable IPv6 instance address, a machine-local IPv4 egress address, a host `/128` route, and optional nftables `portForwarding` DNAT rules.
-- Rollover candidates get a per-run Unix socket directory mounted at `/run/opendeploy` and `OPENDEPLOY_READINESS_SOCK_PATH=/run/opendeploy/readiness.sock`. The app signals readiness by writing `ready\n` to that socket after warmup. In virtual mode, OpenDeploy promotes the candidate by replacing the stable-address host route and `portForwarding` rules, then stops the old runner. In host mode, rollover is cooperative: the candidate shares the host network namespace, so it must defer binding conflicting host ports until after readiness and then wait for the old runner to stop.
+- Every virtual container run gets a netns/veth pair, stable inbound IPv6 address `I`, run-scoped preferred outbound IPv6 address `O`, machine-local IPv4 egress address, and a host `/128` route for `O`. Both IPv6 addresses are assigned before process start; `I` has `preferred_lft=0`. Activation routes `I` to the current run, and optional nftables `portForwarding` rules target that run.
+- Rollover candidates get a per-run Unix socket directory mounted at `/run/opendeploy` and `OPENDEPLOY_READINESS_SOCK_PATH=/run/opendeploy/readiness.sock`. The app signals readiness by writing `ready\n` to that socket after warmup. In virtual mode, OpenDeploy promotes the candidate by replacing the `I` route and `portForwarding` rules, then stops the old runner. The promoted run continues to use `O` as its preferred outbound source for its full lifetime. In host mode, rollover is cooperative: the candidate shares the host network namespace, so it must defer binding conflicting host ports until after readiness and then wait for the old runner to stop.
 - Reattach uses `ctrd.LoadTask` by deterministic id; if no running task exists, the runner starts fresh.
 - Stop sends SIGTERM, waits up to 3 seconds, sends SIGKILL if needed, then deletes the task/container/snapshot.
 
@@ -110,7 +110,7 @@ Container runner behavior:
 
 The current networking implementation is machine-local. See `docs/engineering/networking.md` for details.
 
-The runner only consumes networking primitives. It derives the stable instance address from the cluster ULA prefix and deployment id, asks the network manager to prepare state, passes the netns path to containerd, writes a generated `resolv.conf` when netproxy DNS is known, and writes endpoint status back to storage.
+The runner only consumes networking primitives. It derives `I` from cluster prefix, space, deployment, and ordinal, and derives `O` from those fields plus normalized nonzero config-version and run slots. Raw versions and run numbers remain full-width outside address derivation. The runner asks the network manager to prepare both addresses and the `O` route, activates `I` for the published run, passes the netns path to containerd, writes a generated `resolv.conf` when netproxy DNS is known, and writes endpoint status back to storage. DNS, endpoint state, ingress, and typed Address refs expose `I`, never `O`.
 
 Cross-machine IP-in-IP routing, ingress, and policy enforcement are outside the current runner path.
 

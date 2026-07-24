@@ -101,7 +101,7 @@ func TestResolveEnvAddressRefDerivesStableAddress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveEnv: %v", err)
 	}
-	addr, err := prefix.InstanceAddr(spaceID, deploymentID, 0)
+	addr, err := prefix.InboundAddr(spaceID, deploymentID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,6 +117,21 @@ func TestResolveEnvAddressRefFailsClosed(t *testing.T) {
 		"UPSTREAM_ADDR": {AddressDeploymentID: &deploymentID},
 	}); err == nil {
 		t.Fatal("expected incomplete address reference to fail")
+	}
+}
+
+func TestResolveEnvAddressRefRejectsOutOfRangeIdentity(t *testing.T) {
+	prefix := network.GeneratePrefix()
+	previous := network.Default
+	network.SetDefault(network.New(prefix, 0))
+	t.Cleanup(func() { network.SetDefault(previous) })
+
+	deploymentID := network.MaxDeploymentID + 1
+	spaceID := int32(1)
+	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{
+		"UPSTREAM_ADDR": {AddressDeploymentID: &deploymentID, AddressSpaceID: &spaceID},
+	}); err == nil {
+		t.Fatal("expected oversized deployment id to fail")
 	}
 }
 

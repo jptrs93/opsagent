@@ -1,8 +1,8 @@
 -- Config representing desired state for each deployment. One row per deployment,
 CREATE TABLE IF NOT EXISTS deployment_configs (
-    deployment_id   INTEGER PRIMARY KEY,
+    deployment_id   INTEGER PRIMARY KEY CHECK (deployment_id BETWEEN 1 AND 16777215),
     node_id         INTEGER NOT NULL DEFAULT -1,
-    space_id        INTEGER NOT NULL DEFAULT 1,
+    space_id        INTEGER NOT NULL DEFAULT 1 CHECK (space_id BETWEEN 0 AND 65535),
     name            TEXT    NOT NULL DEFAULT '',
     created_at      INTEGER NOT NULL DEFAULT 0,  -- epoch ms; creation time of this deployment
     version         INTEGER NOT NULL DEFAULT 0,
@@ -17,7 +17,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_deployment_configs_active_node_identity
     WHERE deleted = 0;
 
 CREATE TABLE IF NOT EXISTS spaces (
-    id   INTEGER PRIMARY KEY,
+    id   INTEGER PRIMARY KEY CHECK (id BETWEEN 0 AND 65535),
     name TEXT    NOT NULL DEFAULT ''
 );
 
@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS deployment_config_history (
     version         INTEGER NOT NULL,
     updated_at      INTEGER NOT NULL,  -- epoch ms
     updated_by      INTEGER NOT NULL DEFAULT 0,
+    space_id        INTEGER NOT NULL DEFAULT 1,
+    node_id         INTEGER NOT NULL DEFAULT 0,
     spec_blob       BLOB    NOT NULL,
     deleted         INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (deployment_id, version)

@@ -36,7 +36,7 @@ The current networking plan is container-oriented in several places:
 | Area | Current shape | Kata issue |
 |---|---|---|
 | Attachment | OpenDeploy creates a netns and veth, then containerd/runc joins the netns | Kata translates a container netns/veth into a VM TAP path |
-| Promotion | Add stable IP to candidate netns, flip route, remove stable IP from old netns | Guest IP mutation during promotion is undesirable |
+| Promotion | Both addresses are preassigned; flip the stable inbound route and retain preferred outbound `O` | Kata must preserve address configuration and source preference without guest mutation |
 | Diagnostics | Inspect `/proc` inside a container netns | VM guest inspection needs Kata agent, exec, or a different signal |
 | Host networking | Container joins host network namespace | Kata does not support host networking |
 | Readiness | Host Unix socket bind-mounted into the container | Works only if the mount is supported; vsock or TCP may be cleaner later |
@@ -50,7 +50,7 @@ These components should not depend on runc or Kata:
 
 | Component | Responsibility |
 |---|---|
-| ULA address derivation | Stable logical addresses, service addresses, and run addresses |
+| ULA address derivation | Stable inbound `I` and run-scoped preferred outbound `O` under the clean workload ABI |
 | Endpoint state | `READY`, `DRAINING`, `DOWN` membership in endpoint sets |
 | Host routes | Route local workload addresses to the active attachment |
 | nftables | Host ports, IPv4 egress masquerade, anti-spoofing, policy |
@@ -93,21 +93,22 @@ This preserves the core goals from `networking.md`:
 
 ## Rollover direction
 
-Avoid guest network mutation on the promotion critical path.
+Avoid guest network mutation on the promotion critical path. The implemented
+runc lifecycle already has the runtime-neutral shape Kata should preserve:
 
-The current plan promotes a candidate by adding the stable address to the candidate interface, flipping the host route, and removing the address from the old container. That is appropriate for runc but creates guest coordination pressure for Kata.
+1. Derive `I = Address(prefix, space, deployment, ordinal, 0, 0)` and a unique
+   `O` whose version and run slots are nonzero normalized values.
+2. Assign both before workload start. Configure `I` with `preferred_lft=0` and
+   keep `O` preferred.
+3. Route `O` for the run's full lifetime. Use the `I` host route to decide which
+   attachment receives stable inbound traffic.
+4. Promote by flipping only the `I` route to the candidate attachment.
+5. Keep `O` preferred after promotion, then stop and remove the old attachment.
 
-Preferred model:
-
-1. Start each run with its run-scoped address.
-2. Configure the stable instance address before workload start where the runtime can support it safely.
-3. Use host routes to decide which attachment receives stable-address traffic.
-4. Promote by flipping the host route to the candidate attachment.
-5. Mark the old endpoint `DRAINING`, wait for the drain window, then stop it.
-
-The old and candidate workloads may both have the stable `/128` configured because their links are isolated. The host route controls reachability. Anti-spoof filters must prevent a workload from using addresses it does not own.
-
-Candidate warmup traffic should use the run address as source before promotion. After promotion, stable-address source preference can be adjusted asynchronously if needed. It must not be required for the promotion path.
+The old and candidate workloads may both have `I` configured because their
+links are isolated. The host route controls reachability. Anti-spoof filters
+allow only the `I` and `O` assigned to each attachment. DNS, endpoint state,
+ingress, and Address refs use `I`, never `O`.
 
 This keeps promotion host-local and fast for both runc and Kata.
 
@@ -117,7 +118,10 @@ This keeps promotion host-local and fast for both runc and Kata.
 
 This is the recommended default.
 
-The workload receives a stable instance address and a run address. The host routes stable-address traffic to the active attachment. Candidate workloads use run addresses as their preferred outbound source during warmup and become active after a route flip.
+Every workload run receives stable inbound `I` and run-scoped outbound `O`.
+The host routes `I` to the active attachment and routes each `O` for that run's
+full life. `O` is preferred before and after promotion; the route flip changes
+only which attachment receives `I`.
 
 | Property | Outcome |
 |---|---|
@@ -185,12 +189,17 @@ This is appropriate for ingress and opt-in L7 east-west traffic. It should not b
 
 ## Load balancing conclusion
 
-The `networking.md` plan reserves service addresses and proposes future host eBPF `cgroup/connect6` balancing. That approach is runc-centric because the host sees container `connect()` calls. With Kata, the workload `connect()` happens inside the guest kernel, so host `cgroup/connect6` does not naturally see it.
+The `networking.md` plan leaves future service virtual addresses outside the
+workload ABI and requires a separate allocation and design. One possible
+consumer is host eBPF `cgroup/connect6` balancing, but that approach is
+runc-centric because the host sees container `connect()` calls. With Kata, the
+workload `connect()` happens inside the guest kernel, so host `cgroup/connect6`
+does not naturally see it.
 
 Preferred long-term stance:
 
 - DNS endpoint-set balancing is the default internal service discovery mechanism.
-- Service addresses remain reserved until there is a Kata-compatible implementation.
+- No service virtual address is allocated until there is a separate design with a Kata-compatible implementation.
 - Host DNAT service VIPs are possible but should be a deliberate performance and semantics tradeoff.
 - Guest eBPF is not a good default because it couples OpenDeploy to guest images and guest kernel capabilities.
 - L7 proxying remains opt-in for HTTP semantics.
@@ -266,8 +275,8 @@ Attachment {
   runtime
   host_link
   netns_path        # runc/Kata containerd-facing contract
-  stable_address
-  run_address
+  inbound_address
+  outbound_address
   machine_local_v4
 }
 ```
@@ -280,7 +289,7 @@ The existing plan should eventually be revised in these areas:
 
 - Replace `container` terminology with `workload` where the concept is runtime-neutral.
 - Replace `netns/veth per container` with `workload attachment`, with runc and Kata implementations.
-- Revise ROLLOVER to avoid guest IP mutation during promotion.
+- Preserve the implemented ROLLOVER invariant: preassign `I` and `O`, keep `O` preferred for the full run, and flip only the `I` route.
 - Mark host networking as unsupported for Kata.
 - Revisit host `cgroup/connect6` service balancing because it does not naturally apply to Kata guests.
 - Consider splitting DNS and ingress proxy placement.
@@ -291,6 +300,6 @@ The existing plan should eventually be revised in these areas:
 - Whether to run the first Kata release as a fixed cluster runtime mode or a fixed machine runtime mode.
 - Whether runc remains available for host-network and privileged infrastructure workloads.
 - Whether DNS should be host-side from the first networking release.
-- Whether stable and run addresses can be reliably preconfigured through Kata's current netns mirroring path.
+- Whether `I` and `O`, including `I` with `preferred_lft=0`, can be reliably preconfigured through Kata's current netns mirroring path.
 - Whether `portForwarding` should use per-flow DNAT only or nftables maps with deterministic ownership.
 - Whether direct TCP rollover should accept broken existing connections or offer an optional DNAT-backed graceful mode.

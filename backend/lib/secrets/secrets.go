@@ -36,6 +36,8 @@ import (
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
+
+	"github.com/jptrs93/opsagent/backend/storage"
 )
 
 const (
@@ -129,8 +131,7 @@ type Store interface {
 	ListSecretKeyslots() []Keyslot
 	UpsertSecretKeyslot(Keyslot)
 	ListSecrets() []Record
-	NextSecretVersion(name string) int32
-	InsertSecret(Record) Record
+	InsertSecretWithDeploymentUpdates(Record, bool, []storage.DeploymentConfigVersion, func(Record)) (Record, []int32, error)
 	RenameSecretRecords(name, newName string, records []Record)
 	DeleteSecret(name string)
 	GetSystemSecret(name string) (SystemRecord, bool)
@@ -368,6 +369,13 @@ func (m *Manager) Reveal(name string) ([]byte, error) {
 // Set creates or updates a secret. value is encrypted under the SMK before it
 // touches disk. Returns the secret's metadata (never its value).
 func (m *Manager) Set(name string, value []byte, updatedBy int32, spaceIDs ...int32) (Meta, error) {
+	meta, err := m.SetWithDeploymentUpdates(name, value, updatedBy, false, nil, nil, spaceIDs...)
+	return meta, err
+}
+
+// SetWithDeploymentUpdates appends an immutable secret version and optionally
+// rolls the caller-asserted deployment references to the new row atomically.
+func (m *Manager) SetWithDeploymentUpdates(name string, value []byte, updatedBy int32, updateDeployments bool, deployments []storage.DeploymentConfigVersion, onCommit func(Meta), spaceIDs ...int32) (Meta, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Meta{}, errors.New("secret name is required")
@@ -379,7 +387,7 @@ func (m *Manager) Set(name string, value []byte, updatedBy int32, spaceIDs ...in
 	if len(spaceIDs) > 0 && spaceIDs[0] > 0 {
 		spaceID = spaceIDs[0]
 	}
-	return m.set(name, value, updatedBy, spaceID)
+	return m.set(name, value, updatedBy, spaceID, updateDeployments, deployments, onCommit)
 }
 
 // SetInternal creates or updates an OpenDeploy-managed internal secret. Internal
@@ -418,7 +426,7 @@ func (m *Manager) SetInternal(name string, value []byte) error {
 	return nil
 }
 
-func (m *Manager) set(name string, value []byte, updatedBy int32, spaceID int32) (Meta, error) {
+func (m *Manager) set(name string, value []byte, updatedBy int32, spaceID int32, updateDeployments bool, deployments []storage.DeploymentConfigVersion, onCommit func(Meta)) (Meta, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.smk == nil {
@@ -429,10 +437,8 @@ func (m *Manager) set(name string, value []byte, updatedBy int32, spaceID int32)
 		return Meta{}, err
 	}
 	now := nowMs()
-	version := m.store.NextSecretVersion(name)
 	rec := Record{
 		Name:       name,
-		Version:    version,
 		SpaceID:    spaceID,
 		SMKVersion: m.version,
 		Ciphertext: ct,
@@ -440,8 +446,15 @@ func (m *Manager) set(name string, value []byte, updatedBy int32, spaceID int32)
 		CreatedAt:  now,
 		UpdatedBy:  updatedBy,
 	}
-	rec = m.store.InsertSecret(rec)
-	m.cache[rec.ID] = rec
+	rec, _, err = m.store.InsertSecretWithDeploymentUpdates(rec, updateDeployments, deployments, func(committed Record) {
+		m.cache[committed.ID] = committed
+		if onCommit != nil {
+			onCommit(committed.meta())
+		}
+	})
+	if err != nil {
+		return Meta{}, err
+	}
 	return rec.meta(), nil
 }
 

@@ -20,7 +20,9 @@ var primaryMigrations string
 var secondaryMigrations string
 
 func mustInitPrimary(dbPath string) *sql.DB {
-	return mustInit(dbPath, primaryMigrations)
+	db := mustInit(dbPath, primaryMigrations)
+	migrateDeploymentConfigHistoryPlacement(db)
+	return db
 }
 
 func mustInitSecondary(dbPath string) *sql.DB {
@@ -46,6 +48,45 @@ func migrateVersionedSecretConfigTables(db *sql.DB) {
 	}
 	if tableHasColumn(db, "secrets", "secret_group") || tableHasColumn(db, "secrets", "updated_at") || !tableHasColumn(db, "secrets", "version") {
 		rebuildSecretsTable(db)
+	}
+}
+
+func migrateDeploymentConfigHistoryPlacement(db *sql.DB) {
+	hasSpaceID := tableHasColumn(db, "deployment_config_history", "space_id")
+	hasNodeID := tableHasColumn(db, "deployment_config_history", "node_id")
+	if hasSpaceID && hasNodeID {
+		return
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		panic(fmt.Sprintf("begin deployment config history placement migration: %v", err))
+	}
+	defer tx.Rollback()
+	if !hasSpaceID {
+		if _, err := tx.Exec("ALTER TABLE deployment_config_history ADD COLUMN space_id INTEGER NOT NULL DEFAULT 1"); err != nil {
+			panic(fmt.Sprintf("add deployment config history space_id: %v", err))
+		}
+	}
+	if !hasNodeID {
+		if _, err := tx.Exec("ALTER TABLE deployment_config_history ADD COLUMN node_id INTEGER NOT NULL DEFAULT 0"); err != nil {
+			panic(fmt.Sprintf("add deployment config history node_id: %v", err))
+		}
+	}
+	if _, err := tx.Exec(`
+UPDATE deployment_config_history
+SET space_id = COALESCE(
+        (SELECT space_id FROM deployment_configs WHERE deployment_configs.deployment_id = deployment_config_history.deployment_id),
+        1
+    ),
+    node_id = COALESCE(
+        (SELECT node_id FROM deployment_configs WHERE deployment_configs.deployment_id = deployment_config_history.deployment_id),
+        0
+    )`); err != nil {
+		panic(fmt.Sprintf("backfill deployment config history placement: %v", err))
+	}
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit deployment config history placement migration: %v", err))
 	}
 }
 

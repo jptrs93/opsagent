@@ -36,15 +36,11 @@ var hostGateway = netip.MustParseAddr("fe80::1")
 type ContainerNetSpec struct {
 	ContainerID  string
 	DeploymentID int32
-	// Addr is the v6 address routed to the container from the start: the stable
-	// instance address for normal runs, or the run-scoped address used as a
-	// rollover candidate's preferred outbound source during warmup.
-	Addr netip.Addr
-	// DeprecatedAddrs are assigned before workload start with preferred_lft=0
-	// and are not routed by SetupContainerNet. Rollover candidates use this for
-	// the stable address so promotion can be a host-route flip without guest
-	// network mutation, while warmup traffic keeps the run address as source.
-	DeprecatedAddrs []netip.Addr
+	// OutboundAddr is preferred and routed for the full life of this run.
+	OutboundAddr netip.Addr
+	// InboundAddr is stable, assigned with preferred_lft=0, and routed only when
+	// this run is activated as the deployment's current instance.
+	InboundAddr netip.Addr
 	// UnprivilegedPortStart lowers net.ipv4.ip_unprivileged_port_start inside
 	// the netns when SetUnprivilegedPortStart is true. Used by the netproxy
 	// deployment to bind :53 without capabilities.
@@ -91,19 +87,24 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 	if err := m.EnsureBase(); err != nil {
 		return nil, err
 	}
-	if !spec.Addr.Is6() {
-		return nil, fmt.Errorf("container address must be IPv6, got %v", spec.Addr)
+	if !spec.OutboundAddr.Is6() || !spec.InboundAddr.Is6() {
+		return nil, fmt.Errorf("container addresses must be IPv6, got outbound=%v inbound=%v", spec.OutboundAddr, spec.InboundAddr)
 	}
-	for _, addr := range spec.DeprecatedAddrs {
-		if !addr.Is6() {
-			return nil, fmt.Errorf("deprecated container address must be IPv6, got %v", addr)
-		}
+	prefix, ok := m.PrefixValue()
+	if !ok {
+		return nil, fmt.Errorf("cluster prefix is not known")
+	}
+	if err := validateContainerAddressIdentity(prefix, spec.DeploymentID, spec.InboundAddr, spec.OutboundAddr); err != nil {
+		return nil, err
 	}
 	m.containerMu.Lock()
 	defer m.containerMu.Unlock()
 
 	// Recreate from scratch so a crash respawn never inherits half-built state.
 	m.teardownContainerNet(spec.ContainerID, spec.DeploymentID, "", 0)
+	if m.outboundAddressInUse(spec.DeploymentID, spec.ContainerID, spec.OutboundAddr) {
+		return nil, fmt.Errorf("outbound address %s is already used by a live run", spec.OutboundAddr)
+	}
 
 	slot, err := freeV4Slot(spec.DeploymentID)
 	if err != nil {
@@ -150,7 +151,7 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 		return cleanup(fmt.Errorf("opening netlink handle in netns: %w", err))
 	}
 	defer nsNetlink.Close()
-	if err := configureContainerSide(nsNetlink, peerName, spec.Addr, spec.DeprecatedAddrs, contV4, hostV4); err != nil {
+	if err := configureContainerSide(nsNetlink, peerName, spec.OutboundAddr, spec.InboundAddr, contV4, hostV4); err != nil {
 		return cleanup(err)
 	}
 
@@ -171,20 +172,20 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 	if err := netlink.LinkSetUp(hostLink); err != nil {
 		return cleanup(fmt.Errorf("bringing host veth up: %w", err))
 	}
-	prefix, _ := m.PrefixValue()
-	if err := reconcileLocalWorkloadRoute(prefix, spec.Addr, hostLink.Attrs().Index); err != nil {
-		return cleanup(fmt.Errorf("adding host route for %v: %w", spec.Addr, err))
+	if err := reconcileLocalWorkloadRoute(prefix, spec.OutboundAddr, hostLink.Attrs().Index); err != nil {
+		return cleanup(fmt.Errorf("adding host route for %v: %w", spec.OutboundAddr, err))
 	}
 
 	slog.Info("container netns configured",
-		"container", spec.ContainerID, "addr", spec.Addr, "deprecatedAddrs", spec.DeprecatedAddrs, "v4", contV4, "veth", hostVeth)
+		"container", spec.ContainerID, "outbound", spec.OutboundAddr, "inbound", spec.InboundAddr, "v4", contV4, "veth", hostVeth)
 	cn := &ContainerNet{
 		ContainerID:   spec.ContainerID,
 		DeploymentID:  spec.DeploymentID,
 		NetnsPath:     filepath.Join(netnsRunDir, spec.ContainerID),
 		HostVeth:      hostVeth,
 		HostVethIndex: hostLink.Attrs().Index,
-		Addr:          spec.Addr,
+		InboundAddr:   spec.InboundAddr,
+		OutboundAddr:  spec.OutboundAddr,
 		V4:            contV4,
 		HostV4:        hostV4,
 		Slot:          slot,
@@ -195,27 +196,39 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 
 // RecoverContainerNet reconstructs manager ownership for a running container
 // whose network namespace survived an agent restart.
-func (m *Manager) RecoverContainerNet(containerID string, deploymentID int32, addr netip.Addr) (*ContainerNet, error) {
+func (m *Manager) RecoverContainerNet(containerID string, deploymentID int32, inboundAddr, outboundAddr netip.Addr) (*ContainerNet, error) {
 	if err := m.EnsureBase(); err != nil {
 		return nil, err
 	}
-	if !addr.Is6() {
-		return nil, fmt.Errorf("container address must be IPv6, got %v", addr)
+	prefix, ok := m.PrefixValue()
+	if !ok {
+		return nil, fmt.Errorf("cluster prefix is not known")
+	}
+	if err := validateContainerAddressIdentity(prefix, deploymentID, inboundAddr, outboundAddr); err != nil {
+		return nil, err
 	}
 	m.containerMu.Lock()
 	defer m.containerMu.Unlock()
+	if m.outboundAddressInUse(deploymentID, containerID, outboundAddr) {
+		return nil, fmt.Errorf("outbound address %s is already used by a live run", outboundAddr)
+	}
 	netnsPath := filepath.Join(netnsRunDir, containerID)
 	hostLink, slot, err := findContainerVeth(containerID, deploymentID)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateContainerV6Addresses(containerID, inboundAddr, outboundAddr); err != nil {
 		return nil, err
 	}
 	hostV4, containerV4, err := V4Pair(deploymentID, slot)
 	if err != nil {
 		return nil, err
 	}
-	prefix, _ := m.PrefixValue()
-	if err := reconcileLocalWorkloadRoute(prefix, addr, hostLink.Attrs().Index); err != nil {
-		return nil, fmt.Errorf("restoring host route for %v: %w", addr, err)
+	if err := reconcileLocalWorkloadRoute(prefix, outboundAddr, hostLink.Attrs().Index); err != nil {
+		return nil, fmt.Errorf("restoring outbound route for %v: %w", outboundAddr, err)
+	}
+	if err := reconcileLocalWorkloadRoute(prefix, inboundAddr, hostLink.Attrs().Index); err != nil {
+		return nil, fmt.Errorf("restoring inbound route for %v: %w", inboundAddr, err)
 	}
 	cn := &ContainerNet{
 		ContainerID:   containerID,
@@ -223,7 +236,8 @@ func (m *Manager) RecoverContainerNet(containerID string, deploymentID int32, ad
 		NetnsPath:     netnsPath,
 		HostVeth:      hostLink.Attrs().Name,
 		HostVethIndex: hostLink.Attrs().Index,
-		Addr:          addr,
+		InboundAddr:   inboundAddr,
+		OutboundAddr:  outboundAddr,
 		V4:            containerV4,
 		HostV4:        hostV4,
 		Slot:          slot,
@@ -233,35 +247,32 @@ func (m *Manager) RecoverContainerNet(containerID string, deploymentID int32, ad
 	return cn, nil
 }
 
-// Promote flips the stable instance address to the candidate by replacing the
-// host route only. The candidate must already have the stable address assigned
-// before workload start; this keeps the promotion path compatible with Kata,
-// where guest network mutation is not a good critical-path primitive.
-// Established connections to the old container break and clients reconnect to
-// the same address reaching the new instance.
-func (m *Manager) Promote(_ *ContainerNet, candidate *ContainerNet, stable netip.Addr) error {
+// Activate routes the stable inbound address to one run. Every run already has
+// that address assigned before workload start, so activation and rollover do
+// not mutate the network namespace.
+func (m *Manager) Activate(candidate *ContainerNet) error {
 	if candidate == nil {
-		return fmt.Errorf("promote: candidate network is nil")
+		return fmt.Errorf("activate: container network is nil")
 	}
-	if !stable.Is6() {
-		return fmt.Errorf("promote: stable address must be IPv6, got %v", stable)
+	if !candidate.InboundAddr.Is6() {
+		return fmt.Errorf("activate: inbound address must be IPv6, got %v", candidate.InboundAddr)
 	}
 	m.containerMu.Lock()
 	defer m.containerMu.Unlock()
 
 	hostLink, err := netlink.LinkByName(candidate.HostVeth)
 	if err != nil {
-		return fmt.Errorf("promote: candidate host veth: %w", err)
+		return fmt.Errorf("activate: container host veth: %w", err)
 	}
 	if candidate.HostVethIndex <= 0 || hostLink.Type() != "veth" || hostLink.Attrs().Index != candidate.HostVethIndex {
-		return fmt.Errorf("promote: candidate host veth %s was replaced", candidate.HostVeth)
+		return fmt.Errorf("activate: container host veth %s was replaced", candidate.HostVeth)
 	}
 	prefix, _ := m.PrefixValue()
-	if err := reconcileLocalWorkloadRoute(prefix, stable, hostLink.Attrs().Index); err != nil {
-		return fmt.Errorf("promote: flipping host route: %w", err)
+	if err := reconcileLocalWorkloadRoute(prefix, candidate.InboundAddr, hostLink.Attrs().Index); err != nil {
+		return fmt.Errorf("activate: routing inbound address: %w", err)
 	}
 
-	slog.Info("promoted candidate", "container", candidate.ContainerID, "addr", stable)
+	slog.Info("activated container network", "container", candidate.ContainerID, "inbound", candidate.InboundAddr, "outbound", candidate.OutboundAddr)
 	return nil
 }
 
@@ -387,6 +398,51 @@ func findContainerVeth(containerID string, deploymentID int32) (netlink.Link, in
 	return nil, 0, fmt.Errorf("finding veth peer for container %s", containerID)
 }
 
+func validateContainerV6Addresses(containerID string, inboundAddr, outboundAddr netip.Addr) error {
+	nsHandle, err := netns.GetFromName(containerID)
+	if err != nil {
+		return fmt.Errorf("opening netns %s: %w", containerID, err)
+	}
+	defer nsHandle.Close()
+	nsNetlink, err := netlink.NewHandleAt(nsHandle)
+	if err != nil {
+		return fmt.Errorf("opening netlink handle in netns %s: %w", containerID, err)
+	}
+	defer nsNetlink.Close()
+	link, err := nsNetlink.LinkByName(containerIface)
+	if err != nil {
+		return fmt.Errorf("finding %s in netns %s: %w", containerIface, containerID, err)
+	}
+	addrs, err := nsNetlink.AddrList(link, netlink.FAMILY_V6)
+	if err != nil {
+		return fmt.Errorf("listing IPv6 addresses in netns %s: %w", containerID, err)
+	}
+	foundInbound := false
+	foundOutbound := false
+	for _, addr := range addrs {
+		ip, ok := netip.AddrFromSlice(addr.IP)
+		if !ok {
+			continue
+		}
+		switch ip {
+		case inboundAddr:
+			if addr.PreferedLft != 0 {
+				return fmt.Errorf("inbound address %s is not deprecated in netns %s", inboundAddr, containerID)
+			}
+			foundInbound = true
+		case outboundAddr:
+			if addr.PreferedLft == 0 {
+				return fmt.Errorf("outbound address %s is deprecated in netns %s", outboundAddr, containerID)
+			}
+			foundOutbound = true
+		}
+	}
+	if !foundInbound || !foundOutbound {
+		return fmt.Errorf("netns %s does not contain expected inbound/outbound addresses %s/%s", containerID, inboundAddr, outboundAddr)
+	}
+	return nil
+}
+
 // freeV4Slot picks the first slot whose host veth does not exist. Slots are
 // derived from live kernel state, so there is no allocation store; at most two
 // containers of a deployment run concurrently (current + rollover candidate).
@@ -431,7 +487,7 @@ func createNamedNetns(name string, unprivilegedPortStart int, setUnprivilegedPor
 	return handle, nil
 }
 
-func configureContainerSide(h *netlink.Handle, peerName string, addr netip.Addr, deprecatedAddrs []netip.Addr, contV4, hostV4 netip.Addr) error {
+func configureContainerSide(h *netlink.Handle, peerName string, outboundAddr, inboundAddr, contV4, hostV4 netip.Addr) error {
 	lo, err := h.LinkByName("lo")
 	if err == nil {
 		_ = h.LinkSetUp(lo)
@@ -447,13 +503,11 @@ func configureContainerSide(h *netlink.Handle, peerName string, addr netip.Addr,
 	if err != nil {
 		return fmt.Errorf("container %s: %w", containerIface, err)
 	}
-	if err := addContainerV6Addr(h, link, addr, false); err != nil {
+	if err := addContainerV6Addr(h, link, outboundAddr, false); err != nil {
 		return err
 	}
-	for _, deprecatedAddr := range deprecatedAddrs {
-		if err := addContainerV6Addr(h, link, deprecatedAddr, true); err != nil {
-			return err
-		}
+	if err := addContainerV6Addr(h, link, inboundAddr, true); err != nil {
+		return err
 	}
 	if err := h.AddrAdd(link, &netlink.Addr{IPNet: netipPrefixToIPNet(netip.PrefixFrom(contV4, 30))}); err != nil {
 		return fmt.Errorf("assigning container v4 address: %w", err)

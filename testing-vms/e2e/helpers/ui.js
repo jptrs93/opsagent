@@ -18,6 +18,7 @@ const UPGRADE_TIMEOUT = 180_000;
 const RELEASE_OPTIONS_TIMEOUT = 60_000;
 const BACKUP_RESTORE_TIMEOUT = 120_000;
 const ASSET_UPLOAD_TIMEOUT = 120_000;
+const PGBACKREST_TIMEOUT = 300_000;
 const MINIO_BUCKET_SETUP_DELAY = 8_000;
 const STABLE_CHECK_DELAY = 200;
 
@@ -75,11 +76,11 @@ export async function configureGithubToken(page, token) {
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await row.getByRole('button', {name: 'Create secret'}).click();
 
-  const dialog = page.locator('.fixed').filter({hasText: 'Create a secret, then reference it from this setting.'});
+  const dialog = page.getByTestId('create-secret-overlay').getByRole('dialog');
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('Secret name').fill('opendeploy.config.github_token');
-  await dialog.getByLabel('Secret value').fill(token);
-  await dialog.getByRole('button', {name: 'Create secret'}).click();
+  await fillCodeEditor(dialog, 'Value for new secret', token);
+  await dialog.getByRole('button', {name: 'Add secret'}).click();
 
   await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
   await expect(page.getByText('Unsaved changes')).toBeVisible({timeout: LONG_UI_TIMEOUT});
@@ -253,6 +254,8 @@ export async function updateNixDockerDeployment(page, {
   ingress,
   upgradeStrategy = UPGRADE_RECREATE,
   readinessTimeoutSeconds = 600,
+  assetMount,
+  desiredRunning,
 } = {}) {
   await step(`open update dialog ${name}`, async () => {
     await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
@@ -269,6 +272,8 @@ export async function updateNixDockerDeployment(page, {
     await setDeploymentPortForwarding(dialog, portForwarding);
     if (ingress !== undefined) await setDeploymentIngress(dialog, ingress);
     await setDeploymentEnvVars(dialog, env);
+    if (assetMount) await setDeploymentAssetMount(dialog, assetMount);
+    if (desiredRunning !== undefined) await setDeploymentDesiredRunning(dialog, desiredRunning);
   });
 
   await step(`submit update ${name}`, async () => {
@@ -412,6 +417,33 @@ export async function createPostgresClientDeployment(page, {
   ]);
 }
 
+export async function stopDeployment(page, {name, machine = 'worker-1'} = {}) {
+  await updateNixDockerDeployment(page, {name, machine, desiredRunning: false});
+  await expectDeploymentStopped(page, {name, machine});
+}
+
+export async function deleteDeployment(page, {name, machine = 'worker-1'} = {}) {
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  const row = deploymentRow(page, {name, machine});
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await row.getByTitle('More actions').evaluate(button => {
+    button.click();
+    const menuDelete = [...document.body.querySelectorAll('button')]
+      .find(candidate => candidate.textContent?.trim() === 'Delete');
+    if (!menuDelete) throw new Error('deployment Delete action was not available');
+    menuDelete.click();
+  });
+  const overlay = page.getByTestId('deployment-delete-overlay');
+  await expect(overlay).toBeVisible();
+  const response = page.waitForResponse(res => {
+    const request = res.request();
+    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployment/delete';
+  }, {timeout: LONG_UI_TIMEOUT});
+  await overlay.getByRole('button', {name: 'Delete', exact: true}).click();
+  expect((await response).ok()).toBe(true);
+  await expect(row).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
 export async function runBackupRestoreSetup(page, opts = {}) {
   const cfg = {...BACKUP_RESTORE_DEFAULTS, ...opts};
 
@@ -506,13 +538,37 @@ export async function createSecret(page, {name, value} = {}) {
   await createSecretOrConfig(page, {type: 'secret', name, value});
 }
 
+export async function rotateSecret(page, {name, value, referencingDeployments} = {}) {
+  await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
+  const row = page.getByRole('row', {name: new RegExp(escapeRegExp(name))});
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await row.getByRole('button', {name: 'Edit secret value'}).click();
+
+  const dialog = page.getByTestId('resource-value-overlay').getByRole('dialog');
+  await expect(dialog).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await fillCodeEditor(dialog, `Value for ${name}`, value);
+  if (referencingDeployments !== undefined) {
+    const toggle = dialog.getByRole('switch', {name: `Update ${referencingDeployments} referencing deployments`});
+    await expect(toggle).toBeVisible();
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
+  }
+  const response = page.waitForResponse(res => {
+    const request = res.request();
+    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/secrets/set';
+  }, {timeout: LONG_UI_TIMEOUT});
+  await dialog.getByRole('button', {name: /Save version \d+/}).click();
+  expect((await response).ok()).toBe(true);
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
 async function createSecretOrConfig(page, {type, name, value}) {
   await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
   await page.getByRole('button', {name: `Add ${type}`}).click();
 
   const dialog = page.getByTestId(`create-${type}-overlay`).getByRole('dialog');
   await dialog.getByPlaceholder(`${type} name`).fill(name);
-  await dialog.getByPlaceholder(`${type} value`).fill(value);
+  await fillCodeEditor(dialog, `Value for new ${type}`, value);
   await dialog.getByRole('button', {name: `Add ${type}`}).click();
   await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
   await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(name))})).toBeVisible({timeout: LONG_UI_TIMEOUT});
@@ -658,7 +714,7 @@ function shellQuote(value) {
   return `'${String(value).replaceAll("'", `'\\''`)}'`;
 }
 
-async function createContainerImageDeployment(page, {
+export async function createContainerImageDeployment(page, {
   name,
   machine,
   image,
@@ -666,6 +722,7 @@ async function createContainerImageDeployment(page, {
   dataMountPath = '',
   networkingMode = NETWORKING_HOST,
   portForwarding = [],
+  assetMount,
 } = {}) {
   await step(`open container deployment dialog ${name}`, async () => {
     await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
@@ -684,6 +741,7 @@ async function createContainerImageDeployment(page, {
     await byTestId(dialog, 'deployment-container-image-input', textField(dialog, 'Image')).fill(image);
     await setDeploymentEnvVars(dialog, env);
     if (dataMountPath) await setDeploymentDataMountPath(dialog, dataMountPath);
+    if (assetMount) await setDeploymentAssetMount(dialog, assetMount);
   });
   const submit = byTestId(dialog, 'create-deployment-submit', dialog.getByRole('button', {name: 'Create'}));
   await step(`submit container deployment ${name}`, async () => {
@@ -706,8 +764,8 @@ export async function createAsset(page, {key, content} = {}) {
   await expect(page.getByPlaceholder('Search assets')).toBeVisible();
   await page.getByRole('button', {name: 'Add asset'}).click();
 
-  await page.getByPlaceholder('nginx.conf').fill(key);
-  await page.getByPlaceholder('Paste config file contents here').fill(content);
+  await page.getByLabel('New asset name').fill(key);
+  await fillCodeEditor(page, `Content for asset ${key}`, content);
   const createResponse = page.waitForResponse(response => {
     const request = response.request();
     return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/assets/set';
@@ -715,6 +773,20 @@ export async function createAsset(page, {key, content} = {}) {
   await page.getByRole('button', {name: 'Create asset'}).click();
   expect((await createResponse).ok()).toBe(true);
   await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(key))})).toBeVisible();
+}
+
+export async function updateAsset(page, {key, content} = {}) {
+  await byTestId(page, 'nav-assets', page.getByText('Assets')).click();
+  const row = page.getByRole('row', {name: new RegExp(escapeRegExp(key))});
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await row.getByRole('button', {name: `Edit asset ${key}`}).click();
+  await fillCodeEditor(page, `Content for asset ${key}`, content);
+  const response = page.waitForResponse(res => {
+    const request = res.request();
+    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/assets/set';
+  }, {timeout: LONG_UI_TIMEOUT});
+  await page.getByRole('button', {name: /Save version \d+/}).click();
+  expect((await response).ok()).toBe(true);
 }
 
 export async function uploadAsset(page, {key, content, fileName = key} = {}) {
@@ -744,7 +816,7 @@ export async function uploadAsset(page, {key, content, fileName = key} = {}) {
     await closeButton.click();
     await expect(overlay).toBeHidden({timeout: LONG_UI_TIMEOUT});
   }
-  await assetRow.click();
+  await assetRow.getByRole('button', {name: `Edit asset ${fileName}`}).click();
   await expect(page.getByText(/[0-9.]+ (B|KB|MB|GB|TB) large asset/)).toBeVisible({timeout: LONG_UI_TIMEOUT});
 }
 
@@ -756,6 +828,32 @@ export async function expectDeploymentOutput(page, name, expectedLines) {
   for (const line of expectedLines) {
     await expectOutputText(page, line);
   }
+}
+
+export async function expectDeploymentOutputOccurrences(page, name, text, count) {
+  await openDeploymentOutput(page, name);
+  await expect.poll(async () => {
+    const occurrences = await outputOccurrenceCount(page, text);
+    if (occurrences < count) await page.getByTestId('logs-search-button').click();
+    return occurrences;
+  }, {message: `expected ${name} output to contain ${count} occurrences of ${text}`, timeout: PGBACKREST_TIMEOUT}).toBeGreaterThanOrEqual(count);
+}
+
+export async function deploymentOutputOccurrenceCount(page, name, text) {
+  await openDeploymentOutput(page, name);
+  return outputOccurrenceCount(page, text);
+}
+
+async function openDeploymentOutput(page, name) {
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  const row = byTestId(page, `deployment-row-${name}`, page.locator('tr').filter({hasText: name}));
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await openDeploymentLogsSearch(page, row);
+}
+
+async function outputOccurrenceCount(page, text) {
+  const output = await page.getByTestId('logs-output').textContent() || '';
+  return output.split(text).length - 1;
 }
 
 export async function expectHTTPText(url, expectedText, {timeout = DEPLOYMENT_RUNNING_TIMEOUT} = {}) {
@@ -776,13 +874,14 @@ export async function expectTLSIngress(hostname, {backend, certificateBundle, ti
   const expectedFingerprint = new crypto.X509Certificate(Buffer.from(certificateBundle, 'base64')).fingerprint256;
   await expect.poll(async () => {
     try {
-      return (await requestTLSIngress(hostname)).body;
+      return await requestTLSIngress(hostname);
     } catch {
-      return '';
+      return null;
     }
-  }, {message: `expected TLS ingress for ${hostname}`, timeout}).toBe(expectedBody);
-  const result = await requestTLSIngress(hostname);
-  expect(result.fingerprint).toBe(expectedFingerprint);
+  }, {message: `expected TLS ingress for ${hostname}`, timeout}).toEqual({
+    body: expectedBody,
+    fingerprint: expectedFingerprint,
+  });
 }
 
 export async function expectTLSIngressUnavailable(hostname, {timeout = DEPLOYMENT_RUNNING_TIMEOUT} = {}) {
@@ -953,11 +1052,14 @@ export async function expectDeploymentRunning(page, opts = {}) {
   }
 
   const runnerStatus = row.getByTestId(`deployment-runner-status-${name}`);
-  await expect(runnerStatus).toHaveText(/^(Running|Crashed|Stopped)$/, {timeout: RUNNER_START_TIMEOUT});
-  const runnerText = ((await runnerStatus.textContent()) || '').trim();
-  if (runnerText !== 'Running') {
-    throw new Error(`deployment ${name} runner entered ${runnerText}`);
-  }
+  await expect(runnerStatus).toHaveText('Running', {timeout: RUNNER_START_TIMEOUT});
+}
+
+export async function expectDeploymentStopped(page, opts = {}) {
+  const {name, machine} = typeof opts === 'string' ? {name: opts} : opts;
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  const row = deploymentRow(page, {name, machine});
+  await expect(row.getByTestId(`deployment-runner-status-${name}`)).toHaveText('Stopped', {timeout: RESTART_TIMEOUT});
 }
 
 async function openDeploymentLogsSearch(page, row) {
@@ -1018,6 +1120,14 @@ function byTestId(root, testID, fallback) {
   return root.getByTestId(testID).or(fallback).first();
 }
 
+async function fillCodeEditor(root, ariaLabel, value) {
+  const host = root.getByLabel(ariaLabel, {exact: true});
+  await expect(host).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  const editor = host.locator('.cm-content');
+  await expect(editor).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await editor.fill(String(value ?? ''));
+}
+
 async function setDeploymentEnvVars(dialog, env) {
   const entries = Object.entries(env || {}).filter(([key]) => key);
   if (entries.length === 0) return;
@@ -1028,6 +1138,10 @@ async function setDeploymentEnvVars(dialog, env) {
 
   for (const [key, value] of entries) {
     let row = await existingEnvRow(pane, key);
+    if (value === null) {
+      if (row) await row.getByRole('button', {name: 'Remove'}).click();
+      continue;
+    }
     if (!row) {
       await pane.getByRole('button', {name: '+ Add environment variable'}).click();
       row = pane.locator('tbody tr').last();
@@ -1132,6 +1246,14 @@ async function setDeploymentNetworkingMode(dialog, networkingMode) {
   await expect(pane).toBeHidden({timeout: LONG_UI_TIMEOUT});
 }
 
+async function setDeploymentDesiredRunning(dialog, running) {
+  const toggle = dialog.getByTestId('deployment-desired-state-toggle');
+  await expect(toggle).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  const checked = await toggle.getAttribute('aria-checked') === 'true';
+  if (checked !== running) await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-checked', String(running));
+}
+
 async function openDeploymentNetworkingPane(dialog) {
   const pane = dialog.getByRole('heading', {name: 'Networking'}).locator('xpath=ancestor::div[contains(@class, "border-l")][1]');
   if (await pane.isVisible().catch(() => false)) return pane;
@@ -1166,11 +1288,13 @@ async function setDeploymentDataMountPath(dialog, mountPath) {
 }
 
 async function setDeploymentAssetMount(dialog, {asset, path: mountPath}) {
-  await dialog.getByRole('button', {name: 'Click to mount assets'}).click();
+  const summary = dialog.getByText(/^(No mounted assets|\d+ mounted assets?)$/)
+    .locator('xpath=ancestor::div[contains(@class, "justify-between")][1]');
+  await summary.getByRole('button').click();
   await expect(dialog.getByRole('heading', {name: 'Mounted assets'})).toBeVisible();
   const pane = dialog.getByRole('heading', {name: 'Mounted assets'}).locator('xpath=ancestor::div[contains(@class, "border-l")][1]');
   const assetSelect = field(pane, 'Asset').locator('select');
-  const assetOption = assetSelect.locator('option').filter({hasText: asset}).first();
+  const assetOption = assetSelect.locator('option').filter({hasText: asset}).last();
   await expect(assetOption).toBeAttached({timeout: LONG_UI_TIMEOUT});
   const assetValue = await assetOption.getAttribute('value');
   await assetSelect.selectOption(assetValue);

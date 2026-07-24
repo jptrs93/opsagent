@@ -210,15 +210,16 @@ func (r *containerRunner) WaitReady() error {
 func (r *containerRunner) Promote() error {
 	if r.virtualNetwork() {
 		cn := r.getContainerNet()
-		stable, err := r.stableAddr()
-		if err != nil {
+		old := network.Default.CurrentNet(r.deploymentID)
+		if err := network.Default.Activate(cn); err != nil {
 			return err
 		}
-		if err := network.Default.Promote(network.Default.CurrentNet(r.deploymentID), cn, stable); err != nil {
-			return err
-		}
-		cn.Addr = stable
-		if err := r.publishContainerNet(cn, stable); err != nil {
+		if err := r.publishContainerNet(cn); err != nil {
+			if old != nil {
+				if rollbackErr := network.Default.Activate(old); rollbackErr != nil {
+					return errors.Join(err, fmt.Errorf("restoring previous inbound route: %w", rollbackErr))
+				}
+			}
 			return err
 		}
 	}
@@ -373,7 +374,7 @@ func (r *containerRunner) run() {
 			mounts = append(append([]ctrd.Mount{}, mounts...), ctrd.Mount{Source: listener.dir, Dest: containerReadinessContainerDir})
 			env = append(env, containerReadinessEnvKey+"="+containerReadinessContainerPath)
 		}
-		cn, resolvConfPath, err = r.setupContainerNet(runNumber, readinessActive)
+		cn, resolvConfPath, err = r.setupContainerNet(runNumber)
 		if err != nil {
 			slog.ErrorContext(r.ctx, "setting up container network failed", "err", err, "containerID", r.containerID)
 			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
@@ -437,9 +438,9 @@ func (r *containerRunner) run() {
 		r.setTask(task)
 		r.logContainerEvent("start", runNumber, mounts)
 		if cn != nil && !readinessActive {
-			stable, err := r.stableAddr()
+			err := network.Default.Activate(cn)
 			if err == nil {
-				err = r.publishContainerNet(cn, stable)
+				err = r.publishContainerNet(cn)
 			}
 			if err != nil {
 				slog.ErrorContext(r.ctx, "publishing container network failed", "err", err, "containerID", r.containerID)
@@ -814,15 +815,15 @@ func (r *containerRunner) virtualNetwork() bool {
 	return r.networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL
 }
 
-func (r *containerRunner) stableAddr() (netip.Addr, error) {
+func (r *containerRunner) inboundAddr() (netip.Addr, error) {
 	prefix, ok := network.Default.PrefixValue()
 	if !ok {
 		return netip.Addr{}, fmt.Errorf("virtual network prefix is not known")
 	}
-	return prefix.InstanceAddr(r.spaceID, r.deploymentID, 0)
+	return prefix.InboundAddr(r.spaceID, r.deploymentID, 0)
 }
 
-func (r *containerRunner) setupContainerNet(runNumber int32, candidate bool) (*network.ContainerNet, string, error) {
+func (r *containerRunner) setupContainerNet(runNumber int32) (*network.ContainerNet, string, error) {
 	if !r.virtualNetwork() {
 		return nil, "", nil
 	}
@@ -830,15 +831,15 @@ func (r *containerRunner) setupContainerNet(runNumber int32, candidate bool) (*n
 	if !ok {
 		return nil, "", fmt.Errorf("virtual network prefix is not known")
 	}
-	addr, deprecatedAddrs, err := containerNetAddresses(prefix, r.spaceID, r.deploymentID, runNumber, candidate)
+	inboundAddr, outboundAddr, err := containerNetAddresses(prefix, r.spaceID, r.deploymentID, r.configVersion, runNumber)
 	if err != nil {
 		return nil, "", err
 	}
 	cn, err := network.Default.SetupContainerNet(network.ContainerNetSpec{
 		ContainerID:              r.containerID,
 		DeploymentID:             r.deploymentID,
-		Addr:                     addr,
-		DeprecatedAddrs:          deprecatedAddrs,
+		InboundAddr:              inboundAddr,
+		OutboundAddr:             outboundAddr,
 		UnprivilegedPortStart:    0,
 		SetUnprivilegedPortStart: network.Default.IsNetproxyDeployment(r.deploymentID),
 	})
@@ -855,37 +856,55 @@ func (r *containerRunner) setupContainerNet(runNumber int32, candidate bool) (*n
 }
 
 func (r *containerRunner) recoverContainerNet() error {
-	var addr netip.Addr
+	var inboundAddr netip.Addr
 	if r.usesLatestNetworkConfig() {
 		if !r.virtualNetwork() {
 			return nil
 		}
-		stable, err := r.stableAddr()
+		stable, err := r.inboundAddr()
 		if err != nil {
 			return err
 		}
-		addr = stable
+		inboundAddr = stable
 	} else {
 		if len(r.status.Endpoints) == 0 {
 			return nil
 		}
 		var err error
-		addr, err = netip.ParseAddr(r.status.Endpoints[0].Address)
+		inboundAddr, err = netip.ParseAddr(r.status.Endpoints[0].Address)
 		if err != nil {
 			return fmt.Errorf("parsing persisted container address: %w", err)
 		}
 	}
-	cn, err := network.Default.RecoverContainerNet(r.containerID, r.deploymentID, addr)
+	prefix, ok := network.Default.PrefixValue()
+	if !ok {
+		return fmt.Errorf("virtual network prefix is not known")
+	}
+	identity, err := prefix.ParseAddr(inboundAddr)
+	if err != nil {
+		return fmt.Errorf("parsing persisted inbound address %s: %w", inboundAddr, err)
+	}
+	if !identity.IsInbound() {
+		return fmt.Errorf("persisted address %s is not an inbound address", inboundAddr)
+	}
+	if identity.DeploymentID != r.deploymentID {
+		return fmt.Errorf("persisted inbound address %s belongs to deployment %d, not %d", inboundAddr, identity.DeploymentID, r.deploymentID)
+	}
+	outboundAddr, err := prefix.OutboundAddr(identity.SpaceID, r.deploymentID, identity.Ordinal, r.configVersion, r.currentRunNumber())
+	if err != nil {
+		return err
+	}
+	cn, err := network.Default.RecoverContainerNet(r.containerID, r.deploymentID, inboundAddr, outboundAddr)
 	if err != nil {
 		return err
 	}
 	r.setContainerNet(cn)
 	if r.usesLatestNetworkConfig() {
-		if err := r.publishContainerNet(cn, addr); err != nil {
+		if err := r.publishContainerNet(cn); err != nil {
 			return fmt.Errorf("publishing recovered container network: %w", err)
 		}
 	}
-	slog.InfoContext(r.ctx, "adopted container network recovered", "containerID", r.containerID, "addr", cn.Addr, "v4", cn.V4, "veth", cn.HostVeth)
+	slog.InfoContext(r.ctx, "adopted container network recovered", "containerID", r.containerID, "inbound", cn.InboundAddr, "outbound", cn.OutboundAddr, "v4", cn.V4, "veth", cn.HostVeth)
 	return nil
 }
 
@@ -893,19 +912,16 @@ func (r *containerRunner) usesLatestNetworkConfig() bool {
 	return r.configVersion == r.latestVersion || network.Default.IsNetproxyDeployment(r.deploymentID)
 }
 
-func containerNetAddresses(prefix network.Prefix, spaceID, deploymentID, runNumber int32, candidate bool) (netip.Addr, []netip.Addr, error) {
-	stable, err := prefix.InstanceAddr(spaceID, deploymentID, 0)
+func containerNetAddresses(prefix network.Prefix, spaceID, deploymentID, configVersion, runNumber int32) (netip.Addr, netip.Addr, error) {
+	inboundAddr, err := prefix.InboundAddr(spaceID, deploymentID, 0)
 	if err != nil {
-		return netip.Addr{}, nil, err
+		return netip.Addr{}, netip.Addr{}, err
 	}
-	if candidate {
-		// Candidate warmup traffic should source from the run-scoped address.
-		// The stable address is preassigned as deprecated so promotion is just a
-		// host-route flip, not a netns mutation in the critical path.
-		run, err := prefix.RunAddr(spaceID, deploymentID, runNumber)
-		return run, []netip.Addr{stable}, err
+	outboundAddr, err := prefix.OutboundAddr(spaceID, deploymentID, 0, configVersion, runNumber)
+	if err != nil {
+		return netip.Addr{}, netip.Addr{}, err
 	}
-	return stable, nil, nil
+	return inboundAddr, outboundAddr, nil
 }
 
 func (r *containerRunner) writeResolvConf(runNumber int32) (string, error) {
@@ -928,21 +944,21 @@ func (r *containerRunner) writeResolvConf(runNumber int32) (string, error) {
 	return path, nil
 }
 
-func (r *containerRunner) publishContainerNet(cn *network.ContainerNet, stable netip.Addr) error {
+func (r *containerRunner) publishContainerNet(cn *network.ContainerNet) error {
 	if cn == nil {
 		return nil
 	}
 	if network.Default.IsNetproxyDeployment(r.deploymentID) {
 		return network.Default.PublishNetproxy(cn)
 	}
-	if err := network.Default.ApplyHostPorts(r.deploymentID, r.containerID, r.hostPortRules(cn, stable)); err != nil {
+	if err := network.Default.ApplyHostPorts(r.deploymentID, r.containerID, r.hostPortRules(cn)); err != nil {
 		return err
 	}
 	network.Default.SetCurrentNet(r.deploymentID, cn)
 	return nil
 }
 
-func (r *containerRunner) hostPortRules(cn *network.ContainerNet, stable netip.Addr) []network.HostPortRule {
+func (r *containerRunner) hostPortRules(cn *network.ContainerNet) []network.HostPortRule {
 	if cn == nil || len(r.networking.PortForwarding) == 0 {
 		return nil
 	}
@@ -959,7 +975,7 @@ func (r *containerRunner) hostPortRules(cn *network.ContainerNet, stable netip.A
 			Protocol:   proto,
 			HostPort:   uint16(pf.HostPort),
 			TargetPort: uint16(pf.ContainerPort),
-			TargetV6:   stable,
+			TargetV6:   cn.InboundAddr,
 			TargetV4:   cn.V4,
 		})
 	}
@@ -1053,7 +1069,7 @@ func (r *containerRunner) syncNetworkStatus() {
 		r.status.Endpoints = nil
 		return
 	}
-	addr, err := r.stableAddr()
+	addr, err := r.inboundAddr()
 	if err != nil {
 		r.status.Endpoints = nil
 		return

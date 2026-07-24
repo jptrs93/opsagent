@@ -26,27 +26,31 @@ The virtual network is IPv6-only, using an RFC 4193 ULA `/48` prefix generated r
 Addresses are pure functions of existing identifiers. Layout of the 80 host bits after the `/48` prefix:
 
 ```
-<ULA /48> : <reserved:17=0> : <space:17> : <deployment:26> : <kind:4> : <field:16>
+<ULA:48><space:16><deployment:24><ordinal:12><versionSlot:20><runSlot:8>
 ```
 
-| Kind | Meaning | Field |
-|---|---|---|
-| `0` | Instance address | instance ordinal (0-based) |
-| `1` | Service address (virtual; per deployment) | `0` |
-| `2` | Run-scoped temporary address (rollover candidates) | low 16 bits of the run number |
-| `3`-`15` | Reserved | undefined |
+| Field | Bits | Capacity | Meaning |
+|---|---:|---:|---|
+| Space | 16 | 65,536 | tenant/security domain |
+| Deployment | 24 | 16,777,216 values | deployment identity; `0` is invalid |
+| Ordinal | 12 | 4,096 | stable instance ordinal |
+| Version slot | 20 | 1,048,575 nonzero | normalized config version |
+| Run slot | 8 | 255 nonzero | normalized run number |
 
 Properties:
 
-- The reserved field is always zero. It preserves the implemented address ABI but never carries node placement.
-- An instance is `(space id, deployment id, ordinal)`. Its logical address survives restarts, upgrades, and node rescheduling. Moving it to another space changes its logical address.
-- Every logical space is one `/82`, making same-space policy a prefix rule.
-- All logical addresses of one deployment share one `/108` across every kind and field.
-- Service addresses (kind 1) are reserved from day one but not routed until socket-level load balancing exists (see Load balancing). Connecting to an unrouted service address fails cleanly.
+- `I = Address(prefix, space, deployment, ordinal, 0, 0)` is the stable inbound address. It survives restarts, upgrades, and node rescheduling. Moving the instance to another space changes it.
+- `O = Address(prefix, space, deployment, ordinal, versionSlot, runSlot)` is the preferred outbound source for one complete virtual run. Both slots must be nonzero.
+- Full config versions and run numbers remain full-width. Address derivation normalizes each positive value with `((n - 1) % max) + 1`, where `max = 2^bits - 1`.
+- Every virtual run is preassigned both `I` and `O`. `I` has `preferred_lft=0`; `O` remains preferred and routed throughout setup, warmup, activation, promotion, and the rest of the run.
+- Setup routes `O`. Activation or promotion routes `I` to the current attachment. DNS, endpoints, ingress, and Address refs use `I`.
+- Every logical space is one `/64`, making same-space policy a prefix rule. All addresses of one deployment share one `/88`; one instance is a `/100`, and one version slot is a `/120`.
 - Space and deployment ids are never recycled, so logical prefixes are never reused.
-- Run fields wrap after 16 bits because only concurrently live temporary runs must be distinct. Instance ordinals do not wrap.
+- Ordinals do not wrap. Version and run slots wrap only through normalization; live `O` collisions must be rejected.
 
-Hard limits are 131,072 spaces, 67,108,864 deployment ids, 16 kinds, and 65,536 values per kind.
+Future service virtual addresses require a separate allocation and address
+design. The workload ABI allocates only `I` and `O`, with no compatibility
+range for a service virtual address.
 
 ### Spaces and address derivation
 
@@ -59,7 +63,7 @@ Containers keep a machine-local IPv4 path for internet egress: a fixed private r
 ### Application requirements
 
 - Workloads must listen on the IPv6 wildcard (`::`). Binding `0.0.0.0` only makes an app unreachable at its instance address (from peers and from ingress alike).
-- Workloads must not bind to a specific address; rollover candidates can start with both the run address and the stable instance address configured. The run address is the candidate's preferred outbound source during warmup, while the stable address is non-preferred until promotion changes which attachment receives the stable-address route.
+- Workloads must not bind to a specific address. Every virtual run starts with both `I` and `O`; `O` is preferred for the run's full life and `I` remains non-preferred even after activation or rollover promotion.
 
 OpenDeploy detects IPv4-only listeners from the container netns (`/proc/net/tcp6` vs `tcp`) after readiness and surfaces a diagnostic on the status card. One failure mode, one diagnostic.
 
@@ -80,7 +84,7 @@ Layout per machine:
 - Auto-created per enrolled machine; internal-only spec variants (like `githubRelease`/`systemd` today), redacted from public create/update, not user-deletable.
 - Image: the agent synthesizes a single-layer OCI image from its own release binary and imports it via the existing `ctrd.Import` path — no registry, no external build. The deployment version tracks the opendeploy release; agent upgrades bump it.
 - Runs unprivileged in its own netns like any workload; reaches backends through ordinary logical routes like any workload. Public traffic arrives via `portForwarding` DNAT (no privileged ports; `net.ipv4.ip_unprivileged_port_start` is per-netns, so binding `:53` for DNS inside its namespace is a sysctl, not a capability).
-- Upgrades use ROLLOVER with a refinement: `portForwarding` DNAT targets the container's kind-2 run address rather than the stable instance address. Rewriting the DNAT rule affects only new flows (established connections keep translating via their conntrack entries), so public connections drain gracefully on the old container while new ones land on the new — a cleaner handoff than listener-FD passing.
+- Upgrades use the same ROLLOVER route-flip lifecycle as application deployments. `portForwarding` continues to use stable inbound `I` for IPv6 and switches the current attachment's machine-local IPv4 target at promotion; `O` is not an ingress or discovery address.
 - System deployments use a tight crash-backoff curve (not the standard 1–60s exponential), and the agent reattaches/respawns the netproxy deployment first on boot.
 - Configuration interface: a single protobuf netstate file (routes, endpoint states, exposed domains, certificate material, ACME challenge tokens — defined in `api-contract`), written by the agent with atomic write-rename into the deployment's data volume and watched by the proxy via inotify. Full snapshots, no deltas or streams. The netproxy process is a pure state consumer: it self-configures from the file at start (agent may be down) and reacts to updates in milliseconds. Direct read access to the node's main database was rejected: it would expose secrets and cluster state to the internet-facing process, and would freeze internal storage schemas as a cross-version API between independently-upgrading processes; the netstate message uses the same protobuf evolution discipline as the rest of the API contract.
 - ACME issuance runs centrally in the primary's agent (account keys, issuance locks, and certificates in primary storage). Challenge tokens and issued certificates are distributed to ingress machines as netstate content, so any ingress node can answer an HTTP-01 challenge and the proxy never writes state.
@@ -138,9 +142,9 @@ NetMap {
   seq                      // monotonic per machine
   ula_prefix
   machines:  [{machine_id, underlay_ipv6}]
-  services:  [{deployment_id, space_id, name, environment, service_address,
-                endpoints: [{ordinal, logical_address, machine_id, state}], // READY | DRAINING | DOWN
-                explicit_allowed_from: [deployment_id]}]
+  deployments: [{deployment_id, space_id, name, environment,
+                  endpoints: [{ordinal, inbound_address, machine_id, state}], // READY | DRAINING | DOWN
+                  explicit_allowed_from: [deployment_id]}]
 }
 ```
 
@@ -197,7 +201,7 @@ Multi-node ingress requires shared certificate and ACME state: an HTTP-01 challe
 
 ## Network policy
 
-OpenDeploy has one cluster logical workload network. Each space has a derived `/82` logical subprefix, but isolation is enforced by policy rather than separate VRFs, tunnel fabrics, or independently generated ULA networks.
+OpenDeploy has one cluster logical workload network. Each space has a derived `/64` logical subprefix, but isolation is enforced by policy rather than separate VRFs, tunnel fabrics, or independently generated ULA networks.
 
 Default stance:
 
@@ -209,41 +213,45 @@ Default stance:
 
 Enforcement has two mandatory layers:
 
-1. **Source anti-spoofing at the workload attachment boundary.** Packets arriving from a workload veth/TAP may only use source addresses assigned to that workload. During rollover, the allowed source set includes the active stable address, the run address, and any configured deprecated stable address for the candidate. This is required because policy trusts packet source identity; the fact that replies to spoofed traffic usually return elsewhere is not enough for UDP, QUIC Initials, audit correctness, quota, or privileged-source allowlists.
+1. **Source anti-spoofing at the workload attachment boundary.** Packets arriving from a workload veth/TAP may only use that run's assigned `I` or `O`. Both old and candidate attachments have their own `O` and the same non-preferred `I`; host routing determines which attachment receives inbound `I` traffic. This is required because policy trusts packet source identity; the fact that replies to spoofed traffic usually return elsewhere is not enough for UDP, QUIC Initials, audit correctness, quota, or privileged-source allowlists.
 2. **Destination ingress policy before delivery to a workload attachment.** Packets about to enter a workload veth/TAP are dropped unless the source workload is in the same space, an explicit cross-space policy allows the source, or the traffic is an OpenDeploy system allow.
 
 For workload-to-workload isolation, destination ingress policy plus source anti-spoofing is sufficient. A separate workload egress policy is not required for the v1 default boundary. Egress policy remains useful later for internet/private-network controls, host-service access, control-plane protection, and exfiltration-sensitive deployments.
 
-Policies are expressed in logical workload terms: space, deployment, labels later, protocol, and port. The default same-space allow compiles to the source space's `/82`; explicit cross-space rules compile to deployment prefixes and port/protocol matches. Same-host and cross-host traffic hit the same destination-side policy after tunnel decapsulation. Fixed tunnel endpoints identify the expected sending underlay address but do not cryptographically authenticate it.
+Policies are expressed in logical workload terms: space, deployment, labels later, protocol, and port. The default same-space allow compiles to the source space's `/64`; explicit cross-space rules compile to deployment `/88` prefixes and port/protocol matches. Same-host and cross-host traffic hit the same destination-side policy after tunnel decapsulation. Fixed tunnel endpoints identify the expected sending underlay address but do not cryptographically authenticate it.
 
 Policy always evaluates the unchanged logical source and destination addresses. Underlay addresses and tunnel interfaces are routing state, not workload policy identity.
 
 ## Load balancing
 
-kube-proxy exists to translate stable virtual addresses to ephemeral endpoints. Stable instance addresses remove the need. Balancing arrives in stages; users only ever set a replica count.
+kube-proxy exists to translate stable virtual addresses to ephemeral endpoints. Stable inbound instance addresses remove that need for direct instance traffic. Balancing arrives in stages; users only ever set a replica count.
 
 1. **DNS over ready endpoint sets** (ships with the netmap). Health-aware by construction: not-ready instances do not resolve. Known limits (client caching, long-lived connection pinning) are acceptable for internal traffic.
-2. **eBPF socket-level balancing** (`cgroup/connect6` hook via `cilium/ebpf`). Rewrites `connect()` calls to the kind-1 service address into a chosen READY logical instance address, per connection, before any packet exists. No service DNAT or conntrack is required; ordinary logical routing then selects a local attachment or fixed node tunnel. The hook's backend map is programmed from the same netmap. This is when service addresses start routing.
+2. **Possible eBPF socket-level balancing** (`cgroup/connect6` hook via `cilium/ebpf`). A future service virtual address could be rewritten at `connect()` to a chosen READY `I`, per connection, before any packet exists. No service DNAT or conntrack would be required; ordinary logical routing would then select a local attachment or fixed node tunnel. This depends on a separate future service-address allocation and design because the current workload ABI allocates only `I` and `O`. Kata guests also require a different interception design.
 3. **L7 east-west through the embedded proxy** (opt-in, per deployment): retries, traffic splitting, per-route metrics for HTTP workloads. Ingress traffic already gets endpoint-set balancing from stage 1.
 
-Interim DNAT-based virtual IPs are explicitly rejected; before stage 2, service addresses simply do not route.
+Interim DNAT-based virtual IPs are explicitly rejected. No service virtual address exists until a separate allocation and implementation is designed.
 
 Traffic policy (future, with daemon sets): per-deployment `trafficPolicy: spread | prefer-local | local-only`, resolved by DNS answer ordering and, in stage 2, by local-preference in the socket hook. Machine locality is already in the endpoint record.
 
 ## Upgrade rollover
 
-Promotion of a new version on the same machine is a machine-local route flip; the instance address never moves machines and the primary is not on the critical path.
+Promotion of a new version on the same machine is a machine-local `I` route flip; the instance does not move machines and the primary is not on the critical path.
 
 ### Single instance (ROLLOVER)
 
 1. Prepare the new image (unchanged).
-2. Start the candidate in its own netns with a kind-2 run-scoped temporary address routed to its veth. Also preconfigure the stable instance address as a deprecated/non-preferred address before workload start, so the candidate can receive stable-address traffic after promotion without choosing it as the warmup source address. The candidate binds its ports immediately (no host-port contention) and can warm up with outbound connections.
+2. Start the candidate in its own netns with preferred `O` routed to its veth and `I` preconfigured with `preferred_lft=0`. This is the same two-address setup used by every virtual run. The candidate binds its ports immediately (no host-port contention) and can warm up with outbound connections.
 3. Candidate signals ready on the readiness socket.
-4. Promote (machine-local, milliseconds): flip the stable-address host route to the candidate's veth. Do not mutate candidate or old workload networking on the promotion critical path.
+4. Promote (machine-local, milliseconds): flip the `I` host route to the candidate's veth. Do not mutate candidate or old workload networking on the promotion critical path.
 5. Mark old DRAINING, grace period, SIGTERM (existing stop flow).
-6. Failure before ready: kill the candidate, remove the temporary address. The old container never lost its address or route.
+6. Failure before ready: kill the candidate and remove its `I`/`O` attachment state. The old container never lost its `I` route.
 
-Established TCP connections to the old container break at the flip; clients reconnect to the same address and reach the new instance. Ingress HTTP sees zero failures via the proxy's hold-and-release. The current "signal ready then wait for the port to free" behavior is obsolete.
+Promotion does not alter either address or source preference. The promoted run
+continues to prefer `O` for its complete lifetime; clients continue to use `I`.
+Established TCP connections to the old container break at the flip; clients
+reconnect to `I` and reach the new instance. Ingress HTTP sees zero failures via
+the proxy's future hold-and-release behavior.
 
 ### Multiple instances (future)
 
@@ -251,13 +259,13 @@ Default rolling recreate, one ordinal at a time, behind the endpoint set:
 
 1. Mark ordinal `i` DRAINING (drops out of DNS and balancing; the other n−1 instances carry load).
 2. Drain window, SIGTERM old instance.
-3. Start the new instance; it takes the stable ordinal address directly (no temporary-address dance — the old container is gone).
+3. Start the new instance with both `I` and its run-scoped `O`, then activate `I`; the old container is already gone.
 4. Wait for ready, mark READY, advance to the next ordinal.
 5. A new version that never reaches ready halts the rollout with the remaining old instances serving. Halt-and-alert, no auto-rollback; rollback is a redeploy of the previous version.
 
 Surge mode (no capacity dip) applies the single-instance candidate flow per ordinal — same primitive.
 
-Cross-machine moves (scheduler relocating an ordinal) update the logical-address-to-node placement map: start the new instance on the target under a temporary address, publish the placement flip, then drain and stop the source. Every informed node replaces the instance `/128` route to select the target's fixed tunnel; tunnel configuration does not change. Propagation is eventually consistent. A stale route may reach the old node and take one additional routed tunnel hop after that node learns the new placement, or fail until the source receives the update. This is the one rollover variant where the primary is on the critical path, which is acceptable because scheduler moves are already control-plane acts.
+Cross-machine moves (scheduler relocating an ordinal) update the `I`-to-node placement map: start the new instance on the target with its preassigned `I` and preferred `O`, publish the `I` placement flip, then drain and stop the source. Every informed node replaces the `I` `/128` route to select the target's fixed tunnel; tunnel configuration does not change. The target `O` also needs publication so remote replies can route during startup. Propagation is eventually consistent. A stale route may reach the old node and take one additional routed tunnel hop after that node learns the new placement, or fail until the source receives the update. This is the one rollover variant where the primary is on the critical path, which is acceptable because scheduler moves are already control-plane acts.
 
 Daemon sets are the rolling recreate loop iterated over machines; each replacement is machine-local.
 
@@ -301,14 +309,14 @@ Each phase is independently shippable and usable; later phases can wait.
 
 The dataplane on each machine, without cross-machine routing yet.
 
-- ULA prefix generation and persistence on the primary; derived logical address functions (kinds 0–2) using the reserved zero field, space, deployment, kind, and field.
+- ULA prefix generation and persistence on the primary; derived `I` and `O` functions using space, deployment, ordinal, version slot, and run slot, with nonzero slot normalization.
 - Netns/veth per container, host routes, IPv4 egress NAT, MTU handling.
 - Attachment source anti-spoofing and generated default ingress policy for machine-local traffic: same-space allow, cross-space deny.
 - Endpoint-set-shaped state (n=1) with READY/DRAINING, readiness generalized to set membership.
 - Internal system deployment machinery: self-image synthesis from the release binary, auto-created per-machine netproxy deployment, tight crash backoff, agent socket interface, disk-persisted state.
 - Per-machine DNS in the netproxy deployment: serves deployments local to that machine, forwards upstream.
 - `portForwarding` publishing (nftables DNAT on the machine's host interfaces) to preserve external reachability.
-- New ROLLOVER promotion (temporary candidate address, route flip); wildcard-bind requirement and IPv4-only-listener diagnostic.
+- ROLLOVER promotion with preassigned `I` and `O`, an `I` route flip, and no source-preference mutation; wildcard-bind requirement and IPv4-only-listener diagnostic.
 - `networking` section in the deployment config, proto schema, and UI side panel (`portForwarding`).
 - Migration per the section above.
 
@@ -327,7 +335,7 @@ Usable outcome: same-space instances reach same-space instances by name across m
 
 Incremental within the phase:
 
-- 3a: ingress role enabled in the existing netproxy system deployment (`portForwarding` 80/443 DNAT to its run address), certmagic ACME (certmagic `Storage` over primary storage), `ingress` config with collision validation, longest-prefix routing to local-machine backends. Works with Phase 1 alone on single-machine clusters.
+- 3a: ingress role enabled in the existing netproxy system deployment (`portForwarding` 80/443 DNAT to its inbound address `I`), certmagic ACME (certmagic `Storage` over primary storage), `ingress` config with collision validation, longest-prefix routing to local-machine backends. Works with Phase 1 alone on single-machine clusters.
 - 3b: cross-machine backends over logical tunnel routes (requires Phase 2); multi-node ingress with per-node public DNS records.
 - 3c: rollover integration — drain awareness and hold-and-release during promotions; web UI served through the proxy.
 
@@ -346,14 +354,14 @@ Coupled to the scheduler/replicas backlog item; networking consumes placements a
 
 - Endpoint sets with n > 1; rolling recreate and surge upgrade strategies; per-instance runner status/history keyed by `(deployment, ordinal)`.
 - DNS multi-AAAA balancing (stage 1) arrives automatically.
-- eBPF `connect6` socket balancing for service addresses (stage 2); traffic policy for daemon sets.
+- A separately allocated service virtual address design and a Kata-compatible balancing mechanism; eBPF `connect6` is one runc-specific option. Traffic policy for daemon sets remains part of this phase.
 - L7 east-west through the proxy (stage 3), opt-in.
 
 ### Forward-compatibility notes for Phase 1
 
 Decisions Phase 1 must honor so later phases are additive:
 
-- Address functions include service kind 1 and preserve the reserved zero field even though only logical instance kind 0 and run kind 2 route in Phase 1. Node-field fill/zero helpers are obsolete and should be removed.
+- Address functions implement only `I` and `O` in the clean workload ABI. Any future service virtual address requires a separate allocation and design rather than a compatibility encoding.
 - Netmap/state schema uses endpoint sets with per-endpoint state from the start.
 - The worker's reconciler is full-state and idempotent from the start, even while state is locally produced rather than primary-distributed.
 - Status schema anticipates `(deployment, ordinal)` granularity (ordinal 0 today).

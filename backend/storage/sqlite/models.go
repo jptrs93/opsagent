@@ -60,6 +60,8 @@ type DeploymentConfigHistory struct {
 	Version      int64
 	UpdatedAt    int64
 	UpdatedBy    int64
+	SpaceID      int64
+	NodeID       int64
 	SpecBlob     []byte
 	Deleted      int64
 }

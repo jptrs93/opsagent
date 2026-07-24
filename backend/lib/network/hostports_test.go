@@ -17,9 +17,10 @@ func TestReconcileNetproxyHostPortsUsesRenderedIngress(t *testing.T) {
 	}
 
 	m.current[42] = &ContainerNet{
-		ContainerID: "netproxy-run",
-		Addr:        netip.MustParseAddr("fd00::42"),
-		V4:          netip.MustParseAddr("100.64.0.2"),
+		ContainerID:  "netproxy-run",
+		InboundAddr:  netip.MustParseAddr("fd00::42"),
+		OutboundAddr: netip.MustParseAddr("fd00::99"),
+		V4:           netip.MustParseAddr("100.64.0.2"),
 	}
 	m.reconcileNetproxyHostPortsLocked()
 
@@ -32,7 +33,7 @@ func TestReconcileNetproxyHostPortsUsesRenderedIngress(t *testing.T) {
 	}
 	for i, port := range []uint16{443, 8443} {
 		rule := entry.rules[i]
-		if rule.Protocol != unix.IPPROTO_TCP || rule.HostPort != port || rule.TargetPort != port || rule.TargetV6 != m.current[42].Addr || rule.TargetV4 != m.current[42].V4 {
+		if rule.Protocol != unix.IPPROTO_TCP || rule.HostPort != port || rule.TargetPort != port || rule.TargetV6 != m.current[42].InboundAddr || rule.TargetV4 != m.current[42].V4 {
 			t.Fatalf("rule[%d] = %+v, want TCP forwarding for %d", i, rule, port)
 		}
 	}

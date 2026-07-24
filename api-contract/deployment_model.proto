@@ -92,6 +92,12 @@ enum PreparationStatus {
 
 // === Deployment update / version request messages ===
 
+// Identifies the current deployment config version observed by a caller.
+message DeploymentConfigVersionRef {
+  int32 id = 1;
+  int32 version = 2;
+}
+
 message DeploymentUpdateRequest {
   int32 deployment_id = 5;
   string target_version = 2;
@@ -232,7 +238,7 @@ enum EndpointState {
 // set has exactly one member until multi-instance deployments exist.
 message Endpoint {
   int32 ordinal = 1;      // instance ordinal (0-based)
-  string address = 2;     // stable instance address (kind 0)
+  string address = 2;     // stable inbound instance address I (version/run slots 0/0)
   string machine = 3 [deprecated = true]; // Legacy hosting machine identifier.
   EndpointState state = 4;
   int32 node_id = 5;      // canonical hosting node
@@ -465,8 +471,9 @@ message EnvVarValue {
   string asset = 4;     // display asset key copied from the resolved asset row
   int32 asset_id = 5;   // immutable asset row id, used for local cache/downloads
 
-  // A virtual deployment's stable instance address. Both fields are required
-  // together so workers can derive the address without querying deployment state.
+  // A virtual deployment's ordinal-zero stable inbound address I. Both fields
+  // are required together so workers can derive it without querying deployment
+  // state. Address refs never resolve a run-scoped outbound address O.
   optional int32 address_deployment_id = 6;
   optional int32 address_space_id = 7;
 }

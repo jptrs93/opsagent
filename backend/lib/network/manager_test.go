@@ -1,6 +1,9 @@
 package network
 
-import "testing"
+import (
+	"net/netip"
+	"testing"
+)
 
 func TestDNSAddrUsesInternalSpaceLogicalAddress(t *testing.T) {
 	p := GeneratePrefix()
@@ -9,7 +12,7 @@ func TestDNSAddrUsesInternalSpaceLogicalAddress(t *testing.T) {
 	if !ok {
 		t.Fatal("DNS address is not available")
 	}
-	want, err := p.InstanceAddr(0, 42, 0)
+	want, err := p.InboundAddr(0, 42, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,6 +66,48 @@ func TestRetainedContainerNetsIncludeActiveRunners(t *testing.T) {
 	}
 	if retained.keepsContainer(otherDeployment.ContainerID) || retained.keepsHostVeth(otherDeployment.HostVeth) {
 		t.Fatal("network from another deployment was retained")
+	}
+}
+
+func TestOutboundAddressInUse(t *testing.T) {
+	m := New(Prefix{}, 0)
+	addr := mustAddr(GeneratePrefix().OutboundAddr(1, 10, 0, 2, 1))
+	m.containerNets["old"] = &ContainerNet{ContainerID: "old", DeploymentID: 10, OutboundAddr: addr}
+	if !m.outboundAddressInUse(10, "candidate", addr) {
+		t.Fatal("live outbound collision was not detected")
+	}
+	if m.outboundAddressInUse(10, "old", addr) {
+		t.Fatal("container collided with its own recovered address")
+	}
+	if m.outboundAddressInUse(11, "candidate", addr) {
+		t.Fatal("address from another deployment was considered a local collision")
+	}
+}
+
+func TestValidateContainerAddressIdentity(t *testing.T) {
+	prefix := GeneratePrefix()
+	inbound := mustAddr(prefix.InboundAddr(1, 10, 2))
+	outbound := mustAddr(prefix.OutboundAddr(1, 10, 2, 3, 4))
+	if err := validateContainerAddressIdentity(prefix, 10, inbound, outbound); err != nil {
+		t.Fatalf("valid identity rejected: %v", err)
+	}
+	tests := []struct {
+		name              string
+		deploymentID      int32
+		inbound, outbound netip.Addr
+	}{
+		{"wrong deployment", 11, inbound, outbound},
+		{"wrong space", 10, mustAddr(prefix.InboundAddr(2, 10, 2)), outbound},
+		{"wrong ordinal", 10, mustAddr(prefix.InboundAddr(1, 10, 1)), outbound},
+		{"inbound used as outbound", 10, inbound, inbound},
+		{"outbound used as inbound", 10, outbound, outbound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validateContainerAddressIdentity(prefix, tt.deploymentID, tt.inbound, tt.outbound); err == nil {
+				t.Fatal("invalid identity accepted")
+			}
+		})
 	}
 }
 

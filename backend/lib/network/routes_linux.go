@@ -75,8 +75,10 @@ func reconcileLocalWorkloadRoute(prefix Prefix, addr netip.Addr, linkIndex int) 
 }
 
 func reconcileLocalWorkloadRouteWithOps(ops routeOperations, prefix Prefix, addr netip.Addr, linkIndex int) error {
-	if !prefix.IsZero() && !prefix.CIDR().Contains(addr) {
-		return fmt.Errorf("workload address %s is outside cluster prefix %s", addr, prefix)
+	if !prefix.IsZero() {
+		if err := prefix.ValidateRoutedAddr(addr); err != nil {
+			return fmt.Errorf("invalid workload address: %w", err)
+		}
 	}
 	route := localWorkloadRoute(addr, linkIndex)
 	if err := ops.RouteReplace(&route); err != nil {

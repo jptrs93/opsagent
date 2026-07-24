@@ -223,21 +223,39 @@ func render(prefix network.Prefix, nodes []*sqlite.Node, deployments []apigen.De
 	}
 	slices.SortFunc(netNodes, func(a, b *apigen.ClusterNetMapNode) int { return cmp.Compare(a.NodeID, b.NodeID) })
 
-	routes := make([]*apigen.ClusterNetMapRoute, 0, len(deployments))
+	routes := make([]*apigen.ClusterNetMapRoute, 0, len(deployments)*2)
 	for _, item := range deployments {
 		cfg := item.Config
-		if cfg.ID <= 0 || cfg.NodeID <= 0 || cfg.Deleted || !cfg.WorkloadRunning() ||
-			cfg.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+		runner := item.Status.Runner
+		if cfg.ID <= 0 || runner.DeploymentConfigVersion <= 0 ||
+			(runner.Status != apigen.RunningStatus_STARTING && runner.Status != apigen.RunningStatus_RUNNING) ||
+			len(runner.Endpoints) == 0 {
 			continue
 		}
-		if _, ok := knownNodes[cfg.NodeID]; !ok {
-			return nil, fmt.Errorf("deployment %d references unknown node %d", cfg.ID, cfg.NodeID)
+		for _, endpoint := range runner.Endpoints {
+			if endpoint == nil || endpoint.NodeID <= 0 {
+				return nil, fmt.Errorf("deployment %d has invalid observed endpoint", cfg.ID)
+			}
+			if _, ok := knownNodes[endpoint.NodeID]; !ok {
+				return nil, fmt.Errorf("deployment %d endpoint references unknown node %d", cfg.ID, endpoint.NodeID)
+			}
+			inbound, err := netip.ParseAddr(endpoint.Address)
+			if err != nil {
+				return nil, fmt.Errorf("parsing deployment %d inbound address: %w", cfg.ID, err)
+			}
+			identity, err := prefix.ParseAddr(inbound)
+			if err != nil || !identity.IsInbound() || identity.DeploymentID != cfg.ID || identity.Ordinal != endpoint.Ordinal {
+				return nil, fmt.Errorf("deployment %d has invalid observed inbound address %q", cfg.ID, endpoint.Address)
+			}
+			outbound, err := prefix.OutboundAddr(identity.SpaceID, cfg.ID, identity.Ordinal, runner.DeploymentConfigVersion, runner.NumberOfRestarts+1)
+			if err != nil {
+				return nil, fmt.Errorf("deriving deployment %d outbound address: %w", cfg.ID, err)
+			}
+			routes = append(routes,
+				&apigen.ClusterNetMapRoute{LogicalAddress: inbound.String(), HostingNodeID: endpoint.NodeID},
+				&apigen.ClusterNetMapRoute{LogicalAddress: outbound.String(), HostingNodeID: endpoint.NodeID},
+			)
 		}
-		addr, err := prefix.InstanceAddr(cfg.Identity.SpaceID, cfg.ID, 0)
-		if err != nil {
-			return nil, fmt.Errorf("deriving deployment %d network address: %w", cfg.ID, err)
-		}
-		routes = append(routes, &apigen.ClusterNetMapRoute{LogicalAddress: addr.String(), HostingNodeID: cfg.NodeID})
 	}
 	slices.SortFunc(routes, func(a, b *apigen.ClusterNetMapRoute) int {
 		if c := strings.Compare(a.LogicalAddress, b.LogicalAddress); c != 0 {

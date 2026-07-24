@@ -172,7 +172,7 @@ func (op DeploymentOperator) Run(
 			}
 			slog.InfoContext(ctx, "Run: rollover candidate ready, promoting candidate", "name", depName, "configSeqNo", result.version)
 			if err := candidate.Promote(); err != nil {
-				slog.WarnContext(ctx, "Run: rollover candidate promotion failed", "name", depName, "configSeqNo", result.version, "err", result.err)
+				slog.WarnContext(ctx, "Run: rollover candidate promotion failed", "name", depName, "configSeqNo", result.version, "err", err)
 				candidate.Stop()
 				candidate = nil
 				candidateReady = nil

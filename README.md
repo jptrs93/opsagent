@@ -87,6 +87,19 @@ For diagnostics, inspect the printed OpenDeploy service log file first. It is un
 
 Use `sudo journalctl -u opendeploy -f` as a fallback when the service does not start far enough to create runtime logs.
 
+# Networking
+
+- Virtual-mode deployments use a stable IPv6 instance address `S`, derived from the cluster ULA prefix, space ID, deployment ID, and instance ordinal. It remains unchanged across restarts and upgrades.
+- A rollover candidate also gets a temporary run-scoped IPv6 address `R`, derived from the same prefix, space ID, and deployment ID plus its run number.
+- `S` and `R` share the deployment's first 108 address bits. `S` uses address kind `0` with the instance ordinal as its final 16-bit field; `R` uses kind `2` with the run number as that field.
+- During warmup, the old container receives traffic for `S`. The candidate has preferred address `R` plus `S` configured as deprecated, so its outbound warmup traffic normally uses `R`.
+- Promotion replaces the host route for `S` so it points to the candidate, updates host-port forwarding, publishes the candidate as `RUNNING`, and then stops the old container.
+- Promotion does not remove either candidate address. The promoted container retains preferred address `R` and deprecated address `S`; inbound traffic uses `S`, while outbound traffic can continue to prefer `R`.
+- Virtual-mode IPv4 addresses are machine-local and used only for egress and IPv4 host-port forwarding. They are not stable workload identities.
+- Host-network deployments do not use `S`, `R`, a network namespace, or route-flip promotion. Their rollover candidates share the host network and must cooperate around conflicting ports.
+
+See [`docs/engineering/networking.md`](docs/engineering/networking.md) for the address layout, runtime wiring, DNS, ingress, and rollover details.
+
 # Development
 
 Local dev uses a Nix flake as the source of truth for Go, Node, and pnpm versions. See `CLAUDE.md` for the full set of dev commands.

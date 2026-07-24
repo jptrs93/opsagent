@@ -1,11 +1,11 @@
 // Package network implements the virtual network layer: derived IPv6 ULA
 // addressing, per-container network namespaces, host routing, IPv4 egress NAT,
-// and host-port publishing. See docs/future-work/networking.md.
+// and host-port publishing. See docs/engineering/networking.md.
 //
 // Addresses are pure functions of existing identifiers. Layout of the 80 bits
 // after the cluster /48:
 //
-//	<reserved:17=0> : <space:17> : <deployment:26> : <kind:4> : <field:16>
+//	<space:16> : <deployment:24> : <ordinal:12> : <version:20> : <run:8>
 package network
 
 import (
@@ -16,34 +16,42 @@ import (
 )
 
 const (
-	ReservedBits   = 17
-	SpaceBits      = 17
-	DeploymentBits = 26
-	KindBits       = 4
-	FieldBits      = 16
+	SpaceBits      = 16
+	DeploymentBits = 24
+	OrdinalBits    = 12
+	VersionBits    = 20
+	RunBits        = 8
 
 	MaxSpaceID      int32 = 1<<SpaceBits - 1
 	MaxDeploymentID int32 = 1<<DeploymentBits - 1
-	MaxField        int32 = 1<<FieldBits - 1
+	MaxOrdinal      int32 = 1<<OrdinalBits - 1
+	MaxVersionSlot  int32 = 1<<VersionBits - 1
+	MaxRunSlot      int32 = 1<<RunBits - 1
 
-	LogicalPrefixBits    = PrefixLen*8 + ReservedBits
-	SpacePrefixBits      = LogicalPrefixBits + SpaceBits
+	SpacePrefixBits      = PrefixLen*8 + SpaceBits
 	DeploymentPrefixBits = SpacePrefixBits + DeploymentBits
-	KindPrefixBits       = DeploymentPrefixBits + KindBits
+	InstancePrefixBits   = DeploymentPrefixBits + OrdinalBits
+	VersionPrefixBits    = InstancePrefixBits + VersionBits
 
-	spaceShift      = DeploymentBits + KindBits
-	deploymentShift = KindBits
+	deploymentShift = OrdinalBits + VersionBits + RunBits
+	ordinalShift    = VersionBits + RunBits
+	versionShift    = RunBits
 )
 
-// Kind distinguishes addresses owned by one deployment. Values 3-15 are
-// reserved so adding a future kind does not change the address layout.
-type Kind uint8
+// LogicalAddr is the decoded identity carried by one cluster logical address.
+// VersionSlot and RunSlot are both zero for a stable inbound address and both
+// nonzero for a run-scoped outbound address.
+type LogicalAddr struct {
+	SpaceID      int32
+	DeploymentID int32
+	Ordinal      int32
+	VersionSlot  int32
+	RunSlot      int32
+}
 
-const (
-	KindInstance Kind = 0 // field = instance ordinal (0-based)
-	KindService  Kind = 1 // field = 0; virtual per-deployment address
-	KindRun      Kind = 2 // field = temporary run number/token
-)
+func (a LogicalAddr) IsInbound() bool { return a.VersionSlot == 0 && a.RunSlot == 0 }
+
+func (a LogicalAddr) IsOutbound() bool { return a.VersionSlot != 0 && a.RunSlot != 0 }
 
 // PrefixLen is the ULA prefix length in bytes (48 bits).
 const PrefixLen = 6
@@ -89,86 +97,105 @@ func (p Prefix) CIDR() netip.Prefix {
 
 func (p Prefix) String() string { return p.CIDR().String() }
 
-// ValidateRoutedAddr verifies an address that may appear as a direct workload
-// route. Service and reserved kinds are not directly routed.
-func (p Prefix) ValidateRoutedAddr(addr netip.Addr) error {
+// ParseAddr validates and decodes a stable inbound or run-scoped outbound
+// address belonging to this cluster prefix.
+func (p Prefix) ParseAddr(addr netip.Addr) (LogicalAddr, error) {
 	if !addr.Is6() || addr.Zone() != "" || !p.CIDR().Contains(addr) {
-		return fmt.Errorf("address %s is outside cluster prefix %s", addr, p)
+		return LogicalAddr{}, fmt.Errorf("address %s is outside cluster prefix %s", addr, p)
 	}
 	raw := addr.As16()
-	upper := binary.BigEndian.Uint64(raw[6:14])
-	if upper>>(64-ReservedBits) != 0 {
-		return fmt.Errorf("address %s has non-zero reserved bits", addr)
+	lower := binary.BigEndian.Uint64(raw[8:])
+	decoded := LogicalAddr{
+		SpaceID:      int32(binary.BigEndian.Uint16(raw[6:8])),
+		DeploymentID: int32((lower >> deploymentShift) & uint64(MaxDeploymentID)),
+		Ordinal:      int32((lower >> ordinalShift) & uint64(MaxOrdinal)),
+		VersionSlot:  int32((lower >> versionShift) & uint64(MaxVersionSlot)),
+		RunSlot:      int32(lower & uint64(MaxRunSlot)),
 	}
-	kind := Kind(upper & (1<<KindBits - 1))
-	if kind != KindInstance && kind != KindRun {
-		return fmt.Errorf("address %s has unroutable kind %d", addr, kind)
+	if decoded.DeploymentID == 0 {
+		return LogicalAddr{}, fmt.Errorf("address %s has zero deployment id", addr)
 	}
-	deploymentID := int32((upper >> deploymentShift) & (1<<DeploymentBits - 1))
-	if deploymentID == 0 {
-		return fmt.Errorf("address %s has zero deployment id", addr)
+	if !decoded.IsInbound() && !decoded.IsOutbound() {
+		return LogicalAddr{}, fmt.Errorf("address %s has invalid version/run slots %d/%d", addr, decoded.VersionSlot, decoded.RunSlot)
 	}
-	return nil
+	return decoded, nil
 }
 
-func (p Prefix) addr(spaceID, deploymentID int32, kind Kind, field uint16) (netip.Addr, error) {
+// ValidateRoutedAddr verifies an address that may appear as a direct workload
+// route. Stable inbound and run-scoped outbound addresses are both routable.
+func (p Prefix) ValidateRoutedAddr(addr netip.Addr) error {
+	_, err := p.ParseAddr(addr)
+	return err
+}
+
+func (p Prefix) addr(spaceID, deploymentID, ordinal, versionSlot, runSlot int32) (netip.Addr, error) {
 	if spaceID < 0 || spaceID > MaxSpaceID {
 		return netip.Addr{}, fmt.Errorf("space id %d is outside 0..%d", spaceID, MaxSpaceID)
 	}
 	if deploymentID < 0 || deploymentID > MaxDeploymentID {
 		return netip.Addr{}, fmt.Errorf("deployment id %d is outside 0..%d", deploymentID, MaxDeploymentID)
 	}
-	if uint8(kind) >= 1<<KindBits {
-		return netip.Addr{}, fmt.Errorf("address kind %d exceeds %d-bit maximum", kind, KindBits)
+	if ordinal < 0 || ordinal > MaxOrdinal {
+		return netip.Addr{}, fmt.Errorf("instance ordinal %d is outside 0..%d", ordinal, MaxOrdinal)
+	}
+	if versionSlot < 0 || versionSlot > MaxVersionSlot {
+		return netip.Addr{}, fmt.Errorf("version slot %d is outside 0..%d", versionSlot, MaxVersionSlot)
+	}
+	if runSlot < 0 || runSlot > MaxRunSlot {
+		return netip.Addr{}, fmt.Errorf("run slot %d is outside 0..%d", runSlot, MaxRunSlot)
 	}
 
-	upper := uint64(uint32(spaceID))<<spaceShift |
-		uint64(uint32(deploymentID))<<deploymentShift |
-		uint64(kind)
-	var a [16]byte
-	copy(a[:], p[:])
-	binary.BigEndian.PutUint64(a[6:14], upper)
-	binary.BigEndian.PutUint16(a[14:16], field)
-	return netip.AddrFrom16(a), nil
+	lower := uint64(uint32(deploymentID))<<deploymentShift |
+		uint64(uint32(ordinal))<<ordinalShift |
+		uint64(uint32(versionSlot))<<versionShift |
+		uint64(uint32(runSlot))
+	var raw [16]byte
+	copy(raw[:], p[:])
+	binary.BigEndian.PutUint16(raw[6:8], uint16(spaceID))
+	binary.BigEndian.PutUint64(raw[8:], lower)
+	return netip.AddrFrom16(raw), nil
 }
 
-// InstanceAddr returns the stable logical address of an instance. It survives
-// restarts, upgrades, and rescheduling, but changes when the deployment moves
-// to another space.
-func (p Prefix) InstanceAddr(spaceID, deploymentID, ordinal int32) (netip.Addr, error) {
-	if ordinal < 0 || ordinal > MaxField {
-		return netip.Addr{}, fmt.Errorf("instance ordinal %d is outside 0..%d", ordinal, MaxField)
+// InboundAddr returns the stable address clients use to reach an instance. It
+// survives restarts, upgrades, and rescheduling, but changes with its space or
+// ordinal.
+func (p Prefix) InboundAddr(spaceID, deploymentID, ordinal int32) (netip.Addr, error) {
+	if deploymentID == 0 {
+		return netip.Addr{}, fmt.Errorf("deployment id must be positive")
 	}
-	return p.addr(spaceID, deploymentID, KindInstance, uint16(ordinal))
+	return p.addr(spaceID, deploymentID, ordinal, 0, 0)
 }
 
-// ServiceAddr returns the logical virtual address representing a deployment.
-// It remains unrouted until socket-level load balancing is implemented.
-func (p Prefix) ServiceAddr(spaceID, deploymentID int32) (netip.Addr, error) {
-	return p.addr(spaceID, deploymentID, KindService, 0)
-}
-
-// RunAddr returns a logical temporary address for a rollover candidate. Run
-// fields wrap after 16 bits; only concurrently live runs must be distinct.
-func (p Prefix) RunAddr(spaceID, deploymentID, runNumber int32) (netip.Addr, error) {
+// OutboundAddr returns the preferred source address for one complete container
+// run. Full config versions and run numbers are folded into nonzero address
+// slots; callers retain the full values for status, logs, and container ids.
+func (p Prefix) OutboundAddr(spaceID, deploymentID, ordinal, configVersion, runNumber int32) (netip.Addr, error) {
+	if deploymentID == 0 {
+		return netip.Addr{}, fmt.Errorf("deployment id must be positive")
+	}
+	if configVersion < 1 {
+		return netip.Addr{}, fmt.Errorf("config version must be positive, got %d", configVersion)
+	}
 	if runNumber < 1 {
 		return netip.Addr{}, fmt.Errorf("run number must be positive, got %d", runNumber)
 	}
-	return p.addr(spaceID, deploymentID, KindRun, uint16(uint32(runNumber)))
+	versionSlot := (configVersion-1)%MaxVersionSlot + 1
+	runSlot := (runNumber-1)%MaxRunSlot + 1
+	return p.addr(spaceID, deploymentID, ordinal, versionSlot, runSlot)
 }
 
 // SpaceCIDR covers every logical address in one space.
 func (p Prefix) SpaceCIDR(spaceID int32) (netip.Prefix, error) {
-	a, err := p.addr(spaceID, 0, KindInstance, 0)
+	a, err := p.addr(spaceID, 0, 0, 0, 0)
 	if err != nil {
 		return netip.Prefix{}, err
 	}
 	return netip.PrefixFrom(a, SpacePrefixBits), nil
 }
 
-// DeploymentCIDR covers every logical kind and field owned by a deployment.
+// DeploymentCIDR covers every logical address owned by a deployment.
 func (p Prefix) DeploymentCIDR(spaceID, deploymentID int32) (netip.Prefix, error) {
-	a, err := p.addr(spaceID, deploymentID, KindInstance, 0)
+	a, err := p.addr(spaceID, deploymentID, 0, 0, 0)
 	if err != nil {
 		return netip.Prefix{}, err
 	}

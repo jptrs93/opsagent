@@ -1,6 +1,7 @@
 package network
 
 import (
+	"fmt"
 	"net/netip"
 	"sync"
 )
@@ -64,7 +65,7 @@ type Manager struct {
 
 // HostPortRule publishes one container port on the machine's host interfaces.
 // IPv4 traffic DNATs to the container's machine-local v4; IPv6 traffic DNATs
-// to the stable instance address.
+// to the stable inbound address I.
 type HostPortRule struct {
 	Protocol   uint8
 	HostPort   uint16
@@ -75,15 +76,49 @@ type HostPortRule struct {
 
 // ContainerNet describes the netns wiring of one running container.
 type ContainerNet struct {
-	ContainerID   string
-	DeploymentID  int32
-	NetnsPath     string     // bind-mount path for the OCI spec network namespace
-	HostVeth      string     // host-side veth name
-	HostVethIndex int        // host-side ifindex, used to reject a reused interface name during teardown
-	Addr          netip.Addr // routed v6 address (stable instance addr, or run addr for candidates)
-	V4            netip.Addr // container-side machine-local v4
-	HostV4        netip.Addr
-	Slot          int
+	ContainerID  string
+	DeploymentID int32
+	NetnsPath    string // bind-mount path for the OCI spec network namespace
+	HostVeth     string // host-side veth name
+	// HostVethIndex rejects a reused interface name during teardown.
+	HostVethIndex int
+	// InboundAddr is stable for the instance and routed only to the current run.
+	InboundAddr netip.Addr
+	// OutboundAddr is preferred and routed for this network namespace's lifetime.
+	OutboundAddr netip.Addr
+	V4           netip.Addr // container-side machine-local v4
+	HostV4       netip.Addr
+	Slot         int
+}
+
+func (m *Manager) outboundAddressInUse(deploymentID int32, containerID string, addr netip.Addr) bool {
+	for _, cn := range m.containerNets {
+		if cn.DeploymentID == deploymentID && cn.ContainerID != containerID && cn.OutboundAddr == addr {
+			return true
+		}
+	}
+	return false
+}
+
+func validateContainerAddressIdentity(prefix Prefix, deploymentID int32, inboundAddr, outboundAddr netip.Addr) error {
+	outbound, err := prefix.ParseAddr(outboundAddr)
+	if err != nil {
+		return fmt.Errorf("invalid outbound address %v: %w", outboundAddr, err)
+	}
+	if !outbound.IsOutbound() {
+		return fmt.Errorf("outbound address %v uses the inbound address form", outboundAddr)
+	}
+	inbound, err := prefix.ParseAddr(inboundAddr)
+	if err != nil {
+		return fmt.Errorf("invalid inbound address %v: %w", inboundAddr, err)
+	}
+	if !inbound.IsInbound() {
+		return fmt.Errorf("inbound address %v uses the outbound address form", inboundAddr)
+	}
+	if outbound.SpaceID != inbound.SpaceID || outbound.DeploymentID != inbound.DeploymentID || outbound.Ordinal != inbound.Ordinal || inbound.DeploymentID != deploymentID {
+		return fmt.Errorf("container inbound and outbound identities do not match deployment %d", deploymentID)
+	}
+	return nil
 }
 
 // Tunnel describes one fixed protocol-41 tunnel to a remote cluster node.
@@ -190,7 +225,7 @@ func (m *Manager) DNSAddr() (netip.Addr, bool) {
 	if !m.hasPrefix || m.netproxyDeploymentID == 0 {
 		return netip.Addr{}, false
 	}
-	addr, err := m.prefix.InstanceAddr(0, m.netproxyDeploymentID, 0)
+	addr, err := m.prefix.InboundAddr(0, m.netproxyDeploymentID, 0)
 	return addr, err == nil
 }
 
