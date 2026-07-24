@@ -20,3 +20,11 @@ export function deploymentUsages(deployments, spaces, machines, usesDeployment) 
         || a.node.localeCompare(b.node)
         || a.id - b.id);
 }
+
+export function deploymentUsesEnvReferences(config, type, referenceIDs) {
+    const referenceKey = type === "secret" ? "secretId" : "configId";
+    const envVars = config?.spec?.container1Spec?.runtime?.envVars;
+    return Boolean(envVars && Object.values(envVars).some(
+        value => referenceIDs.has(Number(value?.[referenceKey] || 0)),
+    ));
+}

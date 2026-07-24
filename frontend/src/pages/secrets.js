@@ -6,7 +6,7 @@ import {spinnerButton} from "../components/spinnerbutton.js";
 import {valueOverlay} from "../components/valueOverlay.js";
 import {formatDateTime} from "../lib/date.js";
 import {checkIcon, copyIcon, editIcon, plusIcon, trashIcon} from "../lib/icons.js";
-import {deploymentUsages} from "../lib/referenceUsage.js";
+import {deploymentUsages, deploymentUsesEnvReferences} from "../lib/referenceUsage.js";
 import {deploymentsS, machinesS, primaryConfigS, secretMetasS, secretsStatusS, spacesS, userConfigsS} from "../state/deployments.js";
 import {containerWorkload} from "../lib/deploymentConfig.js";
 
@@ -152,6 +152,12 @@ export function secretsPage() {
         if (!cfg || cfg.deleted) return false;
         const envVars = containerWorkload(cfg)?.runtime?.envVars || {};
         return Object.values(envVars).some(value => referenceIDs.has(Number(value?.[row.type === "secret" ? "secretId" : "configId"] || 0)));
+    };
+    const referencingDeploymentVersions = (row) => {
+        const referenceIDs = itemReferenceIDs(row);
+        return (deploymentsS.val || []).map(deployment => deployment?.config).filter(config =>
+            config && !config.deleted && deploymentUsesEnvReferences(config, row.type, referenceIDs),
+        ).map(config => ({id: config.id, version: config.version}));
     };
     const usageForRow = (row) => {
         const referenceIDs = itemReferenceIDs(row);
@@ -325,7 +331,7 @@ export function secretsPage() {
             const originalValue = row.type === "secret"
                 ? new TextDecoder().decode((await capi.postV1SecretsReveal({id: row.referenceId})).value)
                 : row.value.val;
-            valueTarget.val = {row, originalValue};
+            valueTarget.val = {row, originalValue, referencingDeployments: referencingDeploymentVersions(row)};
         } catch (e) {
             error.val = e.message;
         }
@@ -386,7 +392,7 @@ export function secretsPage() {
         }
     };
 
-    const saveValue = async (row, value) => {
+    const saveValue = async (row, value, {updateReferencedDeployments = false, referencingDeployments = []} = {}) => {
         if (row.saving.val) return;
         const wasNew = row.isNew;
         const name = row.isNew ? row.name.val.trim() : row.orig.name;
@@ -396,9 +402,19 @@ export function secretsPage() {
             error.val = null;
             let saved;
             if (row.type === "config") {
-                saved = await capi.postV1UserConfigsSet({name, value});
+                saved = await capi.postV1UserConfigsSet({
+                    name,
+                    value,
+                    updateReferencingDeployments: updateReferencedDeployments,
+                    referencingDeployments: updateReferencedDeployments ? referencingDeployments : [],
+                });
             } else {
-                saved = await capi.postV1SecretsSet({name, value: new TextEncoder().encode(value)});
+                saved = await capi.postV1SecretsSet({
+                    name,
+                    value: new TextEncoder().encode(value),
+                    updateReferencingDeployments: updateReferencedDeployments,
+                    referencingDeployments: updateReferencedDeployments ? referencingDeployments : [],
+                });
             }
             if (row.type === "config") {
                 row.value.val = value;
@@ -592,14 +608,15 @@ export function secretsPage() {
     const valueViewerOverlay = () => {
         const target = valueTarget.val;
         if (!target) return "";
-        const {row, originalValue} = target;
+        const {row, originalValue, referencingDeployments} = target;
         return valueOverlay({
             name: rawStateValue(row.name),
             type: row.type,
             value: originalValue,
             version: row.version || 0,
             createdAt: row.createdAt,
-            onSave: (value) => saveValue(row, value),
+            deploymentCount: referencingDeployments.length,
+            onSave: (value, _name, options) => saveValue(row, value, {...options, referencingDeployments}),
             onClose: () => valueTarget.val = null,
         });
     };

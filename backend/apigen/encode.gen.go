@@ -224,6 +224,38 @@ func DecodeNetworkingConfig(b []byte) (*NetworkingConfig, error) {
 	return &m, nil
 }
 
+func (m *DeploymentConfigVersionRef) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt32Field(b, m.Version, 2)
+	return b
+}
+
+func DecodeDeploymentConfigVersionRef(b []byte) (*DeploymentConfigVersionRef, error) {
+	var m DeploymentConfigVersionRef
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *DeploymentUpdateRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentID, 5)
@@ -3821,6 +3853,14 @@ func (m *SecretSetRequest) Encode() []byte {
 	b = AppendStringField(b, m.Name, 1)
 	b = AppendBytesField(b, m.Value, 3)
 	b = AppendInt32Field(b, m.SpaceID, 4)
+	b = AppendBoolField(b, m.UpdateReferencingDeployments, 5)
+	for _, item := range m.ReferencingDeployments {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
 	return b
 }
 
@@ -3829,6 +3869,7 @@ func DecodeSecretSetRequest(b []byte) (*SecretSetRequest, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -3841,6 +3882,17 @@ func DecodeSecretSetRequest(b []byte) (*SecretSetRequest, error) {
 			b, m.Value, err = ConsumeBytesCopy(b, typ)
 		case 4:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.UpdateReferencingDeployments, err = ConsumeBool(b, typ)
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentConfigVersionRef
+				item, err = DecodeDeploymentConfigVersionRef(msgBytes)
+				if err == nil {
+					m.ReferencingDeployments = append(m.ReferencingDeployments, item)
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4161,6 +4213,14 @@ func (m *UserConfigSetRequest) Encode() []byte {
 	b = AppendStringField(b, m.Name, 1)
 	b = AppendStringField(b, m.Value, 3)
 	b = AppendInt32Field(b, m.SpaceID, 4)
+	b = AppendBoolField(b, m.UpdateReferencingDeployments, 5)
+	for _, item := range m.ReferencingDeployments {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
 	return b
 }
 
@@ -4169,6 +4229,7 @@ func DecodeUserConfigSetRequest(b []byte) (*UserConfigSetRequest, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -4181,6 +4242,17 @@ func DecodeUserConfigSetRequest(b []byte) (*UserConfigSetRequest, error) {
 			b, m.Value, err = ConsumeString(b, typ)
 		case 4:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.UpdateReferencingDeployments, err = ConsumeBool(b, typ)
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentConfigVersionRef
+				item, err = DecodeDeploymentConfigVersionRef(msgBytes)
+				if err == nil {
+					m.ReferencingDeployments = append(m.ReferencingDeployments, item)
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
