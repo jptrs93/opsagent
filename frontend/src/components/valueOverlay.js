@@ -39,7 +39,7 @@ export function valueOverlay({name = "", type, value = "", version = 0, createdA
     const currentValue = () => typeof value === "function" ? value() : value;
     const initialValue = currentValue();
     const draft = van.state(initialValue);
-    const nameDraft = van.state(creating ? "" : name);
+    const nameDraft = van.state(name);
     const isDirty = () => normalizeEditorValue(draft.val) !== normalizeEditorValue(initialValue);
     const isEmpty = () => !draft.val;
     const saveDisabled = () => saving.val || isEmpty() || (creating ? !nameDraft.val.trim() : !isDirty());
