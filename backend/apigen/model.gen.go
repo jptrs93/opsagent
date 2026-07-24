@@ -122,6 +122,10 @@ type DeploymentUpdateRequest struct {
 	SpaceID       *int32
 }
 
+type DeploymentUpgradeAllRequest struct {
+	TargetVersion string
+}
+
 type DeploymentCreateRequest struct {
 	Identity DeploymentIdentity
 	Spec     DeploymentSpec

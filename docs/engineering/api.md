@@ -63,6 +63,7 @@ Key generated files:
 | POST | `/v1/state/stream` | — | stream `State` | ANY_OF default |
 | POST | `/v1/deployment/create` | `DeploymentCreateRequest` | `DeploymentConfig` | ANY_OF default |
 | POST | `/v1/deployment/update` | `DeploymentUpdateRequest` | `DeploymentConfig` | ANY_OF default |
+| POST | `/v1/deployment/upgrade-all` | `DeploymentUpgradeAllRequest` | `DeploymentConfig` | ANY_OF default |
 | POST | `/v1/deployment/history` | `DeploymentHistoryRequest` | `DeploymentHistory` | ANY_OF default |
 | POST | `/v1/deployment/log-search` | `LogSearchRequest` | stream `LogLine` | ANY_OF default |
 | POST | `/v1/deployment/prepare-output` | `PrepareOutputRequest` | stream `PrepareOutputChunk` | ANY_OF default |
@@ -73,6 +74,8 @@ Key generated files:
 `/v1/deployment/log-search` streams historical run logs as typed `LogLine` protobuf frames. It scans existing `.logbin` files for the requested deployment and time range; it does not tail the currently active log file.
 
 `/v1/deployment/prepare-output` streams raw prepare/build output chunks for a deployment config version. A request with `version=0` resolves to the latest known prepare status and tails while preparation is still active.
+
+`/v1/deployment/upgrade-all` is the primary OpenDeploy self-update path. It applies the requested release to every active `opendeploy-net` deployment and secondary-node `opendeploy` deployment before updating and returning the primary-node `opendeploy` config. Rollout readiness waiting between those phases is not yet implemented.
 
 ### Cluster
 | Method | Path | Request | Response | Policy |

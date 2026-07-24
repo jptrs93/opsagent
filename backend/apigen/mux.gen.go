@@ -81,6 +81,7 @@ type OpsagentHttpV1Handler interface {
 	PostV1AuthPasskeyLoginFinish(Context, *WebAuthNFinishRequest) (*LoginResponse, error)
 	PostV1StateStream(Context) iter.Seq2[*State, error]
 	PostV1DeploymentUpdate(Context, *DeploymentUpdateRequest) (*DeploymentConfig, error)
+	PostV1DeploymentUpgradeAll(Context, *DeploymentUpgradeAllRequest) (*DeploymentConfig, error)
 	PostV1DeploymentDelete(Context, *DeploymentDeleteRequest) error
 	PostV1DeploymentHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
 	PostV1DeploymentLogSearch(Context, *LogSearchRequest) iter.Seq2[*LogLineBatch, error]
@@ -269,6 +270,17 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/deployment/update", buildHandlerFunc(config, verifyAuth, postV1DeploymentUpdateAccessPolicy, postAuthHandlerPostV1DeploymentUpdate, compressionModeAuto, false))
+	postV1DeploymentUpgradeAllAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1DeploymentUpgradeAll := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentUpgradeAllRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1DeploymentUpgradeAll(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/deployment/upgrade-all", buildHandlerFunc(config, verifyAuth, postV1DeploymentUpgradeAllAccessPolicy, postAuthHandlerPostV1DeploymentUpgradeAll, compressionModeAuto, false))
 	postV1DeploymentDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1DeploymentDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentDeleteRequest)

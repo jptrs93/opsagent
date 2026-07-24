@@ -199,6 +199,36 @@ func TestDeploymentCreateEnforcesRunningNixSource(t *testing.T) {
 	})
 }
 
+func TestDeploymentUpgradeAllUpdatesInternalDeployments(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	primaryNode := store.EnsurePrimaryNode("primary", "primary")
+	secondaryNode := store.EnsurePrimaryNode("secondary", "secondary")
+	store.EnsureSystemDeployment(primaryNode.ID, "v1.0.0")
+	store.EnsureSystemDeployment(secondaryNode.ID, "v1.0.0")
+	store.EnsureNetproxyDeployment(primaryNode.ID, "v1.0.0")
+	store.EnsureNetproxyDeployment(secondaryNode.ID, "v1.0.0")
+
+	h := &Handler{Store: store, NodeID: primaryNode.ID}
+	primary, err := h.PostV1DeploymentUpgradeAll(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentUpgradeAllRequest{
+		TargetVersion: "v2.0.0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if primary.NodeID != primaryNode.ID || !internaldeploy.IsSelfIdentity(primary.Identity) {
+		t.Fatalf("returned deployment = %+v, want primary opendeploy", primary)
+	}
+
+	for _, cfg := range store.ListActiveDeploymentConfigs() {
+		if !internaldeploy.IsInternalIdentity(cfg.Identity) {
+			continue
+		}
+		if cfg.WorkloadVersion() != "v2.0.0" || !cfg.WorkloadRunning() {
+			t.Fatalf("deployment %d workload state = %q/%t, want v2.0.0/running", cfg.ID, cfg.WorkloadVersion(), cfg.WorkloadRunning())
+		}
+	}
+}
+
 func TestDeploymentUpdateEnforcesEffectiveRunningNixTransitions(t *testing.T) {
 	t.Run("starting stopped verifies and failure does not update", func(t *testing.T) {
 		h, cfg, provider := newNixDeploymentHandler(t, false)

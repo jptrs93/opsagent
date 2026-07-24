@@ -66,6 +66,11 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc PostV1DeploymentUpgradeAll(DeploymentUpgradeAllRequest) returns (DeploymentConfig) {
+    option (cp.url) = "/v1/deployment/upgrade-all";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   rpc PostV1DeploymentDelete(DeploymentDeleteRequest) returns (cp.Empty) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }

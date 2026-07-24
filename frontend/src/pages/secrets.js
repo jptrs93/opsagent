@@ -652,13 +652,18 @@ export function secretsPage() {
     const valueViewerOverlay = () => {
         const row = valueTarget.val;
         if (!row) return "";
-        return valueOverlay(
-            rawStateValue(row.name),
-            () => row.value.val,
-            row.version || 0,
-            (value) => saveValue(row, value),
-            () => valueTarget.val = null,
-        );
+        const usage = usageForRow(row);
+        return valueOverlay({
+            name: rawStateValue(row.name),
+            type: row.type,
+            value: () => row.value.val,
+            version: row.version || 0,
+            createdAt: row.createdAt,
+            referenceCount: usage.deployments.length + usage.settings.length,
+            deploymentCount: usage.deployments.length,
+            onSave: (value) => saveValue(row, value),
+            onClose: () => valueTarget.val = null,
+        });
     };
 
     const createOverlay = () => {

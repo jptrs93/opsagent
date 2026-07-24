@@ -101,6 +101,10 @@ message DeploymentUpdateRequest {
   optional int32 space_id = 7;                     // optional: move deployment to another space
 }
 
+message DeploymentUpgradeAllRequest {
+  string target_version = 1;
+}
+
 message DeploymentCreateRequest {
   DeploymentIdentity identity = 1 [(cp.go_value) = true];
   DeploymentSpec spec = 2 [(cp.go_value) = true];

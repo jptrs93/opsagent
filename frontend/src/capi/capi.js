@@ -42,6 +42,7 @@ import {
   encodeDeploymentDeleteRequest,
   encodeDeploymentHistoryRequest,
   encodeDeploymentUpdateRequest,
+  encodeDeploymentUpgradeAllRequest,
   encodeDeploymentVersionsRequest,
   encodeEmptyRequest,
   encodeEnrollmentAcceptRequest,
@@ -300,6 +301,18 @@ export class Capi {
    */
   async postV1DeploymentUpdate(payload) {
     const response = await this.#request("/v1/deployment/update", { method: 'POST', body: encodeDeploymentUpdateRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeDeploymentConfig(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {DeploymentUpgradeAllRequest} payload
+   * @returns {Promise<DeploymentConfig>}
+   */
+  async postV1DeploymentUpgradeAll(payload) {
+    const response = await this.#request("/v1/deployment/upgrade-all", { method: 'POST', body: encodeDeploymentUpgradeAllRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }

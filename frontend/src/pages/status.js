@@ -5,6 +5,7 @@ import {statusRow} from "../components/statusCard.js";
 import {deploymentHistory} from "../components/deploymentHistory.js";
 import {deployOverlay} from "../components/deployOverlay.js";
 import {openDeployUpdateOverlay} from "../components/openDeployUpdateOverlay.js";
+import {openDeployPrimaryUpdateOverlay} from "../components/openDeployPrimaryUpdateOverlay.js";
 import {createOverlay} from "../components/createOverlay.js";
 import {prepareOutputOverlay} from "../components/prepareOutputOverlay.js";
 import {exportConfigOverlay} from "../components/exportConfigOverlay.js";
@@ -29,6 +30,12 @@ const isOpenDeployDeployment = deployment => {
     const spaceId = Number(deployment?.spaceId ?? deployment?.identity?.spaceId ?? -1);
     return spaceId === OPENDEPLOY_SPACE_ID && (name === 'opendeploy' || name === 'opendeploy-net');
 };
+
+const isPrimaryOpenDeployDeployment = deployment => (
+    Number(deployment?.spaceId ?? -1) === OPENDEPLOY_SPACE_ID
+    && deployment?.name === 'opendeploy'
+    && (machinesS.val || []).some(machine => machine.isPrimary && Number(machine.id) === Number(deployment?.nodeId))
+);
 
 function loadSidebarWidth() {
     try {
@@ -347,6 +354,10 @@ export function statusPage(onOpenLogs = () => {}) {
     };
 
     const onUpdate = (deployment) => {
+        if (isPrimaryOpenDeployDeployment(deployment)) {
+            overlayNode.val = openDeployPrimaryUpdateOverlay(deployment, closeOverlay);
+            return;
+        }
         if (isOpenDeployDeployment(deployment)) {
             overlayNode.val = openDeployUpdateOverlay(deployment, closeOverlay);
             return;

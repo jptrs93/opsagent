@@ -1,13 +1,40 @@
 import van from "vanjs-core";
 import {checkIcon, copyIcon} from "../lib/icons.js";
 
-const {button, div, h2, textarea} = van.tags;
+const {button, div, h2, p, span} = van.tags;
 
-export function valueOverlay(name, value, version, onSave, onClose) {
+let codeEditorLoader;
+
+const loadCodeEditor = () => {
+    codeEditorLoader ||= import("./assetCodeEditor.js")
+        .then(module => module.assetCodeEditor);
+    return codeEditorLoader;
+};
+
+function lazyCodeEditor(args) {
+    const editor = van.state("");
+    const loadError = van.state("");
+    loadCodeEditor()
+        .then(codeEditor => { editor.val = codeEditor(args); })
+        .catch(error => { loadError.val = error.message || "Unable to load editor"; });
+
+    return div(
+        {class: "flex-1 min-h-0"},
+        () => editor.val || p({class: "p-4 text-sm text-red-400"}, () => loadError.val || "Loading editor..."),
+    );
+}
+
+const formatDate = (value) => {
+    if (!(value instanceof Date) || Number.isNaN(value.getTime())) return "-";
+    return `${String(value.getDate()).padStart(2, "0")}/${String(value.getMonth() + 1).padStart(2, "0")}/${value.getFullYear()}`;
+};
+
+export function valueOverlay({name, type, value, version, createdAt, referenceCount, deploymentCount, onSave, onClose}) {
     const copied = van.state(false);
     const copyFailed = van.state(false);
     const saving = van.state(false);
     const saveError = van.state("");
+    const updateReferencedDeployments = van.state(false);
     const currentValue = () => typeof value === "function" ? value() : value;
     const initialValue = currentValue();
     const draft = van.state(initialValue);
@@ -52,7 +79,14 @@ export function valueOverlay(name, value, version, onSave, onClose) {
                 },
                 div(
                     {class: "flex items-center justify-between gap-4 border-b border-gray-700 px-4 py-3"},
-                    h2({id: "resource-value-title", class: "min-w-0 truncate font-mono text-sm font-semibold text-gray-100"}, name),
+                    div({class: "flex min-w-0 items-baseline gap-3"},
+                        h2({
+                            id: "resource-value-title",
+                            class: `min-w-0 truncate font-mono text-sm font-semibold ${type === "secret" ? "text-purple-300" : "text-blue-300"}`,
+                        }, name),
+                        p({class: "shrink-0 text-xs font-normal text-orange-300"},
+                            `Version ${version} - ${formatDate(createdAt)}. ${referenceCount} references.`),
+                    ),
                     div({class: "flex shrink-0 items-center gap-1"},
                         button({
                             type: "button",
@@ -63,17 +97,32 @@ export function valueOverlay(name, value, version, onSave, onClose) {
                         button({type: "button", class: "px-2.5 py-1.5 text-sm text-gray-400 hover:text-gray-100 cursor-pointer", onclick: onClose}, "Close"),
                     ),
                 ),
-                textarea({
-                    class: "w-full flex-1 min-h-0 resize-none bg-gray-950 p-4 font-mono text-sm leading-6 text-gray-200 outline-none",
-                    spellcheck: "false",
-                    autocomplete: "off",
+                lazyCodeEditor({
                     value: draft,
                     disabled: saving,
-                    oninput: (e) => draft.val = e.target.value,
+                    ariaLabel: `Value for ${name}`,
                 }),
                 div(
                     {class: "flex shrink-0 items-center justify-between gap-4 border-t border-gray-700 px-4 py-3"},
-                    () => saveError.val ? div({class: "text-sm text-red-400"}, saveError.val) : div(),
+                    div({class: "flex min-w-0 flex-col gap-1.5"},
+                        button({
+                            type: "button",
+                            role: "switch",
+                            "aria-checked": () => String(updateReferencedDeployments.val),
+                            "aria-label": `Update ${deploymentCount} referenced deployments`,
+                            class: "inline-flex w-fit items-center gap-2 text-xs text-gray-300 cursor-pointer",
+                            onclick: () => updateReferencedDeployments.val = !updateReferencedDeployments.val,
+                        },
+                        span({
+                            class: () => `relative h-4 w-7 shrink-0 rounded-full transition-colors ${updateReferencedDeployments.val
+                                ? "bg-brand" : "bg-gray-700"}`,
+                        }, span({
+                            class: () => `absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-all ${updateReferencedDeployments.val
+                                ? "left-3.5" : "left-0.5"}`,
+                        })),
+                        `Update ${deploymentCount} referenced deployment${deploymentCount === 1 ? "" : "s"}.`),
+                        () => saveError.val ? p({class: "text-sm text-red-400"}, saveError.val) : "",
+                    ),
                     button({
                         type: "button",
                         disabled: () => saving.val || !isDirty(),
