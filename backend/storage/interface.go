@@ -4,6 +4,13 @@ import "github.com/jptrs93/opsagent/backend/apigen"
 
 type DeploymentPredicate func(apigen.DeploymentConfig) bool
 
+// DeploymentConfigVersion is an optimistic assertion about the current
+// version of a deployment config.
+type DeploymentConfigVersion struct {
+	ID      int32
+	Version int32
+}
+
 func DeploymentKeyMatches(cfg apigen.DeploymentConfig, nodeID int32, identity apigen.DeploymentIdentity) bool {
 	return cfg.NodeID == nodeID &&
 		cfg.Identity.SpaceID == identity.SpaceID &&

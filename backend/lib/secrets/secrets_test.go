@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/jptrs93/opsagent/backend/storage"
 )
 
 // memStore is an in-memory secrets.Store for tests. It mimics the real store's
@@ -33,7 +35,7 @@ func (m *memStore) ListSecrets() []Record {
 	}
 	return out
 }
-func (m *memStore) NextSecretVersion(name string) int32 {
+func (m *memStore) nextSecretVersion(name string) int32 {
 	var maxVersion int32
 	for _, r := range m.records {
 		if r.Name == name && r.Version > maxVersion {
@@ -42,10 +44,14 @@ func (m *memStore) NextSecretVersion(name string) int32 {
 	}
 	return maxVersion + 1
 }
-func (m *memStore) InsertSecret(r Record) Record {
+func (m *memStore) InsertSecretWithDeploymentUpdates(r Record, update bool, deployments []storage.DeploymentConfigVersion, afterCommit func(Record)) (Record, []int32, error) {
+	r.Version = m.nextSecretVersion(r.Name)
 	r.ID = int32(len(m.records) + 1)
 	m.records[r.ID] = r
-	return r
+	if afterCommit != nil {
+		afterCommit(r)
+	}
+	return r, nil, nil
 }
 func (m *memStore) RenameSecretRecords(name, newName string, records []Record) {
 	for _, r := range records {

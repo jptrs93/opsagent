@@ -43,6 +43,7 @@ Defaults:
   release served by the mirror.
 - Runs `FLOWS=bootstrap-enroll-nixdocker` from the Playwright Docker container.
 - Runs Playwright in Docker and writes results to `testing-vms/test-results` and `testing-vms/playwright-report`.
+- Runs the independent declarative PostgreSQL/pgBackRest module serially after the baseline cases. It provisions its own MinIO, PostgreSQL deployments, config asset, secret, and Go client; verifies backup/restore; and rotates the shared database password through the update-referencing-deployments flow.
 
 Useful overrides:
 
@@ -62,6 +63,10 @@ go run ./testing-vms/test-orchestrator repo-mirror-down
 ```
 
 The main run fails early in `OPD_REMOTE=mock` if the repo mirror is not healthy. Normal cleanup and reset leave the repo mirror and shared test certificates intact.
+
+The pgBackRest module defaults to `ghcr.io/jptrs93/declarative-postgres-backrest:18.4_2.58.0_v5`; override it with `OPD_DECLARATIVE_POSTGRES_IMAGE`. Mock mode caches and republishes it through the local registry. Re-run `repo-mirror-up` after changing the configured image or updating a checkout whose default OCI fixture list changed.
+
+The published declarative PostgreSQL image is currently amd64-only. ARM test nodes install `qemu-user-static` and `binfmt-support` so containerd can execute that fixture without changing the architecture of the OpenDeploy cluster.
 
 `OPD_REMOTE=real` and `OPD_MOCK_OPENDEPLOY_SOURCE=real` resolve the latest
 GitHub release tag unless explicit install and upgrade versions are supplied.

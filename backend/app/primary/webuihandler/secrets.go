@@ -62,11 +62,29 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 	if strings.TrimSpace(req.Name) == "" {
 		return nil, SecretNameRequiredErr
 	}
+	unlockReferences := h.ConfigService.LockReferences()
+	defer unlockReferences()
 	var updatedBy int32
 	if ctx.User != nil {
 		updatedBy = ctx.User.ID
 	}
-	meta, err := h.Secrets.Set(req.Name, req.Value, updatedBy, req.SpaceID)
+	expected, err := requestedDeploymentVersions(req.UpdateReferencingDeployments, req.ReferencingDeployments)
+	if err != nil {
+		return nil, err
+	}
+	meta, err := h.Secrets.SetWithDeploymentUpdates(
+		req.Name,
+		req.Value,
+		updatedBy,
+		req.UpdateReferencingDeployments,
+		expected,
+		func(committed secrets.Meta) {
+			proto := secretMetaToProto(committed)
+			h.Store.NotifySecretReferenceUpdate(apigen.SecretReference{ID: proto.ID, Name: proto.Name, SpaceID: proto.SpaceID, Version: proto.Version})
+			h.Store.NotifySecretMetaUpdate(*proto)
+		},
+		req.SpaceID,
+	)
 	if err != nil {
 		if errors.Is(err, secrets.ErrLocked) {
 			return nil, SecretsLockedErr
@@ -74,11 +92,9 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 		if errors.Is(err, secrets.ErrReservedName) {
 			return nil, SecretReservedNameErr
 		}
-		return nil, err
+		return nil, versionedValueSetError(err)
 	}
 	proto := secretMetaToProto(meta)
-	h.Store.NotifySecretReferenceUpdate(apigen.SecretReference{ID: proto.ID, Name: proto.Name, SpaceID: proto.SpaceID, Version: proto.Version})
-	h.Store.NotifySecretMetaUpdate(*proto)
 	return proto, nil
 }
 
@@ -102,8 +118,8 @@ func (h *Handler) PostV1SecretsRename(ctx apigen.Context, req *apigen.SecretRena
 	proto := secretMetaToProto(meta)
 	for _, renamed := range h.Secrets.MetasByName(proto.Name) {
 		h.Store.NotifySecretReferenceUpdate(apigen.SecretReference{ID: renamed.ID, Name: renamed.Name, SpaceID: renamed.SpaceID, Version: renamed.Version})
+		h.Store.NotifySecretMetaUpdate(*secretMetaToProto(renamed))
 	}
-	h.Store.NotifySecretMetaUpdate(*proto)
 	return proto, nil
 }
 
