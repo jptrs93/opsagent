@@ -47,13 +47,13 @@ export function secretGenerator({onGenerate, disabled = false, className = ""}) 
         onGenerate(generatePassword(length, includeSymbols.val));
     };
 
-    const compactInputClass = "text-input w-20 py-1 text-xs font-mono";
+    const compactInputClass = "input h-8 w-16 font-mono text-xs tabular-nums";
     return div(
-        {class: `flex flex-col gap-2 ${className}`},
+        {class: `flex flex-col gap-2.5 ${className}`},
         p({class: "text-xs font-medium text-gray-400"}, "Generate new secret"),
-        div({class: "flex flex-wrap items-center gap-3 sm:flex-nowrap"},
+        div({class: "flex flex-wrap items-center gap-x-3 gap-y-2"},
             select({
-                class: "text-input w-32 py-1 text-xs",
+                class: "input h-8 w-auto shrink-0 text-xs font-medium",
                 value: type,
                 disabled,
                 onchange: event => type.val = event.target.value,
@@ -62,7 +62,7 @@ export function secretGenerator({onGenerate, disabled = false, className = ""}) 
             option({value: "password"}, "Password"),
             option({value: "passphrase"}, "Passphrase")),
             () => type.val === "password" ? span({class: "contents"},
-                label({class: "inline-flex items-center gap-2 whitespace-nowrap text-xs text-gray-400"},
+                label({class: "inline-flex h-8 items-center gap-2 whitespace-nowrap text-xs text-gray-400"},
                     "Length",
                     input({
                         class: compactInputClass,
@@ -74,8 +74,9 @@ export function secretGenerator({onGenerate, disabled = false, className = ""}) 
                         oninput: event => passwordLength.val = event.target.value,
                         "aria-label": "Generated password length",
                     })),
-                label({class: "inline-flex items-center gap-2 whitespace-nowrap text-xs text-gray-400"},
+                label({class: "inline-flex h-8 items-center gap-2 whitespace-nowrap rounded-md border border-gray-700 bg-gray-900/60 px-2.5 text-xs text-gray-300"},
                     input({
+                        class: "accent-blue-500",
                         type: "checkbox",
                         checked: includeSymbols,
                         disabled,
@@ -83,7 +84,7 @@ export function secretGenerator({onGenerate, disabled = false, className = ""}) 
                     }),
                     "Symbols"),
             ) : span({class: "contents"},
-                label({class: "inline-flex items-center gap-2 whitespace-nowrap text-xs text-gray-400"},
+                label({class: "inline-flex h-8 items-center gap-2 whitespace-nowrap text-xs text-gray-400"},
                     "Words",
                     input({
                         class: compactInputClass,
@@ -95,10 +96,10 @@ export function secretGenerator({onGenerate, disabled = false, className = ""}) 
                         oninput: event => passphraseWords.val = event.target.value,
                         "aria-label": "Generated passphrase word count",
                     })),
-                label({class: "inline-flex items-center gap-2 whitespace-nowrap text-xs text-gray-400"},
+                label({class: "inline-flex h-8 items-center gap-2 whitespace-nowrap text-xs text-gray-400"},
                     "Separator",
                     select({
-                        class: "text-input w-24 py-1 text-xs",
+                        class: "input h-8 w-auto text-xs",
                         value: passphraseSeparator,
                         disabled,
                         onchange: event => passphraseSeparator.val = event.target.value,
@@ -111,9 +112,9 @@ export function secretGenerator({onGenerate, disabled = false, className = ""}) 
             button({
                 type: "button",
                 disabled,
-                class: () => `ml-auto rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${isDisabled()
+                class: () => `ml-auto h-8 rounded-md px-3 text-xs font-medium transition-colors ${isDisabled()
                     ? "cursor-not-allowed bg-gray-700 text-gray-400 opacity-50"
-                    : "cursor-pointer bg-gray-700 text-gray-200 hover:bg-gray-600"}`,
+                    : "cursor-pointer bg-brand text-white hover:bg-blue-600"}`,
                 onclick: generate,
             }, "Generate"),
         ),
