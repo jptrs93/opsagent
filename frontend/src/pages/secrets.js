@@ -577,7 +577,7 @@ export function secretsPage() {
     const rowEl = (row) => tr(
         {class: "border-b border-gray-800 last:border-0 align-middle"},
         td({class: "py-1 pr-3 w-px whitespace-nowrap"}, typeBadge(row.type)),
-        td({class: "py-1 pr-3 w-1/3"}, nameInput(row)),
+        td({class: "py-1 pr-3 min-w-0"}, nameInput(row)),
         td({class: "py-1 pr-3 text-gray-300 whitespace-nowrap"}, `v${row.version || 0}`),
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap"}, formatDateTime(row.createdAt, "-")),
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => usageButton(row)),
@@ -722,7 +722,7 @@ export function secretsPage() {
 
     const tableCols = () => colgroup(
         col({style: "width:7rem"}),
-        col({style: "width:18rem"}),
+        col(),
         col({style: "width:7rem"}),
         col({style: "width:12rem"}),
         col({style: "width:8rem"}),

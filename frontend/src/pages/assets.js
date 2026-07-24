@@ -2,9 +2,10 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {handleErr} from "../capi/err.js";
 import {decodeAsset} from "../capi/model.js";
+import {assetEditor, preloadAssetCodeEditor} from "../components/assetEditor.js";
 import {inlineEditableInput} from "../components/inlineEditableInput.js";
 import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
-import {closeIcon, editIcon, trashIcon} from "../lib/icons.js";
+import {editIcon, trashIcon} from "../lib/icons.js";
 import {formatDateTime} from "../lib/date.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
@@ -12,58 +13,15 @@ import {assetMetasS, deploymentsS, machinesS, spacesS} from "../state/deployment
 import {loginS} from "../state/login.js";
 import {containerWorkload} from "../lib/deploymentConfig.js";
 
-const { div, h2, p, span, input, textarea, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
+const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
 
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
-const utf8Decoder = new TextDecoder("utf-8", {fatal: true});
+export {preloadAssetCodeEditor};
 
-const isYamlAsset = key => /\.ya?ml$/i.test(key || "");
-let assetCodeEditorLoader;
-
-const loadAssetCodeEditor = () => {
-    assetCodeEditorLoader ||= import("../components/assetCodeEditor.js")
-        .then(module => module.assetCodeEditor);
-    return assetCodeEditorLoader;
-};
-
-export function preloadAssetCodeEditor() {
-    const preload = () => { void loadAssetCodeEditor().catch(() => {}); };
-    if (typeof requestIdleCallback === "function") {
-        requestIdleCallback(preload, {timeout: 2000});
-    } else {
-        setTimeout(preload, 0);
-    }
-}
-
-function lazyAssetCodeEditor(args) {
-    const editor = van.state("");
-    const loadError = van.state("");
-    loadAssetCodeEditor()
-        .then(assetCodeEditor => { editor.val = assetCodeEditor(args); })
-        .catch(error => { loadError.val = error.message || "Unable to load YAML editor"; });
-
-    return div(
-        {class: "flex-1 min-h-0"},
-        () => editor.val || p({class: "text-sm text-red-400"}, () => loadError.val || "Loading editor..."),
-    );
-}
-
-const fmtDate = (d) => d instanceof Date && !Number.isNaN(d.getTime()) ? d.toLocaleString() : "";
 const fmtSize = (n) => {
     if (!n) return "0 B";
     if (n < 1000) return `${n} B`;
     if (n < 1000 * 1000) return `${(n / 1000).toFixed(1)} KB`;
     return `${(n / 1000 / 1000).toFixed(2)} MB`;
-};
-
-const decodeAssetContent = (blob) => {
-    const bytes = blob || new Uint8Array();
-    try {
-        return {content: utf8Decoder.decode(bytes), binary: false};
-    } catch (_) {
-        return {content: decoder.decode(bytes), binary: true};
-    }
 };
 
 const assetRefMatches = (assetKey, assetIDs, ref) => {
@@ -135,7 +93,6 @@ export function assetsPage() {
     const error = van.state(null);
     const search = van.state("");
     const selected = van.state(null);
-    const loadingAsset = van.state(false);
     const uploadOverlayOpen = van.state(false);
     const uploadFile = van.state(null);
     const uploadSaving = van.state(false);
@@ -151,61 +108,6 @@ export function assetsPage() {
     const usageTarget = van.state(null);
     const assetMutationKey = van.state("");
     const assetNameDrafts = new Map();
-
-    const draftKey = van.state("");
-    const draftContent = van.state("");
-    const draftVersion = van.state(0);
-    const draftCreatedAt = van.state(null);
-    const draftLarge = van.state(false);
-    const draftBinary = van.state(false);
-    const draftSizeBytes = van.state(0);
-    const draftRevision = van.state(0);
-    const original = {key: "", content: "", version: 0, large: false, binary: false};
-
-    const setOriginal = (asset) => {
-        original.key = asset.key || "";
-        original.large = !!asset.location;
-        const decoded = original.large ? {content: "", binary: false} : decodeAssetContent(asset.blob);
-        original.content = decoded.content;
-        original.binary = decoded.binary;
-        original.version = asset.version || 0;
-    };
-
-    const setDraft = (asset) => {
-        setOriginal(asset);
-        draftKey.val = original.key;
-        draftContent.val = original.content;
-        draftVersion.val = original.version;
-        draftCreatedAt.val = asset.createdAt || null;
-        draftLarge.val = original.large;
-        draftBinary.val = original.binary;
-        draftSizeBytes.val = asset.sizeBytes || (asset.blob ? asset.blob.length : 0);
-        draftRevision.val += 1;
-    };
-
-    const clearDraft = () => {
-        selected.val = null;
-        original.key = "";
-        original.content = "";
-        original.version = 0;
-        original.large = false;
-        original.binary = false;
-        draftKey.val = "";
-        draftContent.val = "";
-        draftVersion.val = 0;
-        draftCreatedAt.val = null;
-        draftLarge.val = false;
-        draftBinary.val = false;
-        draftSizeBytes.val = 0;
-        draftRevision.val += 1;
-    };
-
-    const isDirty = () => {
-        draftRevision.val;
-        return !original.key
-            ? Boolean(draftKey.val.trim()) || draftContent.val !== original.content
-            : !draftLarge.val && draftContent.val !== original.content;
-    };
 
     const reloadRows = async () => {
         const res = await capi.postV1AssetsList({});
@@ -227,24 +129,18 @@ export function assetsPage() {
 
     reload();
 
-    const loadAsset = async (key, version = 0) => {
-        try {
-            error.val = null;
-            loadingAsset.val = true;
-            const asset = await capi.postV1AssetsGet({key, version});
-            selected.val = asset.key;
-            setDraft(asset);
-        } catch (e) {
-            error.val = e.message;
-        } finally {
-            loadingAsset.val = false;
-        }
+    const openAsset = (asset, version = asset.version || 0) => {
+        selected.val = {
+            mode: "edit",
+            key: asset.key,
+            version,
+            latestVersion: Number(asset.version || version || 0),
+            spaceId: Number(asset.spaceId || 0),
+        };
     };
 
     const addAsset = () => {
-        clearDraft();
-        draftKey.val = "nginx.conf";
-        selected.val = "";
+        selected.val = {mode: "create", initialKey: "rename_me.yaml"};
     };
 
     const prepareAssetUpload = (file) => {
@@ -303,30 +199,13 @@ export function assetsPage() {
         }
     };
 
-    const saveAsset = async () => {
-        const key = draftKey.val.trim();
-        if (!key) { error.val = "Asset key is required"; return; }
-        if (assetMutationKey.val) return;
-        const isNew = !original.key;
-        const contentChanged = !draftLarge.val && draftContent.val !== original.content;
-        if (isNew && !draftContent.val) {
-            error.val = "Asset content cannot be empty.";
-            return;
-        }
+    const saveEditorAsset = async (request) => {
+        const key = request.key;
+        if (assetMutationKey.val) throw new Error("Another asset change is in progress");
         assetMutationKey.val = key;
         try {
             error.val = null;
-            if (!isNew && !contentChanged) return;
-            const asset = await capi.postV1AssetsSet({
-                key,
-                format: "text",
-                blob: encoder.encode(draftContent.val),
-            });
-            selected.val = asset.key;
-            setDraft(asset);
-            await reloadRows();
-        } catch (e) {
-            error.val = e.message;
+            return await capi.postV1AssetsSet(request);
         } finally {
             if (assetMutationKey.val === key) assetMutationKey.val = "";
         }
@@ -338,11 +217,8 @@ export function assetsPage() {
         try {
             error.val = null;
             const asset = await capi.postV1AssetsRename({key, newKey});
-            if (selected.val === key) {
-                selected.val = asset.key;
-                original.key = asset.key;
-                draftKey.val = asset.key;
-                draftRevision.val += 1;
+            if (selected.val?.key === key) {
+                selected.val = {...selected.val, key: asset.key};
             }
             draft.originalName.val = asset.key;
             draft.name.val = asset.key;
@@ -381,7 +257,7 @@ export function assetsPage() {
             error.val = null;
             await capi.postV1AssetsDelete({key: target.key});
             assetNameDrafts.delete(target.key);
-            if (selected.val === target.key) clearDraft();
+            if (selected.val?.key === target.key) selected.val = null;
             await reloadRows();
             deleteTarget.val = null;
         } catch (e) {
@@ -549,7 +425,7 @@ export function assetsPage() {
                             class: () => `inline-flex h-7 w-7 items-center justify-center rounded text-gray-400 ` +
                                 `hover:bg-surface hover:text-gray-100 transition-colors ${assetMutationKey.val
                                     ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
-                            onclick: () => loadAsset(row.key),
+                            onclick: () => openAsset(row),
                         }, editIcon()),
                             button({
                             type: "button",
@@ -585,76 +461,20 @@ export function assetsPage() {
         );
     };
 
-    const editorPanel = () => div(
-        {class: "card flex-1 min-w-0 min-h-0 self-stretch flex flex-col gap-4"},
-        div({class: "flex items-center gap-3 min-w-0"},
-            () => {
-                draftRevision.val;
-                if (original.key) return h2({class: "min-w-0 flex-1 truncate px-2 py-1 font-mono text-base font-normal text-asset"}, draftKey);
-                return input({
-                    class: "min-w-0 flex-1 rounded border border-transparent bg-transparent px-2 py-1 font-mono text-base font-normal text-asset focus:border-brand focus:outline-none",
-                    placeholder: "asset name",
-                    value: draftKey,
-                    disabled: () => Boolean(assetMutationKey.val),
-                    oninput: (e) => draftKey.val = e.target.value,
-                    "aria-label": "New asset name",
-                });
-            },
-            () => draftVersion.val
-                ? span({class: "text-xs text-gray-400 whitespace-nowrap"},
-                    `Version ${draftVersion.val} created ${fmtDate(draftCreatedAt.val)}.`)
-                : "",
-            span({class: "text-xs text-gray-500 whitespace-nowrap"}, () => loadingAsset.val ? "Loading..." : ""),
-            button({
-                type: "button",
-                title: "Close editor",
-                class: "p-1.5 rounded text-gray-400 hover:text-gray-100 hover:bg-surface transition-colors cursor-pointer",
-                onclick: clearDraft,
-            }, closeIcon())),
-        () => {
-            if (draftLarge.val) return div(
-                {class: "text-input flex-1 min-h-0 flex items-center justify-center text-center text-sm text-gray-400"},
-                div(
-                    p({class: "font-medium text-gray-300"}, "This asset is too large to show."),
-                    p({class: "text-xs text-gray-500 mt-1"}, "The full content remains available for deployment mounts."),
-                ),
-            );
-            if (draftBinary.val) return textarea({
-                class: "min-h-0 flex-1 resize-none bg-gray-900 px-3 py-2 font-mono text-sm leading-[1.625] text-gray-100 outline-none",
-                readOnly: true,
-                spellcheck: "false",
-                value: draftContent,
-                "aria-label": `Binary content for asset ${draftKey.val}`,
-            });
-            const editorArgs = {
-                value: draftContent,
-                disabled: () => Boolean(assetMutationKey.val),
-                ariaLabel: original.key ? `Content for asset ${original.key}` : "New asset content",
-                bare: true,
-            };
-            return lazyAssetCodeEditor({...editorArgs, yamlSyntax: isYamlAsset(draftKey.val)});
-        },
-        div({class: "flex shrink-0 items-center justify-between gap-3"},
-            p({class: "text-xs text-gray-500"}, () => draftLarge.val
-                ? `${fmtSize(draftSizeBytes.val)} large asset`
-                : `${encoder.encode(draftContent.val).length} bytes inline`),
-            div({class: "flex items-center gap-3"},
-                () => !original.key && !draftContent.val
-                    ? p({class: "text-xs text-orange-300"}, "Asset content cannot be empty.")
-                    : "",
-                button({
-                    type: "button",
-                    disabled: () => Boolean(assetMutationKey.val) || !draftKey.val.trim()
-                        || (!original.key ? !draftContent.val : !isDirty()),
-                    class: () => `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${assetMutationKey.val
-                        || !draftKey.val.trim() || (!original.key ? !draftContent.val : !isDirty())
-                        ? "cursor-not-allowed bg-gray-700 text-gray-400 opacity-50"
-                        : "cursor-pointer bg-brand text-white hover:bg-blue-600"}`,
-                    onclick: () => { void saveAsset(); },
-                }, () => original.key ? `Save version ${draftVersion.val + 1}` : "Create asset"),
-            ),
-        ),
-    );
+    const editorPanel = () => {
+        const target = selected.val;
+        return assetEditor({
+            mode: target.mode,
+            assetRef: target.mode === "create" ? null : {key: target.key, version: target.version},
+            initialKey: target.initialKey || "",
+            latestVersion: target.latestVersion || 0,
+            spaceId: target.spaceId || 0,
+            loadAsset: request => capi.postV1AssetsGet(request),
+            saveAsset: saveEditorAsset,
+            onSaved: reloadRows,
+            onClose: () => { selected.val = null; },
+        });
+    };
 
     const leftPane = () => div(
         {class: () => `flex flex-col min-w-0 min-h-0 ${selected.val === null ? "flex-1" : "lg:w-[28rem]"}`},

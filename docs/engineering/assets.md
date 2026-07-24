@@ -11,6 +11,8 @@ Assets are versioned user-managed file blobs intended for config files that can 
 - Assets up to 10 MiB are stored inline in the primary DB.
 - Assets larger than 10 MiB use primary-local storage while Backup is disabled and S3 while Backup is enabled; the DB row keeps metadata and the active location.
 - The UI does not load large asset content for preview/edit. It shows a "too large to show" message while deployments and worker mounts still fetch the blob transparently.
+- `frontend/src/components/assetEditor.js` is the shared asset content surface. It supports inline and overlay presentation, create/edit/read modes, and loading an exact historical version. Editing historical content still appends after the latest known version; asset rows are never mutated.
+- UTF-8 inline assets use the shared CodeMirror editor. Inline assets containing invalid UTF-8 are displayed read-only in a plain textarea so a text edit cannot replace their original bytes.
 - `format` is a UI/editor hint such as `text`, `nginx`, `yaml`, or `json`.
 - `location` is empty for inline assets, `local://<id>` for primary-local large assets, and `s3://...` for S3-backed large assets. A `pending://...` location is used only for an unpublished, interrupted large-asset upload; public asset queries exclude those rows until recovery finishes the upload.
 - Asset rename rejects an existing destination key and preserves the complete version history. Existing deployments remain valid because they pin immutable asset IDs; their stored display key is refreshed only when the deployment config is updated.

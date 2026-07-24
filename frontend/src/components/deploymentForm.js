@@ -1,5 +1,6 @@
 import van from "vanjs-core";
 import {eyeOpenIcon, xIcon} from "../lib/icons.js";
+import {assetEditor} from "./assetEditor.js";
 import {referencePicker} from "./referencePicker.js";
 import {
     SOURCE_DOCKER_IMAGE,
@@ -406,10 +407,7 @@ function makeFormState(values) {
         networkingPaneOpen: van.state(false),
         assetEditorOpen: van.state(false),
         assetEditorMountID: van.state(0),
-        assetEditorError: van.state(''),
         assetEditorKey: van.state(''),
-        assetEditorFormat: van.state('text'),
-        assetEditorContent: van.state(''),
         identitySectionOpen: van.state(values.identitySectionOpen ?? true),
         sourceSectionOpen: van.state(values.sourceSectionOpen ?? true),
         runtimeSectionOpen: van.state(values.runtimeSectionOpen ?? true),
@@ -1154,9 +1152,6 @@ export function assetMountsPane(form, opts = {}) {
     const openAssetEditor = (row) => {
         form.assetEditorMountID.val = row.id;
         form.assetEditorKey.val = '';
-        form.assetEditorFormat.val = 'text';
-        form.assetEditorContent.val = '';
-        form.assetEditorError.val = '';
         form.assetEditorOpen.val = true;
         closeRuntimePanes(form, 'assetEditor');
     };
@@ -1386,78 +1381,32 @@ export function volumeMountsPane(form, opts = {}) {
 }
 
 export function assetEditorPane(form, opts = {}) {
-    const save = async () => {
-        const key = form.assetEditorKey.val.trim();
-        if (!key) {
-            form.assetEditorError.val = 'Asset key is required';
-            return;
+    const close = () => { form.assetEditorOpen.val = false; };
+    const onSaved = async (asset) => {
+        if (opts.onSaved) await opts.onSaved(asset);
+        const mountID = form.assetEditorMountID.val;
+        if (mountID) {
+            form.assetMounts.val = form.assetMounts.val.map(m => m.id === mountID
+                ? {...m, assetId: asset.id}
+                : m);
+        } else if (!form.assetMounts.val.some(m => Number(m.assetId) === Number(asset.id))) {
+            form.assetMounts.val = [...form.assetMounts.val, {id: nextAssetMountID++, assetId: asset.id, path: '', executable: false}];
         }
-        try {
-            form.assetEditorError.val = '';
-            if (typeof opts.saveAsset !== 'function') throw new Error('saveAsset is required');
-            const asset = await opts.saveAsset({
-                key,
-                spaceId: Number(form.spaceId.val || DEFAULT_SPACE_ID),
-                format: form.assetEditorFormat.val.trim() || 'text',
-                blob: new TextEncoder().encode(form.assetEditorContent.val),
-            });
-            if (opts.onSaved) await opts.onSaved(asset);
-            const mountID = form.assetEditorMountID.val;
-            if (mountID) {
-                form.assetMounts.val = form.assetMounts.val.map(m => m.id === mountID
-                    ? {...m, assetId: asset.id}
-                    : m);
-            } else if (!form.assetMounts.val.some(m => Number(m.assetId) === Number(asset.id))) {
-                form.assetMounts.val = [...form.assetMounts.val, {id: nextAssetMountID++, assetId: asset.id, path: '', executable: false}];
-            }
-            form.assetEditorOpen.val = false;
-            form.assetMountsPaneOpen.val = true;
-        } catch (e) {
-            form.assetEditorError.val = e.message || 'Failed to save asset';
-        }
+        form.assetEditorOpen.val = false;
+        form.assetMountsPaneOpen.val = true;
     };
     return div(
         {class: () => configurationPaneClass(form.assetEditorOpen.val)},
-        div(
-            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
-            h3({class: "text-sm font-semibold text-gray-200"}, "Create asset"),
-            button({
-                type: "button",
-                class: "text-gray-500 hover:text-gray-200 cursor-pointer",
-                title: "Close",
-                onclick: () => { form.assetEditorOpen.val = false; },
-            }, xIcon({size: 16})),
-        ),
-        div(
-            {class: "flex-1 min-h-0 flex flex-col gap-3 p-4"},
-            () => form.assetEditorError.val ? p({class: "text-xs text-red-400"}, form.assetEditorError.val) : '',
-            field("Key", input({
-                class: textInputClass(true),
-                placeholder: "nginx.conf",
-                value: form.assetEditorKey,
-                oninput: e => { form.assetEditorKey.val = e.target.value; },
-            })),
-            field("Format", input({
-                class: textInputClass(true),
-                placeholder: "text",
-                value: form.assetEditorFormat,
-                oninput: e => { form.assetEditorFormat.val = e.target.value; },
-            })),
-            textarea({
-                class: "flex-1 min-h-0 w-full resize-none rounded-sm bg-gray-800 text-gray-100 border border-gray-700 px-3 py-2 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand",
-                spellcheck: "false",
-                placeholder: "Paste config file contents here",
-                value: form.assetEditorContent,
-                oninput: e => { form.assetEditorContent.val = e.target.value; },
-            }),
-            div({class: "flex justify-end"},
-                button({
-                    type: "button",
-                    class: "btn-primary text-sm py-1.5 px-4 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
-                    disabled: () => !form.assetEditorKey.val.trim(),
-                    onclick: save,
-                }, "Save asset")),
-        ),
+        () => form.assetEditorOpen.val ? assetEditor({
+            mode: "create",
+            initialKey: form.assetEditorKey.val,
+            showFormat: true,
+            spaceId: Number(form.spaceId.val || DEFAULT_SPACE_ID),
+            saveAsset: opts.saveAsset,
+            onSaved,
+            onClose: close,
+            class: "h-full min-w-0 min-h-0 bg-gray-950/90 p-4 flex flex-col gap-4",
+        }) : "",
     );
 }
 
