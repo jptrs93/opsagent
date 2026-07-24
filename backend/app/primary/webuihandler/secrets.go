@@ -66,7 +66,23 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 	if ctx.User != nil {
 		updatedBy = ctx.User.ID
 	}
-	meta, err := h.Secrets.Set(req.Name, req.Value, updatedBy, req.SpaceID)
+	expected, err := requestedDeploymentVersions(req.UpdateReferencingDeployments, req.ReferencingDeployments)
+	if err != nil {
+		return nil, err
+	}
+	meta, err := h.Secrets.SetWithDeploymentUpdates(
+		req.Name,
+		req.Value,
+		updatedBy,
+		req.UpdateReferencingDeployments,
+		expected,
+		func(committed secrets.Meta) {
+			proto := secretMetaToProto(committed)
+			h.Store.NotifySecretReferenceUpdate(apigen.SecretReference{ID: proto.ID, Name: proto.Name, SpaceID: proto.SpaceID, Version: proto.Version})
+			h.Store.NotifySecretMetaUpdate(*proto)
+		},
+		req.SpaceID,
+	)
 	if err != nil {
 		if errors.Is(err, secrets.ErrLocked) {
 			return nil, SecretsLockedErr
@@ -74,11 +90,9 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 		if errors.Is(err, secrets.ErrReservedName) {
 			return nil, SecretReservedNameErr
 		}
-		return nil, err
+		return nil, versionedValueSetError(err)
 	}
 	proto := secretMetaToProto(meta)
-	h.Store.NotifySecretReferenceUpdate(apigen.SecretReference{ID: proto.ID, Name: proto.Name, SpaceID: proto.SpaceID, Version: proto.Version})
-	h.Store.NotifySecretMetaUpdate(*proto)
 	return proto, nil
 }
 

@@ -24,7 +24,22 @@ func (h *Handler) PostV1UserConfigsSet(ctx apigen.Context, req *apigen.UserConfi
 	if ctx.User != nil {
 		updatedBy = ctx.User.ID
 	}
-	return h.Store.SetUserConfig(name, req.Value, updatedBy, req.SpaceID), nil
+	expected, err := requestedDeploymentVersions(req.UpdateReferencingDeployments, req.ReferencingDeployments)
+	if err != nil {
+		return nil, err
+	}
+	cfg, _, err := h.Store.SetUserConfigWithDeploymentUpdates(
+		name,
+		req.Value,
+		updatedBy,
+		req.SpaceID,
+		req.UpdateReferencingDeployments,
+		expected,
+	)
+	if err != nil {
+		return nil, versionedValueSetError(err)
+	}
+	return cfg, nil
 }
 
 func (h *Handler) PostV1UserConfigsRename(ctx apigen.Context, req *apigen.UserConfigRenameRequest) (*apigen.UserConfig, error) {

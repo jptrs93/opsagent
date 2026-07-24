@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/storage"
 )
 
 // This file implements secrets.Store on the primary PrimaryStorage. The
@@ -71,28 +72,47 @@ func (s *PrimaryStorage) ListSecrets() []secrets.Record {
 	return out
 }
 
-func (s *PrimaryStorage) NextSecretVersion(name string) int32 {
-	version, err := s.q.GetNextSecretVersion(context.Background(), name)
+func (s *PrimaryStorage) InsertSecretWithDeploymentUpdates(r secrets.Record, updateDeployments bool, expected []storage.DeploymentConfigVersion, afterCommit func(secrets.Record)) (secrets.Record, []int32, error) {
+	var row Secret
+	updatedDeployments, err := s.setVersionedValueWithDeploymentUpdates(
+		secretValueReference,
+		r.Name,
+		updateDeployments,
+		expected,
+		r.UpdatedBy,
+		func(q *Queries) (int32, error) {
+			version, err := q.GetNextSecretVersion(context.Background(), r.Name)
+			if err != nil {
+				return 0, fmt.Errorf("get next secret version: %w", err)
+			}
+			row, err = q.InsertSecret(context.Background(), InsertSecretParams{
+				Name:       r.Name,
+				Version:    version,
+				SpaceID:    int64(normalizedUserSpaceID(r.SpaceID)),
+				SmkVersion: int64(r.SMKVersion),
+				Ciphertext: r.Ciphertext,
+				Nonce:      r.Nonce,
+				CreatedAt:  r.CreatedAt,
+				UpdatedBy:  int64(r.UpdatedBy),
+			})
+			if err != nil {
+				return 0, fmt.Errorf("insert secret: %w", err)
+			}
+			return int32(row.ID), nil
+		},
+		func(_ []int32) {
+			if afterCommit != nil {
+				afterCommit(secretRowToRecord(row))
+			}
+		},
+	)
 	if err != nil {
-		panic(fmt.Sprintf("GetNextSecretVersion: %v", err))
+		return secrets.Record{}, nil, err
 	}
-	return int32(version)
+	return secretRowToRecord(row), updatedDeployments, nil
 }
 
-func (s *PrimaryStorage) InsertSecret(r secrets.Record) secrets.Record {
-	row, err := s.q.InsertSecret(context.Background(), InsertSecretParams{
-		Name:       r.Name,
-		Version:    int64(r.Version),
-		SpaceID:    int64(normalizedUserSpaceID(r.SpaceID)),
-		SmkVersion: int64(r.SMKVersion),
-		Ciphertext: r.Ciphertext,
-		Nonce:      r.Nonce,
-		CreatedAt:  r.CreatedAt,
-		UpdatedBy:  int64(r.UpdatedBy),
-	})
-	if err != nil {
-		panic(fmt.Sprintf("InsertSecret: %v", err))
-	}
+func secretRowToRecord(row Secret) secrets.Record {
 	return secrets.Record{
 		ID:         int32(row.ID),
 		Name:       row.Name,
@@ -104,7 +124,6 @@ func (s *PrimaryStorage) InsertSecret(r secrets.Record) secrets.Record {
 		CreatedAt:  row.CreatedAt,
 		UpdatedBy:  int32(row.UpdatedBy),
 	}
-
 }
 
 func (s *PrimaryStorage) RenameSecretRecords(name, newName string, records []secrets.Record) {

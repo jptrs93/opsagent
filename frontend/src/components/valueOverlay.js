@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {checkIcon, closeIcon, copyIcon} from "../lib/icons.js";
 import {secretGenerator} from "./secretGenerator.js";
 
-const {button, div, h2, input, p} = van.tags;
+const {button, div, h2, input, p, span} = van.tags;
 
 let codeEditorLoader;
 
@@ -40,12 +40,13 @@ export const createValueEditorState = value => {
     };
 };
 
-export function valueOverlay({name = "", type, value = "", version = 0, createdAt, mode = "edit", onSave, onClose}) {
+export function valueOverlay({name = "", type, value = "", version = 0, createdAt, deploymentCount = 0, mode = "edit", onSave, onClose}) {
     const creating = mode === "create";
     const copied = van.state(false);
     const copyFailed = van.state(false);
     const saving = van.state(false);
     const saveError = van.state("");
+    const updateReferencedDeployments = van.state(false);
     const currentValue = () => typeof value === "function" ? value() : value;
     const editorState = createValueEditorState(currentValue());
     const {stagedValue} = editorState;
@@ -81,7 +82,9 @@ export function valueOverlay({name = "", type, value = "", version = 0, createdA
         saving.val = true;
         saveError.val = "";
         try {
-            await onSave(stagedValue.val, resourceName);
+            await onSave(stagedValue.val, resourceName, {
+                updateReferencedDeployments: updateReferencedDeployments.val,
+            });
             onClose();
         } catch (e) {
             saveError.val = e.message || "Could not save value";
@@ -165,6 +168,22 @@ export function valueOverlay({name = "", type, value = "", version = 0, createdA
                 div(
                     {class: "flex shrink-0 items-center justify-between gap-4 border-t border-gray-700 px-4 py-3"},
                     div({class: "flex min-w-0 flex-col gap-1.5"},
+                        !creating && deploymentCount ? button({
+                            type: "button",
+                            role: "switch",
+                            "aria-checked": () => String(updateReferencedDeployments.val),
+                            "aria-label": `Update ${deploymentCount} referencing deployments`,
+                            class: "inline-flex w-fit items-center gap-2 text-xs text-gray-300 cursor-pointer",
+                            onclick: () => updateReferencedDeployments.val = !updateReferencedDeployments.val,
+                        },
+                        span({
+                            class: () => `relative h-4 w-7 shrink-0 rounded-full transition-colors ${updateReferencedDeployments.val
+                                ? "bg-brand" : "bg-gray-700"}`,
+                        }, span({
+                            class: () => `absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-all ${updateReferencedDeployments.val
+                                ? "left-3.5" : "left-0.5"}`,
+                        })),
+                        `Update ${deploymentCount} referencing deployment${deploymentCount === 1 ? "" : "s"}.`) : "",
                         () => saveError.val ? p({class: "text-sm text-red-400"}, saveError.val) : "",
                         () => isEmpty() ? p({class: "text-xs text-orange-300"},
                             `${type === "secret" ? "Secret" : "Config"} cannot be empty.`) : "",

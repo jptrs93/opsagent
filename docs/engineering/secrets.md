@@ -54,6 +54,13 @@ discard restores it from the original. Secret-reference controls on the Settings
 page use these same modes; a created or newly edited version is selected in the
 settings draft by its returned immutable ID. Revealed secret plaintext is scoped
 to the open editor or copy operation rather than cached in the Secrets page rows.
+When an edited value is referenced by deployments, the editor can update those
+deployment environment references to the newly created immutable ID as part of
+the save flow. The set request includes the caller-observed deployment IDs and
+current config versions. The backend validates the complete reference set and
+commits the resource version plus all deployment config/history updates in one
+SQLite transaction, rejecting stale or incomplete requests without partial
+writes.
 
 OpenDeploy also stores internal key material in a separate encrypted
 `system_secrets` table. System secrets use the reserved `opendeploy.` name
