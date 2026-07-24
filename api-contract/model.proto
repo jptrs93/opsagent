@@ -170,6 +170,8 @@ message SecretSetRequest {
   reserved 2;
   bytes value = 3;         // plaintext secret value; encrypted at rest, never returned
   int32 space_id = 4;
+  bool update_referencing_deployments = 5;
+  repeated DeploymentConfigVersionRef referencing_deployments = 6;
 }
 
 message SecretRenameRequest {
@@ -227,6 +229,8 @@ message UserConfigSetRequest {
   reserved 2;
   string value = 3;
   int32 space_id = 4;
+  bool update_referencing_deployments = 5;
+  repeated DeploymentConfigVersionRef referencing_deployments = 6;
 }
 
 message UserConfigRenameRequest {

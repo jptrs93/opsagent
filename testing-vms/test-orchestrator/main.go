@@ -75,15 +75,17 @@ type config struct {
 	RepoMirrorMemory string
 	RepoMirrorDisk   string
 
-	RepoMirrorReleases string
-	RepoMirrorLatest   string
-	RepoRegistryHost   string
-	RepoRegistryPort   string
-	PostgresImage      string
-	MinioImage         string
-	RepoMirrorOCI      string
-	ContainerdVersion  string
-	RuncVersion        string
+	RepoMirrorReleases             string
+	RepoMirrorLatest               string
+	RepoRegistryHost               string
+	RepoRegistryPort               string
+	PostgresImage                  string
+	DeclarativePostgresSourceImage string
+	DeclarativePostgresImage       string
+	MinioImage                     string
+	RepoMirrorOCI                  string
+	ContainerdVersion              string
+	RuncVersion                    string
 
 	Goarch   string
 	LimaArch string
@@ -256,12 +258,16 @@ func loadConfig(resolveLatestRelease bool) (*config, error) {
 	c.RepoRegistryPort = env("OPD_REPO_REGISTRY_PORT", "5000")
 	if c.RemoteMode == "real" {
 		c.PostgresImage = env("OPD_POSTGRES_IMAGE", "docker.io/library/postgres:18")
+		c.DeclarativePostgresSourceImage = env("OPD_DECLARATIVE_POSTGRES_IMAGE", "ghcr.io/jptrs93/declarative-postgres-backrest:18.4_2.58.0_v5")
+		c.DeclarativePostgresImage = c.DeclarativePostgresSourceImage
 		c.MinioImage = env("OPD_MINIO_IMAGE", "docker.io/bitnamilegacy/minio:latest")
 	} else {
 		c.PostgresImage = env("OPD_POSTGRES_IMAGE", c.RepoRegistryHost+":"+c.RepoRegistryPort+"/library/postgres:18")
+		c.DeclarativePostgresSourceImage = env("OPD_DECLARATIVE_POSTGRES_IMAGE", "ghcr.io/jptrs93/declarative-postgres-backrest:18.4_2.58.0_v5")
+		c.DeclarativePostgresImage = env("OPD_DECLARATIVE_POSTGRES_MIRROR_IMAGE", c.RepoRegistryHost+":"+c.RepoRegistryPort+"/jptrs93/declarative-postgres-backrest:18.4_2.58.0_v5")
 		c.MinioImage = env("OPD_MINIO_IMAGE", c.RepoRegistryHost+":"+c.RepoRegistryPort+"/bitnamilegacy/minio:latest")
 	}
-	c.RepoMirrorOCI = env("OPD_REPO_MIRROR_OCI_IMAGES", "docker.io/library/postgres:18="+c.PostgresImage+" docker.io/bitnamilegacy/minio:latest="+c.MinioImage)
+	c.RepoMirrorOCI = env("OPD_REPO_MIRROR_OCI_IMAGES", "docker.io/library/postgres:18="+c.PostgresImage+" "+c.DeclarativePostgresSourceImage+"="+c.DeclarativePostgresImage+" docker.io/bitnamilegacy/minio:latest="+c.MinioImage)
 	c.ContainerdVersion = env("CONTAINERD_VERSION", "2.0.5")
 	c.RuncVersion = env("RUNC_VERSION", "1.2.6")
 
@@ -977,11 +983,9 @@ func (c *config) prepareOCI() error {
 				return err
 			}
 		} else {
-			logf("Saving OCI image %s with docker", src)
-			if err := run("docker", "pull", "--platform", "linux/"+c.Goarch, src); err != nil {
-				return err
-			}
-			if err := run("docker", "save", src, "-o", archive); err != nil {
+			logf("Saving OCI image %s with containerized skopeo", src)
+			if err := run("docker", "run", "--rm", "-v", filepath.Dir(archive)+":/out", "quay.io/skopeo/stable:v1.20.0",
+				"copy", "--all", "docker://"+src, "oci-archive:/out/"+filepath.Base(archive)+":"+src); err != nil {
 				return err
 			}
 		}
@@ -1023,6 +1027,9 @@ func (c *config) writeLimaYAML(name, role, cpus, memory, disk, yamlPath string) 
 	}[role]
 	if packages == "" {
 		return fmt.Errorf("unknown Lima VM role: %s", role)
+	}
+	if role == "node" && c.Goarch == "arm64" {
+		packages += " qemu-user-static binfmt-support"
 	}
 	armURL, amdURL := c.LimaArm64URL, c.LimaAmd64URL
 	if c.repoMirrorEnabled() {
@@ -2362,6 +2369,7 @@ func (c *config) runPlaywrightFlows() error {
 		"OPD_BACKUP_RESTORE":              boolString(c.BackupRestore),
 		"OPD_BACKUP_RESTORE_STATE":        "/work/test-results/backup-restore.env",
 		"OPD_POSTGRES_IMAGE":              c.PostgresImage,
+		"OPD_DECLARATIVE_POSTGRES_IMAGE":  c.DeclarativePostgresImage,
 		"OPD_MINIO_IMAGE":                 c.MinioImage,
 		"OPENDEPLOY_GITHUB_TOKEN":         c.OpenDeployGitHubToken,
 	}

@@ -26,6 +26,8 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	cfg := configFromEnv()
 	logger.Info("postgresclient starting", "host", cfg.Host, "port", cfg.Port, "database", cfg.Database, "user", cfg.User)
+	passwordHash := sha256.Sum256([]byte(cfg.Password))
+	credentialFingerprint := fmt.Sprintf("%x", passwordHash[:6])
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -49,6 +51,7 @@ func main() {
 		}
 	}
 
+	logger.Info("postgresclient connected credential", "sha256", credentialFingerprint)
 	logger.Info("postgresclient completed database verification")
 	for tick := 1; ; tick++ {
 		logger.Info("postgresclient healthy", "tick", tick)
@@ -62,6 +65,8 @@ type pgConfig struct {
 	User     string
 	Password string
 	Database string
+	Write    string
+	Expect   []string
 }
 
 func configFromEnv() pgConfig {
@@ -71,7 +76,19 @@ func configFromEnv() pgConfig {
 		User:     envOr("PGUSER", "postgres"),
 		Password: os.Getenv("PGPASSWORD"),
 		Database: envOr("PGDATABASE", "postgres"),
+		Write:    strings.TrimSpace(os.Getenv("OPENDEPLOY_E2E_WRITE")),
+		Expect:   splitCSV(os.Getenv("OPENDEPLOY_E2E_EXPECT")),
 	}
+}
+
+func splitCSV(value string) []string {
+	var out []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func envOr(key, fallback string) string {
@@ -87,6 +104,9 @@ func runOnce(ctx context.Context, cfg pgConfig, logger *slog.Logger) error {
 		return err
 	}
 	defer conn.Close()
+	if cfg.Write != "" || len(cfg.Expect) > 0 {
+		return runPersistentDataset(conn, cfg, logger)
+	}
 
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS opendeploy_e2e (id integer PRIMARY KEY, name text NOT NULL)`,
@@ -111,6 +131,42 @@ func runOnce(ctx context.Context, cfg pgConfig, logger *slog.Logger) error {
 	}
 	logger.Info("postgresclient verified rows", "count", len(rows))
 	return nil
+}
+
+func runPersistentDataset(conn *pgConn, cfg pgConfig, logger *slog.Logger) error {
+	if _, err := conn.Exec(`CREATE TABLE IF NOT EXISTS opendeploy_pgbackrest_e2e (value text PRIMARY KEY)`); err != nil {
+		return err
+	}
+	if cfg.Write != "" {
+		query := `INSERT INTO opendeploy_pgbackrest_e2e (value) VALUES (` + sqlString(cfg.Write) + `) ON CONFLICT DO NOTHING`
+		if _, err := conn.Exec(query); err != nil {
+			return err
+		}
+		logger.Info("postgresclient wrote persistent value", "value", cfg.Write)
+	}
+
+	rows, err := conn.Query(`SELECT value FROM opendeploy_pgbackrest_e2e ORDER BY value`)
+	if err != nil {
+		return err
+	}
+	values := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		if len(row) > 0 {
+			values[row[0]] = true
+			logger.Info("postgresclient persistent row", "value", row[0])
+		}
+	}
+	for _, expected := range cfg.Expect {
+		if !values[expected] {
+			return fmt.Errorf("persistent value %q is missing from %v", expected, values)
+		}
+	}
+	logger.Info("postgresclient verified persistent rows", "count", len(rows))
+	return nil
+}
+
+func sqlString(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
 type pgConn struct {

@@ -113,6 +113,11 @@ type NetworkingConfig struct {
 	Ingress        []*Ingress
 }
 
+type DeploymentConfigVersionRef struct {
+	ID      int32
+	Version int32
+}
+
 type DeploymentUpdateRequest struct {
 	DeploymentID  int32
 	TargetVersion string
@@ -595,9 +600,11 @@ type SecretList struct {
 }
 
 type SecretSetRequest struct {
-	Name    string
-	Value   []byte
-	SpaceID int32
+	Name                         string
+	Value                        []byte
+	SpaceID                      int32
+	UpdateReferencingDeployments bool
+	ReferencingDeployments       []*DeploymentConfigVersionRef
 }
 
 type SecretRenameRequest struct {
@@ -647,9 +654,11 @@ type UserConfigList struct {
 }
 
 type UserConfigSetRequest struct {
-	Name    string
-	Value   string
-	SpaceID int32
+	Name                         string
+	Value                        string
+	SpaceID                      int32
+	UpdateReferencingDeployments bool
+	ReferencingDeployments       []*DeploymentConfigVersionRef
 }
 
 type UserConfigRenameRequest struct {

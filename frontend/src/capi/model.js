@@ -27,6 +27,11 @@
  * @property {Ingress[]} ingress
  */
 /**
+ * @typedef {Object} DeploymentConfigVersionRef
+ * @property {number} id
+ * @property {number} version
+ */
+/**
  * @typedef {Object} DeploymentUpdateRequest
  * @property {number} deploymentId
  * @property {string} targetVersion
@@ -512,6 +517,8 @@
  * @property {string} name
  * @property {Uint8Array} value
  * @property {number} spaceId
+ * @property {boolean} updateReferencingDeployments
+ * @property {DeploymentConfigVersionRef[]} referencingDeployments
  */
 /**
  * @typedef {Object} SecretRenameRequest
@@ -564,6 +571,8 @@
  * @property {string} name
  * @property {string} value
  * @property {number} spaceId
+ * @property {boolean} updateReferencingDeployments
+ * @property {DeploymentConfigVersionRef[]} referencingDeployments
  */
 /**
  * @typedef {Object} UserConfigRenameRequest
@@ -1318,6 +1327,69 @@ function decodeNetworkingConfigMessage(reader, length) {
 export function decodeNetworkingConfig(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeNetworkingConfigMessage(reader);
+}
+
+
+
+/**
+ * @param {DeploymentConfigVersionRef} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentConfigVersionRef(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
+    }
+}
+
+
+/**
+ * @param {DeploymentConfigVersionRef} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentConfigVersionRef(message) {
+    const writer = Writer.create();
+    writeDeploymentConfigVersionRef(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentConfigVersionRef}
+ */
+function decodeDeploymentConfigVersionRefMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, version: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.version = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentConfigVersionRef}
+ */
+export function decodeDeploymentConfigVersionRef(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentConfigVersionRefMessage(reader);
 }
 
 
@@ -7067,6 +7139,16 @@ export function writeSecretSetRequest(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.spaceId);
     }
+    if (message.updateReferencingDeployments === true) {
+        writer.uint32(tag(5, WIRE.VARINT)).bool(message.updateReferencingDeployments);
+    }
+    if (message.referencingDeployments && message.referencingDeployments.length > 0) {
+        for (const item of message.referencingDeployments) {
+            writer.uint32(tag(6, WIRE.LDELIM)).fork();
+            writeDeploymentConfigVersionRef(item, writer);
+            writer.ldelim();
+        }
+    }
 }
 
 
@@ -7088,7 +7170,7 @@ export function encodeSecretSetRequest(message) {
  */
 function decodeSecretSetRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", value: new Uint8Array(0), spaceId: 0 };
+    const message = {name: "", value: new Uint8Array(0), spaceId: 0, updateReferencingDeployments: false, referencingDeployments: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -7102,6 +7184,14 @@ function decodeSecretSetRequestMessage(reader, length) {
             }
             case 4: {
                 message.spaceId = reader.int32();
+                break;
+            }
+            case 5: {
+                message.updateReferencingDeployments = reader.bool();
+                break;
+            }
+            case 6: {
+                message.referencingDeployments.push(decodeDeploymentConfigVersionRefMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -7715,6 +7805,16 @@ export function writeUserConfigSetRequest(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.spaceId);
     }
+    if (message.updateReferencingDeployments === true) {
+        writer.uint32(tag(5, WIRE.VARINT)).bool(message.updateReferencingDeployments);
+    }
+    if (message.referencingDeployments && message.referencingDeployments.length > 0) {
+        for (const item of message.referencingDeployments) {
+            writer.uint32(tag(6, WIRE.LDELIM)).fork();
+            writeDeploymentConfigVersionRef(item, writer);
+            writer.ldelim();
+        }
+    }
 }
 
 
@@ -7736,7 +7836,7 @@ export function encodeUserConfigSetRequest(message) {
  */
 function decodeUserConfigSetRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", value: "", spaceId: 0 };
+    const message = {name: "", value: "", spaceId: 0, updateReferencingDeployments: false, referencingDeployments: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -7750,6 +7850,14 @@ function decodeUserConfigSetRequestMessage(reader, length) {
             }
             case 4: {
                 message.spaceId = reader.int32();
+                break;
+            }
+            case 5: {
+                message.updateReferencingDeployments = reader.bool();
+                break;
+            }
+            case 6: {
+                message.referencingDeployments.push(decodeDeploymentConfigVersionRefMessage(reader, reader.uint32()));
                 break;
             }
             default:

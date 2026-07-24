@@ -22,3 +22,8 @@ Select one or more flow files with a comma-separated list:
 ```sh
 FLOWS=bootstrap-enroll-nixdocker bash testing-vms/run.sh
 ```
+
+`bootstrap-enroll-nixdocker` ends with the independent cases in
+`cases/postgres-pgbackrest.js`. Those cases deliberately use dedicated resource
+names and run serially after the baseline suite in the same authenticated browser
+context.
