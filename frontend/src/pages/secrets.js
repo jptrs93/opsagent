@@ -5,7 +5,7 @@ import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {valueOverlay} from "../components/valueOverlay.js";
 import {formatDateTime} from "../lib/date.js";
-import {checkIcon, copyIcon, editIcon, expandIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
+import {checkIcon, copyIcon, editIcon, plusIcon, trashIcon} from "../lib/icons.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
 import {deploymentsS, machinesS, primaryConfigS, secretMetasS, secretsStatusS, spacesS, userConfigsS} from "../state/deployments.js";
 import {containerWorkload} from "../lib/deploymentConfig.js";
@@ -590,18 +590,6 @@ export function secretsPage() {
                         "aria-label": `Edit ${row.type} value`,
                         disabled: row.saving,
                     }),
-                row.type === "secret"
-                    ? iconButton(eyeOpenIcon(), () => { void editRowValue(row); }, "disabled:cursor-not-allowed disabled:opacity-50", {
-                            title: "View or edit secret value",
-                            "aria-label": "View or edit secret value",
-                            disabled: row.saving,
-                        })
-                    : iconButton(expandIcon(), () => { void editRowValue(row); },
-                        "disabled:cursor-not-allowed disabled:opacity-50", {
-                            title: "View or edit config value",
-                            "aria-label": "View or edit config value",
-                            disabled: row.saving,
-                        }),
                 iconButton(() => row.copied.val
                     ? checkIcon({class: "w-4 h-4 text-green-400"})
                     : copyIcon(), () => { void copyRowValue(row); }, "disabled:cursor-not-allowed disabled:opacity-50", {
@@ -659,7 +647,6 @@ export function secretsPage() {
             value: () => row.value.val,
             version: row.version || 0,
             createdAt: row.createdAt,
-            referenceCount: usage.deployments.length + usage.settings.length,
             deploymentCount: usage.deployments.length,
             onSave: (value) => saveValue(row, value),
             onClose: () => valueTarget.val = null,

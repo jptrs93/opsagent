@@ -12,10 +12,11 @@ import {assetMetasS, deploymentsS, machinesS, spacesS} from "../state/deployment
 import {loginS} from "../state/login.js";
 import {containerWorkload} from "../lib/deploymentConfig.js";
 
-const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
+const { div, h2, p, span, input, textarea, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const utf8Decoder = new TextDecoder("utf-8", {fatal: true});
 
 const isYamlAsset = key => /\.ya?ml$/i.test(key || "");
 let assetCodeEditorLoader;
@@ -54,6 +55,15 @@ const fmtSize = (n) => {
     if (n < 1000) return `${n} B`;
     if (n < 1000 * 1000) return `${(n / 1000).toFixed(1)} KB`;
     return `${(n / 1000 / 1000).toFixed(2)} MB`;
+};
+
+const decodeAssetContent = (blob) => {
+    const bytes = blob || new Uint8Array();
+    try {
+        return {content: utf8Decoder.decode(bytes), binary: false};
+    } catch (_) {
+        return {content: decoder.decode(bytes), binary: true};
+    }
 };
 
 const assetRefMatches = (assetKey, assetIDs, ref) => {
@@ -147,14 +157,17 @@ export function assetsPage() {
     const draftVersion = van.state(0);
     const draftCreatedAt = van.state(null);
     const draftLarge = van.state(false);
+    const draftBinary = van.state(false);
     const draftSizeBytes = van.state(0);
     const draftRevision = van.state(0);
-    const original = {key: "", content: "", version: 0, large: false};
+    const original = {key: "", content: "", version: 0, large: false, binary: false};
 
     const setOriginal = (asset) => {
         original.key = asset.key || "";
         original.large = !!asset.location;
-        original.content = original.large ? "" : decoder.decode(asset.blob || new Uint8Array());
+        const decoded = original.large ? {content: "", binary: false} : decodeAssetContent(asset.blob);
+        original.content = decoded.content;
+        original.binary = decoded.binary;
         original.version = asset.version || 0;
     };
 
@@ -165,6 +178,7 @@ export function assetsPage() {
         draftVersion.val = original.version;
         draftCreatedAt.val = asset.createdAt || null;
         draftLarge.val = original.large;
+        draftBinary.val = original.binary;
         draftSizeBytes.val = asset.sizeBytes || (asset.blob ? asset.blob.length : 0);
         draftRevision.val += 1;
     };
@@ -175,11 +189,13 @@ export function assetsPage() {
         original.content = "";
         original.version = 0;
         original.large = false;
+        original.binary = false;
         draftKey.val = "";
         draftContent.val = "";
         draftVersion.val = 0;
         draftCreatedAt.val = null;
         draftLarge.val = false;
+        draftBinary.val = false;
         draftSizeBytes.val = 0;
         draftRevision.val += 1;
     };
@@ -461,7 +477,7 @@ export function assetsPage() {
                 await renameAsset(previousName, nextName, draft);
             },
             onDiscard: () => { name.val = originalName.val; },
-            inputClass: "w-full bg-transparent px-2 py-1 rounded border border-transparent hover:border-gray-700 focus:border-brand focus:outline-none font-mono",
+            inputClass: "w-full bg-transparent px-2 py-1 rounded border border-transparent hover:border-gray-700 focus:border-brand focus:outline-none font-mono font-normal text-asset",
             placeholder: "asset name",
             ariaLabel: `Asset name ${asset.key}`,
             saveAriaLabel: `Save asset name ${asset.key}`,
@@ -574,9 +590,9 @@ export function assetsPage() {
         div({class: "flex items-center gap-3 min-w-0"},
             () => {
                 draftRevision.val;
-                if (original.key) return h2({class: "min-w-0 flex-1 truncate px-2 py-1 font-mono text-base font-semibold"}, draftKey);
+                if (original.key) return h2({class: "min-w-0 flex-1 truncate px-2 py-1 font-mono text-base font-normal text-asset"}, draftKey);
                 return input({
-                    class: "min-w-0 flex-1 rounded border border-transparent bg-transparent px-2 py-1 font-mono text-base font-semibold focus:border-brand focus:outline-none",
+                    class: "min-w-0 flex-1 rounded border border-transparent bg-transparent px-2 py-1 font-mono text-base font-normal text-asset focus:border-brand focus:outline-none",
                     placeholder: "asset name",
                     value: draftKey,
                     disabled: () => Boolean(assetMutationKey.val),
@@ -603,10 +619,18 @@ export function assetsPage() {
                     p({class: "text-xs text-gray-500 mt-1"}, "The full content remains available for deployment mounts."),
                 ),
             );
+            if (draftBinary.val) return textarea({
+                class: "min-h-0 flex-1 resize-none bg-gray-900 px-3 py-2 font-mono text-sm leading-[1.625] text-gray-100 outline-none",
+                readOnly: true,
+                spellcheck: "false",
+                value: draftContent,
+                "aria-label": `Binary content for asset ${draftKey.val}`,
+            });
             const editorArgs = {
                 value: draftContent,
                 disabled: () => Boolean(assetMutationKey.val),
                 ariaLabel: original.key ? `Content for asset ${original.key}` : "New asset content",
+                bare: true,
             };
             return lazyAssetCodeEditor({...editorArgs, yamlSyntax: isYamlAsset(draftKey.val)});
         },
@@ -627,7 +651,7 @@ export function assetsPage() {
                         ? "cursor-not-allowed bg-gray-700 text-gray-400 opacity-50"
                         : "cursor-pointer bg-brand text-white hover:bg-blue-600"}`,
                     onclick: () => { void saveAsset(); },
-                }, () => original.key ? `Save new version (v${draftVersion.val + 1})` : "Create asset"),
+                }, () => original.key ? `Save version ${draftVersion.val + 1}` : "Create asset"),
             ),
         ),
     );

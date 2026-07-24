@@ -1,7 +1,8 @@
 import van from "vanjs-core";
-import {checkIcon, copyIcon} from "../lib/icons.js";
+import {checkIcon, closeIcon, copyIcon} from "../lib/icons.js";
 
-const {button, div, h2, p, span} = van.tags;
+const {button, div, h2, input, p, span} = van.tags;
+const RANDOM_SECRET_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+[]{}";
 
 let codeEditorLoader;
 
@@ -24,21 +25,21 @@ function lazyCodeEditor(args) {
     );
 }
 
-const formatDate = (value) => {
-    if (!(value instanceof Date) || Number.isNaN(value.getTime())) return "-";
-    return `${String(value.getDate()).padStart(2, "0")}/${String(value.getMonth() + 1).padStart(2, "0")}/${value.getFullYear()}`;
-};
+const formatDate = (value) => value instanceof Date && !Number.isNaN(value.getTime()) ? value.toLocaleString() : "";
 
-export function valueOverlay({name, type, value, version, createdAt, referenceCount, deploymentCount, onSave, onClose}) {
+const normalizeEditorValue = (value) => value.replace(/\r\n?/g, "\n");
+
+export function valueOverlay({name, type, value, version, createdAt, deploymentCount, onSave, onClose}) {
     const copied = van.state(false);
     const copyFailed = van.state(false);
     const saving = van.state(false);
     const saveError = van.state("");
     const updateReferencedDeployments = van.state(false);
+    const generatedSecretLength = van.state("32");
     const currentValue = () => typeof value === "function" ? value() : value;
     const initialValue = currentValue();
     const draft = van.state(initialValue);
-    const isDirty = () => draft.val !== initialValue;
+    const isDirty = () => normalizeEditorValue(draft.val) !== normalizeEditorValue(initialValue);
 
     const copyValue = async () => {
         try {
@@ -65,6 +66,27 @@ export function valueOverlay({name, type, value, version, createdAt, referenceCo
         }
     };
 
+    const discardChanges = () => {
+        draft.val = initialValue;
+        saveError.val = "";
+    };
+
+    const generateSecret = () => {
+        const length = Math.max(1, Math.min(4096, Number.parseInt(generatedSecretLength.val, 10) || 32));
+        generatedSecretLength.val = String(length);
+        const bytes = new Uint8Array(length);
+        const limit = 256 - (256 % RANDOM_SECRET_CHARS.length);
+        let result = "";
+        while (result.length < length) {
+            globalThis.crypto.getRandomValues(bytes);
+            for (const byte of bytes) {
+                if (byte < limit) result += RANDOM_SECRET_CHARS[byte % RANDOM_SECRET_CHARS.length];
+                if (result.length === length) break;
+            }
+        }
+        draft.val = result;
+    };
+
     return div(
         div({class: "fixed inset-0 z-40 bg-black/70", onclick: onClose}),
         div(
@@ -79,28 +101,56 @@ export function valueOverlay({name, type, value, version, createdAt, referenceCo
                 },
                 div(
                     {class: "flex items-center justify-between gap-4 border-b border-gray-700 px-4 py-3"},
-                    div({class: "flex min-w-0 items-baseline gap-3"},
-                        h2({
-                            id: "resource-value-title",
-                            class: `min-w-0 truncate font-mono text-sm font-semibold ${type === "secret" ? "text-purple-300" : "text-blue-300"}`,
-                        }, name),
-                        p({class: "shrink-0 text-xs font-normal text-orange-300"},
-                            `Version ${version} - ${formatDate(createdAt)}. ${referenceCount} references.`),
-                    ),
-                    div({class: "flex shrink-0 items-center gap-1"},
-                        button({
-                            type: "button",
-                            class: "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-gray-100 cursor-pointer",
-                            onclick: copyValue,
-                            title: () => copyFailed.val ? "Copy failed" : "Copy value",
-                        }, () => copied.val ? checkIcon({class: "w-4 h-4 text-green-400"}) : copyIcon(), () => copied.val ? "Copied" : copyFailed.val ? "Copy failed" : "Copy"),
-                        button({type: "button", class: "px-2.5 py-1.5 text-sm text-gray-400 hover:text-gray-100 cursor-pointer", onclick: onClose}, "Close"),
+                    h2({
+                        id: "resource-value-title",
+                        class: `min-w-0 truncate font-mono text-sm font-normal ${type === "secret" ? "text-purple-300" : "text-blue-300"}`,
+                    }, name),
+                    div({class: "flex shrink-0 items-center gap-3"},
+                        p({class: "text-xs text-gray-400 whitespace-nowrap"}, `Version ${version} created ${formatDate(createdAt)}.`),
+                        div({class: "flex items-center gap-1"},
+                            button({
+                                type: "button",
+                                class: "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-gray-100 cursor-pointer",
+                                onclick: copyValue,
+                                title: () => copyFailed.val ? "Copy failed" : "Copy value",
+                            }, () => copied.val ? checkIcon({class: "w-4 h-4 text-green-400"}) : copyIcon(), () => copied.val ? "Copied" : copyFailed.val ? "Copy failed" : "Copy"),
+                            button({
+                                type: "button",
+                                title: "Close editor",
+                                "aria-label": "Close editor",
+                                class: "p-1.5 rounded text-gray-400 hover:text-gray-100 hover:bg-surface transition-colors cursor-pointer",
+                                onclick: onClose,
+                            }, closeIcon()),
+                        ),
                     ),
                 ),
+                type === "secret" ? div(
+                    {class: "flex shrink-0 flex-wrap items-center gap-3 border-b border-gray-700 bg-gray-950/30 px-4 py-2"},
+                    p({class: "text-xs text-gray-400"}, "Generate random value"),
+                    input({
+                        class: "text-input w-20 py-1 text-xs font-mono",
+                        type: "number",
+                        min: "1",
+                        max: "4096",
+                        value: generatedSecretLength,
+                        disabled: saving,
+                        oninput: (e) => generatedSecretLength.val = e.target.value,
+                        "aria-label": "Generated secret length",
+                    }),
+                    button({
+                        type: "button",
+                        disabled: saving,
+                        class: () => `rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${saving.val
+                            ? "cursor-not-allowed bg-gray-700 text-gray-400 opacity-50"
+                            : "cursor-pointer bg-gray-700 text-gray-200 hover:bg-gray-600"}`,
+                        onclick: generateSecret,
+                    }, "Generate"),
+                ) : "",
                 lazyCodeEditor({
                     value: draft,
                     disabled: saving,
                     ariaLabel: `Value for ${name}`,
+                    bare: true,
                 }),
                 div(
                     {class: "flex shrink-0 items-center justify-between gap-4 border-t border-gray-700 px-4 py-3"},
@@ -123,14 +173,24 @@ export function valueOverlay({name, type, value, version, createdAt, referenceCo
                         `Update ${deploymentCount} referenced deployment${deploymentCount === 1 ? "" : "s"}.`),
                         () => saveError.val ? p({class: "text-sm text-red-400"}, saveError.val) : "",
                     ),
-                    button({
-                        type: "button",
-                        disabled: () => saving.val || !isDirty(),
-                        class: () => `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${saving.val || !isDirty()
-                            ? "cursor-not-allowed bg-gray-700 text-gray-400 opacity-50"
-                            : "cursor-pointer bg-brand text-white hover:bg-blue-600"}`,
-                        onclick: () => { void save(); },
-                    }, () => saving.val ? "Saving..." : `Save new version (v${version + 1})`),
+                    div({class: "flex shrink-0 items-center gap-2"},
+                        () => isDirty() ? button({
+                            type: "button",
+                            disabled: saving,
+                            class: () => `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${saving.val
+                                ? "cursor-not-allowed bg-gray-700 text-gray-400 opacity-50"
+                                : "cursor-pointer bg-gray-700 text-gray-200 hover:bg-gray-600"}`,
+                            onclick: discardChanges,
+                        }, "Discard changes") : "",
+                        button({
+                            type: "button",
+                            disabled: () => saving.val || !isDirty(),
+                            class: () => `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${saving.val || !isDirty()
+                                ? "cursor-not-allowed bg-gray-700 text-gray-400 opacity-50"
+                                : "cursor-pointer bg-brand text-white hover:bg-blue-600"}`,
+                            onclick: () => { void save(); },
+                        }, () => saving.val ? "Saving..." : `Save version ${version + 1}`),
+                    ),
                 ),
             ),
         ),

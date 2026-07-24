@@ -53,6 +53,7 @@ export function assetCodeEditor({
     disabled,
     ariaLabel,
     yamlSyntax = false,
+    bare = false,
 }) {
     const editable = new Compartment();
     let view;
@@ -60,7 +61,8 @@ export function assetCodeEditor({
     const isDisabled = () => Boolean(stateValue(disabled));
 
     const host = div({
-        class: "h-full min-h-0 flex-1 overflow-hidden rounded-lg border border-gray-600 focus-within:ring-1 focus-within:ring-brand",
+        class: `h-full min-h-0 flex-1 overflow-hidden ${bare
+            ? "" : "rounded-lg border border-gray-600 focus-within:ring-1 focus-within:ring-brand"}`,
         "aria-label": ariaLabel,
     });
 
