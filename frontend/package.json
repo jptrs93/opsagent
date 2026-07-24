@@ -8,6 +8,7 @@
     "dev:deployment-editor": "vite --open /fixtures/deployment-editor/",
     "dev:deployment-status": "vite --open /fixtures/deployment-status/",
     "dev:secret-editor": "vite --open /fixtures/secret-editor/",
+    "check:secret-editor": "node fixtures/secret-editor/stateCheck.js",
     "check:deployment-editor": "node fixtures/deployment-editor/deploymentSourceCheck.js && node fixtures/deployment-editor/roundTripCheck.js",
     "build": "vite build",
     "preview": "vite preview"

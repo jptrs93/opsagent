@@ -2,10 +2,11 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {referencePicker} from "../components/referencePicker.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
+import {valueOverlay} from "../components/valueOverlay.js";
 import {checkIcon, copyIcon, eyeOffIcon, eyeOpenIcon} from "../lib/icons.js";
 import {primaryConfigS, secretRefsS, spacesS, userConfigRefsS, userConfigsS} from "../state/deployments.js";
 
-const { div, h2, p, pre, span, table, tbody, tr, td, button, code, input, select, option, label: labelEl } = van.tags;
+const { div, h2, p, pre, span, table, tbody, tr, td, button, input, select, option, label: labelEl } = van.tags;
 
 const boolValue = (value) => value ? "true" : "false";
 const shellQuote = (value) => {
@@ -176,9 +177,6 @@ const draftValue = (setting, cfg) => {
             value: "",
             secretId: refID(secret),
             originalSecretId: refID(secret),
-            cleared: false,
-            revealed: false,
-            revealedValue: "",
         };
     }
     const current = setting.setting(cfg) || {};
@@ -215,7 +213,7 @@ const compactButtonClass = "h-8 px-3 py-1 rounded-md text-sm leading-none";
 const defaultSpaceIDs = new Set([0, 1]);
 let settingsPageNode = null;
 
-function valueInput(setting, draft, error, patchDraft, saving, secrets, openCreateSecret) {
+function valueInput(setting, draft, patchDraft, saving, secrets, openCreateSecret, openEditSecret, openingSecretID) {
     const item = () => draft.val?.[setting.key];
     const patch = (next) => patchDraft(setting.key, next);
     const mode = () => item()?.mode || "value";
@@ -274,22 +272,10 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
         );
     }
     if (setting.type === "secret") {
-        const revealSecret = async () => {
-            const current = item();
-            if (!current?.secretId) return;
-            if (current.revealed) { patch({revealed: false, revealedValue: ""}); return; }
-            try {
-                error.val = null;
-                const res = await capi.postV1SecretsReveal({id: current.secretId});
-                patch({revealed: true, revealedValue: new TextDecoder().decode(res.value)});
-            } catch (e) {
-                error.val = e.message;
-            }
-        };
         return div(
             {class: "flex flex-wrap items-center gap-1.5"},
             referencePicker({
-                refs: () => latestRefs(secretRefsS.val?.length ? secretRefsS.val : secrets.val, item()?.secretId || 0),
+                refs: () => latestRefs([...(secretRefsS.val || []), ...(secrets.val || [])], item()?.secretId || 0),
                 selectedKey: () => item()?.secretId || "",
                 selectedLabel: "",
                 getKey: ref => ref.id,
@@ -300,7 +286,7 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
                 inputClass,
                 containerClass: "relative min-w-64 flex-1",
                 disabled: () => saving.val,
-                onSelect: ref => patch({secretId: ref.id, revealed: false, revealedValue: ""}),
+                onSelect: ref => patch({secretId: ref.id}),
             }),
             button({
                 type: "button",
@@ -310,22 +296,18 @@ function valueInput(setting, draft, error, patchDraft, saving, secrets, openCrea
             }, "Create secret"),
             () => item()?.secretId ? button({
                 type: "button",
-                title: () => item().revealed ? "Hide saved secret" : "Reveal saved secret",
-                "aria-label": () => item().revealed ? "Hide saved secret" : "Reveal saved secret",
-                disabled: () => saving.val,
+                title: "Open secret editor",
+                "aria-label": "Open secret editor",
+                disabled: () => saving.val || openingSecretID.val === Number(item()?.secretId || 0),
                 class: "p-1 rounded text-gray-300 bg-gray-700 hover:bg-gray-600 cursor-pointer",
-                onclick: revealSecret,
-            }, () => item().revealed ? eyeOffIcon() : eyeOpenIcon()) : "",
+                onclick: () => { void openEditSecret(setting); },
+            }, eyeOpenIcon()) : "",
             () => item()?.secretId ? button({
                 type: "button",
                 disabled: () => saving.val,
                 class: "text-xs px-2 py-1 rounded-md font-medium text-gray-200 bg-gray-700 hover:bg-gray-600 cursor-pointer whitespace-nowrap",
-                onclick: () => patch({secretId: 0, revealed: false, revealedValue: ""}),
+                onclick: () => patch({secretId: 0}),
             }, "Clear") : "",
-            () => item()?.revealed ? code({
-                class: "text-xs text-amber-200 bg-amber-950/40 px-2 py-1 rounded truncate max-w-64",
-                title: item().revealedValue,
-            }, item().revealedValue) : "",
         );
     }
     if (settingUsesConfigRef(setting) && mode() === "config") return configPicker();
@@ -362,11 +344,9 @@ export function settingsPage() {
     const newMasterPassword = van.state("");
     const newMasterPasswordRevealed = van.state(false);
     const newMasterPasswordCopied = van.state(false);
-    const createSecretOverlay = van.state(false);
-    const createSecretSettingKey = van.state("");
-    const createSecretName = van.state("");
-    const createSecretValue = van.state("");
-    const createSecretRevealed = van.state(false);
+    const createSecretTarget = van.state(null);
+    const editSecretTarget = van.state(null);
+    const openingSecretID = van.state(0);
     const editingSpaceID = van.state(null);
     const editingSpaceName = van.state("");
     const addingSpace = van.state(false);
@@ -437,34 +417,76 @@ export function settingsPage() {
     };
 
     const openCreateSecret = (setting) => {
-        createSecretSettingKey.val = setting.key;
-        createSecretName.val = setting.defaultSecretName || "";
-        createSecretValue.val = "";
-        createSecretRevealed.val = false;
-        createSecretOverlay.val = true;
+        createSecretTarget.val = {
+            settingKey: setting.key,
+            name: setting.defaultSecretName || "",
+        };
     };
 
     const closeCreateSecret = () => {
-        createSecretOverlay.val = false;
-        createSecretSettingKey.val = "";
-        createSecretName.val = "";
-        createSecretValue.val = "";
-        createSecretRevealed.val = false;
+        createSecretTarget.val = null;
     };
 
-    const saveCreatedSecret = async () => {
+    const saveCreatedSecret = async (value, name) => {
+        const target = createSecretTarget.val;
+        if (!target) throw new Error("No setting selected for the new secret");
         try {
             error.val = null;
-            const name = createSecretName.val.trim();
             const saved = await capi.postV1SecretsSet({
                 name,
-                value: new TextEncoder().encode(createSecretValue.val),
+                value: new TextEncoder().encode(value),
             });
             await reloadSecrets();
-            patchDraft(createSecretSettingKey.val, {secretId: saved.id, revealed: false, revealedValue: ""});
-            closeCreateSecret();
+            patchDraft(target.settingKey, {secretId: saved.id});
         } catch (e) {
             error.val = e.message;
+            throw e;
+        }
+    };
+
+    const openEditSecret = async (setting) => {
+        const id = Number(draft.val?.[setting.key]?.secretId || 0);
+        if (!id || openingSecretID.val) return;
+        openingSecretID.val = id;
+        try {
+            error.val = null;
+            const res = await capi.postV1SecretsReveal({id});
+            const refs = [...(secrets.val || []), ...(secretRefsS.val || [])];
+            const meta = refs.find(ref => Number(ref.id || 0) === id);
+            if (!meta) throw new Error("Selected secret metadata is unavailable");
+            editSecretTarget.val = {
+                settingKey: setting.key,
+                id,
+                name: meta.name,
+                version: Number(meta.version || 0),
+                createdAt: meta.createdAt,
+                value: new TextDecoder().decode(res.value),
+            };
+        } catch (e) {
+            error.val = e.message;
+        } finally {
+            openingSecretID.val = 0;
+        }
+    };
+
+    const closeEditSecret = () => {
+        editSecretTarget.val = null;
+    };
+
+    const saveEditedSecret = async (value) => {
+        const target = editSecretTarget.val;
+        if (!target) throw new Error("No secret selected for editing");
+        try {
+            error.val = null;
+            const saved = await capi.postV1SecretsSet({
+                name: target.name,
+                value: new TextEncoder().encode(value),
+            });
+            await reloadSecrets();
+            patchDraft(target.settingKey, {secretId: saved.id});
+        } catch (e) {
+            error.val = e.message;
+            throw e;
         }
     };
 
@@ -771,58 +793,31 @@ export function settingsPage() {
         ),
     ) : "";
 
-    const createSecretDialog = () => createSecretOverlay.val ? div(
-        {class: "fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6"},
-        div({class: "card w-full max-w-xl flex flex-col gap-3 border-gray-600"},
-            div({class: "flex items-center justify-between gap-4"},
-                h2({class: "text-base font-semibold"}, "Create secret"),
-                button({
-                    type: "button",
-                    class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer",
-                    onclick: closeCreateSecret,
-                }, "Close"),
-            ),
-            p({class: "text-xs text-gray-400"}, "Create a secret, then reference it from this setting."),
-            labelEl({class: "flex flex-col gap-1 text-xs text-gray-400"},
-                span("Secret name"),
-                input({
-                    class: `${inputClass} font-mono`,
-                    value: createSecretName,
-                    oninput: (e) => { createSecretName.val = e.target.value; },
-                }),
-            ),
-            labelEl({class: "flex flex-col gap-1 text-xs text-gray-400"},
-                span("Secret value"),
-                div({class: "relative"},
-                    input({
-                        class: `${inputClass} pr-10 font-mono`,
-                        type: () => createSecretRevealed.val ? "text" : "password",
-                        value: createSecretValue,
-                        oninput: (e) => { createSecretValue.val = e.target.value; },
-                    }),
-                    button({
-                        type: "button",
-                        title: () => createSecretRevealed.val ? "Hide secret" : "Reveal secret",
-                        "aria-label": () => createSecretRevealed.val ? "Hide secret" : "Reveal secret",
-                        disabled: () => !createSecretValue.val,
-                        class: () => `absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded text-gray-300 ` +
-                            `hover:bg-gray-700 cursor-pointer ${createSecretValue.val ? "" : "invisible"}`,
-                        onclick: () => { createSecretRevealed.val = !createSecretRevealed.val; },
-                    }, () => createSecretRevealed.val ? eyeOffIcon() : eyeOpenIcon()),
-                ),
-            ),
-            div({class: "flex items-center justify-end gap-2"},
-                button({
-                    type: "button",
-                    class: `${compactButtonClass} bg-gray-700 text-gray-200 hover:bg-gray-600 cursor-pointer`,
-                    onclick: closeCreateSecret,
-                }, "Cancel"),
-                spinnerButton("Create secret", saveCreatedSecret,
-                    `${compactButtonClass} bg-brand text-white hover:bg-blue-600 whitespace-nowrap`,
-                    "button", () => !createSecretName.val.trim() || !createSecretValue.val),
-            ),
-        ),
-    ) : "";
+    const createSecretDialog = () => {
+        const target = createSecretTarget.val;
+        if (!target) return "";
+        return valueOverlay({
+            mode: "create",
+            type: "secret",
+            name: target.name,
+            onSave: saveCreatedSecret,
+            onClose: closeCreateSecret,
+        });
+    };
+
+    const editSecretDialog = () => {
+        const target = editSecretTarget.val;
+        if (!target) return "";
+        return valueOverlay({
+            type: "secret",
+            name: target.name,
+            value: target.value,
+            version: target.version,
+            createdAt: target.createdAt,
+            onSave: saveEditedSecret,
+            onClose: closeEditSecret,
+        });
+    };
 
     const recoveryCard = () => {
         if (!recoveryStatus.val) {
@@ -996,7 +991,16 @@ export function settingsPage() {
         div({class: "whitespace-nowrap pr-3 sm:w-80 sm:min-w-80"},
             span({class: "text-xs text-gray-200"}, setting.label),
         ),
-        div({class: "min-w-0 flex-1 text-white"}, valueInput(setting, draft, error, patchDraft, saving, secrets, openCreateSecret)),
+        div({class: "min-w-0 flex-1 text-white"}, valueInput(
+            setting,
+            draft,
+            patchDraft,
+            saving,
+            secrets,
+            openCreateSecret,
+            openEditSecret,
+            openingSecretID,
+        )),
         div({class: "w-20 whitespace-nowrap text-right sm:pl-4"},
             () => {
                 const item = draft.val?.[setting.key];
@@ -1065,6 +1069,7 @@ export function settingsPage() {
         masterPasswordVerifyDialog,
         masterPasswordUpdateOverlay,
         createSecretDialog,
+        editSecretDialog,
     );
     return settingsPageNode;
 }

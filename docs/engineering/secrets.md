@@ -48,7 +48,12 @@ until the operator saves it.
 `frontend/src/components/valueOverlay.js` provides both create and edit modes
 for configs and secrets. Create mode uses the same full-size value editor but
 shows only the editable name and create actions; version metadata, copy/discard
-actions, and referenced-deployment controls remain edit-only.
+actions remain edit-only. The editor keeps the persisted original value separate
+from its staged value; generating or typing changes only the staged value, and
+discard restores it from the original. Secret-reference controls on the Settings
+page use these same modes; a created or newly edited version is selected in the
+settings draft by its returned immutable ID. Revealed secret plaintext is scoped
+to the open editor or copy operation rather than cached in the Secrets page rows.
 
 OpenDeploy also stores internal key material in a separate encrypted
 `system_secrets` table. System secrets use the reserved `opendeploy.` name

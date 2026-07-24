@@ -48,6 +48,23 @@ const yamlHighlightStyle = HighlightStyle.define([
 
 const stateValue = value => typeof value === "function" ? value() : (value?.val ?? value);
 
+export const createEditorValueBridge = value => {
+    let applyingExternalValue = false;
+    return {
+        applyExternalValue: dispatch => {
+            applyingExternalValue = true;
+            try {
+                dispatch();
+            } finally {
+                applyingExternalValue = false;
+            }
+        },
+        updateFromEditor: next => {
+            if (!applyingExternalValue) value.val = next;
+        },
+    };
+};
+
 export function assetCodeEditor({
     value,
     disabled,
@@ -56,6 +73,7 @@ export function assetCodeEditor({
     bare = false,
 }) {
     const editable = new Compartment();
+    const valueBridge = createEditorValueBridge(value);
     let view;
 
     const isDisabled = () => Boolean(stateValue(disabled));
@@ -78,7 +96,7 @@ export function assetCodeEditor({
                     ...(yamlSyntax ? [yaml(), syntaxHighlighting(yamlHighlightStyle)] : []),
                     editable.of(EditorView.editable.of(!isDisabled())),
                     EditorView.updateListener.of(update => {
-                        if (update.docChanged) value.val = update.state.doc.toString();
+                        if (update.docChanged) valueBridge.updateFromEditor(update.state.doc.toString());
                     }),
                 ],
             }),
@@ -89,7 +107,9 @@ export function assetCodeEditor({
     const syncValue = () => {
         const next = stateValue(value) || "";
         if (view && next !== view.state.doc.toString()) {
-            view.dispatch({changes: {from: 0, to: view.state.doc.length, insert: next}});
+            valueBridge.applyExternalValue(() => {
+                view.dispatch({changes: {from: 0, to: view.state.doc.length, insert: next}});
+            });
         }
         return "";
     };

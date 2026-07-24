@@ -86,7 +86,6 @@ export function secretsPage() {
             name: van.state(meta ? meta.name : ""),
             value: van.state(""),
             createdAt: meta ? meta.createdAt : null,
-            loaded: van.state(isNew),
             copied: van.state(false),
             saving: van.state(false),
             nameAliases: new Set(),
@@ -319,37 +318,22 @@ export function secretsPage() {
         rows.val = filteredAndSortedRows(localRows || []);
     };
 
-    const loadSecretValue = async (row) => {
-        if (row.loaded.val || row.isNew) return true;
-        try {
-            error.val = null;
-            const res = await capi.postV1SecretsReveal({id: row.referenceId});
-            row.value.val = new TextDecoder().decode(res.value);
-            row.orig.value = row.value.val;
-            row.loaded.val = true;
-            return true;
-        } catch (e) {
-            error.val = e.message;
-            return false;
-        }
-    };
-
     const editRowValue = async (row) => {
         if (row.saving.val) return;
-        if (row.type === "secret") {
-            if (!await loadSecretValue(row)) return;
+        try {
+            error.val = null;
+            const originalValue = row.type === "secret"
+                ? new TextDecoder().decode((await capi.postV1SecretsReveal({id: row.referenceId})).value)
+                : row.value.val;
+            valueTarget.val = {row, originalValue};
+        } catch (e) {
+            error.val = e.message;
         }
-        valueTarget.val = row;
     };
 
     const secretValueForCopy = async (row) => {
-        if (row.isNew || row.loaded.val) return row.value.val;
         const res = await capi.postV1SecretsReveal({id: row.referenceId});
-        const value = new TextDecoder().decode(res.value);
-        row.value.val = value;
-        row.orig.value = value;
-        row.loaded.val = true;
-        return value;
+        return new TextDecoder().decode(res.value);
     };
 
     const copyRowValue = async (row) => {
@@ -415,10 +399,11 @@ export function secretsPage() {
                 saved = await capi.postV1UserConfigsSet({name, value});
             } else {
                 saved = await capi.postV1SecretsSet({name, value: new TextEncoder().encode(value)});
-                row.loaded.val = true;
             }
-            row.value.val = value;
-            row.orig.value = value;
+            if (row.type === "config") {
+                row.value.val = value;
+                row.orig.value = value;
+            }
             row.referenceId = Number(saved?.id || row.referenceId || 0);
             row.version = Number(saved?.version || row.version || 0);
             row.createdAt = saved?.createdAt || row.createdAt;
@@ -605,16 +590,15 @@ export function secretsPage() {
     };
 
     const valueViewerOverlay = () => {
-        const row = valueTarget.val;
-        if (!row) return "";
-        const usage = usageForRow(row);
+        const target = valueTarget.val;
+        if (!target) return "";
+        const {row, originalValue} = target;
         return valueOverlay({
             name: rawStateValue(row.name),
             type: row.type,
-            value: () => row.value.val,
+            value: originalValue,
             version: row.version || 0,
             createdAt: row.createdAt,
-            deploymentCount: usage.deployments.length,
             onSave: (value) => saveValue(row, value),
             onClose: () => valueTarget.val = null,
         });
