@@ -28,8 +28,8 @@ const codeEditorTheme = EditorView.theme({
     },
     ".cm-line": {padding: "0 12px"},
     ".cm-gutters": {backgroundColor: "#111827", color: "#6b7280", border: "none"},
-    ".cm-activeLine": {backgroundColor: "#273449"},
-    ".cm-activeLineGutter": {backgroundColor: "#273449", color: "#9ca3af"},
+    ".cm-activeLine": {backgroundColor: "transparent"},
+    ".cm-activeLineGutter": {backgroundColor: "transparent", color: "inherit"},
     ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection": {
         backgroundColor: "#1e3a5f !important",
     },
@@ -86,18 +86,23 @@ export function assetCodeEditor({
     };
 
     requestAnimationFrame(createEditor);
-    van.derive(() => {
+    const syncValue = () => {
         const next = stateValue(value) || "";
         if (view && next !== view.state.doc.toString()) {
             view.dispatch({changes: {from: 0, to: view.state.doc.length, insert: next}});
         }
         return "";
-    });
-    van.derive(() => {
+    };
+    const syncEditable = () => {
         const nextEditable = !isDisabled();
         if (view) view.dispatch({effects: editable.reconfigure(EditorView.editable.of(nextEditable))});
         return "";
-    });
+    };
 
-    return div({class: "h-full w-full min-w-0", onclick: event => event.stopPropagation()}, host);
+    return div(
+        {class: "h-full w-full min-w-0", onclick: event => event.stopPropagation()},
+        host,
+        syncValue,
+        syncEditable,
+    );
 }

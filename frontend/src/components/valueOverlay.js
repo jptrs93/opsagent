@@ -1,8 +1,8 @@
 import van from "vanjs-core";
 import {checkIcon, closeIcon, copyIcon} from "../lib/icons.js";
+import {secretGenerator} from "./secretGenerator.js";
 
 const {button, div, h2, input, p, span} = van.tags;
-const RANDOM_SECRET_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+[]{}";
 
 let codeEditorLoader;
 
@@ -29,17 +29,20 @@ const formatDate = (value) => value instanceof Date && !Number.isNaN(value.getTi
 
 const normalizeEditorValue = (value) => value.replace(/\r\n?/g, "\n");
 
-export function valueOverlay({name, type, value, version, createdAt, deploymentCount, onSave, onClose}) {
+export function valueOverlay({name = "", type, value = "", version = 0, createdAt, deploymentCount = 0, mode = "edit", onSave, onClose}) {
+    const creating = mode === "create";
     const copied = van.state(false);
     const copyFailed = van.state(false);
     const saving = van.state(false);
     const saveError = van.state("");
     const updateReferencedDeployments = van.state(false);
-    const generatedSecretLength = van.state("32");
     const currentValue = () => typeof value === "function" ? value() : value;
     const initialValue = currentValue();
     const draft = van.state(initialValue);
+    const nameDraft = van.state(creating ? "" : name);
     const isDirty = () => normalizeEditorValue(draft.val) !== normalizeEditorValue(initialValue);
+    const isEmpty = () => !draft.val;
+    const saveDisabled = () => saving.val || isEmpty() || (creating ? !nameDraft.val.trim() : !isDirty());
 
     const copyValue = async () => {
         try {
@@ -54,10 +57,19 @@ export function valueOverlay({name, type, value, version, createdAt, deploymentC
 
     const save = async () => {
         if (saving.val) return;
+        const resourceName = creating ? nameDraft.val.trim() : name;
+        if (!resourceName) {
+            saveError.val = `${type === "secret" ? "Secret" : "Config"} name is required`;
+            return;
+        }
+        if (isEmpty()) {
+            saveError.val = `${type === "secret" ? "Secret" : "Config"} cannot be empty.`;
+            return;
+        }
         saving.val = true;
         saveError.val = "";
         try {
-            await onSave(draft.val);
+            await onSave(draft.val, resourceName);
             onClose();
         } catch (e) {
             saveError.val = e.message || "Could not save value";
@@ -71,26 +83,13 @@ export function valueOverlay({name, type, value, version, createdAt, deploymentC
         saveError.val = "";
     };
 
-    const generateSecret = () => {
-        const length = Math.max(1, Math.min(4096, Number.parseInt(generatedSecretLength.val, 10) || 32));
-        generatedSecretLength.val = String(length);
-        const bytes = new Uint8Array(length);
-        const limit = 256 - (256 % RANDOM_SECRET_CHARS.length);
-        let result = "";
-        while (result.length < length) {
-            globalThis.crypto.getRandomValues(bytes);
-            for (const byte of bytes) {
-                if (byte < limit) result += RANDOM_SECRET_CHARS[byte % RANDOM_SECRET_CHARS.length];
-                if (result.length === length) break;
-            }
-        }
-        draft.val = result;
-    };
-
     return div(
         div({class: "fixed inset-0 z-40 bg-black/70", onclick: onClose}),
         div(
-            {class: "fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 pointer-events-none", "data-testid": "resource-value-overlay"},
+            {
+                class: "fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 pointer-events-none",
+                "data-testid": creating ? `create-${type}-overlay` : "resource-value-overlay",
+            },
             div(
                 {
                     class: "w-full h-full max-w-5xl max-h-[85vh] bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto",
@@ -101,14 +100,16 @@ export function valueOverlay({name, type, value, version, createdAt, deploymentC
                 },
                 div(
                     {class: "flex items-center justify-between gap-4 border-b border-gray-700 px-4 py-3"},
-                    h2({
-                        id: "resource-value-title",
-                        class: `min-w-0 truncate font-mono text-sm font-normal ${type === "secret" ? "text-purple-300" : "text-blue-300"}`,
-                    }, name),
+                    creating
+                        ? h2({id: "resource-value-title", class: "text-base font-semibold"}, `Add ${type}`)
+                        : h2({
+                            id: "resource-value-title",
+                            class: `min-w-0 truncate font-mono text-sm font-normal ${type === "secret" ? "text-purple-300" : "text-blue-300"}`,
+                        }, name),
                     div({class: "flex shrink-0 items-center gap-3"},
-                        p({class: "text-xs text-gray-400 whitespace-nowrap"}, `Version ${version} created ${formatDate(createdAt)}.`),
+                        creating ? "" : p({class: "text-xs text-gray-400 whitespace-nowrap"}, `Version ${version} created ${formatDate(createdAt)}.`),
                         div({class: "flex items-center gap-1"},
-                            button({
+                            creating ? "" : button({
                                 type: "button",
                                 class: "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-gray-100 cursor-pointer",
                                 onclick: copyValue,
@@ -124,38 +125,34 @@ export function valueOverlay({name, type, value, version, createdAt, deploymentC
                         ),
                     ),
                 ),
-                type === "secret" ? div(
-                    {class: "flex shrink-0 flex-wrap items-center gap-3 border-b border-gray-700 bg-gray-950/30 px-4 py-2"},
-                    p({class: "text-xs text-gray-400"}, "Generate random value"),
+                creating ? div(
+                    {class: "flex shrink-0 items-center gap-3 border-b border-gray-700 px-4 py-2"},
+                    p({class: "text-xs font-medium text-gray-400"}, "Name"),
                     input({
-                        class: "text-input w-20 py-1 text-xs font-mono",
-                        type: "number",
-                        min: "1",
-                        max: "4096",
-                        value: generatedSecretLength,
+                        class: "text-input min-w-0 flex-1 py-1 font-mono text-sm",
+                        placeholder: `${type} name`,
+                        autocomplete: "off",
+                        value: nameDraft,
                         disabled: saving,
-                        oninput: (e) => generatedSecretLength.val = e.target.value,
-                        "aria-label": "Generated secret length",
+                        oninput: event => nameDraft.val = event.target.value,
+                        "aria-label": `${type === "secret" ? "Secret" : "Config"} name`,
                     }),
-                    button({
-                        type: "button",
-                        disabled: saving,
-                        class: () => `rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${saving.val
-                            ? "cursor-not-allowed bg-gray-700 text-gray-400 opacity-50"
-                            : "cursor-pointer bg-gray-700 text-gray-200 hover:bg-gray-600"}`,
-                        onclick: generateSecret,
-                    }, "Generate"),
                 ) : "",
+                type === "secret" ? secretGenerator({
+                    onGenerate: generated => draft.val = generated,
+                    disabled: saving,
+                    className: "shrink-0 border-b border-gray-700 bg-gray-950/30 px-4 py-2",
+                }) : "",
                 lazyCodeEditor({
                     value: draft,
                     disabled: saving,
-                    ariaLabel: `Value for ${name}`,
+                    ariaLabel: creating ? `Value for new ${type}` : `Value for ${name}`,
                     bare: true,
                 }),
                 div(
                     {class: "flex shrink-0 items-center justify-between gap-4 border-t border-gray-700 px-4 py-3"},
                     div({class: "flex min-w-0 flex-col gap-1.5"},
-                        button({
+                        creating ? "" : button({
                             type: "button",
                             role: "switch",
                             "aria-checked": () => String(updateReferencedDeployments.val),
@@ -172,9 +169,18 @@ export function valueOverlay({name, type, value, version, createdAt, deploymentC
                         })),
                         `Update ${deploymentCount} referenced deployment${deploymentCount === 1 ? "" : "s"}.`),
                         () => saveError.val ? p({class: "text-sm text-red-400"}, saveError.val) : "",
+                        () => isEmpty() ? p({class: "text-xs text-orange-300"},
+                            `${type === "secret" ? "Secret" : "Config"} cannot be empty.`) : "",
                     ),
                     div({class: "flex shrink-0 items-center gap-2"},
-                        () => isDirty() ? button({
+                        creating ? button({
+                            type: "button",
+                            disabled: saving,
+                            class: () => `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${saving.val
+                                ? "cursor-not-allowed bg-gray-700 text-gray-400 opacity-50"
+                                : "cursor-pointer bg-gray-700 text-gray-200 hover:bg-gray-600"}`,
+                            onclick: onClose,
+                        }, "Cancel") : () => isDirty() ? button({
                             type: "button",
                             disabled: saving,
                             class: () => `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${saving.val
@@ -184,12 +190,12 @@ export function valueOverlay({name, type, value, version, createdAt, deploymentC
                         }, "Discard changes") : "",
                         button({
                             type: "button",
-                            disabled: () => saving.val || !isDirty(),
-                            class: () => `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${saving.val || !isDirty()
+                            disabled: saveDisabled,
+                            class: () => `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${saveDisabled()
                                 ? "cursor-not-allowed bg-gray-700 text-gray-400 opacity-50"
                                 : "cursor-pointer bg-brand text-white hover:bg-blue-600"}`,
                             onclick: () => { void save(); },
-                        }, () => saving.val ? "Saving..." : `Save version ${version + 1}`),
+                        }, () => saving.val ? "Saving..." : creating ? `Add ${type}` : `Save version ${version + 1}`),
                     ),
                 ),
             ),

@@ -39,6 +39,17 @@ Key files:
 - `backend/app/primary/webuihandler/secrets.go` — the CRUD / status / recovery endpoints.
 - `frontend/src/pages/secrets.js` — the Secrets page.
 
+The secret create and value editors share a browser-side generator for random
+passwords and multi-word passphrases. It uses Web Crypto for every generation;
+passphrases select independently from the 2,048-word BIP39 English list. A
+generated value remains only in the editor draft and is not sent to the server
+until the operator saves it.
+
+`frontend/src/components/valueOverlay.js` provides both create and edit modes
+for configs and secrets. Create mode uses the same full-size value editor but
+shows only the editable name and create actions; version metadata, copy/discard
+actions, and referenced-deployment controls remain edit-only.
+
 OpenDeploy also stores internal key material in a separate encrypted
 `system_secrets` table. System secrets use the reserved `opendeploy.` name
 prefix, are not listed in the Secrets UI, cannot be revealed through

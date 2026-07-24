@@ -10,9 +10,8 @@ import {deploymentUsages} from "../lib/referenceUsage.js";
 import {deploymentsS, machinesS, primaryConfigS, secretMetasS, secretsStatusS, spacesS, userConfigsS} from "../state/deployments.js";
 import {containerWorkload} from "../lib/deploymentConfig.js";
 
-const { div, h2, p, span, input, textarea, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
+const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
 const DEFAULT_SECRET_MASK = "••••••••••••••••";
-const RANDOM_SECRET_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+[]{}";
 
 const rawStateValue = (state) => state.rawVal ?? state.val ?? "";
 
@@ -50,10 +49,6 @@ export function secretsPage() {
     const usageTarget = van.state(null);
     const valueTarget = van.state(null);
     const createTarget = van.state(null);
-    const createName = van.state("");
-    const createValue = van.state("");
-    const createError = van.state(null);
-    const generatedSecretLength = van.state("32");
     let localRows = null;
     let streamSignature = '';
     let nextLocalKey = 1;
@@ -299,49 +294,21 @@ export function secretsPage() {
 
     const openCreate = (type) => {
         createTarget.val = type;
-        createName.val = "";
-        createValue.val = "";
-        createError.val = null;
-        generatedSecretLength.val = "32";
     };
     const closeCreate = () => {
         createTarget.val = null;
-        createError.val = null;
     };
-    const generateSecret = () => {
-        const length = Math.max(1, Math.min(4096, Number.parseInt(generatedSecretLength.val, 10) || 32));
-        generatedSecretLength.val = String(length);
-        const bytes = new Uint8Array(length);
-        const limit = 256 - (256 % RANDOM_SECRET_CHARS.length);
-        let result = "";
-        while (result.length < length) {
-            globalThis.crypto.getRandomValues(bytes);
-            for (const byte of bytes) {
-                if (byte < limit) result += RANDOM_SECRET_CHARS[byte % RANDOM_SECRET_CHARS.length];
-                if (result.length === length) break;
-            }
-        }
-        createValue.val = result;
-    };
-    const createResource = async () => {
-        const type = createTarget.val;
-        const name = createName.val.trim();
-        if (!name) {
-            createError.val = `${type === "secret" ? "Secret" : "Config"} name is required`;
-            return;
-        }
+    const createResource = async (type, value, name) => {
         try {
-            createError.val = null;
             error.val = null;
             if (type === "secret") {
-                await capi.postV1SecretsSet({name, value: new TextEncoder().encode(createValue.val)});
+                await capi.postV1SecretsSet({name, value: new TextEncoder().encode(value)});
             } else {
-                await capi.postV1UserConfigsSet({name, value: createValue.val});
+                await capi.postV1UserConfigsSet({name, value});
             }
-            closeCreate();
         } catch (e) {
-            createError.val = e.message;
             error.val = e.message;
+            throw e;
         }
     };
     const setSort = (key) => {
@@ -656,66 +623,12 @@ export function secretsPage() {
     const createOverlay = () => {
         const type = createTarget.val;
         if (!type) return "";
-        const typeLabel = type === "secret" ? "secret" : "config";
-        return div(
-            div({class: "fixed inset-0 z-40 bg-black/70", onclick: closeCreate}),
-            div(
-                {class: "fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none", "data-testid": `create-${typeLabel}-overlay`},
-                div(
-                    {
-                        class: "card w-full max-w-lg flex flex-col gap-4 shadow-2xl pointer-events-auto",
-                        role: "dialog",
-                        "aria-modal": "true",
-                        "aria-labelledby": "create-resource-title",
-                        onclick: (e) => e.stopPropagation(),
-                    },
-                    h2({id: "create-resource-title", class: "text-base font-semibold"}, `Add ${typeLabel}`),
-                    div({class: "flex flex-col gap-1.5"},
-                        p({class: "text-xs font-medium text-gray-400"}, "Name"),
-                        input({
-                            class: "text-input font-mono",
-                            placeholder: `${typeLabel} name`,
-                            autocomplete: "off",
-                            value: createName,
-                            oninput: (e) => createName.val = e.target.value,
-                        }),
-                    ),
-                    type === "secret" ? div(
-                        {class: "flex flex-wrap items-end justify-between gap-3 rounded-lg border border-gray-700 bg-gray-950/50 p-3"},
-                        div({class: "flex flex-col gap-1.5"},
-                            p({class: "text-xs font-medium text-gray-400"}, "Generate random value"),
-                            input({
-                                class: "text-input w-24 py-1.5 text-sm font-mono",
-                                type: "number",
-                                min: "1",
-                                max: "4096",
-                                value: generatedSecretLength,
-                                oninput: (e) => generatedSecretLength.val = e.target.value,
-                                "aria-label": "Generated secret length",
-                            }),
-                        ),
-                        smallBtn("Generate", generateSecret, "bg-gray-700 text-gray-200 hover:bg-gray-600"),
-                    ) : "",
-                    div({class: "flex min-h-0 flex-col gap-1.5"},
-                        p({class: "text-xs font-medium text-gray-400"}, "Value"),
-                        textarea({
-                            class: "text-input min-h-44 resize-y font-mono text-sm leading-relaxed",
-                            placeholder: `${typeLabel} value`,
-                            autocomplete: "off",
-                            spellcheck: "false",
-                            value: createValue,
-                            oninput: (e) => createValue.val = e.target.value,
-                        }),
-                    ),
-                    () => createError.val ? p({class: "text-sm text-red-400"}, createError.val) : "",
-                    div({class: "flex items-center justify-end gap-2"},
-                        smallBtn("Cancel", closeCreate, "bg-gray-700 text-gray-200 hover:bg-gray-600"),
-                        spinnerButton(`Add ${typeLabel}`, createResource, "btn-primary text-sm py-1.5 px-3", "button",
-                            () => !createName.val.trim()),
-                    ),
-                ),
-            ),
-        );
+        return valueOverlay({
+            mode: "create",
+            type,
+            onSave: (value, name) => createResource(type, value, name),
+            onClose: closeCreate,
+        });
     };
 
     const tableClass = "w-full min-w-[84rem] table-fixed text-sm";
