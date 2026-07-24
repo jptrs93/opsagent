@@ -29,6 +29,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
         actions: {
             validateSource: request => capi.postV1RepoValidate(request),
             loadDeploymentVersions: request => capi.postV1DeploymentVersions(request),
+            loadAsset: request => capi.postV1AssetsGet(request),
             saveAsset: request => capi.postV1AssetsSet(request),
             updateDeployment: request => capi.postV1DeploymentUpdate(request),
         },

@@ -5,7 +5,7 @@ import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {valueOverlay} from "../components/valueOverlay.js";
 import {formatDateTime} from "../lib/date.js";
-import {checkIcon, copyIcon, editIcon, expandIcon, eyeOffIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
+import {checkIcon, copyIcon, editIcon, expandIcon, eyeOpenIcon, plusIcon, trashIcon} from "../lib/icons.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
 import {deploymentsS, machinesS, primaryConfigS, secretMetasS, secretsStatusS, spacesS, userConfigsS} from "../state/deployments.js";
 import {containerWorkload} from "../lib/deploymentConfig.js";
@@ -15,18 +15,6 @@ const DEFAULT_SECRET_MASK = "••••••••••••••••";
 const RANDOM_SECRET_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+[]{}";
 
 const rawStateValue = (state) => state.rawVal ?? state.val ?? "";
-
-export function isLong(value, element) {
-    if (/[\r\n]/.test(value)) return true;
-
-    const availableWidth = element?.clientWidth || 384;
-    if (!availableWidth) return value.length > 115;
-    const context = document.createElement("canvas").getContext("2d");
-    if (!context) return value.length > 115;
-    const style = element ? getComputedStyle(element) : null;
-    context.font = style?.font || "13px monospace";
-    return context.measureText(value).width > availableWidth * 1.5;
-}
 
 const iconButton = (child, onclick, cls = "", attrs = {}) => button({
     type: "button",
@@ -103,9 +91,7 @@ export function secretsPage() {
             name: van.state(meta ? meta.name : ""),
             value: van.state(""),
             createdAt: meta ? meta.createdAt : null,
-            revealed: van.state(false),
             loaded: van.state(isNew),
-            valueDirty: van.state(false),
             copied: van.state(false),
             saving: van.state(false),
             nameAliases: new Set(),
@@ -114,10 +100,7 @@ export function secretsPage() {
     };
 
     const nameDirty = (row) => row.name.val !== row.orig.name;
-    const valueDirty = (row) => row.type === "config"
-        ? row.value.val !== row.orig.value
-        : row.valueDirty.val;
-    const isDirty = (row) => row.isNew || nameDirty(row) || valueDirty(row);
+    const isDirty = (row) => row.isNew || nameDirty(row);
 
     const rowKey = (row) => row.orig.name ? `${row.type}:${row.orig.name}` : row.localKey;
     const itemKey = (type, item) => `${type}:${item.name}`;
@@ -361,11 +344,6 @@ export function secretsPage() {
             error.val = e.message;
         }
     };
-    const removeRow = (row) => {
-        localRows = (localRows || []).filter(r => r !== row);
-        rows.val = (rows.val || []).filter(r => r !== row);
-    };
-
     const setSort = (key) => {
         const current = sort.val;
         sort.val = current.key === key
@@ -389,28 +367,12 @@ export function secretsPage() {
         }
     };
 
-    const toggleReveal = async (row) => {
-        if (row.revealed.val) {
-            row.revealed.val = false;
-            if (!row.isNew && !row.valueDirty.val) {
-                row.value.val = "";
-                row.orig.value = "";
-                row.loaded.val = false;
-            }
-            return;
-        }
-        if (!await loadSecretValue(row)) return;
-        row.revealed.val = true;
-        if (isLong(row.value.val, row.valueInput)) valueTarget.val = row;
-    };
-
     const editRowValue = async (row) => {
         if (row.saving.val) return;
         if (row.type === "secret") {
             if (!await loadSecretValue(row)) return;
-            row.revealed.val = true;
         }
-        queueMicrotask(() => row.valueInput?.isConnected && row.valueInput.focus());
+        valueTarget.val = row;
     };
 
     const secretValueForCopy = async (row) => {
@@ -473,7 +435,7 @@ export function secretsPage() {
         }
     };
 
-    const saveValue = async (row) => {
+    const saveValue = async (row, value) => {
         if (row.saving.val) return;
         const wasNew = row.isNew;
         const name = row.isNew ? row.name.val.trim() : row.orig.name;
@@ -483,14 +445,13 @@ export function secretsPage() {
             error.val = null;
             let saved;
             if (row.type === "config") {
-                saved = await capi.postV1UserConfigsSet({name, value: row.value.val});
-                row.orig.value = row.value.val;
+                saved = await capi.postV1UserConfigsSet({name, value});
             } else {
-                saved = await capi.postV1SecretsSet({name, value: new TextEncoder().encode(row.value.val)});
-                row.orig.value = row.value.val;
+                saved = await capi.postV1SecretsSet({name, value: new TextEncoder().encode(value)});
                 row.loaded.val = true;
-                row.valueDirty.val = false;
             }
+            row.value.val = value;
+            row.orig.value = value;
             row.referenceId = Number(saved?.id || row.referenceId || 0);
             row.version = Number(saved?.version || row.version || 0);
             row.createdAt = saved?.createdAt || row.createdAt;
@@ -502,8 +463,10 @@ export function secretsPage() {
             }
             row._saved = true;
             syncRowsFromUniverse();
+            return true;
         } catch (e) {
             error.val = e.message;
+            throw e;
         } finally {
             row.saving.val = false;
         }
@@ -511,17 +474,6 @@ export function secretsPage() {
 
     const discardName = (row) => {
         row.name.val = row.orig.name;
-    };
-
-    const discardValue = (row) => {
-        if (row.isNew) { removeRow(row); return; }
-        if (row.type === "config") {
-            row.value.val = row.orig.value;
-            return;
-        }
-        row.value.val = row.loaded.val ? row.orig.value : "";
-        row.valueDirty.val = false;
-        row.revealed.val = false;
     };
 
     const deleteRow = async (row) => {
@@ -589,50 +541,10 @@ export function secretsPage() {
             : "bg-blue-500/15 text-blue-300"}`,
     }, type === "secret" ? "Secret" : "Config");
 
-    const valueInputClass = "w-full bg-transparent px-2 py-1 rounded border border-transparent " +
-        "hover:border-gray-700 focus:border-brand focus:outline-none font-mono";
-
-    const configValueInput = (row) => inlineEditableInput({
-        value: row.value,
-        dirty: () => row.isNew || valueDirty(row),
-        disabled: row.saving,
-        oninput: event => { row.value.val = event.target.value; },
-        onSave: () => saveValue(row),
-        onDiscard: () => discardValue(row),
-        inputClass: valueInputClass,
-        inputRef: element => { row.valueInput = element; },
-        placeholder: "value",
-        ariaLabel: `Config value ${row.orig.name}`,
-        saveAriaLabel: `Save config value ${row.orig.name}`,
-        discardAriaLabel: `Discard config value change for ${row.orig.name}`,
-    });
-
-    const secretValueInput = (row) => {
-        return inlineEditableInput({
-            value: () => row.isNew || row.revealed.val ? row.value.val : "",
-            dirty: () => row.isNew || valueDirty(row),
-            disabled: row.saving,
-            inputAttrs: {
-                type: "text",
-                autocomplete: "off",
-                readOnly: () => !(row.isNew || row.revealed.val),
-                style: () => row.revealed.val ? "" : "-webkit-text-security: disc;",
-            },
-            inputClass: valueInputClass,
-            inputRef: element => { row.valueInput = element; },
-            placeholder: row.isNew ? "value" : DEFAULT_SECRET_MASK,
-            oninput: (e) => {
-                if (!row.isNew && !row.revealed.val) return;
-                row.value.val = e.target.value;
-                row.valueDirty.val = true;
-            },
-            onSave: () => saveValue(row),
-            onDiscard: () => discardValue(row),
-            ariaLabel: `Secret value ${row.orig.name}`,
-            saveAriaLabel: `Save secret value ${row.orig.name}`,
-            discardAriaLabel: `Discard secret value change for ${row.orig.name}`,
-        });
-    };
+    const valueCell = (row) => div({
+        class: "w-full truncate rounded px-2 py-1 font-mono text-gray-300",
+        title: row.type === "config" ? () => row.value.val : "Secret value",
+    }, () => row.type === "secret" ? DEFAULT_SECRET_MASK : row.value.val);
 
     const usageButton = (row) => {
         const usage = usageForRow(row);
@@ -669,7 +581,7 @@ export function secretsPage() {
         td({class: "py-1 pr-3 text-gray-300 whitespace-nowrap"}, `v${row.version || 0}`),
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap"}, formatDateTime(row.createdAt, "-")),
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => usageButton(row)),
-        td({class: "py-1 pr-3"}, row.type === "secret" ? secretValueInput(row) : configValueInput(row)),
+        td({class: "py-1 pr-3 min-w-0"}, valueCell(row)),
         td({class: "py-1 pl-2 pr-1 text-right whitespace-nowrap w-px"},
             div({class: "flex items-center justify-end gap-1"},
                 iconButton(editIcon(), () => { void editRowValue(row); },
@@ -679,16 +591,15 @@ export function secretsPage() {
                         disabled: row.saving,
                     }),
                 row.type === "secret"
-                    ? iconButton(() => row.revealed.val ? eyeOffIcon() : eyeOpenIcon(),
-                        () => { void toggleReveal(row); }, "disabled:cursor-not-allowed disabled:opacity-50", {
-                            title: () => row.revealed.val ? "Hide secret value" : "Reveal secret value",
-                            "aria-label": () => row.revealed.val ? "Hide secret value" : "Reveal secret value",
+                    ? iconButton(eyeOpenIcon(), () => { void editRowValue(row); }, "disabled:cursor-not-allowed disabled:opacity-50", {
+                            title: "View or edit secret value",
+                            "aria-label": "View or edit secret value",
                             disabled: row.saving,
                         })
-                    : iconButton(expandIcon(), () => valueTarget.val = row,
+                    : iconButton(expandIcon(), () => { void editRowValue(row); },
                         "disabled:cursor-not-allowed disabled:opacity-50", {
-                            title: "Expand config value",
-                            "aria-label": "Expand config value",
+                            title: "View or edit config value",
+                            "aria-label": "View or edit config value",
                             disabled: row.saving,
                         }),
                 iconButton(() => row.copied.val
@@ -744,6 +655,8 @@ export function secretsPage() {
         return valueOverlay(
             rawStateValue(row.name),
             () => row.value.val,
+            row.version || 0,
+            (value) => saveValue(row, value),
             () => valueTarget.val = null,
         );
     };

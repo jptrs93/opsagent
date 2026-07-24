@@ -179,6 +179,7 @@ export function deploymentEditorWidget(opts) {
         secretRefs,
         configRefs,
         deployments,
+        loadAsset: actions.loadAsset,
         saveAsset: request => withRequest('Saving asset.', async () => {
             if (typeof actions.saveAsset !== 'function') throw new Error('actions.saveAsset is required');
             return actions.saveAsset(request);

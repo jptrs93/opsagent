@@ -1,5 +1,5 @@
 import van from "vanjs-core";
-import {xIcon} from "../lib/icons.js";
+import {eyeOpenIcon, xIcon} from "../lib/icons.js";
 import {referencePicker} from "./referencePicker.js";
 import {
     SOURCE_DOCKER_IMAGE,
@@ -36,6 +36,10 @@ const DEFAULT_SPACE_ID = 1;
 const INTERNAL_SPACE_ID = 0;
 
 const stateValue = (value) => value && typeof value === 'object' && 'val' in value ? value.val : value;
+
+const configurationPaneClass = open => open
+    ? "w-full md:w-2/3 shrink-0 border-l border-gray-700 flex flex-col"
+    : "hidden";
 
 let nextEnvID = 1;
 let nextAssetMountID = 1;
@@ -530,9 +534,7 @@ function commandSummary(form) {
 
 export function commandPane(form) {
     return div(
-        {class: () => form.commandPaneOpen.val
-            ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
-            : "hidden"},
+        {class: () => configurationPaneClass(form.commandPaneOpen.val)},
         div(
             {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Command"),
@@ -589,7 +591,8 @@ function assetMountsSection(form, opts = {}) {
 
 function volumeMountsSummary(form) {
     const summaryText = () => {
-        const extra = formVolumeMounts(form).length;
+        const {crossDeploymentMounts, mounts} = formVolumeMounts(form);
+        const extra = crossDeploymentMounts.length + mounts.length;
         const n = (form.containerDisableDataVolume.val ? 0 : 1) + extra;
         return `${n} mounted volume${n === 1 ? '' : 's'}`;
     };
@@ -650,9 +653,7 @@ function networkingSummaryText(form) {
 
 export function networkingPane(form) {
     return div(
-        {class: () => form.networkingPaneOpen.val
-            ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
-            : "hidden"},
+        {class: () => configurationPaneClass(form.networkingPaneOpen.val)},
         div(
             {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-3 py-2"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Networking"),
@@ -902,9 +903,7 @@ function upgradeStrategyLabel(form) {
 
 export function upgradeStrategyPane(form) {
     return div(
-        {class: () => form.upgradeStrategyPaneOpen.val
-            ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
-            : "hidden"},
+        {class: () => configurationPaneClass(form.upgradeStrategyPaneOpen.val)},
         div(
             {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Upgrade strategy"),
@@ -940,9 +939,7 @@ export function upgradeStrategyPane(form) {
 
 export function resourcesPane(form) {
     return div(
-        {class: () => form.resourcesPaneOpen.val
-            ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
-            : "hidden"},
+        {class: () => configurationPaneClass(form.resourcesPaneOpen.val)},
         div(
             {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Resources"),
@@ -1074,6 +1071,42 @@ function assetOptionsForRow(assets, row) {
     return versionedAssetOptions(assets, row?.assetId);
 }
 
+function assetPreviewButton(assetValue, onPreview, positionClass = 'right-1') {
+    const asset = () => typeof assetValue === 'function' ? assetValue() : assetValue;
+    return button({
+        type: 'button',
+        class: `absolute ${positionClass} top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 hover:bg-gray-700 hover:text-gray-100 disabled:cursor-not-allowed disabled:opacity-30`,
+        disabled: () => !asset() || typeof onPreview !== 'function',
+        title: () => asset() ? `Preview ${asset().key}` : 'Select an asset to preview',
+        'aria-label': () => asset() ? `Preview ${asset().key}` : 'Preview selected asset',
+        onpointerdown: e => {
+            e.preventDefault();
+            e.stopPropagation();
+        },
+        onclick: e => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (asset() && typeof onPreview === 'function') onPreview(asset());
+        },
+    }, eyeOpenIcon({size: 15}));
+}
+
+function assetSelectWithPreview({assetOptions, selectedValue, selectedAsset, onSelect, onPreview}) {
+    return div(
+        {class: 'relative'},
+        select({
+            class: `${selectClass()} !pr-16 ${assetOptions.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`,
+            disabled: assetOptions.length === 0,
+            value: selectedValue,
+            onchange: e => onSelect(e.target.value),
+        },
+            option({value: '', disabled: true, selected: !selectedValue || assetOptions.length === 0}, assetOptions.length ? "Select an asset..." : "No assets defined"),
+            ...assetOptions.map(asset => option({value: assetOptionValue(asset), selected: assetOptionValue(asset) === selectedValue}, assetOptionLabel(asset))),
+        ),
+        assetPreviewButton(selectedAsset, onPreview, 'right-7'),
+    );
+}
+
 function versionedAssetOptions(assets, selectedID) {
     const latestByKey = new Map();
     const byID = new Map();
@@ -1141,15 +1174,13 @@ export function assetMountsPane(form, opts = {}) {
             {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
             div(
                 {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
-                field("Asset", select({
-                    class: `${selectClass()} ${assetOptions.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`,
-                    disabled: assetOptions.length === 0,
-                    value: selectedValue,
-                    onchange: e => onAssetSelect(row, e.target.value),
-                },
-                    option({value: '', disabled: true, selected: !selectedValue || assetOptions.length === 0}, assetOptions.length ? "Select an asset..." : "No assets defined"),
-                    ...assetOptions.map(a => option({value: assetOptionValue(a), selected: assetOptionValue(a) === selectedValue}, assetOptionLabel(a))),
-                )),
+                field("Asset", assetSelectWithPreview({
+                    assetOptions,
+                    selectedValue,
+                    selectedAsset,
+                    onSelect: value => onAssetSelect(row, value),
+                    onPreview: opts.previewAsset,
+                })),
             field("Container path", input({
                 class: textInputClass(true),
                 placeholder: "/etc/nginx/nginx.conf",
@@ -1187,9 +1218,7 @@ export function assetMountsPane(form, opts = {}) {
         );
     };
     return div(
-        {class: () => form.assetMountsPaneOpen.val
-            ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
-            : "hidden"},
+        {class: () => configurationPaneClass(form.assetMountsPaneOpen.val)},
         div(
             {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Mounted assets"),
@@ -1323,9 +1352,7 @@ export function volumeMountsPane(form, opts = {}) {
         ),
     );
     return div(
-        {class: () => form.volumeMountsPaneOpen.val
-            ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
-            : "hidden"},
+        {class: () => configurationPaneClass(form.volumeMountsPaneOpen.val)},
         div(
             {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Mounted volumes"),
@@ -1390,9 +1417,7 @@ export function assetEditorPane(form, opts = {}) {
         }
     };
     return div(
-        {class: () => form.assetEditorOpen.val
-            ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
-            : "hidden"},
+        {class: () => configurationPaneClass(form.assetEditorOpen.val)},
         div(
             {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Create asset"),
@@ -1457,13 +1482,17 @@ export function envVarsPane(form, opts = {}) {
         ].join('::');
         if (signature === envRowsSignature) return;
         envRowsSignature = signature;
-        const catalogs = {assets: assets(), secretRefs: secretRefs(), configRefs: configRefs(), deployments: deployments()};
+        const catalogs = {
+            assets: assets(),
+            secretRefs: secretRefs(),
+            configRefs: configRefs(),
+            deployments: deployments(),
+            previewAsset: opts.previewAsset,
+        };
         envRows.replaceChildren(...rows.map(row => envVarRow(form, row, catalogs)));
     });
     return div(
-        {class: () => form.envPaneOpen.val
-            ? "w-1/2 shrink-0 border-l border-gray-700 flex flex-col"
-            : "hidden"},
+        {class: () => configurationPaneClass(form.envPaneOpen.val)},
         div(
             {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Environment variables"),
@@ -1549,19 +1578,25 @@ function envValueInput(form, row, catalogs) {
     if (row.type === 'asset') {
         const assetOptions = assetOptionsForRow(catalogs.assets, row);
         const selectedKey = van.state(rowAssetOptionValue(row));
-        return referencePicker({
-            refs: assetOptions,
-            selectedKey,
-            placeholder: "Search assets",
-            noMatchesLabel: "No matching assets",
-            emptyLabel: "No assets defined",
-            getKey: assetOptionValue,
-            getLabel: assetOptionLabel,
-            onSelect: asset => {
-                selectedKey.val = assetOptionValue(asset);
-                updateEnvAssetRow(form, row, asset);
-            },
-        });
+        const selectedAsset = () => assetOptions.find(asset => assetOptionValue(asset) === selectedKey.val);
+        return div(
+            {class: "relative"},
+            referencePicker({
+                refs: assetOptions,
+                selectedKey,
+                placeholder: "Search assets",
+                noMatchesLabel: "No matching assets",
+                emptyLabel: "No assets defined",
+                inputClass: "w-full rounded-[0.3rem] bg-gray-800 border border-gray-700 pl-1.5 pr-9 py-1 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand",
+                getKey: assetOptionValue,
+                getLabel: assetOptionLabel,
+                onSelect: asset => {
+                    selectedKey.val = assetOptionValue(asset);
+                    updateEnvAssetRow(form, row, asset);
+                },
+            }),
+            assetPreviewButton(selectedAsset, catalogs.previewAsset),
+        );
     }
     if (row.type === 'address') return envAddressAutocomplete(form, row, catalogs.deployments);
     return envReferenceAutocomplete(form, row, catalogs);

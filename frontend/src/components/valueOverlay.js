@@ -3,19 +3,38 @@ import {checkIcon, copyIcon} from "../lib/icons.js";
 
 const {button, div, h2, textarea} = van.tags;
 
-export function valueOverlay(name, value, onClose) {
+export function valueOverlay(name, value, version, onSave, onClose) {
     const copied = van.state(false);
     const copyFailed = van.state(false);
+    const saving = van.state(false);
+    const saveError = van.state("");
     const currentValue = () => typeof value === "function" ? value() : value;
+    const initialValue = currentValue();
+    const draft = van.state(initialValue);
+    const isDirty = () => draft.val !== initialValue;
 
     const copyValue = async () => {
         try {
-            await navigator.clipboard.writeText(currentValue());
+            await navigator.clipboard.writeText(draft.val);
             copied.val = true;
             copyFailed.val = false;
             setTimeout(() => { copied.val = false; }, 1500);
         } catch (_) {
             copyFailed.val = true;
+        }
+    };
+
+    const save = async () => {
+        if (saving.val) return;
+        saving.val = true;
+        saveError.val = "";
+        try {
+            await onSave(draft.val);
+            onClose();
+        } catch (e) {
+            saveError.val = e.message || "Could not save value";
+        } finally {
+            saving.val = false;
         }
     };
 
@@ -46,10 +65,24 @@ export function valueOverlay(name, value, onClose) {
                 ),
                 textarea({
                     class: "w-full flex-1 min-h-0 resize-none bg-gray-950 p-4 font-mono text-sm leading-6 text-gray-200 outline-none",
-                    readOnly: true,
                     spellcheck: "false",
-                    value: currentValue,
+                    autocomplete: "off",
+                    value: draft,
+                    disabled: saving,
+                    oninput: (e) => draft.val = e.target.value,
                 }),
+                div(
+                    {class: "flex shrink-0 items-center justify-between gap-4 border-t border-gray-700 px-4 py-3"},
+                    () => saveError.val ? div({class: "text-sm text-red-400"}, saveError.val) : div(),
+                    button({
+                        type: "button",
+                        disabled: () => saving.val || !isDirty(),
+                        class: () => `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${saving.val || !isDirty()
+                            ? "cursor-not-allowed bg-gray-700 text-gray-400 opacity-50"
+                            : "cursor-pointer bg-brand text-white hover:bg-blue-600"}`,
+                        onclick: () => { void save(); },
+                    }, () => saving.val ? "Saving..." : `Save new version (v${version + 1})`),
+                ),
             ),
         ),
     );

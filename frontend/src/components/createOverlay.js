@@ -27,6 +27,7 @@ export function createOverlay(onClose, onCreated, opts = {}) {
         actions: {
             loadNodes: () => capi.getV1ClusterStatus(),
             validateSource: request => capi.postV1RepoValidate(request),
+            loadAsset: request => capi.postV1AssetsGet(request),
             saveAsset: request => capi.postV1AssetsSet(request),
             createDeployment: request => capi.postV1DeploymentCreate(request),
         },

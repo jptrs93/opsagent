@@ -1,5 +1,6 @@
 import van from "vanjs-core";
 import {refreshIcon} from "../lib/icons.js";
+import {assetPreviewOverlay} from "./assetPreviewOverlay.js";
 import {
     assetEditorPane,
     assetMountsPane,
@@ -32,9 +33,11 @@ export function deploymentConfigUiWidget(args) {
         secretRefs,
         configRefs,
         deployments,
+        loadAsset,
         saveAsset,
         onRefresh,
     } = args;
+    const previewAsset = van.state(null);
 
     return div(
         {class: 'flex flex-1 min-h-0 min-w-0'},
@@ -66,14 +69,22 @@ export function deploymentConfigUiWidget(args) {
             secretRefs,
             configRefs,
             deployments,
+            previewAsset: asset => { previewAsset.val = asset; },
         }),
         commandPane(form),
         volumeMountsPane(form, {deployments, spaces}),
-        assetMountsPane(form, {assets, enableAssetEditor: true}),
+        assetMountsPane(form, {
+            assets,
+            enableAssetEditor: true,
+            previewAsset: asset => { previewAsset.val = asset; },
+        }),
         upgradeStrategyPane(form),
         resourcesPane(form),
         networkingPane(form),
         assetEditorPane(form, {saveAsset}),
+        () => previewAsset.val
+            ? assetPreviewOverlay(previewAsset.val, loadAsset, () => { previewAsset.val = null; })
+            : '',
     );
 }
 
