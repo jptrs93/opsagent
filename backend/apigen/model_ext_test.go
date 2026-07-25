@@ -5,9 +5,9 @@ import (
 	"time"
 )
 
-func TestDeploymentStatusBumpUpdatedAtUsesWallClock(t *testing.T) {
+func TestScheduledInstanceStatusBumpUpdatedAtUsesWallClock(t *testing.T) {
 	previous := time.Now().Add(time.Hour)
-	status := DeploymentStatus{UpdatedAt: previous}
+	status := ScheduledInstanceStatus{UpdatedAt: previous}
 
 	status.BumpUpdatedAt()
 

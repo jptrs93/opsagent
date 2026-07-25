@@ -59,13 +59,13 @@ func (m *Manager) ReconcileTopology(topology Topology) error {
 		}
 	}
 
-	desiredRoutes := make(map[netip.Addr]int, len(topology.Routes))
+	desiredRoutes := make(map[netip.Prefix]int, len(topology.Routes))
 	for _, route := range topology.Routes {
 		link, ok := owned[route.NodeID]
 		if !ok {
-			return fmt.Errorf("route %s has no tunnel for node %d", route.Addr, route.NodeID)
+			return fmt.Errorf("route %s has no tunnel for node %d", route.Prefix, route.NodeID)
 		}
-		desiredRoutes[route.Addr] = link.Attrs().Index
+		desiredRoutes[route.Prefix] = link.Attrs().Index
 	}
 	if err := reconcileRemoteWorkloadRoutes(topology.Prefix, desiredRoutes, ownedTunnelIndexes(owned)); err != nil {
 		return err
@@ -105,18 +105,18 @@ func validateTopology(topology Topology) error {
 		}
 		tunnels[tunnel.NodeID] = tunnel
 	}
-	seenRoutes := make(map[netip.Addr]struct{}, len(topology.Routes))
+	seenRoutes := make(map[netip.Prefix]struct{}, len(topology.Routes))
 	for _, route := range topology.Routes {
-		if err := topology.Prefix.ValidateRoutedAddr(route.Addr); err != nil {
+		if err := topology.Prefix.ValidateRoutedPrefix(route.Prefix); err != nil {
 			return err
 		}
 		if _, exists := tunnels[route.NodeID]; !exists {
-			return fmt.Errorf("route %s references missing tunnel node %d", route.Addr, route.NodeID)
+			return fmt.Errorf("route %s references missing tunnel node %d", route.Prefix, route.NodeID)
 		}
-		if _, exists := seenRoutes[route.Addr]; exists {
-			return fmt.Errorf("duplicate remote route %s", route.Addr)
+		if _, exists := seenRoutes[route.Prefix]; exists {
+			return fmt.Errorf("duplicate remote route %s", route.Prefix)
 		}
-		seenRoutes[route.Addr] = struct{}{}
+		seenRoutes[route.Prefix] = struct{}{}
 	}
 	return nil
 }
@@ -224,58 +224,51 @@ func ownedTunnelIndexes(tunnels map[int32]netlink.Link) map[int]struct{} {
 	return indexes
 }
 
-func reconcileRemoteWorkloadRoutes(prefix Prefix, desired map[netip.Addr]int, tunnelIndexes map[int]struct{}) error {
+// reconcileRemoteWorkloadRoutes installs the map's routed prefixes over tunnels
+// and removes the ones it no longer names.
+//
+// Remote routes need no guard against locally attached workloads. Local
+// workload routes are /128 and routed prefixes are never longer than /120, so
+// longest-prefix match always prefers the local veth even while a map lags
+// behind a placement that has just moved onto this node.
+func reconcileRemoteWorkloadRoutes(prefix Prefix, desired map[netip.Prefix]int, tunnelIndexes map[int]struct{}) error {
 	routes, err := listProtocolRoutes(systemRouteOperations{}, routeProtocolOpenDeploy)
 	if err != nil {
 		return fmt.Errorf("listing OpenDeploy routes: %w", err)
 	}
-	for addr, linkIndex := range desired {
-		if routeIsLocalWorkload(routes, addr) {
-			continue
-		}
-		route := remoteWorkloadRoute(addr, linkIndex)
+	for destination, linkIndex := range desired {
+		route := remoteWorkloadRoute(destination, linkIndex)
 		if err := netlink.RouteReplace(&route); err != nil {
-			return fmt.Errorf("installing remote route %s: %w", addr, err)
+			return fmt.Errorf("installing remote route %s: %w", destination, err)
 		}
 	}
 	for i := range routes {
 		if !isOwnedRemoteWorkloadRoute(routes[i], prefix, tunnelIndexes) {
 			continue
 		}
-		addr, _ := netlinkRoutePrefix(routes[i])
-		if _, wanted := desired[addr.Addr()]; wanted {
+		destination, _ := netlinkRoutePrefix(routes[i])
+		if _, wanted := desired[destination]; wanted {
 			continue
 		}
 		if err := netlink.RouteDel(&routes[i]); err != nil && !errors.Is(err, unix.ESRCH) {
-			return fmt.Errorf("deleting stale remote route %s: %w", addr, err)
+			return fmt.Errorf("deleting stale remote route %s: %w", destination, err)
 		}
 	}
 	return nil
 }
 
+// isOwnedRemoteWorkloadRoute matches anything this agent installed over one of
+// its own tunnels. It deliberately does not check the prefix length: ownership
+// is established by the route protocol tag plus the tunnel link, and accepting
+// any length lets reconciliation clean up routes left by an earlier layout.
 func isOwnedRemoteWorkloadRoute(route netlink.Route, prefix Prefix, tunnelIndexes map[int]struct{}) bool {
 	destination, ok := netlinkRoutePrefix(route)
 	if !ok || !protocolAndTableMatch(route, routeProtocolOpenDeploy) || route.Type != unix.RTN_UNICAST ||
-		len(route.MultiPath) != 0 || len(route.Gw) != 0 || destination.Bits() != 128 || !prefix.CIDR().Contains(destination.Addr()) {
+		len(route.MultiPath) != 0 || len(route.Gw) != 0 || !prefix.CIDR().Contains(destination.Addr()) {
 		return false
 	}
 	_, ok = tunnelIndexes[route.LinkIndex]
 	return ok
-}
-
-func routeIsLocalWorkload(routes []netlink.Route, addr netip.Addr) bool {
-	for _, route := range routes {
-		destination, ok := netlinkRoutePrefix(route)
-		if !ok || destination.Bits() != 128 || destination.Addr() != addr || route.Type != unix.RTN_UNICAST || route.LinkIndex <= 0 {
-			continue
-		}
-		link, err := netlink.LinkByIndex(route.LinkIndex)
-		if err != nil || link.Type() != "veth" || !isWorkloadVethName(link.Attrs().Name) {
-			continue
-		}
-		return true
-	}
-	return false
 }
 
 func isWorkloadVethName(name string) bool {

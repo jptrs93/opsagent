@@ -59,8 +59,8 @@ message EnrollmentAccepted {
   bytes ca_certificate = 3;
   bytes worker_certificate = 4;
   ClusterNetworkInfo cluster_network = 5;
-  DeploymentWithStatus node_deployment = 6;
-  DeploymentWithStatus node_net_deployment = 7;
+  ScheduledInstanceState node_deployment = 6;
+  ScheduledInstanceState node_net_deployment = 7;
   ClusterNetMap cluster_net_map = 8;
 }
 
@@ -301,8 +301,10 @@ message AssetDeleteRequest {
 // heartbeats to keep the HTTP connection alive.
 message State {
   bool heartbeat = 1;
-  DeploymentWithStatusSnapshot deployments_snapshot = 2;
-  DeploymentWithStatus deployment_update = 3;
+  reserved 2, 3;
+  reserved "deployments_snapshot", "deployment_update";
+  DeploymentConfigSnapshot deployment_configs_snapshot = 4;
+  DeploymentConfig deployment_config_update = 5;
   repeated User users_snapshot = 6;
   User user_update = 7;
   EnrollmentRequestList enrollments_snapshot = 10;
@@ -329,6 +331,8 @@ message State {
   // Full redacted primary configuration, emitted initially and after every
   // persisted configuration change.
   ConfigVersion config_snapshot = 31 [(cp.go_value) = true];
+  ScheduledInstanceSnapshot scheduled_instances_snapshot = 32;
+  ScheduledInstanceState scheduled_instance_update = 33;
 }
 
 message Space {
@@ -374,9 +378,6 @@ message UserConfigReferenceList {
   repeated UserConfigReference items = 1;
 }
 
-message DeploymentWithStatusSnapshot {
-  repeated DeploymentWithStatus items = 1;
-}
 
 message ClusterMachineList {
   repeated ClusterMachine items = 1;
@@ -384,7 +385,7 @@ message ClusterMachineList {
 
 message DeploymentHistoryEntry {
   DeploymentConfig config = 1;
-  DeploymentStatus status = 2;
+  ScheduledInstanceStatus status = 2;
 }
 
 message DeploymentHistory {
@@ -470,15 +471,15 @@ message ClusterStatusResponse {
 // Dispatch on whichever field is non-nil.
 
 message MsgToWorker {
-  DeploymentWithStatusSnapshot deployments_snapshot = 1;
-  DeploymentConfig deployment_update = 2;
+  ScheduledInstanceSnapshot scheduled_instances_snapshot = 1;
+  ScheduledInstanceState scheduled_instance_update = 2;
   PrepareOutputRequest prepare_log_request = 3;
   RunOutputRequest run_log_request = 4;
   DeploymentLogRequest deployment_log_request = 5;
   string stop_log_request_id = 6;  // Cancel an active log stream by its request_id.
   LogSearchRequest log_search_request = 7;
   // Cluster-wide network parameters, sent at the head of every session before
-  // the deployments snapshot. Workers persist it and program the local
+  // the scheduled-instances snapshot. Workers persist it and program the local
   // dataplane from it on boot before reaching the primary.
   ClusterNetworkInfo cluster_network = 8;
   ClusterNetMap cluster_net_map = 9;
@@ -509,8 +510,14 @@ message ClusterNetMapNode {
   string underlay_address = 2;
 }
 
+// ClusterNetMapRoute points one routed prefix at the node hosting it. Only two
+// prefix lengths are legal: the /100 covering a (deployment, ordinal) instance,
+// which follows the serving placement, and the /120 covering every run of one
+// scheduled instance, which stays with that placement until it is finalized.
+// Routing whole prefixes rather than individual addresses keeps container
+// restarts out of the map entirely.
 message ClusterNetMapRoute {
-  string logical_address = 1;
+  string logical_prefix = 1;
   int32 hosting_node_id = 2;
 }
 
@@ -537,7 +544,7 @@ message ClusterHello {
 }
 
 message MsgToMaster {
-  DeploymentStatus status_write = 1;
+  ScheduledInstanceStatus status_write = 1;
   bytes log_data = 2;
   bool log_end = 3;
   string log_request_id = 4;  // Tags log_data/log_end with the originating request_id.

@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/goutil/pubsubu"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 
@@ -168,7 +167,7 @@ func (s *PrimaryStorage) ListActiveDeploymentConfigs() []*apigen.DeploymentConfi
 
 // InvalidateNodeRuntimeState clears node-local observations that cannot
 // survive restoring the primary database onto a replacement host. Desired
-// config and status history remain unchanged.
+// config remains unchanged; scheduled instance statuses for the node are cleared.
 func (s *PrimaryStorage) InvalidateNodeRuntimeState(nodeID int32) (int64, error) {
 	if nodeID <= 0 {
 		return 0, fmt.Errorf("deployment node ID must be positive")
@@ -177,22 +176,14 @@ func (s *PrimaryStorage) InvalidateNodeRuntimeState(nodeID int32) (int64, error)
 	defer s.mu.Unlock()
 
 	result, err := s.db.Exec(`
-		UPDATE deployment_status
-		SET preparer_config_version = NULL,
-			preparer_artifact = NULL,
-			preparer_status = NULL,
-			runner_config_version = NULL,
-			runner_pid = NULL,
-			runner_artifact = NULL,
-			runner_status = NULL,
-			runner_num_restarts = NULL,
-			runner_last_restart_at = NULL,
-			runner_extra_blob = x''
-		WHERE deployment_id IN (
-			SELECT deployment_id
-			FROM deployment_configs
+		DELETE FROM scheduled_instance_status
+		WHERE scheduled_instance_id IN (
+			SELECT id FROM scheduled_instances
 			WHERE node_id = ?
-				AND NOT (space_id = ? AND name = ?)
+				AND deployment_id IN (
+					SELECT deployment_id FROM deployment_configs
+					WHERE NOT (space_id = ? AND name = ?)
+				)
 		)`, nodeID, OpendeploySpaceID, systemDeploymentName)
 	if err != nil {
 		return 0, fmt.Errorf("invalidate runtime state for node %d: %w", nodeID, err)
@@ -201,18 +192,14 @@ func (s *PrimaryStorage) InvalidateNodeRuntimeState(nodeID int32) (int64, error)
 	if err != nil {
 		return 0, fmt.Errorf("count invalidated runtime state for node %d: %w", nodeID, err)
 	}
-	for id, cfg := range s.configCache {
-		if cfg.NodeID != nodeID || IsSystemDeploymentConfig(cfg) {
+	for _, state := range s.scheduledCache {
+		if state.Instance.NodeID != nodeID {
 			continue
 		}
-		status := s.statusCache[id]
-		if status == nil {
+		if IsSystemDeploymentConfig(&state.Config) {
 			continue
 		}
-		s.statusCache[id] = &apigen.DeploymentStatus{
-			DeploymentID: status.DeploymentID,
-			UpdatedAt:    status.UpdatedAt,
-		}
+		state.Status = apigen.ScheduledInstanceStatus{}
 	}
 	return count, nil
 }
@@ -222,76 +209,6 @@ func boolToInt(b bool) int64 {
 		return 1
 	}
 	return 0
-}
-
-func (s *PrimaryStorage) MustWriteReplicatedDeploymentStatus(st *apigen.DeploymentStatus) {
-	if st == nil || st.DeploymentID == 0 || st.UpdatedAt.IsZero() {
-		return
-	}
-	ctx := context.Background()
-	ctx = logu.ExtendLogContext(ctx, "dep", st.DeploymentID)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	dbID := int64(st.DeploymentID)
-	params := statusProtoToInsertParams(dbID, st)
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		panic(fmt.Sprintf("begin tx: %v", err))
-	}
-	defer tx.Rollback()
-	q := s.q.WithTx(tx)
-
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO deployment_status_history (
-		    deployment_id, updated_at,
-		    preparer_config_version, preparer_artifact, preparer_status,
-		    runner_config_version, runner_pid, runner_artifact, runner_status,
-		    runner_num_restarts, runner_last_restart_at, runner_extra_blob
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(deployment_id, updated_at) DO UPDATE SET
-		    preparer_config_version = excluded.preparer_config_version,
-		    preparer_artifact = excluded.preparer_artifact,
-		    preparer_status = excluded.preparer_status,
-		    runner_config_version = excluded.runner_config_version,
-		    runner_pid = excluded.runner_pid,
-		    runner_artifact = excluded.runner_artifact,
-		    runner_status = excluded.runner_status,
-		    runner_num_restarts = excluded.runner_num_restarts,
-		    runner_last_restart_at = excluded.runner_last_restart_at,
-		    runner_extra_blob = excluded.runner_extra_blob`,
-		params.DeploymentID, params.UpdatedAt,
-		params.PreparerConfigVersion, params.PreparerArtifact, params.PreparerStatus,
-		params.RunnerConfigVersion, params.RunnerPid, params.RunnerArtifact, params.RunnerStatus,
-		params.RunnerNumRestarts, params.RunnerLastRestartAt, params.RunnerExtraBlob,
-	); err != nil {
-		panic(fmt.Sprintf("UpsertDeploymentStatusHistory: %v", err))
-	}
-
-	var cached time.Time
-	if cur := s.statusCache[st.DeploymentID]; cur != nil {
-		cached = cur.UpdatedAt
-	}
-	if !st.UpdatedAt.Before(cached) {
-		if err := q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
-			panic(fmt.Sprintf("UpsertDeploymentStatus: %v", err))
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit: %v", err))
-	}
-	slog.InfoContext(ctx, "deployment status transaction published",
-		"updatedAt", st.UpdatedAt,
-		"preparerStatus", st.Preparer.Status,
-		"runnerStatus", st.Runner.Status,
-		"updatedCache", !st.UpdatedAt.Before(cached),
-	)
-
-	if !st.UpdatedAt.Before(cached) {
-		s.statusCache[st.DeploymentID] = st
-		s.notifyFromCache(st.DeploymentID)
-	}
 }
 
 // --- deployment history ---
@@ -312,21 +229,7 @@ func (s *PrimaryStorage) MustFetchDeploymentHistory(deploymentID int32) []*apige
 	}
 	out := make([]*apigen.DeploymentConfig, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, configHistoryRowToProto(dbID, identity, createdAt, r))
-	}
-	return out
-}
-
-func (s *PrimaryStorage) MustFetchDeploymentStatusHistory(deploymentID int32) []*apigen.DeploymentStatus {
-	ctx := context.Background()
-	dbID := int64(deploymentID)
-	rows, err := s.q.ListDeploymentStatusHistory(ctx, dbID)
-	if err != nil {
-		panic(fmt.Sprintf("ListDeploymentStatusHistory: %v", err))
-	}
-	out := make([]*apigen.DeploymentStatus, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, statusRowToProto(dbID, r))
+		out = append(out, configHistoryRowToFullProto(r, identity, createdAt))
 	}
 	return out
 }
@@ -367,7 +270,7 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 		if err := tx.Commit(); err != nil {
 			panic(fmt.Sprintf("commit: %v", err))
 		}
-		return configRowToProto(existing), false, false
+		return getConfigRowToProto(existing), false, false
 	}
 
 	spec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.Version)
@@ -393,7 +296,7 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 		if err := tx.Commit(); err != nil {
 			panic(fmt.Sprintf("commit: %v", err))
 		}
-		return configRowToProto(existing), false, true
+		return getConfigRowToProto(existing), false, true
 	}
 
 	params := UpsertDeploymentConfigParams{
@@ -429,7 +332,7 @@ func (s *PrimaryStorage) UpdateDeploymentConfig(ctx apigen.Context, deploymentID
 
 	cfg := upsertParamsToProto(params)
 	s.configCache[deploymentID] = cfg
-	s.notifyFromCache(deploymentID)
+	s.notifyConfigLocked(deploymentID)
 	return cfg, true, true
 }
 
@@ -495,7 +398,7 @@ func (s *PrimaryStorage) mustSetDeploymentWorkloadStateLocked(ctx apigen.Context
 	}
 
 	s.configCache[deploymentID] = upsertParamsToProto(params)
-	s.notifyFromCache(deploymentID)
+	s.notifyConfigLocked(deploymentID)
 }
 
 // --- deployment spec update ---
@@ -567,7 +470,7 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpec(ctx apigen.Context, deployment
 	}
 
 	s.configCache[deploymentID] = upsertParamsToProto(params)
-	s.notifyFromCache(deploymentID)
+	s.notifyConfigLocked(deploymentID)
 }
 
 func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymentID int32, spaceID int32) {
@@ -629,7 +532,7 @@ func (s *PrimaryStorage) MustUpdateDeploymentSpace(ctx apigen.Context, deploymen
 	}
 
 	s.configCache[deploymentID] = upsertParamsToProto(params)
-	s.notifyFromCache(deploymentID)
+	s.notifyConfigLocked(deploymentID)
 }
 
 // MustCreateDeploymentForNode creates a deployment with an explicit canonical
@@ -702,7 +605,6 @@ func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *ap
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory (create): %v", err))
 	}
 
-	s.insertDefaultStatus(q, dbID)
 
 	if err := tx.Commit(); err != nil {
 		panic(fmt.Sprintf("commit: %v", err))
@@ -722,7 +624,7 @@ func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *ap
 	})
 	id := int32(dbID)
 	s.configCache[id] = cfg
-	s.notifyFromCache(id)
+	s.notifyConfigLocked(id)
 	return cfg
 }
 
@@ -796,7 +698,6 @@ func (s *PrimaryStorage) EnsureSystemDeployment(nodeID int32, opendeployVersion 
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory (system): %v", err))
 	}
 
-	s.insertDefaultStatus(q, dbID)
 
 	if err := tx.Commit(); err != nil {
 		panic(fmt.Sprintf("commit: %v", err))
@@ -814,7 +715,7 @@ func (s *PrimaryStorage) EnsureSystemDeployment(nodeID int32, opendeployVersion 
 		SpecBlob:     specBlob,
 		Deleted:      0,
 	})
-	s.notifyFromCache(id)
+	s.notifyConfigLocked(id)
 	slog.Info("created system deployment", "nodeID", nodeID, "version", opendeployVersion)
 }
 
@@ -893,7 +794,6 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, initialVersion s
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory (netproxy): %v", err))
 	}
 
-	s.insertDefaultStatus(q, dbID)
 
 	if err := tx.Commit(); err != nil {
 		panic(fmt.Sprintf("commit: %v", err))
@@ -911,7 +811,7 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, initialVersion s
 		SpecBlob:     specBlob,
 		Deleted:      0,
 	})
-	s.notifyFromCache(id)
+	s.notifyConfigLocked(id)
 	slog.Info("created netproxy deployment", "nodeID", nodeID, "version", desiredVersion)
 	return s.configCache[id]
 }
@@ -970,7 +870,7 @@ func (s *PrimaryStorage) repairDeploymentSpecLocked(deploymentID int32, spec *ap
 	}
 
 	s.configCache[deploymentID] = upsertParamsToProto(params)
-	s.notifyFromCache(deploymentID)
+	s.notifyConfigLocked(deploymentID)
 }
 
 // --- row <-> proto conversions ---
@@ -1009,127 +909,6 @@ func millisToTime(ms int64) time.Time {
 	return time.UnixMilli(ms)
 }
 
-func statusRowToProto(dbID int64, r DeploymentStatusHistory) *apigen.DeploymentStatus {
-	st := &apigen.DeploymentStatus{
-		UpdatedAt:    nanosToClock(r.UpdatedAt),
-		DeploymentID: int32(dbID),
-	}
-	if r.PreparerStatus.Valid {
-		st.Preparer = apigen.PreparerStatus{
-			DeploymentConfigVersion: int32(r.PreparerConfigVersion.Int64),
-			Artifact:                r.PreparerArtifact.String,
-			Status:                  apigen.PreparationStatus(r.PreparerStatus.Int64),
-		}
-	}
-	if r.RunnerStatus.Valid {
-		st.Runner = apigen.RunnerStatus{
-			DeploymentConfigVersion: int32(r.RunnerConfigVersion.Int64),
-			RunningPid:              int32(r.RunnerPid.Int64),
-			RunningArtifact:         r.RunnerArtifact.String,
-			Status:                  apigen.RunningStatus(r.RunnerStatus.Int64),
-			NumberOfRestarts:        int32(r.RunnerNumRestarts.Int64),
-		}
-		if r.RunnerLastRestartAt.Valid {
-			st.Runner.LastRestartAt = time.UnixMilli(r.RunnerLastRestartAt.Int64)
-		}
-		if len(r.RunnerExtraBlob) > 0 {
-			extra, err := apigen.DecodeRunnerStatus(r.RunnerExtraBlob)
-			if err != nil {
-				slog.Warn("decoding runner status extra blob", "deploymentID", dbID, "err", err)
-			} else {
-				st.Runner.Endpoints = extra.Endpoints
-				st.Runner.NetworkDiagnostics = extra.NetworkDiagnostics
-			}
-		}
-	}
-	return st
-}
-
-func statusProtoToInsertParams(dbID int64, st *apigen.DeploymentStatus) InsertDeploymentStatusHistoryParams {
-	p := InsertDeploymentStatusHistoryParams{
-		DeploymentID:    dbID,
-		UpdatedAt:       clockToNanos(st.UpdatedAt),
-		RunnerExtraBlob: []byte{},
-	}
-	if !st.Preparer.IsZero() {
-		p.PreparerConfigVersion = sql.NullInt64{Int64: int64(st.Preparer.DeploymentConfigVersion), Valid: true}
-		p.PreparerArtifact = sql.NullString{String: st.Preparer.Artifact, Valid: true}
-		p.PreparerStatus = sql.NullInt64{Int64: int64(st.Preparer.Status), Valid: true}
-	}
-	if !st.Runner.IsZero() {
-		p.RunnerConfigVersion = sql.NullInt64{Int64: int64(st.Runner.DeploymentConfigVersion), Valid: true}
-		p.RunnerPid = sql.NullInt64{Int64: int64(st.Runner.RunningPid), Valid: true}
-		p.RunnerArtifact = sql.NullString{String: st.Runner.RunningArtifact, Valid: true}
-		p.RunnerStatus = sql.NullInt64{Int64: int64(st.Runner.Status), Valid: true}
-		p.RunnerNumRestarts = sql.NullInt64{Int64: int64(st.Runner.NumberOfRestarts), Valid: true}
-		if !st.Runner.LastRestartAt.IsZero() {
-			p.RunnerLastRestartAt = sql.NullInt64{Int64: st.Runner.LastRestartAt.UnixMilli(), Valid: true}
-		}
-		p.RunnerExtraBlob = runnerStatusExtraBlob(st.Runner)
-	}
-	return p
-}
-
-func runnerStatusExtraBlob(r apigen.RunnerStatus) []byte {
-	if len(r.Endpoints) == 0 && len(r.NetworkDiagnostics) == 0 {
-		return []byte{}
-	}
-	return (&apigen.RunnerStatus{
-		Endpoints:          r.Endpoints,
-		NetworkDiagnostics: r.NetworkDiagnostics,
-	}).Encode()
-}
-
-func statusInsertToUpsert(p InsertDeploymentStatusHistoryParams) UpsertDeploymentStatusParams {
-	return UpsertDeploymentStatusParams{
-		DeploymentID:          p.DeploymentID,
-		UpdatedAt:             p.UpdatedAt,
-		PreparerConfigVersion: p.PreparerConfigVersion,
-		PreparerArtifact:      p.PreparerArtifact,
-		PreparerStatus:        p.PreparerStatus,
-		RunnerConfigVersion:   p.RunnerConfigVersion,
-		RunnerPid:             p.RunnerPid,
-		RunnerArtifact:        p.RunnerArtifact,
-		RunnerStatus:          p.RunnerStatus,
-		RunnerNumRestarts:     p.RunnerNumRestarts,
-		RunnerLastRestartAt:   p.RunnerLastRestartAt,
-		RunnerExtraBlob:       p.RunnerExtraBlob,
-	}
-}
-
-func statusToHistory(s DeploymentStatus) DeploymentStatusHistory {
-	return DeploymentStatusHistory{
-		DeploymentID:          s.DeploymentID,
-		UpdatedAt:             s.UpdatedAt,
-		PreparerConfigVersion: s.PreparerConfigVersion,
-		PreparerArtifact:      s.PreparerArtifact,
-		PreparerStatus:        s.PreparerStatus,
-		RunnerConfigVersion:   s.RunnerConfigVersion,
-		RunnerPid:             s.RunnerPid,
-		RunnerArtifact:        s.RunnerArtifact,
-		RunnerStatus:          s.RunnerStatus,
-		RunnerNumRestarts:     s.RunnerNumRestarts,
-		RunnerLastRestartAt:   s.RunnerLastRestartAt,
-		RunnerExtraBlob:       s.RunnerExtraBlob,
-	}
-}
-
-func configHistoryRowToProto(dbID int64, identity apigen.DeploymentIdentity, createdAt time.Time, r DeploymentConfigHistory) *apigen.DeploymentConfig {
-	spec := mustDecodeDeploymentSpec(r.SpecBlob, dbID, r.Version)
-	identity.SpaceID = int32(r.SpaceID)
-	return &apigen.DeploymentConfig{
-		ID:        int32(dbID),
-		NodeID:    int32(r.NodeID),
-		Identity:  identity,
-		CreatedAt: createdAt,
-		Version:   int32(r.Version),
-		UpdatedAt: time.UnixMilli(r.UpdatedAt),
-		UpdatedBy: int32(r.UpdatedBy),
-		Spec:      deploymentSpecValue(spec),
-		Deleted:   r.Deleted != 0,
-	}
-}
-
 // configProtoToUpsertParams builds upsert params from a full DeploymentConfig.
 // Used by the secondary to persist configs pushed by the primary verbatim: the
 // primary's integer ID is authoritative and written directly.
@@ -1152,7 +931,7 @@ func configProtoToUpsertParams(cfg *apigen.DeploymentConfig) UpsertDeploymentCon
 	}
 }
 
-func configRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
+func configRowToProto(r ListAllDeploymentConfigsRow) *apigen.DeploymentConfig {
 	spec := mustDecodeDeploymentSpec(r.SpecBlob, r.DeploymentID, r.Version)
 	return &apigen.DeploymentConfig{
 		ID:     int32(r.DeploymentID),
@@ -1168,6 +947,21 @@ func configRowToProto(r DeploymentConfig) *apigen.DeploymentConfig {
 		Spec:      deploymentSpecValue(spec),
 		Deleted:   r.Deleted != 0,
 	}
+}
+
+func getConfigRowToProto(r GetDeploymentConfigRow) *apigen.DeploymentConfig {
+	return configRowToProto(ListAllDeploymentConfigsRow{
+		DeploymentID: r.DeploymentID,
+		NodeID:       r.NodeID,
+		SpaceID:      r.SpaceID,
+		Name:         r.Name,
+		CreatedAt:    r.CreatedAt,
+		Version:      r.Version,
+		UpdatedAt:    r.UpdatedAt,
+		UpdatedBy:    r.UpdatedBy,
+		SpecBlob:     r.SpecBlob,
+		Deleted:      r.Deleted,
+	})
 }
 
 func upsertParamsToProto(p UpsertDeploymentConfigParams) *apigen.DeploymentConfig {

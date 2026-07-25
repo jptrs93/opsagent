@@ -4,6 +4,8 @@ import "github.com/jptrs93/opsagent/backend/apigen"
 
 type DeploymentPredicate func(apigen.DeploymentConfig) bool
 
+type ScheduledInstancePredicate func(apigen.ScheduledInstanceState) bool
+
 // DeploymentConfigVersion is an optimistic assertion about the current
 // version of a deployment config.
 type DeploymentConfigVersion struct {
@@ -17,9 +19,9 @@ func DeploymentKeyMatches(cfg apigen.DeploymentConfig, nodeID int32, identity ap
 		cfg.Identity.Name == identity.Name
 }
 
+// OperatorStore is the runtime store used by preparers and runners. Status is
+// keyed by scheduled instance id.
 type OperatorStore interface {
-	// MustWriteDeploymentStatus applies the mutator callback to the current DeploymentStatus version. The callback should
-	// return true to persist the change or false to discard - if for example it determines it update is already superseded.
-	MustWriteDeploymentStatus(int32, func(s *apigen.DeploymentStatus) bool)
-	MustFetchSnapshotAndSubscribe(predicate DeploymentPredicate) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus, func())
+	MustWriteScheduledInstanceStatus(instanceID int32, f func(s *apigen.ScheduledInstanceStatus) bool)
+	MustFetchScheduledSnapshotAndSubscribe(predicate ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan apigen.ScheduledInstanceState, func())
 }

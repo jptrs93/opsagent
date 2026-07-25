@@ -10,6 +10,8 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/netproxy"
+	"github.com/jptrs93/opsagent/backend/app/primary/netmappublisher"
+	"github.com/jptrs93/opsagent/backend/app/primary/scheduler"
 	"github.com/jptrs93/opsagent/backend/app/primary/webuihandler"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/engine"
@@ -115,7 +117,7 @@ func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
 	}
 }
 
-func (r *runtime) start(ctx context.Context, predicate storage.DeploymentPredicate, nodeID int32, nodeIdentifier string) {
+func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string, networkMaps *netmappublisher.Publisher) {
 	r.store.EnsureSystemDeployment(nodeID, version.Version)
 	r.store.SetNodeStatusByIdentifier(nodeIdentifier, true, time.Now())
 	netproxyCfg := r.store.EnsureNetproxyDeployment(nodeID, version.Version)
@@ -126,6 +128,10 @@ func (r *runtime) start(ctx context.Context, predicate storage.DeploymentPredica
 		}
 	}
 
+	predicate := storage.ScheduledInstancePredicate(func(state apigen.ScheduledInstanceState) bool {
+		return state.Instance.NodeID == nodeID
+	})
+	go scheduler.New(r.store, networkMaps).Run()
 	go netproxy.RunNetStateWriter(ctx, r.store, predicate, nodeIdentifier, ainit.StaticConfig.NetproxyStatePath)
 	go r.operator.RunAll(predicate)
 }

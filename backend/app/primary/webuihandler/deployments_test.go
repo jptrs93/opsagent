@@ -35,6 +35,19 @@ func findSystemDeployment(t *testing.T, store *sqlite.PrimaryStorage, nodeID int
 	return nil
 }
 
+func seedInstanceRunnerStatus(store *sqlite.PrimaryStorage, deploymentID, version, nodeID int32, status apigen.RunningStatus) {
+	inst := store.CreateScheduledInstance(deploymentID, version, nodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	store.MustWriteScheduledInstanceStatus(inst.ID, func(s *apigen.ScheduledInstanceStatus) bool {
+		s.BumpUpdatedAt()
+		s.Runner.Status = status
+		return true
+	})
+}
+
+func seedDeploymentRunnerStatus(store *sqlite.PrimaryStorage, cfg *apigen.DeploymentConfig, status apigen.RunningStatus) {
+	seedInstanceRunnerStatus(store, cfg.ID, cfg.Version, cfg.NodeID, status)
+}
+
 func createTestDeployment(store *sqlite.PrimaryStorage, nodeIdentifier string, identity apigen.DeploymentIdentity, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
 	node := store.EnsurePrimaryNode(nodeIdentifier, nodeIdentifier)
 	return store.MustCreateDeploymentForNode(apigen.Context{}, &identity, node.ID, spec)
@@ -1144,10 +1157,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 		t.Fatalf("err = %v, want virtual-networking removal rejection", err)
 	}
 
-	store.MustWriteDeploymentStatus(target.ID, func(status *apigen.DeploymentStatus) bool {
-		status.Runner.Status = apigen.RunningStatus_STOPPED
-		return true
-	})
+	seedDeploymentRunnerStatus(store, target, apigen.RunningStatus_STOPPED)
 	err = h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: target.ID, Version: target.Version + 1})
 	if err == nil || !strings.Contains(err.Error(), "reference_in_use") {
 		t.Fatalf("err = %v, want referenced deployment deletion rejection", err)
@@ -1400,10 +1410,7 @@ func TestDeploymentDeleteRequiresStoppedDeployment(t *testing.T) {
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	initial.Container1Spec.Version = "1.25"
 	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
-	store.MustWriteDeploymentStatus(created.ID, func(s *apigen.DeploymentStatus) bool {
-		s.Runner.Status = apigen.RunningStatus_RUNNING
-		return true
-	})
+	seedDeploymentRunnerStatus(store, created, apigen.RunningStatus_RUNNING)
 	h := &Handler{Store: store, NodeID: created.NodeID}
 
 	_, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
@@ -1424,6 +1431,23 @@ func TestDeploymentDeleteRequiresStoppedDeployment(t *testing.T) {
 	}
 }
 
+func TestDeploymentDeleteAllowsNeverScheduledStoppedDeployment(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	node := store.EnsurePrimaryNode("primary", "primary")
+	initial := remoteDeploymentSpec("nginx", hostNetworking())
+	initial.Container1Spec.Version = "1.25"
+	initial.Container1Spec.Running = false
+	created := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, node.ID, &initial)
+	h := &Handler{Store: store, NodeID: node.ID}
+
+	if err := h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.ID, Version: created.Version + 1}); err != nil {
+		t.Fatalf("PostV1DeploymentDelete failed: %v", err)
+	}
+	if cfg := h.findConfigByID(created.ID); cfg != nil {
+		t.Fatalf("deleted stopped deployment still active: %+v", cfg)
+	}
+}
+
 func TestDeploymentDeleteAllowsRunningDisconnectedNodeDeployment(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
@@ -1432,10 +1456,7 @@ func TestDeploymentDeleteAllowsRunningDisconnectedNodeDeployment(t *testing.T) {
 	initial.Container1Spec.Version = "1.25"
 	initial.Container1Spec.Running = true
 	created := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, worker.ID, &initial)
-	store.MustWriteDeploymentStatus(created.ID, func(s *apigen.DeploymentStatus) bool {
-		s.Runner.Status = apigen.RunningStatus_RUNNING
-		return true
-	})
+	seedDeploymentRunnerStatus(store, created, apigen.RunningStatus_RUNNING)
 	h := &Handler{Store: store, NodeID: primary.ID}
 
 	err := h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.ID, Version: created.Version + 1})
@@ -1453,12 +1474,7 @@ func TestDeploymentDeleteAllowsStaleDisconnectedSystemDeployment(t *testing.T) {
 	worker := store.EnsurePrimaryNode("worker", "worker-a")
 	store.EnsureSystemDeployment(worker.ID, "v0.0.194")
 	system := findSystemDeployment(t, store, worker.ID)
-	store.MustWriteDeploymentStatus(system.ID, func(s *apigen.DeploymentStatus) bool {
-		// The node is disconnected, so this status is stale metadata and should not
-		// block cleanup.
-		s.Runner.Status = apigen.RunningStatus_CRASHED
-		return true
-	})
+	seedDeploymentRunnerStatus(store, system, apigen.RunningStatus_CRASHED)
 	h := &Handler{
 		Store:   store,
 		NodeID:  primary.ID,
@@ -1479,10 +1495,7 @@ func TestDeploymentDeleteRejectsPrimarySystemDeployment(t *testing.T) {
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	store.EnsureSystemDeployment(primary.ID, "v0.0.194")
 	system := findSystemDeployment(t, store, primary.ID)
-	store.MustWriteDeploymentStatus(system.ID, func(s *apigen.DeploymentStatus) bool {
-		s.Runner.Status = apigen.RunningStatus_STOPPED
-		return true
-	})
+	seedDeploymentRunnerStatus(store, system, apigen.RunningStatus_STOPPED)
 	h := &Handler{
 		Store:   store,
 		NodeID:  primary.ID,
@@ -1495,15 +1508,62 @@ func TestDeploymentDeleteRejectsPrimarySystemDeployment(t *testing.T) {
 	}
 }
 
+// Mid-rollover the newest instance can report STOPPED while an older one is
+// still serving. Deletion must consider every live assignment, not just the
+// newest.
+func TestDeploymentDeleteRejectedWhileOlderRolloverInstanceRuns(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	defer store.Close()
+	initial := remoteDeploymentSpec("nginx", hostNetworking())
+	initial.Container1Spec.Version = "1.25"
+	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
+	seedInstanceRunnerStatus(store, created.ID, created.Version, created.NodeID, apigen.RunningStatus_RUNNING)
+
+	next := remoteDeploymentSpec("nginx", hostNetworking())
+	next.Container1Spec.Version = "1.27"
+	updated, _, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, created.ID, sqlite.DeploymentConfigUpdate{
+		ExpectedVersion: created.Version + 1,
+		Spec:            &next,
+	})
+	if !versionOK {
+		t.Fatal("expected config update to succeed")
+	}
+	seedInstanceRunnerStatus(store, updated.ID, updated.Version, updated.NodeID, apigen.RunningStatus_STOPPED)
+
+	h := &Handler{Store: store, NodeID: created.NodeID}
+	err := h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{
+		DeploymentID: created.ID,
+		Version:      updated.Version + 1,
+	})
+	if err == nil || !strings.Contains(err.Error(), "must be stopped") {
+		t.Fatalf("err = %v, want deletion rejected while an older instance is running", err)
+	}
+
+	// Once the older instance stops too, deletion is allowed again.
+	for _, state := range store.FetchScheduledSnapshot(nil) {
+		if state.Instance.DeploymentVersion != created.Version {
+			continue
+		}
+		store.MustWriteScheduledInstanceStatus(state.Instance.ID, func(s *apigen.ScheduledInstanceStatus) bool {
+			s.BumpUpdatedAt()
+			s.Runner.Status = apigen.RunningStatus_STOPPED
+			return true
+		})
+	}
+	if err := h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{
+		DeploymentID: created.ID,
+		Version:      updated.Version + 1,
+	}); err != nil {
+		t.Fatalf("PostV1DeploymentDelete = %v, want success once all instances are stopped", err)
+	}
+}
+
 func TestDeploymentDeleteSoftDeletesStoppedDeployment(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	initial.Container1Spec.Version = "1.25"
 	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
-	store.MustWriteDeploymentStatus(created.ID, func(s *apigen.DeploymentStatus) bool {
-		s.Runner.Status = apigen.RunningStatus_STOPPED
-		return true
-	})
+	seedDeploymentRunnerStatus(store, created, apigen.RunningStatus_STOPPED)
 	h := &Handler{Store: store}
 
 	err := h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.ID, Version: created.Version + 1})
@@ -1543,10 +1603,7 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 	}
 
 	first := create("1.25")
-	store.MustWriteDeploymentStatus(first.ID, func(s *apigen.DeploymentStatus) bool {
-		s.Runner.Status = apigen.RunningStatus_STOPPED
-		return true
-	})
+	seedDeploymentRunnerStatus(store, first, apigen.RunningStatus_STOPPED)
 	if err := h.PostV1DeploymentDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{
 		DeploymentID: first.ID,
 		Version:      first.Version + 1,

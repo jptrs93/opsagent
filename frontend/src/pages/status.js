@@ -224,7 +224,7 @@ const headerTips = {
     actions: 'Open the update overlay to deploy, start, or stop this deployment.',
 };
 
-// mapDeploymentsToView flattens DeploymentWithStatus[] into the shape
+// mapDeploymentsToView flattens ScheduledInstanceState[] into the shape
 // the status card component expects.
 const mapDeploymentsToView = (deployments, spaces, machines) => {
     if (!Array.isArray(deployments)) return [];
@@ -234,7 +234,8 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
         .map(machine => [Number(machine.id), machine]));
 
     return deployments.filter(d => d.config && d.config.id && !d.config.deleted).map((d) => {
-        const id = d.config.id; // integer
+        const id = d.config.id; // deployment id for API actions
+        const instanceId = d.instance?.id || 0;
         const identity = d.config.identity || {};
         const spec = d.config.spec || {};
         const container = spec.container1Spec || null;
@@ -267,6 +268,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
 
         return {
             id,
+            instanceId,
             name: identity.name || '',
             node,
             nodeId,
@@ -279,7 +281,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             existingStatus: uiExistingStatus,
             canDelete: systemDeployment
                 ? nodeMissing
-                : uiExistingStatus === STATUS_STOPPED || (nodeMissing && uiExistingStatus === 0),
+                : uiExistingStatus === STATUS_STOPPED || (!d.instance && !workload.running) || (nodeMissing && uiExistingStatus === 0),
             nodeMissing,
             existingVersion: runner.runningVersion || '',
             numberOfRestarts: runner.numberOfRestarts || 0,
@@ -289,18 +291,19 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             deployedVersion: workload.version || '',
             desiredRunning: Boolean(workload.running),
             prepareStatus: prep.status || 0,
-            prepareVersion: workload.version || '',
+            prepareVersion: deploymentWorkload(d.pinnedConfig)?.version || workload.version || '',
             currentVersion: d.config.version || 0,
+            targetState: d.instance?.state || 0,
         };
     });
 };
 
-// findRawConfig finds the raw DeploymentWithStatus from deploymentsS for a given deployment ID.
+// findRawConfig finds the latest desired DeploymentConfig for a deployment ID.
 const findRawConfig = (deploymentId) => {
     const all = deploymentsS.rawVal;
     if (!Array.isArray(all)) return null;
     for (const d of all) {
-        if (d.config && d.config.id === deploymentId) return d.config;
+        if (d.config?.id === deploymentId) return d.config;
     }
     return null;
 };

@@ -14,16 +14,16 @@ import (
 )
 
 type netStateWriterStore struct {
-	initial []apigen.DeploymentWithStatus
-	current []apigen.DeploymentWithStatus
-	updates chan apigen.DeploymentWithStatus
+	initial []apigen.ScheduledInstanceState
+	current []apigen.ScheduledInstanceState
+	updates chan apigen.ScheduledInstanceState
 }
 
-func (s *netStateWriterStore) FetchDeploymentSnapshot(storage.DeploymentPredicate) []apigen.DeploymentWithStatus {
+func (s *netStateWriterStore) FetchScheduledSnapshot(storage.ScheduledInstancePredicate) []apigen.ScheduledInstanceState {
 	return s.current
 }
 
-func (s *netStateWriterStore) MustFetchSnapshotAndSubscribe(storage.DeploymentPredicate) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus, func()) {
+func (s *netStateWriterStore) MustFetchScheduledSnapshotAndSubscribe(storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan apigen.ScheduledInstanceState, func()) {
 	return s.initial, s.updates, func() {}
 }
 
@@ -49,7 +49,7 @@ func TestRunNetStateWriterProcessesUpdateQueuedWithInitialSnapshot(t *testing.T)
 	network.SetDefault(network.New(network.GeneratePrefix(), 99))
 	t.Cleanup(func() { network.SetDefault(previousNetwork) })
 
-	route := apigen.DeploymentWithStatus{Config: apigen.DeploymentConfig{
+	route := apigen.ScheduledInstanceState{Config: apigen.DeploymentConfig{
 		Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 			Ingress: []*apigen.Ingress{{
@@ -62,9 +62,9 @@ func TestRunNetStateWriterProcessesUpdateQueuedWithInitialSnapshot(t *testing.T)
 			}},
 		}},
 	}}
-	updates := make(chan apigen.DeploymentWithStatus, 1)
+	updates := make(chan apigen.ScheduledInstanceState, 1)
 	updates <- route
-	store := &netStateWriterStore{current: []apigen.DeploymentWithStatus{route}, updates: updates}
+	store := &netStateWriterStore{current: []apigen.ScheduledInstanceState{route}, updates: updates}
 	path := filepath.Join(t.TempDir(), "netstate.pb")
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -98,7 +98,7 @@ func TestRunNetStateWriterProcessesUpdateQueuedWithInitialSnapshot(t *testing.T)
 func TestRenderNetStateRendersTlsPassthroughIngress(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	network.SetDefault(network.New(prefix, 99))
-	state := RenderNetState(7, "node-a", []apigen.DeploymentWithStatus{{
+	state := RenderNetState(7, "node-a", []apigen.ScheduledInstanceState{{
 		Config: apigen.DeploymentConfig{
 			ID:       42,
 			Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "database"},
@@ -113,12 +113,19 @@ func TestRenderNetStateRendersTlsPassthroughIngress(t *testing.T) {
 				}},
 			}},
 		},
-		Status: apigen.DeploymentStatus{Runner: apigen.RunnerStatus{Endpoints: []*apigen.Endpoint{{
-			Address: "fd00::42",
-			State:   apigen.EndpointState_ENDPOINT_READY,
-		}}}},
+		Instance: apigen.ScheduledInstance{
+			ID: 5, DeploymentID: 42, NodeID: 1,
+			State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
+		},
+		Status: apigen.ScheduledInstanceStatus{Runner: apigen.RunnerStatus{
+			Status: apigen.RunningStatus_RUNNING,
+		}},
 	}})
 
+	backendAddr, err := prefix.InboundAddr(1, 42, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if state.NodeIdentifier != "node-a" {
 		t.Fatalf("node identifier = %q, want node-a", state.NodeIdentifier)
 	}
@@ -132,13 +139,67 @@ func TestRenderNetStateRendersTlsPassthroughIngress(t *testing.T) {
 	if route.TlsPassthrough == nil || route.TlsPassthrough.HostPort != 443 {
 		t.Fatalf("TLS passthrough config = %+v, want default host port 443", route.TlsPassthrough)
 	}
-	if got := route.TlsPassthrough.Backends; len(got) != 1 || got[0].Address != "fd00::42" || got[0].Port != 5432 {
-		t.Fatalf("backends = %+v, want fd00::42:5432", got)
+	if got := route.TlsPassthrough.Backends; len(got) != 1 || got[0].Address != backendAddr.String() || got[0].Port != 5432 {
+		t.Fatalf("backends = %+v, want %s:5432", got, backendAddr)
+	}
+}
+
+// TestRenderNetStateDerivesEndpointsFromPlacement covers the removal of the
+// reported endpoint set. A placement's address is a pure function of its space,
+// deployment, and ordinal, so the only thing status still decides is whether the
+// endpoint is published at all — and only the serving placement that is actually
+// running may be.
+func TestRenderNetStateDerivesEndpointsFromPlacement(t *testing.T) {
+	prefix := network.GeneratePrefix()
+	previousNetwork := network.Default
+	network.SetDefault(network.New(prefix, 99))
+	t.Cleanup(func() { network.SetDefault(previousNetwork) })
+
+	item := func(state apigen.ScheduledInstanceTarget, running apigen.RunningStatus) apigen.ScheduledInstanceState {
+		return apigen.ScheduledInstanceState{
+			Instance: apigen.ScheduledInstance{ID: 5, DeploymentID: 42, NodeID: 1, State: state},
+			Config: apigen.DeploymentConfig{
+				ID:       42,
+				Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "database"},
+				Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
+					Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+				}},
+			},
+			Status: apigen.ScheduledInstanceStatus{Runner: apigen.RunnerStatus{Status: running}},
+		}
+	}
+	want, err := prefix.InboundAddr(1, 42, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serving := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{
+		item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, apigen.RunningStatus_RUNNING),
+	})
+	if len(serving.DnsServices) != 1 || len(serving.DnsServices[0].Endpoints) != 1 {
+		t.Fatalf("dns services = %+v, want one endpoint", serving.DnsServices)
+	}
+	if got := serving.DnsServices[0].Endpoints[0].Address; got != want.String() {
+		t.Fatalf("endpoint address = %s, want derived %s", got, want)
+	}
+
+	// A standby holds no inbound address yet; publishing it would advertise a
+	// name that does not route to this node.
+	for name, absent := range map[string]apigen.ScheduledInstanceState{
+		"standby":  item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY, apigen.RunningStatus_RUNNING),
+		"draining": item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING, apigen.RunningStatus_RUNNING),
+		"crashed":  item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, apigen.RunningStatus_CRASHED),
+		"starting": item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, apigen.RunningStatus_STARTING),
+	} {
+		got := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{absent})
+		if len(got.DnsServices) != 0 {
+			t.Errorf("%s: dns services = %+v, want none", name, got.DnsServices)
+		}
 	}
 }
 
 func TestRenderNetStateKeepsIngressWithoutReadyBackend(t *testing.T) {
-	state := RenderNetState(1, "node-a", []apigen.DeploymentWithStatus{{
+	state := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{{
 		Config: apigen.DeploymentConfig{
 			Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
@@ -163,7 +224,7 @@ func TestRenderNetStateKeepsIngressWithoutReadyBackend(t *testing.T) {
 }
 
 func TestRenderNetStateOmitsIngressOnDNSPort(t *testing.T) {
-	state := RenderNetState(1, "node-a", []apigen.DeploymentWithStatus{{
+	state := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{{
 		Config: apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 			Ingress: []*apigen.Ingress{{

@@ -1,7 +1,6 @@
 package netmappublisher
 
 import (
-	"net/netip"
 	"path/filepath"
 	"testing"
 	"time"
@@ -32,7 +31,7 @@ func TestPublisherPersistsAndCoalescesLatestMap(t *testing.T) {
 		t.Fatalf("initial nodes = %+v", initial.Nodes)
 	}
 	if len(initial.Routes) != 0 {
-		t.Fatalf("initial routes = %+v, want none before the netproxy runner starts", initial.Routes)
+		t.Fatalf("initial routes = %+v, want none before the netproxy is scheduled", initial.Routes)
 	}
 	persistedBytes, ok := store.FetchLocalKV(sqlite.LocalKVPrimaryClusterNetMap)
 	if !ok {
@@ -85,134 +84,201 @@ func TestPublisherPersistsAndCoalescesLatestMap(t *testing.T) {
 	}
 }
 
-func TestRenderIsDeterministicAndUsesObservedRoutes(t *testing.T) {
+func TestRenderIsDeterministic(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	nodesA := []*sqlite.Node{
 		{ID: 2, Addresses: []string{"2001:db8::2"}},
 		{ID: 1, Addresses: []string{"2001:db8::1"}},
 	}
-	deploymentsA := []apigen.DeploymentWithStatus{
-		runningVirtualDeployment(t, prefix, 20, 2, 4, 1, 0),
-		runningVirtualDeployment(t, prefix, 10, 1, 3, 1, 0),
+	instancesA := []apigen.ScheduledInstanceState{
+		servingInstance(200, 20, 2, 4),
+		servingInstance(100, 10, 1, 3),
 	}
 	nodesB := []*sqlite.Node{nodesA[1], nodesA[0]}
-	deploymentsB := []apigen.DeploymentWithStatus{deploymentsA[1], deploymentsA[0]}
-	a, err := render(prefix, nodesA, deploymentsA)
+	instancesB := []apigen.ScheduledInstanceState{instancesA[1], instancesA[0]}
+	a, err := render(prefix, nodesA, instancesA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := render(prefix, nodesB, deploymentsB)
+	b, err := render(prefix, nodesB, instancesB)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(canonicalContent(a)) != string(canonicalContent(b)) {
 		t.Fatalf("render depends on input order:\n%+v\n%+v", a, b)
 	}
-	want, err := prefix.InboundAddr(3, 10, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, route := range a.Routes {
-		found = found || route.LogicalAddress == want.String()
-	}
-	if len(a.Routes) != 4 || !found {
-		t.Fatalf("routes do not contain derived address %s", want)
+	// One serving placement contributes its own /120 plus its instance /100.
+	if len(a.Routes) != 4 {
+		t.Fatalf("routes = %+v, want a placement and an instance prefix per deployment", a.Routes)
 	}
 }
 
-func TestRenderOmitsDeploymentsWithoutObservedVirtualRunner(t *testing.T) {
+func TestRenderOmitsHostNetworkingAndNonRunnableStates(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	nodes := []*sqlite.Node{{ID: 1, Addresses: []string{"192.0.2.1"}}}
-	virtual := runningVirtualDeployment(t, prefix, 10, 1, 3, 1, 0)
-	host := virtualDeployment(11, 1, 3)
-	host.Spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
-	stopped := virtualDeployment(12, 1, 3)
-	stopped.Spec.Container1Spec.Running = false
-	deleted := virtualDeployment(13, 1, 3)
-	deleted.Deleted = true
-	got, err := render(prefix, nodes, []apigen.DeploymentWithStatus{
-		{Config: host}, {Config: stopped}, {Config: deleted}, virtual,
+
+	host := servingInstance(101, 11, 1, 3)
+	host.Config.Spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
+	terminating := servingInstance(102, 12, 1, 3)
+	terminating.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE
+	finalized := servingInstance(103, 13, 1, 3)
+	finalized.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED
+
+	got, err := render(prefix, nodes, []apigen.ScheduledInstanceState{
+		host, terminating, finalized, servingInstance(100, 10, 1, 3),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Routes) != 2 || got.Routes[0].HostingNodeID != 1 || got.Routes[1].HostingNodeID != 1 {
-		t.Fatalf("routes = %+v, want only running virtual deployment", got.Routes)
+	if len(got.Routes) != 2 {
+		t.Fatalf("routes = %+v, want only the running virtual placement", got.Routes)
 	}
 }
 
-func TestRenderIncludesRunningOutboundRoute(t *testing.T) {
+// TestRenderIgnoresRunnerStatus is the property the whole design rests on:
+// routing is a function of assignments alone. A restart changes the run number
+// and a crash changes the runner state, and neither may move a route or mint a
+// new sequence.
+func TestRenderIgnoresRunnerStatus(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	config := virtualDeployment(10, 1, 3)
-	status := apigen.DeploymentStatus{Runner: apigen.RunnerStatus{
-		DeploymentConfigVersion: 7,
-		NumberOfRestarts:        2,
-		Status:                  apigen.RunningStatus_RUNNING,
-		Endpoints:               []*apigen.Endpoint{{Ordinal: 0, Address: mustInboundAddr(t, prefix, 3, 10).String(), NodeID: 1, State: apigen.EndpointState_ENDPOINT_READY}},
-	}}
-	got, err := render(prefix, []*sqlite.Node{{ID: 1, Addresses: []string{"192.0.2.1"}}}, []apigen.DeploymentWithStatus{{Config: config, Status: status}})
+	nodes := []*sqlite.Node{{ID: 1, Addresses: []string{"192.0.2.1"}}}
+	quiet := servingInstance(100, 10, 1, 3)
+
+	restarted := servingInstance(100, 10, 1, 3)
+	restarted.Status.Runner.NumberOfRestarts = 12
+	crashed := servingInstance(100, 10, 1, 3)
+	crashed.Status.Runner.Status = apigen.RunningStatus_CRASHED
+	starting := servingInstance(100, 10, 1, 3)
+	starting.Status.Runner.Status = apigen.RunningStatus_STARTING
+	noStatus := servingInstance(100, 10, 1, 3)
+	noStatus.Status = apigen.ScheduledInstanceStatus{}
+
+	base, err := render(prefix, nodes, []apigen.ScheduledInstanceState{quiet})
 	if err != nil {
 		t.Fatal(err)
 	}
-	inbound, err := prefix.InboundAddr(3, 10, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	outbound, err := prefix.OutboundAddr(3, 10, 0, 7, 3)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := map[string]bool{}
-	for _, route := range got.Routes {
-		found[route.LogicalAddress] = true
-	}
-	if len(got.Routes) != 2 || !found[inbound.String()] || !found[outbound.String()] {
-		t.Fatalf("routes = %+v, want inbound %s and outbound %s", got.Routes, inbound, outbound)
+	for name, item := range map[string]apigen.ScheduledInstanceState{
+		"restarted": restarted, "crashed": crashed, "starting": starting, "no status": noStatus,
+	} {
+		got, err := render(prefix, nodes, []apigen.ScheduledInstanceState{item})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if string(canonicalContent(got)) != string(canonicalContent(base)) {
+			t.Fatalf("%s changed the map:\n%+v\nwant\n%+v", name, got.Routes, base.Routes)
+		}
 	}
 }
 
-func TestRenderUsesRunnerIdentityWhileDesiredConfigIsAhead(t *testing.T) {
+// TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable walks the routing
+// through a cross-node rollover. The point of the placement /120 is that the
+// draining side keeps a path home for replies after the instance /100 has
+// already moved to its replacement.
+func TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	item := runningVirtualDeployment(t, prefix, 10, 1, 3, 7, 2)
-	item.Config.NodeID = 2
-	item.Config.Identity.SpaceID = 4
-	item.Config.Spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
-	got, err := render(prefix, []*sqlite.Node{
+	nodes := []*sqlite.Node{
 		{ID: 1, Addresses: []string{"192.0.2.1"}},
 		{ID: 2, Addresses: []string{"192.0.2.2"}},
-	}, []apigen.DeploymentWithStatus{item})
+	}
+	instancePrefix, err := prefix.InstanceCIDR(3, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantInbound := mustInboundAddr(t, prefix, 3, 10)
-	wantOutbound, err := prefix.OutboundAddr(3, 10, 0, 7, 3)
+	oldPlacement, err := prefix.PlacementCIDR(3, 10, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := map[string]int32{}
-	for _, route := range got.Routes {
-		found[route.LogicalAddress] = route.HostingNodeID
+	newPlacement, err := prefix.PlacementCIDR(3, 10, 0, 101)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(got.Routes) != 2 || found[wantInbound.String()] != 1 || found[wantOutbound.String()] != 1 {
-		t.Fatalf("routes = %+v, want observed runner routes on node 1", got.Routes)
+
+	// Warming up: the replacement on node 2 already owns its own placement
+	// prefix, so its outbound traffic is routable before it ever serves.
+	old := servingInstance(100, 10, 1, 3)
+	replacement := servingInstance(101, 10, 2, 3)
+	replacement.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
+	warming, err := render(prefix, nodes, []apigen.ScheduledInstanceState{old, replacement})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRoutes(t, "warming up", warming, map[string]int32{
+		instancePrefix.String(): 1,
+		oldPlacement.String():   1,
+		newPlacement.String():   2,
+	})
+
+	// Promoted: the instance prefix follows the replacement, while the draining
+	// placement keeps its own prefix pointed at the node still running it.
+	old.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING
+	replacement.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING
+	promoted, err := render(prefix, nodes, []apigen.ScheduledInstanceState{old, replacement})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRoutes(t, "promoted", promoted, map[string]int32{
+		instancePrefix.String(): 2,
+		oldPlacement.String():   1,
+		newPlacement.String():   2,
+	})
+
+	// Retired: nothing left of the old placement.
+	old.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE
+	retired, err := render(prefix, nodes, []apigen.ScheduledInstanceState{old, replacement})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRoutes(t, "retired", retired, map[string]int32{
+		instancePrefix.String(): 2,
+		newPlacement.String():   2,
+	})
+}
+
+// TestRenderSameNodeRolloverChangesNothing is why a same-node promotion needs
+// no propagation barrier and no special case to detect one: the map before and
+// after the flip is byte-identical, so Refresh mints no new sequence and there
+// is nothing for anyone to wait on.
+func TestRenderSameNodeRolloverChangesNothing(t *testing.T) {
+	prefix := network.GeneratePrefix()
+	nodes := []*sqlite.Node{{ID: 1, Addresses: []string{"192.0.2.1"}}}
+	old := servingInstance(100, 10, 1, 3)
+	replacement := servingInstance(101, 10, 1, 3)
+	replacement.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
+
+	before, err := render(prefix, nodes, []apigen.ScheduledInstanceState{old, replacement})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING
+	replacement.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING
+	after, err := render(prefix, nodes, []apigen.ScheduledInstanceState{old, replacement})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(canonicalContent(before)) != string(canonicalContent(after)) {
+		t.Fatalf("same-node promotion changed the map:\nbefore %+v\nafter  %+v", before.Routes, after.Routes)
 	}
 }
 
-func TestRenderOmitsOutboundRouteWhenRunnerIsNotRunning(t *testing.T) {
+func TestRenderRejectsTwoServingPlacements(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	config := virtualDeployment(10, 1, 3)
-	status := apigen.DeploymentStatus{Runner: apigen.RunnerStatus{
-		DeploymentConfigVersion: 7,
-		NumberOfRestarts:        2,
-		Status:                  apigen.RunningStatus_CRASHED,
-	}}
-	got, err := render(prefix, []*sqlite.Node{{ID: 1, Addresses: []string{"192.0.2.1"}}}, []apigen.DeploymentWithStatus{{Config: config, Status: status}})
-	if err != nil {
-		t.Fatal(err)
+	nodes := []*sqlite.Node{
+		{ID: 1, Addresses: []string{"192.0.2.1"}},
+		{ID: 2, Addresses: []string{"192.0.2.2"}},
 	}
-	if len(got.Routes) != 0 {
-		t.Fatalf("routes = %+v, want none for crashed runner", got.Routes)
+	first := servingInstance(100, 10, 1, 3)
+	second := servingInstance(101, 10, 2, 3)
+	if _, err := render(prefix, nodes, []apigen.ScheduledInstanceState{first, second}); err == nil {
+		t.Fatal("two serving placements of one ordinal accepted: the map cannot express it")
+	}
+}
+
+func TestRenderRejectsUnknownNode(t *testing.T) {
+	prefix := network.GeneratePrefix()
+	nodes := []*sqlite.Node{{ID: 1, Addresses: []string{"192.0.2.1"}}}
+	orphan := servingInstance(100, 10, 9, 3)
+	if _, err := render(prefix, nodes, []apigen.ScheduledInstanceState{orphan}); err == nil {
+		t.Fatal("placement on an unknown node accepted")
 	}
 }
 
@@ -237,6 +303,23 @@ func TestPublishLatestDoesNotBlockIfSubscriberDrains(t *testing.T) {
 	}
 }
 
+func assertRoutes(t *testing.T, stage string, got *apigen.ClusterNetMap, want map[string]int32) {
+	t.Helper()
+	actual := make(map[string]int32, len(got.Routes))
+	for _, route := range got.Routes {
+		actual[route.LogicalPrefix] = route.HostingNodeID
+	}
+	if len(actual) != len(want) {
+		t.Fatalf("%s: routes = %+v, want %d entries %+v", stage, actual, len(want), want)
+	}
+	for destination, nodeID := range want {
+		if actual[destination] != nodeID {
+			t.Fatalf("%s: route %s hosted on node %d, want %d (routes %+v)",
+				stage, destination, actual[destination], nodeID, actual)
+		}
+	}
+}
+
 func virtualDeployment(id, nodeID, spaceID int32) apigen.DeploymentConfig {
 	return apigen.DeploymentConfig{
 		ID:       id,
@@ -252,29 +335,22 @@ func virtualDeployment(id, nodeID, spaceID int32) apigen.DeploymentConfig {
 	}
 }
 
-func runningVirtualDeployment(t *testing.T, prefix network.Prefix, id, nodeID, spaceID, configVersion, restarts int32) apigen.DeploymentWithStatus {
-	t.Helper()
-	return apigen.DeploymentWithStatus{
-		Config: virtualDeployment(id, nodeID, spaceID),
-		Status: apigen.DeploymentStatus{Runner: apigen.RunnerStatus{
-			DeploymentConfigVersion: configVersion,
-			NumberOfRestarts:        restarts,
+// servingInstance builds a running, serving placement. Status is populated with
+// a healthy runner precisely so tests that vary it can show it makes no
+// difference to what gets rendered.
+func servingInstance(instanceID, deploymentID, nodeID, spaceID int32) apigen.ScheduledInstanceState {
+	return apigen.ScheduledInstanceState{
+		Instance: apigen.ScheduledInstance{
+			ID:                instanceID,
+			DeploymentID:      deploymentID,
+			DeploymentVersion: 1,
+			NodeID:            nodeID,
+			State:             apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
+		},
+		Config: virtualDeployment(deploymentID, nodeID, spaceID),
+		Status: apigen.ScheduledInstanceStatus{Runner: apigen.RunnerStatus{
+			DeploymentConfigVersion: 1,
 			Status:                  apigen.RunningStatus_RUNNING,
-			Endpoints: []*apigen.Endpoint{{
-				Ordinal: 0,
-				Address: mustInboundAddr(t, prefix, spaceID, id).String(),
-				NodeID:  nodeID,
-				State:   apigen.EndpointState_ENDPOINT_READY,
-			}},
 		}},
 	}
-}
-
-func mustInboundAddr(t *testing.T, prefix network.Prefix, spaceID, deploymentID int32) netip.Addr {
-	t.Helper()
-	addr, err := prefix.InboundAddr(spaceID, deploymentID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return addr
 }

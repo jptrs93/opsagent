@@ -48,13 +48,14 @@ type containerRunner struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 
-	store          storage.OperatorStore
-	runtimeInputs  *runtimeinputs.RuntimeInputs
-	deploymentID   int32
-	spaceID        int32
-	deploymentName string
-	nodeID         int32
-	containerID    string
+	store               storage.OperatorStore
+	runtimeInputs       *runtimeinputs.RuntimeInputs
+	scheduledInstanceID int32
+	deploymentID        int32
+	spaceID             int32
+	deploymentName      string
+	nodeID              int32
+	containerID         string
 
 	// derived from the deployment config version; not part of RunnerStatus.
 	user           string
@@ -76,6 +77,12 @@ type containerRunner struct {
 
 	stopping atomic.Bool
 	publish  atomic.Bool
+
+	// servingMu guards serving and serialises it against claiming the address,
+	// so a Serve call cannot interleave with the start loop's own claim and
+	// leave the route installed twice or not at all.
+	servingMu sync.Mutex
+	serving   bool
 
 	taskMu sync.Mutex
 	task   *ctrd.Task
@@ -104,10 +111,10 @@ func containerID(deploymentID int32, configVersion int32) string {
 	return fmt.Sprintf("opendeploy-%d-v%d", deploymentID, configVersion)
 }
 
-func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
-	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
+func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
+	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	configVersion := preparerStatus.DeploymentConfigVersion
-	r := buildContainerRunner(ctx, cancel, store, inputs, dep, configVersion)
+	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, configVersion)
 	r.publish.Store(true)
 	r.status = apigen.RunnerStatus{
 		DeploymentConfigVersion: configVersion,
@@ -120,10 +127,10 @@ func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.Runti
 	return r
 }
 
-func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
-	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
+func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
+	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	configVersion := preparerStatus.DeploymentConfigVersion
-	r := buildContainerRunner(ctx, cancel, store, inputs, dep, configVersion)
+	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, configVersion)
 	r.readiness = &readinessConfig{timeout: containerReadinessTimeout(dep.Spec.Container().ReadinessSignal)}
 	r.readyCh = make(chan error, 1)
 	r.status = apigen.RunnerStatus{
@@ -136,9 +143,9 @@ func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinpu
 	return r
 }
 
-func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
-	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
-	r := buildContainerRunner(ctx, cancel, store, inputs, dep, prev.DeploymentConfigVersion)
+func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
+	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
+	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, prev.DeploymentConfigVersion)
 	r.publish.Store(true)
 	r.status = prev
 	r.startupMode = mode
@@ -153,27 +160,28 @@ func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Durati
 	return containerReadinessDefaultTimeout
 }
 
-func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
+func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
 	cfg := dep.Spec.Container().Runtime
 	r := &containerRunner{
-		ctx:             ctx,
-		cancel:          cancel,
-		done:            make(chan struct{}),
-		artifactMissing: make(chan struct{}, 1),
-		store:           store,
-		runtimeInputs:   inputs,
-		deploymentID:    dep.ID,
-		spaceID:         dep.Identity.SpaceID,
-		deploymentName:  containerDeploymentName(dep),
-		nodeID:          dep.NodeID,
-		containerID:     containerID(dep.ID, configVersion),
-		configVersion:   configVersion,
-		user:            cfg.User,
-		envVars:         cfg.EnvVars,
-		command:         cfg.OverrideCommand,
-		cwd:             cfg.OverrideWorkingDir,
-		networking:      dep.Spec.Networking,
-		latestVersion:   dep.Version,
+		ctx:                 ctx,
+		cancel:              cancel,
+		done:                make(chan struct{}),
+		artifactMissing:     make(chan struct{}, 1),
+		store:               store,
+		runtimeInputs:       inputs,
+		scheduledInstanceID: instanceID,
+		deploymentID:        dep.ID,
+		spaceID:             dep.Identity.SpaceID,
+		deploymentName:      containerDeploymentName(dep),
+		nodeID:              dep.NodeID,
+		containerID:         containerID(dep.ID, configVersion),
+		configVersion:       configVersion,
+		user:                cfg.User,
+		envVars:             cfg.EnvVars,
+		command:             cfg.OverrideCommand,
+		cwd:                 cfg.OverrideWorkingDir,
+		networking:          dep.Spec.Networking,
+		latestVersion:       dep.Version,
 	}
 	r.mounts, r.dataVolumeHost = containerMounts(dep)
 	r.devShmSizeKB = int64(cfg.DevShmSizeKb)
@@ -207,21 +215,66 @@ func (r *containerRunner) WaitReady() error {
 	return err
 }
 
-func (r *containerRunner) Promote() error {
-	if r.virtualNetwork() {
-		cn := r.getContainerNet()
-		old := network.Default.CurrentNet(r.deploymentID)
-		if err := network.Default.Activate(cn); err != nil {
-			return err
-		}
-		if err := r.publishContainerNet(cn); err != nil {
-			if old != nil {
-				if rollbackErr := network.Default.Activate(old); rollbackErr != nil {
-					return errors.Join(err, fmt.Errorf("restoring previous inbound route: %w", rollbackErr))
-				}
+// Serve claims the instance's inbound address for this placement. It is
+// idempotent, and a no-op before the container network exists: the start loop
+// makes the same claim once it has one, so whichever happens second wins.
+func (r *containerRunner) Serve() error {
+	r.servingMu.Lock()
+	defer r.servingMu.Unlock()
+	r.serving = true
+	return r.claimInboundAddressLocked(r.getContainerNet())
+}
+
+// claimInboundAddressLocked installs the host route for the stable inbound
+// address and takes over the deployment's published host ports. Caller must
+// hold servingMu.
+func (r *containerRunner) claimInboundAddressLocked(cn *network.ContainerNet) error {
+	if !r.serving || cn == nil || !r.virtualNetwork() {
+		return nil
+	}
+	// An older application run must not take the address or the host ports back
+	// from the replacement that superseded it, even though both belong to the
+	// same serving placement.
+	if !r.usesLatestNetworkConfig() {
+		return nil
+	}
+	old := network.Default.CurrentNet(r.deploymentID)
+	if old != nil && old.ContainerID == cn.ContainerID {
+		return nil
+	}
+	if err := network.Default.Activate(cn); err != nil {
+		return err
+	}
+	if err := r.publishContainerNet(cn); err != nil {
+		if old != nil {
+			if rollbackErr := network.Default.Activate(old); rollbackErr != nil {
+				return errors.Join(err, fmt.Errorf("restoring previous inbound route: %w", rollbackErr))
 			}
-			return err
 		}
+		return err
+	}
+	return nil
+}
+
+// claimInboundAddress is the start loop's entry point: it claims the address
+// only if this placement is already serving, and does nothing for a standby
+// warming up behind another placement.
+func (r *containerRunner) claimInboundAddress(cn *network.ContainerNet) error {
+	r.servingMu.Lock()
+	defer r.servingMu.Unlock()
+	return r.claimInboundAddressLocked(cn)
+}
+
+// Promote is the rollover candidate's readiness handoff. A candidate is by
+// construction the replacement on this node, so promotion both claims the
+// address and starts publishing status.
+func (r *containerRunner) Promote() error {
+	r.servingMu.Lock()
+	r.serving = true
+	err := r.claimInboundAddressLocked(r.getContainerNet())
+	r.servingMu.Unlock()
+	if err != nil {
+		return err
 	}
 	r.publish.Store(true)
 	r.writeStatus()
@@ -438,11 +491,10 @@ func (r *containerRunner) run() {
 		r.setTask(task)
 		r.logContainerEvent("start", runNumber, mounts)
 		if cn != nil && !readinessActive {
-			err := network.Default.Activate(cn)
-			if err == nil {
-				err = r.publishContainerNet(cn)
-			}
-			if err != nil {
+			// Only the serving placement claims the address. A standby warming up
+			// for a cross-node takeover runs a full runner here and must leave the
+			// route alone until the primary promotes it.
+			if err := r.claimInboundAddress(cn); err != nil {
 				slog.ErrorContext(r.ctx, "publishing container network failed", "err", err, "containerID", r.containerID)
 				_ = task.Kill(context.Background(), syscall.SIGTERM)
 				r.deleteTask(task)
@@ -831,7 +883,7 @@ func (r *containerRunner) setupContainerNet(runNumber int32) (*network.Container
 	if !ok {
 		return nil, "", fmt.Errorf("virtual network prefix is not known")
 	}
-	inboundAddr, outboundAddr, err := containerNetAddresses(prefix, r.spaceID, r.deploymentID, r.configVersion, runNumber)
+	inboundAddr, outboundAddr, err := containerNetAddresses(prefix, r.spaceID, r.deploymentID, r.scheduledInstanceID, runNumber)
 	if err != nil {
 		return nil, "", err
 	}
@@ -855,26 +907,19 @@ func (r *containerRunner) setupContainerNet(runNumber int32) (*network.Container
 	return cn, resolvConfPath, nil
 }
 
+// recoverContainerNet rebuilds the network state of a task that outlived the
+// agent. Both addresses are derived rather than read back from status: the
+// inbound address is a pure function of space, deployment, and ordinal, and the
+// outbound one of the scheduled instance and run number, all of which this
+// runner already holds. Nothing about a surviving task needs to be reported for
+// its addresses to be reconstructed.
 func (r *containerRunner) recoverContainerNet() error {
-	var inboundAddr netip.Addr
-	if r.usesLatestNetworkConfig() {
-		if !r.virtualNetwork() {
-			return nil
-		}
-		stable, err := r.inboundAddr()
-		if err != nil {
-			return err
-		}
-		inboundAddr = stable
-	} else {
-		if len(r.status.Endpoints) == 0 {
-			return nil
-		}
-		var err error
-		inboundAddr, err = netip.ParseAddr(r.status.Endpoints[0].Address)
-		if err != nil {
-			return fmt.Errorf("parsing persisted container address: %w", err)
-		}
+	if !r.virtualNetwork() {
+		return nil
+	}
+	inboundAddr, err := r.inboundAddr()
+	if err != nil {
+		return err
 	}
 	prefix, ok := network.Default.PrefixValue()
 	if !ok {
@@ -882,15 +927,15 @@ func (r *containerRunner) recoverContainerNet() error {
 	}
 	identity, err := prefix.ParseAddr(inboundAddr)
 	if err != nil {
-		return fmt.Errorf("parsing persisted inbound address %s: %w", inboundAddr, err)
+		return fmt.Errorf("parsing derived inbound address %s: %w", inboundAddr, err)
 	}
 	if !identity.IsInbound() {
-		return fmt.Errorf("persisted address %s is not an inbound address", inboundAddr)
+		return fmt.Errorf("derived address %s is not an inbound address", inboundAddr)
 	}
 	if identity.DeploymentID != r.deploymentID {
-		return fmt.Errorf("persisted inbound address %s belongs to deployment %d, not %d", inboundAddr, identity.DeploymentID, r.deploymentID)
+		return fmt.Errorf("derived inbound address %s belongs to deployment %d, not %d", inboundAddr, identity.DeploymentID, r.deploymentID)
 	}
-	outboundAddr, err := prefix.OutboundAddr(identity.SpaceID, r.deploymentID, identity.Ordinal, r.configVersion, r.currentRunNumber())
+	outboundAddr, err := prefix.OutboundAddr(identity.SpaceID, r.deploymentID, identity.Ordinal, r.scheduledInstanceID, r.currentRunNumber())
 	if err != nil {
 		return err
 	}
@@ -899,10 +944,10 @@ func (r *containerRunner) recoverContainerNet() error {
 		return err
 	}
 	r.setContainerNet(cn)
-	if r.usesLatestNetworkConfig() {
-		if err := r.publishContainerNet(cn); err != nil {
-			return fmt.Errorf("publishing recovered container network: %w", err)
-		}
+	// Reclaiming the address is left to Serve: an adopted task only owns the
+	// instance address if its placement is the serving one.
+	if err := r.claimInboundAddress(cn); err != nil {
+		return fmt.Errorf("publishing recovered container network: %w", err)
 	}
 	slog.InfoContext(r.ctx, "adopted container network recovered", "containerID", r.containerID, "inbound", cn.InboundAddr, "outbound", cn.OutboundAddr, "v4", cn.V4, "veth", cn.HostVeth)
 	return nil
@@ -912,12 +957,12 @@ func (r *containerRunner) usesLatestNetworkConfig() bool {
 	return r.configVersion == r.latestVersion || network.Default.IsNetproxyDeployment(r.deploymentID)
 }
 
-func containerNetAddresses(prefix network.Prefix, spaceID, deploymentID, configVersion, runNumber int32) (netip.Addr, netip.Addr, error) {
+func containerNetAddresses(prefix network.Prefix, spaceID, deploymentID, scheduledInstanceID, runNumber int32) (netip.Addr, netip.Addr, error) {
 	inboundAddr, err := prefix.InboundAddr(spaceID, deploymentID, 0)
 	if err != nil {
 		return netip.Addr{}, netip.Addr{}, err
 	}
-	outboundAddr, err := prefix.OutboundAddr(spaceID, deploymentID, 0, configVersion, runNumber)
+	outboundAddr, err := prefix.OutboundAddr(spaceID, deploymentID, 0, scheduledInstanceID, runNumber)
 	if err != nil {
 		return netip.Addr{}, netip.Addr{}, err
 	}
@@ -1051,39 +1096,17 @@ func (r *containerRunner) writeStatus() {
 	if !r.publish.Load() {
 		return
 	}
-	r.syncNetworkStatus()
-	r.store.MustWriteDeploymentStatus(r.deploymentID, func(s *apigen.DeploymentStatus) bool {
+	r.store.MustWriteScheduledInstanceStatus(r.scheduledInstanceID, func(s *apigen.ScheduledInstanceStatus) bool {
 		if !s.Runner.IsZero() && s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion {
 			slog.InfoContext(r.ctx, "discarding status update from superseded container runner")
 			return false
 		}
 		s.BumpUpdatedAt()
+		s.ScheduledInstanceID = r.scheduledInstanceID
 		s.DeploymentID = r.deploymentID
 		s.Runner = r.status
 		return true
 	})
-}
-
-func (r *containerRunner) syncNetworkStatus() {
-	if !r.virtualNetwork() {
-		r.status.Endpoints = nil
-		return
-	}
-	addr, err := r.inboundAddr()
-	if err != nil {
-		r.status.Endpoints = nil
-		return
-	}
-	state := apigen.EndpointState_ENDPOINT_DOWN
-	if r.status.Status == apigen.RunningStatus_RUNNING {
-		state = apigen.EndpointState_ENDPOINT_READY
-	}
-	r.status.Endpoints = []*apigen.Endpoint{{
-		Ordinal: 0,
-		Address: addr.String(),
-		NodeID:  r.nodeID,
-		State:   state,
-	}}
 }
 
 // --- config helpers ---

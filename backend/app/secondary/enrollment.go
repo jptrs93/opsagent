@@ -142,16 +142,16 @@ func cacheEnrollmentBootstrapState(cfg EnrollmentConfig, accepted *apigen.Enroll
 		return fmt.Errorf("parsing enrollment cluster network: %w", err)
 	}
 	if accepted.ClusterNetMap != nil {
-		nodeID := accepted.NodeNetDeployment.Config.NodeID
+		nodeID := accepted.NodeNetDeployment.Instance.NodeID
 		if _, _, err := validateClusterNetMap(accepted.ClusterNetMap, nodeID, prefix); err != nil {
 			return fmt.Errorf("validating enrollment cluster network map: %w", err)
 		}
 	}
 	store.MustSetLocalKV(sqlite.LocalKVClusterNetwork, info.Encode())
-	cacheEnrollmentDeployment(store, accepted.NodeDeployment)
-	cacheEnrollmentDeployment(store, accepted.NodeNetDeployment)
+	cacheEnrollmentInstance(store, accepted.NodeDeployment)
+	cacheEnrollmentInstance(store, accepted.NodeNetDeployment)
 	if accepted.ClusterNetMap != nil {
-		nodeID := accepted.NodeNetDeployment.Config.NodeID
+		nodeID := accepted.NodeNetDeployment.Instance.NodeID
 		if _, err := acceptClusterNetMap(store, accepted.ClusterNetMap, nodeID, prefix); err != nil {
 			return fmt.Errorf("accepting enrollment cluster network map: %w", err)
 		}
@@ -159,16 +159,11 @@ func cacheEnrollmentBootstrapState(cfg EnrollmentConfig, accepted *apigen.Enroll
 	return nil
 }
 
-func cacheEnrollmentDeployment(store *sqlite.SecondaryStorage, dws *apigen.DeploymentWithStatus) {
-	store.MustWriteDeploymentConfig(&dws.Config)
-	if !dws.Status.IsZero() {
-		status := dws.Status
-		status.DeploymentID = dws.Config.ID
-		store.MustWriteDeploymentStatus(dws.Config.ID, func(current *apigen.DeploymentStatus) bool {
-			*current = status
-			return true
-		})
+func cacheEnrollmentInstance(store *sqlite.SecondaryStorage, state *apigen.ScheduledInstanceState) {
+	if state == nil {
+		return
 	}
+	store.MustWriteScheduledInstanceAssignment(state)
 }
 
 func writeEnrollmentTLSBundle(cfg EnrollmentConfig, accepted *apigen.EnrollmentAccepted, keyPEM []byte) error {

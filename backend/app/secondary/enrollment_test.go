@@ -150,24 +150,40 @@ func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.Enrol
 		ID:             1,
 		WorkerName:     machine,
 		ClusterNetwork: &apigen.ClusterNetworkInfo{UlaPrefix: prefix.Bytes()},
-		NodeDeployment: &apigen.DeploymentWithStatus{Config: apigen.DeploymentConfig{
-			ID:     10,
-			NodeID: 2,
-			Spec:   *sqlite.SystemDeploymentSpec(),
-			Identity: apigen.DeploymentIdentity{
-				SpaceID: internaldeploy.SpaceID,
-				Name:    internaldeploy.SelfName,
+		NodeDeployment: &apigen.ScheduledInstanceState{
+			Instance: apigen.ScheduledInstance{
+				ID:           1,
+				NodeID:       2,
+				DeploymentID: 10,
+				State:        apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 			},
-		}},
-		NodeNetDeployment: &apigen.DeploymentWithStatus{Config: apigen.DeploymentConfig{
-			ID:     11,
-			NodeID: 2,
-			Spec:   *sqlite.NetproxyDeploymentSpec(),
-			Identity: apigen.DeploymentIdentity{
-				SpaceID: internaldeploy.SpaceID,
-				Name:    internaldeploy.NetproxyName,
+			Config: apigen.DeploymentConfig{
+				ID:     10,
+				NodeID: 2,
+				Spec:   *sqlite.SystemDeploymentSpec(),
+				Identity: apigen.DeploymentIdentity{
+					SpaceID: internaldeploy.SpaceID,
+					Name:    internaldeploy.SelfName,
+				},
 			},
-		}},
+		},
+		NodeNetDeployment: &apigen.ScheduledInstanceState{
+			Instance: apigen.ScheduledInstance{
+				ID:           2,
+				NodeID:       2,
+				DeploymentID: 11,
+				State:        apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
+			},
+			Config: apigen.DeploymentConfig{
+				ID:     11,
+				NodeID: 2,
+				Spec:   *sqlite.NetproxyDeploymentSpec(),
+				Identity: apigen.DeploymentIdentity{
+					SpaceID: internaldeploy.SpaceID,
+					Name:    internaldeploy.NetproxyName,
+				},
+			},
+		},
 	}
 }
 

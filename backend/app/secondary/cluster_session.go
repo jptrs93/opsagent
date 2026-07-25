@@ -10,6 +10,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
+	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
@@ -108,9 +109,15 @@ func (t *logStreamTracker) remove(requestID string) {
 	t.mu.Unlock()
 }
 
+func scheduledInstancePredicateForNode(nodeID int32) storage.ScheduledInstancePredicate {
+	return func(state apigen.ScheduledInstanceState) bool {
+		return state.Instance.NodeID == nodeID
+	}
+}
+
 // runSession opens one bidirectional stream to the primary: it pushes local
 // status changes and requested log data out via the request stream, and reads
-// the primary's messages (snapshot, config updates, log requests) from the
+// the primary's messages (snapshot, assignment updates, log requests) from the
 // response stream, applying them to the local store. Returns when the stream
 // ends (error or clean EOF).
 func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *sqlite.SecondaryStorage, nodeID int32, underlayAddress string) error {
@@ -133,8 +140,7 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 		}
 	}
 
-	// Subscribe to local deployment updates to push status back to primary.
-	statusCh, unsub := store.SubscribeDeploymentUpdates(func(cfg apigen.DeploymentConfig) bool { return cfg.NodeID == nodeID })
+	statusCh, unsub := store.SubscribeScheduledInstanceUpdates(scheduledInstancePredicateForNode(nodeID))
 	defer unsub()
 	go statusPushLoop(sessCtx, out, statusCh)
 
@@ -183,10 +189,10 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 func dispatchFromPrimary(ctx context.Context, out *outbox, store *sqlite.SecondaryStorage, tracker *logStreamTracker, msg *apigen.MsgToWorker, nodeID int32) {
 	msgType := "heartbeat"
 	switch {
-	case msg.DeploymentsSnapshot != nil:
-		msgType = "deployments_snapshot"
-	case msg.DeploymentUpdate != nil:
-		msgType = "deployment_update"
+	case msg.ScheduledInstancesSnapshot != nil:
+		msgType = "scheduled_instances_snapshot"
+	case msg.ScheduledInstanceUpdate != nil:
+		msgType = "scheduled_instance_update"
 	case msg.DeploymentLogRequest != nil:
 		msgType = "deployment_log_request"
 	case msg.LogSearchRequest != nil:
@@ -205,10 +211,10 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *sqlite.Seconda
 	slog.Info("received message from primary", "type", msgType)
 
 	switch {
-	case msg.DeploymentsSnapshot != nil:
-		applySnapshot(out, store, msg.DeploymentsSnapshot, nodeID)
-	case msg.DeploymentUpdate != nil:
-		applyConfigUpdate(store, msg.DeploymentUpdate, nodeID)
+	case msg.ScheduledInstancesSnapshot != nil:
+		applySnapshot(out, store, msg.ScheduledInstancesSnapshot, nodeID)
+	case msg.ScheduledInstanceUpdate != nil:
+		applyInstanceUpdate(store, msg.ScheduledInstanceUpdate, nodeID)
 	case msg.ClusterNetwork != nil:
 		if err := applyClusterNetwork(store, msg.ClusterNetwork); err != nil {
 			slog.Warn("installing cluster network failed", "err", err)
@@ -268,26 +274,26 @@ func applyClusterNetwork(store *sqlite.SecondaryStorage, info *apigen.ClusterNet
 }
 
 // statusPushLoop forwards local status changes to the primary. It tracks the
-// last UpdatedAt clock sent per deployment to avoid sending duplicate updates.
-func statusPushLoop(ctx context.Context, out *outbox, ch <-chan apigen.DeploymentWithStatus) {
+// last UpdatedAt clock sent per scheduled instance to avoid sending duplicate updates.
+func statusPushLoop(ctx context.Context, out *outbox, ch <-chan apigen.ScheduledInstanceState) {
 	lastSent := make(map[int32]time.Time)
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case dws, ok := <-ch:
+		case state, ok := <-ch:
 			if !ok {
 				return
 			}
-			if dws.Status.IsZero() || dws.Config.ID == 0 {
+			if state.Status.IsZero() || state.Instance.ID == 0 {
 				continue
 			}
-			id := dws.Config.ID
-			if !dws.Status.UpdatedAt.After(lastSent[id]) {
+			id := state.Instance.ID
+			if !state.Status.UpdatedAt.After(lastSent[id]) {
 				continue
 			}
-			lastSent[id] = dws.Status.UpdatedAt
-			status := dws.Status
+			lastSent[id] = state.Status.UpdatedAt
+			status := state.Status
 			if !out.Send(&apigen.MsgToMaster{StatusWrite: &status}) {
 				return
 			}
@@ -295,31 +301,45 @@ func statusPushLoop(ctx context.Context, out *outbox, ch <-chan apigen.Deploymen
 	}
 }
 
-// applySnapshot writes deployment configs from the primary's snapshot into the
-// local store and replays any status history the primary is missing. Each
-// snapshot item carries the primary's last-known UpdatedAt clock for that
-// deployment; the secondary scans its local history for rows above that value
-// and streams them back as individual StatusWrites so the primary can insert
-// each one at its canonical clock.
-func applySnapshot(out *outbox, store *sqlite.SecondaryStorage, snap *apigen.DeploymentWithStatusSnapshot, nodeID int32) {
-	slog.Info("applying deployments snapshot from primary", "count", len(snap.Items))
+// applySnapshot writes scheduled instance assignments from the primary's snapshot
+// into the local store, drops any the primary no longer knows about, and replays
+// any status history the primary is missing. Each snapshot item carries the
+// primary's last-known UpdatedAt clock for that instance; the secondary scans its
+// local history for rows above that value and streams them back as individual
+// StatusWrites so the primary can insert each one at its canonical clock.
+func applySnapshot(out *outbox, store *sqlite.SecondaryStorage, snap *apigen.ScheduledInstanceSnapshot, nodeID int32) {
+	slog.Info("applying scheduled instances snapshot from primary", "count", len(snap.Items))
+	present := make(map[int32]struct{}, len(snap.Items))
 	for _, item := range snap.Items {
-		if item == nil || item.Config.ID == 0 || item.Config.NodeID != nodeID {
+		if item == nil || item.Instance.ID == 0 || item.Instance.NodeID != nodeID {
 			continue
 		}
-		cfg := item.Config
-		store.MustWriteDeploymentConfig(&cfg)
+		present[item.Instance.ID] = struct{}{}
+		store.MustWriteScheduledInstanceAssignment(item)
+	}
 
+	// The snapshot is the full set of assignments for this node, so anything held
+	// locally and missing from it has been dropped by the primary. Prune before the
+	// replay below, which returns early once the session's outbox closes.
+	if pruned := store.MustFinalizeScheduledInstancesAbsent(present); len(pruned) > 0 {
+		slog.Info("finalizing scheduled instances absent from the primary snapshot",
+			"scheduled_instance_ids", pruned)
+	}
+
+	for _, item := range snap.Items {
+		if item == nil || item.Instance.ID == 0 || item.Instance.NodeID != nodeID {
+			continue
+		}
 		var primaryClock time.Time
 		if !item.Status.IsZero() {
 			primaryClock = item.Status.UpdatedAt
 		}
-		backlog := store.FetchDeploymentStatusHistorySince(item.Config.ID, primaryClock)
+		backlog := store.FetchScheduledInstanceStatusHistorySince(item.Instance.ID, primaryClock)
 		if len(backlog) == 0 {
 			continue
 		}
 		slog.Info("replaying status history to primary",
-			"id", item.Config.ID, "from", primaryClock, "count", len(backlog))
+			"scheduled_instance_id", item.Instance.ID, "from", primaryClock, "count", len(backlog))
 		for _, st := range backlog {
 			if !out.Send(&apigen.MsgToMaster{StatusWrite: st}) {
 				return
@@ -328,12 +348,15 @@ func applySnapshot(out *outbox, store *sqlite.SecondaryStorage, snap *apigen.Dep
 	}
 }
 
-// applyConfigUpdate writes a single config update from the primary into the
-// local store.
-func applyConfigUpdate(store *sqlite.SecondaryStorage, cfg *apigen.DeploymentConfig, nodeID int32) {
-	if cfg == nil || cfg.ID == 0 || cfg.NodeID != nodeID {
+// applyInstanceUpdate writes a single scheduled instance assignment from the primary.
+func applyInstanceUpdate(store *sqlite.SecondaryStorage, state *apigen.ScheduledInstanceState, nodeID int32) {
+	if state == nil || state.Instance.ID == 0 || state.Instance.NodeID != nodeID {
 		return
 	}
-	slog.Info("applying deployment config update from primary", "id", cfg.ID, "seqNo", cfg.Version)
-	store.MustWriteDeploymentConfig(cfg)
+	slog.Info("applying scheduled instance update from primary",
+		"scheduled_instance_id", state.Instance.ID,
+		"deployment_id", state.Instance.DeploymentID,
+		"deployment_version", state.Instance.DeploymentVersion,
+		"target_state", state.Instance.State)
+	store.MustWriteScheduledInstanceAssignment(state)
 }

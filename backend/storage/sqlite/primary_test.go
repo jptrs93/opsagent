@@ -78,21 +78,20 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 		Name:    systemDeploymentName,
 	}, primaryNode.ID, testSystemSpecWithState("v1", true))
 
-	seedStatus := func(cfg *apigen.DeploymentConfig, artifact string) {
-		store.MustWriteDeploymentStatus(cfg.ID, func(status *apigen.DeploymentStatus) bool {
+	seedStatus := func(cfg *apigen.DeploymentConfig, artifact string) *apigen.ScheduledInstance {
+		inst := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+		store.MustWriteScheduledInstanceStatus(inst.ID, func(status *apigen.ScheduledInstanceStatus) bool {
 			status.BumpUpdatedAt()
-			status.DeploymentID = cfg.ID
 			status.Preparer = apigen.PreparerStatus{DeploymentConfigVersion: cfg.Version, Artifact: artifact, Status: apigen.PreparationStatus_READY}
 			status.Runner = apigen.RunnerStatus{DeploymentConfigVersion: cfg.Version, RunningArtifact: artifact, Status: apigen.RunningStatus_RUNNING}
 			return true
 		})
+		return inst
 	}
-	seedStatus(primary, "example/app:v1")
+	primaryInst := seedStatus(primary, "example/app:v1")
 	seedStatus(worker, "example/app:v1")
 	seedStatus(system, "/var/lib/opendeploy/releases/v1/opendeploy")
 
-	primaryStatusTime := store.FetchDeploymentStatus(primary.ID).UpdatedAt
-	primaryHistoryCount := len(store.MustFetchDeploymentStatusHistory(primary.ID))
 	primaryConfigHistoryCount := len(store.MustFetchDeploymentHistory(primary.ID))
 	primaryConfigVersion := primary.Version
 
@@ -103,23 +102,19 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("invalidated count = %d, want 1", count)
 	}
-	got := store.FetchDeploymentStatus(primary.ID)
-	if !got.Preparer.IsZero() || !got.Runner.IsZero() {
+	got := store.FetchScheduledInstanceStatus(primaryInst.ID)
+	if got != nil && (!got.Preparer.IsZero() || !got.Runner.IsZero()) {
 		t.Fatalf("primary runtime status was not cleared: %+v", got)
-	}
-	if !got.UpdatedAt.Equal(primaryStatusTime) {
-		t.Fatalf("updated_at = %v, want preserved %v", got.UpdatedAt, primaryStatusTime)
-	}
-	if len(store.MustFetchDeploymentStatusHistory(primary.ID)) != primaryHistoryCount {
-		t.Fatal("runtime invalidation changed status history")
 	}
 	if len(store.MustFetchDeploymentHistory(primary.ID)) != primaryConfigHistoryCount {
 		t.Fatal("runtime invalidation changed config history")
 	}
-	if store.FetchDeploymentStatus(worker.ID).Runner.Status != apigen.RunningStatus_RUNNING {
+	workerInst := store.ListNonFinalScheduledInstancesForDeployment(worker.ID)[0]
+	if store.FetchScheduledInstanceStatus(workerInst.ID).Runner.Status != apigen.RunningStatus_RUNNING {
 		t.Fatal("worker runtime status was cleared")
 	}
-	if store.FetchDeploymentStatus(system.ID).Runner.Status != apigen.RunningStatus_RUNNING {
+	systemInst := store.ListNonFinalScheduledInstancesForDeployment(system.ID)[0]
+	if store.FetchScheduledInstanceStatus(systemInst.ID).Runner.Status != apigen.RunningStatus_RUNNING {
 		t.Fatal("primary system deployment runtime status was cleared")
 	}
 	for _, cfg := range store.ListActiveDeploymentConfigs() {
@@ -131,8 +126,8 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	store = NewPrimaryStorage(dbPath)
-	got = store.FetchDeploymentStatus(primary.ID)
-	if !got.Preparer.IsZero() || !got.Runner.IsZero() || !got.UpdatedAt.Equal(primaryStatusTime) {
+	got = store.FetchScheduledInstanceStatus(primaryInst.ID)
+	if got != nil && (!got.Preparer.IsZero() || !got.Runner.IsZero()) {
 		t.Fatalf("persisted primary runtime status was not cleared correctly: %+v", got)
 	}
 }
@@ -490,8 +485,45 @@ func TestRenameNodePreservesIdentifier(t *testing.T) {
 	configs := store.FetchDeploymentSnapshot(func(cfg apigen.DeploymentConfig) bool {
 		return cfg.NodeID == primaryNode.ID
 	})
-	if len(configs) == 0 || configs[0].Config.NodeID != primaryNode.ID {
+	if len(configs) == 0 || configs[0].NodeID != primaryNode.ID {
 		t.Fatalf("deployment targets after rename = %+v", configs)
+	}
+}
+
+func TestEnsureRunScheduledInstanceIsConcurrentAndIdempotent(t *testing.T) {
+	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	t.Cleanup(func() { _ = store.Close() })
+	node := store.EnsurePrimaryNode("primary", "primary-id")
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
+		SpaceID: DefaultSpaceID,
+		Name:    "api",
+	}, node.ID, testSpecWithState("v1", true))
+
+	const callers = 16
+	ids := make(chan int32, callers)
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			inst, _ := store.EnsureRunScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+			ids <- inst.ID
+		}()
+	}
+	wg.Wait()
+	close(ids)
+	var want int32
+	for id := range ids {
+		if want == 0 {
+			want = id
+		}
+		if id != want {
+			t.Fatalf("EnsureRunScheduledInstance returned ids %d and %d", want, id)
+		}
+	}
+	active := store.ListNonFinalScheduledInstancesForDeployment(cfg.ID)
+	if len(active) != 1 || active[0].ID != want {
+		t.Fatalf("active instances = %+v, want one id %d", active, want)
 	}
 }
 

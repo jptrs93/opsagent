@@ -1,0 +1,466 @@
+package scheduler
+
+import (
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+)
+
+// fakeBarrier stands in for the applied-sequence barrier. Held blocks every
+// wait, which is how tests distinguish "drained and retired" from "draining and
+// still waiting for the cluster to catch up".
+type fakeBarrier struct {
+	sequence int64
+	held     bool
+	acks     chan struct{}
+}
+
+func newFakeBarrier() *fakeBarrier {
+	return &fakeBarrier{acks: make(chan struct{}, 1)}
+}
+
+func (b *fakeBarrier) CurrentSequence() int64                { return b.sequence }
+func (b *fakeBarrier) AppliedEverywhere(sequence int64) bool { return !b.held }
+func (b *fakeBarrier) AckUpdates() <-chan struct{}           { return b.acks }
+
+func testRunningSpec(version string) *apigen.DeploymentSpec {
+	return &apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
+		Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}},
+		Version: version,
+		Running: true,
+	}}
+}
+
+func rolloverSpec(version string) *apigen.DeploymentSpec {
+	spec := testRunningSpec(version)
+	spec.Container1Spec.UpgradeStrategy = apigen.ContainerUpgradeStrategy_ROLLOVER
+	return spec
+}
+
+func statesByID(store *sqlite.PrimaryStorage, deploymentID int32) map[int32]apigen.ScheduledInstanceTarget {
+	out := map[int32]apigen.ScheduledInstanceTarget{}
+	for _, inst := range store.ListNonFinalScheduledInstancesForDeployment(deploymentID) {
+		out[inst.ID] = inst.State
+	}
+	return out
+}
+
+func markRunning(t *testing.T, store *sqlite.PrimaryStorage, instanceID, configVersion int32, status apigen.RunningStatus) {
+	t.Helper()
+	store.MustWriteScheduledInstanceStatus(instanceID, func(st *apigen.ScheduledInstanceStatus) bool {
+		st.BumpUpdatedAt()
+		st.Runner = apigen.RunnerStatus{DeploymentConfigVersion: configVersion, Status: status}
+		return true
+	})
+}
+
+func fetchState(t *testing.T, store *sqlite.PrimaryStorage, instanceID int32) apigen.ScheduledInstanceState {
+	t.Helper()
+	for _, state := range store.FetchScheduledSnapshot(nil) {
+		if state.Instance.ID == instanceID {
+			return state
+		}
+	}
+	t.Fatalf("scheduled instance %d not found", instanceID)
+	return apigen.ScheduledInstanceState{}
+}
+
+func TestDrainSupersededOnlyRetiresOlderInstances(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	t.Cleanup(func() { _ = store.Close() })
+	node := store.EnsurePrimaryNode("primary", "primary")
+
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
+		SpaceID: sqlite.DefaultSpaceID,
+		Name:    "app",
+	}, node.ID, testRunningSpec("v1"))
+	older := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+
+	next := *testRunningSpec("v2")
+	updated, _, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, sqlite.DeploymentConfigUpdate{
+		ExpectedVersion: cfg.Version + 1,
+		Spec:            &next,
+	})
+	if !versionOK {
+		t.Fatal("expected config update to succeed")
+	}
+	newer := store.CreateScheduledInstance(updated.ID, updated.Version, updated.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+
+	barrier := newFakeBarrier()
+	barrier.held = true
+	s := New(store, barrier)
+
+	// An older instance must not drain the newer replacement.
+	s.drainSuperseded(*older)
+	byID := statesByID(store, cfg.ID)
+	if byID[newer.ID] != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+		t.Fatalf("newer instance state = %v, want RUN_SERVING", byID[newer.ID])
+	}
+	if byID[older.ID] != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+		t.Fatalf("older instance state = %v, want untouched", byID[older.ID])
+	}
+
+	s.drainSuperseded(*newer)
+	byID = statesByID(store, cfg.ID)
+	if byID[older.ID] != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
+		t.Fatalf("older instance state = %v, want RUN_DRAINING", byID[older.ID])
+	}
+	if byID[newer.ID] != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+		t.Fatalf("newer instance state = %v, want RUN_SERVING", byID[newer.ID])
+	}
+}
+
+func TestStartupReconcileDoesNotLetOlderRunningKillReplacement(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	t.Cleanup(func() { _ = store.Close() })
+	node := store.EnsurePrimaryNode("primary", "primary")
+
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
+		SpaceID: sqlite.DefaultSpaceID,
+		Name:    "app",
+	}, node.ID, testRunningSpec("v1"))
+	older := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	markRunning(t, store, older.ID, cfg.Version, apigen.RunningStatus_RUNNING)
+
+	next := *testRunningSpec("v2")
+	updated, _, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, sqlite.DeploymentConfigUpdate{
+		ExpectedVersion: cfg.Version + 1,
+		Spec:            &next,
+	})
+	if !versionOK {
+		t.Fatal("expected config update to succeed")
+	}
+
+	s := New(store, newFakeBarrier())
+	// Match Run()'s startup order: instances first, then configs.
+	for _, state := range store.FetchScheduledSnapshot(nil) {
+		s.onInstance(state)
+	}
+	for _, config := range store.FetchDeploymentSnapshot(nil) {
+		s.onConfig(config)
+	}
+
+	active := store.ListNonFinalScheduledInstancesForDeployment(cfg.ID)
+	if len(active) != 1 || active[0].ID != older.ID || active[0].State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
+		t.Fatalf("RECREATE first reconciliation = %+v, want only older TERMINATE", active)
+	}
+
+	markRunning(t, store, older.ID, cfg.Version, apigen.RunningStatus_STOPPED)
+	s.onInstance(fetchState(t, store, older.ID))
+
+	active = store.ListNonFinalScheduledInstancesForDeployment(cfg.ID)
+	if len(active) != 1 || active[0].DeploymentVersion != updated.Version ||
+		active[0].State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+		t.Fatalf("RECREATE after terminal status = %+v, want replacement RUN_SERVING", active)
+	}
+}
+
+// TestRolloverReplacementWarmsUpAsStandby is the invariant that keeps a
+// cross-node rollover from breaking traffic: a replacement must never be born
+// serving, because that would point the instance's inbound route at a node
+// whose container does not exist yet.
+func TestRolloverReplacementWarmsUpAsStandby(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	t.Cleanup(func() { _ = store.Close() })
+	node := store.EnsurePrimaryNode("primary", "primary")
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
+		SpaceID: sqlite.DefaultSpaceID,
+		Name:    "app",
+	}, node.ID, rolloverSpec("v1"))
+	older := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+
+	next := *rolloverSpec("v2")
+	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, sqlite.DeploymentConfigUpdate{
+		ExpectedVersion: cfg.Version + 1,
+		Spec:            &next,
+	})
+	if !ok {
+		t.Fatal("expected config update to succeed")
+	}
+
+	barrier := newFakeBarrier()
+	barrier.held = true
+	s := New(store, barrier)
+	s.onConfig(*updated)
+
+	byID := statesByID(store, cfg.ID)
+	if len(byID) != 2 {
+		t.Fatalf("ROLLOVER active instances = %d, want 2", len(byID))
+	}
+	if byID[older.ID] != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+		t.Fatalf("older instance state = %v, want still RUN_SERVING", byID[older.ID])
+	}
+	var replacement int32
+	for id, state := range byID {
+		if id == older.ID {
+			continue
+		}
+		replacement = id
+		if state != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY {
+			t.Fatalf("replacement state = %v, want RUN_STANDBY", state)
+		}
+	}
+
+	// The standby takes over only once it reports RUNNING against its own config.
+	markRunning(t, store, replacement, updated.Version, apigen.RunningStatus_STARTING)
+	s.onInstance(fetchState(t, store, replacement))
+	if got := statesByID(store, cfg.ID)[replacement]; got != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY {
+		t.Fatalf("STARTING standby state = %v, want still RUN_STANDBY", got)
+	}
+
+	markRunning(t, store, replacement, updated.Version, apigen.RunningStatus_RUNNING)
+	s.onInstance(fetchState(t, store, replacement))
+	byID = statesByID(store, cfg.ID)
+	if byID[replacement] != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+		t.Fatalf("promoted state = %v, want RUN_SERVING", byID[replacement])
+	}
+	if byID[older.ID] != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
+		t.Fatalf("superseded state = %v, want RUN_DRAINING", byID[older.ID])
+	}
+}
+
+// TestDrainedInstanceWaitsForTheBarrier covers the whole point of the barrier:
+// a superseded placement keeps running, and keeps its routes, until every node
+// has programmed the routing that replaced it.
+func TestDrainedInstanceWaitsForTheBarrier(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	t.Cleanup(func() { _ = store.Close() })
+	node := store.EnsurePrimaryNode("primary", "primary")
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
+		SpaceID: sqlite.DefaultSpaceID,
+		Name:    "app",
+	}, node.ID, rolloverSpec("v1"))
+	older := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	newer := store.CreateScheduledInstance(cfg.ID, cfg.Version+1, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
+
+	barrier := newFakeBarrier()
+	barrier.held = true
+	s := New(store, barrier)
+	s.drainSuperseded(*newer)
+	if got := statesByID(store, cfg.ID)[older.ID]; got != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
+		t.Fatalf("state after supersede = %v, want RUN_DRAINING", got)
+	}
+
+	s.retireDrainedInstances()
+	if got := statesByID(store, cfg.ID)[older.ID]; got != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
+		t.Fatalf("state while the barrier is held = %v, want still RUN_DRAINING", got)
+	}
+
+	barrier.held = false
+	s.retireDrainedInstances()
+	if got := statesByID(store, cfg.ID)[older.ID]; got != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
+		t.Fatalf("state after the barrier cleared = %v, want TERMINATE", got)
+	}
+	if len(s.draining) != 0 {
+		t.Fatalf("retired instance left in the draining set: %+v", s.draining)
+	}
+}
+
+// TestStandbyPromotedWhenServingDies covers the failure the plain readiness
+// handoff cannot: if the serving container stops for good mid-rollover, no
+// readiness signal is ever coming, and leaving the inbound address pointed at
+// it would blackhole the deployment.
+func TestStandbyPromotedWhenServingDies(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	t.Cleanup(func() { _ = store.Close() })
+	node := store.EnsurePrimaryNode("primary", "primary")
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
+		SpaceID: sqlite.DefaultSpaceID,
+		Name:    "app",
+	}, node.ID, rolloverSpec("v1"))
+	older := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+
+	next := *rolloverSpec("v2")
+	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, sqlite.DeploymentConfigUpdate{
+		ExpectedVersion: cfg.Version + 1,
+		Spec:            &next,
+	})
+	if !ok {
+		t.Fatal("expected config update to succeed")
+	}
+	standby := store.CreateScheduledInstance(updated.ID, updated.Version, updated.NodeID, 0,
+		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
+
+	barrier := newFakeBarrier()
+	barrier.held = true
+	s := New(store, barrier)
+
+	// The serving placement stops for good while the standby is still warming.
+	markRunning(t, store, older.ID, cfg.Version, apigen.RunningStatus_STOPPED)
+	s.onInstance(fetchState(t, store, older.ID))
+
+	byID := statesByID(store, cfg.ID)
+	if byID[standby.ID] != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+		t.Fatalf("standby state = %v, want promoted to RUN_SERVING", byID[standby.ID])
+	}
+	if byID[older.ID] != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
+		t.Fatalf("failed serving state = %v, want RUN_DRAINING", byID[older.ID])
+	}
+}
+
+// TestTerminateDeploymentStopsEveryRunnableState guards the state-machine seam:
+// a stopped deployment must retire standbys and draining placements too, not
+// just the serving one.
+func TestTerminateDeploymentStopsEveryRunnableState(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	t.Cleanup(func() { _ = store.Close() })
+	node := store.EnsurePrimaryNode("primary", "primary")
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
+		SpaceID: sqlite.DefaultSpaceID,
+		Name:    "app",
+	}, node.ID, rolloverSpec("v1"))
+
+	serving := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	standby := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
+	draining := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING)
+
+	New(store, newFakeBarrier()).terminateDeployment(cfg.ID)
+
+	byID := statesByID(store, cfg.ID)
+	for name, id := range map[string]int32{"serving": serving.ID, "standby": standby.ID, "draining": draining.ID} {
+		if byID[id] != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
+			t.Fatalf("%s instance state = %v, want TERMINATE", name, byID[id])
+		}
+	}
+}
+
+// restartWith rebuilds the scheduler from what is on disk, exactly as Run does
+// on process start: statuses first, then configs.
+func restartWith(store *sqlite.PrimaryStorage, barrier routeBarrier, cfg *apigen.DeploymentConfig) *Scheduler {
+	s := New(store, barrier)
+	for _, state := range store.FetchScheduledSnapshot(nil) {
+		s.onInstance(state)
+	}
+	s.onConfig(*cfg)
+	return s
+}
+
+// TestRestartHandlesEveryInstanceState pins the startup reconcile against the
+// full target-state set. The draining case is the one with no other owner: the
+// wait that retires it lives only in memory, so a restart has to rebuild it or
+// the placement runs forever.
+func TestRestartHandlesEveryInstanceState(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		state  apigen.ScheduledInstanceTarget
+		status apigen.RunningStatus
+		want   apigen.ScheduledInstanceTarget
+		gone   bool
+	}{
+		{
+			name:   "serving stays serving",
+			state:  apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
+			status: apigen.RunningStatus_RUNNING,
+			want:   apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
+		},
+		{
+			name:   "standby that came up while the primary was down takes over",
+			state:  apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY,
+			status: apigen.RunningStatus_RUNNING,
+			want:   apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
+		},
+		{
+			name:   "standby still warming keeps warming",
+			state:  apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY,
+			status: apigen.RunningStatus_STARTING,
+			want:   apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY,
+		},
+		{
+			name:   "terminate with a live container waits for it to stop",
+			state:  apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE,
+			status: apigen.RunningStatus_RUNNING,
+			want:   apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+			t.Cleanup(func() { _ = store.Close() })
+			node := store.EnsurePrimaryNode("primary", "primary")
+			cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
+				SpaceID: sqlite.DefaultSpaceID,
+				Name:    "app",
+			}, node.ID, rolloverSpec("v1"))
+			// Instances are always born runnable; non-runnable targets are reached
+			// by transition, so build the fixture the same way.
+			initial := tc.state
+			if !initial.WantsRunning() {
+				initial = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING
+			}
+			inst := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, initial)
+			if initial != tc.state {
+				store.SetScheduledInstanceState(inst.ID, tc.state)
+			}
+			markRunning(t, store, inst.ID, cfg.Version, tc.status)
+
+			restartWith(store, newFakeBarrier(), cfg)
+
+			if got := statesByID(store, cfg.ID)[inst.ID]; got != tc.want {
+				t.Fatalf("state after restart = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRestartAdoptsDrainingInstances is the leak case: nothing but the in-memory
+// wait ever moves a placement out of RUN_DRAINING, and drainSuperseded skips
+// anything already draining, so without adoption the container, and its
+// published routes, survive every subsequent reconcile.
+func TestRestartAdoptsDrainingInstances(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	t.Cleanup(func() { _ = store.Close() })
+	node := store.EnsurePrimaryNode("primary", "primary")
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
+		SpaceID: sqlite.DefaultSpaceID,
+		Name:    "app",
+	}, node.ID, rolloverSpec("v1"))
+
+	next := *rolloverSpec("v2")
+	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, sqlite.DeploymentConfigUpdate{
+		ExpectedVersion: cfg.Version + 1, Spec: &next,
+	})
+	if !ok {
+		t.Fatal("config update failed")
+	}
+	// Mid-rollover, as found on disk: the superseded placement draining, its
+	// replacement already serving, both containers up.
+	drainingInst := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0,
+		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING)
+	servingInst := store.CreateScheduledInstance(updated.ID, updated.Version, updated.NodeID, 0,
+		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	markRunning(t, store, drainingInst.ID, cfg.Version, apigen.RunningStatus_RUNNING)
+	markRunning(t, store, servingInst.ID, updated.Version, apigen.RunningStatus_RUNNING)
+
+	s := restartWith(store, newFakeBarrier(), updated)
+
+	// An adopted wait must not trust the barrier: with no acknowledgements
+	// recorded yet, AppliedEverywhere is vacuously true and would retire the
+	// placement instantly, before any worker has confirmed the flip.
+	s.retireDrainedInstances()
+	if got := statesByID(store, cfg.ID)[drainingInst.ID]; got != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
+		t.Fatalf("state before the backstop expired = %v, want still RUN_DRAINING: "+
+			"an adopted wait must not be satisfied by a barrier that has heard from nobody", got)
+	}
+
+	wait, tracked := s.draining[drainingInst.ID]
+	if !tracked {
+		t.Fatal("draining instance was not adopted after restart: nothing else can ever retire it")
+	}
+	if !wait.adopted {
+		t.Fatal("rebuilt wait must be marked adopted")
+	}
+
+	// Repeated reconciles must not keep pushing the deadline out.
+	s.onInstance(fetchState(t, store, drainingInst.ID))
+	if s.draining[drainingInst.ID].deadline != wait.deadline {
+		t.Fatal("re-adoption moved the deadline: the drain would never expire")
+	}
+
+	s.draining[drainingInst.ID] = drainWait{deadline: time.Now().Add(-time.Second), adopted: true}
+	s.retireDrainedInstances()
+	if got := statesByID(store, cfg.ID)[drainingInst.ID]; got != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
+		t.Fatalf("state after the backstop expired = %v, want TERMINATE", got)
+	}
+}

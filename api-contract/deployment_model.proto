@@ -182,23 +182,62 @@ message DeploymentDeleteRequest {
   int32 version = 2; // expected next config version
 }
 
-message DeploymentWithStatus {
-  DeploymentConfig Config = 1 [(cp.go_value) = true];
-  DeploymentStatus status = 2 [(cp.go_value) = true];
+// ScheduledInstanceTarget is the primary-controlled desired runtime state for
+// one scheduled instance assignment.
+//
+// The three RUN_* states are identical to the node's operator: all three mean
+// "run this placement". They differ only in what the network state derives from
+// them, which is what lets cross-node routing be a pure function of assignments
+// with no status input. Exactly one placement per (deployment, ordinal) is
+// RUN_SERVING at a time, and it is the one the instance's stable inbound
+// address routes to.
+enum ScheduledInstanceTarget {
+  SCHEDULED_INSTANCE_TARGET_RUN_SERVING = 0;  // running and owns the inbound address
+  SCHEDULED_INSTANCE_TARGET_TERMINATE = 1;    // node should terminate
+  SCHEDULED_INSTANCE_TARGET_FINALIZED = 2;    // termination acknowledged; leave snapshot
+  SCHEDULED_INSTANCE_TARGET_RUN_STANDBY = 3;  // warming replacement, not yet serving
+  SCHEDULED_INSTANCE_TARGET_RUN_DRAINING = 4; // superseded but still running
 }
 
-message DeploymentStatus {
-  // Hybrid logical clock assigned by the node that owns the deployment:
-  // max(wall_clock_now, prev+1ns). Monotonic per deployment, so it doubles as
-  // both the status's wall-clock time and its identity/ordering key (it backs
-  // the deployment_status_history primary key and gates replication). May run
-  // a few ns ahead of true wall-clock under same-tick writes or clock
-  // regressions. Tag 7 (not 1) so older cluster peers skip it gracefully
-  // during a rolling upgrade rather than mis-decoding the old int64 field.
-  google.protobuf.Timestamp updated_at = 7;
-  int32 deployment_id = 6;  // integer deployment id
+// ScheduledInstance is one placement/runtime incarnation of a deployment
+// instance ordinal on a node, pinned to a specific deployment config version.
+message ScheduledInstance {
+  int32 id = 1;
+  int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int32 deployment_id = 3;
+  int32 deployment_version = 4;
+  int32 node_id = 5;
+  int32 instance_ordinal = 6;
+  ScheduledInstanceTarget state = 7;
+}
+
+// ScheduledInstanceStatus is the observed preparer/runner status for one
+// scheduled instance. UpdatedAt is an HLC assigned by the owning node:
+// max(wall_clock_now, prev+1ns). Monotonic per scheduled instance, so it
+// doubles as wall-clock time and identity/ordering key.
+message ScheduledInstanceStatus {
+  google.protobuf.Timestamp updated_at = 1;
+  int32 scheduled_instance_id = 2;
+  int32 deployment_id = 3;
   PreparerStatus preparer = 4 [(cp.go_value) = true];
   RunnerStatus runner = 5 [(cp.go_value) = true];
+}
+
+// ScheduledInstanceState is the authoritative runtime assignment view: the
+// schedule row, the immutable deployment config version it references, and the
+// latest observed status for that instance.
+message ScheduledInstanceState {
+  ScheduledInstance instance = 1 [(cp.go_value) = true];
+  DeploymentConfig config = 2 [(cp.go_value) = true];
+  ScheduledInstanceStatus status = 3 [(cp.go_value) = true];
+}
+
+message ScheduledInstanceSnapshot {
+  repeated ScheduledInstanceState items = 1;
+}
+
+message DeploymentConfigSnapshot {
+  repeated DeploymentConfig items = 1;
 }
 
 message PreparerStatus {
@@ -218,9 +257,6 @@ message RunnerStatus {
   // read time by resolving deployment_config_version against the config history;
   // not persisted on the status row.
   string running_version = 8;
-  // Virtual-network endpoints, one per instance ordinal (always ordinal 0
-  // today). Empty for host-network deployments.
-  repeated Endpoint endpoints = 9;
   // Networking diagnostics surfaced on the status card (e.g. an IPv4-only
   // listener that is unreachable at its instance address).
   repeated string network_diagnostics = 10;

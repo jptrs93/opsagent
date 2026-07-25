@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/netproxy"
 	"github.com/jptrs93/opsagent/backend/lib/engine"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubrelease"
@@ -64,14 +63,14 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	nixDockerPreparer := nixdocker.New(gitManager)
 	githubReleaseImagePreparer := githubreleaseimage.New(cfg.ReleasesDir, githubClient)
 
-	go netproxy.RunNetStateWriter(ctx, store, nil, cfg.NodeIdentifier, cfg.NetproxyStatePath)
+	go netproxy.RunNetStateWriter(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID), cfg.NodeIdentifier, cfg.NetproxyStatePath)
 	go engine.DeploymentOperator{
 		Store:              store,
 		GithubRelease:      githubReleasePreparer,
 		NixDocker:          nixDockerPreparer,
 		GithubReleaseImage: githubReleaseImagePreparer,
 		RuntimeInputs:      runtimeInputs,
-	}.RunAll(func(dep apigen.DeploymentConfig) bool { return dep.NodeID == cfg.NodeID })
+	}.RunAll(scheduledInstancePredicateForNode(cfg.NodeID))
 
 	runPrimaryConnLoop(ctx, cfg, store, primaryHTTPClient)
 }

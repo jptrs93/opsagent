@@ -32,7 +32,7 @@ ON CONFLICT(deployment_id) DO UPDATE SET
 SELECT deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by,
        spec_blob, deleted
 FROM deployment_configs
-WHERE deleted = 0;
+;
 
 -- === spaces ===
 
@@ -70,17 +70,49 @@ SELECT spec_blob
 FROM deployment_config_history
 WHERE deployment_id = ? AND version = ?;
 
--- === deployment_status ===
+-- name: GetDeploymentConfigHistoryVersion :one
+SELECT deployment_id, version, updated_at, updated_by, space_id, node_id, spec_blob, deleted
+FROM deployment_config_history
+WHERE deployment_id = ? AND version = ?;
 
--- name: UpsertDeploymentStatus :exec
-INSERT INTO deployment_status (
-    deployment_id, updated_at,
+-- === scheduled_instances ===
+
+-- name: InsertScheduledInstance :one
+INSERT INTO scheduled_instances (created_at, deployment_id, deployment_version, node_id, instance_ordinal, state)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id, created_at, deployment_id, deployment_version, node_id, instance_ordinal, state;
+
+-- name: GetScheduledInstance :one
+SELECT id, created_at, deployment_id, deployment_version, node_id, instance_ordinal, state
+FROM scheduled_instances
+WHERE id = ?;
+
+-- name: ListNonFinalScheduledInstances :many
+SELECT id, created_at, deployment_id, deployment_version, node_id, instance_ordinal, state
+FROM scheduled_instances
+WHERE state != 2
+ORDER BY id ASC;
+
+-- name: ListNonFinalScheduledInstancesForDeployment :many
+SELECT id, created_at, deployment_id, deployment_version, node_id, instance_ordinal, state
+FROM scheduled_instances
+WHERE deployment_id = ? AND state != 2
+ORDER BY id ASC;
+
+-- name: UpdateScheduledInstanceState :exec
+UPDATE scheduled_instances SET state = ? WHERE id = ?;
+
+-- === scheduled_instance_status ===
+
+-- name: InsertScheduledInstanceStatus :exec
+INSERT INTO scheduled_instance_status (
+    scheduled_instance_id, updated_at, deployment_id,
     preparer_config_version, preparer_artifact, preparer_status,
     runner_config_version, runner_pid, runner_artifact, runner_status,
     runner_num_restarts, runner_last_restart_at, runner_extra_blob
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(deployment_id) DO UPDATE SET
-    updated_at = excluded.updated_at,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(scheduled_instance_id, updated_at) DO UPDATE SET
+    deployment_id = excluded.deployment_id,
     preparer_config_version = excluded.preparer_config_version,
     preparer_artifact = excluded.preparer_artifact,
     preparer_status = excluded.preparer_status,
@@ -92,40 +124,67 @@ ON CONFLICT(deployment_id) DO UPDATE SET
     runner_last_restart_at = excluded.runner_last_restart_at,
     runner_extra_blob = excluded.runner_extra_blob;
 
--- name: ListAllDeploymentStatuses :many
-SELECT deployment_id, updated_at,
+-- name: ListLatestScheduledInstanceStatuses :many
+SELECT s.scheduled_instance_id, s.updated_at, s.deployment_id,
+       s.preparer_config_version, s.preparer_artifact, s.preparer_status,
+       s.runner_config_version, s.runner_pid, s.runner_artifact, s.runner_status,
+       s.runner_num_restarts, s.runner_last_restart_at, s.runner_extra_blob
+FROM scheduled_instance_status s
+JOIN (
+    SELECT scheduled_instance_id, MAX(updated_at) AS updated_at
+    FROM scheduled_instance_status
+    GROUP BY scheduled_instance_id
+) latest ON latest.scheduled_instance_id = s.scheduled_instance_id AND latest.updated_at = s.updated_at;
+
+-- name: GetLatestScheduledInstanceStatus :one
+SELECT scheduled_instance_id, updated_at, deployment_id,
        preparer_config_version, preparer_artifact, preparer_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
        runner_num_restarts, runner_last_restart_at, runner_extra_blob
-FROM deployment_status;
+FROM scheduled_instance_status
+WHERE scheduled_instance_id = ?
+ORDER BY updated_at DESC
+LIMIT 1;
 
--- === deployment_status_history ===
-
--- name: InsertDeploymentStatusHistory :exec
-INSERT INTO deployment_status_history (
-    deployment_id, updated_at,
-    preparer_config_version, preparer_artifact, preparer_status,
-    runner_config_version, runner_pid, runner_artifact, runner_status,
-    runner_num_restarts, runner_last_restart_at, runner_extra_blob
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-
--- name: ListDeploymentStatusHistory :many
-SELECT deployment_id, updated_at,
+-- name: ListScheduledInstanceStatusHistory :many
+SELECT scheduled_instance_id, updated_at, deployment_id,
        preparer_config_version, preparer_artifact, preparer_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
        runner_num_restarts, runner_last_restart_at, runner_extra_blob
-FROM deployment_status_history
+FROM scheduled_instance_status
+WHERE scheduled_instance_id = ?
+ORDER BY updated_at ASC;
+
+-- name: ListScheduledInstanceStatusHistorySince :many
+SELECT scheduled_instance_id, updated_at, deployment_id,
+       preparer_config_version, preparer_artifact, preparer_status,
+       runner_config_version, runner_pid, runner_artifact, runner_status,
+       runner_num_restarts, runner_last_restart_at, runner_extra_blob
+FROM scheduled_instance_status
+WHERE scheduled_instance_id = ? AND updated_at > ?
+ORDER BY updated_at ASC;
+
+-- name: ListScheduledInstanceStatusHistoryForDeployment :many
+SELECT scheduled_instance_id, updated_at, deployment_id,
+       preparer_config_version, preparer_artifact, preparer_status,
+       runner_config_version, runner_pid, runner_artifact, runner_status,
+       runner_num_restarts, runner_last_restart_at, runner_extra_blob
+FROM scheduled_instance_status
 WHERE deployment_id = ?
 ORDER BY updated_at ASC;
 
--- name: ListDeploymentStatusHistorySince :many
-SELECT deployment_id, updated_at,
-       preparer_config_version, preparer_artifact, preparer_status,
-       runner_config_version, runner_pid, runner_artifact, runner_status,
-       runner_num_restarts, runner_last_restart_at, runner_extra_blob
-FROM deployment_status_history
-WHERE deployment_id = ? AND updated_at > ?
-ORDER BY updated_at ASC;
+-- === local_scheduled_instance_cache ===
+
+-- name: UpsertLocalScheduledInstanceCache :exec
+INSERT INTO local_scheduled_instance_cache (instance_id, blob)
+VALUES (?, ?)
+ON CONFLICT(instance_id) DO UPDATE SET blob = excluded.blob;
+
+-- name: DeleteLocalScheduledInstanceCache :exec
+DELETE FROM local_scheduled_instance_cache WHERE instance_id = ?;
+
+-- name: ListLocalScheduledInstanceCache :many
+SELECT instance_id, blob FROM local_scheduled_instance_cache;
 
 -- === users ===
 

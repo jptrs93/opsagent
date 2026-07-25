@@ -168,7 +168,7 @@ func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, &apigen.DeploymentConfig{
+	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, systemdTestInstanceID, &apigen.DeploymentConfig{
 		ID:       7,
 		Version:  3,
 		Identity: apigen.DeploymentIdentity{SpaceID: 5},
@@ -256,6 +256,58 @@ func TestUsesLatestNetworkConfigAcrossNetproxyVersionUpgrade(t *testing.T) {
 	}
 }
 
+// TestOnlyServingPlacementClaimsInboundAddress pins the gate that keeps two
+// nodes from holding a host route for one instance address. During a cross-node
+// rollover the standby runs a full runner on the other node; if it claimed the
+// address on startup, traffic originating on each node would reach a different
+// container until the cluster map caught up.
+//
+// The assertion leans on Activate being unavailable off Linux: a runner that
+// declines to claim returns nil without reaching it, while one that claims
+// surfaces the platform error. Reaching Activate at all is the behaviour under
+// test.
+func TestOnlyServingPlacementClaimsInboundAddress(t *testing.T) {
+	previous := network.Default
+	network.SetDefault(network.New(network.GeneratePrefix(), 7))
+	t.Cleanup(func() { network.SetDefault(previous) })
+
+	newRunner := func() *containerRunner {
+		return &containerRunner{
+			deploymentID:  42,
+			spaceID:       1,
+			configVersion: 3,
+			latestVersion: 3,
+			networking:    apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL},
+			net:           &network.ContainerNet{ContainerID: "opendeploy-42-v3", DeploymentID: 42},
+		}
+	}
+
+	standby := newRunner()
+	if err := standby.claimInboundAddress(standby.getContainerNet()); err != nil {
+		t.Fatalf("a placement that is not serving must not claim the address: %v", err)
+	}
+
+	serving := newRunner()
+	if err := serving.Serve(); err == nil {
+		t.Fatal("a serving placement must claim the address (expected the non-linux Activate error)")
+	}
+
+	// Host-network deployments have no instance address to claim at all.
+	host := newRunner()
+	host.networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
+	if err := host.Serve(); err != nil {
+		t.Fatalf("host networking must not claim an address: %v", err)
+	}
+
+	// A run superseded on this node must not take the address back from its
+	// replacement, even though both belong to the same serving placement.
+	superseded := newRunner()
+	superseded.latestVersion = 4
+	if err := superseded.Serve(); err != nil {
+		t.Fatalf("a superseded run must not reclaim the address: %v", err)
+	}
+}
+
 func TestContainerNetAddresses(t *testing.T) {
 	p := network.Prefix{0xfd, 0xab, 0xcd, 0xef, 0x12, 0x34}
 	inboundWant, err := p.InboundAddr(5, 7, 0)
@@ -284,5 +336,16 @@ func TestContainerNetAddresses(t *testing.T) {
 	}
 	if nextRun == outbound {
 		t.Fatal("successive runs received the same outbound address")
+	}
+
+	// Two scheduled instances of one deployment must not share an outbound
+	// address. Keying the slot on config version failed here, because moving an
+	// instance to another node creates a second placement at the same version.
+	_, otherPlacement, err := containerNetAddresses(p, 5, 7, 12, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if otherPlacement == outbound {
+		t.Fatal("two scheduled instances received the same outbound address")
 	}
 }

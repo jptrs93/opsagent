@@ -51,10 +51,10 @@ func localWorkloadRoute(addr netip.Addr, linkIndex int) netlink.Route {
 	}
 }
 
-func remoteWorkloadRoute(addr netip.Addr, tunnelLinkIndex int) netlink.Route {
+func remoteWorkloadRoute(prefix netip.Prefix, tunnelLinkIndex int) netlink.Route {
 	return netlink.Route{
 		LinkIndex: tunnelLinkIndex,
-		Dst:       netipPrefixToIPNet(netip.PrefixFrom(addr, 128)),
+		Dst:       netipPrefixToIPNet(prefix),
 		Protocol:  routeProtocolOpenDeploy,
 		Table:     unix.RT_TABLE_MAIN,
 		Type:      unix.RTN_UNICAST,

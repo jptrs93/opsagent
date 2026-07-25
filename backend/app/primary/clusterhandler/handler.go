@@ -63,13 +63,13 @@ func requireMachine(ctx context.Context) (string, error) {
 	return machine, nil
 }
 
-func deploymentPredicateForNode(nodeID int32) storage.DeploymentPredicate {
-	return func(cfg apigen.DeploymentConfig) bool {
-		return cfg.NodeID == nodeID
+func scheduledInstancePredicateForNode(nodeID int32) storage.ScheduledInstancePredicate {
+	return func(state apigen.ScheduledInstanceState) bool {
+		return state.Instance.NodeID == nodeID
 	}
 }
 
-func (p *Handler) requireDeploymentPredicate(ctx context.Context) (storage.DeploymentPredicate, error) {
+func (p *Handler) requireScheduledInstancePredicate(ctx context.Context) (storage.ScheduledInstancePredicate, error) {
 	machine, err := requireMachine(ctx)
 	if err != nil {
 		return nil, err
@@ -78,7 +78,7 @@ func (p *Handler) requireDeploymentPredicate(ctx context.Context) (storage.Deplo
 	if err != nil {
 		return nil, clusterForbiddenErr
 	}
-	return deploymentPredicateForNode(nodeID), nil
+	return scheduledInstancePredicateForNode(nodeID), nil
 }
 
 // Handler manages worker sessions and forwards state between the local store
@@ -103,6 +103,11 @@ type assetProvider interface {
 
 type networkMapProvider interface {
 	SnapshotAndSubscribe(nodeID int32) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func())
+	// RecordApplied and ForgetNode drive the barrier that holds back retiring a
+	// draining placement until every worker has programmed the routing that
+	// replaced it.
+	RecordApplied(nodeID int32, appliedSequence int64)
+	ForgetNode(nodeID int32)
 }
 
 // New creates a cluster handler.
@@ -120,7 +125,7 @@ func New(store *sqlite.PrimaryStorage, assets assetProvider, githubCredentials g
 }
 
 func (p *Handler) GetV1ClusterGithubCredentials(authCtx apigen.Context) (*apigen.GithubCredentials, error) {
-	predicate, err := p.requireDeploymentPredicate(authCtx)
+	predicate, err := p.requireScheduledInstancePredicate(authCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +144,7 @@ func (p *Handler) GetV1ClusterAsset(authCtx apigen.Context, r *http.Request, w h
 	if err != nil {
 		return err
 	}
-	predicate, err := p.requireDeploymentPredicate(authCtx)
+	predicate, err := p.requireScheduledInstancePredicate(authCtx)
 	if err != nil {
 		return err
 	}
@@ -177,26 +182,31 @@ func int32QueryParam(r *http.Request, name string) (int32, error) {
 }
 
 type clusterAllowedRefs struct {
-	deploymentIDs map[int32]struct{}
-	secretIDs     map[int32]struct{}
-	configIDs     map[int32]struct{}
-	assetIDs      map[int32]struct{}
-	usesGithub    bool
+	scheduledInstanceIDs map[int32]struct{}
+	deploymentIDs        map[int32]struct{}
+	secretIDs            map[int32]struct{}
+	configIDs            map[int32]struct{}
+	assetIDs             map[int32]struct{}
+	usesGithub           bool
 }
 
-func (p *Handler) allowedRefs(predicate storage.DeploymentPredicate) clusterAllowedRefs {
-	return buildAllowedRefs(p.store.FetchDeploymentSnapshot(predicate))
+func (p *Handler) allowedRefs(predicate storage.ScheduledInstancePredicate) clusterAllowedRefs {
+	return buildAllowedRefs(p.store.FetchScheduledSnapshot(predicate))
 }
 
-func buildAllowedRefs(snapshot []apigen.DeploymentWithStatus) clusterAllowedRefs {
+func buildAllowedRefs(snapshot []apigen.ScheduledInstanceState) clusterAllowedRefs {
 	refs := clusterAllowedRefs{
-		deploymentIDs: make(map[int32]struct{}),
-		secretIDs:     make(map[int32]struct{}),
-		configIDs:     make(map[int32]struct{}),
-		assetIDs:      make(map[int32]struct{}),
+		scheduledInstanceIDs: make(map[int32]struct{}),
+		deploymentIDs:        make(map[int32]struct{}),
+		secretIDs:            make(map[int32]struct{}),
+		configIDs:            make(map[int32]struct{}),
+		assetIDs:             make(map[int32]struct{}),
 	}
-	for _, dws := range snapshot {
-		cfg := dws.Config
+	for _, state := range snapshot {
+		cfg := state.Config
+		if state.Instance.ID != 0 {
+			refs.scheduledInstanceIDs[state.Instance.ID] = struct{}{}
+		}
 		if cfg.ID != 0 {
 			refs.deploymentIDs[cfg.ID] = struct{}{}
 		}
@@ -229,6 +239,11 @@ func buildAllowedRefs(snapshot []apigen.DeploymentWithStatus) clusterAllowedRefs
 		}
 	}
 	return refs
+}
+
+func (r clusterAllowedRefs) scheduledInstanceAllowed(id int32) bool {
+	_, ok := r.scheduledInstanceIDs[id]
+	return ok
 }
 
 func (r clusterAllowedRefs) deploymentAllowed(id int32) bool {
@@ -268,7 +283,7 @@ func (p *Handler) GetV1ClusterSecrets(authCtx apigen.Context, req *apigen.Cluste
 	if req == nil || len(req.Ids) == 0 {
 		return nil, fmt.Errorf("at least one secret id is required")
 	}
-	predicate, err := p.requireDeploymentPredicate(authCtx)
+	predicate, err := p.requireScheduledInstancePredicate(authCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +305,7 @@ func (p *Handler) GetV1ClusterConfigs(authCtx apigen.Context, req *apigen.Cluste
 	if req == nil || len(req.Ids) == 0 {
 		return nil, fmt.Errorf("at least one config id is required")
 	}
-	predicate, err := p.requireDeploymentPredicate(authCtx)
+	predicate, err := p.requireScheduledInstancePredicate(authCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +340,7 @@ func (p *Handler) PostV1ClusterConnect(authCtx apigen.Context, reqs iter.Seq2[*a
 			yield(nil, fmt.Errorf("cluster node %q is not registered", machine))
 			return
 		}
-		predicate := deploymentPredicateForNode(nodeID)
+		predicate := scheduledInstancePredicateForNode(nodeID)
 
 		sessCtx, cancel := context.WithCancel(authCtx)
 		defer cancel()

@@ -8,17 +8,38 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 )
 
-const ClusterProtocolVersion int32 = 3
+const ClusterProtocolVersion int32 = 5
+
+// WantsRunning reports whether a node should be running this placement. The
+// three RUN_* states are deliberately indistinguishable here: they differ only
+// in what cross-node routing derives from them, never in what the operator
+// does. Every target-state check in the engine must go through this rather than
+// comparing against RUN_SERVING, or a standby placement silently never starts.
+func (t ScheduledInstanceTarget) WantsRunning() bool {
+	switch t {
+	case ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
+		ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY,
+		ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsFinal reports whether the primary has accepted that this placement is gone.
+func (t ScheduledInstanceTarget) IsFinal() bool {
+	return t == ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED
+}
 
 // BumpUpdatedAt advances UpdatedAt as a hybrid logical clock: it takes the
 // current wall clock, but never returns a value <= the previous one (it adds
-// a nanosecond instead). This keeps the value monotonic per deployment across
-// clock regressions and same-tick writes, while tracking physical time closely
-// enough that a node which lost its local state (e.g. a freshly provisioned
-// replacement) resumes above any history the primary retained, with no reseed
-// handshake. UpdatedAt thus serves as both the status's wall-clock time and
-// its monotonic identity/ordering key.
-func (s *DeploymentStatus) BumpUpdatedAt() {
+// a nanosecond instead). This keeps the value monotonic per scheduled instance
+// across clock regressions and same-tick writes, while tracking physical time
+// closely enough that a node which lost its local state (e.g. a freshly
+// provisioned replacement) resumes above any history the primary retained,
+// with no reseed handshake. UpdatedAt thus serves as both the status's
+// wall-clock time and its monotonic identity/ordering key.
+func (s *ScheduledInstanceStatus) BumpUpdatedAt() {
 	now := time.Now().Round(0)
 	previous := s.UpdatedAt.Round(0)
 	if now.After(previous) {
@@ -54,6 +75,14 @@ func (d *DeploymentConfig) WorkloadVersion() string {
 
 func (d *DeploymentConfig) WorkloadRunning() bool {
 	return d.Spec.WorkloadRunning()
+}
+
+func (d *DeploymentConfig) EffectiveUpgradeStrategy() ContainerUpgradeStrategy {
+	container := d.Spec.Container()
+	if container == nil || container.UpgradeStrategy == ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED {
+		return ContainerUpgradeStrategy_RECREATE
+	}
+	return container.UpgradeStrategy
 }
 
 func (d *DeploymentConfig) SetWorkloadState(version string, running bool) error {

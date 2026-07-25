@@ -184,10 +184,7 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 	}
 	h.store.EnsureSystemDeployment(nodeID, version.Version)
 	h.store.EnsureNetproxyDeployment(nodeID, version.Version)
-	predicate := storage.DeploymentPredicate(func(cfg apigen.DeploymentConfig) bool {
-		return cfg.NodeID == nodeID
-	})
-	nodeDeployment, nodeNetDeployment := enrollmentBootstrapDeployments(h.store.FetchDeploymentSnapshot(predicate))
+	nodeDeployment, nodeNetDeployment := h.ensureEnrollmentBootstrapInstances(nodeID)
 	if nodeDeployment == nil || nodeNetDeployment == nil {
 		return nil, fmt.Errorf("enrollment bootstrap deployments missing for worker %q", sess.requestingMachineID)
 	}
@@ -217,15 +214,31 @@ func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.Enrollm
 	return status, nil
 }
 
-func enrollmentBootstrapDeployments(snapshot []apigen.DeploymentWithStatus) (*apigen.DeploymentWithStatus, *apigen.DeploymentWithStatus) {
-	var nodeDeployment *apigen.DeploymentWithStatus
-	var nodeNetDeployment *apigen.DeploymentWithStatus
+func (h *Handler) ensureEnrollmentBootstrapInstances(nodeID int32) (*apigen.ScheduledInstanceState, *apigen.ScheduledInstanceState) {
+	predicate := storage.ScheduledInstancePredicate(func(state apigen.ScheduledInstanceState) bool {
+		return state.Instance.NodeID == nodeID
+	})
+	for _, cfg := range h.store.FetchDeploymentSnapshot(func(c apigen.DeploymentConfig) bool { return c.NodeID == nodeID }) {
+		if !sqlite.IsSystemDeploymentConfig(&cfg) && !sqlite.IsNetproxyDeploymentConfig(&cfg) {
+			continue
+		}
+		// A node being enrolled has no placements yet, so its system deployments
+		// start out serving rather than warming up behind something.
+		h.store.EnsureRunScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0,
+			apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	}
+	return enrollmentBootstrapInstances(h.store.FetchScheduledSnapshot(predicate))
+}
+
+func enrollmentBootstrapInstances(snapshot []apigen.ScheduledInstanceState) (*apigen.ScheduledInstanceState, *apigen.ScheduledInstanceState) {
+	var nodeDeployment *apigen.ScheduledInstanceState
+	var nodeNetDeployment *apigen.ScheduledInstanceState
 	for i := range snapshot {
 		item := &snapshot[i]
-		if sqlite.IsSystemDeploymentConfig(&item.Config) {
+		if sqlite.IsSystemDeploymentConfig(&item.Config) && (nodeDeployment == nil || item.Instance.ID > nodeDeployment.Instance.ID) {
 			nodeDeployment = item
 		}
-		if sqlite.IsNetproxyDeploymentConfig(&item.Config) {
+		if sqlite.IsNetproxyDeploymentConfig(&item.Config) && (nodeNetDeployment == nil || item.Instance.ID > nodeNetDeployment.Instance.ID) {
 			nodeNetDeployment = item
 		}
 	}

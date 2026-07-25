@@ -9,19 +9,22 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
+	"github.com/jptrs93/opsagent/backend/util/version"
 )
+
+const systemdTestInstanceID int32 = 1
 
 type fakeOperatorStore struct {
 	mu       sync.Mutex
-	status   apigen.DeploymentStatus
+	status   apigen.ScheduledInstanceStatus
 	statuses []apigen.RunnerStatus
 }
 
-func (s *fakeOperatorStore) MustWriteDeploymentStatus(deploymentID int32, f func(*apigen.DeploymentStatus) bool) {
+func (s *fakeOperatorStore) MustWriteScheduledInstanceStatus(instanceID int32, f func(*apigen.ScheduledInstanceStatus) bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.status.DeploymentID == 0 {
-		s.status.DeploymentID = deploymentID
+	if s.status.ScheduledInstanceID == 0 {
+		s.status.ScheduledInstanceID = instanceID
 	}
 	if !f(&s.status) {
 		return
@@ -29,8 +32,8 @@ func (s *fakeOperatorStore) MustWriteDeploymentStatus(deploymentID int32, f func
 	s.statuses = append(s.statuses, s.status.Runner)
 }
 
-func (s *fakeOperatorStore) MustFetchSnapshotAndSubscribe(storage.DeploymentPredicate) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus, func()) {
-	return nil, make(chan apigen.DeploymentWithStatus), func() {}
+func (s *fakeOperatorStore) MustFetchScheduledSnapshotAndSubscribe(storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan apigen.ScheduledInstanceState, func()) {
+	return nil, make(chan apigen.ScheduledInstanceState), func() {}
 }
 
 func (s *fakeOperatorStore) runnerStatuses() []apigen.RunnerStatus {
@@ -53,7 +56,7 @@ func TestSystemdReAttachPublishesSelfObservedRunning(t *testing.T) {
 		NumberOfRestarts:        2,
 	}
 
-	r := reAttachSystemdRunner(store, dep, prev)
+	r := reAttachSystemdRunner(store, systemdTestInstanceID, dep, prev)
 	r.Stop()
 
 	statuses := store.runnerStatuses()
@@ -83,7 +86,7 @@ func TestObserveExistingSystemdRunnerPublishesCurrentProcessRunning(t *testing.T
 	store := &fakeOperatorStore{}
 	dep := systemdTestDeployment(binPath)
 
-	r := observeExistingSystemdRunner(store, dep)
+	r := observeExistingSystemdRunner(store, systemdTestInstanceID, dep)
 	r.Stop()
 
 	statuses := store.runnerStatuses()
@@ -102,6 +105,32 @@ func TestObserveExistingSystemdRunnerPublishesCurrentProcessRunning(t *testing.T
 	}
 	if got.RunningArtifact != artifactPath {
 		t.Fatalf("running artifact = %q, want %q", got.RunningArtifact, artifactPath)
+	}
+}
+
+func TestReAttachRunningObservesOnlyMatchingSystemdBuild(t *testing.T) {
+	binPath, _ := systemdTestSymlink(t)
+	matchingStore := &fakeOperatorStore{}
+	matching := systemdTestDeployment(binPath)
+	matching.Spec.SystemdSpec.Version = version.Version
+	matchingRunner := ReAttachRunning(matchingStore, nil, systemdTestInstanceID, matching, apigen.RunnerStatus{})
+	matchingRunner.Stop()
+	statuses := matchingStore.runnerStatuses()
+	if len(statuses) != 1 || statuses[0].Status != apigen.RunningStatus_RUNNING {
+		t.Fatalf("matching build statuses = %+v, want one RUNNING", statuses)
+	}
+
+	mismatchedStore := &fakeOperatorStore{}
+	mismatched := systemdTestDeployment(binPath)
+	mismatched.Spec.SystemdSpec.Version = version.Version + "-next"
+	stale := apigen.RunnerStatus{DeploymentConfigVersion: mismatched.Version, Status: apigen.RunningStatus_STARTING}
+	mismatchedRunner := ReAttachRunning(mismatchedStore, nil, systemdTestInstanceID, mismatched, stale)
+	mismatchedRunner.Stop()
+	if statuses := mismatchedStore.runnerStatuses(); len(statuses) != 0 {
+		t.Fatalf("mismatched build published statuses: %+v", statuses)
+	}
+	if mismatchedRunner.Version() != -1 {
+		t.Fatalf("mismatched runner version = %d, want stopped sentinel", mismatchedRunner.Version())
 	}
 }
 
@@ -135,7 +164,7 @@ func TestSystemdRestartLeavesStatusStartingForRestartedProcess(t *testing.T) {
 	}
 	defer func() { systemctlRestartCommand = prevRestart }()
 
-	r := newSystemdRunnerWithRestart(store, dep, preparerStatus)
+	r := newSystemdRunnerWithRestart(store, systemdTestInstanceID, dep, preparerStatus)
 	r.Stop()
 
 	if restartCalls != 1 {

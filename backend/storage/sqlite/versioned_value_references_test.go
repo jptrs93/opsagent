@@ -223,3 +223,63 @@ func TestRenameUserConfigPublishesEveryHistoricalVersion(t *testing.T) {
 		t.Fatalf("missing renamed config IDs: %v", wantIDs)
 	}
 }
+
+func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
+	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	defer store.Close()
+	node := testNode(store, "primary")
+	insert := func(value byte, update bool, expected []storage.DeploymentConfigVersion) (secrets.Record, []int32, error) {
+		return store.InsertSecretWithDeploymentUpdates(secrets.Record{
+			Name:       "pgpassword",
+			SpaceID:    DefaultSpaceID,
+			SMKVersion: 1,
+			Ciphertext: []byte{value},
+			Nonce:      []byte{value},
+			CreatedAt:  int64(value),
+		}, update, expected, nil)
+	}
+	first, _, err := insert(1, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	create := func(name string) *apigen.DeploymentConfig {
+		return store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
+			SpaceID: DefaultSpaceID,
+			Name:    name,
+		}, node.ID, envRefSpec(nil, map[string]int32{"POSTGRES_PASSWORD": first.ID}))
+	}
+	original := create("original")
+	live := create("live")
+
+	deleted := true
+	_, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, original.ID, DeploymentConfigUpdate{
+		ExpectedVersion: original.Version + 1,
+		Deleted:         &deleted,
+	})
+	if !ok {
+		t.Fatal("soft delete failed")
+	}
+
+	// The UI sends only the live deployment: the frontend filters tombstones out
+	// when assembling referencingDeployments.
+	second, updatedIDs, err := insert(2, true, []storage.DeploymentConfigVersion{
+		{ID: live.ID, Version: live.Version},
+	})
+	if err != nil {
+		t.Fatalf("rotation rejected: %v", err)
+	}
+	if len(updatedIDs) != 1 || updatedIDs[0] != live.ID {
+		t.Fatalf("updated deployments = %v, want only %d", updatedIDs, live.ID)
+	}
+	if got := deploymentEnvRefID(t, store.configCache[live.ID], "POSTGRES_PASSWORD", true); got != second.ID {
+		t.Fatalf("live deployment secret ref = %d, want %d", got, second.ID)
+	}
+	tombstone := store.configCache[original.ID]
+	if got := deploymentEnvRefID(t, tombstone, "POSTGRES_PASSWORD", true); got != first.ID {
+		t.Fatalf("tombstone secret ref = %d, want it left at %d", got, first.ID)
+	}
+	if tombstone.Version != original.Version+1 {
+		t.Fatalf("tombstone version = %d, want %d: rotation must not rewrite it",
+			tombstone.Version, original.Version+1)
+	}
+}

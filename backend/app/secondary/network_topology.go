@@ -43,11 +43,11 @@ func topologyFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, p
 		if route == nil || route.HostingNodeID == nodeID {
 			continue
 		}
-		addr, err := netip.ParseAddr(route.LogicalAddress)
+		destination, err := netip.ParsePrefix(route.LogicalPrefix)
 		if err != nil {
-			return network.Topology{}, fmt.Errorf("parsing logical route address %q: %w", route.LogicalAddress, err)
+			return network.Topology{}, fmt.Errorf("parsing logical route prefix %q: %w", route.LogicalPrefix, err)
 		}
-		topology.Routes = append(topology.Routes, network.RemoteRoute{Addr: addr, NodeID: route.HostingNodeID})
+		topology.Routes = append(topology.Routes, network.RemoteRoute{Prefix: destination, NodeID: route.HostingNodeID})
 		remoteHosts[route.HostingNodeID] = struct{}{}
 	}
 	if len(remoteHosts) == 0 {

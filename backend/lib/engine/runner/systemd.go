@@ -23,8 +23,9 @@ type systemdRunner struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 
-	store        storage.OperatorStore
-	deploymentID int32
+	store               storage.OperatorStore
+	scheduledInstanceID int32
+	deploymentID        int32
 
 	status apigen.RunnerStatus
 
@@ -37,20 +38,21 @@ var systemctlRestartCommand = systemctlRestart
 // reAttachSystemdRunner publishes the current process as the running systemd
 // deployment. For OpenDeploy self-management, reaching this code proves the
 // service is running; polling systemd only adds transient restart-state races.
-func reAttachSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig, runnerStatus apigen.RunnerStatus) *systemdRunner {
-	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
+func reAttachSystemdRunner(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentConfig, runnerStatus apigen.RunnerStatus) *systemdRunner {
+	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	sys := dep.Spec.SystemdSpec.Runtime
 	runnerStatus.RunningArtifact = resolveSystemdRunnerArtifact(sys.BinPath)
 	runnerStatus.RunningPid = int32(os.Getpid())
 	runnerStatus.Status = apigen.RunningStatus_RUNNING
 	r := &systemdRunner{
-		ctx:          ctx,
-		cancel:       cancel,
-		done:         make(chan struct{}),
-		store:        store,
-		deploymentID: dep.ID,
-		status:       runnerStatus,
-		unitName:     normalizeUnit(sys.Name),
+		ctx:                 ctx,
+		cancel:              cancel,
+		done:                make(chan struct{}),
+		store:               store,
+		scheduledInstanceID: instanceID,
+		deploymentID:        dep.ID,
+		status:              runnerStatus,
+		unitName:            normalizeUnit(sys.Name),
 	}
 	close(r.done)
 	r.writeStatus()
@@ -60,15 +62,16 @@ func reAttachSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentCo
 // observeExistingSystemdRunner is the first-install path for OpenDeploy's own
 // systemd deployment. It does not restart or install anything; it publishes the
 // already-running current process.
-func observeExistingSystemdRunner(store storage.OperatorStore, dep *apigen.DeploymentConfig) *systemdRunner {
-	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
+func observeExistingSystemdRunner(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentConfig) *systemdRunner {
+	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	sys := dep.Spec.SystemdSpec.Runtime
 	r := &systemdRunner{
-		ctx:          ctx,
-		cancel:       cancel,
-		done:         make(chan struct{}),
-		store:        store,
-		deploymentID: dep.ID,
+		ctx:                 ctx,
+		cancel:              cancel,
+		done:                make(chan struct{}),
+		store:               store,
+		scheduledInstanceID: instanceID,
+		deploymentID:        dep.ID,
 		status: apigen.RunnerStatus{
 			DeploymentConfigVersion: dep.Version,
 			RunningPid:              int32(os.Getpid()),
@@ -87,15 +90,16 @@ func observeExistingSystemdRunner(store storage.OperatorStore, dep *apigen.Deplo
 // process reattaches and publishes RUNNING.
 // Called only from runner.Create when the operator has a new artifact ready.
 // No retries — if install or restart fails, it writes CRASHED and exits.
-func newSystemdRunnerWithRestart(store storage.OperatorStore, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *systemdRunner {
-	ctx, cancel := context.WithCancel(deploymentLogContext(dep))
+func newSystemdRunnerWithRestart(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *systemdRunner {
+	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	sys := dep.Spec.SystemdSpec.Runtime
 	r := &systemdRunner{
-		ctx:          ctx,
-		cancel:       cancel,
-		done:         make(chan struct{}),
-		store:        store,
-		deploymentID: dep.ID,
+		ctx:                 ctx,
+		cancel:              cancel,
+		done:                make(chan struct{}),
+		store:               store,
+		scheduledInstanceID: instanceID,
+		deploymentID:        dep.ID,
 		status: apigen.RunnerStatus{
 			DeploymentConfigVersion: preparerStatus.DeploymentConfigVersion,
 			RunningPid:              0,
@@ -114,6 +118,10 @@ func newSystemdRunnerWithRestart(store storage.OperatorStore, dep *apigen.Deploy
 
 func (r *systemdRunner) Version() int32                   { return r.status.DeploymentConfigVersion }
 func (r *systemdRunner) ArtifactMissing() <-chan struct{} { return nil }
+
+// Serve is a no-op: systemd deployments run in the host network namespace and
+// have no instance address to claim.
+func (r *systemdRunner) Serve() error { return nil }
 
 // Stop cancels any in-flight install/restart. It does NOT stop the systemd unit.
 func (r *systemdRunner) Stop() {
@@ -154,12 +162,13 @@ func (r *systemdRunner) updateStatus(status apigen.RunningStatus, pid int32) {
 }
 
 func (r *systemdRunner) writeStatus() {
-	r.store.MustWriteDeploymentStatus(r.deploymentID, func(s *apigen.DeploymentStatus) bool {
+	r.store.MustWriteScheduledInstanceStatus(r.scheduledInstanceID, func(s *apigen.ScheduledInstanceStatus) bool {
 		if !s.Runner.IsZero() && s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion {
 			slog.InfoContext(r.ctx, "discarding status update from superseded runner")
 			return false
 		}
 		s.BumpUpdatedAt()
+		s.ScheduledInstanceID = r.scheduledInstanceID
 		s.DeploymentID = r.deploymentID
 		s.Runner = r.status
 		return true
