@@ -86,6 +86,8 @@ func (p *Preparer) downloadReleaseAsset(ctx context.Context, version string, log
 		return "", fmt.Errorf("creating release dir: %w", err)
 	}
 	dstPath := filepath.Join(dstDir, asset.Name)
+	unlock := p.github.LockAssetDownload()
+	defer unlock()
 	if info, err := os.Stat(dstPath); err == nil && info.Size() == asset.Size && info.Mode().Perm()&0o111 != 0 {
 		log.Write("using cached asset %s", dstPath)
 		return dstPath, nil

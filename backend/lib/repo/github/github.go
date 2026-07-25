@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
@@ -20,8 +21,9 @@ const defaultAPIBaseURL = "https://api.github.com"
 var ErrReleaseNotFound = errors.New("release not found")
 
 type Client struct {
-	credentials githubcredentials.Provider
-	apiBaseURL  string
+	credentials        githubcredentials.Provider
+	apiBaseURL         string
+	assetDownloadMutex sync.Mutex
 }
 
 type Option func(*Client)
@@ -42,6 +44,12 @@ func NewClient(provider githubcredentials.Provider, options ...Option) *Client {
 		option(c)
 	}
 	return c
+}
+
+// LockAssetDownload serializes release asset cache checks and downloads.
+func (c *Client) LockAssetDownload() func() {
+	c.assetDownloadMutex.Lock()
+	return c.assetDownloadMutex.Unlock
 }
 
 type Release struct {
