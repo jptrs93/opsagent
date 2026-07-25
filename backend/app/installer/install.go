@@ -254,7 +254,7 @@ func runUpgrade(version, arch string, st *staged, opts installOptions) error {
 		return err
 	}
 	if opts.role == "primary" && !dryRun {
-		if err := (primarybootstrap.Service{DataDir: dataDir}).MigrateAndValidate(context.Background()); err != nil {
+		if err := (primarybootstrap.Service{DataDir: dataDir}).Validate(context.Background()); err != nil {
 			return fmt.Errorf("validating primary before upgrade: %w", err)
 		}
 	}
@@ -420,7 +420,7 @@ func initializePrimary(opts installOptions, own owner) (*bootstrapCredentials, e
 		if opts.restore == nil && (opts.hasPrimaryConfigOverrides() || opts.primaryName != nil) {
 			return nil, fmt.Errorf("initial primary config and primary name flags cannot be applied when preserving an existing database")
 		}
-		if err := service.MigrateAndValidate(context.Background()); err != nil {
+		if err := service.Validate(context.Background()); err != nil {
 			return nil, fmt.Errorf("validating existing primary bootstrap state: %w", err)
 		}
 		if err := securePrimaryBootstrapArtifacts(own); err != nil {

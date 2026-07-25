@@ -53,36 +53,6 @@ func TestPrimaryStorageIgnoresRetiredDesiredStateColumns(t *testing.T) {
 	}
 }
 
-func TestPrimaryMigrationAddsEnrollmentUnderlayAddress(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	db, err := sql.Open("sqlite", "file:"+dbPath)
-	if err != nil {
-		t.Fatalf("open old database: %v", err)
-	}
-	_, err = db.Exec(`CREATE TABLE enrollment_requests (
-		id INTEGER PRIMARY KEY,
-		created_at INTEGER NOT NULL,
-		updated_at INTEGER NOT NULL,
-		requesting_ip_address TEXT NOT NULL DEFAULT '',
-		requesting_machine_id TEXT NOT NULL,
-		opendeploy_version TEXT NOT NULL DEFAULT '',
-		status TEXT NOT NULL DEFAULT 'waiting'
-	)`)
-	if err != nil {
-		t.Fatalf("create old enrollment table: %v", err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("close old database: %v", err)
-	}
-
-	store := NewPrimaryStorage(dbPath)
-	defer store.Close()
-	req := store.MustUpsertEnrollmentRequest("127.0.0.1", "worker", "v1", "10.0.0.2")
-	if req.UnderlayAddress != "10.0.0.2" {
-		t.Fatalf("underlay address = %q, want 10.0.0.2", req.UnderlayAddress)
-	}
-}
-
 func testNode(store *PrimaryStorage, identifier string) *Node {
 	return store.EnsurePrimaryNode(identifier, identifier)
 }

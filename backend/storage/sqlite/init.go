@@ -4,8 +4,6 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
-	"log/slog"
-	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -13,23 +11,7 @@ import (
 //go:embed sql/schema.sql
 var schema string
 
-//go:embed sql/primary-migrations/migrations.sql
-var primaryMigrations string
-
-//go:embed sql/secondary-migrations/migrations.sql
-var secondaryMigrations string
-
-func mustInitPrimary(dbPath string) *sql.DB {
-	db := mustInit(dbPath, primaryMigrations)
-	migrateDeploymentConfigHistoryPlacement(db)
-	return db
-}
-
-func mustInitSecondary(dbPath string) *sql.DB {
-	return mustInit(dbPath, secondaryMigrations)
-}
-
-func mustInit(dbPath, migrations string) *sql.DB {
+func mustInit(dbPath string) *sql.DB {
 	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=journal_mode(wal)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		panic(fmt.Sprintf("open sqlite: %v", err))
@@ -37,169 +19,5 @@ func mustInit(dbPath, migrations string) *sql.DB {
 	if _, err := db.Exec(schema); err != nil {
 		panic(fmt.Sprintf("exec schema: %v", err))
 	}
-	migrateVersionedSecretConfigTables(db)
-	applyMigrations(db, migrations)
 	return db
-}
-
-func migrateVersionedSecretConfigTables(db *sql.DB) {
-	if tableHasColumn(db, "configs", "config_group") || tableHasColumn(db, "configs", "updated_at") || !tableHasColumn(db, "configs", "version") {
-		rebuildConfigsTable(db)
-	}
-	if tableHasColumn(db, "secrets", "secret_group") || tableHasColumn(db, "secrets", "updated_at") || !tableHasColumn(db, "secrets", "version") {
-		rebuildSecretsTable(db)
-	}
-}
-
-func migrateDeploymentConfigHistoryPlacement(db *sql.DB) {
-	hasSpaceID := tableHasColumn(db, "deployment_config_history", "space_id")
-	hasNodeID := tableHasColumn(db, "deployment_config_history", "node_id")
-	if hasSpaceID && hasNodeID {
-		return
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		panic(fmt.Sprintf("begin deployment config history placement migration: %v", err))
-	}
-	defer tx.Rollback()
-	if !hasSpaceID {
-		if _, err := tx.Exec("ALTER TABLE deployment_config_history ADD COLUMN space_id INTEGER NOT NULL DEFAULT 1"); err != nil {
-			panic(fmt.Sprintf("add deployment config history space_id: %v", err))
-		}
-	}
-	if !hasNodeID {
-		if _, err := tx.Exec("ALTER TABLE deployment_config_history ADD COLUMN node_id INTEGER NOT NULL DEFAULT 0"); err != nil {
-			panic(fmt.Sprintf("add deployment config history node_id: %v", err))
-		}
-	}
-	if _, err := tx.Exec(`
-UPDATE deployment_config_history
-SET space_id = COALESCE(
-        (SELECT space_id FROM deployment_configs WHERE deployment_configs.deployment_id = deployment_config_history.deployment_id),
-        1
-    ),
-    node_id = COALESCE(
-        (SELECT node_id FROM deployment_configs WHERE deployment_configs.deployment_id = deployment_config_history.deployment_id),
-        0
-    )`); err != nil {
-		panic(fmt.Sprintf("backfill deployment config history placement: %v", err))
-	}
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit deployment config history placement migration: %v", err))
-	}
-}
-
-func tableHasColumn(db *sql.DB, table, column string) bool {
-	rows, err := db.Query("PRAGMA table_info(" + table + ")")
-	if err != nil {
-		panic(fmt.Sprintf("table_info %s: %v", table, err))
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid int
-		var name, typ string
-		var notNull int
-		var defaultValue any
-		var pk int
-		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
-			panic(fmt.Sprintf("scan table_info %s: %v", table, err))
-		}
-		if name == column {
-			return true
-		}
-	}
-	if err := rows.Err(); err != nil {
-		panic(fmt.Sprintf("table_info rows %s: %v", table, err))
-	}
-	return false
-}
-
-func rebuildConfigsTable(db *sql.DB) {
-	const stmts = `
-ALTER TABLE configs RENAME TO configs_pre_versioning;
-CREATE TABLE configs (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    name         TEXT    NOT NULL,
-    version      INTEGER NOT NULL DEFAULT 1,
-    space_id     INTEGER NOT NULL DEFAULT 1,
-    value        TEXT    NOT NULL DEFAULT '',
-    created_at   INTEGER NOT NULL,
-    updated_by   INTEGER NOT NULL DEFAULT 0,
-    UNIQUE (name, version)
-);
-INSERT INTO configs (id, name, version, space_id, value, created_at, updated_by)
-SELECT id, name, 1, space_id, value, created_at, updated_by
-FROM configs_pre_versioning;
-DROP TABLE configs_pre_versioning;`
-	if _, err := db.Exec(stmts); err != nil {
-		panic(fmt.Sprintf("rebuild configs: %v", err))
-	}
-}
-
-func rebuildSecretsTable(db *sql.DB) {
-	const stmts = `
-ALTER TABLE secrets RENAME TO secrets_pre_versioning;
-CREATE TABLE secrets (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    name         TEXT    NOT NULL,
-    version      INTEGER NOT NULL DEFAULT 1,
-    space_id     INTEGER NOT NULL DEFAULT 1,
-    smk_version  INTEGER NOT NULL,
-    ciphertext   BLOB    NOT NULL,
-    nonce        BLOB    NOT NULL,
-    created_at   INTEGER NOT NULL,
-    updated_by   INTEGER NOT NULL DEFAULT 0,
-    UNIQUE (name, version)
-);
-INSERT INTO secrets (id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by)
-SELECT id, name, 1, space_id, smk_version, ciphertext, nonce, created_at, updated_by
-FROM secrets_pre_versioning;
-DROP TABLE secrets_pre_versioning;`
-	if _, err := db.Exec(stmts); err != nil {
-		panic(fmt.Sprintf("rebuild secrets: %v", err))
-	}
-}
-
-func applyMigrations(db *sql.DB, migrations string) {
-	for _, stmt := range strings.Split(migrations, ";") {
-		if !hasExecutableSQL(stmt) {
-			continue
-		}
-		if _, err := db.Exec(stmt); err != nil {
-			// Migrations re-run on every startup, so statements that already
-			// reached their target state must be tolerated. SQLite lacks
-			// IF [NOT] EXISTS on ADD/RENAME COLUMN, and a statement that reads a
-			// table a prior migration dropped fails at prepare time even when no
-			// rows would match. Treat those "already applied" errors as no-ops;
-			// anything else is a real failure.
-			if isAlreadyAppliedErr(err) {
-				slog.Debug("skipping already-applied migration", "err", err, "stmt", strings.TrimSpace(stmt))
-				continue
-			}
-			panic(fmt.Sprintf("migration failed: %v\nstmt: %s", err, stmt))
-		}
-	}
-}
-
-// isAlreadyAppliedErr reports whether a migration error indicates the change is
-// already in place: a RENAME of a column that no longer exists under the old
-// name, an ADD of a column that already exists, or a reference to a table a
-// prior migration already dropped.
-func isAlreadyAppliedErr(err error) bool {
-	msg := err.Error()
-	return strings.Contains(msg, "no such column") ||
-		strings.Contains(msg, "duplicate column name") ||
-		strings.Contains(msg, "no such table")
-}
-
-func hasExecutableSQL(s string) bool {
-	for _, line := range strings.Split(s, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "--") {
-			continue
-		}
-		return true
-	}
-	return false
 }

@@ -114,8 +114,8 @@ func restorePrimaryBackup(opts restoreOptions, install installOptions, own owner
 	if err := unlockRestoredSecrets(dbPath, opts.RecoveryCode, own); err != nil {
 		return fmt.Errorf("%w; delete %s, %s, %s, and %s before trying install recovery again", err, dbPath, dbPath+"-wal", dbPath+"-shm", filepath.Join(dataDir, "machine.key"))
 	}
-	if err := (primarybootstrap.Service{DataDir: dataDir}).MigrateAndValidate(context.Background()); err != nil {
-		return fmt.Errorf("migrating restored primary bootstrap state: %w", err)
+	if err := (primarybootstrap.Service{DataDir: dataDir}).Validate(context.Background()); err != nil {
+		return fmt.Errorf("validating restored primary bootstrap state: %w", err)
 	}
 	if err := applyRestoredPrimaryConfigOverrides(dbPath, install, own); err != nil {
 		return err

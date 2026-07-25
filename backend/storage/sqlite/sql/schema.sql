@@ -1,11 +1,11 @@
 -- Config representing desired state for each deployment. One row per deployment,
 CREATE TABLE IF NOT EXISTS deployment_configs (
     deployment_id   INTEGER PRIMARY KEY CHECK (deployment_id BETWEEN 1 AND 16777215),
+    version         INTEGER NOT NULL DEFAULT 0,
     node_id         INTEGER NOT NULL DEFAULT -1,
     space_id        INTEGER NOT NULL DEFAULT 1 CHECK (space_id BETWEEN 0 AND 65535),
     name            TEXT    NOT NULL DEFAULT '',
     created_at      INTEGER NOT NULL DEFAULT 0,  -- epoch ms; creation time of this deployment
-    version         INTEGER NOT NULL DEFAULT 0,
     updated_at      INTEGER NOT NULL,  -- epoch ms
     updated_by      INTEGER NOT NULL DEFAULT 0,
     spec_blob       BLOB    NOT NULL,

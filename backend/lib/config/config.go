@@ -153,28 +153,6 @@ func InitializeService(store *sqlite.PrimaryStorage, cfg apigen.Config) (*Servic
 	return NewService(store)
 }
 
-// MigrateLegacyInitialConfig applies bootstrap-era defaults that older primary
-// databases may not contain. It is called by installer upgrade/restore, never
-// by normal primary startup.
-func MigrateLegacyInitialConfig(store *sqlite.PrimaryStorage) error {
-	r, err := store.FetchLatestOpenDeployConfig()
-	if err != nil {
-		return err
-	}
-	cfg, err := apigen.DecodeConfig(r.ConfigBlob)
-	if err != nil {
-		return fmt.Errorf("decoding primary config for migration: %w", err)
-	}
-	if len(cfg.NetworkUlaPrefix) != 0 {
-		return nil
-	}
-	cfg.NetworkUlaPrefix = network.GeneratePrefix().Bytes()
-	if _, err := store.AppendOpenDeploySettings(cfg.Encode()); err != nil {
-		return fmt.Errorf("persisting migrated network ULA prefix: %w", err)
-	}
-	return nil
-}
-
 // NetworkPrefix returns the cluster's ULA /48 prefix.
 func (s *Service) NetworkPrefix() network.Prefix {
 	p, err := network.ParsePrefix(s.Snapshot().NetworkUlaPrefix)

@@ -3,7 +3,6 @@ package primarybootstrap
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -87,46 +86,6 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 	}
 	complete = true
 	return &Result{EnrollmentFingerprint: fingerprint}, nil
-}
-
-func (s Service) MigrateAndValidate(ctx context.Context) error {
-	dbPath := filepath.Join(s.DataDir, "primary.db")
-	if _, err := os.Stat(dbPath); err != nil {
-		return err
-	}
-	store := sqlite.NewPrimaryStorage(dbPath)
-	if err := config.MigrateLegacyInitialConfig(store); err != nil {
-		_ = store.Close()
-		return fmt.Errorf("migrating legacy primary bootstrap state: %w", err)
-	}
-	secretsMgr, err := secrets.Open(s.DataDir, store)
-	if err != nil {
-		_ = store.Close()
-		return fmt.Errorf("opening secrets for primary bootstrap migration: %w", err)
-	}
-	configService, err := config.NewService(store)
-	if err != nil {
-		_ = store.Close()
-		return err
-	}
-	settings := configService.Snapshot().Settings
-	if configService.MustLoadConfigBoolValue(settings.HttpsWeb.Enabled) && configService.MustLoadConfigBoolValue(settings.HttpsWeb.TlsSelfManaged) && settings.HttpsWeb.TlsCertPem.ID == 0 {
-		if _, err := certu.LoadWebUISelfSigned(secretsMgr); errors.Is(err, secrets.ErrNotFound) {
-			acmeHosts := configService.MustLoadConfigStringValue(settings.HttpsWeb.AcmeHosts)
-			listen := configService.MustLoadConfigStringValue(settings.HttpsWeb.Listen)
-			if _, err := certu.BootstrapWebUISelfSigned(secretsMgr, certu.WebUISelfSignedNames(acmeHosts, listen)); err != nil {
-				_ = store.Close()
-				return fmt.Errorf("migrating self-managed Web TLS material: %w", err)
-			}
-		} else if err != nil {
-			_ = store.Close()
-			return fmt.Errorf("loading self-managed Web TLS material during migration: %w", err)
-		}
-	}
-	if err := store.Close(); err != nil {
-		return fmt.Errorf("closing migrated primary database: %w", err)
-	}
-	return s.Validate(ctx)
 }
 
 func (s Service) Validate(_ context.Context) error {

@@ -108,25 +108,6 @@ func TestNewServiceRejectsUninitializedConfig(t *testing.T) {
 	}
 }
 
-func TestMigrateLegacyInitialConfigAddsNetworkPrefix(t *testing.T) {
-	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	defer store.Close()
-	cfg := DefaultConfig(DefaultInitialConfig())
-	if _, err := store.AppendOpenDeploySettings(cfg.Encode()); err != nil {
-		t.Fatalf("AppendOpenDeploySettings: %v", err)
-	}
-	if err := MigrateLegacyInitialConfig(store); err != nil {
-		t.Fatalf("MigrateLegacyInitialConfig: %v", err)
-	}
-	service, err := NewService(store)
-	if err != nil {
-		t.Fatalf("NewService: %v", err)
-	}
-	if service.NetworkPrefix().IsZero() {
-		t.Fatal("migrated network prefix is zero")
-	}
-}
-
 func TestEnsureInitialSettingsPersistedIncludesMasterPasswordHash(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := sqlite.NewPrimaryStorage(dbPath)

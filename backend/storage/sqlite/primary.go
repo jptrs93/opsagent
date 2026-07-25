@@ -131,7 +131,7 @@ type PrimaryStorage struct {
 }
 
 func NewPrimaryStorage(dbPath string) *PrimaryStorage {
-	db := mustInitPrimary(dbPath)
+	db := mustInit(dbPath)
 	return &PrimaryStorage{
 		deploymentStore:     newDeploymentStore(db),
 		userSubs:            &pubsubu.PubSub[apigen.User]{},
