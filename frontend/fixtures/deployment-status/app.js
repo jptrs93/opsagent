@@ -25,7 +25,7 @@ const header = table(
             th({class: "py-3 pl-4 pr-3 font-medium"}, "Deployment"),
             th({class: "py-3 px-3 font-medium"}, "Node"),
             th({class: "py-3 px-3 font-medium"}, "Status"),
-            th({class: "py-3 px-3 font-medium"}, "Running Version"),
+            th({class: "py-3 px-3 font-medium"}, "Version"),
             th({class: "py-3 px-3 font-medium"}, "Prepare"),
             th({class: "py-3 px-3 font-medium"}, "Restarts"),
             th({class: "py-3 px-3 font-medium"}, "Deployed by"),
@@ -35,24 +35,47 @@ const header = table(
     ),
 );
 
-const rows = Array.from({length: 28}, (_, index) => ({
-    id: index + 1,
-    name: ["api", "worker", "web", "scheduler"][index % 4] + `-${index + 1}`,
-    spaceName: index % 3 === 0 ? "production" : "default",
-    node: index % 2 === 0 ? "primary" : "worker-a",
-    existingStatus: index % 5 === 0 ? 3 : 2,
-    runnerPresent: true,
-    existingVersion: "v0.0.195",
-    deployedVersion: "v0.0.195",
-    prepareStatus: 4,
-    prepareVersion: "v0.0.195",
-    numberOfRestarts: index % 4,
-    lastRestartAt: new Date("2026-07-20T12:00:00Z"),
-    deployedBy: 0,
-    deployedAt: new Date("2026-07-20T12:00:00Z"),
-    runnerType: "container",
-    canDelete: true,
-}));
+const rows = Array.from({length: 28}, (_, index) => {
+    const row = {
+        id: index + 1,
+        name: ["api", "worker", "web", "scheduler"][index % 4] + `-${index + 1}`,
+        spaceName: index % 3 === 0 ? "production" : "default",
+        node: index % 2 === 0 ? "primary" : "worker-a",
+        existingStatus: index % 5 === 0 ? 3 : 2,
+        runnerPresent: true,
+        existingVersion: "v0.0.195",
+        deployedVersion: "v0.0.195",
+        prepareStatus: 4,
+        prepareVersion: "v0.0.195",
+        numberOfRestarts: index % 4,
+        lastRestartAt: new Date("2026-07-20T12:00:00Z"),
+        deployedBy: 0,
+        deployedAt: new Date("2026-07-20T12:00:00Z"),
+        runnerType: "container",
+        canDelete: true,
+    };
+    if (index === 0) {
+        row.scheduledInstances = [
+            {
+                instanceId: 100,
+                existingStatus: 2,
+                runnerPresent: true,
+                existingVersion: "v0.0.194",
+                deployedVersion: "v0.0.195",
+                prepareStatus: 4,
+            },
+            {
+                instanceId: 101,
+                existingStatus: 0,
+                runnerPresent: false,
+                existingVersion: "v0.0.195",
+                deployedVersion: "v0.0.195",
+                prepareStatus: 2,
+            },
+        ];
+    }
+    return row;
+});
 
 const spaceDivider = (space, first) => tr(
     td(
@@ -89,7 +112,7 @@ van.add(document.body,
         {class: "h-full min-h-0 overflow-hidden p-6 flex flex-col gap-4"},
         div(
             h1({class: "text-lg font-semibold text-white"}, "Deployment status table fixture"),
-            p({class: "mt-1 text-sm text-gray-400"}, "Grouped mock rows force the production table body scrollbar for column-alignment checks."),
+            p({class: "mt-1 text-sm text-gray-400"}, "Grouped mock rows include a rollover and force the production table body scrollbar for alignment checks."),
         ),
         div(
             {class: "w-full min-h-0 flex-1 rounded-lg bg-surface border border-gray-700 p-2 flex flex-col"},

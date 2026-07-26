@@ -50,16 +50,12 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
     const showSpace = opts.showSpace !== false;
     const onViewConfig = opts.onViewConfig || (() => {});
     const onDelete = opts.onDelete || (() => {});
-    const hasExisting = deployment.existingStatus !== STATUS_NO_DEPLOYMENT;
     const canDelete = deployment.canDelete ?? deployment.existingStatus === STATUS_STOPPED;
-    const preRunnerColors = !deployment.runnerPresent ? preRunnerStatusLabels[deployment.prepareStatus] : null;
-    const existingColors = preRunnerColors || (hasExisting
-        ? (deployment.nodeMissing && deployment.existingStatus === 0
-            ? missingNodeStatusLabel
-            : (existingStatusLabels[deployment.existingStatus] || existingStatusLabels[0]))
-        : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'});
     const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
     const statusKey = deployment.name || deployment.id;
+    const scheduledInstances = deployment.scheduledInstances?.length > 0
+        ? deployment.scheduledInstances
+        : [deployment];
     const menuOpen = van.state(false);
     const actionButtonClass = "rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-xs leading-none px-2 py-1.5 cursor-pointer";
     let menuEl = null;
@@ -156,10 +152,23 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
         showSpace ? td({class: "py-2 px-3 align-middle text-sm text-gray-300 whitespace-nowrap"}, deployment.spaceName || '-') : '',
         td({class: "py-2 px-3 align-middle text-sm text-gray-300 break-words"}, deployment.node || '-'),
         td(
-            {class: "py-2 px-3 align-middle whitespace-nowrap"},
-            statusBadge(hasExisting && deployment.runnerPresent, existingColors, () => onShowRunOutput(deployment), `deployment-runner-status-${statusKey}`),
+            {class: "align-middle whitespace-nowrap"},
+            ...scheduledInstances.map((instance, index) => {
+                const {hasRunOutput, colors} = instanceStatusDisplay(deployment, instance);
+                const testIDSuffix = scheduledInstances.length > 1 ? `-${instance.instanceId || index + 1}` : '';
+                return div(
+                    {class: `h-10 flex items-center px-3 ${index > 0 ? 'border-t border-gray-700/70' : ''}`},
+                    statusBadge(hasRunOutput, colors, () => onShowRunOutput(deployment), `deployment-runner-status-${statusKey}${testIDSuffix}`),
+                );
+            }),
         ),
-        td({class: "py-2 px-3 align-middle text-sm whitespace-nowrap"}, versionLink(deployment)),
+        td(
+            {class: "align-middle text-sm whitespace-nowrap"},
+            ...scheduledInstances.map((instance, index) => div(
+                {class: `h-10 flex items-center px-3 ${index > 0 ? 'border-t border-gray-700/70' : ''}`},
+                versionLink(deployment, instance),
+            )),
+        ),
         td(
             {class: "py-2 px-3 align-middle text-sm break-words"},
             prepareCopy
@@ -217,6 +226,18 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
     );
 }
 
+function instanceStatusDisplay(deployment, instance) {
+    const hasExisting = instance.existingStatus !== STATUS_NO_DEPLOYMENT;
+    const preRunnerColors = !instance.runnerPresent ? preRunnerStatusLabels[instance.prepareStatus] : null;
+    const nodeMissing = instance.nodeMissing ?? deployment.nodeMissing;
+    const colors = preRunnerColors || (hasExisting
+        ? (nodeMissing && instance.existingStatus === 0
+            ? missingNodeStatusLabel
+            : (existingStatusLabels[instance.existingStatus] || existingStatusLabels[0]))
+        : {bg: 'bg-gray-700', text: 'text-gray-400', label: 'No existing deployment'});
+    return {hasRunOutput: hasExisting && instance.runnerPresent, colors};
+}
+
 function statusBadge(hasRunOutput, colors, onclick, testID) {
     if (!hasRunOutput) {
         return span({class: `px-2 py-0.5 rounded text-xs font-medium ${colors.bg} ${colors.text}`, "data-testid": testID}, colors.label);
@@ -229,32 +250,34 @@ function statusBadge(hasRunOutput, colors, onclick, testID) {
     }, colors.label);
 }
 
-function versionLink(deployment) {
-    const running = deployment.existingVersion || '';
-    const desired = deployment.deployedVersion || '';
-    if (!running) return span({class: "text-gray-500"}, 'none');
-    const short = shortVersion(running);
-    const mismatched = Boolean(desired) && running !== desired;
+function versionLink(deployment, instance) {
+    const version = instance.existingVersion || '';
+    const desired = instance.deployedVersion || deployment.deployedVersion || '';
+    if (!version) return span({class: "text-gray-500"}, 'none');
+    const short = shortVersion(version);
+    const mismatched = Boolean(desired) && version !== desired;
     const color = mismatched ? 'text-orange-400' : 'text-gray-300';
-    const title = mismatched ? `Running ${short}; desired ${shortVersion(desired)}` : undefined;
-    if (deployment.variant === 'nixDockerBuild' && deployment.repo) {
+    const title = mismatched ? `Instance ${short}; desired ${shortVersion(desired)}` : undefined;
+    const variant = instance.variant || deployment.variant;
+    const repo = instance.repo || deployment.repo;
+    if (variant === 'nixDockerBuild' && repo) {
         return a({
             class: `font-mono ${color} underline hover:text-white`,
-            href: `https://${deployment.repo}/commit/${running}`,
+            href: `https://${repo}/commit/${version}`,
             target: "_blank",
             rel: "noopener noreferrer",
             title,
         }, short);
     }
-    const releaseRepo = deployment.variant === 'githubRelease'
-        ? deployment.repo
+    const releaseRepo = variant === 'githubRelease'
+        ? repo
         : deployment.spaceId === 0 && deployment.name === 'opendeploy-net'
             ? openDeployRepo
             : '';
     if (releaseRepo) {
         return a({
             class: `font-mono ${color} underline hover:text-white`,
-            href: `https://${releaseRepo}/releases/tag/${running}`,
+            href: `https://${releaseRepo}/releases/tag/${version}`,
             target: "_blank",
             rel: "noopener noreferrer",
             title,

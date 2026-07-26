@@ -4,7 +4,8 @@ import { loginS } from "./login.js";
 import {applyScheduledInstanceUpdate, mergeDeploymentState} from "./deploymentMerge.js";
 
 // deploymentsS is the one-row-per-desired-deployment UI view. Each row merges
-// the latest desired config with its newest non-final scheduled instance.
+// the latest desired config with all non-final scheduled instances and keeps
+// newest-instance aliases for consumers that only need one runtime.
 export const deploymentsS = van.state([]);
 // usersMapS holds a Map<userId, userName> for resolving display names.
 export const usersMapS = van.state(new Map());

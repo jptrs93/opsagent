@@ -215,8 +215,8 @@ const headerTips = {
     deployment: 'Deployment name. Use history to inspect config and status changes.',
     space: 'Logical space for grouping deployments.',
     node: 'Cluster node where this deployment is reconciled.',
-    status: 'Current runner status. Click the badge to view run output.',
-    version: 'Currently running commit or GitHub release tag. Orange when it differs from the desired version.',
+    status: 'Status for each scheduled instance, oldest first. Click a runner badge to view run output.',
+    version: 'Version for each scheduled instance. Uses the pinned target until the runner reports its version; orange when it differs from the latest desired version.',
     prepare: 'Latest prepare/build/download result. Click to view prepare logs.',
     restarts: 'Runner restart count and last restart time for the current deployment version.',
     deployedBy: 'User who made the latest deployment config change.',
@@ -224,8 +224,24 @@ const headerTips = {
     actions: 'Open the update overlay to deploy, start, or stop this deployment.',
 };
 
-// mapDeploymentsToView flattens ScheduledInstanceState[] into the shape
-// the status card component expects.
+const deploymentSourceView = (config) => {
+    const spec = config?.spec || {};
+    const container = spec.container1Spec || null;
+    const source = container?.source || {};
+    if (source.nixDockerBuild) {
+        return {variant: 'nixDockerBuild', repo: source.nixDockerBuild.repo || ''};
+    }
+    if (spec.systemdSpec?.source) {
+        return {variant: 'githubRelease', repo: spec.systemdSpec.source.repo || ''};
+    }
+    if (source.remoteImage) {
+        return {variant: 'containerImage', repo: source.remoteImage.image || ''};
+    }
+    return {variant: '', repo: ''};
+};
+
+// mapDeploymentsToView keeps one table row per desired deployment while
+// preserving an oldest-first view of every non-final scheduled instance.
 const mapDeploymentsToView = (deployments, spaces, machines) => {
     if (!Array.isArray(deployments)) return [];
     const spaceNames = new Map((spaces || []).map(space => [space.id, space.name]));
@@ -238,24 +254,10 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
         const instanceId = d.instance?.id || 0;
         const identity = d.config.identity || {};
         const spec = d.config.spec || {};
-        const container = spec.container1Spec || null;
         const workload = deploymentWorkload(d.config) || {};
-        const source = container?.source || {};
         const runner = d.status?.runner || {};
         const prep = d.status?.preparer || {};
-
-        let variant = '';
-        let repo = '';
-        if (source.nixDockerBuild) {
-            variant = 'nixDockerBuild';
-            repo = source.nixDockerBuild.repo || '';
-        } else if (spec.systemdSpec?.source) {
-            variant = 'githubRelease';
-            repo = spec.systemdSpec.source.repo || '';
-        } else if (source.remoteImage) {
-            variant = 'containerImage';
-            repo = source.remoteImage.image || '';
-        }
+        const {variant, repo} = deploymentSourceView(d.config);
 
         const runnerType = spec.systemdSpec ? 'systemd' : 'container';
         const spaceId = identity.spaceId || 0;
@@ -265,6 +267,27 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
         const existingStatus = runner.status || 0;
         const uiExistingStatus = nodeMissing && existingStatus === STATUS_RUNNING ? 0 : existingStatus;
         const systemDeployment = isOpenDeployDeployment({spaceId, name: identity.name});
+        const scheduledInstances = (d.scheduledInstances || []).map((state) => {
+            const instance = state.instance || {};
+            const instanceRunner = state.status?.runner || {};
+            const instancePrep = state.status?.preparer || {};
+            const pinnedVersion = deploymentWorkload(state.config)?.version || '';
+            const instanceNodeId = Number(instance.nodeId || nodeId);
+            const instanceNodeMissing = Boolean(instanceNodeId) && !machinesByNodeId.has(instanceNodeId);
+            const instanceStatus = instanceRunner.status || 0;
+            const sourceView = deploymentSourceView(state.config);
+            return {
+                instanceId: instance.id || 0,
+                runnerPresent: Boolean(state.status?.runner),
+                existingStatus: instanceNodeMissing && instanceStatus === STATUS_RUNNING ? 0 : instanceStatus,
+                existingVersion: instanceRunner.runningVersion || pinnedVersion,
+                deployedVersion: workload.version || '',
+                prepareStatus: instancePrep.status || 0,
+                targetState: instance.state || 0,
+                nodeMissing: instanceNodeMissing,
+                ...sourceView,
+            };
+        });
 
         return {
             id,
@@ -294,6 +317,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             prepareVersion: deploymentWorkload(d.pinnedConfig)?.version || workload.version || '',
             currentVersion: d.config.version || 0,
             targetState: d.instance?.state || 0,
+            scheduledInstances,
         };
     });
 };
@@ -429,6 +453,7 @@ export function statusPage(onOpenLogs = () => {}) {
             row.runnerType,
             row.existingVersion,
             row.deployedVersion,
+            ...(row.scheduledInstances || []).map(instance => instance.existingVersion),
         ].some(value => String(value || '').toLowerCase().includes(query)));
     };
 
@@ -461,7 +486,7 @@ export function statusPage(onOpenLogs = () => {}) {
                 showSpaceColumn ? tableHeader("Space", headerTips.space, "py-3 px-3 font-medium") : '',
                 tableHeader("Node", headerTips.node, "py-3 px-3 font-medium"),
                 tableHeader("Status", headerTips.status, "py-3 px-3 font-medium"),
-                tableHeader("Running Version", headerTips.version, "py-3 px-3 font-medium"),
+                tableHeader("Version", headerTips.version, "py-3 px-3 font-medium"),
                 tableHeader("Prepare", headerTips.prepare, "py-3 px-3 font-medium"),
                 tableHeader("Restarts", headerTips.restarts, "py-3 px-3 font-medium"),
                 tableHeader("Deployed by", headerTips.deployedBy, "py-3 px-3 font-medium"),

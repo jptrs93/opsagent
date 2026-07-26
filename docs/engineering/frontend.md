@@ -45,9 +45,9 @@ The dashboard uses a split-pane layout:
 
 ### Status (`pages/status.js`)
 - Consumes live deployment state from `POST /v1/state/stream` (binary protobuf stream via `AsyncIterable<State>`).
-- Renders one card per deployment, sorted by OPENDEPLOY-last, then environment, name, node, and id (deterministic across stream reconnects).
+- Renders one table row per deployment, sorted by OPENDEPLOY-last, then space, name, node, and id (deterministic across stream reconnects).
 - "Add deployment" button opens `components/createOverlay.js` to POST a typed `DeploymentCreateRequest` via `POST /v1/deployment/create`.
-- Each card (`components/statusCard.js`) shows status badge, deployment info (deployed by/at/version), runtime info (restarts/last restart), prepare status, and an Update button that opens `components/deployOverlay.js`. Running cards expose a stop icon; stopped cards with a known version expose a start icon.
+- Each row (`components/statusCard.js`) shows deployment, node, prepare and runtime details, audit metadata, and deployment actions. Status and Version are vertically split into one oldest-first subcell per non-final scheduled instance during rollovers; a candidate uses its pinned target version until its runner reports a version.
 - The deploy overlay fetches available versions on demand via `POST /v1/deployment/versions`, lets the user edit the deployment spec form, and submits a typed `DeploymentUpdateRequest` via `POST /v1/deployment/update`.
 - Internal `opendeploy` and `opendeploy-net` deployments use dedicated release-only update overlays. The primary-node `opendeploy` overlay additionally offers "Upgrade all to this version", which submits to `POST /v1/deployment/upgrade-all`.
 - The deployment editor card has independent UI and HCL editor surfaces over one API-shaped authoring document. Valid HCL updates the shared document; invalid HCL is retained privately while the UI continues to show the last valid state. CodeMirror is loaded only when Code mode is first opened.

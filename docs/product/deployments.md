@@ -137,14 +137,14 @@ Deleting a deployment releases its human-readable identity tuple but retains its
 
 ## Deployment status display
 
-The status page shows one card per deployment, sorted with
+The status page shows one table row per deployment, sorted with
 OPENDEPLOY last, then by space, name, node, and id. Deployments can also be
-grouped by space. Each card displays:
+grouped by space. Each row displays:
 
 - Deployment name with history link
-- Status badge (Running/Stopped/Starting/Crashed/No Deployment) — clickable to view run output
+- Status and version columns with one vertically stacked subcell for every non-final scheduled instance, oldest first. During rollover, this shows the old and replacement instances together. Versions use the pinned target until the runner reports its version; runner status badges are clickable to view run output.
 - Stop/Start buttons
-- Two-column info panel: deployment info (deployed by, deployed at, version) and runtime info (restart count, last restart time)
+- Restart count and last restart time for the newest scheduled instance
 - Prepare status with link to prepare output (build/import/pull log)
 - "Update" button that opens an overlay for version selection and optional deployment spec edits
 

@@ -1,21 +1,25 @@
 export const mergeDeploymentState = (configs, instances) => {
-    const newestByDeployment = new Map();
+    const instancesByDeployment = new Map();
     for (const state of instances.values()) {
         const instance = state?.instance;
         if (!instance?.id || instance.state === 2) continue;
         const deploymentId = Number(instance.deploymentId || state?.config?.id || 0);
         if (!deploymentId) continue;
-        const current = newestByDeployment.get(deploymentId);
-        if (!current || instance.id > current.instance.id) {
-            newestByDeployment.set(deploymentId, state);
-        }
+        const scheduled = instancesByDeployment.get(deploymentId) || [];
+        scheduled.push(state);
+        instancesByDeployment.set(deploymentId, scheduled);
+    }
+    for (const scheduled of instancesByDeployment.values()) {
+        scheduled.sort((a, b) => Number(a.instance.id) - Number(b.instance.id));
     }
 
     const rows = [];
     for (const config of configs.values()) {
         if (!config?.id || config.deleted) continue;
-        const runtime = newestByDeployment.get(Number(config.id));
+        const scheduledInstances = instancesByDeployment.get(Number(config.id)) || [];
+        const runtime = scheduledInstances[scheduledInstances.length - 1];
         rows.push({
+            scheduledInstances,
             instance: runtime?.instance,
             config,
             pinnedConfig: runtime?.config,
