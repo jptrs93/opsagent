@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"slices"
 	"strings"
@@ -37,15 +38,11 @@ func acceptClusterNetMap(store *sqlite.SecondaryStorage, candidate *apigen.Clust
 	if _, wasRetired := retired[next.Generation]; wasRetired {
 		return nil, fmt.Errorf("%w: generation %s was superseded", ErrStaleClusterNetMap, next.Generation)
 	}
-	if encoded, ok := store.FetchLocalKV(sqlite.LocalKVWorkerClusterNetMap); ok {
-		currentWire, err := apigen.DecodeClusterNetMap(encoded)
-		if err != nil {
-			return nil, fmt.Errorf("decoding cached cluster network map: %w", err)
-		}
-		current, _, err := validateClusterNetMap(currentWire, nodeID, expectedPrefix)
-		if err != nil {
-			return nil, fmt.Errorf("validating cached cluster network map: %w", err)
-		}
+	current, _, cached, err := cachedClusterNetMap(store, nodeID, expectedPrefix)
+	if err != nil {
+		return nil, err
+	}
+	if cached {
 		if next.Generation == current.Generation {
 			switch {
 			case next.Sequence < current.Sequence:
@@ -72,6 +69,21 @@ func acceptClusterNetMap(store *sqlite.SecondaryStorage, candidate *apigen.Clust
 	return statusForClusterNetMap(next, ""), nil
 }
 
+// cachedClusterNetMap returns the worker's persisted map, or reports that it has
+// none.
+//
+// A cached map this build cannot read is discarded rather than raised. The cache
+// is an optimisation — the primary serves a complete map on every reconnect — but
+// it outlives the binary that wrote it, so a release that changes what a map may
+// contain inherits whatever the previous release persisted. Treating that as an
+// error is unrecoverable in both directions: it panics the worker before it can
+// connect, and it makes acceptClusterNetMap reject the very map that would
+// replace it.
+//
+// The discard deliberately does not retire the stale generation. Generations are
+// persisted by the primary and survive its restarts, so the map that supersedes
+// this one almost always carries the same generation; retiring it here would
+// refuse every future map from that primary.
 func cachedClusterNetMap(store *sqlite.SecondaryStorage, nodeID int32, expectedPrefix network.Prefix) (*apigen.ClusterNetMap, network.Prefix, bool, error) {
 	encoded, ok := store.FetchLocalKV(sqlite.LocalKVWorkerClusterNetMap)
 	if !ok {
@@ -79,13 +91,24 @@ func cachedClusterNetMap(store *sqlite.SecondaryStorage, nodeID int32, expectedP
 	}
 	wire, err := apigen.DecodeClusterNetMap(encoded)
 	if err != nil {
-		return nil, network.Prefix{}, false, fmt.Errorf("decoding cached cluster network map: %w", err)
+		return discardCachedClusterNetMap(store, fmt.Errorf("decoding cached cluster network map: %w", err))
 	}
 	normalized, prefix, err := validateClusterNetMap(wire, nodeID, expectedPrefix)
 	if err != nil {
-		return nil, network.Prefix{}, false, fmt.Errorf("validating cached cluster network map: %w", err)
+		return discardCachedClusterNetMap(store, fmt.Errorf("validating cached cluster network map: %w", err))
 	}
 	return normalized, prefix, true, nil
+}
+
+// discardCachedClusterNetMap drops an unusable cached map and reports it as
+// absent. Only a store failure is an error: the content is already known to be
+// worthless, so failing to delete it costs nothing but a repeat of this warning.
+func discardCachedClusterNetMap(store *sqlite.SecondaryStorage, cause error) (*apigen.ClusterNetMap, network.Prefix, bool, error) {
+	slog.Warn("discarding unusable cached cluster network map; waiting for the primary to republish", "err", cause)
+	if err := store.DeleteLocalKV(sqlite.LocalKVWorkerClusterNetMap); err != nil {
+		return nil, network.Prefix{}, false, fmt.Errorf("discarding unusable cached cluster network map: %w", err)
+	}
+	return nil, network.Prefix{}, false, nil
 }
 
 func cachedClusterNetMapStatus(store *sqlite.SecondaryStorage, nodeID int32, expectedPrefix network.Prefix, reconcileErr string) (*apigen.NetMapStatus, error) {

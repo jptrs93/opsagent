@@ -146,6 +146,71 @@ func TestValidateClusterNetMapRejectsInvalidTopology(t *testing.T) {
 	}
 }
 
+// A worker upgraded across the route-format change finds a map it cannot read:
+// the field that now carries a CIDR was written as a bare address by the release
+// before it. The map is worthless either way — host routes are rejected even
+// spelled as /128 — so it must be dropped rather than surfaced, because the two
+// callers that see the error cannot survive it: startup panics, and
+// acceptClusterNetMap would refuse the replacement map on the strength of the
+// unreadable one it is replacing.
+func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
+	store := sqlite.NewSecondaryStorage(filepath.Join(t.TempDir(), "secondary.db"))
+	defer store.Close()
+	prefix := network.GeneratePrefix()
+
+	legacy := testClusterNetMap(t, prefix, "generation-a", 7)
+	addr, err := prefix.InboundAddr(1, 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.Routes[0].LogicalPrefix = addr.String()
+	store.MustSetLocalKV(sqlite.LocalKVWorkerClusterNetMap, legacy.Encode())
+
+	cached, _, ok, err := cachedClusterNetMap(store, 1, prefix)
+	if err != nil {
+		t.Fatalf("unreadable cached map surfaced an error: %v", err)
+	}
+	if ok || cached != nil {
+		t.Fatalf("unreadable cached map was returned: ok=%v map=%+v", ok, cached)
+	}
+	if _, present := store.FetchLocalKV(sqlite.LocalKVWorkerClusterNetMap); present {
+		t.Fatal("unreadable cached map was left in the store")
+	}
+}
+
+// The primary persists its generation across restarts, so the map that replaces
+// an unreadable one usually carries the same generation. Retiring that
+// generation on discard would refuse every subsequent map from that primary.
+func TestUnreadableCachedClusterNetMapDoesNotRetireItsGeneration(t *testing.T) {
+	store := sqlite.NewSecondaryStorage(filepath.Join(t.TempDir(), "secondary.db"))
+	defer store.Close()
+	prefix := network.GeneratePrefix()
+
+	legacy := testClusterNetMap(t, prefix, "generation-a", 7)
+	addr, err := prefix.InboundAddr(1, 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.Routes[0].LogicalPrefix = addr.String()
+	store.MustSetLocalKV(sqlite.LocalKVWorkerClusterNetMap, legacy.Encode())
+
+	next := testClusterNetMap(t, prefix, "generation-a", 8)
+	status, err := acceptClusterNetMap(store, next, 1, prefix)
+	if err != nil {
+		t.Fatalf("republished map rejected after discarding the unreadable cache: %v", err)
+	}
+	if status.AcceptedGeneration != "generation-a" || status.PersistedSequence != 8 {
+		t.Fatalf("status = %+v", status)
+	}
+	cached, _, ok, err := cachedClusterNetMap(store, 1, prefix)
+	if err != nil || !ok {
+		t.Fatalf("cached map: ok=%v err=%v", ok, err)
+	}
+	if cached.Sequence != 8 {
+		t.Fatalf("cached map = %+v", cached)
+	}
+}
+
 func testClusterNetMap(t *testing.T, prefix network.Prefix, generation string, sequence int64) *apigen.ClusterNetMap {
 	t.Helper()
 	destination, err := prefix.InstanceCIDR(1, 10, 0)
