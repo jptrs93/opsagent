@@ -592,14 +592,24 @@ export function statusPage(onOpenLogs = () => {}) {
         );
     };
 
-    const deploymentTableCard = (headerNode, bodyNode) => div(
-        {class: "w-full min-w-0 min-h-0 flex-1 rounded-lg bg-surface border border-gray-700 p-2 flex flex-col"},
+    // Keep both overflow elements outside the live table-body binding so status
+    // updates do not replace the DOM nodes that own scrollTop and scrollLeft.
+    const deploymentTableCard = (viewS) => div(
+        {class: () => `w-full min-w-0 min-h-0 flex-1 rounded-lg bg-surface border border-gray-700 p-2 flex-col ${viewS.val.message ? 'hidden' : 'flex'}`},
         div(
             {class: "app-scroll-x w-full min-h-0 flex-1 overflow-x-auto overflow-y-hidden"},
             div(
                 {class: "h-full min-h-0 flex flex-col"},
-                div({class: "flex-none pr-1"}, headerNode),
-                div({class: "deployment-table-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1"}, bodyNode),
+                div({class: "flex-none pr-1"}, () => deploymentTableHeader(!groupBySpace.val)),
+                div(
+                    {class: "deployment-table-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1"},
+                    () => {
+                        const view = viewS.val;
+                        if (view.message) return '';
+                        if (!groupBySpace.val) return deploymentTableBody(view.rows, true);
+                        return groupedDeploymentTableBody(groupDeploymentsBySpace(view.rows));
+                    },
+                ),
             ),
         ),
     );
@@ -608,6 +618,41 @@ export function statusPage(onOpenLogs = () => {}) {
         "text-sm leading-5 transition-colors cursor-pointer";
     const deploymentToolbarPrimaryButtonClass = `${deploymentToolbarButtonBase} bg-brand text-white hover:brightness-110`;
     const deploymentToolbarSecondaryButtonClass = `${deploymentToolbarButtonBase} bg-gray-700 text-gray-200 hover:bg-gray-600`;
+
+    const deploymentViewS = van.derive(() => {
+        const allRows = mapDeploymentsToView(deploymentsS.val, spacesS.val, machinesS.val);
+        const visibleRows = filterOpendeployDeployments(allRows);
+        const filtered = filterDeployments(visibleRows);
+
+        if (deploymentsStreamS.val.status !== 'connected' && allRows.length === 0) {
+            return {message: deploymentsStreamS.val.sentence, messageCard: false, rows: []};
+        }
+        if (allRows.length === 0) {
+            return {message: 'No deployments configured. Create a deployment config first.', messageCard: true, rows: []};
+        }
+        if (visibleRows.length === 0) {
+            return {message: 'Only opendeploy deployments are configured. Enable Show opendeploy to display them.', messageCard: true, rows: []};
+        }
+        if (filtered.length === 0) {
+            return {message: 'No deployments match your search.', messageCard: true, rows: []};
+        }
+
+        // Sort: system deployment last, then by space, name, node,
+        // and finally id so the order is fully deterministic across
+        // stream snapshots and reconnects.
+        const rows = [...filtered].sort((a, b) => {
+            const aSystem = a.runnerType === 'systemd' && a.name === 'opendeploy' ? 1 : 0;
+            const bSystem = b.runnerType === 'systemd' && b.name === 'opendeploy' ? 1 : 0;
+            return aSystem - bSystem
+                || (a.spaceId - b.spaceId)
+                || (a.name || '').localeCompare(b.name || '')
+                || (a.node || '').localeCompare(b.node || '')
+                || (a.id - b.id);
+        });
+        return {message: '', messageCard: false, rows};
+    });
+
+    const deploymentTable = deploymentTableCard(deploymentViewS);
 
     const mainContent = div(
         {class: "flex flex-col gap-3 w-full min-w-0 min-h-0 flex-1"},
@@ -662,58 +707,12 @@ export function statusPage(onOpenLogs = () => {}) {
             ),
         ),
         () => {
-            const allRows = mapDeploymentsToView(deploymentsS.val, spacesS.val, machinesS.val);
-            const visibleRows = filterOpendeployDeployments(allRows);
-            const filtered = filterDeployments(visibleRows);
-
-            if (deploymentsStreamS.val.status !== 'connected' && allRows.length === 0) {
-                return p({class: "text-gray-400"}, deploymentsStreamS.val.sentence);
-            }
-
-            if (allRows.length === 0) {
-                return div(
-                    {class: "card"},
-                    p(
-                        {class: "text-gray-400"},
-                        "No deployments configured. Create a deployment config first."
-                    )
-                );
-            }
-
-            if (visibleRows.length === 0) {
-                return div(
-                    {class: "card"},
-                    p({class: "text-gray-400"}, "Only opendeploy deployments are configured. Enable Show opendeploy to display them."),
-                );
-            }
-
-            if (filtered.length === 0) {
-                return div(
-                    {class: "card"},
-                    p({class: "text-gray-400"}, "No deployments match your search.")
-                );
-            }
-
-            // Sort: system deployment last, then by space, name, node,
-            // and finally id so the order is fully deterministic across
-            // stream snapshots and reconnects.
-            const sorted = [...filtered].sort((a, b) => {
-                const aSystem = a.runnerType === 'systemd' && a.name === 'opendeploy' ? 1 : 0;
-                const bSystem = b.runnerType === 'systemd' && b.name === 'opendeploy' ? 1 : 0;
-                return aSystem - bSystem
-                    || (a.spaceId - b.spaceId)
-                    || (a.name || '').localeCompare(b.name || '')
-                    || (a.node || '').localeCompare(b.node || '')
-                    || (a.id - b.id);
-            });
-
-            if (!groupBySpace.val) {
-                return deploymentTableCard(deploymentTableHeader(true), deploymentTableBody(sorted, true));
-            }
-
-            const groups = groupDeploymentsBySpace(sorted);
-            return deploymentTableCard(deploymentTableHeader(false), groupedDeploymentTableBody(groups));
-        }
+            const view = deploymentViewS.val;
+            if (!view.message) return '';
+            const message = p({class: "text-gray-400"}, view.message);
+            return view.messageCard ? div({class: "card"}, message) : message;
+        },
+        deploymentTable,
     );
 
     let currentWidthPct = loadSidebarWidth();
