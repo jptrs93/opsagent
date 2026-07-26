@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/goutil/pubsubu"
+	"github.com/jptrs93/goutil/timeu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
@@ -58,6 +59,138 @@ type failingSecretProvider struct {
 func (p *failingSecretProvider) FetchSecrets(context.Context, []int32) (map[int32]string, error) {
 	p.called = true
 	return nil, errors.New("secret unavailable")
+}
+
+// unavailableThenReadySecretProvider models a primary that is not accepting
+// connections yet and then comes up, which is the ordinary shape of a rollout.
+type unavailableThenReadySecretProvider struct {
+	mu       sync.Mutex
+	failures int
+	attempts int
+	value    string
+}
+
+func (p *unavailableThenReadySecretProvider) FetchSecrets(_ context.Context, ids []int32) (map[int32]string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.attempts++
+	if p.attempts <= p.failures {
+		return nil, errors.New("primary unavailable")
+	}
+	values := make(map[int32]string, len(ids))
+	for _, id := range ids {
+		values[id] = p.value
+	}
+	return values, nil
+}
+
+func (p *unavailableThenReadySecretProvider) attemptCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.attempts
+}
+
+// fixedRuntimeInputsBackoff pins the retry interval so tests do not wait out the
+// production 2s-and-doubling schedule.
+func fixedRuntimeInputsBackoff(t *testing.T, interval time.Duration) {
+	t.Helper()
+	old := newRuntimeInputsBackoff
+	newRuntimeInputsBackoff = func() *timeu.Backoff {
+		return &timeu.Backoff{
+			MaxDuration: interval,
+			F:           func(time.Duration) time.Duration { return interval },
+		}
+	}
+	t.Cleanup(func() { newRuntimeInputsBackoff = old })
+}
+
+func secretRefDeployment(secretID *int32) *apigen.DeploymentConfig {
+	return &apigen.DeploymentConfig{
+		ID:      12,
+		Version: 4,
+		Spec: apigen.DeploymentSpec{
+			Container1Spec: &apigen.ContainerSpec{
+				Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}},
+				Version: "v1",
+				Running: true,
+				Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{
+					"TOKEN": {SecretID: secretID},
+				}},
+			},
+		},
+	}
+}
+
+// A worker restarting while the primary is unreachable must not re-prepare an
+// artifact that is already built and present. Re-preparing fetches the same
+// inputs from the same unreachable place, so it only publishes PREPARING then
+// FAILED — a state nothing retries out of, leaving the instance wedged until
+// someone edits the config.
+func TestReAttachPreparerDefersToRetryWhenRuntimeInputsUnavailable(t *testing.T) {
+	fixedRuntimeInputsBackoff(t, time.Millisecond)
+	secretID := int32(7)
+	dep := secretRefDeployment(&secretID)
+	store := &recordingOperatorStore{}
+	secrets := &unavailableThenReadySecretProvider{failures: 3, value: "s3cret"}
+	inputs := runtimeinputs.New(nil, secrets, nil)
+	op := DeploymentOperator{
+		Store:         store,
+		RuntimeInputs: inputs,
+		ImageReady:    func(context.Context, string) error { return nil },
+	}
+
+	handle := op.reAttachPreparer(testScheduledInstanceID, dep, apigen.PreparerStatus{
+		DeploymentConfigVersion: dep.Version,
+		Artifact:                "registry.example/app:v1",
+		Status:                  apigen.PreparationStatus_READY,
+	})
+	if handle.Version() != dep.Version {
+		t.Fatalf("handle version = %d, want %d", handle.Version(), dep.Version)
+	}
+
+	// The retry must actually refill the in-memory cache: nothing else writes to
+	// it, and the container runner resolves env references from it on respawn.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if value, ok := inputs.ResolveSecret(secretID); ok {
+			if value != "s3cret" {
+				t.Fatalf("resolved secret = %q, want %q", value, "s3cret")
+			}
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if _, ok := inputs.ResolveSecret(secretID); !ok {
+		t.Fatalf("secret cache was never refilled after %d attempts", secrets.attemptCount())
+	}
+	if got := store.preparerStatus(); !got.IsZero() {
+		t.Fatalf("preparer status was republished during retry: %+v", got)
+	}
+	handle.Cancel()
+}
+
+// Cancel must return promptly even mid-backoff, because the operator calls it
+// synchronously when the config version moves on or the instance is finalized.
+func TestRetryRuntimeInputsCancelInterruptsBackoff(t *testing.T) {
+	fixedRuntimeInputsBackoff(t, time.Hour)
+
+	secretID := int32(7)
+	op := DeploymentOperator{
+		Store:         &recordingOperatorStore{},
+		RuntimeInputs: runtimeinputs.New(nil, &failingSecretProvider{}, nil),
+	}
+	handle := op.retryRuntimeInputs(testScheduledInstanceID, secretRefDeployment(&secretID))
+
+	cancelled := make(chan struct{})
+	go func() {
+		handle.Cancel()
+		close(cancelled)
+	}()
+	select {
+	case <-cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Cancel blocked on the retry backoff")
+	}
 }
 
 func TestReAttachPreparerLifecycle(t *testing.T) {

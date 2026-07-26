@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/goutil/pubsubu"
+	"github.com/jptrs93/goutil/timeu"
 	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare"
@@ -338,10 +340,9 @@ func (op DeploymentOperator) reAttachPreparer(instanceID int32, dep *apigen.Depl
 	ctx := logu.ExtendLogContext(context.Background(), "scheduled_instance", instanceID)
 	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
 	if prev.DeploymentConfigVersion == dep.Version && prev.Status == apigen.PreparationStatus_READY {
-		if err := op.RuntimeInputs.EnsureReady(ctx, dep); err != nil {
-			slog.ErrorContext(ctx, "reAttachPreparer: prepared runtime inputs unavailable", "configVersion", dep.Version, "err", err)
-			return op.startPreparer(instanceID, dep)
-		}
+		// The image check comes first because it is local and decisive: a missing
+		// image genuinely needs the artifact rebuilt. Runtime inputs are checked
+		// after, so that a primary that is briefly unreachable cannot mask it.
 		if dep.Spec.SystemdSpec == nil {
 			imageReady := op.ImageReady
 			if imageReady == nil {
@@ -351,6 +352,10 @@ func (op DeploymentOperator) reAttachPreparer(instanceID int32, dep *apigen.Depl
 				slog.WarnContext(ctx, "reAttachPreparer: prepared image unavailable, preparing current config again", "configVersion", dep.Version, "artifact", prev.Artifact, "err", err)
 				return op.startPreparer(instanceID, dep)
 			}
+		}
+		if err := op.RuntimeInputs.EnsureReady(ctx, dep); err != nil {
+			slog.WarnContext(ctx, "reAttachPreparer: prepared runtime inputs unavailable, retrying in the background", "configVersion", dep.Version, "err", err)
+			return op.retryRuntimeInputs(instanceID, dep)
 		}
 		return prepare.Finished(dep.Version)
 	}
@@ -366,6 +371,60 @@ func (op DeploymentOperator) reAttachPreparer(instanceID int32, dep *apigen.Depl
 	// completed prepare yet. Always prepare — including systemd/OpenDeploy
 	// self-upgrades — so a new instance cannot ack RUNNING without install.
 	return op.startPreparer(instanceID, dep)
+}
+
+// newRuntimeInputsBackoff paces runtime input retries: 2s, doubling to a minute.
+// No reset duration, so the interval keeps growing for as long as the failure
+// lasts rather than snapping back between attempts. A var so tests can shrink it.
+var newRuntimeInputsBackoff = func() *timeu.Backoff {
+	return timeu.NewExpBackoff(time.Minute, 0)
+}
+
+// retryRuntimeInputs keeps fetching an already-prepared instance's runtime
+// inputs until they are available, leaving its READY preparer status alone.
+//
+// The artifact is built and recorded; what failed is input distribution, which
+// on a worker is a request to the primary. Re-preparing cannot help — prepare
+// fetches the same inputs from the same place — and it would publish PREPARING
+// and then FAILED, a state nothing retries out of, so a worker that restarted
+// while the primary was down stayed failed until someone edited the config. That
+// is the ordinary shape of a rollout: the operator starts before the primary
+// connection is established, so every instance holding a secret or config ref
+// fetches against a primary that may not be listening yet.
+//
+// The retry is load-bearing rather than cosmetic. Nothing else refills the
+// in-memory secret and config cache — EnsureReady is the only writer, and the
+// container runner resolves env references from it on every respawn — so an
+// instance that crashed after a failed fetch would otherwise loop on
+// unresolvable references indefinitely.
+//
+// The handle carries the current config version, so the operator treats this
+// instance as prepared and cancels the loop the moment the config moves on or
+// the instance is finalized.
+func (op DeploymentOperator) retryRuntimeInputs(instanceID int32, dep *apigen.DeploymentConfig) *prepare.Handle {
+	handle, ctx := prepare.NewHandle(dep.Version)
+	ctx = logu.ExtendLogContext(ctx, "scheduled_instance", instanceID)
+	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
+	go func() {
+		defer handle.Complete()
+		backoff := newRuntimeInputsBackoff()
+		for {
+			backoff.WaitWithContext(ctx)
+			if ctx.Err() != nil {
+				return
+			}
+			if err := op.RuntimeInputs.EnsureReady(ctx, dep); err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				slog.WarnContext(ctx, "retryRuntimeInputs: still unavailable", "configVersion", dep.Version, "waited", backoff.CurrentDuration, "err", err)
+				continue
+			}
+			slog.InfoContext(ctx, "retryRuntimeInputs: runtime inputs recovered", "configVersion", dep.Version)
+			return
+		}
+	}()
+	return handle
 }
 
 type rolloverCandidateResult struct {

@@ -55,22 +55,36 @@ func (h *Handle) Version() int32 { return h.deploymentConfigVersion }
 
 // WriteStatus is the single entry point for preparer status writes.
 // It bumps UpdatedAt and guards against stale writes from superseded runs.
+//
+// A write that would leave the preparer status exactly as it already is gets
+// dropped. Preparation is re-driven for reasons that have nothing to do with the
+// artifact changing — an agent restart, an artifact repair, a rollover candidate
+// falling back — and it usually lands on the artifact already recorded.
+// Publishing that identity would bump the clock, wake every subscriber, and push
+// a no-op to the primary, for no observable change.
 func WriteStatus(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentConfig, artifact string, status apigen.PreparationStatus) {
 	ctx := logu.ExtendLogContext(context.Background(), "scheduled_instance", instanceID)
 	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
-	slog.InfoContext(ctx, "preparer.writePrepareStatus", "deploymentConfigVersion", dep.Version, "status", status, "artifact", artifact)
+	next := apigen.PreparerStatus{
+		DeploymentConfigVersion: dep.Version,
+		Artifact:                artifact,
+		Status:                  status,
+	}
 	store.MustWriteScheduledInstanceStatus(instanceID, func(s *apigen.ScheduledInstanceStatus) bool {
 		if !s.Preparer.IsZero() && s.Preparer.DeploymentConfigVersion > dep.Version {
 			return false
 		}
+		// A zero status is never republished as unchanged: it means nothing has
+		// been recorded for this instance yet, so the first write must land.
+		if !s.Preparer.IsZero() && s.Preparer == next {
+			slog.DebugContext(ctx, "preparer.writePrepareStatus: unchanged, not publishing", "deploymentConfigVersion", dep.Version, "status", status, "artifact", artifact)
+			return false
+		}
+		slog.InfoContext(ctx, "preparer.writePrepareStatus", "deploymentConfigVersion", dep.Version, "status", status, "artifact", artifact)
 		s.BumpUpdatedAt()
 		s.ScheduledInstanceID = instanceID
 		s.DeploymentID = dep.ID
-		s.Preparer = apigen.PreparerStatus{
-			DeploymentConfigVersion: dep.Version,
-			Artifact:                artifact,
-			Status:                  status,
-		}
+		s.Preparer = next
 		return true
 	})
 }

@@ -56,6 +56,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
     const scheduledInstances = deployment.scheduledInstances?.length > 0
         ? deployment.scheduledInstances
         : [deployment];
+    const scheduledInstanceCellClass = scheduledInstances.length > 1 ? 'h-7' : 'h-10';
     const menuOpen = van.state(false);
     const actionButtonClass = "rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-xs leading-none px-2 py-1.5 cursor-pointer";
     let menuEl = null;
@@ -157,15 +158,15 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
                 const {hasRunOutput, colors} = instanceStatusDisplay(deployment, instance);
                 const testIDSuffix = scheduledInstances.length > 1 ? `-${instance.instanceId || index + 1}` : '';
                 return div(
-                    {class: `h-10 flex items-center px-3 ${index > 0 ? 'border-t border-gray-700/70' : ''}`},
+                    {class: `${scheduledInstanceCellClass} flex items-center px-3`},
                     statusBadge(hasRunOutput, colors, () => onShowRunOutput(deployment), `deployment-runner-status-${statusKey}${testIDSuffix}`),
                 );
             }),
         ),
         td(
             {class: "align-middle text-sm whitespace-nowrap"},
-            ...scheduledInstances.map((instance, index) => div(
-                {class: `h-10 flex items-center px-3 ${index > 0 ? 'border-t border-gray-700/70' : ''}`},
+            ...scheduledInstances.map(instance => div(
+                {class: `${scheduledInstanceCellClass} flex items-center px-3`},
                 versionLink(deployment, instance),
             )),
         ),
