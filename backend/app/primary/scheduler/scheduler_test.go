@@ -329,8 +329,11 @@ func TestTerminateDeploymentStopsEveryRunnableState(t *testing.T) {
 
 // restartWith rebuilds the scheduler from what is on disk, exactly as Run does
 // on process start: statuses first, then configs.
+// restartWith mirrors Run()'s startup order: sweep stopped placements, replay
+// instances, then reconcile configs.
 func restartWith(store *sqlite.PrimaryStorage, barrier routeBarrier, cfg *apigen.DeploymentConfig) *Scheduler {
 	s := New(store, barrier)
+	s.finalizeStopped()
 	for _, state := range store.FetchScheduledSnapshot(nil) {
 		s.onInstance(state)
 	}
@@ -462,5 +465,127 @@ func TestRestartAdoptsDrainingInstances(t *testing.T) {
 	s.retireDrainedInstances()
 	if got := statesByID(store, cfg.ID)[drainingInst.ID]; got != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
 		t.Fatalf("state after the backstop expired = %v, want TERMINATE", got)
+	}
+}
+
+func stoppedSpec(version string) *apigen.DeploymentSpec {
+	spec := testRunningSpec(version)
+	spec.Container1Spec.Running = false
+	return spec
+}
+
+func updateSpec(t *testing.T, store *sqlite.PrimaryStorage, cfg *apigen.DeploymentConfig, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
+	t.Helper()
+	next := *spec
+	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, sqlite.DeploymentConfigUpdate{
+		ExpectedVersion: cfg.Version + 1,
+		Spec:            &next,
+	})
+	if !ok {
+		t.Fatal("expected config update to succeed")
+	}
+	return updated
+}
+
+// TestStoppedInstanceIsFinalized pins the meaning of target state: it says what a
+// placement should be doing, and a stopped one should be doing nothing. Leaving
+// it scheduled so the UI has something to render made the UI the reason a
+// placement stayed live, and left it there forever — finalization is driven by an
+// instance's own status updates, and a stopped instance produces no more of them.
+func TestStoppedInstanceIsFinalized(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	t.Cleanup(func() { _ = store.Close() })
+	node := store.EnsurePrimaryNode("primary", "primary")
+
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
+		SpaceID: sqlite.DefaultSpaceID,
+		Name:    "app",
+	}, node.ID, testRunningSpec("v1"))
+	inst := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	markRunning(t, store, inst.ID, cfg.Version, apigen.RunningStatus_RUNNING)
+
+	s := New(store, newFakeBarrier())
+	stopped := updateSpec(t, store, cfg, stoppedSpec("v1"))
+	s.onConfig(*stopped)
+
+	if got := statesByID(store, cfg.ID)[inst.ID]; got != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
+		t.Fatalf("state after stop = %v, want TERMINATE while the container is still up", got)
+	}
+
+	markRunning(t, store, inst.ID, stopped.Version, apigen.RunningStatus_STOPPED)
+	s.onInstance(fetchState(t, store, inst.ID))
+
+	if active := store.ListNonFinalScheduledInstancesForDeployment(cfg.ID); len(active) != 0 {
+		t.Fatalf("active after the node stopped = %+v, want none", active)
+	}
+}
+
+// TestRestartingAfterStopLeavesOnlyTheReplacement is the bug this all came from:
+// a stopped placement kept its schedule until something superseded it, but
+// nothing re-examined it once something did, so the old run sat in the UI beside
+// the new one indefinitely.
+func TestRestartingAfterStopLeavesOnlyTheReplacement(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	t.Cleanup(func() { _ = store.Close() })
+	node := store.EnsurePrimaryNode("primary", "primary")
+
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
+		SpaceID: sqlite.DefaultSpaceID,
+		Name:    "app",
+	}, node.ID, testRunningSpec("v1"))
+	older := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	markRunning(t, store, older.ID, cfg.Version, apigen.RunningStatus_RUNNING)
+
+	s := New(store, newFakeBarrier())
+	stopped := updateSpec(t, store, cfg, stoppedSpec("v1"))
+	s.onConfig(*stopped)
+	markRunning(t, store, older.ID, stopped.Version, apigen.RunningStatus_STOPPED)
+	s.onInstance(fetchState(t, store, older.ID))
+
+	restarted := updateSpec(t, store, stopped, testRunningSpec("v2"))
+	s.onConfig(*restarted)
+
+	active := store.ListNonFinalScheduledInstancesForDeployment(cfg.ID)
+	if len(active) != 1 {
+		t.Fatalf("active after restart = %+v, want only the replacement", active)
+	}
+	if active[0].ID == older.ID {
+		t.Fatal("the stopped placement is still scheduled")
+	}
+	if active[0].DeploymentVersion != restarted.Version {
+		t.Fatalf("replacement version = %d, want %d", active[0].DeploymentVersion, restarted.Version)
+	}
+}
+
+// TestStartupFinalizesStoppedInstances covers placements stranded by a build that
+// did not retire them, and by a crash between the node stopping and the primary
+// reacting. Nothing else will ever revisit them.
+func TestStartupFinalizesStoppedInstances(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	t.Cleanup(func() { _ = store.Close() })
+	node := store.EnsurePrimaryNode("primary", "primary")
+
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
+		SpaceID: sqlite.DefaultSpaceID,
+		Name:    "app",
+	}, node.ID, testRunningSpec("v1"))
+
+	stranded := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	store.SetScheduledInstanceState(stranded.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE)
+	markRunning(t, store, stranded.ID, cfg.Version, apigen.RunningStatus_STOPPED)
+
+	// A placement still shutting down is not stopped and must survive the sweep.
+	shuttingDown := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 1, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	store.SetScheduledInstanceState(shuttingDown.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE)
+	markRunning(t, store, shuttingDown.ID, cfg.Version, apigen.RunningStatus_RUNNING)
+
+	New(store, newFakeBarrier()).finalizeStopped()
+
+	byID := statesByID(store, cfg.ID)
+	if _, still := byID[stranded.ID]; still {
+		t.Fatal("startup left a stopped placement scheduled")
+	}
+	if byID[shuttingDown.ID] != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
+		t.Fatalf("shutting-down placement = %v, want still TERMINATE", byID[shuttingDown.ID])
 	}
 }

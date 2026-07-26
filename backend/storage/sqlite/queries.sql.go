@@ -96,6 +96,20 @@ func (q *Queries) DeleteAssetVersionByID(ctx context.Context, id int64) error {
 	return err
 }
 
+const deleteLocalRuntimeInput = `-- name: DeleteLocalRuntimeInput :exec
+DELETE FROM local_runtime_inputs WHERE kind = ? AND ref_id = ?
+`
+
+type DeleteLocalRuntimeInputParams struct {
+	Kind  int64
+	RefID int64
+}
+
+func (q *Queries) DeleteLocalRuntimeInput(ctx context.Context, arg DeleteLocalRuntimeInputParams) error {
+	_, err := q.db.ExecContext(ctx, deleteLocalRuntimeInput, arg.Kind, arg.RefID)
+	return err
+}
+
 const deleteLocalScheduledInstanceCache = `-- name: DeleteLocalScheduledInstanceCache :exec
 DELETE FROM local_scheduled_instance_cache WHERE instance_id = ?
 `
@@ -1177,6 +1191,51 @@ func (q *Queries) ListLatestAssets(ctx context.Context) ([]ListLatestAssetsRow, 
 	return items, nil
 }
 
+const listLatestScheduledInstancePerOrdinal = `-- name: ListLatestScheduledInstancePerOrdinal :many
+SELECT si.id, si.created_at, si.deployment_id, si.deployment_version, si.node_id, si.instance_ordinal, si.state
+FROM scheduled_instances si
+JOIN (
+    SELECT deployment_id, instance_ordinal, MAX(id) AS id
+    FROM scheduled_instances
+    GROUP BY deployment_id, instance_ordinal
+) latest ON latest.id = si.id
+ORDER BY si.id ASC
+`
+
+// The newest incarnation of every (deployment, ordinal), whatever its state.
+// Rebuilds the retained view of ordinals whose last instance has been finalized,
+// which is all a stopped deployment has left to show.
+func (q *Queries) ListLatestScheduledInstancePerOrdinal(ctx context.Context) ([]ScheduledInstance, error) {
+	rows, err := q.db.QueryContext(ctx, listLatestScheduledInstancePerOrdinal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ScheduledInstance
+	for rows.Next() {
+		var i ScheduledInstance
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.DeploymentID,
+			&i.DeploymentVersion,
+			&i.NodeID,
+			&i.InstanceOrdinal,
+			&i.State,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLatestScheduledInstanceStatuses = `-- name: ListLatestScheduledInstanceStatuses :many
 SELECT s.scheduled_instance_id, s.updated_at, s.deployment_id,
        s.preparer_config_version, s.preparer_artifact, s.preparer_status,
@@ -1257,6 +1316,41 @@ func (q *Queries) ListLatestSecrets(ctx context.Context) ([]Secret, error) {
 			&i.Nonce,
 			&i.CreatedAt,
 			&i.UpdatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLocalRuntimeInputs = `-- name: ListLocalRuntimeInputs :many
+
+SELECT kind, ref_id, ciphertext, nonce, fetched_at FROM local_runtime_inputs
+`
+
+// === local_runtime_inputs ===
+func (q *Queries) ListLocalRuntimeInputs(ctx context.Context) ([]LocalRuntimeInput, error) {
+	rows, err := q.db.QueryContext(ctx, listLocalRuntimeInputs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LocalRuntimeInput
+	for rows.Next() {
+		var i LocalRuntimeInput
+		if err := rows.Scan(
+			&i.Kind,
+			&i.RefID,
+			&i.Ciphertext,
+			&i.Nonce,
+			&i.FetchedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1970,6 +2064,34 @@ type UpsertLocalKVParams struct {
 
 func (q *Queries) UpsertLocalKV(ctx context.Context, arg UpsertLocalKVParams) error {
 	_, err := q.db.ExecContext(ctx, upsertLocalKV, arg.Key, arg.Value)
+	return err
+}
+
+const upsertLocalRuntimeInput = `-- name: UpsertLocalRuntimeInput :exec
+INSERT INTO local_runtime_inputs (kind, ref_id, ciphertext, nonce, fetched_at)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(kind, ref_id) DO UPDATE SET
+    ciphertext = excluded.ciphertext,
+    nonce      = excluded.nonce,
+    fetched_at = excluded.fetched_at
+`
+
+type UpsertLocalRuntimeInputParams struct {
+	Kind       int64
+	RefID      int64
+	Ciphertext []byte
+	Nonce      []byte
+	FetchedAt  int64
+}
+
+func (q *Queries) UpsertLocalRuntimeInput(ctx context.Context, arg UpsertLocalRuntimeInputParams) error {
+	_, err := q.db.ExecContext(ctx, upsertLocalRuntimeInput,
+		arg.Kind,
+		arg.RefID,
+		arg.Ciphertext,
+		arg.Nonce,
+		arg.FetchedAt,
+	)
 	return err
 }
 

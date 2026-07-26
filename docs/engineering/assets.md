@@ -96,6 +96,7 @@ Current semantics:
 - On the primary, the asset provider streams inline blobs from the primary DB and large blobs from their active local or S3 location without changing the mount contract.
 - On a secondary, the asset provider streams the blob on demand from the primary over the mTLS cluster endpoint `/v1/cluster/asset?asset_id=<id>`.
 - Materialize/cache assets on each target machine at `/var/lib/opendeploy-assets/<asset-id>` or `/var/lib/opendeploy-assets/<asset-id>_x` for executable mounts.
+- The cache survives restarts and is reclaimed by the secondary's retention sweep, which deletes any cached file no instance assigned to that node still references. See "Local runtime input persistence" in [secrets.md](secrets.md) for the sweep's timing rules.
 - Mount materialized files read-only into the container. Explicit asset mounts may use `READ_EXECUTE` to enable execute bits; implicit env asset mounts are always read-only/non-executable.
 - Reject paths that are empty, relative, directories, or dangerous container destinations.
 - Fail deployment preparation if an asset ID no longer exists.

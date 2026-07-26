@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jptrs93/opsagent/backend/lib/machinekey"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
@@ -116,7 +117,7 @@ func TestSetResolveRoundTrip(t *testing.T) {
 	}
 
 	// machine.key must exist and be 0600.
-	info, err := os.Stat(filepath.Join(dir, machineKeyFile))
+	info, err := os.Stat(filepath.Join(dir, machinekey.FileName))
 	if err != nil {
 		t.Fatalf("stat machine.key: %v", err)
 	}
@@ -312,7 +313,7 @@ func TestRecoveryUnlockOnFreshMachine(t *testing.T) {
 	if got, ok := mgr2.Resolve(meta.ID); !ok || got != "v" {
 		t.Fatalf("Resolve after recovery = %q, %v", got, ok)
 	}
-	if _, err := os.Stat(filepath.Join(freshDir, machineKeyFile)); err != nil {
+	if _, err := os.Stat(filepath.Join(freshDir, machinekey.FileName)); err != nil {
 		t.Fatalf("machine.key not re-established: %v", err)
 	}
 

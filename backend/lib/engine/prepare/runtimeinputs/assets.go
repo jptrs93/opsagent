@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -142,4 +143,45 @@ func AssetCacheMode(executable bool) os.FileMode {
 		return 0o755
 	}
 	return 0o644
+}
+
+// RetainAssets removes cached asset files whose id is absent from keep, and
+// reports how many it deleted.
+//
+// Only names the cache itself writes are considered, so a partial download
+// (which is staged as "<name>.tmp") is never collected: its name does not parse
+// as an asset id at all.
+func RetainAssets(keep map[int32]struct{}) (int, error) {
+	entries, err := os.ReadDir(AssetCacheDir())
+	if err != nil {
+		return 0, fmt.Errorf("listing asset cache: %w", err)
+	}
+	removed := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		id, ok := parseAssetCacheName(entry.Name())
+		if !ok {
+			continue
+		}
+		if _, keeping := keep[id]; keeping {
+			continue
+		}
+		if err := os.Remove(filepath.Join(AssetCacheDir(), entry.Name())); err != nil && !os.IsNotExist(err) {
+			return removed, fmt.Errorf("removing cached asset %s: %w", entry.Name(), err)
+		}
+		removed++
+	}
+	return removed, nil
+}
+
+// parseAssetCacheName reverses AssetCachePathWithMode's naming.
+func parseAssetCacheName(name string) (int32, bool) {
+	name = strings.TrimSuffix(name, "_x")
+	id, err := strconv.Atoi(name)
+	if err != nil || id <= 0 {
+		return 0, false
+	}
+	return int32(id), true
 }

@@ -27,7 +27,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -35,8 +34,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/argon2"
-	"golang.org/x/crypto/chacha20poly1305"
 
+	"github.com/jptrs93/opsagent/backend/lib/machinekey"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
@@ -44,10 +43,9 @@ const (
 	slotMachine  = "machine"
 	slotRecovery = "recovery"
 
-	machineKeyFile       = "machine.key"
 	TLSCertPEMSecretName = "opendeploy.tls.pem"
 
-	keyLen               = chacha20poly1305.KeySize // 32
+	keyLen               = machinekey.KeyLen // 32
 	saltLen              = 16
 	recoveryEntropyBytes = 32 // 256 bits -> 52 base32 chars
 
@@ -138,30 +136,15 @@ type Store interface {
 	UpsertSystemSecret(SystemRecord)
 }
 
-// machineKeyProvider supplies the key-encryption key (KEK) that wraps the SMK
-// in the machine keyslot, and persists whatever it needs to recover that KEK on
-// this machine for unattended boot. It is the boundary at which Phase 3 (TPM
-// sealing) plugs in: the default fileMachineKey keeps the KEK in a 0600 file; a
-// future tpm2MachineKey seals it to the TPM and stores only the sealed blob.
-//
-// The DB keyslot format is identical for every provider — the machine slot
-// always holds AEAD(SMK, KEK); only how the KEK itself is protected at rest
-// differs — so a provider is a drop-in and a TPM-less node (container, VM with
-// no vTPM) transparently falls back to the file provider. See
-// docs/engineering/secrets.md.
-type machineKeyProvider interface {
-	// establish creates and persists a fresh machine KEK, returning it.
-	establish() ([]byte, error)
-	// load returns the previously-established machine KEK, or an error (which
-	// leaves the store locked) if it cannot be recovered on this machine.
-	load() ([]byte, error)
-}
-
 // Manager owns the in-memory SMK and a cache of encrypted records. It is safe
 // for concurrent use.
+//
+// The machine keyslot always holds AEAD(SMK, KEK) regardless of which
+// machinekey.Provider supplied the KEK, so Phase 3 (TPM sealing) plugs in
+// without touching the DB format. See docs/engineering/secrets.md.
 type Manager struct {
 	store      Store
-	machineKey machineKeyProvider
+	machineKey machinekey.Provider
 
 	mu          sync.RWMutex
 	smk         []byte // nil => locked
@@ -216,7 +199,7 @@ func Open(dataDir string, store Store) (*Manager, error) {
 func newManager(dataDir string, store Store) *Manager {
 	return &Manager{
 		store:       store,
-		machineKey:  &fileMachineKey{path: filepath.Join(dataDir, machineKeyFile)},
+		machineKey:  &machinekey.File{Path: filepath.Join(dataDir, machinekey.FileName)},
 		cache:       make(map[int32]Record),
 		systemCache: make(map[string]SystemRecord),
 	}
@@ -670,7 +653,7 @@ func (m *Manager) initFirstRun() error {
 // rewriteMachineSlot establishes a fresh machine KEK via the configured
 // provider and stores the SMK wrapped under it as the machine keyslot.
 func (m *Manager) rewriteMachineSlot(smk []byte, version int32) error {
-	machineKey, err := m.machineKey.establish()
+	machineKey, err := m.machineKey.Establish()
 	if err != nil {
 		return err
 	}
@@ -689,7 +672,7 @@ func (m *Manager) rewriteMachineSlot(smk []byte, version int32) error {
 }
 
 func (m *Manager) unlockWithMachineKey(slots []Keyslot) error {
-	machineKey, err := m.machineKey.load()
+	machineKey, err := m.machineKey.Load()
 	if err != nil {
 		return err
 	}
@@ -709,23 +692,11 @@ func (m *Manager) unlockWithMachineKey(slots []Keyslot) error {
 // --- crypto helpers ---
 
 func aeadSeal(key, plaintext, aad []byte) (ciphertext, nonce []byte, err error) {
-	aead, err := chacha20poly1305.NewX(key)
-	if err != nil {
-		return nil, nil, err
-	}
-	nonce = make([]byte, aead.NonceSize())
-	if _, randomErr := rand.Read(nonce); randomErr != nil {
-		return nil, nil, randomErr
-	}
-	return aead.Seal(nil, nonce, plaintext, aad), nonce, nil
+	return machinekey.Seal(key, plaintext, aad)
 }
 
 func aeadOpen(key, ciphertext, nonce, aad []byte) ([]byte, error) {
-	aead, err := chacha20poly1305.NewX(key)
-	if err != nil {
-		return nil, err
-	}
-	return aead.Open(nil, nonce, ciphertext, aad)
+	return machinekey.Open(key, ciphertext, nonce, aad)
 }
 
 func slotAAD(slot string) []byte { return []byte("opendeploy-keyslot:" + slot) }
@@ -740,31 +711,6 @@ func isReservedInternalName(name string) bool {
 		return false
 	}
 	return strings.HasPrefix(name, "opendeploy.") && !strings.HasPrefix(name, "opendeploy.config.")
-}
-
-// fileMachineKey is the default machineKeyProvider: it stores the machine KEK
-// as a 0600 file in the data dir (outside the DB and outside backups, so a
-// leaked DB/backup cannot decrypt the SMK). Phase 3 adds a tpm2MachineKey
-// alongside this; see docs/engineering/secrets.md.
-type fileMachineKey struct{ path string }
-
-func (f *fileMachineKey) establish() ([]byte, error) {
-	key := make([]byte, keyLen)
-	if _, err := rand.Read(key); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(f.path, key, 0o600); err != nil {
-		return nil, err
-	}
-	// WriteFile does not chmod an existing file; enforce 0600 explicitly.
-	if err := os.Chmod(f.path, 0o600); err != nil {
-		return nil, err
-	}
-	return key, nil
-}
-
-func (f *fileMachineKey) load() ([]byte, error) {
-	return os.ReadFile(f.path)
 }
 
 func generateRecoveryCode() (string, error) {

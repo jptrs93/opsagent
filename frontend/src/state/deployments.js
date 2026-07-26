@@ -112,8 +112,10 @@ const handleStateMessage = (message) => {
     }
 
     if (message.scheduledInstancesSnapshot) {
+        // Finalized instances are kept: the snapshot carries the last one an
+        // ordinal ran so a stopped deployment still shows how it ended.
         scheduledInstancesById = new Map((message.scheduledInstancesSnapshot.items || [])
-            .filter(state => state?.instance?.id && state.instance.state !== 2)
+            .filter(state => state?.instance?.id)
             .map(state => [Number(state.instance.id), state]));
     }
 

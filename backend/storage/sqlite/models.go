@@ -66,36 +66,6 @@ type DeploymentConfigHistory struct {
 	Deleted      int64
 }
 
-type DeploymentStatus struct {
-	DeploymentID          int64
-	UpdatedAt             int64
-	PreparerConfigVersion sql.NullInt64
-	PreparerArtifact      sql.NullString
-	PreparerStatus        sql.NullInt64
-	RunnerConfigVersion   sql.NullInt64
-	RunnerPid             sql.NullInt64
-	RunnerArtifact        sql.NullString
-	RunnerStatus          sql.NullInt64
-	RunnerNumRestarts     sql.NullInt64
-	RunnerLastRestartAt   sql.NullInt64
-	RunnerExtraBlob       []byte
-}
-
-type DeploymentStatusHistory struct {
-	DeploymentID          int64
-	UpdatedAt             int64
-	PreparerConfigVersion sql.NullInt64
-	PreparerArtifact      sql.NullString
-	PreparerStatus        sql.NullInt64
-	RunnerConfigVersion   sql.NullInt64
-	RunnerPid             sql.NullInt64
-	RunnerArtifact        sql.NullString
-	RunnerStatus          sql.NullInt64
-	RunnerNumRestarts     sql.NullInt64
-	RunnerLastRestartAt   sql.NullInt64
-	RunnerExtraBlob       []byte
-}
-
 type EnrollmentRequest struct {
 	ID                  int64
 	CreatedAt           int64
@@ -110,6 +80,14 @@ type EnrollmentRequest struct {
 type LocalKv struct {
 	Key   string
 	Value []byte
+}
+
+type LocalRuntimeInput struct {
+	Kind       int64
+	RefID      int64
+	Ciphertext []byte
+	Nonce      []byte
+	FetchedAt  int64
 }
 
 type LocalScheduledInstanceCache struct {

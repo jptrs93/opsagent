@@ -14,7 +14,7 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 	return func(yield func(*apigen.State, error) bool) {
 		configs, configUpdatesCh, configUpdatesUnsub := h.Store.MustFetchDeploymentConfigSnapshotAndSubscribe(nil)
 		defer configUpdatesUnsub()
-		snapshot, updatesCh, updatesUnsub := h.Store.MustFetchScheduledSnapshotAndSubscribe(nil)
+		snapshot, updatesCh, updatesUnsub := h.Store.MustFetchScheduledSnapshotWithLatestFinalAndSubscribe(nil)
 		defer updatesUnsub()
 		userSub, userUnsub := h.Store.SubscribeUserUpdates()
 		defer userUnsub()

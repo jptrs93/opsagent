@@ -99,6 +99,19 @@ FROM scheduled_instances
 WHERE deployment_id = ? AND state != 2
 ORDER BY id ASC;
 
+-- name: ListLatestScheduledInstancePerOrdinal :many
+-- The newest incarnation of every (deployment, ordinal), whatever its state.
+-- Rebuilds the retained view of ordinals whose last instance has been finalized,
+-- which is all a stopped deployment has left to show.
+SELECT si.id, si.created_at, si.deployment_id, si.deployment_version, si.node_id, si.instance_ordinal, si.state
+FROM scheduled_instances si
+JOIN (
+    SELECT deployment_id, instance_ordinal, MAX(id) AS id
+    FROM scheduled_instances
+    GROUP BY deployment_id, instance_ordinal
+) latest ON latest.id = si.id
+ORDER BY si.id ASC;
+
 -- name: UpdateScheduledInstanceState :exec
 UPDATE scheduled_instances SET state = ? WHERE id = ?;
 
@@ -451,3 +464,19 @@ SELECT value FROM local_kv WHERE key = ?;
 -- name: UpsertLocalKV :exec
 INSERT INTO local_kv (key, value) VALUES (?, ?)
 ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+
+-- === local_runtime_inputs ===
+
+-- name: ListLocalRuntimeInputs :many
+SELECT kind, ref_id, ciphertext, nonce, fetched_at FROM local_runtime_inputs;
+
+-- name: UpsertLocalRuntimeInput :exec
+INSERT INTO local_runtime_inputs (kind, ref_id, ciphertext, nonce, fetched_at)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(kind, ref_id) DO UPDATE SET
+    ciphertext = excluded.ciphertext,
+    nonce      = excluded.nonce,
+    fetched_at = excluded.fetched_at;
+
+-- name: DeleteLocalRuntimeInput :exec
+DELETE FROM local_runtime_inputs WHERE kind = ? AND ref_id = ?;

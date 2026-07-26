@@ -682,15 +682,16 @@ func (h *Handler) findConfigByID(deploymentID int32) *apigen.DeploymentConfig {
 	return nil
 }
 
-// deploymentStatuses returns the observed status of every non-final scheduled
-// instance for a deployment, newest instance first. A deployment mid-rollover
-// has more than one, so callers must not treat the newest as speaking for all
-// of them: it can be STOPPED or STARTING while an older instance still serves.
+// deploymentStatuses returns the observed status of every live scheduled
+// instance for a deployment, newest instance first, falling back to the last
+// instance an ordinal ran once it has none. A deployment mid-rollover has more
+// than one, so callers must not treat the newest as speaking for all of them: it
+// can be STOPPED or STARTING while an older instance still serves. The retained
+// entries are what keep prepare output and logs reachable after a stop.
 func (h *Handler) deploymentStatuses(deploymentID int32) []apigen.ScheduledInstanceStatus {
 	states := make([]apigen.ScheduledInstanceState, 0, 2)
-	for _, state := range h.Store.FetchScheduledSnapshot(nil) {
-		if state.Instance.DeploymentID != deploymentID ||
-			state.Instance.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED {
+	for _, state := range h.Store.FetchScheduledSnapshotWithLatestFinal(nil) {
+		if state.Instance.DeploymentID != deploymentID {
 			continue
 		}
 		states = append(states, state)

@@ -76,6 +76,11 @@ func (s *Scheduler) Run() {
 	instances, instanceCh, unsubInstances := s.store.MustFetchScheduledSnapshotAndSubscribe(nil)
 	defer unsubInstances()
 
+	// Retire anything already stopped before reconciling, so the first pass sees
+	// only placements that still mean something. Replaying an instance the sweep
+	// finalized is a no-op: onInstance acts on RUN_* and TERMINATE alone.
+	s.finalizeStopped()
+
 	// Process existing instance statuses before creating replacements so an
 	// older RUNNING snapshot cannot terminate a newly created instance.
 	for i := range instances {
@@ -224,19 +229,12 @@ func (s *Scheduler) onInstance(state apigen.ScheduledInstanceState) {
 		if !terminalRunnerStatus(state.Status.Runner.Status) {
 			return
 		}
+		// Reconcile before finalizing so a RECREATE replacement is created in the
+		// same pass: onConfig treats a terminal TERMINATE as no longer blocking.
 		if cfg := s.store.FetchDeploymentConfig(inst.DeploymentID); cfg != nil {
 			s.onConfig(*cfg)
 		}
-		// Keep a stopped assignment visible/reconciled until it is superseded by a
-		// newer instance or the deployment itself is deleted.
-		if !s.shouldFinalize(inst) {
-			return
-		}
-		s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
-		slog.Info("scheduler: finalized scheduled instance",
-			"scheduled_instance", inst.ID,
-			"deployment_id", inst.DeploymentID,
-		)
+		s.finalize(inst)
 	}
 }
 
@@ -401,17 +399,35 @@ func terminalRunnerStatus(status apigen.RunningStatus) bool {
 	return status == apigen.RunningStatus_STOPPED || status == apigen.RunningStatus_NO_DEPLOYMENT
 }
 
-func (s *Scheduler) shouldFinalize(inst apigen.ScheduledInstance) bool {
-	cfg := s.store.FetchDeploymentConfig(inst.DeploymentID)
-	if cfg == nil || cfg.Deleted {
-		return true
-	}
-	for _, other := range s.store.ListNonFinalScheduledInstancesForDeployment(inst.DeploymentID) {
-		if other.ID > inst.ID && other.InstanceOrdinal == inst.InstanceOrdinal {
-			return true
+// finalize retires a placement that has stopped. Target state describes what a
+// placement should be doing, and a stopped one should be doing nothing, so this
+// is unconditional: whether anything replaced it, and whether a user still wants
+// to look at how it ended, are not questions about its schedule. The storage
+// layer retains the last incarnation of each ordinal for display.
+func (s *Scheduler) finalize(inst apigen.ScheduledInstance) {
+	s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
+	slog.Info("scheduler: finalized scheduled instance",
+		"scheduled_instance", inst.ID,
+		"deployment_id", inst.DeploymentID,
+	)
+}
+
+// finalizeStopped retires every placement already sitting in TERMINATE with a
+// terminal runner status. Finalization is otherwise driven by an instance's own
+// status updates, and a stopped instance produces no more of them, so anything
+// that reached that state while the scheduler was not running — or under a build
+// that declined to retire it — would stay scheduled forever without this sweep.
+func (s *Scheduler) finalizeStopped() {
+	for _, state := range s.store.FetchScheduledSnapshot(nil) {
+		inst := state.Instance
+		if inst.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
+			continue
 		}
+		if !terminalRunnerStatus(state.Status.Runner.Status) {
+			continue
+		}
+		s.finalize(inst)
 	}
-	return false
 }
 
 func (s *Scheduler) terminateDeployment(deploymentID int32) {

@@ -16,6 +16,18 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
+// instanceOrdinalKey identifies the logical slot a scheduled instance is an
+// incarnation of. Instances come and go; the ordinal is what the UI shows a row
+// for.
+type instanceOrdinalKey struct {
+	deploymentID int32
+	ordinal      int32
+}
+
+func ordinalKeyOf(inst *apigen.ScheduledInstance) instanceOrdinalKey {
+	return instanceOrdinalKey{deploymentID: inst.DeploymentID, ordinal: inst.InstanceOrdinal}
+}
+
 type deploymentStore struct {
 	db *sql.DB
 	q  *Queries
@@ -27,8 +39,15 @@ type deploymentStore struct {
 	// a scheduled-instance snapshot.
 	configCache map[int32]*apigen.DeploymentConfig
 	// scheduledCache holds the authoritative runtime view per scheduled instance
-	// id: assignment row, pinned config version, and latest status.
+	// id: assignment row, pinned config version, and latest status. Live
+	// instances only — a finalized instance is removed, and every consumer that
+	// reconciles or routes depends on that.
 	scheduledCache map[int32]*apigen.ScheduledInstanceState
+	// latestFinalCache retains the last incarnation of an ordinal after it is
+	// finalized, so a stopped deployment can still show how its final run ended.
+	// At most one entry per ordinal, and only while no live instance supersedes
+	// it, so it never competes with scheduledCache for the same ordinal.
+	latestFinalCache map[instanceOrdinalKey]*apigen.ScheduledInstanceState
 
 	configSubs   *pubsubu.PubSub[apigen.DeploymentConfig]
 	instanceSubs *pubsubu.PubSub[apigen.ScheduledInstanceState]
@@ -36,12 +55,13 @@ type deploymentStore struct {
 
 func newDeploymentStore(db *sql.DB) *deploymentStore {
 	s := &deploymentStore{
-		db:             db,
-		q:              New(db),
-		configCache:    make(map[int32]*apigen.DeploymentConfig),
-		scheduledCache: make(map[int32]*apigen.ScheduledInstanceState),
-		configSubs:     &pubsubu.PubSub[apigen.DeploymentConfig]{},
-		instanceSubs:   &pubsubu.PubSub[apigen.ScheduledInstanceState]{},
+		db:               db,
+		q:                New(db),
+		configCache:      make(map[int32]*apigen.DeploymentConfig),
+		scheduledCache:   make(map[int32]*apigen.ScheduledInstanceState),
+		latestFinalCache: make(map[instanceOrdinalKey]*apigen.ScheduledInstanceState),
+		configSubs:       &pubsubu.PubSub[apigen.DeploymentConfig]{},
+		instanceSubs:     &pubsubu.PubSub[apigen.ScheduledInstanceState]{},
 	}
 	s.loadCache()
 	return s
@@ -62,6 +82,7 @@ func (s *deploymentStore) loadCache() {
 	if err != nil {
 		panic(fmt.Sprintf("loadCache: ListNonFinalScheduledInstances: %v", err))
 	}
+	byID := make(map[int32]*apigen.ScheduledInstanceState, len(instances))
 	for _, row := range instances {
 		inst := scheduledInstanceRowToProto(row)
 		state := &apigen.ScheduledInstanceState{Instance: *inst}
@@ -69,6 +90,27 @@ func (s *deploymentStore) loadCache() {
 			state.Config = *cfg
 		}
 		s.scheduledCache[inst.ID] = state
+		byID[inst.ID] = state
+	}
+
+	// Rebuild the retained view. Only the newest incarnation of an ordinal is a
+	// candidate, and only while it is finalized: anything live is already in
+	// scheduledCache and speaks for the ordinal itself.
+	latest, err := s.q.ListLatestScheduledInstancePerOrdinal(ctx)
+	if err != nil {
+		panic(fmt.Sprintf("loadCache: ListLatestScheduledInstancePerOrdinal: %v", err))
+	}
+	for _, row := range latest {
+		inst := scheduledInstanceRowToProto(row)
+		if !inst.State.IsFinal() {
+			continue
+		}
+		state := &apigen.ScheduledInstanceState{Instance: *inst}
+		if cfg := s.configForInstanceLocked(inst); cfg != nil {
+			state.Config = *cfg
+		}
+		s.latestFinalCache[ordinalKeyOf(inst)] = state
+		byID[inst.ID] = state
 	}
 
 	statuses, err := s.q.ListLatestScheduledInstanceStatuses(ctx)
@@ -77,7 +119,7 @@ func (s *deploymentStore) loadCache() {
 	}
 	for _, row := range statuses {
 		st := scheduledInstanceStatusRowToProto(row)
-		if state, ok := s.scheduledCache[st.ScheduledInstanceID]; ok {
+		if state, ok := byID[st.ScheduledInstanceID]; ok {
 			state.Status = *st
 		}
 	}
@@ -114,6 +156,28 @@ func (s *deploymentStore) FetchScheduledSnapshot(predicate storage.ScheduledInst
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.instanceSnapshotLocked(predicate)
+}
+
+// FetchScheduledSnapshotWithLatestFinal is the display view: every live instance
+// plus, for each ordinal that has none, the finalized instance that ran last.
+// Reconciliation and routing must not use it — a finalized placement owns
+// nothing and must not be acted on.
+func (s *deploymentStore) FetchScheduledSnapshotWithLatestFinal(predicate storage.ScheduledInstancePredicate) []apigen.ScheduledInstanceState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.instanceSnapshotWithLatestFinalLocked(predicate)
+}
+
+// MustFetchScheduledSnapshotWithLatestFinalAndSubscribe pairs the display view
+// with the unfiltered update stream. Finalization is published before the
+// instance leaves scheduledCache, so a subscriber that starts from this snapshot
+// sees every subsequent transition, including the one that retires an ordinal.
+func (s *deploymentStore) MustFetchScheduledSnapshotWithLatestFinalAndSubscribe(predicate storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan apigen.ScheduledInstanceState, func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snapshot := s.instanceSnapshotWithLatestFinalLocked(predicate)
+	sub := s.instanceSubs.Subscribe(instanceFilter(predicate))
+	return snapshot, sub.Ch, sub.UnsubscribeFunc
 }
 
 func (s *deploymentStore) MustFetchScheduledSnapshotAndSubscribe(predicate storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan apigen.ScheduledInstanceState, func()) {
@@ -216,6 +280,40 @@ func (s *deploymentStore) instanceSnapshotLocked(predicate storage.ScheduledInst
 		out = append(out, item)
 	}
 	return out
+}
+
+func (s *deploymentStore) instanceSnapshotWithLatestFinalLocked(predicate storage.ScheduledInstancePredicate) []apigen.ScheduledInstanceState {
+	out := s.instanceSnapshotLocked(predicate)
+	for _, state := range s.latestFinalCache {
+		item := *state
+		if item.Config.ID != 0 {
+			item.Status = withRunningVersion(&item.Config, item.Status)
+		}
+		if predicate != nil && !predicate(item) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+// retainFinalizedLocked keeps a just-finalized instance as the ordinal's last
+// known runtime. A newer instance for the same ordinal already speaks for it, so
+// an out-of-order finalization of an older incarnation is dropped rather than
+// overwriting the live one's slot.
+func (s *deploymentStore) retainFinalizedLocked(state *apigen.ScheduledInstanceState) {
+	inst := &state.Instance
+	key := ordinalKeyOf(inst)
+	for _, live := range s.scheduledCache {
+		if ordinalKeyOf(&live.Instance) == key && live.Instance.ID > inst.ID {
+			return
+		}
+	}
+	if existing := s.latestFinalCache[key]; existing != nil && existing.Instance.ID > inst.ID {
+		return
+	}
+	cp := *state
+	s.latestFinalCache[key] = &cp
 }
 
 func (s *deploymentStore) instanceStateLocked(id int32) apigen.ScheduledInstanceState {

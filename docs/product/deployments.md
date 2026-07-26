@@ -116,6 +116,20 @@ Set by user actions (deploy or stop). The selected `ContainerSpec` or
 
 Nix desired versions, when set, are full immutable commit hashes. Branch selection and the 25 most recent commits are discovery aids and are not persisted as source authority. Creating a running Nix deployment, starting one, changing its target commit, or changing its Nix source while it remains running performs synchronous remote commit and flake verification before persistence. Stopped Nix deployments still require structurally valid source fields but may omit the desired version and do not require remote accessibility until they transition to running.
 
+### Scheduled instance target state
+
+Set by the primary scheduler. It describes what a placement should be doing, and
+nothing else: `RUN_SERVING`, `RUN_STANDBY`, `RUN_DRAINING`, `TERMINATE`, and
+`FINALIZED`. A placement whose runner has stopped is finalized unconditionally —
+whether a replacement exists, and whether anyone still wants to look at how it
+ended, are not questions about its schedule.
+
+Finalized instances are therefore not display state. Storage retains the last
+instance of each `(deployment, instance_ordinal)` after it is finalized, evicting
+it once a newer instance is created for that ordinal, and rebuilds that view from
+SQL on boot. It is offered only to the Web UI state stream; reconciliation and
+routing snapshots never include a finalized placement, which owns no address.
+
 ### PreparerStatus
 
 Driven by the preparer. Tracks prepare progress with status values:
@@ -142,7 +156,7 @@ OPENDEPLOY last, then by space, name, node, and id. Deployments can also be
 grouped by space. Each row displays:
 
 - Deployment name, space, and node
-- Status and version columns with one vertically stacked subcell for every non-final scheduled instance, oldest first. During rollover, this shows the old and replacement instances together. Versions use the pinned target until the runner reports its version; runner status badges are clickable to view run output.
+- Status and version columns with one vertically stacked subcell per live scheduled instance, oldest first. During rollover, this shows the old and replacement instances together. An instance ordinal with no live instance — a stopped or deleted deployment — instead shows the last instance it ran, so the row still reports how that run ended. Versions use the pinned target until the runner reports its version; runner status badges are clickable to view run output.
 - Restart count and last restart time for the newest scheduled instance
 - Prepare status with link to prepare output (build/import/pull log)
 - Deployment audit metadata plus History, Update, config, fork, and delete actions
@@ -180,7 +194,7 @@ counter is reset.
 
 ## Deployment history
 
-The history sidebar shows a chronological log of all deployment config and status changes. Config entries show the version number and what changed (version deployed, running toggled, deleted). Status entries show preparer and runner state transitions (diff-rendered against the previous entry so unchanged sections aren't repeated). All entries are fetched via `POST /v1/deployment/history` with the integer deployment ID. History is stored in `deployment_config_history` (PK `deployment_id, version`) and `deployment_status_history` (PK `deployment_id, status_seq_no`) — the composite primary keys already cover `deployment_id`-leading lookups.
+The history sidebar shows a chronological log of all deployment config and status changes. Config entries show the version number and what changed (version deployed, running toggled, deleted). Status entries show preparer and runner state transitions (diff-rendered against the previous entry so unchanged sections aren't repeated). All entries are fetched via `POST /v1/deployment/history` with the integer deployment ID. History is stored in `deployment_config_history` (PK `deployment_id, version`) and `scheduled_instance_status` (PK `scheduled_instance_id, updated_at`), the append-only status log covering every scheduled instance of the deployment; `idx_scheduled_instance_status_deployment` covers the `deployment_id`-leading lookup.
 
 ## Empty state
 

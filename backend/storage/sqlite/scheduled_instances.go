@@ -165,6 +165,9 @@ func (s *PrimaryStorage) createScheduledInstanceLocked(deploymentID, deploymentV
 		state.Config = *cfg
 	}
 	s.scheduledCache[inst.ID] = state
+	// This incarnation now speaks for the ordinal, so whatever ran last is no
+	// longer worth retaining.
+	delete(s.latestFinalCache, ordinalKeyOf(inst))
 	s.notifyInstanceLocked(inst.ID)
 	return inst
 }
@@ -211,6 +214,7 @@ func (s *PrimaryStorage) SetScheduledInstanceState(instanceID int32, state apige
 		s.scheduledCache[instanceID] = entry
 		s.notifyInstanceLocked(instanceID)
 		delete(s.scheduledCache, instanceID)
+		s.retainFinalizedLocked(entry)
 		return
 	}
 	s.scheduledCache[instanceID] = entry
@@ -242,6 +246,14 @@ func (s *PrimaryStorage) MustWriteReplicatedScheduledInstanceStatus(st *apigen.S
 			params := scheduledInstanceStatusProtoToInsertParams(st)
 			if err := s.q.InsertScheduledInstanceStatus(ctx, params); err != nil {
 				panic(fmt.Sprintf("InsertScheduledInstanceStatus: %v", err))
+			}
+			// A worker's last write can land after the primary has finalized the
+			// instance. It is history, not schedule, but if this is still the
+			// ordinal's last known runtime it is also what the UI shows.
+			if retained := s.latestFinalCache[ordinalKeyOf(inst)]; retained != nil &&
+				retained.Instance.ID == inst.ID && !st.UpdatedAt.Before(retained.Status.UpdatedAt) {
+				retained.Status = *st
+				s.instanceSubs.Notify(*retained)
 			}
 			slog.InfoContext(ctx, "replicated scheduled instance status",
 				"updatedAt", st.UpdatedAt,
