@@ -7,9 +7,10 @@ versioned rows. Saving an existing name appends the next version (`v1`, `v2`,
 ...) with a new numeric row ID. Deployment environment variables and settings
 reference exact versions by `secretId` / `SecretRef.id`; plain user configs use
 the same immutable row model with `configId` / `ConfigRef.id`. Values are
-decrypted during deployment preparation, cached in memory on the node that runs
-the deployment, and expanded at process spawn time. They never appear in stored
-deployment config, the UI state stream, the cluster replication feed, or logs.
+decrypted during deployment preparation, cached on the node that runs the
+deployment — in memory, and additionally encrypted at rest on a secondary — and
+expanded at process spawn time. They never appear in stored deployment config,
+the UI state stream, the cluster replication feed, or logs.
 
 A signed-in operator can also decrypt a single value on demand via the explicit
 `PostV1SecretsReveal` endpoint (surfaced as the per-row "Reveal" button in the
@@ -19,12 +20,19 @@ secret row ID for exact-version reads. A value is decrypted into a response
 solely on this explicit request; it is still never logged, replicated, or
 persisted outside the encrypted store.
 
-It is **primary-only**: the encrypted store and its keys live on the primary and
-are never replicated to secondaries.
+The **store** is primary-only: the `secrets` table, the SMK and its keyslots live
+on the primary and are never replicated. A secondary receives only the plaintext
+values its own deployments reference, and keeps them under a machine key of its
+own — see "Local runtime input persistence" below.
 
 Key files:
 - `backend/lib/secrets/secrets.go` — `Manager`, the key hierarchy, AEAD, and the
-  `machineKeyProvider` boundary.
+  machine-key boundary.
+- `backend/lib/machinekey/machinekey.go` — the shared `Provider` boundary (KEK
+  supply + AEAD helpers) used by both the primary's store and a secondary's
+  local cache.
+- `backend/lib/localinputs/localinputs.go` — a secondary's encrypted at-rest
+  copy of the runtime inputs it needs.
 - `backend/storage/sqlite/secrets_store.go` — `secrets.Store` on the primary
   `StorageAdapter` (DB passthrough for the `secret_keyslots`, `secrets`, and
   `system_secrets` tables).
@@ -99,7 +107,8 @@ without either the on-box machine KEK or the recovery code.
 | Attacker has… | Outcome |
 |---|---|
 | DB backup / replicated copy | Safe — no keyslot is decryptable |
-| A secondary node / `secondary.db` | Safe — secrets never reach a secondary |
+| A secondary node's `secondary.db` alone | Safe — rows are sealed under that node's machine key, which is not in the DB, and decrypt on no other machine. Only the values that node's own deployments reference are ever present |
+| A secondary node's disk (DB **and** machine key) | Exposes the values that node's deployments reference — the same values already readable from its running containers' environments. The primary's SMK and every unreferenced secret stay out of reach |
 | UI stream / logs | Safe — only names, metadata, and numeric refs appear; plaintext is returned only by an explicit, authenticated `Reveal` request |
 | Root on the primary | Game over (true of any host-side secrets manager; Phase 3 narrows the *stolen-disk / offline* case) |
 
@@ -133,31 +142,47 @@ the provider calls the primary over the mTLS cluster endpoint
 `GET /v1/cluster/secrets` with a `ClusterSecretsRequest{ids}` payload, then
 returns the plaintext batch. In both cases the single `RuntimeInputs` instance
 validates the complete response before storing any values in its process-memory
-cache. Secrets are never written to `secondary.db`.
+cache, and a secondary additionally writes them through to encrypted local
+storage.
+
+Because rows are immutable, `EnsureSecretsReady` and `EnsureConfigsReady` request
+only the ids not already held: an id always denotes the same value, and rotation
+mints a new id that arrives as a new deployment config version. A node that
+already holds everything a config references therefore makes no request at all.
 
 The operator injects that same `RuntimeInputs` instance into every container
 runner. At process spawn time (`backend/lib/engine/runner/secrets.go`),
 `EnvVarValue` entries with `secretId` or `configId` are expanded from its
-prepared in-memory caches. Plain `configs` values are not encrypted at
-rest. Unknown references, locked secrets, missing primary connectivity during
-prepare, or no prepared value on the node are **fail-closed** errors.
+prepared in-memory caches. Plain `configs` values are not encrypted at rest in
+the primary's own `configs` table (a secondary's local copies are, because it
+seals every runtime input the same way). Unknown references, locked secrets,
+missing primary connectivity during prepare with no local copy, or no prepared
+value on the node are **fail-closed** errors.
 
-## The `machineKeyProvider` boundary
+## The `machinekey.Provider` boundary
 
-How the machine KEK is protected at rest is isolated behind one interface:
+How the machine KEK is protected at rest is isolated behind one interface, in
+`backend/lib/machinekey`:
 
 ```go
-type machineKeyProvider interface {
-    establish() ([]byte, error) // create + persist a fresh KEK
-    load() ([]byte, error)      // recover the KEK on this machine (else error => locked)
+type Provider interface {
+    Establish() ([]byte, error) // create + persist a fresh KEK
+    Load() ([]byte, error)      // recover the KEK on this machine (else error)
 }
 ```
 
-Critically, **the DB keyslot format is provider-agnostic**: the machine slot
-always holds `AEAD(SMK, KEK)`. Only how the KEK itself is stored differs, and
-that is the provider's private business. This is the seam Phase 3 plugs into.
+Critically, **what the KEK wraps is provider-agnostic**: the primary's machine
+slot always holds `AEAD(SMK, KEK)`, and a secondary's rows always hold
+`AEAD(value, KEK)`. Only how the KEK itself is stored differs, and that is the
+provider's private business. This is the seam Phase 3 plugs into, and because
+both node types share it, Phase 3 covers both in one change.
 
-Phase 1 ships one implementation, `fileMachineKey` (KEK in a 0600 file in the
+The two callers differ in what a failed `Load` means. On the primary it leaves
+the store locked, because the SMK is unrecoverable without the recovery code. On
+a secondary it establishes a fresh key, because everything the old key protected
+can be refetched from the primary.
+
+Phase 1 ships one implementation, `machinekey.File` (KEK in a 0600 file in the
 data dir).
 
 ---
@@ -166,12 +191,61 @@ data dir).
 
 Deployments running on a secondary can reference secrets by `secretId`. The
 secondary does not receive the encrypted secrets table or SMK; it fetches only
-the plaintext IDs needed by the deployment currently being prepared, over the
-cluster mTLS listener, and keeps them in process memory only.
+the plaintext IDs needed by the deployments assigned to it, over the cluster mTLS
+listener.
 
-Tradeoff: a secondary cannot cold-start a deployment while the primary is
-unreachable. If that resilience is needed, an at-rest cache wrapped by a
-TPM-sealed secondary key (Phase 3 on the secondary) is the escalation.
+## Local runtime input persistence
+
+A secondary stores the secret and config values it has fetched in its own
+`local_runtime_inputs` table, sealed under a machine key it generates for itself.
+Together with the asset cache and the durable assignment cache, this means that
+once an instance has started on a node, that node holds everything needed to keep
+it running and can cold-start it with the primary unreachable.
+
+**No key hierarchy, deliberately.** The primary needs an SMK, keyslots and a
+recovery code because losing its machine key must not lose the secrets. On a
+secondary none of that applies — the primary is authoritative, so a lost or
+unreadable key just means refetching. The design is therefore one machine KEK
+sealing each row directly, with `kind + ref_id` as associated data. Rows that
+will not open are dropped and refetched rather than treated as an error, and a
+missing key file is established rather than reported. The secondary's key is
+independent of the primary's: nothing in `secondary.db` decrypts anywhere else,
+including on the primary.
+
+**What the encryption is for.** Against an attacker who already has local access
+it is weak by construction: with the file provider the machine key sits 0600
+beside `secondary.db`, same uid. Its value is the offline case — disk images, VM
+snapshots, volume clones, support bundles, a `sqlite3 .dump` pasted into a ticket
+— where ciphertext is a categorically different object to circulate than
+plaintext. It is also what makes Phase 3 a provider swap on the secondary rather
+than a migration of every row on every worker.
+
+**Retention.** Persisting values is only acceptable if a node also stops holding
+what it no longer needs, so a periodic sweep
+(`backend/app/secondary/retention.go`) drops every stored value and cached asset
+file that no instance assigned to the node still references. The reference set is
+the union over the durable assignment cache, which is already the authoritative
+answer to "what does this node run".
+
+The sweep runs only when every instance on the node is settled — desired config
+version equals both the preparer's and the runner's reported version, or the
+instance is not meant to be running. A mid-rollout instance is still running the
+previous config version, whose referenced ids the node can no longer enumerate
+(it holds only the current assignment blob), so sweeping then could delete an
+input its live container needs to respawn. It is all-or-nothing because ids are
+shared between deployments, leaving no sound way to attribute one to the instance
+that has settled.
+
+Two consequences worth knowing:
+
+- A node that holds a value keeps running on it even if the secret is later
+  deleted on the primary; revocation propagates as a config change, not
+  immediately. This is intended — it is the same property that makes cold start
+  work — and is safe on the assumption that a referenced secret cannot be
+  deleted.
+- One instance stuck mid-rollout blocks reclamation for the whole node until it
+  settles. This fails in the safe direction (files are kept, never wrongly
+  deleted) and self-corrects.
 
 ---
 
@@ -181,10 +255,11 @@ TPM-sealed secondary key (Phase 3 on the secondary) is the escalation.
 
 Replace the on-disk machine KEK with a TPM-sealed one **where a TPM is
 available**, so a stolen disk (or an offline DB+keyfile copy) cannot decrypt the
-SMK. It must be **opt-in via config** and **fall back transparently** to the
-file provider on nodes without a usable TPM. The keyslot format, the recovery
-slot, and all higher layers are unchanged — only a new `machineKeyProvider`
-implementation is added.
+SMK on a primary, or the locally stored runtime inputs on a secondary. It must be
+**opt-in via config** and **fall back transparently** to the file provider on
+nodes without a usable TPM. The keyslot format, the secondary's row format, the
+recovery slot, and all higher layers are unchanged — only a new
+`machinekey.Provider` implementation is added.
 
 ### Mechanism
 
@@ -194,16 +269,17 @@ seal/unseal model better than systemd's provisioned-credential model, and avoids
 a hard dependency on systemd ≥ 250 and an external CLI.
 
 ```go
-type tpm2MachineKey struct{ blobPath string } // e.g. {dataDir}/machine.key.tpm
+// in backend/lib/machinekey, alongside File
+type TPM2 struct{ BlobPath string } // e.g. {dataDir}/machine.key.tpm
 
-func (t *tpm2MachineKey) establish() ([]byte, error) {
+func (t *TPM2) Establish() ([]byte, error) {
     // 1. generate a random 32-byte KEK
     // 2. TPM2 seal it under the SRK (no PCR policy by default — see below)
-    // 3. write the sealed blob to blobPath (0600)
+    // 3. write the sealed blob to BlobPath (0600)
     // 4. return the KEK
 }
 
-func (t *tpm2MachineKey) load() ([]byte, error) {
+func (t *TPM2) Load() ([]byte, error) {
     // read the sealed blob, TPM2 unseal -> KEK
 }
 ```
@@ -226,8 +302,9 @@ OPENDEPLOY_SECRETS_MACHINE_KEY = file | tpm2 | auto    (default: file)
   `tpm2` if so, else `file`. This is the "transparent" mode and is the likely
   long-term default once the path is proven.
 
-Selection happens in `secrets.Open`, which already constructs the provider — the
-only change there is choosing the implementation from config.
+Selection happens where the provider is constructed — `secrets.Open` on the
+primary and the `localinputs.Open` call site on a secondary — so the only change
+in each is choosing the implementation from config.
 
 ### PCR binding
 
@@ -267,8 +344,11 @@ service user typically needs membership of the `tss` group.
   provider establishes a TPM-sealed KEK and `rewriteMachineSlot` re-wraps the
   SMK under it; the stale `machine.key` file is then removed. No secret value is
   re-encrypted.
-- **Disabling / TPM lost (e.g. firmware reset, hardware change)** — the machine
-  slot can no longer be unsealed → the store is locked → `Unlock(code)` with the
-  recovery code re-establishes a machine slot under the currently-selected
-  provider. The recovery slot is provider-independent and always works, which is
-  exactly why it is the durable root of recoverability.
+- **Disabling / TPM lost (e.g. firmware reset, hardware change)** — on a primary
+  the machine slot can no longer be unsealed → the store is locked →
+  `Unlock(code)` with the recovery code re-establishes a machine slot under the
+  currently-selected provider. The recovery slot is provider-independent and
+  always works, which is exactly why it is the durable root of recoverability.
+  On a secondary there is nothing to recover: the unreadable rows are dropped, a
+  fresh key is established under the currently-selected provider, and the values
+  are refetched from the primary on the next prepare.

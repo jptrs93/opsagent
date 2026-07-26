@@ -451,3 +451,19 @@ SELECT value FROM local_kv WHERE key = ?;
 -- name: UpsertLocalKV :exec
 INSERT INTO local_kv (key, value) VALUES (?, ?)
 ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+
+-- === local_runtime_inputs ===
+
+-- name: ListLocalRuntimeInputs :many
+SELECT kind, ref_id, ciphertext, nonce, fetched_at FROM local_runtime_inputs;
+
+-- name: UpsertLocalRuntimeInput :exec
+INSERT INTO local_runtime_inputs (kind, ref_id, ciphertext, nonce, fetched_at)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(kind, ref_id) DO UPDATE SET
+    ciphertext = excluded.ciphertext,
+    nonce      = excluded.nonce,
+    fetched_at = excluded.fetched_at;
+
+-- name: DeleteLocalRuntimeInput :exec
+DELETE FROM local_runtime_inputs WHERE kind = ? AND ref_id = ?;

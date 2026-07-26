@@ -14,6 +14,8 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubreleaseimage"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixdocker"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
+	"github.com/jptrs93/opsagent/backend/lib/localinputs"
+	"github.com/jptrs93/opsagent/backend/lib/machinekey"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/repo/git"
 	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
@@ -56,7 +58,23 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	assetProvider := NewPrimaryAssetProvider(primaryURL, primaryHTTPClient)
 	secretProvider := NewPrimarySecretProvider(primaryURL, primaryHTTPClient)
 	configProvider := NewPrimaryConfigProvider(primaryURL, primaryHTTPClient)
-	runtimeInputs := runtimeinputs.New(assetProvider, secretProvider, configProvider)
+
+	// Runtime inputs are loaded from local storage before the operator starts, so
+	// a worker that reboots while the primary is unreachable can still resolve
+	// every secret and config its workloads need. Failures here are not fatal:
+	// NewPersistent still returns a usable RuntimeInputs, it just starts empty and
+	// refetches, which is the pre-persistence behaviour.
+	var inputPersistence runtimeinputs.Persistence
+	localInputs, err := localinputs.Open(store, &machinekey.File{Path: filepath.Join(cfg.DataDir, machinekey.FileName)})
+	if err != nil {
+		slog.Warn("opening local runtime input store failed; runtime inputs will be fetched from the primary on every restart", "err", err)
+	} else {
+		inputPersistence = localInputs
+	}
+	runtimeInputs, err := runtimeinputs.NewPersistent(assetProvider, secretProvider, configProvider, inputPersistence)
+	if err != nil {
+		slog.Warn("loading persisted runtime inputs failed; they will be refetched from the primary", "err", err)
+	}
 	gitManager := git.NewManager(cfg.GitCacheDir, githubCredentials)
 	githubClient := githubrepo.NewClient(githubCredentials)
 	githubReleasePreparer := githubrelease.New(cfg.ReleasesDir, githubClient)
@@ -64,6 +82,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	githubReleaseImagePreparer := githubreleaseimage.New(cfg.ReleasesDir, githubClient)
 
 	go netproxy.RunNetStateWriter(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID), cfg.NodeIdentifier, cfg.NetproxyStatePath)
+	go runRuntimeInputRetention(ctx, store, runtimeInputs, scheduledInstancePredicateForNode(cfg.NodeID))
 	go engine.DeploymentOperator{
 		Store:              store,
 		GithubRelease:      githubReleasePreparer,

@@ -36,38 +36,6 @@ CREATE TABLE IF NOT EXISTS deployment_config_history (
     PRIMARY KEY (deployment_id, version)
 );
 
--- Legacy tables retained for existing databases; unused by current code.
-CREATE TABLE IF NOT EXISTS deployment_status (
-    deployment_id           INTEGER PRIMARY KEY,
-    updated_at              INTEGER NOT NULL,
-    preparer_config_version INTEGER,
-    preparer_artifact       TEXT,
-    preparer_status         INTEGER,
-    runner_config_version   INTEGER,
-    runner_pid              INTEGER,
-    runner_artifact         TEXT,
-    runner_status           INTEGER,
-    runner_num_restarts     INTEGER,
-    runner_last_restart_at  INTEGER,
-    runner_extra_blob       BLOB    NOT NULL DEFAULT x''
-);
-
-CREATE TABLE IF NOT EXISTS deployment_status_history (
-    deployment_id           INTEGER NOT NULL,
-    updated_at              INTEGER NOT NULL,
-    preparer_config_version INTEGER,
-    preparer_artifact       TEXT,
-    preparer_status         INTEGER,
-    runner_config_version   INTEGER,
-    runner_pid              INTEGER,
-    runner_artifact         TEXT,
-    runner_status           INTEGER,
-    runner_num_restarts     INTEGER,
-    runner_last_restart_at  INTEGER,
-    runner_extra_blob       BLOB    NOT NULL DEFAULT x'',
-    PRIMARY KEY (deployment_id, updated_at)
-);
-
 -- One row per placement/runtime incarnation. state: 0=run, 1=terminate, 2=finalized.
 CREATE TABLE IF NOT EXISTS scheduled_instances (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -242,6 +210,30 @@ CREATE TABLE IF NOT EXISTS system_secrets (
 CREATE TABLE IF NOT EXISTS local_kv (
     key   TEXT PRIMARY KEY,
     value BLOB NOT NULL
+);
+
+-- Secondary-local encrypted copies of the runtime inputs (secret and config
+-- values) referenced by the instances assigned to this node, so a worker can
+-- cold-start its workloads while the primary is unreachable. Never replicated;
+-- populated only by prepare on the node that needs the value.
+--
+-- Each row is sealed under this node's own machine KEK, which is independent of
+-- the primary's key hierarchy and lives outside the DB — so this file alone
+-- decrypts nowhere, including on the primary. There is deliberately no key
+-- hierarchy and no recovery slot: the primary is authoritative, so a lost
+-- machine key just means refetching.
+--
+-- Rows never go stale. Secret and config rows are immutable and versioned, so
+-- ref_id always denotes the same value; rotation mints a new id and reaches this
+-- node as a new deployment config version. A row can only become unreferenced,
+-- which is what the retention sweep collects.
+CREATE TABLE IF NOT EXISTS local_runtime_inputs (
+    kind       INTEGER NOT NULL,  -- 1=secret, 2=config
+    ref_id     INTEGER NOT NULL,  -- immutable secrets.id / configs.id
+    ciphertext BLOB    NOT NULL,  -- AEAD(value, machine KEK), AAD = kind + ref_id
+    nonce      BLOB    NOT NULL,
+    fetched_at INTEGER NOT NULL,  -- epoch ms
+    PRIMARY KEY (kind, ref_id)
 );
 
 -- Worker enrollment requests. A reconnecting unenrolled worker is identified by

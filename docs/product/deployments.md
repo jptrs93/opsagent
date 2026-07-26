@@ -180,7 +180,7 @@ counter is reset.
 
 ## Deployment history
 
-The history sidebar shows a chronological log of all deployment config and status changes. Config entries show the version number and what changed (version deployed, running toggled, deleted). Status entries show preparer and runner state transitions (diff-rendered against the previous entry so unchanged sections aren't repeated). All entries are fetched via `POST /v1/deployment/history` with the integer deployment ID. History is stored in `deployment_config_history` (PK `deployment_id, version`) and `deployment_status_history` (PK `deployment_id, status_seq_no`) — the composite primary keys already cover `deployment_id`-leading lookups.
+The history sidebar shows a chronological log of all deployment config and status changes. Config entries show the version number and what changed (version deployed, running toggled, deleted). Status entries show preparer and runner state transitions (diff-rendered against the previous entry so unchanged sections aren't repeated). All entries are fetched via `POST /v1/deployment/history` with the integer deployment ID. History is stored in `deployment_config_history` (PK `deployment_id, version`) and `scheduled_instance_status` (PK `scheduled_instance_id, updated_at`), the append-only status log covering every scheduled instance of the deployment; `idx_scheduled_instance_status_deployment` covers the `deployment_id`-leading lookup.
 
 ## Empty state
 

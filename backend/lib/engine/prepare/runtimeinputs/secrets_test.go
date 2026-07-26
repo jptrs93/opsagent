@@ -175,5 +175,177 @@ func TestEnsureSecretsReadyDoesNotCacheIncompleteBatch(t *testing.T) {
 	}
 }
 
+// fakePersistence records what was written so tests can assert the durable side
+// independently of the in-memory maps.
+type fakePersistence struct {
+	secrets map[int32]string
+	configs map[int32]string
+	loadErr error
+}
+
+func newFakePersistence() *fakePersistence {
+	return &fakePersistence{secrets: map[int32]string{}, configs: map[int32]string{}}
+}
+
+func (f *fakePersistence) LoadRuntimeInputs() (map[int32]string, map[int32]string, error) {
+	if f.loadErr != nil {
+		return nil, nil, f.loadErr
+	}
+	secrets := map[int32]string{}
+	configs := map[int32]string{}
+	for id, v := range f.secrets {
+		secrets[id] = v
+	}
+	for id, v := range f.configs {
+		configs[id] = v
+	}
+	return secrets, configs, nil
+}
+
+func (f *fakePersistence) StoreRuntimeInputs(secrets, configs map[int32]string) error {
+	for id, v := range secrets {
+		f.secrets[id] = v
+	}
+	for id, v := range configs {
+		f.configs[id] = v
+	}
+	return nil
+}
+
+func (f *fakePersistence) RetainRuntimeInputs(secrets, configs map[int32]struct{}) (int, error) {
+	removed := 0
+	for id := range f.secrets {
+		if _, ok := secrets[id]; !ok {
+			delete(f.secrets, id)
+			removed++
+		}
+	}
+	for id := range f.configs {
+		if _, ok := configs[id]; !ok {
+			delete(f.configs, id)
+			removed++
+		}
+	}
+	return removed, nil
+}
+
+func secretRefDeployment(ids ...int32) *apigen.DeploymentConfig {
+	env := map[string]*apigen.EnvVarValue{}
+	for i, id := range ids {
+		env[string(rune('A'+i))] = &apigen.EnvVarValue{SecretID: ptrInt32(id)}
+	}
+	return &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
+		Runtime: apigen.ContainerRuntime{EnvVars: env},
+	}}}
+}
+
+// The whole point of persisting runtime inputs: a restarted worker resolves
+// everything its workloads need without a single call to the primary, so it can
+// cold-start while the primary is down.
+func TestPersistedInputsMakeRestartNotContactTheProvider(t *testing.T) {
+	persistence := newFakePersistence()
+	fake := &fakeSecretProvider{}
+	inputs, err := NewPersistent(nil, fake, nil, persistence)
+	if err != nil {
+		t.Fatalf("NewPersistent: %v", err)
+	}
+	dep := secretRefDeployment(1, 2)
+	if err := inputs.EnsureSecretsReady(context.Background(), dep); err != nil {
+		t.Fatalf("EnsureSecretsReady: %v", err)
+	}
+	if len(persistence.secrets) != 2 {
+		t.Fatalf("persisted secrets = %v, want 2 entries", persistence.secrets)
+	}
+
+	// Restart: a fresh RuntimeInputs over the same durable store, with a provider
+	// that fails every call the way an unreachable primary would.
+	restarted, err := NewPersistent(nil, &failingSecretProvider{t: t}, nil, persistence)
+	if err != nil {
+		t.Fatalf("NewPersistent after restart: %v", err)
+	}
+	if err := restarted.EnsureSecretsReady(context.Background(), dep); err != nil {
+		t.Fatalf("EnsureSecretsReady after restart: %v", err)
+	}
+	if value, ok := restarted.ResolveSecret(2); !ok || value != "value" {
+		t.Fatalf("ResolveSecret(2) after restart = %q, %t", value, ok)
+	}
+}
+
+// failingSecretProvider fails the test if it is called at all.
+type failingSecretProvider struct{ t *testing.T }
+
+func (f *failingSecretProvider) FetchSecrets(context.Context, []int32) (map[int32]string, error) {
+	f.t.Error("provider was contacted although every id was already held locally")
+	return nil, context.Canceled
+}
+
+// Only the ids not already held are requested, so a partially-cached config
+// costs one narrow fetch rather than a full refetch.
+func TestEnsureSecretsReadyFetchesOnlyMissingIDs(t *testing.T) {
+	persistence := newFakePersistence()
+	persistence.secrets[1] = "cached"
+	fake := &fakeSecretProvider{}
+	inputs, err := NewPersistent(nil, fake, nil, persistence)
+	if err != nil {
+		t.Fatalf("NewPersistent: %v", err)
+	}
+
+	if err := inputs.EnsureSecretsReady(context.Background(), secretRefDeployment(1, 2)); err != nil {
+		t.Fatalf("EnsureSecretsReady: %v", err)
+	}
+	if !reflect.DeepEqual(fake.ids, []int32{2}) {
+		t.Fatalf("fetched ids = %#v, want [2]", fake.ids)
+	}
+	if value, ok := inputs.ResolveSecret(1); !ok || value != "cached" {
+		t.Fatalf("ResolveSecret(1) = %q, %t; want cached, true", value, ok)
+	}
+}
+
+// A load failure must leave a usable, empty RuntimeInputs rather than a nil one,
+// so the caller can log and carry on with the pre-persistence behaviour.
+func TestNewPersistentStaysUsableWhenLoadFails(t *testing.T) {
+	persistence := newFakePersistence()
+	persistence.loadErr = context.DeadlineExceeded
+	fake := &fakeSecretProvider{}
+
+	inputs, err := NewPersistent(nil, fake, nil, persistence)
+	if err == nil {
+		t.Fatal("expected NewPersistent to report the load failure")
+	}
+	if inputs == nil {
+		t.Fatal("NewPersistent returned no RuntimeInputs to fall back on")
+	}
+	if err := inputs.EnsureSecretsReady(context.Background(), secretRefDeployment(1)); err != nil {
+		t.Fatalf("EnsureSecretsReady: %v", err)
+	}
+	if !reflect.DeepEqual(fake.ids, []int32{1}) {
+		t.Fatalf("fetched ids = %#v, want [1]", fake.ids)
+	}
+}
+
+func TestRetainDropsUnreferencedValuesFromMemoryAndPersistence(t *testing.T) {
+	persistence := newFakePersistence()
+	inputs, err := NewPersistent(nil, &fakeSecretProvider{}, &fakeConfigProvider{}, persistence)
+	if err != nil {
+		t.Fatalf("NewPersistent: %v", err)
+	}
+	if err := inputs.EnsureSecretsReady(context.Background(), secretRefDeployment(1, 2)); err != nil {
+		t.Fatalf("EnsureSecretsReady: %v", err)
+	}
+
+	if _, err := inputs.Retain(map[int32]struct{}{1: {}}, map[int32]struct{}{}); err != nil {
+		t.Fatalf("Retain: %v", err)
+	}
+	if _, ok := inputs.ResolveSecret(2); ok {
+		t.Fatal("unreferenced secret still resolvable in memory")
+	}
+	if _, ok := persistence.secrets[2]; ok {
+		t.Fatal("unreferenced secret still persisted")
+	}
+	if _, ok := inputs.ResolveSecret(1); !ok {
+		t.Fatal("referenced secret was dropped")
+	}
+}
+
 func ptrInt32(v int32) *int32    { return &v }
 func ptrString(v string) *string { return &v }

@@ -3,6 +3,7 @@ package runtimeinputs
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"sync"
 
@@ -17,10 +18,21 @@ type ConfigProvider interface {
 	FetchConfigs(ctx context.Context, ids []int32) (map[int32]string, error)
 }
 
+// Persistence durably stores fetched values so a node can resolve them again
+// after a restart without reaching their provider. Optional: with no
+// Persistence the values live in process memory only, which is what the primary
+// wants — it already holds the authoritative copy.
+type Persistence interface {
+	LoadRuntimeInputs() (secrets, configs map[int32]string, err error)
+	StoreRuntimeInputs(secrets, configs map[int32]string) error
+	RetainRuntimeInputs(secrets, configs map[int32]struct{}) (int, error)
+}
+
 type RuntimeInputs struct {
-	assets  AssetProvider
-	secrets SecretProvider
-	configs ConfigProvider
+	assets      AssetProvider
+	secrets     SecretProvider
+	configs     ConfigProvider
+	persistence Persistence
 
 	mu           sync.RWMutex
 	secretValues map[int32]string
@@ -37,25 +49,114 @@ func New(assets AssetProvider, secrets SecretProvider, configs ConfigProvider) *
 	}
 }
 
+// NewPersistent returns a RuntimeInputs backed by p, preloaded with everything p
+// already holds.
+//
+// On error the returned RuntimeInputs is still usable — it just starts empty and
+// refetches — so a caller that only logs the error stays correct.
+func NewPersistent(assets AssetProvider, secrets SecretProvider, configs ConfigProvider, p Persistence) (*RuntimeInputs, error) {
+	r := New(assets, secrets, configs)
+	if p == nil {
+		return r, nil
+	}
+	r.persistence = p
+	secretValues, configValues, err := p.LoadRuntimeInputs()
+	if err != nil {
+		return r, fmt.Errorf("loading persisted runtime inputs: %w", err)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id, value := range secretValues {
+		r.secretValues[id] = value
+	}
+	for id, value := range configValues {
+		r.configValues[id] = value
+	}
+	return r, nil
+}
+
+// Retain drops every value, in memory and in persistence, whose id is absent
+// from the keep sets. It returns the number of persisted rows removed.
+func (r *RuntimeInputs) Retain(secrets, configs map[int32]struct{}) (int, error) {
+	r.mu.Lock()
+	for id := range r.secretValues {
+		if _, ok := secrets[id]; !ok {
+			delete(r.secretValues, id)
+		}
+	}
+	for id := range r.configValues {
+		if _, ok := configs[id]; !ok {
+			delete(r.configValues, id)
+		}
+	}
+	r.mu.Unlock()
+	if r.persistence == nil {
+		return 0, nil
+	}
+	return r.persistence.RetainRuntimeInputs(secrets, configs)
+}
+
+// missingIDs returns the subset of ids with no value held yet.
+func (r *RuntimeInputs) missingIDs(ids []int32, have map[int32]string) []int32 {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]int32, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := have[id]; !ok {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// persist writes through to durable storage, best effort.
+//
+// The values are already in memory and the deployment can run on them, so a
+// local write failure must not fail preparation — it only costs a refetch on the
+// next restart, which is exactly the behaviour of a node with no persistence.
+func (r *RuntimeInputs) persist(ctx context.Context, secrets, configs map[int32]string) {
+	if r.persistence == nil {
+		return
+	}
+	if err := r.persistence.StoreRuntimeInputs(secrets, configs); err != nil {
+		slog.WarnContext(ctx, "runtimeinputs: persisting values locally failed; they will be refetched after a restart", "err", err)
+	}
+}
+
+// EnsureSecretsReady makes every secret referenced by cfg resolvable on this
+// node, fetching only the ids not already held.
+//
+// Skipping ids already held is safe because secret rows are immutable: an id
+// always denotes the same value, and rotation mints a new id that arrives here
+// as a new deployment config version. Combined with Persistence this is what
+// lets a restarted worker start its workloads without reaching the primary at
+// all.
 func (r *RuntimeInputs) EnsureSecretsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
 	ids := SecretRefs(cfg)
 	if len(ids) == 0 {
 		return nil
 	}
-	values, err := r.secrets.FetchSecrets(ctx, ids)
+	missing := r.missingIDs(ids, r.secretValues)
+	if len(missing) == 0 {
+		return nil
+	}
+	values, err := r.secrets.FetchSecrets(ctx, missing)
 	if err != nil {
 		return fmt.Errorf("fetching secrets: %w", err)
 	}
-	for _, id := range ids {
+	for _, id := range missing {
 		if _, ok := values[id]; !ok {
 			return fmt.Errorf("secret provider did not return id %d", id)
 		}
 	}
+	fetched := make(map[int32]string, len(missing))
 	r.mu.Lock()
-	for _, id := range ids {
+	for _, id := range missing {
 		r.secretValues[id] = values[id]
+		fetched[id] = values[id]
 	}
 	r.mu.Unlock()
+	r.persist(ctx, fetched, nil)
 	return nil
 }
 
@@ -69,25 +170,34 @@ func (r *RuntimeInputs) EnsureReady(ctx context.Context, cfg *apigen.DeploymentC
 	return r.EnsureConfigsReady(ctx, cfg)
 }
 
+// EnsureConfigsReady is EnsureSecretsReady for plain config values, which share
+// the same immutable-versioned row model.
 func (r *RuntimeInputs) EnsureConfigsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
 	ids := ConfigRefs(cfg)
 	if len(ids) == 0 {
 		return nil
 	}
-	values, err := r.configs.FetchConfigs(ctx, ids)
+	missing := r.missingIDs(ids, r.configValues)
+	if len(missing) == 0 {
+		return nil
+	}
+	values, err := r.configs.FetchConfigs(ctx, missing)
 	if err != nil {
 		return fmt.Errorf("fetching configs: %w", err)
 	}
-	for _, id := range ids {
+	for _, id := range missing {
 		if _, ok := values[id]; !ok {
 			return fmt.Errorf("config provider did not return id %d", id)
 		}
 	}
+	fetched := make(map[int32]string, len(missing))
 	r.mu.Lock()
-	for _, id := range ids {
+	for _, id := range missing {
 		r.configValues[id] = values[id]
+		fetched[id] = values[id]
 	}
 	r.mu.Unlock()
+	r.persist(ctx, nil, fetched)
 	return nil
 }
 

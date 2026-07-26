@@ -112,6 +112,14 @@ type LocalKv struct {
 	Value []byte
 }
 
+type LocalRuntimeInput struct {
+	Kind       int64
+	RefID      int64
+	Ciphertext []byte
+	Nonce      []byte
+	FetchedAt  int64
+}
+
 type LocalScheduledInstanceCache struct {
 	InstanceID int64
 	Blob       []byte

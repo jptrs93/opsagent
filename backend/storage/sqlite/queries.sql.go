@@ -96,6 +96,20 @@ func (q *Queries) DeleteAssetVersionByID(ctx context.Context, id int64) error {
 	return err
 }
 
+const deleteLocalRuntimeInput = `-- name: DeleteLocalRuntimeInput :exec
+DELETE FROM local_runtime_inputs WHERE kind = ? AND ref_id = ?
+`
+
+type DeleteLocalRuntimeInputParams struct {
+	Kind  int64
+	RefID int64
+}
+
+func (q *Queries) DeleteLocalRuntimeInput(ctx context.Context, arg DeleteLocalRuntimeInputParams) error {
+	_, err := q.db.ExecContext(ctx, deleteLocalRuntimeInput, arg.Kind, arg.RefID)
+	return err
+}
+
 const deleteLocalScheduledInstanceCache = `-- name: DeleteLocalScheduledInstanceCache :exec
 DELETE FROM local_scheduled_instance_cache WHERE instance_id = ?
 `
@@ -1271,6 +1285,41 @@ func (q *Queries) ListLatestSecrets(ctx context.Context) ([]Secret, error) {
 	return items, nil
 }
 
+const listLocalRuntimeInputs = `-- name: ListLocalRuntimeInputs :many
+
+SELECT kind, ref_id, ciphertext, nonce, fetched_at FROM local_runtime_inputs
+`
+
+// === local_runtime_inputs ===
+func (q *Queries) ListLocalRuntimeInputs(ctx context.Context) ([]LocalRuntimeInput, error) {
+	rows, err := q.db.QueryContext(ctx, listLocalRuntimeInputs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LocalRuntimeInput
+	for rows.Next() {
+		var i LocalRuntimeInput
+		if err := rows.Scan(
+			&i.Kind,
+			&i.RefID,
+			&i.Ciphertext,
+			&i.Nonce,
+			&i.FetchedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLocalScheduledInstanceCache = `-- name: ListLocalScheduledInstanceCache :many
 SELECT instance_id, blob FROM local_scheduled_instance_cache
 `
@@ -1970,6 +2019,34 @@ type UpsertLocalKVParams struct {
 
 func (q *Queries) UpsertLocalKV(ctx context.Context, arg UpsertLocalKVParams) error {
 	_, err := q.db.ExecContext(ctx, upsertLocalKV, arg.Key, arg.Value)
+	return err
+}
+
+const upsertLocalRuntimeInput = `-- name: UpsertLocalRuntimeInput :exec
+INSERT INTO local_runtime_inputs (kind, ref_id, ciphertext, nonce, fetched_at)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(kind, ref_id) DO UPDATE SET
+    ciphertext = excluded.ciphertext,
+    nonce      = excluded.nonce,
+    fetched_at = excluded.fetched_at
+`
+
+type UpsertLocalRuntimeInputParams struct {
+	Kind       int64
+	RefID      int64
+	Ciphertext []byte
+	Nonce      []byte
+	FetchedAt  int64
+}
+
+func (q *Queries) UpsertLocalRuntimeInput(ctx context.Context, arg UpsertLocalRuntimeInputParams) error {
+	_, err := q.db.ExecContext(ctx, upsertLocalRuntimeInput,
+		arg.Kind,
+		arg.RefID,
+		arg.Ciphertext,
+		arg.Nonce,
+		arg.FetchedAt,
+	)
 	return err
 }
 
