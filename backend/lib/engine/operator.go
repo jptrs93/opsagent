@@ -21,6 +21,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
+	"github.com/jptrs93/opsagent/backend/util/version"
 )
 
 type DeploymentOperator struct {
@@ -32,9 +33,7 @@ type DeploymentOperator struct {
 	ImageReady         func(context.Context, string) error
 }
 
-// preparerReady returns true when the preparer has produced a READY artifact
-// for the given deployment seq number.
-func preparerReady(status *apigen.DeploymentStatus, seqNo int32) bool {
+func preparerReady(status *apigen.ScheduledInstanceStatus, seqNo int32) bool {
 	return status != nil &&
 		!status.Preparer.IsZero() &&
 		status.Preparer.DeploymentConfigVersion == seqNo &&
@@ -48,26 +47,35 @@ func configName(cfg *apigen.DeploymentConfig) string {
 	return fmt.Sprintf("id=%d", cfg.ID)
 }
 
-func (op DeploymentOperator) RunAll(predicate storage.DeploymentPredicate) {
-	deps, ch, _ := op.Store.MustFetchSnapshotAndSubscribe(predicate)
-	subs := &pubsubu.PubSub[apigen.DeploymentWithStatus]{}
+func (op DeploymentOperator) RunAll(predicate storage.ScheduledInstancePredicate) {
+	deps, ch, _ := op.Store.MustFetchScheduledSnapshotAndSubscribe(predicate)
+	subs := &pubsubu.PubSub[apigen.ScheduledInstanceState]{}
 
 	slog.Info("RunAll: snapshot loaded", "count", len(deps))
 
 	running := map[int32]struct{}{}
+	// Subscribe before launching the operator goroutine so TERMINATE/FINALIZED
+	// updates cannot be forwarded before the operator is listening.
+	start := func(dep apigen.ScheduledInstanceState) {
+		instanceID := dep.Instance.ID
+		running[instanceID] = struct{}{}
+		sub := subs.Subscribe(func(_, dws apigen.ScheduledInstanceState) bool {
+			return dws.Instance.ID == instanceID
+		})
+		state := dep
+		go op.Run(sub, &state)
+	}
+
 	for _, dep := range deps {
-		running[dep.Config.ID] = struct{}{}
-		slog.InfoContext(logu.ExtendLogContext(context.Background(), "dep", dep.Config.ID), "RunAll: launching operator from snapshot",
+		slog.InfoContext(logu.ExtendLogContext(context.Background(), "scheduled_instance", dep.Instance.ID), "RunAll: launching operator from snapshot",
+			"deployment", dep.Instance.DeploymentID,
 			"name", configName(&dep.Config),
-			"seqNo", dep.Config.Version,
-			"desiredRunning", dep.Config.WorkloadRunning(),
-			"desiredVersion", dep.Config.WorkloadVersion(),
+			"seqNo", dep.Instance.DeploymentVersion,
+			"targetState", dep.Instance.State,
 			"hasPreparer", !dep.Status.Preparer.IsZero(),
 			"hasRunner", !dep.Status.Runner.IsZero(),
 		)
-		config := dep.Config
-		status := dep.Status
-		go op.Run(subs, &config, &status)
+		start(dep)
 	}
 	go func() {
 		for {
@@ -75,69 +83,147 @@ func (op DeploymentOperator) RunAll(predicate storage.DeploymentPredicate) {
 			if !ok {
 				return
 			}
-			if _, ok := running[v.Config.ID]; !ok {
-				running[v.Config.ID] = struct{}{}
-				slog.InfoContext(logu.ExtendLogContext(context.Background(), "dep", v.Config.ID), "RunAll: launching operator for new deployment",
+			if _, ok := running[v.Instance.ID]; !ok {
+				slog.InfoContext(logu.ExtendLogContext(context.Background(), "scheduled_instance", v.Instance.ID), "RunAll: launching operator for new scheduled instance",
+					"deployment", v.Instance.DeploymentID,
 					"name", configName(&v.Config),
-					"seqNo", v.Config.Version,
+					"seqNo", v.Instance.DeploymentVersion,
 				)
-				config := v.Config
-				status := v.Status
-				go op.Run(subs, &config, &status)
+				start(v)
+				continue
 			}
 			subs.Notify(v)
 		}
 	}()
-
 }
 
 func (op DeploymentOperator) Run(
-	subs *pubsubu.PubSub[apigen.DeploymentWithStatus],
-	config *apigen.DeploymentConfig,
-	status *apigen.DeploymentStatus) {
-	id := config.ID
-	depName := configName(config)
-	ctx := logu.ExtendLogContext(context.Background(), "dep", id)
-	slog.InfoContext(ctx, "deployment operator started", "name", depName)
+	sub *pubsubu.Sub[apigen.ScheduledInstanceState],
+	initial *apigen.ScheduledInstanceState) {
+	defer sub.UnsubscribeFunc()
 
-	sub := subs.Subscribe(func(prev, dws apigen.DeploymentWithStatus) bool {
-		return dws.Config.ID == id
-	})
+	instanceID := initial.Instance.ID
+	config := initial.Config
+	status := initial.Status
+	target := initial.Instance.State
+	depName := configName(&config)
+	ctx := logu.ExtendLogContext(context.Background(), "scheduled_instance", instanceID)
+	ctx = logu.ExtendLogContext(ctx, "dep", config.ID)
+	slog.InfoContext(ctx, "scheduled instance operator started", "name", depName)
+
 	var currentPreparer *prepare.Handle
 	var currentRunner runner.Runner
-	if config.WorkloadRunning() {
+	shouldRun := target.WantsRunning()
+	if shouldRun {
 		slog.InfoContext(ctx, "Run: reattaching running preparer",
 			"name", depName,
 			"preparerStatus", fmtPreparerStatus(status.Preparer),
 			"configSeqNo", config.Version,
 		)
-		currentPreparer = op.reAttachPreparer(config, status.Preparer)
+		currentPreparer = op.reAttachPreparer(instanceID, &config, status.Preparer)
 		slog.InfoContext(ctx, "Run: reattaching running runner",
 			"name", depName,
 			"runnerStatus", fmtRunnerStatus(status.Runner),
 			"configSeqNo", config.Version,
 		)
-		currentRunner = runner.ReAttachRunning(op.Store, op.RuntimeInputs, config, status.Runner)
+		currentRunner = runner.ReAttachRunning(op.Store, op.RuntimeInputs, instanceID, &config, status.Runner)
 	} else {
-		slog.InfoContext(ctx, "Run: initializing stopped deployment",
+		slog.InfoContext(ctx, "Run: initializing stopped/terminating instance",
 			"name", depName,
+			"targetState", target,
 			"preparerStatus", fmtPreparerStatus(status.Preparer),
 			"runnerStatus", fmtRunnerStatus(status.Runner),
 			"configSeqNo", config.Version,
 		)
 		currentPreparer = prepare.Finished(config.Version)
-		currentRunner = runner.ReAttachStopped(op.Store, op.RuntimeInputs, config, status.Runner)
+		currentRunner = runner.ReAttachStopped(op.Store, op.RuntimeInputs, instanceID, &config, status.Runner)
+	}
+	// A reattached placement that is already serving keeps its address across an
+	// agent restart; one that is standing by or draining must not take it.
+	if target == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+		if err := currentRunner.Serve(); err != nil {
+			slog.WarnContext(ctx, "Run: claiming the instance address on startup failed", "name", depName, "err", err)
+		}
 	}
 	var candidate runner.RolloverCandidate
 	var candidateReady <-chan rolloverCandidateResult
 	artifactRepairPending := false
 	artifactRepairStarted := false
+	reconcile := func(update apigen.ScheduledInstanceState) bool {
+		config = update.Config
+		status = update.Status
+		target = update.Instance.State
+		if artifactRepairPending && status.Preparer.DeploymentConfigVersion == config.Version && status.Preparer.Status != apigen.PreparationStatus_READY {
+			artifactRepairStarted = true
+		}
+		switch {
+		case target == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED:
+			slog.InfoContext(ctx, "Run: scheduled instance finalized, shutting down", "name", depName)
+			currentPreparer.Cancel()
+			if candidate != nil {
+				candidate.Stop()
+			}
+			currentRunner.Stop()
+			return false
+		case target == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE:
+			slog.InfoContext(ctx, "Run: target terminate, stopping runner", "name", depName)
+			if candidate != nil {
+				candidate.Stop()
+				candidate = nil
+				candidateReady = nil
+			}
+			currentRunner.Stop()
+			currentRunner = runner.Stopped()
+			writeTerminalStopped(op.Store, instanceID, &config, &status)
+		case target.WantsRunning() &&
+			config.Version > currentPreparer.Version():
+			slog.InfoContext(ctx, "Run: starting prepare",
+				"name", depName,
+				"configSeqNo", config.Version, "preparerSeqNo", currentPreparer.Version())
+			if candidate != nil {
+				candidate.Stop()
+				candidate = nil
+				candidateReady = nil
+			}
+			currentPreparer.Cancel()
+			currentPreparer = op.startPreparer(instanceID, &config)
+		case target.WantsRunning() &&
+			preparerReady(&status, config.Version) && config.Version > currentRunner.Version() && candidate == nil && (!artifactRepairPending || artifactRepairStarted):
+			slog.InfoContext(ctx, "Run: preparer ready, creating runner",
+				"name", depName,
+				"artifact", status.Preparer.Artifact, "configSeqNo", config.Version)
+			if config.EffectiveUpgradeStrategy() == apigen.ContainerUpgradeStrategy_ROLLOVER {
+				candidate = runner.CreateRolloverCandidate(op.Store, op.RuntimeInputs, instanceID, &config, &status)
+				candidateReady = waitForRolloverCandidate(candidate, config.Version)
+				return true
+			}
+			currentRunner.Stop()
+			currentRunner = runner.Create(op.Store, op.RuntimeInputs, instanceID, &config, &status)
+			artifactRepairPending = false
+			artifactRepairStarted = false
+		default:
+			slog.DebugContext(ctx, "Run: nothing to do on update", "name", depName)
+		}
+		// Claiming the instance address is driven by target state, not by local
+		// readiness, so that only one node ever holds the route. Serve is
+		// idempotent, so running it on every serving update also repairs a claim
+		// that failed earlier without needing to track that it did.
+		if target == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+			if err := currentRunner.Serve(); err != nil {
+				slog.WarnContext(ctx, "Run: claiming the instance address failed", "name", depName, "err", err)
+			}
+		}
+		return true
+	}
 
-	// Reconciliation loop.
+	if !reconcile(*initial) {
+		return
+	}
+
 	for {
 		select {
 		case <-currentRunner.ArtifactMissing():
-			if !config.WorkloadRunning() {
+			if !target.WantsRunning() {
 				continue
 			}
 			slog.WarnContext(ctx, "Run: local artifact missing, preparing current config again", "name", depName, "configSeqNo", config.Version)
@@ -149,7 +235,7 @@ func (op DeploymentOperator) Run(
 			currentRunner.Stop()
 			currentRunner = runner.Stopped()
 			currentPreparer.Cancel()
-			currentPreparer = op.startPreparer(config)
+			currentPreparer = op.startPreparer(instanceID, &config)
 			artifactRepairPending = true
 			artifactRepairStarted = false
 		case result := <-candidateReady:
@@ -162,9 +248,9 @@ func (op DeploymentOperator) Run(
 				candidate.Stop()
 				candidate = nil
 				candidateReady = nil
-				if artifactMissing && config.WorkloadRunning() {
+				if artifactMissing && target.WantsRunning() {
 					currentPreparer.Cancel()
-					currentPreparer = op.startPreparer(config)
+					currentPreparer = op.startPreparer(instanceID, &config)
 					artifactRepairPending = true
 					artifactRepairStarted = false
 				}
@@ -178,8 +264,7 @@ func (op DeploymentOperator) Run(
 				candidateReady = nil
 				continue
 			}
-			slog.InfoContext(ctx, "Run: rollover candidate promoted, stopping old runner", "name", depName, "configSeqNo", result.version)
-			currentRunner.Stop()
+			slog.InfoContext(ctx, "Run: rollover candidate promoted", "name", depName, "configSeqNo", result.version)
 			currentRunner = candidate
 			candidate = nil
 			candidateReady = nil
@@ -189,76 +274,30 @@ func (op DeploymentOperator) Run(
 			if !ok {
 				return
 			}
-			config = &update.Config
-			status = &update.Status
-			if artifactRepairPending && status.Preparer.DeploymentConfigVersion == config.Version && status.Preparer.Status != apigen.PreparationStatus_READY {
-				artifactRepairStarted = true
-			}
-			switch {
-			case config.Deleted:
-				slog.InfoContext(ctx, "Run: deployment deleted, shutting down", "name", depName)
-				currentPreparer.Cancel()
-				if candidate != nil {
-					candidate.Stop()
-				}
-				currentRunner.Stop()
-				sub.UnsubscribeFunc()
+			if !reconcile(update) {
 				return
-			case !config.WorkloadRunning():
-				slog.InfoContext(ctx, "Run: desired running=false, stopping runner", "name", depName)
-				if candidate != nil {
-					candidate.Stop()
-					candidate = nil
-					candidateReady = nil
-				}
-				currentRunner.Stop()
-			case config.Version > currentPreparer.Version() && config.WorkloadRunning():
-				slog.InfoContext(ctx, "Run: config ahead of preparer, starting new prepare",
-					"name", depName,
-					"configSeqNo", config.Version, "preparerSeqNo", currentPreparer.Version())
-				if candidate != nil {
-					candidate.Stop()
-					candidate = nil
-					candidateReady = nil
-				}
-				currentPreparer.Cancel()
-				currentPreparer = op.startPreparer(config)
-			case preparerReady(status, config.Version) && config.Version > currentRunner.Version() && candidate == nil && (!artifactRepairPending || artifactRepairStarted):
-				slog.InfoContext(ctx, "Run: preparer ready, creating runner",
-					"name", depName,
-					"artifact", status.Preparer.Artifact, "configSeqNo", config.Version)
-				if containerUpgradeStrategy(config) == apigen.ContainerUpgradeStrategy_ROLLOVER {
-					candidate = runner.CreateRolloverCandidate(op.Store, op.RuntimeInputs, config, status)
-					candidateReady = waitForRolloverCandidate(candidate, config.Version)
-					continue
-				}
-				currentRunner.Stop()
-				currentRunner = runner.Create(op.Store, op.RuntimeInputs, config, status)
-				artifactRepairPending = false
-				artifactRepairStarted = false
-			default:
-				slog.DebugContext(ctx, "Run: nothing to do on update", "name", depName)
 			}
 		}
 	}
 }
 
-func (op DeploymentOperator) startPreparer(dep *apigen.DeploymentConfig) *prepare.Handle {
+func (op DeploymentOperator) startPreparer(instanceID int32, dep *apigen.DeploymentConfig) *prepare.Handle {
 	if dep.WorkloadVersion() == "" {
-		prepare.WriteStatus(op.Store, dep, "", apigen.PreparationStatus_FAILED)
+		prepare.WriteStatus(op.Store, instanceID, dep, "", apigen.PreparationStatus_FAILED)
 		return prepare.Finished(dep.Version)
 	}
 	handle, ctx := prepare.NewHandle(dep.Version)
+	ctx = logu.ExtendLogContext(ctx, "scheduled_instance", instanceID)
 	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
 	go func() {
 		defer handle.Complete()
-		artifact, status := op.prepare(ctx, dep)
-		prepare.WriteStatus(op.Store, dep, artifact, status)
+		artifact, status := op.prepare(ctx, instanceID, dep)
+		prepare.WriteStatus(op.Store, instanceID, dep, artifact, status)
 	}()
 	return handle
 }
 
-func (op DeploymentOperator) prepare(ctx context.Context, dep *apigen.DeploymentConfig) (string, apigen.PreparationStatus) {
+func (op DeploymentOperator) prepare(ctx context.Context, instanceID int32, dep *apigen.DeploymentConfig) (string, apigen.PreparationStatus) {
 	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
 	log, logPath, err := preparerlog.New(ctx, dep)
 	if err != nil {
@@ -267,7 +306,7 @@ func (op DeploymentOperator) prepare(ctx context.Context, dep *apigen.Deployment
 	}
 	defer log.Close()
 
-	prepare.WriteStatus(op.Store, dep, "", apigen.PreparationStatus_PREPARING)
+	prepare.WriteStatus(op.Store, instanceID, dep, "", apigen.PreparationStatus_PREPARING)
 	log.Write("preparing runtime inputs")
 	if err := op.RuntimeInputs.EnsureReady(ctx, dep); err != nil {
 		log.Error("preparing runtime inputs: %v", err)
@@ -278,16 +317,16 @@ func (op DeploymentOperator) prepare(ctx context.Context, dep *apigen.Deployment
 	container := dep.Spec.Container()
 	switch {
 	case dep.Spec.SystemdSpec != nil && dep.Spec.SystemdSpec.Source != nil:
-		prepare.WriteStatus(op.Store, dep, "", apigen.PreparationStatus_DOWNLOADING)
+		prepare.WriteStatus(op.Store, instanceID, dep, "", apigen.PreparationStatus_DOWNLOADING)
 		return op.GithubRelease.Prepare(ctx, dep, log)
 	case container != nil && container.Source.NixDockerBuild != nil:
-		prepare.WriteStatus(op.Store, dep, "", apigen.PreparationStatus_PREPARING)
+		prepare.WriteStatus(op.Store, instanceID, dep, "", apigen.PreparationStatus_PREPARING)
 		return op.NixDocker.Prepare(ctx, dep, log)
 	case container != nil && container.Source.RemoteImage != nil && container.Source.RemoteImage.Image == internaldeploy.NetproxyImage:
-		prepare.WriteStatus(op.Store, dep, "", apigen.PreparationStatus_PREPARING)
+		prepare.WriteStatus(op.Store, instanceID, dep, "", apigen.PreparationStatus_PREPARING)
 		return op.GithubReleaseImage.Prepare(ctx, dep, log)
 	case container != nil && container.Source.RemoteImage != nil:
-		prepare.WriteStatus(op.Store, dep, "", apigen.PreparationStatus_PULLING)
+		prepare.WriteStatus(op.Store, instanceID, dep, "", apigen.PreparationStatus_PULLING)
 		return containerimage.Prepare(ctx, dep, log)
 	default:
 		log.Error("no prepare config found")
@@ -295,15 +334,13 @@ func (op DeploymentOperator) prepare(ctx context.Context, dep *apigen.Deployment
 	}
 }
 
-// reAttachPreparer restores the preparation side of an operator after process
-// startup. Preparations themselves are not resumable: completed artifacts are
-// reused after checking runtime inputs, while incomplete work starts again.
-func (op DeploymentOperator) reAttachPreparer(dep *apigen.DeploymentConfig, prev apigen.PreparerStatus) *prepare.Handle {
-	ctx := logu.ExtendLogContext(context.Background(), "dep", dep.ID)
+func (op DeploymentOperator) reAttachPreparer(instanceID int32, dep *apigen.DeploymentConfig, prev apigen.PreparerStatus) *prepare.Handle {
+	ctx := logu.ExtendLogContext(context.Background(), "scheduled_instance", instanceID)
+	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
 	if prev.DeploymentConfigVersion == dep.Version && prev.Status == apigen.PreparationStatus_READY {
 		if err := op.RuntimeInputs.EnsureReady(ctx, dep); err != nil {
 			slog.ErrorContext(ctx, "reAttachPreparer: prepared runtime inputs unavailable", "configVersion", dep.Version, "err", err)
-			return op.startPreparer(dep)
+			return op.startPreparer(instanceID, dep)
 		}
 		if dep.Spec.SystemdSpec == nil {
 			imageReady := op.ImageReady
@@ -312,20 +349,23 @@ func (op DeploymentOperator) reAttachPreparer(dep *apigen.DeploymentConfig, prev
 			}
 			if err := imageReady(ctx, prev.Artifact); err != nil {
 				slog.WarnContext(ctx, "reAttachPreparer: prepared image unavailable, preparing current config again", "configVersion", dep.Version, "artifact", prev.Artifact, "err", err)
-				return op.startPreparer(dep)
+				return op.startPreparer(instanceID, dep)
 			}
 		}
-		return prepare.Finished(dep.Version)
-	}
-	if dep.Spec.SystemdSpec != nil && prev.IsZero() && dep.WorkloadVersion() != "" {
-		slog.InfoContext(ctx, "reAttachPreparer: systemd deployment already installed", "deploymentConfigVersion", dep.Version)
 		return prepare.Finished(dep.Version)
 	}
 	if dep.WorkloadVersion() == "" {
 		slog.InfoContext(ctx, "reAttachPreparer: no version to prepare", "deploymentConfigVersion", dep.Version)
 		return prepare.Finished(dep.Version)
 	}
-	return op.startPreparer(dep)
+	if dep.Spec.SystemdSpec != nil && prev.IsZero() && dep.WorkloadVersion() == version.Version {
+		slog.InfoContext(ctx, "reAttachPreparer: current systemd build already installed", "deploymentConfigVersion", dep.Version, "workloadVersion", dep.WorkloadVersion())
+		return prepare.Finished(dep.Version)
+	}
+	// Empty/mismatched preparer status means this scheduled instance has not
+	// completed prepare yet. Always prepare — including systemd/OpenDeploy
+	// self-upgrades — so a new instance cannot ack RUNNING without install.
+	return op.startPreparer(instanceID, dep)
 }
 
 type rolloverCandidateResult struct {
@@ -346,15 +386,32 @@ func containerUpgradeStrategy(config *apigen.DeploymentConfig) apigen.ContainerU
 	if config == nil {
 		return apigen.ContainerUpgradeStrategy_RECREATE
 	}
-	container := config.Spec.Container()
-	if container == nil {
-		return apigen.ContainerUpgradeStrategy_RECREATE
+	return config.EffectiveUpgradeStrategy()
+}
+
+func writeTerminalStopped(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentConfig, status *apigen.ScheduledInstanceStatus) {
+	if status != nil && status.Runner.Status == apigen.RunningStatus_STOPPED {
+		return
 	}
-	strategy := container.UpgradeStrategy
-	if strategy == apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED {
-		return apigen.ContainerUpgradeStrategy_RECREATE
-	}
-	return strategy
+	store.MustWriteScheduledInstanceStatus(instanceID, func(s *apigen.ScheduledInstanceStatus) bool {
+		if s.Runner.Status == apigen.RunningStatus_STOPPED {
+			return false
+		}
+		s.BumpUpdatedAt()
+		s.ScheduledInstanceID = instanceID
+		s.DeploymentID = dep.ID
+		runnerStatus := s.Runner
+		if runnerStatus.IsZero() && status != nil {
+			runnerStatus = status.Runner
+		}
+		if runnerStatus.DeploymentConfigVersion == 0 {
+			runnerStatus.DeploymentConfigVersion = dep.Version
+		}
+		runnerStatus.Status = apigen.RunningStatus_STOPPED
+		runnerStatus.RunningPid = 0
+		s.Runner = runnerStatus
+		return true
+	})
 }
 
 func fmtPreparerStatus(p apigen.PreparerStatus) string {

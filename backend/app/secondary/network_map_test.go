@@ -103,14 +103,36 @@ func TestValidateClusterNetMapRejectsInvalidTopology(t *testing.T) {
 		"duplicate route": func(m *apigen.ClusterNetMap) {
 			m.Routes = append(m.Routes, m.Routes[0])
 		},
-		"malformed outbound route": func(m *apigen.ClusterNetMap) {
-			addr, err := prefix.OutboundAddr(1, 10, 0, 1, 1)
+		// Only whole instances and whole placements route to a node. A host
+		// route would pin one run, and a deployment-wide prefix would send every
+		// ordinal to a single node.
+		"host route": func(m *apigen.ClusterNetMap) {
+			addr, err := prefix.InboundAddr(1, 10, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
-			raw := addr.As16()
-			raw[15] = 0
-			m.Routes[0].LogicalAddress = netip.AddrFrom16(raw).String()
+			m.Routes[0].LogicalPrefix = netip.PrefixFrom(addr, 128).String()
+		},
+		"deployment-wide prefix": func(m *apigen.ClusterNetMap) {
+			deployment, err := prefix.DeploymentCIDR(1, 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			m.Routes[0].LogicalPrefix = deployment.String()
+		},
+		"bare address": func(m *apigen.ClusterNetMap) {
+			addr, err := prefix.InboundAddr(1, 10, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			m.Routes[0].LogicalPrefix = addr.String()
+		},
+		"placement prefix with run bits set": func(m *apigen.ClusterNetMap) {
+			addr, err := prefix.OutboundAddr(1, 10, 0, 1, 4)
+			if err != nil {
+				t.Fatal(err)
+			}
+			m.Routes[0].LogicalPrefix = netip.PrefixFrom(addr, network.PlacementPrefixBits).String()
 		},
 	}
 	for name, mutate := range tests {
@@ -126,7 +148,7 @@ func TestValidateClusterNetMapRejectsInvalidTopology(t *testing.T) {
 
 func testClusterNetMap(t *testing.T, prefix network.Prefix, generation string, sequence int64) *apigen.ClusterNetMap {
 	t.Helper()
-	addr, err := prefix.InboundAddr(1, 10, 0)
+	destination, err := prefix.InstanceCIDR(1, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,6 +161,6 @@ func testClusterNetMap(t *testing.T, prefix network.Prefix, generation string, s
 			{NodeID: 1, UnderlayAddress: "192.0.2.1"},
 			{NodeID: 2, UnderlayAddress: "192.0.2.2"},
 		},
-		Routes: []*apigen.ClusterNetMapRoute{{LogicalAddress: addr.String(), HostingNodeID: 1}},
+		Routes: []*apigen.ClusterNetMapRoute{{LogicalPrefix: destination.String(), HostingNodeID: 1}},
 	}
 }

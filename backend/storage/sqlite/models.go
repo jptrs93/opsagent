@@ -44,11 +44,11 @@ type Config struct {
 
 type DeploymentConfig struct {
 	DeploymentID int64
+	Version      int64
 	NodeID       int64
 	SpaceID      int64
 	Name         string
 	CreatedAt    int64
-	Version      int64
 	UpdatedAt    int64
 	UpdatedBy    int64
 	SpecBlob     []byte
@@ -112,6 +112,11 @@ type LocalKv struct {
 	Value []byte
 }
 
+type LocalScheduledInstanceCache struct {
+	InstanceID int64
+	Blob       []byte
+}
+
 type NodeRow struct {
 	ID           int64
 	EnrollmentID sql.NullInt64
@@ -133,6 +138,32 @@ type NodeStatus struct {
 type PublicKey struct {
 	Kid      string
 	KeyBytes []byte
+}
+
+type ScheduledInstance struct {
+	ID                int64
+	CreatedAt         int64
+	DeploymentID      int64
+	DeploymentVersion int64
+	NodeID            int64
+	InstanceOrdinal   int64
+	State             int64
+}
+
+type ScheduledInstanceStatus struct {
+	ScheduledInstanceID   int64
+	UpdatedAt             int64
+	DeploymentID          int64
+	PreparerConfigVersion sql.NullInt64
+	PreparerArtifact      sql.NullString
+	PreparerStatus        sql.NullInt64
+	RunnerConfigVersion   sql.NullInt64
+	RunnerPid             sql.NullInt64
+	RunnerArtifact        sql.NullString
+	RunnerStatus          sql.NullInt64
+	RunnerNumRestarts     sql.NullInt64
+	RunnerLastRestartAt   sql.NullInt64
+	RunnerExtraBlob       []byte
 }
 
 type Secret struct {

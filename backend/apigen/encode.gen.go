@@ -794,25 +794,33 @@ func DecodeDeploymentDeleteRequest(b []byte) (*DeploymentDeleteRequest, error) {
 	return &m, nil
 }
 
-func (m *DeploymentWithStatus) Encode() []byte {
+func (m ScheduledInstance) IsZero() bool {
+	return m.ID == 0 &&
+		m.CreatedAt.IsZero() &&
+		m.DeploymentID == 0 &&
+		m.DeploymentVersion == 0 &&
+		m.NodeID == 0 &&
+		m.InstanceOrdinal == 0 &&
+		m.State == 0
+}
+
+func (m *ScheduledInstance) Encode() []byte {
 	var b []byte
-	if !m.Config.IsZero() {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.Config.Encode())
-	}
-	if !m.Status.IsZero() {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.Status.Encode())
-	}
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt64FromTime(b, m.CreatedAt, 2)
+	b = AppendInt32Field(b, m.DeploymentID, 3)
+	b = AppendInt32Field(b, m.DeploymentVersion, 4)
+	b = AppendInt32Field(b, m.NodeID, 5)
+	b = AppendInt32Field(b, m.InstanceOrdinal, 6)
+	b = AppendInt32Field(b, int32(m.State), 7)
 	return b
 }
 
-func DecodeDeploymentWithStatus(b []byte) (*DeploymentWithStatus, error) {
-	var m DeploymentWithStatus
+func DecodeScheduledInstance(b []byte) (*ScheduledInstance, error) {
+	var m ScheduledInstance
 	var num Number
 	var typ Type
 	var err error
-	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -820,22 +828,22 @@ func DecodeDeploymentWithStatus(b []byte) (*DeploymentWithStatus, error) {
 		}
 		switch num {
 		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentConfig
-				item, err = DecodeDeploymentConfig(msgBytes)
-				if err == nil {
-					m.Config = *item
-				}
-			}
+			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.DeploymentVersion, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.NodeID, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.InstanceOrdinal, err = ConsumeVarInt32(b, typ)
+		case 7:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
 			if err == nil {
-				var item *DeploymentStatus
-				item, err = DecodeDeploymentStatus(msgBytes)
-				if err == nil {
-					m.Status = *item
-				}
+				m.State = ScheduledInstanceTarget(raw)
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -847,19 +855,21 @@ func DecodeDeploymentWithStatus(b []byte) (*DeploymentWithStatus, error) {
 	return &m, nil
 }
 
-func (m DeploymentStatus) IsZero() bool {
+func (m ScheduledInstanceStatus) IsZero() bool {
 	return m.UpdatedAt.IsZero() &&
+		m.ScheduledInstanceID == 0 &&
 		m.DeploymentID == 0 &&
 		m.Preparer.IsZero() &&
 		m.Runner.IsZero()
 }
 
-func (m *DeploymentStatus) Encode() []byte {
+func (m *ScheduledInstanceStatus) Encode() []byte {
 	var b []byte
 	if !m.UpdatedAt.IsZero() {
-		b = AppendBytesField(b, EncodeTimestamp(m.UpdatedAt), 7)
+		b = AppendBytesField(b, EncodeTimestamp(m.UpdatedAt), 1)
 	}
-	b = AppendInt32Field(b, m.DeploymentID, 6)
+	b = AppendInt32Field(b, m.ScheduledInstanceID, 2)
+	b = AppendInt32Field(b, m.DeploymentID, 3)
 	if !m.Preparer.IsZero() {
 		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, m.Preparer.Encode())
@@ -871,8 +881,8 @@ func (m *DeploymentStatus) Encode() []byte {
 	return b
 }
 
-func DecodeDeploymentStatus(b []byte) (*DeploymentStatus, error) {
-	var m DeploymentStatus
+func DecodeScheduledInstanceStatus(b []byte) (*ScheduledInstanceStatus, error) {
+	var m ScheduledInstanceStatus
 	var num Number
 	var typ Type
 	var err error
@@ -883,9 +893,11 @@ func DecodeDeploymentStatus(b []byte) (*DeploymentStatus, error) {
 			return nil, err
 		}
 		switch num {
-		case 7:
+		case 1:
 			b, m.UpdatedAt, err = ConsumeTimeFromTimestamp(b, typ)
-		case 6:
+		case 2:
+			b, m.ScheduledInstanceID, err = ConsumeVarInt32(b, typ)
+		case 3:
 			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 4:
 			b, msgBytes, err = ConsumeMessage(b, typ)
@@ -903,6 +915,158 @@ func DecodeDeploymentStatus(b []byte) (*DeploymentStatus, error) {
 				item, err = DecodeRunnerStatus(msgBytes)
 				if err == nil {
 					m.Runner = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ScheduledInstanceState) Encode() []byte {
+	var b []byte
+	if !m.Instance.IsZero() {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Instance.Encode())
+	}
+	if !m.Config.IsZero() {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Config.Encode())
+	}
+	if !m.Status.IsZero() {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Status.Encode())
+	}
+	return b
+}
+
+func DecodeScheduledInstanceState(b []byte) (*ScheduledInstanceState, error) {
+	var m ScheduledInstanceState
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ScheduledInstance
+				item, err = DecodeScheduledInstance(msgBytes)
+				if err == nil {
+					m.Instance = *item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentConfig
+				item, err = DecodeDeploymentConfig(msgBytes)
+				if err == nil {
+					m.Config = *item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ScheduledInstanceStatus
+				item, err = DecodeScheduledInstanceStatus(msgBytes)
+				if err == nil {
+					m.Status = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ScheduledInstanceSnapshot) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeScheduledInstanceSnapshot(b []byte) (*ScheduledInstanceSnapshot, error) {
+	var m ScheduledInstanceSnapshot
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ScheduledInstanceState
+				item, err = DecodeScheduledInstanceState(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *DeploymentConfigSnapshot) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeDeploymentConfigSnapshot(b []byte) (*DeploymentConfigSnapshot, error) {
+	var m DeploymentConfigSnapshot
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentConfig
+				item, err = DecodeDeploymentConfig(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
 				}
 			}
 		default:
@@ -968,7 +1132,6 @@ func (m RunnerStatus) IsZero() bool {
 		m.NumberOfRestarts == 0 &&
 		m.LastRestartAt.IsZero() &&
 		m.RunningVersion == "" &&
-		len(m.Endpoints) == 0 &&
 		len(m.NetworkDiagnostics) == 0
 }
 
@@ -981,13 +1144,6 @@ func (m *RunnerStatus) Encode() []byte {
 	b = AppendInt32Field(b, m.NumberOfRestarts, 6)
 	b = AppendInt64FromTime(b, m.LastRestartAt, 7)
 	b = AppendStringField(b, m.RunningVersion, 8)
-	for _, item := range m.Endpoints {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 9, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
 	b = AppendRepeated(b, m.NetworkDiagnostics, AppendFieldDecorator(AppendStringField, 10))
 	return b
 }
@@ -997,7 +1153,6 @@ func DecodeRunnerStatus(b []byte) (*RunnerStatus, error) {
 	var num Number
 	var typ Type
 	var err error
-	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -1022,15 +1177,6 @@ func DecodeRunnerStatus(b []byte) (*RunnerStatus, error) {
 			b, m.LastRestartAt, err = ConsumeTimeFromInt64(b, typ)
 		case 8:
 			b, m.RunningVersion, err = ConsumeString(b, typ)
-		case 9:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *Endpoint
-				item, err = DecodeEndpoint(msgBytes)
-				if err == nil {
-					m.Endpoints = append(m.Endpoints, item)
-				}
-			}
 		case 10:
 			var item string
 			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
@@ -3200,8 +3346,8 @@ func DecodeEnrollmentAccepted(b []byte) (*EnrollmentAccepted, error) {
 		case 6:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentWithStatus
-				item, err = DecodeDeploymentWithStatus(msgBytes)
+				var item *ScheduledInstanceState
+				item, err = DecodeScheduledInstanceState(msgBytes)
 				if err == nil {
 					m.NodeDeployment = item
 				}
@@ -3209,8 +3355,8 @@ func DecodeEnrollmentAccepted(b []byte) (*EnrollmentAccepted, error) {
 		case 7:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentWithStatus
-				item, err = DecodeDeploymentWithStatus(msgBytes)
+				var item *ScheduledInstanceState
+				item, err = DecodeScheduledInstanceState(msgBytes)
 				if err == nil {
 					m.NodeNetDeployment = item
 				}
@@ -4607,13 +4753,13 @@ func DecodeAssetDeleteRequest(b []byte) (*AssetDeleteRequest, error) {
 func (m *State) Encode() []byte {
 	var b []byte
 	b = AppendBoolField(b, m.Heartbeat, 1)
-	if m.DeploymentsSnapshot != nil {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.DeploymentsSnapshot.Encode())
+	if m.DeploymentConfigsSnapshot != nil {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.DeploymentConfigsSnapshot.Encode())
 	}
-	if m.DeploymentUpdate != nil {
-		b = AppendTag(b, 3, BytesType)
-		b = AppendBytes(b, m.DeploymentUpdate.Encode())
+	if m.DeploymentConfigUpdate != nil {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.DeploymentConfigUpdate.Encode())
 	}
 	for _, item := range m.UsersSnapshot {
 		if item == nil {
@@ -4714,6 +4860,14 @@ func (m *State) Encode() []byte {
 		b = AppendTag(b, 31, BytesType)
 		b = AppendBytes(b, m.ConfigSnapshot.Encode())
 	}
+	if m.ScheduledInstancesSnapshot != nil {
+		b = AppendTag(b, 32, BytesType)
+		b = AppendBytes(b, m.ScheduledInstancesSnapshot.Encode())
+	}
+	if m.ScheduledInstanceUpdate != nil {
+		b = AppendTag(b, 33, BytesType)
+		b = AppendBytes(b, m.ScheduledInstanceUpdate.Encode())
+	}
 	return b
 }
 
@@ -4731,22 +4885,22 @@ func DecodeState(b []byte) (*State, error) {
 		switch num {
 		case 1:
 			b, m.Heartbeat, err = ConsumeBool(b, typ)
-		case 2:
+		case 4:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentWithStatusSnapshot
-				item, err = DecodeDeploymentWithStatusSnapshot(msgBytes)
+				var item *DeploymentConfigSnapshot
+				item, err = DecodeDeploymentConfigSnapshot(msgBytes)
 				if err == nil {
-					m.DeploymentsSnapshot = item
+					m.DeploymentConfigsSnapshot = item
 				}
 			}
-		case 3:
+		case 5:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentWithStatus
-				item, err = DecodeDeploymentWithStatus(msgBytes)
+				var item *DeploymentConfig
+				item, err = DecodeDeploymentConfig(msgBytes)
 				if err == nil {
-					m.DeploymentUpdate = item
+					m.DeploymentConfigUpdate = item
 				}
 			}
 		case 6:
@@ -4963,6 +5117,24 @@ func DecodeState(b []byte) (*State, error) {
 				item, err = DecodeConfigVersion(msgBytes)
 				if err == nil {
 					m.ConfigSnapshot = *item
+				}
+			}
+		case 32:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ScheduledInstanceSnapshot
+				item, err = DecodeScheduledInstanceSnapshot(msgBytes)
+				if err == nil {
+					m.ScheduledInstancesSnapshot = item
+				}
+			}
+		case 33:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ScheduledInstanceState
+				item, err = DecodeScheduledInstanceState(msgBytes)
+				if err == nil {
+					m.ScheduledInstanceUpdate = item
 				}
 			}
 		default:
@@ -5282,49 +5454,6 @@ func DecodeUserConfigReferenceList(b []byte) (*UserConfigReferenceList, error) {
 	return &m, nil
 }
 
-func (m *DeploymentWithStatusSnapshot) Encode() []byte {
-	var b []byte
-	for _, item := range m.Items {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeDeploymentWithStatusSnapshot(b []byte) (*DeploymentWithStatusSnapshot, error) {
-	var m DeploymentWithStatusSnapshot
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentWithStatus
-				item, err = DecodeDeploymentWithStatus(msgBytes)
-				if err == nil {
-					m.Items = append(m.Items, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 func (m *ClusterMachineList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
@@ -5405,8 +5534,8 @@ func DecodeDeploymentHistoryEntry(b []byte) (*DeploymentHistoryEntry, error) {
 		case 2:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentStatus
-				item, err = DecodeDeploymentStatus(msgBytes)
+				var item *ScheduledInstanceStatus
+				item, err = DecodeScheduledInstanceStatus(msgBytes)
 				if err == nil {
 					m.Status = item
 				}
@@ -5911,13 +6040,13 @@ func DecodeClusterStatusResponse(b []byte) (*ClusterStatusResponse, error) {
 
 func (m *MsgToWorker) Encode() []byte {
 	var b []byte
-	if m.DeploymentsSnapshot != nil {
+	if m.ScheduledInstancesSnapshot != nil {
 		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.DeploymentsSnapshot.Encode())
+		b = AppendBytes(b, m.ScheduledInstancesSnapshot.Encode())
 	}
-	if m.DeploymentUpdate != nil {
+	if m.ScheduledInstanceUpdate != nil {
 		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.DeploymentUpdate.Encode())
+		b = AppendBytes(b, m.ScheduledInstanceUpdate.Encode())
 	}
 	if m.PrepareLogRequest != nil {
 		b = AppendTag(b, 3, BytesType)
@@ -5963,19 +6092,19 @@ func DecodeMsgToWorker(b []byte) (*MsgToWorker, error) {
 		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentWithStatusSnapshot
-				item, err = DecodeDeploymentWithStatusSnapshot(msgBytes)
+				var item *ScheduledInstanceSnapshot
+				item, err = DecodeScheduledInstanceSnapshot(msgBytes)
 				if err == nil {
-					m.DeploymentsSnapshot = item
+					m.ScheduledInstancesSnapshot = item
 				}
 			}
 		case 2:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentConfig
-				item, err = DecodeDeploymentConfig(msgBytes)
+				var item *ScheduledInstanceState
+				item, err = DecodeScheduledInstanceState(msgBytes)
 				if err == nil {
-					m.DeploymentUpdate = item
+					m.ScheduledInstanceUpdate = item
 				}
 			}
 		case 3:
@@ -6180,7 +6309,7 @@ func DecodeClusterNetMapNode(b []byte) (*ClusterNetMapNode, error) {
 
 func (m *ClusterNetMapRoute) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.LogicalAddress, 1)
+	b = AppendStringField(b, m.LogicalPrefix, 1)
 	b = AppendInt32Field(b, m.HostingNodeID, 2)
 	return b
 }
@@ -6197,7 +6326,7 @@ func DecodeClusterNetMapRoute(b []byte) (*ClusterNetMapRoute, error) {
 		}
 		switch num {
 		case 1:
-			b, m.LogicalAddress, err = ConsumeString(b, typ)
+			b, m.LogicalPrefix, err = ConsumeString(b, typ)
 		case 2:
 			b, m.HostingNodeID, err = ConsumeVarInt32(b, typ)
 		default:
@@ -6359,8 +6488,8 @@ func DecodeMsgToMaster(b []byte) (*MsgToMaster, error) {
 		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentStatus
-				item, err = DecodeDeploymentStatus(msgBytes)
+				var item *ScheduledInstanceStatus
+				item, err = DecodeScheduledInstanceStatus(msgBytes)
 				if err == nil {
 					m.StatusWrite = item
 				}

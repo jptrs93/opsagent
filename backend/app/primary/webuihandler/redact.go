@@ -2,7 +2,7 @@ package webuihandler
 
 import "github.com/jptrs93/opsagent/backend/apigen"
 
-func redactDeploymentWithStatus(in *apigen.DeploymentWithStatus) *apigen.DeploymentWithStatus {
+func redactScheduledInstanceState(in *apigen.ScheduledInstanceState) *apigen.ScheduledInstanceState {
 	if in == nil {
 		return nil
 	}

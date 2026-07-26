@@ -129,9 +129,10 @@ type Tunnel struct {
 	Remote netip.Addr
 }
 
-// RemoteRoute selects a tunnel for one logical workload address.
+// RemoteRoute selects a tunnel for one routed logical prefix: either a whole
+// instance (/100) or a whole placement (/120).
 type RemoteRoute struct {
-	Addr   netip.Addr
+	Prefix netip.Prefix
 	NodeID int32
 }
 

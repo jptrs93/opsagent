@@ -15,7 +15,8 @@ import (
 func TestBuildAllowedRefs(t *testing.T) {
 	secretID := int32(7)
 	configID := int32(9)
-	refs := buildAllowedRefs([]apigen.DeploymentWithStatus{{
+	refs := buildAllowedRefs([]apigen.ScheduledInstanceState{{
+		Instance: apigen.ScheduledInstance{ID: 99},
 		Config: apigen.DeploymentConfig{
 			ID: 42,
 			Spec: apigen.DeploymentSpec{
@@ -34,6 +35,9 @@ func TestBuildAllowedRefs(t *testing.T) {
 		},
 	}})
 
+	if !refs.scheduledInstanceAllowed(99) {
+		t.Fatal("scheduled instance id should be allowed")
+	}
 	if !refs.deploymentAllowed(42) {
 		t.Fatal("deployment id should be allowed")
 	}
@@ -64,20 +68,30 @@ func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 	}
 	m1 := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, m1Node.ID, spec)
 	m2 := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, m2Node.ID, spec)
+	m1Inst := store.CreateScheduledInstance(m1.ID, m1.Version, m1Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	m2Inst := store.CreateScheduledInstance(m2.ID, m2.Version, m2Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
-	sess := newSession(context.Background(), func() {}, m1Node.ID, "m1", deploymentPredicateForNode(m1Node.ID), store, nil)
-	crossMachine := &apigen.DeploymentStatus{DeploymentID: m2.ID, Runner: apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING}}
+	sess := newSession(context.Background(), func() {}, m1Node.ID, "m1", scheduledInstancePredicateForNode(m1Node.ID), store, nil)
+	crossMachine := &apigen.ScheduledInstanceStatus{
+		ScheduledInstanceID: m2Inst.ID,
+		DeploymentID:        m2.ID,
+		Runner:              apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING},
+	}
 	crossMachine.BumpUpdatedAt()
 	sess.handleStatusWrite(crossMachine)
-	if got := store.FetchDeploymentStatus(m2.ID); got.Runner.Status == apigen.RunningStatus_RUNNING {
+	if got := store.FetchScheduledInstanceStatus(m2Inst.ID); got != nil && got.Runner.Status == apigen.RunningStatus_RUNNING {
 		t.Fatal("cross-machine status write was accepted")
 	}
 
-	sameMachine := &apigen.DeploymentStatus{DeploymentID: m1.ID, Runner: apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING}}
+	sameMachine := &apigen.ScheduledInstanceStatus{
+		ScheduledInstanceID: m1Inst.ID,
+		DeploymentID:        m1.ID,
+		Runner:              apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING},
+	}
 	sameMachine.BumpUpdatedAt()
 	sess.handleStatusWrite(sameMachine)
-	if got := store.FetchDeploymentStatus(m1.ID); got.Runner.Status != apigen.RunningStatus_RUNNING {
-		t.Fatalf("same-machine status write was rejected; status = %v", got.Runner.Status)
+	if got := store.FetchScheduledInstanceStatus(m1Inst.ID); got == nil || got.Runner.Status != apigen.RunningStatus_RUNNING {
+		t.Fatalf("same-machine status write was rejected; status = %v", got)
 	}
 }
 
@@ -85,7 +99,7 @@ func TestSessionRoutingUsesNodeID(t *testing.T) {
 	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("worker", "worker-cn")
 	handler := New(store, nil, nil, nil, network.Prefix{}, nil)
-	sess := newSession(context.Background(), func() {}, node.ID, "worker-cn", deploymentPredicateForNode(node.ID), store, nil)
+	sess := newSession(context.Background(), func() {}, node.ID, "worker-cn", scheduledInstancePredicateForNode(node.ID), store, nil)
 	handler.registerSession(node.ID, "worker-cn", sess)
 	t.Cleanup(func() { handler.unregisterSession(node.ID, "worker-cn", sess) })
 
@@ -126,7 +140,7 @@ func TestSessionClusterHelloUpdatesAuthenticatedNodeUnderlay(t *testing.T) {
 	store.MustSetNodeAddresses(primary.ID, []string{"192.0.2.1"})
 	worker := store.EnsurePrimaryNode("worker", "worker-cn")
 	store.MustSetNodeAddresses(worker.ID, []string{"192.0.2.2"})
-	sess := newSession(context.Background(), func() {}, worker.ID, worker.Identifier, deploymentPredicateForNode(worker.ID), store, nil)
+	sess := newSession(context.Background(), func() {}, worker.ID, worker.Identifier, scheduledInstancePredicateForNode(worker.ID), store, nil)
 
 	sess.handleIncoming(&apigen.MsgToMaster{ClusterHello: &apigen.ClusterHello{UnderlayAddress: " 192.0.2.3 ", ClusterProtocolVersion: apigen.ClusterProtocolVersion}})
 	if got := nodeAddresses(t, store, worker.ID); len(got) != 1 || got[0] != "192.0.2.3" {
@@ -147,7 +161,7 @@ func TestSessionRejectsClusterProtocolMismatch(t *testing.T) {
 	defer store.Close()
 	worker := store.EnsurePrimaryNode("worker", "worker-cn")
 	cancelled := false
-	sess := newSession(context.Background(), func() { cancelled = true }, worker.ID, worker.Identifier, deploymentPredicateForNode(worker.ID), store, nil)
+	sess := newSession(context.Background(), func() { cancelled = true }, worker.ID, worker.Identifier, scheduledInstancePredicateForNode(worker.ID), store, nil)
 
 	sess.handleIncoming(&apigen.MsgToMaster{ClusterHello: &apigen.ClusterHello{ClusterProtocolVersion: apigen.ClusterProtocolVersion - 1}})
 	if !cancelled {

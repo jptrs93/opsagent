@@ -7,12 +7,14 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-// PostV1StateStream delivers the current deployment snapshot to the UI,
-// then forwards per-deployment updates as they happen, with periodic
-// heartbeats to keep the HTTP connection alive.
+// PostV1StateStream delivers the current scheduled instance snapshot to the UI,
+// then forwards per-instance updates as they happen, with periodic heartbeats to
+// keep the HTTP connection alive.
 func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State, error] {
 	return func(yield func(*apigen.State, error) bool) {
-		snapshot, updatesCh, updatesUnsub := h.Store.MustFetchSnapshotAndSubscribe(nil)
+		configs, configUpdatesCh, configUpdatesUnsub := h.Store.MustFetchDeploymentConfigSnapshotAndSubscribe(nil)
+		defer configUpdatesUnsub()
+		snapshot, updatesCh, updatesUnsub := h.Store.MustFetchScheduledSnapshotAndSubscribe(nil)
 		defer updatesUnsub()
 		userSub, userUnsub := h.Store.SubscribeUserUpdates()
 		defer userUnsub()
@@ -45,27 +47,32 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 		}
 		defer enrollmentUnsub()
 
-		items := make([]*apigen.DeploymentWithStatus, 0, len(snapshot))
+		configItems := make([]*apigen.DeploymentConfig, 0, len(configs))
+		for i := range configs {
+			configItems = append(configItems, redactDeploymentConfig(&configs[i]))
+		}
+		items := make([]*apigen.ScheduledInstanceState, 0, len(snapshot))
 		for i := range snapshot {
-			items = append(items, redactDeploymentWithStatus(&snapshot[i]))
+			items = append(items, redactScheduledInstanceState(&snapshot[i]))
 		}
 		secretStatus := h.secretsStatus()
 		backupStatus := h.Store.CurrentBackupStatus()
 		initial := &apigen.State{
-			DeploymentsSnapshot:      &apigen.DeploymentWithStatusSnapshot{Items: items},
-			UsersSnapshot:            h.Store.ListUsersPublic(),
-			EnrollmentsSnapshot:      &apigen.EnrollmentRequestList{Items: enrollments},
-			SecretsSnapshot:          &apigen.SecretReferenceList{Items: h.Store.ListSecretReferences()},
-			UserConfigsSnapshot:      &apigen.UserConfigReferenceList{Items: h.Store.ListUserConfigReferences()},
-			SecretsStatusSnapshot:    &secretStatus,
-			SecretMetasSnapshot:      &apigen.SecretList{Items: h.listAllSecretMetas()},
-			UserConfigValuesSnapshot: &apigen.UserConfigList{Items: h.Store.ListAllUserConfigs()},
-			SpacesSnapshot:           &apigen.SpaceList{Items: h.Store.ListSpaces()},
-			AssetsSnapshot:           &apigen.AssetList{Items: h.Store.ListAllAssetVersions()},
-			NodesSnapshot:            &apigen.ClusterNodeList{Items: h.Store.ListClusterNodes()},
-			NodeStatusesSnapshot:     &apigen.ClusterNodeStatusList{Items: h.Store.ListNodeStatuses()},
-			BackupStatusSnapshot:     &backupStatus,
-			ConfigSnapshot:           configSub.InitialValue,
+			DeploymentConfigsSnapshot:  &apigen.DeploymentConfigSnapshot{Items: configItems},
+			ScheduledInstancesSnapshot: &apigen.ScheduledInstanceSnapshot{Items: items},
+			UsersSnapshot:              h.Store.ListUsersPublic(),
+			EnrollmentsSnapshot:        &apigen.EnrollmentRequestList{Items: enrollments},
+			SecretsSnapshot:            &apigen.SecretReferenceList{Items: h.Store.ListSecretReferences()},
+			UserConfigsSnapshot:        &apigen.UserConfigReferenceList{Items: h.Store.ListUserConfigReferences()},
+			SecretsStatusSnapshot:      &secretStatus,
+			SecretMetasSnapshot:        &apigen.SecretList{Items: h.listAllSecretMetas()},
+			UserConfigValuesSnapshot:   &apigen.UserConfigList{Items: h.Store.ListAllUserConfigs()},
+			SpacesSnapshot:             &apigen.SpaceList{Items: h.Store.ListSpaces()},
+			AssetsSnapshot:             &apigen.AssetList{Items: h.Store.ListAllAssetVersions()},
+			NodesSnapshot:              &apigen.ClusterNodeList{Items: h.Store.ListClusterNodes()},
+			NodeStatusesSnapshot:       &apigen.ClusterNodeStatusList{Items: h.Store.ListNodeStatuses()},
+			BackupStatusSnapshot:       &backupStatus,
+			ConfigSnapshot:             configSub.InitialValue,
 		}
 		if !yield(initial, nil) {
 			return
@@ -78,12 +85,19 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 			select {
 			case <-ctx.Done():
 				return
-			case dws, ok := <-updatesCh:
+			case state, ok := <-updatesCh:
 				if !ok {
 					return
 				}
-				update := redactDeploymentWithStatus(&dws)
-				if !yield(&apigen.State{DeploymentUpdate: update}, nil) {
+				update := redactScheduledInstanceState(&state)
+				if !yield(&apigen.State{ScheduledInstanceUpdate: update}, nil) {
+					return
+				}
+			case cfg, ok := <-configUpdatesCh:
+				if !ok {
+					return
+				}
+				if !yield(&apigen.State{DeploymentConfigUpdate: redactDeploymentConfig(&cfg)}, nil) {
 					return
 				}
 			case u, ok := <-userSub.Ch:

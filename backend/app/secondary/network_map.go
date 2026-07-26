@@ -168,29 +168,29 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 	}
 	slices.SortFunc(normalized.Nodes, func(a, b *apigen.ClusterNetMapNode) int { return cmp.Compare(a.NodeID, b.NodeID) })
 
-	logicalAddresses := make(map[netip.Addr]struct{}, len(candidate.Routes))
+	logicalPrefixes := make(map[netip.Prefix]struct{}, len(candidate.Routes))
 	for _, route := range candidate.Routes {
 		if route == nil {
 			return nil, network.Prefix{}, fmt.Errorf("cluster network map contains nil route")
 		}
 		if _, ok := knownNodes[route.HostingNodeID]; !ok {
-			return nil, network.Prefix{}, fmt.Errorf("route %q references unknown node %d", route.LogicalAddress, route.HostingNodeID)
+			return nil, network.Prefix{}, fmt.Errorf("route %q references unknown node %d", route.LogicalPrefix, route.HostingNodeID)
 		}
-		addr, err := netip.ParseAddr(strings.TrimSpace(route.LogicalAddress))
-		if err != nil || addr.Zone() != "" {
-			return nil, network.Prefix{}, fmt.Errorf("invalid logical route address %q", route.LogicalAddress)
+		destination, err := netip.ParsePrefix(strings.TrimSpace(route.LogicalPrefix))
+		if err != nil || destination.Addr().Zone() != "" {
+			return nil, network.Prefix{}, fmt.Errorf("invalid logical route prefix %q", route.LogicalPrefix)
 		}
-		if err := prefix.ValidateRoutedAddr(addr); err != nil {
+		if err := prefix.ValidateRoutedPrefix(destination); err != nil {
 			return nil, network.Prefix{}, err
 		}
-		if _, exists := logicalAddresses[addr]; exists {
-			return nil, network.Prefix{}, fmt.Errorf("cluster network map contains duplicate route %s", addr)
+		if _, exists := logicalPrefixes[destination]; exists {
+			return nil, network.Prefix{}, fmt.Errorf("cluster network map contains duplicate route %s", destination)
 		}
-		logicalAddresses[addr] = struct{}{}
-		normalized.Routes = append(normalized.Routes, &apigen.ClusterNetMapRoute{LogicalAddress: addr.String(), HostingNodeID: route.HostingNodeID})
+		logicalPrefixes[destination] = struct{}{}
+		normalized.Routes = append(normalized.Routes, &apigen.ClusterNetMapRoute{LogicalPrefix: destination.String(), HostingNodeID: route.HostingNodeID})
 	}
 	slices.SortFunc(normalized.Routes, func(a, b *apigen.ClusterNetMapRoute) int {
-		if c := strings.Compare(a.LogicalAddress, b.LogicalAddress); c != 0 {
+		if c := strings.Compare(a.LogicalPrefix, b.LogicalPrefix); c != 0 {
 			return c
 		}
 		return cmp.Compare(a.HostingNodeID, b.HostingNodeID)

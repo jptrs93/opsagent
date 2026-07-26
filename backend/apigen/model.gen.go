@@ -59,6 +59,16 @@ const (
 	PreparationStatus_PULLING                    PreparationStatus = 6
 )
 
+type ScheduledInstanceTarget int32
+
+const (
+	ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING  ScheduledInstanceTarget = 0
+	ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE    ScheduledInstanceTarget = 1
+	ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED    ScheduledInstanceTarget = 2
+	ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY  ScheduledInstanceTarget = 3
+	ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING ScheduledInstanceTarget = 4
+)
+
 type EndpointState int32
 
 const (
@@ -197,16 +207,36 @@ type DeploymentDeleteRequest struct {
 	Version      int32
 }
 
-type DeploymentWithStatus struct {
-	Config DeploymentConfig
-	Status DeploymentStatus
+type ScheduledInstance struct {
+	ID                int32
+	CreatedAt         time.Time
+	DeploymentID      int32
+	DeploymentVersion int32
+	NodeID            int32
+	InstanceOrdinal   int32
+	State             ScheduledInstanceTarget
 }
 
-type DeploymentStatus struct {
-	UpdatedAt    time.Time
-	DeploymentID int32
-	Preparer     PreparerStatus
-	Runner       RunnerStatus
+type ScheduledInstanceStatus struct {
+	UpdatedAt           time.Time
+	ScheduledInstanceID int32
+	DeploymentID        int32
+	Preparer            PreparerStatus
+	Runner              RunnerStatus
+}
+
+type ScheduledInstanceState struct {
+	Instance ScheduledInstance
+	Config   DeploymentConfig
+	Status   ScheduledInstanceStatus
+}
+
+type ScheduledInstanceSnapshot struct {
+	Items []*ScheduledInstanceState
+}
+
+type DeploymentConfigSnapshot struct {
+	Items []*DeploymentConfig
 }
 
 type PreparerStatus struct {
@@ -223,7 +253,6 @@ type RunnerStatus struct {
 	NumberOfRestarts        int32
 	LastRestartAt           time.Time
 	RunningVersion          string
-	Endpoints               []*Endpoint
 	NetworkDiagnostics      []string
 }
 
@@ -501,8 +530,8 @@ type EnrollmentAccepted struct {
 	CaCertificate     []byte
 	WorkerCertificate []byte
 	ClusterNetwork    *ClusterNetworkInfo
-	NodeDeployment    *DeploymentWithStatus
-	NodeNetDeployment *DeploymentWithStatus
+	NodeDeployment    *ScheduledInstanceState
+	NodeNetDeployment *ScheduledInstanceState
 	ClusterNetMap     *ClusterNetMap
 }
 
@@ -720,33 +749,35 @@ type AssetDeleteRequest struct {
 }
 
 type State struct {
-	Heartbeat                bool
-	DeploymentsSnapshot      *DeploymentWithStatusSnapshot
-	DeploymentUpdate         *DeploymentWithStatus
-	UsersSnapshot            []*User
-	UserUpdate               *User
-	EnrollmentsSnapshot      *EnrollmentRequestList
-	EnrollmentUpdate         *EnrollmentRequestStatus
-	SecretsSnapshot          *SecretReferenceList
-	SecretUpdate             *SecretReference
-	UserConfigsSnapshot      *UserConfigReferenceList
-	UserConfigUpdate         *UserConfigReference
-	SecretsStatusSnapshot    *SecretsStatusResponse
-	SecretMetasSnapshot      *SecretList
-	SecretMetaUpdate         *SecretMeta
-	UserConfigValuesSnapshot *UserConfigList
-	UserConfigValueUpdate    *UserConfig
-	SpacesSnapshot           *SpaceList
-	SpaceUpdate              *Space
-	AssetsSnapshot           *AssetList
-	AssetUpdate              *AssetMeta
-	NodesSnapshot            *ClusterNodeList
-	NodeUpdate               *ClusterNode
-	NodeStatusesSnapshot     *ClusterNodeStatusList
-	NodeStatusUpdate         *ClusterNodeStatus
-	BackupStatusSnapshot     *BackupStatus
-	BackupStatusUpdate       *BackupStatus
-	ConfigSnapshot           ConfigVersion
+	Heartbeat                  bool
+	DeploymentConfigsSnapshot  *DeploymentConfigSnapshot
+	DeploymentConfigUpdate     *DeploymentConfig
+	UsersSnapshot              []*User
+	UserUpdate                 *User
+	EnrollmentsSnapshot        *EnrollmentRequestList
+	EnrollmentUpdate           *EnrollmentRequestStatus
+	SecretsSnapshot            *SecretReferenceList
+	SecretUpdate               *SecretReference
+	UserConfigsSnapshot        *UserConfigReferenceList
+	UserConfigUpdate           *UserConfigReference
+	SecretsStatusSnapshot      *SecretsStatusResponse
+	SecretMetasSnapshot        *SecretList
+	SecretMetaUpdate           *SecretMeta
+	UserConfigValuesSnapshot   *UserConfigList
+	UserConfigValueUpdate      *UserConfig
+	SpacesSnapshot             *SpaceList
+	SpaceUpdate                *Space
+	AssetsSnapshot             *AssetList
+	AssetUpdate                *AssetMeta
+	NodesSnapshot              *ClusterNodeList
+	NodeUpdate                 *ClusterNode
+	NodeStatusesSnapshot       *ClusterNodeStatusList
+	NodeStatusUpdate           *ClusterNodeStatus
+	BackupStatusSnapshot       *BackupStatus
+	BackupStatusUpdate         *BackupStatus
+	ConfigSnapshot             ConfigVersion
+	ScheduledInstancesSnapshot *ScheduledInstanceSnapshot
+	ScheduledInstanceUpdate    *ScheduledInstanceState
 }
 
 type Space struct {
@@ -792,17 +823,13 @@ type UserConfigReferenceList struct {
 	Items []*UserConfigReference
 }
 
-type DeploymentWithStatusSnapshot struct {
-	Items []*DeploymentWithStatus
-}
-
 type ClusterMachineList struct {
 	Items []*ClusterMachine
 }
 
 type DeploymentHistoryEntry struct {
 	Config *DeploymentConfig
-	Status *DeploymentStatus
+	Status *ScheduledInstanceStatus
 }
 
 type DeploymentHistory struct {
@@ -876,16 +903,16 @@ type ClusterStatusResponse struct {
 }
 
 type MsgToWorker struct {
-	DeploymentsSnapshot    *DeploymentWithStatusSnapshot
-	DeploymentUpdate       *DeploymentConfig
-	PrepareLogRequest      *PrepareOutputRequest
-	RunLogRequest          *RunOutputRequest
-	DeploymentLogRequest   *DeploymentLogRequest
-	StopLogRequestID       string
-	LogSearchRequest       *LogSearchRequest
-	ClusterNetwork         *ClusterNetworkInfo
-	ClusterNetMap          *ClusterNetMap
-	ClusterProtocolVersion int32
+	ScheduledInstancesSnapshot *ScheduledInstanceSnapshot
+	ScheduledInstanceUpdate    *ScheduledInstanceState
+	PrepareLogRequest          *PrepareOutputRequest
+	RunLogRequest              *RunOutputRequest
+	DeploymentLogRequest       *DeploymentLogRequest
+	StopLogRequestID           string
+	LogSearchRequest           *LogSearchRequest
+	ClusterNetwork             *ClusterNetworkInfo
+	ClusterNetMap              *ClusterNetMap
+	ClusterProtocolVersion     int32
 }
 
 type ClusterNetworkInfo struct {
@@ -907,8 +934,8 @@ type ClusterNetMapNode struct {
 }
 
 type ClusterNetMapRoute struct {
-	LogicalAddress string
-	HostingNodeID  int32
+	LogicalPrefix string
+	HostingNodeID int32
 }
 
 type LocalRouteReport struct {
@@ -929,7 +956,7 @@ type ClusterHello struct {
 }
 
 type MsgToMaster struct {
-	StatusWrite      *DeploymentStatus
+	StatusWrite      *ScheduledInstanceStatus
 	LogData          []byte
 	LogEnd           bool
 	LogRequestID     string

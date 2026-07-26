@@ -38,7 +38,7 @@ type Session struct {
 	cancel        context.CancelFunc
 	NodeID        int32
 	identifier    string
-	predicate     storage.DeploymentPredicate
+	predicate     storage.ScheduledInstancePredicate
 	store         *sqlite.PrimaryStorage
 	networkPrefix network.Prefix
 	networkMaps   networkMapProvider
@@ -60,7 +60,7 @@ type logChunk struct {
 	end    bool
 }
 
-func newSession(sessCtx context.Context, cancel context.CancelFunc, nodeID int32, identifier string, predicate storage.DeploymentPredicate, store *sqlite.PrimaryStorage, networkMaps networkMapProvider) *Session {
+func newSession(sessCtx context.Context, cancel context.CancelFunc, nodeID int32, identifier string, predicate storage.ScheduledInstancePredicate, store *sqlite.PrimaryStorage, networkMaps networkMapProvider) *Session {
 	return &Session{
 		sessCtx:     sessCtx,
 		cancel:      cancel,
@@ -93,7 +93,7 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 	defer s.cancel()
 	defer s.closeAllLogStreams()
 
-	snapshot, updatesCh, unsubUpdates := s.store.MustFetchSnapshotAndSubscribe(s.predicate)
+	snapshot, updatesCh, unsubUpdates := s.store.MustFetchScheduledSnapshotAndSubscribe(s.predicate)
 	defer unsubUpdates()
 	var netMap *apigen.ClusterNetMap
 	var netMapUpdates <-chan *apigen.ClusterNetMap
@@ -101,13 +101,17 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 		var unsubscribeNetMaps func()
 		netMap, netMapUpdates, unsubscribeNetMaps = s.networkMaps.SnapshotAndSubscribe(s.NodeID)
 		defer unsubscribeNetMaps()
+		// A disconnected worker must stop holding the barrier: it is served a
+		// complete snapshot when it comes back, so it cannot still be acting on
+		// routing it never applied.
+		defer s.networkMaps.ForgetNode(s.NodeID)
 	}
-	items := make([]*apigen.DeploymentWithStatus, 0, len(snapshot))
+	items := make([]*apigen.ScheduledInstanceState, 0, len(snapshot))
 	for i := range snapshot {
 		items = append(items, &snapshot[i])
 	}
 	initial := &apigen.MsgToWorker{
-		DeploymentsSnapshot: &apigen.DeploymentWithStatusSnapshot{Items: items},
+		ScheduledInstancesSnapshot: &apigen.ScheduledInstanceSnapshot{Items: items},
 	}
 
 	// Reader: ingest incoming MsgToMaster frames. Cancelling on return ends the
@@ -131,12 +135,12 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 			select {
 			case <-s.sessCtx.Done():
 				return
-			case dws, ok := <-updatesCh:
+			case state, ok := <-updatesCh:
 				if !ok {
 					return
 				}
-				cfg := dws.Config
-				if !s.send(&apigen.MsgToWorker{DeploymentUpdate: &cfg}) {
+				update := state
+				if !s.send(&apigen.MsgToWorker{ScheduledInstanceUpdate: &update}) {
 					return
 				}
 			case <-heartbeat.C:
@@ -203,6 +207,12 @@ func (s *Session) handleIncoming(msg *apigen.MsgToMaster) {
 			"persisted_sequence", msg.NetMapStatus.PersistedSequence,
 			"applied_sequence", msg.NetMapStatus.AppliedSequence,
 			"error", msg.NetMapStatus.ReconciliationError)
+		// Only a clean apply counts. A worker reporting a reconciliation error
+		// still has whatever its kernel held before, so treating it as caught up
+		// would retire a placement that node can still be routing to.
+		if s.networkMaps != nil && msg.NetMapStatus.ReconciliationError == "" {
+			s.networkMaps.RecordApplied(s.NodeID, msg.NetMapStatus.AppliedSequence)
+		}
 	case len(msg.LogData) > 0:
 		s.routeLogChunk(msg.LogRequestID, logChunk{data: msg.LogData})
 	case !msg.LogLines.IsZero():
@@ -267,15 +277,15 @@ func (s *Session) closeAllLogStreams() {
 // idempotent upsert, so reconnect re-pushes do not create duplicate history
 // rows. If the primary has drifted above the worker's latest clock, the extra
 // rows are deleted so the primary converges to the worker's view.
-func (s *Session) handleStatusWrite(st *apigen.DeploymentStatus) {
-	if st == nil || st.DeploymentID == 0 {
+func (s *Session) handleStatusWrite(st *apigen.ScheduledInstanceStatus) {
+	if st == nil || st.ScheduledInstanceID == 0 {
 		return
 	}
-	if !buildAllowedRefs(s.store.FetchDeploymentSnapshot(s.predicate)).deploymentAllowed(st.DeploymentID) {
-		slog.Warn("rejecting cross-machine worker status write", "machine", s.identifier, "deployment_id", st.DeploymentID)
+	if !buildAllowedRefs(s.store.FetchScheduledSnapshot(s.predicate)).scheduledInstanceAllowed(st.ScheduledInstanceID) {
+		slog.Warn("rejecting cross-machine worker status write", "machine", s.identifier, "scheduled_instance_id", st.ScheduledInstanceID)
 		return
 	}
-	s.store.MustWriteReplicatedDeploymentStatus(st)
+	s.store.MustWriteReplicatedScheduledInstanceStatus(st)
 }
 
 // requestLogs sends a log request to the worker and returns a reader that yields

@@ -1,9 +1,10 @@
 import van from "vanjs-core";
 import { capi } from "../capi/index.js";
 import { loginS } from "./login.js";
+import {applyScheduledInstanceUpdate, mergeDeploymentState} from "./deploymentMerge.js";
 
-// deploymentsS holds the current DeploymentWithStatus[] snapshot.
-// Each entry has {config: DeploymentConfig, status: DeploymentStatus}.
+// deploymentsS is the one-row-per-desired-deployment UI view. Each row merges
+// the latest desired config with its newest non-final scheduled instance.
 export const deploymentsS = van.state([]);
 // usersMapS holds a Map<userId, userName> for resolving display names.
 export const usersMapS = van.state(new Map());
@@ -36,6 +37,12 @@ let reconnectAttempt = 0;
 let streamAbortController = null;
 let streamRetryTimer = null;
 let streamInactivityTimer = null;
+let desiredConfigsById = new Map();
+let scheduledInstancesById = new Map();
+
+const publishDeployments = () => {
+    deploymentsS.val = mergeDeploymentState(desiredConfigsById, scheduledInstancesById);
+};
 
 const hasStateStreamAccess = () => loginS.val?.scopes?.includes('default') === true;
 
@@ -73,6 +80,8 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
     }
     reconnectAttempt = 0;
     if (clearDeployments) {
+        desiredConfigsById = new Map();
+        scheduledInstancesById = new Map();
         deploymentsS.val = [];
         usersMapS.val = new Map();
         machinesS.val = [];
@@ -95,15 +104,35 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
 const handleStateMessage = (message) => {
     if (!message) return;
 
-    if (message.deploymentsSnapshot) {
-        deploymentsS.val = message.deploymentsSnapshot.items || [];
+    if (message.deploymentConfigsSnapshot) {
+        desiredConfigsById = new Map((message.deploymentConfigsSnapshot.items || [])
+            .filter(config => config?.id && !config.deleted)
+            .map(config => [Number(config.id), config]));
     }
 
-    if (message.deploymentUpdate?.config?.id) {
-        const updateId = message.deploymentUpdate.config.id;
-        const next = new Map((deploymentsS.val || []).map((item) => [item.config.id, item]));
-        next.set(updateId, message.deploymentUpdate);
-        deploymentsS.val = Array.from(next.values());
+    if (message.scheduledInstancesSnapshot) {
+        scheduledInstancesById = new Map((message.scheduledInstancesSnapshot.items || [])
+            .filter(state => state?.instance?.id && state.instance.state !== 2)
+            .map(state => [Number(state.instance.id), state]));
+    }
+
+    if (message.deploymentConfigUpdate?.id) {
+        const config = message.deploymentConfigUpdate;
+        if (config.deleted) {
+            desiredConfigsById.delete(Number(config.id));
+        } else {
+            desiredConfigsById.set(Number(config.id), config);
+        }
+    }
+
+    if (message.scheduledInstanceUpdate?.instance?.id) {
+        const update = message.scheduledInstanceUpdate;
+        scheduledInstancesById = applyScheduledInstanceUpdate(scheduledInstancesById, update);
+    }
+
+    if (message.deploymentConfigsSnapshot || message.scheduledInstancesSnapshot ||
+        message.deploymentConfigUpdate?.id || message.scheduledInstanceUpdate?.instance?.id) {
+        publishDeployments();
     }
 
     if (message.usersSnapshot && message.usersSnapshot.length > 0) {

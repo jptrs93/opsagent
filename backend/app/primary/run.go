@@ -18,7 +18,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/webui"
 	"github.com/jptrs93/opsagent/backend/app/primary/webuihandler"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/ratelimit"
-	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/util/version"
 	"golang.org/x/sync/errgroup"
@@ -65,15 +64,15 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	if err != nil {
 		return fmt.Errorf("creating web UI handler: %w", err)
 	}
-	primaryDeployments := storage.DeploymentPredicate(func(cfg apigen.DeploymentConfig) bool {
-		return cfg.NodeID == primaryNode.ID
-	})
-	primaryRuntime.start(ctx, primaryDeployments, primaryNode.ID, nodeIdentifier)
+	// The publisher is created before the runtime starts: the scheduler waits on
+	// its applied-sequence barrier before retiring a drained placement, so it
+	// cannot be started without one.
 	networkMaps, err := netmappublisher.New(primaryRuntime.store, primaryRuntime.configService.NetworkPrefix())
 	if err != nil {
 		return fmt.Errorf("creating network map publisher: %w", err)
 	}
 	go networkMaps.Run(ctx)
+	primaryRuntime.start(ctx, primaryNode.ID, nodeIdentifier, networkMaps)
 	assetReconcileDone := primaryRuntime.assets.StartReconciler(ctx)
 	backupDone := backup.StartReplication(ctx, primaryRuntime.configService, primaryRuntime.secrets, primaryRuntime.store, primaryRuntime.assets)
 	defer func() {

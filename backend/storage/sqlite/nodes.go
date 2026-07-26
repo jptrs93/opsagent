@@ -196,12 +196,12 @@ func (s *PrimaryStorage) listNodesLocked() []*Node {
 	return out
 }
 
-// FetchNetworkMapInputs returns node and deployment state from one storage
-// critical section so the publisher never renders a mixed-time snapshot.
-func (s *PrimaryStorage) FetchNetworkMapInputs() ([]*Node, []apigen.DeploymentWithStatus) {
+// FetchNetworkMapInputs returns node and scheduled-instance state from one
+// storage critical section so the publisher never renders a mixed-time snapshot.
+func (s *PrimaryStorage) FetchNetworkMapInputs() ([]*Node, []apigen.ScheduledInstanceState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.listNodesLocked(), s.snapshotLocked(nil)
+	return s.listNodesLocked(), s.instanceSnapshotLocked(nil)
 }
 
 type nodeScanner interface {

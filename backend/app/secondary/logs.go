@@ -1,12 +1,14 @@
 package secondary
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -14,6 +16,85 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/log/logreader"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
+
+// deploymentStatuses returns the observed status of every non-final scheduled
+// instance for a deployment, newest instance first. A deployment mid-rollover
+// has more than one, and the newest is not necessarily the one serving.
+func deploymentStatuses(store *sqlite.SecondaryStorage, deploymentID int32) []apigen.ScheduledInstanceStatus {
+	states := make([]apigen.ScheduledInstanceState, 0, 2)
+	for _, state := range store.FetchScheduledSnapshot(nil) {
+		if state.Instance.DeploymentID != deploymentID ||
+			state.Instance.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED {
+			continue
+		}
+		states = append(states, state)
+	}
+	slices.SortFunc(states, func(a, b apigen.ScheduledInstanceState) int {
+		return cmp.Compare(b.Instance.ID, a.Instance.ID)
+	})
+	out := make([]apigen.ScheduledInstanceStatus, 0, len(states))
+	for _, state := range states {
+		out = append(out, state.Status)
+	}
+	return out
+}
+
+// runnerOutputVersion picks the config version a caller asking for the "latest"
+// run output wants: a live runner if there is one, else the newest instance that
+// has run anything. Mid-rollover the newest instance may not have started yet
+// while the older one is still producing the logs the user is watching.
+func runnerOutputVersion(statuses []apigen.ScheduledInstanceStatus) int32 {
+	for i := range statuses {
+		if r := statuses[i].Runner; !r.IsZero() && isRunnerActive(r.Status) {
+			return r.DeploymentConfigVersion
+		}
+	}
+	for i := range statuses {
+		if r := statuses[i].Runner; !r.IsZero() {
+			return r.DeploymentConfigVersion
+		}
+	}
+	return 0
+}
+
+// runnerActiveForVersion reports whether any live instance is still running the
+// given config version. The stream follows one version, not one instance.
+func runnerActiveForVersion(statuses []apigen.ScheduledInstanceStatus, version int32) bool {
+	for i := range statuses {
+		r := statuses[i].Runner
+		if !r.IsZero() && r.DeploymentConfigVersion == version && isRunnerActive(r.Status) {
+			return true
+		}
+	}
+	return false
+}
+
+// preparerOutputVersion mirrors runnerOutputVersion for prepare output.
+func preparerOutputVersion(statuses []apigen.ScheduledInstanceStatus) int32 {
+	for i := range statuses {
+		if p := statuses[i].Preparer; !p.IsZero() && isPrepareInProgress(p.Status) {
+			return p.DeploymentConfigVersion
+		}
+	}
+	for i := range statuses {
+		if p := statuses[i].Preparer; !p.IsZero() {
+			return p.DeploymentConfigVersion
+		}
+	}
+	return 0
+}
+
+// preparingVersion reports whether any live instance is still preparing the
+// given config version.
+func preparingVersion(statuses []apigen.ScheduledInstanceStatus, version int32) bool {
+	for i := range statuses {
+		p := statuses[i].Preparer
+		if !p.IsZero() && p.DeploymentConfigVersion == version && isPrepareInProgress(p.Status) {
+			return true
+		}
+	}
+	return false
+}
 
 // streamDeploymentLog resolves seqNo=0 to latest from local status, then
 // streams the appropriate log file back to the primary. All chunks and the
@@ -23,28 +104,20 @@ func streamDeploymentLog(ctx context.Context, out *outbox, store *sqlite.Seconda
 	if req.RunnerOutput != nil {
 		r := req.RunnerOutput
 		if r.Version == 0 && r.DeploymentID != 0 {
-			st := store.FetchDeploymentStatus(r.DeploymentID)
-			if st != nil && !st.Runner.IsZero() {
-				r.Version = st.Runner.DeploymentConfigVersion
-			}
+			r.Version = runnerOutputVersion(deploymentStatuses(store, r.DeploymentID))
 		}
 		streamLatestRunLog(ctx, out, r, requestID, func() bool {
-			st := store.FetchDeploymentStatus(r.DeploymentID)
-			return st != nil && !st.Runner.IsZero() && isRunnerActive(st.Runner.Status)
+			return runnerActiveForVersion(deploymentStatuses(store, r.DeploymentID), r.Version)
 		})
 		return
 	}
 	if req.PreparerOutput != nil {
 		p := req.PreparerOutput
 		if p.Version == 0 && p.DeploymentID != 0 {
-			st := store.FetchDeploymentStatus(p.DeploymentID)
-			if st != nil && !st.Preparer.IsZero() {
-				p.Version = st.Preparer.DeploymentConfigVersion
-			}
+			p.Version = preparerOutputVersion(deploymentStatuses(store, p.DeploymentID))
 		}
 		streamFile(ctx, out, p.OutputPath(), requestID, func() bool {
-			st := store.FetchDeploymentStatus(p.DeploymentID)
-			return st != nil && !st.Preparer.IsZero() && isPrepareInProgress(st.Preparer.Status)
+			return preparingVersion(deploymentStatuses(store, p.DeploymentID), p.Version)
 		})
 		return
 	}

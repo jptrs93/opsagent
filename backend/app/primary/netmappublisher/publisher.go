@@ -28,14 +28,20 @@ type Publisher struct {
 	store  *sqlite.PrimaryStorage
 	prefix network.Prefix
 
-	mu          sync.Mutex
-	refreshMu   sync.Mutex
-	current     *apigen.ClusterNetMap
-	subscribers map[*subscriber]struct{}
-	nodeUpdates <-chan apigen.ClusterNode
-	depUpdates  <-chan apigen.DeploymentWithStatus
-	unsubscribe []func()
-	closeOnce   sync.Once
+	mu              sync.Mutex
+	refreshMu       sync.Mutex
+	current         *apigen.ClusterNetMap
+	subscribers     map[*subscriber]struct{}
+	nodeUpdates     <-chan apigen.ClusterNode
+	instanceUpdates <-chan apigen.ScheduledInstanceState
+	unsubscribe     []func()
+	closeOnce       sync.Once
+
+	// Acknowledgement state is kept under its own lock so recording a worker's
+	// applied sequence never contends with rendering or publishing a map.
+	ackMu      sync.Mutex
+	applied    map[int32]int64
+	ackUpdates chan struct{}
 }
 
 func New(store *sqlite.PrimaryStorage, prefix network.Prefix) (*Publisher, error) {
@@ -46,14 +52,16 @@ func New(store *sqlite.PrimaryStorage, prefix network.Prefix) (*Publisher, error
 		return nil, fmt.Errorf("network-map prefix is not configured")
 	}
 	nodeSub, unsubscribeNodes := store.SubscribeNodeUpdates()
-	_, deploymentUpdates, unsubscribeDeployments := store.MustFetchSnapshotAndSubscribe(nil)
+	_, instanceUpdates, unsubscribeInstances := store.MustFetchScheduledSnapshotAndSubscribe(nil)
 	p := &Publisher{
-		store:       store,
-		prefix:      prefix,
-		subscribers: make(map[*subscriber]struct{}),
-		nodeUpdates: nodeSub.Ch,
-		depUpdates:  deploymentUpdates,
-		unsubscribe: []func(){unsubscribeNodes, unsubscribeDeployments},
+		store:           store,
+		prefix:          prefix,
+		subscribers:     make(map[*subscriber]struct{}),
+		nodeUpdates:     nodeSub.Ch,
+		instanceUpdates: instanceUpdates,
+		unsubscribe:     []func(){unsubscribeNodes, unsubscribeInstances},
+		applied:         make(map[int32]int64),
+		ackUpdates:      make(chan struct{}, 1),
 	}
 	if persisted, ok := store.FetchLocalKV(sqlite.LocalKVPrimaryClusterNetMap); ok {
 		current, err := apigen.DecodeClusterNetMap(persisted)
@@ -92,7 +100,7 @@ func (p *Publisher) Run(ctx context.Context) {
 			if !ok {
 				return
 			}
-		case _, ok := <-p.depUpdates:
+		case _, ok := <-p.instanceUpdates:
 			if !ok {
 				return
 			}
@@ -108,8 +116,8 @@ func (p *Publisher) Run(ctx context.Context) {
 func (p *Publisher) Refresh() error {
 	p.refreshMu.Lock()
 	defer p.refreshMu.Unlock()
-	nodes, deployments := p.store.FetchNetworkMapInputs()
-	next, err := render(p.prefix, nodes, deployments)
+	nodes, instances := p.store.FetchNetworkMapInputs()
+	next, err := render(p.prefix, nodes, instances)
 	if err != nil {
 		return err
 	}
@@ -194,7 +202,7 @@ func canonicalContent(source *apigen.ClusterNetMap) []byte {
 	return canonical.Encode()
 }
 
-func render(prefix network.Prefix, nodes []*sqlite.Node, deployments []apigen.DeploymentWithStatus) (*apigen.ClusterNetMap, error) {
+func render(prefix network.Prefix, nodes []*sqlite.Node, instances []apigen.ScheduledInstanceState) (*apigen.ClusterNetMap, error) {
 	netNodes := make([]*apigen.ClusterNetMapNode, 0, len(nodes))
 	knownNodes := make(map[int32]struct{}, len(nodes))
 	underlayBits := 0
@@ -223,42 +231,61 @@ func render(prefix network.Prefix, nodes []*sqlite.Node, deployments []apigen.De
 	}
 	slices.SortFunc(netNodes, func(a, b *apigen.ClusterNetMapNode) int { return cmp.Compare(a.NodeID, b.NodeID) })
 
-	routes := make([]*apigen.ClusterNetMapRoute, 0, len(deployments)*2)
-	for _, item := range deployments {
+	// Routes are a pure function of assignments. Nothing here reads runner status:
+	// a placement's route follows its target state, so a container restart, a
+	// crash, or a status message arriving out of order cannot move a route or
+	// churn the map's sequence.
+	//
+	// Every live placement owns the /120 covering its runs, for its whole life.
+	// The serving placement's node additionally owns the /100 covering the whole
+	// instance, which is what carries the stable inbound address. Because a
+	// draining placement keeps its own /120, flipping the /100 to a replacement
+	// never strands replies to work still in flight on the old one.
+	routesByPrefix := make(map[netip.Prefix]int32, len(instances)+len(instances)/2)
+	setRoute := func(destination netip.Prefix, nodeID int32) error {
+		if existing, ok := routesByPrefix[destination]; ok && existing != nodeID {
+			return fmt.Errorf("prefix %s is claimed by nodes %d and %d", destination, existing, nodeID)
+		}
+		routesByPrefix[destination] = nodeID
+		return nil
+	}
+	for _, item := range instances {
 		cfg := item.Config
-		runner := item.Status.Runner
-		if cfg.ID <= 0 || runner.DeploymentConfigVersion <= 0 ||
-			(runner.Status != apigen.RunningStatus_STARTING && runner.Status != apigen.RunningStatus_RUNNING) ||
-			len(runner.Endpoints) == 0 {
+		inst := item.Instance
+		if inst.ID <= 0 || cfg.ID <= 0 || !inst.State.WantsRunning() ||
+			cfg.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}
-		for _, endpoint := range runner.Endpoints {
-			if endpoint == nil || endpoint.NodeID <= 0 {
-				return nil, fmt.Errorf("deployment %d has invalid observed endpoint", cfg.ID)
-			}
-			if _, ok := knownNodes[endpoint.NodeID]; !ok {
-				return nil, fmt.Errorf("deployment %d endpoint references unknown node %d", cfg.ID, endpoint.NodeID)
-			}
-			inbound, err := netip.ParseAddr(endpoint.Address)
-			if err != nil {
-				return nil, fmt.Errorf("parsing deployment %d inbound address: %w", cfg.ID, err)
-			}
-			identity, err := prefix.ParseAddr(inbound)
-			if err != nil || !identity.IsInbound() || identity.DeploymentID != cfg.ID || identity.Ordinal != endpoint.Ordinal {
-				return nil, fmt.Errorf("deployment %d has invalid observed inbound address %q", cfg.ID, endpoint.Address)
-			}
-			outbound, err := prefix.OutboundAddr(identity.SpaceID, cfg.ID, identity.Ordinal, runner.DeploymentConfigVersion, runner.NumberOfRestarts+1)
-			if err != nil {
-				return nil, fmt.Errorf("deriving deployment %d outbound address: %w", cfg.ID, err)
-			}
-			routes = append(routes,
-				&apigen.ClusterNetMapRoute{LogicalAddress: inbound.String(), HostingNodeID: endpoint.NodeID},
-				&apigen.ClusterNetMapRoute{LogicalAddress: outbound.String(), HostingNodeID: endpoint.NodeID},
-			)
+		if _, ok := knownNodes[inst.NodeID]; !ok {
+			return nil, fmt.Errorf("scheduled instance %d references unknown node %d", inst.ID, inst.NodeID)
+		}
+		placement, err := prefix.PlacementCIDR(cfg.Identity.SpaceID, cfg.ID, inst.InstanceOrdinal, inst.ID)
+		if err != nil {
+			return nil, fmt.Errorf("deriving placement prefix for scheduled instance %d: %w", inst.ID, err)
+		}
+		if err := setRoute(placement, inst.NodeID); err != nil {
+			return nil, err
+		}
+		if inst.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+			continue
+		}
+		instancePrefix, err := prefix.InstanceCIDR(cfg.Identity.SpaceID, cfg.ID, inst.InstanceOrdinal)
+		if err != nil {
+			return nil, fmt.Errorf("deriving instance prefix for scheduled instance %d: %w", inst.ID, err)
+		}
+		// Two serving placements of one ordinal is a scheduler bug, not a
+		// transient: the map has no way to express it and must not guess.
+		if err := setRoute(instancePrefix, inst.NodeID); err != nil {
+			return nil, fmt.Errorf("deployment %d ordinal %d has more than one serving placement: %w",
+				cfg.ID, inst.InstanceOrdinal, err)
 		}
 	}
+	routes := make([]*apigen.ClusterNetMapRoute, 0, len(routesByPrefix))
+	for destination, nodeID := range routesByPrefix {
+		routes = append(routes, &apigen.ClusterNetMapRoute{LogicalPrefix: destination.String(), HostingNodeID: nodeID})
+	}
 	slices.SortFunc(routes, func(a, b *apigen.ClusterNetMapRoute) int {
-		if c := strings.Compare(a.LogicalAddress, b.LogicalAddress); c != 0 {
+		if c := strings.Compare(a.LogicalPrefix, b.LogicalPrefix); c != 0 {
 			return c
 		}
 		return cmp.Compare(a.HostingNodeID, b.HostingNodeID)

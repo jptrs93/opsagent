@@ -111,16 +111,36 @@
  * @property {number} version
  */
 /**
- * @typedef {Object} DeploymentWithStatus
- * @property {DeploymentConfig} config
- * @property {DeploymentStatus} status
+ * @typedef {Object} ScheduledInstance
+ * @property {number} id
+ * @property {Date} createdAt
+ * @property {number} deploymentId
+ * @property {number} deploymentVersion
+ * @property {number} nodeId
+ * @property {number} instanceOrdinal
+ * @property {number} state
  */
 /**
- * @typedef {Object} DeploymentStatus
+ * @typedef {Object} ScheduledInstanceStatus
  * @property {Date} updatedAt
+ * @property {number} scheduledInstanceId
  * @property {number} deploymentId
  * @property {PreparerStatus} preparer
  * @property {RunnerStatus} runner
+ */
+/**
+ * @typedef {Object} ScheduledInstanceState
+ * @property {ScheduledInstance} instance
+ * @property {DeploymentConfig} config
+ * @property {ScheduledInstanceStatus} status
+ */
+/**
+ * @typedef {Object} ScheduledInstanceSnapshot
+ * @property {ScheduledInstanceState[]} items
+ */
+/**
+ * @typedef {Object} DeploymentConfigSnapshot
+ * @property {DeploymentConfig[]} items
  */
 /**
  * @typedef {Object} PreparerStatus
@@ -137,7 +157,6 @@
  * @property {number} numberOfRestarts
  * @property {Date} lastRestartAt
  * @property {string} runningVersion
- * @property {Endpoint[]} endpoints
  * @property {string[]} networkDiagnostics
  */
 /**
@@ -415,8 +434,8 @@
  * @property {Uint8Array} caCertificate
  * @property {Uint8Array} workerCertificate
  * @property {ClusterNetworkInfo} clusterNetwork
- * @property {DeploymentWithStatus} nodeDeployment
- * @property {DeploymentWithStatus} nodeNetDeployment
+ * @property {ScheduledInstanceState} nodeDeployment
+ * @property {ScheduledInstanceState} nodeNetDeployment
  * @property {ClusterNetMap} clusterNetMap
  */
 /**
@@ -635,8 +654,8 @@
 /**
  * @typedef {Object} State
  * @property {boolean} heartbeat
- * @property {DeploymentWithStatusSnapshot} deploymentsSnapshot
- * @property {DeploymentWithStatus} deploymentUpdate
+ * @property {DeploymentConfigSnapshot} deploymentConfigsSnapshot
+ * @property {DeploymentConfig} deploymentConfigUpdate
  * @property {User[]} usersSnapshot
  * @property {User} userUpdate
  * @property {EnrollmentRequestList} enrollmentsSnapshot
@@ -661,6 +680,8 @@
  * @property {BackupStatus} backupStatusSnapshot
  * @property {BackupStatus} backupStatusUpdate
  * @property {ConfigVersion} configSnapshot
+ * @property {ScheduledInstanceSnapshot} scheduledInstancesSnapshot
+ * @property {ScheduledInstanceState} scheduledInstanceUpdate
  */
 /**
  * @typedef {Object} Space
@@ -706,17 +727,13 @@
  * @property {UserConfigReference[]} items
  */
 /**
- * @typedef {Object} DeploymentWithStatusSnapshot
- * @property {DeploymentWithStatus[]} items
- */
-/**
  * @typedef {Object} ClusterMachineList
  * @property {ClusterMachine[]} items
  */
 /**
  * @typedef {Object} DeploymentHistoryEntry
  * @property {DeploymentConfig} config
- * @property {DeploymentStatus} status
+ * @property {ScheduledInstanceStatus} status
  */
 /**
  * @typedef {Object} DeploymentHistory
@@ -790,8 +807,8 @@
  */
 /**
  * @typedef {Object} MsgToWorker
- * @property {DeploymentWithStatusSnapshot} deploymentsSnapshot
- * @property {DeploymentConfig} deploymentUpdate
+ * @property {ScheduledInstanceSnapshot} scheduledInstancesSnapshot
+ * @property {ScheduledInstanceState} scheduledInstanceUpdate
  * @property {PrepareOutputRequest} prepareLogRequest
  * @property {RunOutputRequest} runLogRequest
  * @property {DeploymentLogRequest} deploymentLogRequest
@@ -821,7 +838,7 @@
  */
 /**
  * @typedef {Object} ClusterNetMapRoute
- * @property {string} logicalAddress
+ * @property {string} logicalPrefix
  * @property {number} hostingNodeId
  */
 /**
@@ -843,7 +860,7 @@
  */
 /**
  * @typedef {Object} MsgToMaster
- * @property {DeploymentStatus} statusWrite
+ * @property {ScheduledInstanceStatus} statusWrite
  * @property {Uint8Array} logData
  * @property {boolean} logEnd
  * @property {string} logRequestId
@@ -2351,30 +2368,41 @@ export function decodeDeploymentDeleteRequest(buffer) {
 
 
 /**
- * @param {DeploymentWithStatus} message
+ * @param {ScheduledInstance} message
  * @param {Writer} writer
  */
-export function writeDeploymentWithStatus(message, writer) {
-    if (message.config !== undefined && message.config !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeDeploymentConfig(message.config, writer);
-        writer.ldelim();
+export function writeScheduledInstance(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
     }
-    if (message.status !== undefined && message.status !== null) {
-        writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeDeploymentStatus(message.status, writer);
-        writer.ldelim();
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.deploymentId);
+    }
+    if (message.deploymentVersion !== undefined && message.deploymentVersion !== null && message.deploymentVersion !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.deploymentVersion);
+    }
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.nodeId);
+    }
+    if (message.instanceOrdinal !== undefined && message.instanceOrdinal !== null && message.instanceOrdinal !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.instanceOrdinal);
+    }
+    if (message.state !== undefined && message.state !== null && message.state !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.state);
     }
 }
 
 
 /**
- * @param {DeploymentWithStatus} message
+ * @param {ScheduledInstance} message
  * @returns {Uint8Array}
  */
-export function encodeDeploymentWithStatus(message) {
+export function encodeScheduledInstance(message) {
     const writer = Writer.create();
-    writeDeploymentWithStatus(message, writer);
+    writeScheduledInstance(message, writer);
     return writer.finish();
 }
 
@@ -2382,20 +2410,40 @@ export function encodeDeploymentWithStatus(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {DeploymentWithStatus}
+ * @returns {ScheduledInstance}
  */
-function decodeDeploymentWithStatusMessage(reader, length) {
+function decodeScheduledInstanceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {config: undefined, status: undefined };
+    const message = {id: 0, createdAt: new Date(0), deploymentId: 0, deploymentVersion: 0, nodeId: 0, instanceOrdinal: 0, state: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.config = decodeDeploymentConfigMessage(reader, reader.uint32());
+                message.id = reader.int32();
                 break;
             }
             case 2: {
-                message.status = decodeDeploymentStatusMessage(reader, reader.uint32());
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 3: {
+                message.deploymentId = reader.int32();
+                break;
+            }
+            case 4: {
+                message.deploymentVersion = reader.int32();
+                break;
+            }
+            case 5: {
+                message.nodeId = reader.int32();
+                break;
+            }
+            case 6: {
+                message.instanceOrdinal = reader.int32();
+                break;
+            }
+            case 7: {
+                message.state = reader.int32();
                 break;
             }
             default:
@@ -2408,27 +2456,30 @@ function decodeDeploymentWithStatusMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {DeploymentWithStatus}
+ * @returns {ScheduledInstance}
  */
-export function decodeDeploymentWithStatus(buffer) {
+export function decodeScheduledInstance(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentWithStatusMessage(reader);
+    return decodeScheduledInstanceMessage(reader);
 }
 
 
 
 /**
- * @param {DeploymentStatus} message
+ * @param {ScheduledInstanceStatus} message
  * @param {Writer} writer
  */
-export function writeDeploymentStatus(message, writer) {
+export function writeScheduledInstanceStatus(message, writer) {
     if (message.updatedAt !== undefined && message.updatedAt !== null) {
-        writer.uint32(tag(7, WIRE.LDELIM)).fork();
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
         writeTimestamp(message.updatedAt, writer);
         writer.ldelim();
     }
+    if (message.scheduledInstanceId !== undefined && message.scheduledInstanceId !== null && message.scheduledInstanceId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.scheduledInstanceId);
+    }
     if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.deploymentId);
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.deploymentId);
     }
     if (message.preparer !== undefined && message.preparer !== null) {
         writer.uint32(tag(4, WIRE.LDELIM)).fork();
@@ -2444,12 +2495,12 @@ export function writeDeploymentStatus(message, writer) {
 
 
 /**
- * @param {DeploymentStatus} message
+ * @param {ScheduledInstanceStatus} message
  * @returns {Uint8Array}
  */
-export function encodeDeploymentStatus(message) {
+export function encodeScheduledInstanceStatus(message) {
     const writer = Writer.create();
-    writeDeploymentStatus(message, writer);
+    writeScheduledInstanceStatus(message, writer);
     return writer.finish();
 }
 
@@ -2457,19 +2508,23 @@ export function encodeDeploymentStatus(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {DeploymentStatus}
+ * @returns {ScheduledInstanceStatus}
  */
-function decodeDeploymentStatusMessage(reader, length) {
+function decodeScheduledInstanceStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {updatedAt: new Date(0), deploymentId: 0, preparer: undefined, runner: undefined };
+    const message = {updatedAt: new Date(0), scheduledInstanceId: 0, deploymentId: 0, preparer: undefined, runner: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 7: {
+            case 1: {
                 message.updatedAt = decodeTimestampMessage(reader, reader.uint32());
                 break;
             }
-            case 6: {
+            case 2: {
+                message.scheduledInstanceId = reader.int32();
+                break;
+            }
+            case 3: {
                 message.deploymentId = reader.int32();
                 break;
             }
@@ -2491,11 +2546,207 @@ function decodeDeploymentStatusMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {DeploymentStatus}
+ * @returns {ScheduledInstanceStatus}
  */
-export function decodeDeploymentStatus(buffer) {
+export function decodeScheduledInstanceStatus(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentStatusMessage(reader);
+    return decodeScheduledInstanceStatusMessage(reader);
+}
+
+
+
+/**
+ * @param {ScheduledInstanceState} message
+ * @param {Writer} writer
+ */
+export function writeScheduledInstanceState(message, writer) {
+    if (message.instance !== undefined && message.instance !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeScheduledInstance(message.instance, writer);
+        writer.ldelim();
+    }
+    if (message.config !== undefined && message.config !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeDeploymentConfig(message.config, writer);
+        writer.ldelim();
+    }
+    if (message.status !== undefined && message.status !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeScheduledInstanceStatus(message.status, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {ScheduledInstanceState} message
+ * @returns {Uint8Array}
+ */
+export function encodeScheduledInstanceState(message) {
+    const writer = Writer.create();
+    writeScheduledInstanceState(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ScheduledInstanceState}
+ */
+function decodeScheduledInstanceStateMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {instance: undefined, config: undefined, status: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.instance = decodeScheduledInstanceMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.config = decodeDeploymentConfigMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.status = decodeScheduledInstanceStatusMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ScheduledInstanceState}
+ */
+export function decodeScheduledInstanceState(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeScheduledInstanceStateMessage(reader);
+}
+
+
+
+/**
+ * @param {ScheduledInstanceSnapshot} message
+ * @param {Writer} writer
+ */
+export function writeScheduledInstanceSnapshot(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeScheduledInstanceState(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ScheduledInstanceSnapshot} message
+ * @returns {Uint8Array}
+ */
+export function encodeScheduledInstanceSnapshot(message) {
+    const writer = Writer.create();
+    writeScheduledInstanceSnapshot(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ScheduledInstanceSnapshot}
+ */
+function decodeScheduledInstanceSnapshotMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeScheduledInstanceStateMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ScheduledInstanceSnapshot}
+ */
+export function decodeScheduledInstanceSnapshot(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeScheduledInstanceSnapshotMessage(reader);
+}
+
+
+
+/**
+ * @param {DeploymentConfigSnapshot} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentConfigSnapshot(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeDeploymentConfig(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {DeploymentConfigSnapshot} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentConfigSnapshot(message) {
+    const writer = Writer.create();
+    writeDeploymentConfigSnapshot(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentConfigSnapshot}
+ */
+function decodeDeploymentConfigSnapshotMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeDeploymentConfigMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentConfigSnapshot}
+ */
+export function decodeDeploymentConfigSnapshot(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentConfigSnapshotMessage(reader);
 }
 
 
@@ -2596,13 +2847,6 @@ export function writeRunnerStatus(message, writer) {
     if (message.runningVersion !== undefined && message.runningVersion !== null && message.runningVersion !== "") {
         writer.uint32(tag(8, WIRE.LDELIM)).string(message.runningVersion);
     }
-    if (message.endpoints && message.endpoints.length > 0) {
-        for (const item of message.endpoints) {
-            writer.uint32(tag(9, WIRE.LDELIM)).fork();
-            writeEndpoint(item, writer);
-            writer.ldelim();
-        }
-    }
     if (message.networkDiagnostics && message.networkDiagnostics.length > 0) {
         for (const item of message.networkDiagnostics) {
             writer.uint32(tag(10, WIRE.LDELIM)).string(item);
@@ -2629,7 +2873,7 @@ export function encodeRunnerStatus(message) {
  */
 function decodeRunnerStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentConfigVersion: 0, runningPid: 0, runningArtifact: "", status: 0, numberOfRestarts: 0, lastRestartAt: new Date(0), runningVersion: "", endpoints: [], networkDiagnostics: [] };
+    const message = {deploymentConfigVersion: 0, runningPid: 0, runningArtifact: "", status: 0, numberOfRestarts: 0, lastRestartAt: new Date(0), runningVersion: "", networkDiagnostics: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2659,10 +2903,6 @@ function decodeRunnerStatusMessage(reader, length) {
             }
             case 8: {
                 message.runningVersion = reader.string();
-                break;
-            }
-            case 9: {
-                message.endpoints.push(decodeEndpointMessage(reader, reader.uint32()));
                 break;
             }
             case 10: {
@@ -5877,12 +6117,12 @@ export function writeEnrollmentAccepted(message, writer) {
     }
     if (message.nodeDeployment !== undefined && message.nodeDeployment !== null) {
         writer.uint32(tag(6, WIRE.LDELIM)).fork();
-        writeDeploymentWithStatus(message.nodeDeployment, writer);
+        writeScheduledInstanceState(message.nodeDeployment, writer);
         writer.ldelim();
     }
     if (message.nodeNetDeployment !== undefined && message.nodeNetDeployment !== null) {
         writer.uint32(tag(7, WIRE.LDELIM)).fork();
-        writeDeploymentWithStatus(message.nodeNetDeployment, writer);
+        writeScheduledInstanceState(message.nodeNetDeployment, writer);
         writer.ldelim();
     }
     if (message.clusterNetMap !== undefined && message.clusterNetMap !== null) {
@@ -5936,11 +6176,11 @@ function decodeEnrollmentAcceptedMessage(reader, length) {
                 break;
             }
             case 6: {
-                message.nodeDeployment = decodeDeploymentWithStatusMessage(reader, reader.uint32());
+                message.nodeDeployment = decodeScheduledInstanceStateMessage(reader, reader.uint32());
                 break;
             }
             case 7: {
-                message.nodeNetDeployment = decodeDeploymentWithStatusMessage(reader, reader.uint32());
+                message.nodeNetDeployment = decodeScheduledInstanceStateMessage(reader, reader.uint32());
                 break;
             }
             case 8: {
@@ -8549,14 +8789,14 @@ export function writeState(message, writer) {
     if (message.heartbeat === true) {
         writer.uint32(tag(1, WIRE.VARINT)).bool(message.heartbeat);
     }
-    if (message.deploymentsSnapshot !== undefined && message.deploymentsSnapshot !== null) {
-        writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeDeploymentWithStatusSnapshot(message.deploymentsSnapshot, writer);
+    if (message.deploymentConfigsSnapshot !== undefined && message.deploymentConfigsSnapshot !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeDeploymentConfigSnapshot(message.deploymentConfigsSnapshot, writer);
         writer.ldelim();
     }
-    if (message.deploymentUpdate !== undefined && message.deploymentUpdate !== null) {
-        writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeDeploymentWithStatus(message.deploymentUpdate, writer);
+    if (message.deploymentConfigUpdate !== undefined && message.deploymentConfigUpdate !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeDeploymentConfig(message.deploymentConfigUpdate, writer);
         writer.ldelim();
     }
     if (message.usersSnapshot && message.usersSnapshot.length > 0) {
@@ -8681,6 +8921,16 @@ export function writeState(message, writer) {
         writeConfigVersion(message.configSnapshot, writer);
         writer.ldelim();
     }
+    if (message.scheduledInstancesSnapshot !== undefined && message.scheduledInstancesSnapshot !== null) {
+        writer.uint32(tag(32, WIRE.LDELIM)).fork();
+        writeScheduledInstanceSnapshot(message.scheduledInstancesSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.scheduledInstanceUpdate !== undefined && message.scheduledInstanceUpdate !== null) {
+        writer.uint32(tag(33, WIRE.LDELIM)).fork();
+        writeScheduledInstanceState(message.scheduledInstanceUpdate, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -8702,7 +8952,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined };
+    const message = {heartbeat: false, deploymentConfigsSnapshot: undefined, deploymentConfigUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined, scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -8710,12 +8960,12 @@ function decodeStateMessage(reader, length) {
                 message.heartbeat = reader.bool();
                 break;
             }
-            case 2: {
-                message.deploymentsSnapshot = decodeDeploymentWithStatusSnapshotMessage(reader, reader.uint32());
+            case 4: {
+                message.deploymentConfigsSnapshot = decodeDeploymentConfigSnapshotMessage(reader, reader.uint32());
                 break;
             }
-            case 3: {
-                message.deploymentUpdate = decodeDeploymentWithStatusMessage(reader, reader.uint32());
+            case 5: {
+                message.deploymentConfigUpdate = decodeDeploymentConfigMessage(reader, reader.uint32());
                 break;
             }
             case 6: {
@@ -8812,6 +9062,14 @@ function decodeStateMessage(reader, length) {
             }
             case 31: {
                 message.configSnapshot = decodeConfigVersionMessage(reader, reader.uint32());
+                break;
+            }
+            case 32: {
+                message.scheduledInstancesSnapshot = decodeScheduledInstanceSnapshotMessage(reader, reader.uint32());
+                break;
+            }
+            case 33: {
+                message.scheduledInstanceUpdate = decodeScheduledInstanceStateMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -9371,66 +9629,6 @@ export function decodeUserConfigReferenceList(buffer) {
 
 
 /**
- * @param {DeploymentWithStatusSnapshot} message
- * @param {Writer} writer
- */
-export function writeDeploymentWithStatusSnapshot(message, writer) {
-    if (message.items && message.items.length > 0) {
-        for (const item of message.items) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeDeploymentWithStatus(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {DeploymentWithStatusSnapshot} message
- * @returns {Uint8Array}
- */
-export function encodeDeploymentWithStatusSnapshot(message) {
-    const writer = Writer.create();
-    writeDeploymentWithStatusSnapshot(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {DeploymentWithStatusSnapshot}
- */
-function decodeDeploymentWithStatusSnapshotMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {items: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.items.push(decodeDeploymentWithStatusMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {DeploymentWithStatusSnapshot}
- */
-export function decodeDeploymentWithStatusSnapshot(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentWithStatusSnapshotMessage(reader);
-}
-
-
-
-/**
  * @param {ClusterMachineList} message
  * @param {Writer} writer
  */
@@ -9502,7 +9700,7 @@ export function writeDeploymentHistoryEntry(message, writer) {
     }
     if (message.status !== undefined && message.status !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeDeploymentStatus(message.status, writer);
+        writeScheduledInstanceStatus(message.status, writer);
         writer.ldelim();
     }
 }
@@ -9535,7 +9733,7 @@ function decodeDeploymentHistoryEntryMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.status = decodeDeploymentStatusMessage(reader, reader.uint32());
+                message.status = decodeScheduledInstanceStatusMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -10419,14 +10617,14 @@ export function decodeClusterStatusResponse(buffer) {
  * @param {Writer} writer
  */
 export function writeMsgToWorker(message, writer) {
-    if (message.deploymentsSnapshot !== undefined && message.deploymentsSnapshot !== null) {
+    if (message.scheduledInstancesSnapshot !== undefined && message.scheduledInstancesSnapshot !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeDeploymentWithStatusSnapshot(message.deploymentsSnapshot, writer);
+        writeScheduledInstanceSnapshot(message.scheduledInstancesSnapshot, writer);
         writer.ldelim();
     }
-    if (message.deploymentUpdate !== undefined && message.deploymentUpdate !== null) {
+    if (message.scheduledInstanceUpdate !== undefined && message.scheduledInstanceUpdate !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeDeploymentConfig(message.deploymentUpdate, writer);
+        writeScheduledInstanceState(message.scheduledInstanceUpdate, writer);
         writer.ldelim();
     }
     if (message.prepareLogRequest !== undefined && message.prepareLogRequest !== null) {
@@ -10486,16 +10684,16 @@ export function encodeMsgToWorker(message) {
  */
 function decodeMsgToWorkerMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentsSnapshot: undefined, deploymentUpdate: undefined, prepareLogRequest: undefined, runLogRequest: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", logSearchRequest: undefined, clusterNetwork: undefined, clusterNetMap: undefined, clusterProtocolVersion: 0 };
+    const message = {scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, prepareLogRequest: undefined, runLogRequest: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", logSearchRequest: undefined, clusterNetwork: undefined, clusterNetMap: undefined, clusterProtocolVersion: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.deploymentsSnapshot = decodeDeploymentWithStatusSnapshotMessage(reader, reader.uint32());
+                message.scheduledInstancesSnapshot = decodeScheduledInstanceSnapshotMessage(reader, reader.uint32());
                 break;
             }
             case 2: {
-                message.deploymentUpdate = decodeDeploymentConfigMessage(reader, reader.uint32());
+                message.scheduledInstanceUpdate = decodeScheduledInstanceStateMessage(reader, reader.uint32());
                 break;
             }
             case 3: {
@@ -10772,8 +10970,8 @@ export function decodeClusterNetMapNode(buffer) {
  * @param {Writer} writer
  */
 export function writeClusterNetMapRoute(message, writer) {
-    if (message.logicalAddress !== undefined && message.logicalAddress !== null && message.logicalAddress !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.logicalAddress);
+    if (message.logicalPrefix !== undefined && message.logicalPrefix !== null && message.logicalPrefix !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.logicalPrefix);
     }
     if (message.hostingNodeId !== undefined && message.hostingNodeId !== null && message.hostingNodeId !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.hostingNodeId);
@@ -10799,12 +10997,12 @@ export function encodeClusterNetMapRoute(message) {
  */
 function decodeClusterNetMapRouteMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {logicalAddress: "", hostingNodeId: 0 };
+    const message = {logicalPrefix: "", hostingNodeId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.logicalAddress = reader.string();
+                message.logicalPrefix = reader.string();
                 break;
             }
             case 2: {
@@ -11042,7 +11240,7 @@ export function decodeClusterHello(buffer) {
 export function writeMsgToMaster(message, writer) {
     if (message.statusWrite !== undefined && message.statusWrite !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeDeploymentStatus(message.statusWrite, writer);
+        writeScheduledInstanceStatus(message.statusWrite, writer);
         writer.ldelim();
     }
     if (message.logData && message.logData.length > 0) {
@@ -11100,7 +11298,7 @@ function decodeMsgToMasterMessage(reader, length) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.statusWrite = decodeDeploymentStatusMessage(reader, reader.uint32());
+                message.statusWrite = decodeScheduledInstanceStatusMessage(reader, reader.uint32());
                 break;
             }
             case 2: {

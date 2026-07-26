@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/goutil/pubsubu"
@@ -21,18 +22,26 @@ type deploymentStore struct {
 
 	mu sync.Mutex
 
+	// configCache holds the latest desired DeploymentConfig per deployment id.
+	// Used by primary scheduler/APIs only — never as the pinned config source for
+	// a scheduled-instance snapshot.
 	configCache map[int32]*apigen.DeploymentConfig
-	statusCache map[int32]*apigen.DeploymentStatus
-	subs        *pubsubu.PubSub[apigen.DeploymentWithStatus]
+	// scheduledCache holds the authoritative runtime view per scheduled instance
+	// id: assignment row, pinned config version, and latest status.
+	scheduledCache map[int32]*apigen.ScheduledInstanceState
+
+	configSubs   *pubsubu.PubSub[apigen.DeploymentConfig]
+	instanceSubs *pubsubu.PubSub[apigen.ScheduledInstanceState]
 }
 
 func newDeploymentStore(db *sql.DB) *deploymentStore {
 	s := &deploymentStore{
-		db:          db,
-		q:           New(db),
-		configCache: make(map[int32]*apigen.DeploymentConfig),
-		statusCache: make(map[int32]*apigen.DeploymentStatus),
-		subs:        &pubsubu.PubSub[apigen.DeploymentWithStatus]{},
+		db:             db,
+		q:              New(db),
+		configCache:    make(map[int32]*apigen.DeploymentConfig),
+		scheduledCache: make(map[int32]*apigen.ScheduledInstanceState),
+		configSubs:     &pubsubu.PubSub[apigen.DeploymentConfig]{},
+		instanceSubs:   &pubsubu.PubSub[apigen.ScheduledInstanceState]{},
 	}
 	s.loadCache()
 	return s
@@ -49,180 +58,267 @@ func (s *deploymentStore) loadCache() {
 		s.configCache[id] = configRowToProto(row)
 	}
 
-	statuses, err := s.q.ListAllDeploymentStatuses(ctx)
+	instances, err := s.q.ListNonFinalScheduledInstances(ctx)
 	if err != nil {
-		panic(fmt.Sprintf("loadCache: ListAllDeploymentStatuses: %v", err))
+		panic(fmt.Sprintf("loadCache: ListNonFinalScheduledInstances: %v", err))
 	}
-	for _, st := range statuses {
-		id := int32(st.DeploymentID)
-		s.statusCache[id] = statusRowToProto(st.DeploymentID, statusToHistory(st))
-	}
-
-	for id := range s.configCache {
-		if _, ok := s.statusCache[id]; ok {
-			continue
+	for _, row := range instances {
+		inst := scheduledInstanceRowToProto(row)
+		state := &apigen.ScheduledInstanceState{Instance: *inst}
+		if cfg := s.configForInstanceLocked(inst); cfg != nil {
+			state.Config = *cfg
 		}
-		s.insertDefaultStatus(s.q, int64(id))
+		s.scheduledCache[inst.ID] = state
+	}
+
+	statuses, err := s.q.ListLatestScheduledInstanceStatuses(ctx)
+	if err != nil {
+		panic(fmt.Sprintf("loadCache: ListLatestScheduledInstanceStatuses: %v", err))
+	}
+	for _, row := range statuses {
+		st := scheduledInstanceStatusRowToProto(row)
+		if state, ok := s.scheduledCache[st.ScheduledInstanceID]; ok {
+			state.Status = *st
+		}
 	}
 }
 
-func (s *deploymentStore) FetchDeploymentSnapshot(predicate storage.DeploymentPredicate) []apigen.DeploymentWithStatus {
+func (s *deploymentStore) FetchDeploymentSnapshot(predicate storage.DeploymentPredicate) []apigen.DeploymentConfig {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.snapshotLocked(predicate)
+	return s.configSnapshotLocked(predicate)
 }
 
-func (s *deploymentStore) MustFetchSnapshotAndSubscribe(predicate storage.DeploymentPredicate) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus, func()) {
+// FetchDeploymentConfig returns the latest desired config, including a deleted
+// tombstone, for scheduler reconciliation.
+func (s *deploymentStore) FetchDeploymentConfig(deploymentID int32) *apigen.DeploymentConfig {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	cfg := s.configCache[deploymentID]
+	if cfg == nil {
+		return nil
+	}
+	cp := *cfg
+	return &cp
+}
 
-	snapshot := s.snapshotLocked(predicate)
-	sub := s.subs.Subscribe(deploymentFilter(predicate))
+func (s *deploymentStore) MustFetchDeploymentConfigSnapshotAndSubscribe(predicate storage.DeploymentPredicate) ([]apigen.DeploymentConfig, chan apigen.DeploymentConfig, func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snapshot := s.configSnapshotLocked(predicate)
+	sub := s.configSubs.Subscribe(configFilter(predicate))
 	return snapshot, sub.Ch, sub.UnsubscribeFunc
 }
 
-func (s *deploymentStore) MustWriteDeploymentStatus(deploymentID int32, f func(*apigen.DeploymentStatus) bool) {
+func (s *deploymentStore) FetchScheduledSnapshot(predicate storage.ScheduledInstancePredicate) []apigen.ScheduledInstanceState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.instanceSnapshotLocked(predicate)
+}
+
+func (s *deploymentStore) MustFetchScheduledSnapshotAndSubscribe(predicate storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan apigen.ScheduledInstanceState, func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snapshot := s.instanceSnapshotLocked(predicate)
+	sub := s.instanceSubs.Subscribe(instanceFilter(predicate))
+	return snapshot, sub.Ch, sub.UnsubscribeFunc
+}
+
+func (s *deploymentStore) SubscribeScheduledInstanceUpdates(predicate storage.ScheduledInstancePredicate) (chan apigen.ScheduledInstanceState, func()) {
+	sub := s.instanceSubs.Subscribe(instanceFilter(predicate))
+	return sub.Ch, sub.UnsubscribeFunc
+}
+
+func (s *deploymentStore) MustWriteScheduledInstanceStatus(instanceID int32, f func(*apigen.ScheduledInstanceStatus) bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := context.Background()
-	ctx = logu.ExtendLogContext(ctx, "dep", deploymentID)
+	ctx = logu.ExtendLogContext(ctx, "scheduled_instance", instanceID)
 
-	current := s.statusCache[deploymentID]
-	if current == nil {
-		current = &apigen.DeploymentStatus{DeploymentID: deploymentID}
-	}
-
-	if !f(current) {
+	state := s.scheduledCache[instanceID]
+	if state == nil {
+		slog.WarnContext(ctx, "status write for unknown scheduled instance")
 		return
 	}
 
-	params := statusProtoToInsertParams(int64(deploymentID), current)
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		panic(fmt.Sprintf("begin tx: %v", err))
-	}
-	defer tx.Rollback()
-	q := s.q.WithTx(tx)
-
-	if err := q.UpsertDeploymentStatus(ctx, statusInsertToUpsert(params)); err != nil {
-		panic(fmt.Sprintf("UpsertDeploymentStatus: %v", err))
-	}
-	if err := q.InsertDeploymentStatusHistory(ctx, params); err != nil {
-		panic(fmt.Sprintf("InsertDeploymentStatusHistory: %v", err))
-	}
-	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit: %v", err))
+	current := state.Status
+	if current.ScheduledInstanceID == 0 {
+		current.ScheduledInstanceID = instanceID
+		current.DeploymentID = state.Instance.DeploymentID
 	}
 
-	s.statusCache[deploymentID] = current
-	slog.InfoContext(ctx, "deployment status transaction published",
+	if !f(&current) {
+		return
+	}
+	current.ScheduledInstanceID = instanceID
+	current.DeploymentID = state.Instance.DeploymentID
+
+	params := scheduledInstanceStatusProtoToInsertParams(&current)
+	if err := s.q.InsertScheduledInstanceStatus(ctx, params); err != nil {
+		panic(fmt.Sprintf("InsertScheduledInstanceStatus: %v", err))
+	}
+
+	state.Status = current
+	slog.InfoContext(ctx, "scheduled instance status published",
 		"updatedAt", current.UpdatedAt,
 		"preparerStatus", current.Preparer.Status,
 		"runnerStatus", current.Runner.Status,
 	)
-	s.notifyFromCache(deploymentID)
+	s.notifyInstanceLocked(instanceID)
 }
 
-func (s *deploymentStore) FetchDeploymentStatus(deploymentID int32) *apigen.DeploymentStatus {
+// FetchScheduledInstance returns the assignment alone. Callers reconciling a
+// decision made earlier use it to confirm the placement still exists and is
+// still in the state they left it in.
+func (s *deploymentStore) FetchScheduledInstance(instanceID int32) *apigen.ScheduledInstance {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.statusCache[deploymentID]
-}
-
-func (s *deploymentStore) SubscribeDeploymentUpdates(predicate storage.DeploymentPredicate) (chan apigen.DeploymentWithStatus, func()) {
-	sub := s.subs.Subscribe(deploymentFilter(predicate))
-	return sub.Ch, sub.UnsubscribeFunc
-}
-
-func (s *deploymentStore) insertDefaultStatus(q *Queries, dbID int64) {
-	id := int32(dbID)
-	st := &apigen.DeploymentStatus{DeploymentID: id}
-	params := statusProtoToInsertParams(dbID, st)
-	if err := q.UpsertDeploymentStatus(context.Background(), statusInsertToUpsert(params)); err != nil {
-		panic(fmt.Sprintf("UpsertDeploymentStatus (default): %v", err))
+	state := s.scheduledCache[instanceID]
+	if state == nil {
+		return nil
 	}
-	s.statusCache[id] = st
+	cp := state.Instance
+	return &cp
 }
 
-func (s *deploymentStore) snapshotLocked(predicate storage.DeploymentPredicate) []apigen.DeploymentWithStatus {
-	out := make([]apigen.DeploymentWithStatus, 0, len(s.configCache))
-	for id, cfg := range s.configCache {
+func (s *deploymentStore) FetchScheduledInstanceStatus(instanceID int32) *apigen.ScheduledInstanceStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state := s.scheduledCache[instanceID]
+	if state == nil || state.Status.IsZero() {
+		return nil
+	}
+	cp := state.Status
+	return &cp
+}
+
+func (s *deploymentStore) configSnapshotLocked(predicate storage.DeploymentPredicate) []apigen.DeploymentConfig {
+	out := make([]apigen.DeploymentConfig, 0, len(s.configCache))
+	for _, cfg := range s.configCache {
 		if cfg.Deleted || (predicate != nil && !predicate(*cfg)) {
 			continue
 		}
-		out = append(out, apigen.DeploymentWithStatus{
-			Config: *cfg,
-			Status: s.withRunningVersion(cfg, statusValue(s.statusCache[id])),
-		})
+		out = append(out, *cfg)
 	}
 	return out
 }
 
-func (s *deploymentStore) notifyFromCache(id int32) {
+func (s *deploymentStore) instanceSnapshotLocked(predicate storage.ScheduledInstancePredicate) []apigen.ScheduledInstanceState {
+	out := make([]apigen.ScheduledInstanceState, 0, len(s.scheduledCache))
+	for id, state := range s.scheduledCache {
+		if state.Instance.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED {
+			continue
+		}
+		item := s.instanceStateLocked(id)
+		if predicate != nil && !predicate(item) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func (s *deploymentStore) instanceStateLocked(id int32) apigen.ScheduledInstanceState {
+	state := s.scheduledCache[id]
+	if state == nil {
+		return apigen.ScheduledInstanceState{}
+	}
+	out := *state
+	if out.Config.ID != 0 {
+		out.Status = withRunningVersion(&out.Config, out.Status)
+	}
+	return out
+}
+
+// configForInstanceLocked resolves a pinned config version for primary load/create.
+// Secondaries should rely on config already embedded in scheduledCache entries.
+func (s *deploymentStore) configForInstanceLocked(inst *apigen.ScheduledInstance) *apigen.DeploymentConfig {
+	if inst == nil {
+		return nil
+	}
+	if cfg := s.configCache[inst.DeploymentID]; cfg != nil && cfg.Version == inst.DeploymentVersion {
+		return cfg
+	}
+	return s.loadConfigVersionLocked(inst.DeploymentID, inst.DeploymentVersion)
+}
+
+func (s *deploymentStore) loadConfigVersionLocked(deploymentID, version int32) *apigen.DeploymentConfig {
+	row, err := s.q.GetDeploymentConfigHistoryVersion(context.Background(), GetDeploymentConfigHistoryVersionParams{
+		DeploymentID: int64(deploymentID),
+		Version:      int64(version),
+	})
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			slog.Warn("load config history version", "deployment_id", deploymentID, "version", version, "err", err)
+		}
+		return nil
+	}
+	var identity apigen.DeploymentIdentity
+	var createdAt time.Time
+	if cfg := s.configCache[deploymentID]; cfg != nil {
+		identity = cfg.Identity
+		createdAt = cfg.CreatedAt
+	}
+	return configHistoryRowToFullProto(row, identity, createdAt)
+}
+
+func (s *deploymentStore) notifyConfigLocked(id int32) {
 	cfg := s.configCache[id]
 	if cfg == nil {
 		return
 	}
-	st := s.statusCache[id]
-	name := ""
-	if !cfg.Identity.IsZero() {
-		name = fmt.Sprintf("%d:%d:%s", cfg.Identity.SpaceID, cfg.NodeID, cfg.Identity.Name)
-	}
-	slog.Info("store: notifyFromCache",
-		"dep", id,
-		"name", name,
-		"configSeqNo", cfg.Version,
-		"hasPreparer", st != nil && !st.Preparer.IsZero(),
-		"hasRunner", st != nil && !st.Runner.IsZero(),
-	)
-	s.subs.Notify(apigen.DeploymentWithStatus{Config: *cfg, Status: s.withRunningVersion(cfg, statusValue(st))})
+	s.configSubs.Notify(*cfg)
 }
 
-// withRunningVersion fills Status.Runner.RunningVersion — the version string
-// (commit/tag) the running artifact was built from — by resolving the runner's
-// config version against the config history. The current config (the common,
-// steady-state case) is served from the in-memory cache; an older version, seen
-// only while a rollout is in flight, falls back to a primary-key lookup in
-// deployment_config_history.
-func (s *deploymentStore) withRunningVersion(cfg *apigen.DeploymentConfig, st apigen.DeploymentStatus) apigen.DeploymentStatus {
-	if st.Runner.IsZero() {
+func (s *deploymentStore) notifyInstanceLocked(id int32) {
+	state := s.instanceStateLocked(id)
+	if state.Instance.ID == 0 {
+		return
+	}
+	name := ""
+	if !state.Config.Identity.IsZero() {
+		name = fmt.Sprintf("%d:%d:%s", state.Config.Identity.SpaceID, state.Config.NodeID, state.Config.Identity.Name)
+	}
+	slog.Info("store: notify scheduled instance",
+		"scheduled_instance", id,
+		"deployment", state.Instance.DeploymentID,
+		"name", name,
+		"configVersion", state.Instance.DeploymentVersion,
+		"targetState", state.Instance.State,
+		"hasPreparer", !state.Status.Preparer.IsZero(),
+		"hasRunner", !state.Status.Runner.IsZero(),
+	)
+	s.instanceSubs.Notify(state)
+}
+
+func configFilter(predicate storage.DeploymentPredicate) func(apigen.DeploymentConfig, apigen.DeploymentConfig) bool {
+	if predicate == nil {
+		return nil
+	}
+	return func(_, cfg apigen.DeploymentConfig) bool {
+		return predicate(cfg)
+	}
+}
+
+func instanceFilter(predicate storage.ScheduledInstancePredicate) func(apigen.ScheduledInstanceState, apigen.ScheduledInstanceState) bool {
+	if predicate == nil {
+		return nil
+	}
+	return func(_, state apigen.ScheduledInstanceState) bool {
+		return predicate(state)
+	}
+}
+
+func withRunningVersion(cfg *apigen.DeploymentConfig, st apigen.ScheduledInstanceStatus) apigen.ScheduledInstanceStatus {
+	if st.Runner.IsZero() || cfg == nil {
 		return st
 	}
 	ver := st.Runner.DeploymentConfigVersion
 	if ver == 0 {
 		return st
 	}
-	if cfg != nil && ver == cfg.Version {
+	if ver == cfg.Version {
 		st.Runner.RunningVersion = cfg.WorkloadVersion()
-		return st
 	}
-	blob, err := s.q.GetConfigHistorySpecBlob(context.Background(), GetConfigHistorySpecBlobParams{
-		DeploymentID: int64(st.DeploymentID),
-		Version:      int64(ver),
-	})
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			slog.Warn("store: resolve running version", "dep", st.DeploymentID, "version", ver, "err", err)
-		}
-		return st
-	}
-	spec := mustDecodeDeploymentSpec(blob, int64(st.DeploymentID), int64(ver))
-	st.Runner.RunningVersion = spec.WorkloadVersion()
 	return st
-}
-
-func deploymentFilter(predicate storage.DeploymentPredicate) func(apigen.DeploymentWithStatus, apigen.DeploymentWithStatus) bool {
-	if predicate == nil {
-		return nil
-	}
-	return func(prev, dws apigen.DeploymentWithStatus) bool {
-		return predicate(dws.Config)
-	}
-}
-
-func statusValue(st *apigen.DeploymentStatus) apigen.DeploymentStatus {
-	if st == nil {
-		return apigen.DeploymentStatus{}
-	}
-	return *st
 }

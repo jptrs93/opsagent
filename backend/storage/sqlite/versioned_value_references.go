@@ -21,7 +21,7 @@ const (
 )
 
 type deploymentReferenceUpdate struct {
-	row  DeploymentConfig
+	row  ListAllDeploymentConfigsRow
 	spec *apigen.DeploymentSpec
 }
 
@@ -101,7 +101,7 @@ func (s *PrimaryStorage) setVersionedValueWithDeploymentUpdates(
 		afterCommit(updatedIDs)
 	}
 	for _, id := range updatedIDs {
-		s.notifyFromCache(id)
+		s.notifyConfigLocked(id)
 	}
 	return updatedIDs, nil
 }
@@ -131,6 +131,13 @@ func prepareDeploymentReferenceUpdates(
 	}
 	actual := make(map[int32]deploymentReferenceUpdate)
 	for _, row := range rows {
+		// Deletion is soft and preserves the spec, so a tombstone keeps whatever
+		// references it held when it was deleted. It will never run again, so
+		// rewriting it is pointless — and counting it here would make every
+		// rotation fail against the live set the caller can see.
+		if row.Deleted != 0 {
+			continue
+		}
 		spec, err := apigen.DecodeDeploymentSpec(row.SpecBlob)
 		if err != nil {
 			return nil, nil, fmt.Errorf("decode deployment %d version %d spec: %w", row.DeploymentID, row.Version, err)

@@ -16,16 +16,16 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
-type deploymentStore interface {
-	FetchDeploymentSnapshot(predicate storage.DeploymentPredicate) []apigen.DeploymentWithStatus
-	MustFetchSnapshotAndSubscribe(predicate storage.DeploymentPredicate) ([]apigen.DeploymentWithStatus, chan apigen.DeploymentWithStatus, func())
+type scheduledInstanceStore interface {
+	FetchScheduledSnapshot(predicate storage.ScheduledInstancePredicate) []apigen.ScheduledInstanceState
+	MustFetchScheduledSnapshotAndSubscribe(predicate storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan apigen.ScheduledInstanceState, func())
 }
 
 // RunNetStateWriter writes full protobuf netstate snapshots for the local
 // netproxy process. It is intentionally full-state and idempotent.
-func RunNetStateWriter(ctx context.Context, store deploymentStore, predicate storage.DeploymentPredicate, nodeIdentifier, path string) {
+func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predicate storage.ScheduledInstancePredicate, nodeIdentifier, path string) {
 	seq := initialNetStateSequence(path)
-	write := func(items []apigen.DeploymentWithStatus) {
+	write := func(items []apigen.ScheduledInstanceState) {
 		seq++
 		state := RenderNetState(seq, nodeIdentifier, items)
 		if err := WriteNetState(path, state); err != nil {
@@ -36,7 +36,7 @@ func RunNetStateWriter(ctx context.Context, store deploymentStore, predicate sto
 			slog.Warn("reconciling netproxy ingress forwarding failed", "err", err)
 		}
 	}
-	snapshot, updates, unsub := store.MustFetchSnapshotAndSubscribe(predicate)
+	snapshot, updates, unsub := store.MustFetchScheduledSnapshotAndSubscribe(predicate)
 	defer unsub()
 	write(snapshot)
 	for {
@@ -47,7 +47,7 @@ func RunNetStateWriter(ctx context.Context, store deploymentStore, predicate sto
 			if !ok {
 				return
 			}
-			write(store.FetchDeploymentSnapshot(predicate))
+			write(store.FetchScheduledSnapshot(predicate))
 		}
 	}
 }
@@ -69,7 +69,15 @@ func initialNetStateSequence(path string) int64 {
 	return max(state.Seq, 0)
 }
 
-func RenderNetState(seq int64, nodeIdentifier string, items []apigen.DeploymentWithStatus) *apigen.NetState {
+// RenderNetState derives node-local DNS and ingress from the placements this
+// node holds.
+//
+// Endpoints are derived, not reported: an instance's stable inbound address is
+// a pure function of its space, deployment, and ordinal, so the only thing the
+// runner contributes is whether it is up. Readiness still gates both DNS and
+// ingress backends, which is what keeps a name from resolving to, or a proxy
+// from dialling, a container that is not running.
+func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledInstanceState) *apigen.NetState {
 	prefix, _ := network.Default.PrefixValue()
 	services := make([]*apigen.DnsService, 0, len(items))
 	ingress := make([]*apigen.NetIngress, 0)
@@ -77,7 +85,7 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.DeploymentW
 		if item.Config.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}
-		ready := readyEndpoints(item.Status.Runner.Endpoints)
+		ready := readyEndpoints(prefix, item)
 		ingress = append(ingress, renderIngress(item, ready)...)
 		if len(ready) == 0 {
 			continue
@@ -98,7 +106,7 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.DeploymentW
 	}
 }
 
-func renderIngress(item apigen.DeploymentWithStatus, endpoints []*apigen.Endpoint) []*apigen.NetIngress {
+func renderIngress(item apigen.ScheduledInstanceState, endpoints []*apigen.Endpoint) []*apigen.NetIngress {
 	var out []*apigen.NetIngress
 	for _, route := range item.Config.Spec.Networking.Ingress {
 		if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH || route.TlsPassthroughConfig == nil {
@@ -149,15 +157,26 @@ func WriteNetState(path string, state *apigen.NetState) error {
 	return os.Rename(tmp, path)
 }
 
-func readyEndpoints(in []*apigen.Endpoint) []*apigen.Endpoint {
-	out := make([]*apigen.Endpoint, 0, len(in))
-	for _, ep := range in {
-		if ep != nil && ep.State == apigen.EndpointState_ENDPOINT_READY {
-			readyEndpoint := *ep
-			out = append(out, &readyEndpoint)
-		}
+// readyEndpoints derives the instance's endpoint set, which is empty unless the
+// placement is both serving and running. A standby warming up for a takeover is
+// deliberately absent: it holds no inbound address yet, so publishing it would
+// send traffic to an address that does not route here.
+func readyEndpoints(prefix network.Prefix, item apigen.ScheduledInstanceState) []*apigen.Endpoint {
+	if prefix.IsZero() || item.Config.ID <= 0 ||
+		item.Instance.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING ||
+		item.Status.Runner.Status != apigen.RunningStatus_RUNNING {
+		return nil
 	}
-	return out
+	addr, err := prefix.InboundAddr(item.Config.Identity.SpaceID, item.Config.ID, item.Instance.InstanceOrdinal)
+	if err != nil {
+		return nil
+	}
+	return []*apigen.Endpoint{{
+		Ordinal: item.Instance.InstanceOrdinal,
+		Address: addr.String(),
+		NodeID:  item.Instance.NodeID,
+		State:   apigen.EndpointState_ENDPOINT_READY,
+	}}
 }
 
 func dnsLabel(s string) string {
