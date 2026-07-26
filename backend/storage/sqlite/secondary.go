@@ -15,7 +15,7 @@ type SecondaryStorage struct {
 }
 
 func NewSecondaryStorage(dbPath string) *SecondaryStorage {
-	db := mustInit(dbPath)
+	db := mustInitSecondary(dbPath)
 	s := &SecondaryStorage{
 		deploymentStore: newDeploymentStore(db),
 	}

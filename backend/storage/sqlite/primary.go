@@ -130,7 +130,7 @@ type PrimaryStorage struct {
 }
 
 func NewPrimaryStorage(dbPath string) *PrimaryStorage {
-	db := mustInit(dbPath)
+	db := mustInitPrimary(dbPath)
 	return &PrimaryStorage{
 		deploymentStore:     newDeploymentStore(db),
 		userSubs:            &pubsubu.PubSub[apigen.User]{},
@@ -605,7 +605,6 @@ func (s *PrimaryStorage) mustCreateDeploymentForNode(ctx apigen.Context, cid *ap
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory (create): %v", err))
 	}
 
-
 	if err := tx.Commit(); err != nil {
 		panic(fmt.Sprintf("commit: %v", err))
 	}
@@ -697,7 +696,6 @@ func (s *PrimaryStorage) EnsureSystemDeployment(nodeID int32, opendeployVersion 
 	}); err != nil {
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory (system): %v", err))
 	}
-
 
 	if err := tx.Commit(); err != nil {
 		panic(fmt.Sprintf("commit: %v", err))
@@ -793,7 +791,6 @@ func (s *PrimaryStorage) EnsureNetproxyDeployment(nodeID int32, initialVersion s
 	}); err != nil {
 		panic(fmt.Sprintf("InsertDeploymentConfigHistory (netproxy): %v", err))
 	}
-
 
 	if err := tx.Commit(); err != nil {
 		panic(fmt.Sprintf("commit: %v", err))
