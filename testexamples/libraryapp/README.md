@@ -26,13 +26,36 @@ The backend uses the standard PostgreSQL environment variables:
 | `PGUSER` | `postgres` | Database user |
 | `PGPASSWORD` | empty | Database password |
 | `PGSSLMODE` | `prefer` | PostgreSQL TLS mode |
-| `HTTP_ADDR` | `:8080` | HTTP listen address |
+| `HTTP_ADDR` | `:8080` | HTTP or HTTPS listen address |
+| `TLS_PEM` | empty | Combined PEM certificate chain and private key; enables HTTPS |
+| `TLS_SERVER_NAME` | empty | Required client SNI name and expected certificate hostname |
 
 For OpenDeploy, configure those values as deployment environment variables,
 using a secret reference for `PGPASSWORD`. Give the app network access to the
 PostgreSQL deployment and expose container port `8080` through the desired
 ingress or port-forward setting. The app retries its PostgreSQL connection until
 the database is available.
+
+For TLS passthrough, provide a combined certificate/private-key secret and route
+the same hostname to the app's TLS port:
+
+```hcl
+env_vars = {
+  "TLS_PEM"         = secret("opendeploy.tls.pem", { version = 1 })
+  "TLS_SERVER_NAME" = "demo.alleviaradiology.co.nz"
+}
+
+network {
+  mode = "virtual"
+  ingress = [
+    tls_passthrough("demo.alleviaradiology.co.nz", 8080),
+  ]
+}
+```
+
+With `TLS_PEM` set, port 8080 speaks HTTPS rather than HTTP. The certificate must
+cover `TLS_SERVER_NAME`, and clients must send that name through SNI. Without
+`TLS_PEM`, the backend retains plain HTTP for local development.
 
 ## Development
 

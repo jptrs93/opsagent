@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"embed"
 	"errors"
 	"fmt"
@@ -28,13 +30,15 @@ import (
 var embeddedWeb embed.FS
 
 type config struct {
-	HTTPAddr string
-	PGHost   string
-	PGPort   string
-	PGUser   string
-	PGPass   string
-	PGDB     string
-	PGSSL    string
+	HTTPAddr      string
+	TLSPEM        string
+	TLSServerName string
+	PGHost        string
+	PGPort        string
+	PGUser        string
+	PGPass        string
+	PGDB          string
+	PGSSL         string
 }
 
 type handler struct {
@@ -55,13 +59,15 @@ func main() {
 
 func configFromEnv() config {
 	return config{
-		HTTPAddr: envOr("HTTP_ADDR", ":8080"),
-		PGHost:   envOr("PGHOST", "127.0.0.1"),
-		PGPort:   envOr("PGPORT", "5432"),
-		PGUser:   envOr("PGUSER", "postgres"),
-		PGPass:   os.Getenv("PGPASSWORD"),
-		PGDB:     envOr("PGDATABASE", "postgres"),
-		PGSSL:    envOr("PGSSLMODE", "prefer"),
+		HTTPAddr:      envOr("HTTP_ADDR", ":8080"),
+		TLSPEM:        os.Getenv("TLS_PEM"),
+		TLSServerName: strings.TrimSuffix(strings.TrimSpace(os.Getenv("TLS_SERVER_NAME")), "."),
+		PGHost:        envOr("PGHOST", "127.0.0.1"),
+		PGPort:        envOr("PGPORT", "5432"),
+		PGUser:        envOr("PGUSER", "postgres"),
+		PGPass:        os.Getenv("PGPASSWORD"),
+		PGDB:          envOr("PGDATABASE", "postgres"),
+		PGSSL:         envOr("PGSSLMODE", "prefer"),
 	}
 }
 
@@ -73,6 +79,11 @@ func envOr(key, fallback string) string {
 }
 
 func run(ctx context.Context, cfg config) error {
+	tlsConfig, err := serverTLSConfig(cfg)
+	if err != nil {
+		return err
+	}
+
 	web, err := fs.Sub(embeddedWeb, "web/dist")
 	if err != nil {
 		return fmt.Errorf("open embedded frontend: %w", err)
@@ -95,12 +106,21 @@ func run(ctx context.Context, cfg config) error {
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           apiMux,
+		TLSConfig:         tlsConfig,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("library app listening", "address", cfg.HTTPAddr, "postgres_host", cfg.PGHost, "postgres_database", cfg.PGDB)
+		protocol := "http"
+		if tlsConfig != nil {
+			protocol = "https"
+		}
+		slog.Info("library app listening", "address", cfg.HTTPAddr, "protocol", protocol, "server_name", cfg.TLSServerName, "postgres_host", cfg.PGHost, "postgres_database", cfg.PGDB)
+		if tlsConfig != nil {
+			errCh <- server.ListenAndServeTLS("", "")
+			return
+		}
 		errCh <- server.ListenAndServe()
 	}()
 
@@ -115,6 +135,45 @@ func run(ctx context.Context, cfg config) error {
 		}
 		return err
 	}
+}
+
+func serverTLSConfig(cfg config) (*tls.Config, error) {
+	if strings.TrimSpace(cfg.TLSPEM) == "" {
+		if cfg.TLSServerName != "" {
+			return nil, errors.New("TLS_SERVER_NAME requires TLS_PEM")
+		}
+		return nil, nil
+	}
+
+	certificate, err := tls.X509KeyPair([]byte(cfg.TLSPEM), []byte(cfg.TLSPEM))
+	if err != nil {
+		return nil, fmt.Errorf("parse TLS_PEM certificate and private key: %w", err)
+	}
+	if cfg.TLSServerName != "" {
+		leaf, err := x509.ParseCertificate(certificate.Certificate[0])
+		if err != nil {
+			return nil, fmt.Errorf("parse TLS_PEM leaf certificate: %w", err)
+		}
+		if err := leaf.VerifyHostname(cfg.TLSServerName); err != nil {
+			return nil, fmt.Errorf("TLS_PEM does not cover TLS_SERVER_NAME %q: %w", cfg.TLSServerName, err)
+		}
+		certificate.Leaf = leaf
+	}
+
+	tlsConfig := &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{certificate},
+	}
+	if cfg.TLSServerName != "" {
+		tlsConfig.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			serverName := strings.TrimSuffix(strings.TrimSpace(hello.ServerName), ".")
+			if !strings.EqualFold(serverName, cfg.TLSServerName) {
+				return nil, fmt.Errorf("unsupported TLS server name %q", hello.ServerName)
+			}
+			return &certificate, nil
+		}
+	}
+	return tlsConfig, nil
 }
 
 func connectPostgres(ctx context.Context, cfg config) (*pgxpool.Pool, error) {
