@@ -7,8 +7,8 @@ const columns = () => colgroup(
     col({style: "width:10rem"}),
     col({style: "width:8rem"}),
     col({style: "width:7rem"}),
-    col({style: "width:8rem"}),
-    col({style: "width:9rem"}),
+    col({style: "width:10rem"}),
+    col({style: "width:8.5rem"}),
     col({style: "width:7rem"}),
     col({style: "width:7rem"}),
     col({style: "width:8rem"}),
@@ -36,6 +36,9 @@ const header = table(
 );
 
 const rows = Array.from({length: 28}, (_, index) => {
+    // Container image tags run much longer than release versions, so one row
+    // carries a realistic long tag to exercise the Version column's truncation.
+    const version = index === 3 ? "2025.7.23-debian-12-r5" : "v0.0.195";
     const row = {
         id: index + 1,
         name: ["api", "worker", "web", "scheduler"][index % 4] + `-${index + 1}`,
@@ -43,10 +46,10 @@ const rows = Array.from({length: 28}, (_, index) => {
         node: index % 2 === 0 ? "primary" : "worker-a",
         existingStatus: index % 5 === 0 ? 3 : 2,
         runnerPresent: true,
-        existingVersion: "v0.0.195",
-        deployedVersion: "v0.0.195",
-        prepareStatus: 4,
-        prepareVersion: "v0.0.195",
+        existingVersion: version,
+        deployedVersion: version,
+        preparer: {inputs: 2, image: 4},
+        prepareVersion: version,
         numberOfRestarts: index % 4,
         lastRestartAt: new Date("2026-07-20T12:00:00Z"),
         deployedBy: 0,
@@ -62,15 +65,19 @@ const rows = Array.from({length: 28}, (_, index) => {
                 runnerPresent: true,
                 existingVersion: "v0.0.194",
                 deployedVersion: "v0.0.195",
-                prepareStatus: 4,
+                preparer: {inputs: 2, image: 4},
+                prepareVersion: "v0.0.194",
             },
             {
+                // Mid-rollover: the incoming instance is still resolving its
+                // inputs, which is also the longest label the column renders.
                 instanceId: 101,
                 existingStatus: 0,
                 runnerPresent: false,
                 existingVersion: "v0.0.195",
                 deployedVersion: "v0.0.195",
-                prepareStatus: 2,
+                preparer: {inputs: 1, image: 0},
+                prepareVersion: "v0.0.195",
             },
         ];
     }

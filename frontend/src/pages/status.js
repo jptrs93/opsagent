@@ -283,7 +283,10 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
                 existingStatus: instanceNodeMissing && instanceStatus === STATUS_RUNNING ? 0 : instanceStatus,
                 existingVersion: instanceRunner.runningVersion || pinnedVersion,
                 deployedVersion: workload.version || '',
-                prepareStatus: instancePrep.status || 0,
+                preparer: instancePrep,
+                // The instance's own pinned config is what its preparer worked
+                // on, so a rollover shows each instance against its own version.
+                prepareVersion: pinnedVersion || workload.version || '',
                 targetState: instance.state || 0,
                 nodeMissing: instanceNodeMissing,
                 ...sourceView,
@@ -314,7 +317,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             deployedAt: d.config.updatedAt,
             deployedVersion: workload.version || '',
             desiredRunning: Boolean(workload.running),
-            prepareStatus: prep.status || 0,
+            preparer: prep,
             prepareVersion: deploymentWorkload(d.pinnedConfig)?.version || workload.version || '',
             currentVersion: d.config.version || 0,
             targetState: d.instance?.state || 0,
@@ -486,8 +489,12 @@ export function statusPage(onOpenLogs = () => {}) {
         showSpaceColumn ? col({style: "width:5.5rem"}) : '',
         col({style: "width:8rem"}),
         col({style: "width:7rem"}),
-        col({style: "width:8rem"}),
-        col({style: "width:9rem"}),
+        // Version carries container image tags, which run far longer than the
+        // Prepare stage names now that the version prefix moved to the tooltip.
+        col({style: "width:10rem"}),
+        // 8.5rem leaves 112px of text room; the widest stage name, "resolving
+        // inputs", measures 102px.
+        col({style: "width:8.5rem"}),
         col({style: "width:7rem"}),
         col({style: "width:7rem"}),
         col({style: "width:8rem"}),

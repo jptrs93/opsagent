@@ -28,7 +28,7 @@ func New(releasesDir string, client *github.Client) *Preparer {
 	}
 }
 
-func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.PreparationStatus) {
+func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.ImageStatus) {
 	version := dep.WorkloadVersion()
 	logPath := dep.PrepareOutputPath()
 	slog.InfoContext(ctx, "github release download starting", "log_path", logPath)
@@ -36,10 +36,10 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 	assetPath, err := p.downloadReleaseAsset(ctx, gh.Repo, gh.Asset, version, log)
 	if err != nil {
 		log.Error("downloading release asset: %v", err)
-		return "", apigen.PreparationStatus_FAILED
+		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
 	log.Write("download complete: %s", assetPath)
-	return assetPath, apigen.PreparationStatus_READY
+	return assetPath, apigen.ImageStatus_IMAGE_READY
 }
 
 func (p *Preparer) downloadReleaseAsset(ctx context.Context, repo, assetName, version string, log *preparerlog.Log) (string, error) {

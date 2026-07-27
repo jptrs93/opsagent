@@ -134,7 +134,8 @@ type ScheduledInstanceStatus struct {
 	DeploymentID          int64
 	PreparerConfigVersion sql.NullInt64
 	PreparerArtifact      sql.NullString
-	PreparerStatus        sql.NullInt64
+	PreparerInputsStatus  int64
+	PreparerImageStatus   int64
 	RunnerConfigVersion   sql.NullInt64
 	RunnerPid             sql.NullInt64
 	RunnerArtifact        sql.NullString

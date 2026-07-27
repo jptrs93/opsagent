@@ -8,7 +8,9 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 )
 
-const ClusterProtocolVersion int32 = 5
+// Bumped to 6 when PreparerStatus.status was removed in favour of the derived
+// Rollup() over its two stage fields.
+const ClusterProtocolVersion int32 = 6
 
 // WantsRunning reports whether a node should be running this placement. The
 // three RUN_* states are deliberately indistinguishable here: they differ only
@@ -170,8 +172,75 @@ func (s PreparationStatus) String() string {
 		return "READY"
 	case PreparationStatus_FAILED:
 		return "FAILED"
+	case PreparationStatus_PULLING:
+		return "PULLING"
 	default:
 		return fmt.Sprintf("PreparationStatus(%d)", int32(s))
+	}
+}
+
+// Rollup collapses the two preparation stages into the single status that gates
+// runner start, holds a prepare-log stream open, and marks an instance
+// quiescent. It is derived rather than stored, so the stages can never disagree
+// with it.
+//
+// Note the ordering: an image that is already READY wins over an inputs stage
+// that is merely resolving. That is what keeps an input retry on an
+// already-prepared instance from demoting its rollup and stopping its runner —
+// the artifact is built, only input distribution failed.
+func (p PreparerStatus) Rollup() PreparationStatus {
+	if p.Inputs == InputsStatus_INPUTS_FAILED || p.Image == ImageStatus_IMAGE_FAILED {
+		return PreparationStatus_FAILED
+	}
+	switch p.Image {
+	case ImageStatus_IMAGE_READY:
+		return PreparationStatus_READY
+	case ImageStatus_IMAGE_PULLING:
+		return PreparationStatus_PULLING
+	case ImageStatus_IMAGE_DOWNLOADING:
+		return PreparationStatus_DOWNLOADING
+	case ImageStatus_IMAGE_BUILDING:
+		return PreparationStatus_PREPARING
+	}
+	// The image stage has not started. Anything past the start of stage 1 still
+	// reads as PREPARING to everything downstream.
+	if p.Inputs != InputsStatus_INPUTS_STATUS_UNKNOWN {
+		return PreparationStatus_PREPARING
+	}
+	return PreparationStatus_PREPARATION_STATUS_UNKNOWN
+}
+
+func (s InputsStatus) String() string {
+	switch s {
+	case InputsStatus_INPUTS_STATUS_UNKNOWN:
+		return "UNKNOWN"
+	case InputsStatus_INPUTS_RESOLVING:
+		return "RESOLVING"
+	case InputsStatus_INPUTS_READY:
+		return "READY"
+	case InputsStatus_INPUTS_FAILED:
+		return "FAILED"
+	default:
+		return fmt.Sprintf("InputsStatus(%d)", int32(s))
+	}
+}
+
+func (s ImageStatus) String() string {
+	switch s {
+	case ImageStatus_IMAGE_STATUS_UNKNOWN:
+		return "UNKNOWN"
+	case ImageStatus_IMAGE_BUILDING:
+		return "BUILDING"
+	case ImageStatus_IMAGE_PULLING:
+		return "PULLING"
+	case ImageStatus_IMAGE_DOWNLOADING:
+		return "DOWNLOADING"
+	case ImageStatus_IMAGE_READY:
+		return "READY"
+	case ImageStatus_IMAGE_FAILED:
+		return "FAILED"
+	default:
+		return fmt.Sprintf("ImageStatus(%d)", int32(s))
 	}
 }
 

@@ -36,7 +36,12 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 	})
 	store.MustWriteScheduledInstanceStatus(instanceID, func(s *apigen.ScheduledInstanceStatus) bool {
 		s.BumpUpdatedAt()
-		s.Preparer = apigen.PreparerStatus{DeploymentConfigVersion: 3, Artifact: "art", Status: apigen.PreparationStatus_READY}
+		s.Preparer = apigen.PreparerStatus{
+			DeploymentConfigVersion: 3,
+			Artifact:                "art",
+			Inputs:                  apigen.InputsStatus_INPUTS_READY,
+			Image:                   apigen.ImageStatus_IMAGE_READY,
+		}
 		s.Runner = apigen.RunnerStatus{
 			DeploymentConfigVersion: 3,
 			Status:                  apigen.RunningStatus_RUNNING,
@@ -57,8 +62,11 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 		t.Fatalf("config not round-tripped: %+v / %+v", rc, rc.Identity)
 	}
 	rs := got[0].Status
-	if rs.Preparer.Status != apigen.PreparationStatus_READY || rs.Preparer.Artifact != "art" {
+	if rs.Preparer.Rollup() != apigen.PreparationStatus_READY || rs.Preparer.Artifact != "art" {
 		t.Fatalf("status not round-tripped: %+v", rs)
+	}
+	if rs.Preparer.Inputs != apigen.InputsStatus_INPUTS_READY || rs.Preparer.Image != apigen.ImageStatus_IMAGE_READY {
+		t.Fatalf("preparer stages not round-tripped: %+v", rs.Preparer)
 	}
 	if len(rs.Runner.NetworkDiagnostics) != 1 || rs.Runner.NetworkDiagnostics[0] != "listener is IPv4-only" {
 		t.Fatalf("runner diagnostics not round-tripped: %+v", rs.Runner.NetworkDiagnostics)

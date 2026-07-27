@@ -36,11 +36,21 @@ Internal exceptions:
 
 `PreparerStatus.Artifact` is the resolved runtime artifact. For public deployments this is always a local containerd image ref. For the internal system deployment it is the downloaded OpenDeploy binary path consumed by the internal systemd runner.
 
+Preparation is reported as two stages. `PreparerStatus.Inputs` tracks resolving assets, secrets, and configs; `PreparerStatus.Image` tracks producing the artifact (nix build, remote image pull, or GitHub release download). Those two are the only stored and transmitted preparer state.
+
+The single status that gates runner start, that retention reads, and that holds a prepare-log stream open is `PreparerStatus.Rollup()`, derived from the pair. It is neither persisted nor sent, so the stages can never disagree with it. `PreparationStatus` field 3 held it before it became derived and is reserved.
+
+The rollup ranks a ready image above a resolving inputs stage. That is what lets an input retry on an already-prepared instance publish its stage without demoting the rollup that keeps the runner running.
+
+Databases predating the split are migrated in place: the old `preparer_status` column is backfilled into the two stage columns and then dropped. Every legacy value maps to a stage pair that re-derives to itself; the one thing not recoverable is which stage a legacy `FAILED` failed in, which is attributed to the image.
+
 ## Operator
 
 `DeploymentOperator` owns concrete references to the stateful artifact preparers and the runtime-input service, along with the runner reconciliation loop. It passes the runtime-input instance to every container runner it creates or reattaches. Ordinary container-image preparation is a stateless package operation; image preparation and runners use the process-wide lazy `ctrd.Default` client directly. A single private switch selects the GitHub release, Nix Docker, ordinary container image, or internal GitHub release image path. Primary constructs and starts its operator in `app/primary/runtime.go`; secondary does so in `app/secondary/secondary.go`.
 
-`preparer.Handle` is the concrete cancellation/completion handle for the complete preparation operation. The operator owns its goroutine and all status transitions: it first ensures all runtime inputs are available, then calls the selected artifact preparer synchronously, and publishes the terminal status only after both stages complete. Concrete artifact preparers only perform strategy-specific artifact work. Nix builds are serialized across deployments to avoid Nix-store contention; image pulls and the two internal release preparations are allowed to run independently.
+`preparer.Handle` is the concrete cancellation/completion handle for the complete preparation operation. The operator owns its goroutine and all status transitions: it first ensures all runtime inputs are available, then calls the selected artifact preparer synchronously, and publishes the terminal status only after both stages complete. Concrete artifact preparers only perform strategy-specific artifact work and report an `ImageStatus`.
+
+Inputs run before the image stage so a cheap and commonly transient failure — a secret the primary has not distributed yet — fails before committing to a build that can take minutes. The two stages are otherwise independent. `prepare.StatusUpdate` is the only way to publish a transition. Nix builds are serialized across deployments to avoid Nix-store contention; image pulls and the two internal release preparations are allowed to run independently.
 
 Decision flow:
 
@@ -66,6 +76,8 @@ The primary validates every effective transition to a running Nix source before 
 `githubrelease.Preparer` is internal-only. It downloads the executable used by the OpenDeploy self-deployment. `githubreleaseimage.Preparer` independently downloads the architecture-specific OpenDeploy binary and packages it into the internal `opendeploy-net` OCI image. Both consume the shared `repo/github.Client`; neither concrete preparer depends on the other.
 
 Asset, secret, and config preparation dependencies are grouped in one instance-owned `runtimeinputs.RuntimeInputs`. It owns the validated in-memory secret and config caches as well as the providers that populate them. The operator uses this service before artifact preparation and explicitly passes the same instance to container runners for typed env-ref expansion at spawn and respawn. Every deployment strategy passes through this common stage before artifact preparation. On process-start reattachment, the operator rechecks runtime inputs and verifies that a persisted container image is locally present and unpacked before reusing it.
+
+When reattachment finds a prepared instance whose inputs are unavailable, the operator retries the inputs in the background rather than re-preparing: re-preparing fetches the same inputs from the same place and would publish a terminal failure nothing retries out of. The retry publishes the inputs stage so the stuck instance is visible, while the recorded artifact and the `READY` rollup both survive it.
 
 Primary backup restore preserves desired config and append-only status history, but runtime observations belong to the machine that produced the backup. The installer clears the mutable current preparer and runner fields for non-system deployments assigned to the replacement primary. Their unchanged config versions are then prepared normally on first startup. The OpenDeploy systemd self-deployment is excluded because the installer has already installed and started that binary; worker statuses are retained because surviving workers reconcile their own local runtime state.
 

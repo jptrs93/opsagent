@@ -31,37 +31,37 @@ func New(releasesDir string, githubClient *github.Client) *Preparer {
 	}
 }
 
-func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.PreparationStatus) {
+func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.ImageStatus) {
 	version := dep.WorkloadVersion()
 	if strings.TrimSpace(version) == "" {
 		log.Error("opendeploy-net requires an explicit desired version")
-		return "", apigen.PreparationStatus_FAILED
+		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
 
 	assetPath, err := p.downloadReleaseAsset(ctx, version, log)
 	if err != nil {
 		log.Error("downloading OpenDeploy release binary: %v", err)
-		return "", apigen.PreparationStatus_FAILED
+		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
 	binary, err := os.ReadFile(assetPath)
 	if err != nil {
 		log.Error("reading OpenDeploy release binary: %v", err)
-		return "", apigen.PreparationStatus_FAILED
+		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
 
 	ref := internaldeploy.NetproxyImage + ":" + imageTag(version)
 	reader, err := opendeployBinaryOCI(ref, binary)
 	if err != nil {
 		log.Error("building opendeploy-net image: %v", err)
-		return "", apigen.PreparationStatus_FAILED
+		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
 	resolved, err := ctrd.Default.Import(ctx, ctrd.ImageStream{Reader: reader, Ref: ref})
 	if err != nil {
 		log.Error("importing opendeploy-net image: %v", err)
-		return "", apigen.PreparationStatus_FAILED
+		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
 	log.Write("imported opendeploy-net image %s from %s", resolved, assetPath)
-	return resolved, apigen.PreparationStatus_READY
+	return resolved, apigen.ImageStatus_IMAGE_READY
 }
 
 func (p *Preparer) downloadReleaseAsset(ctx context.Context, version string, log *preparerlog.Log) (string, error) {

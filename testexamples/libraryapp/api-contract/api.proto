@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package library.v1;
+
+import "api-contract/options.proto";
+
+option go_package = "github.com/jptrs93/opsagent/testexamples/libraryapp/backend/apigen";
+
+message Author {
+  int64 id = 1;
+  string name = 2;
+}
+
+message Genre {
+  int64 id = 1;
+  string name = 2;
+}
+
+message Book {
+  int64 id = 1;
+  string title = 2;
+  int64 author_id = 3;
+  string author_name = 4;
+  int64 genre_id = 5;
+  string genre_name = 6;
+  int32 publication_year = 7;
+}
+
+message LibrarySnapshot {
+  repeated Author authors = 1;
+  repeated Genre genres = 2;
+  repeated Book books = 3;
+}
+
+message AddAuthorRequest {
+  string name = 1;
+}
+
+message AddGenreRequest {
+  string name = 1;
+}
+
+message AddBookRequest {
+  string title = 1;
+  int64 author_id = 2;
+  int64 genre_id = 3;
+  int32 publication_year = 4;
+}
+
+service LibraryHttpV1 {
+  rpc Get(cp.Empty) returns (cp.Empty) {
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc GetV1Healthz(cp.Empty) returns (cp.Empty) {
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc GetV1Library(cp.Empty) returns (LibrarySnapshot) {
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc PostV1Author(AddAuthorRequest) returns (LibrarySnapshot) {
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc PostV1Genre(AddGenreRequest) returns (LibrarySnapshot) {
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc PostV1Book(AddBookRequest) returns (LibrarySnapshot) {
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc PostV1LibraryRandom(cp.Empty) returns (LibrarySnapshot) {
+    option (cp.url) = "/v1/library/random";
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+}
