@@ -65,7 +65,12 @@ CREATE TABLE IF NOT EXISTS scheduled_instance_status (
     deployment_id           INTEGER NOT NULL DEFAULT 0,
     preparer_config_version INTEGER,
     preparer_artifact       TEXT,
-    preparer_status         INTEGER,
+    -- The two preparation stages. There is no stored rollup: it is derived from
+    -- this pair on read, so the two cannot disagree with it. Not nullable, since
+    -- zero already means UNKNOWN and presence is decided by
+    -- preparer_config_version.
+    preparer_inputs_status  INTEGER NOT NULL DEFAULT 0,  -- stage 1: assets/secrets/configs
+    preparer_image_status   INTEGER NOT NULL DEFAULT 0,  -- stage 2: build, pull, or download
     runner_config_version   INTEGER,
     runner_pid              INTEGER,
     runner_artifact         TEXT,

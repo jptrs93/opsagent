@@ -1,6 +1,7 @@
 import van from "vanjs-core";
 import {formatDateTime} from "../lib/date.js";
 import {resolveUserDisplayName} from "../lib/users.js";
+import {preparerPhase} from "../lib/preparerStatus.js";
 
 const { tr, td, div, span, button, a } = van.tags;
 
@@ -14,44 +15,56 @@ const existingStatusLabels = {
 };
 
 const missingNodeStatusLabel = {bg: 'bg-yellow-600', text: 'text-yellow-300', label: 'Unknown'};
-const preRunnerStatusLabels = {
-    1: {bg: 'bg-yellow-600', text: 'text-yellow-300', label: 'Preparing'},
-    2: {bg: 'bg-blue-600', text: 'text-blue-200', label: 'Preparing'},
-    3: {bg: 'bg-blue-600', text: 'text-blue-200', label: 'Preparing'},
-    4: {bg: 'bg-yellow-600', text: 'text-yellow-300', label: 'Starting'},
-    5: {bg: 'bg-red-600', text: 'text-red-300', label: 'Prepare failed'},
-    6: {bg: 'bg-blue-600', text: 'text-blue-200', label: 'Preparing'},
+
+// Until the runner reports in, the preparer drives the Status badge. A ready
+// preparer with no runner yet is the deployment starting.
+const preRunnerBadges = {
+    progress: {bg: 'bg-blue-600', text: 'text-blue-200', label: 'Preparing'},
+    ready: {bg: 'bg-yellow-600', text: 'text-yellow-300', label: 'Starting'},
+    failed: {bg: 'bg-red-600', text: 'text-red-300', label: 'Prepare failed'},
+};
+
+const prepareToneClass = {
+    progress: 'text-blue-300',
+    ready: 'text-green-300',
+    failed: 'text-red-300',
 };
 
 const STATUS_NO_DEPLOYMENT = 1;
 const STATUS_STOPPED = 3;
 const openDeployRepo = 'github.com/jptrs93/opsagent';
 
-const prepareStatusCopy = (prepareStatus, prepareVersion) => {
-    if (!prepareVersion) return null;
-
-    switch (prepareStatus) {
-        case 1:
-            return {class: 'text-yellow-300', text: `requested ${shortVersion(prepareVersion)}`};
-        case 2:
-        case 3:
-        case 6:
-            return {class: 'text-blue-300', text: `${shortVersion(prepareVersion)} in progress`};
-        case 4:
-            return {class: 'text-green-300', text: `${shortVersion(prepareVersion)} ready`};
-        case 5:
-            return {class: 'text-red-300', text: `${shortVersion(prepareVersion)} failed`};
-        default:
-            return null;
-    }
+const preRunnerStatusLabel = (preparer) => {
+    const phase = preparerPhase(preparer);
+    return phase ? preRunnerBadges[phase.tone] : null;
 };
+
+// The Prepare column names the stage preparation is in, so a deployment stuck
+// resolving a secret reads differently from one stuck in a long build. The
+// version being prepared is left to the tooltip: the Version cell on the same
+// line already carries it, and only differs when it is already flagged orange.
+const prepareStatusCopy = (preparer, prepareVersion) => {
+    if (!prepareVersion) return null;
+    const phase = preparerPhase(preparer);
+    if (!phase) return null;
+    return {
+        class: prepareToneClass[phase.tone],
+        text: phase.label,
+        title: `${shortVersion(prepareVersion)} ${phase.label} — view prepare output`,
+    };
+};
+
+// Status, Version, and Prepare each split into one line per scheduled instance,
+// so a rollover reads across the row. The suffix is dropped in the single
+// instance case, which is what the e2e helpers address.
+const instanceTestID = (prefix, statusKey, instance, index, count) =>
+    `${prefix}-${statusKey}${count > 1 ? `-${instance.instanceId || index + 1}` : ''}`;
 
 export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrepareOutput, onUpdate, onFork, opts = {}) {
     const showSpace = opts.showSpace !== false;
     const onViewConfig = opts.onViewConfig || (() => {});
     const onDelete = opts.onDelete || (() => {});
     const canDelete = deployment.canDelete ?? deployment.existingStatus === STATUS_STOPPED;
-    const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
     const statusKey = deployment.name || deployment.id;
     const scheduledInstances = deployment.scheduledInstances?.length > 0
         ? deployment.scheduledInstances
@@ -156,10 +169,10 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
             {class: "align-middle whitespace-nowrap"},
             ...scheduledInstances.map((instance, index) => {
                 const {hasRunOutput, colors} = instanceStatusDisplay(deployment, instance);
-                const testIDSuffix = scheduledInstances.length > 1 ? `-${instance.instanceId || index + 1}` : '';
+                const testID = instanceTestID('deployment-runner-status', statusKey, instance, index, scheduledInstances.length);
                 return div(
                     {class: `${scheduledInstanceCellClass} flex items-center px-3`},
-                    statusBadge(hasRunOutput, colors, () => onShowRunOutput(deployment), `deployment-runner-status-${statusKey}${testIDSuffix}`),
+                    statusBadge(hasRunOutput, colors, () => onShowRunOutput(deployment), testID),
                 );
             }),
         ),
@@ -171,16 +184,28 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
             )),
         ),
         td(
-            {class: "py-2 px-3 align-middle text-sm break-words"},
-            prepareCopy
-                ? button({
-                    class: `${prepareCopy.class} hover:brightness-125 underline cursor-pointer p-0`,
-                    "data-testid": `deployment-prepare-status-${statusKey}`,
-                    onclick: () => onShowPrepareOutput(deployment),
-                    title: "View prepare output",
-                    type: "button",
-                }, prepareCopy.text)
-                : span({class: "text-gray-500", "data-testid": `deployment-prepare-status-${statusKey}`}, '-'),
+            {class: "align-middle text-sm"},
+            ...scheduledInstances.map((instance, index) => {
+                const copy = prepareStatusCopy(instance.preparer, instance.prepareVersion);
+                const testID = instanceTestID('deployment-prepare-status', statusKey, instance, index, scheduledInstances.length);
+                return div(
+                    // Every stage name fits the column, but truncate rather than
+                    // wrap as a backstop: wrapping would break the per-instance
+                    // alignment with Status and Version.
+                    {class: `${scheduledInstanceCellClass} flex items-center px-3`},
+                    copy
+                        // min-w-0 is what lets the flex item shrink below its
+                        // text width so truncate can actually take effect.
+                        ? button({
+                            class: `${copy.class} hover:brightness-125 underline cursor-pointer p-0 truncate text-left min-w-0`,
+                            "data-testid": testID,
+                            onclick: () => onShowPrepareOutput(deployment),
+                            title: copy.title,
+                            type: "button",
+                        }, copy.text)
+                        : span({class: "text-gray-500", "data-testid": testID}, '-'),
+                );
+            }),
         ),
         td(
             {
@@ -229,7 +254,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
 
 function instanceStatusDisplay(deployment, instance) {
     const hasExisting = instance.existingStatus !== STATUS_NO_DEPLOYMENT;
-    const preRunnerColors = !instance.runnerPresent ? preRunnerStatusLabels[instance.prepareStatus] : null;
+    const preRunnerColors = !instance.runnerPresent ? preRunnerStatusLabel(instance.preparer) : null;
     const nodeMissing = instance.nodeMissing ?? deployment.nodeMissing;
     const colors = preRunnerColors || (hasExisting
         ? (nodeMissing && instance.existingStatus === 0

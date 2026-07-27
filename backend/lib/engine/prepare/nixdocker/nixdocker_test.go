@@ -131,7 +131,7 @@ func TestPrepareReusesReadyImageBeforeCheckout(t *testing.T) {
 	}
 	artifact, status := p.Prepare(context.Background(), dep, log)
 	wantRef := imageRef(dep.Spec.Container().Source.NixDockerBuild, dep.WorkloadVersion())
-	if status != apigen.PreparationStatus_READY {
+	if status != apigen.ImageStatus_IMAGE_READY {
 		t.Fatalf("status = %v, want READY", status)
 	}
 	if artifact != wantRef || checkedRef != wantRef {
@@ -150,7 +150,7 @@ func TestPrepareFailsOnContainerdCacheCheckError(t *testing.T) {
 	p := New(nil)
 	p.imageReady = func(context.Context, string) error { return errors.New("containerd unavailable") }
 	artifact, status := p.Prepare(context.Background(), dep, log)
-	if status != apigen.PreparationStatus_FAILED || artifact != "" {
+	if status != apigen.ImageStatus_IMAGE_FAILED || artifact != "" {
 		t.Fatalf("artifact/status = %q/%v, want empty/FAILED", artifact, status)
 	}
 }

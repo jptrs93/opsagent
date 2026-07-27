@@ -39,13 +39,18 @@ func TestWriteStatusDropsUnchangedPreparerStatus(t *testing.T) {
 	store := &countingStore{}
 	dep := &apigen.DeploymentConfig{ID: 11, Version: 4}
 
-	WriteStatus(store, 42, dep, "example/app:v1", apigen.PreparationStatus_READY)
+	ready := StatusUpdate{
+		Artifact: "example/app:v1",
+		Inputs:   apigen.InputsStatus_INPUTS_READY,
+		Image:    apigen.ImageStatus_IMAGE_READY,
+	}
+	WriteStatus(store, 42, dep, ready)
 	if store.writes != 1 {
 		t.Fatalf("first write count = %d, want 1", store.writes)
 	}
 	first := store.status.UpdatedAt
 
-	WriteStatus(store, 42, dep, "example/app:v1", apigen.PreparationStatus_READY)
+	WriteStatus(store, 42, dep, ready)
 	if store.writes != 1 {
 		t.Fatalf("identical status was republished: write count = %d, want 1", store.writes)
 	}
@@ -54,13 +59,63 @@ func TestWriteStatusDropsUnchangedPreparerStatus(t *testing.T) {
 	}
 
 	// Anything genuinely different still publishes.
-	WriteStatus(store, 42, dep, "example/app:v2", apigen.PreparationStatus_READY)
+	readyV2 := ready
+	readyV2.Artifact = "example/app:v2"
+	WriteStatus(store, 42, dep, readyV2)
 	if store.writes != 2 {
 		t.Fatalf("changed artifact was dropped: write count = %d, want 2", store.writes)
 	}
-	WriteStatus(store, 42, dep, "example/app:v2", apigen.PreparationStatus_FAILED)
+	failed := readyV2
+	failed.Image = apigen.ImageStatus_IMAGE_FAILED
+	WriteStatus(store, 42, dep, failed)
 	if store.writes != 3 {
 		t.Fatalf("changed status was dropped: write count = %d, want 3", store.writes)
+	}
+
+	// A stage moving on its own is a real transition even when the rollup does
+	// not move, which is exactly the input-retry case.
+	stillReady := ready
+	WriteStatus(store, 42, dep, stillReady)
+	resolving := stillReady
+	resolving.Inputs = apigen.InputsStatus_INPUTS_RESOLVING
+	WriteStatus(store, 42, dep, resolving)
+	if store.writes != 5 {
+		t.Fatalf("inputs-only transition was dropped: write count = %d, want 5", store.writes)
+	}
+	if store.status.Preparer.Rollup() != apigen.PreparationStatus_READY {
+		t.Fatalf("rollup = %v, want READY to survive an inputs retry", store.status.Preparer.Rollup())
+	}
+}
+
+// InProgress is what holds a prepare-log stream open. PULLING counts: a remote
+// image pull is preparation, and omitting it closed the stream early.
+func TestInProgress(t *testing.T) {
+	inProgress := []StatusUpdate{
+		{Inputs: apigen.InputsStatus_INPUTS_RESOLVING},
+		{Inputs: apigen.InputsStatus_INPUTS_READY, Image: apigen.ImageStatus_IMAGE_BUILDING},
+		{Inputs: apigen.InputsStatus_INPUTS_READY, Image: apigen.ImageStatus_IMAGE_DOWNLOADING},
+		{Inputs: apigen.InputsStatus_INPUTS_READY, Image: apigen.ImageStatus_IMAGE_PULLING},
+	}
+	for _, u := range inProgress {
+		p := apigen.PreparerStatus{Inputs: u.Inputs, Image: u.Image}
+		if !InProgress(p) {
+			t.Errorf("InProgress(inputs=%v image=%v) = false, want true", u.Inputs, u.Image)
+		}
+	}
+	settled := []StatusUpdate{
+		{},
+		{Inputs: apigen.InputsStatus_INPUTS_READY, Image: apigen.ImageStatus_IMAGE_READY},
+		{Inputs: apigen.InputsStatus_INPUTS_FAILED},
+		{Inputs: apigen.InputsStatus_INPUTS_READY, Image: apigen.ImageStatus_IMAGE_FAILED},
+		// An input retry on an already-prepared instance writes nothing to the
+		// prepare log, so it must not hold a stream open.
+		{Inputs: apigen.InputsStatus_INPUTS_RESOLVING, Image: apigen.ImageStatus_IMAGE_READY},
+	}
+	for _, u := range settled {
+		p := apigen.PreparerStatus{Inputs: u.Inputs, Image: u.Image}
+		if InProgress(p) {
+			t.Errorf("InProgress(inputs=%v image=%v) = true, want false", u.Inputs, u.Image)
+		}
 	}
 }
 
@@ -70,12 +125,15 @@ func TestWriteStatusAlwaysPublishesFirstStatus(t *testing.T) {
 	store := &countingStore{}
 	dep := &apigen.DeploymentConfig{ID: 11, Version: 4}
 
-	WriteStatus(store, 42, dep, "", apigen.PreparationStatus_PREPARING)
+	WriteStatus(store, 42, dep, StatusUpdate{Inputs: apigen.InputsStatus_INPUTS_RESOLVING})
 	if store.writes != 1 {
 		t.Fatalf("first write count = %d, want 1", store.writes)
 	}
-	if store.status.Preparer.Status != apigen.PreparationStatus_PREPARING {
-		t.Fatalf("preparer status = %v, want PREPARING", store.status.Preparer.Status)
+	if store.status.Preparer.Rollup() != apigen.PreparationStatus_PREPARING {
+		t.Fatalf("preparer status = %v, want PREPARING", store.status.Preparer.Rollup())
+	}
+	if store.status.Preparer.Inputs != apigen.InputsStatus_INPUTS_RESOLVING {
+		t.Fatalf("inputs status = %v, want RESOLVING", store.status.Preparer.Inputs)
 	}
 }
 

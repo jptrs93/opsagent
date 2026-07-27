@@ -39,7 +39,7 @@ func preparerReady(status *apigen.ScheduledInstanceStatus, seqNo int32) bool {
 	return status != nil &&
 		!status.Preparer.IsZero() &&
 		status.Preparer.DeploymentConfigVersion == seqNo &&
-		status.Preparer.Status == apigen.PreparationStatus_READY
+		status.Preparer.Rollup() == apigen.PreparationStatus_READY
 }
 
 func configName(cfg *apigen.DeploymentConfig) string {
@@ -155,7 +155,7 @@ func (op DeploymentOperator) Run(
 		config = update.Config
 		status = update.Status
 		target = update.Instance.State
-		if artifactRepairPending && status.Preparer.DeploymentConfigVersion == config.Version && status.Preparer.Status != apigen.PreparationStatus_READY {
+		if artifactRepairPending && status.Preparer.DeploymentConfigVersion == config.Version && status.Preparer.Rollup() != apigen.PreparationStatus_READY {
 			artifactRepairStarted = true
 		}
 		switch {
@@ -285,7 +285,7 @@ func (op DeploymentOperator) Run(
 
 func (op DeploymentOperator) startPreparer(instanceID int32, dep *apigen.DeploymentConfig) *prepare.Handle {
 	if dep.WorkloadVersion() == "" {
-		prepare.WriteStatus(op.Store, instanceID, dep, "", apigen.PreparationStatus_FAILED)
+		prepare.WriteStatus(op.Store, instanceID, dep, prepare.StatusUpdate{Inputs: apigen.InputsStatus_INPUTS_FAILED})
 		return prepare.Finished(dep.Version)
 	}
 	handle, ctx := prepare.NewHandle(dep.Version)
@@ -293,53 +293,81 @@ func (op DeploymentOperator) startPreparer(instanceID int32, dep *apigen.Deploym
 	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
 	go func() {
 		defer handle.Complete()
-		artifact, status := op.prepare(ctx, instanceID, dep)
-		prepare.WriteStatus(op.Store, instanceID, dep, artifact, status)
+		prepare.WriteStatus(op.Store, instanceID, dep, op.prepare(ctx, instanceID, dep))
 	}()
 	return handle
 }
 
-func (op DeploymentOperator) prepare(ctx context.Context, instanceID int32, dep *apigen.DeploymentConfig) (string, apigen.PreparationStatus) {
+// prepare runs the two preparation stages in order and returns the terminal
+// status. Each stage publishes its own progress as it goes; the caller publishes
+// what comes back here.
+//
+// Inputs run first so a cheap, commonly-failing check (a secret the primary has
+// not distributed yet) fails before committing to a build that can take minutes.
+// The stages are otherwise independent.
+func (op DeploymentOperator) prepare(ctx context.Context, instanceID int32, dep *apigen.DeploymentConfig) prepare.StatusUpdate {
 	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
 	log, logPath, err := preparerlog.New(ctx, dep)
 	if err != nil {
 		slog.ErrorContext(ctx, "creating prepare log file failed", "path", logPath, "err", err)
-		return "", apigen.PreparationStatus_FAILED
+		return prepare.StatusUpdate{Inputs: apigen.InputsStatus_INPUTS_FAILED}
 	}
 	defer log.Close()
 
-	prepare.WriteStatus(op.Store, instanceID, dep, "", apigen.PreparationStatus_PREPARING)
-	log.Write("preparing runtime inputs")
+	prepare.WriteStatus(op.Store, instanceID, dep, prepare.StatusUpdate{Inputs: apigen.InputsStatus_INPUTS_RESOLVING})
+	log.Write("resolving runtime inputs")
 	if err := op.RuntimeInputs.EnsureReady(ctx, dep); err != nil {
-		log.Error("preparing runtime inputs: %v", err)
-		return "", apigen.PreparationStatus_FAILED
+		log.Error("resolving runtime inputs: %v", err)
+		return prepare.StatusUpdate{Inputs: apigen.InputsStatus_INPUTS_FAILED}
 	}
 	log.Write("runtime inputs ready")
 
+	return op.prepareImage(ctx, instanceID, dep, log)
+}
+
+// prepareImage runs stage 2. Inputs are ready by the time it is called, so every
+// status it publishes carries INPUTS_READY alongside the image progress.
+func (op DeploymentOperator) prepareImage(ctx context.Context, instanceID int32, dep *apigen.DeploymentConfig, log *preparerlog.Log) prepare.StatusUpdate {
+	type imagePreparer func(context.Context, *apigen.DeploymentConfig, *preparerlog.Log) (string, apigen.ImageStatus)
+
+	var (
+		started apigen.ImageStatus
+		run     imagePreparer
+	)
 	container := dep.Spec.Container()
 	switch {
 	case dep.Spec.SystemdSpec != nil && dep.Spec.SystemdSpec.Source != nil:
-		prepare.WriteStatus(op.Store, instanceID, dep, "", apigen.PreparationStatus_DOWNLOADING)
-		return op.GithubRelease.Prepare(ctx, dep, log)
+		started, run = apigen.ImageStatus_IMAGE_DOWNLOADING, op.GithubRelease.Prepare
 	case container != nil && container.Source.NixDockerBuild != nil:
-		prepare.WriteStatus(op.Store, instanceID, dep, "", apigen.PreparationStatus_PREPARING)
-		return op.NixDocker.Prepare(ctx, dep, log)
+		started, run = apigen.ImageStatus_IMAGE_BUILDING, op.NixDocker.Prepare
 	case container != nil && container.Source.RemoteImage != nil && container.Source.RemoteImage.Image == internaldeploy.NetproxyImage:
-		prepare.WriteStatus(op.Store, instanceID, dep, "", apigen.PreparationStatus_PREPARING)
-		return op.GithubReleaseImage.Prepare(ctx, dep, log)
+		started, run = apigen.ImageStatus_IMAGE_DOWNLOADING, op.GithubReleaseImage.Prepare
 	case container != nil && container.Source.RemoteImage != nil:
-		prepare.WriteStatus(op.Store, instanceID, dep, "", apigen.PreparationStatus_PULLING)
-		return containerimage.Prepare(ctx, dep, log)
+		started, run = apigen.ImageStatus_IMAGE_PULLING, containerimage.Prepare
 	default:
 		log.Error("no prepare config found")
-		return "", apigen.PreparationStatus_FAILED
+		return prepare.StatusUpdate{
+			Inputs: apigen.InputsStatus_INPUTS_READY,
+			Image:  apigen.ImageStatus_IMAGE_FAILED,
+		}
+	}
+
+	prepare.WriteStatus(op.Store, instanceID, dep, prepare.StatusUpdate{
+		Inputs: apigen.InputsStatus_INPUTS_READY,
+		Image:  started,
+	})
+	artifact, status := run(ctx, dep, log)
+	return prepare.StatusUpdate{
+		Artifact: artifact,
+		Inputs:   apigen.InputsStatus_INPUTS_READY,
+		Image:    status,
 	}
 }
 
 func (op DeploymentOperator) reAttachPreparer(instanceID int32, dep *apigen.DeploymentConfig, prev apigen.PreparerStatus) *prepare.Handle {
 	ctx := logu.ExtendLogContext(context.Background(), "scheduled_instance", instanceID)
 	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
-	if prev.DeploymentConfigVersion == dep.Version && prev.Status == apigen.PreparationStatus_READY {
+	if prev.DeploymentConfigVersion == dep.Version && prev.Rollup() == apigen.PreparationStatus_READY {
 		// The image check comes first because it is local and decisive: a missing
 		// image genuinely needs the artifact rebuilt. Runtime inputs are checked
 		// after, so that a primary that is briefly unreachable cannot mask it.
@@ -355,7 +383,7 @@ func (op DeploymentOperator) reAttachPreparer(instanceID int32, dep *apigen.Depl
 		}
 		if err := op.RuntimeInputs.EnsureReady(ctx, dep); err != nil {
 			slog.WarnContext(ctx, "reAttachPreparer: prepared runtime inputs unavailable, retrying in the background", "configVersion", dep.Version, "err", err)
-			return op.retryRuntimeInputs(instanceID, dep)
+			return op.retryRuntimeInputs(instanceID, dep, prev)
 		}
 		return prepare.Finished(dep.Version)
 	}
@@ -401,12 +429,29 @@ var newRuntimeInputsBackoff = func() *timeu.Backoff {
 // The handle carries the current config version, so the operator treats this
 // instance as prepared and cancels the loop the moment the config moves on or
 // the instance is finalized.
-func (op DeploymentOperator) retryRuntimeInputs(instanceID int32, dep *apigen.DeploymentConfig) *prepare.Handle {
+//
+// The retry publishes the inputs stage, which is why the rollup ranks a READY
+// image above a resolving inputs stage: the recorded artifact and the READY
+// rollup that gates the runner both survive, and the reason the instance is
+// stuck is finally visible instead of being invisible as it was when the
+// preparer had only one status to write.
+func (op DeploymentOperator) retryRuntimeInputs(instanceID int32, dep *apigen.DeploymentConfig, prev apigen.PreparerStatus) *prepare.Handle {
 	handle, ctx := prepare.NewHandle(dep.Version)
 	ctx = logu.ExtendLogContext(ctx, "scheduled_instance", instanceID)
 	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
+	// Callers reach here only for an instance whose rollup is READY and whose
+	// artifact is present, so the image stage is asserted rather than copied from
+	// prev — that also backfills statuses persisted before the stages existed.
+	inputsStage := func(inputs apigen.InputsStatus) prepare.StatusUpdate {
+		return prepare.StatusUpdate{
+			Artifact: prev.Artifact,
+			Inputs:   inputs,
+			Image:    apigen.ImageStatus_IMAGE_READY,
+		}
+	}
 	go func() {
 		defer handle.Complete()
+		prepare.WriteStatus(op.Store, instanceID, dep, inputsStage(apigen.InputsStatus_INPUTS_RESOLVING))
 		backoff := newRuntimeInputsBackoff()
 		for {
 			backoff.WaitWithContext(ctx)
@@ -421,6 +466,7 @@ func (op DeploymentOperator) retryRuntimeInputs(instanceID int32, dep *apigen.De
 				continue
 			}
 			slog.InfoContext(ctx, "retryRuntimeInputs: runtime inputs recovered", "configVersion", dep.Version)
+			prepare.WriteStatus(op.Store, instanceID, dep, inputsStage(apigen.InputsStatus_INPUTS_READY))
 			return
 		}
 	}()
@@ -477,7 +523,7 @@ func fmtPreparerStatus(p apigen.PreparerStatus) string {
 	if p.IsZero() {
 		return "<nil>"
 	}
-	return fmt.Sprintf("seqNo=%d status=%v artifact=%q", p.DeploymentConfigVersion, p.Status, p.Artifact)
+	return fmt.Sprintf("seqNo=%d status=%v inputs=%v image=%v artifact=%q", p.DeploymentConfigVersion, p.Rollup(), p.Inputs, p.Image, p.Artifact)
 }
 
 func fmtRunnerStatus(r apigen.RunnerStatus) string {
