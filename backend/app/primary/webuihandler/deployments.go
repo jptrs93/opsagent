@@ -287,6 +287,33 @@ func (h *Handler) PostV1DeploymentDelete(ctx apigen.Context, req *apigen.Deploym
 	return nil
 }
 
+// recentlyDeletedDefaultLimit and recentlyDeletedMaxLimit bound the tombstone
+// listing. Deleted configs are never pruned, so an unbounded list would grow
+// without limit over the lifetime of an install.
+const (
+	recentlyDeletedDefaultLimit = 25
+	recentlyDeletedMaxLimit     = 200
+)
+
+// PostV1DeploymentRecentlyDeleted lists the deployments deleted most recently so
+// the UI can offer to fork one back. Internal opendeploy deployments are omitted:
+// they are recreated by the primary itself, not through the create API, so a
+// tombstone for one is not something an operator can act on.
+func (h *Handler) PostV1DeploymentRecentlyDeleted(ctx apigen.Context, req *apigen.RecentlyDeletedDeploymentsRequest) (*apigen.RecentlyDeletedDeployments, error) {
+	limit := int(req.Limit)
+	if limit <= 0 || limit > recentlyDeletedMaxLimit {
+		limit = recentlyDeletedDefaultLimit
+	}
+	configs := h.Store.FetchDeletedDeploymentSnapshot(func(cfg apigen.DeploymentConfig) bool {
+		return !sqlite.IsInternalDeploymentConfig(&cfg)
+	}, limit)
+	items := make([]*apigen.DeploymentConfig, 0, len(configs))
+	for i := range configs {
+		items = append(items, &configs[i])
+	}
+	return &apigen.RecentlyDeletedDeployments{Items: items}, nil
+}
+
 func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.DeploymentVersionsRequest) (*apigen.DeploymentVersions, error) {
 	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr

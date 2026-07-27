@@ -83,6 +83,7 @@ type OpsagentHttpV1Handler interface {
 	PostV1DeploymentUpdate(Context, *DeploymentUpdateRequest) (*DeploymentConfig, error)
 	PostV1DeploymentUpgradeAll(Context, *DeploymentUpgradeAllRequest) (*DeploymentConfig, error)
 	PostV1DeploymentDelete(Context, *DeploymentDeleteRequest) error
+	PostV1DeploymentRecentlyDeleted(Context, *RecentlyDeletedDeploymentsRequest) (*RecentlyDeletedDeployments, error)
 	PostV1DeploymentHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
 	PostV1DeploymentLogSearch(Context, *LogSearchRequest) iter.Seq2[*LogLineBatch, error]
 	PostV1DeploymentPrepareOutput(Context, *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error]
@@ -296,6 +297,17 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/deployment/delete", buildHandlerFunc(config, verifyAuth, postV1DeploymentDeleteAccessPolicy, postAuthHandlerPostV1DeploymentDelete, compressionModeAuto, false))
+	postV1DeploymentRecentlyDeletedAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1DeploymentRecentlyDeleted := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeRecentlyDeletedDeploymentsRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1DeploymentRecentlyDeleted(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/deployment/recently-deleted", buildHandlerFunc(config, verifyAuth, postV1DeploymentRecentlyDeletedAccessPolicy, postAuthHandlerPostV1DeploymentRecentlyDeleted, compressionModeAuto, false))
 	postV1DeploymentHistoryAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1DeploymentHistory := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentHistoryRequest)

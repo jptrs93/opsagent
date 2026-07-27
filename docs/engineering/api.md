@@ -64,6 +64,7 @@ Key generated files:
 | POST | `/v1/deployment/create` | `DeploymentCreateRequest` | `DeploymentConfig` | ANY_OF default |
 | POST | `/v1/deployment/update` | `DeploymentUpdateRequest` | `DeploymentConfig` | ANY_OF default |
 | POST | `/v1/deployment/upgrade-all` | `DeploymentUpgradeAllRequest` | `DeploymentConfig` | ANY_OF default |
+| POST | `/v1/deployment/recently-deleted` | `RecentlyDeletedDeploymentsRequest` | `RecentlyDeletedDeployments` | ANY_OF default |
 | POST | `/v1/deployment/history` | `DeploymentHistoryRequest` | `DeploymentHistory` | ANY_OF default |
 | POST | `/v1/deployment/log-search` | `LogSearchRequest` | stream `LogLine` | ANY_OF default |
 | POST | `/v1/deployment/prepare-output` | `PrepareOutputRequest` | stream `PrepareOutputChunk` | ANY_OF default |
@@ -74,6 +75,8 @@ Key generated files:
 `/v1/deployment/log-search` streams historical run logs as typed `LogLine` protobuf frames. It scans existing `.logbin` files for the requested deployment and time range; it does not tail the currently active log file.
 
 `/v1/deployment/prepare-output` streams raw prepare/build output chunks for a deployment config version. A request with `version=0` resolves to the latest known prepare status and tails while preparation is still active.
+
+`/v1/deployment/recently-deleted` lists the tombstone config of the most recently deleted deployments, newest deletion first, so the UI can seed a new deployment from one. Deletion writes a config version rather than removing the row, so these are served from the in-memory config cache that every other snapshot filters. `limit` defaults to 25 and is clamped to 200 — deleted configs are never pruned, so the listing must stay bounded. Internal `opendeploy` deployments are omitted because they are recreated by the primary rather than through `/v1/deployment/create`.
 
 `/v1/deployment/upgrade-all` is the primary OpenDeploy self-update path. It applies the requested release to every active `opendeploy-net` deployment and secondary-node `opendeploy` deployment before updating and returning the primary-node `opendeploy` config. Rollout readiness waiting between those phases is not yet implemented.
 

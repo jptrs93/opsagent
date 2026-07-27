@@ -123,6 +123,17 @@ message DeploymentHistoryRequest {
   int32 deployment_id = 1;
 }
 
+message RecentlyDeletedDeploymentsRequest {
+  int32 limit = 1;  // max entries to return; 0 or out of range uses the server default
+}
+
+message RecentlyDeletedDeployments {
+  // Final config of each deleted deployment, most recently deleted first. The
+  // spec is intact, so a client can seed a new deployment from one; the id and
+  // version belong to the deleted deployment and cannot be reused.
+  repeated DeploymentConfig items = 1;
+}
+
 message PrepareOutputRequest {
   int32 deployment_id = 3;
   int32 version = 2;  // config version whose log to stream (0 = latest)

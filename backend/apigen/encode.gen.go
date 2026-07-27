@@ -425,6 +425,78 @@ func DecodeDeploymentHistoryRequest(b []byte) (*DeploymentHistoryRequest, error)
 	return &m, nil
 }
 
+func (m *RecentlyDeletedDeploymentsRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.Limit, 1)
+	return b
+}
+
+func DecodeRecentlyDeletedDeploymentsRequest(b []byte) (*RecentlyDeletedDeploymentsRequest, error) {
+	var m RecentlyDeletedDeploymentsRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Limit, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *RecentlyDeletedDeployments) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeRecentlyDeletedDeployments(b []byte) (*RecentlyDeletedDeployments, error) {
+	var m RecentlyDeletedDeployments
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentConfig
+				item, err = DecodeDeploymentConfig(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *PrepareOutputRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentID, 3)

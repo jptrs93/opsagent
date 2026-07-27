@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -129,6 +130,36 @@ func (s *deploymentStore) FetchDeploymentSnapshot(predicate storage.DeploymentPr
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.configSnapshotLocked(predicate)
+}
+
+// FetchDeletedDeploymentSnapshot returns the tombstone config of the most
+// recently deleted deployments, newest first, capped at limit. Deletion writes a
+// config version rather than removing the row, so these stay cached alongside
+// live ones; every other snapshot filters them out because a deleted deployment
+// schedules nothing. Deletion order is the config's update time, which for a
+// tombstone is when the delete was written.
+func (s *deploymentStore) FetchDeletedDeploymentSnapshot(predicate storage.DeploymentPredicate, limit int) []apigen.DeploymentConfig {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]apigen.DeploymentConfig, 0, limit)
+	for _, cfg := range s.configCache {
+		if !cfg.Deleted || (predicate != nil && !predicate(*cfg)) {
+			continue
+		}
+		out = append(out, *cfg)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
+			return out[i].UpdatedAt.After(out[j].UpdatedAt)
+		}
+		// Deletions written in the same millisecond still need a total order, or
+		// the caller's cap would pick arbitrarily between them across calls.
+		return out[i].ID > out[j].ID
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
 }
 
 // FetchDeploymentConfig returns the latest desired config, including a deleted

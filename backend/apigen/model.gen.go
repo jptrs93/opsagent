@@ -151,6 +151,14 @@ type DeploymentHistoryRequest struct {
 	DeploymentID int32
 }
 
+type RecentlyDeletedDeploymentsRequest struct {
+	Limit int32
+}
+
+type RecentlyDeletedDeployments struct {
+	Items []*DeploymentConfig
+}
+
 type PrepareOutputRequest struct {
 	DeploymentID int32
 	Version      int32

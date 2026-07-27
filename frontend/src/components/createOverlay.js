@@ -17,6 +17,7 @@ export function createOverlay(onClose, onCreated, opts = {}) {
         deployment: opts.sourceDeployment || null,
         deploymentConfig: opts.sourceDeploymentConfig || null,
         fork: Boolean(opts.sourceDeploymentConfig),
+        retainIdentity: Boolean(opts.retainIdentity),
         catalogs: {
             spaces: spacesS,
             deployments: deploymentsS,

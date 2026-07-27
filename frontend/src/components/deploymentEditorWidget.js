@@ -52,10 +52,18 @@ export function deploymentEditorWidget(opts) {
     const editorMode = van.state('ui');
 
     if (mode === 'create' && opts.fork) {
+        // A fork is always a new deployment: it never inherits the source's id,
+        // history, volumes, or logs.
         form.deploymentId.val = 0;
-        form.name.val = '';
-        form.spaceId.val = 1;
-        form.nodeId.val = 0;
+        // Forking a live deployment would collide on (node, space, name), so the
+        // identity is cleared for the user to choose. A deleted one has already
+        // released that tuple, so its identity is kept — recovering a deployment
+        // under its old name is the whole point of forking one.
+        if (!opts.retainIdentity) {
+            form.name.val = '';
+            form.spaceId.val = 1;
+            form.nodeId.val = 0;
+        }
     }
 
     const canEditState = mode === 'create' || deployment?.runnerType !== 'systemd';

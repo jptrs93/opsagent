@@ -149,11 +149,34 @@ Each deployment has an integer `id` (primary key) assigned when it is created vi
 
 Deleting a deployment releases its human-readable identity tuple but retains its ID, configuration history, status history, logs, volumes, and other ID-owned records. Creating a deployment later with the same space, node, and name creates a completely new and independent deployment with a fresh ID and version history. It does not restore, continue, or otherwise inherit the deleted deployment.
 
+### Recovering a deleted deployment
+
+A "See recently deleted" button on the status page toolbar opens a table of the
+deployments deleted most recently, fetched from `POST /v1/deployment/recently-deleted`.
+Each row offers **Fork**, which opens the create form seeded with the deleted
+deployment's spec.
+
+There is deliberately no restore. A deployment's ID owns its volumes, logs, run
+history, and network address; deletion is defined above as releasing the identity
+while keeping all of that attached to the ID. Reviving the ID would silently
+re-attach volumes and logs an operator has already discarded, and could fail
+outright once another deployment has claimed the released identity tuple. A fork
+is an ordinary create, so it passes the same validation as any new deployment —
+identity uniqueness, node registration, host-port and ingress conflicts, address
+references, and source verification.
+
+Because the identity tuple was released, a fork of a deleted deployment keeps its
+name, space, and node prefilled; forking a live deployment clears them, since
+reusing that tuple would collide. If another deployment claimed the tuple in the
+meantime, create rejects it with the usual duplicate-identity error.
+
 ## Deployment status display
 
 The status page shows one table row per deployment, sorted with
 OPENDEPLOY last, then by space, name, node, and id. Deployments can also be
-grouped by space. Each row displays:
+grouped by space. The toolbar above the table holds the deployment search box
+and "See recently deleted" on the left, and the grouping and opendeploy toggles
+plus "Add deployment" and "Export" on the right. Each row displays:
 
 - Deployment name, space, and node
 - Status and version columns with one vertically stacked subcell per live scheduled instance, oldest first. During rollover, this shows the old and replacement instances together. An instance ordinal with no live instance — a stopped or deleted deployment — instead shows the last instance it ran, so the row still reports how that run ended. Versions use the pinned target until the runner reports its version; runner status badges are clickable to view run output.

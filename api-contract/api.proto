@@ -75,6 +75,13 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  // Deployments deleted most recently, newest first. Deletion releases the
+  // identity tuple but keeps the config, so the UI can offer to fork one back.
+  rpc PostV1DeploymentRecentlyDeleted(RecentlyDeletedDeploymentsRequest) returns (RecentlyDeletedDeployments) {
+    option (cp.url) = "/v1/deployment/recently-deleted";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   rpc PostV1DeploymentHistory(DeploymentHistoryRequest) returns (DeploymentHistory) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }

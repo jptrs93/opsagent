@@ -20,6 +20,7 @@ import {
   decodeLoginResponse,
   decodeMsgToWorker,
   decodePrepareOutputChunk,
+  decodeRecentlyDeletedDeployments,
   decodeSecretList,
   decodeSecretMeta,
   decodeSecretRecoveryCodeResponse,
@@ -54,6 +55,7 @@ import {
   encodeMsgToMaster,
   encodeNodeRenameRequest,
   encodePrepareOutputRequest,
+  encodeRecentlyDeletedDeploymentsRequest,
   encodeSecretDeleteRequest,
   encodeSecretRenameRequest,
   encodeSecretRevealRequest,
@@ -329,6 +331,18 @@ export class Capi {
       return this.errorHandler(response);
     }
     await response.arrayBuffer();
+  }
+
+  /**
+   * @param {RecentlyDeletedDeploymentsRequest} payload
+   * @returns {Promise<RecentlyDeletedDeployments>}
+   */
+  async postV1DeploymentRecentlyDeleted(payload) {
+    const response = await this.#request("/v1/deployment/recently-deleted", { method: 'POST', body: encodeRecentlyDeletedDeploymentsRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeRecentlyDeletedDeployments(await response.arrayBuffer());
   }
 
   /**

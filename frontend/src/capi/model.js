@@ -55,6 +55,14 @@
  * @property {number} deploymentId
  */
 /**
+ * @typedef {Object} RecentlyDeletedDeploymentsRequest
+ * @property {number} limit
+ */
+/**
+ * @typedef {Object} RecentlyDeletedDeployments
+ * @property {DeploymentConfig[]} items
+ */
+/**
  * @typedef {Object} PrepareOutputRequest
  * @property {number} deploymentId
  * @property {number} version
@@ -1686,6 +1694,122 @@ function decodeDeploymentHistoryRequestMessage(reader, length) {
 export function decodeDeploymentHistoryRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeDeploymentHistoryRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {RecentlyDeletedDeploymentsRequest} message
+ * @param {Writer} writer
+ */
+export function writeRecentlyDeletedDeploymentsRequest(message, writer) {
+    if (message.limit !== undefined && message.limit !== null && message.limit !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.limit);
+    }
+}
+
+
+/**
+ * @param {RecentlyDeletedDeploymentsRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeRecentlyDeletedDeploymentsRequest(message) {
+    const writer = Writer.create();
+    writeRecentlyDeletedDeploymentsRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {RecentlyDeletedDeploymentsRequest}
+ */
+function decodeRecentlyDeletedDeploymentsRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {limit: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.limit = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {RecentlyDeletedDeploymentsRequest}
+ */
+export function decodeRecentlyDeletedDeploymentsRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeRecentlyDeletedDeploymentsRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {RecentlyDeletedDeployments} message
+ * @param {Writer} writer
+ */
+export function writeRecentlyDeletedDeployments(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeDeploymentConfig(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {RecentlyDeletedDeployments} message
+ * @returns {Uint8Array}
+ */
+export function encodeRecentlyDeletedDeployments(message) {
+    const writer = Writer.create();
+    writeRecentlyDeletedDeployments(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {RecentlyDeletedDeployments}
+ */
+function decodeRecentlyDeletedDeploymentsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeDeploymentConfigMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {RecentlyDeletedDeployments}
+ */
+export function decodeRecentlyDeletedDeployments(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeRecentlyDeletedDeploymentsMessage(reader);
 }
 
 

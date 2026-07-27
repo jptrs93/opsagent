@@ -10,6 +10,7 @@ import {createOverlay} from "../components/createOverlay.js";
 import {prepareOutputOverlay} from "../components/prepareOutputOverlay.js";
 import {exportConfigOverlay} from "../components/exportConfigOverlay.js";
 import {deploymentConfigOverlay} from "../components/deploymentJsonOverlay.js";
+import {recentlyDeletedOverlay} from "../components/recentlyDeletedOverlay.js";
 import {capi} from "../capi/index.js";
 import {nodeDisplayName} from "../lib/machines.js";
 import {deploymentWorkload} from "../lib/deploymentConfig.js";
@@ -432,6 +433,23 @@ export function statusPage(onOpenLogs = () => {}) {
         overlayNode.val = exportConfigOverlay(closeOverlay);
     };
 
+    const openRecentlyDeletedOverlay = () => {
+        overlayNode.val = recentlyDeletedOverlay(
+            (config) => {
+                closeOverlay();
+                // The deleted deployment released its identity tuple, so the fork
+                // keeps its name, space, and node prefilled. If a new deployment
+                // has since claimed the tuple, create rejects it and the form
+                // reports the conflict.
+                createOverlayNode.val = createOverlay(closeCreateOverlay, undefined, {
+                    sourceDeploymentConfig: config,
+                    retainIdentity: true,
+                });
+            },
+            closeOverlay,
+        );
+    };
+
     const statusRowNode = (deployment, showSpaceColumn) => statusRow(
         deployment,
         onShowHistory,
@@ -658,13 +676,24 @@ export function statusPage(onOpenLogs = () => {}) {
         {class: "flex flex-col gap-3 w-full min-w-0 min-h-0 flex-1"},
         div(
             {class: "flex flex-wrap items-center justify-between gap-3"},
-            input({
-                class: "text-input search-input",
-                type: "search",
-                placeholder: "Search deployments",
-                value: search,
-                oninput: (e) => search.val = e.target.value,
-            }),
+            div(
+                {class: "flex items-center gap-2"},
+                input({
+                    class: "text-input search-input",
+                    type: "search",
+                    placeholder: "Search deployments",
+                    value: search,
+                    oninput: (e) => search.val = e.target.value,
+                }),
+                button({
+                    type: "button",
+                    "data-testid": "recently-deleted-button",
+                    class: "inline-flex items-center whitespace-nowrap rounded-md border border-gray-700 bg-gray-800 " +
+                        "px-2.5 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-200 cursor-pointer",
+                    title: "Deployments deleted recently",
+                    onclick: openRecentlyDeletedOverlay,
+                }, "See recently deleted"),
+            ),
             div(
                 {class: "flex items-center gap-4"},
                 button({
