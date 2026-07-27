@@ -1,6 +1,7 @@
 import van from "vanjs-core";
 import {formatDateTime} from "../lib/date.js";
 import {resolveUserDisplayName} from "../lib/users.js";
+import {preparerPhase} from "../lib/preparerStatus.js";
 
 const { tr, td, div, span, button, a } = van.tags;
 
@@ -14,36 +15,37 @@ const existingStatusLabels = {
 };
 
 const missingNodeStatusLabel = {bg: 'bg-yellow-600', text: 'text-yellow-300', label: 'Unknown'};
-const preRunnerStatusLabels = {
-    1: {bg: 'bg-yellow-600', text: 'text-yellow-300', label: 'Preparing'},
-    2: {bg: 'bg-blue-600', text: 'text-blue-200', label: 'Preparing'},
-    3: {bg: 'bg-blue-600', text: 'text-blue-200', label: 'Preparing'},
-    4: {bg: 'bg-yellow-600', text: 'text-yellow-300', label: 'Starting'},
-    5: {bg: 'bg-red-600', text: 'text-red-300', label: 'Prepare failed'},
-    6: {bg: 'bg-blue-600', text: 'text-blue-200', label: 'Preparing'},
+
+// Until the runner reports in, the preparer drives the Status badge. A ready
+// preparer with no runner yet is the deployment starting.
+const preRunnerBadges = {
+    progress: {bg: 'bg-blue-600', text: 'text-blue-200', label: 'Preparing'},
+    ready: {bg: 'bg-yellow-600', text: 'text-yellow-300', label: 'Starting'},
+    failed: {bg: 'bg-red-600', text: 'text-red-300', label: 'Prepare failed'},
+};
+
+const prepareToneClass = {
+    progress: 'text-blue-300',
+    ready: 'text-green-300',
+    failed: 'text-red-300',
 };
 
 const STATUS_NO_DEPLOYMENT = 1;
 const STATUS_STOPPED = 3;
 const openDeployRepo = 'github.com/jptrs93/opsagent';
 
-const prepareStatusCopy = (prepareStatus, prepareVersion) => {
-    if (!prepareVersion) return null;
+const preRunnerStatusLabel = (preparer) => {
+    const phase = preparerPhase(preparer);
+    return phase ? preRunnerBadges[phase.tone] : null;
+};
 
-    switch (prepareStatus) {
-        case 1:
-            return {class: 'text-yellow-300', text: `requested ${shortVersion(prepareVersion)}`};
-        case 2:
-        case 3:
-        case 6:
-            return {class: 'text-blue-300', text: `${shortVersion(prepareVersion)} in progress`};
-        case 4:
-            return {class: 'text-green-300', text: `${shortVersion(prepareVersion)} ready`};
-        case 5:
-            return {class: 'text-red-300', text: `${shortVersion(prepareVersion)} failed`};
-        default:
-            return null;
-    }
+// The Prepare column names the stage preparation is in, so a deployment stuck
+// resolving a secret reads differently from one stuck in a long build.
+const prepareStatusCopy = (preparer, prepareVersion) => {
+    if (!prepareVersion) return null;
+    const phase = preparerPhase(preparer);
+    if (!phase) return null;
+    return {class: prepareToneClass[phase.tone], text: `${shortVersion(prepareVersion)} ${phase.label}`};
 };
 
 export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrepareOutput, onUpdate, onFork, opts = {}) {
@@ -51,7 +53,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
     const onViewConfig = opts.onViewConfig || (() => {});
     const onDelete = opts.onDelete || (() => {});
     const canDelete = deployment.canDelete ?? deployment.existingStatus === STATUS_STOPPED;
-    const prepareCopy = prepareStatusCopy(deployment.prepareStatus, deployment.prepareVersion);
+    const prepareCopy = prepareStatusCopy(deployment.preparer, deployment.prepareVersion);
     const statusKey = deployment.name || deployment.id;
     const scheduledInstances = deployment.scheduledInstances?.length > 0
         ? deployment.scheduledInstances
@@ -229,7 +231,7 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
 
 function instanceStatusDisplay(deployment, instance) {
     const hasExisting = instance.existingStatus !== STATUS_NO_DEPLOYMENT;
-    const preRunnerColors = !instance.runnerPresent ? preRunnerStatusLabels[instance.prepareStatus] : null;
+    const preRunnerColors = !instance.runnerPresent ? preRunnerStatusLabel(instance.preparer) : null;
     const nodeMissing = instance.nodeMissing ?? deployment.nodeMissing;
     const colors = preRunnerColors || (hasExisting
         ? (nodeMissing && instance.existingStatus === 0

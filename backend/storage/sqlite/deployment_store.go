@@ -256,7 +256,7 @@ func (s *deploymentStore) MustWriteScheduledInstanceStatus(instanceID int32, f f
 	state.Status = current
 	slog.InfoContext(ctx, "scheduled instance status published",
 		"updatedAt", current.UpdatedAt,
-		"preparerStatus", current.Preparer.Status,
+		"preparerStatus", current.Preparer.Rollup(),
 		"runnerStatus", current.Runner.Status,
 	)
 	s.notifyInstanceLocked(instanceID)

@@ -29,11 +29,15 @@ func scheduledInstanceStatusRowToProto(r ScheduledInstanceStatus) *apigen.Schedu
 		ScheduledInstanceID: int32(r.ScheduledInstanceID),
 		DeploymentID:        int32(r.DeploymentID),
 	}
-	if r.PreparerStatus.Valid {
+	// preparer_config_version is the presence guard: it is written for every
+	// non-zero preparer status, and unlike the stage columns it is nullable, so
+	// it distinguishes "nothing recorded" from a recorded UNKNOWN.
+	if r.PreparerConfigVersion.Valid {
 		st.Preparer = apigen.PreparerStatus{
 			DeploymentConfigVersion: int32(r.PreparerConfigVersion.Int64),
 			Artifact:                r.PreparerArtifact.String,
-			Status:                  apigen.PreparationStatus(r.PreparerStatus.Int64),
+			Inputs:                  apigen.InputsStatus(r.PreparerInputsStatus),
+			Image:                   apigen.ImageStatus(r.PreparerImageStatus),
 		}
 	}
 	if r.RunnerStatus.Valid {
@@ -69,7 +73,8 @@ func scheduledInstanceStatusProtoToInsertParams(st *apigen.ScheduledInstanceStat
 	if !st.Preparer.IsZero() {
 		p.PreparerConfigVersion = sql.NullInt64{Int64: int64(st.Preparer.DeploymentConfigVersion), Valid: true}
 		p.PreparerArtifact = sql.NullString{String: st.Preparer.Artifact, Valid: true}
-		p.PreparerStatus = sql.NullInt64{Int64: int64(st.Preparer.Status), Valid: true}
+		p.PreparerInputsStatus = int64(st.Preparer.Inputs)
+		p.PreparerImageStatus = int64(st.Preparer.Image)
 	}
 	if !st.Runner.IsZero() {
 		p.RunnerConfigVersion = sql.NullInt64{Int64: int64(st.Runner.DeploymentConfigVersion), Valid: true}
@@ -257,7 +262,7 @@ func (s *PrimaryStorage) MustWriteReplicatedScheduledInstanceStatus(st *apigen.S
 			}
 			slog.InfoContext(ctx, "replicated scheduled instance status",
 				"updatedAt", st.UpdatedAt,
-				"preparerStatus", st.Preparer.Status,
+				"preparerStatus", st.Preparer.Rollup(),
 				"runnerStatus", st.Runner.Status,
 			)
 			return
@@ -281,7 +286,7 @@ func (s *PrimaryStorage) MustWriteReplicatedScheduledInstanceStatus(st *apigen.S
 	}
 	slog.InfoContext(ctx, "replicated scheduled instance status",
 		"updatedAt", st.UpdatedAt,
-		"preparerStatus", st.Preparer.Status,
+		"preparerStatus", st.Preparer.Rollup(),
 		"runnerStatus", st.Runner.Status,
 	)
 }

@@ -82,7 +82,7 @@ func writeInstance(t *testing.T, store *sqlite.SecondaryStorage, instanceID int3
 	})
 	store.MustWriteScheduledInstanceStatus(instanceID, func(s *apigen.ScheduledInstanceStatus) bool {
 		s.BumpUpdatedAt()
-		s.Preparer = apigen.PreparerStatus{DeploymentConfigVersion: preparerVersion, Status: apigen.PreparationStatus_READY}
+		s.Preparer = apigen.PreparerStatus{DeploymentConfigVersion: preparerVersion, Inputs: apigen.InputsStatus_INPUTS_READY, Image: apigen.ImageStatus_IMAGE_READY}
 		s.Runner = apigen.RunnerStatus{DeploymentConfigVersion: runnerVersion, Status: apigen.RunningStatus_RUNNING}
 		return true
 	})

@@ -46,13 +46,13 @@ func New(gitManager *repogit.Manager) *Preparer {
 	}
 }
 
-func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.PreparationStatus) {
+func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.ImageStatus) {
 	version := dep.WorkloadVersion()
 	select {
 	case p.sem <- struct{}{}:
 		defer func() { <-p.sem }()
 	case <-ctx.Done():
-		return "", apigen.PreparationStatus_FAILED
+		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
 
 	nix := dep.Spec.Container().Source.NixDockerBuild
@@ -60,10 +60,10 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 	log.Write("checking for reusable image %s", localImageRef)
 	if err := p.imageReady(ctx, localImageRef); err == nil {
 		log.Write("reusing existing image %s", localImageRef)
-		return localImageRef, apigen.PreparationStatus_READY
+		return localImageRef, apigen.ImageStatus_IMAGE_READY
 	} else if !errors.Is(err, ctrd.ErrImageUnavailable) {
 		log.Error("checking reusable image: %v", err)
-		return "", apigen.PreparationStatus_FAILED
+		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
 	log.Write("reusable image not found; building %s", localImageRef)
 
@@ -74,14 +74,14 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 	repoDir, err := p.gitManager.EnsureCheckout(ctx, nix.Repo, version, log.Output())
 	if err != nil {
 		log.Error("checking out repository: %v", err)
-		return "", apigen.PreparationStatus_FAILED
+		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
 	log.Write("checkout complete in %s: %s", time.Since(checkoutStarted).Round(time.Millisecond), repoDir)
 
 	flakePath, err := checkedOutFlakePath(repoDir, nix.Flake)
 	if err != nil {
 		log.Error("validating flake path: %v", err)
-		return "", apigen.PreparationStatus_FAILED
+		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
 	nixDir := filepath.Dir(flakePath)
 	log.Write("running Nix build in %s", nixDir)
@@ -89,26 +89,26 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 	stdoutLines, err := runCmdCapture(ctx, nixDir, log, "nix", nixBuildArgs(nix.Target)...)
 	if err != nil {
 		log.Error("running Nix build: %v", err)
-		return "", apigen.PreparationStatus_FAILED
+		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
 
 	artifactPath := lastNonEmptyLine(stdoutLines)
 	log.Write("build complete in %s, stream artifact: %s", time.Since(buildStarted).Round(time.Millisecond), artifactPath)
 	if artifactPath == "" {
 		log.Error("Nix build returned an empty artifact path")
-		return "", apigen.PreparationStatus_FAILED
+		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
 	streamPath, err := resolveImageStreamPath(artifactPath)
 	if err != nil {
 		log.Error("resolving image stream: %v", err)
-		return "", apigen.PreparationStatus_FAILED
+		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
 
 	log.Write("importing image stream %s as %s", streamPath, localImageRef)
 	imageStreamStarted := time.Now()
 	if err := p.importStream(ctx, streamPath, localImageRef, log); err != nil {
 		log.Error("importing image: %v", err)
-		return "", apigen.PreparationStatus_FAILED
+		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
 	log.Write("image stream export/import complete in %s", time.Since(imageStreamStarted).Round(time.Millisecond))
 	imageSize, err := ctrd.Default.ImageSize(ctx, localImageRef)
@@ -118,7 +118,7 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 		log.Write("image import complete: %s (size: %s)", localImageRef, formatImageSize(imageSize))
 	}
 
-	return localImageRef, apigen.PreparationStatus_READY
+	return localImageRef, apigen.ImageStatus_IMAGE_READY
 }
 
 func nixBuildArgs(target string) []string {

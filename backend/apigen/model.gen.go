@@ -59,6 +59,26 @@ const (
 	PreparationStatus_PULLING                    PreparationStatus = 6
 )
 
+type InputsStatus int32
+
+const (
+	InputsStatus_INPUTS_STATUS_UNKNOWN InputsStatus = 0
+	InputsStatus_INPUTS_RESOLVING      InputsStatus = 1
+	InputsStatus_INPUTS_READY          InputsStatus = 2
+	InputsStatus_INPUTS_FAILED         InputsStatus = 3
+)
+
+type ImageStatus int32
+
+const (
+	ImageStatus_IMAGE_STATUS_UNKNOWN ImageStatus = 0
+	ImageStatus_IMAGE_BUILDING       ImageStatus = 1
+	ImageStatus_IMAGE_PULLING        ImageStatus = 2
+	ImageStatus_IMAGE_DOWNLOADING    ImageStatus = 3
+	ImageStatus_IMAGE_READY          ImageStatus = 4
+	ImageStatus_IMAGE_FAILED         ImageStatus = 5
+)
+
 type ScheduledInstanceTarget int32
 
 const (
@@ -250,7 +270,8 @@ type DeploymentConfigSnapshot struct {
 type PreparerStatus struct {
 	DeploymentConfigVersion int32
 	Artifact                string
-	Status                  PreparationStatus
+	Inputs                  InputsStatus
+	Image                   ImageStatus
 }
 
 type RunnerStatus struct {

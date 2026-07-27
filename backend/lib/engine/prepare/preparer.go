@@ -53,6 +53,37 @@ func (h *Handle) Cancel() {
 
 func (h *Handle) Version() int32 { return h.deploymentConfigVersion }
 
+// StatusUpdate is one preparer transition across both preparation stages. The
+// rollup that gates runner start is derived from the pair by
+// apigen.PreparerStatus.Rollup(), so there is nothing here to keep in step with
+// it.
+type StatusUpdate struct {
+	// Artifact is the resolved runtime artifact, empty until the image stage
+	// records one.
+	Artifact string
+	// Inputs is stage 1: assets, secrets, and configs.
+	Inputs apigen.InputsStatus
+	// Image is stage 2: the nix build, image pull, or release download.
+	Image apigen.ImageStatus
+}
+
+// InProgress reports whether preparation is still running for this status, and
+// is what holds a prepare-log stream open.
+//
+// It reads the rollup rather than the two stages on purpose: an input retry on
+// an already-prepared instance leaves Inputs resolving while writing nothing to
+// the prepare log, and the rollup gets that case right.
+func InProgress(p apigen.PreparerStatus) bool {
+	switch p.Rollup() {
+	case apigen.PreparationStatus_PREPARING,
+		apigen.PreparationStatus_DOWNLOADING,
+		apigen.PreparationStatus_PULLING:
+		return true
+	default:
+		return false
+	}
+}
+
 // WriteStatus is the single entry point for preparer status writes.
 // It bumps UpdatedAt and guards against stale writes from superseded runs.
 //
@@ -62,13 +93,14 @@ func (h *Handle) Version() int32 { return h.deploymentConfigVersion }
 // falling back — and it usually lands on the artifact already recorded.
 // Publishing that identity would bump the clock, wake every subscriber, and push
 // a no-op to the primary, for no observable change.
-func WriteStatus(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentConfig, artifact string, status apigen.PreparationStatus) {
+func WriteStatus(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentConfig, update StatusUpdate) {
 	ctx := logu.ExtendLogContext(context.Background(), "scheduled_instance", instanceID)
 	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
 	next := apigen.PreparerStatus{
 		DeploymentConfigVersion: dep.Version,
-		Artifact:                artifact,
-		Status:                  status,
+		Artifact:                update.Artifact,
+		Inputs:                  update.Inputs,
+		Image:                   update.Image,
 	}
 	store.MustWriteScheduledInstanceStatus(instanceID, func(s *apigen.ScheduledInstanceStatus) bool {
 		if !s.Preparer.IsZero() && s.Preparer.DeploymentConfigVersion > dep.Version {
@@ -77,10 +109,10 @@ func WriteStatus(store storage.OperatorStore, instanceID int32, dep *apigen.Depl
 		// A zero status is never republished as unchanged: it means nothing has
 		// been recorded for this instance yet, so the first write must land.
 		if !s.Preparer.IsZero() && s.Preparer == next {
-			slog.DebugContext(ctx, "preparer.writePrepareStatus: unchanged, not publishing", "deploymentConfigVersion", dep.Version, "status", status, "artifact", artifact)
+			slog.DebugContext(ctx, "preparer.writePrepareStatus: unchanged, not publishing", "deploymentConfigVersion", dep.Version, "status", next.Rollup(), "inputs", next.Inputs, "image", next.Image, "artifact", next.Artifact)
 			return false
 		}
-		slog.InfoContext(ctx, "preparer.writePrepareStatus", "deploymentConfigVersion", dep.Version, "status", status, "artifact", artifact)
+		slog.InfoContext(ctx, "preparer.writePrepareStatus", "deploymentConfigVersion", dep.Version, "status", next.Rollup(), "inputs", next.Inputs, "image", next.Image, "artifact", next.Artifact)
 		s.BumpUpdatedAt()
 		s.ScheduledInstanceID = instanceID
 		s.DeploymentID = dep.ID
