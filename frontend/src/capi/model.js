@@ -154,7 +154,8 @@
  * @typedef {Object} PreparerStatus
  * @property {number} deploymentConfigVersion
  * @property {string} artifact
- * @property {number} status
+ * @property {number} inputs
+ * @property {number} image
  */
 /**
  * @typedef {Object} RunnerStatus
@@ -2886,8 +2887,11 @@ export function writePreparerStatus(message, writer) {
     if (message.artifact !== undefined && message.artifact !== null && message.artifact !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.artifact);
     }
-    if (message.status !== undefined && message.status !== null && message.status !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.status);
+    if (message.inputs !== undefined && message.inputs !== null && message.inputs !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.inputs);
+    }
+    if (message.image !== undefined && message.image !== null && message.image !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.image);
     }
 }
 
@@ -2910,7 +2914,7 @@ export function encodePreparerStatus(message) {
  */
 function decodePreparerStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentConfigVersion: 0, artifact: "", status: 0 };
+    const message = {deploymentConfigVersion: 0, artifact: "", inputs: 0, image: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2922,8 +2926,12 @@ function decodePreparerStatusMessage(reader, length) {
                 message.artifact = reader.string();
                 break;
             }
-            case 3: {
-                message.status = reader.int32();
+            case 4: {
+                message.inputs = reader.int32();
+                break;
+            }
+            case 5: {
+                message.image = reader.int32();
                 break;
             }
             default:

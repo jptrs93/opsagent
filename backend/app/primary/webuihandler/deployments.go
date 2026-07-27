@@ -14,6 +14,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/lib/log/logfilter"
 	"github.com/jptrs93/opsagent/backend/lib/log/logreader"
@@ -738,7 +739,7 @@ func (h *Handler) deploymentStatuses(deploymentID int32) []apigen.ScheduledInsta
 // newest instance that has prepared anything. Returns 0 when none has.
 func preparerOutputVersion(statuses []apigen.ScheduledInstanceStatus) int32 {
 	for i := range statuses {
-		if p := statuses[i].Preparer; !p.IsZero() && isPrepareInProgress(p.Status) {
+		if p := statuses[i].Preparer; !p.IsZero() && prepare.InProgress(p) {
 			return p.DeploymentConfigVersion
 		}
 	}
@@ -757,16 +758,11 @@ func preparerOutputVersion(statuses []apigen.ScheduledInstanceStatus) int32 {
 func preparingVersion(statuses []apigen.ScheduledInstanceStatus, version int32) bool {
 	for i := range statuses {
 		p := statuses[i].Preparer
-		if !p.IsZero() && p.DeploymentConfigVersion == version && isPrepareInProgress(p.Status) {
+		if !p.IsZero() && p.DeploymentConfigVersion == version && prepare.InProgress(p) {
 			return true
 		}
 	}
 	return false
-}
-
-func isPrepareInProgress(status apigen.PreparationStatus) bool {
-	return status == apigen.PreparationStatus_PREPARING ||
-		status == apigen.PreparationStatus_DOWNLOADING
 }
 
 func isRunnerActive(status apigen.RunningStatus) bool {

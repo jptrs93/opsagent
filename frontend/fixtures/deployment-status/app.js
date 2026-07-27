@@ -45,7 +45,7 @@ const rows = Array.from({length: 28}, (_, index) => {
         runnerPresent: true,
         existingVersion: "v0.0.195",
         deployedVersion: "v0.0.195",
-        prepareStatus: 4,
+        preparer: {inputs: 2, image: 4},
         prepareVersion: "v0.0.195",
         numberOfRestarts: index % 4,
         lastRestartAt: new Date("2026-07-20T12:00:00Z"),
@@ -62,15 +62,19 @@ const rows = Array.from({length: 28}, (_, index) => {
                 runnerPresent: true,
                 existingVersion: "v0.0.194",
                 deployedVersion: "v0.0.195",
-                prepareStatus: 4,
+                preparer: {inputs: 2, image: 4},
+                prepareVersion: "v0.0.194",
             },
             {
+                // Mid-rollover: the incoming instance is still resolving its
+                // inputs, which is also the longest label the column renders.
                 instanceId: 101,
                 existingStatus: 0,
                 runnerPresent: false,
                 existingVersion: "v0.0.195",
                 deployedVersion: "v0.0.195",
-                prepareStatus: 2,
+                preparer: {inputs: 1, image: 0},
+                prepareVersion: "v0.0.195",
             },
         ];
     }

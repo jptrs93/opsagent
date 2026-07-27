@@ -80,6 +80,10 @@ enum RunningStatus {
   CRASHED = 5;
 }
 
+// PreparationStatus is the rollup across both preparation stages, and is what
+// gates runner start. It is derived from InputsStatus and ImageStatus rather
+// than stored or sent: see PreparerStatus.Rollup(). Nothing persists it, so the
+// stages can never disagree with it.
 enum PreparationStatus {
   PREPARATION_STATUS_UNKNOWN = 0;
   PREPARING = 2;
@@ -87,6 +91,30 @@ enum PreparationStatus {
   READY = 4;
   FAILED = 5;
   PULLING = 6; // pulling a container image into the content store
+}
+
+// InputsStatus tracks stage 1: resolving the assets, secrets, and configs the
+// workload needs at spawn. Independent of the artifact, and retried on its own
+// once the artifact is already recorded.
+enum InputsStatus {
+  INPUTS_STATUS_UNKNOWN = 0;
+  INPUTS_RESOLVING = 1;
+  INPUTS_READY = 2;
+  INPUTS_FAILED = 3;
+}
+
+// ImageStatus tracks stage 2: producing the runtime artifact. Named for the
+// public case, where the artifact is always a local containerd image. The
+// internal OpenDeploy self-deployment reaches IMAGE_DOWNLOADING/IMAGE_READY for
+// an executable rather than an image; that path is redacted from public
+// responses.
+enum ImageStatus {
+  IMAGE_STATUS_UNKNOWN = 0;
+  IMAGE_BUILDING = 1;     // nix build
+  IMAGE_PULLING = 2;      // pulling a remote image into the content store
+  IMAGE_DOWNLOADING = 3;  // internal: downloading a GitHub release artifact
+  IMAGE_READY = 4;
+  IMAGE_FAILED = 5;
 }
 
 
@@ -251,10 +279,15 @@ message DeploymentConfigSnapshot {
   repeated DeploymentConfig items = 1;
 }
 
+// Preparation runs in two stages. The rollup that gates runner start is derived
+// from the pair via Rollup(); field 3 held it before it became derived and must
+// not be reused.
 message PreparerStatus {
   int32 deployment_config_version = 1;
   string artifact = 2;
-  PreparationStatus status = 3;
+  reserved 3;
+  InputsStatus inputs = 4;
+  ImageStatus image = 5;
 }
 
 message RunnerStatus {

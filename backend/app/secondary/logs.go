@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare"
 	"github.com/jptrs93/opsagent/backend/lib/log/logfilter"
 	"github.com/jptrs93/opsagent/backend/lib/log/logreader"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
@@ -72,7 +73,7 @@ func runnerActiveForVersion(statuses []apigen.ScheduledInstanceStatus, version i
 // preparerOutputVersion mirrors runnerOutputVersion for prepare output.
 func preparerOutputVersion(statuses []apigen.ScheduledInstanceStatus) int32 {
 	for i := range statuses {
-		if p := statuses[i].Preparer; !p.IsZero() && isPrepareInProgress(p.Status) {
+		if p := statuses[i].Preparer; !p.IsZero() && prepare.InProgress(p) {
 			return p.DeploymentConfigVersion
 		}
 	}
@@ -89,7 +90,7 @@ func preparerOutputVersion(statuses []apigen.ScheduledInstanceStatus) int32 {
 func preparingVersion(statuses []apigen.ScheduledInstanceStatus, version int32) bool {
 	for i := range statuses {
 		p := statuses[i].Preparer
-		if !p.IsZero() && p.DeploymentConfigVersion == version && isPrepareInProgress(p.Status) {
+		if !p.IsZero() && p.DeploymentConfigVersion == version && prepare.InProgress(p) {
 			return true
 		}
 	}
@@ -434,11 +435,6 @@ func waitForLogFile(ctx context.Context, path string) (*os.File, error) {
 			}
 		}
 	}
-}
-
-func isPrepareInProgress(status apigen.PreparationStatus) bool {
-	return status == apigen.PreparationStatus_PREPARING ||
-		status == apigen.PreparationStatus_DOWNLOADING
 }
 
 func isRunnerActive(status apigen.RunningStatus) bool {

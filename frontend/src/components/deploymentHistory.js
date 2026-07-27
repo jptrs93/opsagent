@@ -3,16 +3,9 @@ import {capi} from "../capi/index.js";
 import {formatClockTime, formatHistoryTime} from "../lib/date.js";
 import {resolveUserDisplayName} from "../lib/users.js";
 import {deploymentWorkload} from "../lib/deploymentConfig.js";
+import {rollupLabel, rollupOf, inputsLabel, imageLabel, InputsStatus, ImageStatus} from "../lib/preparerStatus.js";
 
 const { div, h2, span, button, p } = van.tags;
-
-const preparerStatusLabels = {
-    0: 'unknown',
-    2: 'preparing',
-    3: 'downloading',
-    4: 'ready',
-    5: 'failed',
-};
 
 const runnerStatusLabels = {
     0: 'unknown',
@@ -50,7 +43,8 @@ function preparerChanged(cur, prev) {
     const b = prev && prev.preparer;
     if (!a && !b) return false;
     if (!a || !b) return true;
-    return a.status !== b.status
+    return a.inputs !== b.inputs
+        || a.image !== b.image
         || a.deploymentConfigVersion !== b.deploymentConfigVersion
         || a.artifact !== b.artifact;
 }
@@ -70,9 +64,14 @@ function runnerChanged(cur, prev) {
         || ta !== tb;
 }
 
+// History is a per-transition audit trail, so it spells out both stages rather
+// than reducing them to one phrase the way the status table does. Stages are
+// omitted when unset, which is how rows written before the split read.
 function formatPreparer(preparer) {
-    const label = preparerStatusLabels[preparer.status] || `preparer=${preparer.status}`;
-    return `prepare: ${label}`;
+    const parts = [`prepare: ${rollupLabel(rollupOf(preparer))}`];
+    if ((preparer.inputs || 0) !== InputsStatus.UNKNOWN) parts.push(`inputs=${inputsLabel(preparer.inputs)}`);
+    if ((preparer.image || 0) !== ImageStatus.UNKNOWN) parts.push(`image=${imageLabel(preparer.image)}`);
+    return parts.join(' ');
 }
 
 function formatRunner(r) {

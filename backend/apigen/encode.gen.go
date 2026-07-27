@@ -1154,14 +1154,16 @@ func DecodeDeploymentConfigSnapshot(b []byte) (*DeploymentConfigSnapshot, error)
 func (m PreparerStatus) IsZero() bool {
 	return m.DeploymentConfigVersion == 0 &&
 		m.Artifact == "" &&
-		m.Status == 0
+		m.Inputs == 0 &&
+		m.Image == 0
 }
 
 func (m *PreparerStatus) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentConfigVersion, 1)
 	b = AppendStringField(b, m.Artifact, 2)
-	b = AppendInt32Field(b, int32(m.Status), 3)
+	b = AppendInt32Field(b, int32(m.Inputs), 4)
+	b = AppendInt32Field(b, int32(m.Image), 5)
 	return b
 }
 
@@ -1180,11 +1182,17 @@ func DecodePreparerStatus(b []byte) (*PreparerStatus, error) {
 			b, m.DeploymentConfigVersion, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.Artifact, err = ConsumeString(b, typ)
-		case 3:
+		case 4:
 			var raw int32
 			b, raw, err = ConsumeVarInt32(b, typ)
 			if err == nil {
-				m.Status = PreparationStatus(raw)
+				m.Inputs = InputsStatus(raw)
+			}
+		case 5:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Image = ImageStatus(raw)
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)

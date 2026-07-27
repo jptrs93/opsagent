@@ -364,7 +364,8 @@ func (q *Queries) GetLatestConfig(ctx context.Context) (SystemConfigRevision, er
 
 const getLatestScheduledInstanceStatus = `-- name: GetLatestScheduledInstanceStatus :one
 SELECT scheduled_instance_id, updated_at, deployment_id,
-       preparer_config_version, preparer_artifact, preparer_status,
+       preparer_config_version, preparer_artifact,
+       preparer_inputs_status, preparer_image_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
        runner_num_restarts, runner_last_restart_at, runner_extra_blob
 FROM scheduled_instance_status
@@ -382,7 +383,8 @@ func (q *Queries) GetLatestScheduledInstanceStatus(ctx context.Context, schedule
 		&i.DeploymentID,
 		&i.PreparerConfigVersion,
 		&i.PreparerArtifact,
-		&i.PreparerStatus,
+		&i.PreparerInputsStatus,
+		&i.PreparerImageStatus,
 		&i.RunnerConfigVersion,
 		&i.RunnerPid,
 		&i.RunnerArtifact,
@@ -832,15 +834,17 @@ const insertScheduledInstanceStatus = `-- name: InsertScheduledInstanceStatus :e
 
 INSERT INTO scheduled_instance_status (
     scheduled_instance_id, updated_at, deployment_id,
-    preparer_config_version, preparer_artifact, preparer_status,
+    preparer_config_version, preparer_artifact,
+    preparer_inputs_status, preparer_image_status,
     runner_config_version, runner_pid, runner_artifact, runner_status,
     runner_num_restarts, runner_last_restart_at, runner_extra_blob
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(scheduled_instance_id, updated_at) DO UPDATE SET
     deployment_id = excluded.deployment_id,
     preparer_config_version = excluded.preparer_config_version,
     preparer_artifact = excluded.preparer_artifact,
-    preparer_status = excluded.preparer_status,
+    preparer_inputs_status = excluded.preparer_inputs_status,
+    preparer_image_status = excluded.preparer_image_status,
     runner_config_version = excluded.runner_config_version,
     runner_pid = excluded.runner_pid,
     runner_artifact = excluded.runner_artifact,
@@ -856,7 +860,8 @@ type InsertScheduledInstanceStatusParams struct {
 	DeploymentID          int64
 	PreparerConfigVersion sql.NullInt64
 	PreparerArtifact      sql.NullString
-	PreparerStatus        sql.NullInt64
+	PreparerInputsStatus  int64
+	PreparerImageStatus   int64
 	RunnerConfigVersion   sql.NullInt64
 	RunnerPid             sql.NullInt64
 	RunnerArtifact        sql.NullString
@@ -874,7 +879,8 @@ func (q *Queries) InsertScheduledInstanceStatus(ctx context.Context, arg InsertS
 		arg.DeploymentID,
 		arg.PreparerConfigVersion,
 		arg.PreparerArtifact,
-		arg.PreparerStatus,
+		arg.PreparerInputsStatus,
+		arg.PreparerImageStatus,
 		arg.RunnerConfigVersion,
 		arg.RunnerPid,
 		arg.RunnerArtifact,
@@ -1238,7 +1244,8 @@ func (q *Queries) ListLatestScheduledInstancePerOrdinal(ctx context.Context) ([]
 
 const listLatestScheduledInstanceStatuses = `-- name: ListLatestScheduledInstanceStatuses :many
 SELECT s.scheduled_instance_id, s.updated_at, s.deployment_id,
-       s.preparer_config_version, s.preparer_artifact, s.preparer_status,
+       s.preparer_config_version, s.preparer_artifact,
+       s.preparer_inputs_status, s.preparer_image_status,
        s.runner_config_version, s.runner_pid, s.runner_artifact, s.runner_status,
        s.runner_num_restarts, s.runner_last_restart_at, s.runner_extra_blob
 FROM scheduled_instance_status s
@@ -1264,7 +1271,8 @@ func (q *Queries) ListLatestScheduledInstanceStatuses(ctx context.Context) ([]Sc
 			&i.DeploymentID,
 			&i.PreparerConfigVersion,
 			&i.PreparerArtifact,
-			&i.PreparerStatus,
+			&i.PreparerInputsStatus,
+			&i.PreparerImageStatus,
 			&i.RunnerConfigVersion,
 			&i.RunnerPid,
 			&i.RunnerArtifact,
@@ -1497,7 +1505,8 @@ func (q *Queries) ListPublicKeys(ctx context.Context) ([]PublicKey, error) {
 
 const listScheduledInstanceStatusHistory = `-- name: ListScheduledInstanceStatusHistory :many
 SELECT scheduled_instance_id, updated_at, deployment_id,
-       preparer_config_version, preparer_artifact, preparer_status,
+       preparer_config_version, preparer_artifact,
+       preparer_inputs_status, preparer_image_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
        runner_num_restarts, runner_last_restart_at, runner_extra_blob
 FROM scheduled_instance_status
@@ -1520,7 +1529,8 @@ func (q *Queries) ListScheduledInstanceStatusHistory(ctx context.Context, schedu
 			&i.DeploymentID,
 			&i.PreparerConfigVersion,
 			&i.PreparerArtifact,
-			&i.PreparerStatus,
+			&i.PreparerInputsStatus,
+			&i.PreparerImageStatus,
 			&i.RunnerConfigVersion,
 			&i.RunnerPid,
 			&i.RunnerArtifact,
@@ -1544,7 +1554,8 @@ func (q *Queries) ListScheduledInstanceStatusHistory(ctx context.Context, schedu
 
 const listScheduledInstanceStatusHistoryForDeployment = `-- name: ListScheduledInstanceStatusHistoryForDeployment :many
 SELECT scheduled_instance_id, updated_at, deployment_id,
-       preparer_config_version, preparer_artifact, preparer_status,
+       preparer_config_version, preparer_artifact,
+       preparer_inputs_status, preparer_image_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
        runner_num_restarts, runner_last_restart_at, runner_extra_blob
 FROM scheduled_instance_status
@@ -1567,7 +1578,8 @@ func (q *Queries) ListScheduledInstanceStatusHistoryForDeployment(ctx context.Co
 			&i.DeploymentID,
 			&i.PreparerConfigVersion,
 			&i.PreparerArtifact,
-			&i.PreparerStatus,
+			&i.PreparerInputsStatus,
+			&i.PreparerImageStatus,
 			&i.RunnerConfigVersion,
 			&i.RunnerPid,
 			&i.RunnerArtifact,
@@ -1591,7 +1603,8 @@ func (q *Queries) ListScheduledInstanceStatusHistoryForDeployment(ctx context.Co
 
 const listScheduledInstanceStatusHistorySince = `-- name: ListScheduledInstanceStatusHistorySince :many
 SELECT scheduled_instance_id, updated_at, deployment_id,
-       preparer_config_version, preparer_artifact, preparer_status,
+       preparer_config_version, preparer_artifact,
+       preparer_inputs_status, preparer_image_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
        runner_num_restarts, runner_last_restart_at, runner_extra_blob
 FROM scheduled_instance_status
@@ -1619,7 +1632,8 @@ func (q *Queries) ListScheduledInstanceStatusHistorySince(ctx context.Context, a
 			&i.DeploymentID,
 			&i.PreparerConfigVersion,
 			&i.PreparerArtifact,
-			&i.PreparerStatus,
+			&i.PreparerInputsStatus,
+			&i.PreparerImageStatus,
 			&i.RunnerConfigVersion,
 			&i.RunnerPid,
 			&i.RunnerArtifact,

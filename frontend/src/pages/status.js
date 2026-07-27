@@ -283,7 +283,10 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
                 existingStatus: instanceNodeMissing && instanceStatus === STATUS_RUNNING ? 0 : instanceStatus,
                 existingVersion: instanceRunner.runningVersion || pinnedVersion,
                 deployedVersion: workload.version || '',
-                prepareStatus: instancePrep.status || 0,
+                preparer: instancePrep,
+                // The instance's own pinned config is what its preparer worked
+                // on, so a rollover shows each instance against its own version.
+                prepareVersion: pinnedVersion || workload.version || '',
                 targetState: instance.state || 0,
                 nodeMissing: instanceNodeMissing,
                 ...sourceView,
@@ -314,7 +317,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             deployedAt: d.config.updatedAt,
             deployedVersion: workload.version || '',
             desiredRunning: Boolean(workload.running),
-            prepareStatus: prep.status || 0,
+            preparer: prep,
             prepareVersion: deploymentWorkload(d.pinnedConfig)?.version || workload.version || '',
             currentVersion: d.config.version || 0,
             targetState: d.instance?.state || 0,

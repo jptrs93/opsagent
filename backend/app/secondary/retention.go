@@ -92,7 +92,7 @@ func instanceQuiescent(state *apigen.ScheduledInstanceState) bool {
 		return true
 	}
 	if state.Status.Preparer.DeploymentConfigVersion != state.Config.Version ||
-		state.Status.Preparer.Status != apigen.PreparationStatus_READY {
+		state.Status.Preparer.Rollup() != apigen.PreparationStatus_READY {
 		return false
 	}
 	return state.Status.Runner.DeploymentConfigVersion == state.Config.Version

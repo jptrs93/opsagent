@@ -142,7 +142,8 @@ func TestReAttachPreparerDefersToRetryWhenRuntimeInputsUnavailable(t *testing.T)
 	handle := op.reAttachPreparer(testScheduledInstanceID, dep, apigen.PreparerStatus{
 		DeploymentConfigVersion: dep.Version,
 		Artifact:                "registry.example/app:v1",
-		Status:                  apigen.PreparationStatus_READY,
+		Inputs:                  apigen.InputsStatus_INPUTS_READY,
+		Image:                   apigen.ImageStatus_IMAGE_READY,
 	})
 	if handle.Version() != dep.Version {
 		t.Fatalf("handle version = %d, want %d", handle.Version(), dep.Version)
@@ -163,8 +164,28 @@ func TestReAttachPreparerDefersToRetryWhenRuntimeInputsUnavailable(t *testing.T)
 	if _, ok := inputs.ResolveSecret(secretID); !ok {
 		t.Fatalf("secret cache was never refilled after %d attempts", secrets.attemptCount())
 	}
-	if got := store.preparerStatus(); !got.IsZero() {
-		t.Fatalf("preparer status was republished during retry: %+v", got)
+	// The retry publishes the inputs stage so a stuck instance is visible, but
+	// the rollup that gates runner start and the recorded artifact must both
+	// survive it — the artifact is built, only input distribution failed.
+	//
+	// EnsureReady fills the cache before the goroutine publishes recovery, so the
+	// loop above can win the race against that write. Poll for it.
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && store.preparerStatus().Inputs != apigen.InputsStatus_INPUTS_READY {
+		time.Sleep(time.Millisecond)
+	}
+	got := store.preparerStatus()
+	if got.Rollup() != apigen.PreparationStatus_READY {
+		t.Fatalf("rollup = %v during input retry, want READY", got.Rollup())
+	}
+	if got.Artifact != "registry.example/app:v1" {
+		t.Fatalf("artifact = %q during input retry, want it preserved", got.Artifact)
+	}
+	if got.Image != apigen.ImageStatus_IMAGE_READY {
+		t.Fatalf("image stage = %v during input retry, want READY", got.Image)
+	}
+	if got.Inputs != apigen.InputsStatus_INPUTS_READY {
+		t.Fatalf("inputs stage = %v after recovery, want READY", got.Inputs)
 	}
 	handle.Cancel()
 }
@@ -179,7 +200,10 @@ func TestRetryRuntimeInputsCancelInterruptsBackoff(t *testing.T) {
 		Store:         &recordingOperatorStore{},
 		RuntimeInputs: runtimeinputs.New(nil, &failingSecretProvider{}, nil),
 	}
-	handle := op.retryRuntimeInputs(testScheduledInstanceID, secretRefDeployment(&secretID))
+	handle := op.retryRuntimeInputs(testScheduledInstanceID, secretRefDeployment(&secretID), apigen.PreparerStatus{
+		Artifact: "registry.example/app:v1",
+		Image:    apigen.ImageStatus_IMAGE_READY,
+	})
 
 	cancelled := make(chan struct{})
 	go func() {
@@ -209,7 +233,8 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 		}
 		handle := op.reAttachPreparer(testScheduledInstanceID, dep, apigen.PreparerStatus{
 			DeploymentConfigVersion: 4,
-			Status:                  apigen.PreparationStatus_READY,
+			Inputs:                  apigen.InputsStatus_INPUTS_READY,
+			Image:                   apigen.ImageStatus_IMAGE_READY,
 		})
 		if handle.Version() != dep.Version {
 			t.Fatalf("handle version = %d, want %d", handle.Version(), dep.Version)
@@ -281,7 +306,7 @@ func TestStartPreparerStopsBeforeArtifactWhenRuntimeInputsFail(t *testing.T) {
 	if !secrets.called {
 		t.Fatal("runtime inputs were not prepared")
 	}
-	if got := store.preparerStatus().Status; got != apigen.PreparationStatus_FAILED {
+	if got := store.preparerStatus().Rollup(); got != apigen.PreparationStatus_FAILED {
 		t.Fatalf("preparer status = %v, want FAILED", got)
 	}
 }
@@ -351,14 +376,15 @@ func TestReAttachPreparerRepreparesUnavailableImage(t *testing.T) {
 	handle := op.reAttachPreparer(testScheduledInstanceID, dep, apigen.PreparerStatus{
 		DeploymentConfigVersion: dep.Version,
 		Artifact:                "example/app:v1",
-		Status:                  apigen.PreparationStatus_READY,
+		Inputs:                  apigen.InputsStatus_INPUTS_READY,
+		Image:                   apigen.ImageStatus_IMAGE_READY,
 	})
 	handle.Cancel()
 
 	if !imageChecked {
 		t.Fatal("persisted ready image was not checked")
 	}
-	if got := store.preparerStatus().Status; got != apigen.PreparationStatus_FAILED {
+	if got := store.preparerStatus().Rollup(); got != apigen.PreparationStatus_FAILED {
 		t.Fatalf("preparer status = %v, want FAILED after same-version preparation ran", got)
 	}
 }
