@@ -222,6 +222,83 @@ func TestRolloverReplacementWarmsUpAsStandby(t *testing.T) {
 	}
 }
 
+// TestFailedRolloutDoesNotAccumulateStandbys covers a rollout that keeps
+// failing: a prepare that errors, or a container that never reports ready,
+// leaves a standby warming up behind the serving placement. Nothing else retires
+// it — drainSuperseded only runs when a replacement reports RUNNING — so before
+// this each pushed version added another live placement to the deployment, all
+// of them rendered in the UI alongside the one actually being worked on.
+func TestFailedRolloutDoesNotAccumulateStandbys(t *testing.T) {
+	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	t.Cleanup(func() { _ = store.Close() })
+	node := store.EnsurePrimaryNode("primary", "primary")
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
+		SpaceID: sqlite.DefaultSpaceID,
+		Name:    "app",
+	}, node.ID, rolloverSpec("v1"))
+	serving := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	markRunning(t, store, serving.ID, cfg.Version, apigen.RunningStatus_RUNNING)
+
+	barrier := newFakeBarrier()
+	barrier.held = true
+	s := New(store, barrier)
+
+	push := func(version string) *apigen.DeploymentConfig {
+		t.Helper()
+		next := *rolloverSpec(version)
+		current := store.FetchDeploymentConfig(cfg.ID)
+		updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, sqlite.DeploymentConfigUpdate{
+			ExpectedVersion: current.Version + 1,
+			Spec:            &next,
+		})
+		if !ok {
+			t.Fatalf("expected config update to %s to succeed", version)
+		}
+		s.onConfig(*updated)
+		return updated
+	}
+
+	// The v2 standby's prepare fails, so it never reports RUNNING and its runner
+	// status stays empty.
+	v2 := push("v2")
+	byID := statesByID(store, cfg.ID)
+	if len(byID) != 2 {
+		t.Fatalf("active instances after the first push = %d, want 2", len(byID))
+	}
+	var staleStandby int32
+	for id := range byID {
+		if id != serving.ID {
+			staleStandby = id
+		}
+	}
+
+	// Pushing a fix supersedes the stale standby: it never held the instance
+	// address, so it needs no drain and goes straight to TERMINATE.
+	push("v3")
+	byID = statesByID(store, cfg.ID)
+	if len(byID) != 3 {
+		t.Fatalf("active instances after the second push = %d, want 3", len(byID))
+	}
+	if got := byID[staleStandby]; got != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
+		t.Fatalf("superseded standby state = %v, want TERMINATE", got)
+	}
+	if got := byID[serving.ID]; got != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+		t.Fatalf("serving state = %v, want still RUN_SERVING while the rollout retries", got)
+	}
+
+	// Once its runner reports terminal, the stale standby finalizes and drops out
+	// of the deployment's live placements entirely.
+	markRunning(t, store, staleStandby, v2.Version, apigen.RunningStatus_STOPPED)
+	s.onInstance(fetchState(t, store, staleStandby))
+	byID = statesByID(store, cfg.ID)
+	if _, live := byID[staleStandby]; live {
+		t.Fatalf("stale standby is still live: %v", byID[staleStandby])
+	}
+	if len(byID) != 2 {
+		t.Fatalf("active instances after finalization = %d, want 2 (serving + the v3 standby)", len(byID))
+	}
+}
+
 // TestDrainedInstanceWaitsForTheBarrier covers the whole point of the barrier:
 // a superseded placement keeps running, and keeps its routes, until every node
 // has programmed the routing that replaced it.

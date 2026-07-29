@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/network"
+	"github.com/jptrs93/opsagent/backend/storage"
 )
 
 func TestComputeContainerBackoff(t *testing.T) {
@@ -305,6 +307,128 @@ func TestOnlyServingPlacementClaimsInboundAddress(t *testing.T) {
 	superseded.latestVersion = 4
 	if err := superseded.Serve(); err != nil {
 		t.Fatalf("a superseded run must not reclaim the address: %v", err)
+	}
+}
+
+func rolloverTestDeployment() *apigen.DeploymentConfig {
+	return &apigen.DeploymentConfig{
+		ID:      7,
+		Version: 3,
+		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
+			UpgradeStrategy: apigen.ContainerUpgradeStrategy_ROLLOVER,
+			Runtime:         apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}},
+		}},
+	}
+}
+
+func newTestCandidate(t *testing.T, store storage.OperatorStore) *containerRunner {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	dep := rolloverTestDeployment()
+	r := buildContainerRunner(ctx, cancel, store, nil, systemdTestInstanceID, dep, 3)
+	r.initFreshRun(dep, apigen.PreparerStatus{DeploymentConfigVersion: 3, Artifact: "example/app:v3"}, true)
+	return r
+}
+
+// TestRolloverCandidatePublishesStatus is the regression guard for a rollover
+// candidate that dies during startup. Candidates used to suppress every status
+// write to avoid clobbering an incumbent runner, but an instance's config is
+// pinned to its version, so a candidate is only ever created when nothing else
+// is running for that instance. The suppression bought nothing and cost
+// everything: a crash before the readiness signal wrote no status, so no
+// notification was published, so the operator never woke to retry and the
+// rollout stalled with no trace of why.
+func TestRolloverCandidatePublishesStatus(t *testing.T) {
+	store := &fakeOperatorStore{}
+	r := newTestCandidate(t, store)
+
+	statuses := store.runnerStatuses()
+	if len(statuses) != 1 {
+		t.Fatalf("status writes after construction = %d, want 1", len(statuses))
+	}
+	if statuses[0].Status != apigen.RunningStatus_STARTING {
+		t.Fatalf("initial candidate status = %v, want STARTING", statuses[0].Status)
+	}
+	if !r.readinessPending.Load() {
+		t.Fatal("a candidate must start with the readiness gate closed")
+	}
+
+	// A crash before the readiness signal must reach the store, which is both
+	// what the FE renders and what wakes the operator.
+	r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+	statuses = store.runnerStatuses()
+	if len(statuses) != 2 || statuses[1].Status != apigen.RunningStatus_CRASHED {
+		t.Fatalf("statuses = %+v, want a published CRASHED", statuses)
+	}
+}
+
+// TestCandidateReadinessOutcomes pins which failures respawn and which give up.
+// A candidate that reports nothing keeps the operator blocked on WaitReady,
+// which is deliberate: the operator must not build a second candidate while
+// this one is still retrying.
+func TestCandidateReadinessOutcomes(t *testing.T) {
+	closed := func() {}
+
+	t.Run("container exits before signalling", func(t *testing.T) {
+		r := newTestCandidate(t, &fakeOperatorStore{})
+		exitDone := make(chan struct{})
+		close(exitDone)
+
+		outcome, taskExited, err := r.waitForReadiness(make(chan error), closed, exitDone)
+		if outcome != readinessRetry {
+			t.Fatalf("outcome = %v, want readinessRetry", outcome)
+		}
+		if !taskExited || err == nil {
+			t.Fatalf("taskExited = %v, err = %v, want true and an error", taskExited, err)
+		}
+		select {
+		case <-r.readyCh:
+			t.Fatal("a retryable attempt must not release the operator")
+		default:
+		}
+	})
+
+	t.Run("deadline passes", func(t *testing.T) {
+		r := newTestCandidate(t, &fakeOperatorStore{})
+		r.readinessDeadline = time.Now().Add(-time.Second)
+
+		outcome, _, err := r.waitForReadiness(make(chan error), closed, make(chan struct{}))
+		if outcome != readinessGiveUp || err == nil {
+			t.Fatalf("outcome = %v, err = %v, want readinessGiveUp and an error", outcome, err)
+		}
+	})
+
+	t.Run("signal received", func(t *testing.T) {
+		r := newTestCandidate(t, &fakeOperatorStore{})
+		ready := make(chan error, 1)
+		ready <- nil
+
+		outcome, _, err := r.waitForReadiness(ready, closed, make(chan struct{}))
+		if outcome != readinessSignalled || err != nil {
+			t.Fatalf("outcome = %v, err = %v, want readinessSignalled", outcome, err)
+		}
+	})
+}
+
+// TestFailReadinessReleasesTheOperator covers giving up: the operator is blocked
+// on WaitReady, so abandoning a candidate without notifying it would wedge the
+// rollover for good.
+func TestFailReadinessReleasesTheOperator(t *testing.T) {
+	store := &fakeOperatorStore{}
+	r := newTestCandidate(t, store)
+
+	r.failReadiness(errors.New("never became ready"))
+
+	if r.readinessPending.Load() {
+		t.Fatal("giving up must open the readiness gate so no attempt waits on it again")
+	}
+	if err := r.WaitReady(); err == nil {
+		t.Fatal("WaitReady() = nil, want the readiness failure")
+	}
+	statuses := store.runnerStatuses()
+	if got := statuses[len(statuses)-1].Status; got != apigen.RunningStatus_CRASHED {
+		t.Fatalf("final status = %v, want CRASHED", got)
 	}
 }
 

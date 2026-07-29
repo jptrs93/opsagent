@@ -124,6 +124,13 @@ nothing else: `RUN_SERVING`, `RUN_STANDBY`, `RUN_DRAINING`, `TERMINATE`, and
 whether a replacement exists, and whether anyone still wants to look at how it
 ended, are not questions about its schedule.
 
+A standby superseded by a newer config is terminated immediately rather than
+drained. Only `RUN_SERVING` owns the instance's inbound address, so a standby has
+nothing in flight to wait for; draining it would keep a placement the config has
+moved past alive until some later version happened to succeed. This is what keeps
+a rollout that fails repeatedly — a prepare that errors, a container that never
+reports ready — from leaving one live placement per pushed version.
+
 Finalized instances are therefore not display state. Storage retains the last
 instance of each `(deployment, instance_ordinal)` after it is finalized, evicting
 it once a newer instance is created for that ordinal, and rebuilds that view from

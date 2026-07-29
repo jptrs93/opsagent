@@ -76,7 +76,18 @@ type containerRunner struct {
 	status apigen.RunnerStatus
 
 	stopping atomic.Bool
-	publish  atomic.Bool
+
+	// readinessPending marks a rollover candidate that has not reported ready
+	// yet. It gates promotion, never status publication: a candidate publishes to
+	// its own scheduled instance row like any other runner. An instance's config
+	// is pinned to its version, so a candidate is only ever created when nothing
+	// else is running for that instance and there is no incumbent status to
+	// clobber.
+	readinessPending atomic.Bool
+	// readinessDeadline bounds the wait for the readiness signal across every
+	// restart, so a candidate that crash-loops on startup eventually gives up
+	// rather than warming up forever behind the placement it should replace.
+	readinessDeadline time.Time
 
 	// servingMu guards serving and serialises it against claiming the address,
 	// so a Serve call cannot interleave with the start loop's own claim and
@@ -115,14 +126,7 @@ func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.Runti
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	configVersion := preparerStatus.DeploymentConfigVersion
 	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, configVersion)
-	r.publish.Store(true)
-	r.status = apigen.RunnerStatus{
-		DeploymentConfigVersion: configVersion,
-		RunningArtifact:         preparerStatus.Artifact,
-		Status:                  apigen.RunningStatus_STARTING,
-		LastRestartAt:           time.Now(),
-	}
-	r.writeStatus()
+	r.initFreshRun(dep, preparerStatus, false)
 	go r.run()
 	return r
 }
@@ -131,22 +135,39 @@ func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinpu
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	configVersion := preparerStatus.DeploymentConfigVersion
 	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, configVersion)
-	r.readiness = &readinessConfig{timeout: containerReadinessTimeout(dep.Spec.Container().ReadinessSignal)}
-	r.readyCh = make(chan error, 1)
+	r.initFreshRun(dep, preparerStatus, true)
+	go r.run()
+	return r
+}
+
+// initFreshRun prepares a runner that is about to spawn its first container.
+// candidate marks a rollover candidate, which warms up behind whatever is
+// serving and must not claim the instance address until it reports ready.
+//
+// A candidate publishes status from here on exactly like an ordinary runner.
+// Suppressing its writes is what used to make a candidate that crashed during
+// startup invisible: nothing was recorded, so nothing was notified, so the
+// operator never woke to build a replacement and the rollout stalled in silence.
+func (r *containerRunner) initFreshRun(dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus, candidate bool) {
+	if candidate {
+		timeout := containerReadinessTimeout(dep.Spec.Container().ReadinessSignal)
+		r.readiness = &readinessConfig{timeout: timeout}
+		r.readinessDeadline = time.Now().Add(timeout)
+		r.readinessPending.Store(true)
+		r.readyCh = make(chan error, 1)
+	}
 	r.status = apigen.RunnerStatus{
-		DeploymentConfigVersion: configVersion,
+		DeploymentConfigVersion: preparerStatus.DeploymentConfigVersion,
 		RunningArtifact:         preparerStatus.Artifact,
 		Status:                  apigen.RunningStatus_STARTING,
 		LastRestartAt:           time.Now(),
 	}
-	go r.run()
-	return r
+	r.writeStatus()
 }
 
 func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, prev.DeploymentConfigVersion)
-	r.publish.Store(true)
 	r.status = prev
 	r.startupMode = mode
 	go r.run()
@@ -266,19 +287,14 @@ func (r *containerRunner) claimInboundAddress(cn *network.ContainerNet) error {
 }
 
 // Promote is the rollover candidate's readiness handoff. A candidate is by
-// construction the replacement on this node, so promotion both claims the
-// address and starts publishing status.
+// construction the replacement on this node, so promotion claims the instance
+// address. The run loop has already cleared the readiness gate and published
+// RUNNING by this point — that write is what told the scheduler to promote.
 func (r *containerRunner) Promote() error {
 	r.servingMu.Lock()
+	defer r.servingMu.Unlock()
 	r.serving = true
-	err := r.claimInboundAddressLocked(r.getContainerNet())
-	r.servingMu.Unlock()
-	if err != nil {
-		return err
-	}
-	r.publish.Store(true)
-	r.writeStatus()
-	return nil
+	return r.claimInboundAddressLocked(r.getContainerNet())
 }
 
 func (r *containerRunner) Stop() {
@@ -374,6 +390,13 @@ func (r *containerRunner) run() {
 			r.updateStatus(apigen.RunningStatus_STOPPED, 0)
 			return
 		}
+		// Every respawn path loops back through here, so this is what bounds a
+		// candidate that never gets far enough to wait for a signal at all — one
+		// whose container fails to start, not just one that starts unhealthy.
+		if r.readinessPending.Load() && !time.Now().Before(r.readinessDeadline) {
+			r.failReadiness(fmt.Errorf("timed out after %s waiting for readiness signal", r.readiness.timeout))
+			return
+		}
 
 		if hadProcess {
 			r.status.NumberOfRestarts++
@@ -411,16 +434,20 @@ func (r *containerRunner) run() {
 		mounts := r.mounts
 		var cn *network.ContainerNet
 		var resolvConfPath string
-		readinessActive := r.readiness != nil && !r.publish.Load()
+		readinessActive := r.readiness != nil && r.readinessPending.Load()
 		var ready <-chan error
 		var closeReady func()
 		if readinessActive {
 			listener, listenerErr := r.startReadinessListener(runNumber)
 			if listenerErr != nil {
 				slog.ErrorContext(r.ctx, "starting readiness listener failed", "err", listenerErr)
-				r.notifyReady(fmt.Errorf("starting readiness listener: %w", listenerErr))
 				r.updateStatus(apigen.RunningStatus_CRASHED, 0)
-				return
+				crashCount++
+				if !r.sleepBackoff(crashCount) {
+					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+					return
+				}
+				continue
 			}
 			ready = listener.ready
 			closeReady = listener.close
@@ -431,10 +458,6 @@ func (r *containerRunner) run() {
 		if err != nil {
 			slog.ErrorContext(r.ctx, "setting up container network failed", "err", err, "containerID", r.containerID)
 			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
-			if readinessActive {
-				r.notifyReady(fmt.Errorf("setting up container network: %w", err))
-				return
-			}
 			crashCount++
 			if !r.sleepBackoff(crashCount) {
 				r.updateStatus(apigen.RunningStatus_STOPPED, 0)
@@ -472,12 +495,10 @@ func (r *containerRunner) run() {
 			if errors.Is(err, ctrd.ErrImageUnavailable) {
 				r.notifyArtifactMissing()
 				if readinessActive {
-					r.notifyReady(fmt.Errorf("starting container: %w", err))
+					// The operator repairs the artifact and builds a fresh
+					// candidate, so this one has nothing left to wait for.
+					r.failReadiness(fmt.Errorf("starting container: %w", err))
 				}
-				return
-			}
-			if readinessActive {
-				r.notifyReady(fmt.Errorf("starting container: %w", err))
 				return
 			}
 			crashCount++
@@ -508,7 +529,14 @@ func (r *containerRunner) run() {
 				continue
 			}
 		}
-		r.updateStatus(apigen.RunningStatus_RUNNING, int32(task.Pid()))
+		// RUNNING is the scheduler's promotion trigger, so a candidate must not
+		// publish it before the container has said it is ready — that would hand
+		// over the instance address with the readiness gate still closed.
+		if readinessActive {
+			r.updateStatus(apigen.RunningStatus_STARTING, int32(task.Pid()))
+		} else {
+			r.updateStatus(apigen.RunningStatus_RUNNING, int32(task.Pid()))
+		}
 		startedAt := time.Now()
 
 		exitDone := make(chan struct{})
@@ -518,14 +546,38 @@ func (r *containerRunner) run() {
 		}()
 
 		if readinessActive {
-			readyOK, taskExited := r.waitForReadiness(ready, closeReady, exitDone)
-			if !readyOK {
+			outcome, taskExited, readyErr := r.waitForReadiness(ready, closeReady, exitDone)
+			if outcome == readinessSignalled {
+				r.readinessPending.Store(false)
+				r.notifyReady(nil)
+				r.updateStatus(apigen.RunningStatus_RUNNING, int32(task.Pid()))
+			} else {
+				slog.WarnContext(r.ctx, "rollover candidate did not report ready",
+					"containerID", r.containerID, "err", readyErr)
 				if !taskExited {
 					_ = task.Kill(context.Background(), syscall.SIGTERM)
 				}
 				r.deleteTask(task)
+				r.setTask(nil)
 				r.cleanupContainerNet(cn)
-				return
+				if outcome == readinessGiveUp {
+					r.failReadiness(readyErr)
+					return
+				}
+				// The deadline has not passed, so this is an ordinary crash: record
+				// it, back off, and try again. The operator is told nothing yet, so
+				// it keeps waiting on this candidate rather than building a second.
+				if r.stopping.Load() {
+					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+					return
+				}
+				crashCount++
+				r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+				if !r.sleepBackoff(crashCount) {
+					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+					return
+				}
+				continue
 			}
 		}
 
@@ -771,34 +823,59 @@ func readinessMessage(conn net.Conn) bool {
 	return strings.TrimSpace(string(buf[:n])) == "ready"
 }
 
-func (r *containerRunner) waitForReadiness(ready <-chan error, closeReady func(), exitDone <-chan struct{}) (bool, bool) {
+// readinessOutcome is what one startup attempt of a rollover candidate settled.
+type readinessOutcome int
+
+const (
+	// readinessSignalled: the container reported ready and can be promoted.
+	readinessSignalled readinessOutcome = iota
+	// readinessRetry: this attempt is over but the deadline has not passed, so
+	// the candidate respawns like any other crashed container.
+	readinessRetry
+	// readinessGiveUp: the candidate will never report ready.
+	readinessGiveUp
+)
+
+// waitForReadiness blocks until this startup attempt is settled. It reports the
+// outcome rather than acting on it: whether a failed attempt is worth retrying
+// depends on the deadline, which spans every attempt, not just this one.
+func (r *containerRunner) waitForReadiness(ready <-chan error, closeReady func(), exitDone <-chan struct{}) (readinessOutcome, bool, error) {
 	defer closeReady()
-	timer := time.NewTimer(r.readiness.timeout)
+	timer := time.NewTimer(time.Until(r.readinessDeadline))
 	defer timer.Stop()
 	select {
 	case err, ok := <-ready:
 		if !ok {
-			err = fmt.Errorf("readiness listener closed before signal")
+			return readinessRetry, false, fmt.Errorf("readiness listener closed before signal")
 		}
 		if err != nil {
-			r.notifyReady(fmt.Errorf("readiness signal failed: %w", err))
-			return false, false
+			return readinessRetry, false, fmt.Errorf("readiness signal failed: %w", err)
 		}
 		slog.InfoContext(r.ctx, "container readiness signal received", "containerID", r.containerID)
-		r.notifyReady(nil)
-		return true, false
+		return readinessSignalled, false, nil
 	case <-exitDone:
-		err := fmt.Errorf("container exited before readiness signal")
-		r.notifyReady(err)
-		return false, true
+		return readinessRetry, true, fmt.Errorf("container exited before readiness signal")
 	case <-timer.C:
-		err := fmt.Errorf("timed out after %s waiting for readiness signal", r.readiness.timeout)
-		r.notifyReady(err)
-		return false, false
+		return readinessGiveUp, false, fmt.Errorf("timed out after %s waiting for readiness signal", r.readiness.timeout)
 	case <-r.ctx.Done():
-		r.notifyReady(r.ctx.Err())
-		return false, false
+		return readinessGiveUp, false, r.ctx.Err()
 	}
+}
+
+// failReadiness abandons a rollover candidate. It releases the operator, which
+// is waiting on WaitReady, and records the failure so the scheduled instance
+// shows a failed rollover rather than sitting at whatever it last published.
+func (r *containerRunner) failReadiness(err error) {
+	r.readinessPending.Store(false)
+	r.notifyReady(err)
+	want := apigen.RunningStatus_CRASHED
+	if r.stopping.Load() {
+		want = apigen.RunningStatus_STOPPED
+	}
+	if r.status.Status == want && r.status.RunningPid == 0 {
+		return
+	}
+	r.updateStatus(want, 0)
 }
 
 func (r *containerRunner) notifyReady(err error) {
@@ -1093,9 +1170,6 @@ func (r *containerRunner) updateStatus(status apigen.RunningStatus, pid int32) {
 }
 
 func (r *containerRunner) writeStatus() {
-	if !r.publish.Load() {
-		return
-	}
 	r.store.MustWriteScheduledInstanceStatus(r.scheduledInstanceID, func(s *apigen.ScheduledInstanceStatus) bool {
 		if !s.Runner.IsZero() && s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion {
 			slog.InfoContext(r.ctx, "discarding status update from superseded container runner")

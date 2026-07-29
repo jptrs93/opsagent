@@ -153,6 +153,22 @@ func (s *Scheduler) onConfig(cfg apigen.DeploymentConfig) {
 			continue
 		}
 		if cfg.EffectiveUpgradeStrategy() != apigen.ContainerUpgradeStrategy_RECREATE {
+			// A standby has never held the instance's inbound address, so there is
+			// nothing in flight to drain: the config has moved on and this
+			// placement is simply stale. Retiring it here is what stops a rollout
+			// that keeps failing — a prepare that errors, a container that never
+			// reports ready — from leaving one warming-up placement per pushed
+			// version. Serving and draining placements are left alone; they still
+			// own routes, and only a replacement reporting RUNNING may move those.
+			if inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY {
+				s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE)
+				slog.Info("scheduler: terminating a standby superseded by a newer config",
+					"scheduled_instance", inst.ID,
+					"deployment_id", cfg.ID,
+					"instance_version", inst.DeploymentVersion,
+					"config_version", cfg.Version,
+				)
+			}
 			continue
 		}
 		// RECREATE has no overlap: the superseded placement must be fully stopped
