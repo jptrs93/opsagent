@@ -41,11 +41,18 @@ Tokens are signed with RSA-256 (RS256) via `github.com/jptrs93/goutil/authu`. Ea
 - `exp`: expiration timestamp.
 - `iat`: issued-at timestamp.
 
-Two token types exist:
+Three token types exist:
 - **Bootstrap token**: scopes `["passkey:create"]`, 10-minute expiry. Issued by master password exchange.
 - **Session token**: scopes `["default"]`, 2-day expiry. Issued by passkey registration or login.
+- **API token**: the caller's own scopes, 12-hour expiry. Issued by `POST /v1/auth/token/generate` for command-line and script use.
 
 `GET /v1/auth/current/session` is an authenticated validation endpoint that echoes the caller's current bearer token without minting a new one. The frontend uses it on app startup to confirm persisted auth state and to force re-login on `401`.
+
+### API tokens (`POST /v1/auth/token/generate`)
+
+Requires an existing `default` scope session. The minted token copies the caller's scopes rather than a fixed list, so it can never grant more access than the session that requested it — a `passkey:create` bootstrap token is rejected with `403` and cannot be traded up into general access. The 12-hour lifetime is deliberately shorter than the 2-day browser session because these tokens get pasted into shells and end up in history files and CI logs.
+
+The Users page in the web UI exposes this as a copyable `export OPENDEPLOY_TOKEN=...` line. Tokens are stateless JWTs, so there is no revocation list: an issued token stays valid until it expires. Rotating the signing key invalidates all outstanding tokens, sessions included.
 
 Public keys are persisted in the SQLite `public_keys` table keyed by `kid`. Key rotation is handled by the `authu` package.
 

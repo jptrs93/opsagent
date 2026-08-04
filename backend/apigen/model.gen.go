@@ -117,307 +117,307 @@ const (
 )
 
 type ContainerReadinessSignal struct {
-	TimeoutSeconds int32
+	TimeoutSeconds int32 `json:"timeout_seconds"`
 }
 
 type PortForward struct {
-	Protocol      PortForwardProtocol
-	HostPort      int32
-	ContainerPort int32
+	Protocol      PortForwardProtocol `json:"protocol"`
+	HostPort      int32               `json:"host_port"`
+	ContainerPort int32               `json:"container_port"`
 }
 
 type TlsPassthroughConfig struct {
-	HostPort      int32
-	ContainerPort int32
+	HostPort      int32 `json:"host_port"`
+	ContainerPort int32 `json:"container_port"`
 }
 
 type Ingress struct {
-	Kind                 IngressKind
-	Hostname             string
-	TlsPassthroughConfig *TlsPassthroughConfig
+	Kind                 IngressKind           `json:"kind"`
+	Hostname             string                `json:"hostname,omitempty"`
+	TlsPassthroughConfig *TlsPassthroughConfig `json:"tls_passthrough_config"`
 }
 
 type NetworkingConfig struct {
-	Mode           NetworkingMode
-	PortForwarding []*PortForward
-	Ingress        []*Ingress
+	Mode           NetworkingMode `json:"mode"`
+	PortForwarding []*PortForward `json:"port_forwarding,omitempty"`
+	Ingress        []*Ingress     `json:"ingress,omitempty"`
 }
 
 type DeploymentConfigVersionRef struct {
-	ID      int32
-	Version int32
+	ID      int32 `json:"id"`
+	Version int32 `json:"version"`
 }
 
 type DeploymentUpdateRequest struct {
-	DeploymentID  int32
-	TargetVersion string
-	Stop          bool
-	Version       int32
-	Spec          DeploymentSpec
-	SpaceID       *int32
+	DeploymentID  int32          `json:"deployment_id"`
+	TargetVersion string         `json:"target_version,omitempty"`
+	Stop          bool           `json:"stop"`
+	Version       int32          `json:"version"`
+	Spec          DeploymentSpec `json:"spec"`
+	SpaceID       *int32         `json:"space_id,omitempty"`
 }
 
 type DeploymentUpgradeAllRequest struct {
-	TargetVersion string
+	TargetVersion string `json:"target_version,omitempty"`
 }
 
 type DeploymentCreateRequest struct {
-	Identity DeploymentIdentity
-	Spec     DeploymentSpec
-	NodeID   int32
+	Identity DeploymentIdentity `json:"identity"`
+	Spec     DeploymentSpec     `json:"spec"`
+	NodeID   int32              `json:"node_id"`
 }
 
 type DeploymentHistoryRequest struct {
-	DeploymentID int32
+	DeploymentID int32 `json:"deployment_id"`
 }
 
 type RecentlyDeletedDeploymentsRequest struct {
-	Limit int32
+	Limit int32 `json:"limit"`
 }
 
 type RecentlyDeletedDeployments struct {
-	Items []*DeploymentConfig
+	Items []*DeploymentConfig `json:"items,omitempty"`
 }
 
 type PrepareOutputRequest struct {
-	DeploymentID int32
-	Version      int32
+	DeploymentID int32 `json:"deployment_id"`
+	Version      int32 `json:"version"`
 }
 
 type PrepareOutputChunk struct {
-	Data []byte
+	Data []byte `json:"data"`
 }
 
 type RunOutputRequest struct {
-	DeploymentID int32
-	Version      int32
+	DeploymentID int32 `json:"deployment_id"`
+	Version      int32 `json:"version"`
 }
 
 type DeploymentLogRequest struct {
-	RunnerOutput   *RunOutputRequest
-	PreparerOutput *PrepareOutputRequest
-	RequestID      string
+	RunnerOutput   *RunOutputRequest     `json:"runner_output"`
+	PreparerOutput *PrepareOutputRequest `json:"preparer_output"`
+	RequestID      string                `json:"request_id,omitempty"`
 }
 
 type LogSearchRequest struct {
-	DeploymentID  int32
-	TimeStart     time.Time
-	TimeEnd       time.Time
-	LevelMin      string
-	SearchKeys    map[string]string
-	RequestID     string
-	LogLineLimit  int32
-	ConfigVersion int32
-	SearchStr     string
-	TargetNodeID  int32
+	DeploymentID  int32             `json:"deployment_id"`
+	TimeStart     time.Time         `json:"time_start"`
+	TimeEnd       time.Time         `json:"time_end"`
+	LevelMin      string            `json:"level_min,omitempty"`
+	SearchKeys    map[string]string `json:"search_keys,omitempty"`
+	RequestID     string            `json:"request_id,omitempty"`
+	LogLineLimit  int32             `json:"log_line_limit"`
+	ConfigVersion int32             `json:"config_version"`
+	SearchStr     string            `json:"search_str,omitempty"`
+	TargetNodeID  int32             `json:"target_node_id"`
 }
 
 type LogLine struct {
-	Time    int64
-	Version int32
-	Run     int32
-	Stream  int32
-	Line    []byte
+	Time    int64  `json:"time"`
+	Version int32  `json:"version"`
+	Run     int32  `json:"run"`
+	Stream  int32  `json:"stream"`
+	Line    []byte `json:"line"`
 }
 
 type LogLineBatch struct {
-	Lines  []*LogLine
-	LogDir string
+	Lines  []*LogLine `json:"lines,omitempty"`
+	LogDir string     `json:"log_dir,omitempty"`
 }
 
 type DeploymentIdentity struct {
-	SpaceID int32
-	Name    string
+	SpaceID int32  `json:"space_id"`
+	Name    string `json:"name,omitempty"`
 }
 
 type DeploymentDeleteRequest struct {
-	DeploymentID int32
-	Version      int32
+	DeploymentID int32 `json:"deployment_id"`
+	Version      int32 `json:"version"`
 }
 
 type ScheduledInstance struct {
-	ID                int32
-	CreatedAt         time.Time
-	DeploymentID      int32
-	DeploymentVersion int32
-	NodeID            int32
-	InstanceOrdinal   int32
-	State             ScheduledInstanceTarget
+	ID                int32                   `json:"id"`
+	CreatedAt         time.Time               `json:"created_at"`
+	DeploymentID      int32                   `json:"deployment_id"`
+	DeploymentVersion int32                   `json:"deployment_version"`
+	NodeID            int32                   `json:"node_id"`
+	InstanceOrdinal   int32                   `json:"instance_ordinal"`
+	State             ScheduledInstanceTarget `json:"state"`
 }
 
 type ScheduledInstanceStatus struct {
-	UpdatedAt           time.Time
-	ScheduledInstanceID int32
-	DeploymentID        int32
-	Preparer            PreparerStatus
-	Runner              RunnerStatus
+	UpdatedAt           time.Time      `json:"updated_at"`
+	ScheduledInstanceID int32          `json:"scheduled_instance_id"`
+	DeploymentID        int32          `json:"deployment_id"`
+	Preparer            PreparerStatus `json:"preparer"`
+	Runner              RunnerStatus   `json:"runner"`
 }
 
 type ScheduledInstanceState struct {
-	Instance ScheduledInstance
-	Config   DeploymentConfig
-	Status   ScheduledInstanceStatus
+	Instance ScheduledInstance       `json:"instance"`
+	Config   DeploymentConfig        `json:"config"`
+	Status   ScheduledInstanceStatus `json:"status"`
 }
 
 type ScheduledInstanceSnapshot struct {
-	Items []*ScheduledInstanceState
+	Items []*ScheduledInstanceState `json:"items,omitempty"`
 }
 
 type DeploymentConfigSnapshot struct {
-	Items []*DeploymentConfig
+	Items []*DeploymentConfig `json:"items,omitempty"`
 }
 
 type PreparerStatus struct {
-	DeploymentConfigVersion int32
-	Artifact                string
-	Inputs                  InputsStatus
-	Image                   ImageStatus
+	DeploymentConfigVersion int32        `json:"deployment_config_version"`
+	Artifact                string       `json:"artifact,omitempty"`
+	Inputs                  InputsStatus `json:"inputs"`
+	Image                   ImageStatus  `json:"image"`
 }
 
 type RunnerStatus struct {
-	DeploymentConfigVersion int32
-	RunningPid              int32
-	RunningArtifact         string
-	Status                  RunningStatus
-	NumberOfRestarts        int32
-	LastRestartAt           time.Time
-	RunningVersion          string
-	NetworkDiagnostics      []string
+	DeploymentConfigVersion int32         `json:"deployment_config_version"`
+	RunningPid              int32         `json:"running_pid"`
+	RunningArtifact         string        `json:"running_artifact,omitempty"`
+	Status                  RunningStatus `json:"status"`
+	NumberOfRestarts        int32         `json:"number_of_restarts"`
+	LastRestartAt           time.Time     `json:"last_restart_at"`
+	RunningVersion          string        `json:"running_version,omitempty"`
+	NetworkDiagnostics      []string      `json:"network_diagnostics,omitempty"`
 }
 
 type Endpoint struct {
-	Ordinal int32
-	Address string
-	Machine string
-	State   EndpointState
-	NodeID  int32
+	Ordinal int32         `json:"ordinal"`
+	Address string        `json:"address,omitempty"`
+	Machine string        `json:"machine,omitempty"`
+	State   EndpointState `json:"state"`
+	NodeID  int32         `json:"node_id"`
 }
 
 type Version struct {
-	ID     string
-	Label  string
-	Author string
-	Time   time.Time
+	ID     string    `json:"id,omitempty"`
+	Label  string    `json:"label,omitempty"`
+	Author string    `json:"author,omitempty"`
+	Time   time.Time `json:"time"`
 }
 
 type DeploymentVersions struct {
-	DeploymentID   int32
-	NixDockerBuild *DeploymentNixDockerBuildVersions
-	GithubRelease  *DeploymentGithubReleaseVersions
-	ContainerImage *DeploymentContainerImageVersions
+	DeploymentID   int32                             `json:"deployment_id"`
+	NixDockerBuild *DeploymentNixDockerBuildVersions `json:"nix_docker_build"`
+	GithubRelease  *DeploymentGithubReleaseVersions  `json:"github_release"`
+	ContainerImage *DeploymentContainerImageVersions `json:"container_image"`
 }
 
 type DeploymentNixDockerBuildVersions struct {
-	Branches       []string
-	SelectedBranch string
-	Commits        []*Version
+	Branches       []string   `json:"branches,omitempty"`
+	SelectedBranch string     `json:"selected_branch,omitempty"`
+	Commits        []*Version `json:"commits,omitempty"`
 }
 
 type DeploymentGithubReleaseVersions struct {
-	Releases []*Version
+	Releases []*Version `json:"releases,omitempty"`
 }
 
 type DeploymentContainerImageVersions struct {
-	Tags []*Version
+	Tags []*Version `json:"tags,omitempty"`
 }
 
 type DeploymentVersionsRequest struct {
-	DeploymentID   int32
-	SelectedBranch string
+	DeploymentID   int32  `json:"deployment_id"`
+	SelectedBranch string `json:"selected_branch,omitempty"`
 }
 
 type ValidateSourceRequest struct {
-	NixDockerBuild *ValidateNixDockerBuildSource
-	ContainerImage *ValidateContainerImageSource
+	NixDockerBuild *ValidateNixDockerBuildSource `json:"nix_docker_build"`
+	ContainerImage *ValidateContainerImageSource `json:"container_image"`
 }
 
 type ValidateNixDockerBuildSource struct {
-	RepoUrl                  string
-	SelectedBranch           string
-	SelectedCommit           *Version
-	SelectedFlakePath        string
-	RefreshAvailableBranches bool
-	RefreshAvailableCommits  bool
-	CheckRepo                bool
-	CheckBranch              bool
-	CheckCommit              bool
-	CheckFlakePath           bool
+	RepoUrl                  string   `json:"repo_url,omitempty"`
+	SelectedBranch           string   `json:"selected_branch,omitempty"`
+	SelectedCommit           *Version `json:"selected_commit"`
+	SelectedFlakePath        string   `json:"selected_flake_path,omitempty"`
+	RefreshAvailableBranches bool     `json:"refresh_available_branches"`
+	RefreshAvailableCommits  bool     `json:"refresh_available_commits"`
+	CheckRepo                bool     `json:"check_repo"`
+	CheckBranch              bool     `json:"check_branch"`
+	CheckCommit              bool     `json:"check_commit"`
+	CheckFlakePath           bool     `json:"check_flake_path"`
 }
 
 type ValidateNixDockerBuildSourceResponse struct {
-	CheckedRepoUrl    string
-	GitRepository     ValidationResult
-	CheckedBranch     string
-	BranchCheck       ValidationResult
-	CheckedCommit     *Version
-	CommitCheck       ValidationResult
-	CheckedFlakePath  string
-	NixFlakeFile      ValidationResult
-	AvailableBranches AvailableBranches
-	AvailableCommits  AvailableCommits
+	CheckedRepoUrl    string            `json:"checked_repo_url,omitempty"`
+	GitRepository     ValidationResult  `json:"git_repository"`
+	CheckedBranch     string            `json:"checked_branch,omitempty"`
+	BranchCheck       ValidationResult  `json:"branch_check"`
+	CheckedCommit     *Version          `json:"checked_commit"`
+	CommitCheck       ValidationResult  `json:"commit_check"`
+	CheckedFlakePath  string            `json:"checked_flake_path,omitempty"`
+	NixFlakeFile      ValidationResult  `json:"nix_flake_file"`
+	AvailableBranches AvailableBranches `json:"available_branches"`
+	AvailableCommits  AvailableCommits  `json:"available_commits"`
 }
 
 type AvailableCommits struct {
-	Loaded       bool
-	Branch       string
-	Errormessage *string
-	Commits      []*Version
+	Loaded       bool       `json:"loaded"`
+	Branch       string     `json:"branch,omitempty"`
+	Errormessage *string    `json:"errormessage,omitempty"`
+	Commits      []*Version `json:"commits,omitempty"`
 }
 
 type AvailableBranches struct {
-	Loaded       bool
-	Errormessage *string
-	Branches     []string
+	Loaded       bool     `json:"loaded"`
+	Errormessage *string  `json:"errormessage,omitempty"`
+	Branches     []string `json:"branches,omitempty"`
 }
 
 type RepoValidationResult struct {
-	Checked bool
-	RepoUrl string
-	Ok      bool
-	Message string
+	Checked bool   `json:"checked"`
+	RepoUrl string `json:"repo_url,omitempty"`
+	Ok      bool   `json:"ok"`
+	Message string `json:"message,omitempty"`
 }
 
 type ValidationResult struct {
-	Checked bool
-	Ok      bool
-	Message string
+	Checked bool   `json:"checked"`
+	Ok      bool   `json:"ok"`
+	Message string `json:"message,omitempty"`
 }
 
 type ValidateContainerImageSource struct {
-	Image           string
-	RefreshVersions bool
+	Image           string `json:"image,omitempty"`
+	RefreshVersions bool   `json:"refresh_versions"`
 }
 
 type ValidateSourceResponse struct {
-	NixDockerBuild *ValidateNixDockerBuildSourceResponse
-	ContainerImage *ValidateContainerImageSourceResponse
+	NixDockerBuild *ValidateNixDockerBuildSourceResponse `json:"nix_docker_build"`
+	ContainerImage *ValidateContainerImageSourceResponse `json:"container_image"`
 }
 
 type ValidateContainerImageSourceResponse struct {
-	Image ValidationResult
-	Tags  []*Version
+	Image ValidationResult `json:"image"`
+	Tags  []*Version       `json:"tags,omitempty"`
 }
 
 type DeploymentConfig struct {
-	ID        int32
-	NodeID    int32
-	Identity  DeploymentIdentity
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	UpdatedBy int32
-	Version   int32
-	Spec      DeploymentSpec
-	Deleted   bool
+	ID        int32              `json:"id"`
+	NodeID    int32              `json:"node_id"`
+	Identity  DeploymentIdentity `json:"identity"`
+	CreatedAt time.Time          `json:"created_at"`
+	UpdatedAt time.Time          `json:"updated_at"`
+	UpdatedBy int32              `json:"updated_by"`
+	Version   int32              `json:"version"`
+	Spec      DeploymentSpec     `json:"spec"`
+	Deleted   bool               `json:"deleted"`
 }
 
 type DeploymentSpec struct {
-	Networking     NetworkingConfig
-	Container1Spec *ContainerSpec
-	Container2Spec *ContainerSpec
-	Container3Spec *ContainerSpec
-	MicroVmSpec    *MicroVMSpec
-	VmSpec         *VMSpec
-	SystemdSpec    *SystemdSpec
+	Networking     NetworkingConfig `json:"networking"`
+	Container1Spec *ContainerSpec   `json:"container1_spec"`
+	Container2Spec *ContainerSpec   `json:"container2_spec"`
+	Container3Spec *ContainerSpec   `json:"container3_spec"`
+	MicroVmSpec    *MicroVMSpec     `json:"micro_vm_spec"`
+	VmSpec         *VMSpec          `json:"vm_spec"`
+	SystemdSpec    *SystemdSpec     `json:"systemd_spec"`
 }
 
 type MicroVMSpec struct {
@@ -427,698 +427,704 @@ type VMSpec struct {
 }
 
 type SystemdSpec struct {
-	Source  *GithubRelease
-	Runtime *SystemdRuntime
-	Version string
-	Running bool
+	Source  *GithubRelease  `json:"source"`
+	Runtime *SystemdRuntime `json:"runtime"`
+	Version string          `json:"version,omitempty"`
+	Running bool            `json:"running"`
 }
 
 type GithubRelease struct {
-	Repo  string
-	Asset string
+	Repo  string `json:"repo,omitempty"`
+	Asset string `json:"asset,omitempty"`
 }
 
 type SystemdRuntime struct {
-	Name    string
-	BinPath string
+	Name    string `json:"name,omitempty"`
+	BinPath string `json:"bin_path,omitempty"`
 }
 
 type ContainerSpec struct {
-	Source          ContainerBundleSource
-	Runtime         ContainerRuntime
-	Version         string
-	Running         bool
-	UpgradeStrategy ContainerUpgradeStrategy
-	ReadinessSignal *ContainerReadinessSignal
+	Source          ContainerBundleSource     `json:"source"`
+	Runtime         ContainerRuntime          `json:"runtime"`
+	Version         string                    `json:"version,omitempty"`
+	Running         bool                      `json:"running"`
+	UpgradeStrategy ContainerUpgradeStrategy  `json:"upgrade_strategy"`
+	ReadinessSignal *ContainerReadinessSignal `json:"readiness_signal"`
 }
 
 type ContainerBundleSource struct {
-	NixDockerBuild *NixDockerBuild
-	RemoteImage    *RemoteDockerImage
+	NixDockerBuild *NixDockerBuild    `json:"nix_docker_build"`
+	RemoteImage    *RemoteDockerImage `json:"remote_image"`
 }
 
 type NixDockerBuild struct {
-	Repo   string
-	Flake  string
-	Target string
+	Repo   string `json:"repo,omitempty"`
+	Flake  string `json:"flake,omitempty"`
+	Target string `json:"target,omitempty"`
 }
 
 type RemoteDockerImage struct {
-	Image string
+	Image string `json:"image,omitempty"`
 }
 
 type ContainerRuntime struct {
-	User                  string
-	EnvVars               map[string]*EnvVarValue
-	OverrideCommand       []string
-	OverrideWorkingDir    string
-	DefaultVolume         DefaultVolumeMount
-	CrossDeploymentMounts []*CrossDeploymentMount
-	AssetMounts           []*AssetMount
-	Mounts                []*CustomHostMount
-	DevShmSizeKb          int32
-	FileDescriptorLimit   int32
+	User                  string                  `json:"user,omitempty"`
+	EnvVars               map[string]*EnvVarValue `json:"env_vars,omitempty"`
+	OverrideCommand       []string                `json:"override_command,omitempty"`
+	OverrideWorkingDir    string                  `json:"override_working_dir,omitempty"`
+	DefaultVolume         DefaultVolumeMount      `json:"default_volume"`
+	CrossDeploymentMounts []*CrossDeploymentMount `json:"cross_deployment_mounts,omitempty"`
+	AssetMounts           []*AssetMount           `json:"asset_mounts,omitempty"`
+	Mounts                []*CustomHostMount      `json:"mounts,omitempty"`
+	DevShmSizeKb          int32                   `json:"dev_shm_size_kb"`
+	FileDescriptorLimit   int32                   `json:"file_descriptor_limit"`
 }
 
 type DefaultVolumeMount struct {
-	ContainerPath string
-	Disabled      bool
+	ContainerPath string `json:"container_path,omitempty"`
+	Disabled      bool   `json:"disabled"`
 }
 
 type CrossDeploymentMount struct {
-	DeploymentID  int32
-	ContainerPath string
-	Permission    FilePermission
+	DeploymentID  int32          `json:"deployment_id"`
+	ContainerPath string         `json:"container_path,omitempty"`
+	Permission    FilePermission `json:"permission"`
 }
 
 type EnvVarValue struct {
-	SecretID            *int32
-	ConfigID            *int32
-	Value               *string
-	Asset               string
-	AssetID             int32
-	AddressDeploymentID *int32
-	AddressSpaceID      *int32
+	SecretID            *int32  `json:"secret_id,omitempty"`
+	ConfigID            *int32  `json:"config_id,omitempty"`
+	Value               *string `json:"value,omitempty"`
+	Asset               string  `json:"asset,omitempty"`
+	AssetID             int32   `json:"asset_id"`
+	AddressDeploymentID *int32  `json:"address_deployment_id,omitempty"`
+	AddressSpaceID      *int32  `json:"address_space_id,omitempty"`
 }
 
 type CustomHostMount struct {
-	HostPath      string
-	ContainerPath string
-	Permission    FilePermission
+	HostPath      string         `json:"host_path,omitempty"`
+	ContainerPath string         `json:"container_path,omitempty"`
+	Permission    FilePermission `json:"permission"`
 }
 
 type AssetMount struct {
-	AssetID       int32
-	ContainerPath string
-	Permission    FilePermission
+	AssetID       int32          `json:"asset_id"`
+	ContainerPath string         `json:"container_path,omitempty"`
+	Permission    FilePermission `json:"permission"`
 }
 
 type EnrollmentWorkerMsg struct {
-	Hello *EnrollmentHello
+	Hello *EnrollmentHello `json:"hello"`
 }
 
 type EnrollmentHello struct {
-	RequestingMachineID      string
-	WorkerCertificateRequest []byte
-	OpendeployVersion        string
-	UnderlayAddress          string
+	RequestingMachineID      string `json:"requesting_machine_id,omitempty"`
+	WorkerCertificateRequest []byte `json:"worker_certificate_request"`
+	OpendeployVersion        string `json:"opendeploy_version,omitempty"`
+	UnderlayAddress          string `json:"underlay_address,omitempty"`
 }
 
 type EnrollmentPrimaryMsg struct {
-	RequestStatus *EnrollmentRequestStatus
-	Accepted      *EnrollmentAccepted
+	RequestStatus *EnrollmentRequestStatus `json:"request_status"`
+	Accepted      *EnrollmentAccepted      `json:"accepted"`
 }
 
 type EnrollmentRequestStatus struct {
-	ID                  int32
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	RequestingIpAddress string
-	RequestingMachineID string
-	Status              string
-	OpendeployVersion   string
-	UnderlayAddress     string
+	ID                  int32     `json:"id"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+	RequestingIpAddress string    `json:"requesting_ip_address,omitempty"`
+	RequestingMachineID string    `json:"requesting_machine_id,omitempty"`
+	Status              string    `json:"status,omitempty"`
+	OpendeployVersion   string    `json:"opendeploy_version,omitempty"`
+	UnderlayAddress     string    `json:"underlay_address,omitempty"`
 }
 
 type EnrollmentRequestList struct {
-	Items []*EnrollmentRequestStatus
+	Items []*EnrollmentRequestStatus `json:"items,omitempty"`
 }
 
 type EnrollmentInfo struct {
-	EnrollmentTlsSpkiSha256 string
+	EnrollmentTlsSpkiSha256 string `json:"enrollment_tls_spki_sha256,omitempty"`
 }
 
 type EnrollmentAcceptRequest struct {
-	ID         int32
-	WorkerName string
+	ID         int32  `json:"id"`
+	WorkerName string `json:"worker_name,omitempty"`
 }
 
 type EnrollmentAccepted struct {
-	ID                int32
-	WorkerName        string
-	CaCertificate     []byte
-	WorkerCertificate []byte
-	ClusterNetwork    *ClusterNetworkInfo
-	NodeDeployment    *ScheduledInstanceState
-	NodeNetDeployment *ScheduledInstanceState
-	ClusterNetMap     *ClusterNetMap
+	ID                int32                   `json:"id"`
+	WorkerName        string                  `json:"worker_name,omitempty"`
+	CaCertificate     []byte                  `json:"ca_certificate"`
+	WorkerCertificate []byte                  `json:"worker_certificate"`
+	ClusterNetwork    *ClusterNetworkInfo     `json:"cluster_network"`
+	NodeDeployment    *ScheduledInstanceState `json:"node_deployment"`
+	NodeNetDeployment *ScheduledInstanceState `json:"node_net_deployment"`
+	ClusterNetMap     *ClusterNetMap          `json:"cluster_net_map"`
 }
 
 type GithubCredentials struct {
-	Token     string
-	ChangedAt time.Time
+	Token     string    `json:"token,omitempty"`
+	ChangedAt time.Time `json:"changed_at"`
 }
 
 type BackupStatus struct {
-	Configured            bool
-	Running               bool
-	InSync                bool
-	LocalTxid             uint64
-	RemoteTxid            uint64
-	LastSuccessfulSyncAt  time.Time
-	Error                 string
-	AssetMigrationRunning bool
-	AssetPending          uint32
-	AssetTargetS3         bool
-	AssetError            string
+	Configured            bool      `json:"configured"`
+	Running               bool      `json:"running"`
+	InSync                bool      `json:"in_sync"`
+	LocalTxid             uint64    `json:"local_txid"`
+	RemoteTxid            uint64    `json:"remote_txid"`
+	LastSuccessfulSyncAt  time.Time `json:"last_successful_sync_at"`
+	Error                 string    `json:"error,omitempty"`
+	AssetMigrationRunning bool      `json:"asset_migration_running"`
+	AssetPending          uint32    `json:"asset_pending"`
+	AssetTargetS3         bool      `json:"asset_target_s3"`
+	AssetError            string    `json:"asset_error,omitempty"`
 }
 
 type ClusterSecretsRequest struct {
-	Ids []int32
+	Ids []int32 `json:"ids,omitempty"`
 }
 
 type ClusterSecretValue struct {
-	ID    int32
-	Value []byte
+	ID    int32  `json:"id"`
+	Value []byte `json:"value"`
 }
 
 type ClusterSecretsResponse struct {
-	Items []*ClusterSecretValue
+	Items []*ClusterSecretValue `json:"items,omitempty"`
 }
 
 type ClusterConfigsRequest struct {
-	Ids []int32
+	Ids []int32 `json:"ids,omitempty"`
 }
 
 type ClusterConfigValue struct {
-	ID    int32
-	Value string
+	ID    int32  `json:"id"`
+	Value string `json:"value,omitempty"`
 }
 
 type ClusterConfigsResponse struct {
-	Items []*ClusterConfigValue
+	Items []*ClusterConfigValue `json:"items,omitempty"`
 }
 
 type EmptyRequest struct {
 }
 
 type MasterPasswordRequest struct {
-	Password string
-	Username string
+	Password string `json:"password,omitempty"`
+	Username string `json:"username,omitempty"`
 }
 
 type MasterPasswordVerifyRequest struct {
-	Password string
+	Password string `json:"password,omitempty"`
 }
 
 type MasterPasswordSaveRequest struct {
-	Password string
+	Password string `json:"password,omitempty"`
 }
 
 type LoginResponse struct {
-	Token  string
-	UserID int32
-	Scopes []string
-	Name   string
-	Expiry time.Time
+	Token  string    `json:"token,omitempty"`
+	UserID int32     `json:"user_id"`
+	Scopes []string  `json:"scopes,omitempty"`
+	Name   string    `json:"name,omitempty"`
+	Expiry time.Time `json:"expiry"`
+}
+
+type ApiTokenResponse struct {
+	Token  string    `json:"token,omitempty"`
+	Expiry time.Time `json:"expiry"`
+	Scopes []string  `json:"scopes,omitempty"`
 }
 
 type WebAuthNOptionsResponse struct {
-	SessionID   string
-	OptionsJson []byte
+	SessionID   string `json:"session_id,omitempty"`
+	OptionsJson []byte `json:"options_json"`
 }
 
 type WebAuthNFinishRequest struct {
-	SessionID      string
-	CredentialJson []byte
+	SessionID      string `json:"session_id,omitempty"`
+	CredentialJson []byte `json:"credential_json"`
 }
 
 type SecretMeta struct {
-	Name      string
-	CreatedAt time.Time
-	UpdatedBy int32
-	ID        int32
-	Deleted   bool
-	SpaceID   int32
-	Version   int32
+	Name      string    `json:"name,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedBy int32     `json:"updated_by"`
+	ID        int32     `json:"id"`
+	Deleted   bool      `json:"deleted"`
+	SpaceID   int32     `json:"space_id"`
+	Version   int32     `json:"version"`
 }
 
 type SecretList struct {
-	Items []*SecretMeta
+	Items []*SecretMeta `json:"items,omitempty"`
 }
 
 type SecretSetRequest struct {
-	Name                         string
-	Value                        []byte
-	SpaceID                      int32
-	UpdateReferencingDeployments bool
-	ReferencingDeployments       []*DeploymentConfigVersionRef
+	Name                         string                        `json:"name,omitempty"`
+	Value                        []byte                        `json:"value"`
+	SpaceID                      int32                         `json:"space_id"`
+	UpdateReferencingDeployments bool                          `json:"update_referencing_deployments"`
+	ReferencingDeployments       []*DeploymentConfigVersionRef `json:"referencing_deployments,omitempty"`
 }
 
 type SecretRenameRequest struct {
-	Name    string
-	NewName string
+	Name    string `json:"name,omitempty"`
+	NewName string `json:"new_name,omitempty"`
 }
 
 type SecretDeleteRequest struct {
-	Name string
+	Name string `json:"name,omitempty"`
 }
 
 type SecretRevealRequest struct {
-	Name string
-	ID   int32
+	Name string `json:"name,omitempty"`
+	ID   int32  `json:"id"`
 }
 
 type SecretRevealResponse struct {
-	Value []byte
+	Value []byte `json:"value"`
 }
 
 type SecretsStatusResponse struct {
-	Unlocked           bool
-	RecoveryConfigured bool
+	Unlocked           bool `json:"unlocked"`
+	RecoveryConfigured bool `json:"recovery_configured"`
 }
 
 type SecretRecoveryCodeResponse struct {
-	Code string
+	Code string `json:"code,omitempty"`
 }
 
 type SecretUnlockRequest struct {
-	Code string
+	Code string `json:"code,omitempty"`
 }
 
 type UserConfig struct {
-	Name      string
-	Value     string
-	CreatedAt time.Time
-	UpdatedBy int32
-	ID        int32
-	Deleted   bool
-	SpaceID   int32
-	Version   int32
+	Name      string    `json:"name,omitempty"`
+	Value     string    `json:"value,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedBy int32     `json:"updated_by"`
+	ID        int32     `json:"id"`
+	Deleted   bool      `json:"deleted"`
+	SpaceID   int32     `json:"space_id"`
+	Version   int32     `json:"version"`
 }
 
 type UserConfigList struct {
-	Items []*UserConfig
+	Items []*UserConfig `json:"items,omitempty"`
 }
 
 type UserConfigSetRequest struct {
-	Name                         string
-	Value                        string
-	SpaceID                      int32
-	UpdateReferencingDeployments bool
-	ReferencingDeployments       []*DeploymentConfigVersionRef
+	Name                         string                        `json:"name,omitempty"`
+	Value                        string                        `json:"value,omitempty"`
+	SpaceID                      int32                         `json:"space_id"`
+	UpdateReferencingDeployments bool                          `json:"update_referencing_deployments"`
+	ReferencingDeployments       []*DeploymentConfigVersionRef `json:"referencing_deployments,omitempty"`
 }
 
 type UserConfigRenameRequest struct {
-	Name    string
-	NewName string
+	Name    string `json:"name,omitempty"`
+	NewName string `json:"new_name,omitempty"`
 }
 
 type UserConfigDeleteRequest struct {
-	Name string
+	Name string `json:"name,omitempty"`
 }
 
 type AssetMeta struct {
-	Key       string
-	CreatedAt time.Time
-	Version   int32
-	Format    string
-	Location  string
-	SizeBytes int32
-	ID        int32
-	SpaceID   int32
-	Deleted   bool
+	Key       string    `json:"key,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	Version   int32     `json:"version"`
+	Format    string    `json:"format,omitempty"`
+	Location  string    `json:"location,omitempty"`
+	SizeBytes int32     `json:"size_bytes"`
+	ID        int32     `json:"id"`
+	SpaceID   int32     `json:"space_id"`
+	Deleted   bool      `json:"deleted"`
 }
 
 type Asset struct {
-	Key       string
-	CreatedAt time.Time
-	Version   int32
-	Format    string
-	Location  string
-	Blob      []byte
-	ID        int32
-	SpaceID   int32
-	SizeBytes int32
+	Key       string    `json:"key,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	Version   int32     `json:"version"`
+	Format    string    `json:"format,omitempty"`
+	Location  string    `json:"location,omitempty"`
+	Blob      []byte    `json:"blob"`
+	ID        int32     `json:"id"`
+	SpaceID   int32     `json:"space_id"`
+	SizeBytes int32     `json:"size_bytes"`
 }
 
 type AssetList struct {
-	Items []*AssetMeta
+	Items []*AssetMeta `json:"items,omitempty"`
 }
 
 type AssetGetRequest struct {
-	Key     string
-	Version int32
+	Key     string `json:"key,omitempty"`
+	Version int32  `json:"version"`
 }
 
 type AssetSetRequest struct {
-	Key     string
-	Format  string
-	Blob    []byte
-	SpaceID int32
+	Key     string `json:"key,omitempty"`
+	Format  string `json:"format,omitempty"`
+	Blob    []byte `json:"blob"`
+	SpaceID int32  `json:"space_id"`
 }
 
 type AssetRenameRequest struct {
-	Key    string
-	NewKey string
+	Key    string `json:"key,omitempty"`
+	NewKey string `json:"new_key,omitempty"`
 }
 
 type AssetDeleteRequest struct {
-	Key string
+	Key string `json:"key,omitempty"`
 }
 
 type State struct {
-	Heartbeat                  bool
-	DeploymentConfigsSnapshot  *DeploymentConfigSnapshot
-	DeploymentConfigUpdate     *DeploymentConfig
-	UsersSnapshot              []*User
-	UserUpdate                 *User
-	EnrollmentsSnapshot        *EnrollmentRequestList
-	EnrollmentUpdate           *EnrollmentRequestStatus
-	SecretsSnapshot            *SecretReferenceList
-	SecretUpdate               *SecretReference
-	UserConfigsSnapshot        *UserConfigReferenceList
-	UserConfigUpdate           *UserConfigReference
-	SecretsStatusSnapshot      *SecretsStatusResponse
-	SecretMetasSnapshot        *SecretList
-	SecretMetaUpdate           *SecretMeta
-	UserConfigValuesSnapshot   *UserConfigList
-	UserConfigValueUpdate      *UserConfig
-	SpacesSnapshot             *SpaceList
-	SpaceUpdate                *Space
-	AssetsSnapshot             *AssetList
-	AssetUpdate                *AssetMeta
-	NodesSnapshot              *ClusterNodeList
-	NodeUpdate                 *ClusterNode
-	NodeStatusesSnapshot       *ClusterNodeStatusList
-	NodeStatusUpdate           *ClusterNodeStatus
-	BackupStatusSnapshot       *BackupStatus
-	BackupStatusUpdate         *BackupStatus
-	ConfigSnapshot             ConfigVersion
-	ScheduledInstancesSnapshot *ScheduledInstanceSnapshot
-	ScheduledInstanceUpdate    *ScheduledInstanceState
+	Heartbeat                  bool                       `json:"heartbeat"`
+	DeploymentConfigsSnapshot  *DeploymentConfigSnapshot  `json:"deployment_configs_snapshot"`
+	DeploymentConfigUpdate     *DeploymentConfig          `json:"deployment_config_update"`
+	UsersSnapshot              []*User                    `json:"users_snapshot,omitempty"`
+	UserUpdate                 *User                      `json:"user_update"`
+	EnrollmentsSnapshot        *EnrollmentRequestList     `json:"enrollments_snapshot"`
+	EnrollmentUpdate           *EnrollmentRequestStatus   `json:"enrollment_update"`
+	SecretsSnapshot            *SecretReferenceList       `json:"secrets_snapshot"`
+	SecretUpdate               *SecretReference           `json:"secret_update"`
+	UserConfigsSnapshot        *UserConfigReferenceList   `json:"user_configs_snapshot"`
+	UserConfigUpdate           *UserConfigReference       `json:"user_config_update"`
+	SecretsStatusSnapshot      *SecretsStatusResponse     `json:"secrets_status_snapshot"`
+	SecretMetasSnapshot        *SecretList                `json:"secret_metas_snapshot"`
+	SecretMetaUpdate           *SecretMeta                `json:"secret_meta_update"`
+	UserConfigValuesSnapshot   *UserConfigList            `json:"user_config_values_snapshot"`
+	UserConfigValueUpdate      *UserConfig                `json:"user_config_value_update"`
+	SpacesSnapshot             *SpaceList                 `json:"spaces_snapshot"`
+	SpaceUpdate                *Space                     `json:"space_update"`
+	AssetsSnapshot             *AssetList                 `json:"assets_snapshot"`
+	AssetUpdate                *AssetMeta                 `json:"asset_update"`
+	NodesSnapshot              *ClusterNodeList           `json:"nodes_snapshot"`
+	NodeUpdate                 *ClusterNode               `json:"node_update"`
+	NodeStatusesSnapshot       *ClusterNodeStatusList     `json:"node_statuses_snapshot"`
+	NodeStatusUpdate           *ClusterNodeStatus         `json:"node_status_update"`
+	BackupStatusSnapshot       *BackupStatus              `json:"backup_status_snapshot"`
+	BackupStatusUpdate         *BackupStatus              `json:"backup_status_update"`
+	ConfigSnapshot             ConfigVersion              `json:"config_snapshot"`
+	ScheduledInstancesSnapshot *ScheduledInstanceSnapshot `json:"scheduled_instances_snapshot"`
+	ScheduledInstanceUpdate    *ScheduledInstanceState    `json:"scheduled_instance_update"`
 }
 
 type Space struct {
-	ID      int32
-	Name    string
-	Deleted bool
+	ID      int32  `json:"id"`
+	Name    string `json:"name,omitempty"`
+	Deleted bool   `json:"deleted"`
 }
 
 type SpaceList struct {
-	Items []*Space
+	Items []*Space `json:"items,omitempty"`
 }
 
 type SpaceSetRequest struct {
-	ID   int32
-	Name string
+	ID   int32  `json:"id"`
+	Name string `json:"name,omitempty"`
 }
 
 type SpaceDeleteRequest struct {
-	ID int32
+	ID int32 `json:"id"`
 }
 
 type SecretReference struct {
-	ID      int32
-	Name    string
-	Deleted bool
-	SpaceID int32
-	Version int32
+	ID      int32  `json:"id"`
+	Name    string `json:"name,omitempty"`
+	Deleted bool   `json:"deleted"`
+	SpaceID int32  `json:"space_id"`
+	Version int32  `json:"version"`
 }
 
 type SecretReferenceList struct {
-	Items []*SecretReference
+	Items []*SecretReference `json:"items,omitempty"`
 }
 
 type UserConfigReference struct {
-	ID      int32
-	Name    string
-	Deleted bool
-	SpaceID int32
-	Version int32
+	ID      int32  `json:"id"`
+	Name    string `json:"name,omitempty"`
+	Deleted bool   `json:"deleted"`
+	SpaceID int32  `json:"space_id"`
+	Version int32  `json:"version"`
 }
 
 type UserConfigReferenceList struct {
-	Items []*UserConfigReference
+	Items []*UserConfigReference `json:"items,omitempty"`
 }
 
 type ClusterMachineList struct {
-	Items []*ClusterMachine
+	Items []*ClusterMachine `json:"items,omitempty"`
 }
 
 type DeploymentHistoryEntry struct {
-	Config *DeploymentConfig
-	Status *ScheduledInstanceStatus
+	Config *DeploymentConfig        `json:"config"`
+	Status *ScheduledInstanceStatus `json:"status"`
 }
 
 type DeploymentHistory struct {
-	Entries []*DeploymentHistoryEntry
+	Entries []*DeploymentHistoryEntry `json:"entries,omitempty"`
 }
 
 type User struct {
-	ID   int32
-	Name string
+	ID   int32  `json:"id"`
+	Name string `json:"name,omitempty"`
 }
 
 type WebAuthnCredential struct {
-	ID   []byte
-	Data []byte
+	ID   []byte `json:"id"`
+	Data []byte `json:"data"`
 }
 
 type InternalUser struct {
-	ID          int32
-	WebAuthNID  []byte
-	Name        string
-	Credentials []*WebAuthnCredential
+	ID          int32                 `json:"id"`
+	WebAuthNID  []byte                `json:"web_auth_n_id"`
+	Name        string                `json:"name,omitempty"`
+	Credentials []*WebAuthnCredential `json:"credentials,omitempty"`
 }
 
 type PublicKeyRecord struct {
-	Kid      string
-	KeyBytes []byte
+	Kid      string `json:"kid,omitempty"`
+	KeyBytes []byte `json:"key_bytes"`
 }
 
 type ClusterMachine struct {
-	Name        string
-	IsPrimary   bool
-	Connected   bool
-	ConnectedAt time.Time
-	Identifier  string
-	ID          int32
+	Name        string    `json:"name,omitempty"`
+	IsPrimary   bool      `json:"is_primary"`
+	Connected   bool      `json:"connected"`
+	ConnectedAt time.Time `json:"connected_at"`
+	Identifier  string    `json:"identifier,omitempty"`
+	ID          int32     `json:"id"`
 }
 
 type ClusterNode struct {
-	ID           int32
-	EnrollmentID int32
-	Name         string
-	Identifier   string
-	Roles        []int32
-	WgPublicKey  string
-	Addresses    []string
-	EnrolledAt   time.Time
+	ID           int32     `json:"id"`
+	EnrollmentID int32     `json:"enrollment_id"`
+	Name         string    `json:"name,omitempty"`
+	Identifier   string    `json:"identifier,omitempty"`
+	Roles        []int32   `json:"roles,omitempty"`
+	WgPublicKey  string    `json:"wg_public_key,omitempty"`
+	Addresses    []string  `json:"addresses,omitempty"`
+	EnrolledAt   time.Time `json:"enrolled_at"`
 }
 
 type NodeRenameRequest struct {
-	Identifier string
-	Name       string
+	Identifier string `json:"identifier,omitempty"`
+	Name       string `json:"name,omitempty"`
 }
 
 type ClusterNodeList struct {
-	Items []*ClusterNode
+	Items []*ClusterNode `json:"items,omitempty"`
 }
 
 type ClusterNodeStatus struct {
-	ID              int32
-	NodeID          int32
-	LastConnectedAt time.Time
-	IsConnected     bool
+	ID              int32     `json:"id"`
+	NodeID          int32     `json:"node_id"`
+	LastConnectedAt time.Time `json:"last_connected_at"`
+	IsConnected     bool      `json:"is_connected"`
 }
 
 type ClusterNodeStatusList struct {
-	Items []*ClusterNodeStatus
+	Items []*ClusterNodeStatus `json:"items,omitempty"`
 }
 
 type ClusterStatusResponse struct {
-	Machines []*ClusterMachine
+	Machines []*ClusterMachine `json:"machines,omitempty"`
 }
 
 type MsgToWorker struct {
-	ScheduledInstancesSnapshot *ScheduledInstanceSnapshot
-	ScheduledInstanceUpdate    *ScheduledInstanceState
-	PrepareLogRequest          *PrepareOutputRequest
-	RunLogRequest              *RunOutputRequest
-	DeploymentLogRequest       *DeploymentLogRequest
-	StopLogRequestID           string
-	LogSearchRequest           *LogSearchRequest
-	ClusterNetwork             *ClusterNetworkInfo
-	ClusterNetMap              *ClusterNetMap
-	ClusterProtocolVersion     int32
+	ScheduledInstancesSnapshot *ScheduledInstanceSnapshot `json:"scheduled_instances_snapshot"`
+	ScheduledInstanceUpdate    *ScheduledInstanceState    `json:"scheduled_instance_update"`
+	PrepareLogRequest          *PrepareOutputRequest      `json:"prepare_log_request"`
+	RunLogRequest              *RunOutputRequest          `json:"run_log_request"`
+	DeploymentLogRequest       *DeploymentLogRequest      `json:"deployment_log_request"`
+	StopLogRequestID           string                     `json:"stop_log_request_id,omitempty"`
+	LogSearchRequest           *LogSearchRequest          `json:"log_search_request"`
+	ClusterNetwork             *ClusterNetworkInfo        `json:"cluster_network"`
+	ClusterNetMap              *ClusterNetMap             `json:"cluster_net_map"`
+	ClusterProtocolVersion     int32                      `json:"cluster_protocol_version"`
 }
 
 type ClusterNetworkInfo struct {
-	UlaPrefix []byte
+	UlaPrefix []byte `json:"ula_prefix"`
 }
 
 type ClusterNetMap struct {
-	Generation   string
-	Sequence     int64
-	TargetNodeID int32
-	UlaPrefix    []byte
-	Nodes        []*ClusterNetMapNode
-	Routes       []*ClusterNetMapRoute
+	Generation   string                `json:"generation,omitempty"`
+	Sequence     int64                 `json:"sequence"`
+	TargetNodeID int32                 `json:"target_node_id"`
+	UlaPrefix    []byte                `json:"ula_prefix"`
+	Nodes        []*ClusterNetMapNode  `json:"nodes,omitempty"`
+	Routes       []*ClusterNetMapRoute `json:"routes,omitempty"`
 }
 
 type ClusterNetMapNode struct {
-	NodeID          int32
-	UnderlayAddress string
+	NodeID          int32  `json:"node_id"`
+	UnderlayAddress string `json:"underlay_address,omitempty"`
 }
 
 type ClusterNetMapRoute struct {
-	LogicalPrefix string
-	HostingNodeID int32
+	LogicalPrefix string `json:"logical_prefix,omitempty"`
+	HostingNodeID int32  `json:"hosting_node_id"`
 }
 
 type LocalRouteReport struct {
-	Revision         int64
-	LogicalAddresses []string
+	Revision         int64    `json:"revision"`
+	LogicalAddresses []string `json:"logical_addresses,omitempty"`
 }
 
 type NetMapStatus struct {
-	AcceptedGeneration  string
-	PersistedSequence   int64
-	AppliedSequence     int64
-	ReconciliationError string
+	AcceptedGeneration  string `json:"accepted_generation,omitempty"`
+	PersistedSequence   int64  `json:"persisted_sequence"`
+	AppliedSequence     int64  `json:"applied_sequence"`
+	ReconciliationError string `json:"reconciliation_error,omitempty"`
 }
 
 type ClusterHello struct {
-	UnderlayAddress        string
-	ClusterProtocolVersion int32
+	UnderlayAddress        string `json:"underlay_address,omitempty"`
+	ClusterProtocolVersion int32  `json:"cluster_protocol_version"`
 }
 
 type MsgToMaster struct {
-	StatusWrite      *ScheduledInstanceStatus
-	LogData          []byte
-	LogEnd           bool
-	LogRequestID     string
-	LogLines         LogLineBatch
-	LocalRouteReport *LocalRouteReport
-	NetMapStatus     *NetMapStatus
-	ClusterHello     *ClusterHello
+	StatusWrite      *ScheduledInstanceStatus `json:"status_write"`
+	LogData          []byte                   `json:"log_data"`
+	LogEnd           bool                     `json:"log_end"`
+	LogRequestID     string                   `json:"log_request_id,omitempty"`
+	LogLines         LogLineBatch             `json:"log_lines"`
+	LocalRouteReport *LocalRouteReport        `json:"local_route_report"`
+	NetMapStatus     *NetMapStatus            `json:"net_map_status"`
+	ClusterHello     *ClusterHello            `json:"cluster_hello"`
 }
 
 type NetState struct {
-	Seq               int64
-	UlaPrefix         []byte
-	NodeIdentifier    string
-	DnsServices       []*DnsService
-	UpstreamResolvers []string
-	Ingress           []*NetIngress
+	Seq               int64         `json:"seq"`
+	UlaPrefix         []byte        `json:"ula_prefix"`
+	NodeIdentifier    string        `json:"node_identifier,omitempty"`
+	DnsServices       []*DnsService `json:"dns_services,omitempty"`
+	UpstreamResolvers []string      `json:"upstream_resolvers,omitempty"`
+	Ingress           []*NetIngress `json:"ingress,omitempty"`
 }
 
 type DnsService struct {
-	Name        string
-	Environment string
-	Endpoints   []*Endpoint
+	Name        string      `json:"name,omitempty"`
+	Environment string      `json:"environment,omitempty"`
+	Endpoints   []*Endpoint `json:"endpoints,omitempty"`
 }
 
 type NetIngress struct {
-	Kind           IngressKind
-	Hostname       string
-	TlsPassthrough *TlsPassthroughNetIngress
+	Kind           IngressKind               `json:"kind"`
+	Hostname       string                    `json:"hostname,omitempty"`
+	TlsPassthrough *TlsPassthroughNetIngress `json:"tls_passthrough"`
 }
 
 type TlsPassthroughNetIngress struct {
-	HostPort int32
-	Backends []*IngressBackend
+	HostPort int32             `json:"host_port"`
+	Backends []*IngressBackend `json:"backends,omitempty"`
 }
 
 type IngressBackend struct {
-	Address string
-	Port    int32
+	Address string `json:"address,omitempty"`
+	Port    int32  `json:"port"`
 }
 
 type SecretRef struct {
-	ID int32
+	ID int32 `json:"id"`
 }
 
 type ConfigRef struct {
-	ID int32
+	ID int32 `json:"id"`
 }
 
 type StringSetting struct {
-	Value     string
-	ConfigRef ConfigRef
+	Value     string    `json:"value,omitempty"`
+	ConfigRef ConfigRef `json:"config_ref"`
 }
 
 type BoolSetting struct {
-	Value     bool
-	ConfigRef ConfigRef
+	Value     bool      `json:"value"`
+	ConfigRef ConfigRef `json:"config_ref"`
 }
 
 type Config struct {
-	Settings           Settings
-	MasterPasswordHash string
-	NetworkUlaPrefix   []byte
+	Settings           Settings `json:"settings"`
+	MasterPasswordHash string   `json:"master_password_hash,omitempty"`
+	NetworkUlaPrefix   []byte   `json:"network_ula_prefix"`
 }
 
 type ConfigVersion struct {
-	Version   int64
-	UpdatedAt time.Time
-	Config    Config
+	Version   int64     `json:"version"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Config    Config    `json:"config"`
 }
 
 type Settings struct {
-	HttpWeb     HttpWebSettings
-	HttpsWeb    HttpsWebSettings
-	Cluster     ClusterSettings
-	Repo        RepoSettings
-	Backup      BackupSettings
-	LargeAssets LargeAssetsSettings
+	HttpWeb     HttpWebSettings     `json:"http_web"`
+	HttpsWeb    HttpsWebSettings    `json:"https_web"`
+	Cluster     ClusterSettings     `json:"cluster"`
+	Repo        RepoSettings        `json:"repo"`
+	Backup      BackupSettings      `json:"backup"`
+	LargeAssets LargeAssetsSettings `json:"large_assets"`
 }
 
 type HttpWebSettings struct {
-	Enabled BoolSetting
-	Listen  StringSetting
+	Enabled BoolSetting   `json:"enabled"`
+	Listen  StringSetting `json:"listen"`
 }
 
 type HttpsWebSettings struct {
-	Enabled        BoolSetting
-	Listen         StringSetting
-	TlsSelfManaged BoolSetting
-	TlsCertPem     SecretRef
-	AcmeHosts      StringSetting
-	AcmeEmail      StringSetting
+	Enabled        BoolSetting   `json:"enabled"`
+	Listen         StringSetting `json:"listen"`
+	TlsSelfManaged BoolSetting   `json:"tls_self_managed"`
+	TlsCertPem     SecretRef     `json:"tls_cert_pem"`
+	AcmeHosts      StringSetting `json:"acme_hosts"`
+	AcmeEmail      StringSetting `json:"acme_email"`
 }
 
 type ClusterSettings struct {
-	Listen           StringSetting
-	EnrollmentListen StringSetting
+	Listen           StringSetting `json:"listen"`
+	EnrollmentListen StringSetting `json:"enrollment_listen"`
 }
 
 type RepoSettings struct {
-	GithubToken SecretRef
+	GithubToken SecretRef `json:"github_token"`
 }
 
 type BackupSettings struct {
-	Enabled           BoolSetting
-	S3AccessKeyID     StringSetting
-	S3SecretAccessKey SecretRef
-	S3Bucket          StringSetting
-	S3Path            StringSetting
-	S3Region          StringSetting
-	S3Endpoint        StringSetting
+	Enabled           BoolSetting   `json:"enabled"`
+	S3AccessKeyID     StringSetting `json:"s3_access_key_id"`
+	S3SecretAccessKey SecretRef     `json:"s3_secret_access_key"`
+	S3Bucket          StringSetting `json:"s3_bucket"`
+	S3Path            StringSetting `json:"s3_path"`
+	S3Region          StringSetting `json:"s3_region"`
+	S3Endpoint        StringSetting `json:"s3_endpoint"`
 }
 
 type LargeAssetsSettings struct {
-	UseSeparateS3     BoolSetting
-	S3AccessKeyID     StringSetting
-	S3SecretAccessKey SecretRef
-	S3Bucket          StringSetting
-	S3Path            StringSetting
-	S3Region          StringSetting
-	S3Endpoint        StringSetting
+	UseSeparateS3     BoolSetting   `json:"use_separate_s3"`
+	S3AccessKeyID     StringSetting `json:"s3_access_key_id"`
+	S3SecretAccessKey SecretRef     `json:"s3_secret_access_key"`
+	S3Bucket          StringSetting `json:"s3_bucket"`
+	S3Path            StringSetting `json:"s3_path"`
+	S3Region          StringSetting `json:"s3_region"`
+	S3Endpoint        StringSetting `json:"s3_endpoint"`
 }
 
 type ExportedConfigBlob struct {
-	Blob []byte
+	Blob []byte `json:"blob"`
 }
 
 type AccessPolicy struct {
-	PolicyType AccessPolicyType
-	Scopes     []string
+	PolicyType AccessPolicyType `json:"policy_type"`
+	Scopes     []string         `json:"scopes,omitempty"`
 }
 
 type ApiErr struct {
-	Code        int32
-	DisplayErr  string
-	InternalErr string
+	Code        int32  `json:"code"`
+	DisplayErr  string `json:"display_err,omitempty"`
+	InternalErr string `json:"-"`
 }

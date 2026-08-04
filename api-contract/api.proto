@@ -38,6 +38,13 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
   }
 
+  // Mints a 12-hour API token for command-line use. Requires an existing
+  // default-scope session, and grants no scope the caller does not already
+  // hold, so this shortens lifetime rather than widening access.
+  rpc PostV1AuthTokenGenerate(cp.Empty) returns (ApiTokenResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   // Auth: passkey registration (requires passkey:create or default scope)
   rpc PostV1AuthPasskeyRegisterStart(EmptyRequest) returns (WebAuthNOptionsResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };

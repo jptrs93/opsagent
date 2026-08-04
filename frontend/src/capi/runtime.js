@@ -198,16 +198,36 @@ export class Reader {
     return new Reader(buf);
   }
 
+  // Malformed input must throw, never return garbage: reading past the end of
+  // the buffer yields undefined, which coerces to a zero byte, so without the
+  // bounds check a decoder fed non-protobuf bytes (an HTML error page, a
+  // truncated body) sees an endless stream of zero tags - and skipType's
+  // group case spins forever waiting for an end-group marker that never comes.
   readVarint() {
     let result = 0n;
     let shift = 0n;
     for (;;) {
+      if (this.pos >= this.len) {
+        throw new Error("cleanproto runtime: truncated message");
+      }
+      // A varint is at most 10 bytes; text misread as continuation bytes would
+      // otherwise walk arbitrarily far into the buffer.
+      if (shift > 63n) {
+        throw new Error("cleanproto runtime: malformed varint");
+      }
       const b = this.buf[this.pos++];
       result |= BigInt(b & 0x7f) << shift;
       if ((b & 0x80) === 0) break;
       shift += 7n;
     }
     return BigInt.asUintN(64, result);
+  }
+
+  skip(length) {
+    if (this.pos + length > this.len) {
+      throw new Error("cleanproto runtime: truncated message");
+    }
+    this.pos += length;
   }
 
   uint32() {
@@ -278,33 +298,37 @@ export class Reader {
 
   string() {
     const length = this.uint32();
-    const value = textDecoder.decode(this.buf.subarray(this.pos, this.pos + length));
-    this.pos += length;
+    const end = this.pos + length;
+    if (end > this.len) {
+      throw new Error("cleanproto runtime: truncated message");
+    }
+    const value = textDecoder.decode(this.buf.subarray(this.pos, end));
+    this.pos = end;
     return value;
   }
 
   bytes() {
     const length = this.uint32();
-    const value = this.buf.slice(this.pos, this.pos + length);
-    this.pos += length;
+    const end = this.pos + length;
+    if (end > this.len) {
+      throw new Error("cleanproto runtime: truncated message");
+    }
+    const value = this.buf.slice(this.pos, end);
+    this.pos = end;
     return value;
   }
 
   skipType(wireType) {
     switch (wireType) {
       case 0:
-        while (this.buf[this.pos++] & 0x80) {
-          // Consume continuation bytes.
-        }
+        this.readVarint();
         break;
       case 1:
-        this.pos += 8;
+        this.skip(8);
         break;
-      case 2: {
-        const length = this.uint32();
-        this.pos += length;
+      case 2:
+        this.skip(this.uint32());
         break;
-      }
       case 3:
         for (;;) {
           const tag = this.uint32();
@@ -314,7 +338,7 @@ export class Reader {
         }
         break;
       case 5:
-        this.pos += 4;
+        this.skip(4);
         break;
       default:
         throw new Error("cleanproto runtime: invalid wire type " + wireType);

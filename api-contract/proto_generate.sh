@@ -1,5 +1,5 @@
 #!/bin/sh
-go install github.com/jptrs93/cleanproto/cmd/cleanproto@v1.16.3
+go install github.com/jptrs93/cleanproto/cmd/cleanproto@v1.19.0
 set -e
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -23,4 +23,5 @@ cleanproto \
   -js.out ./frontend/src/capi \
   -go.ctxtype Context \
   -go.client \
+  -go.json \
   "$COMBINED_PROTO"

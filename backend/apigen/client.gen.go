@@ -202,6 +202,22 @@ func (c *OpsagentHttpV1Capi) GetV1AuthCurrentSession(ctx context.Context) (*Logi
 	return DecodeLoginResponse(body)
 }
 
+func (c *OpsagentHttpV1Capi) PostV1AuthTokenGenerate(ctx context.Context) (*ApiTokenResponse, error) {
+	resp, err := c.do(ctx, "POST", "/v1/auth/token/generate", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeApiTokenResponse(body)
+}
+
 func (c *OpsagentHttpV1Capi) PostV1AuthPasskeyRegisterStart(ctx context.Context, req *EmptyRequest) (*WebAuthNOptionsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AuthPasskeyRegisterStart request is nil")

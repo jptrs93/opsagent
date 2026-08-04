@@ -75,6 +75,7 @@ type OpsagentHttpV1Handler interface {
 	PostV1AuthMasterPasswordSave(Context, *MasterPasswordSaveRequest) error
 	PostV1AuthMasterPasswordVerify(Context, *MasterPasswordVerifyRequest) error
 	GetV1AuthCurrentSession(Context) (*LoginResponse, error)
+	PostV1AuthTokenGenerate(Context) (*ApiTokenResponse, error)
 	PostV1AuthPasskeyRegisterStart(Context, *EmptyRequest) (*WebAuthNOptionsResponse, error)
 	PostV1AuthPasskeyRegisterFinish(Context, *WebAuthNFinishRequest) (*LoginResponse, error)
 	PostV1AuthPasskeyLoginStart(Context, *EmptyRequest) (*WebAuthNOptionsResponse, error)
@@ -198,6 +199,12 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("GET /v1/auth/current/session", buildHandlerFunc(config, verifyAuth, getV1AuthCurrentSessionAccessPolicy, postAuthHandlerGetV1AuthCurrentSession, compressionModeAuto, false))
+	postV1AuthTokenGenerateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AuthTokenGenerate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		res, err := h.PostV1AuthTokenGenerate(authCtx)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/auth/token/generate", buildHandlerFunc(config, verifyAuth, postV1AuthTokenGenerateAccessPolicy, postAuthHandlerPostV1AuthTokenGenerate, compressionModeAuto, false))
 	postV1AuthPasskeyRegisterStartAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"passkey:create", "default"}}
 	postAuthHandlerPostV1AuthPasskeyRegisterStart := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)

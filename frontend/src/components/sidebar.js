@@ -49,6 +49,7 @@ export function sidebar(activePage) {
         div({class: "flex-1"}),
         div(
             {class: "p-3 flex flex-col gap-1"},
+            item("Users", "users"),
             item("Nodes", "cluster"),
             item("Settings", "settings"),
         ),

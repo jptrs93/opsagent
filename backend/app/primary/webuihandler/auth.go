@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -110,6 +111,35 @@ func (h *Handler) GetV1AuthCurrentSession(ctx apigen.Context) (*apigen.LoginResp
 		return nil, err
 	}
 	return newLoginResponse(user, ctx.Token, jwtu.ScopesFromClaims(claims), expiry), nil
+}
+
+// apiTokenTTL is how long a generated command-line token stays valid. Kept
+// shorter than the 2-day browser session because these tokens are pasted into
+// shells and end up in history files and CI logs.
+const apiTokenTTL = 12 * time.Hour
+
+// PostV1AuthTokenGenerate mints a bearer token for command-line use. The token
+// carries the caller's own scopes rather than a fixed list, so it can never
+// grant more than the session that requested it.
+func (h *Handler) PostV1AuthTokenGenerate(ctx apigen.Context) (*apigen.ApiTokenResponse, error) {
+	claims, user, err := h.jwtAuth.VerifyAndResolveUser(ctx.Token)
+	if err != nil {
+		return nil, InvalidAuthTokenErr
+	}
+	scopes := jwtu.ScopesFromClaims(claims)
+	if len(scopes) == 0 {
+		return nil, InvalidAuthTokenErr
+	}
+	token, err := h.jwtAuth.GenerateTokenWith(user.ID, scopes, apiTokenTTL)
+	if err != nil {
+		return nil, fmt.Errorf("generating api token: %w", err)
+	}
+	slog.InfoContext(ctx, "issued api token", "ttl", apiTokenTTL.String(), "scopes", scopes)
+	return &apigen.ApiTokenResponse{
+		Token:  token,
+		Expiry: time.Now().Add(apiTokenTTL),
+		Scopes: scopes,
+	}, nil
 }
 
 // VerifyAuth is the package-level function expected by the generated mux.

@@ -3920,6 +3920,45 @@ func DecodeLoginResponse(b []byte) (*LoginResponse, error) {
 	return &m, nil
 }
 
+func (m *ApiTokenResponse) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Token, 1)
+	b = AppendInt64FromTime(b, m.Expiry, 2)
+	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 3))
+	return b
+}
+
+func DecodeApiTokenResponse(b []byte) (*ApiTokenResponse, error) {
+	var m ApiTokenResponse
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Token, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Expiry, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Scopes = append(m.Scopes, item)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *WebAuthNOptionsResponse) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.SessionID, 1)

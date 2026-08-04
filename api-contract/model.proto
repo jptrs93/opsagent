@@ -135,6 +135,15 @@ message LoginResponse {
   int64 expiry = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
 }
 
+// ApiTokenResponse carries a short-lived bearer token minted for command-line
+// and script use. Deliberately not a LoginResponse: this token is not a browser
+// session and must never be fed into the frontend's login state.
+message ApiTokenResponse {
+  string token = 1;
+  int64 expiry = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  repeated string scopes = 3;
+}
+
 message WebAuthNOptionsResponse {
   string session_id = 1;
   bytes options_json = 2;

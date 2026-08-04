@@ -517,6 +517,12 @@
  * @property {Date} expiry
  */
 /**
+ * @typedef {Object} ApiTokenResponse
+ * @property {string} token
+ * @property {Date} expiry
+ * @property {string[]} scopes
+ */
+/**
  * @typedef {Object} WebAuthNOptionsResponse
  * @property {string} sessionId
  * @property {Uint8Array} optionsJson
@@ -7209,6 +7215,78 @@ function decodeLoginResponseMessage(reader, length) {
 export function decodeLoginResponse(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeLoginResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {ApiTokenResponse} message
+ * @param {Writer} writer
+ */
+export function writeApiTokenResponse(message, writer) {
+    if (message.token !== undefined && message.token !== null && message.token !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.token);
+    }
+    if (message.expiry instanceof Date && message.expiry.getTime() !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.expiry.getTime()));
+    }
+    if (message.scopes && message.scopes.length > 0) {
+        for (const item of message.scopes) {
+            writer.uint32(tag(3, WIRE.LDELIM)).string(item);
+        }
+    }
+}
+
+
+/**
+ * @param {ApiTokenResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeApiTokenResponse(message) {
+    const writer = Writer.create();
+    writeApiTokenResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ApiTokenResponse}
+ */
+function decodeApiTokenResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {token: "", expiry: new Date(0), scopes: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.token = reader.string();
+                break;
+            }
+            case 2: {
+                message.expiry = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 3: {
+                message.scopes.push(reader.string());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ApiTokenResponse}
+ */
+export function decodeApiTokenResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeApiTokenResponseMessage(reader);
 }
 
 

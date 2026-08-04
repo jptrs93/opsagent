@@ -6,12 +6,56 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
+	"strings"
 )
+
+// negotiatedJSONResponse reports whether the caller asked for a JSON response
+// body. A wildcard Accept does not count: protobuf stays the default so that
+// existing clients sending a wildcard Accept keep getting protobuf.
+func negotiatedJSONResponse(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	return hasJSONMediaType(r.Header.Get("Accept"))
+}
+
+// negotiatedJSONRequest reports whether the request body is JSON rather than
+// protobuf, based on its Content-Type.
+func negotiatedJSONRequest(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	return hasJSONMediaType(r.Header.Get("Content-Type"))
+}
+
+// hasJSONMediaType reports whether a comma-separated media type header lists
+// application/json or any structured JSON suffix type such as
+// application/merge-patch+json. Unparseable entries are skipped rather than
+// failing the whole header, since one malformed entry should not decide the
+// content type of the exchange.
+func hasJSONMediaType(header string) bool {
+	for _, entry := range strings.Split(header, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		mediaType, _, err := mime.ParseMediaType(entry)
+		if err != nil {
+			continue
+		}
+		if mediaType == "application/json" || strings.HasSuffix(mediaType, "+json") {
+			return true
+		}
+	}
+	return false
+}
 
 func Respond(ctx context.Context, r *http.Request, w http.ResponseWriter, res Encodable, resultErr error) {
 	if resultErr != nil {
@@ -19,6 +63,16 @@ func Respond(ctx context.Context, r *http.Request, w http.ResponseWriter, res En
 		return
 	}
 	if res != nil {
+		if negotiatedJSONResponse(r) {
+			b, err := json.Marshal(res)
+			if err != nil {
+				HandleReqErr(ctx, fmt.Errorf("encoding json response: %w", err), r, w)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			RespondWithStatus(ctx, w, b, http.StatusOK)
+			return
+		}
 		w.Header().Set("Content-Type", "application/protobuf")
 		RespondWithStatus(ctx, w, res.Encode(), http.StatusOK)
 		return
@@ -41,32 +95,55 @@ func HandleReqErr(ctx context.Context, err error, r *http.Request, w http.Respon
 	if r != nil {
 		path = r.URL.Path
 	}
-	handleReqErr(ctx, err, path, w)
+	handleReqErr(ctx, err, path, negotiatedJSONResponse(r), w)
 }
 
-func handleReqErr(ctx context.Context, err error, path string, w http.ResponseWriter) {
+func handleReqErr(ctx context.Context, err error, path string, useJSON bool, w http.ResponseWriter) {
+	httpErr := resolveApiErr(err)
 	if err != nil && len(err.Error()) > 0 {
+		msg := fmt.Sprintf("err: %v", err.Error())
 		if path != "" {
-			slog.ErrorContext(ctx, fmt.Sprintf("%v err: %v", path, err.Error()))
+			msg = fmt.Sprintf("%v err: %v", path, err.Error())
+		}
+		// A 4xx is the client being told something it can act on - a bad field, an
+		// expired token, a limit reached. Those are normal traffic, and logging
+		// them at error level buries the 5xx that actually need attention.
+		if httpErr.Code >= 400 && httpErr.Code < 500 {
+			slog.InfoContext(ctx, msg)
 		} else {
-			slog.ErrorContext(ctx, fmt.Sprintf("err: %v", err.Error()))
+			slog.ErrorContext(ctx, msg)
 		}
 	}
-	var httpErr ApiErr
-	if !errors.As(err, &httpErr) {
-		var httpErrPtr *ApiErr
-		var validationErr *ValidationError
-		switch {
-		case errors.As(err, &httpErrPtr) && httpErrPtr != nil:
-			httpErr = *httpErrPtr
-		case errors.As(err, &validationErr):
-			httpErr = ApiErr{DisplayErr: validationErr.Error(), Code: http.StatusBadRequest}
-		default:
-			httpErr = ApiErr{DisplayErr: "Unknown server error", Code: http.StatusInternalServerError}
+	// A JSON caller gets a JSON error body. Marshalling ApiErr cannot fail, but
+	// if it somehow did there is no better body to send than the protobuf one.
+	if useJSON {
+		if b, marshalErr := json.Marshal(httpErr); marshalErr == nil {
+			w.Header().Set("Content-Type", "application/json")
+			RespondWithStatus(ctx, w, b, int(httpErr.Code))
+			return
 		}
 	}
 	w.Header().Set("Content-Type", "application/protobuf")
 	RespondWithStatus(ctx, w, httpErr.Encode(), int(httpErr.Code))
+}
+
+// resolveApiErr maps err onto the ApiErr sent back to the client. Anything that
+// is not an ApiErr or a validation failure is an unhandled fault, so it becomes
+// a 500 with no detail leaked to the caller.
+func resolveApiErr(err error) ApiErr {
+	var httpErr ApiErr
+	if errors.As(err, &httpErr) {
+		return httpErr
+	}
+	var httpErrPtr *ApiErr
+	if errors.As(err, &httpErrPtr) && httpErrPtr != nil {
+		return *httpErrPtr
+	}
+	var validationErr *ValidationError
+	if errors.As(err, &validationErr) {
+		return ApiErr{DisplayErr: validationErr.Error(), Code: http.StatusBadRequest}
+	}
+	return ApiErr{DisplayErr: "Unknown server error", Code: http.StatusInternalServerError}
 }
 
 const (
@@ -80,7 +157,7 @@ func decodeBody[T any](r *http.Request, decode func([]byte) (*T, error)) (*T, er
 	if err != nil {
 		return nil, err
 	}
-	return decode(b)
+	return decodeRequestPayload(r, b, decode)
 }
 
 func decodeWithMaxBodySize[T any](r *http.Request, maxRequestBodySize int, decode func([]byte) (*T, error)) (*T, error) {
@@ -95,7 +172,24 @@ func decodeWithMaxBodySize[T any](r *http.Request, maxRequestBodySize int, decod
 	if int64(len(b)) > limit {
 		return nil, ApiErr{DisplayErr: "Request body too large", InternalErr: "request body exceeds max size", Code: http.StatusRequestEntityTooLarge}
 	}
-	return decode(b)
+	return decodeRequestPayload(r, b, decode)
+}
+
+// decodeRequestPayload unmarshals b as JSON when the request declared a JSON
+// Content-Type, and as protobuf otherwise. An empty body yields the zero
+// message either way, matching how protobuf decodes zero bytes.
+func decodeRequestPayload[T any](r *http.Request, b []byte, decode func([]byte) (*T, error)) (*T, error) {
+	if !negotiatedJSONRequest(r) {
+		return decode(b)
+	}
+	var m T
+	if len(b) == 0 {
+		return &m, nil
+	}
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil, ApiErr{DisplayErr: "Malformed JSON request body", InternalErr: err.Error(), Code: http.StatusBadRequest}
+	}
+	return &m, nil
 }
 
 // StreamReader reads uvarint length-prefixed protobuf frames from r. It is used
@@ -180,7 +274,9 @@ func (s *StreamWriter) Write(payload []byte) error {
 func (s *StreamWriter) Finish(ctx context.Context, err error) {
 	if err != nil {
 		if !s.started {
-			handleReqErr(ctx, err, "", s.w)
+			// Streaming responses are protobuf-framed regardless of Accept, so
+			// their failures report as protobuf too.
+			handleReqErr(ctx, err, "", false, s.w)
 			return
 		}
 		slog.ErrorContext(ctx, fmt.Sprintf("stream err: %v", err.Error()))
