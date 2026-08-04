@@ -354,6 +354,23 @@ message SpaceList {
   repeated Space items = 1;
 }
 
+message GlobalState {
+  SpaceList spaces = 1;
+  AssetList assets = 2;
+  UserConfigList configs = 3;
+  SecretList secrets = 4;
+  DeploymentConfigSnapshot deployment_configs = 5;
+}
+
+message DeploymentStateRequest {
+  int32 id = 1;
+}
+
+message DeploymentState {
+  DeploymentConfig config = 1;
+  ScheduledInstanceSnapshot instances = 2;
+}
+
 message SpaceSetRequest {
   int32 id = 1;
   string name = 2;

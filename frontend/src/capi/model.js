@@ -709,6 +709,23 @@
  * @property {Space[]} items
  */
 /**
+ * @typedef {Object} GlobalState
+ * @property {SpaceList} spaces
+ * @property {AssetList} assets
+ * @property {UserConfigList} configs
+ * @property {SecretList} secrets
+ * @property {DeploymentConfigSnapshot} deploymentConfigs
+ */
+/**
+ * @typedef {Object} DeploymentStateRequest
+ * @property {number} id
+ */
+/**
+ * @typedef {Object} DeploymentState
+ * @property {DeploymentConfig} config
+ * @property {ScheduledInstanceSnapshot} instances
+ */
+/**
  * @typedef {Object} SpaceSetRequest
  * @property {number} id
  * @property {string} name
@@ -9427,6 +9444,223 @@ function decodeSpaceListMessage(reader, length) {
 export function decodeSpaceList(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeSpaceListMessage(reader);
+}
+
+
+
+/**
+ * @param {GlobalState} message
+ * @param {Writer} writer
+ */
+export function writeGlobalState(message, writer) {
+    if (message.spaces !== undefined && message.spaces !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeSpaceList(message.spaces, writer);
+        writer.ldelim();
+    }
+    if (message.assets !== undefined && message.assets !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeAssetList(message.assets, writer);
+        writer.ldelim();
+    }
+    if (message.configs !== undefined && message.configs !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeUserConfigList(message.configs, writer);
+        writer.ldelim();
+    }
+    if (message.secrets !== undefined && message.secrets !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeSecretList(message.secrets, writer);
+        writer.ldelim();
+    }
+    if (message.deploymentConfigs !== undefined && message.deploymentConfigs !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeDeploymentConfigSnapshot(message.deploymentConfigs, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {GlobalState} message
+ * @returns {Uint8Array}
+ */
+export function encodeGlobalState(message) {
+    const writer = Writer.create();
+    writeGlobalState(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {GlobalState}
+ */
+function decodeGlobalStateMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {spaces: undefined, assets: undefined, configs: undefined, secrets: undefined, deploymentConfigs: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.spaces = decodeSpaceListMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.assets = decodeAssetListMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.configs = decodeUserConfigListMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.secrets = decodeSecretListMessage(reader, reader.uint32());
+                break;
+            }
+            case 5: {
+                message.deploymentConfigs = decodeDeploymentConfigSnapshotMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {GlobalState}
+ */
+export function decodeGlobalState(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeGlobalStateMessage(reader);
+}
+
+
+
+/**
+ * @param {DeploymentStateRequest} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentStateRequest(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+}
+
+
+/**
+ * @param {DeploymentStateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentStateRequest(message) {
+    const writer = Writer.create();
+    writeDeploymentStateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentStateRequest}
+ */
+function decodeDeploymentStateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentStateRequest}
+ */
+export function decodeDeploymentStateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentStateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {DeploymentState} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentState(message, writer) {
+    if (message.config !== undefined && message.config !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeDeploymentConfig(message.config, writer);
+        writer.ldelim();
+    }
+    if (message.instances !== undefined && message.instances !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeScheduledInstanceSnapshot(message.instances, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {DeploymentState} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentState(message) {
+    const writer = Writer.create();
+    writeDeploymentState(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentState}
+ */
+function decodeDeploymentStateMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {config: undefined, instances: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.config = decodeDeploymentConfigMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.instances = decodeScheduledInstanceSnapshotMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentState}
+ */
+export function decodeDeploymentState(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentStateMessage(reader);
 }
 
 

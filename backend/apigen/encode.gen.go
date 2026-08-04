@@ -5344,6 +5344,180 @@ func DecodeSpaceList(b []byte) (*SpaceList, error) {
 	return &m, nil
 }
 
+func (m *GlobalState) Encode() []byte {
+	var b []byte
+	if m.Spaces != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Spaces.Encode())
+	}
+	if m.Assets != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Assets.Encode())
+	}
+	if m.Configs != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Configs.Encode())
+	}
+	if m.Secrets != nil {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.Secrets.Encode())
+	}
+	if m.DeploymentConfigs != nil {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.DeploymentConfigs.Encode())
+	}
+	return b
+}
+
+func DecodeGlobalState(b []byte) (*GlobalState, error) {
+	var m GlobalState
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SpaceList
+				item, err = DecodeSpaceList(msgBytes)
+				if err == nil {
+					m.Spaces = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AssetList
+				item, err = DecodeAssetList(msgBytes)
+				if err == nil {
+					m.Assets = item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *UserConfigList
+				item, err = DecodeUserConfigList(msgBytes)
+				if err == nil {
+					m.Configs = item
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretList
+				item, err = DecodeSecretList(msgBytes)
+				if err == nil {
+					m.Secrets = item
+				}
+			}
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentConfigSnapshot
+				item, err = DecodeDeploymentConfigSnapshot(msgBytes)
+				if err == nil {
+					m.DeploymentConfigs = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *DeploymentStateRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	return b
+}
+
+func DecodeDeploymentStateRequest(b []byte) (*DeploymentStateRequest, error) {
+	var m DeploymentStateRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *DeploymentState) Encode() []byte {
+	var b []byte
+	if m.Config != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Config.Encode())
+	}
+	if m.Instances != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Instances.Encode())
+	}
+	return b
+}
+
+func DecodeDeploymentState(b []byte) (*DeploymentState, error) {
+	var m DeploymentState
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentConfig
+				item, err = DecodeDeploymentConfig(msgBytes)
+				if err == nil {
+					m.Config = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ScheduledInstanceSnapshot
+				item, err = DecodeScheduledInstanceSnapshot(msgBytes)
+				if err == nil {
+					m.Instances = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *SpaceSetRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)

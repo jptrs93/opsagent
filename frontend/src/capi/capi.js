@@ -10,6 +10,7 @@ import {
   decodeClusterStatusResponse,
   decodeDeploymentConfig,
   decodeDeploymentHistory,
+  decodeDeploymentState,
   decodeDeploymentVersions,
   decodeEnrollmentInfo,
   decodeEnrollmentPrimaryMsg,
@@ -17,6 +18,7 @@ import {
   decodeEnrollmentRequestStatus,
   decodeExportedConfigBlob,
   decodeGithubCredentials,
+  decodeGlobalState,
   decodeLogLineBatch,
   decodeLoginResponse,
   decodeMsgToWorker,
@@ -43,6 +45,7 @@ import {
   encodeDeploymentCreateRequest,
   encodeDeploymentDeleteRequest,
   encodeDeploymentHistoryRequest,
+  encodeDeploymentStateRequest,
   encodeDeploymentUpdateRequest,
   encodeDeploymentUpgradeAllRequest,
   encodeDeploymentVersionsRequest,
@@ -307,6 +310,29 @@ export class Capi {
         yield* readLengthPrefixedFrames(response.body, decodeState);
       },
     };
+  }
+
+  /**
+   * @returns {Promise<GlobalState>}
+   */
+  async getV1GlobalState() {
+    const response = await this.#request("/v1/global-state", { method: 'GET' });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeGlobalState(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {DeploymentStateRequest} payload
+   * @returns {Promise<DeploymentState>}
+   */
+  async postV1DeploymentState(payload) {
+    const response = await this.#request("/v1/deployment-state", { method: 'POST', body: encodeDeploymentStateRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeDeploymentState(await response.arrayBuffer());
   }
 
   /**

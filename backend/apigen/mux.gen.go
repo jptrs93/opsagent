@@ -81,6 +81,8 @@ type OpsagentHttpV1Handler interface {
 	PostV1AuthPasskeyLoginStart(Context, *EmptyRequest) (*WebAuthNOptionsResponse, error)
 	PostV1AuthPasskeyLoginFinish(Context, *WebAuthNFinishRequest) (*LoginResponse, error)
 	PostV1StateStream(Context) iter.Seq2[*State, error]
+	GetV1GlobalState(Context) (*GlobalState, error)
+	PostV1DeploymentState(Context, *DeploymentStateRequest) (*DeploymentState, error)
 	PostV1DeploymentUpdate(Context, *DeploymentUpdateRequest) (*DeploymentConfig, error)
 	PostV1DeploymentUpgradeAll(Context, *DeploymentUpgradeAllRequest) (*DeploymentConfig, error)
 	PostV1DeploymentDelete(Context, *DeploymentDeleteRequest) error
@@ -267,6 +269,23 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		stream.Finish(authCtx, streamErr)
 	}
 	m.HandleFunc("POST /v1/state/stream", buildHandlerFunc(config, verifyAuth, postV1StateStreamAccessPolicy, postAuthHandlerPostV1StateStream, compressionModeAuto, true))
+	getV1GlobalStateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerGetV1GlobalState := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		res, err := h.GetV1GlobalState(authCtx)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("GET /v1/global-state", buildHandlerFunc(config, verifyAuth, getV1GlobalStateAccessPolicy, postAuthHandlerGetV1GlobalState, compressionModeAuto, false))
+	postV1DeploymentStateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1DeploymentState := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentStateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1DeploymentState(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/deployment-state", buildHandlerFunc(config, verifyAuth, postV1DeploymentStateAccessPolicy, postAuthHandlerPostV1DeploymentState, compressionModeAuto, false))
 	postV1DeploymentUpdateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1DeploymentUpdate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentUpdateRequest)

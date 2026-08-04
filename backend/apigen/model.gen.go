@@ -825,6 +825,23 @@ type SpaceList struct {
 	Items []*Space `json:"items,omitempty"`
 }
 
+type GlobalState struct {
+	Spaces            *SpaceList                `json:"spaces"`
+	Assets            *AssetList                `json:"assets"`
+	Configs           *UserConfigList           `json:"configs"`
+	Secrets           *SecretList               `json:"secrets"`
+	DeploymentConfigs *DeploymentConfigSnapshot `json:"deployment_configs"`
+}
+
+type DeploymentStateRequest struct {
+	ID int32 `json:"id"`
+}
+
+type DeploymentState struct {
+	Config    *DeploymentConfig          `json:"config"`
+	Instances *ScheduledInstanceSnapshot `json:"instances"`
+}
+
 type SpaceSetRequest struct {
 	ID   int32  `json:"id"`
 	Name string `json:"name,omitempty"`

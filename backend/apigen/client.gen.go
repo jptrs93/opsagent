@@ -328,6 +328,41 @@ func (c *OpsagentHttpV1Capi) PostV1StateStream(ctx context.Context) iter.Seq2[*S
 	}
 }
 
+func (c *OpsagentHttpV1Capi) GetV1GlobalState(ctx context.Context) (*GlobalState, error) {
+	resp, err := c.do(ctx, "GET", "/v1/global-state", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeGlobalState(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1DeploymentState(ctx context.Context, req *DeploymentStateRequest) (*DeploymentState, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1DeploymentState request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/deployment-state", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeDeploymentState(body)
+}
+
 func (c *OpsagentHttpV1Capi) PostV1DeploymentUpdate(ctx context.Context, req *DeploymentUpdateRequest) (*DeploymentConfig, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1DeploymentUpdate request is nil")

@@ -68,6 +68,16 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc GetV1GlobalState(cp.Empty) returns (GlobalState) {
+    option (cp.url) = "/v1/global-state";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1DeploymentState(DeploymentStateRequest) returns (DeploymentState) {
+    option (cp.url) = "/v1/deployment-state";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   // Deployment updates (deploy, stop, etc.)
   rpc PostV1DeploymentUpdate(DeploymentUpdateRequest) returns (DeploymentConfig) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
