@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -28,6 +29,16 @@ func validateUploadAssetName(raw string) (string, error) {
 		return "", apigen.NewApiErr("Asset name is invalid", "asset_name_invalid", http.StatusBadRequest)
 	}
 	return name, nil
+}
+
+// uploadTargetKey returns the explicit key an upload is aimed at, or "" when the
+// caller sent none and wants a new asset instead.
+func uploadTargetKey(query url.Values) (string, error) {
+	raw := strings.TrimSpace(query.Get("key"))
+	if raw == "" {
+		return "", nil
+	}
+	return validateUploadAssetName(raw)
 }
 
 func (h *Handler) uniqueAssetName(name, allowedExistingKey string) string {
@@ -89,25 +100,46 @@ func (h *Handler) PostV1AssetsSet(ctx apigen.Context, req *apigen.AssetSetReques
 
 func (h *Handler) PostV1AssetsUpload(ctx apigen.Context, request *http.Request, writer http.ResponseWriter) error {
 	query := request.URL.Query()
-	name, err := validateUploadAssetName(query.Get("name"))
-	if err != nil && strings.TrimSpace(query.Get("key")) != "" {
-		name, err = validateUploadAssetName(query.Get("key"))
-	}
+	// The two name params mean different things. "key" targets an exact asset and
+	// writes the next version of it, so uploads can update. "name" asks for a new
+	// asset and gets a numeric suffix if that name is taken, which is what the
+	// web UI's file picker wants.
+	key, err := uploadTargetKey(query)
 	if err != nil {
 		return err
 	}
-	key := h.uniqueAssetName(name, "")
-	format := strings.TrimSpace(query.Get("format"))
-	if format == "" {
-		format = "text"
+	if key == "" {
+		name, nameErr := validateUploadAssetName(query.Get("name"))
+		if nameErr != nil {
+			return nameErr
+		}
+		key = h.uniqueAssetName(name, "")
 	}
+	format := strings.TrimSpace(query.Get("format"))
 	var spaceID int32
+	spaceIDGiven := false
 	if rawSpaceID := strings.TrimSpace(query.Get("space_id")); rawSpaceID != "" {
 		parsed, parseErr := strconv.ParseInt(rawSpaceID, 10, 32)
 		if parseErr != nil {
 			return apigen.NewApiErr("Asset space ID is invalid", "asset_space_id_invalid", http.StatusBadRequest)
 		}
 		spaceID = int32(parsed)
+		spaceIDGiven = true
+	}
+	// A new version inherits the format and space of the one it replaces. Falling
+	// through to the create-time defaults instead would retype an nginx asset as
+	// text and move it to the default space, neither of which the caller asked
+	// for by omitting a query param.
+	if existing, ok := h.Store.GetAsset(key, 0); ok {
+		if format == "" {
+			format = existing.Format
+		}
+		if !spaceIDGiven {
+			spaceID = existing.SpaceID
+		}
+	}
+	if format == "" {
+		format = "text"
 	}
 	if request.ContentLength < 0 {
 		return apigen.NewApiErr("Asset upload requires a Content-Length header", "asset_upload_content_length_required", http.StatusBadRequest)
