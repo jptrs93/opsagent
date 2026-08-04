@@ -7,8 +7,12 @@ import {formatHistoryTime} from "../lib/date.js";
 const {button, code, div, h2, p, span} = van.tags;
 
 export const TOKEN_ENV_VAR = "OPENDEPLOY_TOKEN";
+export const URL_ENV_VAR = "OPENDEPLOY_URL";
 
-export const exportLine = (token) => `export ${TOKEN_ENV_VAR}=${token}`;
+// The API is served from the same origin as this page, so the address the
+// operator is already browsing is the one their shell needs.
+export const exportLines = (token, url) =>
+    `export ${URL_ENV_VAR}=${url}\nexport ${TOKEN_ENV_VAR}=${token}`;
 
 export function apiTokenGenerator() {
     const token = van.state("");
@@ -34,7 +38,7 @@ export function apiTokenGenerator() {
     const copy = async () => {
         if (!token.val) return;
         try {
-            await navigator.clipboard.writeText(exportLine(token.val));
+            await navigator.clipboard.writeText(exportLines(token.val, window.location.origin));
             copied.val = true;
             setTimeout(() => copied.val = false, 2000);
         } catch {
@@ -49,7 +53,7 @@ export function apiTokenGenerator() {
             div(
                 h2({class: "font-semibold"}, "Command-line token"),
                 p({class: "mt-1 text-xs text-gray-400"},
-                    "Generates a bearer token valid for 12 hours, with the same access as your current session."),
+                    "Generates a bearer token valid for 12 hours. It carries your session's access except for secret values, which it can list but not reveal or change."),
             ),
             spinnerButton(
                 () => token.val ? "Regenerate" : "Generate token",
@@ -82,7 +86,7 @@ export function apiTokenGenerator() {
                     class: "app-scroll-x block overflow-x-auto whitespace-pre rounded bg-gray-950 p-3 text-xs text-gray-200",
                     "data-testid": "api-token-export",
                 },
-                () => exportLine(token.val),
+                () => exportLines(token.val, window.location.origin),
             ),
             p({class: "mt-2 text-xs text-gray-500"},
                 "Store it somewhere safe - it is not recoverable after you leave this page."),

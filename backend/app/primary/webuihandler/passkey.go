@@ -137,11 +137,11 @@ func (h *Handler) PostV1AuthPasskeyRegisterFinish(ctx apigen.Context, req *apige
 		return nil, apigen.NewApiErr("bad credentials", fmt.Sprintf("err=%v", err), http.StatusBadRequest)
 	}
 	expiry := time.Now().Add(defaultSessionTokenTTL)
-	token, err := h.jwtAuth.GenerateTokenWith(ctx.User.ID, []string{"default"}, defaultSessionTokenTTL)
+	token, err := h.jwtAuth.GenerateTokenWith(ctx.User.ID, defaultUserScopes, defaultSessionTokenTTL)
 	if err != nil {
 		return nil, err
 	}
-	return newLoginResponse(ctx.User, token, []string{"default"}, expiry), nil
+	return newLoginResponse(ctx.User, token, defaultUserScopes, expiry), nil
 }
 
 func (h *Handler) PostV1AuthPasskeyLoginStart(ctx apigen.Context, _ *apigen.EmptyRequest) (*apigen.WebAuthNOptionsResponse, error) {
@@ -158,9 +158,9 @@ func (h *Handler) PostV1AuthPasskeyLoginFinish(ctx apigen.Context, req *apigen.W
 		return nil, apigen.NewApiErr("bad credentials", fmt.Sprintf("err=%v", err), http.StatusBadRequest)
 	}
 	expiry := time.Now().Add(defaultSessionTokenTTL)
-	token, err := h.jwtAuth.GenerateTokenWith(user.ID, []string{"default"}, defaultSessionTokenTTL)
+	token, err := h.jwtAuth.GenerateTokenWith(user.ID, defaultUserScopes, defaultSessionTokenTTL)
 	if err != nil {
 		return nil, err
 	}
-	return newLoginResponse(user, token, []string{"default"}, expiry), nil
+	return newLoginResponse(user, token, defaultUserScopes, expiry), nil
 }

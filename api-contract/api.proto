@@ -174,26 +174,31 @@ service OpsagentHttpV1 {
   // Secrets management. List yields names + metadata only; the decrypted value
   // is returned solely by the explicit Reveal call. Referenced from deployment
   // env via typed secretId references.
+  //
+  // Anything that reveals or changes a secret value requires the separate
+  // "secrets_access" scope, which browser sessions get but generated API tokens
+  // do not. Metadata reads stay on "default" so a token without secrets_access
+  // can still discover secret ids and reference them from deployment env.
   rpc PostV1SecretsList(EmptyRequest) returns (SecretList) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
   rpc PostV1SecretsSet(SecretSetRequest) returns (SecretMeta) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
   }
 
   rpc PostV1SecretsRename(SecretRenameRequest) returns (SecretMeta) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
   }
 
   // Return the decrypted value of a single secret, on explicit operator
   // request. This is the only endpoint that returns a plaintext value.
   rpc PostV1SecretsReveal(SecretRevealRequest) returns (SecretRevealResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
   }
 
   rpc PostV1SecretsDelete(SecretDeleteRequest) returns (cp.Empty) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
   }
 
   // Lock/recovery state of the secrets store (for the UI).
@@ -204,13 +209,13 @@ service OpsagentHttpV1 {
   // Generate (or rotate) the break-glass recovery code. The code is returned
   // exactly once in the response and is never stored in plaintext.
   rpc PostV1SecretsGenerateRecoveryCode(EmptyRequest) returns (SecretRecoveryCodeResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
   }
 
   // Unlock a locked secrets store on a freshly recovered machine using the
   // recovery code; re-establishes the local machine key.
   rpc PostV1SecretsUnlock(SecretUnlockRequest) returns (SecretsStatusResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
   }
 
   // Plain user-managed configuration values. These are not encrypted at rest

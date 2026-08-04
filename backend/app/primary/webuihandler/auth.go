@@ -16,6 +16,21 @@ import (
 	"github.com/jptrs93/opsagent/backend/util/jwtu"
 )
 
+const (
+	// ScopePasskeyCreate is the bootstrap scope, good only for enrolling a passkey.
+	ScopePasskeyCreate = "passkey:create"
+	// ScopeDefault covers ordinary operator access: deployments, assets, configs,
+	// and secret metadata.
+	ScopeDefault = "default"
+	// ScopeSecretsAccess additionally permits revealing and changing secret
+	// values. Held separately so it can be withheld from generated API tokens.
+	ScopeSecretsAccess = "secrets_access"
+)
+
+// defaultUserScopes is what a passkey login grants. Operators get full access in
+// the browser, where the session is bound to a physical authenticator.
+var defaultUserScopes = []string{ScopeDefault, ScopeSecretsAccess}
+
 var InvalidAuthTokenErr = apigen.NewApiErr("Unauthorized", "auth_invalid_token", http.StatusUnauthorized)
 var InvalidMasterPasswordErr = apigen.NewApiErr("", "invalid_master_password", http.StatusUnauthorized)
 var MasterPasswordNotConfiguredErr = apigen.NewApiErr("", "master_password_not_configured", http.StatusServiceUnavailable)
@@ -57,11 +72,11 @@ func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswor
 	} else if err != nil {
 		return nil, err
 	}
-	token, err := h.jwtAuth.GenerateTokenWith(user.ID, []string{"passkey:create"}, 10*time.Minute)
+	token, err := h.jwtAuth.GenerateTokenWith(user.ID, []string{ScopePasskeyCreate}, 10*time.Minute)
 	if err != nil {
 		return nil, err
 	}
-	return newLoginResponse(user, token, []string{"passkey:create"}, time.Now().Add(10*time.Minute)), nil
+	return newLoginResponse(user, token, []string{ScopePasskeyCreate}, time.Now().Add(10*time.Minute)), nil
 }
 
 func (h *Handler) verifyMasterPassword(password string) error {
@@ -118,15 +133,30 @@ func (h *Handler) GetV1AuthCurrentSession(ctx apigen.Context) (*apigen.LoginResp
 // shells and end up in history files and CI logs.
 const apiTokenTTL = 12 * time.Hour
 
+// apiTokenScopes narrows a session's scopes to what a command-line token may
+// carry. Secret values are the one thing withheld: these tokens live for 12
+// hours in shell history, environment files, and CI logs, which is a much wider
+// blast radius than the browser session they were minted from.
+func apiTokenScopes(sessionScopes []string) []string {
+	out := make([]string, 0, len(sessionScopes))
+	for _, scope := range sessionScopes {
+		if scope == ScopeSecretsAccess {
+			continue
+		}
+		out = append(out, scope)
+	}
+	return out
+}
+
 // PostV1AuthTokenGenerate mints a bearer token for command-line use. The token
-// carries the caller's own scopes rather than a fixed list, so it can never
+// carries the caller's own scopes minus the withheld ones, so it can never
 // grant more than the session that requested it.
 func (h *Handler) PostV1AuthTokenGenerate(ctx apigen.Context) (*apigen.ApiTokenResponse, error) {
 	claims, user, err := h.jwtAuth.VerifyAndResolveUser(ctx.Token)
 	if err != nil {
 		return nil, InvalidAuthTokenErr
 	}
-	scopes := jwtu.ScopesFromClaims(claims)
+	scopes := apiTokenScopes(jwtu.ScopesFromClaims(claims))
 	if len(scopes) == 0 {
 		return nil, InvalidAuthTokenErr
 	}

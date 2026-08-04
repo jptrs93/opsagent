@@ -43,16 +43,18 @@ Tokens are signed with RSA-256 (RS256) via `github.com/jptrs93/goutil/authu`. Ea
 
 Three token types exist:
 - **Bootstrap token**: scopes `["passkey:create"]`, 10-minute expiry. Issued by master password exchange.
-- **Session token**: scopes `["default"]`, 2-day expiry. Issued by passkey registration or login.
-- **API token**: the caller's own scopes, 12-hour expiry. Issued by `POST /v1/auth/token/generate` for command-line and script use.
+- **Session token**: scopes `["default", "secrets_access"]`, 2-day expiry. Issued by passkey registration or login.
+- **API token**: the caller's scopes minus `secrets_access`, 12-hour expiry. Issued by `POST /v1/auth/token/generate` for command-line and script use.
 
 `GET /v1/auth/current/session` is an authenticated validation endpoint that echoes the caller's current bearer token without minting a new one. The frontend uses it on app startup to confirm persisted auth state and to force re-login on `401`.
 
 ### API tokens (`POST /v1/auth/token/generate`)
 
-Requires an existing `default` scope session. The minted token copies the caller's scopes rather than a fixed list, so it can never grant more access than the session that requested it — a `passkey:create` bootstrap token is rejected with `403` and cannot be traded up into general access. The 12-hour lifetime is deliberately shorter than the 2-day browser session because these tokens get pasted into shells and end up in history files and CI logs.
+Requires an existing `default` scope session. The minted token derives from the caller's scopes rather than a fixed list, so it can never grant more access than the session that requested it — a `passkey:create` bootstrap token is rejected with `403` and cannot be traded up into general access. The 12-hour lifetime is deliberately shorter than the 2-day browser session because these tokens get pasted into shells and end up in history files and CI logs.
 
-The Users page in the web UI exposes this as a copyable `export OPENDEPLOY_TOKEN=...` line. Tokens are stateless JWTs, so there is no revocation list: an issued token stays valid until it expires. Rotating the signing key invalidates all outstanding tokens, sessions included.
+`secrets_access` is dropped on the way through (`apiTokenScopes`), so an API token can list secret metadata and reference secrets by id from deployment env, but cannot reveal, create, rename, or delete a secret value. Those calls return `403`. This is the one place where an API token is strictly weaker than its parent session, and it is deliberate: the token's longer reach into shell history and CI logs is a poor place to carry the right to read plaintext secrets. An operator who needs to change a secret does it in the browser.
+
+The Users page in the web UI exposes this as a copyable `export OPENDEPLOY_URL=...` / `export OPENDEPLOY_TOKEN=...` pair, with the URL taken from the page's own origin. Tokens are stateless JWTs, so there is no revocation list: an issued token stays valid until it expires. Rotating the signing key invalidates all outstanding tokens, sessions included.
 
 Public keys are persisted in the SQLite `public_keys` table keyed by `kid`. Key rotation is handled by the `authu` package.
 
@@ -90,6 +92,13 @@ Credentials are persisted inside each user's `data_blob` column in the SQLite `u
 Each route in `api.proto` declares an `AccessPolicy`:
 - `NO_AUTH`: no token required.
 - `ANY_OF`: requires a valid JWT with at least one of the listed scopes.
+
+Scopes in use:
+- `passkey:create` — enroll a passkey, nothing else.
+- `default` — ordinary operator access: deployments, assets, configs, spaces, and secret *metadata*.
+- `secrets_access` — additionally reveal and change secret values. Gates `PostV1SecretsSet`, `Rename`, `Reveal`, `Delete`, `GenerateRecoveryCode`, and `Unlock`. `PostV1SecretsList` and `PostV1SecretsStatus` stay on `default` so metadata reads survive without it.
+
+Because `ANY_OF` is a disjunction, a secrets-gated route lists `secrets_access` alone — adding `default` beside it would defeat the split.
 
 Enforcement happens in `VerifyAuth` before the handler runs:
 1. Read the route's policy from the generated mux.

@@ -526,7 +526,7 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/secrets/list", buildHandlerFunc(config, verifyAuth, postV1SecretsListAccessPolicy, postAuthHandlerPostV1SecretsList, compressionModeAuto, false))
-	postV1SecretsSetAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postV1SecretsSetAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"secrets_access"}}
 	postAuthHandlerPostV1SecretsSet := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretSetRequest)
 		if err != nil {
@@ -537,7 +537,7 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/secrets/set", buildHandlerFunc(config, verifyAuth, postV1SecretsSetAccessPolicy, postAuthHandlerPostV1SecretsSet, compressionModeAuto, false))
-	postV1SecretsRenameAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postV1SecretsRenameAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"secrets_access"}}
 	postAuthHandlerPostV1SecretsRename := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretRenameRequest)
 		if err != nil {
@@ -548,7 +548,7 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/secrets/rename", buildHandlerFunc(config, verifyAuth, postV1SecretsRenameAccessPolicy, postAuthHandlerPostV1SecretsRename, compressionModeAuto, false))
-	postV1SecretsRevealAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postV1SecretsRevealAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"secrets_access"}}
 	postAuthHandlerPostV1SecretsReveal := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretRevealRequest)
 		if err != nil {
@@ -559,7 +559,7 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/secrets/reveal", buildHandlerFunc(config, verifyAuth, postV1SecretsRevealAccessPolicy, postAuthHandlerPostV1SecretsReveal, compressionModeAuto, false))
-	postV1SecretsDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postV1SecretsDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"secrets_access"}}
 	postAuthHandlerPostV1SecretsDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretDeleteRequest)
 		if err != nil {
@@ -585,7 +585,7 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/secrets/status", buildHandlerFunc(config, verifyAuth, postV1SecretsStatusAccessPolicy, postAuthHandlerPostV1SecretsStatus, compressionModeAuto, false))
-	postV1SecretsGenerateRecoveryCodeAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postV1SecretsGenerateRecoveryCodeAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"secrets_access"}}
 	postAuthHandlerPostV1SecretsGenerateRecoveryCode := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)
 		if err != nil {
@@ -596,7 +596,7 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/secrets/generate/recovery/code", buildHandlerFunc(config, verifyAuth, postV1SecretsGenerateRecoveryCodeAccessPolicy, postAuthHandlerPostV1SecretsGenerateRecoveryCode, compressionModeAuto, false))
-	postV1SecretsUnlockAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postV1SecretsUnlockAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"secrets_access"}}
 	postAuthHandlerPostV1SecretsUnlock := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretUnlockRequest)
 		if err != nil {
