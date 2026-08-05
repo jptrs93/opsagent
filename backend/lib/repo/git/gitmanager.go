@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -43,6 +44,9 @@ type VersionDiscovery struct {
 var fullCommitHashPattern = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
 var credentialURLPattern = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^/\s]*@`)
 
+// githubCloneURLPrefix scopes the injected Authorization header in githubAuthEnv.
+const githubCloneURLPrefix = "https://github.com/"
+
 type Manager struct {
 	cacheDir    string
 	credentials githubcredentials.Provider
@@ -53,15 +57,14 @@ func NewManager(cacheDir string, provider githubcredentials.Provider) *Manager {
 	return &Manager{cacheDir: cacheDir, credentials: provider}
 }
 
-func (g *Manager) ResolveCloneURL(ctx context.Context, repoURL string) (string, error) {
-	creds, err := g.credentials.LoadCredentials(ctx)
-	if err != nil {
-		return "", err
-	}
-	return resolveCloneURL(repoURL, creds.Token)
+// ResolveCloneURL normalizes a repository reference into a credential-free
+// clone URL. The GitHub token is supplied out of band by gitEnv, so the URL is
+// safe to persist in .git/config and to pass as a command-line argument.
+func (g *Manager) ResolveCloneURL(repoURL string) (string, error) {
+	return resolveCloneURL(repoURL)
 }
 
-func resolveCloneURL(repoURL string, githubToken string) (string, error) {
+func resolveCloneURL(repoURL string) (string, error) {
 	repoURL = strings.TrimSpace(repoURL)
 	if repoURL == "" {
 		return "", fmt.Errorf("repo is required")
@@ -73,7 +76,7 @@ func resolveCloneURL(repoURL string, githubToken string) (string, error) {
 		return repoURL, nil
 	}
 	if strings.HasPrefix(repoURL, "git@") {
-		return injectGithubToken(repoURL, githubToken)
+		return repoURL, nil
 	}
 	if strings.Contains(repoURL, "://") {
 		u, err := url.Parse(repoURL)
@@ -81,35 +84,69 @@ func resolveCloneURL(repoURL string, githubToken string) (string, error) {
 			u.Path += ".git"
 			repoURL = u.String()
 		}
-		return injectGithubToken(repoURL, githubToken)
+		return repoURL, nil
 	}
 
 	parts := strings.Split(repoURL, "/")
 	if len(parts) < 3 || parts[0] == "" {
 		return "", fmt.Errorf("cannot parse git repo from %q", redactCredentialURLs(repoURL))
 	}
-	cloneURL := "https://" + strings.TrimSuffix(repoURL, ".git") + ".git"
-	return injectGithubToken(cloneURL, githubToken)
+	return "https://" + strings.TrimSuffix(repoURL, ".git") + ".git", nil
 }
 
-func injectGithubToken(cloneURL string, githubToken string) (string, error) {
-	if githubToken == "" || strings.HasPrefix(cloneURL, "git@") {
-		return cloneURL, nil
-	}
-	u, err := url.Parse(cloneURL)
-	if err != nil || u.Host != "github.com" || u.Scheme != "https" {
-		return cloneURL, nil
-	}
-	u.User = url.UserPassword("x-access-token", githubToken)
-	return u.String(), nil
-}
-
-func (g *Manager) FetchRepoInfo(ctx context.Context, repoURL string) (*RepoInfo, error) {
-	cloneURL, err := g.ResolveCloneURL(ctx, repoURL)
+// gitEnv builds the environment for a git invocation. Every git command runs
+// with it so that credential handling is uniform and cannot be omitted at an
+// individual call site.
+func (g *Manager) gitEnv(ctx context.Context) ([]string, error) {
+	creds, err := g.credentials.LoadCredentials(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out, err := exec.CommandContext(ctx, "git", "ls-remote", "--symref", cloneURL, "HEAD").Output()
+	parent := os.Environ()
+	env := make([]string, 0, len(parent)+4)
+	for _, entry := range parent {
+		// Drop inherited values so an ambient GIT_CONFIG_COUNT cannot displace
+		// or renumber the settings below.
+		if strings.HasPrefix(entry, "GIT_CONFIG_") || strings.HasPrefix(entry, "GIT_TERMINAL_PROMPT=") {
+			continue
+		}
+		env = append(env, entry)
+	}
+	// A missing or rejected token must fail the command rather than block on an
+	// interactive credential prompt.
+	env = append(env, "GIT_TERMINAL_PROMPT=0")
+	return append(env, githubAuthEnv(creds.Token)...), nil
+}
+
+// githubAuthEnv supplies the GitHub token as a github.com-scoped Authorization
+// header through GIT_CONFIG_* rather than embedding it in the clone URL.
+//
+// A credential in the URL is written to .git/config by clone and remote
+// set-url, leaving the token at rest inside the checkout that Nix builds read.
+// A credential passed as a command-line argument is readable by every local
+// user through /proc/<pid>/cmdline. Neither applies here: the environment of a
+// process is readable only by its own user, and nothing below reaches disk.
+//
+// Scoping the header to https://github.com/ keeps it off requests to any other
+// host. Requires git 2.31 or newer for GIT_CONFIG_COUNT.
+func githubAuthEnv(token string) []string {
+	if token == "" {
+		return nil
+	}
+	credential := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+	return []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http." + githubCloneURLPrefix + ".extraHeader",
+		"GIT_CONFIG_VALUE_0=Authorization: Basic " + credential,
+	}
+}
+
+func (g *Manager) FetchRepoInfo(ctx context.Context, repoURL string) (*RepoInfo, error) {
+	cloneURL, err := g.ResolveCloneURL(repoURL)
+	if err != nil {
+		return nil, err
+	}
+	out, err := g.runGitStdout(ctx, "ls-remote", "--symref", cloneURL, "HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("ls-remote %s: %w", redactCredentialURLs(repoURL), err)
 	}
@@ -132,11 +169,11 @@ func (g *Manager) FetchRepoInfo(ctx context.Context, repoURL string) (*RepoInfo,
 }
 
 func (g *Manager) ListBranches(ctx context.Context, repoURL string) ([]string, error) {
-	cloneURL, err := g.ResolveCloneURL(ctx, repoURL)
+	cloneURL, err := g.ResolveCloneURL(repoURL)
 	if err != nil {
 		return nil, err
 	}
-	out, err := exec.CommandContext(ctx, "git", "ls-remote", "--heads", cloneURL).Output()
+	out, err := g.runGitStdout(ctx, "ls-remote", "--heads", cloneURL)
 	if err != nil {
 		return nil, fmt.Errorf("ls-remote --heads %s: %w", redactCredentialURLs(repoURL), err)
 	}
@@ -353,7 +390,7 @@ func (g *Manager) EnsureCheckout(ctx context.Context, repoURL string, ref string
 	if err != nil {
 		return "", err
 	}
-	cloneURL, err := g.ResolveCloneURL(ctx, repoURL)
+	cloneURL, err := g.ResolveCloneURL(repoURL)
 	if err != nil {
 		return "", err
 	}
@@ -389,7 +426,7 @@ func (g *Manager) EnsureCheckout(ctx context.Context, repoURL string, ref string
 }
 
 func (g *Manager) ensureMetadataRepo(ctx context.Context, repoURL string) (string, error) {
-	cloneURL, err := g.ResolveCloneURL(ctx, repoURL)
+	cloneURL, err := g.ResolveCloneURL(repoURL)
 	if err != nil {
 		return "", err
 	}
@@ -440,6 +477,11 @@ func (g *Manager) runGit(ctx context.Context, dir string, args ...string) (strin
 	if dir != "" {
 		cmd.Dir = dir
 	}
+	env, err := g.gitEnv(ctx)
+	if err != nil {
+		return "", err
+	}
+	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		cmdStr := sanitizeCommandForLogs("git", args)
@@ -450,6 +492,18 @@ func (g *Manager) runGit(ctx context.Context, dir string, args ...string) (strin
 		return string(out), fmt.Errorf("%s: %w: %s", cmdStr, err, strings.TrimSpace(msg))
 	}
 	return string(out), nil
+}
+
+// runGitStdout runs git for callers that parse stdout and must not have stderr
+// interleaved into it.
+func (g *Manager) runGitStdout(ctx context.Context, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	env, err := g.gitEnv(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cmd.Env = env
+	return cmd.Output()
 }
 
 func (g *Manager) metadataDir(repoURL string) string {

@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,30 +31,93 @@ func TestManagerResolveCloneURLNormalizesGithubRepo(t *testing.T) {
 		{
 			name: "bare github host path",
 			repo: "github.com/acme/widget",
-			want: "https://x-access-token:secret@github.com/acme/widget.git",
+			want: "https://github.com/acme/widget.git",
 		},
 		{
 			name: "https url",
 			repo: "https://github.com/acme/widget",
-			want: "https://x-access-token:secret@github.com/acme/widget.git",
+			want: "https://github.com/acme/widget.git",
 		},
 		{
 			name: "https url with git suffix",
 			repo: "https://github.com/acme/widget.git",
-			want: "https://x-access-token:secret@github.com/acme/widget.git",
+			want: "https://github.com/acme/widget.git",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewManager("", testGithubCredentialsProvider{token: "secret"}).ResolveCloneURL(context.Background(), tt.repo)
+			got, err := NewManager("", testGithubCredentialsProvider{token: "secret"}).ResolveCloneURL(tt.repo)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if got != tt.want {
 				t.Fatalf("ResolveCloneURL() = %q, want %q", got, tt.want)
 			}
+			if strings.Contains(got, "secret") {
+				t.Fatalf("ResolveCloneURL() = %q, must not embed the token", got)
+			}
 		})
+	}
+}
+
+// The clone URL reaches .git/config through clone and remote set-url, and the
+// process table through argv, so the token must never appear in it.
+func TestResolveCloneURLNeverCarriesCredentials(t *testing.T) {
+	repos := []string{
+		"github.com/acme/widget",
+		"https://github.com/acme/widget",
+		"https://github.com/acme/widget.git",
+		"git@github.com:acme/widget.git",
+	}
+	for _, repo := range repos {
+		got, err := NewManager("", testGithubCredentialsProvider{token: "secret"}).ResolveCloneURL(repo)
+		if err != nil {
+			t.Fatalf("ResolveCloneURL(%q): %v", repo, err)
+		}
+		if strings.Contains(got, "secret") || strings.Contains(got, "x-access-token") {
+			t.Errorf("ResolveCloneURL(%q) = %q, want no credential", repo, got)
+		}
+	}
+}
+
+func TestGithubAuthEnvScopesTokenToGithub(t *testing.T) {
+	env := githubAuthEnv("secret")
+	want := []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http.https://github.com/.extraHeader",
+		"GIT_CONFIG_VALUE_0=Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:secret")),
+	}
+	if !slices.Equal(env, want) {
+		t.Fatalf("githubAuthEnv() = %q, want %q", env, want)
+	}
+}
+
+func TestGithubAuthEnvEmptyWithoutToken(t *testing.T) {
+	if env := githubAuthEnv(""); len(env) != 0 {
+		t.Fatalf("githubAuthEnv(\"\") = %q, want empty", env)
+	}
+}
+
+// An ambient GIT_CONFIG_COUNT would otherwise renumber or displace the injected
+// header, and an inherited prompt setting would let git block on stdin.
+func TestGitEnvOverridesInheritedGitConfig(t *testing.T) {
+	t.Setenv("GIT_CONFIG_COUNT", "7")
+	t.Setenv("GIT_CONFIG_KEY_0", "http.proxy")
+	t.Setenv("GIT_TERMINAL_PROMPT", "1")
+
+	env, err := NewManager("", testGithubCredentialsProvider{token: "secret"}).gitEnv(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(env, "GIT_CONFIG_COUNT=7") || slices.Contains(env, "GIT_CONFIG_KEY_0=http.proxy") {
+		t.Fatalf("gitEnv() kept inherited git config: %q", env)
+	}
+	if !slices.Contains(env, "GIT_CONFIG_COUNT=1") {
+		t.Fatalf("gitEnv() = %q, want injected GIT_CONFIG_COUNT=1", env)
+	}
+	if slices.Contains(env, "GIT_TERMINAL_PROMPT=1") || !slices.Contains(env, "GIT_TERMINAL_PROMPT=0") {
+		t.Fatalf("gitEnv() = %q, want GIT_TERMINAL_PROMPT=0", env)
 	}
 }
 
