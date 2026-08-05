@@ -1,6 +1,6 @@
 import van from "vanjs-core";
-import {eyeOpenIcon, xIcon} from "../lib/icons.js";
-import {assetEditor} from "./assetEditor.js";
+import {editIcon, eyeOpenIcon, refreshIcon, xIcon} from "../lib/icons.js";
+import {assetEditorOverlay} from "./assetEditor.js";
 import {referencePicker} from "./referencePicker.js";
 import {
     SOURCE_DOCKER_IMAGE,
@@ -41,6 +41,14 @@ const stateValue = (value) => value && typeof value === 'object' && 'val' in val
 const configurationPaneClass = open => open
     ? "w-full md:w-2/3 shrink-0 border-l border-gray-700 flex flex-col"
     : "hidden";
+
+// Asset / container path / mode / actions. Shared by the mounted-assets header
+// and every mount row so the columns stay aligned without a real <table>.
+const ASSET_MOUNT_GRID = "grid grid-cols-[minmax(6rem,1fr)_minmax(7rem,1.5fr)_6.5rem_auto] items-center gap-2";
+const assetMountSelectClass = "h-8 w-full min-w-0 rounded-sm border border-gray-700 bg-gray-800 px-2 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand";
+const assetMountInputClass = "h-8 w-full min-w-0 rounded-sm border border-gray-700 bg-gray-800 px-2 font-mono text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand";
+const assetMountIconButtonClass = "rounded p-1.5 text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-100 disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent cursor-pointer";
+const assetMountHeaderCellClass = "text-[10px] font-medium uppercase tracking-wide text-gray-500";
 
 let nextEnvID = 1;
 let nextAssetMountID = 1;
@@ -405,9 +413,6 @@ function makeFormState(values) {
         upgradeStrategyPaneOpen: van.state(false),
         resourcesPaneOpen: van.state(false),
         networkingPaneOpen: van.state(false),
-        assetEditorOpen: van.state(false),
-        assetEditorMountID: van.state(0),
-        assetEditorKey: van.state(''),
         identitySectionOpen: van.state(values.identitySectionOpen ?? true),
         sourceSectionOpen: van.state(values.sourceSectionOpen ?? true),
         runtimeSectionOpen: van.state(values.runtimeSectionOpen ?? true),
@@ -1061,7 +1066,7 @@ function rowAssetOptionValue(row) {
 }
 
 function assetOptionLabel(asset) {
-    const suffix = asset.selectedOnly ? ' (selected)' : '';
+    const suffix = asset.selectedOnly ? ' (older)' : '';
     return `${asset.key} v${asset.version || '?'}${suffix}`;
 }
 
@@ -1089,20 +1094,13 @@ function assetPreviewButton(assetValue, onPreview, positionClass = 'right-1') {
     }, eyeOpenIcon({size: 15}));
 }
 
-function assetSelectWithPreview({assetOptions, selectedValue, selectedAsset, onSelect, onPreview}) {
-    return div(
-        {class: 'relative'},
-        select({
-            class: `${selectClass()} !pr-16 ${assetOptions.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`,
-            disabled: assetOptions.length === 0,
-            value: selectedValue,
-            onchange: e => onSelect(e.target.value),
-        },
-            option({value: '', disabled: true, selected: !selectedValue || assetOptions.length === 0}, assetOptions.length ? "Select an asset..." : "No assets defined"),
-            ...assetOptions.map(asset => option({value: assetOptionValue(asset), selected: assetOptionValue(asset) === selectedValue}, assetOptionLabel(asset))),
-        ),
-        assetPreviewButton(selectedAsset, onPreview, 'right-7'),
-    );
+function latestAssetVersionForKey(assets, key) {
+    let latest = 0;
+    for (const asset of assets || []) {
+        if ((asset?.key || '') !== key) continue;
+        latest = Math.max(latest, Number(asset.version || 0));
+    }
+    return latest;
 }
 
 function versionedAssetOptions(assets, selectedID) {
@@ -1149,11 +1147,8 @@ export function assetMountsPane(form, opts = {}) {
             executable: Boolean(row.originalExecutable),
         });
     };
-    const openAssetEditor = (row) => {
-        form.assetEditorMountID.val = row.id;
-        form.assetEditorKey.val = '';
-        form.assetEditorOpen.val = true;
-        closeRuntimePanes(form, 'assetEditor');
+    const editAsset = (mountID, asset) => {
+        if (typeof opts.editAsset === 'function') opts.editAsset({mountID, asset: asset || null});
     };
     const onAssetSelect = (row, value) => {
         const match = assetOptionsForRow(assets(), row).find(a => assetOptionValue(a) === value);
@@ -1165,51 +1160,80 @@ export function assetMountsPane(form, opts = {}) {
         const assetOptions = assetOptionsForRow(assets(), row);
         const selectedValue = rowAssetOptionValue(row);
         const selectedAsset = assetOptions.find(asset => assetOptionValue(asset) === selectedValue);
+        const missing = newInvalidAssetMount(row, assets());
         return div(
-            {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
-            div(
-                {class: "grid grid-cols-1 md:grid-cols-3 gap-3"},
-                field("Asset", assetSelectWithPreview({
-                    assetOptions,
-                    selectedValue,
-                    selectedAsset,
-                    onSelect: value => onAssetSelect(row, value),
-                    onPreview: opts.previewAsset,
-                })),
-            field("Container path", input({
-                class: textInputClass(true),
+            {class: `${ASSET_MOUNT_GRID} rounded-sm px-2 py-1 ${missing ? 'bg-amber-500/5 ring-1 ring-amber-500/40' : 'hover:bg-gray-800/40'}`},
+            select({
+                class: `${assetMountSelectClass} ${assetOptions.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`,
+                disabled: assetOptions.length === 0,
+                value: selectedValue,
+                "aria-label": "Mounted asset",
+                onchange: e => onAssetSelect(row, e.target.value),
+            },
+                option({value: '', disabled: true, selected: !selectedValue || assetOptions.length === 0},
+                    assetOptions.length ? "Select an asset..." : "No assets defined"),
+                ...assetOptions.map(asset => option({
+                    value: assetOptionValue(asset),
+                    selected: assetOptionValue(asset) === selectedValue,
+                }, assetOptionLabel(asset))),
+            ),
+            input({
+                class: assetMountInputClass,
                 placeholder: "/etc/nginx/nginx.conf",
                 value: row.path,
+                "aria-label": "Container path",
                 oninput: e => mutateMount(row, {path: e.target.value}),
                 onchange: e => updateMount(row, {path: e.target.value}),
-            })),
-            field("Mode", select({
-                class: selectClass(),
+            }),
+            select({
+                class: assetMountSelectClass,
                 value: row.executable ? 'executable' : 'readonly',
+                "aria-label": "Mount mode",
                 onchange: e => updateMount(row, {executable: e.target.value === 'executable'}),
             },
                 option({value: 'readonly', selected: !row.executable}, "Read-only"),
-                option({value: 'executable', selected: Boolean(row.executable)}, "Read + execute"),
-            )),
-        ),
-        div({class: "flex items-center justify-between gap-2"},
-            span({class: () => newInvalidAssetMount(row, assets()) ? "text-[11px] text-amber-400" : "text-[11px] text-gray-500"}, () => {
-                if (newInvalidAssetMount(row, assets())) return "No valid asset selected, this mount won't be saved.";
-                return selectedAsset?.version ? `Version ${selectedAsset.version}` : '';
-            }),
-            div({class: "flex items-center gap-3"},
-                () => savedAssetMountEdited(row) ? button({
+                option({value: 'executable', selected: Boolean(row.executable)}, "Read + exec"),
+            ),
+            div(
+                {class: "flex items-center justify-end gap-0.5"},
+                savedAssetMountEdited(row) ? button({
                     type: "button",
-                    class: "text-xs text-gray-400 hover:text-gray-200 cursor-pointer",
+                    class: assetMountIconButtonClass,
+                    title: "Discard changes to this mount",
+                    "aria-label": "Discard changes to this mount",
                     onclick: () => discardMountChanges(row),
-                }, "Discard changes") : '',
+                }, refreshIcon({size: 14})) : '',
+                enableAssetEditor ? button({
+                    type: "button",
+                    class: assetMountIconButtonClass,
+                    // An empty row edits into a brand-new asset, which is what the
+                    // "Create new asset" footer button does for a new row.
+                    title: selectedAsset ? `Edit ${selectedAsset.key}` : "Create a new asset for this mount",
+                    "aria-label": selectedAsset ? `Edit ${selectedAsset.key}` : "Create a new asset for this mount",
+                    onclick: () => editAsset(row.id, selectedAsset),
+                }, editIcon({size: 14})) : '',
                 button({
                     type: "button",
-                    class: "text-xs text-gray-500 hover:text-red-400 cursor-pointer",
+                    class: assetMountIconButtonClass,
+                    disabled: !selectedAsset || typeof opts.previewAsset !== 'function',
+                    title: selectedAsset ? `Preview ${selectedAsset.key}` : "Select an asset to preview",
+                    "aria-label": selectedAsset ? `Preview ${selectedAsset.key}` : "Preview mounted asset",
+                    onclick: () => { if (selectedAsset) opts.previewAsset(selectedAsset); },
+                }, eyeOpenIcon({size: 14})),
+                // A cross, not a bin: this unmounts the asset from this
+                // deployment, it does not delete the asset.
+                button({
+                    type: "button",
+                    class: `${assetMountIconButtonClass} hover:text-red-400`,
+                    title: selectedAsset ? `Unmount ${selectedAsset.key} from this deployment` : "Remove this mount",
+                    "aria-label": selectedAsset ? `Unmount ${selectedAsset.key} from this deployment` : "Remove this mount",
                     onclick: () => removeMount(row),
-                }, "Remove"),
+                }, xIcon({size: 14})),
             ),
-        ),
+            missing ? div(
+                {class: "col-span-4 pt-0.5 text-[11px] text-amber-400"},
+                "No valid asset selected, this mount won't be saved.",
+            ) : '',
         );
     };
     return div(
@@ -1225,9 +1249,25 @@ export function assetMountsPane(form, opts = {}) {
             }, xIcon({size: 16})),
         ),
         div(
-            {class: "app-scroll flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-4"},
-            () => div({class: "flex flex-col gap-3"}, ...rows().map(rowEl)),
-            div({class: "flex items-center justify-between gap-2"},
+            {class: "app-scroll flex-1 min-h-0 overflow-auto flex flex-col gap-2 p-4"},
+            div(
+                {class: `${ASSET_MOUNT_GRID} px-2 pb-1`},
+                span({class: assetMountHeaderCellClass}, "Asset"),
+                span({class: assetMountHeaderCellClass}, "Container path"),
+                span({class: assetMountHeaderCellClass}, "Mode"),
+                span({class: "sr-only"}, "Actions"),
+            ),
+            // The empty state is a row, not a panel, so the header sits the same
+            // distance above it as it does above a real mount.
+            () => div({class: "flex flex-col"}, ...(rows().length
+                ? rows().map(rowEl)
+                : [div(
+                    {class: `${ASSET_MOUNT_GRID} rounded-sm px-2 py-1`},
+                    span({class: "col-span-4 flex h-8 items-center justify-center text-xs text-gray-500"},
+                        "No assets currently mounted"),
+                )])),
+            div(
+                {class: "flex items-center justify-between gap-2 border-t border-gray-800 pt-3"},
                 button({
                     type: "button",
                     class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
@@ -1236,11 +1276,46 @@ export function assetMountsPane(form, opts = {}) {
                 enableAssetEditor ? button({
                     type: "button",
                     class: "text-xs text-gray-400 hover:text-gray-200 cursor-pointer",
-                    onclick: () => openAssetEditor(addMount()),
+                    onclick: () => editAsset(addMount().id, null),
                 }, "Create new asset") : '',
             ),
         ),
     );
+}
+
+// Overlay editor for a mounted asset. `target` is {mountID, asset}, where a null
+// asset creates one. Saving always writes a new version and re-points the mount
+// at it, so the row's dropdown lands on the version that was just edited.
+export function assetMountEditorOverlay(form, target, opts = {}) {
+    const assets = stateValue(opts.assets) || [];
+    const close = () => { if (typeof opts.onClose === 'function') opts.onClose(); };
+    const onSaved = async (saved) => {
+        if (opts.onSaved) await opts.onSaved(saved);
+        form.assetMounts.val = (form.assetMounts.val || []).map(m => m.id === target.mountID
+            ? {...m, assetId: saved.id}
+            : m);
+        close();
+    };
+    if (!target.asset) {
+        return assetEditorOverlay({
+            mode: "create",
+            showFormat: true,
+            spaceId: Number(form.spaceId.val || DEFAULT_SPACE_ID),
+            saveAsset: opts.saveAsset,
+            onSaved,
+            onClose: close,
+        });
+    }
+    return assetEditorOverlay({
+        mode: "edit",
+        assetRef: {key: target.asset.key, version: target.asset.version || 0},
+        latestVersion: latestAssetVersionForKey(assets, target.asset.key),
+        spaceId: target.asset.spaceId || 0,
+        loadAsset: opts.loadAsset,
+        saveAsset: opts.saveAsset,
+        onSaved,
+        onClose: close,
+    });
 }
 
 function savedAssetMountEdited(row) {
@@ -1377,36 +1452,6 @@ export function volumeMountsPane(form, opts = {}) {
                 onclick: addHostMount,
             }, "Add host path mount"),
         ),
-    );
-}
-
-export function assetEditorPane(form, opts = {}) {
-    const close = () => { form.assetEditorOpen.val = false; };
-    const onSaved = async (asset) => {
-        if (opts.onSaved) await opts.onSaved(asset);
-        const mountID = form.assetEditorMountID.val;
-        if (mountID) {
-            form.assetMounts.val = form.assetMounts.val.map(m => m.id === mountID
-                ? {...m, assetId: asset.id}
-                : m);
-        } else if (!form.assetMounts.val.some(m => Number(m.assetId) === Number(asset.id))) {
-            form.assetMounts.val = [...form.assetMounts.val, {id: nextAssetMountID++, assetId: asset.id, path: '', executable: false}];
-        }
-        form.assetEditorOpen.val = false;
-        form.assetMountsPaneOpen.val = true;
-    };
-    return div(
-        {class: () => configurationPaneClass(form.assetEditorOpen.val)},
-        () => form.assetEditorOpen.val ? assetEditor({
-            mode: "create",
-            initialKey: form.assetEditorKey.val,
-            showFormat: true,
-            spaceId: Number(form.spaceId.val || DEFAULT_SPACE_ID),
-            saveAsset: opts.saveAsset,
-            onSaved,
-            onClose: close,
-            class: "h-full min-w-0 min-h-0 bg-gray-950/90 p-4 flex flex-col gap-4",
-        }) : "",
     );
 }
 
@@ -1967,7 +2012,6 @@ function closeRuntimePanes(form, keep) {
     if (keep !== 'strategy') form.upgradeStrategyPaneOpen.val = false;
     if (keep !== 'resources') form.resourcesPaneOpen.val = false;
     if (keep !== 'networking') form.networkingPaneOpen.val = false;
-    if (keep !== 'assetEditor') form.assetEditorOpen.val = false;
 }
 
 function devShmFormState(kb) {

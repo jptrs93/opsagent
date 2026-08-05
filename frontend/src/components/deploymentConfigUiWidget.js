@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {refreshIcon} from "../lib/icons.js";
 import {assetPreviewOverlay} from "./assetPreviewOverlay.js";
 import {
-    assetEditorPane,
+    assetMountEditorOverlay,
     assetMountsPane,
     collapsibleSection,
     commandPane,
@@ -38,6 +38,8 @@ export function deploymentConfigUiWidget(args) {
         onRefresh,
     } = args;
     const previewAsset = van.state(null);
+    // {mountID, asset} for the mount whose asset is open in the overlay editor.
+    const editAssetTarget = van.state(null);
 
     return div(
         {class: 'flex flex-1 min-h-0 min-w-0'},
@@ -77,11 +79,19 @@ export function deploymentConfigUiWidget(args) {
             assets,
             enableAssetEditor: true,
             previewAsset: asset => { previewAsset.val = asset; },
+            editAsset: target => { editAssetTarget.val = target; },
         }),
         upgradeStrategyPane(form),
         resourcesPane(form),
         networkingPane(form),
-        assetEditorPane(form, {saveAsset}),
+        () => editAssetTarget.val
+            ? assetMountEditorOverlay(form, editAssetTarget.val, {
+                assets,
+                loadAsset,
+                saveAsset,
+                onClose: () => { editAssetTarget.val = null; },
+            })
+            : '',
         () => previewAsset.val
             ? assetPreviewOverlay(previewAsset.val, loadAsset, () => { previewAsset.val = null; })
             : '',
@@ -97,7 +107,6 @@ export function deploymentConfigUiHasOpenPane(form) {
         || form.upgradeStrategyPaneOpen.val
         || form.resourcesPaneOpen.val
         || form.networkingPaneOpen.val
-        || form.assetEditorOpen.val
     );
 }
 

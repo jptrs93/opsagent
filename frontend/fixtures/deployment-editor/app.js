@@ -21,6 +21,11 @@ const events = van.state([]);
 const assets = van.state([...mockAssets]);
 const eventPanelOpen = van.state(false);
 const editorHost = div({class: 'min-w-0 min-h-0 flex items-center justify-center'});
+// key@version -> text body, so the asset editor has something to load and edit.
+const assetContent = new Map([
+    ['nginx.conf@3', 'worker_processes auto;\n\nevents { worker_connections 1024; }\n'],
+    ['branding/logo.svg@1', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"></svg>\n'],
+]);
 let nextDeploymentID = 900;
 let nextAssetID = 500;
 
@@ -80,10 +85,30 @@ const actions = {
         }
         return {deploymentId: request.deploymentId, containerImage: {tags: imageTags}};
     },
+    loadAsset: async request => {
+        record('load-asset', request);
+        await wait();
+        const body = assetContent.get(`${request.key}@${request.version}`) ?? `# ${request.key} v${request.version}\n`;
+        return {
+            key: request.key,
+            version: request.version,
+            format: assets.val.find(item => item.key === request.key)?.format || 'text',
+            createdAt: new Date('2026-07-14T12:00:00Z'),
+            blob: new TextEncoder().encode(body),
+            location: '',
+            sizeBytes: body.length,
+        };
+    },
     saveAsset: async request => {
         record('save-asset', request);
         await wait();
-        const asset = {id: nextAssetID++, key: request.key, spaceId: request.spaceId, version: 1, format: request.format};
+        // Saving always writes a new version, so the mount that triggered the
+        // edit can be re-pointed at it.
+        const latest = assets.val
+            .filter(item => item.key === request.key)
+            .reduce((highest, item) => Math.max(highest, Number(item.version || 0)), 0);
+        const asset = {id: nextAssetID++, key: request.key, spaceId: request.spaceId, version: latest + 1, format: request.format};
+        assetContent.set(`${asset.key}@${asset.version}`, new TextDecoder().decode(request.blob || new Uint8Array()));
         assets.val = [...assets.val, asset];
         return asset;
     },
