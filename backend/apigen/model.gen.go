@@ -633,10 +633,26 @@ type LoginResponse struct {
 	Expiry time.Time `json:"expiry"`
 }
 
-type ApiTokenResponse struct {
-	Token  string    `json:"token,omitempty"`
-	Expiry time.Time `json:"expiry"`
-	Scopes []string  `json:"scopes,omitempty"`
+type AgentSession struct {
+	ID          string    `json:"id,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	TokenPrefix string    `json:"token_prefix,omitempty"`
+	Scopes      []string  `json:"scopes,omitempty"`
+	Revoked     bool      `json:"revoked"`
+}
+
+type AgentSessionList struct {
+	Items []*AgentSession `json:"items,omitempty"`
+}
+
+type AgentSessionCreated struct {
+	Token   string        `json:"token,omitempty"`
+	Session *AgentSession `json:"session"`
+}
+
+type AgentSessionRevokeRequest struct {
+	ID string `json:"id,omitempty"`
 }
 
 type WebAuthNOptionsResponse struct {

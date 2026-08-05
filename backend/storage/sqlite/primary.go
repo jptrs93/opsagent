@@ -1196,6 +1196,86 @@ func (s *PrimaryStorage) UpdateUserMatching(predicate func(*apigen.InternalUser)
 	s.WriteUser(user)
 }
 
+// --- auth: agent sessions ---
+
+// AgentSession is a stored agent session. TokenHash is the SHA-256 of the
+// issued token; the plaintext is never persisted.
+type AgentSessionRecord struct {
+	ID          string
+	UserID      int32
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
+	TokenHash   []byte
+	TokenPrefix string
+	RevokedAt   time.Time
+	Scopes      []string
+}
+
+func agentSessionRowToRecord(row AgentSession) AgentSessionRecord {
+	rec := AgentSessionRecord{
+		ID:          row.ID,
+		UserID:      int32(row.UserID),
+		CreatedAt:   time.Unix(row.CreatedAt, 0),
+		ExpiresAt:   time.Unix(row.ExpiresAt, 0),
+		TokenHash:   row.TokenHash,
+		TokenPrefix: row.TokenPrefix,
+	}
+	if row.RevokedAt > 0 {
+		rec.RevokedAt = time.Unix(row.RevokedAt, 0)
+	}
+	if row.Scopes != "" {
+		rec.Scopes = strings.Split(row.Scopes, ",")
+	}
+	return rec
+}
+
+func (s *PrimaryStorage) InsertAgentSession(rec AgentSessionRecord) error {
+	return s.q.InsertAgentSession(context.Background(), InsertAgentSessionParams{
+		ID:          rec.ID,
+		UserID:      int64(rec.UserID),
+		CreatedAt:   rec.CreatedAt.Unix(),
+		ExpiresAt:   rec.ExpiresAt.Unix(),
+		TokenHash:   rec.TokenHash,
+		TokenPrefix: rec.TokenPrefix,
+		Scopes:      strings.Join(rec.Scopes, ","),
+	})
+}
+
+// FetchAgentSession returns ErrNotFound when no session carries the id, which
+// is the normal case for a token minted before this table existed.
+func (s *PrimaryStorage) FetchAgentSession(id string) (AgentSessionRecord, error) {
+	row, err := s.q.GetAgentSession(context.Background(), id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AgentSessionRecord{}, ErrNotFound
+	}
+	if err != nil {
+		return AgentSessionRecord{}, err
+	}
+	return agentSessionRowToRecord(row), nil
+}
+
+func (s *PrimaryStorage) ListAgentSessionsForUser(userID int32) ([]AgentSessionRecord, error) {
+	rows, err := s.q.ListAgentSessionsForUser(context.Background(), int64(userID))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AgentSessionRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, agentSessionRowToRecord(row))
+	}
+	return out, nil
+}
+
+// RevokeAgentSession is scoped by user id so one operator cannot revoke
+// another's session by guessing its id.
+func (s *PrimaryStorage) RevokeAgentSession(id string, userID int32, at time.Time) error {
+	return s.q.RevokeAgentSession(context.Background(), RevokeAgentSessionParams{
+		RevokedAt: at.Unix(),
+		ID:        id,
+		UserID:    int64(userID),
+	})
+}
+
 func (s *PrimaryStorage) UserCount() int {
 	rows, err := s.q.ListUsers(context.Background())
 	if err != nil {

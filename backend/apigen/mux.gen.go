@@ -75,7 +75,9 @@ type OpsagentHttpV1Handler interface {
 	PostV1AuthMasterPasswordSave(Context, *MasterPasswordSaveRequest) error
 	PostV1AuthMasterPasswordVerify(Context, *MasterPasswordVerifyRequest) error
 	GetV1AuthCurrentSession(Context) (*LoginResponse, error)
-	PostV1AuthTokenGenerate(Context) (*ApiTokenResponse, error)
+	PostV1AgentSessionsCreate(Context) (*AgentSessionCreated, error)
+	PostV1AgentSessionsList(Context, *EmptyRequest) (*AgentSessionList, error)
+	PostV1AgentSessionsRevoke(Context, *AgentSessionRevokeRequest) error
 	PostV1AuthPasskeyRegisterStart(Context, *EmptyRequest) (*WebAuthNOptionsResponse, error)
 	PostV1AuthPasskeyRegisterFinish(Context, *WebAuthNFinishRequest) (*LoginResponse, error)
 	PostV1AuthPasskeyLoginStart(Context, *EmptyRequest) (*WebAuthNOptionsResponse, error)
@@ -201,12 +203,38 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("GET /v1/auth/current/session", buildHandlerFunc(config, verifyAuth, getV1AuthCurrentSessionAccessPolicy, postAuthHandlerGetV1AuthCurrentSession, compressionModeAuto, false))
-	postV1AuthTokenGenerateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
-	postAuthHandlerPostV1AuthTokenGenerate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		res, err := h.PostV1AuthTokenGenerate(authCtx)
+	postV1AgentSessionsCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AgentSessionsCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		res, err := h.PostV1AgentSessionsCreate(authCtx)
 		Respond(authCtx, r, w, res, err)
 	}
-	m.HandleFunc("POST /v1/auth/token/generate", buildHandlerFunc(config, verifyAuth, postV1AuthTokenGenerateAccessPolicy, postAuthHandlerPostV1AuthTokenGenerate, compressionModeAuto, false))
+	m.HandleFunc("POST /v1/agent/sessions/create", buildHandlerFunc(config, verifyAuth, postV1AgentSessionsCreateAccessPolicy, postAuthHandlerPostV1AgentSessionsCreate, compressionModeAuto, false))
+	postV1AgentSessionsListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AgentSessionsList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AgentSessionsList(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/agent/sessions/list", buildHandlerFunc(config, verifyAuth, postV1AgentSessionsListAccessPolicy, postAuthHandlerPostV1AgentSessionsList, compressionModeAuto, false))
+	postV1AgentSessionsRevokeAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AgentSessionsRevoke := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAgentSessionRevokeRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1AgentSessionsRevoke(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/agent/sessions/revoke", buildHandlerFunc(config, verifyAuth, postV1AgentSessionsRevokeAccessPolicy, postAuthHandlerPostV1AgentSessionsRevoke, compressionModeAuto, false))
 	postV1AuthPasskeyRegisterStartAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"passkey:create", "default"}}
 	postAuthHandlerPostV1AuthPasskeyRegisterStart := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)

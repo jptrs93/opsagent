@@ -1,11 +1,14 @@
 package webuihandler
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,14 +58,14 @@ func (h *Handler) mustToken(t *testing.T, userID int32, scopes []string, ttl tim
 	return token
 }
 
-func TestPostV1AuthTokenGenerateMints12HourToken(t *testing.T) {
+func TestPostV1AgentSessionsCreateMints12HourToken(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	session := h.mustToken(t, user.ID, []string{"default"}, 48*time.Hour)
 
 	before := time.Now()
-	res, err := h.PostV1AuthTokenGenerate(apigen.Context{Ctx: context.Background(), User: user, Token: session})
+	res, err := h.PostV1AgentSessionsCreate(apigen.Context{Ctx: context.Background(), User: user, Token: session})
 	if err != nil {
-		t.Fatalf("PostV1AuthTokenGenerate: %v", err)
+		t.Fatalf("PostV1AgentSessionsCreate: %v", err)
 	}
 	if res.Token == "" {
 		t.Fatal("expected a token")
@@ -72,11 +75,11 @@ func TestPostV1AuthTokenGenerateMints12HourToken(t *testing.T) {
 	}
 
 	wantExpiry := before.Add(12 * time.Hour)
-	if res.Expiry.Before(wantExpiry.Add(-time.Minute)) || res.Expiry.After(wantExpiry.Add(time.Minute)) {
-		t.Errorf("expiry = %v, want ~%v", res.Expiry, wantExpiry)
+	if res.Session.ExpiresAt.Before(wantExpiry.Add(-time.Minute)) || res.Session.ExpiresAt.After(wantExpiry.Add(time.Minute)) {
+		t.Errorf("expiry = %v, want ~%v", res.Session.ExpiresAt, wantExpiry)
 	}
-	if !reflect.DeepEqual(res.Scopes, []string{"default"}) {
-		t.Errorf("scopes = %#v, want [default]", res.Scopes)
+	if !reflect.DeepEqual(res.Session.Scopes, []string{"default"}) {
+		t.Errorf("scopes = %#v, want [default]", res.Session.Scopes)
 	}
 
 	// The reported expiry must match what is actually signed into the token,
@@ -89,23 +92,23 @@ func TestPostV1AuthTokenGenerateMints12HourToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExpiryFromClaims: %v", err)
 	}
-	if diff := tokenExpiry.Sub(res.Expiry); diff > time.Minute || diff < -time.Minute {
-		t.Errorf("signed expiry %v disagrees with reported expiry %v", tokenExpiry, res.Expiry)
+	if diff := tokenExpiry.Sub(res.Session.ExpiresAt); diff > time.Minute || diff < -time.Minute {
+		t.Errorf("signed expiry %v disagrees with reported expiry %v", tokenExpiry, res.Session.ExpiresAt)
 	}
 }
 
 // The token must carry the caller's own scopes rather than a fixed list, so it
 // can never grant more than the session that asked for it.
-func TestPostV1AuthTokenGenerateDoesNotEscalateScopes(t *testing.T) {
+func TestPostV1AgentSessionsCreateDoesNotEscalateScopes(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	session := h.mustToken(t, user.ID, []string{"default", "custom:scope"}, time.Hour)
 
-	res, err := h.PostV1AuthTokenGenerate(apigen.Context{Ctx: context.Background(), User: user, Token: session})
+	res, err := h.PostV1AgentSessionsCreate(apigen.Context{Ctx: context.Background(), User: user, Token: session})
 	if err != nil {
-		t.Fatalf("PostV1AuthTokenGenerate: %v", err)
+		t.Fatalf("PostV1AgentSessionsCreate: %v", err)
 	}
-	if !reflect.DeepEqual(res.Scopes, []string{"default", "custom:scope"}) {
-		t.Fatalf("scopes = %#v, want the caller's own scopes", res.Scopes)
+	if !reflect.DeepEqual(res.Session.Scopes, []string{"default", "custom:scope"}) {
+		t.Fatalf("scopes = %#v, want the caller's own scopes", res.Session.Scopes)
 	}
 	claims, _, err := h.jwtAuth.VerifyAndResolveUser(res.Token)
 	if err != nil {
@@ -116,7 +119,7 @@ func TestPostV1AuthTokenGenerateDoesNotEscalateScopes(t *testing.T) {
 	}
 }
 
-func TestPostV1AuthTokenGenerateRejectsBadToken(t *testing.T) {
+func TestPostV1AgentSessionsCreateRejectsBadToken(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	for name, token := range map[string]string{
 		"empty":   "",
@@ -124,7 +127,7 @@ func TestPostV1AuthTokenGenerateRejectsBadToken(t *testing.T) {
 		"expired": h.mustToken(t, user.ID, []string{"default"}, -time.Minute),
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := h.PostV1AuthTokenGenerate(apigen.Context{Ctx: context.Background(), User: user, Token: token})
+			_, err := h.PostV1AgentSessionsCreate(apigen.Context{Ctx: context.Background(), User: user, Token: token})
 			if err == nil {
 				t.Fatal("expected an error")
 			}
@@ -134,12 +137,12 @@ func TestPostV1AuthTokenGenerateRejectsBadToken(t *testing.T) {
 
 // Exercises the real generated route, so routing and policy enforcement are
 // covered rather than just the handler method.
-func TestAuthTokenGenerateRouteEnforcesScopes(t *testing.T) {
+func TestAgentSessionsCreateRouteEnforcesScopes(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	mux := apigen.CreateOpsagentHttpV1Mux(h, &apigen.MuxConfig{VerifyAuth: h.VerifyAuth})
 
 	call := func(authHeader string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest(http.MethodPost, "/v1/auth/token/generate", nil)
+		r := httptest.NewRequest(http.MethodPost, "/v1/agent/sessions/create", nil)
 		if authHeader != "" {
 			r.Header.Set("Authorization", authHeader)
 		}
@@ -153,7 +156,7 @@ func TestAuthTokenGenerateRouteEnforcesScopes(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body %s)", w.Code, w.Body.String())
 		}
-		res, err := apigen.DecodeApiTokenResponse(w.Body.Bytes())
+		res, err := apigen.DecodeAgentSessionCreated(w.Body.Bytes())
 		if err != nil {
 			t.Fatalf("decoding response: %v", err)
 		}
@@ -183,9 +186,9 @@ func TestAuthTokenGenerateRouteEnforcesScopes(t *testing.T) {
 func TestGeneratedTokenAuthenticatesRequests(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	session := h.mustToken(t, user.ID, []string{"default"}, 48*time.Hour)
-	res, err := h.PostV1AuthTokenGenerate(apigen.Context{Ctx: context.Background(), User: user, Token: session})
+	res, err := h.PostV1AgentSessionsCreate(apigen.Context{Ctx: context.Background(), User: user, Token: session})
 	if err != nil {
-		t.Fatalf("PostV1AuthTokenGenerate: %v", err)
+		t.Fatalf("PostV1AgentSessionsCreate: %v", err)
 	}
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/anything", nil)
@@ -198,5 +201,145 @@ func TestGeneratedTokenAuthenticatesRequests(t *testing.T) {
 	}
 	if authCtx.User == nil || authCtx.User.ID != user.ID {
 		t.Fatalf("resolved user = %#v, want id %d", authCtx.User, user.ID)
+	}
+}
+
+// The plaintext token must not be recoverable from storage. Only its hash is
+// persisted, so a copy of the database carries no usable credential.
+func TestAgentSessionStoresOnlyTokenHash(t *testing.T) {
+	h, user := newAuthTestHandler(t)
+	session := h.mustToken(t, user.ID, []string{"default"}, 48*time.Hour)
+
+	res, err := h.PostV1AgentSessionsCreate(apigen.Context{Ctx: context.Background(), User: user, Token: session})
+	if err != nil {
+		t.Fatalf("PostV1AgentSessionsCreate: %v", err)
+	}
+	rec, err := h.Store.FetchAgentSession(res.Session.ID)
+	if err != nil {
+		t.Fatalf("FetchAgentSession: %v", err)
+	}
+	if bytes.Contains(rec.TokenHash, []byte(res.Token)) {
+		t.Fatal("stored hash contains the plaintext token")
+	}
+	want := sha256.Sum256([]byte(res.Token))
+	if !bytes.Equal(rec.TokenHash, want[:]) {
+		t.Fatal("stored hash is not the SHA-256 of the issued token")
+	}
+	if !strings.HasPrefix(res.Token, rec.TokenPrefix) {
+		t.Fatalf("token prefix %q is not a prefix of the token", rec.TokenPrefix)
+	}
+	if len(rec.TokenPrefix) >= len(res.Token) {
+		t.Fatal("stored prefix is the whole token")
+	}
+}
+
+func TestAgentSessionsListReturnsOnlyTheCallersSessions(t *testing.T) {
+	h, user := newAuthTestHandler(t)
+	other := &apigen.InternalUser{ID: 2, WebAuthNID: user.WebAuthNID, Name: "other"}
+	h.Store.WriteUser(other)
+
+	mine, err := h.PostV1AgentSessionsCreate(apigen.Context{
+		Ctx: context.Background(), User: user, Token: h.mustToken(t, user.ID, []string{"default"}, time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("PostV1AgentSessionsCreate: %v", err)
+	}
+	if _, err := h.PostV1AgentSessionsCreate(apigen.Context{
+		Ctx: context.Background(), User: other, Token: h.mustToken(t, other.ID, []string{"default"}, time.Hour),
+	}); err != nil {
+		t.Fatalf("PostV1AgentSessionsCreate for other user: %v", err)
+	}
+
+	list, err := h.PostV1AgentSessionsList(apigen.Context{Ctx: context.Background(), User: user}, &apigen.EmptyRequest{})
+	if err != nil {
+		t.Fatalf("PostV1AgentSessionsList: %v", err)
+	}
+	if len(list.Items) != 1 || list.Items[0].ID != mine.Session.ID {
+		t.Fatalf("list = %#v, want only the caller's own session", list.Items)
+	}
+	// The list is metadata only; the token never reappears.
+	if list.Items[0].TokenPrefix == mine.Token {
+		t.Fatal("list exposed the full token")
+	}
+}
+
+// Revocation must actually stop the token, not just change how it is displayed.
+func TestRevokedAgentSessionTokenFailsVerifyAuth(t *testing.T) {
+	h, user := newAuthTestHandler(t)
+	session := h.mustToken(t, user.ID, []string{"default"}, 48*time.Hour)
+	res, err := h.PostV1AgentSessionsCreate(apigen.Context{Ctx: context.Background(), User: user, Token: session})
+	if err != nil {
+		t.Fatalf("PostV1AgentSessionsCreate: %v", err)
+	}
+
+	policy := apigen.AccessPolicy{PolicyType: apigen.AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	verify := func() error {
+		r := httptest.NewRequest(http.MethodGet, "/v1/anything", nil)
+		r.Header.Set("Authorization", "Bearer "+res.Token)
+		_, err := h.VerifyAuth(context.Background(), httptest.NewRecorder(), r, policy)
+		return err
+	}
+
+	if err := verify(); err != nil {
+		t.Fatalf("token failed VerifyAuth before revocation: %v", err)
+	}
+	if err := h.PostV1AgentSessionsRevoke(
+		apigen.Context{Ctx: context.Background(), User: user},
+		&apigen.AgentSessionRevokeRequest{ID: res.Session.ID},
+	); err != nil {
+		t.Fatalf("PostV1AgentSessionsRevoke: %v", err)
+	}
+	if err := verify(); err == nil {
+		t.Fatal("revoked token still authenticates")
+	}
+
+	list, err := h.PostV1AgentSessionsList(apigen.Context{Ctx: context.Background(), User: user}, &apigen.EmptyRequest{})
+	if err != nil {
+		t.Fatalf("PostV1AgentSessionsList: %v", err)
+	}
+	if len(list.Items) != 1 || !list.Items[0].Revoked {
+		t.Fatalf("list = %#v, want the session marked revoked", list.Items)
+	}
+}
+
+// One operator must not be able to revoke another's session by guessing its id.
+func TestAgentSessionRevokeIsScopedToTheOwner(t *testing.T) {
+	h, user := newAuthTestHandler(t)
+	other := &apigen.InternalUser{ID: 2, WebAuthNID: user.WebAuthNID, Name: "other"}
+	h.Store.WriteUser(other)
+
+	res, err := h.PostV1AgentSessionsCreate(apigen.Context{
+		Ctx: context.Background(), User: user, Token: h.mustToken(t, user.ID, []string{"default"}, time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("PostV1AgentSessionsCreate: %v", err)
+	}
+
+	err = h.PostV1AgentSessionsRevoke(
+		apigen.Context{Ctx: context.Background(), User: other},
+		&apigen.AgentSessionRevokeRequest{ID: res.Session.ID},
+	)
+	if err == nil {
+		t.Fatal("expected another user's revoke to fail")
+	}
+	rec, fetchErr := h.Store.FetchAgentSession(res.Session.ID)
+	if fetchErr != nil {
+		t.Fatalf("FetchAgentSession: %v", fetchErr)
+	}
+	if !rec.RevokedAt.IsZero() {
+		t.Fatal("session was revoked by a different user")
+	}
+}
+
+// Browser session and bootstrap tokens carry no jti, so they must keep working
+// without any agent_sessions row backing them.
+func TestTokensWithoutSessionIDStillVerify(t *testing.T) {
+	h, user := newAuthTestHandler(t)
+	r := httptest.NewRequest(http.MethodGet, "/v1/anything", nil)
+	r.Header.Set("Authorization", "Bearer "+h.mustToken(t, user.ID, []string{"default"}, time.Hour))
+	policy := apigen.AccessPolicy{PolicyType: apigen.AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+
+	if _, err := h.VerifyAuth(context.Background(), httptest.NewRecorder(), r, policy); err != nil {
+		t.Fatalf("session token without jti failed VerifyAuth: %v", err)
 	}
 }

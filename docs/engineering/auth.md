@@ -5,7 +5,7 @@
 Authentication uses passkeys for normal operator login. A master password can issue a short-lived token for passkey registration, including bootstrap and recovery when an operator needs to enroll a replacement authenticator. Both flows produce a JWT token used for subsequent requests. Access control is enforced per-route via policies defined in the protobuf API contract.
 
 Key files:
-- `backend/app/primary/webuihandler/auth.go` — master password handler, JWT signing/verification, token generation.
+- `backend/app/primary/webuihandler/auth.go` — master password handler, JWT signing/verification, agent session create/list/revoke.
 - `backend/app/primary/webuihandler/passkey.go` — passkey registration and login handlers, credential persistence, and WebAuthn user adapter.
 - `backend/apigen/policy_ext.go` — access control policy enforcement.
 
@@ -40,21 +40,34 @@ Tokens are signed with RSA-256 (RS256) via `github.com/jptrs93/goutil/authu`. Ea
 - `scopes`: list of granted scopes.
 - `exp`: expiration timestamp.
 - `iat`: issued-at timestamp.
+- `jti`: agent session ID. Present only on agent session tokens.
 
 Three token types exist:
 - **Bootstrap token**: scopes `["passkey:create"]`, 10-minute expiry. Issued by master password exchange.
 - **Session token**: scopes `["default", "secrets_access"]`, 2-day expiry. Issued by passkey registration or login.
-- **API token**: the caller's scopes minus `secrets_access`, 12-hour expiry. Issued by `POST /v1/auth/token/generate` for command-line and script use.
+- **Agent session token**: the caller's scopes minus `secrets_access`, 12-hour expiry. Issued by `POST /v1/agent/sessions/create` for command-line, script, and agent use.
 
 `GET /v1/auth/current/session` is an authenticated validation endpoint that echoes the caller's current bearer token without minting a new one. The frontend uses it on app startup to confirm persisted auth state and to force re-login on `401`.
 
-### API tokens (`POST /v1/auth/token/generate`)
+### Agent sessions (`POST /v1/agent/sessions/create`)
 
 Requires an existing `default` scope session. The minted token derives from the caller's scopes rather than a fixed list, so it can never grant more access than the session that requested it — a `passkey:create` bootstrap token is rejected with `403` and cannot be traded up into general access. The 12-hour lifetime is deliberately shorter than the 2-day browser session because these tokens get pasted into shells and end up in history files and CI logs.
 
-`secrets_access` is dropped on the way through (`apiTokenScopes`), so an API token can list secret metadata and reference secrets by id from deployment env, but cannot reveal, create, rename, or delete a secret value. Those calls return `403`. This is the one place where an API token is strictly weaker than its parent session, and it is deliberate: the token's longer reach into shell history and CI logs is a poor place to carry the right to read plaintext secrets. An operator who needs to change a secret does it in the browser.
+`secrets_access` is dropped on the way through (`agentSessionScopes`), so an agent token can list secret metadata and reference secrets by id from deployment env, but cannot reveal, create, rename, or delete a secret value. Those calls return `403`. This is the one place where an agent token is strictly weaker than its parent session, and it is deliberate: the token's longer reach into shell history and CI logs is a poor place to carry the right to read plaintext secrets. An operator who needs to change a secret does it in the browser.
 
-The Users page in the web UI exposes this as a copyable `export OPENDEPLOY_URL=...` / `export OPENDEPLOY_TOKEN=...` pair, with the URL taken from the page's own origin. Tokens are stateless JWTs, so there is no revocation list: an issued token stays valid until it expires. Rotating the signing key invalidates all outstanding tokens, sessions included.
+The Sessions page in the web UI exposes this as a copyable `export OPENDEPLOY_URL=...` / `export OPENDEPLOY_TOKEN=...` pair, with the URL taken from the page's own origin.
+
+#### Storage and revocation
+
+Each issued token gets a row in `agent_sessions` (`id`, `user_id`, `created_at`, `expires_at`, `token_hash`, `token_prefix`, `revoked_at`, `scopes`). The row `id` is the token's `jti` claim, which is how verification finds it.
+
+**Only the SHA-256 of the token is stored.** The plaintext is returned once at creation and never again, so a copy of `primary.db` — including an off-box Litestream backup — carries no usable credential. `token_prefix` holds the leading 12 characters so an operator can tell two sessions apart in the list; it is short enough to be useless on its own.
+
+`POST /v1/agent/sessions/revoke` stamps `revoked_at`. This is real revocation, not a display change: `VerifyAuth` calls `verifyAgentSession`, which for any token carrying a `jti` loads the row and rejects the request if it is missing, revoked, or if the token's hash does not match the stored one. Bootstrap and browser session tokens carry no `jti` and keep the stateless fast path, so the extra indexed read applies only to agent-token traffic.
+
+`POST /v1/agent/sessions/list` returns the caller's own sessions, newest first, and never returns a token. Both list and revoke are scoped by `ctx.User.ID`, so one operator cannot revoke another's session by guessing its id — but note this is scoping rather than isolation: every user holds the same scopes and there is no admin role.
+
+Rows are not garbage collected; expired sessions accumulate as a record of what was issued. Rotating the signing key still invalidates all outstanding tokens, sessions included.
 
 Public keys are persisted in the SQLite `public_keys` table keyed by `kid`. Key rotation is handled by the `authu` package.
 

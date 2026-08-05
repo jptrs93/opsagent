@@ -202,8 +202,8 @@ func (c *OpsagentHttpV1Capi) GetV1AuthCurrentSession(ctx context.Context) (*Logi
 	return DecodeLoginResponse(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1AuthTokenGenerate(ctx context.Context) (*ApiTokenResponse, error) {
-	resp, err := c.do(ctx, "POST", "/v1/auth/token/generate", nil, "application/protobuf", "application/protobuf")
+func (c *OpsagentHttpV1Capi) PostV1AgentSessionsCreate(ctx context.Context) (*AgentSessionCreated, error) {
+	resp, err := c.do(ctx, "POST", "/v1/agent/sessions/create", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +215,41 @@ func (c *OpsagentHttpV1Capi) PostV1AuthTokenGenerate(ctx context.Context) (*ApiT
 	if err != nil {
 		return nil, err
 	}
-	return DecodeApiTokenResponse(body)
+	return DecodeAgentSessionCreated(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1AgentSessionsList(ctx context.Context, req *EmptyRequest) (*AgentSessionList, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AgentSessionsList request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/agent/sessions/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAgentSessionList(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1AgentSessionsRevoke(ctx context.Context, req *AgentSessionRevokeRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1AgentSessionsRevoke request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/agent/sessions/revoke", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
 }
 
 func (c *OpsagentHttpV1Capi) PostV1AuthPasskeyRegisterStart(ctx context.Context, req *EmptyRequest) (*WebAuthNOptionsResponse, error) {

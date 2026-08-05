@@ -135,13 +135,33 @@ message LoginResponse {
   int64 expiry = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
 }
 
-// ApiTokenResponse carries a short-lived bearer token minted for command-line
-// and script use. Deliberately not a LoginResponse: this token is not a browser
-// session and must never be fed into the frontend's login state.
-message ApiTokenResponse {
+// AgentSession is the tracked record of a command-line or agent bearer token.
+// It never carries the token itself: only the leading characters, enough to
+// tell two sessions apart in a list.
+message AgentSession {
+  string id = 1;
+  int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int64 expires_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  string token_prefix = 4;
+  repeated string scopes = 5;
+  bool revoked = 6;
+}
+
+message AgentSessionList {
+  repeated AgentSession items = 1;
+}
+
+// AgentSessionCreated carries the one and only delivery of a new session's
+// token. Deliberately not a LoginResponse: this token is not a browser session
+// and must never be fed into the frontend's login state. The plaintext is not
+// stored, so it cannot be retrieved again.
+message AgentSessionCreated {
   string token = 1;
-  int64 expiry = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  repeated string scopes = 3;
+  AgentSession session = 2;
+}
+
+message AgentSessionRevokeRequest {
+  string id = 1;
 }
 
 message WebAuthNOptionsResponse {

@@ -38,10 +38,22 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
   }
 
-  // Mints a 12-hour API token for command-line use. Requires an existing
-  // default-scope session, and grants no scope the caller does not already
-  // hold, so this shortens lifetime rather than widening access.
-  rpc PostV1AuthTokenGenerate(cp.Empty) returns (ApiTokenResponse) {
+  // Starts a 12-hour agent session for command-line use and returns its token
+  // once. Requires an existing default-scope session, and grants no scope the
+  // caller does not already hold, so this shortens lifetime rather than
+  // widening access.
+  rpc PostV1AgentSessionsCreate(cp.Empty) returns (AgentSessionCreated) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Lists the caller's own agent sessions, newest first.
+  rpc PostV1AgentSessionsList(EmptyRequest) returns (AgentSessionList) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Revokes one of the caller's agent sessions. The token stops working
+  // immediately; VerifyAuth rejects it on the next request.
+  rpc PostV1AgentSessionsRevoke(AgentSessionRevokeRequest) returns (cp.Empty) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 

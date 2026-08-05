@@ -106,6 +106,26 @@ CREATE TABLE IF NOT EXISTS public_keys (
     key_bytes BLOB NOT NULL
 );
 
+-- Auth: agent sessions. Command-line and agent bearer tokens, tracked so they
+-- can be listed and revoked. id doubles as the token's jti claim, which is how
+-- VerifyAuth finds the row. Only the SHA-256 of the token is stored: the
+-- plaintext is shown once at creation and is not recoverable, so a copy of this
+-- database (including an off-box Litestream backup) carries no usable
+-- credential. token_prefix is the leading characters, kept for display only.
+CREATE TABLE IF NOT EXISTS agent_sessions (
+    id           TEXT PRIMARY KEY,
+    user_id      INTEGER NOT NULL,
+    created_at   INTEGER NOT NULL,
+    expires_at   INTEGER NOT NULL,
+    token_hash   BLOB    NOT NULL,
+    token_prefix TEXT    NOT NULL,
+    revoked_at   INTEGER NOT NULL DEFAULT 0,
+    scopes       TEXT    NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_user_created
+    ON agent_sessions (user_id, created_at DESC);
+
 -- Append-only revisions of OpenDeploy's own system configuration and settings.
 CREATE TABLE IF NOT EXISTS system_config_revisions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

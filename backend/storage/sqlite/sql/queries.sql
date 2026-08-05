@@ -218,6 +218,24 @@ ON CONFLICT(id) DO UPDATE SET name = excluded.name, data_blob = excluded.data_bl
 -- name: ListUsers :many
 SELECT id, name, data_blob FROM users ORDER BY id;
 
+-- === agent_sessions ===
+
+-- name: InsertAgentSession :exec
+INSERT INTO agent_sessions (id, user_id, created_at, expires_at, token_hash, token_prefix, revoked_at, scopes)
+VALUES (?, ?, ?, ?, ?, ?, 0, ?);
+
+-- name: GetAgentSession :one
+SELECT id, user_id, created_at, expires_at, token_hash, token_prefix, revoked_at, scopes
+FROM agent_sessions WHERE id = ?;
+
+-- name: ListAgentSessionsForUser :many
+SELECT id, user_id, created_at, expires_at, token_hash, token_prefix, revoked_at, scopes
+FROM agent_sessions WHERE user_id = ? ORDER BY created_at DESC;
+
+-- name: RevokeAgentSession :exec
+UPDATE agent_sessions SET revoked_at = ?
+WHERE id = ? AND user_id = ? AND revoked_at = 0;
+
 -- === public_keys ===
 
 -- name: GetPublicKey :one
