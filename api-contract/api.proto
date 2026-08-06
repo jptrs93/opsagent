@@ -236,6 +236,17 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
   }
 
+  // Create a secret from a server-side generator. This is the one route that
+  // writes a secret value without "secrets_access", and deliberately so: the
+  // caller supplies a name and a specification, never a value, and gets back
+  // metadata it can reference from deployment env. An agent can therefore wire
+  // a fresh credential into a deployment end to end without the plaintext ever
+  // reaching anywhere it can observe. Create-only — an existing name is
+  // rejected, so this can never bury a value the caller cannot read back.
+  rpc PostV1SecretsGenerate(SecretGenerateRequest) returns (SecretMeta) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   rpc PostV1SecretsRename(SecretRenameRequest) returns (SecretMeta) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
   }

@@ -256,6 +256,25 @@ message SecretSetRequest {
   repeated DeploymentConfigVersionRef referencing_deployments = 6;
 }
 
+// SecretPasswordSpec asks for a random character string. Symbols default to
+// off: a generated value is destined for a container env var or a connection
+// string, and the caller cannot read it back to debug a quoting problem.
+message SecretPasswordSpec {
+  int32 length = 1;          // 0 => 32; accepted range is 16..4096
+  bool include_symbols = 2;
+}
+
+// SecretGenerateRequest creates a secret whose value the caller never sees.
+// Exactly one specification field may be set, and it selects both what to
+// generate and how. Future generators — SSH keypairs, API tokens, certificates
+// — become sibling fields here rather than new endpoints, so a caller that
+// already knows this route needs no new instructions to reach them.
+message SecretGenerateRequest {
+  string name = 1;
+  int32 space_id = 2;
+  SecretPasswordSpec password = 3;
+}
+
 message SecretRenameRequest {
   string name = 1;
   string new_name = 2;

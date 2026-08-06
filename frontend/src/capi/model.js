@@ -599,6 +599,17 @@
  * @property {DeploymentConfigVersionRef[]} referencingDeployments
  */
 /**
+ * @typedef {Object} SecretPasswordSpec
+ * @property {number} length
+ * @property {boolean} includeSymbols
+ */
+/**
+ * @typedef {Object} SecretGenerateRequest
+ * @property {string} name
+ * @property {number} spaceId
+ * @property {SecretPasswordSpec} password
+ */
+/**
  * @typedef {Object} SecretRenameRequest
  * @property {string} name
  * @property {string} newName
@@ -8260,6 +8271,141 @@ function decodeSecretSetRequestMessage(reader, length) {
 export function decodeSecretSetRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeSecretSetRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretPasswordSpec} message
+ * @param {Writer} writer
+ */
+export function writeSecretPasswordSpec(message, writer) {
+    if (message.length !== undefined && message.length !== null && message.length !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.length);
+    }
+    if (message.includeSymbols === true) {
+        writer.uint32(tag(2, WIRE.VARINT)).bool(message.includeSymbols);
+    }
+}
+
+
+/**
+ * @param {SecretPasswordSpec} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretPasswordSpec(message) {
+    const writer = Writer.create();
+    writeSecretPasswordSpec(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretPasswordSpec}
+ */
+function decodeSecretPasswordSpecMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {length: 0, includeSymbols: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.length = reader.int32();
+                break;
+            }
+            case 2: {
+                message.includeSymbols = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretPasswordSpec}
+ */
+export function decodeSecretPasswordSpec(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretPasswordSpecMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretGenerateRequest} message
+ * @param {Writer} writer
+ */
+export function writeSecretGenerateRequest(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.spaceId);
+    }
+    if (message.password !== undefined && message.password !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeSecretPasswordSpec(message.password, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {SecretGenerateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretGenerateRequest(message) {
+    const writer = Writer.create();
+    writeSecretGenerateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretGenerateRequest}
+ */
+function decodeSecretGenerateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "", spaceId: 0, password: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 2: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.password = decodeSecretPasswordSpecMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretGenerateRequest}
+ */
+export function decodeSecretGenerateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretGenerateRequestMessage(reader);
 }
 
 

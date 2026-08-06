@@ -108,12 +108,44 @@ After any change, poll `POST /v1/deployment-state` until the deployment
 settles. A `200` from `update` means the config was accepted, not that the
 workload is running.
 
-## 6. Limits
+## 6. Secrets
 
-- **Secret values are not available to you.** You can list secret metadata and
-  reference secrets by id from deployment env, but revealing, creating,
-  renaming, or deleting a secret value returns `403`. That is intentional and
-  there is no way around it — ask the operator to do it in the browser.
+**You cannot read a secret value.** Revealing, setting, renaming, or deleting
+one returns `403`. That is intentional and there is no way around it — ask the
+operator to do those in the browser.
+
+You *can* create one, because creating it does not require seeing it. The server
+generates the value, stores it encrypted, and returns only metadata:
+
+```sh
+curl -sS -X POST '{{.BaseURL}}/v1/secrets/generate' \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  -d '{"name": "postgres-password", "password": {"length": 32}}'
+```
+
+The response is `{"id": 12, "name": "postgres-password", ...}`. Put that `id`
+into the deployment's env as a `secret_id` reference and the workload receives
+the value at spawn time:
+
+```json
+"env_vars": {"POSTGRES_PASSWORD": {"secret_id": 12}}
+```
+
+Send that through `deployment/update` as in section 5. You never handle the
+value at any point.
+
+- **`length`** defaults to 32 and must be 16–4096. Out of range is a `400`, not
+  a clamp.
+- **`include_symbols`** defaults to false. Leave it that way unless the operator
+  asks otherwise — you cannot read the value back to debug a quoting problem in
+  a shell or connection string.
+- **The name must be new.** An existing name returns `400`. You cannot rotate a
+  secret, only create one; ask the operator to rotate.
+- `password` is one specification among future others. Send exactly one.
+
+## 7. Limits
+
 - **Streaming endpoints are protobuf-only.** `/v1/state/stream` and
   `/v1/deployment/log-search` do not honour `Accept: application/json`. Use the
   non-streaming endpoints above instead.

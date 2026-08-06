@@ -886,6 +886,25 @@ func (c *OpsagentHttpV1Capi) PostV1SecretsSet(ctx context.Context, req *SecretSe
 	return DecodeSecretMeta(body)
 }
 
+func (c *OpsagentHttpV1Capi) PostV1SecretsGenerate(ctx context.Context, req *SecretGenerateRequest) (*SecretMeta, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1SecretsGenerate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/secrets/generate", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeSecretMeta(body)
+}
+
 func (c *OpsagentHttpV1Capi) PostV1SecretsRename(ctx context.Context, req *SecretRenameRequest) (*SecretMeta, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsRename request is nil")

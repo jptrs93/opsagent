@@ -14,6 +14,8 @@ import (
 
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/config"
+	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 	"github.com/jptrs93/opsagent/backend/util/jwtu"
 )
@@ -22,8 +24,20 @@ import (
 // verify JWTs against a throwaway store.
 func newAuthTestHandler(t *testing.T) (*Handler, *apigen.InternalUser) {
 	t.Helper()
-	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
-	h := &Handler{Store: store}
+	dir := t.TempDir()
+	store := sqlite.NewPrimaryStorage(filepath.Join(dir, "primary.db"))
+	secretManager, err := secrets.Initialize(dir, store)
+	if err != nil {
+		t.Fatalf("secrets.Initialize: %v", err)
+	}
+	// InitializeService rather than NewService: nothing has written a primary
+	// config into this throwaway store, and NewService pointedly refuses to
+	// invent one.
+	configService, err := config.InitializeService(store, apigen.Config{})
+	if err != nil {
+		t.Fatalf("config.InitializeService: %v", err)
+	}
+	h := &Handler{Store: store, Secrets: secretManager, ConfigService: configService}
 	h.jwtAuth = authu.NewJWTAuth[*apigen.InternalUser, int32](
 		func(kid string, key []byte) error {
 			h.Store.WritePublicKey(&apigen.PublicKeyRecord{Kid: kid, KeyBytes: key})

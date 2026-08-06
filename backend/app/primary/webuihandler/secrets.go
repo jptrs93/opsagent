@@ -2,6 +2,7 @@ package webuihandler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -16,6 +17,13 @@ var NoRecoveryCodeErr = apigen.NewApiErr("No recovery code configured", "secret_
 var SecretNotFoundErr = apigen.NewApiErr("Secret not found", "secret_not_found", http.StatusNotFound)
 var SecretReservedNameErr = apigen.NewApiErr("Secret name is reserved for OpenDeploy internal use", "secret_reserved_name", http.StatusBadRequest)
 var SecretAlreadyExistsErr = apigen.NewApiErr("Secret name already exists", "secret_name_exists", http.StatusBadRequest)
+var SecretGeneratorRequiredErr = apigen.NewApiErr("A generator specification is required", "secret_generator_required", http.StatusBadRequest)
+
+// Rejected rather than clamped: a caller cannot read a generated value back, so
+// silently widening a length it asked for would go unnoticed.
+var SecretPasswordLengthErr = apigen.NewApiErr(
+	fmt.Sprintf("Password length must be between %d and %d", secrets.MinPasswordLength, secrets.MaxPasswordLength),
+	"secret_password_length", http.StatusBadRequest)
 
 func secretMetaToProto(m secrets.Meta) *apigen.SecretMeta {
 	return &apigen.SecretMeta{
@@ -96,6 +104,73 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 	}
 	proto := secretMetaToProto(meta)
 	return proto, nil
+}
+
+// PostV1SecretsGenerate creates a secret the caller never sees. It is the only
+// route that writes a secret value without "secrets_access": the value is
+// produced inside this process, sealed, and only its metadata is returned, so
+// an agent token can mint a credential and reference it from deployment env
+// without ever being able to read it.
+func (h *Handler) PostV1SecretsGenerate(ctx apigen.Context, req *apigen.SecretGenerateRequest) (*apigen.SecretMeta, error) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, SecretNameRequiredErr
+	}
+	// Create-only. Set appends an immutable version rather than replacing one,
+	// so without this a caller could bury an operator's credential under a
+	// value that neither of them can read back. Rotation stays a browser action.
+	if len(h.Secrets.MetasByName(name)) > 0 {
+		return nil, SecretAlreadyExistsErr
+	}
+	value, err := generateSecretValue(req)
+	if err != nil {
+		return nil, err
+	}
+	defer secrets.Zero(value)
+
+	unlockReferences := h.ConfigService.LockReferences()
+	defer unlockReferences()
+	var updatedBy int32
+	if ctx.User != nil {
+		updatedBy = ctx.User.ID
+	}
+	// A brand new secret is referenced by nothing, so there are no deployment
+	// versions to roll forward alongside it.
+	meta, err := h.Secrets.SetWithDeploymentUpdates(name, value, updatedBy, false, nil, func(committed secrets.Meta) {
+		proto := secretMetaToProto(committed)
+		h.Store.NotifySecretReferenceUpdate(apigen.SecretReference{ID: proto.ID, Name: proto.Name, SpaceID: proto.SpaceID, Version: proto.Version})
+		h.Store.NotifySecretMetaUpdate(*proto)
+	}, req.SpaceID)
+	if err != nil {
+		if errors.Is(err, secrets.ErrLocked) {
+			return nil, SecretsLockedErr
+		}
+		if errors.Is(err, secrets.ErrReservedName) {
+			return nil, SecretReservedNameErr
+		}
+		return nil, versionedValueSetError(err)
+	}
+	return secretMetaToProto(meta), nil
+}
+
+// generateSecretValue dispatches on which specification the request carries.
+// Exactly one may be set; further generators become further cases here, which
+// is why the specification is a nested message rather than fields hung off the
+// request itself.
+func generateSecretValue(req *apigen.SecretGenerateRequest) ([]byte, error) {
+	switch {
+	case req.Password != nil:
+		value, err := secrets.GeneratePassword(int(req.Password.Length), req.Password.IncludeSymbols)
+		if err != nil {
+			if errors.Is(err, secrets.ErrPasswordLength) {
+				return nil, SecretPasswordLengthErr
+			}
+			return nil, err
+		}
+		return value, nil
+	default:
+		return nil, SecretGeneratorRequiredErr
+	}
 }
 
 func (h *Handler) PostV1SecretsRename(ctx apigen.Context, req *apigen.SecretRenameRequest) (*apigen.SecretMeta, error) {

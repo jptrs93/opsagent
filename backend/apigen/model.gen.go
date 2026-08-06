@@ -725,6 +725,17 @@ type SecretSetRequest struct {
 	ReferencingDeployments       []*DeploymentConfigVersionRef `json:"referencing_deployments,omitempty"`
 }
 
+type SecretPasswordSpec struct {
+	Length         int32 `json:"length"`
+	IncludeSymbols bool  `json:"include_symbols"`
+}
+
+type SecretGenerateRequest struct {
+	Name     string              `json:"name,omitempty"`
+	SpaceID  int32               `json:"space_id"`
+	Password *SecretPasswordSpec `json:"password"`
+}
+
 type SecretRenameRequest struct {
 	Name    string `json:"name,omitempty"`
 	NewName string `json:"new_name,omitempty"`

@@ -69,6 +69,7 @@ import {
   encodePrepareOutputRequest,
   encodeRecentlyDeletedDeploymentsRequest,
   encodeSecretDeleteRequest,
+  encodeSecretGenerateRequest,
   encodeSecretRenameRequest,
   encodeSecretRevealRequest,
   encodeSecretSetRequest,
@@ -669,6 +670,18 @@ export class Capi {
    */
   async postV1SecretsSet(payload) {
     const response = await this.#request("/v1/secrets/set", { method: 'POST', body: encodeSecretSetRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeSecretMeta(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {SecretGenerateRequest} payload
+   * @returns {Promise<SecretMeta>}
+   */
+  async postV1SecretsGenerate(payload) {
+    const response = await this.#request("/v1/secrets/generate", { method: 'POST', body: encodeSecretGenerateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }

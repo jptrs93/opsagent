@@ -112,6 +112,11 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		ratelimit.PerIPAndPrefix("/v1/agent-sessions", rate.Limit(2), 30, time.Minute),
 		ratelimit.PerIPAndPrefix("/v1/agent-sessions/instructions", rate.Limit(0.2), 5, time.Minute),
 		ratelimit.PerIPAndPrefix("/v1/agent-sessions/request-start", rate.Limit(0.05), 3, 10*time.Minute),
+		// Secret generation writes a row nothing ever collects, and the caller
+		// cannot read back what it made, so a retry loop here is both plausible
+		// and silent. A burst of 10 refilling at 6/min covers wiring up a
+		// deployment's credentials in one go while capping a loop's damage.
+		ratelimit.PerIPAndPrefix("/v1/secrets/generate", rate.Limit(0.1), 10, time.Minute),
 	}
 	m := apigen.CreateOpsagentHttpV1Mux(webUIHandler, &apigen.MuxConfig{
 		VerifyAuth:         webUIHandler.VerifyAuth,

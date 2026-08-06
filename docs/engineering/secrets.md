@@ -20,6 +20,38 @@ secret row ID for exact-version reads. A value is decrypted into a response
 solely on this explicit request; it is still never logged, replicated, or
 persisted outside the encrypted store.
 
+### Server-side generation
+
+`PostV1SecretsGenerate` creates a secret from a specification instead of a
+supplied value: the caller names it, says what kind of value it wants, and gets
+back metadata. The plaintext is produced inside the process, sealed, and never
+returned. That inversion is what lets it sit on the `default` scope while every
+other value-writing route requires `secrets_access` — a caller who cannot read
+secrets can still mint one and reference it from deployment env, which is how an
+agent wires a fresh credential into a deployment end to end without the value
+ever reaching anywhere it can observe.
+
+The request nests its specification (`SecretGenerateRequest.password`) rather
+than hanging fields off the request, so further generators — SSH keypairs, API
+tokens, certificates — become sibling fields on the same route.
+
+Two properties make the weaker scope safe:
+
+- **Create-only.** An existing name is rejected. `Set` appends an immutable
+  version rather than replacing one, so without this guard a caller could bury
+  an operator's credential under a value that neither of them can read back.
+  Rotation stays an operator action in the browser.
+- **Nothing is echoed.** The response is `SecretMeta`; the generated buffer is
+  zeroed once sealed.
+
+Passwords are drawn from the same alphabet as the browser generator
+(`frontend/src/components/secretGenerator.js`) by rejection sampling, 16–4096
+characters, defaulting to 32 with symbols off. Lengths outside the range are
+rejected rather than clamped — the caller cannot read the value back, so a
+silently widened length would go unnoticed. `/v1/secrets/generate` carries its
+own rate limit in `run.go`, because a retry loop here writes rows nothing ever
+collects and produces no visible error.
+
 The **store** is primary-only: the `secrets` table, the SMK and its keyslots live
 on the primary and are never replicated. A secondary receives only the plaintext
 values its own deployments reference, and keeps them under a machine key of its
@@ -28,6 +60,8 @@ own — see "Local runtime input persistence" below.
 Key files:
 - `backend/lib/secrets/secrets.go` — `Manager`, the key hierarchy, AEAD, and the
   machine-key boundary.
+- `backend/lib/secrets/generate.go` — the server-side value generators used by
+  `PostV1SecretsGenerate`.
 - `backend/lib/machinekey/machinekey.go` — the shared `Provider` boundary (KEK
   supply + AEAD helpers) used by both the primary's store and a secondary's
   local cache.

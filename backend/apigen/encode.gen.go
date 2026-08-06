@@ -4473,6 +4473,84 @@ func DecodeSecretSetRequest(b []byte) (*SecretSetRequest, error) {
 	return &m, nil
 }
 
+func (m *SecretPasswordSpec) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.Length, 1)
+	b = AppendBoolField(b, m.IncludeSymbols, 2)
+	return b
+}
+
+func DecodeSecretPasswordSpec(b []byte) (*SecretPasswordSpec, error) {
+	var m SecretPasswordSpec
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Length, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.IncludeSymbols, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretGenerateRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendInt32Field(b, m.SpaceID, 2)
+	if m.Password != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Password.Encode())
+	}
+	return b
+}
+
+func DecodeSecretGenerateRequest(b []byte) (*SecretGenerateRequest, error) {
+	var m SecretGenerateRequest
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretPasswordSpec
+				item, err = DecodeSecretPasswordSpec(msgBytes)
+				if err == nil {
+					m.Password = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *SecretRenameRequest) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Name, 1)

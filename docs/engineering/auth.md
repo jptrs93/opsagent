@@ -55,7 +55,7 @@ Three token types exist:
 
 An agent session is a 6-hour bearer token for command-line, script, and agent use. The lifetime is deliberately shorter than the 2-day browser session because these tokens get pasted into shells and end up in history files and CI logs.
 
-Whichever route mints one, `secrets_access` is dropped on the way through (`agentSessionScopes`), so an agent token can list secret metadata and reference secrets by id from deployment env, but cannot reveal, create, rename, or delete a secret value. Those calls return `403`. This is the one place where an agent token is strictly weaker than its parent session, and it is deliberate: the token's longer reach into shell history and CI logs is a poor place to carry the right to read plaintext secrets. An operator who needs to change a secret does it in the browser.
+Whichever route mints one, `secrets_access` is dropped on the way through (`agentSessionScopes`), so an agent token can list secret metadata and reference secrets by id from deployment env, but cannot reveal, set, rename, or delete a secret value. Those calls return `403`. It *can* call `PostV1SecretsGenerate`, which creates a value it is then unable to read. This is the one place where an agent token is strictly weaker than its parent session, and it is deliberate: the token's longer reach into shell history and CI logs is a poor place to carry the right to read plaintext secrets. An operator who needs to change a secret does it in the browser.
 
 All routes live under `/v1/agent-sessions/`, which is also the rate-limit prefix.
 
@@ -131,6 +131,8 @@ Scopes in use:
 - `passkey:create` — enroll a passkey, nothing else.
 - `default` — ordinary operator access: deployments, assets, configs, spaces, and secret *metadata*.
 - `secrets_access` — additionally reveal and change secret values. Gates `PostV1SecretsSet`, `Rename`, `Reveal`, `Delete`, `GenerateRecoveryCode`, and `Unlock`. `PostV1SecretsList` and `PostV1SecretsStatus` stay on `default` so metadata reads survive without it.
+
+`PostV1SecretsGenerate` is the one deliberate exception: it writes a secret value from a `default`-scope call. The scope split is about *seeing* values, not about the store being read-only, and generation is the one write where the caller supplies a name and a specification rather than a value and gets back nothing but metadata. It is create-only and never echoes what it made — see [secrets.md](secrets.md#server-side-generation).
 
 Because `ANY_OF` is a disjunction, a secrets-gated route lists `secrets_access` alone — adding `default` beside it would defeat the split.
 
