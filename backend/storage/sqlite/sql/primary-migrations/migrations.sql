@@ -33,3 +33,15 @@ SET preparer_inputs_status = CASE WHEN COALESCE(preparer_status, 0) = 0 THEN 0 E
 WHERE preparer_inputs_status = 0 AND preparer_image_status = 0;
 
 ALTER TABLE scheduled_instance_status DROP COLUMN preparer_status;
+
+-- Agent sessions gain a lifecycle status, so a session can exist as a pending
+-- request before any token is minted. DEFAULT 2 (APPROVED) is the right
+-- backfill: every row that predates this was minted directly and is live.
+ALTER TABLE agent_sessions ADD COLUMN status INTEGER NOT NULL DEFAULT 2;
+ALTER TABLE agent_sessions ADD COLUMN requesting_address TEXT NOT NULL DEFAULT '';
+ALTER TABLE agent_sessions ADD COLUMN approval_code TEXT NOT NULL DEFAULT '';
+ALTER TABLE agent_sessions ADD COLUMN approved_at INTEGER NOT NULL DEFAULT 0;
+
+-- Move the old revoked flag onto status. Converges after one pass and is a
+-- no-op thereafter, since the handler now writes status alongside revoked_at.
+UPDATE agent_sessions SET status = 4 WHERE revoked_at > 0 AND status = 2;

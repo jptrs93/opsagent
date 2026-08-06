@@ -523,7 +523,10 @@
  * @property {Date} expiresAt
  * @property {string} tokenPrefix
  * @property {string[]} scopes
- * @property {boolean} revoked
+ * @property {number} status
+ * @property {string} requestingAddress
+ * @property {string} approvalCode
+ * @property {Date} approvedAt
  */
 /**
  * @typedef {Object} AgentSessionList
@@ -536,6 +539,31 @@
  */
 /**
  * @typedef {Object} AgentSessionRevokeRequest
+ * @property {string} id
+ */
+/**
+ * @typedef {Object} AgentSessionRequestStartRequest
+ * @property {number} userId
+ */
+/**
+ * @typedef {Object} AgentSessionRequest
+ * @property {string} id
+ * @property {string} approvalCode
+ * @property {number} status
+ * @property {Date} requestExpiresAt
+ */
+/**
+ * @typedef {Object} AgentSessionGetRequest
+ * @property {string} id
+ */
+/**
+ * @typedef {Object} AgentSessionPickup
+ * @property {number} status
+ * @property {string} token
+ * @property {Date} expiresAt
+ */
+/**
+ * @typedef {Object} AgentSessionApproveRequest
  * @property {string} id
  */
 /**
@@ -713,6 +741,8 @@
  * @property {ConfigVersion} configSnapshot
  * @property {ScheduledInstanceSnapshot} scheduledInstancesSnapshot
  * @property {ScheduledInstanceState} scheduledInstanceUpdate
+ * @property {AgentSessionList} agentSessionsSnapshot
+ * @property {AgentSession} agentSessionUpdate
  */
 /**
  * @typedef {Object} Space
@@ -7274,8 +7304,17 @@ export function writeAgentSession(message, writer) {
             writer.uint32(tag(5, WIRE.LDELIM)).string(item);
         }
     }
-    if (message.revoked === true) {
-        writer.uint32(tag(6, WIRE.VARINT)).bool(message.revoked);
+    if (message.status !== undefined && message.status !== null && message.status !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.status);
+    }
+    if (message.requestingAddress !== undefined && message.requestingAddress !== null && message.requestingAddress !== "") {
+        writer.uint32(tag(8, WIRE.LDELIM)).string(message.requestingAddress);
+    }
+    if (message.approvalCode !== undefined && message.approvalCode !== null && message.approvalCode !== "") {
+        writer.uint32(tag(9, WIRE.LDELIM)).string(message.approvalCode);
+    }
+    if (message.approvedAt instanceof Date && message.approvedAt.getTime() !== 0) {
+        writer.uint32(tag(10, WIRE.VARINT)).int64(Math.trunc(message.approvedAt.getTime()));
     }
 }
 
@@ -7298,7 +7337,7 @@ export function encodeAgentSession(message) {
  */
 function decodeAgentSessionMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: "", createdAt: new Date(0), expiresAt: new Date(0), tokenPrefix: "", scopes: [], revoked: false };
+    const message = {id: "", createdAt: new Date(0), expiresAt: new Date(0), tokenPrefix: "", scopes: [], status: 0, requestingAddress: "", approvalCode: "", approvedAt: new Date(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -7322,8 +7361,20 @@ function decodeAgentSessionMessage(reader, length) {
                 message.scopes.push(reader.string());
                 break;
             }
-            case 6: {
-                message.revoked = reader.bool();
+            case 7: {
+                message.status = reader.int32();
+                break;
+            }
+            case 8: {
+                message.requestingAddress = reader.string();
+                break;
+            }
+            case 9: {
+                message.approvalCode = reader.string();
+                break;
+            }
+            case 10: {
+                message.approvedAt = new Date(readInt64(reader, "int64"));
                 break;
             }
             default:
@@ -7522,6 +7573,321 @@ function decodeAgentSessionRevokeRequestMessage(reader, length) {
 export function decodeAgentSessionRevokeRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeAgentSessionRevokeRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AgentSessionRequestStartRequest} message
+ * @param {Writer} writer
+ */
+export function writeAgentSessionRequestStartRequest(message, writer) {
+    if (message.userId !== undefined && message.userId !== null && message.userId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.userId);
+    }
+}
+
+
+/**
+ * @param {AgentSessionRequestStartRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAgentSessionRequestStartRequest(message) {
+    const writer = Writer.create();
+    writeAgentSessionRequestStartRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AgentSessionRequestStartRequest}
+ */
+function decodeAgentSessionRequestStartRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {userId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.userId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AgentSessionRequestStartRequest}
+ */
+export function decodeAgentSessionRequestStartRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAgentSessionRequestStartRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AgentSessionRequest} message
+ * @param {Writer} writer
+ */
+export function writeAgentSessionRequest(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.id);
+    }
+    if (message.approvalCode !== undefined && message.approvalCode !== null && message.approvalCode !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.approvalCode);
+    }
+    if (message.status !== undefined && message.status !== null && message.status !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.status);
+    }
+    if (message.requestExpiresAt instanceof Date && message.requestExpiresAt.getTime() !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.requestExpiresAt.getTime()));
+    }
+}
+
+
+/**
+ * @param {AgentSessionRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAgentSessionRequest(message) {
+    const writer = Writer.create();
+    writeAgentSessionRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AgentSessionRequest}
+ */
+function decodeAgentSessionRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: "", approvalCode: "", status: 0, requestExpiresAt: new Date(0) };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.string();
+                break;
+            }
+            case 2: {
+                message.approvalCode = reader.string();
+                break;
+            }
+            case 3: {
+                message.status = reader.int32();
+                break;
+            }
+            case 4: {
+                message.requestExpiresAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AgentSessionRequest}
+ */
+export function decodeAgentSessionRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAgentSessionRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AgentSessionGetRequest} message
+ * @param {Writer} writer
+ */
+export function writeAgentSessionGetRequest(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.id);
+    }
+}
+
+
+/**
+ * @param {AgentSessionGetRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAgentSessionGetRequest(message) {
+    const writer = Writer.create();
+    writeAgentSessionGetRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AgentSessionGetRequest}
+ */
+function decodeAgentSessionGetRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AgentSessionGetRequest}
+ */
+export function decodeAgentSessionGetRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAgentSessionGetRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AgentSessionPickup} message
+ * @param {Writer} writer
+ */
+export function writeAgentSessionPickup(message, writer) {
+    if (message.status !== undefined && message.status !== null && message.status !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.status);
+    }
+    if (message.token !== undefined && message.token !== null && message.token !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.token);
+    }
+    if (message.expiresAt instanceof Date && message.expiresAt.getTime() !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.expiresAt.getTime()));
+    }
+}
+
+
+/**
+ * @param {AgentSessionPickup} message
+ * @returns {Uint8Array}
+ */
+export function encodeAgentSessionPickup(message) {
+    const writer = Writer.create();
+    writeAgentSessionPickup(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AgentSessionPickup}
+ */
+function decodeAgentSessionPickupMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {status: 0, token: "", expiresAt: new Date(0) };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.status = reader.int32();
+                break;
+            }
+            case 2: {
+                message.token = reader.string();
+                break;
+            }
+            case 3: {
+                message.expiresAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AgentSessionPickup}
+ */
+export function decodeAgentSessionPickup(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAgentSessionPickupMessage(reader);
+}
+
+
+
+/**
+ * @param {AgentSessionApproveRequest} message
+ * @param {Writer} writer
+ */
+export function writeAgentSessionApproveRequest(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.id);
+    }
+}
+
+
+/**
+ * @param {AgentSessionApproveRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAgentSessionApproveRequest(message) {
+    const writer = Writer.create();
+    writeAgentSessionApproveRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AgentSessionApproveRequest}
+ */
+function decodeAgentSessionApproveRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AgentSessionApproveRequest}
+ */
+export function decodeAgentSessionApproveRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAgentSessionApproveRequestMessage(reader);
 }
 
 
@@ -9376,6 +9742,16 @@ export function writeState(message, writer) {
         writeScheduledInstanceState(message.scheduledInstanceUpdate, writer);
         writer.ldelim();
     }
+    if (message.agentSessionsSnapshot !== undefined && message.agentSessionsSnapshot !== null) {
+        writer.uint32(tag(34, WIRE.LDELIM)).fork();
+        writeAgentSessionList(message.agentSessionsSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.agentSessionUpdate !== undefined && message.agentSessionUpdate !== null) {
+        writer.uint32(tag(35, WIRE.LDELIM)).fork();
+        writeAgentSession(message.agentSessionUpdate, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -9397,7 +9773,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentConfigsSnapshot: undefined, deploymentConfigUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined, scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined };
+    const message = {heartbeat: false, deploymentConfigsSnapshot: undefined, deploymentConfigUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined, scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, agentSessionsSnapshot: undefined, agentSessionUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9515,6 +9891,14 @@ function decodeStateMessage(reader, length) {
             }
             case 33: {
                 message.scheduledInstanceUpdate = decodeScheduledInstanceStateMessage(reader, reader.uint32());
+                break;
+            }
+            case 34: {
+                message.agentSessionsSnapshot = decodeAgentSessionListMessage(reader, reader.uint32());
+                break;
+            }
+            case 35: {
+                message.agentSessionUpdate = decodeAgentSessionMessage(reader, reader.uint32());
                 break;
             }
             default:

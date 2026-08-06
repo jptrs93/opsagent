@@ -17,6 +17,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/netmappublisher"
 	"github.com/jptrs93/opsagent/backend/app/primary/webui"
 	"github.com/jptrs93/opsagent/backend/app/primary/webuihandler"
+	"github.com/jptrs93/opsagent/backend/lib/middleware/clientaddr"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/ratelimit"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/util/version"
@@ -99,9 +100,18 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		return clusterserver.RunEnrollment(ctx, enrollmentHandler, enrollmentHandler.VerifyEnrollmentRequest, primaryRuntime.configService, clusterMaterial, initialConfig.Settings.Cluster.EnrollmentListen, enrollmentMiddlewares...)
 	})
 	middlewares := []apigen.MiddlewareFunc{
+		clientaddr.Middleware(),
 		ratelimit.PerIP(rate.Limit(40), 100, time.Minute),
 		ratelimit.PerIPAndPrefix("/v1/auth", rate.Limit(1), 10, time.Minute),
 		ratelimit.PerIPAndPrefix("/v1/auth/master", rate.Limit(0.2), 10, time.Minute),
+		// The agent-session family is reachable without a credential. The broad
+		// budget accommodates a 5s get-session poll while an operator decides;
+		// the tight one on request-start is what stops a single address from
+		// repeatedly occupying an operator's only open request slot. Nested
+		// prefixes stack, as with /v1/auth above.
+		ratelimit.PerIPAndPrefix("/v1/agent-sessions", rate.Limit(2), 30, time.Minute),
+		ratelimit.PerIPAndPrefix("/v1/agent-sessions/instructions", rate.Limit(0.2), 5, time.Minute),
+		ratelimit.PerIPAndPrefix("/v1/agent-sessions/request-start", rate.Limit(0.05), 3, 10*time.Minute),
 	}
 	m := apigen.CreateOpsagentHttpV1Mux(webUIHandler, &apigen.MuxConfig{
 		VerifyAuth:         webUIHandler.VerifyAuth,

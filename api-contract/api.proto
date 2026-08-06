@@ -38,22 +38,59 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
   }
 
-  // Starts a 12-hour agent session for command-line use and returns its token
-  // once. Requires an existing default-scope session, and grants no scope the
-  // caller does not already hold, so this shortens lifetime rather than
-  // widening access.
+  // Renders the API instructions an agent needs to drive this server, as
+  // markdown (or HTML for a browser). Unauthenticated and rate limited: it is
+  // the one URL an operator hands to an agent, and it grants nothing on its
+  // own. user_id selects whose approval queue a later request-start lands in.
+  rpc GetV1AgentSessionsInstructions(cp.Empty) returns (cp.Empty) {
+    option (cp.url) = "/v1/agent-sessions/instructions";
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  // Opens a session request for an operator to approve. Unauthenticated by
+  // necessity — the caller has no credential yet — so it confers nothing until
+  // approved, and only one request may be open per user at a time.
+  rpc PostV1AgentSessionsRequestStart(AgentSessionRequestStartRequest) returns (AgentSessionRequest) {
+    option (cp.url) = "/v1/agent-sessions/request-start";
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  // Polls a request and, on the first call after approval, mints and returns
+  // the token. The request id doubles as the pickup secret, which is why it is
+  // 32 random bytes and never displayed in full.
+  rpc PostV1AgentSessionsGetSession(AgentSessionGetRequest) returns (AgentSessionPickup) {
+    option (cp.url) = "/v1/agent-sessions/get-session";
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  // Approves one of the caller's own pending requests. Real users only: this is
+  // the step that turns an anonymous request into access.
+  rpc PostV1AgentSessionsApprove(AgentSessionApproveRequest) returns (AgentSession) {
+    option (cp.url) = "/v1/agent-sessions/approve";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Starts a 12-hour agent session directly and returns its token once, for
+  // non-interactive callers with no agent waiting on an approval. Requires an
+  // existing default-scope session, and grants no scope the caller does not
+  // already hold, so this shortens lifetime rather than widening access.
   rpc PostV1AgentSessionsCreate(cp.Empty) returns (AgentSessionCreated) {
+    option (cp.url) = "/v1/agent-sessions/create";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
   // Lists the caller's own agent sessions, newest first.
   rpc PostV1AgentSessionsList(EmptyRequest) returns (AgentSessionList) {
+    option (cp.url) = "/v1/agent-sessions/list";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  // Revokes one of the caller's agent sessions. The token stops working
-  // immediately; VerifyAuth rejects it on the next request.
+  // Stops one of the caller's agent sessions: a pending request is rejected, a
+  // live session is revoked. The token stops working immediately; VerifyAuth
+  // rejects it on the next request.
   rpc PostV1AgentSessionsRevoke(AgentSessionRevokeRequest) returns (cp.Empty) {
+    option (cp.url) = "/v1/agent-sessions/revoke";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 

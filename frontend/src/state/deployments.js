@@ -13,6 +13,9 @@ export const machinesS = van.state([]);
 export const nodesS = van.state([]);
 export const nodeStatusesS = van.state([]);
 export const enrollmentsS = van.state([]);
+// agentSessionsS holds only the signed-in user's own agent sessions; the server
+// filters the stream before sending them.
+export const agentSessionsS = van.state([]);
 export const secretRefsS = van.state([]);
 export const userConfigRefsS = van.state([]);
 export const secretsStatusS = van.state(null);
@@ -89,6 +92,7 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
         nodesS.val = [];
         nodeStatusesS.val = [];
         enrollmentsS.val = [];
+        agentSessionsS.val = [];
         secretRefsS.val = [];
         userConfigRefsS.val = [];
         secretsStatusS.val = null;
@@ -182,6 +186,20 @@ const handleStateMessage = (message) => {
         const next = new Map((enrollmentsS.val || []).map((enrollment) => [enrollment.id, enrollment]));
         next.set(message.enrollmentUpdate.id, message.enrollmentUpdate);
         enrollmentsS.val = Array.from(next.values());
+    }
+
+    if (message.agentSessionsSnapshot) {
+        agentSessionsS.val = message.agentSessionsSnapshot.items || [];
+    }
+
+    if (message.agentSessionUpdate?.id) {
+        const update = message.agentSessionUpdate;
+        const current = agentSessionsS.val || [];
+        // A session new to us goes on the front: the server orders newest
+        // first, and a session we have not seen before is the newest.
+        agentSessionsS.val = current.some((s) => s.id === update.id)
+            ? current.map((s) => (s.id === update.id ? update : s))
+            : [update, ...current];
     }
 
     if (message.secretsSnapshot) {

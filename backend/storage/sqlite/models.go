@@ -9,14 +9,18 @@ import (
 )
 
 type AgentSession struct {
-	ID          string
-	UserID      int64
-	CreatedAt   int64
-	ExpiresAt   int64
-	TokenHash   []byte
-	TokenPrefix string
-	RevokedAt   int64
-	Scopes      string
+	ID                string
+	UserID            int64
+	CreatedAt         int64
+	ExpiresAt         int64
+	TokenHash         []byte
+	TokenPrefix       string
+	RevokedAt         int64
+	Scopes            string
+	Status            int64
+	RequestingAddress string
+	ApprovalCode      string
+	ApprovedAt        int64
 }
 
 type Asset struct {

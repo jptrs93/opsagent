@@ -2,13 +2,13 @@ package ratelimit
 
 import (
 	"context"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/middleware/clientaddr"
 	"golang.org/x/time/rate"
 )
 
@@ -51,7 +51,7 @@ func perIPWithMatcher(r rate.Limit, burst int, ttl time.Duration, match func(*ht
 				return
 			}
 			now := time.Now()
-			ip := clientIP(req)
+			ip := clientaddr.ClientIP(req)
 
 			mu.Lock()
 			for key, client := range clients {
@@ -75,15 +75,4 @@ func perIPWithMatcher(r rate.Limit, burst int, ttl time.Duration, match func(*ht
 			next(ctx, w, req)
 		}
 	}
-}
-
-func clientIP(req *http.Request) string {
-	host, _, err := net.SplitHostPort(req.RemoteAddr)
-	if err == nil && host != "" {
-		return host
-	}
-	if strings.TrimSpace(req.RemoteAddr) != "" {
-		return req.RemoteAddr
-	}
-	return "unknown"
 }

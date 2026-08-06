@@ -107,6 +107,16 @@ const (
 	FilePermission_READ_EXECUTE                FilePermission = 3
 )
 
+type AgentSessionStatus int32
+
+const (
+	AgentSessionStatus_AGENT_SESSION_STATUS_UNKNOWN AgentSessionStatus = 0
+	AgentSessionStatus_AGENT_SESSION_PENDING        AgentSessionStatus = 1
+	AgentSessionStatus_AGENT_SESSION_APPROVED       AgentSessionStatus = 2
+	AgentSessionStatus_AGENT_SESSION_REJECTED       AgentSessionStatus = 3
+	AgentSessionStatus_AGENT_SESSION_REVOKED        AgentSessionStatus = 4
+)
+
 type AccessPolicyType int32
 
 const (
@@ -634,12 +644,15 @@ type LoginResponse struct {
 }
 
 type AgentSession struct {
-	ID          string    `json:"id,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	TokenPrefix string    `json:"token_prefix,omitempty"`
-	Scopes      []string  `json:"scopes,omitempty"`
-	Revoked     bool      `json:"revoked"`
+	ID                string             `json:"id,omitempty"`
+	CreatedAt         time.Time          `json:"created_at"`
+	ExpiresAt         time.Time          `json:"expires_at"`
+	TokenPrefix       string             `json:"token_prefix,omitempty"`
+	Scopes            []string           `json:"scopes,omitempty"`
+	Status            AgentSessionStatus `json:"status"`
+	RequestingAddress string             `json:"requesting_address,omitempty"`
+	ApprovalCode      string             `json:"approval_code,omitempty"`
+	ApprovedAt        time.Time          `json:"approved_at"`
 }
 
 type AgentSessionList struct {
@@ -652,6 +665,31 @@ type AgentSessionCreated struct {
 }
 
 type AgentSessionRevokeRequest struct {
+	ID string `json:"id,omitempty"`
+}
+
+type AgentSessionRequestStartRequest struct {
+	UserID int32 `json:"user_id"`
+}
+
+type AgentSessionRequest struct {
+	ID               string             `json:"id,omitempty"`
+	ApprovalCode     string             `json:"approval_code,omitempty"`
+	Status           AgentSessionStatus `json:"status"`
+	RequestExpiresAt time.Time          `json:"request_expires_at"`
+}
+
+type AgentSessionGetRequest struct {
+	ID string `json:"id,omitempty"`
+}
+
+type AgentSessionPickup struct {
+	Status    AgentSessionStatus `json:"status"`
+	Token     string             `json:"token,omitempty"`
+	ExpiresAt time.Time          `json:"expires_at"`
+}
+
+type AgentSessionApproveRequest struct {
 	ID string `json:"id,omitempty"`
 }
 
@@ -829,6 +867,8 @@ type State struct {
 	ConfigSnapshot             ConfigVersion              `json:"config_snapshot"`
 	ScheduledInstancesSnapshot *ScheduledInstanceSnapshot `json:"scheduled_instances_snapshot"`
 	ScheduledInstanceUpdate    *ScheduledInstanceState    `json:"scheduled_instance_update"`
+	AgentSessionsSnapshot      *AgentSessionList          `json:"agent_sessions_snapshot"`
+	AgentSessionUpdate         *AgentSession              `json:"agent_session_update"`
 }
 
 type Space struct {

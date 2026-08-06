@@ -135,16 +135,35 @@ message LoginResponse {
   int64 expiry = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
 }
 
+// AgentSessionStatus is the lifecycle of an agent session. Expiry is not one of
+// these: it is derived from expires_at on read, so nothing has to sweep the
+// table to keep the list honest.
+enum AgentSessionStatus {
+  AGENT_SESSION_STATUS_UNKNOWN = 0;
+  AGENT_SESSION_PENDING = 1;   // requested by an agent, awaiting operator approval
+  AGENT_SESSION_APPROVED = 2;  // approved; the token is minted on first pickup
+  AGENT_SESSION_REJECTED = 3;  // operator declined, or the request went stale
+  AGENT_SESSION_REVOKED = 4;   // was live, stopped by the operator
+}
+
 // AgentSession is the tracked record of a command-line or agent bearer token.
 // It never carries the token itself: only the leading characters, enough to
 // tell two sessions apart in a list.
 message AgentSession {
   string id = 1;
   int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  // Zero until the token is minted, which happens on first pickup rather than
+  // at approval.
   int64 expires_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   string token_prefix = 4;
   repeated string scopes = 5;
-  bool revoked = 6;
+  // 6 was `bool revoked`, now covered by status.
+  AgentSessionStatus status = 7;
+  string requesting_address = 8;
+  // Shown beside a pending request so the operator can match it against the
+  // code their agent printed. Meaningless once the session is live.
+  string approval_code = 9;
+  int64 approved_at = 10 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
 }
 
 message AgentSessionList {
@@ -161,6 +180,40 @@ message AgentSessionCreated {
 }
 
 message AgentSessionRevokeRequest {
+  string id = 1;
+}
+
+// AgentSessionRequestStartRequest is an agent's opening call. It is
+// unauthenticated: user_id says only whose approval queue the request lands in,
+// and grants nothing until that operator approves it.
+message AgentSessionRequestStartRequest {
+  int32 user_id = 1;
+}
+
+// AgentSessionRequest is what the requesting agent gets back. The two ids pull
+// in opposite directions: `id` is the pickup secret and must stay private,
+// while `approval_code` exists to be read out to the operator so they can tell
+// this request apart from any other that reached the server.
+message AgentSessionRequest {
+  string id = 1;
+  string approval_code = 2;
+  AgentSessionStatus status = 3;
+  int64 request_expires_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+}
+
+message AgentSessionGetRequest {
+  string id = 1;
+}
+
+// AgentSessionPickup carries the token exactly once: on the first get-session
+// call after approval. Every later call returns status alone.
+message AgentSessionPickup {
+  AgentSessionStatus status = 1;
+  string token = 2;
+  int64 expires_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+}
+
+message AgentSessionApproveRequest {
   string id = 1;
 }
 
@@ -362,6 +415,10 @@ message State {
   ConfigVersion config_snapshot = 31 [(cp.go_value) = true];
   ScheduledInstanceSnapshot scheduled_instances_snapshot = 32;
   ScheduledInstanceState scheduled_instance_update = 33;
+  // Filtered to the connected user before it is yielded, unlike every other
+  // field here: agent sessions belong to one operator.
+  AgentSessionList agent_sessions_snapshot = 34;
+  AgentSession agent_session_update = 35;
 }
 
 message Space {

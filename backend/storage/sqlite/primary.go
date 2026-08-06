@@ -127,6 +127,10 @@ type PrimaryStorage struct {
 	enrollmentSubs      *pubsubu.PubSub[apigen.EnrollmentRequestStatus]
 	nodeSubs            *pubsubu.PubSub[apigen.ClusterNode]
 	nodeStatusSubs      *pubsubu.PubSub[apigen.ClusterNodeStatus]
+	// Carries the storage record rather than the proto, because subscribers have
+	// to filter by user id before yielding: an agent session belongs to one
+	// operator, unlike everything else broadcast here.
+	agentSessionSubs *pubsubu.PubSub[AgentSessionRecord]
 }
 
 func NewPrimaryStorage(dbPath string) *PrimaryStorage {
@@ -145,6 +149,7 @@ func NewPrimaryStorage(dbPath string) *PrimaryStorage {
 		enrollmentSubs:      &pubsubu.PubSub[apigen.EnrollmentRequestStatus]{},
 		nodeSubs:            &pubsubu.PubSub[apigen.ClusterNode]{},
 		nodeStatusSubs:      &pubsubu.PubSub[apigen.ClusterNodeStatus]{},
+		agentSessionSubs:    &pubsubu.PubSub[AgentSessionRecord]{},
 	}
 }
 
@@ -1199,29 +1204,58 @@ func (s *PrimaryStorage) UpdateUserMatching(predicate func(*apigen.InternalUser)
 // --- auth: agent sessions ---
 
 // AgentSession is a stored agent session. TokenHash is the SHA-256 of the
-// issued token; the plaintext is never persisted.
+// issued token; the plaintext is never persisted. A session that is still a
+// pending request has no token at all: TokenHash, TokenPrefix, and ExpiresAt
+// stay zero until it is approved and collected.
 type AgentSessionRecord struct {
-	ID          string
-	UserID      int32
-	CreatedAt   time.Time
-	ExpiresAt   time.Time
-	TokenHash   []byte
-	TokenPrefix string
-	RevokedAt   time.Time
-	Scopes      []string
+	ID                string
+	UserID            int32
+	CreatedAt         time.Time
+	ExpiresAt         time.Time
+	TokenHash         []byte
+	TokenPrefix       string
+	RevokedAt         time.Time
+	Scopes            []string
+	Status            apigen.AgentSessionStatus
+	RequestingAddress string
+	ApprovalCode      string
+	ApprovedAt        time.Time
+}
+
+// Collected reports whether this session's token has been minted. Approval on
+// its own does not mint one, so this is what separates a session waiting to be
+// picked up from a live one.
+func (r AgentSessionRecord) Collected() bool { return len(r.TokenHash) > 0 }
+
+// unixOrZero keeps a zero time.Time as a zero column rather than the 1970
+// epoch, so "never approved" and "approved at the epoch" stay distinguishable.
+func unixOrZero(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.Unix()
+}
+
+func timeOrZero(unix int64) time.Time {
+	if unix <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(unix, 0)
 }
 
 func agentSessionRowToRecord(row AgentSession) AgentSessionRecord {
 	rec := AgentSessionRecord{
-		ID:          row.ID,
-		UserID:      int32(row.UserID),
-		CreatedAt:   time.Unix(row.CreatedAt, 0),
-		ExpiresAt:   time.Unix(row.ExpiresAt, 0),
-		TokenHash:   row.TokenHash,
-		TokenPrefix: row.TokenPrefix,
-	}
-	if row.RevokedAt > 0 {
-		rec.RevokedAt = time.Unix(row.RevokedAt, 0)
+		ID:                row.ID,
+		UserID:            int32(row.UserID),
+		CreatedAt:         time.Unix(row.CreatedAt, 0),
+		ExpiresAt:         timeOrZero(row.ExpiresAt),
+		TokenHash:         row.TokenHash,
+		TokenPrefix:       row.TokenPrefix,
+		RevokedAt:         timeOrZero(row.RevokedAt),
+		Status:            apigen.AgentSessionStatus(row.Status),
+		RequestingAddress: row.RequestingAddress,
+		ApprovalCode:      row.ApprovalCode,
+		ApprovedAt:        timeOrZero(row.ApprovedAt),
 	}
 	if row.Scopes != "" {
 		rec.Scopes = strings.Split(row.Scopes, ",")
@@ -1230,15 +1264,30 @@ func agentSessionRowToRecord(row AgentSession) AgentSessionRecord {
 }
 
 func (s *PrimaryStorage) InsertAgentSession(rec AgentSessionRecord) error {
-	return s.q.InsertAgentSession(context.Background(), InsertAgentSessionParams{
-		ID:          rec.ID,
-		UserID:      int64(rec.UserID),
-		CreatedAt:   rec.CreatedAt.Unix(),
-		ExpiresAt:   rec.ExpiresAt.Unix(),
-		TokenHash:   rec.TokenHash,
-		TokenPrefix: rec.TokenPrefix,
-		Scopes:      strings.Join(rec.Scopes, ","),
+	// A pending request has no token yet, and a nil slice would land as NULL
+	// against a NOT NULL column.
+	tokenHash := rec.TokenHash
+	if tokenHash == nil {
+		tokenHash = []byte{}
+	}
+	err := s.q.InsertAgentSession(context.Background(), InsertAgentSessionParams{
+		ID:                rec.ID,
+		UserID:            int64(rec.UserID),
+		CreatedAt:         rec.CreatedAt.Unix(),
+		ExpiresAt:         unixOrZero(rec.ExpiresAt),
+		TokenHash:         tokenHash,
+		TokenPrefix:       rec.TokenPrefix,
+		Scopes:            strings.Join(rec.Scopes, ","),
+		Status:            int64(rec.Status),
+		RequestingAddress: rec.RequestingAddress,
+		ApprovalCode:      rec.ApprovalCode,
+		ApprovedAt:        unixOrZero(rec.ApprovedAt),
 	})
+	if err != nil {
+		return err
+	}
+	s.agentSessionSubs.Notify(rec)
+	return nil
 }
 
 // FetchAgentSession returns ErrNotFound when no session carries the id, which
@@ -1266,14 +1315,113 @@ func (s *PrimaryStorage) ListAgentSessionsForUser(userID int32) ([]AgentSessionR
 	return out, nil
 }
 
+// ListPendingAgentSessionsForUser returns the user's open session requests,
+// newest first. There is normally at most one, but stale requests are only
+// closed lazily, so a caller has to be prepared for several.
+func (s *PrimaryStorage) ListPendingAgentSessionsForUser(userID int32) ([]AgentSessionRecord, error) {
+	rows, err := s.q.ListPendingAgentSessionsForUser(context.Background(), int64(userID))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AgentSessionRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, agentSessionRowToRecord(row))
+	}
+	return out, nil
+}
+
+// SetAgentSessionStatus moves a session to a new state. approvedAt and revokedAt
+// are written together with it so the row can never claim a state whose
+// timestamp is missing.
+func (s *PrimaryStorage) SetAgentSessionStatus(id string, status apigen.AgentSessionStatus, approvedAt, revokedAt time.Time) error {
+	err := s.q.SetAgentSessionStatus(context.Background(), SetAgentSessionStatusParams{
+		Status:     int64(status),
+		ApprovedAt: unixOrZero(approvedAt),
+		RevokedAt:  unixOrZero(revokedAt),
+		ID:         id,
+	})
+	if err != nil {
+		return err
+	}
+	s.notifyAgentSession(id)
+	return nil
+}
+
+// ApproveAgentSession approves a pending request and records the approver's
+// scopes in the same statement. It reports false when the row was not pending,
+// which is how a second approval of the same request is rejected.
+func (s *PrimaryStorage) ApproveAgentSession(id string, userID int32, scopes []string, at time.Time) (bool, error) {
+	rows, err := s.q.ApproveAgentSession(context.Background(), ApproveAgentSessionParams{
+		ApprovedAt: at.Unix(),
+		Scopes:     strings.Join(scopes, ","),
+		ID:         id,
+		UserID:     int64(userID),
+	})
+	if err != nil {
+		return false, err
+	}
+	if rows == 0 {
+		return false, nil
+	}
+	s.notifyAgentSession(id)
+	return true, nil
+}
+
+// ClaimAgentSessionToken records a freshly minted token against an approved
+// session and reports whether this caller was the one that claimed it. A false
+// return means another request got there first; the caller must discard the
+// token it minted rather than hand out a second working credential.
+func (s *PrimaryStorage) ClaimAgentSessionToken(id string, tokenHash []byte, tokenPrefix string, expiresAt time.Time, scopes []string) (bool, error) {
+	rows, err := s.q.ClaimAgentSessionToken(context.Background(), ClaimAgentSessionTokenParams{
+		TokenHash:   tokenHash,
+		TokenPrefix: tokenPrefix,
+		ExpiresAt:   unixOrZero(expiresAt),
+		Scopes:      strings.Join(scopes, ","),
+		ID:          id,
+	})
+	if err != nil {
+		return false, err
+	}
+	if rows == 0 {
+		return false, nil
+	}
+	s.notifyAgentSession(id)
+	return true, nil
+}
+
 // RevokeAgentSession is scoped by user id so one operator cannot revoke
 // another's session by guessing its id.
-func (s *PrimaryStorage) RevokeAgentSession(id string, userID int32, at time.Time) error {
-	return s.q.RevokeAgentSession(context.Background(), RevokeAgentSessionParams{
+func (s *PrimaryStorage) RevokeAgentSession(id string, userID int32, status apigen.AgentSessionStatus, at time.Time) error {
+	err := s.q.RevokeAgentSession(context.Background(), RevokeAgentSessionParams{
 		RevokedAt: at.Unix(),
+		Status:    int64(status),
 		ID:        id,
 		UserID:    int64(userID),
 	})
+	if err != nil {
+		return err
+	}
+	s.notifyAgentSession(id)
+	return nil
+}
+
+// SubscribeAgentSessionUpdates streams every agent session change. Records are
+// not filtered here: subscribers must drop the ones whose UserID is not theirs.
+func (s *PrimaryStorage) SubscribeAgentSessionUpdates() (*pubsubu.Sub[AgentSessionRecord], func()) {
+	sub := s.agentSessionSubs.Subscribe(nil)
+	return sub, sub.UnsubscribeFunc
+}
+
+// notifyAgentSession re-reads the row so subscribers always see the persisted
+// state rather than a caller's idea of it. A failed read is dropped: a missed
+// update degrades the live list, which the next reconnect repairs, and is not
+// worth failing the write that just succeeded.
+func (s *PrimaryStorage) notifyAgentSession(id string) {
+	rec, err := s.FetchAgentSession(id)
+	if err != nil {
+		return
+	}
+	s.agentSessionSubs.Notify(rec)
 }
 
 func (s *PrimaryStorage) UserCount() int {

@@ -116,11 +116,19 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
     id           TEXT PRIMARY KEY,
     user_id      INTEGER NOT NULL,
     created_at   INTEGER NOT NULL,
+    -- Zero until the token is minted. A session approved but not yet collected
+    -- has no expiry because its 12h clock has not started.
     expires_at   INTEGER NOT NULL,
     token_hash   BLOB    NOT NULL,
     token_prefix TEXT    NOT NULL,
     revoked_at   INTEGER NOT NULL DEFAULT 0,
-    scopes       TEXT    NOT NULL DEFAULT ''
+    scopes       TEXT    NOT NULL DEFAULT '',
+    -- AgentSessionStatus. Authoritative state; revoked_at survives only as the
+    -- timestamp that goes with status = REVOKED.
+    status             INTEGER NOT NULL DEFAULT 2,
+    requesting_address TEXT    NOT NULL DEFAULT '',
+    approval_code      TEXT    NOT NULL DEFAULT '',
+    approved_at        INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_user_created

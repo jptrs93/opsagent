@@ -221,19 +221,46 @@ SELECT id, name, data_blob FROM users ORDER BY id;
 -- === agent_sessions ===
 
 -- name: InsertAgentSession :exec
-INSERT INTO agent_sessions (id, user_id, created_at, expires_at, token_hash, token_prefix, revoked_at, scopes)
-VALUES (?, ?, ?, ?, ?, ?, 0, ?);
+INSERT INTO agent_sessions (id, user_id, created_at, expires_at, token_hash, token_prefix, revoked_at, scopes,
+                            status, requesting_address, approval_code, approved_at)
+VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?);
 
 -- name: GetAgentSession :one
-SELECT id, user_id, created_at, expires_at, token_hash, token_prefix, revoked_at, scopes
+SELECT id, user_id, created_at, expires_at, token_hash, token_prefix, revoked_at, scopes,
+       status, requesting_address, approval_code, approved_at
 FROM agent_sessions WHERE id = ?;
 
 -- name: ListAgentSessionsForUser :many
-SELECT id, user_id, created_at, expires_at, token_hash, token_prefix, revoked_at, scopes
+SELECT id, user_id, created_at, expires_at, token_hash, token_prefix, revoked_at, scopes,
+       status, requesting_address, approval_code, approved_at
 FROM agent_sessions WHERE user_id = ? ORDER BY created_at DESC;
 
+-- name: ListPendingAgentSessionsForUser :many
+SELECT id, user_id, created_at, expires_at, token_hash, token_prefix, revoked_at, scopes,
+       status, requesting_address, approval_code, approved_at
+FROM agent_sessions WHERE user_id = ? AND status = 1 ORDER BY created_at DESC;
+
+-- name: SetAgentSessionStatus :exec
+UPDATE agent_sessions SET status = ?, approved_at = ?, revoked_at = ?
+WHERE id = ?;
+
+-- ApproveAgentSession records the approver's scopes and the approval together,
+-- and only from PENDING, so two operators racing on the same request cannot
+-- both approve it and the second one's scopes cannot overwrite the first's.
+-- name: ApproveAgentSession :execrows
+UPDATE agent_sessions SET status = 2, approved_at = ?, scopes = ?
+WHERE id = ? AND user_id = ? AND status = 1;
+
+-- ClaimAgentSessionToken mints a session's token exactly once. The empty
+-- token_hash in the WHERE clause is the guard: two concurrent pickups race here
+-- and only the one that finds the row unclaimed reports a row affected, so a
+-- session can never hand out two working tokens.
+-- name: ClaimAgentSessionToken :execrows
+UPDATE agent_sessions SET token_hash = ?, token_prefix = ?, expires_at = ?, scopes = ?
+WHERE id = ? AND status = 2 AND length(token_hash) = 0;
+
 -- name: RevokeAgentSession :exec
-UPDATE agent_sessions SET revoked_at = ?
+UPDATE agent_sessions SET revoked_at = ?, status = ?
 WHERE id = ? AND user_id = ? AND revoked_at = 0;
 
 -- === public_keys ===

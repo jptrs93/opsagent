@@ -202,8 +202,77 @@ func (c *OpsagentHttpV1Capi) GetV1AuthCurrentSession(ctx context.Context) (*Logi
 	return DecodeLoginResponse(body)
 }
 
+func (c *OpsagentHttpV1Capi) GetV1AgentSessionsInstructions(ctx context.Context) error {
+	resp, err := c.do(ctx, "GET", "/v1/agent-sessions/instructions", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
+func (c *OpsagentHttpV1Capi) PostV1AgentSessionsRequestStart(ctx context.Context, req *AgentSessionRequestStartRequest) (*AgentSessionRequest, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AgentSessionsRequestStart request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/request-start", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAgentSessionRequest(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1AgentSessionsGetSession(ctx context.Context, req *AgentSessionGetRequest) (*AgentSessionPickup, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AgentSessionsGetSession request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/get-session", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAgentSessionPickup(body)
+}
+
+func (c *OpsagentHttpV1Capi) PostV1AgentSessionsApprove(ctx context.Context, req *AgentSessionApproveRequest) (*AgentSession, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AgentSessionsApprove request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/approve", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAgentSession(body)
+}
+
 func (c *OpsagentHttpV1Capi) PostV1AgentSessionsCreate(ctx context.Context) (*AgentSessionCreated, error) {
-	resp, err := c.do(ctx, "POST", "/v1/agent/sessions/create", nil, "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/create", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +291,7 @@ func (c *OpsagentHttpV1Capi) PostV1AgentSessionsList(ctx context.Context, req *E
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AgentSessionsList request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/agent/sessions/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +310,7 @@ func (c *OpsagentHttpV1Capi) PostV1AgentSessionsRevoke(ctx context.Context, req 
 	if req == nil {
 		return fmt.Errorf("PostV1AgentSessionsRevoke request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/agent/sessions/revoke", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/revoke", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return err
 	}

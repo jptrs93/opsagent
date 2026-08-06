@@ -3927,7 +3927,10 @@ func (m *AgentSession) Encode() []byte {
 	b = AppendInt64FromTime(b, m.ExpiresAt, 3)
 	b = AppendStringField(b, m.TokenPrefix, 4)
 	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 5))
-	b = AppendBoolField(b, m.Revoked, 6)
+	b = AppendInt32Field(b, int32(m.Status), 7)
+	b = AppendStringField(b, m.RequestingAddress, 8)
+	b = AppendStringField(b, m.ApprovalCode, 9)
+	b = AppendInt64FromTime(b, m.ApprovedAt, 10)
 	return b
 }
 
@@ -3956,8 +3959,18 @@ func DecodeAgentSession(b []byte) (*AgentSession, error) {
 			if err == nil {
 				m.Scopes = append(m.Scopes, item)
 			}
-		case 6:
-			b, m.Revoked, err = ConsumeBool(b, typ)
+		case 7:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Status = AgentSessionStatus(raw)
+			}
+		case 8:
+			b, m.RequestingAddress, err = ConsumeString(b, typ)
+		case 9:
+			b, m.ApprovalCode, err = ConsumeString(b, typ)
+		case 10:
+			b, m.ApprovedAt, err = ConsumeTimeFromInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4062,6 +4075,174 @@ func (m *AgentSessionRevokeRequest) Encode() []byte {
 
 func DecodeAgentSessionRevokeRequest(b []byte) (*AgentSessionRevokeRequest, error) {
 	var m AgentSessionRevokeRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AgentSessionRequestStartRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.UserID, 1)
+	return b
+}
+
+func DecodeAgentSessionRequestStartRequest(b []byte) (*AgentSessionRequestStartRequest, error) {
+	var m AgentSessionRequestStartRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.UserID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AgentSessionRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.ID, 1)
+	b = AppendStringField(b, m.ApprovalCode, 2)
+	b = AppendInt32Field(b, int32(m.Status), 3)
+	b = AppendInt64FromTime(b, m.RequestExpiresAt, 4)
+	return b
+}
+
+func DecodeAgentSessionRequest(b []byte) (*AgentSessionRequest, error) {
+	var m AgentSessionRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeString(b, typ)
+		case 2:
+			b, m.ApprovalCode, err = ConsumeString(b, typ)
+		case 3:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Status = AgentSessionStatus(raw)
+			}
+		case 4:
+			b, m.RequestExpiresAt, err = ConsumeTimeFromInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AgentSessionGetRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.ID, 1)
+	return b
+}
+
+func DecodeAgentSessionGetRequest(b []byte) (*AgentSessionGetRequest, error) {
+	var m AgentSessionGetRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AgentSessionPickup) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, int32(m.Status), 1)
+	b = AppendStringField(b, m.Token, 2)
+	b = AppendInt64FromTime(b, m.ExpiresAt, 3)
+	return b
+}
+
+func DecodeAgentSessionPickup(b []byte) (*AgentSessionPickup, error) {
+	var m AgentSessionPickup
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Status = AgentSessionStatus(raw)
+			}
+		case 2:
+			b, m.Token, err = ConsumeString(b, typ)
+		case 3:
+			b, m.ExpiresAt, err = ConsumeTimeFromInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AgentSessionApproveRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.ID, 1)
+	return b
+}
+
+func DecodeAgentSessionApproveRequest(b []byte) (*AgentSessionApproveRequest, error) {
+	var m AgentSessionApproveRequest
 	var num Number
 	var typ Type
 	var err error
@@ -5111,6 +5292,14 @@ func (m *State) Encode() []byte {
 		b = AppendTag(b, 33, BytesType)
 		b = AppendBytes(b, m.ScheduledInstanceUpdate.Encode())
 	}
+	if m.AgentSessionsSnapshot != nil {
+		b = AppendTag(b, 34, BytesType)
+		b = AppendBytes(b, m.AgentSessionsSnapshot.Encode())
+	}
+	if m.AgentSessionUpdate != nil {
+		b = AppendTag(b, 35, BytesType)
+		b = AppendBytes(b, m.AgentSessionUpdate.Encode())
+	}
 	return b
 }
 
@@ -5378,6 +5567,24 @@ func DecodeState(b []byte) (*State, error) {
 				item, err = DecodeScheduledInstanceState(msgBytes)
 				if err == nil {
 					m.ScheduledInstanceUpdate = item
+				}
+			}
+		case 34:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AgentSessionList
+				item, err = DecodeAgentSessionList(msgBytes)
+				if err == nil {
+					m.AgentSessionsSnapshot = item
+				}
+			}
+		case 35:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AgentSession
+				item, err = DecodeAgentSession(msgBytes)
+				if err == nil {
+					m.AgentSessionUpdate = item
 				}
 			}
 		default:

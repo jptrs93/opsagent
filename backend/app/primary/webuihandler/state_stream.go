@@ -46,6 +46,23 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 			return
 		}
 		defer enrollmentUnsub()
+		agentSessionSub, agentSessionUnsub := h.Store.SubscribeAgentSessionUpdates()
+		defer agentSessionUnsub()
+
+		// Agent sessions are the one thing here that belongs to a single
+		// operator, so they are filtered to the connected user rather than
+		// broadcast like everything else.
+		agentSessions := &apigen.AgentSessionList{}
+		if ctx.User != nil {
+			records, err := h.Store.ListAgentSessionsForUser(ctx.User.ID)
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			for _, rec := range records {
+				agentSessions.Items = append(agentSessions.Items, agentSessionToProto(rec))
+			}
+		}
 
 		configItems := make([]*apigen.DeploymentConfig, 0, len(configs))
 		for i := range configs {
@@ -73,6 +90,7 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 			NodeStatusesSnapshot:       &apigen.ClusterNodeStatusList{Items: h.Store.ListNodeStatuses()},
 			BackupStatusSnapshot:       &backupStatus,
 			ConfigSnapshot:             configSub.InitialValue,
+			AgentSessionsSnapshot:      agentSessions,
 		}
 		if !yield(initial, nil) {
 			return
@@ -189,6 +207,19 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 					return
 				}
 				if !yield(&apigen.State{EnrollmentUpdate: &enrollment}, nil) {
+					return
+				}
+			case rec, ok := <-agentSessionSub.Ch:
+				if !ok {
+					return
+				}
+				// Dropped rather than yielded when it belongs to someone else:
+				// this is the filter that keeps one operator's session requests
+				// off another's screen.
+				if ctx.User == nil || rec.UserID != ctx.User.ID {
+					continue
+				}
+				if !yield(&apigen.State{AgentSessionUpdate: agentSessionToProto(rec)}, nil) {
 					return
 				}
 			case <-heartbeatTicker.C:

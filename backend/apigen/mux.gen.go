@@ -75,6 +75,10 @@ type OpsagentHttpV1Handler interface {
 	PostV1AuthMasterPasswordSave(Context, *MasterPasswordSaveRequest) error
 	PostV1AuthMasterPasswordVerify(Context, *MasterPasswordVerifyRequest) error
 	GetV1AuthCurrentSession(Context) (*LoginResponse, error)
+	GetV1AgentSessionsInstructions(Context, *http.Request, http.ResponseWriter) error
+	PostV1AgentSessionsRequestStart(Context, *AgentSessionRequestStartRequest) (*AgentSessionRequest, error)
+	PostV1AgentSessionsGetSession(Context, *AgentSessionGetRequest) (*AgentSessionPickup, error)
+	PostV1AgentSessionsApprove(Context, *AgentSessionApproveRequest) (*AgentSession, error)
 	PostV1AgentSessionsCreate(Context) (*AgentSessionCreated, error)
 	PostV1AgentSessionsList(Context, *EmptyRequest) (*AgentSessionList, error)
 	PostV1AgentSessionsRevoke(Context, *AgentSessionRevokeRequest) error
@@ -203,12 +207,54 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("GET /v1/auth/current/session", buildHandlerFunc(config, verifyAuth, getV1AuthCurrentSessionAccessPolicy, postAuthHandlerGetV1AuthCurrentSession, compressionModeAuto, false))
+	getV1AgentSessionsInstructionsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerGetV1AgentSessionsInstructions := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		err := h.GetV1AgentSessionsInstructions(authCtx, r, w)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+	}
+	m.HandleFunc("GET /v1/agent-sessions/instructions", buildHandlerFunc(config, verifyAuth, getV1AgentSessionsInstructionsAccessPolicy, postAuthHandlerGetV1AgentSessionsInstructions, compressionModeAuto, false))
+	postV1AgentSessionsRequestStartAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerPostV1AgentSessionsRequestStart := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAgentSessionRequestStartRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AgentSessionsRequestStart(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/agent-sessions/request-start", buildHandlerFunc(config, verifyAuth, postV1AgentSessionsRequestStartAccessPolicy, postAuthHandlerPostV1AgentSessionsRequestStart, compressionModeAuto, false))
+	postV1AgentSessionsGetSessionAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerPostV1AgentSessionsGetSession := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAgentSessionGetRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AgentSessionsGetSession(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/agent-sessions/get-session", buildHandlerFunc(config, verifyAuth, postV1AgentSessionsGetSessionAccessPolicy, postAuthHandlerPostV1AgentSessionsGetSession, compressionModeAuto, false))
+	postV1AgentSessionsApproveAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AgentSessionsApprove := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAgentSessionApproveRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AgentSessionsApprove(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/agent-sessions/approve", buildHandlerFunc(config, verifyAuth, postV1AgentSessionsApproveAccessPolicy, postAuthHandlerPostV1AgentSessionsApprove, compressionModeAuto, false))
 	postV1AgentSessionsCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1AgentSessionsCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		res, err := h.PostV1AgentSessionsCreate(authCtx)
 		Respond(authCtx, r, w, res, err)
 	}
-	m.HandleFunc("POST /v1/agent/sessions/create", buildHandlerFunc(config, verifyAuth, postV1AgentSessionsCreateAccessPolicy, postAuthHandlerPostV1AgentSessionsCreate, compressionModeAuto, false))
+	m.HandleFunc("POST /v1/agent-sessions/create", buildHandlerFunc(config, verifyAuth, postV1AgentSessionsCreateAccessPolicy, postAuthHandlerPostV1AgentSessionsCreate, compressionModeAuto, false))
 	postV1AgentSessionsListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1AgentSessionsList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)
@@ -219,7 +265,7 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		res, err := h.PostV1AgentSessionsList(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
-	m.HandleFunc("POST /v1/agent/sessions/list", buildHandlerFunc(config, verifyAuth, postV1AgentSessionsListAccessPolicy, postAuthHandlerPostV1AgentSessionsList, compressionModeAuto, false))
+	m.HandleFunc("POST /v1/agent-sessions/list", buildHandlerFunc(config, verifyAuth, postV1AgentSessionsListAccessPolicy, postAuthHandlerPostV1AgentSessionsList, compressionModeAuto, false))
 	postV1AgentSessionsRevokeAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1AgentSessionsRevoke := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAgentSessionRevokeRequest)
@@ -234,7 +280,7 @@ func CreateOpsagentHttpV1Mux(h OpsagentHttpV1Handler, config *MuxConfig) *http.S
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
-	m.HandleFunc("POST /v1/agent/sessions/revoke", buildHandlerFunc(config, verifyAuth, postV1AgentSessionsRevokeAccessPolicy, postAuthHandlerPostV1AgentSessionsRevoke, compressionModeAuto, false))
+	m.HandleFunc("POST /v1/agent-sessions/revoke", buildHandlerFunc(config, verifyAuth, postV1AgentSessionsRevokeAccessPolicy, postAuthHandlerPostV1AgentSessionsRevoke, compressionModeAuto, false))
 	postV1AuthPasskeyRegisterStartAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"passkey:create", "default"}}
 	postAuthHandlerPostV1AuthPasskeyRegisterStart := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)

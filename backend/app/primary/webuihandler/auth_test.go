@@ -142,7 +142,7 @@ func TestAgentSessionsCreateRouteEnforcesScopes(t *testing.T) {
 	mux := apigen.CreateOpsagentHttpV1Mux(h, &apigen.MuxConfig{VerifyAuth: h.VerifyAuth})
 
 	call := func(authHeader string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest(http.MethodPost, "/v1/agent/sessions/create", nil)
+		r := httptest.NewRequest(http.MethodPost, "/v1/agent-sessions/create", nil)
 		if authHeader != "" {
 			r.Header.Set("Authorization", authHeader)
 		}
@@ -297,7 +297,7 @@ func TestRevokedAgentSessionTokenFailsVerifyAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsList: %v", err)
 	}
-	if len(list.Items) != 1 || !list.Items[0].Revoked {
+	if len(list.Items) != 1 || list.Items[0].Status != apigen.AgentSessionStatus_AGENT_SESSION_REVOKED {
 		t.Fatalf("list = %#v, want the session marked revoked", list.Items)
 	}
 }

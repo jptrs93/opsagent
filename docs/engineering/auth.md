@@ -5,7 +5,9 @@
 Authentication uses passkeys for normal operator login. A master password can issue a short-lived token for passkey registration, including bootstrap and recovery when an operator needs to enroll a replacement authenticator. Both flows produce a JWT token used for subsequent requests. Access control is enforced per-route via policies defined in the protobuf API contract.
 
 Key files:
-- `backend/app/primary/webuihandler/auth.go` — master password handler, JWT signing/verification, agent session create/list/revoke.
+- `backend/app/primary/webuihandler/auth.go` — master password handler, JWT verification, and `VerifyAuth`.
+- `backend/app/primary/webuihandler/agent_sessions.go` — agent session request, approve, pickup, create, list, and revoke.
+- `backend/app/primary/webuihandler/agent_instructions.go` / `.md` — the unauthenticated instructions page an operator hands to an agent.
 - `backend/app/primary/webuihandler/passkey.go` — passkey registration and login handlers, credential persistence, and WebAuthn user adapter.
 - `backend/apigen/policy_ext.go` — access control policy enforcement.
 
@@ -45,29 +47,48 @@ Tokens are signed with RSA-256 (RS256) via `github.com/jptrs93/goutil/authu`. Ea
 Three token types exist:
 - **Bootstrap token**: scopes `["passkey:create"]`, 10-minute expiry. Issued by master password exchange.
 - **Session token**: scopes `["default", "secrets_access"]`, 2-day expiry. Issued by passkey registration or login.
-- **Agent session token**: the caller's scopes minus `secrets_access`, 12-hour expiry. Issued by `POST /v1/agent/sessions/create` for command-line, script, and agent use.
+- **Agent session token**: the caller's scopes minus `secrets_access`, 12-hour expiry. Issued under `/v1/agent-sessions/` for command-line, script, and agent use.
 
 `GET /v1/auth/current/session` is an authenticated validation endpoint that echoes the caller's current bearer token without minting a new one. The frontend uses it on app startup to confirm persisted auth state and to force re-login on `401`.
 
-### Agent sessions (`POST /v1/agent/sessions/create`)
+### Agent sessions
 
-Requires an existing `default` scope session. The minted token derives from the caller's scopes rather than a fixed list, so it can never grant more access than the session that requested it — a `passkey:create` bootstrap token is rejected with `403` and cannot be traded up into general access. The 12-hour lifetime is deliberately shorter than the 2-day browser session because these tokens get pasted into shells and end up in history files and CI logs.
+An agent session is a 12-hour bearer token for command-line, script, and agent use. The lifetime is deliberately shorter than the 2-day browser session because these tokens get pasted into shells and end up in history files and CI logs.
 
-`secrets_access` is dropped on the way through (`agentSessionScopes`), so an agent token can list secret metadata and reference secrets by id from deployment env, but cannot reveal, create, rename, or delete a secret value. Those calls return `403`. This is the one place where an agent token is strictly weaker than its parent session, and it is deliberate: the token's longer reach into shell history and CI logs is a poor place to carry the right to read plaintext secrets. An operator who needs to change a secret does it in the browser.
+Whichever route mints one, `secrets_access` is dropped on the way through (`agentSessionScopes`), so an agent token can list secret metadata and reference secrets by id from deployment env, but cannot reveal, create, rename, or delete a secret value. Those calls return `403`. This is the one place where an agent token is strictly weaker than its parent session, and it is deliberate: the token's longer reach into shell history and CI logs is a poor place to carry the right to read plaintext secrets. An operator who needs to change a secret does it in the browser.
 
-The Sessions page in the web UI exposes this as a copyable `export OPENDEPLOY_URL=...` / `export OPENDEPLOY_TOKEN=...` pair, with the URL taken from the page's own origin.
+All routes live under `/v1/agent-sessions/`, which is also the rate-limit prefix.
+
+#### Request and approve (the normal path)
+
+The operator pastes one line into their agent — "Load instructions for using our deployment orchestration platform from `<origin>/v1/agent-sessions/instructions?user_id=<id>`" — and the agent does the rest. Nothing is copied by hand and no credential passes through the operator.
+
+1. `GET /v1/agent-sessions/instructions?user_id=` (`NO_AUTH`) renders the API instructions the agent needs, as markdown, or as an HTML wrapper when the `Accept` header prefers it. The source is `agent_instructions.md`, embedded and rendered through `text/template` with the base URL taken from the request. `user_id` is validated here so a mistyped URL fails immediately rather than hours into a session. It grants nothing.
+2. `POST /v1/agent-sessions/request-start` (`NO_AUTH`) opens a `PENDING` row carrying `requesting_address` and an `approval_code`, and returns the row `id` plus that code. The two pull in opposite directions: **`id` is the pickup secret** — 32 random bytes, never displayed in full — while **`approval_code` exists to be read out**. `request-start` is unauthenticated by necessity, so without a code the operator has no way to tell their own agent's request from anyone else's that reached the server. Only one request may be open per user; a second returns `409`.
+3. `POST /v1/agent-sessions/approve` (`default`) turns the operator's own pending row into `APPROVED` and freezes the approver's narrowed scopes onto it in the same statement, so a second approval cannot re-scope it.
+4. `POST /v1/agent-sessions/get-session` (`NO_AUTH`) polls by `id`. On the first call after approval it mints the token, stores its hash, and returns the plaintext. Every later call returns status alone.
+
+**The token is minted at pickup, not at approval.** Minting at approval would mean the plaintext had to sit in the database waiting to be collected, which is exactly what the hash-only rule below exists to prevent. It also means the 12-hour clock starts when the agent actually collects.
+
+A request expires unapproved after `agentSessionPendingTTL` (10 minutes) and an approved one expires uncollected after `agentSessionPickupTTL` (15 minutes); both then read as `REJECTED`. These TTLs are what keep the one-open-request-per-user rule from becoming a denial of service — without them a single unauthenticated request would occupy an operator's only slot indefinitely. Expiry is applied lazily on the next `request-start` or `get-session`; nothing sweeps.
+
+Rate limits in `run.go` back this up: the family gets 2/s burst 30 per IP to accommodate a 5s poll, `instructions` 0.2/s, and `request-start` 3 per 10 minutes. Nested prefixes stack.
+
+#### Direct creation
+
+`POST /v1/agent-sessions/create` (`default`) mints a token immediately and returns it once, for non-interactive callers with no agent waiting on an approval. It requires an existing `default` scope session and derives from the caller's own scopes, so it can never grant more access than the session that requested it — a `passkey:create` bootstrap token is rejected with `403` and cannot be traded up into general access. Rows land already `APPROVED` and collected.
 
 #### Storage and revocation
 
-Each issued token gets a row in `agent_sessions` (`id`, `user_id`, `created_at`, `expires_at`, `token_hash`, `token_prefix`, `revoked_at`, `scopes`). The row `id` is the token's `jti` claim, which is how verification finds it.
+Each session gets a row in `agent_sessions` (`id`, `user_id`, `created_at`, `expires_at`, `token_hash`, `token_prefix`, `revoked_at`, `scopes`, `status`, `requesting_address`, `approval_code`, `approved_at`). The row `id` is the token's `jti` claim, which is how verification finds it. `status` is the `AgentSessionStatus` enum — `PENDING`, `APPROVED`, `REJECTED`, `REVOKED` — and is authoritative; `revoked_at` survives only as the timestamp that goes with `REVOKED`. Expiry is *not* a status: it is derived from `expires_at` on read, so nothing has to sweep the table to keep the list honest. A pending row has no `token_hash`, `token_prefix`, or `expires_at` at all.
 
-**Only the SHA-256 of the token is stored.** The plaintext is returned once at creation and never again, so a copy of `primary.db` — including an off-box Litestream backup — carries no usable credential. `token_prefix` holds the leading 12 characters so an operator can tell two sessions apart in the list; it is short enough to be useless on its own.
+**Only the SHA-256 of the token is stored.** The plaintext is returned once and never again, so a copy of `primary.db` — including an off-box Litestream backup — carries no usable credential at any point in the lifecycle. `token_prefix` holds the leading 12 characters so an operator can tell two sessions apart; it is short enough to be useless on its own. `ClaimAgentSessionToken` guards the write with `length(token_hash) = 0` and reports rows affected, so two concurrent pickups can never both walk away with a working token.
 
-`POST /v1/agent/sessions/revoke` stamps `revoked_at`. This is real revocation, not a display change: `VerifyAuth` calls `verifyAgentSession`, which for any token carrying a `jti` loads the row and rejects the request if it is missing, revoked, or if the token's hash does not match the stored one. Bootstrap and browser session tokens carry no `jti` and keep the stateless fast path, so the extra indexed read applies only to agent-token traffic.
+`POST /v1/agent-sessions/revoke` (`default`) stops a session: a pending row becomes `REJECTED`, anything else `REVOKED`. This is real revocation, not a display change: `VerifyAuth` calls `verifyAgentSession`, which for any token carrying a `jti` loads the row and rejects the request unless the status is `APPROVED` and the token's hash matches the stored one. Bootstrap and browser session tokens carry no `jti` and keep the stateless fast path, so the extra indexed read applies only to agent-token traffic.
 
-`POST /v1/agent/sessions/list` returns the caller's own sessions, newest first, and never returns a token. Both list and revoke are scoped by `ctx.User.ID`, so one operator cannot revoke another's session by guessing its id — but note this is scoping rather than isolation: every user holds the same scopes and there is no admin role.
+`POST /v1/agent-sessions/list` returns the caller's own sessions, newest first, and never returns a token. The web UI does not call it: sessions reach the browser through `PostV1StateStream`, which is the one field in `State` filtered to the connected user rather than broadcast. List, approve, and revoke are all scoped by `ctx.User.ID`, so one operator cannot act on another's session by guessing its id — but note this is scoping rather than isolation: every user holds the same scopes and there is no admin role.
 
-Rows are not garbage collected; expired sessions accumulate as a record of what was issued. Rotating the signing key still invalidates all outstanding tokens, sessions included.
+Rows are not garbage collected; finished sessions accumulate as a record of what was issued and from where. Rotating the signing key still invalidates all outstanding tokens, sessions included.
 
 Public keys are persisted in the SQLite `public_keys` table keyed by `kid`. Key rotation is handled by the `authu` package.
 
