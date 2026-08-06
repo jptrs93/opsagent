@@ -58,7 +58,7 @@ func (h *Handler) mustToken(t *testing.T, userID int32, scopes []string, ttl tim
 	return token
 }
 
-func TestPostV1AgentSessionsCreateMints12HourToken(t *testing.T) {
+func TestPostV1AgentSessionsCreateMintsShortLivedToken(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	session := h.mustToken(t, user.ID, []string{"default"}, 48*time.Hour)
 
@@ -74,7 +74,7 @@ func TestPostV1AgentSessionsCreateMints12HourToken(t *testing.T) {
 		t.Fatal("expected a newly minted token, not the caller's session token echoed back")
 	}
 
-	wantExpiry := before.Add(12 * time.Hour)
+	wantExpiry := before.Add(agentSessionTTL)
 	if res.Session.ExpiresAt.Before(wantExpiry.Add(-time.Minute)) || res.Session.ExpiresAt.After(wantExpiry.Add(time.Minute)) {
 		t.Errorf("expiry = %v, want ~%v", res.Session.ExpiresAt, wantExpiry)
 	}
@@ -172,7 +172,7 @@ func TestAgentSessionsCreateRouteEnforcesScopes(t *testing.T) {
 	})
 
 	// A bootstrap token exists only to register a passkey. It must not be able
-	// to mint a 12-hour general-access token.
+	// to mint a general-access agent token.
 	t.Run("passkey:create scope is rejected", func(t *testing.T) {
 		w := call("Bearer " + h.mustToken(t, user.ID, []string{"passkey:create"}, time.Hour))
 		if w.Code != http.StatusForbidden {

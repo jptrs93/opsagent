@@ -22,7 +22,7 @@ import (
 // agentSessionTTL is how long an agent session stays valid once its token is
 // collected. Kept shorter than the 2-day browser session because these tokens
 // are pasted into shells and end up in history files and CI logs.
-const agentSessionTTL = 12 * time.Hour
+const agentSessionTTL = 6 * time.Hour
 
 // agentSessionPendingTTL is how long a request waits for approval, and
 // agentSessionPickupTTL how long an approved session waits to be collected.
@@ -55,9 +55,9 @@ var (
 )
 
 // agentSessionScopes narrows a session's scopes to what an agent token may
-// carry. Secret values are the one thing withheld: these tokens live for 12
-// hours in shell history, environment files, and CI logs, which is a much wider
-// blast radius than the browser session they were minted from.
+// carry. Secret values are the one thing withheld: these tokens live for hours
+// in shell history, environment files, and CI logs, which is a much wider blast
+// radius than the browser session they were minted from.
 func agentSessionScopes(sessionScopes []string) []string {
 	out := make([]string, 0, len(sessionScopes))
 	for _, scope := range sessionScopes {
@@ -237,7 +237,7 @@ func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apige
 // approval, mints and returns the token. Minting here rather than at approval
 // is deliberate: the plaintext token never has to sit in the database waiting
 // to be collected, so a backup snapshot taken at any moment carries no usable
-// credential. It also starts the 12-hour clock when the agent actually picks
+// credential. It also starts the 6-hour clock when the agent actually picks
 // the token up.
 func (h *Handler) PostV1AgentSessionsGetSession(ctx apigen.Context, req *apigen.AgentSessionGetRequest) (*apigen.AgentSessionPickup, error) {
 	if strings.TrimSpace(req.ID) == "" {

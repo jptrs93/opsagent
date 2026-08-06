@@ -19,7 +19,7 @@ export const INSTRUCTIONS_PATH = "/v1/agent-sessions/instructions";
 // origin as this page, so the address they are already browsing is the one the
 // agent needs.
 export const agentPrompt = (origin, userId) =>
-    `Load instructions for using our deployment orchestration platform from ${origin}${INSTRUCTIONS_PATH}?user_id=${userId}`;
+    `Fetch instructions for using our deployment orchestration platform, opendeploy from ${origin}${INSTRUCTIONS_PATH}?user_id=${userId}. Then request a new session if you don't have an existing valid token.`;
 
 // Started | Status | Origin | actions.
 const ROW_GRID = "grid grid-cols-[minmax(6rem,1fr)_minmax(8rem,1.4fr)_minmax(6rem,1fr)_auto] items-center gap-3";
@@ -76,7 +76,7 @@ export function agentSessions() {
             span({class: "shrink-0 text-xs text-amber-400"}, "Awaiting approval"),
             // The code is the whole point of this row: it is what tells the
             // operator this request is the one their agent made.
-            span({class: "truncate rounded bg-gray-950 px-1.5 py-0.5 font-mono text-xs text-gray-100"},
+            span({class: "truncate rounded bg-code px-1.5 py-0.5 font-mono text-xs text-gray-100"},
                 session.approvalCode || ""),
         ),
         span({class: "truncate font-mono text-xs text-gray-500"}, session.requestingAddress || "unknown"),
@@ -144,7 +144,9 @@ export function agentSessions() {
             ),
             code(
                 {
-                    class: "app-scroll-x mt-3 block overflow-x-auto whitespace-pre rounded bg-gray-950 p-3 text-xs text-gray-200",
+                    // Wraps rather than scrolls: the prompt is a sentence to be
+                    // read and copied whole, not a command line to be scanned.
+                    class: "mt-3 block whitespace-pre-wrap break-words rounded bg-code p-3 text-xs leading-relaxed text-gray-200",
                     "data-testid": "agent-prompt-text",
                 },
                 promptText,
@@ -152,7 +154,7 @@ export function agentSessions() {
         ),
         div(
             {class: "card", "data-testid": "agent-session-list"},
-            h2({class: "font-semibold"}, "Your sessions"),
+            h2({class: "font-semibold"}, "Your agent sessions"),
             () => error.val ? p({class: "mt-2 text-xs text-red-400", "data-testid": "agent-session-error"}, error.val) : "",
             div(
                 {class: `${ROW_GRID} mt-3 px-2 pb-1`},

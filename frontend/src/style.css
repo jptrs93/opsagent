@@ -21,6 +21,10 @@
     --color-sidebar: #111827;
     --color-surface: #1f2937;
     --color-surface-hover: #374151;
+    /* Recessed surface for code and preformatted output. Sits between the page
+       background and a card, so a code block inside a card reads as inset
+       rather than as a hole punched through to the near-black body. */
+    --color-code: #151d2b;
 }
 
 .text-input {

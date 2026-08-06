@@ -47,13 +47,13 @@ Tokens are signed with RSA-256 (RS256) via `github.com/jptrs93/goutil/authu`. Ea
 Three token types exist:
 - **Bootstrap token**: scopes `["passkey:create"]`, 10-minute expiry. Issued by master password exchange.
 - **Session token**: scopes `["default", "secrets_access"]`, 2-day expiry. Issued by passkey registration or login.
-- **Agent session token**: the caller's scopes minus `secrets_access`, 12-hour expiry. Issued under `/v1/agent-sessions/` for command-line, script, and agent use.
+- **Agent session token**: the caller's scopes minus `secrets_access`, 6-hour expiry. Issued under `/v1/agent-sessions/` for command-line, script, and agent use.
 
 `GET /v1/auth/current/session` is an authenticated validation endpoint that echoes the caller's current bearer token without minting a new one. The frontend uses it on app startup to confirm persisted auth state and to force re-login on `401`.
 
 ### Agent sessions
 
-An agent session is a 12-hour bearer token for command-line, script, and agent use. The lifetime is deliberately shorter than the 2-day browser session because these tokens get pasted into shells and end up in history files and CI logs.
+An agent session is a 6-hour bearer token for command-line, script, and agent use. The lifetime is deliberately shorter than the 2-day browser session because these tokens get pasted into shells and end up in history files and CI logs.
 
 Whichever route mints one, `secrets_access` is dropped on the way through (`agentSessionScopes`), so an agent token can list secret metadata and reference secrets by id from deployment env, but cannot reveal, create, rename, or delete a secret value. Those calls return `403`. This is the one place where an agent token is strictly weaker than its parent session, and it is deliberate: the token's longer reach into shell history and CI logs is a poor place to carry the right to read plaintext secrets. An operator who needs to change a secret does it in the browser.
 
@@ -68,7 +68,7 @@ The operator pastes one line into their agent — "Load instructions for using o
 3. `POST /v1/agent-sessions/approve` (`default`) turns the operator's own pending row into `APPROVED` and freezes the approver's narrowed scopes onto it in the same statement, so a second approval cannot re-scope it.
 4. `POST /v1/agent-sessions/get-session` (`NO_AUTH`) polls by `id`. On the first call after approval it mints the token, stores its hash, and returns the plaintext. Every later call returns status alone.
 
-**The token is minted at pickup, not at approval.** Minting at approval would mean the plaintext had to sit in the database waiting to be collected, which is exactly what the hash-only rule below exists to prevent. It also means the 12-hour clock starts when the agent actually collects.
+**The token is minted at pickup, not at approval.** Minting at approval would mean the plaintext had to sit in the database waiting to be collected, which is exactly what the hash-only rule below exists to prevent. It also means the 6-hour clock starts when the agent actually collects.
 
 A request expires unapproved after `agentSessionPendingTTL` (10 minutes) and an approved one expires uncollected after `agentSessionPickupTTL` (15 minutes); both then read as `REJECTED`. These TTLs are what keep the one-open-request-per-user rule from becoming a denial of service — without them a single unauthenticated request would occupy an operator's only slot indefinitely. Expiry is applied lazily on the next `request-start` or `get-session`; nothing sweeps.
 

@@ -41,7 +41,7 @@ uncollected after 15. Both come back as status `3`; start over with a fresh
 `request-start`.
 
 Store the token and the base URL yourself, however you normally persist state.
-The token is valid for 12 hours and is not recoverable. Never echo it into
+The token is valid for 6 hours and is not recoverable. Never echo it into
 output, commit it, or write it into a file the operator did not ask for.
 
 ## 2. Making requests

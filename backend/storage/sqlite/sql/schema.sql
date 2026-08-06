@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
     user_id      INTEGER NOT NULL,
     created_at   INTEGER NOT NULL,
     -- Zero until the token is minted. A session approved but not yet collected
-    -- has no expiry because its 12h clock has not started.
+    -- has no expiry because its 6h clock has not started.
     expires_at   INTEGER NOT NULL,
     token_hash   BLOB    NOT NULL,
     token_prefix TEXT    NOT NULL,
