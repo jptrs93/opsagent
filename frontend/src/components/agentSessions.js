@@ -135,10 +135,13 @@ export function agentSessions() {
             {class: "card", "data-testid": "agent-prompt"},
             div(
                 {class: "flex items-start justify-between gap-3"},
-                div(
-                    h2({class: "font-semibold"}, "Agent prompt"),
-                    p({class: "mt-1 text-xs text-gray-400"},
-                        "Give this to an agent. It will fetch its own instructions, request a session, and print an approval code for you to match below."),
+                // The explanation sits inside the heading rather than under it,
+                // so it wraps as one sentence instead of forming a second block
+                // above a code box that is already the tallest thing here.
+                h2({class: "min-w-0 font-semibold"},
+                    "Agent prompt",
+                    span({class: "ml-2 text-xs font-normal text-gray-400"},
+                        "— give this to an agent. It will fetch its own instructions, request a session, which you can approve below."),
                 ),
                 copyButton(promptText, "Copy agent prompt"),
             ),
