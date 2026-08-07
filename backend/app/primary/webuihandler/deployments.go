@@ -50,6 +50,9 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 	if identity.SpaceID < 0 || identity.SpaceID > network.MaxSpaceID {
 		return nil, invalidConfigErrf("spaceId must be between 0 and %d", network.MaxSpaceID)
 	}
+	if err := h.validateNodeAllowsSpace(req.NodeID, identity.SpaceID); err != nil {
+		return nil, err
+	}
 	spec, err := h.validateDeploymentSpec(&req.Spec)
 	if err != nil {
 		return nil, err
@@ -108,6 +111,11 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 		nextIdentity.SpaceID = *req.SpaceID
 		if internaldeploy.IsInternalIdentity(nextIdentity) {
 			return nil, invalidConfigErrf("opendeploy system deployment identity is internal-only")
+		}
+		// The node is fixed for the life of a deployment, so moving spaces is
+		// the only other way a disallowed (node, space) pair could arise.
+		if err := h.validateNodeAllowsSpace(cfg.NodeID, *req.SpaceID); err != nil {
+			return nil, err
 		}
 		if cfg.Identity.SpaceID != *req.SpaceID {
 			for _, other := range h.Store.FetchDeploymentSnapshot(nil) {

@@ -1138,7 +1138,11 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 		t.Fatalf("cross-node address ref = %+v", got)
 	}
 
-	nextSpaceID := int32(2)
+	nextSpace, err := store.CreateSpace("other")
+	if err != nil {
+		t.Fatalf("CreateSpace: %v", err)
+	}
+	nextSpaceID := nextSpace.ID
 	_, err = h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
 		DeploymentID: target.ID,
 		Version:      target.Version + 1,
@@ -1318,7 +1322,11 @@ func TestDeploymentIdentityIsScopedByNodeID(t *testing.T) {
 	if _, err := create(nodeB.ID, 1); err != nil {
 		t.Fatalf("same identity on another node: %v", err)
 	}
-	otherSpace, err := create(nodeA.ID, 2)
+	extraSpace, err := store.CreateSpace("other")
+	if err != nil {
+		t.Fatalf("CreateSpace: %v", err)
+	}
+	otherSpace, err := create(nodeA.ID, extraSpace.ID)
 	if err != nil {
 		t.Fatalf("create deployment in another space: %v", err)
 	}
@@ -1642,8 +1650,12 @@ func TestDeploymentUpdateCombinesSpaceAndWorkloadStateInSingleConfigVersion(t *t
 	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
 	h := &Handler{Store: store}
 
-	spaceID := int32(2)
-	_, err := h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+	target, err := store.CreateSpace("other")
+	if err != nil {
+		t.Fatalf("CreateSpace: %v", err)
+	}
+	spaceID := target.ID
+	_, err = h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
 		DeploymentID:  created.ID,
 		Version:       created.Version + 1,
 		SpaceID:       &spaceID,

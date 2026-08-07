@@ -6497,6 +6497,7 @@ func (m *ClusterNode) Encode() []byte {
 	b = AppendStringField(b, m.WgPublicKey, 6)
 	b = AppendRepeated(b, m.Addresses, AppendFieldDecorator(AppendStringField, 7))
 	b = AppendInt64FromTime(b, m.EnrolledAt, 8)
+	b = AppendRepeatedCompact(b, m.AllowedSpaces, 9, AppendCompactDecorator(AppendInt32Compact))
 	return b
 }
 
@@ -6531,6 +6532,8 @@ func DecodeClusterNode(b []byte) (*ClusterNode, error) {
 			}
 		case 8:
 			b, m.EnrolledAt, err = ConsumeTimeFromInt64(b, typ)
+		case 9:
+			b, m.AllowedSpaces, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt32)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -6563,6 +6566,38 @@ func DecodeNodeRenameRequest(b []byte) (*NodeRenameRequest, error) {
 			b, m.Identifier, err = ConsumeString(b, typ)
 		case 2:
 			b, m.Name, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NodeAllowedSpacesRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Identifier, 1)
+	b = AppendRepeatedCompact(b, m.SpaceIds, 2, AppendCompactDecorator(AppendInt32Compact))
+	return b
+}
+
+func DecodeNodeAllowedSpacesRequest(b []byte) (*NodeAllowedSpacesRequest, error) {
+	var m NodeAllowedSpacesRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Identifier, err = ConsumeString(b, typ)
+		case 2:
+			b, m.SpaceIds, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt32)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

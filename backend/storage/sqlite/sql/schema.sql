@@ -295,6 +295,10 @@ CREATE TABLE IF NOT EXISTS nodes (
     roles         TEXT    NOT NULL DEFAULT '[]', -- JSON array of integer role ids
     addresses     TEXT    NOT NULL DEFAULT '[]', -- JSON array of node addresses
     wg_public_key TEXT    NOT NULL DEFAULT '',
+    -- JSON array of space ids whose deployments may be placed on this node.
+    -- Inserts populate it with every space that exists; this default is only a
+    -- floor, and the opendeploy space is unioned back in on every read anyway.
+    allowed_spaces TEXT   NOT NULL DEFAULT '[0]',
     UNIQUE(name),
     UNIQUE(identifier),
     UNIQUE(enrollment_id)

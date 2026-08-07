@@ -559,11 +559,22 @@ message ClusterNode {
   string wg_public_key = 6;
   repeated string addresses = 7;
   int64 enrolled_at = 8 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  // Spaces whose deployments may be placed on this node. The opendeploy space
+  // is always present: it is unioned in on every read and write, so the list
+  // cannot exclude it however it was written. A node starts out allowing every
+  // space that exists, and creating a space opens it on every node, so the
+  // policy binds only where an operator has deliberately narrowed it.
+  repeated int32 allowed_spaces = 9;
 }
 
 message NodeRenameRequest {
   string identifier = 1;
   string name = 2;
+}
+
+message NodeAllowedSpacesRequest {
+  string identifier = 1;
+  repeated int32 space_ids = 2;
 }
 
 message ClusterNodeList {

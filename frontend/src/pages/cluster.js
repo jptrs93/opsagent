@@ -1,10 +1,11 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {inlineEditableInput} from "../components/inlineEditableInput.js";
-import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, primaryConfigS, userConfigsS} from "../state/deployments.js";
+import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, primaryConfigS, spacesS, userConfigsS} from "../state/deployments.js";
 import {deploymentWorkload} from "../lib/deploymentConfig.js";
+import {allowedSpaceNames, editableSpaceIDs, isFixedSpace} from "../lib/nodeSpaces.js";
 
-const { button, code, div, h2, input, p, span, table, tbody, td, th, thead, tr } = van.tags;
+const { button, code, div, h2, input, label, p, span, table, tbody, td, th, thead, tr } = van.tags;
 
 const formatTime = (t) => {
     if (!t) return '-';
@@ -65,6 +66,7 @@ export function clusterPage() {
                                     th({class: "pb-2 pr-3 w-[24rem]"}, "Node"),
                                     th({class: "pb-2 pr-3"}, "Role"),
                                     th({class: "pb-2 pr-3"}, "Address"),
+                                    th({class: "pb-2 pr-3"}, "Spaces"),
                                     th({class: "pb-2 pr-3"}, "Status"),
                                     th({class: "pb-2"}, "Connected since"),
                                 )
@@ -100,6 +102,97 @@ export function clusterPage() {
                 )
             );
         }
+    );
+}
+
+// The allow list, shown as names and edited as a set of checkboxes. A node
+// starts out allowing every space, so in the common case this reads as "all"
+// and the operator never opens it.
+function allowedSpacesCell(machine) {
+    const open = van.state(false);
+    const saving = van.state(false);
+    const error = van.state("");
+    // Populated when the popover opens rather than kept in sync with the
+    // stream, so an update arriving mid-edit does not silently rewrite the
+    // boxes under the operator.
+    const draft = van.state(new Set());
+
+    const summary = () => {
+        const names = allowedSpaceNames(machine, spacesS.val);
+        const total = (spacesS.val || []).length;
+        if (total && names.length >= total) return "all";
+        return names.join(", ") || "-";
+    };
+
+    const toggle = (spaceID, checked) => {
+        const next = new Set(draft.val);
+        if (checked) next.add(Number(spaceID));
+        else next.delete(Number(spaceID));
+        draft.val = next;
+    };
+
+    const save = async () => {
+        if (saving.val) return;
+        saving.val = true;
+        error.val = "";
+        try {
+            await capi.postV1ClusterAllowedSpaces({
+                identifier: machine.identifier,
+                spaceIds: Array.from(draft.val),
+            });
+            open.val = false;
+        } catch (e) {
+            error.val = e.message || "Failed to update spaces";
+        } finally {
+            saving.val = false;
+        }
+    };
+
+    return div({class: "flex flex-col gap-1"},
+        div({class: "flex items-center gap-2"},
+            span({class: "text-gray-300"}, summary),
+            button({
+                type: "button",
+                class: "text-xs text-brand hover:text-blue-300 hover:underline cursor-pointer",
+                "aria-label": `Edit allowed spaces for ${machine.identifier}`,
+                onclick: () => {
+                    if (open.val) { open.val = false; return; }
+                    draft.val = new Set(editableSpaceIDs(machine));
+                    error.val = "";
+                    open.val = true;
+                },
+            }, () => open.val ? "Cancel" : "Edit"),
+        ),
+        () => !open.val ? "" : div(
+            {class: "flex flex-col gap-1.5 rounded-md border border-gray-700 bg-gray-900 p-2"},
+            ...[...(spacesS.val || [])].sort((a, b) => Number(a.id) - Number(b.id)).map((space) => {
+                const fixed = isFixedSpace(space.id);
+                return label({class: "flex items-center gap-2 text-xs text-gray-300"},
+                    input({
+                        type: "checkbox",
+                        class: "accent-blue-500",
+                        // Always allowed, and the server would add it back
+                        // regardless, so it is shown ticked and locked rather
+                        // than as a choice that silently does not take.
+                        checked: () => fixed || draft.val.has(Number(space.id)),
+                        disabled: () => fixed || saving.val,
+                        onchange: (e) => toggle(space.id, e.target.checked),
+                    }),
+                    space.name || `space ${space.id}`,
+                    fixed ? span({class: "text-gray-600"}, "(always)") : "",
+                );
+            }),
+            div({class: "flex items-center gap-2 pt-1"},
+                button({
+                    type: "button",
+                    disabled: saving,
+                    class: () => `text-xs px-2.5 py-1 rounded-md font-medium bg-brand text-white hover:bg-blue-600 ${
+                        saving.val ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`,
+                    onclick: save,
+                }, () => saving.val ? "Saving..." : "Save"),
+            ),
+            () => error.val ? p({class: "text-xs text-red-400"}, error.val) : "",
+        ),
     );
 }
 
@@ -153,6 +246,7 @@ function machineRow(machine) {
                 : span({class: "text-gray-300"}, "secondary")
         ),
         td({class: "py-1 pr-3 font-mono text-gray-300"}, (machine.addresses || []).join(", ") || "-"),
+        td({class: "py-1 pr-3"}, allowedSpacesCell(machine)),
         td({class: "py-1 pr-3"},
             machine.connected
                 ? span({class: "text-green-400"}, "connected")

@@ -869,11 +869,17 @@
  * @property {string} wgPublicKey
  * @property {string[]} addresses
  * @property {Date} enrolledAt
+ * @property {number[]} allowedSpaces
  */
 /**
  * @typedef {Object} NodeRenameRequest
  * @property {string} identifier
  * @property {string} name
+ */
+/**
+ * @typedef {Object} NodeAllowedSpacesRequest
+ * @property {string} identifier
+ * @property {number[]} spaceIds
  */
 /**
  * @typedef {Object} ClusterNodeList
@@ -11405,6 +11411,15 @@ export function writeClusterNode(message, writer) {
     if (message.enrolledAt instanceof Date && message.enrolledAt.getTime() !== 0) {
         writer.uint32(tag(8, WIRE.VARINT)).int64(Math.trunc(message.enrolledAt.getTime()));
     }
+    if (message.allowedSpaces) {
+        const packedWriter = Writer.create();
+        for (const item of message.allowedSpaces) {
+            packedWriter.int32(item);
+        }
+        if (packedWriter.len > 0) {
+            writer.uint32(tag(9, WIRE.LDELIM)).bytes(packedWriter.finish());
+        }
+    }
 }
 
 
@@ -11426,7 +11441,7 @@ export function encodeClusterNode(message) {
  */
 function decodeClusterNodeMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, enrollmentId: 0, name: "", identifier: "", roles: [], wgPublicKey: "", addresses: [], enrolledAt: new Date(0) };
+    const message = {id: 0, enrollmentId: 0, name: "", identifier: "", roles: [], wgPublicKey: "", addresses: [], enrolledAt: new Date(0), allowedSpaces: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11463,6 +11478,13 @@ function decodeClusterNodeMessage(reader, length) {
             }
             case 8: {
                 message.enrolledAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 9: {
+                const end2 = reader.uint32() + reader.pos;
+                while (reader.pos < end2) {
+                    message.allowedSpaces.push(reader.int32());
+                }
                 break;
             }
             default:
@@ -11543,6 +11565,78 @@ function decodeNodeRenameRequestMessage(reader, length) {
 export function decodeNodeRenameRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeNodeRenameRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeAllowedSpacesRequest} message
+ * @param {Writer} writer
+ */
+export function writeNodeAllowedSpacesRequest(message, writer) {
+    if (message.identifier !== undefined && message.identifier !== null && message.identifier !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.identifier);
+    }
+    if (message.spaceIds) {
+        const packedWriter = Writer.create();
+        for (const item of message.spaceIds) {
+            packedWriter.int32(item);
+        }
+        if (packedWriter.len > 0) {
+            writer.uint32(tag(2, WIRE.LDELIM)).bytes(packedWriter.finish());
+        }
+    }
+}
+
+
+/**
+ * @param {NodeAllowedSpacesRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeAllowedSpacesRequest(message) {
+    const writer = Writer.create();
+    writeNodeAllowedSpacesRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeAllowedSpacesRequest}
+ */
+function decodeNodeAllowedSpacesRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {identifier: "", spaceIds: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.identifier = reader.string();
+                break;
+            }
+            case 2: {
+                const end2 = reader.uint32() + reader.pos;
+                while (reader.pos < end2) {
+                    message.spaceIds.push(reader.int32());
+                }
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeAllowedSpacesRequest}
+ */
+export function decodeNodeAllowedSpacesRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeAllowedSpacesRequestMessage(reader);
 }
 
 

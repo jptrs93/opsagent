@@ -172,6 +172,13 @@ service OpsagentHttpV1 {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  // Replace the set of spaces whose deployments may be placed on a node.
+  // Rejected if it would strip a space out from under deployments already on
+  // that node, so the list can never contradict what is running.
+  rpc PostV1ClusterAllowedSpaces(NodeAllowedSpacesRequest) returns (ClusterNode) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   // Create a new deployment.
   rpc PostV1DeploymentCreate(DeploymentCreateRequest) returns (DeploymentConfig) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };

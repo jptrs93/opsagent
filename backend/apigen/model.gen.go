@@ -987,19 +987,25 @@ type ClusterMachine struct {
 }
 
 type ClusterNode struct {
-	ID           int32     `json:"id"`
-	EnrollmentID int32     `json:"enrollment_id"`
-	Name         string    `json:"name,omitempty"`
-	Identifier   string    `json:"identifier,omitempty"`
-	Roles        []int32   `json:"roles,omitempty"`
-	WgPublicKey  string    `json:"wg_public_key,omitempty"`
-	Addresses    []string  `json:"addresses,omitempty"`
-	EnrolledAt   time.Time `json:"enrolled_at"`
+	ID            int32     `json:"id"`
+	EnrollmentID  int32     `json:"enrollment_id"`
+	Name          string    `json:"name,omitempty"`
+	Identifier    string    `json:"identifier,omitempty"`
+	Roles         []int32   `json:"roles,omitempty"`
+	WgPublicKey   string    `json:"wg_public_key,omitempty"`
+	Addresses     []string  `json:"addresses,omitempty"`
+	EnrolledAt    time.Time `json:"enrolled_at"`
+	AllowedSpaces []int32   `json:"allowed_spaces,omitempty"`
 }
 
 type NodeRenameRequest struct {
 	Identifier string `json:"identifier,omitempty"`
 	Name       string `json:"name,omitempty"`
+}
+
+type NodeAllowedSpacesRequest struct {
+	Identifier string  `json:"identifier,omitempty"`
+	SpaceIds   []int32 `json:"space_ids,omitempty"`
 }
 
 type ClusterNodeList struct {

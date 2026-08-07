@@ -65,6 +65,7 @@ import {
   encodeMasterPasswordSaveRequest,
   encodeMasterPasswordVerifyRequest,
   encodeMsgToMaster,
+  encodeNodeAllowedSpacesRequest,
   encodeNodeRenameRequest,
   encodePrepareOutputRequest,
   encodeRecentlyDeletedDeploymentsRequest,
@@ -528,6 +529,18 @@ export class Capi {
    */
   async postV1ClusterRename(payload) {
     const response = await this.#request("/v1/cluster/rename", { method: 'POST', body: encodeNodeRenameRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeClusterNode(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {NodeAllowedSpacesRequest} payload
+   * @returns {Promise<ClusterNode>}
+   */
+  async postV1ClusterAllowedSpaces(payload) {
+    const response = await this.#request("/v1/cluster/allowed/spaces", { method: 'POST', body: encodeNodeAllowedSpacesRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }

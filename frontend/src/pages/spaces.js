@@ -6,10 +6,12 @@ import {trashIcon} from "../lib/icons.js";
 import {
     assetMetasS,
     deploymentsS,
+    machinesS,
     secretMetasS,
     spacesS,
     userConfigsS,
 } from "../state/deployments.js";
+import {nodesForSpace} from "../lib/nodeSpaces.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
 
@@ -188,6 +190,22 @@ export function spacesPage() {
         String(value),
     );
 
+    // The reverse of the node allow list: which nodes will accept a deployment
+    // in this space. "all nodes" is the normal answer, since a space is opened
+    // everywhere when it is created and only narrows if an operator says so.
+    const accessibleBy = (spaceID) => {
+        const nodes = machinesS.val || [];
+        const allowed = nodesForSpace(nodes, spaceID);
+        if (!nodes.length) return "-";
+        if (allowed.length === nodes.length) return "all nodes";
+        if (!allowed.length) return span({class: "text-amber-400"}, "no nodes");
+        return allowed.map((node) => node.name || node.identifier).join(", ");
+    };
+
+    const accessibleByTitle = (spaceID) => nodesForSpace(machinesS.val, spaceID)
+        .map((node) => node.name || node.identifier)
+        .join(", ");
+
     const spaceRow = (space) => {
         const id = Number(space.id);
         const deletable = !isDefaultSpace(space);
@@ -198,9 +216,8 @@ export function spacesPage() {
             countCell(countDistinct(secretMetasS.val, id, (item) => item.name)),
             countCell(countDistinct(userConfigsS.val, id, (item) => item.name)),
             countCell(countDistinct(assetMetasS.val, id, (item) => item.key)),
-            // Placeholder. Access is not scoped per space yet, so there is
-            // nothing behind this column and nothing reads it.
-            td({class: "py-1 pr-3 text-gray-600"}, "—"),
+            td({class: "py-1 pr-3 truncate text-gray-400", title: () => accessibleByTitle(id)},
+                () => accessibleBy(id)),
             td({class: "py-1 pl-2 text-right whitespace-nowrap w-px"},
                 div({class: "flex items-center justify-end gap-1"},
                     button({

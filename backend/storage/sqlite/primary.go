@@ -1133,6 +1133,11 @@ func (s *PrimaryStorage) CreateSpace(name string) (*apigen.Space, error) {
 		return nil, err
 	}
 	space := spaceRowToProto(row)
+	// Open the new space on every node before announcing it, so nothing can
+	// observe a space that exists but is placeable nowhere. A node allows every
+	// space that existed when it was enrolled; this keeps that true for spaces
+	// created afterwards, and leaves the allow list purely an opt-out tool.
+	s.AllowSpaceOnAllNodes(space.ID)
 	s.spaceSubs.Notify(*space)
 	return space, nil
 }
@@ -1151,6 +1156,9 @@ func (s *PrimaryStorage) DeleteSpace(id int32) error {
 	if err := s.q.DeleteSpace(context.Background(), int64(id)); err != nil {
 		return err
 	}
+	// Otherwise ids of spaces that no longer exist accumulate in every node's
+	// allow list, and a later space reusing the id would inherit them.
+	s.RemoveSpaceFromAllNodes(id)
 	s.spaceSubs.Notify(apigen.Space{ID: id, Deleted: true})
 	return nil
 }

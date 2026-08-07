@@ -45,3 +45,19 @@ ALTER TABLE agent_sessions ADD COLUMN approved_at INTEGER NOT NULL DEFAULT 0;
 -- Move the old revoked flag onto status. Converges after one pass and is a
 -- no-op thereafter, since the handler now writes status alongside revoked_at.
 UPDATE agent_sessions SET status = 4 WHERE revoked_at > 0 AND status = 2;
+
+-- Nodes gain a list of the spaces whose deployments may be placed on them.
+-- The default is the empty string rather than a JSON array on purpose: it is a
+-- sentinel meaning "never backfilled", and no valid value can collide with it.
+-- Migrations re-run on every startup, so keying the backfill off the sentinel
+-- is what stops it resetting an operator's narrowed list on the next restart --
+-- including the legitimate case of a node narrowed to exactly the opendeploy
+-- space, which a '[0]' default could not have distinguished.
+ALTER TABLE nodes ADD COLUMN allowed_spaces TEXT NOT NULL DEFAULT '';
+
+-- Existing installs stay exactly as permissive as they were: every node allows
+-- every space that exists. group_concat rather than json_group_array so this
+-- does not depend on the JSON1 extension being compiled in.
+UPDATE nodes
+SET allowed_spaces = COALESCE((SELECT '[' || group_concat(id) || ']' FROM spaces), '[0]')
+WHERE allowed_spaces = '';

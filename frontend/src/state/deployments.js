@@ -283,6 +283,10 @@ const refreshMachinesFromNodes = () => {
             connected: status.isConnected === true,
             connectedAt: status.lastConnectedAt,
             addresses: node.addresses || [],
+            // Spaces whose deployments may be placed here. The server always
+            // includes the opendeploy space, so an empty list means the node
+            // record has not arrived yet, not that nothing is allowed.
+            allowedSpaces: node.allowedSpaces || [],
         };
     }));
 };

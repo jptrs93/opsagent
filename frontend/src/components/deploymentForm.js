@@ -1,5 +1,6 @@
 import van from "vanjs-core";
 import {editIcon, eyeOpenIcon, refreshIcon, xIcon} from "../lib/icons.js";
+import {nodeAllowsSpace} from "../lib/nodeSpaces.js";
 import {assetEditorOverlay} from "./assetEditor.js";
 import {referencePicker} from "./referencePicker.js";
 import {
@@ -353,6 +354,12 @@ export function formInvalidReason(form, opts = {}) {
     const nodeOptions = opts.nodeOptions || [];
     const nodeOptionValues = nodeOptions.map(node => Number(node.id || 0)).filter(Boolean);
     if (nodeOptionValues.length > 0 && !nodeOptionValues.includes(nodeId)) return 'Select a registered node.';
+    // Caught here as well as on the server, because the space can be changed
+    // after a node was picked and the select alone would not re-validate it.
+    const selectedNode = nodeOptions.find(node => Number(node.id || 0) === nodeId);
+    if (selectedNode && !nodeAllowsSpace(selectedNode, Number(form.spaceId.val))) {
+        return 'This node does not allow deployments from the selected space.';
+    }
     if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
         if (!form.containerImage.val.trim()) return 'Container image is required.';
     } else if (!form.nixRepo.val.trim() || !form.nixFlake.val.trim()) {
@@ -2267,7 +2274,16 @@ function nodeSelect(form, opts) {
         onchange: e => { form.nodeId.val = Number(e.target.value || 0); },
     },
         option({value: '', disabled: true, selected: !current}, nodePlaceholder(opts.nodeOptionsLoaded, nodeOptionValues)),
-        ...nodes.map(node => option({value: String(node.id), selected: Number(node.id) === current}, `${node.name || 'Unnamed node'} (#${node.id})`)),
+        // Disabled rather than filtered out: a node vanishing from the list as
+        // the space changes reads as the node having gone away, where a greyed
+        // row with a reason reads as the policy it is.
+        ...nodes.map(node => option({
+            value: String(node.id),
+            selected: Number(node.id) === current,
+            disabled: () => !nodeAllowsSpace(node, form.spaceId.val),
+        }, () => nodeAllowsSpace(node, form.spaceId.val)
+            ? `${node.name || 'Unnamed node'} (#${node.id})`
+            : `${node.name || 'Unnamed node'} (#${node.id}) — space not allowed`)),
         ...extraCurrent,
     );
 }
