@@ -19,13 +19,13 @@ func (h *Handler) GetV1GlobalState(ctx apigen.Context) (*apigen.GlobalState, err
 	return &apigen.GlobalState{
 		Spaces:            &apigen.SpaceList{Items: h.Store.ListSpaces()},
 		Assets:            &apigen.AssetList{Items: h.Store.ListAssets()},
-		Configs:           &apigen.UserConfigList{Items: h.Store.ListUserConfigs()},
+		Configs:           &apigen.ConfigList{Items: h.Store.ListUserConfigs()},
 		Secrets:           &apigen.SecretList{Items: h.listSecretMetas()},
 		DeploymentConfigs: &apigen.DeploymentConfigSnapshot{Items: configItems},
 	}, nil
 }
 
-func (h *Handler) PostV1DeploymentState(ctx apigen.Context, req *apigen.DeploymentStateRequest) (*apigen.DeploymentState, error) {
+func (h *Handler) PostV1DeploymentsGet(ctx apigen.Context, req *apigen.DeploymentGetRequest) (*apigen.DeploymentState, error) {
 	if req.ID <= 0 {
 		return nil, MissingKeyErr
 	}

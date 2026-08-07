@@ -7,7 +7,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-func (h *Handler) PostV1DeploymentHistory(ctx apigen.Context, req *apigen.DeploymentHistoryRequest) (*apigen.DeploymentHistory, error) {
+func (h *Handler) PostV1DeploymentsHistory(ctx apigen.Context, req *apigen.DeploymentHistoryRequest) (*apigen.DeploymentHistory, error) {
 	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr
 	}

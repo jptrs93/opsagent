@@ -33,7 +33,7 @@ func newAuthTestHandler(t *testing.T) (*Handler, *apigen.InternalUser) {
 	// InitializeService rather than NewService: nothing has written a primary
 	// config into this throwaway store, and NewService pointedly refuses to
 	// invent one.
-	configService, err := config.InitializeService(store, apigen.Config{})
+	configService, err := config.InitializeService(store, apigen.PrimaryConfig{})
 	if err != nil {
 		t.Fatalf("config.InitializeService: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestPostV1AgentSessionsCreateRejectsBadToken(t *testing.T) {
 // covered rather than just the handler method.
 func TestAgentSessionsCreateRouteEnforcesScopes(t *testing.T) {
 	h, user := newAuthTestHandler(t)
-	mux := apigen.CreateOpsagentHttpV1Mux(h, &apigen.MuxConfig{VerifyAuth: h.VerifyAuth})
+	mux := apigen.CreateApiServerMux(h, &apigen.MuxConfig{VerifyAuth: h.VerifyAuth})
 
 	call := func(authHeader string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodPost, "/v1/agent-sessions/create", nil)

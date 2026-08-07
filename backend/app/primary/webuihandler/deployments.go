@@ -32,7 +32,7 @@ var DuplicateDeploymentErr = apigen.NewApiErr("A deployment with this name, spac
 
 const githubReleaseVersionsDisplayErr = "Releases could not be loaded from GitHub. Please try again."
 
-func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentConfig, error) {
+func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentConfig, error) {
 	identity := req.Identity
 	if identity.Name == "" {
 		return nil, invalidConfigErrf("name is required")
@@ -87,7 +87,7 @@ func (h *Handler) PostV1DeploymentCreate(ctx apigen.Context, req *apigen.Deploym
 	return cfg, nil
 }
 
-func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequest) (*apigen.DeploymentConfig, error) {
+func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequest) (*apigen.DeploymentConfig, error) {
 	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr
 	}
@@ -206,7 +206,7 @@ func (h *Handler) PostV1DeploymentUpdate(ctx apigen.Context, req *apigen.Deploym
 	return cfg, nil
 }
 
-func (h *Handler) PostV1DeploymentUpgradeAll(ctx apigen.Context, req *apigen.DeploymentUpgradeAllRequest) (*apigen.DeploymentConfig, error) {
+func (h *Handler) PostV1DeploymentsUpgradeAll(ctx apigen.Context, req *apigen.DeploymentUpgradeAllRequest) (*apigen.DeploymentConfig, error) {
 	targetVersion := strings.TrimSpace(req.TargetVersion)
 	if targetVersion == "" {
 		return nil, invalidConfigErrf("targetVersion is required")
@@ -255,7 +255,7 @@ func (h *Handler) updateInternalDeploymentVersion(ctx apigen.Context, cfg *apige
 	return current, nil
 }
 
-func (h *Handler) PostV1DeploymentDelete(ctx apigen.Context, req *apigen.DeploymentDeleteRequest) error {
+func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.DeploymentDeleteRequest) error {
 	if req.DeploymentID == 0 {
 		return MissingKeyErr
 	}
@@ -304,11 +304,11 @@ const (
 	recentlyDeletedMaxLimit     = 200
 )
 
-// PostV1DeploymentRecentlyDeleted lists the deployments deleted most recently so
+// PostV1DeploymentsRecentlyDeleted lists the deployments deleted most recently so
 // the UI can offer to fork one back. Internal opendeploy deployments are omitted:
 // they are recreated by the primary itself, not through the create API, so a
 // tombstone for one is not something an operator can act on.
-func (h *Handler) PostV1DeploymentRecentlyDeleted(ctx apigen.Context, req *apigen.RecentlyDeletedDeploymentsRequest) (*apigen.RecentlyDeletedDeployments, error) {
+func (h *Handler) PostV1DeploymentsRecentlyDeleted(ctx apigen.Context, req *apigen.RecentlyDeletedDeploymentsRequest) (*apigen.RecentlyDeletedDeployments, error) {
 	limit := int(req.Limit)
 	if limit <= 0 || limit > recentlyDeletedMaxLimit {
 		limit = recentlyDeletedDefaultLimit
@@ -323,7 +323,7 @@ func (h *Handler) PostV1DeploymentRecentlyDeleted(ctx apigen.Context, req *apige
 	return &apigen.RecentlyDeletedDeployments{Items: items}, nil
 }
 
-func (h *Handler) PostV1DeploymentVersions(ctx apigen.Context, req *apigen.DeploymentVersionsRequest) (*apigen.DeploymentVersions, error) {
+func (h *Handler) PostV1DeploymentsVersions(ctx apigen.Context, req *apigen.DeploymentVersionsRequest) (*apigen.DeploymentVersions, error) {
 	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr
 	}
@@ -395,7 +395,7 @@ func githubReleaseVersionsErr(err error) apigen.ApiErr {
 	return apigen.NewApiErr(githubReleaseVersionsDisplayErr, err.Error(), http.StatusBadGateway)
 }
 
-func (h *Handler) PostV1DeploymentLogSearch(ctx apigen.Context, req *apigen.LogSearchRequest) iter.Seq2[*apigen.LogLineBatch, error] {
+func (h *Handler) PostV1DeploymentsLogSearch(ctx apigen.Context, req *apigen.LogSearchRequest) iter.Seq2[*apigen.LogLineBatch, error] {
 	return func(yield func(*apigen.LogLineBatch, error) bool) {
 		if req.TimeStart.IsZero() {
 			yield(nil, invalidConfigErrf("timeStart is required"))
@@ -553,7 +553,7 @@ func logSearchLimit(req *apigen.LogSearchRequest) int {
 	return int(req.LogLineLimit)
 }
 
-func (h *Handler) PostV1DeploymentPrepareOutput(ctx apigen.Context, req *apigen.PrepareOutputRequest) iter.Seq2[*apigen.PrepareOutputChunk, error] {
+func (h *Handler) PostV1DeploymentsPrepareOutput(ctx apigen.Context, req *apigen.PrepareOutputRequest) iter.Seq2[*apigen.PrepareOutputChunk, error] {
 	return func(yield func(*apigen.PrepareOutputChunk, error) bool) {
 		if req == nil || req.DeploymentID == 0 {
 			yield(nil, MissingKeyErr)

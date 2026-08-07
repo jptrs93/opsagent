@@ -27,8 +27,8 @@ func (s testSecretStore) RevealByID(id int32) ([]byte, error) {
 	return []byte("secret"), nil
 }
 
-func configWithSettings(settings *apigen.Settings) apigen.Config {
-	return apigen.Config{Settings: *settings}
+func configWithSettings(settings *apigen.ClusterSettings) apigen.PrimaryConfig {
+	return apigen.PrimaryConfig{Settings: *settings}
 }
 
 func TestBackupConfigFilterOnlyAllowsBackupChanges(t *testing.T) {

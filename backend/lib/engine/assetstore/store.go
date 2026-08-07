@@ -28,7 +28,7 @@ var ErrAssetS3ConfigChangeRequiresLocal = errors.New("large asset S3 configurati
 
 type Store struct {
 	DB                   *sqlite.PrimaryStorage
-	Config               func() *apigen.Settings
+	Config               func() *apigen.ClusterSettings
 	Loader               config.Loader
 	Secrets              secretStore
 	MigrationWake        <-chan struct{}
@@ -45,7 +45,7 @@ func (s *Store) AssetOperationLocker() sync.Locker {
 	return &s.mu
 }
 
-func (s *Store) ValidateSettingsUpdate(current, next apigen.Settings) error {
+func (s *Store) ValidateSettingsUpdate(current, next apigen.ClusterSettings) error {
 	if s.effectiveS3Identity(current) == s.effectiveS3Identity(next) {
 		return nil
 	}
@@ -67,7 +67,7 @@ type s3Identity struct {
 	endpoint    string
 }
 
-func (s *Store) effectiveS3Identity(settings apigen.Settings) s3Identity {
+func (s *Store) effectiveS3Identity(settings apigen.ClusterSettings) s3Identity {
 	separate := s.Loader.MustLoadConfigBoolValue(settings.LargeAssets.UseSeparateS3)
 	accessKeyID := settings.Backup.S3AccessKeyID
 	secret := settings.Backup.S3SecretAccessKey
@@ -290,7 +290,7 @@ func (s *Store) openS3Asset(ctx context.Context, location string) (io.ReadCloser
 	return res.Body, nil
 }
 
-func (s *Store) s3Client(cfg *apigen.Settings) (*s3.Client, string, error) {
+func (s *Store) s3Client(cfg *apigen.ClusterSettings) (*s3.Client, string, error) {
 	separate := s.Loader.MustLoadConfigBoolValue(cfg.LargeAssets.UseSeparateS3)
 	accessKeySetting := cfg.Backup.S3AccessKeyID
 	secretRef := cfg.Backup.S3SecretAccessKey

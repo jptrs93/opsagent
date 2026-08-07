@@ -12,7 +12,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
-func (h *Handler) GetV1ClusterStatus(ctx apigen.Context, r *http.Request, w http.ResponseWriter) error {
+func (h *Handler) GetV1NodesStatus(ctx apigen.Context, r *http.Request, w http.ResponseWriter) error {
 	connected := map[int32]timeAndConnected{}
 	if h.Cluster != nil {
 		for nodeID, connectedAt := range h.Cluster.ConnectedNodes() {
@@ -37,7 +37,7 @@ func (h *Handler) GetV1ClusterStatus(ctx apigen.Context, r *http.Request, w http
 			ConnectedAt: conn.connectedAt,
 		})
 	}
-	respond(w, &apigen.ClusterStatusResponse{Machines: machines})
+	respond(w, &apigen.NodeStatusResponse{Machines: machines})
 	return nil
 }
 
@@ -45,7 +45,7 @@ var InvalidNodeRenameErr = apigen.NewApiErr("Node name and identifier are requir
 var NodeNotFoundErr = apigen.NewApiErr("Node not found", "node_not_found", http.StatusNotFound)
 var DuplicateNodeNameErr = apigen.NewApiErr("A node with this display name already exists", "duplicate_node_name", http.StatusConflict)
 
-func (h *Handler) PostV1ClusterRename(ctx apigen.Context, req *apigen.NodeRenameRequest) (*apigen.ClusterNode, error) {
+func (h *Handler) PostV1NodesRename(ctx apigen.Context, req *apigen.NodeRenameRequest) (*apigen.ClusterNode, error) {
 	if req == nil {
 		return nil, InvalidNodeRenameErr
 	}
@@ -70,9 +70,9 @@ func (h *Handler) PostV1ClusterRename(ctx apigen.Context, req *apigen.NodeRename
 var InvalidAllowedSpacesErr = apigen.NewApiErr("Node identifier is required", "invalid_allowed_spaces", http.StatusBadRequest)
 var UnknownSpaceErr = apigen.NewApiErr("One or more spaces do not exist", "unknown_space", http.StatusBadRequest)
 
-// PostV1ClusterAllowedSpaces replaces the set of spaces whose deployments may
+// PostV1NodesAllowedSpaces replaces the set of spaces whose deployments may
 // be placed on a node.
-func (h *Handler) PostV1ClusterAllowedSpaces(ctx apigen.Context, req *apigen.NodeAllowedSpacesRequest) (*apigen.ClusterNode, error) {
+func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeAllowedSpacesRequest) (*apigen.ClusterNode, error) {
 	if req == nil {
 		return nil, InvalidAllowedSpacesErr
 	}

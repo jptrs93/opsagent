@@ -121,8 +121,8 @@ func (h *Handler) settingsUseConfigID(ids map[int32]struct{}) bool {
 	return false
 }
 
-func (h *Handler) settingsForReferenceChecks() []apigen.Settings {
-	settings := []apigen.Settings{h.ConfigService.Snapshot().Settings}
+func (h *Handler) settingsForReferenceChecks() []apigen.ClusterSettings {
+	settings := []apigen.ClusterSettings{h.ConfigService.Snapshot().Settings}
 	migration, ok := h.Store.GetUnfinishedAssetMigration()
 	if !ok {
 		return settings
@@ -132,7 +132,7 @@ func (h *Handler) settingsForReferenceChecks() []apigen.Settings {
 		if err != nil {
 			continue
 		}
-		cfg, err := apigen.DecodeConfig(row.ConfigBlob)
+		cfg, err := apigen.DecodePrimaryConfig(row.ConfigBlob)
 		if err == nil {
 			settings = append(settings, cfg.Settings)
 		}

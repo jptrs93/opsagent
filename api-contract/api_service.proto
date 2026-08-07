@@ -1,0 +1,299 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/options.proto";
+import "api-contract/deployment_model.proto";
+import "api-contract/model.proto";
+import "api-contract/system_config_model.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+service ApiServer {
+  rpc Get(cp.Empty) returns (cp.Empty) {
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc GetV1Healthz(cp.Empty) returns (cp.Empty) {
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  // Cluster settings
+
+  rpc PostV1ClusterSettingsGet(EmptyRequest) returns (ClusterSettings) {
+    option (cp.url) = "/v1/cluster-settings/get";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1ClusterSettingsUpdate(ClusterSettings) returns (ClusterSettings) {
+    option (cp.url) = "/v1/cluster-settings/update";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Auth
+
+  rpc PostV1AuthMaster(MasterPasswordRequest) returns (LoginResponse) {
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc PostV1AuthMasterPasswordSave(MasterPasswordSaveRequest) returns (cp.Empty) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AuthMasterPasswordVerify(MasterPasswordVerifyRequest) returns (cp.Empty) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc GetV1AuthCurrentSession(cp.Empty) returns (LoginResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
+  }
+
+  rpc PostV1AuthPasskeyRegisterStart(EmptyRequest) returns (WebAuthNOptionsResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
+  }
+
+  rpc PostV1AuthPasskeyRegisterFinish(WebAuthNFinishRequest) returns (LoginResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
+  }
+
+  rpc PostV1AuthPasskeyLoginStart(EmptyRequest) returns (WebAuthNOptionsResponse) {
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc PostV1AuthPasskeyLoginFinish(WebAuthNFinishRequest) returns (LoginResponse) {
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  // Agent sessions
+
+  rpc GetV1AgentSessionsInstructions(cp.Empty) returns (cp.Empty) {
+    option (cp.url) = "/v1/agent-sessions/instructions";
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc PostV1AgentSessionsRequestStart(AgentSessionRequestStartRequest) returns (AgentSessionRequest) {
+    option (cp.url) = "/v1/agent-sessions/request-start";
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc PostV1AgentSessionsGetSession(AgentSessionGetRequest) returns (AgentSessionPickup) {
+    option (cp.url) = "/v1/agent-sessions/get-session";
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc PostV1AgentSessionsApprove(AgentSessionApproveRequest) returns (AgentSession) {
+    option (cp.url) = "/v1/agent-sessions/approve";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AgentSessionsCreate(cp.Empty) returns (AgentSessionCreated) {
+    option (cp.url) = "/v1/agent-sessions/create";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AgentSessionsList(EmptyRequest) returns (AgentSessionList) {
+    option (cp.url) = "/v1/agent-sessions/list";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AgentSessionsRevoke(AgentSessionRevokeRequest) returns (cp.Empty) {
+    option (cp.url) = "/v1/agent-sessions/revoke";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Global state
+
+  rpc GetV1GlobalState(cp.Empty) returns (GlobalState) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1GlobalStateStream(cp.Empty) returns (stream State) {
+    option (cp.url) = "/v1/global/state-stream";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1GlobalExportedConfig(EmptyRequest) returns (ExportedConfigBlob) {
+    option (cp.url) = "/v1/global/exported-config";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Deployments
+
+  rpc PostV1DeploymentsGet(DeploymentGetRequest) returns (DeploymentState) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1DeploymentsCreate(DeploymentCreateRequest) returns (DeploymentConfig) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1DeploymentsUpdate(DeploymentUpdateRequest) returns (DeploymentConfig) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1DeploymentsDelete(DeploymentDeleteRequest) returns (cp.Empty) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1DeploymentsUpgradeAll(DeploymentUpgradeAllRequest) returns (DeploymentConfig) {
+    option (cp.url) = "/v1/deployments/upgrade-all";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1DeploymentsRecentlyDeleted(RecentlyDeletedDeploymentsRequest) returns (RecentlyDeletedDeployments) {
+    option (cp.url) = "/v1/deployments/recently-deleted";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1DeploymentsHistory(DeploymentHistoryRequest) returns (DeploymentHistory) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1DeploymentsVersions(DeploymentVersionsRequest) returns (DeploymentVersions) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1DeploymentsLogSearch(LogSearchRequest) returns (stream LogLineBatch) {
+    option (cp.url) = "/v1/deployments/log-search";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1DeploymentsPrepareOutput(PrepareOutputRequest) returns (stream PrepareOutputChunk) {
+    option (cp.url) = "/v1/deployments/prepare-output";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1ReposValidate(RepoValidateRequest) returns (RepoValidateResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Nodes
+
+  rpc GetV1NodesStatus(cp.Empty) returns (NodeStatusResponse) {
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1NodesRename(NodeRenameRequest) returns (ClusterNode) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1NodesAllowedSpaces(NodeAllowedSpacesRequest) returns (ClusterNode) {
+    option (cp.url) = "/v1/nodes/allowed-spaces";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc GetV1NodesEnrollmentsInfo(cp.Empty) returns (NodeEnrollmentInfo) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1NodesEnrollmentsList(cp.Empty) returns (EnrollmentRequestList) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1NodesEnrollmentsAccept(EnrollmentAcceptRequest) returns (EnrollmentRequestStatus) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Spaces
+
+  rpc PostV1SpacesCreate(SpaceSetRequest) returns (Space) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1SpacesUpdate(SpaceSetRequest) returns (Space) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1SpacesDelete(SpaceDeleteRequest) returns (cp.Empty) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Secrets
+
+  rpc PostV1SecretsList(EmptyRequest) returns (SecretList) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1SecretsSet(SecretSetRequest) returns (SecretMeta) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
+  }
+
+  rpc PostV1SecretsGenerate(SecretGenerateRequest) returns (SecretMeta) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1SecretsRename(SecretRenameRequest) returns (SecretMeta) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
+  }
+
+  rpc PostV1SecretsReveal(SecretRevealRequest) returns (SecretRevealResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
+  }
+
+  rpc PostV1SecretsDelete(SecretDeleteRequest) returns (cp.Empty) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
+  }
+
+  rpc PostV1SecretsStatus(EmptyRequest) returns (SecretsStatusResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1SecretsRotateRecoveryCode(EmptyRequest) returns (SecretRecoveryCodeResponse) {
+    option (cp.url) = "/v1/secrets/rotate-recovery-code";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
+  }
+
+  rpc PostV1SecretsUnlock(SecretUnlockRequest) returns (SecretsStatusResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
+  }
+
+  // Configs
+
+  rpc PostV1ConfigsList(EmptyRequest) returns (ConfigList) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1ConfigsSet(ConfigSetRequest) returns (Config) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1ConfigsRename(ConfigRenameRequest) returns (Config) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1ConfigsDelete(ConfigDeleteRequest) returns (cp.Empty) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Assets
+
+  rpc PostV1AssetsList(EmptyRequest) returns (AssetList) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AssetsGet(AssetGetRequest) returns (Asset) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AssetsSet(AssetSetRequest) returns (Asset) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AssetsUpload(cp.Empty) returns (Asset) {
+    option (cp.url) = "/v1/assets/upload";
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AssetsRename(AssetRenameRequest) returns (Asset) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AssetsDelete(AssetDeleteRequest) returns (cp.Empty) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+}

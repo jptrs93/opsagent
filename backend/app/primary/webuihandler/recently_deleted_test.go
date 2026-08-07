@@ -18,7 +18,7 @@ func deleteDeployment(t *testing.T, h *Handler, cfg *apigen.DeploymentConfig) {
 	if current == nil {
 		t.Fatalf("deployment %d not found", cfg.ID)
 	}
-	err := h.PostV1DeploymentDelete(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentDeleteRequest{
+	err := h.PostV1DeploymentsDelete(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentDeleteRequest{
 		DeploymentID: current.ID,
 		Version:      current.Version + 1,
 	})
@@ -29,7 +29,7 @@ func deleteDeployment(t *testing.T, h *Handler, cfg *apigen.DeploymentConfig) {
 
 func createStoppedDeployment(t *testing.T, h *Handler, nodeID int32, name string) *apigen.DeploymentConfig {
 	t.Helper()
-	cfg, err := h.PostV1DeploymentCreate(apigen.Context{Ctx: context.Background()}, nixCreateRequest(nodeID, name, false))
+	cfg, err := h.PostV1DeploymentsCreate(apigen.Context{Ctx: context.Background()}, nixCreateRequest(nodeID, name, false))
 	if err != nil {
 		t.Fatalf("create %s: %v", name, err)
 	}
@@ -38,7 +38,7 @@ func createStoppedDeployment(t *testing.T, h *Handler, nodeID int32, name string
 
 func recentlyDeleted(t *testing.T, h *Handler, limit int32) []*apigen.DeploymentConfig {
 	t.Helper()
-	res, err := h.PostV1DeploymentRecentlyDeleted(apigen.Context{Ctx: context.Background()},
+	res, err := h.PostV1DeploymentsRecentlyDeleted(apigen.Context{Ctx: context.Background()},
 		&apigen.RecentlyDeletedDeploymentsRequest{Limit: limit})
 	if err != nil {
 		t.Fatalf("recently deleted: %v", err)

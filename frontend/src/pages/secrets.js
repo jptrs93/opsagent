@@ -309,7 +309,7 @@ export function secretsPage() {
             if (type === "secret") {
                 await capi.postV1SecretsSet({name, value: new TextEncoder().encode(value)});
             } else {
-                await capi.postV1UserConfigsSet({name, value});
+                await capi.postV1ConfigsSet({name, value});
             }
         } catch (e) {
             error.val = e.message;
@@ -372,7 +372,7 @@ export function secretsPage() {
             if (row.type === "secret") {
                 saved = await capi.postV1SecretsRename({name: oldName, newName: name});
             } else {
-                saved = await capi.postV1UserConfigsRename({name: oldName, newName: name});
+                saved = await capi.postV1ConfigsRename({name: oldName, newName: name});
             }
             row.nameAliases.add(oldName);
             row.referenceId = Number(saved?.id || row.referenceId || 0);
@@ -402,7 +402,7 @@ export function secretsPage() {
             error.val = null;
             let saved;
             if (row.type === "config") {
-                saved = await capi.postV1UserConfigsSet({
+                saved = await capi.postV1ConfigsSet({
                     name,
                     value,
                     updateReferencingDeployments: updateReferencedDeployments,
@@ -448,7 +448,7 @@ export function secretsPage() {
         try {
             error.val = null;
             if (row.type === "secret") await capi.postV1SecretsDelete({name: row.orig.name});
-            else await capi.postV1UserConfigsDelete({name: row.orig.name});
+            else await capi.postV1ConfigsDelete({name: row.orig.name});
             pendingDeletes.add(rowKey(row));
             return true;
         } catch (e) {

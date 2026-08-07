@@ -15,7 +15,7 @@ Each deployment currently has exactly one workload. Public deployments use
 configuration, and workload-local `version` and `running` desired state.
 
 A deployment is created by posting a `DeploymentCreateRequest` to
-`POST /v1/deployment/create`:
+`POST /v1/deployments/create`:
 
 ```json
 {
@@ -51,7 +51,7 @@ A deployment is created by posting a `DeploymentCreateRequest` to
 ```
 
 The spec of an existing deployment is updated by posting the typed `spec` field
-in `POST /v1/deployment/update`. Its name and `nodeId` placement are fixed at
+in `POST /v1/deployments/update`. Its name and `nodeId` placement are fixed at
 creation; its space can be changed through the update path.
 
 `nodeId` is the required canonical placement and references `ClusterNode.id`.
@@ -152,26 +152,26 @@ Driven by the runner. Tracks the running container task with `running_pid`,
 
 ## Deployment identification
 
-Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployment/create`. Human-readable metadata is stored as `DeploymentConfig.Identity`, and application identity is `{nodeId, spaceId, name}`. SQLite enforces that identity with a partial unique index over active deployments. All API requests, storage keys, and log file paths use the integer `id`.
+Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployments/create`. Human-readable metadata is stored as `DeploymentConfig.Identity`, and application identity is `{nodeId, spaceId, name}`. SQLite enforces that identity with a partial unique index over active deployments. All API requests, storage keys, and log file paths use the integer `id`.
 
 Deleting a deployment releases its human-readable identity tuple but retains its ID, configuration history, status history, logs, volumes, and other ID-owned records. Creating a deployment later with the same space, node, and name creates a completely new and independent deployment with a fresh ID and version history. It does not restore, continue, or otherwise inherit the deleted deployment.
 
 ### Node space policy
 
-Each node carries an `allowed_spaces` list, and a deployment cannot be placed on a node that does not allow its space. Enforced in `validateNodeAllowsSpace`, called from the only two places a (node, space) pair can arise: `PostV1DeploymentCreate`, and `PostV1DeploymentUpdate` when it carries a `space_id`. There is no third — `DeploymentUpdateRequest` has no node field, so a deployment never moves nodes after creation.
+Each node carries an `allowed_spaces` list, and a deployment cannot be placed on a node that does not allow its space. Enforced in `validateNodeAllowsSpace`, called from the only two places a (node, space) pair can arise: `PostV1DeploymentsCreate`, and `PostV1DeploymentsUpdate` when it carries a `space_id`. There is no third — `DeploymentUpdateRequest` has no node field, so a deployment never moves nodes after creation.
 
 **The policy defaults fully open and only ever narrows deliberately.** A new node is inserted allowing every space that exists at the time, and creating a space opens it on every existing node (`AllowSpaceOnAllNodes`). Without that second half the list would be a snapshot taken at enrolment, and the first deployment into a newly created space would fail on every node with nothing to explain why. Deleting a space strips it from every list, so ids of spaces that no longer exist do not accumulate.
 
 **The opendeploy space is always allowed.** `normalizeAllowedSpaces` unions it back in on every read and every write, so a bad migration, a hand-edited database, or a future writer cannot produce a node that refuses internal deployments — and no caller has to remember to include it. The UI shows it ticked and locked rather than as a choice that silently would not take.
 
-`POST /v1/cluster/allowed-spaces` replaces a node's list, keyed by node identifier to match `POST /v1/cluster/rename`. It rejects a list naming a space that does not exist, and rejects a narrowing that would strip a space out from under deployments already on that node — the same shape as refusing to delete a space with live deployments. So the stored policy can never contradict what is running.
+`POST /v1/nodes/allowed-spaces` replaces a node's list, keyed by node identifier to match `POST /v1/nodes/rename`. It rejects a list naming a space that does not exist, and rejects a narrowing that would strip a space out from under deployments already on that node — the same shape as refusing to delete a space with live deployments. So the stored policy can never contradict what is running.
 
 Existing installs are unaffected by the upgrade: the migration backfills every node with every space that exists. It keys that backfill off an empty-string sentinel rather than a `'[0]'` default, because migrations re-run on every startup and a `'[0]'` default could not be told apart from a node an operator had legitimately narrowed to exactly the opendeploy space — which would have silently reset it on the next restart.
 
 ### Recovering a deleted deployment
 
 A "See recently deleted" button on the status page toolbar opens a table of the
-deployments deleted most recently, fetched from `POST /v1/deployment/recently-deleted`.
+deployments deleted most recently, fetched from `POST /v1/deployments/recently-deleted`.
 Each row offers **Fork**, which opens the create form seeded with the deleted
 deployment's spec.
 
@@ -206,14 +206,14 @@ plus "Add deployment" and "Export" on the right. Each row displays:
 ## Deploy workflow
 
 1. The user clicks "Update" on a table row. The overlay fetches available versions
-   for the persisted source with one `POST /v1/deployment/versions` request —
+   for the persisted source with one `POST /v1/deployments/versions` request —
    25 most recent commits for the selected Nix branch, or available image tags.
    For Nix updates, selecting a commit, changing branch, refreshing discovery,
    or starting a stopped deployment does not exact-validate an unchanged
    persisted repository and flake path in the frontend. Editing the repository
    or flake path still requires exact frontend preflight validation.
 2. The user picks a version (and optionally edits the deployment spec) and submits.
-3. The frontend calls `POST /v1/deployment/update` with the target version
+3. The frontend calls `POST /v1/deployments/update` with the target version
    and, if the spec was edited, the new typed `spec`.
 4. For an effective running Nix transition, the backend verifies the exact remote commit and regular `flake.nix` tree entry, then writes the spec with the selected workload's version and `running=true`, and bumps `DeploymentConfig.Version`. Verification failure writes nothing.
 5. The operator's reconciliation loop picks up the change and starts a
@@ -236,7 +236,7 @@ counter is reset.
 
 ## Deployment history
 
-The history sidebar shows a chronological log of all deployment config and status changes. Config entries show the version number and what changed (version deployed, running toggled, deleted). Status entries show preparer and runner state transitions (diff-rendered against the previous entry so unchanged sections aren't repeated). All entries are fetched via `POST /v1/deployment/history` with the integer deployment ID. History is stored in `deployment_config_history` (PK `deployment_id, version`) and `scheduled_instance_status` (PK `scheduled_instance_id, updated_at`), the append-only status log covering every scheduled instance of the deployment; `idx_scheduled_instance_status_deployment` covers the `deployment_id`-leading lookup.
+The history sidebar shows a chronological log of all deployment config and status changes. Config entries show the version number and what changed (version deployed, running toggled, deleted). Status entries show preparer and runner state transitions (diff-rendered against the previous entry so unchanged sections aren't repeated). All entries are fetched via `POST /v1/deployments/history` with the integer deployment ID. History is stored in `deployment_config_history` (PK `deployment_id, version`) and `scheduled_instance_status` (PK `scheduled_instance_id, updated_at`), the append-only status log covering every scheduled instance of the deployment; `idx_scheduled_instance_status_deployment` covers the `deployment_id`-leading lookup.
 
 ## Empty state
 

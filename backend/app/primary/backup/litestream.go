@@ -74,7 +74,7 @@ func StartReplication(ctx context.Context, configService *config.Service, secret
 				currentDone = nil
 			}
 		}
-		apply := func(cfg apigen.Config) {
+		apply := func(cfg apigen.PrimaryConfig) {
 			stopCurrent()
 			if !configured(configService, &cfg.Settings) {
 				if err := StopReplicationForAssetMigration(context.Background()); err != nil {
@@ -142,7 +142,7 @@ func newBackupConfigFilter(loader config.Loader, secretSource secretStore) *back
 	return &backupConfigFilter{loader: loader, secrets: secretSource}
 }
 
-func (f *backupConfigFilter) Filter(prev, cfg apigen.Config) bool {
+func (f *backupConfigFilter) Filter(prev, cfg apigen.PrimaryConfig) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	next := backupConfigSignalFromDynamic(f.loader, &cfg.Settings, f.secrets)
@@ -154,14 +154,14 @@ func (f *backupConfigFilter) Filter(prev, cfg apigen.Config) bool {
 	return true
 }
 
-func (f *backupConfigFilter) SetInitial(cfg apigen.Config) {
+func (f *backupConfigFilter) SetInitial(cfg apigen.PrimaryConfig) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.last = backupConfigSignalFromDynamic(f.loader, &cfg.Settings, f.secrets)
 	f.seen = true
 }
 
-func backupConfigSignalFromDynamic(loader config.Loader, cfg *apigen.Settings, secretSource secretStore) backupConfigSignal {
+func backupConfigSignalFromDynamic(loader config.Loader, cfg *apigen.ClusterSettings, secretSource secretStore) backupConfigSignal {
 	enabled := loader.MustLoadConfigBoolValue(cfg.Backup.Enabled)
 	signal := backupConfigSignal{Enabled: enabled}
 	if !signal.Enabled {
@@ -182,7 +182,7 @@ func backupConfigSignalFromDynamic(loader config.Loader, cfg *apigen.Settings, s
 	return signal
 }
 
-func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.Settings, secretSource secretStore, publisher statusPublisher, assets assetBackupReadiness) {
+func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.ClusterSettings, secretSource secretStore, publisher statusPublisher, assets assetBackupReadiness) {
 	defer func() {
 		if err := stopReplication(context.Background()); err != nil {
 			slog.Error("stop backup replication", "err", err)
@@ -372,11 +372,11 @@ func closeActiveStore(ctx context.Context) error {
 	return nil
 }
 
-func configured(loader config.Loader, cfg *apigen.Settings) bool {
+func configured(loader config.Loader, cfg *apigen.ClusterSettings) bool {
 	return loader.MustLoadConfigBoolValue(cfg.Backup.Enabled)
 }
 
-func resolvedBackupConfigFromDynamic(loader config.Loader, cfg *apigen.Settings, secretSource secretStore) (resolvedBackupConfig, error) {
+func resolvedBackupConfigFromDynamic(loader config.Loader, cfg *apigen.ClusterSettings, secretSource secretStore) (resolvedBackupConfig, error) {
 	secretAccessKey, err := revealSecretRef(secretSource, cfg.Backup.S3SecretAccessKey)
 	if err != nil {
 		return resolvedBackupConfig{}, fmt.Errorf("reveal backup S3 secret access key: %w", err)

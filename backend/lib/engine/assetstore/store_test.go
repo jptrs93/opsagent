@@ -35,7 +35,7 @@ func (s testSecrets) RevealByID(id int32) ([]byte, error) {
 	return []byte(value), nil
 }
 
-func newTestStore(t *testing.T, settings **apigen.Settings) *Store {
+func newTestStore(t *testing.T, settings **apigen.ClusterSettings) *Store {
 	t.Helper()
 	dir := t.TempDir()
 	db := sqlite.NewPrimaryStorage(filepath.Join(dir, "primary.db"))
@@ -46,7 +46,7 @@ func newTestStore(t *testing.T, settings **apigen.Settings) *Store {
 	}
 	return &Store{
 		DB:      db,
-		Config:  func() *apigen.Settings { return *settings },
+		Config:  func() *apigen.ClusterSettings { return *settings },
 		Loader:  testLoader{},
 		Secrets: testSecrets{1: "shared-secret", 2: "separate-secret"},
 	}
@@ -56,15 +56,15 @@ func largeTestBlob() []byte {
 	return bytes.Repeat([]byte("a"), InlineThresholdBytes+1)
 }
 
-func createMigration(t *testing.T, store *Store, oldSettings, newSettings *apigen.Settings) {
+func createMigration(t *testing.T, store *Store, oldSettings, newSettings *apigen.ClusterSettings) {
 	t.Helper()
 	if _, err := store.DB.FetchLatestOpenDeployConfig(); err != nil {
-		oldConfig := apigen.Config{Settings: *oldSettings}
+		oldConfig := apigen.PrimaryConfig{Settings: *oldSettings}
 		if _, err := store.DB.AppendOpenDeploySettings(oldConfig.Encode()); err != nil {
 			t.Fatalf("store old config: %v", err)
 		}
 	}
-	newConfig := apigen.Config{Settings: *newSettings}
+	newConfig := apigen.PrimaryConfig{Settings: *newSettings}
 	if _, migration, err := store.DB.AppendOpenDeploySettingsWithAssetMigration(newConfig.Encode(), true); err != nil {
 		t.Fatalf("create migration: %v", err)
 	} else if migration == nil {

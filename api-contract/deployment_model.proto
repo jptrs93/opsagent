@@ -363,9 +363,9 @@ message DeploymentVersionsRequest {
   string selected_branch = 2;  // optional: specific git branch to list commits for
 }
 
-// ValidateSourceRequest checks an image source's accessibility before a
+// RepoValidateRequest checks an image source's accessibility before a
 // deployment using it is created/updated. Exactly one source field must be set.
-message ValidateSourceRequest {
+message RepoValidateRequest {
   ValidateNixDockerBuildSource nix_docker_build = 2;
   ValidateContainerImageSource container_image = 4;
 }
@@ -434,7 +434,7 @@ message ValidateContainerImageSource {
 
 
 
-message ValidateSourceResponse {
+message RepoValidateResponse {
   ValidateNixDockerBuildSourceResponse nix_docker_build = 2;
   ValidateContainerImageSourceResponse container_image = 4;
 }

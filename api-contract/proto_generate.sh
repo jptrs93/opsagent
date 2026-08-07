@@ -13,7 +13,8 @@ trap 'rm -f "$COMBINED_PROTO"' EXIT
   printf '%s\n\n' 'syntax = "proto3";' 'package opsagent.v1;'
   printf '%s\n' 'import "api-contract/options.proto";' 'import "google/protobuf/timestamp.proto";'
   printf '%s\n\n' 'option go_package = "github.com/jptrs93/opsagent/backend/apigen";'
-  for proto in api-contract/deployment_model.proto api-contract/model.proto api-contract/system_config_model.proto api-contract/api.proto; do
+  for proto in api-contract/deployment_model.proto api-contract/model.proto api-contract/system_config_model.proto \
+               api-contract/api_service.proto api-contract/cluster_service.proto api-contract/enrollment_service.proto; do
     sed '/^syntax = /d; /^package /d; /^import /d; /^option go_package = /d' "$proto"
   done
 } > "$COMBINED_PROTO"

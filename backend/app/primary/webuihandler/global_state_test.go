@@ -101,14 +101,14 @@ func TestGetV1GlobalStateExcludesDeletedDeployments(t *testing.T) {
 	}
 }
 
-func TestPostV1DeploymentStateReturnsConfigAndInstances(t *testing.T) {
+func TestPostV1DeploymentsGetReturnsConfigAndInstances(t *testing.T) {
 	h := newGlobalStateTestHandler(t)
 	cfg := createTestDeployment(h.Store, "node-a", apigen.DeploymentIdentity{Name: "api"}, ptr(remoteDeploymentSpec("nginx", hostNetworking())))
 	seedDeploymentRunnerStatus(h.Store, cfg, apigen.RunningStatus_RUNNING)
 
-	res, err := h.PostV1DeploymentState(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentStateRequest{ID: cfg.ID})
+	res, err := h.PostV1DeploymentsGet(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentGetRequest{ID: cfg.ID})
 	if err != nil {
-		t.Fatalf("PostV1DeploymentState: %v", err)
+		t.Fatalf("PostV1DeploymentsGet: %v", err)
 	}
 	if res.Config == nil || res.Config.ID != cfg.ID {
 		t.Fatalf("config = %+v, want id %d", res.Config, cfg.ID)
@@ -123,16 +123,16 @@ func TestPostV1DeploymentStateReturnsConfigAndInstances(t *testing.T) {
 	}
 }
 
-func TestPostV1DeploymentStateOnlyReturnsRequestedDeployment(t *testing.T) {
+func TestPostV1DeploymentsGetOnlyReturnsRequestedDeployment(t *testing.T) {
 	h := newGlobalStateTestHandler(t)
 	wanted := createTestDeployment(h.Store, "node-a", apigen.DeploymentIdentity{Name: "api"}, ptr(remoteDeploymentSpec("nginx", hostNetworking())))
 	other := createTestDeployment(h.Store, "node-b", apigen.DeploymentIdentity{Name: "web"}, ptr(remoteDeploymentSpec("nginx", hostNetworking())))
 	seedDeploymentRunnerStatus(h.Store, wanted, apigen.RunningStatus_RUNNING)
 	seedDeploymentRunnerStatus(h.Store, other, apigen.RunningStatus_RUNNING)
 
-	res, err := h.PostV1DeploymentState(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentStateRequest{ID: wanted.ID})
+	res, err := h.PostV1DeploymentsGet(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentGetRequest{ID: wanted.ID})
 	if err != nil {
-		t.Fatalf("PostV1DeploymentState: %v", err)
+		t.Fatalf("PostV1DeploymentsGet: %v", err)
 	}
 	for _, inst := range res.Instances.Items {
 		if inst.Instance.DeploymentID == other.ID {
@@ -141,14 +141,14 @@ func TestPostV1DeploymentStateOnlyReturnsRequestedDeployment(t *testing.T) {
 	}
 }
 
-func TestPostV1DeploymentStateRejectsBadID(t *testing.T) {
+func TestPostV1DeploymentsGetRejectsBadID(t *testing.T) {
 	h := newGlobalStateTestHandler(t)
 	cfg := createTestDeployment(h.Store, "node-a", apigen.DeploymentIdentity{Name: "gone"}, ptr(remoteDeploymentSpec("nginx", hostNetworking())))
 	markDeleted(t, h, cfg)
 
 	for name, id := range map[string]int32{"zero": 0, "negative": -1, "unknown": 99999, "deleted": cfg.ID} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := h.PostV1DeploymentState(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentStateRequest{ID: id}); err == nil {
+			if _, err := h.PostV1DeploymentsGet(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentGetRequest{ID: id}); err == nil {
 				t.Fatal("expected an error")
 			}
 		})
@@ -161,14 +161,14 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 		t.Fatalf("CreateSpace: %v", err)
 	}
 	cfg := createTestDeployment(h.Store, "node-a", apigen.DeploymentIdentity{Name: "api"}, ptr(remoteDeploymentSpec("nginx", hostNetworking())))
-	mux := apigen.CreateOpsagentHttpV1Mux(h, &apigen.MuxConfig{
+	mux := apigen.CreateApiServerMux(h, &apigen.MuxConfig{
 		VerifyAuth: func(ctx context.Context, _ http.ResponseWriter, _ *http.Request, _ apigen.AccessPolicy) (apigen.Context, error) {
 			return apigen.Context{Ctx: ctx}, nil
 		},
 	})
 
 	t.Run("global-state", func(t *testing.T) {
-		r := httptest.NewRequest(http.MethodGet, "/v1/global-state", nil)
+		r := httptest.NewRequest(http.MethodGet, "/v1/global/state", nil)
 		r.Header.Set("Accept", "application/json")
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, r)
@@ -190,7 +190,7 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 	})
 
 	t.Run("deployment-state accepts a JSON request body", func(t *testing.T) {
-		r := httptest.NewRequest(http.MethodPost, "/v1/deployment-state", strings.NewReader(`{"id":`+strconv.Itoa(int(cfg.ID))+`}`))
+		r := httptest.NewRequest(http.MethodPost, "/v1/deployments/get", strings.NewReader(`{"id":`+strconv.Itoa(int(cfg.ID))+`}`))
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("Accept", "application/json")
 		w := httptest.NewRecorder()
@@ -212,7 +212,7 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 	})
 
 	t.Run("protobuf stays the default", func(t *testing.T) {
-		r := httptest.NewRequest(http.MethodGet, "/v1/global-state", nil)
+		r := httptest.NewRequest(http.MethodGet, "/v1/global/state", nil)
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, r)
 		if ct := w.Header().Get("Content-Type"); ct != "application/protobuf" {

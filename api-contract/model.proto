@@ -44,7 +44,7 @@ message EnrollmentRequestList {
   repeated EnrollmentRequestStatus items = 1;
 }
 
-message EnrollmentInfo {
+message NodeEnrollmentInfo {
   string enrollment_tls_spki_sha256 = 1;
 }
 
@@ -308,7 +308,7 @@ message SecretUnlockRequest {
 
 // === User config messages ===
 
-message UserConfig {
+message Config {
   string name = 1;
   reserved 2;
   string value = 3;        // plaintext value; not encrypted at rest
@@ -321,11 +321,11 @@ message UserConfig {
   int32 version = 10;
 }
 
-message UserConfigList {
-  repeated UserConfig items = 1;
+message ConfigList {
+  repeated Config items = 1;
 }
 
-message UserConfigSetRequest {
+message ConfigSetRequest {
   string name = 1;
   reserved 2;
   string value = 3;
@@ -334,12 +334,12 @@ message UserConfigSetRequest {
   repeated DeploymentConfigVersionRef referencing_deployments = 6;
 }
 
-message UserConfigRenameRequest {
+message ConfigRenameRequest {
   string name = 1;
   string new_name = 2;
 }
 
-message UserConfigDeleteRequest {
+message ConfigDeleteRequest {
   string name = 1;
 }
 
@@ -412,13 +412,13 @@ message State {
   EnrollmentRequestStatus enrollment_update = 11;
   SecretReferenceList secrets_snapshot = 12;
   SecretReference secret_update = 13;
-  UserConfigReferenceList user_configs_snapshot = 14;
-  UserConfigReference user_config_update = 15;
+  ConfigReferenceList user_configs_snapshot = 14;
+  ConfigReference user_config_update = 15;
   SecretsStatusResponse secrets_status_snapshot = 16;
   SecretList secret_metas_snapshot = 17;
   SecretMeta secret_meta_update = 18;
-  UserConfigList user_config_values_snapshot = 19;
-  UserConfig user_config_value_update = 20;
+  ConfigList user_config_values_snapshot = 19;
+  Config user_config_value_update = 20;
   SpaceList spaces_snapshot = 21;
   Space space_update = 22;
   AssetList assets_snapshot = 23;
@@ -431,7 +431,7 @@ message State {
   BackupStatus backup_status_update = 30;
   // Full redacted primary configuration, emitted initially and after every
   // persisted configuration change.
-  ConfigVersion config_snapshot = 31 [(cp.go_value) = true];
+  PrimaryConfigVersion config_snapshot = 31 [(cp.go_value) = true];
   ScheduledInstanceSnapshot scheduled_instances_snapshot = 32;
   ScheduledInstanceState scheduled_instance_update = 33;
   // Filtered to the connected user before it is yielded, unlike every other
@@ -453,12 +453,12 @@ message SpaceList {
 message GlobalState {
   SpaceList spaces = 1;
   AssetList assets = 2;
-  UserConfigList configs = 3;
+  ConfigList configs = 3;
   SecretList secrets = 4;
   DeploymentConfigSnapshot deployment_configs = 5;
 }
 
-message DeploymentStateRequest {
+message DeploymentGetRequest {
   int32 id = 1;
 }
 
@@ -488,7 +488,7 @@ message SecretReferenceList {
   repeated SecretReference items = 1;
 }
 
-message UserConfigReference {
+message ConfigReference {
   int32 id = 1;
   string name = 2;
   bool deleted = 3;
@@ -496,8 +496,8 @@ message UserConfigReference {
   int32 version = 5;
 }
 
-message UserConfigReferenceList {
-  repeated UserConfigReference items = 1;
+message ConfigReferenceList {
+  repeated ConfigReference items = 1;
 }
 
 
@@ -592,7 +592,7 @@ message ClusterNodeStatusList {
   repeated ClusterNodeStatus items = 1;
 }
 
-message ClusterStatusResponse {
+message NodeStatusResponse {
   repeated ClusterMachine machines = 1;
 }
 

@@ -111,7 +111,7 @@ func managedWebUIServerResult(ctx context.Context, name string, err error) error
 func webUITLSConfig(
 	cs *config.Service,
 	secretsMgr *secrets.Manager,
-	cfg *apigen.Settings) (*tls.Config, error) {
+	cfg *apigen.ClusterSettings) (*tls.Config, error) {
 	tlsSelfManaged := cs.MustLoadConfigBoolValue(cfg.HttpsWeb.TlsSelfManaged)
 	if tlsSelfManaged {
 		return selfManagedWebUITLSConfig(secretsMgr, cs, cfg)
@@ -131,7 +131,7 @@ func webUITLSConfig(
 	return tlsConfig, nil
 }
 
-func selfManagedWebUITLSConfig(store *secrets.Manager, loader config.Loader, cfg *apigen.Settings) (*tls.Config, error) {
+func selfManagedWebUITLSConfig(store *secrets.Manager, loader config.Loader, cfg *apigen.ClusterSettings) (*tls.Config, error) {
 	bundle, err := webUITLSBundle(store, loader, cfg)
 	if err != nil {
 		return nil, err
@@ -143,7 +143,7 @@ func selfManagedWebUITLSConfig(store *secrets.Manager, loader config.Loader, cfg
 	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13}, nil
 }
 
-func webUITLSBundle(store *secrets.Manager, loader config.Loader, cfg *apigen.Settings) ([]byte, error) {
+func webUITLSBundle(store *secrets.Manager, loader config.Loader, cfg *apigen.ClusterSettings) ([]byte, error) {
 	if id := cfg.HttpsWeb.TlsCertPem.ID; id != 0 {
 		value, err := store.RevealByID(id)
 		if err != nil {
@@ -154,7 +154,7 @@ func webUITLSBundle(store *secrets.Manager, loader config.Loader, cfg *apigen.Se
 	return certu.LoadWebUISelfSigned(store)
 }
 
-func webUITLSNames(loader config.Loader, cfg *apigen.Settings) []string {
+func webUITLSNames(loader config.Loader, cfg *apigen.ClusterSettings) []string {
 	acmeHosts := loader.MustLoadConfigStringValue(cfg.HttpsWeb.AcmeHosts)
 	listen := loader.MustLoadConfigStringValue(cfg.HttpsWeb.Listen)
 	names := append([]string{}, stringu.ParseStringList(acmeHosts)...)

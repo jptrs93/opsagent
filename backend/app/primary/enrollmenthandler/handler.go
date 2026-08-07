@@ -76,12 +76,12 @@ func (h *Handler) VerifyEnrollmentRequest(ctx context.Context, _ http.ResponseWr
 	return apigen.Context{Ctx: context.WithValue(ctx, enrollmentRequestIPKey{}, remoteIP(r))}, nil
 }
 
-func (h *Handler) GetV1EnrollmentInfo(ctx apigen.Context) (*apigen.EnrollmentInfo, error) {
+func (h *Handler) GetV1NodesEnrollmentsInfo(ctx apigen.Context) (*apigen.NodeEnrollmentInfo, error) {
 	fingerprint := strings.TrimSpace(h.tlsFingerprint)
 	if fingerprint == "" {
 		return nil, EnrollmentFingerprintNotConfiguredErr
 	}
-	return &apigen.EnrollmentInfo{EnrollmentTlsSpkiSha256: fingerprint}, nil
+	return &apigen.NodeEnrollmentInfo{EnrollmentTlsSpkiSha256: fingerprint}, nil
 }
 
 func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*apigen.EnrollmentWorkerMsg, error]) iter.Seq2[*apigen.EnrollmentPrimaryMsg, error] {
@@ -141,7 +141,7 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 	}
 }
 
-func (h *Handler) PostV1EnrollmentList(ctx apigen.Context) (*apigen.EnrollmentRequestList, error) {
+func (h *Handler) PostV1NodesEnrollmentsList(ctx apigen.Context) (*apigen.EnrollmentRequestList, error) {
 	items, err := h.store.ListEnrollmentRequests()
 	if err != nil {
 		return nil, err
@@ -149,7 +149,7 @@ func (h *Handler) PostV1EnrollmentList(ctx apigen.Context) (*apigen.EnrollmentRe
 	return &apigen.EnrollmentRequestList{Items: items}, nil
 }
 
-func (h *Handler) PostV1EnrollmentAccept(ctx apigen.Context, req *apigen.EnrollmentAcceptRequest) (*apigen.EnrollmentRequestStatus, error) {
+func (h *Handler) PostV1NodesEnrollmentsAccept(ctx apigen.Context, req *apigen.EnrollmentAcceptRequest) (*apigen.EnrollmentRequestStatus, error) {
 	if req == nil || req.ID == 0 {
 		return nil, EnrollmentNotFoundErr
 	}

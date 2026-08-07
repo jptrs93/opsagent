@@ -230,7 +230,7 @@ export function logsPage(selectedDeploymentId) {
                 levelMin: levelMin.val || undefined,
                 searchStr: searchStr.val || undefined,
             };
-            for await (const batch of capi.postV1DeploymentLogSearch(payload, {signal: activeAbort.signal})) {
+            for await (const batch of capi.postV1DeploymentsLogSearch(payload, {signal: activeAbort.signal})) {
                 if (batch.logDir) {
                     logDir = batch.logDir;
                 }

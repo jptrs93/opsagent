@@ -15,7 +15,7 @@ import (
 // here over real HTTP rather than through the Go handler signatures.
 func TestAgentSessionHandshakeOverJSON(t *testing.T) {
 	h, user := newAuthTestHandler(t)
-	server := httptest.NewServer(apigen.CreateOpsagentHttpV1Mux(h, &apigen.MuxConfig{
+	server := httptest.NewServer(apigen.CreateApiServerMux(h, &apigen.MuxConfig{
 		VerifyAuth:         h.VerifyAuth,
 		MaxRequestBodySize: 1 << 20,
 	}))

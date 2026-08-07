@@ -83,7 +83,7 @@ func TestRepoValidateChecksExactCommitWithoutDiscoveryList(t *testing.T) {
 	commit := "0123456789abcdef0123456789abcdef01234567"
 	provider := &fakeGitSourceProvider{}
 	h := &Handler{GitVersions: provider}
-	res, err := h.PostV1RepoValidate(apigen.Context{Ctx: context.Background()}, &apigen.ValidateSourceRequest{
+	res, err := h.PostV1ReposValidate(apigen.Context{Ctx: context.Background()}, &apigen.RepoValidateRequest{
 		NixDockerBuild: &apigen.ValidateNixDockerBuildSource{
 			RepoUrl:        "github.com/acme/app",
 			SelectedCommit: &apigen.Version{ID: commit},
@@ -105,7 +105,7 @@ func TestRepoValidateCombinesCommitAndFlakeValidation(t *testing.T) {
 	commit := "0123456789abcdef0123456789abcdef01234567"
 	provider := &fakeGitSourceProvider{sourceCommitValid: true}
 	h := &Handler{GitVersions: provider}
-	res, err := h.PostV1RepoValidate(apigen.Context{Ctx: context.Background()}, &apigen.ValidateSourceRequest{
+	res, err := h.PostV1ReposValidate(apigen.Context{Ctx: context.Background()}, &apigen.RepoValidateRequest{
 		NixDockerBuild: &apigen.ValidateNixDockerBuildSource{
 			RepoUrl:           "github.com/acme/app",
 			SelectedCommit:    &apigen.Version{ID: commit},
@@ -130,7 +130,7 @@ func TestRepoValidateUsesRemoteHeadForDefaultFlakeCommit(t *testing.T) {
 	commit := "0123456789abcdef0123456789abcdef01234567"
 	provider := &fakeGitSourceProvider{defaultCommit: commit, defaultBranch: "trunk", sourceCommitValid: true}
 	h := &Handler{GitVersions: provider}
-	res, err := h.PostV1RepoValidate(apigen.Context{Ctx: context.Background()}, &apigen.ValidateSourceRequest{
+	res, err := h.PostV1ReposValidate(apigen.Context{Ctx: context.Background()}, &apigen.RepoValidateRequest{
 		NixDockerBuild: &apigen.ValidateNixDockerBuildSource{
 			RepoUrl:           "github.com/acme/app",
 			SelectedFlakePath: "flake.nix",
@@ -155,7 +155,7 @@ func TestRepoValidateUsesSelectedBranchHeadForFlakeCommit(t *testing.T) {
 	commit := "0123456789abcdef0123456789abcdef01234567"
 	provider := &fakeGitSourceProvider{commits: []*apigen.Version{{ID: commit}}, sourceCommitValid: true}
 	h := &Handler{GitVersions: provider}
-	res, err := h.PostV1RepoValidate(apigen.Context{Ctx: context.Background()}, &apigen.ValidateSourceRequest{
+	res, err := h.PostV1ReposValidate(apigen.Context{Ctx: context.Background()}, &apigen.RepoValidateRequest{
 		NixDockerBuild: &apigen.ValidateNixDockerBuildSource{
 			RepoUrl:           "github.com/acme/app",
 			SelectedBranch:    "release",
@@ -180,7 +180,7 @@ func TestRepoValidateUsesSelectedBranchHeadForFlakeCommit(t *testing.T) {
 func TestRepoValidateReturnsInteractiveFailuresInResponse(t *testing.T) {
 	provider := &fakeGitSourceProvider{sourceCommitValid: true, sourceErr: errors.New("not a regular Git file")}
 	h := &Handler{GitVersions: provider}
-	res, err := h.PostV1RepoValidate(apigen.Context{Ctx: context.Background()}, &apigen.ValidateSourceRequest{
+	res, err := h.PostV1ReposValidate(apigen.Context{Ctx: context.Background()}, &apigen.RepoValidateRequest{
 		NixDockerBuild: &apigen.ValidateNixDockerBuildSource{
 			RepoUrl:           "github.com/acme/app",
 			SelectedCommit:    &apigen.Version{ID: "0123456789abcdef0123456789abcdef01234567"},
@@ -199,7 +199,7 @@ func TestRepoValidateReturnsInteractiveFailuresInResponse(t *testing.T) {
 
 func TestRepoValidatePreservesMalformedRequestErrors(t *testing.T) {
 	h := &Handler{GitVersions: &fakeGitSourceProvider{}}
-	_, err := h.PostV1RepoValidate(apigen.Context{Ctx: context.Background()}, &apigen.ValidateSourceRequest{
+	_, err := h.PostV1ReposValidate(apigen.Context{Ctx: context.Background()}, &apigen.RepoValidateRequest{
 		NixDockerBuild: &apigen.ValidateNixDockerBuildSource{RepoUrl: "github.com/acme/app", CheckCommit: true},
 	})
 	var apiErr apigen.ApiErr
@@ -211,7 +211,7 @@ func TestRepoValidatePreservesMalformedRequestErrors(t *testing.T) {
 func TestRepoValidateRejectsInvalidFlakePathBeforeGit(t *testing.T) {
 	provider := &fakeGitSourceProvider{}
 	h := &Handler{GitVersions: provider}
-	_, err := h.PostV1RepoValidate(apigen.Context{Ctx: context.Background()}, &apigen.ValidateSourceRequest{
+	_, err := h.PostV1ReposValidate(apigen.Context{Ctx: context.Background()}, &apigen.RepoValidateRequest{
 		NixDockerBuild: &apigen.ValidateNixDockerBuildSource{
 			RepoUrl:           "github.com/acme/app",
 			SelectedFlakePath: "../flake.nix",

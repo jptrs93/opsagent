@@ -21,7 +21,7 @@ export function prepareOutputOverlay(deploymentId, deploymentLabel, onClose) {
 
     const startStream = async () => {
         try {
-            for await (const chunk of capi.postV1DeploymentPrepareOutput({deploymentId, version: 0}, {signal: abortController.signal})) {
+            for await (const chunk of capi.postV1DeploymentsPrepareOutput({deploymentId, version: 0}, {signal: abortController.signal})) {
                 if (chunk.data?.length) {
                     outputText.val += decoder.decode(chunk.data, {stream: true});
                 }

@@ -365,7 +365,7 @@ async function startDeploymentsStream(generation = sessionGeneration) {
 
     let connected = false;
     try {
-        const stream = capi.postV1StateStream({ signal: streamAbortController.signal });
+        const stream = capi.postV1GlobalStateStream({ signal: streamAbortController.signal });
         for await (const message of stream) {
             if (!connected) {
                 connected = true;

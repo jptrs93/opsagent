@@ -36,7 +36,7 @@ export function recentlyDeletedOverlay(onFork, onClose) {
 
     const load = async () => {
         try {
-            const decoded = await capi.postV1DeploymentRecentlyDeleted({});
+            const decoded = await capi.postV1DeploymentsRecentlyDeleted({});
             items.val = decoded?.items || [];
         } catch (e) {
             error.val = e?.message || 'Loading deleted deployments failed.';

@@ -491,7 +491,7 @@ export function settingsPage() {
             error.val = null;
             const payload = deepClone(currentSettings() || emptySettings());
             dirtySettings().forEach(({setting, item}) => setting.apply(payload, item));
-            const res = await capi.putV1Settings(payload);
+            const res = await capi.postV1ClusterSettingsUpdate(payload);
             setDraft(configDraft(res));
             settingsChangedElsewhere.val = false;
         } catch (e) {
@@ -504,7 +504,7 @@ export function settingsPage() {
     const generateRecovery = async () => {
         try {
             error.val = null;
-            const res = await capi.postV1SecretsGenerateRecoveryCode({});
+            const res = await capi.postV1SecretsRotateRecoveryCode({});
             recoveryCode.val = res.code;
             recoveryStatus.val = await capi.postV1SecretsStatus({});
         } catch (e) {

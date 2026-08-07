@@ -17,8 +17,8 @@ var ImageRequiredErr = apigen.NewApiErr("Image is required", "missing_image", ht
 var InvalidSourceTypeErr = apigen.NewApiErr("Invalid source type", "invalid_source_type", http.StatusBadRequest)
 var InvalidValidateRequestErr = apigen.NewApiErr("Invalid validate request", "invalid_validate_request", http.StatusBadRequest)
 
-// PostV1RepoValidate checks that a deployment source is reachable and authorized.
-func (h *Handler) PostV1RepoValidate(ctx apigen.Context, req *apigen.ValidateSourceRequest) (*apigen.ValidateSourceResponse, error) {
+// PostV1ReposValidate checks that a deployment source is reachable and authorized.
+func (h *Handler) PostV1ReposValidate(ctx apigen.Context, req *apigen.RepoValidateRequest) (*apigen.RepoValidateResponse, error) {
 	if countValidationSources(req) != 1 {
 		return nil, InvalidSourceTypeErr
 	}
@@ -39,10 +39,10 @@ func (h *Handler) PostV1RepoValidate(ctx apigen.Context, req *apigen.ValidateSou
 	}
 }
 
-func (h *Handler) validateNixDockerBuildSource(ctx apigen.Context, src *apigen.ValidateNixDockerBuildSource) (*apigen.ValidateSourceResponse, error) {
+func (h *Handler) validateNixDockerBuildSource(ctx apigen.Context, src *apigen.ValidateNixDockerBuildSource) (*apigen.RepoValidateResponse, error) {
 	repo := src.RepoUrl
 	if h.GitVersions == nil {
-		return &apigen.ValidateSourceResponse{NixDockerBuild: &apigen.ValidateNixDockerBuildSourceResponse{GitRepository: validationErr("Git validation is not configured.")}}, nil
+		return &apigen.RepoValidateResponse{NixDockerBuild: &apigen.ValidateNixDockerBuildSourceResponse{GitRepository: validationErr("Git validation is not configured.")}}, nil
 	}
 
 	res := apigen.ValidateNixDockerBuildSourceResponse{}
@@ -178,7 +178,7 @@ func (h *Handler) validateNixDockerBuildSource(ctx apigen.Context, src *apigen.V
 		}
 	}
 
-	return &apigen.ValidateSourceResponse{NixDockerBuild: &res}, nil
+	return &apigen.RepoValidateResponse{NixDockerBuild: &res}, nil
 }
 
 func validateNixDockerBuildValidateRequest(src *apigen.ValidateNixDockerBuildSource) error {
@@ -211,18 +211,18 @@ func validateNixDockerBuildValidateRequest(src *apigen.ValidateNixDockerBuildSou
 	return nil
 }
 
-func (h *Handler) validateContainerImageSource(ctx apigen.Context, src *apigen.ValidateContainerImageSource) (*apigen.ValidateSourceResponse, error) {
+func (h *Handler) validateContainerImageSource(ctx apigen.Context, src *apigen.ValidateContainerImageSource) (*apigen.RepoValidateResponse, error) {
 	image := src.Image
 	tags, err := versionprovider.ListContainerImageTags(ctx, image)
 	if err != nil {
 		slog.Warn("container image validation failed", "image", image, "err", err)
-		return &apigen.ValidateSourceResponse{ContainerImage: &apigen.ValidateContainerImageSourceResponse{Image: validationErr("Image not accessible: " + containerImageRef(image))}}, nil
+		return &apigen.RepoValidateResponse{ContainerImage: &apigen.ValidateContainerImageSourceResponse{Image: validationErr("Image not accessible: " + containerImageRef(image))}}, nil
 	}
 	res := apigen.ValidateContainerImageSourceResponse{Image: validationOK("Image accessible: " + containerImageRef(image))}
 	if src.RefreshVersions {
 		res.Tags = tags
 	}
-	return &apigen.ValidateSourceResponse{ContainerImage: &res}, nil
+	return &apigen.RepoValidateResponse{ContainerImage: &res}, nil
 }
 
 func validateContainerImageValidateRequest(src *apigen.ValidateContainerImageSource) error {
@@ -265,7 +265,7 @@ func containerImageRef(image string) string {
 	return repo
 }
 
-func countValidationSources(req *apigen.ValidateSourceRequest) int {
+func countValidationSources(req *apigen.RepoValidateRequest) int {
 	count := 0
 	if req.NixDockerBuild != nil {
 		count++

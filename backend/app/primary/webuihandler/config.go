@@ -18,11 +18,11 @@ import (
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
-func (h *Handler) GetV1Settings(ctx apigen.Context) (*apigen.Settings, error) {
+func (h *Handler) PostV1ClusterSettingsGet(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ClusterSettings, error) {
 	return ptru.To(h.ConfigService.Snapshot().Settings), nil
 }
 
-func (h *Handler) PutV1Settings(ctx apigen.Context, req *apigen.Settings) (*apigen.Settings, error) {
+func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.ClusterSettings) (*apigen.ClusterSettings, error) {
 	unlockReferences := h.ConfigService.LockReferences()
 	defer unlockReferences()
 	stored, resolved, err := validateSettings(req, func(ref *apigen.ConfigRef) (string, bool, error) {
@@ -77,7 +77,7 @@ func (h *Handler) PutV1Settings(ctx apigen.Context, req *apigen.Settings) (*apig
 	return stored, nil
 }
 
-func validateSettings(req *apigen.Settings, resolveRef func(*apigen.ConfigRef) (string, bool, error)) (*apigen.Settings, *apigen.Settings, error) {
+func validateSettings(req *apigen.ClusterSettings, resolveRef func(*apigen.ConfigRef) (string, bool, error)) (*apigen.ClusterSettings, *apigen.ClusterSettings, error) {
 	if req == nil {
 		return nil, nil, fmt.Errorf("settings are required")
 	}
@@ -193,7 +193,7 @@ func resolveBoolInPlace(stored, resolved *apigen.BoolSetting, field string, reso
 	return nil
 }
 
-func validateResolvedSettings(settings *apigen.Settings) error {
+func validateResolvedSettings(settings *apigen.ClusterSettings) error {
 	httpEnabled := settings.HttpWeb.Enabled.Value
 	httpsEnabled := settings.HttpsWeb.Enabled.Value
 	httpListen := settings.HttpWeb.Listen.Value
@@ -234,7 +234,7 @@ func validateListenValue(field, value string) error {
 	return nil
 }
 
-func (h *Handler) validateWebTLSCert(settings *apigen.Settings) error {
+func (h *Handler) validateWebTLSCert(settings *apigen.ClusterSettings) error {
 	tlsSelfManaged := settings.HttpsWeb.TlsSelfManaged.Value
 	id := settings.HttpsWeb.TlsCertPem.ID
 	if !tlsSelfManaged {
@@ -254,7 +254,7 @@ func (h *Handler) validateWebTLSCert(settings *apigen.Settings) error {
 	return nil
 }
 
-func settingsSecretRefs(settings *apigen.Settings) []*apigen.SecretRef {
+func settingsSecretRefs(settings *apigen.ClusterSettings) []*apigen.SecretRef {
 	return []*apigen.SecretRef{
 		&settings.HttpsWeb.TlsCertPem,
 		&settings.Repo.GithubToken,

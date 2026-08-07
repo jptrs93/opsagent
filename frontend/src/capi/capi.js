@@ -11,12 +11,13 @@ import {
   decodeClusterConfigsResponse,
   decodeClusterNode,
   decodeClusterSecretsResponse,
-  decodeClusterStatusResponse,
+  decodeClusterSettings,
+  decodeConfig,
+  decodeConfigList,
   decodeDeploymentConfig,
   decodeDeploymentHistory,
   decodeDeploymentState,
   decodeDeploymentVersions,
-  decodeEnrollmentInfo,
   decodeEnrollmentPrimaryMsg,
   decodeEnrollmentRequestList,
   decodeEnrollmentRequestStatus,
@@ -26,19 +27,18 @@ import {
   decodeLogLineBatch,
   decodeLoginResponse,
   decodeMsgToWorker,
+  decodeNodeEnrollmentInfo,
+  decodeNodeStatusResponse,
   decodePrepareOutputChunk,
   decodeRecentlyDeletedDeployments,
+  decodeRepoValidateResponse,
   decodeSecretList,
   decodeSecretMeta,
   decodeSecretRecoveryCodeResponse,
   decodeSecretRevealResponse,
   decodeSecretsStatusResponse,
-  decodeSettings,
   decodeSpace,
   decodeState,
-  decodeUserConfig,
-  decodeUserConfigList,
-  decodeValidateSourceResponse,
   decodeWebAuthNOptionsResponse,
   encodeAgentSessionApproveRequest,
   encodeAgentSessionGetRequest,
@@ -50,10 +50,14 @@ import {
   encodeAssetSetRequest,
   encodeClusterConfigsRequest,
   encodeClusterSecretsRequest,
+  encodeClusterSettings,
+  encodeConfigDeleteRequest,
+  encodeConfigRenameRequest,
+  encodeConfigSetRequest,
   encodeDeploymentCreateRequest,
   encodeDeploymentDeleteRequest,
+  encodeDeploymentGetRequest,
   encodeDeploymentHistoryRequest,
-  encodeDeploymentStateRequest,
   encodeDeploymentUpdateRequest,
   encodeDeploymentUpgradeAllRequest,
   encodeDeploymentVersionsRequest,
@@ -69,19 +73,15 @@ import {
   encodeNodeRenameRequest,
   encodePrepareOutputRequest,
   encodeRecentlyDeletedDeploymentsRequest,
+  encodeRepoValidateRequest,
   encodeSecretDeleteRequest,
   encodeSecretGenerateRequest,
   encodeSecretRenameRequest,
   encodeSecretRevealRequest,
   encodeSecretSetRequest,
   encodeSecretUnlockRequest,
-  encodeSettings,
   encodeSpaceDeleteRequest,
   encodeSpaceSetRequest,
-  encodeUserConfigDeleteRequest,
-  encodeUserConfigRenameRequest,
-  encodeUserConfigSetRequest,
-  encodeValidateSourceRequest,
   encodeWebAuthNFinishRequest,
 } from './model.js';
 
@@ -200,6 +200,30 @@ export class Capi {
   }
 
   /**
+   * @param {EmptyRequest} payload
+   * @returns {Promise<ClusterSettings>}
+   */
+  async postV1ClusterSettingsGet(payload) {
+    const response = await this.#request("/v1/cluster-settings/get", { method: 'POST', body: encodeEmptyRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeClusterSettings(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {ClusterSettings} payload
+   * @returns {Promise<ClusterSettings>}
+   */
+  async postV1ClusterSettingsUpdate(payload) {
+    const response = await this.#request("/v1/cluster-settings/update", { method: 'POST', body: encodeClusterSettings(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeClusterSettings(await response.arrayBuffer());
+  }
+
+  /**
    * @param {MasterPasswordRequest} payload
    * @returns {Promise<LoginResponse>}
    */
@@ -240,6 +264,54 @@ export class Capi {
    */
   async getV1AuthCurrentSession() {
     const response = await this.#request("/v1/auth/current/session", { method: 'GET' });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeLoginResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {EmptyRequest} payload
+   * @returns {Promise<WebAuthNOptionsResponse>}
+   */
+  async postV1AuthPasskeyRegisterStart(payload) {
+    const response = await this.#request("/v1/auth/passkey/register/start", { method: 'POST', body: encodeEmptyRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeWebAuthNOptionsResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {WebAuthNFinishRequest} payload
+   * @returns {Promise<LoginResponse>}
+   */
+  async postV1AuthPasskeyRegisterFinish(payload) {
+    const response = await this.#request("/v1/auth/passkey/register/finish", { method: 'POST', body: encodeWebAuthNFinishRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeLoginResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {EmptyRequest} payload
+   * @returns {Promise<WebAuthNOptionsResponse>}
+   */
+  async postV1AuthPasskeyLoginStart(payload) {
+    const response = await this.#request("/v1/auth/passkey/login/start", { method: 'POST', body: encodeEmptyRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeWebAuthNOptionsResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {WebAuthNFinishRequest} payload
+   * @returns {Promise<LoginResponse>}
+   */
+  async postV1AuthPasskeyLoginFinish(payload) {
+    const response = await this.#request("/v1/auth/passkey/login/finish", { method: 'POST', body: encodeWebAuthNFinishRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -329,62 +401,25 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
-   * @returns {Promise<WebAuthNOptionsResponse>}
+   * @returns {Promise<GlobalState>}
    */
-  async postV1AuthPasskeyRegisterStart(payload) {
-    const response = await this.#request("/v1/auth/passkey/register/start", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async getV1GlobalState() {
+    const response = await this.#request("/v1/global/state", { method: 'GET' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeWebAuthNOptionsResponse(await response.arrayBuffer());
-  }
-
-  /**
-   * @param {WebAuthNFinishRequest} payload
-   * @returns {Promise<LoginResponse>}
-   */
-  async postV1AuthPasskeyRegisterFinish(payload) {
-    const response = await this.#request("/v1/auth/passkey/register/finish", { method: 'POST', body: encodeWebAuthNFinishRequest(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeLoginResponse(await response.arrayBuffer());
-  }
-
-  /**
-   * @param {EmptyRequest} payload
-   * @returns {Promise<WebAuthNOptionsResponse>}
-   */
-  async postV1AuthPasskeyLoginStart(payload) {
-    const response = await this.#request("/v1/auth/passkey/login/start", { method: 'POST', body: encodeEmptyRequest(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeWebAuthNOptionsResponse(await response.arrayBuffer());
-  }
-
-  /**
-   * @param {WebAuthNFinishRequest} payload
-   * @returns {Promise<LoginResponse>}
-   */
-  async postV1AuthPasskeyLoginFinish(payload) {
-    const response = await this.#request("/v1/auth/passkey/login/finish", { method: 'POST', body: encodeWebAuthNFinishRequest(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeLoginResponse(await response.arrayBuffer());
+    return decodeGlobalState(await response.arrayBuffer());
   }
 
   /**
    * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {AsyncIterable<State>}
    */
-  postV1StateStream(options = {}) {
+  postV1GlobalStateStream(options = {}) {
     const self = this;
     return {
       [Symbol.asyncIterator]: async function* () {
-        const response = await self.#request("/v1/state/stream", { method: 'POST', signal: options.signal });
+        const response = await self.#request("/v1/global/state-stream", { method: 'POST', signal: options.signal });
         if (!response.ok) {
           return self.errorHandler(response);
         }
@@ -394,22 +429,23 @@ export class Capi {
   }
 
   /**
-   * @returns {Promise<GlobalState>}
+   * @param {EmptyRequest} payload
+   * @returns {Promise<ExportedConfigBlob>}
    */
-  async getV1GlobalState() {
-    const response = await this.#request("/v1/global-state", { method: 'GET' });
+  async postV1GlobalExportedConfig(payload) {
+    const response = await this.#request("/v1/global/exported-config", { method: 'POST', body: encodeEmptyRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeGlobalState(await response.arrayBuffer());
+    return decodeExportedConfigBlob(await response.arrayBuffer());
   }
 
   /**
-   * @param {DeploymentStateRequest} payload
+   * @param {DeploymentGetRequest} payload
    * @returns {Promise<DeploymentState>}
    */
-  async postV1DeploymentState(payload) {
-    const response = await this.#request("/v1/deployment-state", { method: 'POST', body: encodeDeploymentStateRequest(payload) });
+  async postV1DeploymentsGet(payload) {
+    const response = await this.#request("/v1/deployments/get", { method: 'POST', body: encodeDeploymentGetRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -417,11 +453,11 @@ export class Capi {
   }
 
   /**
-   * @param {DeploymentUpdateRequest} payload
+   * @param {DeploymentCreateRequest} payload
    * @returns {Promise<DeploymentConfig>}
    */
-  async postV1DeploymentUpdate(payload) {
-    const response = await this.#request("/v1/deployment/update", { method: 'POST', body: encodeDeploymentUpdateRequest(payload) });
+  async postV1DeploymentsCreate(payload) {
+    const response = await this.#request("/v1/deployments/create", { method: 'POST', body: encodeDeploymentCreateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -429,11 +465,11 @@ export class Capi {
   }
 
   /**
-   * @param {DeploymentUpgradeAllRequest} payload
+   * @param {DeploymentUpdateRequest} payload
    * @returns {Promise<DeploymentConfig>}
    */
-  async postV1DeploymentUpgradeAll(payload) {
-    const response = await this.#request("/v1/deployment/upgrade-all", { method: 'POST', body: encodeDeploymentUpgradeAllRequest(payload) });
+  async postV1DeploymentsUpdate(payload) {
+    const response = await this.#request("/v1/deployments/update", { method: 'POST', body: encodeDeploymentUpdateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -444,8 +480,8 @@ export class Capi {
    * @param {DeploymentDeleteRequest} payload
    * @returns {Promise<void>}
    */
-  async postV1DeploymentDelete(payload) {
-    const response = await this.#request("/v1/deployment/delete", { method: 'POST', body: encodeDeploymentDeleteRequest(payload) });
+  async postV1DeploymentsDelete(payload) {
+    const response = await this.#request("/v1/deployments/delete", { method: 'POST', body: encodeDeploymentDeleteRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -453,11 +489,23 @@ export class Capi {
   }
 
   /**
+   * @param {DeploymentUpgradeAllRequest} payload
+   * @returns {Promise<DeploymentConfig>}
+   */
+  async postV1DeploymentsUpgradeAll(payload) {
+    const response = await this.#request("/v1/deployments/upgrade-all", { method: 'POST', body: encodeDeploymentUpgradeAllRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeDeploymentConfig(await response.arrayBuffer());
+  }
+
+  /**
    * @param {RecentlyDeletedDeploymentsRequest} payload
    * @returns {Promise<RecentlyDeletedDeployments>}
    */
-  async postV1DeploymentRecentlyDeleted(payload) {
-    const response = await this.#request("/v1/deployment/recently-deleted", { method: 'POST', body: encodeRecentlyDeletedDeploymentsRequest(payload) });
+  async postV1DeploymentsRecentlyDeleted(payload) {
+    const response = await this.#request("/v1/deployments/recently-deleted", { method: 'POST', body: encodeRecentlyDeletedDeploymentsRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -468,8 +516,8 @@ export class Capi {
    * @param {DeploymentHistoryRequest} payload
    * @returns {Promise<DeploymentHistory>}
    */
-  async postV1DeploymentHistory(payload) {
-    const response = await this.#request("/v1/deployment/history", { method: 'POST', body: encodeDeploymentHistoryRequest(payload) });
+  async postV1DeploymentsHistory(payload) {
+    const response = await this.#request("/v1/deployments/history", { method: 'POST', body: encodeDeploymentHistoryRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -477,15 +525,27 @@ export class Capi {
   }
 
   /**
+   * @param {DeploymentVersionsRequest} payload
+   * @returns {Promise<DeploymentVersions>}
+   */
+  async postV1DeploymentsVersions(payload) {
+    const response = await this.#request("/v1/deployments/versions", { method: 'POST', body: encodeDeploymentVersionsRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeDeploymentVersions(await response.arrayBuffer());
+  }
+
+  /**
    * @param {LogSearchRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {AsyncIterable<LogLineBatch>}
    */
-  postV1DeploymentLogSearch(payload, options = {}) {
+  postV1DeploymentsLogSearch(payload, options = {}) {
     const self = this;
     return {
       [Symbol.asyncIterator]: async function* () {
-        const response = await self.#request("/v1/deployment/log-search", { method: 'POST', body: encodeLogSearchRequest(payload), signal: options.signal });
+        const response = await self.#request("/v1/deployments/log-search", { method: 'POST', body: encodeLogSearchRequest(payload), signal: options.signal });
         if (!response.ok) {
           return self.errorHandler(response);
         }
@@ -499,11 +559,11 @@ export class Capi {
    * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {AsyncIterable<PrepareOutputChunk>}
    */
-  postV1DeploymentPrepareOutput(payload, options = {}) {
+  postV1DeploymentsPrepareOutput(payload, options = {}) {
     const self = this;
     return {
       [Symbol.asyncIterator]: async function* () {
-        const response = await self.#request("/v1/deployment/prepare-output", { method: 'POST', body: encodePrepareOutputRequest(payload), signal: options.signal });
+        const response = await self.#request("/v1/deployments/prepare-output", { method: 'POST', body: encodePrepareOutputRequest(payload), signal: options.signal });
         if (!response.ok) {
           return self.errorHandler(response);
         }
@@ -513,22 +573,34 @@ export class Capi {
   }
 
   /**
-   * @returns {Promise<ClusterStatusResponse>}
+   * @param {RepoValidateRequest} payload
+   * @returns {Promise<RepoValidateResponse>}
    */
-  async getV1ClusterStatus() {
-    const response = await this.#request("/v1/cluster/status", { method: 'GET' });
+  async postV1ReposValidate(payload) {
+    const response = await this.#request("/v1/repos/validate", { method: 'POST', body: encodeRepoValidateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeClusterStatusResponse(await response.arrayBuffer());
+    return decodeRepoValidateResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @returns {Promise<NodeStatusResponse>}
+   */
+  async getV1NodesStatus() {
+    const response = await this.#request("/v1/nodes/status", { method: 'GET' });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeNodeStatusResponse(await response.arrayBuffer());
   }
 
   /**
    * @param {NodeRenameRequest} payload
    * @returns {Promise<ClusterNode>}
    */
-  async postV1ClusterRename(payload) {
-    const response = await this.#request("/v1/cluster/rename", { method: 'POST', body: encodeNodeRenameRequest(payload) });
+  async postV1NodesRename(payload) {
+    const response = await this.#request("/v1/nodes/rename", { method: 'POST', body: encodeNodeRenameRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -539,8 +611,8 @@ export class Capi {
    * @param {NodeAllowedSpacesRequest} payload
    * @returns {Promise<ClusterNode>}
    */
-  async postV1ClusterAllowedSpaces(payload) {
-    const response = await this.#request("/v1/cluster/allowed/spaces", { method: 'POST', body: encodeNodeAllowedSpacesRequest(payload) });
+  async postV1NodesAllowedSpaces(payload) {
+    const response = await this.#request("/v1/nodes/allowed-spaces", { method: 'POST', body: encodeNodeAllowedSpacesRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -548,15 +620,37 @@ export class Capi {
   }
 
   /**
-   * @param {DeploymentCreateRequest} payload
-   * @returns {Promise<DeploymentConfig>}
+   * @returns {Promise<NodeEnrollmentInfo>}
    */
-  async postV1DeploymentCreate(payload) {
-    const response = await this.#request("/v1/deployment/create", { method: 'POST', body: encodeDeploymentCreateRequest(payload) });
+  async getV1NodesEnrollmentsInfo() {
+    const response = await this.#request("/v1/nodes/enrollments/info", { method: 'GET' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeDeploymentConfig(await response.arrayBuffer());
+    return decodeNodeEnrollmentInfo(await response.arrayBuffer());
+  }
+
+  /**
+   * @returns {Promise<EnrollmentRequestList>}
+   */
+  async postV1NodesEnrollmentsList() {
+    const response = await this.#request("/v1/nodes/enrollments/list", { method: 'POST' });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeEnrollmentRequestList(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {EnrollmentAcceptRequest} payload
+   * @returns {Promise<EnrollmentRequestStatus>}
+   */
+  async postV1NodesEnrollmentsAccept(payload) {
+    const response = await this.#request("/v1/nodes/enrollments/accept", { method: 'POST', body: encodeEnrollmentAcceptRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeEnrollmentRequestStatus(await response.arrayBuffer());
   }
 
   /**
@@ -593,76 +687,6 @@ export class Capi {
       return this.errorHandler(response);
     }
     await response.arrayBuffer();
-  }
-
-  /**
-   * @param {DeploymentVersionsRequest} payload
-   * @returns {Promise<DeploymentVersions>}
-   */
-  async postV1DeploymentVersions(payload) {
-    const response = await this.#request("/v1/deployment/versions", { method: 'POST', body: encodeDeploymentVersionsRequest(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeDeploymentVersions(await response.arrayBuffer());
-  }
-
-  /**
-   * @param {ValidateSourceRequest} payload
-   * @returns {Promise<ValidateSourceResponse>}
-   */
-  async postV1RepoValidate(payload) {
-    const response = await this.#request("/v1/repo/validate", { method: 'POST', body: encodeValidateSourceRequest(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeValidateSourceResponse(await response.arrayBuffer());
-  }
-
-  /**
-   * @returns {Promise<Settings>}
-   */
-  async getV1Settings() {
-    const response = await this.#request("/v1/settings", { method: 'GET' });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeSettings(await response.arrayBuffer());
-  }
-
-  /**
-   * @returns {Promise<EnrollmentInfo>}
-   */
-  async getV1EnrollmentInfo() {
-    const response = await this.#request("/v1/enrollment/info", { method: 'GET' });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeEnrollmentInfo(await response.arrayBuffer());
-  }
-
-  /**
-   * @param {Settings} payload
-   * @returns {Promise<Settings>}
-   */
-  async putV1Settings(payload) {
-    const response = await this.#request("/v1/settings", { method: 'PUT', body: encodeSettings(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeSettings(await response.arrayBuffer());
-  }
-
-  /**
-   * @param {EmptyRequest} payload
-   * @returns {Promise<ExportedConfigBlob>}
-   */
-  async postV1GenerateExportedConfig(payload) {
-    const response = await this.#request("/v1/generate-exported-config", { method: 'POST', body: encodeEmptyRequest(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeExportedConfigBlob(await response.arrayBuffer());
   }
 
   /**
@@ -753,8 +777,8 @@ export class Capi {
    * @param {EmptyRequest} payload
    * @returns {Promise<SecretRecoveryCodeResponse>}
    */
-  async postV1SecretsGenerateRecoveryCode(payload) {
-    const response = await this.#request("/v1/secrets/generate/recovery/code", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1SecretsRotateRecoveryCode(payload) {
+    const response = await this.#request("/v1/secrets/rotate-recovery-code", { method: 'POST', body: encodeEmptyRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -775,46 +799,46 @@ export class Capi {
 
   /**
    * @param {EmptyRequest} payload
-   * @returns {Promise<UserConfigList>}
+   * @returns {Promise<ConfigList>}
    */
-  async postV1UserConfigsList(payload) {
-    const response = await this.#request("/v1/user/configs/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1ConfigsList(payload) {
+    const response = await this.#request("/v1/configs/list", { method: 'POST', body: encodeEmptyRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeUserConfigList(await response.arrayBuffer());
+    return decodeConfigList(await response.arrayBuffer());
   }
 
   /**
-   * @param {UserConfigSetRequest} payload
-   * @returns {Promise<UserConfig>}
+   * @param {ConfigSetRequest} payload
+   * @returns {Promise<Config>}
    */
-  async postV1UserConfigsSet(payload) {
-    const response = await this.#request("/v1/user/configs/set", { method: 'POST', body: encodeUserConfigSetRequest(payload) });
+  async postV1ConfigsSet(payload) {
+    const response = await this.#request("/v1/configs/set", { method: 'POST', body: encodeConfigSetRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeUserConfig(await response.arrayBuffer());
+    return decodeConfig(await response.arrayBuffer());
   }
 
   /**
-   * @param {UserConfigRenameRequest} payload
-   * @returns {Promise<UserConfig>}
+   * @param {ConfigRenameRequest} payload
+   * @returns {Promise<Config>}
    */
-  async postV1UserConfigsRename(payload) {
-    const response = await this.#request("/v1/user/configs/rename", { method: 'POST', body: encodeUserConfigRenameRequest(payload) });
+  async postV1ConfigsRename(payload) {
+    const response = await this.#request("/v1/configs/rename", { method: 'POST', body: encodeConfigRenameRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeUserConfig(await response.arrayBuffer());
+    return decodeConfig(await response.arrayBuffer());
   }
 
   /**
-   * @param {UserConfigDeleteRequest} payload
+   * @param {ConfigDeleteRequest} payload
    * @returns {Promise<void>}
    */
-  async postV1UserConfigsDelete(payload) {
-    const response = await this.#request("/v1/user/configs/delete", { method: 'POST', body: encodeUserConfigDeleteRequest(payload) });
+  async postV1ConfigsDelete(payload) {
+    const response = await this.#request("/v1/configs/delete", { method: 'POST', body: encodeConfigDeleteRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -890,29 +914,6 @@ export class Capi {
       return this.errorHandler(response);
     }
     await response.arrayBuffer();
-  }
-
-  /**
-   * @returns {Promise<EnrollmentRequestList>}
-   */
-  async postV1EnrollmentList() {
-    const response = await this.#request("/v1/enrollment/list", { method: 'POST' });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeEnrollmentRequestList(await response.arrayBuffer());
-  }
-
-  /**
-   * @param {EnrollmentAcceptRequest} payload
-   * @returns {Promise<EnrollmentRequestStatus>}
-   */
-  async postV1EnrollmentAccept(payload) {
-    const response = await this.#request("/v1/enrollment/accept", { method: 'POST', body: encodeEnrollmentAcceptRequest(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeEnrollmentRequestStatus(await response.arrayBuffer());
   }
 
   /**

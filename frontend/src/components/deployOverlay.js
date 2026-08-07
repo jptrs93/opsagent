@@ -27,11 +27,11 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
             configRefs: userConfigRefsS,
         },
         actions: {
-            validateSource: request => capi.postV1RepoValidate(request),
-            loadDeploymentVersions: request => capi.postV1DeploymentVersions(request),
+            validateSource: request => capi.postV1ReposValidate(request),
+            loadDeploymentVersions: request => capi.postV1DeploymentsVersions(request),
             loadAsset: request => capi.postV1AssetsGet(request),
             saveAsset: request => capi.postV1AssetsSet(request),
-            updateDeployment: request => capi.postV1DeploymentUpdate(request),
+            updateDeployment: request => capi.postV1DeploymentsUpdate(request),
         },
         onCancel: onClose,
         onSuccess: () => {

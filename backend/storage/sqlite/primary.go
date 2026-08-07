@@ -120,8 +120,8 @@ type PrimaryStorage struct {
 	secretStatusSubs    *pubsubu.PubSub[apigen.SecretsStatusResponse]
 	secretSubs          *pubsubu.PubSub[apigen.SecretReference]
 	secretMetaSubs      *pubsubu.PubSub[apigen.SecretMeta]
-	userConfigSubs      *pubsubu.PubSub[apigen.UserConfigReference]
-	userConfigValueSubs *pubsubu.PubSub[apigen.UserConfig]
+	userConfigSubs      *pubsubu.PubSub[apigen.ConfigReference]
+	userConfigValueSubs *pubsubu.PubSub[apigen.Config]
 	spaceSubs           *pubsubu.PubSub[apigen.Space]
 	assetSubs           *pubsubu.PubSub[apigen.AssetMeta]
 	enrollmentSubs      *pubsubu.PubSub[apigen.EnrollmentRequestStatus]
@@ -142,8 +142,8 @@ func NewPrimaryStorage(dbPath string) *PrimaryStorage {
 		secretStatusSubs:    &pubsubu.PubSub[apigen.SecretsStatusResponse]{},
 		secretSubs:          &pubsubu.PubSub[apigen.SecretReference]{},
 		secretMetaSubs:      &pubsubu.PubSub[apigen.SecretMeta]{},
-		userConfigSubs:      &pubsubu.PubSub[apigen.UserConfigReference]{},
-		userConfigValueSubs: &pubsubu.PubSub[apigen.UserConfig]{},
+		userConfigSubs:      &pubsubu.PubSub[apigen.ConfigReference]{},
+		userConfigValueSubs: &pubsubu.PubSub[apigen.Config]{},
 		spaceSubs:           &pubsubu.PubSub[apigen.Space]{},
 		assetSubs:           &pubsubu.PubSub[apigen.AssetMeta]{},
 		enrollmentSubs:      &pubsubu.PubSub[apigen.EnrollmentRequestStatus]{},
@@ -1093,24 +1093,24 @@ func (s *PrimaryStorage) SubscribeSecretMetaUpdates() (*pubsubu.Sub[apigen.Secre
 	return sub, sub.UnsubscribeFunc
 }
 
-func (s *PrimaryStorage) ListUserConfigReferences() []*apigen.UserConfigReference {
+func (s *PrimaryStorage) ListUserConfigReferences() []*apigen.ConfigReference {
 	rows, err := s.q.ListAllUserConfigs(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("ListAllUserConfigs: %v", err))
 	}
-	out := make([]*apigen.UserConfigReference, 0, len(rows))
+	out := make([]*apigen.ConfigReference, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, &apigen.UserConfigReference{ID: int32(row.ID), Name: row.Name, SpaceID: int32(row.SpaceID), Version: int32(row.Version)})
+		out = append(out, &apigen.ConfigReference{ID: int32(row.ID), Name: row.Name, SpaceID: int32(row.SpaceID), Version: int32(row.Version)})
 	}
 	return out
 }
 
-func (s *PrimaryStorage) SubscribeUserConfigReferenceUpdates() (*pubsubu.Sub[apigen.UserConfigReference], func()) {
+func (s *PrimaryStorage) SubscribeUserConfigReferenceUpdates() (*pubsubu.Sub[apigen.ConfigReference], func()) {
 	sub := s.userConfigSubs.Subscribe(nil)
 	return sub, sub.UnsubscribeFunc
 }
 
-func (s *PrimaryStorage) SubscribeUserConfigValueUpdates() (*pubsubu.Sub[apigen.UserConfig], func()) {
+func (s *PrimaryStorage) SubscribeUserConfigValueUpdates() (*pubsubu.Sub[apigen.Config], func()) {
 	sub := s.userConfigValueSubs.Subscribe(nil)
 	return sub, sub.UnsubscribeFunc
 }

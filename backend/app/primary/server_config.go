@@ -8,7 +8,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/config"
 )
 
-func watchServerConfig(ctx context.Context, cs *config.Service, initial apigen.Config) error {
+func watchServerConfig(ctx context.Context, cs *config.Service, initial apigen.PrimaryConfig) error {
 	sub := cs.SnapshotAndSubscribe(serverConfigChanged)
 	defer sub.UnsubscribeFunc()
 	if serverConfigChanged(initial, sub.InitialValue) {
@@ -27,7 +27,7 @@ func watchServerConfig(ctx context.Context, cs *config.Service, initial apigen.C
 	}
 }
 
-func serverConfigChanged(prev, next apigen.Config) bool {
+func serverConfigChanged(prev, next apigen.PrimaryConfig) bool {
 	return prev.Settings.HttpWeb != next.Settings.HttpWeb ||
 		prev.Settings.HttpsWeb != next.Settings.HttpsWeb ||
 		prev.Settings.Cluster != next.Settings.Cluster

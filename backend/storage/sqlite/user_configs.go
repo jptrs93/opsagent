@@ -12,8 +12,8 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
-func userConfigRowToProto(r Config) *apigen.UserConfig {
-	return &apigen.UserConfig{
+func userConfigRowToProto(r Config) *apigen.Config {
+	return &apigen.Config{
 		ID:        int32(r.ID),
 		Name:      r.Name,
 		SpaceID:   int32(r.SpaceID),
@@ -24,31 +24,31 @@ func userConfigRowToProto(r Config) *apigen.UserConfig {
 	}
 }
 
-func (s *PrimaryStorage) ListUserConfigs() []*apigen.UserConfig {
+func (s *PrimaryStorage) ListUserConfigs() []*apigen.Config {
 	rows, err := s.q.ListUserConfigs(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("ListUserConfigs: %v", err))
 	}
-	out := make([]*apigen.UserConfig, 0, len(rows))
+	out := make([]*apigen.Config, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, userConfigRowToProto(r))
 	}
 	return out
 }
 
-func (s *PrimaryStorage) ListAllUserConfigs() []*apigen.UserConfig {
+func (s *PrimaryStorage) ListAllUserConfigs() []*apigen.Config {
 	rows, err := s.q.ListAllUserConfigs(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("ListAllUserConfigs: %v", err))
 	}
-	out := make([]*apigen.UserConfig, 0, len(rows))
+	out := make([]*apigen.Config, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, userConfigRowToProto(r))
 	}
 	return out
 }
 
-func (s *PrimaryStorage) SetUserConfig(name, value string, updatedBy int32, spaceID int32) *apigen.UserConfig {
+func (s *PrimaryStorage) SetUserConfig(name, value string, updatedBy int32, spaceID int32) *apigen.Config {
 	cfg, _, err := s.SetUserConfigWithDeploymentUpdates(name, value, updatedBy, spaceID, false, nil)
 	if err != nil {
 		panic(fmt.Sprintf("SetUserConfig: %v", err))
@@ -56,7 +56,7 @@ func (s *PrimaryStorage) SetUserConfig(name, value string, updatedBy int32, spac
 	return cfg
 }
 
-func (s *PrimaryStorage) SetUserConfigWithDeploymentUpdates(name, value string, updatedBy int32, spaceID int32, updateDeployments bool, expected []storage.DeploymentConfigVersion) (*apigen.UserConfig, []int32, error) {
+func (s *PrimaryStorage) SetUserConfigWithDeploymentUpdates(name, value string, updatedBy int32, spaceID int32, updateDeployments bool, expected []storage.DeploymentConfigVersion) (*apigen.Config, []int32, error) {
 	spaceID = normalizedUserSpaceID(spaceID)
 	var row Config
 	updatedDeployments, err := s.setVersionedValueWithDeploymentUpdates(
@@ -85,7 +85,7 @@ func (s *PrimaryStorage) SetUserConfigWithDeploymentUpdates(name, value string, 
 		},
 		func(_ []int32) {
 			cfg := userConfigRowToProto(row)
-			s.userConfigSubs.Notify(apigen.UserConfigReference{ID: cfg.ID, Name: cfg.Name, SpaceID: cfg.SpaceID, Version: cfg.Version})
+			s.userConfigSubs.Notify(apigen.ConfigReference{ID: cfg.ID, Name: cfg.Name, SpaceID: cfg.SpaceID, Version: cfg.Version})
 			s.userConfigValueSubs.Notify(*cfg)
 		},
 	)
@@ -96,7 +96,7 @@ func (s *PrimaryStorage) SetUserConfigWithDeploymentUpdates(name, value string, 
 	return cfg, updatedDeployments, nil
 }
 
-func (s *PrimaryStorage) RenameUserConfig(name, newName string) (*apigen.UserConfig, bool) {
+func (s *PrimaryStorage) RenameUserConfig(name, newName string) (*apigen.Config, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if name == newName {
@@ -131,7 +131,7 @@ func (s *PrimaryStorage) RenameUserConfig(name, newName string) (*apigen.UserCon
 		}
 		for _, row := range rows {
 			renamed := userConfigRowToProto(row)
-			s.userConfigSubs.Notify(apigen.UserConfigReference{
+			s.userConfigSubs.Notify(apigen.ConfigReference{
 				ID:      renamed.ID,
 				Name:    renamed.Name,
 				SpaceID: renamed.SpaceID,
@@ -143,7 +143,7 @@ func (s *PrimaryStorage) RenameUserConfig(name, newName string) (*apigen.UserCon
 	return cfg, ok
 }
 
-func (s *PrimaryStorage) GetLatestUserConfig(name string) (*apigen.UserConfig, bool) {
+func (s *PrimaryStorage) GetLatestUserConfig(name string) (*apigen.Config, bool) {
 	r, err := s.q.GetUserConfig(context.Background(), name)
 	if err == sql.ErrNoRows {
 		return nil, false
@@ -154,7 +154,7 @@ func (s *PrimaryStorage) GetLatestUserConfig(name string) (*apigen.UserConfig, b
 	return userConfigRowToProto(r), true
 }
 
-func (s *PrimaryStorage) GetUserConfigByID(id int32) (*apigen.UserConfig, bool) {
+func (s *PrimaryStorage) GetUserConfigByID(id int32) (*apigen.Config, bool) {
 	r, err := s.q.GetUserConfigByID(context.Background(), int64(id))
 	if err == sql.ErrNoRows {
 		return nil, false
@@ -177,14 +177,14 @@ func (s *PrimaryStorage) UserConfigIDsByName(name string) []int32 {
 	return ids
 }
 
-func (s *PrimaryStorage) UserConfigReferencesByName(name string) []apigen.UserConfigReference {
+func (s *PrimaryStorage) UserConfigReferencesByName(name string) []apigen.ConfigReference {
 	rows, err := s.q.ListUserConfigVersionsByName(context.Background(), name)
 	if err != nil {
 		panic(fmt.Sprintf("ListUserConfigVersionsByName: %v", err))
 	}
-	out := make([]apigen.UserConfigReference, 0, len(rows))
+	out := make([]apigen.ConfigReference, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, apigen.UserConfigReference{ID: int32(row.ID), Name: row.Name, SpaceID: int32(row.SpaceID), Version: int32(row.Version)})
+		out = append(out, apigen.ConfigReference{ID: int32(row.ID), Name: row.Name, SpaceID: int32(row.SpaceID), Version: int32(row.Version)})
 	}
 	return out
 }
@@ -192,11 +192,11 @@ func (s *PrimaryStorage) UserConfigReferencesByName(name string) []apigen.UserCo
 func (s *PrimaryStorage) DeleteUserConfig(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var updates []apigen.UserConfigReference
-	var valueUpdates []*apigen.UserConfig
+	var updates []apigen.ConfigReference
+	var valueUpdates []*apigen.Config
 	if rows, err := s.q.ListUserConfigVersionsByName(context.Background(), name); err == nil {
 		updates = s.UserConfigReferencesByName(name)
-		valueUpdates = make([]*apigen.UserConfig, 0, len(rows))
+		valueUpdates = make([]*apigen.Config, 0, len(rows))
 		for _, row := range rows {
 			cfg := userConfigRowToProto(row)
 			cfg.Deleted = true

@@ -9,14 +9,14 @@ import (
 
 type exportedConfigBundle struct {
 	Deployments []*apigen.DeploymentConfig `json:"deployments"`
-	Configs     []*apigen.UserConfig       `json:"configs"`
+	Configs     []*apigen.Config           `json:"configs"`
 	Secrets     []*apigen.SecretMeta       `json:"secrets"`
 	Assets      []*apigen.AssetMeta        `json:"assets"`
 	Spaces      []*apigen.Space            `json:"spaces"`
-	Settings    apigen.Settings            `json:"settings"`
+	Settings    apigen.ClusterSettings     `json:"settings"`
 }
 
-func (h *Handler) PostV1GenerateExportedConfig(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ExportedConfigBlob, error) {
+func (h *Handler) PostV1GlobalExportedConfig(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ExportedConfigBlob, error) {
 	deployments := h.Store.ListActiveDeploymentConfigs()
 	exportedDeployments := make([]*apigen.DeploymentConfig, 0, len(deployments))
 	for _, deployment := range deployments {

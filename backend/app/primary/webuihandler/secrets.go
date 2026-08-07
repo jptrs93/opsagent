@@ -257,7 +257,7 @@ func (h *Handler) PostV1SecretsStatus(ctx apigen.Context, req *apigen.EmptyReque
 	return &status, nil
 }
 
-func (h *Handler) PostV1SecretsGenerateRecoveryCode(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.SecretRecoveryCodeResponse, error) {
+func (h *Handler) PostV1SecretsRotateRecoveryCode(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.SecretRecoveryCodeResponse, error) {
 	code, err := h.Secrets.GenerateRecoveryCode()
 	if err != nil {
 		if errors.Is(err, secrets.ErrLocked) {

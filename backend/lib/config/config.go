@@ -17,10 +17,10 @@ import (
 
 type Service struct {
 	Storage                *sqlite.PrimaryStorage
-	Subs                   *pubsubu.PubSub[apigen.Config]
-	VersionedSubs          *pubsubu.PubSub[apigen.ConfigVersion]
+	Subs                   *pubsubu.PubSub[apigen.PrimaryConfig]
+	VersionedSubs          *pubsubu.PubSub[apigen.PrimaryConfigVersion]
 	AssetOperationMu       sync.Locker
-	ValidateSettingsUpdate func(current, next apigen.Settings) error
+	ValidateSettingsUpdate func(current, next apigen.ClusterSettings) error
 	mu                     sync.Mutex
 	referenceMu            sync.Mutex
 	versionID              int64
@@ -56,8 +56,8 @@ func DefaultInitialConfig() InitialConfig {
 	}
 }
 
-func DefaultSettings(initial InitialConfig) *apigen.Settings {
-	return &apigen.Settings{
+func DefaultSettings(initial InitialConfig) *apigen.ClusterSettings {
+	return &apigen.ClusterSettings{
 		HttpWeb: apigen.HttpWebSettings{
 			Enabled: apigen.BoolSetting{Value: initial.WebHTTPEnabled},
 			Listen:  apigen.StringSetting{Value: initial.WebHTTPListen},
@@ -70,7 +70,7 @@ func DefaultSettings(initial InitialConfig) *apigen.Settings {
 			AcmeHosts:      apigen.StringSetting{Value: strings.Join(initial.AcmeHosts, ",")},
 			AcmeEmail:      apigen.StringSetting{Value: initial.AcmeEmail},
 		},
-		Cluster: apigen.ClusterSettings{
+		Cluster: apigen.ClusterListenSettings{
 			Listen:           apigen.StringSetting{Value: initial.ClusterListen},
 			EnrollmentListen: apigen.StringSetting{Value: initial.EnrollmentListen},
 		},
@@ -98,17 +98,17 @@ func DefaultSettings(initial InitialConfig) *apigen.Settings {
 	}
 }
 
-func NormalizeSettings(settings apigen.Settings) apigen.Settings {
+func NormalizeSettings(settings apigen.ClusterSettings) apigen.ClusterSettings {
 	return settings
 }
 
-func normalizeConfig(cfg apigen.Config) apigen.Config {
+func normalizeConfig(cfg apigen.PrimaryConfig) apigen.PrimaryConfig {
 	cfg.Settings = NormalizeSettings(cfg.Settings)
 	return cfg
 }
 
-func DefaultConfig(initial InitialConfig) *apigen.Config {
-	return &apigen.Config{
+func DefaultConfig(initial InitialConfig) *apigen.PrimaryConfig {
+	return &apigen.PrimaryConfig{
 		Settings:           *DefaultSettings(initial),
 		MasterPasswordHash: initial.MasterPasswordHash,
 	}
@@ -117,8 +117,8 @@ func DefaultConfig(initial InitialConfig) *apigen.Config {
 func NewService(store *sqlite.PrimaryStorage) (*Service, error) {
 	s := &Service{
 		Storage:       store,
-		Subs:          &pubsubu.PubSub[apigen.Config]{},
-		VersionedSubs: &pubsubu.PubSub[apigen.ConfigVersion]{},
+		Subs:          &pubsubu.PubSub[apigen.PrimaryConfig]{},
+		VersionedSubs: &pubsubu.PubSub[apigen.PrimaryConfigVersion]{},
 		migrationWake: make(chan struct{}, 1),
 	}
 	cfg, row, err := s.loadConfig()
@@ -135,7 +135,7 @@ func NewService(store *sqlite.PrimaryStorage) (*Service, error) {
 
 // InitializeService persists the first primary config. Normal primary startup
 // uses NewService and therefore never invents missing cluster configuration.
-func InitializeService(store *sqlite.PrimaryStorage, cfg apigen.Config) (*Service, error) {
+func InitializeService(store *sqlite.PrimaryStorage, cfg apigen.PrimaryConfig) (*Service, error) {
 	if _, err := store.FetchLatestOpenDeployConfig(); err == nil {
 		return nil, fmt.Errorf("primary config is already initialized")
 	} else if !errors.Is(err, sqlite.ErrNotFound) {
@@ -162,20 +162,20 @@ func (s *Service) NetworkPrefix() network.Prefix {
 	return p
 }
 
-func (s *Service) SnapshotAndSubscribe(filter func(a, b apigen.Config) bool) *pubsubu.Sub[apigen.Config] {
+func (s *Service) SnapshotAndSubscribe(filter func(a, b apigen.PrimaryConfig) bool) *pubsubu.Sub[apigen.PrimaryConfig] {
 	return s.Subs.Subscribe(filter)
 }
 
-func (s *Service) VersionedSnapshotAndSubscribe() *pubsubu.Sub[apigen.ConfigVersion] {
+func (s *Service) VersionedSnapshotAndSubscribe() *pubsubu.Sub[apigen.PrimaryConfigVersion] {
 	return s.VersionedSubs.Subscribe(nil)
 }
 
-func (s *Service) Snapshot() apigen.Config {
+func (s *Service) Snapshot() apigen.PrimaryConfig {
 	return s.Subs.Value()
 }
 
-func (s *Service) loadConfig() (apigen.Config, sqlite.SystemConfigRevision, error) {
-	var res apigen.Config
+func (s *Service) loadConfig() (apigen.PrimaryConfig, sqlite.SystemConfigRevision, error) {
+	var res apigen.PrimaryConfig
 	r, err := s.Storage.FetchLatestOpenDeployConfig()
 	if err != nil {
 		if errors.Is(err, sqlite.ErrNotFound) {
@@ -184,24 +184,24 @@ func (s *Service) loadConfig() (apigen.Config, sqlite.SystemConfigRevision, erro
 			return res, sqlite.SystemConfigRevision{}, fmt.Errorf("FetchLatestOpenDeployConfig: %w", err)
 		}
 	}
-	cfg, err := apigen.DecodeConfig(r.ConfigBlob)
+	cfg, err := apigen.DecodePrimaryConfig(r.ConfigBlob)
 	if err != nil {
 		return res, sqlite.SystemConfigRevision{}, fmt.Errorf("DecodeConfig: %w", err)
 	}
 	return normalizeConfig(*cfg), r, nil
 }
 
-func (s *Service) publishConfig(cfg apigen.Config, version int64, updatedAt time.Time) {
+func (s *Service) publishConfig(cfg apigen.PrimaryConfig, version int64, updatedAt time.Time) {
 	s.Subs.Notify(cfg)
 	cfg.MasterPasswordHash = ""
-	s.VersionedSubs.Notify(apigen.ConfigVersion{
+	s.VersionedSubs.Notify(apigen.PrimaryConfigVersion{
 		Version:   version,
 		UpdatedAt: updatedAt,
 		Config:    cfg,
 	})
 }
 
-func (s *Service) UpdateSettings(settings apigen.Settings) error {
+func (s *Service) UpdateSettings(settings apigen.ClusterSettings) error {
 	if s.AssetOperationMu != nil {
 		s.AssetOperationMu.Lock()
 		defer s.AssetOperationMu.Unlock()
@@ -244,7 +244,7 @@ func (s *Service) UpdateSettings(settings apigen.Settings) error {
 	return nil
 }
 
-func (s *Service) saveAndNotifyLocked(cfg apigen.Config) error {
+func (s *Service) saveAndNotifyLocked(cfg apigen.PrimaryConfig) error {
 	cfg = normalizeConfig(cfg)
 	versionID, err := s.Storage.AppendOpenDeploySettings(cfg.Encode())
 	if err != nil {
@@ -274,7 +274,7 @@ func (s *Service) LockReferences() func() {
 	return s.referenceMu.Unlock
 }
 
-func (s *Service) UpdateSettingsInternal(settings apigen.Settings) error {
+func (s *Service) UpdateSettingsInternal(settings apigen.ClusterSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cfg := s.Snapshot()

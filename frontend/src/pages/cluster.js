@@ -23,7 +23,7 @@ export function clusterPage() {
     const loadEnrollmentInfo = async () => {
         try {
             configError.val = null;
-            enrollmentInfo.val = await capi.getV1EnrollmentInfo();
+            enrollmentInfo.val = await capi.getV1NodesEnrollmentsInfo();
         } catch (e) {
             configError.val = e.message || "Failed to load cluster config";
         }
@@ -136,7 +136,7 @@ function allowedSpacesCell(machine) {
         saving.val = true;
         error.val = "";
         try {
-            await capi.postV1ClusterAllowedSpaces({
+            await capi.postV1NodesAllowedSpaces({
                 identifier: machine.identifier,
                 spaceIds: Array.from(draft.val),
             });
@@ -212,7 +212,7 @@ function machineRow(machine) {
         saving.val = true;
         error.val = '';
         try {
-            await capi.postV1ClusterRename({identifier: machine.identifier, name: nextName});
+            await capi.postV1NodesRename({identifier: machine.identifier, name: nextName});
             originalName.val = nextName;
             name.val = nextName;
         } catch (e) {
@@ -426,7 +426,7 @@ function enrollmentRow(req) {
         accepting.val = true;
         rowError.val = null;
         try {
-            await capi.postV1EnrollmentAccept({id: req.id, workerName: name});
+            await capi.postV1NodesEnrollmentsAccept({id: req.id, workerName: name});
         } catch (e) {
             rowError.val = e.message;
         } finally {

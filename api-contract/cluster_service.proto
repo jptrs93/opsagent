@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/options.proto";
+import "api-contract/model.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+service OpsagentClusterV1 {
+  rpc GetV1ClusterGithubCredentials(cp.Empty) returns (GithubCredentials) {
+    option (cp.url) = "/v1/cluster/github-credentials";
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc GetV1ClusterAsset(cp.Empty) returns (cp.Empty) {
+    option (cp.url) = "/v1/cluster/asset";
+    option (cp.go_custom) = true;
+    option (cp.policy) = { policy_type: NO_AUTH };
+    option (cp.compression) = COMPRESSION_MODE_NEVER;
+  }
+
+  rpc GetV1ClusterSecrets(ClusterSecretsRequest) returns (ClusterSecretsResponse) {
+    option (cp.url) = "/v1/cluster/secrets";
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc GetV1ClusterConfigs(ClusterConfigsRequest) returns (ClusterConfigsResponse) {
+    option (cp.url) = "/v1/cluster/configs";
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc PostV1ClusterConnect(stream MsgToMaster) returns (stream MsgToWorker) {
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+}

@@ -210,7 +210,7 @@
  * @property {string} selectedBranch
  */
 /**
- * @typedef {Object} ValidateSourceRequest
+ * @typedef {Object} RepoValidateRequest
  * @property {ValidateNixDockerBuildSource} nixDockerBuild
  * @property {ValidateContainerImageSource} containerImage
  */
@@ -272,7 +272,7 @@
  * @property {boolean} refreshVersions
  */
 /**
- * @typedef {Object} ValidateSourceResponse
+ * @typedef {Object} RepoValidateResponse
  * @property {ValidateNixDockerBuildSourceResponse} nixDockerBuild
  * @property {ValidateContainerImageSourceResponse} containerImage
  */
@@ -428,7 +428,7 @@
  * @property {EnrollmentRequestStatus[]} items
  */
 /**
- * @typedef {Object} EnrollmentInfo
+ * @typedef {Object} NodeEnrollmentInfo
  * @property {string} enrollmentTlsSpkiSha256
  */
 /**
@@ -641,7 +641,7 @@
  * @property {string} code
  */
 /**
- * @typedef {Object} UserConfig
+ * @typedef {Object} Config
  * @property {string} name
  * @property {string} value
  * @property {Date} createdAt
@@ -652,11 +652,11 @@
  * @property {number} version
  */
 /**
- * @typedef {Object} UserConfigList
- * @property {UserConfig[]} items
+ * @typedef {Object} ConfigList
+ * @property {Config[]} items
  */
 /**
- * @typedef {Object} UserConfigSetRequest
+ * @typedef {Object} ConfigSetRequest
  * @property {string} name
  * @property {string} value
  * @property {number} spaceId
@@ -664,12 +664,12 @@
  * @property {DeploymentConfigVersionRef[]} referencingDeployments
  */
 /**
- * @typedef {Object} UserConfigRenameRequest
+ * @typedef {Object} ConfigRenameRequest
  * @property {string} name
  * @property {string} newName
  */
 /**
- * @typedef {Object} UserConfigDeleteRequest
+ * @typedef {Object} ConfigDeleteRequest
  * @property {string} name
  */
 /**
@@ -732,13 +732,13 @@
  * @property {EnrollmentRequestStatus} enrollmentUpdate
  * @property {SecretReferenceList} secretsSnapshot
  * @property {SecretReference} secretUpdate
- * @property {UserConfigReferenceList} userConfigsSnapshot
- * @property {UserConfigReference} userConfigUpdate
+ * @property {ConfigReferenceList} userConfigsSnapshot
+ * @property {ConfigReference} userConfigUpdate
  * @property {SecretsStatusResponse} secretsStatusSnapshot
  * @property {SecretList} secretMetasSnapshot
  * @property {SecretMeta} secretMetaUpdate
- * @property {UserConfigList} userConfigValuesSnapshot
- * @property {UserConfig} userConfigValueUpdate
+ * @property {ConfigList} userConfigValuesSnapshot
+ * @property {Config} userConfigValueUpdate
  * @property {SpaceList} spacesSnapshot
  * @property {Space} spaceUpdate
  * @property {AssetList} assetsSnapshot
@@ -749,7 +749,7 @@
  * @property {ClusterNodeStatus} nodeStatusUpdate
  * @property {BackupStatus} backupStatusSnapshot
  * @property {BackupStatus} backupStatusUpdate
- * @property {ConfigVersion} configSnapshot
+ * @property {PrimaryConfigVersion} configSnapshot
  * @property {ScheduledInstanceSnapshot} scheduledInstancesSnapshot
  * @property {ScheduledInstanceState} scheduledInstanceUpdate
  * @property {AgentSessionList} agentSessionsSnapshot
@@ -769,12 +769,12 @@
  * @typedef {Object} GlobalState
  * @property {SpaceList} spaces
  * @property {AssetList} assets
- * @property {UserConfigList} configs
+ * @property {ConfigList} configs
  * @property {SecretList} secrets
  * @property {DeploymentConfigSnapshot} deploymentConfigs
  */
 /**
- * @typedef {Object} DeploymentStateRequest
+ * @typedef {Object} DeploymentGetRequest
  * @property {number} id
  */
 /**
@@ -804,7 +804,7 @@
  * @property {SecretReference[]} items
  */
 /**
- * @typedef {Object} UserConfigReference
+ * @typedef {Object} ConfigReference
  * @property {number} id
  * @property {string} name
  * @property {boolean} deleted
@@ -812,8 +812,8 @@
  * @property {number} version
  */
 /**
- * @typedef {Object} UserConfigReferenceList
- * @property {UserConfigReference[]} items
+ * @typedef {Object} ConfigReferenceList
+ * @property {ConfigReference[]} items
  */
 /**
  * @typedef {Object} ClusterMachineList
@@ -897,7 +897,7 @@
  * @property {ClusterNodeStatus[]} items
  */
 /**
- * @typedef {Object} ClusterStatusResponse
+ * @typedef {Object} NodeStatusResponse
  * @property {ClusterMachine[]} machines
  */
 /**
@@ -1014,22 +1014,22 @@
  * @property {ConfigRef} configRef
  */
 /**
- * @typedef {Object} Config
- * @property {Settings} settings
+ * @typedef {Object} PrimaryConfig
+ * @property {ClusterSettings} settings
  * @property {string} masterPasswordHash
  * @property {Uint8Array} networkUlaPrefix
  */
 /**
- * @typedef {Object} ConfigVersion
+ * @typedef {Object} PrimaryConfigVersion
  * @property {number} version
  * @property {Date} updatedAt
- * @property {Config} config
+ * @property {PrimaryConfig} config
  */
 /**
- * @typedef {Object} Settings
+ * @typedef {Object} ClusterSettings
  * @property {HttpWebSettings} httpWeb
  * @property {HttpsWebSettings} httpsWeb
- * @property {ClusterSettings} cluster
+ * @property {ClusterListenSettings} cluster
  * @property {RepoSettings} repo
  * @property {BackupSettings} backup
  * @property {LargeAssetsSettings} largeAssets
@@ -1049,7 +1049,7 @@
  * @property {StringSetting} acmeEmail
  */
 /**
- * @typedef {Object} ClusterSettings
+ * @typedef {Object} ClusterListenSettings
  * @property {StringSetting} listen
  * @property {StringSetting} enrollmentListen
  */
@@ -3650,10 +3650,10 @@ export function decodeDeploymentVersionsRequest(buffer) {
 
 
 /**
- * @param {ValidateSourceRequest} message
+ * @param {RepoValidateRequest} message
  * @param {Writer} writer
  */
-export function writeValidateSourceRequest(message, writer) {
+export function writeRepoValidateRequest(message, writer) {
     if (message.nixDockerBuild !== undefined && message.nixDockerBuild !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
         writeValidateNixDockerBuildSource(message.nixDockerBuild, writer);
@@ -3668,12 +3668,12 @@ export function writeValidateSourceRequest(message, writer) {
 
 
 /**
- * @param {ValidateSourceRequest} message
+ * @param {RepoValidateRequest} message
  * @returns {Uint8Array}
  */
-export function encodeValidateSourceRequest(message) {
+export function encodeRepoValidateRequest(message) {
     const writer = Writer.create();
-    writeValidateSourceRequest(message, writer);
+    writeRepoValidateRequest(message, writer);
     return writer.finish();
 }
 
@@ -3681,9 +3681,9 @@ export function encodeValidateSourceRequest(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {ValidateSourceRequest}
+ * @returns {RepoValidateRequest}
  */
-function decodeValidateSourceRequestMessage(reader, length) {
+function decodeRepoValidateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {nixDockerBuild: undefined, containerImage: undefined };
     while (reader.pos < end) {
@@ -3707,11 +3707,11 @@ function decodeValidateSourceRequestMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {ValidateSourceRequest}
+ * @returns {RepoValidateRequest}
  */
-export function decodeValidateSourceRequest(buffer) {
+export function decodeRepoValidateRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeValidateSourceRequestMessage(reader);
+    return decodeRepoValidateRequestMessage(reader);
 }
 
 
@@ -4334,10 +4334,10 @@ export function decodeValidateContainerImageSource(buffer) {
 
 
 /**
- * @param {ValidateSourceResponse} message
+ * @param {RepoValidateResponse} message
  * @param {Writer} writer
  */
-export function writeValidateSourceResponse(message, writer) {
+export function writeRepoValidateResponse(message, writer) {
     if (message.nixDockerBuild !== undefined && message.nixDockerBuild !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
         writeValidateNixDockerBuildSourceResponse(message.nixDockerBuild, writer);
@@ -4352,12 +4352,12 @@ export function writeValidateSourceResponse(message, writer) {
 
 
 /**
- * @param {ValidateSourceResponse} message
+ * @param {RepoValidateResponse} message
  * @returns {Uint8Array}
  */
-export function encodeValidateSourceResponse(message) {
+export function encodeRepoValidateResponse(message) {
     const writer = Writer.create();
-    writeValidateSourceResponse(message, writer);
+    writeRepoValidateResponse(message, writer);
     return writer.finish();
 }
 
@@ -4365,9 +4365,9 @@ export function encodeValidateSourceResponse(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {ValidateSourceResponse}
+ * @returns {RepoValidateResponse}
  */
-function decodeValidateSourceResponseMessage(reader, length) {
+function decodeRepoValidateResponseMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {nixDockerBuild: undefined, containerImage: undefined };
     while (reader.pos < end) {
@@ -4391,11 +4391,11 @@ function decodeValidateSourceResponseMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {ValidateSourceResponse}
+ * @returns {RepoValidateResponse}
  */
-export function decodeValidateSourceResponse(buffer) {
+export function decodeRepoValidateResponse(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeValidateSourceResponseMessage(reader);
+    return decodeRepoValidateResponseMessage(reader);
 }
 
 
@@ -6193,10 +6193,10 @@ export function decodeEnrollmentRequestList(buffer) {
 
 
 /**
- * @param {EnrollmentInfo} message
+ * @param {NodeEnrollmentInfo} message
  * @param {Writer} writer
  */
-export function writeEnrollmentInfo(message, writer) {
+export function writeNodeEnrollmentInfo(message, writer) {
     if (message.enrollmentTlsSpkiSha256 !== undefined && message.enrollmentTlsSpkiSha256 !== null && message.enrollmentTlsSpkiSha256 !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.enrollmentTlsSpkiSha256);
     }
@@ -6204,12 +6204,12 @@ export function writeEnrollmentInfo(message, writer) {
 
 
 /**
- * @param {EnrollmentInfo} message
+ * @param {NodeEnrollmentInfo} message
  * @returns {Uint8Array}
  */
-export function encodeEnrollmentInfo(message) {
+export function encodeNodeEnrollmentInfo(message) {
     const writer = Writer.create();
-    writeEnrollmentInfo(message, writer);
+    writeNodeEnrollmentInfo(message, writer);
     return writer.finish();
 }
 
@@ -6217,9 +6217,9 @@ export function encodeEnrollmentInfo(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {EnrollmentInfo}
+ * @returns {NodeEnrollmentInfo}
  */
-function decodeEnrollmentInfoMessage(reader, length) {
+function decodeNodeEnrollmentInfoMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {enrollmentTlsSpkiSha256: "" };
     while (reader.pos < end) {
@@ -6239,11 +6239,11 @@ function decodeEnrollmentInfoMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {EnrollmentInfo}
+ * @returns {NodeEnrollmentInfo}
  */
-export function decodeEnrollmentInfo(buffer) {
+export function decodeNodeEnrollmentInfo(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeEnrollmentInfoMessage(reader);
+    return decodeNodeEnrollmentInfoMessage(reader);
 }
 
 
@@ -8830,10 +8830,10 @@ export function decodeSecretUnlockRequest(buffer) {
 
 
 /**
- * @param {UserConfig} message
+ * @param {Config} message
  * @param {Writer} writer
  */
-export function writeUserConfig(message, writer) {
+export function writeConfig(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
     }
@@ -8862,12 +8862,12 @@ export function writeUserConfig(message, writer) {
 
 
 /**
- * @param {UserConfig} message
+ * @param {Config} message
  * @returns {Uint8Array}
  */
-export function encodeUserConfig(message) {
+export function encodeConfig(message) {
     const writer = Writer.create();
-    writeUserConfig(message, writer);
+    writeConfig(message, writer);
     return writer.finish();
 }
 
@@ -8875,9 +8875,9 @@ export function encodeUserConfig(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {UserConfig}
+ * @returns {Config}
  */
-function decodeUserConfigMessage(reader, length) {
+function decodeConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {name: "", value: "", createdAt: new Date(0), updatedBy: 0, id: 0, deleted: false, spaceId: 0, version: 0 };
     while (reader.pos < end) {
@@ -8925,24 +8925,24 @@ function decodeUserConfigMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {UserConfig}
+ * @returns {Config}
  */
-export function decodeUserConfig(buffer) {
+export function decodeConfig(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeUserConfigMessage(reader);
+    return decodeConfigMessage(reader);
 }
 
 
 
 /**
- * @param {UserConfigList} message
+ * @param {ConfigList} message
  * @param {Writer} writer
  */
-export function writeUserConfigList(message, writer) {
+export function writeConfigList(message, writer) {
     if (message.items && message.items.length > 0) {
         for (const item of message.items) {
             writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeUserConfig(item, writer);
+            writeConfig(item, writer);
             writer.ldelim();
         }
     }
@@ -8950,12 +8950,12 @@ export function writeUserConfigList(message, writer) {
 
 
 /**
- * @param {UserConfigList} message
+ * @param {ConfigList} message
  * @returns {Uint8Array}
  */
-export function encodeUserConfigList(message) {
+export function encodeConfigList(message) {
     const writer = Writer.create();
-    writeUserConfigList(message, writer);
+    writeConfigList(message, writer);
     return writer.finish();
 }
 
@@ -8963,16 +8963,16 @@ export function encodeUserConfigList(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {UserConfigList}
+ * @returns {ConfigList}
  */
-function decodeUserConfigListMessage(reader, length) {
+function decodeConfigListMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {items: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.items.push(decodeUserConfigMessage(reader, reader.uint32()));
+                message.items.push(decodeConfigMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -8985,20 +8985,20 @@ function decodeUserConfigListMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {UserConfigList}
+ * @returns {ConfigList}
  */
-export function decodeUserConfigList(buffer) {
+export function decodeConfigList(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeUserConfigListMessage(reader);
+    return decodeConfigListMessage(reader);
 }
 
 
 
 /**
- * @param {UserConfigSetRequest} message
+ * @param {ConfigSetRequest} message
  * @param {Writer} writer
  */
-export function writeUserConfigSetRequest(message, writer) {
+export function writeConfigSetRequest(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
     }
@@ -9022,12 +9022,12 @@ export function writeUserConfigSetRequest(message, writer) {
 
 
 /**
- * @param {UserConfigSetRequest} message
+ * @param {ConfigSetRequest} message
  * @returns {Uint8Array}
  */
-export function encodeUserConfigSetRequest(message) {
+export function encodeConfigSetRequest(message) {
     const writer = Writer.create();
-    writeUserConfigSetRequest(message, writer);
+    writeConfigSetRequest(message, writer);
     return writer.finish();
 }
 
@@ -9035,9 +9035,9 @@ export function encodeUserConfigSetRequest(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {UserConfigSetRequest}
+ * @returns {ConfigSetRequest}
  */
-function decodeUserConfigSetRequestMessage(reader, length) {
+function decodeConfigSetRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {name: "", value: "", spaceId: 0, updateReferencingDeployments: false, referencingDeployments: [] };
     while (reader.pos < end) {
@@ -9073,20 +9073,20 @@ function decodeUserConfigSetRequestMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {UserConfigSetRequest}
+ * @returns {ConfigSetRequest}
  */
-export function decodeUserConfigSetRequest(buffer) {
+export function decodeConfigSetRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeUserConfigSetRequestMessage(reader);
+    return decodeConfigSetRequestMessage(reader);
 }
 
 
 
 /**
- * @param {UserConfigRenameRequest} message
+ * @param {ConfigRenameRequest} message
  * @param {Writer} writer
  */
-export function writeUserConfigRenameRequest(message, writer) {
+export function writeConfigRenameRequest(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
     }
@@ -9097,12 +9097,12 @@ export function writeUserConfigRenameRequest(message, writer) {
 
 
 /**
- * @param {UserConfigRenameRequest} message
+ * @param {ConfigRenameRequest} message
  * @returns {Uint8Array}
  */
-export function encodeUserConfigRenameRequest(message) {
+export function encodeConfigRenameRequest(message) {
     const writer = Writer.create();
-    writeUserConfigRenameRequest(message, writer);
+    writeConfigRenameRequest(message, writer);
     return writer.finish();
 }
 
@@ -9110,9 +9110,9 @@ export function encodeUserConfigRenameRequest(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {UserConfigRenameRequest}
+ * @returns {ConfigRenameRequest}
  */
-function decodeUserConfigRenameRequestMessage(reader, length) {
+function decodeConfigRenameRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {name: "", newName: "" };
     while (reader.pos < end) {
@@ -9136,20 +9136,20 @@ function decodeUserConfigRenameRequestMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {UserConfigRenameRequest}
+ * @returns {ConfigRenameRequest}
  */
-export function decodeUserConfigRenameRequest(buffer) {
+export function decodeConfigRenameRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeUserConfigRenameRequestMessage(reader);
+    return decodeConfigRenameRequestMessage(reader);
 }
 
 
 
 /**
- * @param {UserConfigDeleteRequest} message
+ * @param {ConfigDeleteRequest} message
  * @param {Writer} writer
  */
-export function writeUserConfigDeleteRequest(message, writer) {
+export function writeConfigDeleteRequest(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
     }
@@ -9157,12 +9157,12 @@ export function writeUserConfigDeleteRequest(message, writer) {
 
 
 /**
- * @param {UserConfigDeleteRequest} message
+ * @param {ConfigDeleteRequest} message
  * @returns {Uint8Array}
  */
-export function encodeUserConfigDeleteRequest(message) {
+export function encodeConfigDeleteRequest(message) {
     const writer = Writer.create();
-    writeUserConfigDeleteRequest(message, writer);
+    writeConfigDeleteRequest(message, writer);
     return writer.finish();
 }
 
@@ -9170,9 +9170,9 @@ export function encodeUserConfigDeleteRequest(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {UserConfigDeleteRequest}
+ * @returns {ConfigDeleteRequest}
  */
-function decodeUserConfigDeleteRequestMessage(reader, length) {
+function decodeConfigDeleteRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {name: "" };
     while (reader.pos < end) {
@@ -9192,11 +9192,11 @@ function decodeUserConfigDeleteRequestMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {UserConfigDeleteRequest}
+ * @returns {ConfigDeleteRequest}
  */
-export function decodeUserConfigDeleteRequest(buffer) {
+export function decodeConfigDeleteRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeUserConfigDeleteRequestMessage(reader);
+    return decodeConfigDeleteRequestMessage(reader);
 }
 
 
@@ -9796,12 +9796,12 @@ export function writeState(message, writer) {
     }
     if (message.userConfigsSnapshot !== undefined && message.userConfigsSnapshot !== null) {
         writer.uint32(tag(14, WIRE.LDELIM)).fork();
-        writeUserConfigReferenceList(message.userConfigsSnapshot, writer);
+        writeConfigReferenceList(message.userConfigsSnapshot, writer);
         writer.ldelim();
     }
     if (message.userConfigUpdate !== undefined && message.userConfigUpdate !== null) {
         writer.uint32(tag(15, WIRE.LDELIM)).fork();
-        writeUserConfigReference(message.userConfigUpdate, writer);
+        writeConfigReference(message.userConfigUpdate, writer);
         writer.ldelim();
     }
     if (message.secretsStatusSnapshot !== undefined && message.secretsStatusSnapshot !== null) {
@@ -9821,12 +9821,12 @@ export function writeState(message, writer) {
     }
     if (message.userConfigValuesSnapshot !== undefined && message.userConfigValuesSnapshot !== null) {
         writer.uint32(tag(19, WIRE.LDELIM)).fork();
-        writeUserConfigList(message.userConfigValuesSnapshot, writer);
+        writeConfigList(message.userConfigValuesSnapshot, writer);
         writer.ldelim();
     }
     if (message.userConfigValueUpdate !== undefined && message.userConfigValueUpdate !== null) {
         writer.uint32(tag(20, WIRE.LDELIM)).fork();
-        writeUserConfig(message.userConfigValueUpdate, writer);
+        writeConfig(message.userConfigValueUpdate, writer);
         writer.ldelim();
     }
     if (message.spacesSnapshot !== undefined && message.spacesSnapshot !== null) {
@@ -9881,7 +9881,7 @@ export function writeState(message, writer) {
     }
     if (message.configSnapshot !== undefined && message.configSnapshot !== null) {
         writer.uint32(tag(31, WIRE.LDELIM)).fork();
-        writeConfigVersion(message.configSnapshot, writer);
+        writePrimaryConfigVersion(message.configSnapshot, writer);
         writer.ldelim();
     }
     if (message.scheduledInstancesSnapshot !== undefined && message.scheduledInstancesSnapshot !== null) {
@@ -9966,11 +9966,11 @@ function decodeStateMessage(reader, length) {
                 break;
             }
             case 14: {
-                message.userConfigsSnapshot = decodeUserConfigReferenceListMessage(reader, reader.uint32());
+                message.userConfigsSnapshot = decodeConfigReferenceListMessage(reader, reader.uint32());
                 break;
             }
             case 15: {
-                message.userConfigUpdate = decodeUserConfigReferenceMessage(reader, reader.uint32());
+                message.userConfigUpdate = decodeConfigReferenceMessage(reader, reader.uint32());
                 break;
             }
             case 16: {
@@ -9986,11 +9986,11 @@ function decodeStateMessage(reader, length) {
                 break;
             }
             case 19: {
-                message.userConfigValuesSnapshot = decodeUserConfigListMessage(reader, reader.uint32());
+                message.userConfigValuesSnapshot = decodeConfigListMessage(reader, reader.uint32());
                 break;
             }
             case 20: {
-                message.userConfigValueUpdate = decodeUserConfigMessage(reader, reader.uint32());
+                message.userConfigValueUpdate = decodeConfigMessage(reader, reader.uint32());
                 break;
             }
             case 21: {
@@ -10034,7 +10034,7 @@ function decodeStateMessage(reader, length) {
                 break;
             }
             case 31: {
-                message.configSnapshot = decodeConfigVersionMessage(reader, reader.uint32());
+                message.configSnapshot = decodePrimaryConfigVersionMessage(reader, reader.uint32());
                 break;
             }
             case 32: {
@@ -10219,7 +10219,7 @@ export function writeGlobalState(message, writer) {
     }
     if (message.configs !== undefined && message.configs !== null) {
         writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeUserConfigList(message.configs, writer);
+        writeConfigList(message.configs, writer);
         writer.ldelim();
     }
     if (message.secrets !== undefined && message.secrets !== null) {
@@ -10266,7 +10266,7 @@ function decodeGlobalStateMessage(reader, length) {
                 break;
             }
             case 3: {
-                message.configs = decodeUserConfigListMessage(reader, reader.uint32());
+                message.configs = decodeConfigListMessage(reader, reader.uint32());
                 break;
             }
             case 4: {
@@ -10297,10 +10297,10 @@ export function decodeGlobalState(buffer) {
 
 
 /**
- * @param {DeploymentStateRequest} message
+ * @param {DeploymentGetRequest} message
  * @param {Writer} writer
  */
-export function writeDeploymentStateRequest(message, writer) {
+export function writeDeploymentGetRequest(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
     }
@@ -10308,12 +10308,12 @@ export function writeDeploymentStateRequest(message, writer) {
 
 
 /**
- * @param {DeploymentStateRequest} message
+ * @param {DeploymentGetRequest} message
  * @returns {Uint8Array}
  */
-export function encodeDeploymentStateRequest(message) {
+export function encodeDeploymentGetRequest(message) {
     const writer = Writer.create();
-    writeDeploymentStateRequest(message, writer);
+    writeDeploymentGetRequest(message, writer);
     return writer.finish();
 }
 
@@ -10321,9 +10321,9 @@ export function encodeDeploymentStateRequest(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {DeploymentStateRequest}
+ * @returns {DeploymentGetRequest}
  */
-function decodeDeploymentStateRequestMessage(reader, length) {
+function decodeDeploymentGetRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {id: 0 };
     while (reader.pos < end) {
@@ -10343,11 +10343,11 @@ function decodeDeploymentStateRequestMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {DeploymentStateRequest}
+ * @returns {DeploymentGetRequest}
  */
-export function decodeDeploymentStateRequest(buffer) {
+export function decodeDeploymentGetRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentStateRequestMessage(reader);
+    return decodeDeploymentGetRequestMessage(reader);
 }
 
 
@@ -10683,10 +10683,10 @@ export function decodeSecretReferenceList(buffer) {
 
 
 /**
- * @param {UserConfigReference} message
+ * @param {ConfigReference} message
  * @param {Writer} writer
  */
-export function writeUserConfigReference(message, writer) {
+export function writeConfigReference(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
     }
@@ -10706,12 +10706,12 @@ export function writeUserConfigReference(message, writer) {
 
 
 /**
- * @param {UserConfigReference} message
+ * @param {ConfigReference} message
  * @returns {Uint8Array}
  */
-export function encodeUserConfigReference(message) {
+export function encodeConfigReference(message) {
     const writer = Writer.create();
-    writeUserConfigReference(message, writer);
+    writeConfigReference(message, writer);
     return writer.finish();
 }
 
@@ -10719,9 +10719,9 @@ export function encodeUserConfigReference(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {UserConfigReference}
+ * @returns {ConfigReference}
  */
-function decodeUserConfigReferenceMessage(reader, length) {
+function decodeConfigReferenceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {id: 0, name: "", deleted: false, spaceId: 0, version: 0 };
     while (reader.pos < end) {
@@ -10757,24 +10757,24 @@ function decodeUserConfigReferenceMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {UserConfigReference}
+ * @returns {ConfigReference}
  */
-export function decodeUserConfigReference(buffer) {
+export function decodeConfigReference(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeUserConfigReferenceMessage(reader);
+    return decodeConfigReferenceMessage(reader);
 }
 
 
 
 /**
- * @param {UserConfigReferenceList} message
+ * @param {ConfigReferenceList} message
  * @param {Writer} writer
  */
-export function writeUserConfigReferenceList(message, writer) {
+export function writeConfigReferenceList(message, writer) {
     if (message.items && message.items.length > 0) {
         for (const item of message.items) {
             writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeUserConfigReference(item, writer);
+            writeConfigReference(item, writer);
             writer.ldelim();
         }
     }
@@ -10782,12 +10782,12 @@ export function writeUserConfigReferenceList(message, writer) {
 
 
 /**
- * @param {UserConfigReferenceList} message
+ * @param {ConfigReferenceList} message
  * @returns {Uint8Array}
  */
-export function encodeUserConfigReferenceList(message) {
+export function encodeConfigReferenceList(message) {
     const writer = Writer.create();
-    writeUserConfigReferenceList(message, writer);
+    writeConfigReferenceList(message, writer);
     return writer.finish();
 }
 
@@ -10795,16 +10795,16 @@ export function encodeUserConfigReferenceList(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {UserConfigReferenceList}
+ * @returns {ConfigReferenceList}
  */
-function decodeUserConfigReferenceListMessage(reader, length) {
+function decodeConfigReferenceListMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {items: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.items.push(decodeUserConfigReferenceMessage(reader, reader.uint32()));
+                message.items.push(decodeConfigReferenceMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -10817,11 +10817,11 @@ function decodeUserConfigReferenceListMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {UserConfigReferenceList}
+ * @returns {ConfigReferenceList}
  */
-export function decodeUserConfigReferenceList(buffer) {
+export function decodeConfigReferenceList(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeUserConfigReferenceListMessage(reader);
+    return decodeConfigReferenceListMessage(reader);
 }
 
 
@@ -11839,10 +11839,10 @@ export function decodeClusterNodeStatusList(buffer) {
 
 
 /**
- * @param {ClusterStatusResponse} message
+ * @param {NodeStatusResponse} message
  * @param {Writer} writer
  */
-export function writeClusterStatusResponse(message, writer) {
+export function writeNodeStatusResponse(message, writer) {
     if (message.machines && message.machines.length > 0) {
         for (const item of message.machines) {
             writer.uint32(tag(1, WIRE.LDELIM)).fork();
@@ -11854,12 +11854,12 @@ export function writeClusterStatusResponse(message, writer) {
 
 
 /**
- * @param {ClusterStatusResponse} message
+ * @param {NodeStatusResponse} message
  * @returns {Uint8Array}
  */
-export function encodeClusterStatusResponse(message) {
+export function encodeNodeStatusResponse(message) {
     const writer = Writer.create();
-    writeClusterStatusResponse(message, writer);
+    writeNodeStatusResponse(message, writer);
     return writer.finish();
 }
 
@@ -11867,9 +11867,9 @@ export function encodeClusterStatusResponse(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {ClusterStatusResponse}
+ * @returns {NodeStatusResponse}
  */
-function decodeClusterStatusResponseMessage(reader, length) {
+function decodeNodeStatusResponseMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {machines: [] };
     while (reader.pos < end) {
@@ -11889,11 +11889,11 @@ function decodeClusterStatusResponseMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {ClusterStatusResponse}
+ * @returns {NodeStatusResponse}
  */
-export function decodeClusterStatusResponse(buffer) {
+export function decodeNodeStatusResponse(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeClusterStatusResponseMessage(reader);
+    return decodeNodeStatusResponseMessage(reader);
 }
 
 
@@ -13254,13 +13254,13 @@ export function decodeBoolSetting(buffer) {
 
 
 /**
- * @param {Config} message
+ * @param {PrimaryConfig} message
  * @param {Writer} writer
  */
-export function writeConfig(message, writer) {
+export function writePrimaryConfig(message, writer) {
     if (message.settings !== undefined && message.settings !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeSettings(message.settings, writer);
+        writeClusterSettings(message.settings, writer);
         writer.ldelim();
     }
     if (message.masterPasswordHash !== undefined && message.masterPasswordHash !== null && message.masterPasswordHash !== "") {
@@ -13273,12 +13273,12 @@ export function writeConfig(message, writer) {
 
 
 /**
- * @param {Config} message
+ * @param {PrimaryConfig} message
  * @returns {Uint8Array}
  */
-export function encodeConfig(message) {
+export function encodePrimaryConfig(message) {
     const writer = Writer.create();
-    writeConfig(message, writer);
+    writePrimaryConfig(message, writer);
     return writer.finish();
 }
 
@@ -13286,16 +13286,16 @@ export function encodeConfig(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {Config}
+ * @returns {PrimaryConfig}
  */
-function decodeConfigMessage(reader, length) {
+function decodePrimaryConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {settings: undefined, masterPasswordHash: "", networkUlaPrefix: new Uint8Array(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.settings = decodeSettingsMessage(reader, reader.uint32());
+                message.settings = decodeClusterSettingsMessage(reader, reader.uint32());
                 break;
             }
             case 2: {
@@ -13316,20 +13316,20 @@ function decodeConfigMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {Config}
+ * @returns {PrimaryConfig}
  */
-export function decodeConfig(buffer) {
+export function decodePrimaryConfig(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeConfigMessage(reader);
+    return decodePrimaryConfigMessage(reader);
 }
 
 
 
 /**
- * @param {ConfigVersion} message
+ * @param {PrimaryConfigVersion} message
  * @param {Writer} writer
  */
-export function writeConfigVersion(message, writer) {
+export function writePrimaryConfigVersion(message, writer) {
     if (message.version !== undefined && message.version !== null && message.version !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int64(message.version);
     }
@@ -13338,19 +13338,19 @@ export function writeConfigVersion(message, writer) {
     }
     if (message.config !== undefined && message.config !== null) {
         writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeConfig(message.config, writer);
+        writePrimaryConfig(message.config, writer);
         writer.ldelim();
     }
 }
 
 
 /**
- * @param {ConfigVersion} message
+ * @param {PrimaryConfigVersion} message
  * @returns {Uint8Array}
  */
-export function encodeConfigVersion(message) {
+export function encodePrimaryConfigVersion(message) {
     const writer = Writer.create();
-    writeConfigVersion(message, writer);
+    writePrimaryConfigVersion(message, writer);
     return writer.finish();
 }
 
@@ -13358,9 +13358,9 @@ export function encodeConfigVersion(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {ConfigVersion}
+ * @returns {PrimaryConfigVersion}
  */
-function decodeConfigVersionMessage(reader, length) {
+function decodePrimaryConfigVersionMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {version: 0, updatedAt: new Date(0), config: undefined };
     while (reader.pos < end) {
@@ -13375,7 +13375,7 @@ function decodeConfigVersionMessage(reader, length) {
                 break;
             }
             case 3: {
-                message.config = decodeConfigMessage(reader, reader.uint32());
+                message.config = decodePrimaryConfigMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -13388,20 +13388,20 @@ function decodeConfigVersionMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {ConfigVersion}
+ * @returns {PrimaryConfigVersion}
  */
-export function decodeConfigVersion(buffer) {
+export function decodePrimaryConfigVersion(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeConfigVersionMessage(reader);
+    return decodePrimaryConfigVersionMessage(reader);
 }
 
 
 
 /**
- * @param {Settings} message
+ * @param {ClusterSettings} message
  * @param {Writer} writer
  */
-export function writeSettings(message, writer) {
+export function writeClusterSettings(message, writer) {
     if (message.httpWeb !== undefined && message.httpWeb !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
         writeHttpWebSettings(message.httpWeb, writer);
@@ -13414,7 +13414,7 @@ export function writeSettings(message, writer) {
     }
     if (message.cluster !== undefined && message.cluster !== null) {
         writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeClusterSettings(message.cluster, writer);
+        writeClusterListenSettings(message.cluster, writer);
         writer.ldelim();
     }
     if (message.repo !== undefined && message.repo !== null) {
@@ -13436,12 +13436,12 @@ export function writeSettings(message, writer) {
 
 
 /**
- * @param {Settings} message
+ * @param {ClusterSettings} message
  * @returns {Uint8Array}
  */
-export function encodeSettings(message) {
+export function encodeClusterSettings(message) {
     const writer = Writer.create();
-    writeSettings(message, writer);
+    writeClusterSettings(message, writer);
     return writer.finish();
 }
 
@@ -13449,9 +13449,9 @@ export function encodeSettings(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {Settings}
+ * @returns {ClusterSettings}
  */
-function decodeSettingsMessage(reader, length) {
+function decodeClusterSettingsMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {httpWeb: undefined, httpsWeb: undefined, cluster: undefined, repo: undefined, backup: undefined, largeAssets: undefined };
     while (reader.pos < end) {
@@ -13466,7 +13466,7 @@ function decodeSettingsMessage(reader, length) {
                 break;
             }
             case 3: {
-                message.cluster = decodeClusterSettingsMessage(reader, reader.uint32());
+                message.cluster = decodeClusterListenSettingsMessage(reader, reader.uint32());
                 break;
             }
             case 4: {
@@ -13491,11 +13491,11 @@ function decodeSettingsMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {Settings}
+ * @returns {ClusterSettings}
  */
-export function decodeSettings(buffer) {
+export function decodeClusterSettings(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeSettingsMessage(reader);
+    return decodeClusterSettingsMessage(reader);
 }
 
 
@@ -13671,10 +13671,10 @@ export function decodeHttpsWebSettings(buffer) {
 
 
 /**
- * @param {ClusterSettings} message
+ * @param {ClusterListenSettings} message
  * @param {Writer} writer
  */
-export function writeClusterSettings(message, writer) {
+export function writeClusterListenSettings(message, writer) {
     if (message.listen !== undefined && message.listen !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
         writeStringSetting(message.listen, writer);
@@ -13689,12 +13689,12 @@ export function writeClusterSettings(message, writer) {
 
 
 /**
- * @param {ClusterSettings} message
+ * @param {ClusterListenSettings} message
  * @returns {Uint8Array}
  */
-export function encodeClusterSettings(message) {
+export function encodeClusterListenSettings(message) {
     const writer = Writer.create();
-    writeClusterSettings(message, writer);
+    writeClusterListenSettings(message, writer);
     return writer.finish();
 }
 
@@ -13702,9 +13702,9 @@ export function encodeClusterSettings(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {ClusterSettings}
+ * @returns {ClusterListenSettings}
  */
-function decodeClusterSettingsMessage(reader, length) {
+function decodeClusterListenSettingsMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {listen: undefined, enrollmentListen: undefined };
     while (reader.pos < end) {
@@ -13728,11 +13728,11 @@ function decodeClusterSettingsMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {ClusterSettings}
+ * @returns {ClusterListenSettings}
  */
-export function decodeClusterSettings(buffer) {
+export function decodeClusterListenSettings(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeClusterSettingsMessage(reader);
+    return decodeClusterListenSettingsMessage(reader);
 }
 
 

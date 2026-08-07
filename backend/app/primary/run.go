@@ -118,7 +118,7 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		// deployment's credentials in one go while capping a loop's damage.
 		ratelimit.PerIPAndPrefix("/v1/secrets/generate", rate.Limit(0.1), 10, time.Minute),
 	}
-	m := apigen.CreateOpsagentHttpV1Mux(webUIHandler, &apigen.MuxConfig{
+	m := apigen.CreateApiServerMux(webUIHandler, &apigen.MuxConfig{
 		VerifyAuth:         webUIHandler.VerifyAuth,
 		MaxRequestBodySize: 20_000_000,
 		Middlewares:        middlewares,

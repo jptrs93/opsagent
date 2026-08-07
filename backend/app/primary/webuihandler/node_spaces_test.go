@@ -20,7 +20,7 @@ func newNodeSpacesHandler(t *testing.T) (*Handler, *sqlite.Node) {
 
 func setAllowed(t *testing.T, h *Handler, identifier string, spaces []int32) (*apigen.ClusterNode, error) {
 	t.Helper()
-	return h.PostV1ClusterAllowedSpaces(apigen.Context{Ctx: context.Background()},
+	return h.PostV1NodesAllowedSpaces(apigen.Context{Ctx: context.Background()},
 		&apigen.NodeAllowedSpacesRequest{Identifier: identifier, SpaceIds: spaces})
 }
 
@@ -34,7 +34,7 @@ func TestDeploymentCannotBeCreatedInADisallowedSpace(t *testing.T) {
 	// Creating the space opened it on every node, so placing into it works
 	// before anyone narrows anything. This is the default-open half.
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
-	if _, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		Identity: apigen.DeploymentIdentity{SpaceID: space.ID, Name: "web"},
 		NodeID:   node.ID,
 		Spec:     spec,
@@ -51,7 +51,7 @@ func TestDeploymentCannotBeCreatedInADisallowedSpace(t *testing.T) {
 		t.Fatalf("narrowing: %v", err)
 	}
 
-	_, err = h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+	_, err = h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		Identity: apigen.DeploymentIdentity{SpaceID: fenced.ID, Name: "web2"},
 		NodeID:   node.ID,
 		Spec:     spec,
@@ -68,7 +68,7 @@ func TestDeploymentCannotMoveIntoADisallowedSpace(t *testing.T) {
 		t.Fatalf("CreateSpace: %v", err)
 	}
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
-	cfg, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+	cfg, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		Identity: apigen.DeploymentIdentity{SpaceID: sqlite.DefaultSpaceID, Name: "web"},
 		NodeID:   node.ID,
 		Spec:     spec,
@@ -81,7 +81,7 @@ func TestDeploymentCannotMoveIntoADisallowedSpace(t *testing.T) {
 	}
 
 	target := space.ID
-	_, err = h.PostV1DeploymentUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+	_, err = h.PostV1DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
 		DeploymentID: cfg.ID,
 		Version:      cfg.Version + 1,
 		SpaceID:      &target,
@@ -96,7 +96,7 @@ func TestDeploymentCannotMoveIntoADisallowedSpace(t *testing.T) {
 func TestNarrowingIsRejectedWhileDeploymentsUseTheSpace(t *testing.T) {
 	h, node := newNodeSpacesHandler(t)
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
-	if _, err := h.PostV1DeploymentCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		Identity: apigen.DeploymentIdentity{SpaceID: sqlite.DefaultSpaceID, Name: "web"},
 		NodeID:   node.ID,
 		Spec:     spec,

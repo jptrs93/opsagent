@@ -40,7 +40,7 @@ type Handler struct {
 	Store                 *sqlite.PrimaryStorage
 	Assets                *assetstore.Store
 	ConfigService         *config.Service
-	Config                *apigen.Settings
+	Config                *apigen.ClusterSettings
 	Github                githubcredentials.Provider
 	GitVersions           GitSourceProvider
 	GithubReleaseVersions *versionprovider.GithubReleaseVersionProvider

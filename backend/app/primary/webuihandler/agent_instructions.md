@@ -63,11 +63,11 @@ it will fail again. Retry `5xx` and connection errors.
 
 ## 3. Reading state
 
-`GET /v1/global-state` is the starting point for everything. It returns all
+`GET /v1/global/state` is the starting point for everything. It returns all
 deployments, assets, configs, secret metadata, and spaces, with the ids the
 other endpoints expect. Read it before you change anything.
 
-`POST /v1/deployment-state` with `{"id": <deployment id>}` returns one
+`POST /v1/deployments/get` with `{"id": <deployment id>}` returns one
 deployment's live status: whether it is running, what it is preparing, and why
 it last failed.
 
@@ -90,13 +90,13 @@ pointing the deployment at it.
 
 ## 5. Changing a deployment
 
-`POST /v1/deployment/update` with `{"deployment_id": <id>, "spec": {...},
+`POST /v1/deployments/update` with `{"deployment_id": <id>, "spec": {...},
 "version": <current + 1>}`.
 
 **`spec` is a full replacement.** There is no merge and no partial update. Any
 field you leave out is *dropped*, and the call still returns `200`. So always:
 
-1. `GET /v1/global-state` and take the deployment's current `spec` and `version`.
+1. `GET /v1/global/state` and take the deployment's current `spec` and `version`.
 2. Modify that object in place.
 3. Send the whole thing back with `version` set to `current + 1`.
 
@@ -104,7 +104,7 @@ If `version` is not exactly one greater than the stored one the call is
 rejected — that is the concurrency check, and it means someone else changed the
 deployment while you were working. Re-read and redo your change on top.
 
-After any change, poll `POST /v1/deployment-state` until the deployment
+After any change, poll `POST /v1/deployments/get` until the deployment
 settles. A `200` from `update` means the config was accepted, not that the
 workload is running.
 
@@ -146,8 +146,8 @@ value at any point.
 
 ## 7. Limits
 
-- **Streaming endpoints are protobuf-only.** `/v1/state/stream` and
-  `/v1/deployment/log-search` do not honour `Accept: application/json`. Use the
+- **Streaming endpoints are protobuf-only.** `/v1/global/state-stream` and
+  `/v1/deployments/log-search` do not honour `Accept: application/json`. Use the
   non-streaming endpoints above instead.
 - **Enums are numbers** in JSON, not names.
 - **Destructive operations** — deleting deployments, assets, or spaces —

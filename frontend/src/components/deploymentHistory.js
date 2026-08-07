@@ -105,7 +105,7 @@ export function deploymentHistory(deploymentId, label, onClose, onRevertTargetVe
 
     const load = async () => {
         try {
-            const decoded = await capi.postV1DeploymentHistory({ deploymentId });
+            const decoded = await capi.postV1DeploymentsHistory({ deploymentId });
             entries.val = decoded?.entries || [];
         } catch (e) {
             console.error('Failed to load deployment history:', e);

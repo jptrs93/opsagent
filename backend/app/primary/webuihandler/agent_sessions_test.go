@@ -296,7 +296,7 @@ func TestPendingSessionIDDoesNotAuthenticate(t *testing.T) {
 // they must render for a real user and refuse a made-up one.
 func TestAgentInstructionsRender(t *testing.T) {
 	h, user := newAuthTestHandler(t)
-	mux := apigen.CreateOpsagentHttpV1Mux(h, &apigen.MuxConfig{VerifyAuth: h.VerifyAuth})
+	mux := apigen.CreateApiServerMux(h, &apigen.MuxConfig{VerifyAuth: h.VerifyAuth})
 
 	url := fmt.Sprintf("/v1/agent-sessions/instructions?user_id=%d", user.ID)
 	w := httptest.NewRecorder()
@@ -326,7 +326,7 @@ func TestAgentInstructionsRender(t *testing.T) {
 // download prompt.
 func TestAgentInstructionsServeHTMLToBrowsers(t *testing.T) {
 	h, _ := newAuthTestHandler(t)
-	mux := apigen.CreateOpsagentHttpV1Mux(h, &apigen.MuxConfig{VerifyAuth: h.VerifyAuth})
+	mux := apigen.CreateApiServerMux(h, &apigen.MuxConfig{VerifyAuth: h.VerifyAuth})
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/agent-sessions/instructions?user_id=1", nil)
 	r.Header.Set("Accept", "text/html,application/xhtml+xml")

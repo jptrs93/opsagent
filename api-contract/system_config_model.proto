@@ -26,26 +26,26 @@ message BoolSetting {
   ConfigRef config_ref = 2 [(cp.go_value) = true];
 }
 
-message Config {
-  Settings settings = 1 [(cp.go_value) = true];
+message PrimaryConfig {
+  ClusterSettings settings = 1 [(cp.go_value) = true];
   string master_password_hash = 2;
   // RFC 4193 ULA /48 prefix (6 bytes) for the virtual network. Generated
   // randomly at first primary startup, then immutable. Not user-editable.
   bytes network_ula_prefix = 3;
 }
 
-// ConfigVersion identifies one persisted primary configuration revision. State
-// stream snapshots always clear Config.master_password_hash before publishing.
-message ConfigVersion {
+// PrimaryConfigVersion identifies one persisted primary configuration revision. State
+// stream snapshots always clear PrimaryConfig.master_password_hash before publishing.
+message PrimaryConfigVersion {
   int64 version = 1;
   int64 updated_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  Config config = 3 [(cp.go_value) = true];
+  PrimaryConfig config = 3 [(cp.go_value) = true];
 }
 
-message Settings {
+message ClusterSettings {
   HttpWebSettings http_web = 1 [(cp.go_value) = true];
   HttpsWebSettings https_web = 2 [(cp.go_value) = true];
-  ClusterSettings cluster = 3 [(cp.go_value) = true];
+  ClusterListenSettings cluster = 3 [(cp.go_value) = true];
   RepoSettings repo = 4 [(cp.go_value) = true];
   BackupSettings backup = 5 [(cp.go_value) = true];
   LargeAssetsSettings large_assets = 6 [(cp.go_value) = true];
@@ -65,7 +65,7 @@ message HttpsWebSettings {
   StringSetting acme_email = 6 [(cp.go_value) = true];
 }
 
-message ClusterSettings {
+message ClusterListenSettings {
   StringSetting listen = 1 [(cp.go_value) = true];
   StringSetting enrollment_listen = 2 [(cp.go_value) = true];
 }
@@ -85,8 +85,6 @@ message BackupSettings {
 }
 
 message LargeAssetsSettings {
-  // Field 1 was previously s3_enabled. Keeping the field number maps existing
-  // enabled installations to the separate S3 configuration they already use.
   BoolSetting use_separate_s3 = 1 [(cp.go_value) = true];
   StringSetting s3_access_key_id = 2 [(cp.go_value) = true];
   SecretRef s3_secret_access_key = 3 [(cp.go_value) = true];

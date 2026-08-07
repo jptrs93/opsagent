@@ -336,7 +336,7 @@ type DeploymentVersionsRequest struct {
 	SelectedBranch string `json:"selected_branch,omitempty"`
 }
 
-type ValidateSourceRequest struct {
+type RepoValidateRequest struct {
 	NixDockerBuild *ValidateNixDockerBuildSource `json:"nix_docker_build"`
 	ContainerImage *ValidateContainerImageSource `json:"container_image"`
 }
@@ -398,7 +398,7 @@ type ValidateContainerImageSource struct {
 	RefreshVersions bool   `json:"refresh_versions"`
 }
 
-type ValidateSourceResponse struct {
+type RepoValidateResponse struct {
 	NixDockerBuild *ValidateNixDockerBuildSourceResponse `json:"nix_docker_build"`
 	ContainerImage *ValidateContainerImageSourceResponse `json:"container_image"`
 }
@@ -554,7 +554,7 @@ type EnrollmentRequestList struct {
 	Items []*EnrollmentRequestStatus `json:"items,omitempty"`
 }
 
-type EnrollmentInfo struct {
+type NodeEnrollmentInfo struct {
 	EnrollmentTlsSpkiSha256 string `json:"enrollment_tls_spki_sha256,omitempty"`
 }
 
@@ -767,7 +767,7 @@ type SecretUnlockRequest struct {
 	Code string `json:"code,omitempty"`
 }
 
-type UserConfig struct {
+type Config struct {
 	Name      string    `json:"name,omitempty"`
 	Value     string    `json:"value,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
@@ -778,11 +778,11 @@ type UserConfig struct {
 	Version   int32     `json:"version"`
 }
 
-type UserConfigList struct {
-	Items []*UserConfig `json:"items,omitempty"`
+type ConfigList struct {
+	Items []*Config `json:"items,omitempty"`
 }
 
-type UserConfigSetRequest struct {
+type ConfigSetRequest struct {
 	Name                         string                        `json:"name,omitempty"`
 	Value                        string                        `json:"value,omitempty"`
 	SpaceID                      int32                         `json:"space_id"`
@@ -790,12 +790,12 @@ type UserConfigSetRequest struct {
 	ReferencingDeployments       []*DeploymentConfigVersionRef `json:"referencing_deployments,omitempty"`
 }
 
-type UserConfigRenameRequest struct {
+type ConfigRenameRequest struct {
 	Name    string `json:"name,omitempty"`
 	NewName string `json:"new_name,omitempty"`
 }
 
-type UserConfigDeleteRequest struct {
+type ConfigDeleteRequest struct {
 	Name string `json:"name,omitempty"`
 }
 
@@ -858,13 +858,13 @@ type State struct {
 	EnrollmentUpdate           *EnrollmentRequestStatus   `json:"enrollment_update"`
 	SecretsSnapshot            *SecretReferenceList       `json:"secrets_snapshot"`
 	SecretUpdate               *SecretReference           `json:"secret_update"`
-	UserConfigsSnapshot        *UserConfigReferenceList   `json:"user_configs_snapshot"`
-	UserConfigUpdate           *UserConfigReference       `json:"user_config_update"`
+	UserConfigsSnapshot        *ConfigReferenceList       `json:"user_configs_snapshot"`
+	UserConfigUpdate           *ConfigReference           `json:"user_config_update"`
 	SecretsStatusSnapshot      *SecretsStatusResponse     `json:"secrets_status_snapshot"`
 	SecretMetasSnapshot        *SecretList                `json:"secret_metas_snapshot"`
 	SecretMetaUpdate           *SecretMeta                `json:"secret_meta_update"`
-	UserConfigValuesSnapshot   *UserConfigList            `json:"user_config_values_snapshot"`
-	UserConfigValueUpdate      *UserConfig                `json:"user_config_value_update"`
+	UserConfigValuesSnapshot   *ConfigList                `json:"user_config_values_snapshot"`
+	UserConfigValueUpdate      *Config                    `json:"user_config_value_update"`
 	SpacesSnapshot             *SpaceList                 `json:"spaces_snapshot"`
 	SpaceUpdate                *Space                     `json:"space_update"`
 	AssetsSnapshot             *AssetList                 `json:"assets_snapshot"`
@@ -875,7 +875,7 @@ type State struct {
 	NodeStatusUpdate           *ClusterNodeStatus         `json:"node_status_update"`
 	BackupStatusSnapshot       *BackupStatus              `json:"backup_status_snapshot"`
 	BackupStatusUpdate         *BackupStatus              `json:"backup_status_update"`
-	ConfigSnapshot             ConfigVersion              `json:"config_snapshot"`
+	ConfigSnapshot             PrimaryConfigVersion       `json:"config_snapshot"`
 	ScheduledInstancesSnapshot *ScheduledInstanceSnapshot `json:"scheduled_instances_snapshot"`
 	ScheduledInstanceUpdate    *ScheduledInstanceState    `json:"scheduled_instance_update"`
 	AgentSessionsSnapshot      *AgentSessionList          `json:"agent_sessions_snapshot"`
@@ -895,12 +895,12 @@ type SpaceList struct {
 type GlobalState struct {
 	Spaces            *SpaceList                `json:"spaces"`
 	Assets            *AssetList                `json:"assets"`
-	Configs           *UserConfigList           `json:"configs"`
+	Configs           *ConfigList               `json:"configs"`
 	Secrets           *SecretList               `json:"secrets"`
 	DeploymentConfigs *DeploymentConfigSnapshot `json:"deployment_configs"`
 }
 
-type DeploymentStateRequest struct {
+type DeploymentGetRequest struct {
 	ID int32 `json:"id"`
 }
 
@@ -930,7 +930,7 @@ type SecretReferenceList struct {
 	Items []*SecretReference `json:"items,omitempty"`
 }
 
-type UserConfigReference struct {
+type ConfigReference struct {
 	ID      int32  `json:"id"`
 	Name    string `json:"name,omitempty"`
 	Deleted bool   `json:"deleted"`
@@ -938,8 +938,8 @@ type UserConfigReference struct {
 	Version int32  `json:"version"`
 }
 
-type UserConfigReferenceList struct {
-	Items []*UserConfigReference `json:"items,omitempty"`
+type ConfigReferenceList struct {
+	Items []*ConfigReference `json:"items,omitempty"`
 }
 
 type ClusterMachineList struct {
@@ -1023,7 +1023,7 @@ type ClusterNodeStatusList struct {
 	Items []*ClusterNodeStatus `json:"items,omitempty"`
 }
 
-type ClusterStatusResponse struct {
+type NodeStatusResponse struct {
 	Machines []*ClusterMachine `json:"machines,omitempty"`
 }
 
@@ -1140,25 +1140,25 @@ type BoolSetting struct {
 	ConfigRef ConfigRef `json:"config_ref"`
 }
 
-type Config struct {
-	Settings           Settings `json:"settings"`
-	MasterPasswordHash string   `json:"master_password_hash,omitempty"`
-	NetworkUlaPrefix   []byte   `json:"network_ula_prefix"`
+type PrimaryConfig struct {
+	Settings           ClusterSettings `json:"settings"`
+	MasterPasswordHash string          `json:"master_password_hash,omitempty"`
+	NetworkUlaPrefix   []byte          `json:"network_ula_prefix"`
 }
 
-type ConfigVersion struct {
-	Version   int64     `json:"version"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Config    Config    `json:"config"`
+type PrimaryConfigVersion struct {
+	Version   int64         `json:"version"`
+	UpdatedAt time.Time     `json:"updated_at"`
+	Config    PrimaryConfig `json:"config"`
 }
 
-type Settings struct {
-	HttpWeb     HttpWebSettings     `json:"http_web"`
-	HttpsWeb    HttpsWebSettings    `json:"https_web"`
-	Cluster     ClusterSettings     `json:"cluster"`
-	Repo        RepoSettings        `json:"repo"`
-	Backup      BackupSettings      `json:"backup"`
-	LargeAssets LargeAssetsSettings `json:"large_assets"`
+type ClusterSettings struct {
+	HttpWeb     HttpWebSettings       `json:"http_web"`
+	HttpsWeb    HttpsWebSettings      `json:"https_web"`
+	Cluster     ClusterListenSettings `json:"cluster"`
+	Repo        RepoSettings          `json:"repo"`
+	Backup      BackupSettings        `json:"backup"`
+	LargeAssets LargeAssetsSettings   `json:"large_assets"`
 }
 
 type HttpWebSettings struct {
@@ -1175,7 +1175,7 @@ type HttpsWebSettings struct {
 	AcmeEmail      StringSetting `json:"acme_email"`
 }
 
-type ClusterSettings struct {
+type ClusterListenSettings struct {
 	Listen           StringSetting `json:"listen"`
 	EnrollmentListen StringSetting `json:"enrollment_listen"`
 }

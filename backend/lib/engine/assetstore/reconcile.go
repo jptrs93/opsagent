@@ -106,7 +106,7 @@ func (s *Store) Reconcile(ctx context.Context) (int, error) {
 	return pending, nil
 }
 
-func (s *Store) migrationSettings(migration sqlite.AssetMigration) (*apigen.Settings, *apigen.Settings, bool, error) {
+func (s *Store) migrationSettings(migration sqlite.AssetMigration) (*apigen.ClusterSettings, *apigen.ClusterSettings, bool, error) {
 	oldRow, err := s.DB.FetchOpenDeployConfigByID(migration.OldConfigVersionID)
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("load old asset migration config %d: %w", migration.OldConfigVersionID, err)
@@ -115,11 +115,11 @@ func (s *Store) migrationSettings(migration sqlite.AssetMigration) (*apigen.Sett
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("load new asset migration config %d: %w", migration.NewConfigVersionID, err)
 	}
-	oldConfig, err := apigen.DecodeConfig(oldRow.ConfigBlob)
+	oldConfig, err := apigen.DecodePrimaryConfig(oldRow.ConfigBlob)
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("decode old asset migration config %d: %w", migration.OldConfigVersionID, err)
 	}
-	newConfig, err := apigen.DecodeConfig(newRow.ConfigBlob)
+	newConfig, err := apigen.DecodePrimaryConfig(newRow.ConfigBlob)
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("decode new asset migration config %d: %w", migration.NewConfigVersionID, err)
 	}
@@ -163,7 +163,7 @@ func (s *Store) AssetStorageStatus() (bool, int, bool, string) {
 	return status.TargetS3, status.Pending, status.Running, status.Error
 }
 
-func (s *Store) migrateToS3(ctx context.Context, assetID int32, target *apigen.Settings) error {
+func (s *Store) migrateToS3(ctx context.Context, assetID int32, target *apigen.ClusterSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -321,7 +321,7 @@ func (s *Store) finishPendingFromS3(ctx context.Context, asset *apigen.Asset) er
 	return nil
 }
 
-func (s *Store) migrateToLocal(ctx context.Context, assetID int32, source *apigen.Settings) error {
+func (s *Store) migrateToLocal(ctx context.Context, assetID int32, source *apigen.ClusterSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

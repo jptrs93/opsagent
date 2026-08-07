@@ -44,17 +44,17 @@ func writeGoCapiClientStream[T Encodable](items iter.Seq2[T, error]) io.Reader {
 	return pr
 }
 
-type OpsagentHttpV1Capi struct {
+type ApiServerCapi struct {
 	BaseURL        string
 	HTTPClient     *http.Client
 	HeaderProvider func(context.Context) http.Header
 	ErrorHandler   func(context.Context, *http.Response) error
 }
 
-type OpsagentHttpV1CapiOption func(*OpsagentHttpV1Capi)
+type ApiServerCapiOption func(*ApiServerCapi)
 
-func NewOpsagentHttpV1Capi(baseURL string, opts ...OpsagentHttpV1CapiOption) *OpsagentHttpV1Capi {
-	c := &OpsagentHttpV1Capi{
+func NewApiServerCapi(baseURL string, opts ...ApiServerCapiOption) *ApiServerCapi {
+	c := &ApiServerCapi{
 		BaseURL:      strings.TrimRight(baseURL, "/"),
 		HTTPClient:   http.DefaultClient,
 		ErrorHandler: defaultGoCapiErrorHandler,
@@ -65,29 +65,29 @@ func NewOpsagentHttpV1Capi(baseURL string, opts ...OpsagentHttpV1CapiOption) *Op
 	return c
 }
 
-func WithOpsagentHttpV1CapiHTTPClient(httpClient *http.Client) OpsagentHttpV1CapiOption {
-	return func(c *OpsagentHttpV1Capi) {
+func WithApiServerCapiHTTPClient(httpClient *http.Client) ApiServerCapiOption {
+	return func(c *ApiServerCapi) {
 		if httpClient != nil {
 			c.HTTPClient = httpClient
 		}
 	}
 }
 
-func WithOpsagentHttpV1CapiHeaderProvider(provider func(context.Context) http.Header) OpsagentHttpV1CapiOption {
-	return func(c *OpsagentHttpV1Capi) {
+func WithApiServerCapiHeaderProvider(provider func(context.Context) http.Header) ApiServerCapiOption {
+	return func(c *ApiServerCapi) {
 		c.HeaderProvider = provider
 	}
 }
 
-func WithOpsagentHttpV1CapiErrorHandler(handler func(context.Context, *http.Response) error) OpsagentHttpV1CapiOption {
-	return func(c *OpsagentHttpV1Capi) {
+func WithApiServerCapiErrorHandler(handler func(context.Context, *http.Response) error) ApiServerCapiOption {
+	return func(c *ApiServerCapi) {
 		if handler != nil {
 			c.ErrorHandler = handler
 		}
 	}
 }
 
-func (c *OpsagentHttpV1Capi) do(ctx context.Context, method string, path string, body io.Reader, contentType string, accept string) (*http.Response, error) {
+func (c *ApiServerCapi) do(ctx context.Context, method string, path string, body io.Reader, contentType string, accept string) (*http.Response, error) {
 	httpClient := c.HTTPClient
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -113,7 +113,7 @@ func (c *OpsagentHttpV1Capi) do(ctx context.Context, method string, path string,
 	return httpClient.Do(req)
 }
 
-func (c *OpsagentHttpV1Capi) Get(ctx context.Context) error {
+func (c *ApiServerCapi) Get(ctx context.Context) error {
 	resp, err := c.do(ctx, "GET", "/", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return err
@@ -125,7 +125,7 @@ func (c *OpsagentHttpV1Capi) Get(ctx context.Context) error {
 	return nil
 }
 
-func (c *OpsagentHttpV1Capi) GetV1Healthz(ctx context.Context) error {
+func (c *ApiServerCapi) GetV1Healthz(ctx context.Context) error {
 	resp, err := c.do(ctx, "GET", "/v1/healthz", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return err
@@ -137,7 +137,45 @@ func (c *OpsagentHttpV1Capi) GetV1Healthz(ctx context.Context) error {
 	return nil
 }
 
-func (c *OpsagentHttpV1Capi) PostV1AuthMaster(ctx context.Context, req *MasterPasswordRequest) (*LoginResponse, error) {
+func (c *ApiServerCapi) PostV1ClusterSettingsGet(ctx context.Context, req *EmptyRequest) (*ClusterSettings, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1ClusterSettingsGet request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/cluster-settings/get", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeClusterSettings(body)
+}
+
+func (c *ApiServerCapi) PostV1ClusterSettingsUpdate(ctx context.Context, req *ClusterSettings) (*ClusterSettings, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1ClusterSettingsUpdate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/cluster-settings/update", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeClusterSettings(body)
+}
+
+func (c *ApiServerCapi) PostV1AuthMaster(ctx context.Context, req *MasterPasswordRequest) (*LoginResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AuthMaster request is nil")
 	}
@@ -156,7 +194,7 @@ func (c *OpsagentHttpV1Capi) PostV1AuthMaster(ctx context.Context, req *MasterPa
 	return DecodeLoginResponse(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1AuthMasterPasswordSave(ctx context.Context, req *MasterPasswordSaveRequest) error {
+func (c *ApiServerCapi) PostV1AuthMasterPasswordSave(ctx context.Context, req *MasterPasswordSaveRequest) error {
 	if req == nil {
 		return fmt.Errorf("PostV1AuthMasterPasswordSave request is nil")
 	}
@@ -171,7 +209,7 @@ func (c *OpsagentHttpV1Capi) PostV1AuthMasterPasswordSave(ctx context.Context, r
 	return nil
 }
 
-func (c *OpsagentHttpV1Capi) PostV1AuthMasterPasswordVerify(ctx context.Context, req *MasterPasswordVerifyRequest) error {
+func (c *ApiServerCapi) PostV1AuthMasterPasswordVerify(ctx context.Context, req *MasterPasswordVerifyRequest) error {
 	if req == nil {
 		return fmt.Errorf("PostV1AuthMasterPasswordVerify request is nil")
 	}
@@ -186,7 +224,7 @@ func (c *OpsagentHttpV1Capi) PostV1AuthMasterPasswordVerify(ctx context.Context,
 	return nil
 }
 
-func (c *OpsagentHttpV1Capi) GetV1AuthCurrentSession(ctx context.Context) (*LoginResponse, error) {
+func (c *ApiServerCapi) GetV1AuthCurrentSession(ctx context.Context) (*LoginResponse, error) {
 	resp, err := c.do(ctx, "GET", "/v1/auth/current/session", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
@@ -202,126 +240,7 @@ func (c *OpsagentHttpV1Capi) GetV1AuthCurrentSession(ctx context.Context) (*Logi
 	return DecodeLoginResponse(body)
 }
 
-func (c *OpsagentHttpV1Capi) GetV1AgentSessionsInstructions(ctx context.Context) error {
-	resp, err := c.do(ctx, "GET", "/v1/agent-sessions/instructions", nil, "application/protobuf", "application/protobuf")
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return c.ErrorHandler(ctx, resp)
-	}
-	return nil
-}
-
-func (c *OpsagentHttpV1Capi) PostV1AgentSessionsRequestStart(ctx context.Context, req *AgentSessionRequestStartRequest) (*AgentSessionRequest, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1AgentSessionsRequestStart request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/request-start", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeAgentSessionRequest(body)
-}
-
-func (c *OpsagentHttpV1Capi) PostV1AgentSessionsGetSession(ctx context.Context, req *AgentSessionGetRequest) (*AgentSessionPickup, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1AgentSessionsGetSession request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/get-session", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeAgentSessionPickup(body)
-}
-
-func (c *OpsagentHttpV1Capi) PostV1AgentSessionsApprove(ctx context.Context, req *AgentSessionApproveRequest) (*AgentSession, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1AgentSessionsApprove request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/approve", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeAgentSession(body)
-}
-
-func (c *OpsagentHttpV1Capi) PostV1AgentSessionsCreate(ctx context.Context) (*AgentSessionCreated, error) {
-	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/create", nil, "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeAgentSessionCreated(body)
-}
-
-func (c *OpsagentHttpV1Capi) PostV1AgentSessionsList(ctx context.Context, req *EmptyRequest) (*AgentSessionList, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1AgentSessionsList request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeAgentSessionList(body)
-}
-
-func (c *OpsagentHttpV1Capi) PostV1AgentSessionsRevoke(ctx context.Context, req *AgentSessionRevokeRequest) error {
-	if req == nil {
-		return fmt.Errorf("PostV1AgentSessionsRevoke request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/revoke", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return c.ErrorHandler(ctx, resp)
-	}
-	return nil
-}
-
-func (c *OpsagentHttpV1Capi) PostV1AuthPasskeyRegisterStart(ctx context.Context, req *EmptyRequest) (*WebAuthNOptionsResponse, error) {
+func (c *ApiServerCapi) PostV1AuthPasskeyRegisterStart(ctx context.Context, req *EmptyRequest) (*WebAuthNOptionsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AuthPasskeyRegisterStart request is nil")
 	}
@@ -340,7 +259,7 @@ func (c *OpsagentHttpV1Capi) PostV1AuthPasskeyRegisterStart(ctx context.Context,
 	return DecodeWebAuthNOptionsResponse(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1AuthPasskeyRegisterFinish(ctx context.Context, req *WebAuthNFinishRequest) (*LoginResponse, error) {
+func (c *ApiServerCapi) PostV1AuthPasskeyRegisterFinish(ctx context.Context, req *WebAuthNFinishRequest) (*LoginResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AuthPasskeyRegisterFinish request is nil")
 	}
@@ -359,7 +278,7 @@ func (c *OpsagentHttpV1Capi) PostV1AuthPasskeyRegisterFinish(ctx context.Context
 	return DecodeLoginResponse(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1AuthPasskeyLoginStart(ctx context.Context, req *EmptyRequest) (*WebAuthNOptionsResponse, error) {
+func (c *ApiServerCapi) PostV1AuthPasskeyLoginStart(ctx context.Context, req *EmptyRequest) (*WebAuthNOptionsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AuthPasskeyLoginStart request is nil")
 	}
@@ -378,7 +297,7 @@ func (c *OpsagentHttpV1Capi) PostV1AuthPasskeyLoginStart(ctx context.Context, re
 	return DecodeWebAuthNOptionsResponse(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1AuthPasskeyLoginFinish(ctx context.Context, req *WebAuthNFinishRequest) (*LoginResponse, error) {
+func (c *ApiServerCapi) PostV1AuthPasskeyLoginFinish(ctx context.Context, req *WebAuthNFinishRequest) (*LoginResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AuthPasskeyLoginFinish request is nil")
 	}
@@ -397,9 +316,144 @@ func (c *OpsagentHttpV1Capi) PostV1AuthPasskeyLoginFinish(ctx context.Context, r
 	return DecodeLoginResponse(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1StateStream(ctx context.Context) iter.Seq2[*State, error] {
+func (c *ApiServerCapi) GetV1AgentSessionsInstructions(ctx context.Context) error {
+	resp, err := c.do(ctx, "GET", "/v1/agent-sessions/instructions", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
+func (c *ApiServerCapi) PostV1AgentSessionsRequestStart(ctx context.Context, req *AgentSessionRequestStartRequest) (*AgentSessionRequest, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AgentSessionsRequestStart request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/request-start", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAgentSessionRequest(body)
+}
+
+func (c *ApiServerCapi) PostV1AgentSessionsGetSession(ctx context.Context, req *AgentSessionGetRequest) (*AgentSessionPickup, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AgentSessionsGetSession request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/get-session", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAgentSessionPickup(body)
+}
+
+func (c *ApiServerCapi) PostV1AgentSessionsApprove(ctx context.Context, req *AgentSessionApproveRequest) (*AgentSession, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AgentSessionsApprove request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/approve", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAgentSession(body)
+}
+
+func (c *ApiServerCapi) PostV1AgentSessionsCreate(ctx context.Context) (*AgentSessionCreated, error) {
+	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/create", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAgentSessionCreated(body)
+}
+
+func (c *ApiServerCapi) PostV1AgentSessionsList(ctx context.Context, req *EmptyRequest) (*AgentSessionList, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AgentSessionsList request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAgentSessionList(body)
+}
+
+func (c *ApiServerCapi) PostV1AgentSessionsRevoke(ctx context.Context, req *AgentSessionRevokeRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1AgentSessionsRevoke request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/revoke", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
+func (c *ApiServerCapi) GetV1GlobalState(ctx context.Context) (*GlobalState, error) {
+	resp, err := c.do(ctx, "GET", "/v1/global/state", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeGlobalState(body)
+}
+
+func (c *ApiServerCapi) PostV1GlobalStateStream(ctx context.Context) iter.Seq2[*State, error] {
 	return func(yield func(*State, error) bool) {
-		resp, err := c.do(ctx, "POST", "/v1/state/stream", nil, "application/protobuf", "application/protobuf-stream")
+		resp, err := c.do(ctx, "POST", "/v1/global/state-stream", nil, "application/protobuf", "application/protobuf-stream")
 		if err != nil {
 			yield(nil, err)
 			return
@@ -431,8 +485,11 @@ func (c *OpsagentHttpV1Capi) PostV1StateStream(ctx context.Context) iter.Seq2[*S
 	}
 }
 
-func (c *OpsagentHttpV1Capi) GetV1GlobalState(ctx context.Context) (*GlobalState, error) {
-	resp, err := c.do(ctx, "GET", "/v1/global-state", nil, "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1GlobalExportedConfig(ctx context.Context, req *EmptyRequest) (*ExportedConfigBlob, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1GlobalExportedConfig request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/global/exported-config", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -444,14 +501,14 @@ func (c *OpsagentHttpV1Capi) GetV1GlobalState(ctx context.Context) (*GlobalState
 	if err != nil {
 		return nil, err
 	}
-	return DecodeGlobalState(body)
+	return DecodeExportedConfigBlob(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1DeploymentState(ctx context.Context, req *DeploymentStateRequest) (*DeploymentState, error) {
+func (c *ApiServerCapi) PostV1DeploymentsGet(ctx context.Context, req *DeploymentGetRequest) (*DeploymentState, error) {
 	if req == nil {
-		return nil, fmt.Errorf("PostV1DeploymentState request is nil")
+		return nil, fmt.Errorf("PostV1DeploymentsGet request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/deployment-state", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v1/deployments/get", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -466,11 +523,11 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentState(ctx context.Context, req *Dep
 	return DecodeDeploymentState(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1DeploymentUpdate(ctx context.Context, req *DeploymentUpdateRequest) (*DeploymentConfig, error) {
+func (c *ApiServerCapi) PostV1DeploymentsCreate(ctx context.Context, req *DeploymentCreateRequest) (*DeploymentConfig, error) {
 	if req == nil {
-		return nil, fmt.Errorf("PostV1DeploymentUpdate request is nil")
+		return nil, fmt.Errorf("PostV1DeploymentsCreate request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/deployment/update", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v1/deployments/create", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -485,11 +542,11 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentUpdate(ctx context.Context, req *De
 	return DecodeDeploymentConfig(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1DeploymentUpgradeAll(ctx context.Context, req *DeploymentUpgradeAllRequest) (*DeploymentConfig, error) {
+func (c *ApiServerCapi) PostV1DeploymentsUpdate(ctx context.Context, req *DeploymentUpdateRequest) (*DeploymentConfig, error) {
 	if req == nil {
-		return nil, fmt.Errorf("PostV1DeploymentUpgradeAll request is nil")
+		return nil, fmt.Errorf("PostV1DeploymentsUpdate request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/deployment/upgrade-all", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v1/deployments/update", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -504,11 +561,11 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentUpgradeAll(ctx context.Context, req
 	return DecodeDeploymentConfig(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1DeploymentDelete(ctx context.Context, req *DeploymentDeleteRequest) error {
+func (c *ApiServerCapi) PostV1DeploymentsDelete(ctx context.Context, req *DeploymentDeleteRequest) error {
 	if req == nil {
-		return fmt.Errorf("PostV1DeploymentDelete request is nil")
+		return fmt.Errorf("PostV1DeploymentsDelete request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/deployment/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v1/deployments/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return err
 	}
@@ -519,11 +576,30 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentDelete(ctx context.Context, req *De
 	return nil
 }
 
-func (c *OpsagentHttpV1Capi) PostV1DeploymentRecentlyDeleted(ctx context.Context, req *RecentlyDeletedDeploymentsRequest) (*RecentlyDeletedDeployments, error) {
+func (c *ApiServerCapi) PostV1DeploymentsUpgradeAll(ctx context.Context, req *DeploymentUpgradeAllRequest) (*DeploymentConfig, error) {
 	if req == nil {
-		return nil, fmt.Errorf("PostV1DeploymentRecentlyDeleted request is nil")
+		return nil, fmt.Errorf("PostV1DeploymentsUpgradeAll request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/deployment/recently-deleted", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v1/deployments/upgrade-all", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeDeploymentConfig(body)
+}
+
+func (c *ApiServerCapi) PostV1DeploymentsRecentlyDeleted(ctx context.Context, req *RecentlyDeletedDeploymentsRequest) (*RecentlyDeletedDeployments, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1DeploymentsRecentlyDeleted request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/deployments/recently-deleted", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -538,11 +614,11 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentRecentlyDeleted(ctx context.Context
 	return DecodeRecentlyDeletedDeployments(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1DeploymentHistory(ctx context.Context, req *DeploymentHistoryRequest) (*DeploymentHistory, error) {
+func (c *ApiServerCapi) PostV1DeploymentsHistory(ctx context.Context, req *DeploymentHistoryRequest) (*DeploymentHistory, error) {
 	if req == nil {
-		return nil, fmt.Errorf("PostV1DeploymentHistory request is nil")
+		return nil, fmt.Errorf("PostV1DeploymentsHistory request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/deployment/history", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v1/deployments/history", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -557,13 +633,32 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentHistory(ctx context.Context, req *D
 	return DecodeDeploymentHistory(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1DeploymentLogSearch(ctx context.Context, req *LogSearchRequest) iter.Seq2[*LogLineBatch, error] {
+func (c *ApiServerCapi) PostV1DeploymentsVersions(ctx context.Context, req *DeploymentVersionsRequest) (*DeploymentVersions, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1DeploymentsVersions request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/deployments/versions", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeDeploymentVersions(body)
+}
+
+func (c *ApiServerCapi) PostV1DeploymentsLogSearch(ctx context.Context, req *LogSearchRequest) iter.Seq2[*LogLineBatch, error] {
 	return func(yield func(*LogLineBatch, error) bool) {
 		if req == nil {
-			yield(nil, fmt.Errorf("PostV1DeploymentLogSearch request is nil"))
+			yield(nil, fmt.Errorf("PostV1DeploymentsLogSearch request is nil"))
 			return
 		}
-		resp, err := c.do(ctx, "POST", "/v1/deployment/log-search", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf-stream")
+		resp, err := c.do(ctx, "POST", "/v1/deployments/log-search", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf-stream")
 		if err != nil {
 			yield(nil, err)
 			return
@@ -595,13 +690,13 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentLogSearch(ctx context.Context, req 
 	}
 }
 
-func (c *OpsagentHttpV1Capi) PostV1DeploymentPrepareOutput(ctx context.Context, req *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error] {
+func (c *ApiServerCapi) PostV1DeploymentsPrepareOutput(ctx context.Context, req *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error] {
 	return func(yield func(*PrepareOutputChunk, error) bool) {
 		if req == nil {
-			yield(nil, fmt.Errorf("PostV1DeploymentPrepareOutput request is nil"))
+			yield(nil, fmt.Errorf("PostV1DeploymentsPrepareOutput request is nil"))
 			return
 		}
-		resp, err := c.do(ctx, "POST", "/v1/deployment/prepare-output", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf-stream")
+		resp, err := c.do(ctx, "POST", "/v1/deployments/prepare-output", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf-stream")
 		if err != nil {
 			yield(nil, err)
 			return
@@ -633,8 +728,11 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentPrepareOutput(ctx context.Context, 
 	}
 }
 
-func (c *OpsagentHttpV1Capi) GetV1ClusterStatus(ctx context.Context) (*ClusterStatusResponse, error) {
-	resp, err := c.do(ctx, "GET", "/v1/cluster/status", nil, "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1ReposValidate(ctx context.Context, req *RepoValidateRequest) (*RepoValidateResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1ReposValidate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/repos/validate", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -646,14 +744,30 @@ func (c *OpsagentHttpV1Capi) GetV1ClusterStatus(ctx context.Context) (*ClusterSt
 	if err != nil {
 		return nil, err
 	}
-	return DecodeClusterStatusResponse(body)
+	return DecodeRepoValidateResponse(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1ClusterRename(ctx context.Context, req *NodeRenameRequest) (*ClusterNode, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1ClusterRename request is nil")
+func (c *ApiServerCapi) GetV1NodesStatus(ctx context.Context) (*NodeStatusResponse, error) {
+	resp, err := c.do(ctx, "GET", "/v1/nodes/status", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
 	}
-	resp, err := c.do(ctx, "POST", "/v1/cluster/rename", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeNodeStatusResponse(body)
+}
+
+func (c *ApiServerCapi) PostV1NodesRename(ctx context.Context, req *NodeRenameRequest) (*ClusterNode, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1NodesRename request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/nodes/rename", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -668,11 +782,11 @@ func (c *OpsagentHttpV1Capi) PostV1ClusterRename(ctx context.Context, req *NodeR
 	return DecodeClusterNode(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1ClusterAllowedSpaces(ctx context.Context, req *NodeAllowedSpacesRequest) (*ClusterNode, error) {
+func (c *ApiServerCapi) PostV1NodesAllowedSpaces(ctx context.Context, req *NodeAllowedSpacesRequest) (*ClusterNode, error) {
 	if req == nil {
-		return nil, fmt.Errorf("PostV1ClusterAllowedSpaces request is nil")
+		return nil, fmt.Errorf("PostV1NodesAllowedSpaces request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/cluster/allowed/spaces", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v1/nodes/allowed-spaces", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -687,11 +801,8 @@ func (c *OpsagentHttpV1Capi) PostV1ClusterAllowedSpaces(ctx context.Context, req
 	return DecodeClusterNode(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1DeploymentCreate(ctx context.Context, req *DeploymentCreateRequest) (*DeploymentConfig, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1DeploymentCreate request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/deployment/create", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) GetV1NodesEnrollmentsInfo(ctx context.Context) (*NodeEnrollmentInfo, error) {
+	resp, err := c.do(ctx, "GET", "/v1/nodes/enrollments/info", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -703,10 +814,45 @@ func (c *OpsagentHttpV1Capi) PostV1DeploymentCreate(ctx context.Context, req *De
 	if err != nil {
 		return nil, err
 	}
-	return DecodeDeploymentConfig(body)
+	return DecodeNodeEnrollmentInfo(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1SpacesCreate(ctx context.Context, req *SpaceSetRequest) (*Space, error) {
+func (c *ApiServerCapi) PostV1NodesEnrollmentsList(ctx context.Context) (*EnrollmentRequestList, error) {
+	resp, err := c.do(ctx, "POST", "/v1/nodes/enrollments/list", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeEnrollmentRequestList(body)
+}
+
+func (c *ApiServerCapi) PostV1NodesEnrollmentsAccept(ctx context.Context, req *EnrollmentAcceptRequest) (*EnrollmentRequestStatus, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1NodesEnrollmentsAccept request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/nodes/enrollments/accept", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeEnrollmentRequestStatus(body)
+}
+
+func (c *ApiServerCapi) PostV1SpacesCreate(ctx context.Context, req *SpaceSetRequest) (*Space, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SpacesCreate request is nil")
 	}
@@ -725,7 +871,7 @@ func (c *OpsagentHttpV1Capi) PostV1SpacesCreate(ctx context.Context, req *SpaceS
 	return DecodeSpace(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1SpacesUpdate(ctx context.Context, req *SpaceSetRequest) (*Space, error) {
+func (c *ApiServerCapi) PostV1SpacesUpdate(ctx context.Context, req *SpaceSetRequest) (*Space, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SpacesUpdate request is nil")
 	}
@@ -744,7 +890,7 @@ func (c *OpsagentHttpV1Capi) PostV1SpacesUpdate(ctx context.Context, req *SpaceS
 	return DecodeSpace(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1SpacesDelete(ctx context.Context, req *SpaceDeleteRequest) error {
+func (c *ApiServerCapi) PostV1SpacesDelete(ctx context.Context, req *SpaceDeleteRequest) error {
 	if req == nil {
 		return fmt.Errorf("PostV1SpacesDelete request is nil")
 	}
@@ -759,115 +905,7 @@ func (c *OpsagentHttpV1Capi) PostV1SpacesDelete(ctx context.Context, req *SpaceD
 	return nil
 }
 
-func (c *OpsagentHttpV1Capi) PostV1DeploymentVersions(ctx context.Context, req *DeploymentVersionsRequest) (*DeploymentVersions, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1DeploymentVersions request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/deployment/versions", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeDeploymentVersions(body)
-}
-
-func (c *OpsagentHttpV1Capi) PostV1RepoValidate(ctx context.Context, req *ValidateSourceRequest) (*ValidateSourceResponse, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1RepoValidate request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/repo/validate", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeValidateSourceResponse(body)
-}
-
-func (c *OpsagentHttpV1Capi) GetV1Settings(ctx context.Context) (*Settings, error) {
-	resp, err := c.do(ctx, "GET", "/v1/settings", nil, "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeSettings(body)
-}
-
-func (c *OpsagentHttpV1Capi) GetV1EnrollmentInfo(ctx context.Context) (*EnrollmentInfo, error) {
-	resp, err := c.do(ctx, "GET", "/v1/enrollment/info", nil, "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeEnrollmentInfo(body)
-}
-
-func (c *OpsagentHttpV1Capi) PutV1Settings(ctx context.Context, req *Settings) (*Settings, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PutV1Settings request is nil")
-	}
-	resp, err := c.do(ctx, "PUT", "/v1/settings", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeSettings(body)
-}
-
-func (c *OpsagentHttpV1Capi) PostV1GenerateExportedConfig(ctx context.Context, req *EmptyRequest) (*ExportedConfigBlob, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1GenerateExportedConfig request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/generate-exported-config", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeExportedConfigBlob(body)
-}
-
-func (c *OpsagentHttpV1Capi) PostV1SecretsList(ctx context.Context, req *EmptyRequest) (*SecretList, error) {
+func (c *ApiServerCapi) PostV1SecretsList(ctx context.Context, req *EmptyRequest) (*SecretList, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsList request is nil")
 	}
@@ -886,7 +924,7 @@ func (c *OpsagentHttpV1Capi) PostV1SecretsList(ctx context.Context, req *EmptyRe
 	return DecodeSecretList(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1SecretsSet(ctx context.Context, req *SecretSetRequest) (*SecretMeta, error) {
+func (c *ApiServerCapi) PostV1SecretsSet(ctx context.Context, req *SecretSetRequest) (*SecretMeta, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsSet request is nil")
 	}
@@ -905,7 +943,7 @@ func (c *OpsagentHttpV1Capi) PostV1SecretsSet(ctx context.Context, req *SecretSe
 	return DecodeSecretMeta(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1SecretsGenerate(ctx context.Context, req *SecretGenerateRequest) (*SecretMeta, error) {
+func (c *ApiServerCapi) PostV1SecretsGenerate(ctx context.Context, req *SecretGenerateRequest) (*SecretMeta, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsGenerate request is nil")
 	}
@@ -924,7 +962,7 @@ func (c *OpsagentHttpV1Capi) PostV1SecretsGenerate(ctx context.Context, req *Sec
 	return DecodeSecretMeta(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1SecretsRename(ctx context.Context, req *SecretRenameRequest) (*SecretMeta, error) {
+func (c *ApiServerCapi) PostV1SecretsRename(ctx context.Context, req *SecretRenameRequest) (*SecretMeta, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsRename request is nil")
 	}
@@ -943,7 +981,7 @@ func (c *OpsagentHttpV1Capi) PostV1SecretsRename(ctx context.Context, req *Secre
 	return DecodeSecretMeta(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1SecretsReveal(ctx context.Context, req *SecretRevealRequest) (*SecretRevealResponse, error) {
+func (c *ApiServerCapi) PostV1SecretsReveal(ctx context.Context, req *SecretRevealRequest) (*SecretRevealResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsReveal request is nil")
 	}
@@ -962,7 +1000,7 @@ func (c *OpsagentHttpV1Capi) PostV1SecretsReveal(ctx context.Context, req *Secre
 	return DecodeSecretRevealResponse(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1SecretsDelete(ctx context.Context, req *SecretDeleteRequest) error {
+func (c *ApiServerCapi) PostV1SecretsDelete(ctx context.Context, req *SecretDeleteRequest) error {
 	if req == nil {
 		return fmt.Errorf("PostV1SecretsDelete request is nil")
 	}
@@ -977,7 +1015,7 @@ func (c *OpsagentHttpV1Capi) PostV1SecretsDelete(ctx context.Context, req *Secre
 	return nil
 }
 
-func (c *OpsagentHttpV1Capi) PostV1SecretsStatus(ctx context.Context, req *EmptyRequest) (*SecretsStatusResponse, error) {
+func (c *ApiServerCapi) PostV1SecretsStatus(ctx context.Context, req *EmptyRequest) (*SecretsStatusResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsStatus request is nil")
 	}
@@ -996,11 +1034,11 @@ func (c *OpsagentHttpV1Capi) PostV1SecretsStatus(ctx context.Context, req *Empty
 	return DecodeSecretsStatusResponse(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1SecretsGenerateRecoveryCode(ctx context.Context, req *EmptyRequest) (*SecretRecoveryCodeResponse, error) {
+func (c *ApiServerCapi) PostV1SecretsRotateRecoveryCode(ctx context.Context, req *EmptyRequest) (*SecretRecoveryCodeResponse, error) {
 	if req == nil {
-		return nil, fmt.Errorf("PostV1SecretsGenerateRecoveryCode request is nil")
+		return nil, fmt.Errorf("PostV1SecretsRotateRecoveryCode request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/secrets/generate/recovery/code", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v1/secrets/rotate-recovery-code", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -1015,7 +1053,7 @@ func (c *OpsagentHttpV1Capi) PostV1SecretsGenerateRecoveryCode(ctx context.Conte
 	return DecodeSecretRecoveryCodeResponse(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1SecretsUnlock(ctx context.Context, req *SecretUnlockRequest) (*SecretsStatusResponse, error) {
+func (c *ApiServerCapi) PostV1SecretsUnlock(ctx context.Context, req *SecretUnlockRequest) (*SecretsStatusResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsUnlock request is nil")
 	}
@@ -1034,11 +1072,11 @@ func (c *OpsagentHttpV1Capi) PostV1SecretsUnlock(ctx context.Context, req *Secre
 	return DecodeSecretsStatusResponse(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1UserConfigsList(ctx context.Context, req *EmptyRequest) (*UserConfigList, error) {
+func (c *ApiServerCapi) PostV1ConfigsList(ctx context.Context, req *EmptyRequest) (*ConfigList, error) {
 	if req == nil {
-		return nil, fmt.Errorf("PostV1UserConfigsList request is nil")
+		return nil, fmt.Errorf("PostV1ConfigsList request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/user/configs/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v1/configs/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -1050,14 +1088,14 @@ func (c *OpsagentHttpV1Capi) PostV1UserConfigsList(ctx context.Context, req *Emp
 	if err != nil {
 		return nil, err
 	}
-	return DecodeUserConfigList(body)
+	return DecodeConfigList(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1UserConfigsSet(ctx context.Context, req *UserConfigSetRequest) (*UserConfig, error) {
+func (c *ApiServerCapi) PostV1ConfigsSet(ctx context.Context, req *ConfigSetRequest) (*Config, error) {
 	if req == nil {
-		return nil, fmt.Errorf("PostV1UserConfigsSet request is nil")
+		return nil, fmt.Errorf("PostV1ConfigsSet request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/user/configs/set", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v1/configs/set", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -1069,14 +1107,14 @@ func (c *OpsagentHttpV1Capi) PostV1UserConfigsSet(ctx context.Context, req *User
 	if err != nil {
 		return nil, err
 	}
-	return DecodeUserConfig(body)
+	return DecodeConfig(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1UserConfigsRename(ctx context.Context, req *UserConfigRenameRequest) (*UserConfig, error) {
+func (c *ApiServerCapi) PostV1ConfigsRename(ctx context.Context, req *ConfigRenameRequest) (*Config, error) {
 	if req == nil {
-		return nil, fmt.Errorf("PostV1UserConfigsRename request is nil")
+		return nil, fmt.Errorf("PostV1ConfigsRename request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/user/configs/rename", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v1/configs/rename", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -1088,14 +1126,14 @@ func (c *OpsagentHttpV1Capi) PostV1UserConfigsRename(ctx context.Context, req *U
 	if err != nil {
 		return nil, err
 	}
-	return DecodeUserConfig(body)
+	return DecodeConfig(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1UserConfigsDelete(ctx context.Context, req *UserConfigDeleteRequest) error {
+func (c *ApiServerCapi) PostV1ConfigsDelete(ctx context.Context, req *ConfigDeleteRequest) error {
 	if req == nil {
-		return fmt.Errorf("PostV1UserConfigsDelete request is nil")
+		return fmt.Errorf("PostV1ConfigsDelete request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/user/configs/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v1/configs/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return err
 	}
@@ -1106,7 +1144,7 @@ func (c *OpsagentHttpV1Capi) PostV1UserConfigsDelete(ctx context.Context, req *U
 	return nil
 }
 
-func (c *OpsagentHttpV1Capi) PostV1AssetsList(ctx context.Context, req *EmptyRequest) (*AssetList, error) {
+func (c *ApiServerCapi) PostV1AssetsList(ctx context.Context, req *EmptyRequest) (*AssetList, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AssetsList request is nil")
 	}
@@ -1125,7 +1163,7 @@ func (c *OpsagentHttpV1Capi) PostV1AssetsList(ctx context.Context, req *EmptyReq
 	return DecodeAssetList(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1AssetsGet(ctx context.Context, req *AssetGetRequest) (*Asset, error) {
+func (c *ApiServerCapi) PostV1AssetsGet(ctx context.Context, req *AssetGetRequest) (*Asset, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AssetsGet request is nil")
 	}
@@ -1144,7 +1182,7 @@ func (c *OpsagentHttpV1Capi) PostV1AssetsGet(ctx context.Context, req *AssetGetR
 	return DecodeAsset(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1AssetsSet(ctx context.Context, req *AssetSetRequest) (*Asset, error) {
+func (c *ApiServerCapi) PostV1AssetsSet(ctx context.Context, req *AssetSetRequest) (*Asset, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AssetsSet request is nil")
 	}
@@ -1163,7 +1201,7 @@ func (c *OpsagentHttpV1Capi) PostV1AssetsSet(ctx context.Context, req *AssetSetR
 	return DecodeAsset(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1AssetsUpload(ctx context.Context) (*Asset, error) {
+func (c *ApiServerCapi) PostV1AssetsUpload(ctx context.Context) (*Asset, error) {
 	resp, err := c.do(ctx, "POST", "/v1/assets/upload", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
@@ -1179,7 +1217,7 @@ func (c *OpsagentHttpV1Capi) PostV1AssetsUpload(ctx context.Context) (*Asset, er
 	return DecodeAsset(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1AssetsRename(ctx context.Context, req *AssetRenameRequest) (*Asset, error) {
+func (c *ApiServerCapi) PostV1AssetsRename(ctx context.Context, req *AssetRenameRequest) (*Asset, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AssetsRename request is nil")
 	}
@@ -1198,7 +1236,7 @@ func (c *OpsagentHttpV1Capi) PostV1AssetsRename(ctx context.Context, req *AssetR
 	return DecodeAsset(body)
 }
 
-func (c *OpsagentHttpV1Capi) PostV1AssetsDelete(ctx context.Context, req *AssetDeleteRequest) error {
+func (c *ApiServerCapi) PostV1AssetsDelete(ctx context.Context, req *AssetDeleteRequest) error {
 	if req == nil {
 		return fmt.Errorf("PostV1AssetsDelete request is nil")
 	}
@@ -1211,41 +1249,6 @@ func (c *OpsagentHttpV1Capi) PostV1AssetsDelete(ctx context.Context, req *AssetD
 		return c.ErrorHandler(ctx, resp)
 	}
 	return nil
-}
-
-func (c *OpsagentHttpV1Capi) PostV1EnrollmentList(ctx context.Context) (*EnrollmentRequestList, error) {
-	resp, err := c.do(ctx, "POST", "/v1/enrollment/list", nil, "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeEnrollmentRequestList(body)
-}
-
-func (c *OpsagentHttpV1Capi) PostV1EnrollmentAccept(ctx context.Context, req *EnrollmentAcceptRequest) (*EnrollmentRequestStatus, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1EnrollmentAccept request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/enrollment/accept", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeEnrollmentRequestStatus(body)
 }
 
 type OpsagentClusterV1Capi struct {

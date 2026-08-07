@@ -67,7 +67,7 @@ func newRuntime() (*runtime, error) {
 		Secrets:       secretsMgr,
 		Loader:        configService,
 		MigrationWake: configService.AssetMigrationWake(),
-		Config: func() *apigen.Settings {
+		Config: func() *apigen.ClusterSettings {
 			snapshot := configService.Snapshot()
 			return &snapshot.Settings
 		},

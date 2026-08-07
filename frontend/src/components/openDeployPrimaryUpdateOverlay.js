@@ -20,7 +20,7 @@ export function openDeployPrimaryUpdateOverlay(deployment, onClose) {
         versionError.val = '';
         updateError.val = '';
         try {
-            const response = await capi.postV1DeploymentVersions({deploymentId: deployment.id});
+            const response = await capi.postV1DeploymentsVersions({deploymentId: deployment.id});
             if (Number(response?.deploymentId || 0) !== Number(deployment.id || 0)) {
                 throw new Error('Version response did not attest the requested deployment.');
             }
@@ -46,9 +46,9 @@ export function openDeployPrimaryUpdateOverlay(deployment, onClose) {
         updateError.val = '';
         try {
             if (upgradeAll.val) {
-                await capi.postV1DeploymentUpgradeAll({targetVersion: selectedRelease.val});
+                await capi.postV1DeploymentsUpgradeAll({targetVersion: selectedRelease.val});
             } else {
-                await capi.postV1DeploymentUpdate({
+                await capi.postV1DeploymentsUpdate({
                     deploymentId: deployment.id,
                     version: deployment.currentVersion + 1,
                     targetVersion: selectedRelease.val,

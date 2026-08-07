@@ -131,7 +131,7 @@ func TestGenerateSecretRejectsBadRequests(t *testing.T) {
 // the generated policy, not in the handler.
 func TestGenerateSecretIsReachableWithoutSecretsAccess(t *testing.T) {
 	h, user := newAuthTestHandler(t)
-	server := httptest.NewServer(apigen.CreateOpsagentHttpV1Mux(h, &apigen.MuxConfig{
+	server := httptest.NewServer(apigen.CreateApiServerMux(h, &apigen.MuxConfig{
 		VerifyAuth:         h.VerifyAuth,
 		MaxRequestBodySize: 1 << 20,
 	}))

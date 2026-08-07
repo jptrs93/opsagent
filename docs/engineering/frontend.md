@@ -8,7 +8,7 @@ Key files:
 - `frontend/src/app.js` — bootstraps the app and dispatches routes.
 - `frontend/src/lib/router.js` — `currentPath` / `navigate` helpers over `popstate` + `history.pushState`.
 - `frontend/src/state/login.js` — authentication state management.
-- `frontend/src/state/deployments.js` — live state stream consumer (see `POST /v1/state/stream`).
+- `frontend/src/state/deployments.js` — live state stream consumer (see `POST /v1/global/state-stream`).
 - `frontend/src/pages/` — page-level components.
 - `frontend/src/components/` — reusable UI pieces.
 - `frontend/src/capi/` — generated API client (`capi.js`, `model.js`) plus the stream decoder helper.
@@ -44,18 +44,18 @@ The dashboard uses a split-pane layout:
 - Steps are tracked via a `van.state('password' | 'register' | 'done')`.
 
 ### Status (`pages/status.js`)
-- Consumes live deployment state from `POST /v1/state/stream` (binary protobuf stream via `AsyncIterable<State>`).
+- Consumes live deployment state from `POST /v1/global/state-stream` (binary protobuf stream via `AsyncIterable<State>`).
 - Renders one table row per deployment, sorted by OPENDEPLOY-last, then space, name, node, and id (deterministic across stream reconnects).
-- "Add deployment" button opens `components/createOverlay.js` to POST a typed `DeploymentCreateRequest` via `POST /v1/deployment/create`.
+- "Add deployment" button opens `components/createOverlay.js` to POST a typed `DeploymentCreateRequest` via `POST /v1/deployments/create`.
 - Each row (`components/statusCard.js`) shows deployment, node, prepare and runtime details, audit metadata, and deployment actions. Status and Version are vertically split into one oldest-first subcell per non-final scheduled instance during rollovers; a candidate uses its pinned target version until its runner reports a version.
-- The deploy overlay fetches available versions on demand via `POST /v1/deployment/versions`, lets the user edit the deployment spec form, and submits a typed `DeploymentUpdateRequest` via `POST /v1/deployment/update`.
-- Internal `opendeploy` and `opendeploy-net` deployments use dedicated release-only update overlays. The primary-node `opendeploy` overlay additionally offers "Upgrade all to this version", which submits to `POST /v1/deployment/upgrade-all`.
+- The deploy overlay fetches available versions on demand via `POST /v1/deployments/versions`, lets the user edit the deployment spec form, and submits a typed `DeploymentUpdateRequest` via `POST /v1/deployments/update`.
+- Internal `opendeploy` and `opendeploy-net` deployments use dedicated release-only update overlays. The primary-node `opendeploy` overlay additionally offers "Upgrade all to this version", which submits to `POST /v1/deployments/upgrade-all`.
 - The deployment editor card has independent UI and HCL editor surfaces over one API-shaped authoring document. Valid HCL updates the shared document; invalid HCL is retained privately while the UI continues to show the last valid state. CodeMirror is loaded only when Code mode is first opened.
 - Sidebar content is reused by the same `components/deploymentLogs.js` for prepare output and run output (switched by a mode flag), and `components/deploymentHistory.js` for the history view. All three show "Connection error" in the header on network failure.
 - Deployment history (`components/deploymentHistory.js`) color-codes entries: green for stable running, grey for other status transitions, orange for config changes.
 
 ### Cluster (`pages/cluster.js`)
-- Shows primary + worker machines and connection state via `GET /v1/cluster/status`.
+- Shows primary + worker machines and connection state via `GET /v1/nodes/status`.
 - Allows editing a machine's display name without changing its certificate or deployment identity.
 
 Deployment node selectors render `ClusterNode.name` and submit `ClusterNode.id` as `DeploymentCreateRequest.nodeId`.
@@ -65,7 +65,7 @@ Deployment node selectors render `ClusterNode.name` and submit `ClusterNode.id` 
 - `components/deploymentEditorWidget.js` owns the card shell, API actions, submission, and the persistent header/footer.
 - `components/deploymentConfigUiWidget.js` and `components/deploymentConfigCodeWidget.js` are independent middle surfaces.
 - `DeploymentCreationUpdate.document` is their shared API-shaped authoring boundary: `read()` returns identity, placement, spec, version, and desired state; `replace()` atomically applies a valid document.
-- `components/deploymentSource.js` defines pure source keys, validation requests, response attestation, and local flake-path rules. Existing update overlays hydrate persisted-source choices with one `POST /v1/deployment/versions` request. Their persisted Nix repository and flake path remain frontend-trusted while unchanged, including across commit selection, branch discovery, refresh, and stopped-to-running transitions; full commit and local flake-path checks still apply, and the backend authoritatively verifies running updates before persistence. Creates and updates with an edited repository or flake path require exact frontend preflight validation. `DeploymentCreationUpdate` owns independently sequenced repository, branch-commit, exact Nix, image discovery, and persisted-version state.
+- `components/deploymentSource.js` defines pure source keys, validation requests, response attestation, and local flake-path rules. Existing update overlays hydrate persisted-source choices with one `POST /v1/deployments/versions` request. Their persisted Nix repository and flake path remain frontend-trusted while unchanged, including across commit selection, branch discovery, refresh, and stopped-to-running transitions; full commit and local flake-path checks still apply, and the backend authoritatively verifies running updates before persistence. Creates and updates with an edited repository or flake path require exact frontend preflight validation. `DeploymentCreationUpdate` owns independently sequenced repository, branch-commit, exact Nix, image discovery, and persisted-version state.
 - Nix branches are discovery filters rather than persisted deployment state. Changing branches refreshes the commit list without changing or revalidating the selected commit; when that commit is absent from the returned branch it remains available as an injected option until the user explicitly selects another commit.
 - `components/deploymentHcl.js` implements the bounded HCL serializer/parser and resolves symbolic catalog references to API IDs. It does not evaluate general HCL expressions or interpolation.
 - HCL places `node = node("name")` directly in the root `deployment` block; the API-shaped authoring document continues to expose the resolved placement as `nodeId`.

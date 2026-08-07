@@ -1596,7 +1596,7 @@ func DecodeDeploymentVersionsRequest(b []byte) (*DeploymentVersionsRequest, erro
 	return &m, nil
 }
 
-func (m *ValidateSourceRequest) Encode() []byte {
+func (m *RepoValidateRequest) Encode() []byte {
 	var b []byte
 	if m.NixDockerBuild != nil {
 		b = AppendTag(b, 2, BytesType)
@@ -1609,8 +1609,8 @@ func (m *ValidateSourceRequest) Encode() []byte {
 	return b
 }
 
-func DecodeValidateSourceRequest(b []byte) (*ValidateSourceRequest, error) {
-	var m ValidateSourceRequest
+func DecodeRepoValidateRequest(b []byte) (*RepoValidateRequest, error) {
+	var m RepoValidateRequest
 	var num Number
 	var typ Type
 	var err error
@@ -2058,7 +2058,7 @@ func DecodeValidateContainerImageSource(b []byte) (*ValidateContainerImageSource
 	return &m, nil
 }
 
-func (m *ValidateSourceResponse) Encode() []byte {
+func (m *RepoValidateResponse) Encode() []byte {
 	var b []byte
 	if m.NixDockerBuild != nil {
 		b = AppendTag(b, 2, BytesType)
@@ -2071,8 +2071,8 @@ func (m *ValidateSourceResponse) Encode() []byte {
 	return b
 }
 
-func DecodeValidateSourceResponse(b []byte) (*ValidateSourceResponse, error) {
-	var m ValidateSourceResponse
+func DecodeRepoValidateResponse(b []byte) (*RepoValidateResponse, error) {
+	var m RepoValidateResponse
 	var num Number
 	var typ Type
 	var err error
@@ -3308,14 +3308,14 @@ func DecodeEnrollmentRequestList(b []byte) (*EnrollmentRequestList, error) {
 	return &m, nil
 }
 
-func (m *EnrollmentInfo) Encode() []byte {
+func (m *NodeEnrollmentInfo) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.EnrollmentTlsSpkiSha256, 1)
 	return b
 }
 
-func DecodeEnrollmentInfo(b []byte) (*EnrollmentInfo, error) {
-	var m EnrollmentInfo
+func DecodeNodeEnrollmentInfo(b []byte) (*NodeEnrollmentInfo, error) {
+	var m NodeEnrollmentInfo
 	var num Number
 	var typ Type
 	var err error
@@ -4763,7 +4763,7 @@ func DecodeSecretUnlockRequest(b []byte) (*SecretUnlockRequest, error) {
 	return &m, nil
 }
 
-func (m *UserConfig) Encode() []byte {
+func (m *Config) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Name, 1)
 	b = AppendStringField(b, m.Value, 3)
@@ -4776,8 +4776,8 @@ func (m *UserConfig) Encode() []byte {
 	return b
 }
 
-func DecodeUserConfig(b []byte) (*UserConfig, error) {
-	var m UserConfig
+func DecodeConfig(b []byte) (*Config, error) {
+	var m Config
 	var num Number
 	var typ Type
 	var err error
@@ -4813,7 +4813,7 @@ func DecodeUserConfig(b []byte) (*UserConfig, error) {
 	return &m, nil
 }
 
-func (m *UserConfigList) Encode() []byte {
+func (m *ConfigList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
 		if item == nil {
@@ -4825,8 +4825,8 @@ func (m *UserConfigList) Encode() []byte {
 	return b
 }
 
-func DecodeUserConfigList(b []byte) (*UserConfigList, error) {
-	var m UserConfigList
+func DecodeConfigList(b []byte) (*ConfigList, error) {
+	var m ConfigList
 	var num Number
 	var typ Type
 	var err error
@@ -4840,8 +4840,8 @@ func DecodeUserConfigList(b []byte) (*UserConfigList, error) {
 		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *UserConfig
-				item, err = DecodeUserConfig(msgBytes)
+				var item *Config
+				item, err = DecodeConfig(msgBytes)
 				if err == nil {
 					m.Items = append(m.Items, item)
 				}
@@ -4856,7 +4856,7 @@ func DecodeUserConfigList(b []byte) (*UserConfigList, error) {
 	return &m, nil
 }
 
-func (m *UserConfigSetRequest) Encode() []byte {
+func (m *ConfigSetRequest) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Name, 1)
 	b = AppendStringField(b, m.Value, 3)
@@ -4872,8 +4872,8 @@ func (m *UserConfigSetRequest) Encode() []byte {
 	return b
 }
 
-func DecodeUserConfigSetRequest(b []byte) (*UserConfigSetRequest, error) {
-	var m UserConfigSetRequest
+func DecodeConfigSetRequest(b []byte) (*ConfigSetRequest, error) {
+	var m ConfigSetRequest
 	var num Number
 	var typ Type
 	var err error
@@ -4911,15 +4911,15 @@ func DecodeUserConfigSetRequest(b []byte) (*UserConfigSetRequest, error) {
 	return &m, nil
 }
 
-func (m *UserConfigRenameRequest) Encode() []byte {
+func (m *ConfigRenameRequest) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Name, 1)
 	b = AppendStringField(b, m.NewName, 2)
 	return b
 }
 
-func DecodeUserConfigRenameRequest(b []byte) (*UserConfigRenameRequest, error) {
-	var m UserConfigRenameRequest
+func DecodeConfigRenameRequest(b []byte) (*ConfigRenameRequest, error) {
+	var m ConfigRenameRequest
 	var num Number
 	var typ Type
 	var err error
@@ -4943,14 +4943,14 @@ func DecodeUserConfigRenameRequest(b []byte) (*UserConfigRenameRequest, error) {
 	return &m, nil
 }
 
-func (m *UserConfigDeleteRequest) Encode() []byte {
+func (m *ConfigDeleteRequest) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Name, 1)
 	return b
 }
 
-func DecodeUserConfigDeleteRequest(b []byte) (*UserConfigDeleteRequest, error) {
-	var m UserConfigDeleteRequest
+func DecodeConfigDeleteRequest(b []byte) (*ConfigDeleteRequest, error) {
+	var m ConfigDeleteRequest
 	var num Number
 	var typ Type
 	var err error
@@ -5470,8 +5470,8 @@ func DecodeState(b []byte) (*State, error) {
 		case 14:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *UserConfigReferenceList
-				item, err = DecodeUserConfigReferenceList(msgBytes)
+				var item *ConfigReferenceList
+				item, err = DecodeConfigReferenceList(msgBytes)
 				if err == nil {
 					m.UserConfigsSnapshot = item
 				}
@@ -5479,8 +5479,8 @@ func DecodeState(b []byte) (*State, error) {
 		case 15:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *UserConfigReference
-				item, err = DecodeUserConfigReference(msgBytes)
+				var item *ConfigReference
+				item, err = DecodeConfigReference(msgBytes)
 				if err == nil {
 					m.UserConfigUpdate = item
 				}
@@ -5515,8 +5515,8 @@ func DecodeState(b []byte) (*State, error) {
 		case 19:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *UserConfigList
-				item, err = DecodeUserConfigList(msgBytes)
+				var item *ConfigList
+				item, err = DecodeConfigList(msgBytes)
 				if err == nil {
 					m.UserConfigValuesSnapshot = item
 				}
@@ -5524,8 +5524,8 @@ func DecodeState(b []byte) (*State, error) {
 		case 20:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *UserConfig
-				item, err = DecodeUserConfig(msgBytes)
+				var item *Config
+				item, err = DecodeConfig(msgBytes)
 				if err == nil {
 					m.UserConfigValueUpdate = item
 				}
@@ -5623,8 +5623,8 @@ func DecodeState(b []byte) (*State, error) {
 		case 31:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *ConfigVersion
-				item, err = DecodeConfigVersion(msgBytes)
+				var item *PrimaryConfigVersion
+				item, err = DecodePrimaryConfigVersion(msgBytes)
 				if err == nil {
 					m.ConfigSnapshot = *item
 				}
@@ -5811,8 +5811,8 @@ func DecodeGlobalState(b []byte) (*GlobalState, error) {
 		case 3:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *UserConfigList
-				item, err = DecodeUserConfigList(msgBytes)
+				var item *ConfigList
+				item, err = DecodeConfigList(msgBytes)
 				if err == nil {
 					m.Configs = item
 				}
@@ -5845,14 +5845,14 @@ func DecodeGlobalState(b []byte) (*GlobalState, error) {
 	return &m, nil
 }
 
-func (m *DeploymentStateRequest) Encode() []byte {
+func (m *DeploymentGetRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
 	return b
 }
 
-func DecodeDeploymentStateRequest(b []byte) (*DeploymentStateRequest, error) {
-	var m DeploymentStateRequest
+func DecodeDeploymentGetRequest(b []byte) (*DeploymentGetRequest, error) {
+	var m DeploymentGetRequest
 	var num Number
 	var typ Type
 	var err error
@@ -6072,7 +6072,7 @@ func DecodeSecretReferenceList(b []byte) (*SecretReferenceList, error) {
 	return &m, nil
 }
 
-func (m *UserConfigReference) Encode() []byte {
+func (m *ConfigReference) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendStringField(b, m.Name, 2)
@@ -6082,8 +6082,8 @@ func (m *UserConfigReference) Encode() []byte {
 	return b
 }
 
-func DecodeUserConfigReference(b []byte) (*UserConfigReference, error) {
-	var m UserConfigReference
+func DecodeConfigReference(b []byte) (*ConfigReference, error) {
+	var m ConfigReference
 	var num Number
 	var typ Type
 	var err error
@@ -6113,7 +6113,7 @@ func DecodeUserConfigReference(b []byte) (*UserConfigReference, error) {
 	return &m, nil
 }
 
-func (m *UserConfigReferenceList) Encode() []byte {
+func (m *ConfigReferenceList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
 		if item == nil {
@@ -6125,8 +6125,8 @@ func (m *UserConfigReferenceList) Encode() []byte {
 	return b
 }
 
-func DecodeUserConfigReferenceList(b []byte) (*UserConfigReferenceList, error) {
-	var m UserConfigReferenceList
+func DecodeConfigReferenceList(b []byte) (*ConfigReferenceList, error) {
+	var m ConfigReferenceList
 	var num Number
 	var typ Type
 	var err error
@@ -6140,8 +6140,8 @@ func DecodeUserConfigReferenceList(b []byte) (*UserConfigReferenceList, error) {
 		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *UserConfigReference
-				item, err = DecodeUserConfigReference(msgBytes)
+				var item *ConfigReference
+				item, err = DecodeConfigReference(msgBytes)
 				if err == nil {
 					m.Items = append(m.Items, item)
 				}
@@ -6732,7 +6732,7 @@ func DecodeClusterNodeStatusList(b []byte) (*ClusterNodeStatusList, error) {
 	return &m, nil
 }
 
-func (m *ClusterStatusResponse) Encode() []byte {
+func (m *NodeStatusResponse) Encode() []byte {
 	var b []byte
 	for _, item := range m.Machines {
 		if item == nil {
@@ -6744,8 +6744,8 @@ func (m *ClusterStatusResponse) Encode() []byte {
 	return b
 }
 
-func DecodeClusterStatusResponse(b []byte) (*ClusterStatusResponse, error) {
-	var m ClusterStatusResponse
+func DecodeNodeStatusResponse(b []byte) (*NodeStatusResponse, error) {
+	var m NodeStatusResponse
 	var num Number
 	var typ Type
 	var err error
@@ -7697,13 +7697,13 @@ func DecodeBoolSetting(b []byte) (*BoolSetting, error) {
 	return &m, nil
 }
 
-func (m Config) IsZero() bool {
+func (m PrimaryConfig) IsZero() bool {
 	return m.Settings.IsZero() &&
 		m.MasterPasswordHash == "" &&
 		len(m.NetworkUlaPrefix) == 0
 }
 
-func (m *Config) Encode() []byte {
+func (m *PrimaryConfig) Encode() []byte {
 	var b []byte
 	if !m.Settings.IsZero() {
 		b = AppendTag(b, 1, BytesType)
@@ -7714,8 +7714,8 @@ func (m *Config) Encode() []byte {
 	return b
 }
 
-func DecodeConfig(b []byte) (*Config, error) {
-	var m Config
+func DecodePrimaryConfig(b []byte) (*PrimaryConfig, error) {
+	var m PrimaryConfig
 	var num Number
 	var typ Type
 	var err error
@@ -7729,8 +7729,8 @@ func DecodeConfig(b []byte) (*Config, error) {
 		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *Settings
-				item, err = DecodeSettings(msgBytes)
+				var item *ClusterSettings
+				item, err = DecodeClusterSettings(msgBytes)
 				if err == nil {
 					m.Settings = *item
 				}
@@ -7749,13 +7749,13 @@ func DecodeConfig(b []byte) (*Config, error) {
 	return &m, nil
 }
 
-func (m ConfigVersion) IsZero() bool {
+func (m PrimaryConfigVersion) IsZero() bool {
 	return m.Version == 0 &&
 		m.UpdatedAt.IsZero() &&
 		m.Config.IsZero()
 }
 
-func (m *ConfigVersion) Encode() []byte {
+func (m *PrimaryConfigVersion) Encode() []byte {
 	var b []byte
 	b = AppendInt64Field(b, m.Version, 1)
 	b = AppendInt64FromTime(b, m.UpdatedAt, 2)
@@ -7766,8 +7766,8 @@ func (m *ConfigVersion) Encode() []byte {
 	return b
 }
 
-func DecodeConfigVersion(b []byte) (*ConfigVersion, error) {
-	var m ConfigVersion
+func DecodePrimaryConfigVersion(b []byte) (*PrimaryConfigVersion, error) {
+	var m PrimaryConfigVersion
 	var num Number
 	var typ Type
 	var err error
@@ -7785,8 +7785,8 @@ func DecodeConfigVersion(b []byte) (*ConfigVersion, error) {
 		case 3:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *Config
-				item, err = DecodeConfig(msgBytes)
+				var item *PrimaryConfig
+				item, err = DecodePrimaryConfig(msgBytes)
 				if err == nil {
 					m.Config = *item
 				}
@@ -7801,7 +7801,7 @@ func DecodeConfigVersion(b []byte) (*ConfigVersion, error) {
 	return &m, nil
 }
 
-func (m Settings) IsZero() bool {
+func (m ClusterSettings) IsZero() bool {
 	return m.HttpWeb.IsZero() &&
 		m.HttpsWeb.IsZero() &&
 		m.Cluster.IsZero() &&
@@ -7810,7 +7810,7 @@ func (m Settings) IsZero() bool {
 		m.LargeAssets.IsZero()
 }
 
-func (m *Settings) Encode() []byte {
+func (m *ClusterSettings) Encode() []byte {
 	var b []byte
 	if !m.HttpWeb.IsZero() {
 		b = AppendTag(b, 1, BytesType)
@@ -7839,8 +7839,8 @@ func (m *Settings) Encode() []byte {
 	return b
 }
 
-func DecodeSettings(b []byte) (*Settings, error) {
-	var m Settings
+func DecodeClusterSettings(b []byte) (*ClusterSettings, error) {
+	var m ClusterSettings
 	var num Number
 	var typ Type
 	var err error
@@ -7872,8 +7872,8 @@ func DecodeSettings(b []byte) (*Settings, error) {
 		case 3:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *ClusterSettings
-				item, err = DecodeClusterSettings(msgBytes)
+				var item *ClusterListenSettings
+				item, err = DecodeClusterListenSettings(msgBytes)
 				if err == nil {
 					m.Cluster = *item
 				}
@@ -8087,12 +8087,12 @@ func DecodeHttpsWebSettings(b []byte) (*HttpsWebSettings, error) {
 	return &m, nil
 }
 
-func (m ClusterSettings) IsZero() bool {
+func (m ClusterListenSettings) IsZero() bool {
 	return m.Listen.IsZero() &&
 		m.EnrollmentListen.IsZero()
 }
 
-func (m *ClusterSettings) Encode() []byte {
+func (m *ClusterListenSettings) Encode() []byte {
 	var b []byte
 	if !m.Listen.IsZero() {
 		b = AppendTag(b, 1, BytesType)
@@ -8105,8 +8105,8 @@ func (m *ClusterSettings) Encode() []byte {
 	return b
 }
 
-func DecodeClusterSettings(b []byte) (*ClusterSettings, error) {
-	var m ClusterSettings
+func DecodeClusterListenSettings(b []byte) (*ClusterListenSettings, error) {
+	var m ClusterListenSettings
 	var num Number
 	var typ Type
 	var err error

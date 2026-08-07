@@ -16,7 +16,7 @@ func TestPasskeyOriginsIncludesExtraOrigins(t *testing.T) {
 
 	h := &Handler{
 		ConfigService: &config.Service{},
-		Config: &apigen.Settings{
+		Config: &apigen.ClusterSettings{
 			HttpWeb: apigen.HttpWebSettings{Enabled: apigen.BoolSetting{Value: false}},
 			HttpsWeb: apigen.HttpsWebSettings{
 				Enabled:   apigen.BoolSetting{Value: true},

@@ -11,11 +11,11 @@ var UserConfigNameRequiredErr = apigen.NewApiErr("Config name is required", "use
 var UserConfigAlreadyExistsErr = apigen.NewApiErr("Config name already exists", "user_config_name_exists", http.StatusBadRequest)
 var UserConfigNotFoundErr = apigen.NewApiErr("Config not found", "user_config_not_found", http.StatusNotFound)
 
-func (h *Handler) PostV1UserConfigsList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.UserConfigList, error) {
-	return &apigen.UserConfigList{Items: h.Store.ListUserConfigs()}, nil
+func (h *Handler) PostV1ConfigsList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ConfigList, error) {
+	return &apigen.ConfigList{Items: h.Store.ListUserConfigs()}, nil
 }
 
-func (h *Handler) PostV1UserConfigsSet(ctx apigen.Context, req *apigen.UserConfigSetRequest) (*apigen.UserConfig, error) {
+func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequest) (*apigen.Config, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, UserConfigNameRequiredErr
@@ -44,7 +44,7 @@ func (h *Handler) PostV1UserConfigsSet(ctx apigen.Context, req *apigen.UserConfi
 	return cfg, nil
 }
 
-func (h *Handler) PostV1UserConfigsRename(ctx apigen.Context, req *apigen.UserConfigRenameRequest) (*apigen.UserConfig, error) {
+func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRenameRequest) (*apigen.Config, error) {
 	name := strings.TrimSpace(req.Name)
 	newName := strings.TrimSpace(req.NewName)
 	if name == "" || newName == "" {
@@ -60,7 +60,7 @@ func (h *Handler) PostV1UserConfigsRename(ctx apigen.Context, req *apigen.UserCo
 	return cfg, nil
 }
 
-func (h *Handler) PostV1UserConfigsDelete(ctx apigen.Context, req *apigen.UserConfigDeleteRequest) error {
+func (h *Handler) PostV1ConfigsDelete(ctx apigen.Context, req *apigen.ConfigDeleteRequest) error {
 	unlockReferences := h.ConfigService.LockReferences()
 	defer unlockReferences()
 	name := strings.TrimSpace(req.Name)

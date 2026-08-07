@@ -86,7 +86,7 @@ Each session gets a row in `agent_sessions` (`id`, `user_id`, `created_at`, `exp
 
 `POST /v1/agent-sessions/revoke` (`default`) stops a session: a pending row becomes `REJECTED`, anything else `REVOKED`. This is real revocation, not a display change: `VerifyAuth` calls `verifyAgentSession`, which for any token carrying a `jti` loads the row and rejects the request unless the status is `APPROVED` and the token's hash matches the stored one. Bootstrap and browser session tokens carry no `jti` and keep the stateless fast path, so the extra indexed read applies only to agent-token traffic.
 
-`POST /v1/agent-sessions/list` returns the caller's own sessions, newest first, and never returns a token. The web UI does not call it: sessions reach the browser through `PostV1StateStream`, which is the one field in `State` filtered to the connected user rather than broadcast. List, approve, and revoke are all scoped by `ctx.User.ID`, so one operator cannot act on another's session by guessing its id — but note this is scoping rather than isolation: every user holds the same scopes and there is no admin role.
+`POST /v1/agent-sessions/list` returns the caller's own sessions, newest first, and never returns a token. The web UI does not call it: sessions reach the browser through `PostV1GlobalStateStream`, which is the one field in `State` filtered to the connected user rather than broadcast. List, approve, and revoke are all scoped by `ctx.User.ID`, so one operator cannot act on another's session by guessing its id — but note this is scoping rather than isolation: every user holds the same scopes and there is no admin role.
 
 Rows are not garbage collected; finished sessions accumulate as a record of what was issued and from where. Rotating the signing key still invalidates all outstanding tokens, sessions included.
 
@@ -123,7 +123,7 @@ Credentials are persisted inside each user's `data_blob` column in the SQLite `u
 
 ## Access control
 
-Each route in `api.proto` declares an `AccessPolicy`:
+Each route in the `api-contract/*_service.proto` files declares an `AccessPolicy`:
 - `NO_AUTH`: no token required.
 - `ANY_OF`: requires a valid JWT with at least one of the listed scopes.
 

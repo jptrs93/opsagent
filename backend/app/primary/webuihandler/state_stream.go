@@ -7,10 +7,10 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-// PostV1StateStream delivers the current scheduled instance snapshot to the UI,
+// PostV1GlobalStateStream delivers the current scheduled instance snapshot to the UI,
 // then forwards per-instance updates as they happen, with periodic heartbeats to
 // keep the HTTP connection alive.
-func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State, error] {
+func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.State, error] {
 	return func(yield func(*apigen.State, error) bool) {
 		configs, configUpdatesCh, configUpdatesUnsub := h.Store.MustFetchDeploymentConfigSnapshotAndSubscribe(nil)
 		defer configUpdatesUnsub()
@@ -80,10 +80,10 @@ func (h *Handler) PostV1StateStream(ctx apigen.Context) iter.Seq2[*apigen.State,
 			UsersSnapshot:              h.Store.ListUsersPublic(),
 			EnrollmentsSnapshot:        &apigen.EnrollmentRequestList{Items: enrollments},
 			SecretsSnapshot:            &apigen.SecretReferenceList{Items: h.Store.ListSecretReferences()},
-			UserConfigsSnapshot:        &apigen.UserConfigReferenceList{Items: h.Store.ListUserConfigReferences()},
+			UserConfigsSnapshot:        &apigen.ConfigReferenceList{Items: h.Store.ListUserConfigReferences()},
 			SecretsStatusSnapshot:      &secretStatus,
 			SecretMetasSnapshot:        &apigen.SecretList{Items: h.listAllSecretMetas()},
-			UserConfigValuesSnapshot:   &apigen.UserConfigList{Items: h.Store.ListAllUserConfigs()},
+			UserConfigValuesSnapshot:   &apigen.ConfigList{Items: h.Store.ListAllUserConfigs()},
 			SpacesSnapshot:             &apigen.SpaceList{Items: h.Store.ListSpaces()},
 			AssetsSnapshot:             &apigen.AssetList{Items: h.Store.ListAllAssetVersions()},
 			NodesSnapshot:              &apigen.ClusterNodeList{Items: h.Store.ListClusterNodes()},

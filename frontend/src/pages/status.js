@@ -81,7 +81,7 @@ function deleteDeploymentOverlay(deployment, close) {
         error.val = '';
         saving.val = true;
         try {
-            await capi.postV1DeploymentDelete({
+            await capi.postV1DeploymentsDelete({
                 deploymentId: deployment.id,
                 version: (deployment.currentVersion || 0) + 1,
             });
@@ -157,7 +157,7 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
             } else {
                 request.targetVersion = targetVersion;
             }
-            await capi.postV1DeploymentUpdate(request);
+            await capi.postV1DeploymentsUpdate(request);
             close();
         } catch (e) {
             error.val = e?.message || 'Reverting target version failed.';

@@ -26,11 +26,11 @@ export function createOverlay(onClose, onCreated, opts = {}) {
             configRefs: userConfigRefsS,
         },
         actions: {
-            loadNodes: () => capi.getV1ClusterStatus(),
-            validateSource: request => capi.postV1RepoValidate(request),
+            loadNodes: () => capi.getV1NodesStatus(),
+            validateSource: request => capi.postV1ReposValidate(request),
             loadAsset: request => capi.postV1AssetsGet(request),
             saveAsset: request => capi.postV1AssetsSet(request),
-            createDeployment: request => capi.postV1DeploymentCreate(request),
+            createDeployment: request => capi.postV1DeploymentsCreate(request),
         },
         onCancel: onClose,
         onSuccess: () => {
