@@ -28,18 +28,29 @@ func ValidAssetKey(key string) bool {
 	return !strings.ContainsAny(key, "/\\\x00")
 }
 
-func assetMetaFromRows(a Asset, v AssetVersion) *apigen.AssetMeta {
+// assetMetaFromRow builds the wire meta: identity at the root, version facts
+// only in VersionRefs (newest first). refs must be non-empty — an asset with
+// no published version is never surfaced as a meta.
+func assetMetaFromRow(a Asset, refs []*apigen.AssetVersionMeta) *apigen.AssetMeta {
 	return &apigen.AssetMeta{
 		ID:               int32(a.ID),
 		Key:              a.Key,
 		SpaceID:          int32(a.SpaceID),
 		AssetDirectoryID: int32(a.AssetDirectoryID),
+		CreatedAt:        time.UnixMilli(a.CreatedAt),
 		CreatedBy:        int32(a.CreatedBy),
-		AssetVersionID:   int32(v.ID),
-		CreatedAt:        time.UnixMilli(v.CreatedAt),
-		Version:          int32(v.Version),
-		Location:         v.Location,
-		SizeBytes:        int32(v.SizeBytes),
+		VersionRefs:      refs,
+	}
+}
+
+func assetVersionMetaFromRow(v AssetVersion) *apigen.AssetVersionMeta {
+	return &apigen.AssetVersionMeta{
+		ID:        int32(v.ID),
+		Version:   int32(v.Version),
+		CreatedAt: time.UnixMilli(v.CreatedAt),
+		CreatedBy: int32(v.CreatedBy),
+		SizeBytes: int32(v.SizeBytes),
+		Location:  v.Location,
 	}
 }
 
@@ -59,33 +70,35 @@ func assetVersionFromRows(a Asset, v AssetVersion) *apigen.AssetVersion {
 }
 
 func (s *PrimaryStorage) ListAssets() []*apigen.AssetMeta {
-	rows, err := s.q.ListLatestAssets(context.Background())
+	rows, err := s.q.ListAssetRows(context.Background())
 	if err != nil {
-		panic(fmt.Sprintf("ListLatestAssets: %v", err))
+		panic(fmt.Sprintf("ListAssetRows: %v", err))
 	}
-	versionRows, err := s.q.ListPublishedAssetVersionIDs(context.Background())
+	versionRows, err := s.q.ListPublishedAssetVersionMetas(context.Background())
 	if err != nil {
-		panic(fmt.Sprintf("ListPublishedAssetVersionIDs: %v", err))
+		panic(fmt.Sprintf("ListPublishedAssetVersionMetas: %v", err))
 	}
-	versionRefs := make(map[int64][]*apigen.AssetVersionRef, len(rows))
+	// The query orders by version DESC, so each asset's slice is newest first.
+	versionRefs := make(map[int64][]*apigen.AssetVersionMeta, len(rows))
 	for _, v := range versionRows {
-		versionRefs[v.AssetID] = append(versionRefs[v.AssetID], &apigen.AssetVersionRef{ID: int32(v.ID), Version: int32(v.Version)})
+		versionRefs[v.AssetID] = append(versionRefs[v.AssetID], &apigen.AssetVersionMeta{
+			ID:        int32(v.ID),
+			Version:   int32(v.Version),
+			CreatedAt: time.UnixMilli(v.CreatedAt),
+			CreatedBy: int32(v.CreatedBy),
+			SizeBytes: int32(v.SizeBytes),
+			Location:  v.Location,
+		})
 	}
 	out := make([]*apigen.AssetMeta, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, &apigen.AssetMeta{
-			ID:               int32(r.ID),
-			Key:              r.Key,
-			SpaceID:          int32(r.SpaceID),
-			AssetDirectoryID: int32(r.AssetDirectoryID),
-			CreatedBy:        int32(r.CreatedBy),
-			AssetVersionID:   int32(r.AssetVersionID),
-			CreatedAt:        time.UnixMilli(r.CreatedAt),
-			Version:          int32(r.Version),
-			Location:         r.Location,
-			SizeBytes:        int32(r.SizeBytes),
-			VersionRefs:      versionRefs[r.ID],
-		})
+		refs := versionRefs[r.ID]
+		if len(refs) == 0 {
+			// No published version yet (e.g. a pending first upload): not
+			// listable.
+			continue
+		}
+		out = append(out, assetMetaFromRow(r, refs))
 	}
 	return out
 }
@@ -167,28 +180,25 @@ func (s *PrimaryStorage) GetAssetRow(assetID int32) (Asset, bool) {
 	return r, true
 }
 
-// GetAssetMeta returns the asset with its latest published version's metadata.
+// GetAssetMeta returns the asset with its published version index, or false
+// when the asset does not exist or has no published version yet.
 func (s *PrimaryStorage) GetAssetMeta(assetID int32) (*apigen.AssetMeta, bool) {
 	a, ok := s.GetAssetRow(assetID)
 	if !ok {
 		return nil, false
 	}
-	v, err := s.q.GetLatestAssetVersion(context.Background(), a.ID)
-	if err == sql.ErrNoRows {
-		return nil, false
-	}
-	if err != nil {
-		panic(fmt.Sprintf("GetLatestAssetVersion: %v", err))
-	}
-	meta := assetMetaFromRows(a, v)
 	versions, err := s.q.ListAssetVersions(context.Background(), a.ID)
 	if err != nil {
 		panic(fmt.Sprintf("ListAssetVersions: %v", err))
 	}
-	for _, row := range versions {
-		meta.VersionRefs = append(meta.VersionRefs, &apigen.AssetVersionRef{ID: int32(row.ID), Version: int32(row.Version)})
+	if len(versions) == 0 {
+		return nil, false
 	}
-	return meta, true
+	refs := make([]*apigen.AssetVersionMeta, 0, len(versions))
+	for i := len(versions) - 1; i >= 0; i-- { // query is oldest first; refs are newest first
+		refs = append(refs, assetVersionMetaFromRow(versions[i]))
+	}
+	return assetMetaFromRow(a, refs), true
 }
 
 // GetAssetInRootByKey resolves an asset by key in a space's implicit root
@@ -479,17 +489,21 @@ func (s *PrimaryStorage) RenameAssetKey(assetID int32, newKey string) (*apigen.A
 		}
 		a.Key = newKey
 	}
-	v, err := q.GetLatestAssetVersion(ctx, a.ID)
-	if err == sql.ErrNoRows {
-		return nil, ErrAssetNotFound
-	}
+	versions, err := q.ListAssetVersions(ctx, a.ID)
 	if err != nil {
-		return nil, fmt.Errorf("load renamed asset version: %w", err)
+		return nil, fmt.Errorf("load renamed asset versions: %w", err)
+	}
+	if len(versions) == 0 {
+		return nil, ErrAssetNotFound
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit asset rename: %w", err)
 	}
-	return assetMetaFromRows(a, v), nil
+	refs := make([]*apigen.AssetVersionMeta, 0, len(versions))
+	for i := len(versions) - 1; i >= 0; i-- { // query is oldest first; refs are newest first
+		refs = append(refs, assetVersionMetaFromRow(versions[i]))
+	}
+	return assetMetaFromRow(a, refs), nil
 }
 
 func (s *PrimaryStorage) DeleteAssetVersionByID(assetVersionID int32) {

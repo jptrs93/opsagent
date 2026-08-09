@@ -800,23 +800,23 @@ type ConfigDeleteRequest struct {
 }
 
 type AssetMeta struct {
-	Key              string             `json:"key,omitempty"`
-	CreatedAt        time.Time          `json:"created_at"`
-	Version          int32              `json:"version"`
-	Location         string             `json:"location,omitempty"`
-	SizeBytes        int32              `json:"size_bytes"`
-	ID               int32              `json:"id"`
-	SpaceID          int32              `json:"space_id"`
-	Deleted          bool               `json:"deleted"`
-	AssetVersionID   int32              `json:"asset_version_id"`
-	AssetDirectoryID int32              `json:"asset_directory_id"`
-	CreatedBy        int32              `json:"created_by"`
-	VersionRefs      []*AssetVersionRef `json:"version_refs,omitempty"`
+	Key              string              `json:"key,omitempty"`
+	CreatedAt        time.Time           `json:"created_at"`
+	ID               int32               `json:"id"`
+	SpaceID          int32               `json:"space_id"`
+	Deleted          bool                `json:"deleted"`
+	AssetDirectoryID int32               `json:"asset_directory_id"`
+	CreatedBy        int32               `json:"created_by"`
+	VersionRefs      []*AssetVersionMeta `json:"version_refs,omitempty"`
 }
 
-type AssetVersionRef struct {
-	ID      int32 `json:"id"`
-	Version int32 `json:"version"`
+type AssetVersionMeta struct {
+	ID        int32     `json:"id"`
+	Version   int32     `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+	CreatedBy int32     `json:"created_by"`
+	SizeBytes int32     `json:"size_bytes"`
+	Location  string    `json:"location,omitempty"`
 }
 
 type AssetVersion struct {

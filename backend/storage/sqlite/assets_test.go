@@ -45,9 +45,16 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 		t.Fatalf("asset list length = %d, want 1", len(items))
 	}
 	meta := items[0]
-	if meta.ID != v1.AssetID || meta.AssetVersionID != v2.ID || meta.Key != "nginx.conf" ||
-		meta.SpaceID != DefaultSpaceID || meta.Version != 2 || meta.SizeBytes != int32(len("events {}\nhttp {}\n")) {
+	if meta.ID != v1.AssetID || meta.Key != "nginx.conf" || meta.SpaceID != DefaultSpaceID {
 		t.Fatalf("asset meta = %+v", meta)
+	}
+	// version_refs are newest first: [0] is the latest.
+	if len(meta.VersionRefs) != 2 ||
+		meta.VersionRefs[0].ID != v2.ID || meta.VersionRefs[0].Version != 2 ||
+		meta.VersionRefs[0].SizeBytes != int32(len("events {}\nhttp {}\n")) ||
+		!meta.VersionRefs[0].CreatedAt.Equal(v2.CreatedAt) ||
+		meta.VersionRefs[1].ID != v1.ID || meta.VersionRefs[1].Version != 1 {
+		t.Fatalf("asset version refs = %+v", meta.VersionRefs)
 	}
 	allItems := store.ListAllAssetVersions()
 	if len(allItems) != 2 || allItems[0].ID != v1.ID || allItems[1].ID != v2.ID {
@@ -75,7 +82,8 @@ func TestRenameAssetPreservesVersions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rename asset: %v", err)
 	}
-	if renamed.ID != v1.AssetID || renamed.AssetVersionID != v2.ID || renamed.Key != "new-name" || renamed.Version != 2 {
+	if renamed.ID != v1.AssetID || renamed.Key != "new-name" ||
+		len(renamed.VersionRefs) != 2 || renamed.VersionRefs[0].ID != v2.ID || renamed.VersionRefs[0].Version != 2 {
 		t.Fatalf("renamed meta = %+v", renamed)
 	}
 	if _, ok := store.GetAssetInRootByKey(DefaultSpaceID, "old-name"); ok {

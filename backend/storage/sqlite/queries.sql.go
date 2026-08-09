@@ -1325,6 +1325,44 @@ func (q *Queries) ListAllUserConfigs(ctx context.Context) ([]Config, error) {
 	return items, nil
 }
 
+const listAssetRows = `-- name: ListAssetRows :many
+
+SELECT id, space_id, key, asset_directory_id, created_at, created_by
+FROM assets
+ORDER BY key
+`
+
+// === assets ===
+func (q *Queries) ListAssetRows(ctx context.Context) ([]Asset, error) {
+	rows, err := q.db.QueryContext(ctx, listAssetRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Asset
+	for rows.Next() {
+		var i Asset
+		if err := rows.Scan(
+			&i.ID,
+			&i.SpaceID,
+			&i.Key,
+			&i.AssetDirectoryID,
+			&i.CreatedAt,
+			&i.CreatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAssetVersions = `-- name: ListAssetVersions :many
 SELECT id, asset_id, version, created_at, created_by, location, size_bytes, blob
 FROM asset_versions
@@ -1428,69 +1466,6 @@ func (q *Queries) ListDeploymentConfigHistory(ctx context.Context, deploymentID 
 			&i.NodeID,
 			&i.SpecBlob,
 			&i.Deleted,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listLatestAssets = `-- name: ListLatestAssets :many
-
-SELECT a.id, a.key, a.space_id, a.asset_directory_id, a.created_by,
-       v.id AS asset_version_id, v.created_at, v.version, v.location, v.size_bytes
-FROM assets a
-JOIN asset_versions v ON v.asset_id = a.id
-JOIN (
-    SELECT asset_id, MAX(version) AS version
-    FROM asset_versions
-    WHERE location NOT LIKE 'pending://%'
-    GROUP BY asset_id
-) latest ON latest.asset_id = v.asset_id AND latest.version = v.version
-ORDER BY a.key
-`
-
-type ListLatestAssetsRow struct {
-	ID               int64
-	Key              string
-	SpaceID          int64
-	AssetDirectoryID int64
-	CreatedBy        int64
-	AssetVersionID   int64
-	CreatedAt        int64
-	Version          int64
-	Location         string
-	SizeBytes        int64
-}
-
-// === assets ===
-func (q *Queries) ListLatestAssets(ctx context.Context) ([]ListLatestAssetsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listLatestAssets)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListLatestAssetsRow
-	for rows.Next() {
-		var i ListLatestAssetsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Key,
-			&i.SpaceID,
-			&i.AssetDirectoryID,
-			&i.CreatedBy,
-			&i.AssetVersionID,
-			&i.CreatedAt,
-			&i.Version,
-			&i.Location,
-			&i.SizeBytes,
 		); err != nil {
 			return nil, err
 		}
@@ -1853,28 +1828,41 @@ func (q *Queries) ListPublicKeys(ctx context.Context) ([]PublicKey, error) {
 	return items, nil
 }
 
-const listPublishedAssetVersionIDs = `-- name: ListPublishedAssetVersionIDs :many
-SELECT asset_id, id, version FROM asset_versions
+const listPublishedAssetVersionMetas = `-- name: ListPublishedAssetVersionMetas :many
+SELECT asset_id, id, version, created_at, created_by, size_bytes, location
+FROM asset_versions
 WHERE location NOT LIKE 'pending://%'
-ORDER BY asset_id, version
+ORDER BY asset_id, version DESC
 `
 
-type ListPublishedAssetVersionIDsRow struct {
-	AssetID int64
-	ID      int64
-	Version int64
+type ListPublishedAssetVersionMetasRow struct {
+	AssetID   int64
+	ID        int64
+	Version   int64
+	CreatedAt int64
+	CreatedBy int64
+	SizeBytes int64
+	Location  string
 }
 
-func (q *Queries) ListPublishedAssetVersionIDs(ctx context.Context) ([]ListPublishedAssetVersionIDsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listPublishedAssetVersionIDs)
+func (q *Queries) ListPublishedAssetVersionMetas(ctx context.Context) ([]ListPublishedAssetVersionMetasRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPublishedAssetVersionMetas)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListPublishedAssetVersionIDsRow
+	var items []ListPublishedAssetVersionMetasRow
 	for rows.Next() {
-		var i ListPublishedAssetVersionIDsRow
-		if err := rows.Scan(&i.AssetID, &i.ID, &i.Version); err != nil {
+		var i ListPublishedAssetVersionMetasRow
+		if err := rows.Scan(
+			&i.AssetID,
+			&i.ID,
+			&i.Version,
+			&i.CreatedAt,
+			&i.CreatedBy,
+			&i.SizeBytes,
+			&i.Location,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

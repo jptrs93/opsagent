@@ -269,7 +269,7 @@ const handleStateMessage = (message) => {
 
 const sortByName = (items) => [...items].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 const sortSpaces = (items) => [...items].sort((a, b) => (a.id || 0) - (b.id || 0) || (a.name || '').localeCompare(b.name || ''));
-const sortAssets = (items) => [...items].sort((a, b) => (a.key || '').localeCompare(b.key || '') || Number(a.version || 0) - Number(b.version || 0));
+const sortAssets = (items) => [...items].sort((a, b) => (a.key || '').localeCompare(b.key || '') || Number(a.id || 0) - Number(b.id || 0));
 
 const refreshMachinesFromNodes = () => {
     const statusesByNodeId = new Map((nodeStatusesS.val || []).map((status) => [status.nodeId, status]));

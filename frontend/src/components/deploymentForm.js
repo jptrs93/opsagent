@@ -1102,30 +1102,29 @@ function assetPreviewButton(assetValue, onPreview, positionClass = 'right-1') {
 }
 
 function latestAssetVersionForKey(assets, key) {
-    let latest = 0;
     for (const asset of assets || []) {
-        if ((asset?.key || '') !== key) continue;
-        latest = Math.max(latest, Number(asset.version || 0));
+        if ((asset?.key || '') === key) return Number(asset.versionRefs?.[0]?.version || 0);
     }
-    return latest;
+    return 0;
 }
 
 // Options carry both ids: assetVersionId is what the spec pins, assetVersionId
 // of the latest published version for normal options; assetId is the stable
 // identity the editor and preview need.
 function assetOptionFromMeta(meta) {
+    const latest = meta.versionRefs?.[0];
     return {
         assetId: Number(meta.id || 0),
-        assetVersionId: Number(meta.assetVersionId || 0),
+        assetVersionId: Number(latest?.id || 0),
         key: meta.key || '',
-        version: Number(meta.version || 0),
+        version: Number(latest?.version || 0),
         spaceId: Number(meta.spaceId || 0),
     };
 }
 
 function versionedAssetOptions(assets, selectedID) {
     const options = (assets || [])
-        .filter(meta => meta && meta.assetVersionId)
+        .filter(meta => meta && meta.versionRefs?.[0]?.id)
         .map(assetOptionFromMeta);
     const sel = Number(selectedID || 0);
     if (sel && !options.some(option => option.assetVersionId === sel)) {

@@ -676,21 +676,21 @@
  * @typedef {Object} AssetMeta
  * @property {string} key
  * @property {Date} createdAt
- * @property {number} version
- * @property {string} location
- * @property {number} sizeBytes
  * @property {number} id
  * @property {number} spaceId
  * @property {boolean} deleted
- * @property {number} assetVersionId
  * @property {number} assetDirectoryId
  * @property {number} createdBy
- * @property {AssetVersionRef[]} versionRefs
+ * @property {AssetVersionMeta[]} versionRefs
  */
 /**
- * @typedef {Object} AssetVersionRef
+ * @typedef {Object} AssetVersionMeta
  * @property {number} id
  * @property {number} version
+ * @property {Date} createdAt
+ * @property {number} createdBy
+ * @property {number} sizeBytes
+ * @property {string} location
  */
 /**
  * @typedef {Object} AssetVersion
@@ -9225,15 +9225,6 @@ export function writeAssetMeta(message, writer) {
     if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
     }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.version);
-    }
-    if (message.location !== undefined && message.location !== null && message.location !== "") {
-        writer.uint32(tag(5, WIRE.LDELIM)).string(message.location);
-    }
-    if (message.sizeBytes !== undefined && message.sizeBytes !== null && message.sizeBytes !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.sizeBytes);
-    }
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(7, WIRE.VARINT)).int32(message.id);
     }
@@ -9242,9 +9233,6 @@ export function writeAssetMeta(message, writer) {
     }
     if (message.deleted === true) {
         writer.uint32(tag(9, WIRE.VARINT)).bool(message.deleted);
-    }
-    if (message.assetVersionId !== undefined && message.assetVersionId !== null && message.assetVersionId !== 0) {
-        writer.uint32(tag(10, WIRE.VARINT)).int32(message.assetVersionId);
     }
     if (message.assetDirectoryId !== undefined && message.assetDirectoryId !== null && message.assetDirectoryId !== 0) {
         writer.uint32(tag(11, WIRE.VARINT)).int32(message.assetDirectoryId);
@@ -9255,7 +9243,7 @@ export function writeAssetMeta(message, writer) {
     if (message.versionRefs && message.versionRefs.length > 0) {
         for (const item of message.versionRefs) {
             writer.uint32(tag(13, WIRE.LDELIM)).fork();
-            writeAssetVersionRef(item, writer);
+            writeAssetVersionMeta(item, writer);
             writer.ldelim();
         }
     }
@@ -9280,7 +9268,7 @@ export function encodeAssetMeta(message) {
  */
 function decodeAssetMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", createdAt: new Date(0), version: 0, location: "", sizeBytes: 0, id: 0, spaceId: 0, deleted: false, assetVersionId: 0, assetDirectoryId: 0, createdBy: 0, versionRefs: [] };
+    const message = {key: "", createdAt: new Date(0), id: 0, spaceId: 0, deleted: false, assetDirectoryId: 0, createdBy: 0, versionRefs: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9290,18 +9278,6 @@ function decodeAssetMetaMessage(reader, length) {
             }
             case 2: {
                 message.createdAt = new Date(readInt64(reader, "int64"));
-                break;
-            }
-            case 3: {
-                message.version = reader.int32();
-                break;
-            }
-            case 5: {
-                message.location = reader.string();
-                break;
-            }
-            case 6: {
-                message.sizeBytes = reader.int32();
                 break;
             }
             case 7: {
@@ -9316,10 +9292,6 @@ function decodeAssetMetaMessage(reader, length) {
                 message.deleted = reader.bool();
                 break;
             }
-            case 10: {
-                message.assetVersionId = reader.int32();
-                break;
-            }
             case 11: {
                 message.assetDirectoryId = reader.int32();
                 break;
@@ -9329,7 +9301,7 @@ function decodeAssetMetaMessage(reader, length) {
                 break;
             }
             case 13: {
-                message.versionRefs.push(decodeAssetVersionRefMessage(reader, reader.uint32()));
+                message.versionRefs.push(decodeAssetVersionMetaMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -9352,26 +9324,38 @@ export function decodeAssetMeta(buffer) {
 
 
 /**
- * @param {AssetVersionRef} message
+ * @param {AssetVersionMeta} message
  * @param {Writer} writer
  */
-export function writeAssetVersionRef(message, writer) {
+export function writeAssetVersionMeta(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
     }
     if (message.version !== undefined && message.version !== null && message.version !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
     }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.createdBy);
+    }
+    if (message.sizeBytes !== undefined && message.sizeBytes !== null && message.sizeBytes !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.sizeBytes);
+    }
+    if (message.location !== undefined && message.location !== null && message.location !== "") {
+        writer.uint32(tag(6, WIRE.LDELIM)).string(message.location);
+    }
 }
 
 
 /**
- * @param {AssetVersionRef} message
+ * @param {AssetVersionMeta} message
  * @returns {Uint8Array}
  */
-export function encodeAssetVersionRef(message) {
+export function encodeAssetVersionMeta(message) {
     const writer = Writer.create();
-    writeAssetVersionRef(message, writer);
+    writeAssetVersionMeta(message, writer);
     return writer.finish();
 }
 
@@ -9379,11 +9363,11 @@ export function encodeAssetVersionRef(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {AssetVersionRef}
+ * @returns {AssetVersionMeta}
  */
-function decodeAssetVersionRefMessage(reader, length) {
+function decodeAssetVersionMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, version: 0 };
+    const message = {id: 0, version: 0, createdAt: new Date(0), createdBy: 0, sizeBytes: 0, location: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9393,6 +9377,22 @@ function decodeAssetVersionRefMessage(reader, length) {
             }
             case 2: {
                 message.version = reader.int32();
+                break;
+            }
+            case 3: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 4: {
+                message.createdBy = reader.int32();
+                break;
+            }
+            case 5: {
+                message.sizeBytes = reader.int32();
+                break;
+            }
+            case 6: {
+                message.location = reader.string();
                 break;
             }
             default:
@@ -9405,11 +9405,11 @@ function decodeAssetVersionRefMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {AssetVersionRef}
+ * @returns {AssetVersionMeta}
  */
-export function decodeAssetVersionRef(buffer) {
+export function decodeAssetVersionMeta(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeAssetVersionRefMessage(reader);
+    return decodeAssetVersionMetaMessage(reader);
 }
 
 

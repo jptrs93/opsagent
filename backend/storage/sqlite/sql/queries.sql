@@ -328,18 +328,10 @@ DELETE FROM configs WHERE name = ?;
 
 -- === assets ===
 
--- name: ListLatestAssets :many
-SELECT a.id, a.key, a.space_id, a.asset_directory_id, a.created_by,
-       v.id AS asset_version_id, v.created_at, v.version, v.location, v.size_bytes
-FROM assets a
-JOIN asset_versions v ON v.asset_id = a.id
-JOIN (
-    SELECT asset_id, MAX(version) AS version
-    FROM asset_versions
-    WHERE location NOT LIKE 'pending://%'
-    GROUP BY asset_id
-) latest ON latest.asset_id = v.asset_id AND latest.version = v.version
-ORDER BY a.key;
+-- name: ListAssetRows :many
+SELECT id, space_id, key, asset_directory_id, created_at, created_by
+FROM assets
+ORDER BY key;
 
 -- name: GetAssetByID :one
 SELECT id, space_id, key, asset_directory_id, created_at, created_by
@@ -370,10 +362,11 @@ UPDATE assets SET key = ? WHERE id = ?;
 -- name: DeleteAssetRow :exec
 DELETE FROM assets WHERE id = ?;
 
--- name: ListPublishedAssetVersionIDs :many
-SELECT asset_id, id, version FROM asset_versions
+-- name: ListPublishedAssetVersionMetas :many
+SELECT asset_id, id, version, created_at, created_by, size_bytes, location
+FROM asset_versions
 WHERE location NOT LIKE 'pending://%'
-ORDER BY asset_id, version;
+ORDER BY asset_id, version DESC;
 
 -- name: GetLatestAssetVersion :one
 SELECT id, asset_id, version, created_at, created_by, location, size_bytes, blob

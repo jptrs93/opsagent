@@ -350,27 +350,29 @@ message ConfigDeleteRequest {
 // the asset id is what survives renames, moves, and new versions.
 
 message AssetMeta {
-  // One asset with its latest published version's metadata attached.
+  // One asset: the stable identity plus its published version index. Latest
+  // version facts live in version_refs[0], never at the root.
   string key = 1;
-  int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"]; // latest version creation time
-  int32 version = 3;       // latest version number
-  // 4 was format, dropped
-  string location = 5;     // latest version location; empty for inline blob-backed versions
-  int32 size_bytes = 6;    // latest version size
+  int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"]; // asset creation time
   int32 id = 7;            // stable asset id
   int32 space_id = 8;
   bool deleted = 9;
-  int32 asset_version_id = 10;   // row id of the latest published version
   int32 asset_directory_id = 11; // 0 = the implicit root directory
   int32 created_by = 12;         // user id that created the asset; 0 = unknown/system
-  // Every published version, oldest first. Deployment specs pin the row ids,
-  // so this is what usage matching and version-pinned references join against.
-  repeated AssetVersionRef version_refs = 13;
+  // Every published version, NEWEST FIRST — version_refs[0] is the latest.
+  // Deployment specs pin the row ids, so this is what usage matching and
+  // version-pinned references join against. Always non-empty in lists: an
+  // asset with no published version is never listed.
+  repeated AssetVersionMeta version_refs = 13;
 }
 
-message AssetVersionRef {
-  int32 id = 1;      // version row id
-  int32 version = 2; // version number
+message AssetVersionMeta {
+  int32 id = 1;            // version row id — what deployment specs pin
+  int32 version = 2;       // version number
+  int64 created_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int32 created_by = 4;    // user id that created this version; 0 = unknown/system
+  int32 size_bytes = 5;
+  string location = 6;     // empty for inline blob-backed versions
 }
 
 message AssetVersion {

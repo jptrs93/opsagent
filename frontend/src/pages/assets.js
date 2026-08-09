@@ -35,7 +35,10 @@ const assetRefMatches = (assetKey, versionIDs, ref) => {
 
 const assetMountRefMatches = (versionIDs, ref) => versionIDs.has(Number(ref?.assetVersionId || 0));
 
-const sortedAssets = (items) => [...(items || [])].sort((a, b) => (a.key || '').localeCompare(b.key || ''));
+const latestRef = (asset) => asset?.versionRefs?.[0] || null;
+
+const sortedAssets = (items) => [...(items || [])].sort((a, b) =>
+    (a.key || '').localeCompare(b.key || '') || Number(a.id || 0) - Number(b.id || 0));
 
 const smallBtn = (text, onclick, cls, disabledWhen) => button({
     type: "button",
@@ -123,13 +126,13 @@ export function assetsPage() {
 
     reload();
 
-    const openAsset = (asset, version = asset.version || 0) => {
+    const openAsset = (asset, version = latestRef(asset)?.version || 0) => {
         selected.val = {
             mode: "edit",
             assetId: Number(asset.id || 0),
             key: asset.key,
             version,
-            latestVersion: Number(asset.version || version || 0),
+            latestVersion: Number(latestRef(asset)?.version || version || 0),
             spaceId: Number(asset.spaceId || 0),
         };
     };
@@ -264,10 +267,8 @@ export function assetsPage() {
             row.key.toLowerCase().includes(query));
     };
 
-    const assetVersionIDs = (asset) => new Set([
-        Number(asset.assetVersionId || 0),
-        ...(asset.versionRefs || []).map(ref => Number(ref?.id || 0)),
-    ].filter(Boolean));
+    const assetVersionIDs = (asset) => new Set(
+        (asset.versionRefs || []).map(ref => Number(ref?.id || 0)).filter(Boolean));
 
     const deploymentUsesAsset = (deployment, asset, versionIDs = assetVersionIDs(asset)) => {
         const cfg = deployment?.config;
@@ -398,10 +399,10 @@ export function assetsPage() {
                 tbody(...visibleRows.map(row => tr(
                     {class: "border-b border-gray-800 last:border-0 align-middle"},
                     td({class: "py-1 pr-3 min-w-0"}, assetNameEditor(row)),
-                    td({class: "py-1 pr-3 text-gray-400 truncate", title: formatDateTime(row.createdAt, "-")}, formatDateTime(row.createdAt, "-")),
+                    td({class: "py-1 pr-3 text-gray-400 truncate", title: formatDateTime(latestRef(row)?.createdAt, "-")}, formatDateTime(latestRef(row)?.createdAt, "-")),
                     td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => usageButton(row)),
-                    td({class: "py-1 pr-3 text-gray-300"}, `v${row.version}`),
-                    td({class: "py-1 pr-3 text-gray-400 truncate"}, fmtSize(row.sizeBytes || 0)),
+                    td({class: "py-1 pr-3 text-gray-300"}, `v${latestRef(row)?.version || "?"}`),
+                    td({class: "py-1 pr-3 text-gray-400 truncate"}, fmtSize(latestRef(row)?.sizeBytes || 0)),
                     td({class: "py-1 pl-2 text-right whitespace-nowrap w-px"},
                         div({class: "flex items-center justify-end gap-1"},
                             button({

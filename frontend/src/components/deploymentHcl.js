@@ -263,12 +263,8 @@ function unwrap(value) {
 function expandAssetVersions(metas) {
     const out = [];
     for (const meta of metas) {
-        const refs = (meta.versionRefs || []).filter(ref => Number(ref?.id || 0));
-        if (!refs.length && Number(meta.assetVersionId || 0)) {
-            out.push({id: Number(meta.assetVersionId), key: meta.key, spaceId: meta.spaceId, version: Number(meta.version || 0)});
-            continue;
-        }
-        for (const ref of refs) {
+        for (const ref of meta.versionRefs || []) {
+            if (!Number(ref?.id || 0)) continue;
             out.push({id: Number(ref.id), key: meta.key, spaceId: meta.spaceId, version: Number(ref.version || 0)});
         }
     }

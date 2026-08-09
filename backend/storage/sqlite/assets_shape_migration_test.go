@@ -96,7 +96,7 @@ func TestAssetShapeMigration(t *testing.T) {
 	}
 	byKey := map[string]int32{}
 	for _, meta := range items {
-		byKey[meta.Key] = meta.Version
+		byKey[meta.Key] = meta.VersionRefs[0].Version
 	}
 	if byKey["nginx.conf"] != 2 || byKey["big.bin"] != 1 {
 		t.Fatalf("asset latest versions = %+v", byKey)

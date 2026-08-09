@@ -4976,13 +4976,9 @@ func (m *AssetMeta) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Key, 1)
 	b = AppendInt64FromTime(b, m.CreatedAt, 2)
-	b = AppendInt32Field(b, m.Version, 3)
-	b = AppendStringField(b, m.Location, 5)
-	b = AppendInt32Field(b, m.SizeBytes, 6)
 	b = AppendInt32Field(b, m.ID, 7)
 	b = AppendInt32Field(b, m.SpaceID, 8)
 	b = AppendBoolField(b, m.Deleted, 9)
-	b = AppendInt32Field(b, m.AssetVersionID, 10)
 	b = AppendInt32Field(b, m.AssetDirectoryID, 11)
 	b = AppendInt32Field(b, m.CreatedBy, 12)
 	for _, item := range m.VersionRefs {
@@ -5011,20 +5007,12 @@ func DecodeAssetMeta(b []byte) (*AssetMeta, error) {
 			b, m.Key, err = ConsumeString(b, typ)
 		case 2:
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 3:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
-		case 5:
-			b, m.Location, err = ConsumeString(b, typ)
-		case 6:
-			b, m.SizeBytes, err = ConsumeVarInt32(b, typ)
 		case 7:
 			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 8:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		case 9:
 			b, m.Deleted, err = ConsumeBool(b, typ)
-		case 10:
-			b, m.AssetVersionID, err = ConsumeVarInt32(b, typ)
 		case 11:
 			b, m.AssetDirectoryID, err = ConsumeVarInt32(b, typ)
 		case 12:
@@ -5032,8 +5020,8 @@ func DecodeAssetMeta(b []byte) (*AssetMeta, error) {
 		case 13:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *AssetVersionRef
-				item, err = DecodeAssetVersionRef(msgBytes)
+				var item *AssetVersionMeta
+				item, err = DecodeAssetVersionMeta(msgBytes)
 				if err == nil {
 					m.VersionRefs = append(m.VersionRefs, item)
 				}
@@ -5048,15 +5036,19 @@ func DecodeAssetMeta(b []byte) (*AssetMeta, error) {
 	return &m, nil
 }
 
-func (m *AssetVersionRef) Encode() []byte {
+func (m *AssetVersionMeta) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendInt32Field(b, m.Version, 2)
+	b = AppendInt64FromTime(b, m.CreatedAt, 3)
+	b = AppendInt32Field(b, m.CreatedBy, 4)
+	b = AppendInt32Field(b, m.SizeBytes, 5)
+	b = AppendStringField(b, m.Location, 6)
 	return b
 }
 
-func DecodeAssetVersionRef(b []byte) (*AssetVersionRef, error) {
-	var m AssetVersionRef
+func DecodeAssetVersionMeta(b []byte) (*AssetVersionMeta, error) {
+	var m AssetVersionMeta
 	var num Number
 	var typ Type
 	var err error
@@ -5070,6 +5062,14 @@ func DecodeAssetVersionRef(b []byte) (*AssetVersionRef, error) {
 			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.Version, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 4:
+			b, m.CreatedBy, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.SizeBytes, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.Location, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
