@@ -1163,7 +1163,7 @@ func (c *ApiServerCapi) PostV1AssetsList(ctx context.Context, req *EmptyRequest)
 	return DecodeAssetList(body)
 }
 
-func (c *ApiServerCapi) PostV1AssetsGet(ctx context.Context, req *AssetGetRequest) (*Asset, error) {
+func (c *ApiServerCapi) PostV1AssetsGet(ctx context.Context, req *AssetGetRequest) (*AssetVersion, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AssetsGet request is nil")
 	}
@@ -1179,10 +1179,29 @@ func (c *ApiServerCapi) PostV1AssetsGet(ctx context.Context, req *AssetGetReques
 	if err != nil {
 		return nil, err
 	}
-	return DecodeAsset(body)
+	return DecodeAssetVersion(body)
 }
 
-func (c *ApiServerCapi) PostV1AssetsSet(ctx context.Context, req *AssetSetRequest) (*Asset, error) {
+func (c *ApiServerCapi) PostV1AssetsCreate(ctx context.Context, req *AssetCreateRequest) (*AssetVersion, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AssetsCreate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/assets/create", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAssetVersion(body)
+}
+
+func (c *ApiServerCapi) PostV1AssetsSet(ctx context.Context, req *AssetSetRequest) (*AssetVersion, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AssetsSet request is nil")
 	}
@@ -1198,10 +1217,10 @@ func (c *ApiServerCapi) PostV1AssetsSet(ctx context.Context, req *AssetSetReques
 	if err != nil {
 		return nil, err
 	}
-	return DecodeAsset(body)
+	return DecodeAssetVersion(body)
 }
 
-func (c *ApiServerCapi) PostV1AssetsUpload(ctx context.Context) (*Asset, error) {
+func (c *ApiServerCapi) PostV1AssetsUpload(ctx context.Context) (*AssetVersion, error) {
 	resp, err := c.do(ctx, "POST", "/v1/assets/upload", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
@@ -1214,10 +1233,10 @@ func (c *ApiServerCapi) PostV1AssetsUpload(ctx context.Context) (*Asset, error) 
 	if err != nil {
 		return nil, err
 	}
-	return DecodeAsset(body)
+	return DecodeAssetVersion(body)
 }
 
-func (c *ApiServerCapi) PostV1AssetsRename(ctx context.Context, req *AssetRenameRequest) (*Asset, error) {
+func (c *ApiServerCapi) PostV1AssetsRename(ctx context.Context, req *AssetRenameRequest) (*AssetMeta, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AssetsRename request is nil")
 	}
@@ -1233,7 +1252,7 @@ func (c *ApiServerCapi) PostV1AssetsRename(ctx context.Context, req *AssetRename
 	if err != nil {
 		return nil, err
 	}
-	return DecodeAsset(body)
+	return DecodeAssetMeta(body)
 }
 
 func (c *ApiServerCapi) PostV1AssetsDelete(ctx context.Context, req *AssetDeleteRequest) error {

@@ -54,14 +54,13 @@ const isYamlAsset = key => /\.ya?ml$/i.test(key || "");
 
 export function assetEditor({
     mode = "edit",
-    assetRef = null,
+    assetRef = null,          // {assetId, version}; version 0 = latest
     initialKey = "",
-    initialFormat = "text",
-    showFormat = false,
     latestVersion = 0,
     spaceId = 0,
     loadAsset,
-    saveAsset,
+    createAsset,              // ({key, spaceId, blob}) => AssetVersion
+    saveVersion,              // ({assetId, blob}) => AssetVersion
     onSaved,
     onClose,
     class: className = "card flex-1 min-w-0 min-h-0 self-stretch flex flex-col gap-4",
@@ -73,7 +72,7 @@ export function assetEditor({
     const error = van.state("");
     const key = van.state(initialKey);
     const content = van.state("");
-    const format = van.state(initialFormat || "text");
+    const assetId = van.state(Number(assetRef?.assetId || 0));
     const version = van.state(0);
     const currentLatestVersion = van.state(Number(latestVersion || 0));
     const createdAt = van.state(null);
@@ -88,7 +87,7 @@ export function assetEditor({
         const decoded = isLarge ? {content: "", binary: false} : decodeContent(asset?.blob);
         key.val = asset?.key || key.val;
         content.val = decoded.content;
-        format.val = asset?.format || "text";
+        assetId.val = Number(asset?.assetId || assetId.val || 0);
         version.val = Number(asset?.version || 0);
         currentLatestVersion.val = Math.max(currentLatestVersion.val, version.val);
         createdAt.val = asset?.createdAt || null;
@@ -103,7 +102,7 @@ export function assetEditor({
         void (async () => {
             try {
                 if (typeof loadAsset !== "function") throw new Error("Asset loading is unavailable");
-                hydrate(await loadAsset({key: assetRef?.key || "", version: Number(assetRef?.version || 0)}));
+                hydrate(await loadAsset({assetId: Number(assetRef?.assetId || 0), version: Number(assetRef?.version || 0)}));
             } catch (e) {
                 error.val = e.message || "Failed to load asset";
             } finally {
@@ -125,13 +124,20 @@ export function assetEditor({
         try {
             saving.val = true;
             error.val = "";
-            if (typeof saveAsset !== "function") throw new Error("Asset saving is unavailable");
-            const saved = await saveAsset({
-                key: assetKey,
-                format: format.val.trim() || "text",
-                blob: encoder.encode(content.val),
-                spaceId: Number(spaceId || 0),
-            });
+            // The first save of a new asset creates it; every later save
+            // appends a version against the stable asset id.
+            let saved;
+            if (assetId.val) {
+                if (typeof saveVersion !== "function") throw new Error("Asset saving is unavailable");
+                saved = await saveVersion({assetId: assetId.val, blob: encoder.encode(content.val)});
+            } else {
+                if (typeof createAsset !== "function") throw new Error("Asset creation is unavailable");
+                saved = await createAsset({
+                    key: assetKey,
+                    blob: encoder.encode(content.val),
+                    spaceId: Number(spaceId || 0),
+                });
+            }
             hydrate(saved);
             if (onSaved) await onSaved(saved);
         } catch (e) {
@@ -192,16 +198,6 @@ export function assetEditor({
                 onclick: onClose,
             }, closeIcon()) : "",
         ),
-        showFormat ? div({class: "flex shrink-0 items-center gap-3 border-y border-gray-800 py-2"},
-            span({class: "text-xs text-gray-400"}, "Format"),
-            input({
-                class: "min-w-0 flex-1 rounded border border-gray-700 bg-gray-900 px-2 py-1 font-mono text-xs text-gray-200 focus:border-brand focus:outline-none",
-                value: format,
-                disabled: () => readOnly || saving.val,
-                oninput: event => format.val = event.target.value,
-                "aria-label": "Asset format",
-            }),
-        ) : "",
         contentSurface,
         div({class: "flex shrink-0 items-center justify-between gap-3"},
             p({class: "text-xs text-gray-500"}, () => large.val

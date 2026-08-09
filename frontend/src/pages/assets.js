@@ -1,7 +1,7 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {handleErr} from "../capi/err.js";
-import {decodeAsset} from "../capi/model.js";
+import {decodeAssetVersion} from "../capi/model.js";
 import {assetEditor, preloadAssetCodeEditor} from "../components/assetEditor.js";
 import {inlineEditableInput} from "../components/inlineEditableInput.js";
 import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
@@ -24,24 +24,18 @@ const fmtSize = (n) => {
     return `${(n / 1000 / 1000).toFixed(2)} MB`;
 };
 
-const assetRefMatches = (assetKey, assetIDs, ref) => {
+// Deployment specs pin asset *version* row ids; an asset's meta lists every
+// published version id, so membership is the usage test.
+const assetRefMatches = (assetKey, versionIDs, ref) => {
     if (!ref) return false;
-    const refAssetId = Number(ref.assetId || 0);
-    if (refAssetId) return assetIDs.has(refAssetId);
+    const refVersionId = Number(ref.assetVersionId || 0);
+    if (refVersionId) return versionIDs.has(refVersionId);
     return Boolean(assetKey && ref.asset === assetKey);
 };
 
-const assetMountRefMatches = (assetIDs, ref) => assetIDs.has(Number(ref?.assetId || 0));
+const assetMountRefMatches = (versionIDs, ref) => versionIDs.has(Number(ref?.assetVersionId || 0));
 
-const latestAssets = (items) => {
-    const latest = new Map();
-    for (const item of items || []) {
-        if (!item?.key) continue;
-        const current = latest.get(item.key);
-        if (!current || Number(item.version || 0) > Number(current.version || 0)) latest.set(item.key, item);
-    }
-    return Array.from(latest.values()).sort((a, b) => (a.key || '').localeCompare(b.key || ''));
-};
+const sortedAssets = (items) => [...(items || [])].sort((a, b) => (a.key || '').localeCompare(b.key || ''));
 
 const smallBtn = (text, onclick, cls, disabledWhen) => button({
     type: "button",
@@ -69,7 +63,7 @@ async function uploadAssetFile(file, name, onProgress) {
         xhr.onload = async () => {
             if (xhr.status >= 200 && xhr.status < 300) {
                 onProgress(file.size, file.size);
-                resolve(decodeAsset(xhr.response));
+                resolve(decodeAssetVersion(xhr.response));
                 return;
             }
             try {
@@ -89,7 +83,7 @@ async function uploadAssetFile(file, name, onProgress) {
 }
 
 export function assetsPage() {
-    const rows = van.state(latestAssets(assetMetasS.val));
+    const rows = van.state(sortedAssets(assetMetasS.val));
     const error = van.state(null);
     const search = van.state("");
     const selected = van.state(null);
@@ -124,7 +118,7 @@ export function assetsPage() {
     };
 
     van.derive(() => {
-        rows.val = latestAssets(assetMetasS.val);
+        rows.val = sortedAssets(assetMetasS.val);
     });
 
     reload();
@@ -132,6 +126,7 @@ export function assetsPage() {
     const openAsset = (asset, version = asset.version || 0) => {
         selected.val = {
             mode: "edit",
+            assetId: Number(asset.id || 0),
             key: asset.key,
             version,
             latestVersion: Number(asset.version || version || 0),
@@ -199,43 +194,37 @@ export function assetsPage() {
         }
     };
 
-    const saveEditorAsset = async (request) => {
-        const key = request.key;
+    const runAssetMutation = async (mutationKey, mutate) => {
         if (assetMutationKey.val) throw new Error("Another asset change is in progress");
-        assetMutationKey.val = key;
+        assetMutationKey.val = mutationKey;
         try {
             error.val = null;
-            return await capi.postV1AssetsSet(request);
+            return await mutate();
         } finally {
-            if (assetMutationKey.val === key) assetMutationKey.val = "";
+            if (assetMutationKey.val === mutationKey) assetMutationKey.val = "";
         }
     };
 
-    const renameAsset = async (key, newKey, draft) => {
+    const renameAsset = async (asset, newKey, draft) => {
         if (assetMutationKey.val) return null;
-        assetMutationKey.val = key;
         try {
-            error.val = null;
-            const asset = await capi.postV1AssetsRename({key, newKey});
-            if (selected.val?.key === key) {
-                selected.val = {...selected.val, key: asset.key};
+            const meta = await runAssetMutation(`rename:${asset.id}`, () =>
+                capi.postV1AssetsRename({assetId: Number(asset.id), newKey}));
+            if (selected.val?.assetId === Number(asset.id)) {
+                selected.val = {...selected.val, key: meta.key};
             }
-            draft.originalName.val = asset.key;
-            draft.name.val = asset.key;
-            assetNameDrafts.delete(key);
-            assetNameDrafts.set(asset.key, draft);
-            rows.val = (rows.val || []).map(row => row.key === key ? {...row, ...asset, key: asset.key} : row);
+            draft.originalName.val = meta.key;
+            draft.name.val = meta.key;
+            rows.val = (rows.val || []).map(row => Number(row.id) === Number(asset.id) ? {...row, ...meta} : row);
             try {
                 await reloadRows();
             } catch (e) {
                 error.val = e.message;
             }
-            return asset;
+            return meta;
         } catch (e) {
             error.val = e.message;
             return null;
-        } finally {
-            if (assetMutationKey.val === key) assetMutationKey.val = "";
         }
     };
 
@@ -255,9 +244,9 @@ export function assetsPage() {
         try {
             deleteSaving.val = true;
             error.val = null;
-            await capi.postV1AssetsDelete({key: target.key});
-            assetNameDrafts.delete(target.key);
-            if (selected.val?.key === target.key) selected.val = null;
+            await capi.postV1AssetsDelete({assetId: Number(target.id)});
+            assetNameDrafts.delete(Number(target.id));
+            if (selected.val?.assetId === Number(target.id)) selected.val = null;
             await reloadRows();
             deleteTarget.val = null;
         } catch (e) {
@@ -275,30 +264,28 @@ export function assetsPage() {
             row.key.toLowerCase().includes(query));
     };
 
-    const assetReferenceIDs = (asset) => new Set([
-        Number(asset.id || 0),
-        ...(assetMetasS.val || [])
-            .filter(item => item?.key === asset.key)
-            .map(item => Number(item.id || 0)),
+    const assetVersionIDs = (asset) => new Set([
+        Number(asset.assetVersionId || 0),
+        ...(asset.versionRefs || []).map(ref => Number(ref?.id || 0)),
     ].filter(Boolean));
 
-    const deploymentUsesAsset = (deployment, asset, assetIDs = assetReferenceIDs(asset)) => {
+    const deploymentUsesAsset = (deployment, asset, versionIDs = assetVersionIDs(asset)) => {
         const cfg = deployment?.config;
         if (!cfg || cfg.deleted) return false;
         const runtime = containerWorkload(cfg)?.runtime || {};
         const envRefs = Object.values(runtime.envVars || {});
         const mountRefs = runtime.assetMounts || [];
-        return envRefs.some(ref => assetRefMatches(asset.key, assetIDs, ref))
-            || mountRefs.some(ref => assetMountRefMatches(assetIDs, ref));
+        return envRefs.some(ref => assetRefMatches(asset.key, versionIDs, ref))
+            || mountRefs.some(ref => assetMountRefMatches(versionIDs, ref));
     };
 
     const usageForAsset = (asset) => {
-        const assetIDs = assetReferenceIDs(asset);
+        const versionIDs = assetVersionIDs(asset);
         return deploymentUsages(
             deploymentsS.val,
             spacesS.val,
             machinesS.val,
-            deployment => deploymentUsesAsset(deployment, asset, assetIDs),
+            deployment => deploymentUsesAsset(deployment, asset, versionIDs),
         );
     };
 
@@ -331,10 +318,11 @@ export function assetsPage() {
     };
 
     const assetNameEditor = (asset) => {
-        let draft = assetNameDrafts.get(asset.key);
+        const draftKey = Number(asset.id);
+        let draft = assetNameDrafts.get(draftKey);
         if (!draft) {
             draft = {originalName: van.state(asset.key), name: van.state(asset.key)};
-            assetNameDrafts.set(asset.key, draft);
+            assetNameDrafts.set(draftKey, draft);
         }
         const {originalName, name} = draft;
         return inlineEditableInput({
@@ -349,8 +337,7 @@ export function assetsPage() {
                     name.val = originalName.val;
                     return;
                 }
-                const previousName = originalName.val;
-                await renameAsset(previousName, nextName, draft);
+                await renameAsset(asset, nextName, draft);
             },
             onDiscard: () => { name.val = originalName.val; },
             inputClass: "w-full bg-transparent px-2 py-1 rounded border border-transparent hover:border-gray-700 focus:border-brand focus:outline-none font-mono font-normal text-asset",
@@ -465,12 +452,13 @@ export function assetsPage() {
         const target = selected.val;
         return assetEditor({
             mode: target.mode,
-            assetRef: target.mode === "create" ? null : {key: target.key, version: target.version},
+            assetRef: target.mode === "create" ? null : {assetId: target.assetId, version: target.version},
             initialKey: target.initialKey || "",
             latestVersion: target.latestVersion || 0,
             spaceId: target.spaceId || 0,
             loadAsset: request => capi.postV1AssetsGet(request),
-            saveAsset: saveEditorAsset,
+            createAsset: request => runAssetMutation(`create:${request.key}`, () => capi.postV1AssetsCreate(request)),
+            saveVersion: request => runAssetMutation(`set:${request.assetId}`, () => capi.postV1AssetsSet(request)),
             onSaved: reloadRows,
             onClose: () => { selected.val = null; },
         });

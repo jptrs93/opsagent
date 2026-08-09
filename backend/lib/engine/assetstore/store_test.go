@@ -77,9 +77,9 @@ func TestLargeAssetStoredLocallyWhenBackupDisabled(t *testing.T) {
 	store := newTestStore(t, &settings)
 	blob := largeTestBlob()
 
-	asset, err := store.SetAssetFromReader(context.Background(), "large.bin", "binary", int64(len(blob)), bytes.NewReader(blob), 1)
+	asset, err := store.CreateAssetFromReader(context.Background(), "large.bin", 1, 0, int64(len(blob)), bytes.NewReader(blob))
 	if err != nil {
-		t.Fatalf("SetAssetFromReader: %v", err)
+		t.Fatalf("CreateAssetFromReader: %v", err)
 	}
 	if got, want := asset.Location, localLocation(asset.ID); got != want {
 		t.Fatalf("Location = %q, want %q", got, want)
@@ -101,7 +101,7 @@ func TestLargeAssetStoredLocallyWhenBackupDisabled(t *testing.T) {
 		t.Fatal("opened asset did not match upload")
 	}
 
-	if err := store.DeleteAsset(context.Background(), asset.Key); err != nil {
+	if err := store.DeleteAsset(context.Background(), asset.AssetID); err != nil {
 		t.Fatalf("DeleteAsset: %v", err)
 	}
 	if _, err := os.Stat(localPath(asset.ID)); !os.IsNotExist(err) {
@@ -116,15 +116,18 @@ func TestReconcileFinishesInterruptedLocalUpload(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ainit.StaticConfig.LargeAssetsDir, stagedName), []byte("data"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	asset := store.DB.SetAssetStored("interrupted.bin", "binary", pendingLocation(stagedName), 4, nil, 1)
-	if _, ok := store.DB.GetAssetByID(asset.ID); ok {
+	asset, err := store.DB.CreateAssetWithVersion("interrupted.bin", 1, 0, pendingLocation(stagedName), 4, nil)
+	if err != nil {
+		t.Fatalf("stage pending upload: %v", err)
+	}
+	if _, ok := store.DB.GetAssetVersionByID(asset.ID); ok {
 		t.Fatal("pending upload was visible through the public asset reader")
 	}
 
 	if err := store.recoverPendingUploads(context.Background()); err != nil {
 		t.Fatalf("recoverPendingUploads: %v", err)
 	}
-	stored, ok := store.DB.GetAssetByID(asset.ID)
+	stored, ok := store.DB.GetAssetVersionByID(asset.ID)
 	if !ok {
 		t.Fatal("asset disappeared during reconciliation")
 	}
@@ -201,7 +204,7 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 	settings.LargeAssets.S3Path.Value = "asset-prefix"
 	store := newTestStore(t, &settings)
 	blob := largeTestBlob()
-	asset, err := store.SetAssetFromReader(context.Background(), "large.bin", "binary", int64(len(blob)), bytes.NewReader(blob), 1)
+	asset, err := store.CreateAssetFromReader(context.Background(), "large.bin", 1, 0, int64(len(blob)), bytes.NewReader(blob))
 	if err != nil {
 		t.Fatalf("local upload: %v", err)
 	}
@@ -214,7 +217,7 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 	if pending, err := store.Reconcile(context.Background()); err != nil || pending != 0 {
 		t.Fatalf("reconcile to S3: pending=%d err=%v", pending, err)
 	}
-	remote, _ := store.DB.GetAssetByID(asset.ID)
+	remote, _ := store.DB.GetAssetVersionByID(asset.ID)
 	if got, want := remote.Location, "s3://bucket/asset-prefix/"+fmt.Sprint(asset.ID); got != want {
 		t.Fatalf("S3 location = %q, want %q", got, want)
 	}
@@ -233,7 +236,7 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 	if pending, err := store.Reconcile(context.Background()); err != nil || pending != 0 {
 		t.Fatalf("reconcile to local: pending=%d err=%v", pending, err)
 	}
-	local, _ := store.DB.GetAssetByID(asset.ID)
+	local, _ := store.DB.GetAssetVersionByID(asset.ID)
 	if got, want := local.Location, localLocation(asset.ID); got != want {
 		t.Fatalf("local location = %q, want %q", got, want)
 	}
@@ -243,7 +246,7 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 	if !retained {
 		t.Fatal("S3 object was not retained after migration to local storage")
 	}
-	if err := store.DeleteAsset(context.Background(), asset.Key); err != nil {
+	if err := store.DeleteAsset(context.Background(), asset.AssetID); err != nil {
 		t.Fatalf("DeleteAsset: %v", err)
 	}
 	mu.Lock()
@@ -278,9 +281,9 @@ func TestLargeAssetSeparateS3OverridesSharedCredentials(t *testing.T) {
 	store := newTestStore(t, &settings)
 	blob := largeTestBlob()
 
-	asset, err := store.SetAssetFromReader(context.Background(), "large.bin", "binary", int64(len(blob)), bytes.NewReader(blob), 1)
+	asset, err := store.CreateAssetFromReader(context.Background(), "large.bin", 1, 0, int64(len(blob)), bytes.NewReader(blob))
 	if err != nil {
-		t.Fatalf("SetAssetFromReader: %v", err)
+		t.Fatalf("CreateAssetFromReader: %v", err)
 	}
 	if !strings.HasPrefix(asset.Location, "s3://separate-bucket/") {
 		t.Fatalf("Location = %q, want separate bucket", asset.Location)
@@ -296,9 +299,12 @@ func TestLargeAssetUploadDoesNotFallBackWhenBackupS3IsInvalid(t *testing.T) {
 	store := newTestStore(t, &settings)
 	blob := largeTestBlob()
 
-	_, err := store.SetAssetFromReader(context.Background(), "large.bin", "binary", int64(len(blob)), bytes.NewReader(blob), 1)
+	_, err := store.CreateAssetFromReader(context.Background(), "large.bin", 1, 0, int64(len(blob)), bytes.NewReader(blob))
 	if err == nil || !strings.Contains(err.Error(), ErrLargeAssetS3Config.Error()) {
-		t.Fatalf("SetAssetFromReader error = %v, want S3 configuration error", err)
+		t.Fatalf("CreateAssetFromReader error = %v, want S3 configuration error", err)
+	}
+	if got := store.DB.ListAssets(); len(got) != 0 {
+		t.Fatalf("stored %d asset rows after failed S3 upload, want 0", len(got))
 	}
 	if got := store.DB.ListAllAssetVersions(); len(got) != 0 {
 		t.Fatalf("stored %d asset rows after failed S3 upload, want 0", len(got))
@@ -308,14 +314,16 @@ func TestLargeAssetUploadDoesNotFallBackWhenBackupS3IsInvalid(t *testing.T) {
 func TestS3ConfigurationChangeRequiresAssetsToBeLocal(t *testing.T) {
 	settings := config.DefaultSettings(config.DefaultInitialConfig())
 	store := newTestStore(t, &settings)
-	store.DB.SetAssetStored("large.bin", "binary", "s3://bucket/path/1", InlineThresholdBytes+1, nil, 1)
+	if _, err := store.DB.CreateAssetWithVersion("large.bin", 1, 0, "s3://bucket/path/1", InlineThresholdBytes+1, nil); err != nil {
+		t.Fatalf("create s3 asset: %v", err)
+	}
 	next := *settings
 	next.LargeAssets.S3Path.Value = "different-path"
 
 	if err := store.ValidateSettingsUpdate(*settings, next); !errors.Is(err, ErrAssetS3ConfigChangeRequiresLocal) {
 		t.Fatalf("ValidateSettingsUpdate error = %v, want ErrAssetS3ConfigChangeRequiresLocal", err)
 	}
-	store.DB.UpdateAssetLocation(1, localLocation(1))
+	store.DB.UpdateAssetVersionLocation(1, localLocation(1))
 	if err := store.ValidateSettingsUpdate(*settings, next); err != nil {
 		t.Fatalf("ValidateSettingsUpdate with local assets: %v", err)
 	}

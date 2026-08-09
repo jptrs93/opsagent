@@ -56,7 +56,9 @@ func (h *Handler) instancePermitsDelete(cfg *apigen.DeploymentConfig, status api
 }
 
 type deploymentAssetResolver interface {
-	GetAssetByID(assetID int32) (*apigen.Asset, bool)
+	// GetAssetVersionByID resolves the immutable version row ids deployment
+	// specs pin.
+	GetAssetVersionByID(assetVersionID int32) (*apigen.AssetVersion, bool)
 }
 
 type deploymentSecretResolver interface {
@@ -716,8 +718,8 @@ func resolveAssetMounts(in []*apigen.AssetMount, assets deploymentAssetResolver)
 			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: asset and path are both required")
 		}
 		path := strings.TrimSpace(m.ContainerPath)
-		if m.AssetID <= 0 || path == "" {
-			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: assetId and path are both required")
+		if m.AssetVersionID <= 0 || path == "" {
+			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: assetVersionId and path are both required")
 		}
 		if !filepath.IsAbs(path) {
 			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: path must be absolute")
@@ -726,32 +728,32 @@ func resolveAssetMounts(in []*apigen.AssetMount, assets deploymentAssetResolver)
 		if cleanPath != path || cleanPath == "/" || strings.HasSuffix(path, "/") {
 			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: path must be an absolute file path")
 		}
-		asset, ok := assets.GetAssetByID(m.AssetID)
+		asset, ok := assets.GetAssetVersionByID(m.AssetVersionID)
 		if !ok {
-			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: asset id %d not found", m.AssetID)
+			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: asset version id %d not found", m.AssetVersionID)
 		}
 		if m.Permission != apigen.FilePermission_READ_ONLY && m.Permission != apigen.FilePermission_READ_EXECUTE {
 			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: permission must be READ_ONLY or READ_EXECUTE")
 		}
-		out = append(out, &apigen.AssetMount{AssetID: asset.ID, ContainerPath: cleanPath, Permission: m.Permission})
+		out = append(out, &apigen.AssetMount{AssetVersionID: asset.ID, ContainerPath: cleanPath, Permission: m.Permission})
 	}
 	return out, nil
 }
 
 func resolveEnvAssetRefs(scope string, env map[string]*apigen.EnvVarValue, assets deploymentAssetResolver) error {
 	for key, value := range env {
-		if value.AssetID <= 0 {
+		if value.AssetVersionID <= 0 {
 			continue
 		}
 		if assets == nil {
 			return invalidConfigErrf("%s.%s: assets cannot be resolved here", scope, key)
 		}
-		asset, ok := assets.GetAssetByID(value.AssetID)
+		asset, ok := assets.GetAssetVersionByID(value.AssetVersionID)
 		if !ok {
-			return invalidConfigErrf("%s.%s: asset id %d not found", scope, key, value.AssetID)
+			return invalidConfigErrf("%s.%s: asset version id %d not found", scope, key, value.AssetVersionID)
 		}
 		value.Asset = asset.Key
-		value.AssetID = asset.ID
+		value.AssetVersionID = asset.ID
 	}
 	return nil
 }
@@ -789,7 +791,7 @@ func validateEnvVars(scope string, in map[string]*apigen.EnvVarValue) error {
 				return invalidConfigErrf("%s.%s: configId must be positive", scope, key)
 			}
 		}
-		if value.AssetID > 0 {
+		if value.AssetVersionID > 0 {
 			set++
 		}
 		hasAddress := value.AddressDeploymentID != nil || value.AddressSpaceID != nil

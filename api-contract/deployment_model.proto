@@ -548,8 +548,8 @@ message EnvVarValue {
   optional int32 secret_id = 1;
   optional int32 config_id = 2;
   optional string value = 3;
-  string asset = 4;     // display asset key copied from the resolved asset row
-  int32 asset_id = 5;   // immutable asset row id, used for local cache/downloads
+  string asset = 4;             // display asset key copied from the resolved asset
+  int32 asset_version_id = 5;   // immutable asset version row id, used for local cache/downloads
 
   // A virtual deployment's ordinal-zero stable inbound address I. Both fields
   // are required together so workers can derive it without querying deployment
@@ -565,7 +565,7 @@ message CustomHostMount {
 }
 
 message AssetMount {
-  int32 asset_id = 1;
+  int32 asset_version_id = 1; // immutable asset version row id
   string container_path = 2;
   FilePermission permission = 3;
 }

@@ -506,7 +506,7 @@ type EnvVarValue struct {
 	ConfigID            *int32  `json:"config_id,omitempty"`
 	Value               *string `json:"value,omitempty"`
 	Asset               string  `json:"asset,omitempty"`
-	AssetID             int32   `json:"asset_id"`
+	AssetVersionID      int32   `json:"asset_version_id"`
 	AddressDeploymentID *int32  `json:"address_deployment_id,omitempty"`
 	AddressSpaceID      *int32  `json:"address_space_id,omitempty"`
 }
@@ -518,9 +518,9 @@ type CustomHostMount struct {
 }
 
 type AssetMount struct {
-	AssetID       int32          `json:"asset_id"`
-	ContainerPath string         `json:"container_path,omitempty"`
-	Permission    FilePermission `json:"permission"`
+	AssetVersionID int32          `json:"asset_version_id"`
+	ContainerPath  string         `json:"container_path,omitempty"`
+	Permission     FilePermission `json:"permission"`
 }
 
 type EnrollmentWorkerMsg struct {
@@ -800,27 +800,36 @@ type ConfigDeleteRequest struct {
 }
 
 type AssetMeta struct {
-	Key       string    `json:"key,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	Version   int32     `json:"version"`
-	Format    string    `json:"format,omitempty"`
-	Location  string    `json:"location,omitempty"`
-	SizeBytes int32     `json:"size_bytes"`
-	ID        int32     `json:"id"`
-	SpaceID   int32     `json:"space_id"`
-	Deleted   bool      `json:"deleted"`
+	Key              string             `json:"key,omitempty"`
+	CreatedAt        time.Time          `json:"created_at"`
+	Version          int32              `json:"version"`
+	Location         string             `json:"location,omitempty"`
+	SizeBytes        int32              `json:"size_bytes"`
+	ID               int32              `json:"id"`
+	SpaceID          int32              `json:"space_id"`
+	Deleted          bool               `json:"deleted"`
+	AssetVersionID   int32              `json:"asset_version_id"`
+	AssetDirectoryID int32              `json:"asset_directory_id"`
+	CreatedBy        int32              `json:"created_by"`
+	VersionRefs      []*AssetVersionRef `json:"version_refs,omitempty"`
 }
 
-type Asset struct {
+type AssetVersionRef struct {
+	ID      int32 `json:"id"`
+	Version int32 `json:"version"`
+}
+
+type AssetVersion struct {
 	Key       string    `json:"key,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	Version   int32     `json:"version"`
-	Format    string    `json:"format,omitempty"`
 	Location  string    `json:"location,omitempty"`
 	Blob      []byte    `json:"blob"`
 	ID        int32     `json:"id"`
 	SpaceID   int32     `json:"space_id"`
 	SizeBytes int32     `json:"size_bytes"`
+	AssetID   int32     `json:"asset_id"`
+	CreatedBy int32     `json:"created_by"`
 }
 
 type AssetList struct {
@@ -828,24 +837,28 @@ type AssetList struct {
 }
 
 type AssetGetRequest struct {
+	Version int32 `json:"version"`
+	AssetID int32 `json:"asset_id"`
+}
+
+type AssetCreateRequest struct {
 	Key     string `json:"key,omitempty"`
-	Version int32  `json:"version"`
+	SpaceID int32  `json:"space_id"`
+	Blob    []byte `json:"blob"`
 }
 
 type AssetSetRequest struct {
-	Key     string `json:"key,omitempty"`
-	Format  string `json:"format,omitempty"`
 	Blob    []byte `json:"blob"`
-	SpaceID int32  `json:"space_id"`
+	AssetID int32  `json:"asset_id"`
 }
 
 type AssetRenameRequest struct {
-	Key    string `json:"key,omitempty"`
-	NewKey string `json:"new_key,omitempty"`
+	NewKey  string `json:"new_key,omitempty"`
+	AssetID int32  `json:"asset_id"`
 }
 
 type AssetDeleteRequest struct {
-	Key string `json:"key,omitempty"`
+	AssetID int32 `json:"asset_id"`
 }
 
 type State struct {

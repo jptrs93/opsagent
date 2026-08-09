@@ -61,7 +61,7 @@ func referencingConfig(version int32) apigen.DeploymentConfig {
 		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "api"},
 		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 			Runtime: apigen.ContainerRuntime{
-				AssetMounts: []*apigen.AssetMount{{AssetID: 4}},
+				AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4}},
 				EnvVars:     map[string]*apigen.EnvVarValue{"TOKEN": {SecretID: ptrInt32(1)}},
 			},
 		}},

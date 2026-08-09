@@ -322,11 +322,10 @@ const applySpaceUpdate = (items, update) => {
 };
 
 const applyAssetUpdate = (items, update) => {
-    if (update.deleted) {
-        return sortAssets((items || []).filter((item) => item.key !== update.key));
-    }
+    // Metas are one per asset, keyed by the stable asset id. Matching on key
+    // would also hit a same-named asset in another space.
     const next = (items || []).filter((item) => item.id !== update.id);
-    next.push(update);
+    if (!update.deleted) next.push(update);
     return sortAssets(next);
 };
 

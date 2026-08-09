@@ -17,9 +17,7 @@ func TestPrimaryStorageIgnoresRetiredDesiredStateColumns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(schema); err != nil {
-		t.Fatal(err)
-	}
+	applySchema(db)
 	for _, statement := range []string{
 		`ALTER TABLE deployment_configs ADD COLUMN desired_version TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE deployment_configs ADD COLUMN desired_running INTEGER NOT NULL DEFAULT 0`,

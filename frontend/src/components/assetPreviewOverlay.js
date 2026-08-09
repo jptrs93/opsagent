@@ -1,11 +1,13 @@
 import {assetEditorOverlay} from "./assetEditor.js";
 
-export function assetPreviewOverlay(assetMeta, loadAsset, onClose) {
+// `asset` is an option or meta carrying the stable asset id as `assetId` (form
+// options) or `id` (raw AssetMeta).
+export function assetPreviewOverlay(asset, loadAsset, onClose) {
     return assetEditorOverlay({
         mode: "read",
-        assetRef: {key: assetMeta.key, version: assetMeta.version || 0},
-        latestVersion: assetMeta.version || 0,
-        spaceId: assetMeta.spaceId || 0,
+        assetRef: {assetId: Number(asset.assetId || asset.id || 0), version: asset.version || 0},
+        latestVersion: asset.version || 0,
+        spaceId: asset.spaceId || 0,
         loadAsset,
         onClose,
     });

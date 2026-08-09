@@ -183,7 +183,7 @@ Assets are versioned plaintext file blobs recorded in `assets`. Setting an exist
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | GET | `/v1/cluster/github-credentials` | — | `GithubCredentials` | NO_AUTH |
-| GET | `/v1/cluster/asset?asset_id=<id>` | query params | raw asset bytes with `X-Opsagent-Asset-*` headers | NO_AUTH |
+| GET | `/v1/cluster/asset?asset_version_id=<id>` | query params | raw asset bytes with `X-Opsagent-Asset-*` headers | NO_AUTH |
 | GET | `/v1/cluster/secrets` | `ClusterSecretsRequest` | `ClusterSecretsResponse` | NO_AUTH |
 | GET | `/v1/cluster/configs` | `ClusterConfigsRequest` | `ClusterConfigsResponse` | NO_AUTH |
 | POST | `/v1/cluster/connect` | stream `MsgToMaster` | stream `MsgToWorker` | NO_AUTH |

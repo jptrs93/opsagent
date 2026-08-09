@@ -29,7 +29,7 @@ func TestResolveEnv(t *testing.T) {
 		"DB_PASS": {SecretID: ptrInt32(1)},
 		"TOKEN":   {SecretID: ptrInt32(2)},
 		"HOST":    {ConfigID: ptrInt32(3)},
-		"CONFIG":  {Asset: "app.conf", AssetID: 12},
+		"CONFIG":  {Asset: "app.conf", AssetVersionID: 12},
 	}
 	provider := fakeRuntimeInputProvider{
 		secrets: map[int32]string{1: "s3cret", 2: "abc"},
@@ -141,8 +141,8 @@ func TestContainerMountsIncludesImplicitAssetEnvMount(t *testing.T) {
 			Runtime: apigen.ContainerRuntime{
 				DefaultVolume: apigen.DefaultVolumeMount{Disabled: true},
 				EnvVars: map[string]*apigen.EnvVarValue{
-					"APP_CONFIG":   {Asset: "app.conf", AssetID: 12},
-					"APP_CONFIG_2": {Asset: "app.conf", AssetID: 12},
+					"APP_CONFIG":   {Asset: "app.conf", AssetVersionID: 12},
+					"APP_CONFIG_2": {Asset: "app.conf", AssetVersionID: 12},
 				},
 			},
 		}},

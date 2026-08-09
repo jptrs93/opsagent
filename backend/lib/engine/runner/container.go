@@ -1224,7 +1224,7 @@ func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd.Mount, string) {
 		if m == nil {
 			continue
 		}
-		hostPath := runtimeinputs.AssetCachePathWithMode(m.AssetID, m.Permission == apigen.FilePermission_READ_EXECUTE)
+		hostPath := runtimeinputs.AssetCachePathWithMode(m.AssetVersionID, m.Permission == apigen.FilePermission_READ_EXECUTE)
 		mounts = append(mounts, ctrd.Mount{Source: hostPath, Dest: m.ContainerPath, ReadOnly: true})
 	}
 	implicitMounted := map[string]bool{}
@@ -1235,15 +1235,15 @@ func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd.Mount, string) {
 	sort.Strings(envKeys)
 	for _, key := range envKeys {
 		value := cfg.EnvVars[key]
-		if value == nil || value.AssetID <= 0 {
+		if value == nil || value.AssetVersionID <= 0 {
 			continue
 		}
-		dest := implicitAssetContainerPath(value.AssetID)
+		dest := implicitAssetContainerPath(value.AssetVersionID)
 		if implicitMounted[dest] {
 			continue
 		}
 		implicitMounted[dest] = true
-		mounts = append(mounts, ctrd.Mount{Source: runtimeinputs.AssetCachePath(value.AssetID), Dest: dest, ReadOnly: true})
+		mounts = append(mounts, ctrd.Mount{Source: runtimeinputs.AssetCachePath(value.AssetVersionID), Dest: dest, ReadOnly: true})
 	}
 	return mounts, dataHost
 }

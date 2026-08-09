@@ -34,7 +34,8 @@ export function deploymentConfigUiWidget(args) {
         configRefs,
         deployments,
         loadAsset,
-        saveAsset,
+        createAsset,
+        saveVersion,
         onRefresh,
     } = args;
     const previewAsset = van.state(null);
@@ -88,7 +89,8 @@ export function deploymentConfigUiWidget(args) {
             ? assetMountEditorOverlay(form, editAssetTarget.val, {
                 assets,
                 loadAsset,
-                saveAsset,
+                createAsset,
+                saveVersion,
                 onClose: () => { editAssetTarget.val = null; },
             })
             : '',

@@ -77,9 +77,9 @@ func TestConfigRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 func TestRequiredAssetRefsIncludesExplicitAndEnvAssets(t *testing.T) {
 	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 		Runtime: apigen.ContainerRuntime{
-			AssetMounts: []*apigen.AssetMount{{AssetID: 8, Permission: apigen.FilePermission_READ_EXECUTE}},
+			AssetMounts: []*apigen.AssetMount{{AssetVersionID: 8, Permission: apigen.FilePermission_READ_EXECUTE}},
 			EnvVars: map[string]*apigen.EnvVarValue{
-				"APP_CONFIG": {Asset: "implicit.conf", AssetID: 12},
+				"APP_CONFIG": {Asset: "implicit.conf", AssetVersionID: 12},
 				"PLAIN":      {Value: ptrString("value")},
 			},
 		},

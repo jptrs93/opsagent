@@ -24,15 +24,21 @@ type AgentSession struct {
 }
 
 type Asset struct {
+	ID               int64
+	SpaceID          int64
+	Key              string
+	AssetDirectoryID int64
+	CreatedAt        int64
+	CreatedBy        int64
+}
+
+type AssetDirectory struct {
 	ID        int64
-	Key       string
 	SpaceID   int64
+	Key       string
+	ParentID  int64
 	CreatedAt int64
-	Version   int64
-	Format    string
-	Location  string
-	SizeBytes int64
-	Blob      []byte
+	CreatedBy int64
 }
 
 type AssetMigration struct {
@@ -45,6 +51,17 @@ type AssetMigration struct {
 	StartedAt          int64
 	LastAttemptAt      int64
 	FinishedAt         int64
+}
+
+type AssetVersion struct {
+	ID        int64
+	AssetID   int64
+	Version   int64
+	CreatedAt int64
+	CreatedBy int64
+	Location  string
+	SizeBytes int64
+	Blob      []byte
 }
 
 type Config struct {
@@ -111,14 +128,15 @@ type LocalScheduledInstanceCache struct {
 }
 
 type NodeRow struct {
-	ID           int64
-	EnrollmentID sql.NullInt64
-	EnrolledAt   int64
-	Name         string
-	Identifier   string
-	Roles        string
-	Addresses    string
-	WgPublicKey  string
+	ID            int64
+	EnrollmentID  sql.NullInt64
+	EnrolledAt    int64
+	Name          string
+	Identifier    string
+	Roles         string
+	Addresses     string
+	WgPublicKey   string
+	AllowedSpaces string
 }
 
 type NodeStatus struct {

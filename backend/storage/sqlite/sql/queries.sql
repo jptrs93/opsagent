@@ -329,60 +329,97 @@ DELETE FROM configs WHERE name = ?;
 -- === assets ===
 
 -- name: ListLatestAssets :many
-SELECT a.id, a.key, a.space_id, a.created_at, a.version, a.format, a.location, a.size_bytes
+SELECT a.id, a.key, a.space_id, a.asset_directory_id, a.created_by,
+       v.id AS asset_version_id, v.created_at, v.version, v.location, v.size_bytes
 FROM assets a
+JOIN asset_versions v ON v.asset_id = a.id
 JOIN (
-    SELECT key, MAX(version) AS version
-    FROM assets
+    SELECT asset_id, MAX(version) AS version
+    FROM asset_versions
     WHERE location NOT LIKE 'pending://%'
-    GROUP BY key
-) latest ON latest.key = a.key AND latest.version = a.version
+    GROUP BY asset_id
+) latest ON latest.asset_id = v.asset_id AND latest.version = v.version
 ORDER BY a.key;
 
--- name: GetLatestAsset :one
-SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
+-- name: GetAssetByID :one
+SELECT id, space_id, key, asset_directory_id, created_at, created_by
 FROM assets
-WHERE key = ? AND location NOT LIKE 'pending://%'
+WHERE id = ?;
+
+-- name: GetAssetInDirectoryByKey :one
+SELECT id, space_id, key, asset_directory_id, created_at, created_by
+FROM assets
+WHERE space_id = ? AND asset_directory_id = ? AND key = ?;
+
+-- name: CountAssetSiblingsWithKey :one
+SELECT COUNT(*) FROM assets
+WHERE space_id = ? AND asset_directory_id = ? AND key = ? AND id != ?;
+
+-- name: CountDirectorySiblingsWithKey :one
+SELECT COUNT(*) FROM asset_directories
+WHERE space_id = ? AND parent_id = ? AND key = ?;
+
+-- name: InsertAssetRow :one
+INSERT INTO assets (space_id, key, asset_directory_id, created_at, created_by)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id, space_id, key, asset_directory_id, created_at, created_by;
+
+-- name: RenameAssetKey :exec
+UPDATE assets SET key = ? WHERE id = ?;
+
+-- name: DeleteAssetRow :exec
+DELETE FROM assets WHERE id = ?;
+
+-- name: ListPublishedAssetVersionIDs :many
+SELECT asset_id, id, version FROM asset_versions
+WHERE location NOT LIKE 'pending://%'
+ORDER BY asset_id, version;
+
+-- name: GetLatestAssetVersion :one
+SELECT id, asset_id, version, created_at, created_by, location, size_bytes, blob
+FROM asset_versions
+WHERE asset_id = ? AND location NOT LIKE 'pending://%'
 ORDER BY version DESC
 LIMIT 1;
 
--- name: GetAssetVersion :one
-SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
-FROM assets
-WHERE key = ? AND version = ? AND location NOT LIKE 'pending://%';
+-- name: GetAssetVersionByNumber :one
+SELECT id, asset_id, version, created_at, created_by, location, size_bytes, blob
+FROM asset_versions
+WHERE asset_id = ? AND version = ? AND location NOT LIKE 'pending://%';
 
--- name: ListAssetVersionsByKey :many
-SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
-FROM assets
-WHERE key = ? AND location NOT LIKE 'pending://%'
+-- name: ListAssetVersions :many
+SELECT id, asset_id, version, created_at, created_by, location, size_bytes, blob
+FROM asset_versions
+WHERE asset_id = ? AND location NOT LIKE 'pending://%'
 ORDER BY version ASC;
 
--- name: GetAssetByIDVersion :one
-SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
-FROM assets
-WHERE id = ? AND version = ? AND location NOT LIKE 'pending://%';
+-- name: ListAssetVersionsIncludingPending :many
+SELECT id, asset_id, version, created_at, created_by, location, size_bytes, blob
+FROM asset_versions
+WHERE asset_id = ?
+ORDER BY version ASC;
 
--- name: GetNextAssetVersion :one
+-- name: GetNextAssetVersionNumber :one
 SELECT COALESCE(MAX(version), 0) + 1
-FROM assets
-WHERE key = ?;
+FROM asset_versions
+WHERE asset_id = ?;
 
--- name: InsertAsset :one
-INSERT INTO assets (key, space_id, created_at, version, format, location, size_bytes, blob)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, key, space_id, created_at, version, format, location, size_bytes, blob;
+-- name: InsertAssetVersion :one
+INSERT INTO asset_versions (asset_id, version, created_at, created_by, location, size_bytes, blob)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING id, asset_id, version, created_at, created_by, location, size_bytes, blob;
 
--- name: UpdateAssetLocation :one
-UPDATE assets
+-- name: UpdateAssetVersionLocation :one
+UPDATE asset_versions
 SET location = ?
 WHERE id = ?
-RETURNING id, key, space_id, created_at, version, format, location, size_bytes, blob;
+RETURNING id, asset_id, version, created_at, created_by, location, size_bytes, blob;
 
 -- name: DeleteAssetVersionByID :exec
-DELETE FROM assets WHERE id = ?;
+DELETE FROM asset_versions WHERE id = ?;
 
--- name: DeleteAsset :exec
-DELETE FROM assets WHERE key = ?;
+-- name: DeleteAssetVersionsByAssetID :exec
+DELETE FROM asset_versions WHERE asset_id = ?;
 
 -- === asset_migrations ===
 

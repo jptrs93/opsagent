@@ -344,29 +344,47 @@ message ConfigDeleteRequest {
 }
 
 // === Asset messages ===
+//
+// An asset is a stable identity (space, directory, key) whose content lives in
+// immutable numbered versions. Deployment configs pin asset *version* row ids;
+// the asset id is what survives renames, moves, and new versions.
 
 message AssetMeta {
+  // One asset with its latest published version's metadata attached.
   string key = 1;
-  int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int32 version = 3;
-  string format = 4;       // e.g. text, nginx, yaml, json
-  string location = 5;     // empty for inline blob-backed assets
-  int32 size_bytes = 6;
-  int32 id = 7;
+  int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"]; // latest version creation time
+  int32 version = 3;       // latest version number
+  // 4 was format, dropped
+  string location = 5;     // latest version location; empty for inline blob-backed versions
+  int32 size_bytes = 6;    // latest version size
+  int32 id = 7;            // stable asset id
   int32 space_id = 8;
   bool deleted = 9;
+  int32 asset_version_id = 10;   // row id of the latest published version
+  int32 asset_directory_id = 11; // 0 = the implicit root directory
+  int32 created_by = 12;         // user id that created the asset; 0 = unknown/system
+  // Every published version, oldest first. Deployment specs pin the row ids,
+  // so this is what usage matching and version-pinned references join against.
+  repeated AssetVersionRef version_refs = 13;
 }
 
-message Asset {
-  string key = 1;
+message AssetVersionRef {
+  int32 id = 1;      // version row id
+  int32 version = 2; // version number
+}
+
+message AssetVersion {
+  string key = 1;          // owning asset's key (display)
   int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int32 version = 3;
-  string format = 4;
+  // 4 was format, dropped
   string location = 5;
   bytes blob = 6;
-  int32 id = 7;
-  int32 space_id = 8;
+  int32 id = 7;            // version row id — what deployment configs pin
+  int32 space_id = 8;      // owning asset's space
   int32 size_bytes = 9;
+  int32 asset_id = 10;     // owning stable asset id
+  int32 created_by = 11;   // user id that created this version; 0 = unknown/system
 }
 
 message AssetList {
@@ -374,24 +392,33 @@ message AssetList {
 }
 
 message AssetGetRequest {
-  string key = 1;
+  // 1 was key, dropped
   int32 version = 2; // 0 = latest
+  int32 asset_id = 3;
+}
+
+message AssetCreateRequest {
+  string key = 1;
+  int32 space_id = 2;
+  bytes blob = 3;
 }
 
 message AssetSetRequest {
-  string key = 1;
-  string format = 2;
+  // Appends the next version of an existing asset. Space and key belong to the
+  // asset identity and cannot be supplied here.
   bytes blob = 3;
-  int32 space_id = 4;
+  int32 asset_id = 5;
 }
 
 message AssetRenameRequest {
-  string key = 1;
+  // 1 was key, dropped
   string new_key = 2;
+  int32 asset_id = 3;
 }
 
 message AssetDeleteRequest {
-  string key = 1;
+  // 1 was key, dropped
+  int32 asset_id = 2;
 }
 
 // === Deployment config messages ===

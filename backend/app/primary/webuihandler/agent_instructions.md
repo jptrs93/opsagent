@@ -73,20 +73,31 @@ it last failed.
 
 ## 4. Assets
 
+An asset is a stable identity — its `id` never changes across renames or new
+content. Content lives in immutable numbered versions; each version row has its
+own `asset_version_id`, which is what deployment specs pin.
+
+To update an existing asset, upload against its stable id (find it in
+`/v1/global/state`):
+
 ```sh
-curl -sS -X POST '{{.BaseURL}}/v1/assets/upload?key=nginx.conf' \
+curl -sS -X POST '{{.BaseURL}}/v1/assets/upload?asset_id=12' \
   -H "Authorization: Bearer $TOKEN" -H 'Accept: application/json' \
   --data-binary @nginx.conf
 ```
 
-**Use `?key=`, never `?name=`.** `?key=` appends a new version to the existing
-asset, which is almost always what you want. `?name=` means "create a new
-asset", and if that name is taken the server silently suffixes it — you get a
-separate asset called `nginx.conf1`, a `200` response, and a deployment still
-pointing at the original. Nothing tells you it went wrong.
+**Use `?asset_id=`, never `?name=`, for updates.** `?asset_id=` appends a new
+version to that exact asset, which is almost always what you want. `?name=`
+means "create a new asset", and if that name is taken the server silently
+suffixes it — you get a separate asset called `nginx.conf1`, a `200` response,
+and a deployment still pointing at the original. Nothing tells you it went
+wrong. Only use `?name=` (optionally with `&space_id=`) when the operator asked
+for a brand-new asset.
 
-Assets are versioned and immutable. Editing means uploading a new version and
-pointing the deployment at it.
+Uploading a new version does not change what deployments serve: their specs pin
+the `asset_version_id` of the version that was selected when the deployment was
+configured. After uploading, update the deployment spec to point at the new
+version's id (the upload response includes it as `id`).
 
 ## 5. Changing a deployment
 

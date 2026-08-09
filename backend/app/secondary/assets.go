@@ -27,9 +27,9 @@ func NewPrimaryAssetProvider(baseURL string, client *http.Client) *PrimaryAssetP
 	}
 }
 
-func (p *PrimaryAssetProvider) OpenAsset(ctx context.Context, assetID int32) (*apigen.Asset, io.ReadCloser, error) {
+func (p *PrimaryAssetProvider) OpenAsset(ctx context.Context, assetVersionID int32) (*apigen.AssetVersion, io.ReadCloser, error) {
 	params := url.Values{}
-	params.Set("asset_id", strconv.Itoa(int(assetID)))
+	params.Set("asset_version_id", strconv.Itoa(int(assetVersionID)))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/v1/cluster/asset?"+params.Encode(), nil)
 	if err != nil {
 		return nil, nil, err
@@ -43,11 +43,10 @@ func (p *PrimaryAssetProvider) OpenAsset(ctx context.Context, assetID int32) (*a
 		defer resp.Body.Close()
 		return nil, nil, clusterAssetHTTPError(resp)
 	}
-	asset := &apigen.Asset{
-		ID:        int32Header(resp.Header, "X-Opsagent-Asset-ID", assetID),
+	asset := &apigen.AssetVersion{
+		ID:        int32Header(resp.Header, "X-Opsagent-Asset-Version-ID", assetVersionID),
 		Key:       assetKeyHeader(resp.Header),
 		Version:   int32Header(resp.Header, "X-Opsagent-Asset-Version", 0),
-		Format:    resp.Header.Get("X-Opsagent-Asset-Format"),
 		SizeBytes: contentLengthInt32(resp.ContentLength),
 	}
 	return asset, resp.Body, nil

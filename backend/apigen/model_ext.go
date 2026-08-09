@@ -8,9 +8,9 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 )
 
-// Bumped to 6 when PreparerStatus.status was removed in favour of the derived
-// Rollup() over its two stage fields.
-const ClusterProtocolVersion int32 = 6
+// Bumped to 7 when assets split into assets + asset_versions: the cluster
+// asset fetch renamed its query param and headers to asset_version_id naming.
+const ClusterProtocolVersion int32 = 7
 
 // WantsRunning reports whether a node should be running this placement. The
 // three RUN_* states are deliberately indistinguishable here: they differ only

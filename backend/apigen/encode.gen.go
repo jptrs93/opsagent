@@ -2965,7 +2965,7 @@ func (m *EnvVarValue) Encode() []byte {
 	b = AppendInt32FieldOpt(b, m.ConfigID, 2)
 	b = AppendStringFieldOpt(b, m.Value, 3)
 	b = AppendStringField(b, m.Asset, 4)
-	b = AppendInt32Field(b, m.AssetID, 5)
+	b = AppendInt32Field(b, m.AssetVersionID, 5)
 	b = AppendInt32FieldOpt(b, m.AddressDeploymentID, 6)
 	b = AppendInt32FieldOpt(b, m.AddressSpaceID, 7)
 	return b
@@ -2991,7 +2991,7 @@ func DecodeEnvVarValue(b []byte) (*EnvVarValue, error) {
 		case 4:
 			b, m.Asset, err = ConsumeString(b, typ)
 		case 5:
-			b, m.AssetID, err = ConsumeVarInt32(b, typ)
+			b, m.AssetVersionID, err = ConsumeVarInt32(b, typ)
 		case 6:
 			b, m.AddressDeploymentID, err = ConsumeVarInt32Opt(b, typ)
 		case 7:
@@ -3047,7 +3047,7 @@ func DecodeCustomHostMount(b []byte) (*CustomHostMount, error) {
 
 func (m *AssetMount) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.AssetID, 1)
+	b = AppendInt32Field(b, m.AssetVersionID, 1)
 	b = AppendStringField(b, m.ContainerPath, 2)
 	b = AppendInt32Field(b, int32(m.Permission), 3)
 	return b
@@ -3065,7 +3065,7 @@ func DecodeAssetMount(b []byte) (*AssetMount, error) {
 		}
 		switch num {
 		case 1:
-			b, m.AssetID, err = ConsumeVarInt32(b, typ)
+			b, m.AssetVersionID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.ContainerPath, err = ConsumeString(b, typ)
 		case 3:
@@ -4977,12 +4977,21 @@ func (m *AssetMeta) Encode() []byte {
 	b = AppendStringField(b, m.Key, 1)
 	b = AppendInt64FromTime(b, m.CreatedAt, 2)
 	b = AppendInt32Field(b, m.Version, 3)
-	b = AppendStringField(b, m.Format, 4)
 	b = AppendStringField(b, m.Location, 5)
 	b = AppendInt32Field(b, m.SizeBytes, 6)
 	b = AppendInt32Field(b, m.ID, 7)
 	b = AppendInt32Field(b, m.SpaceID, 8)
 	b = AppendBoolField(b, m.Deleted, 9)
+	b = AppendInt32Field(b, m.AssetVersionID, 10)
+	b = AppendInt32Field(b, m.AssetDirectoryID, 11)
+	b = AppendInt32Field(b, m.CreatedBy, 12)
+	for _, item := range m.VersionRefs {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 13, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
 	return b
 }
 
@@ -4991,6 +5000,7 @@ func DecodeAssetMeta(b []byte) (*AssetMeta, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -5003,8 +5013,6 @@ func DecodeAssetMeta(b []byte) (*AssetMeta, error) {
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 3:
 			b, m.Version, err = ConsumeVarInt32(b, typ)
-		case 4:
-			b, m.Format, err = ConsumeString(b, typ)
 		case 5:
 			b, m.Location, err = ConsumeString(b, typ)
 		case 6:
@@ -5015,6 +5023,21 @@ func DecodeAssetMeta(b []byte) (*AssetMeta, error) {
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		case 9:
 			b, m.Deleted, err = ConsumeBool(b, typ)
+		case 10:
+			b, m.AssetVersionID, err = ConsumeVarInt32(b, typ)
+		case 11:
+			b, m.AssetDirectoryID, err = ConsumeVarInt32(b, typ)
+		case 12:
+			b, m.CreatedBy, err = ConsumeVarInt32(b, typ)
+		case 13:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AssetVersionRef
+				item, err = DecodeAssetVersionRef(msgBytes)
+				if err == nil {
+					m.VersionRefs = append(m.VersionRefs, item)
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5025,22 +5048,55 @@ func DecodeAssetMeta(b []byte) (*AssetMeta, error) {
 	return &m, nil
 }
 
-func (m *Asset) Encode() []byte {
+func (m *AssetVersionRef) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt32Field(b, m.Version, 2)
+	return b
+}
+
+func DecodeAssetVersionRef(b []byte) (*AssetVersionRef, error) {
+	var m AssetVersionRef
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AssetVersion) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Key, 1)
 	b = AppendInt64FromTime(b, m.CreatedAt, 2)
 	b = AppendInt32Field(b, m.Version, 3)
-	b = AppendStringField(b, m.Format, 4)
 	b = AppendStringField(b, m.Location, 5)
 	b = AppendBytesField(b, m.Blob, 6)
 	b = AppendInt32Field(b, m.ID, 7)
 	b = AppendInt32Field(b, m.SpaceID, 8)
 	b = AppendInt32Field(b, m.SizeBytes, 9)
+	b = AppendInt32Field(b, m.AssetID, 10)
+	b = AppendInt32Field(b, m.CreatedBy, 11)
 	return b
 }
 
-func DecodeAsset(b []byte) (*Asset, error) {
-	var m Asset
+func DecodeAssetVersion(b []byte) (*AssetVersion, error) {
+	var m AssetVersion
 	var num Number
 	var typ Type
 	var err error
@@ -5056,8 +5112,6 @@ func DecodeAsset(b []byte) (*Asset, error) {
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 3:
 			b, m.Version, err = ConsumeVarInt32(b, typ)
-		case 4:
-			b, m.Format, err = ConsumeString(b, typ)
 		case 5:
 			b, m.Location, err = ConsumeString(b, typ)
 		case 6:
@@ -5068,6 +5122,10 @@ func DecodeAsset(b []byte) (*Asset, error) {
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		case 9:
 			b, m.SizeBytes, err = ConsumeVarInt32(b, typ)
+		case 10:
+			b, m.AssetID, err = ConsumeVarInt32(b, typ)
+		case 11:
+			b, m.CreatedBy, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5123,8 +5181,8 @@ func DecodeAssetList(b []byte) (*AssetList, error) {
 
 func (m *AssetGetRequest) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.Key, 1)
 	b = AppendInt32Field(b, m.Version, 2)
+	b = AppendInt32Field(b, m.AssetID, 3)
 	return b
 }
 
@@ -5139,10 +5197,45 @@ func DecodeAssetGetRequest(b []byte) (*AssetGetRequest, error) {
 			return nil, err
 		}
 		switch num {
+		case 2:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.AssetID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AssetCreateRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Key, 1)
+	b = AppendInt32Field(b, m.SpaceID, 2)
+	b = AppendBytesField(b, m.Blob, 3)
+	return b
+}
+
+func DecodeAssetCreateRequest(b []byte) (*AssetCreateRequest, error) {
+	var m AssetCreateRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
 		case 1:
 			b, m.Key, err = ConsumeString(b, typ)
 		case 2:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.Blob, err = ConsumeBytesCopy(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5155,10 +5248,8 @@ func DecodeAssetGetRequest(b []byte) (*AssetGetRequest, error) {
 
 func (m *AssetSetRequest) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.Key, 1)
-	b = AppendStringField(b, m.Format, 2)
 	b = AppendBytesField(b, m.Blob, 3)
-	b = AppendInt32Field(b, m.SpaceID, 4)
+	b = AppendInt32Field(b, m.AssetID, 5)
 	return b
 }
 
@@ -5173,14 +5264,10 @@ func DecodeAssetSetRequest(b []byte) (*AssetSetRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, m.Key, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Format, err = ConsumeString(b, typ)
 		case 3:
 			b, m.Blob, err = ConsumeBytesCopy(b, typ)
-		case 4:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.AssetID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5193,8 +5280,8 @@ func DecodeAssetSetRequest(b []byte) (*AssetSetRequest, error) {
 
 func (m *AssetRenameRequest) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.Key, 1)
 	b = AppendStringField(b, m.NewKey, 2)
+	b = AppendInt32Field(b, m.AssetID, 3)
 	return b
 }
 
@@ -5209,10 +5296,10 @@ func DecodeAssetRenameRequest(b []byte) (*AssetRenameRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, m.Key, err = ConsumeString(b, typ)
 		case 2:
 			b, m.NewKey, err = ConsumeString(b, typ)
+		case 3:
+			b, m.AssetID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5225,7 +5312,7 @@ func DecodeAssetRenameRequest(b []byte) (*AssetRenameRequest, error) {
 
 func (m *AssetDeleteRequest) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.Key, 1)
+	b = AppendInt32Field(b, m.AssetID, 2)
 	return b
 }
 
@@ -5240,8 +5327,8 @@ func DecodeAssetDeleteRequest(b []byte) (*AssetDeleteRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, m.Key, err = ConsumeString(b, typ)
+		case 2:
+			b, m.AssetID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

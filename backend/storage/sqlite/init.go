@@ -2,16 +2,20 @@ package sqlite
 
 import (
 	"database/sql"
-	_ "embed"
+	"embed"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"strings"
 
 	_ "modernc.org/sqlite"
 )
 
-//go:embed sql/schema.sql
-var schema string
+// The schema is split by table group across sql/schema*.sql. Every matching
+// file is applied on startup, so adding a group needs no change here.
+//
+//go:embed sql/schema*.sql
+var schemaFiles embed.FS
 
 //go:embed sql/primary-migrations/migrations.sql
 var primaryMigrations string
@@ -32,11 +36,31 @@ func mustInit(dbPath, migrations string) *sql.DB {
 	if err != nil {
 		panic(fmt.Sprintf("open sqlite: %v", err))
 	}
-	if _, err := db.Exec(schema); err != nil {
-		panic(fmt.Sprintf("exec schema: %v", err))
-	}
+	// Shape migrations run before applySchema: CREATE TABLE IF NOT EXISTS
+	// silently no-ops against an old-shape table of the same name, so the
+	// schema files can only ever see the target shape.
+	migrateAssetShape(db)
+	applySchema(db)
 	applyMigrations(db, migrations)
 	return db
+}
+
+// applySchema executes every embedded schema file. The tables have no
+// cross-file dependencies, so the (sorted) glob order is enough.
+func applySchema(db *sql.DB) {
+	names, err := fs.Glob(schemaFiles, "sql/schema*.sql")
+	if err != nil {
+		panic(fmt.Sprintf("glob schema files: %v", err))
+	}
+	for _, name := range names {
+		stmts, err := fs.ReadFile(schemaFiles, name)
+		if err != nil {
+			panic(fmt.Sprintf("read %s: %v", name, err))
+		}
+		if _, err := db.Exec(string(stmts)); err != nil {
+			panic(fmt.Sprintf("exec %s: %v", name, err))
+		}
+	}
 }
 
 func applyMigrations(db *sql.DB, migrations string) {

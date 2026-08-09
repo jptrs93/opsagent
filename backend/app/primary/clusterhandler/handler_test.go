@@ -26,9 +26,9 @@ func TestBuildAllowedRefs(t *testing.T) {
 						EnvVars: map[string]*apigen.EnvVarValue{
 							"SECRET": {SecretID: &secretID},
 							"CONFIG": {ConfigID: &configID},
-							"ASSET":  {Asset: "app.env", AssetID: 3},
+							"ASSET":  {Asset: "app.env", AssetVersionID: 3},
 						},
-						AssetMounts: []*apigen.AssetMount{{AssetID: 4, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_ONLY}},
+						AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_ONLY}},
 					},
 				},
 			},

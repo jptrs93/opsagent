@@ -15,7 +15,7 @@ import (
 )
 
 type AssetProvider interface {
-	OpenAsset(ctx context.Context, assetID int32) (*apigen.Asset, io.ReadCloser, error)
+	OpenAsset(ctx context.Context, assetID int32) (*apigen.AssetVersion, io.ReadCloser, error)
 }
 
 type requiredAssetRef struct {
@@ -101,18 +101,18 @@ func RequiredAssetRefs(cfg *apigen.DeploymentConfig) []requiredAssetRef {
 			continue
 		}
 		refs = append(refs, requiredAssetRef{
-			Label:      fmt.Sprintf("asset mount %d", m.AssetID),
-			AssetID:    m.AssetID,
+			Label:      fmt.Sprintf("asset mount %d", m.AssetVersionID),
+			AssetID:    m.AssetVersionID,
 			Executable: m.Permission == apigen.FilePermission_READ_EXECUTE,
 		})
 	}
 	for key, value := range runtime.EnvVars {
-		if value == nil || value.AssetID <= 0 {
+		if value == nil || value.AssetVersionID <= 0 {
 			continue
 		}
 		refs = append(refs, requiredAssetRef{
 			Label:   fmt.Sprintf("asset env var %q", key),
-			AssetID: value.AssetID,
+			AssetID: value.AssetVersionID,
 		})
 	}
 	sort.Slice(refs, func(i, j int) bool {

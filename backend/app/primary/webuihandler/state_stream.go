@@ -85,7 +85,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 			SecretMetasSnapshot:        &apigen.SecretList{Items: h.listAllSecretMetas()},
 			UserConfigValuesSnapshot:   &apigen.ConfigList{Items: h.Store.ListAllUserConfigs()},
 			SpacesSnapshot:             &apigen.SpaceList{Items: h.Store.ListSpaces()},
-			AssetsSnapshot:             &apigen.AssetList{Items: h.Store.ListAllAssetVersions()},
+			AssetsSnapshot:             &apigen.AssetList{Items: h.Store.ListAssets()},
 			NodesSnapshot:              &apigen.ClusterNodeList{Items: h.Store.ListClusterNodes()},
 			NodeStatusesSnapshot:       &apigen.ClusterNodeStatusList{Items: h.Store.ListNodeStatuses()},
 			BackupStatusSnapshot:       &backupStatus,

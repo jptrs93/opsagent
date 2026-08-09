@@ -188,9 +188,13 @@ export function deploymentEditorWidget(opts) {
         configRefs,
         deployments,
         loadAsset: actions.loadAsset,
-        saveAsset: request => withRequest('Saving asset.', async () => {
-            if (typeof actions.saveAsset !== 'function') throw new Error('actions.saveAsset is required');
-            return actions.saveAsset(request);
+        createAsset: request => withRequest('Saving asset.', async () => {
+            if (typeof actions.createAsset !== 'function') throw new Error('actions.createAsset is required');
+            return actions.createAsset(request);
+        }),
+        saveVersion: request => withRequest('Saving asset.', async () => {
+            if (typeof actions.saveVersion !== 'function') throw new Error('actions.saveVersion is required');
+            return actions.saveVersion(request);
         }),
         onRefresh: () => loadVersions(deploymentUpdate.nixDockerBuild.selectedBranch.val, {
             refreshAvailableBranches: true,

@@ -163,11 +163,11 @@ func (s *Store) AssetStorageStatus() (bool, int, bool, string) {
 	return status.TargetS3, status.Pending, status.Running, status.Error
 }
 
-func (s *Store) migrateToS3(ctx context.Context, assetID int32, target *apigen.ClusterSettings) error {
+func (s *Store) migrateToS3(ctx context.Context, assetVersionID int32, target *apigen.ClusterSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	asset, ok := s.DB.GetAssetByID(assetID)
+	asset, ok := s.DB.GetAssetVersionByID(assetVersionID)
 	if !ok || !strings.HasPrefix(asset.Location, "local://") {
 		return nil
 	}
@@ -189,11 +189,11 @@ func (s *Store) migrateToS3(ctx context.Context, assetID int32, target *apigen.C
 	}); err != nil {
 		return fmt.Errorf("migrate large asset %d to s3: %w", asset.ID, err)
 	}
-	asset = s.DB.UpdateAssetLocation(asset.ID, "s3://"+bucket+"/"+key)
+	asset = s.DB.UpdateAssetVersionLocation(asset.ID, "s3://"+bucket+"/"+key)
 	if err := os.Remove(localPath(asset.ID)); err != nil && !os.IsNotExist(err) {
 		slog.Warn("remove migrated local large asset", "asset_id", asset.ID, "err", err)
 	}
-	s.DB.NotifyAssetUpdate(asset)
+	s.notifyVersionWritten(asset)
 	return nil
 }
 
@@ -210,11 +210,11 @@ func (s *Store) recoverPendingUploads(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) finishPending(ctx context.Context, assetID int32, targetS3 bool) error {
+func (s *Store) finishPending(ctx context.Context, assetVersionID int32, targetS3 bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	asset, ok := s.DB.GetAssetByIDIncludingPending(assetID)
+	asset, ok := s.DB.GetAssetVersionByIDIncludingPending(assetVersionID)
 	if !ok || !strings.HasPrefix(asset.Location, "pending://") {
 		return nil
 	}
@@ -233,7 +233,7 @@ func (s *Store) finishPending(ctx context.Context, assetID int32, targetS3 bool)
 		if targetS3 {
 			return s.finishPendingFromS3(ctx, asset)
 		}
-		s.DB.DeleteAssetVersionByID(asset.ID)
+		s.deleteFailedVersion(asset)
 		return nil
 	}
 	if err != nil {
@@ -251,7 +251,7 @@ func (s *Store) finishPending(ctx context.Context, assetID int32, targetS3 bool)
 				return err
 			}
 		} else {
-			s.DB.DeleteAssetVersionByID(asset.ID)
+			s.deleteFailedVersion(asset)
 		}
 		if err := os.Remove(sourcePath); err != nil && !os.IsNotExist(err) {
 			slog.Warn("remove invalid staged large asset", "asset_id", asset.ID, "err", err)
@@ -274,7 +274,7 @@ func (s *Store) finishPending(ctx context.Context, assetID int32, targetS3 bool)
 		}); err != nil {
 			return fmt.Errorf("migrate staged large asset %d to s3: %w", asset.ID, err)
 		}
-		asset = s.DB.UpdateAssetLocation(asset.ID, "s3://"+bucket+"/"+key)
+		asset = s.DB.UpdateAssetVersionLocation(asset.ID, "s3://"+bucket+"/"+key)
 		if err := os.Remove(sourcePath); err != nil && !os.IsNotExist(err) {
 			slog.Warn("remove migrated staged large asset", "asset_id", asset.ID, "err", err)
 		}
@@ -290,13 +290,13 @@ func (s *Store) finishPending(ctx context.Context, assetID int32, targetS3 bool)
 		if err := syncDir(ainit.StaticConfig.LargeAssetsDir); err != nil {
 			return fmt.Errorf("sync staged large asset directory %d: %w", asset.ID, err)
 		}
-		asset = s.DB.UpdateAssetLocation(asset.ID, localLocation(asset.ID))
+		asset = s.DB.UpdateAssetVersionLocation(asset.ID, localLocation(asset.ID))
 	}
-	s.DB.NotifyAssetUpdate(asset)
+	s.notifyVersionWritten(asset)
 	return nil
 }
 
-func (s *Store) finishPendingFromS3(ctx context.Context, asset *apigen.Asset) error {
+func (s *Store) finishPendingFromS3(ctx context.Context, asset *apigen.AssetVersion) error {
 	cfg := s.Config()
 	client, bucket, err := s.s3Client(cfg)
 	if err != nil {
@@ -307,25 +307,25 @@ func (s *Store) finishPendingFromS3(ctx context.Context, asset *apigen.Asset) er
 	if err != nil {
 		var responseErr interface{ HTTPStatusCode() int }
 		if errors.As(err, &responseErr) && responseErr.HTTPStatusCode() == http.StatusNotFound {
-			s.DB.DeleteAssetVersionByID(asset.ID)
+			s.deleteFailedVersion(asset)
 			return nil
 		}
 		return fmt.Errorf("check staged large asset %d in s3: %w", asset.ID, err)
 	}
 	if result.ContentLength == nil || *result.ContentLength != int64(asset.SizeBytes) {
-		s.DB.DeleteAssetVersionByID(asset.ID)
+		s.deleteFailedVersion(asset)
 		return nil
 	}
-	asset = s.DB.UpdateAssetLocation(asset.ID, "s3://"+bucket+"/"+key)
-	s.DB.NotifyAssetUpdate(asset)
+	asset = s.DB.UpdateAssetVersionLocation(asset.ID, "s3://"+bucket+"/"+key)
+	s.notifyVersionWritten(asset)
 	return nil
 }
 
-func (s *Store) migrateToLocal(ctx context.Context, assetID int32, source *apigen.ClusterSettings) error {
+func (s *Store) migrateToLocal(ctx context.Context, assetVersionID int32, source *apigen.ClusterSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	asset, ok := s.DB.GetAssetByID(assetID)
+	asset, ok := s.DB.GetAssetVersionByID(assetVersionID)
 	if !ok || !strings.HasPrefix(asset.Location, "s3://") {
 		return nil
 	}
@@ -333,8 +333,8 @@ func (s *Store) migrateToLocal(ctx context.Context, assetID int32, source *apige
 		if err := syncDir(ainit.StaticConfig.LargeAssetsDir); err != nil {
 			return fmt.Errorf("sync recovered large asset directory %d: %w", asset.ID, err)
 		}
-		asset = s.DB.UpdateAssetLocation(asset.ID, localLocation(asset.ID))
-		s.DB.NotifyAssetUpdate(asset)
+		asset = s.DB.UpdateAssetVersionLocation(asset.ID, localLocation(asset.ID))
+		s.notifyVersionWritten(asset)
 		return nil
 	}
 	bucket, key, err := parseS3Location(asset.Location)
@@ -378,8 +378,8 @@ func (s *Store) migrateToLocal(ctx context.Context, assetID int32, source *apige
 	if err := syncDir(ainit.StaticConfig.LargeAssetsDir); err != nil {
 		return fmt.Errorf("sync migrated large asset directory %d: %w", asset.ID, err)
 	}
-	asset = s.DB.UpdateAssetLocation(asset.ID, localLocation(asset.ID))
-	s.DB.NotifyAssetUpdate(asset)
+	asset = s.DB.UpdateAssetVersionLocation(asset.ID, localLocation(asset.ID))
+	s.notifyVersionWritten(asset)
 	return nil
 }
 

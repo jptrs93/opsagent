@@ -98,7 +98,7 @@ func TestCountEnvVars(t *testing.T) {
 		"PLAIN":  {Value: &plain},
 		"SECRET": {SecretID: &secretID},
 		"CONFIG": {ConfigID: &configID},
-		"ASSET":  {Asset: "bundle", AssetID: 3},
+		"ASSET":  {Asset: "bundle", AssetVersionID: 3},
 		"NIL":    nil,
 	})
 
@@ -146,8 +146,8 @@ func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
 			DefaultVolume: apigen.DefaultVolumeMount{Disabled: true},
 			AssetMounts: []*apigen.AssetMount{
-				{AssetID: 8, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY},
-				{AssetID: 9, ContainerPath: "/docker-entrypoint-initdb.d/init.sh", Permission: apigen.FilePermission_READ_EXECUTE},
+				{AssetVersionID: 8, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY},
+				{AssetVersionID: 9, ContainerPath: "/docker-entrypoint-initdb.d/init.sh", Permission: apigen.FilePermission_READ_EXECUTE},
 			},
 		}}},
 	}

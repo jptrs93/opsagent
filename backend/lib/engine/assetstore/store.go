@@ -92,8 +92,8 @@ func (s *Store) effectiveS3Identity(settings apigen.ClusterSettings) s3Identity 
 	}
 }
 
-func (s *Store) GetAssetForPreview(key string, version int32) (*apigen.Asset, bool, error) {
-	asset, ok := s.DB.GetAsset(key, version)
+func (s *Store) GetAssetForPreview(assetID, version int32) (*apigen.AssetVersion, bool, error) {
+	asset, ok := s.DB.GetAssetVersion(assetID, version)
 	if !ok || asset.Location == "" {
 		return asset, ok, nil
 	}
@@ -101,11 +101,41 @@ func (s *Store) GetAssetForPreview(key string, version int32) (*apigen.Asset, bo
 	return asset, true, nil
 }
 
-func (s *Store) SetAsset(ctx context.Context, key, format string, blob []byte, spaceID int32) (*apigen.Asset, error) {
-	return s.SetAssetFromReader(ctx, key, format, int64(len(blob)), bytes.NewReader(blob), spaceID)
+// notifyVersionWritten publishes the owning asset's current list-item state
+// after a version write.
+func (s *Store) notifyVersionWritten(v *apigen.AssetVersion) {
+	if meta, ok := s.DB.GetAssetMeta(v.AssetID); ok {
+		s.DB.NotifyAssetUpdate(meta)
+	}
 }
 
-func (s *Store) SetAssetFromReader(ctx context.Context, key, format string, sizeBytes int64, r io.Reader, spaceID int32) (*apigen.Asset, error) {
+// CreateAsset creates a new asset in spaceID's root directory with its first
+// version.
+func (s *Store) CreateAsset(ctx context.Context, key string, spaceID, createdBy int32, blob []byte) (*apigen.AssetVersion, error) {
+	return s.CreateAssetFromReader(ctx, key, spaceID, createdBy, int64(len(blob)), bytes.NewReader(blob))
+}
+
+func (s *Store) CreateAssetFromReader(ctx context.Context, key string, spaceID, createdBy int32, sizeBytes int64, r io.Reader) (*apigen.AssetVersion, error) {
+	return s.writeVersion(ctx, sizeBytes, r,
+		func(location string, size int64, blob []byte) (*apigen.AssetVersion, error) {
+			return s.DB.CreateAssetWithVersion(key, spaceID, createdBy, location, size, blob)
+		})
+}
+
+// AppendAssetVersion appends the next version of an existing asset. The asset
+// identity — key, space, directory — cannot change here.
+func (s *Store) AppendAssetVersion(ctx context.Context, assetID, createdBy int32, blob []byte) (*apigen.AssetVersion, error) {
+	return s.AppendAssetVersionFromReader(ctx, assetID, createdBy, int64(len(blob)), bytes.NewReader(blob))
+}
+
+func (s *Store) AppendAssetVersionFromReader(ctx context.Context, assetID, createdBy int32, sizeBytes int64, r io.Reader) (*apigen.AssetVersion, error) {
+	return s.writeVersion(ctx, sizeBytes, r,
+		func(location string, size int64, blob []byte) (*apigen.AssetVersion, error) {
+			return s.DB.AppendAssetVersion(assetID, createdBy, location, size, blob)
+		})
+}
+
+func (s *Store) writeVersion(ctx context.Context, sizeBytes int64, r io.Reader, insert func(location string, size int64, blob []byte) (*apigen.AssetVersion, error)) (*apigen.AssetVersion, error) {
 	if sizeBytes < 0 {
 		return nil, fmt.Errorf("asset upload requires a content length")
 	}
@@ -120,14 +150,25 @@ func (s *Store) SetAssetFromReader(ctx context.Context, key, format string, size
 		if int64(len(blob)) != sizeBytes {
 			return nil, fmt.Errorf("asset upload size changed while reading")
 		}
-		asset := s.DB.SetAsset(key, format, blob, spaceID)
-		s.DB.NotifyAssetUpdate(asset)
-		return asset, nil
+		version, err := insert("", sizeBytes, blob)
+		if err != nil {
+			return nil, err
+		}
+		s.notifyVersionWritten(version)
+		return version, nil
 	}
-	return s.setLargeAssetFromReader(ctx, key, format, sizeBytes, r, spaceID)
+	return s.writeLargeVersion(ctx, sizeBytes, r, insert)
 }
 
-func (s *Store) setLargeAssetFromReader(ctx context.Context, key, format string, sizeBytes int64, r io.Reader, spaceID int32) (*apigen.Asset, error) {
+// deleteFailedVersion removes the version row of a write that could not reach
+// durable storage, and the asset row too when this was its only version — a
+// versionless asset would be invisible while still claiming its key.
+func (s *Store) deleteFailedVersion(version *apigen.AssetVersion) {
+	s.DB.DeleteAssetVersionByID(version.ID)
+	s.DB.DeleteAssetIfNoVersions(version.AssetID)
+}
+
+func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Reader, insert func(location string, size int64, blob []byte) (*apigen.AssetVersion, error)) (*apigen.AssetVersion, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -150,12 +191,15 @@ func (s *Store) setLargeAssetFromReader(ctx context.Context, key, format string,
 		return nil, fmt.Errorf("stage large asset upload: %w", err)
 	}
 
-	asset := s.DB.SetAssetStored(key, format, pendingLocation(filepath.Base(tmp.Name())), sizeBytes, []byte{}, spaceID)
+	asset, err := insert(pendingLocation(filepath.Base(tmp.Name())), sizeBytes, []byte{})
+	if err != nil {
+		return nil, err
+	}
 	var location string
 	if s.Loader.MustLoadConfigBoolValue(cfg.Backup.Enabled) {
 		client, bucket, err := s.s3Client(cfg)
 		if err != nil {
-			s.DB.DeleteAssetVersionByID(asset.ID)
+			s.deleteFailedVersion(asset)
 			return nil, err
 		}
 		prefix := s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Path)
@@ -167,40 +211,40 @@ func (s *Store) setLargeAssetFromReader(ctx context.Context, key, format string,
 			Body:          tmp,
 			ContentLength: aws.Int64(sizeBytes),
 		}); err != nil {
-			s.DB.DeleteAssetVersionByID(asset.ID)
+			s.deleteFailedVersion(asset)
 			return nil, fmt.Errorf("write large asset to s3: %w", err)
 		}
 	} else {
 		location = localLocation(asset.ID)
 		if err := tmp.Close(); err != nil {
-			s.DB.DeleteAssetVersionByID(asset.ID)
+			s.deleteFailedVersion(asset)
 			return nil, fmt.Errorf("close large asset: %w", err)
 		}
 		if err := os.Rename(tmp.Name(), localPath(asset.ID)); err != nil {
-			s.DB.DeleteAssetVersionByID(asset.ID)
+			s.deleteFailedVersion(asset)
 			return nil, fmt.Errorf("store large asset locally: %w", err)
 		}
 		if err := syncDir(ainit.StaticConfig.LargeAssetsDir); err != nil {
-			s.DB.DeleteAssetVersionByID(asset.ID)
+			s.deleteFailedVersion(asset)
 			return nil, fmt.Errorf("sync large asset directory: %w", err)
 		}
 	}
 	if location == "" {
-		s.DB.DeleteAssetVersionByID(asset.ID)
+		s.deleteFailedVersion(asset)
 		return nil, fmt.Errorf("large asset location was not selected")
 	}
-	asset = s.DB.UpdateAssetLocation(asset.ID, location)
+	asset = s.DB.UpdateAssetVersionLocation(asset.ID, location)
 	asset.Blob = nil
-	s.DB.NotifyAssetUpdate(asset)
+	s.notifyVersionWritten(asset)
 	return asset, nil
 }
 
-func (s *Store) OpenAsset(ctx context.Context, assetID int32) (*apigen.Asset, io.ReadCloser, error) {
+func (s *Store) OpenAsset(ctx context.Context, assetVersionID int32) (*apigen.AssetVersion, io.ReadCloser, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	asset, ok := s.DB.GetAssetByID(assetID)
+	asset, ok := s.DB.GetAssetVersionByID(assetVersionID)
 	if !ok {
-		return nil, nil, fmt.Errorf("asset %d not found", assetID)
+		return nil, nil, fmt.Errorf("asset version %d not found", assetVersionID)
 	}
 	if strings.HasPrefix(asset.Location, "s3://") {
 		body, err := s.openS3Asset(ctx, asset.Location)
@@ -226,15 +270,15 @@ func (s *Store) OpenAsset(ctx context.Context, assetID int32) (*apigen.Asset, io
 	return asset, io.NopCloser(bytes.NewReader(asset.Blob)), nil
 }
 
-func (s *Store) DeleteAsset(ctx context.Context, key string) error {
+func (s *Store) DeleteAsset(ctx context.Context, assetID int32) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	latest, ok := s.DB.GetAsset(key, 0)
-	versions := s.DB.ListAssetVersionsByKeyIncludingPending(key)
-	s.DB.DeleteAsset(key)
-	if ok {
-		s.DB.NotifyAssetDeleted(latest)
+	meta, hadPublished := s.DB.GetAssetMeta(assetID)
+	versions := s.DB.ListAssetVersionsIncludingPending(assetID)
+	s.DB.DeleteAsset(assetID)
+	if hadPublished {
+		s.DB.NotifyAssetDeleted(meta)
 	}
 	for _, asset := range versions {
 		if strings.HasPrefix(asset.Location, "local://") {
@@ -259,19 +303,16 @@ func (s *Store) DeleteAsset(ctx context.Context, key string) error {
 	return nil
 }
 
-func (s *Store) RenameAsset(ctx context.Context, oldKey, newKey string) (*apigen.Asset, error) {
+func (s *Store) RenameAsset(ctx context.Context, assetID int32, newKey string) (*apigen.AssetMeta, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	asset, err := s.DB.RenameAsset(oldKey, newKey)
+	meta, err := s.DB.RenameAssetKey(assetID, newKey)
 	if err != nil {
 		return nil, err
 	}
-	versions := s.DB.ListAssetVersionsByKey(newKey)
-	for _, version := range versions {
-		s.DB.NotifyAssetUpdate(version)
-	}
-	return asset, nil
+	s.DB.NotifyAssetUpdate(meta)
+	return meta, nil
 }
 
 func (s *Store) openS3Asset(ctx context.Context, location string) (io.ReadCloser, error) {

@@ -257,6 +257,24 @@ function unwrap(value) {
     return current;
 }
 
+// The generic name+version resolvers want one catalog entry per referenceable
+// asset version, but asset metas arrive one per asset with a version_refs
+// index. Expand them so `id` is always the pinnable version row id.
+function expandAssetVersions(metas) {
+    const out = [];
+    for (const meta of metas) {
+        const refs = (meta.versionRefs || []).filter(ref => Number(ref?.id || 0));
+        if (!refs.length && Number(meta.assetVersionId || 0)) {
+            out.push({id: Number(meta.assetVersionId), key: meta.key, spaceId: meta.spaceId, version: Number(meta.version || 0)});
+            continue;
+        }
+        for (const ref of refs) {
+            out.push({id: Number(ref.id), key: meta.key, spaceId: meta.spaceId, version: Number(ref.version || 0)});
+        }
+    }
+    return out;
+}
+
 function normalizedCatalogs(catalogs) {
     const source = unwrap(catalogs) || {};
     const list = name => {
@@ -266,7 +284,7 @@ function normalizedCatalogs(catalogs) {
     return {
         spaces: list("spaces"),
         nodes: list("nodes"),
-        assets: list("assets"),
+        assets: expandAssetVersions(list("assets")),
         secretRefs: list("secretRefs"),
         configRefs: list("configRefs"),
         deployments: list("deployments"),
@@ -369,8 +387,8 @@ function envValueToHcl(value, catalogs, spaceId, pinVersions) {
     if (value?.addressDeploymentId !== undefined && value.addressDeploymentId !== null) {
         return deploymentReferenceForID(catalogs, "address", value.addressDeploymentId);
     }
-    if (value?.assetId || value?.asset) {
-        return versionedReferenceForID(catalogs, "asset", value.assetId, pinVersions);
+    if (value?.assetVersionId || value?.asset) {
+        return versionedReferenceForID(catalogs, "asset", value.assetVersionId, pinVersions);
     }
     return quote(value?.value ?? "");
 }
@@ -462,7 +480,7 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
         mounts.push(`mount(${mountSource}, ${quote(mount?.containerPath)}${mountOption("read_only", mount?.permission === PERMISSION_READ_ONLY)})`);
     }
     for (const mount of runtime.assetMounts || []) {
-        const mountSource = versionedReferenceForID(refs, "asset", mount?.assetId, pinVersions);
+        const mountSource = versionedReferenceForID(refs, "asset", mount?.assetVersionId, pinVersions);
         mounts.push(`mount(${mountSource}, ${quote(mount?.containerPath)}${mountOption("executable", mount?.permission === PERMISSION_READ_EXECUTE)})`);
     }
     if (mounts.length) {
@@ -722,7 +740,7 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, runtime
             const options = optionsExpression ? validateObject(text, diagnostics, optionsExpression, new Set(["executable"])) : new Map();
             if (asset) {
                 assetMounts.push({
-                    assetId: Number(asset.id),
+                    assetVersionId: Number(asset.id),
                     containerPath: pathExpression.value,
                     permission: optionBoolean(text, diagnostics, options, "executable")
                         ? PERMISSION_READ_EXECUTE
@@ -808,7 +826,7 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
         if (!item) continue;
         if (value.name === "secret") setEnv(entry.name, {secretId: Number(item.id)});
         if (value.name === "config") setEnv(entry.name, {configId: Number(item.id)});
-        if (value.name === "asset") setEnv(entry.name, {asset: item.key, assetId: Number(item.id)});
+        if (value.name === "asset") setEnv(entry.name, {asset: item.key, assetVersionId: Number(item.id)});
         if (value.name === "address") {
             const config = deploymentConfig(item);
             setEnv(entry.name, {addressDeploymentId: Number(config.id), addressSpaceId: Number(config.identity.spaceId)});

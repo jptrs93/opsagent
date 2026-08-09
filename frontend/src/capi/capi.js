@@ -6,8 +6,9 @@ import {
   decodeAgentSessionList,
   decodeAgentSessionPickup,
   decodeAgentSessionRequest,
-  decodeAsset,
   decodeAssetList,
+  decodeAssetMeta,
+  decodeAssetVersion,
   decodeClusterConfigsResponse,
   decodeClusterNode,
   decodeClusterSecretsResponse,
@@ -44,6 +45,7 @@ import {
   encodeAgentSessionGetRequest,
   encodeAgentSessionRequestStartRequest,
   encodeAgentSessionRevokeRequest,
+  encodeAssetCreateRequest,
   encodeAssetDeleteRequest,
   encodeAssetGetRequest,
   encodeAssetRenameRequest,
@@ -859,49 +861,61 @@ export class Capi {
 
   /**
    * @param {AssetGetRequest} payload
-   * @returns {Promise<Asset>}
+   * @returns {Promise<AssetVersion>}
    */
   async postV1AssetsGet(payload) {
     const response = await this.#request("/v1/assets/get", { method: 'POST', body: encodeAssetGetRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAsset(await response.arrayBuffer());
+    return decodeAssetVersion(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {AssetCreateRequest} payload
+   * @returns {Promise<AssetVersion>}
+   */
+  async postV1AssetsCreate(payload) {
+    const response = await this.#request("/v1/assets/create", { method: 'POST', body: encodeAssetCreateRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeAssetVersion(await response.arrayBuffer());
   }
 
   /**
    * @param {AssetSetRequest} payload
-   * @returns {Promise<Asset>}
+   * @returns {Promise<AssetVersion>}
    */
   async postV1AssetsSet(payload) {
     const response = await this.#request("/v1/assets/set", { method: 'POST', body: encodeAssetSetRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAsset(await response.arrayBuffer());
+    return decodeAssetVersion(await response.arrayBuffer());
   }
 
   /**
-   * @returns {Promise<Asset>}
+   * @returns {Promise<AssetVersion>}
    */
   async postV1AssetsUpload() {
     const response = await this.#request("/v1/assets/upload", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAsset(await response.arrayBuffer());
+    return decodeAssetVersion(await response.arrayBuffer());
   }
 
   /**
    * @param {AssetRenameRequest} payload
-   * @returns {Promise<Asset>}
+   * @returns {Promise<AssetMeta>}
    */
   async postV1AssetsRename(payload) {
     const response = await this.#request("/v1/assets/rename", { method: 'POST', body: encodeAssetRenameRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAsset(await response.arrayBuffer());
+    return decodeAssetMeta(await response.arrayBuffer());
   }
 
   /**

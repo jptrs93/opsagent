@@ -275,21 +275,25 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetsGet(AssetGetRequest) returns (Asset) {
+  rpc PostV1AssetsGet(AssetGetRequest) returns (AssetVersion) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetsSet(AssetSetRequest) returns (Asset) {
+  rpc PostV1AssetsCreate(AssetCreateRequest) returns (AssetVersion) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetsUpload(cp.Empty) returns (Asset) {
+  rpc PostV1AssetsSet(AssetSetRequest) returns (AssetVersion) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AssetsUpload(cp.Empty) returns (AssetVersion) {
     option (cp.url) = "/v1/assets/upload";
     option (cp.go_custom) = true;
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetsRename(AssetRenameRequest) returns (Asset) {
+  rpc PostV1AssetsRename(AssetRenameRequest) returns (AssetMeta) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 

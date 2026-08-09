@@ -125,10 +125,11 @@ type ApiServerHandler interface {
 	PostV1ConfigsRename(Context, *ConfigRenameRequest) (*Config, error)
 	PostV1ConfigsDelete(Context, *ConfigDeleteRequest) error
 	PostV1AssetsList(Context, *EmptyRequest) (*AssetList, error)
-	PostV1AssetsGet(Context, *AssetGetRequest) (*Asset, error)
-	PostV1AssetsSet(Context, *AssetSetRequest) (*Asset, error)
+	PostV1AssetsGet(Context, *AssetGetRequest) (*AssetVersion, error)
+	PostV1AssetsCreate(Context, *AssetCreateRequest) (*AssetVersion, error)
+	PostV1AssetsSet(Context, *AssetSetRequest) (*AssetVersion, error)
 	PostV1AssetsUpload(Context, *http.Request, http.ResponseWriter) error
-	PostV1AssetsRename(Context, *AssetRenameRequest) (*Asset, error)
+	PostV1AssetsRename(Context, *AssetRenameRequest) (*AssetMeta, error)
 	PostV1AssetsDelete(Context, *AssetDeleteRequest) error
 }
 
@@ -797,6 +798,17 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/assets/get", buildHandlerFunc(config, verifyAuth, postV1AssetsGetAccessPolicy, postAuthHandlerPostV1AssetsGet, compressionModeAuto, false))
+	postV1AssetsCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AssetsCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetCreateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AssetsCreate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/assets/create", buildHandlerFunc(config, verifyAuth, postV1AssetsCreateAccessPolicy, postAuthHandlerPostV1AssetsCreate, compressionModeAuto, false))
 	postV1AssetsSetAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1AssetsSet := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetSetRequest)

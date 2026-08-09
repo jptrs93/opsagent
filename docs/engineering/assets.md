@@ -4,23 +4,32 @@ Assets are versioned user-managed file blobs intended for config files that can 
 
 ## Current implementation
 
-- Storage table: `assets` stores versioned rows with an auto-incremented numeric `id` and unique `(key, version)`.
-- Asset content and version metadata are immutable. Saving an existing key appends the next integer version; `location` changes only after a durable storage transition. Renaming changes the group key across every version without changing IDs, versions, content, or locations.
-- Deployment configs pin assets by immutable asset row ID; the key/version are display and selection metadata.
-- Latest metadata is listed via `/v1/assets/list`; the blob is fetched explicitly via `/v1/assets/get`.
-- Two write endpoints exist. `/v1/assets/set` carries the blob in the request body and is therefore subject to the mux-wide `MaxRequestBodySize` (20 MB, base64-inflated to roughly 15 MB of file under JSON). `/v1/assets/upload` is a `go_custom` route that takes the raw bytes as the body and streams them, so no decode limit applies; its only ceiling is `math.MaxInt32`. Upload requires a `Content-Length` and rejects chunked bodies.
-- `/v1/assets/upload` distinguishes its two name parameters. `?key=` targets an exact asset and appends the next version, creating the key if it does not exist. `?name=` asks for a new asset and is suffixed (`nginx.conf` → `nginx.conf1`) when the name is taken; this is what the web UI file picker sends. Supplying `?name=` for a key that already exists therefore creates a separate asset rather than a new version, and returns `200`.
-- On a `?key=` update, `format` and `space_id` are inherited from the version being superseded unless the request overrides them. Applying the create-time defaults instead would retype an `nginx` asset as `text` and move it to the default space.
+- Storage tables: `assets` holds the stable identity — `(space_id, asset_directory_id, key)` plus `created_at`/`created_by`; `asset_versions` holds the immutable content rows with unique `(asset_id, version)`; `asset_directories` exists for the upcoming folder phase (every asset currently sits in the implicit root, `asset_directory_id = 0`). `created_by` is the acting user id, `0` for migrated or system rows.
+- **Two id spaces.** `assets.id` is the stable asset id: it survives renames, moves, and new versions, and is what the write API targets. `asset_versions.id` is the version row id: it is what deployment configs pin (`assetVersionId`), what workers fetch and cache by, and what S3 object keys are derived from. The shape migration preserved every pre-split row id into `asset_versions.id` and started the `assets` sequence above them, so the two spaces do not overlap on migrated installs and an accidental cross-join resolves to nothing.
+- Each space is an independent file system. Sibling keys must be unique per `(space_id, asset_directory_id)` across **both** assets and directories; that spans two tables, so it is enforced by the storage layer's mutex-guarded create/rename ops, not by a SQL constraint. Keys must be valid file names (no `/`, `\`, NUL, `.`, `..`, ≤255 chars).
+- Version rows are immutable. Appending targets the stable asset id and writes the next integer version; `location` changes only after a durable storage transition. Renaming updates only `assets.key` — version rows, ids, content, and locations are untouched, and pinned deployment references keep working.
+- Latest metadata is listed via `/v1/assets/list`, one entry per asset carrying its latest published version plus a `version_refs` index of every published `(version row id, version number)` pair — this is what usage matching and version-pinned references join against. The blob is fetched via `/v1/assets/get` with `{asset_id, version}` (version 0 = latest).
+- Write endpoints: `/v1/assets/create` (`{key, space_id, blob}`) creates an asset in a space's root; `/v1/assets/set` (`{asset_id, blob}`) appends the next version; both carry the blob in the request body and are subject to the mux-wide `MaxRequestBodySize` (20 MB, base64-inflated to roughly 15 MB of file under JSON). `/v1/assets/upload` is a `go_custom` route that takes the raw bytes as the body and streams them, so no decode limit applies; its only ceiling is `math.MaxInt32`. Upload requires a `Content-Length` and rejects chunked bodies.
+- `/v1/assets/upload` distinguishes its two target parameters. `?asset_id=` targets an exact asset and appends its next version. `?name=` (optionally with `&space_id=`) asks for a new asset and is suffixed (`nginx.conf` → `nginx.conf1`) when the name is taken in that space's root; this is what the web UI file picker sends. Supplying `?name=` for a key that already exists therefore creates a separate asset rather than a new version, and returns `200`.
+- There is no stored format hint. Editors infer syntax from the key's file extension.
 - Assets up to 10 MiB are stored inline in the primary DB.
 - Assets larger than 10 MiB use primary-local storage while Backup is disabled and S3 while Backup is enabled; the DB row keeps metadata and the active location.
 - The UI does not load large asset content for preview/edit. It shows a "too large to show" message while deployments and worker mounts still fetch the blob transparently.
 - `frontend/src/components/assetEditor.js` is the shared asset content surface. It supports inline and overlay presentation, create/edit/read modes, and loading an exact historical version. Editing historical content still appends after the latest known version; asset rows are never mutated.
 - UTF-8 inline assets use the shared CodeMirror editor. Inline assets containing invalid UTF-8 are displayed read-only in a plain textarea so a text edit cannot replace their original bytes.
-- `format` is a UI/editor hint such as `text`, `nginx`, `yaml`, or `json`.
-- `location` is empty for inline assets, `local://<id>` for primary-local large assets, and `s3://...` for S3-backed large assets. A `pending://...` location is used only for an unpublished, interrupted large-asset upload; public asset queries exclude those rows until recovery finishes the upload.
-- Asset rename rejects an existing destination key and preserves the complete version history. Existing deployments remain valid because they pin immutable asset IDs; their stored display key is refreshed only when the deployment config is updated.
+- `location` is empty for inline versions, `local://<version-row-id>` for primary-local large versions, and `s3://...` for S3-backed large versions. A `pending://...` location is used only for an unpublished, interrupted large-asset upload; public asset queries exclude those rows until recovery finishes the upload.
+- Asset rename rejects a destination key already used by a sibling asset or directory and preserves the complete version history. Existing deployments remain valid because they pin immutable version row ids; their stored display key is refreshed only when the deployment config is updated.
 - `asset_migrations` records each complete local-to-S3 or S3-to-local transition with its old and new `system_config_revisions` row IDs, durable status, timestamps, and latest error. Individual asset locations are the per-asset progress markers; there is no migration-item table.
 - Primary/secondary startup creates the fixed local large-asset and materialized-asset cache roots up front. Asset operations create files inside those roots but do not recreate missing roots.
+
+## Shape migration (pre-directories → split tables)
+
+The pre-directories schema stored one `assets` row per version, grouped only by the `key` string. A Go startup migration (`backend/storage/sqlite/assets_shape_migration.go`) transforms it in a single transaction, running for both roles before the schema files apply — `CREATE TABLE IF NOT EXISTS` would otherwise silently no-op against the old-shape table. Detection is by column shape (old `assets` has `blob`), which also makes the migration idempotent.
+
+- Every old row id is preserved verbatim into `asset_versions.id`, so pinned deployment references, worker caches, and recorded S3 locations stay valid. `pending://` rows migrate too, so interrupted-upload recovery still finds its row.
+- One `assets` row is minted per key. Old rows stored `space_id` per version and a targeted upload could override it, so versions of one key could disagree; the group takes the newest version's space, matching what the latest-version list always displayed.
+- New `assets` ids start above the highest preserved version id, keeping the two id spaces disjoint.
+- The cluster protocol version was bumped (6 → 7) with this change: the cluster asset fetch renamed its query param and headers to `asset_version_id` naming.
 
 ## Large-asset storage modes
 
@@ -81,27 +90,27 @@ Asset mounts are defined under `container1Spec.runtime`, separate from raw host 
 container1Spec:
   runtime:
     assetMounts:
-      - assetId: 12
+      - assetVersionId: 12
         containerPath: /etc/nginx/nginx.conf
         permission: READ_ONLY
-      - assetId: 33
+      - assetVersionId: 33
         containerPath: /etc/nginx/conf.d/site.conf
         permission: READ_ONLY
-      - assetId: 47
+      - assetVersionId: 47
         containerPath: /docker-entrypoint-initdb.d/init.sh
         permission: READ_EXECUTE
 ```
 
 Current semantics:
 
-- Resolve the selected asset row when the deployment config is created or updated, then store its immutable numeric ID, container path, and permission in config history. Asset content is not embedded in deployment configs.
+- Resolve the selected asset version row when the deployment config is created or updated, then store its immutable version row id, container path, and permission in config history. Asset content is not embedded in deployment configs.
 - During preparation, call `preparer.EnsureAssetsReady` before the deployment reaches READY.
 - On the primary, the asset provider streams inline blobs from the primary DB and large blobs from their active local or S3 location without changing the mount contract.
-- On a secondary, the asset provider streams the blob on demand from the primary over the mTLS cluster endpoint `/v1/cluster/asset?asset_id=<id>`.
-- Materialize/cache assets on each target machine at `/var/lib/opendeploy-assets/<asset-id>` or `/var/lib/opendeploy-assets/<asset-id>_x` for executable mounts.
+- On a secondary, the asset provider streams the blob on demand from the primary over the mTLS cluster endpoint `/v1/cluster/asset?asset_version_id=<id>`.
+- Materialize/cache assets on each target machine at `/var/lib/opendeploy-assets/<asset-version-id>` or `/var/lib/opendeploy-assets/<asset-version-id>_x` for executable mounts.
 - The cache survives restarts and is reclaimed by the secondary's retention sweep, which deletes any cached file no instance assigned to that node still references. See "Local runtime input persistence" in [secrets.md](secrets.md) for the sweep's timing rules.
 - Mount materialized files read-only into the container. Explicit asset mounts may use `READ_EXECUTE` to enable execute bits; implicit env asset mounts are always read-only/non-executable.
 - Reject paths that are empty, relative, directories, or dangerous container destinations.
-- Fail deployment preparation if an asset ID no longer exists.
+- Fail deployment preparation if a pinned asset version id no longer exists.
 - Keep `container1Spec.runtime.mounts` for raw host bind mounts; use `assetMounts` only for OpenDeploy-managed config files.
 - In the UI, use the compact Assets section under environment variables to select key/path/mode or create a new asset in the side pane.

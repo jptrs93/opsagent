@@ -98,7 +98,7 @@ type Handler struct {
 }
 
 type assetProvider interface {
-	OpenAsset(ctx context.Context, assetID int32) (*apigen.Asset, io.ReadCloser, error)
+	OpenAsset(ctx context.Context, assetID int32) (*apigen.AssetVersion, io.ReadCloser, error)
 }
 
 type networkMapProvider interface {
@@ -140,7 +140,7 @@ func (p *Handler) GetV1ClusterGithubCredentials(authCtx apigen.Context) (*apigen
 }
 
 func (p *Handler) GetV1ClusterAsset(authCtx apigen.Context, r *http.Request, w http.ResponseWriter) error {
-	assetID, err := int32QueryParam(r, "asset_id")
+	assetVersionID, err := int32QueryParam(r, "asset_version_id")
 	if err != nil {
 		return err
 	}
@@ -148,10 +148,10 @@ func (p *Handler) GetV1ClusterAsset(authCtx apigen.Context, r *http.Request, w h
 	if err != nil {
 		return err
 	}
-	if !p.allowedRefs(predicate).assetAllowed(assetID) {
+	if !p.allowedRefs(predicate).assetAllowed(assetVersionID) {
 		return clusterForbiddenErr
 	}
-	asset, body, err := p.assets.OpenAsset(authCtx, assetID)
+	asset, body, err := p.assets.OpenAsset(authCtx, assetVersionID)
 	if err != nil {
 		return err
 	}
@@ -159,12 +159,11 @@ func (p *Handler) GetV1ClusterAsset(authCtx apigen.Context, r *http.Request, w h
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Length", strconv.Itoa(int(asset.SizeBytes)))
-	w.Header().Set("X-Opsagent-Asset-ID", strconv.Itoa(int(asset.ID)))
+	w.Header().Set("X-Opsagent-Asset-Version-ID", strconv.Itoa(int(asset.ID)))
 	w.Header().Set("X-Opsagent-Asset-Key", url.QueryEscape(asset.Key))
 	w.Header().Set("X-Opsagent-Asset-Version", strconv.Itoa(int(asset.Version)))
-	w.Header().Set("X-Opsagent-Asset-Format", asset.Format)
 	if _, err := io.Copy(w, body); err != nil {
-		slog.ErrorContext(authCtx, "stream cluster asset", "asset_id", assetID, "err", err)
+		slog.ErrorContext(authCtx, "stream cluster asset", "asset_version_id", assetVersionID, "err", err)
 	}
 	return nil
 }
@@ -227,15 +226,15 @@ func buildAllowedRefs(snapshot []apigen.ScheduledInstanceState) clusterAllowedRe
 			if value.ConfigID != nil && *value.ConfigID > 0 {
 				refs.configIDs[*value.ConfigID] = struct{}{}
 			}
-			if value.AssetID > 0 {
-				refs.assetIDs[value.AssetID] = struct{}{}
+			if value.AssetVersionID > 0 {
+				refs.assetIDs[value.AssetVersionID] = struct{}{}
 			}
 		}
 		for _, mount := range container.Runtime.AssetMounts {
-			if mount == nil || mount.AssetID <= 0 {
+			if mount == nil || mount.AssetVersionID <= 0 {
 				continue
 			}
-			refs.assetIDs[mount.AssetID] = struct{}{}
+			refs.assetIDs[mount.AssetVersionID] = struct{}{}
 		}
 	}
 	return refs

@@ -1,12 +1,11 @@
 package sqlite
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
-	"io"
+	"strings"
 	"time"
 
 	"github.com/jptrs93/goutil/pubsubu"
@@ -16,48 +15,46 @@ import (
 var (
 	ErrAssetNotFound      = errors.New("asset not found")
 	ErrAssetAlreadyExists = errors.New("asset already exists")
+	ErrAssetKeyInvalid    = errors.New("asset key is not a valid file name")
 )
 
-func assetRowToProto(r Asset) *apigen.Asset {
-	return &apigen.Asset{
-		ID:        int32(r.ID),
-		Key:       r.Key,
-		SpaceID:   int32(r.SpaceID),
-		CreatedAt: time.UnixMilli(r.CreatedAt),
-		Version:   int32(r.Version),
-		Format:    r.Format,
-		Location:  r.Location,
-		SizeBytes: int32(r.SizeBytes),
-		Blob:      r.Blob,
+// ValidAssetKey reports whether key can be a file name in the asset namespace.
+// Path separators are excluded because the full asset path is the join of the
+// directory ancestry and the key.
+func ValidAssetKey(key string) bool {
+	if key == "" || key == "." || key == ".." || len(key) > 255 {
+		return false
 	}
+	return !strings.ContainsAny(key, "/\\\x00")
 }
 
-func assetRowToMeta(r ListLatestAssetsRow) *apigen.AssetMeta {
+func assetMetaFromRows(a Asset, v AssetVersion) *apigen.AssetMeta {
 	return &apigen.AssetMeta{
-		ID:        int32(r.ID),
-		Key:       r.Key,
-		SpaceID:   int32(r.SpaceID),
-		CreatedAt: time.UnixMilli(r.CreatedAt),
-		Version:   int32(r.Version),
-		Format:    r.Format,
-		Location:  r.Location,
-		SizeBytes: int32(r.SizeBytes),
+		ID:               int32(a.ID),
+		Key:              a.Key,
+		SpaceID:          int32(a.SpaceID),
+		AssetDirectoryID: int32(a.AssetDirectoryID),
+		CreatedBy:        int32(a.CreatedBy),
+		AssetVersionID:   int32(v.ID),
+		CreatedAt:        time.UnixMilli(v.CreatedAt),
+		Version:          int32(v.Version),
+		Location:         v.Location,
+		SizeBytes:        int32(v.SizeBytes),
 	}
 }
 
-func assetProtoToMeta(a *apigen.Asset) apigen.AssetMeta {
-	if a == nil {
-		return apigen.AssetMeta{}
-	}
-	return apigen.AssetMeta{
-		ID:        a.ID,
+func assetVersionFromRows(a Asset, v AssetVersion) *apigen.AssetVersion {
+	return &apigen.AssetVersion{
+		ID:        int32(v.ID),
+		AssetID:   int32(a.ID),
 		Key:       a.Key,
-		SpaceID:   a.SpaceID,
-		CreatedAt: a.CreatedAt,
-		Version:   a.Version,
-		Format:    a.Format,
-		Location:  a.Location,
-		SizeBytes: a.SizeBytes,
+		SpaceID:   int32(a.SpaceID),
+		CreatedAt: time.UnixMilli(v.CreatedAt),
+		CreatedBy: int32(v.CreatedBy),
+		Version:   int32(v.Version),
+		Location:  v.Location,
+		SizeBytes: int32(v.SizeBytes),
+		Blob:      v.Blob,
 	}
 }
 
@@ -66,42 +63,70 @@ func (s *PrimaryStorage) ListAssets() []*apigen.AssetMeta {
 	if err != nil {
 		panic(fmt.Sprintf("ListLatestAssets: %v", err))
 	}
+	versionRows, err := s.q.ListPublishedAssetVersionIDs(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("ListPublishedAssetVersionIDs: %v", err))
+	}
+	versionRefs := make(map[int64][]*apigen.AssetVersionRef, len(rows))
+	for _, v := range versionRows {
+		versionRefs[v.AssetID] = append(versionRefs[v.AssetID], &apigen.AssetVersionRef{ID: int32(v.ID), Version: int32(v.Version)})
+	}
 	out := make([]*apigen.AssetMeta, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, assetRowToMeta(r))
+		out = append(out, &apigen.AssetMeta{
+			ID:               int32(r.ID),
+			Key:              r.Key,
+			SpaceID:          int32(r.SpaceID),
+			AssetDirectoryID: int32(r.AssetDirectoryID),
+			CreatedBy:        int32(r.CreatedBy),
+			AssetVersionID:   int32(r.AssetVersionID),
+			CreatedAt:        time.UnixMilli(r.CreatedAt),
+			Version:          int32(r.Version),
+			Location:         r.Location,
+			SizeBytes:        int32(r.SizeBytes),
+			VersionRefs:      versionRefs[r.ID],
+		})
 	}
 	return out
 }
 
-func (s *PrimaryStorage) ListAllAssetVersions() []*apigen.AssetMeta {
+// ListAllAssetVersions returns every published version row across all assets,
+// joined with its owning asset for display fields. Blobs are not loaded.
+func (s *PrimaryStorage) ListAllAssetVersions() []*apigen.AssetVersion {
 	return s.listAllAssetVersions(false)
 }
 
-func (s *PrimaryStorage) ListAllAssetVersionsIncludingPending() []*apigen.AssetMeta {
+func (s *PrimaryStorage) ListAllAssetVersionsIncludingPending() []*apigen.AssetVersion {
 	return s.listAllAssetVersions(true)
 }
 
-func (s *PrimaryStorage) listAllAssetVersions(includePending bool) []*apigen.AssetMeta {
-	where := "WHERE location NOT LIKE 'pending://%'"
+func (s *PrimaryStorage) listAllAssetVersions(includePending bool) []*apigen.AssetVersion {
+	where := "WHERE v.location NOT LIKE 'pending://%'"
 	if includePending {
 		where = ""
 	}
 	rows, err := s.db.QueryContext(context.Background(), `
-SELECT id, key, space_id, created_at, version, format, location, size_bytes
-FROM assets
+SELECT v.id, v.asset_id, v.version, v.created_at, v.created_by, v.location, v.size_bytes,
+       a.key, a.space_id
+FROM asset_versions v
+JOIN assets a ON a.id = v.asset_id
 `+where+`
-ORDER BY key, version`)
+ORDER BY a.key, v.version`)
 	if err != nil {
 		panic(fmt.Sprintf("ListAllAssetVersions: %v", err))
 	}
 	defer rows.Close()
-	out := []*apigen.AssetMeta{}
+	out := []*apigen.AssetVersion{}
 	for rows.Next() {
-		var r ListLatestAssetsRow
-		if err := rows.Scan(&r.ID, &r.Key, &r.SpaceID, &r.CreatedAt, &r.Version, &r.Format, &r.Location, &r.SizeBytes); err != nil {
+		var (
+			v AssetVersion
+			a Asset
+		)
+		if err := rows.Scan(&v.ID, &v.AssetID, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.Location, &v.SizeBytes, &a.Key, &a.SpaceID); err != nil {
 			panic(fmt.Sprintf("ListAllAssetVersions scan: %v", err))
 		}
-		out = append(out, assetRowToMeta(r))
+		a.ID = v.AssetID
+		out = append(out, assetVersionFromRows(a, v))
 	}
 	if err := rows.Err(); err != nil {
 		panic(fmt.Sprintf("ListAllAssetVersions rows: %v", err))
@@ -109,21 +134,20 @@ ORDER BY key, version`)
 	return out
 }
 
-func (s *PrimaryStorage) NotifyAssetUpdate(asset *apigen.Asset) {
-	meta := assetProtoToMeta(asset)
-	if meta.ID == 0 && meta.Key == "" {
+func (s *PrimaryStorage) NotifyAssetUpdate(meta *apigen.AssetMeta) {
+	if meta == nil || (meta.ID == 0 && meta.Key == "") {
 		return
 	}
-	s.assetSubs.Notify(meta)
+	s.assetSubs.Notify(*meta)
 }
 
-func (s *PrimaryStorage) NotifyAssetDeleted(asset *apigen.Asset) {
-	meta := assetProtoToMeta(asset)
-	if meta.ID == 0 && meta.Key == "" {
+func (s *PrimaryStorage) NotifyAssetDeleted(meta *apigen.AssetMeta) {
+	if meta == nil || (meta.ID == 0 && meta.Key == "") {
 		return
 	}
-	meta.Deleted = true
-	s.assetSubs.Notify(meta)
+	cp := *meta
+	cp.Deleted = true
+	s.assetSubs.Notify(cp)
 }
 
 func (s *PrimaryStorage) SubscribeAssetUpdates() (*pubsubu.Sub[apigen.AssetMeta], func()) {
@@ -131,120 +155,194 @@ func (s *PrimaryStorage) SubscribeAssetUpdates() (*pubsubu.Sub[apigen.AssetMeta]
 	return sub, sub.UnsubscribeFunc
 }
 
-func (s *PrimaryStorage) GetAsset(key string, version int32) (*apigen.Asset, bool) {
-	var (
-		r   Asset
-		err error
-	)
-	if version > 0 {
-		r, err = s.q.GetAssetVersion(context.Background(), GetAssetVersionParams{Key: key, Version: int64(version)})
-	} else {
-		r, err = s.q.GetLatestAsset(context.Background(), key)
-	}
+// GetAssetRow returns the stable asset identity row.
+func (s *PrimaryStorage) GetAssetRow(assetID int32) (Asset, bool) {
+	r, err := s.q.GetAssetByID(context.Background(), int64(assetID))
 	if err == sql.ErrNoRows {
-		return nil, false
-	}
-	if err != nil {
-		panic(fmt.Sprintf("GetAsset: %v", err))
-	}
-	return assetRowToProto(r), true
-}
-
-func (s *PrimaryStorage) GetAssetByID(assetID int32) (*apigen.Asset, bool) {
-	return s.getAssetByID(assetID, false)
-}
-
-func (s *PrimaryStorage) GetAssetByIDIncludingPending(assetID int32) (*apigen.Asset, bool) {
-	return s.getAssetByID(assetID, true)
-}
-
-func (s *PrimaryStorage) getAssetByID(assetID int32, includePending bool) (*apigen.Asset, bool) {
-	pendingClause := "AND location NOT LIKE 'pending://%'"
-	if includePending {
-		pendingClause = ""
-	}
-	row := s.db.QueryRowContext(context.Background(), `
-SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
-FROM assets
-WHERE id = ? `+pendingClause, assetID)
-	var r Asset
-	err := row.Scan(&r.ID, &r.Key, &r.SpaceID, &r.CreatedAt, &r.Version, &r.Format, &r.Location, &r.SizeBytes, &r.Blob)
-	if err == sql.ErrNoRows {
-		return nil, false
+		return Asset{}, false
 	}
 	if err != nil {
 		panic(fmt.Sprintf("GetAssetByID: %v", err))
 	}
-	return assetRowToProto(r), true
+	return r, true
 }
 
-func (s *PrimaryStorage) ListAssetVersionsByKey(key string) []*apigen.Asset {
-	rows, err := s.q.ListAssetVersionsByKey(context.Background(), key)
-	if err != nil {
-		panic(fmt.Sprintf("ListAssetVersionsByKey: %v", err))
+// GetAssetMeta returns the asset with its latest published version's metadata.
+func (s *PrimaryStorage) GetAssetMeta(assetID int32) (*apigen.AssetMeta, bool) {
+	a, ok := s.GetAssetRow(assetID)
+	if !ok {
+		return nil, false
 	}
-	out := make([]*apigen.Asset, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, assetRowToProto(r))
-	}
-	return out
-}
-
-func (s *PrimaryStorage) ListAssetVersionsByKeyIncludingPending(key string) []*apigen.Asset {
-	rows, err := s.db.QueryContext(context.Background(), `
-SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
-FROM assets
-WHERE key = ?
-ORDER BY version ASC`, key)
-	if err != nil {
-		panic(fmt.Sprintf("ListAssetVersionsByKeyIncludingPending: %v", err))
-	}
-	defer rows.Close()
-	out := []*apigen.Asset{}
-	for rows.Next() {
-		var row Asset
-		if err := rows.Scan(&row.ID, &row.Key, &row.SpaceID, &row.CreatedAt, &row.Version, &row.Format, &row.Location, &row.SizeBytes, &row.Blob); err != nil {
-			panic(fmt.Sprintf("ListAssetVersionsByKeyIncludingPending scan: %v", err))
-		}
-		out = append(out, assetRowToProto(row))
-	}
-	if err := rows.Err(); err != nil {
-		panic(fmt.Sprintf("ListAssetVersionsByKeyIncludingPending rows: %v", err))
-	}
-	return out
-}
-
-func (s *PrimaryStorage) OpenAsset(ctx context.Context, assetID int32) (*apigen.Asset, io.ReadCloser, error) {
-	row := s.db.QueryRowContext(ctx, `
-SELECT id, key, space_id, created_at, version, format, location, size_bytes, blob
-FROM assets
-WHERE id = ? AND location NOT LIKE 'pending://%'`, assetID)
-	var r Asset
-	err := row.Scan(&r.ID, &r.Key, &r.SpaceID, &r.CreatedAt, &r.Version, &r.Format, &r.Location, &r.SizeBytes, &r.Blob)
+	v, err := s.q.GetLatestAssetVersion(context.Background(), a.ID)
 	if err == sql.ErrNoRows {
-		return nil, nil, fmt.Errorf("asset %d not found", assetID)
+		return nil, false
 	}
 	if err != nil {
-		return nil, nil, err
+		panic(fmt.Sprintf("GetLatestAssetVersion: %v", err))
 	}
-	asset := assetRowToProto(r)
-	return asset, io.NopCloser(bytes.NewReader(asset.Blob)), nil
+	meta := assetMetaFromRows(a, v)
+	versions, err := s.q.ListAssetVersions(context.Background(), a.ID)
+	if err != nil {
+		panic(fmt.Sprintf("ListAssetVersions: %v", err))
+	}
+	for _, row := range versions {
+		meta.VersionRefs = append(meta.VersionRefs, &apigen.AssetVersionRef{ID: int32(row.ID), Version: int32(row.Version)})
+	}
+	return meta, true
 }
 
-func (s *PrimaryStorage) SetAsset(key, format string, blob []byte, spaceIDs ...int32) *apigen.Asset {
-	return s.SetAssetStored(key, format, "", int64(len(blob)), blob, spaceIDs...)
+// GetAssetInRootByKey resolves an asset by key in a space's implicit root
+// directory.
+func (s *PrimaryStorage) GetAssetInRootByKey(spaceID int32, key string) (Asset, bool) {
+	r, err := s.q.GetAssetInDirectoryByKey(context.Background(), GetAssetInDirectoryByKeyParams{
+		SpaceID:          int64(normalizedUserSpaceID(spaceID)),
+		AssetDirectoryID: 0,
+		Key:              key,
+	})
+	if err == sql.ErrNoRows {
+		return Asset{}, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetAssetInDirectoryByKey: %v", err))
+	}
+	return r, true
 }
 
-func (s *PrimaryStorage) SetAssetStored(key, format, location string, sizeBytes int64, blob []byte, spaceIDs ...int32) *apigen.Asset {
-	ctx := context.Background()
-	now := time.Now().UnixMilli()
+// GetAssetVersion returns one published version of an asset; version 0 means
+// latest.
+func (s *PrimaryStorage) GetAssetVersion(assetID, version int32) (*apigen.AssetVersion, bool) {
+	a, ok := s.GetAssetRow(assetID)
+	if !ok {
+		return nil, false
+	}
+	var (
+		v   AssetVersion
+		err error
+	)
+	if version > 0 {
+		v, err = s.q.GetAssetVersionByNumber(context.Background(), GetAssetVersionByNumberParams{AssetID: a.ID, Version: int64(version)})
+	} else {
+		v, err = s.q.GetLatestAssetVersion(context.Background(), a.ID)
+	}
+	if err == sql.ErrNoRows {
+		return nil, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetAssetVersion: %v", err))
+	}
+	return assetVersionFromRows(a, v), true
+}
+
+// GetAssetVersionByID resolves a version row id — the id deployment configs
+// pin and workers fetch by.
+func (s *PrimaryStorage) GetAssetVersionByID(assetVersionID int32) (*apigen.AssetVersion, bool) {
+	return s.getAssetVersionByID(assetVersionID, false)
+}
+
+func (s *PrimaryStorage) GetAssetVersionByIDIncludingPending(assetVersionID int32) (*apigen.AssetVersion, bool) {
+	return s.getAssetVersionByID(assetVersionID, true)
+}
+
+func (s *PrimaryStorage) getAssetVersionByID(assetVersionID int32, includePending bool) (*apigen.AssetVersion, bool) {
+	pendingClause := "AND v.location NOT LIKE 'pending://%'"
+	if includePending {
+		pendingClause = ""
+	}
+	row := s.db.QueryRowContext(context.Background(), `
+SELECT v.id, v.asset_id, v.version, v.created_at, v.created_by, v.location, v.size_bytes, v.blob,
+       a.key, a.space_id
+FROM asset_versions v
+JOIN assets a ON a.id = v.asset_id
+WHERE v.id = ? `+pendingClause, assetVersionID)
+	var (
+		v AssetVersion
+		a Asset
+	)
+	err := row.Scan(&v.ID, &v.AssetID, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.Location, &v.SizeBytes, &v.Blob, &a.Key, &a.SpaceID)
+	if err == sql.ErrNoRows {
+		return nil, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetAssetVersionByID: %v", err))
+	}
+	a.ID = v.AssetID
+	return assetVersionFromRows(a, v), true
+}
+
+// ListAssetVersions returns every published version of one asset, oldest
+// first.
+func (s *PrimaryStorage) ListAssetVersions(assetID int32) []*apigen.AssetVersion {
+	a, ok := s.GetAssetRow(assetID)
+	if !ok {
+		return nil
+	}
+	rows, err := s.q.ListAssetVersions(context.Background(), a.ID)
+	if err != nil {
+		panic(fmt.Sprintf("ListAssetVersions: %v", err))
+	}
+	out := make([]*apigen.AssetVersion, 0, len(rows))
+	for _, v := range rows {
+		out = append(out, assetVersionFromRows(a, v))
+	}
+	return out
+}
+
+func (s *PrimaryStorage) ListAssetVersionsIncludingPending(assetID int32) []*apigen.AssetVersion {
+	a, ok := s.GetAssetRow(assetID)
+	if !ok {
+		return nil
+	}
+	rows, err := s.q.ListAssetVersionsIncludingPending(context.Background(), a.ID)
+	if err != nil {
+		panic(fmt.Sprintf("ListAssetVersionsIncludingPending: %v", err))
+	}
+	out := make([]*apigen.AssetVersion, 0, len(rows))
+	for _, v := range rows {
+		out = append(out, assetVersionFromRows(a, v))
+	}
+	return out
+}
+
+// assetSiblingKeyTakenLocked reports whether key is already used by another
+// asset or a directory under (spaceID, directoryID). Caller must hold s.mu:
+// path uniqueness spans two tables, so only the mutex makes the check-and-write
+// atomic.
+func (s *PrimaryStorage) assetSiblingKeyTakenLocked(ctx context.Context, q *Queries, spaceID, directoryID int64, key string, excludeAssetID int64) bool {
+	assets, err := q.CountAssetSiblingsWithKey(ctx, CountAssetSiblingsWithKeyParams{
+		SpaceID:          spaceID,
+		AssetDirectoryID: directoryID,
+		Key:              key,
+		ID:               excludeAssetID,
+	})
+	if err != nil {
+		panic(fmt.Sprintf("CountAssetSiblingsWithKey: %v", err))
+	}
+	if assets > 0 {
+		return true
+	}
+	dirs, err := q.CountDirectorySiblingsWithKey(ctx, CountDirectorySiblingsWithKeyParams{
+		SpaceID:  spaceID,
+		ParentID: directoryID,
+		Key:      key,
+	})
+	if err != nil {
+		panic(fmt.Sprintf("CountDirectorySiblingsWithKey: %v", err))
+	}
+	return dirs > 0
+}
+
+// CreateAssetWithVersion creates a new asset in the root directory of spaceID
+// with its first version.
+func (s *PrimaryStorage) CreateAssetWithVersion(key string, spaceID, createdBy int32, location string, sizeBytes int64, blob []byte) (*apigen.AssetVersion, error) {
+	if !ValidAssetKey(key) {
+		return nil, ErrAssetKeyInvalid
+	}
 	if blob == nil {
 		blob = []byte{}
 	}
-	spaceID := DefaultSpaceID
-	if len(spaceIDs) > 0 {
-		spaceID = normalizedUserSpaceID(spaceIDs[0])
-	}
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	space := int64(normalizedUserSpaceID(spaceID))
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -256,47 +354,105 @@ func (s *PrimaryStorage) SetAssetStored(key, format, location string, sizeBytes 
 	defer tx.Rollback()
 	q := s.q.WithTx(tx)
 
-	version, err := q.GetNextAssetVersion(ctx, key)
-	if err != nil {
-		panic(fmt.Sprintf("GetNextAssetVersion: %v", err))
+	if s.assetSiblingKeyTakenLocked(ctx, q, space, 0, key, 0) {
+		return nil, ErrAssetAlreadyExists
 	}
-	r, err := q.InsertAsset(ctx, InsertAssetParams{
-		Key:       key,
-		SpaceID:   int64(spaceID),
+	a, err := q.InsertAssetRow(ctx, InsertAssetRowParams{
+		SpaceID:          space,
+		Key:              key,
+		AssetDirectoryID: 0,
+		CreatedAt:        now,
+		CreatedBy:        int64(createdBy),
+	})
+	if err != nil {
+		panic(fmt.Sprintf("InsertAssetRow: %v", err))
+	}
+	v, err := q.InsertAssetVersion(ctx, InsertAssetVersionParams{
+		AssetID:   a.ID,
+		Version:   1,
 		CreatedAt: now,
-		Version:   version,
-		Format:    format,
+		CreatedBy: int64(createdBy),
 		Location:  location,
 		SizeBytes: sizeBytes,
 		Blob:      blob,
 	})
 	if err != nil {
-		panic(fmt.Sprintf("InsertAsset: %v", err))
+		panic(fmt.Sprintf("InsertAssetVersion: %v", err))
 	}
 	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit asset: %v", err))
+		panic(fmt.Sprintf("commit asset create: %v", err))
 	}
-	return assetRowToProto(r)
+	return assetVersionFromRows(a, v), nil
 }
 
-func (s *PrimaryStorage) UpdateAssetLocation(id int32, location string) *apigen.Asset {
-	r, err := s.q.UpdateAssetLocation(context.Background(), UpdateAssetLocationParams{ID: int64(id), Location: location})
-	if err != nil {
-		panic(fmt.Sprintf("UpdateAssetLocation: %v", err))
+// AppendAssetVersion appends the next version of an existing asset. The asset
+// identity — key, space, directory — is untouched.
+func (s *PrimaryStorage) AppendAssetVersion(assetID, createdBy int32, location string, sizeBytes int64, blob []byte) (*apigen.AssetVersion, error) {
+	if blob == nil {
+		blob = []byte{}
 	}
-	return assetRowToProto(r)
-}
-
-func (s *PrimaryStorage) RenameAsset(oldKey, newKey string) (*apigen.Asset, error) {
-	if oldKey == newKey {
-		asset, ok := s.GetAsset(oldKey, 0)
-		if !ok {
-			return nil, ErrAssetNotFound
-		}
-		return asset, nil
-	}
-
 	ctx := context.Background()
+	now := time.Now().UnixMilli()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		panic(fmt.Sprintf("begin tx: %v", err))
+	}
+	defer tx.Rollback()
+	q := s.q.WithTx(tx)
+
+	a, err := q.GetAssetByID(ctx, int64(assetID))
+	if err == sql.ErrNoRows {
+		return nil, ErrAssetNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetAssetByID: %v", err))
+	}
+	version, err := q.GetNextAssetVersionNumber(ctx, a.ID)
+	if err != nil {
+		panic(fmt.Sprintf("GetNextAssetVersionNumber: %v", err))
+	}
+	v, err := q.InsertAssetVersion(ctx, InsertAssetVersionParams{
+		AssetID:   a.ID,
+		Version:   version,
+		CreatedAt: now,
+		CreatedBy: int64(createdBy),
+		Location:  location,
+		SizeBytes: sizeBytes,
+		Blob:      blob,
+	})
+	if err != nil {
+		panic(fmt.Sprintf("InsertAssetVersion: %v", err))
+	}
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit asset version: %v", err))
+	}
+	return assetVersionFromRows(a, v), nil
+}
+
+func (s *PrimaryStorage) UpdateAssetVersionLocation(assetVersionID int32, location string) *apigen.AssetVersion {
+	v, err := s.q.UpdateAssetVersionLocation(context.Background(), UpdateAssetVersionLocationParams{ID: int64(assetVersionID), Location: location})
+	if err != nil {
+		panic(fmt.Sprintf("UpdateAssetVersionLocation: %v", err))
+	}
+	a, ok := s.GetAssetRow(int32(v.AssetID))
+	if !ok {
+		a = Asset{ID: v.AssetID}
+	}
+	return assetVersionFromRows(a, v)
+}
+
+// RenameAssetKey renames an asset in place. Version rows, ids, and content are
+// untouched; deployment configs keep working because they pin version row ids.
+func (s *PrimaryStorage) RenameAssetKey(assetID int32, newKey string) (*apigen.AssetMeta, error) {
+	if !ValidAssetKey(newKey) {
+		return nil, ErrAssetKeyInvalid
+	}
+	ctx := context.Background()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -305,40 +461,98 @@ func (s *PrimaryStorage) RenameAsset(oldKey, newKey string) (*apigen.Asset, erro
 		return nil, fmt.Errorf("begin asset rename: %w", err)
 	}
 	defer tx.Rollback()
+	q := s.q.WithTx(tx)
 
-	var exists int
-	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM assets WHERE key = ? LIMIT 1`, newKey).Scan(&exists); err == nil {
-		return nil, ErrAssetAlreadyExists
-	} else if err != sql.ErrNoRows {
-		return nil, fmt.Errorf("check asset rename destination: %w", err)
-	}
-	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM assets WHERE key = ? LIMIT 1`, oldKey).Scan(&exists); err == sql.ErrNoRows {
+	a, err := q.GetAssetByID(ctx, int64(assetID))
+	if err == sql.ErrNoRows {
 		return nil, ErrAssetNotFound
-	} else if err != nil {
-		return nil, fmt.Errorf("check asset rename source: %w", err)
 	}
-
-	if _, err := tx.ExecContext(ctx, `UPDATE assets SET key = ? WHERE key = ?`, newKey, oldKey); err != nil {
-		return nil, fmt.Errorf("rename asset: %w", err)
-	}
-	r, err := s.q.WithTx(tx).GetLatestAsset(ctx, newKey)
 	if err != nil {
-		return nil, fmt.Errorf("get renamed asset: %w", err)
+		return nil, fmt.Errorf("load asset for rename: %w", err)
+	}
+	if a.Key != newKey {
+		if s.assetSiblingKeyTakenLocked(ctx, q, a.SpaceID, a.AssetDirectoryID, newKey, a.ID) {
+			return nil, ErrAssetAlreadyExists
+		}
+		if err := q.RenameAssetKey(ctx, RenameAssetKeyParams{Key: newKey, ID: a.ID}); err != nil {
+			return nil, fmt.Errorf("rename asset: %w", err)
+		}
+		a.Key = newKey
+	}
+	v, err := q.GetLatestAssetVersion(ctx, a.ID)
+	if err == sql.ErrNoRows {
+		return nil, ErrAssetNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load renamed asset version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit asset rename: %w", err)
 	}
-	return assetRowToProto(r), nil
+	return assetMetaFromRows(a, v), nil
 }
 
-func (s *PrimaryStorage) DeleteAssetVersionByID(id int32) {
-	if err := s.q.DeleteAssetVersionByID(context.Background(), int64(id)); err != nil {
+func (s *PrimaryStorage) DeleteAssetVersionByID(assetVersionID int32) {
+	if err := s.q.DeleteAssetVersionByID(context.Background(), int64(assetVersionID)); err != nil {
 		panic(fmt.Sprintf("DeleteAssetVersionByID: %v", err))
 	}
 }
 
-func (s *PrimaryStorage) DeleteAsset(key string) {
-	if err := s.q.DeleteAsset(context.Background(), key); err != nil {
-		panic(fmt.Sprintf("DeleteAsset: %v", err))
+// DeleteAsset removes the asset identity and every version row.
+func (s *PrimaryStorage) DeleteAsset(assetID int32) {
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		panic(fmt.Sprintf("begin asset delete: %v", err))
 	}
+	defer tx.Rollback()
+	q := s.q.WithTx(tx)
+	if err := q.DeleteAssetVersionsByAssetID(ctx, int64(assetID)); err != nil {
+		panic(fmt.Sprintf("DeleteAssetVersionsByAssetID: %v", err))
+	}
+	if err := q.DeleteAssetRow(ctx, int64(assetID)); err != nil {
+		panic(fmt.Sprintf("DeleteAssetRow: %v", err))
+	}
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit asset delete: %v", err))
+	}
+}
+
+// DeleteAssetIfNoVersions removes an asset row left with no version rows at
+// all — e.g. after a failed first upload — so its key does not stay claimed by
+// an invisible asset.
+func (s *PrimaryStorage) DeleteAssetIfNoVersions(assetID int32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.q.ListAssetVersionsIncludingPending(context.Background(), int64(assetID))
+	if err != nil {
+		panic(fmt.Sprintf("ListAssetVersionsIncludingPending: %v", err))
+	}
+	if len(rows) > 0 {
+		return
+	}
+	if err := s.q.DeleteAssetRow(context.Background(), int64(assetID)); err != nil {
+		panic(fmt.Sprintf("DeleteAssetRow: %v", err))
+	}
+}
+
+// SetAssetByKey creates the asset in spaceID's root on first use and appends a
+// version on each later call. Test and seed convenience.
+func (s *PrimaryStorage) SetAssetByKey(key string, blob []byte, spaceIDs ...int32) *apigen.AssetVersion {
+	spaceID := DefaultSpaceID
+	if len(spaceIDs) > 0 {
+		spaceID = normalizedUserSpaceID(spaceIDs[0])
+	}
+	if existing, ok := s.GetAssetInRootByKey(spaceID, key); ok {
+		v, err := s.AppendAssetVersion(int32(existing.ID), 0, "", int64(len(blob)), blob)
+		if err != nil {
+			panic(fmt.Sprintf("SetAssetByKey append: %v", err))
+		}
+		return v
+	}
+	v, err := s.CreateAssetWithVersion(key, spaceID, 0, "", int64(len(blob)), blob)
+	if err != nil {
+		panic(fmt.Sprintf("SetAssetByKey create: %v", err))
+	}
+	return v
 }
