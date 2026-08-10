@@ -6,6 +6,8 @@ import "github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 // so callers keep naming them primarydb.X rather than reaching into pq.
 type (
 	Asset                = pq.Asset
+	AssetDirectory       = pq.AssetDirectory
+	ValueDirectory       = pq.ValueDirectory
 	Secret               = pq.Secret
 	Config               = pq.Config
 	AssetMigration       = pq.AssetMigration

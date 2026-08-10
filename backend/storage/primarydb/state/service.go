@@ -27,6 +27,17 @@ func normalizedUserSpaceID(spaceID int32) int32 {
 	return spaceID
 }
 
+// Service is the primary's state store. Two mechanisms coordinate access:
+//
+//   - Mu is the writer freeze: every method that writes the database holds it,
+//     so a read-check-write sequence under Mu (version match, sibling-key
+//     uniqueness, ...) sees a database no other writer can change.
+//   - q.Tx groups multiple writes so they commit atomically. It is required for
+//     every multi-statement write — readers do not take Mu, so without a tx
+//     they (and a crash) could observe the group half-applied. A single
+//     statement is already atomic; it needs no tx.
+//
+// Reads therefore run under Mu before the tx; the tx wraps only the writes.
 type Service struct {
 	// Cache is the shared scheduled-instance runtime view. Its Mu is the
 	// storage-wide mutex: every method that used to lock the deployment
@@ -510,6 +521,8 @@ func (s *Service) FetchLatestOpenDeployConfig() (SystemConfigRevision, error) {
 }
 
 func (s *Service) AppendOpenDeploySettings(blob []byte) (int64, error) {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
 	return s.q.InsertSystemConfigRevision(context.Background(), time.Now().UnixMilli(), blob)
 }
 

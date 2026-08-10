@@ -82,44 +82,48 @@ func (s *Service) UpdateDeploymentConfig(ctx apigen.Context, deploymentID int32,
 
 	specBlob := update.Spec.Encode()
 
-	var cfg *apigen.DeploymentConfig
-	var applied, compatible bool
+	existing, err := s.q.GetDeploymentConfig(bgCtx, dbID)
+	if err != nil {
+		panic(fmt.Sprintf("GetDeploymentConfig: %v", err))
+	}
+	if update.ExpectedVersion != int32(existing.Version+1) {
+		return getConfigRowToProto(existing), false, false
+	}
+
+	spaceID := int64(update.SpaceID)
+	deleted := boolToInt(update.Deleted)
+	if spaceID == existing.SpaceID &&
+		bytes.Equal(specBlob, existing.SpecBlob) &&
+		deleted == existing.Deleted {
+		return getConfigRowToProto(existing), false, true
+	}
+
+	cfg := s.mustCommitDeploymentConfigLocked(pq.UpsertDeploymentConfigParams{
+		DeploymentID: dbID,
+		NodeID:       existing.NodeID,
+		SpaceID:      spaceID,
+		Name:         existing.Name,
+		CreatedAt:    existing.CreatedAt,
+		Version:      existing.Version + 1,
+		UpdatedAt:    now,
+		UpdatedBy:    userID,
+		SpecBlob:     specBlob,
+		Deleted:      deleted,
+	}, "deployment config update")
+	return cfg, true, true
+}
+
+// mustCommitDeploymentConfigLocked writes a new config version and its history
+// row in one tx — the pair must never be observed half-applied — then refreshes
+// the cache and notifies subscribers. Caller must hold s.Mu.
+func (s *Service) mustCommitDeploymentConfigLocked(params pq.UpsertDeploymentConfigParams, label string) *apigen.DeploymentConfig {
+	bgCtx := context.Background()
 	if err := s.q.Tx(bgCtx, func(q *pq.Queries) error {
-		existing, err := q.GetDeploymentConfig(bgCtx, dbID)
-		if err != nil {
-			panic(fmt.Sprintf("GetDeploymentConfig: %v", err))
-		}
-		if update.ExpectedVersion != int32(existing.Version+1) {
-			cfg, applied, compatible = getConfigRowToProto(existing), false, false
-			return nil
-		}
-
-		spaceID := int64(update.SpaceID)
-		deleted := boolToInt(update.Deleted)
-		if spaceID == existing.SpaceID &&
-			bytes.Equal(specBlob, existing.SpecBlob) &&
-			deleted == existing.Deleted {
-			cfg, applied, compatible = getConfigRowToProto(existing), false, true
-			return nil
-		}
-
-		params := pq.UpsertDeploymentConfigParams{
-			DeploymentID: dbID,
-			NodeID:       existing.NodeID,
-			SpaceID:      spaceID,
-			Name:         existing.Name,
-			CreatedAt:    existing.CreatedAt,
-			Version:      existing.Version + 1,
-			UpdatedAt:    now,
-			UpdatedBy:    userID,
-			SpecBlob:     specBlob,
-			Deleted:      deleted,
-		}
 		if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
-			panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
+			panic(fmt.Sprintf("UpsertDeploymentConfig (%s): %v", label, err))
 		}
 		if err := q.InsertDeploymentConfigHistory(bgCtx, pq.InsertDeploymentConfigHistoryParams{
-			DeploymentID: dbID,
+			DeploymentID: params.DeploymentID,
 			Version:      params.Version,
 			UpdatedAt:    params.UpdatedAt,
 			UpdatedBy:    params.UpdatedBy,
@@ -128,19 +132,17 @@ func (s *Service) UpdateDeploymentConfig(ctx apigen.Context, deploymentID int32,
 			SpecBlob:     params.SpecBlob,
 			Deleted:      params.Deleted,
 		}); err != nil {
-			panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
+			panic(fmt.Sprintf("InsertDeploymentConfigHistory (%s): %v", label, err))
 		}
-		cfg, applied, compatible = upsertParamsToProto(params), true, true
 		return nil
 	}); err != nil {
-		panic(fmt.Sprintf("deployment config update tx: %v", err))
+		panic(fmt.Sprintf("%s tx: %v", label, err))
 	}
-
-	if applied {
-		s.configCache[deploymentID] = cfg
-		s.notifyConfigLocked(deploymentID)
-	}
-	return cfg, applied, compatible
+	cfg := upsertParamsToProto(params)
+	id := int32(params.DeploymentID)
+	s.configCache[id] = cfg
+	s.notifyConfigLocked(id)
+	return cfg
 }
 
 func (s *Service) MustSetDeploymentWorkloadState(ctx apigen.Context, deploymentID int32, version string, running bool) {
@@ -152,58 +154,32 @@ func (s *Service) MustSetDeploymentWorkloadState(ctx apigen.Context, deploymentI
 func (s *Service) mustSetDeploymentWorkloadStateLocked(ctx apigen.Context, deploymentID int32, version string, running bool) {
 	bgCtx := context.Background()
 	dbID := int64(deploymentID)
-	now := time.Now().UnixMilli()
 
 	userID := int64(0)
 	if ctx.User != nil {
 		userID = int64(ctx.User.ID)
 	}
 
-	var params pq.UpsertDeploymentConfigParams
-	if err := s.q.Tx(bgCtx, func(q *pq.Queries) error {
-		existing, err := q.GetDeploymentConfig(bgCtx, dbID)
-		if err != nil {
-			panic(fmt.Sprintf("GetDeploymentConfig: %v", err))
-		}
-
-		spec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.Version)
-		if err := spec.SetWorkloadState(version, running); err != nil {
-			panic(fmt.Sprintf("update deployment workload state: %v", err))
-		}
-		params = pq.UpsertDeploymentConfigParams{
-			DeploymentID: dbID,
-			NodeID:       existing.NodeID,
-			SpaceID:      existing.SpaceID,
-			Name:         existing.Name,
-			CreatedAt:    existing.CreatedAt,
-			Version:      existing.Version + 1,
-			UpdatedAt:    now,
-			UpdatedBy:    userID,
-			SpecBlob:     spec.Encode(),
-			Deleted:      existing.Deleted,
-		}
-		if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
-			panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
-		}
-		if err := q.InsertDeploymentConfigHistory(bgCtx, pq.InsertDeploymentConfigHistoryParams{
-			DeploymentID: dbID,
-			Version:      params.Version,
-			UpdatedAt:    params.UpdatedAt,
-			UpdatedBy:    params.UpdatedBy,
-			SpaceID:      params.SpaceID,
-			NodeID:       params.NodeID,
-			SpecBlob:     params.SpecBlob,
-			Deleted:      params.Deleted,
-		}); err != nil {
-			panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
-		}
-		return nil
-	}); err != nil {
-		panic(fmt.Sprintf("deployment workload state tx: %v", err))
+	existing, err := s.q.GetDeploymentConfig(bgCtx, dbID)
+	if err != nil {
+		panic(fmt.Sprintf("GetDeploymentConfig: %v", err))
 	}
-
-	s.configCache[deploymentID] = upsertParamsToProto(params)
-	s.notifyConfigLocked(deploymentID)
+	spec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.Version)
+	if err := spec.SetWorkloadState(version, running); err != nil {
+		panic(fmt.Sprintf("update deployment workload state: %v", err))
+	}
+	s.mustCommitDeploymentConfigLocked(pq.UpsertDeploymentConfigParams{
+		DeploymentID: dbID,
+		NodeID:       existing.NodeID,
+		SpaceID:      existing.SpaceID,
+		Name:         existing.Name,
+		CreatedAt:    existing.CreatedAt,
+		Version:      existing.Version + 1,
+		UpdatedAt:    time.Now().UnixMilli(),
+		UpdatedBy:    userID,
+		SpecBlob:     spec.Encode(),
+		Deleted:      existing.Deleted,
+	}, "deployment workload state")
 }
 
 // --- deployment spec update ---
@@ -225,55 +201,27 @@ func (s *Service) MustUpdateDeploymentSpec(ctx apigen.Context, deploymentID int3
 		panic("deployment spec must not be nil")
 	}
 
-	var params pq.UpsertDeploymentConfigParams
-	if err := s.q.Tx(bgCtx, func(q *pq.Queries) error {
-		existing, err := q.GetDeploymentConfig(bgCtx, dbID)
-		if err != nil {
-			panic(fmt.Sprintf("GetDeploymentConfig: %v", err))
-		}
-
-		storedSpec := mustDecodeDeploymentSpec(spec.Encode(), dbID, existing.Version)
-		existingSpec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.Version)
-		if err := storedSpec.SetWorkloadState(existingSpec.WorkloadVersion(), existingSpec.WorkloadRunning()); err != nil {
-			panic(fmt.Sprintf("preserve deployment workload state: %v", err))
-		}
-		specBlob := storedSpec.Encode()
-
-		newVersion := existing.Version + 1
-		params = pq.UpsertDeploymentConfigParams{
-			DeploymentID: dbID,
-			NodeID:       existing.NodeID,
-			SpaceID:      existing.SpaceID,
-			Name:         existing.Name,
-			CreatedAt:    existing.CreatedAt,
-			Version:      newVersion,
-			UpdatedAt:    now,
-			UpdatedBy:    userID,
-			SpecBlob:     specBlob,
-			Deleted:      existing.Deleted,
-		}
-		if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
-			panic(fmt.Sprintf("UpsertDeploymentConfig: %v", err))
-		}
-		if err := q.InsertDeploymentConfigHistory(bgCtx, pq.InsertDeploymentConfigHistoryParams{
-			DeploymentID: dbID,
-			Version:      newVersion,
-			UpdatedAt:    now,
-			UpdatedBy:    userID,
-			SpaceID:      params.SpaceID,
-			NodeID:       params.NodeID,
-			SpecBlob:     specBlob,
-			Deleted:      existing.Deleted,
-		}); err != nil {
-			panic(fmt.Sprintf("InsertDeploymentConfigHistory: %v", err))
-		}
-		return nil
-	}); err != nil {
-		panic(fmt.Sprintf("deployment spec update tx: %v", err))
+	existing, err := s.q.GetDeploymentConfig(bgCtx, dbID)
+	if err != nil {
+		panic(fmt.Sprintf("GetDeploymentConfig: %v", err))
 	}
-
-	s.configCache[deploymentID] = upsertParamsToProto(params)
-	s.notifyConfigLocked(deploymentID)
+	storedSpec := mustDecodeDeploymentSpec(spec.Encode(), dbID, existing.Version)
+	existingSpec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.Version)
+	if err := storedSpec.SetWorkloadState(existingSpec.WorkloadVersion(), existingSpec.WorkloadRunning()); err != nil {
+		panic(fmt.Sprintf("preserve deployment workload state: %v", err))
+	}
+	s.mustCommitDeploymentConfigLocked(pq.UpsertDeploymentConfigParams{
+		DeploymentID: dbID,
+		NodeID:       existing.NodeID,
+		SpaceID:      existing.SpaceID,
+		Name:         existing.Name,
+		CreatedAt:    existing.CreatedAt,
+		Version:      existing.Version + 1,
+		UpdatedAt:    now,
+		UpdatedBy:    userID,
+		SpecBlob:     storedSpec.Encode(),
+		Deleted:      existing.Deleted,
+	}, "deployment spec update")
 }
 
 // MustCreateDeploymentForNode creates a deployment with an explicit canonical
@@ -547,53 +495,26 @@ func (s *Service) EnsureNetproxyDeployment(nodeID int32, initialVersion string) 
 func (s *Service) repairDeploymentSpecLocked(deploymentID int32, spec *apigen.DeploymentSpec, label string) {
 	bgCtx := context.Background()
 	dbID := int64(deploymentID)
-	now := time.Now().UnixMilli()
 
-	var params pq.UpsertDeploymentConfigParams
-	if err := s.q.Tx(bgCtx, func(q *pq.Queries) error {
-		existing, err := q.GetDeploymentConfig(bgCtx, dbID)
-		if err != nil {
-			panic(fmt.Sprintf("GetDeploymentConfig (%s repair): %v", label, err))
-		}
-		storedSpec := mustDecodeDeploymentSpec(spec.Encode(), dbID, existing.Version)
-		existingSpec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.Version)
-		if err := storedSpec.SetWorkloadState(existingSpec.WorkloadVersion(), existingSpec.WorkloadRunning()); err != nil {
-			panic(fmt.Sprintf("preserve %s deployment workload state: %v", label, err))
-		}
-		specBlob := storedSpec.Encode()
-		newVersion := existing.Version + 1
-		params = pq.UpsertDeploymentConfigParams{
-			DeploymentID: dbID,
-			NodeID:       existing.NodeID,
-			SpaceID:      existing.SpaceID,
-			Name:         existing.Name,
-			CreatedAt:    existing.CreatedAt,
-			Version:      newVersion,
-			UpdatedAt:    now,
-			UpdatedBy:    0,
-			SpecBlob:     specBlob,
-			Deleted:      existing.Deleted,
-		}
-		if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
-			panic(fmt.Sprintf("UpsertDeploymentConfig (%s repair): %v", label, err))
-		}
-		if err := q.InsertDeploymentConfigHistory(bgCtx, pq.InsertDeploymentConfigHistoryParams{
-			DeploymentID: dbID,
-			Version:      newVersion,
-			UpdatedAt:    now,
-			UpdatedBy:    0,
-			SpaceID:      params.SpaceID,
-			NodeID:       params.NodeID,
-			SpecBlob:     params.SpecBlob,
-			Deleted:      params.Deleted,
-		}); err != nil {
-			panic(fmt.Sprintf("InsertDeploymentConfigHistory (%s repair): %v", label, err))
-		}
-		return nil
-	}); err != nil {
-		panic(fmt.Sprintf("%s deployment repair tx: %v", label, err))
+	existing, err := s.q.GetDeploymentConfig(bgCtx, dbID)
+	if err != nil {
+		panic(fmt.Sprintf("GetDeploymentConfig (%s repair): %v", label, err))
 	}
-
-	s.configCache[deploymentID] = upsertParamsToProto(params)
-	s.notifyConfigLocked(deploymentID)
+	storedSpec := mustDecodeDeploymentSpec(spec.Encode(), dbID, existing.Version)
+	existingSpec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.Version)
+	if err := storedSpec.SetWorkloadState(existingSpec.WorkloadVersion(), existingSpec.WorkloadRunning()); err != nil {
+		panic(fmt.Sprintf("preserve %s deployment workload state: %v", label, err))
+	}
+	s.mustCommitDeploymentConfigLocked(pq.UpsertDeploymentConfigParams{
+		DeploymentID: dbID,
+		NodeID:       existing.NodeID,
+		SpaceID:      existing.SpaceID,
+		Name:         existing.Name,
+		CreatedAt:    existing.CreatedAt,
+		Version:      existing.Version + 1,
+		UpdatedAt:    time.Now().UnixMilli(),
+		UpdatedBy:    0,
+		SpecBlob:     storedSpec.Encode(),
+		Deleted:      existing.Deleted,
+	}, label+" deployment repair")
 }

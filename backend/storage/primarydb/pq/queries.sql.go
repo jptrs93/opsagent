@@ -93,6 +93,39 @@ func (q *Queries) CountAssetSiblingsWithKey(ctx context.Context, arg CountAssetS
 	return count, err
 }
 
+const countAssetsInDirectory = `-- name: CountAssetsInDirectory :one
+SELECT COUNT(*) FROM assets WHERE asset_directory_id = ?
+`
+
+func (q *Queries) CountAssetsInDirectory(ctx context.Context, assetDirectoryID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAssetsInDirectory, assetDirectoryID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countChildAssetDirectories = `-- name: CountChildAssetDirectories :one
+SELECT COUNT(*) FROM asset_directories WHERE parent_id = ?
+`
+
+func (q *Queries) CountChildAssetDirectories(ctx context.Context, parentID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countChildAssetDirectories, parentID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countChildValueDirectories = `-- name: CountChildValueDirectories :one
+SELECT COUNT(*) FROM value_directories WHERE parent_id = ?
+`
+
+func (q *Queries) CountChildValueDirectories(ctx context.Context, parentID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countChildValueDirectories, parentID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countConfigSiblingsWithName = `-- name: CountConfigSiblingsWithName :one
 SELECT COUNT(*) FROM configs
 WHERE space_id = ? AND value_directory_id = ? AND name = ? AND id != ?
@@ -117,6 +150,17 @@ func (q *Queries) CountConfigSiblingsWithName(ctx context.Context, arg CountConf
 	return count, err
 }
 
+const countConfigsInDirectory = `-- name: CountConfigsInDirectory :one
+SELECT COUNT(*) FROM configs WHERE value_directory_id = ?
+`
+
+func (q *Queries) CountConfigsInDirectory(ctx context.Context, valueDirectoryID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countConfigsInDirectory, valueDirectoryID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countDeploymentsForSpace = `-- name: CountDeploymentsForSpace :one
 SELECT COUNT(*) FROM deployment_configs WHERE space_id = ? AND deleted = 0
 `
@@ -130,17 +174,23 @@ func (q *Queries) CountDeploymentsForSpace(ctx context.Context, spaceID int64) (
 
 const countDirectorySiblingsWithKey = `-- name: CountDirectorySiblingsWithKey :one
 SELECT COUNT(*) FROM asset_directories
-WHERE space_id = ? AND parent_id = ? AND key = ?
+WHERE space_id = ? AND parent_id = ? AND key = ? AND id != ?
 `
 
 type CountDirectorySiblingsWithKeyParams struct {
 	SpaceID  int64
 	ParentID int64
 	Key      string
+	ID       int64
 }
 
 func (q *Queries) CountDirectorySiblingsWithKey(ctx context.Context, arg CountDirectorySiblingsWithKeyParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countDirectorySiblingsWithKey, arg.SpaceID, arg.ParentID, arg.Key)
+	row := q.db.QueryRowContext(ctx, countDirectorySiblingsWithKey,
+		arg.SpaceID,
+		arg.ParentID,
+		arg.Key,
+		arg.ID,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -170,21 +220,38 @@ func (q *Queries) CountSecretSiblingsWithName(ctx context.Context, arg CountSecr
 	return count, err
 }
 
+const countSecretsInDirectory = `-- name: CountSecretsInDirectory :one
+SELECT COUNT(*) FROM secrets WHERE value_directory_id = ?
+`
+
+func (q *Queries) CountSecretsInDirectory(ctx context.Context, valueDirectoryID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countSecretsInDirectory, valueDirectoryID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countValueDirectorySiblingsWithName = `-- name: CountValueDirectorySiblingsWithName :one
 
 SELECT COUNT(*) FROM value_directories
-WHERE space_id = ? AND parent_id = ? AND name = ?
+WHERE space_id = ? AND parent_id = ? AND name = ? AND id != ?
 `
 
 type CountValueDirectorySiblingsWithNameParams struct {
 	SpaceID  int64
 	ParentID int64
 	Name     string
+	ID       int64
 }
 
 // === value directories (shared by secrets and configs) ===
 func (q *Queries) CountValueDirectorySiblingsWithName(ctx context.Context, arg CountValueDirectorySiblingsWithNameParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countValueDirectorySiblingsWithName, arg.SpaceID, arg.ParentID, arg.Name)
+	row := q.db.QueryRowContext(ctx, countValueDirectorySiblingsWithName,
+		arg.SpaceID,
+		arg.ParentID,
+		arg.Name,
+		arg.ID,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -245,6 +312,15 @@ func (q *Queries) CreateSpace(ctx context.Context, name string) (Space, error) {
 	var i Space
 	err := row.Scan(&i.ID, &i.Name)
 	return i, err
+}
+
+const deleteAssetDirectory = `-- name: DeleteAssetDirectory :exec
+DELETE FROM asset_directories WHERE id = ?
+`
+
+func (q *Queries) DeleteAssetDirectory(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteAssetDirectory, id)
+	return err
 }
 
 const deleteAssetRow = `-- name: DeleteAssetRow :exec
@@ -319,6 +395,15 @@ func (q *Queries) DeleteSpace(ctx context.Context, id int64) error {
 	return err
 }
 
+const deleteValueDirectory = `-- name: DeleteValueDirectory :exec
+DELETE FROM value_directories WHERE id = ?
+`
+
+func (q *Queries) DeleteValueDirectory(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteValueDirectory, id)
+	return err
+}
+
 const finishAssetMigration = `-- name: FinishAssetMigration :one
 UPDATE asset_migrations
 SET status = 'finished', last_error = '', finished_at = ?
@@ -389,6 +474,26 @@ func (q *Queries) GetAssetByID(ctx context.Context, id int64) (Asset, error) {
 		&i.SpaceID,
 		&i.Key,
 		&i.AssetDirectoryID,
+		&i.CreatedAt,
+		&i.CreatedBy,
+	)
+	return i, err
+}
+
+const getAssetDirectoryByID = `-- name: GetAssetDirectoryByID :one
+SELECT id, space_id, key, parent_id, created_at, created_by
+FROM asset_directories
+WHERE id = ?
+`
+
+func (q *Queries) GetAssetDirectoryByID(ctx context.Context, id int64) (AssetDirectory, error) {
+	row := q.db.QueryRowContext(ctx, getAssetDirectoryByID, id)
+	var i AssetDirectory
+	err := row.Scan(
+		&i.ID,
+		&i.SpaceID,
+		&i.Key,
+		&i.ParentID,
 		&i.CreatedAt,
 		&i.CreatedBy,
 	)
@@ -830,6 +935,26 @@ func (q *Queries) GetUser(ctx context.Context, id int64) (User, error) {
 	return i, err
 }
 
+const getValueDirectoryByID = `-- name: GetValueDirectoryByID :one
+SELECT id, space_id, name, parent_id, created_at, created_by
+FROM value_directories
+WHERE id = ?
+`
+
+func (q *Queries) GetValueDirectoryByID(ctx context.Context, id int64) (ValueDirectory, error) {
+	row := q.db.QueryRowContext(ctx, getValueDirectoryByID, id)
+	var i ValueDirectory
+	err := row.Scan(
+		&i.ID,
+		&i.SpaceID,
+		&i.Name,
+		&i.ParentID,
+		&i.CreatedAt,
+		&i.CreatedBy,
+	)
+	return i, err
+}
+
 const insertAgentSession = `-- name: InsertAgentSession :exec
 
 INSERT INTO agent_sessions (id, user_id, created_at, expires_at, token_hash, token_prefix, revoked_at, scopes,
@@ -867,6 +992,40 @@ func (q *Queries) InsertAgentSession(ctx context.Context, arg InsertAgentSession
 		arg.ApprovedAt,
 	)
 	return err
+}
+
+const insertAssetDirectory = `-- name: InsertAssetDirectory :one
+INSERT INTO asset_directories (space_id, key, parent_id, created_at, created_by)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id, space_id, key, parent_id, created_at, created_by
+`
+
+type InsertAssetDirectoryParams struct {
+	SpaceID   int64
+	Key       string
+	ParentID  int64
+	CreatedAt int64
+	CreatedBy int64
+}
+
+func (q *Queries) InsertAssetDirectory(ctx context.Context, arg InsertAssetDirectoryParams) (AssetDirectory, error) {
+	row := q.db.QueryRowContext(ctx, insertAssetDirectory,
+		arg.SpaceID,
+		arg.Key,
+		arg.ParentID,
+		arg.CreatedAt,
+		arg.CreatedBy,
+	)
+	var i AssetDirectory
+	err := row.Scan(
+		&i.ID,
+		&i.SpaceID,
+		&i.Key,
+		&i.ParentID,
+		&i.CreatedAt,
+		&i.CreatedBy,
+	)
+	return i, err
 }
 
 const insertAssetMigration = `-- name: InsertAssetMigration :one
@@ -1243,6 +1402,40 @@ func (q *Queries) InsertSecretVersion(ctx context.Context, arg InsertSecretVersi
 		&i.SmkVersion,
 		&i.Ciphertext,
 		&i.Nonce,
+		&i.CreatedAt,
+		&i.CreatedBy,
+	)
+	return i, err
+}
+
+const insertValueDirectory = `-- name: InsertValueDirectory :one
+INSERT INTO value_directories (space_id, name, parent_id, created_at, created_by)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id, space_id, name, parent_id, created_at, created_by
+`
+
+type InsertValueDirectoryParams struct {
+	SpaceID   int64
+	Name      string
+	ParentID  int64
+	CreatedAt int64
+	CreatedBy int64
+}
+
+func (q *Queries) InsertValueDirectory(ctx context.Context, arg InsertValueDirectoryParams) (ValueDirectory, error) {
+	row := q.db.QueryRowContext(ctx, insertValueDirectory,
+		arg.SpaceID,
+		arg.Name,
+		arg.ParentID,
+		arg.CreatedAt,
+		arg.CreatedBy,
+	)
+	var i ValueDirectory
+	err := row.Scan(
+		&i.ID,
+		&i.SpaceID,
+		&i.Name,
+		&i.ParentID,
 		&i.CreatedAt,
 		&i.CreatedBy,
 	)
@@ -2417,6 +2610,76 @@ func (q *Queries) SetAgentSessionStatus(ctx context.Context, arg SetAgentSession
 		arg.RevokedAt,
 		arg.ID,
 	)
+	return err
+}
+
+const setAssetDirectoryID = `-- name: SetAssetDirectoryID :exec
+UPDATE assets SET asset_directory_id = ? WHERE id = ?
+`
+
+type SetAssetDirectoryIDParams struct {
+	AssetDirectoryID int64
+	ID               int64
+}
+
+func (q *Queries) SetAssetDirectoryID(ctx context.Context, arg SetAssetDirectoryIDParams) error {
+	_, err := q.db.ExecContext(ctx, setAssetDirectoryID, arg.AssetDirectoryID, arg.ID)
+	return err
+}
+
+const setAssetDirectoryParent = `-- name: SetAssetDirectoryParent :exec
+UPDATE asset_directories SET parent_id = ? WHERE id = ?
+`
+
+type SetAssetDirectoryParentParams struct {
+	ParentID int64
+	ID       int64
+}
+
+func (q *Queries) SetAssetDirectoryParent(ctx context.Context, arg SetAssetDirectoryParentParams) error {
+	_, err := q.db.ExecContext(ctx, setAssetDirectoryParent, arg.ParentID, arg.ID)
+	return err
+}
+
+const setConfigValueDirectoryID = `-- name: SetConfigValueDirectoryID :exec
+UPDATE configs SET value_directory_id = ? WHERE id = ?
+`
+
+type SetConfigValueDirectoryIDParams struct {
+	ValueDirectoryID int64
+	ID               int64
+}
+
+func (q *Queries) SetConfigValueDirectoryID(ctx context.Context, arg SetConfigValueDirectoryIDParams) error {
+	_, err := q.db.ExecContext(ctx, setConfigValueDirectoryID, arg.ValueDirectoryID, arg.ID)
+	return err
+}
+
+const setSecretValueDirectoryID = `-- name: SetSecretValueDirectoryID :exec
+UPDATE secrets SET value_directory_id = ? WHERE id = ?
+`
+
+type SetSecretValueDirectoryIDParams struct {
+	ValueDirectoryID int64
+	ID               int64
+}
+
+func (q *Queries) SetSecretValueDirectoryID(ctx context.Context, arg SetSecretValueDirectoryIDParams) error {
+	_, err := q.db.ExecContext(ctx, setSecretValueDirectoryID, arg.ValueDirectoryID, arg.ID)
+	return err
+}
+
+const setValueDirectoryParent = `-- name: SetValueDirectoryParent :exec
+UPDATE value_directories SET parent_id = ? WHERE id = ?
+`
+
+type SetValueDirectoryParentParams struct {
+	ParentID int64
+	ID       int64
+}
+
+func (q *Queries) SetValueDirectoryParent(ctx context.Context, arg SetValueDirectoryParentParams) error {
+	_, err := q.db.ExecContext(ctx, setValueDirectoryParent, arg.ParentID, arg.ID)
 	return err
 }
 

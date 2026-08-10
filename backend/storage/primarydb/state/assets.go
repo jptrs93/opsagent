@@ -240,8 +240,9 @@ func (s *Service) ListAssetVersionsIncludingPending(assetID int32) []*apigen.Ass
 // assetSiblingKeyTakenLocked reports whether key is already used by another
 // asset or a directory under (spaceID, directoryID). Caller must hold s.Mu:
 // path uniqueness spans two tables, so only the mutex makes the check-and-write
-// atomic.
-func (s *Service) assetSiblingKeyTakenLocked(ctx context.Context, q *pq.Queries, spaceID, directoryID int64, key string, excludeAssetID int64) bool {
+// atomic. excludeAssetID/excludeDirectoryID exempt the row being renamed or
+// moved (0 = exclude nothing).
+func (s *Service) assetSiblingKeyTakenLocked(ctx context.Context, q *pq.Queries, spaceID, directoryID int64, key string, excludeAssetID, excludeDirectoryID int64) bool {
 	assets, err := q.CountAssetSiblingsWithKey(ctx, pq.CountAssetSiblingsWithKeyParams{
 		SpaceID:          spaceID,
 		AssetDirectoryID: directoryID,
@@ -258,6 +259,7 @@ func (s *Service) assetSiblingKeyTakenLocked(ctx context.Context, q *pq.Queries,
 		SpaceID:  spaceID,
 		ParentID: directoryID,
 		Key:      key,
+		ID:       excludeDirectoryID,
 	})
 	if err != nil {
 		panic(fmt.Sprintf("CountDirectorySiblingsWithKey: %v", err))
@@ -281,12 +283,13 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, createdBy int32, l
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
+	if s.assetSiblingKeyTakenLocked(ctx, s.q, space, 0, key, 0, 0) {
+		return nil, ErrAssetAlreadyExists
+	}
+
 	var a Asset
 	var v pq.AssetVersion
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		if s.assetSiblingKeyTakenLocked(ctx, q, space, 0, key, 0) {
-			return ErrAssetAlreadyExists
-		}
 		var err error
 		a, err = q.InsertAssetRow(ctx, pq.InsertAssetRowParams{
 			SpaceID:          space,
@@ -312,9 +315,6 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, createdBy int32, l
 		}
 		return nil
 	}); err != nil {
-		if errors.Is(err, ErrAssetAlreadyExists) {
-			return nil, err
-		}
 		panic(fmt.Sprintf("asset create tx: %v", err))
 	}
 	return assetVersionFromRows(a, v), nil
@@ -332,44 +332,35 @@ func (s *Service) AppendAssetVersion(assetID, createdBy int32, location string, 
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	var a Asset
-	var v pq.AssetVersion
-	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		var err error
-		a, err = q.GetAssetByID(ctx, int64(assetID))
-		if err == sql.ErrNoRows {
-			return ErrAssetNotFound
-		}
-		if err != nil {
-			panic(fmt.Sprintf("GetAssetByID: %v", err))
-		}
-		version, err := q.GetNextAssetVersionNumber(ctx, a.ID)
-		if err != nil {
-			panic(fmt.Sprintf("GetNextAssetVersionNumber: %v", err))
-		}
-		v, err = q.InsertAssetVersion(ctx, pq.InsertAssetVersionParams{
-			AssetID:   a.ID,
-			Version:   version,
-			CreatedAt: now,
-			CreatedBy: int64(createdBy),
-			Location:  location,
-			SizeBytes: sizeBytes,
-			Blob:      blob,
-		})
-		if err != nil {
-			panic(fmt.Sprintf("InsertAssetVersion: %v", err))
-		}
-		return nil
-	}); err != nil {
-		if errors.Is(err, ErrAssetNotFound) {
-			return nil, err
-		}
-		panic(fmt.Sprintf("asset version tx: %v", err))
+	a, err := s.q.GetAssetByID(ctx, int64(assetID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrAssetNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetAssetByID: %v", err))
+	}
+	version, err := s.q.GetNextAssetVersionNumber(ctx, a.ID)
+	if err != nil {
+		panic(fmt.Sprintf("GetNextAssetVersionNumber: %v", err))
+	}
+	v, err := s.q.InsertAssetVersion(ctx, pq.InsertAssetVersionParams{
+		AssetID:   a.ID,
+		Version:   version,
+		CreatedAt: now,
+		CreatedBy: int64(createdBy),
+		Location:  location,
+		SizeBytes: sizeBytes,
+		Blob:      blob,
+	})
+	if err != nil {
+		panic(fmt.Sprintf("InsertAssetVersion: %v", err))
 	}
 	return assetVersionFromRows(a, v), nil
 }
 
 func (s *Service) UpdateAssetVersionLocation(assetVersionID int32, location string) *apigen.AssetVersion {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
 	v, err := s.q.UpdateAssetVersionLocation(context.Background(), pq.UpdateAssetVersionLocationParams{ID: int64(assetVersionID), Location: location})
 	if err != nil {
 		panic(fmt.Sprintf("UpdateAssetVersionLocation: %v", err))
@@ -392,36 +383,28 @@ func (s *Service) RenameAssetKey(assetID int32, newKey string) (*apigen.AssetMet
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	var a Asset
-	var versions []pq.AssetVersion
-	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		var err error
-		a, err = q.GetAssetByID(ctx, int64(assetID))
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrAssetNotFound
+	a, err := s.q.GetAssetByID(ctx, int64(assetID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrAssetNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load asset for rename: %w", err)
+	}
+	if a.Key != newKey {
+		if s.assetSiblingKeyTakenLocked(ctx, s.q, a.SpaceID, a.AssetDirectoryID, newKey, a.ID, 0) {
+			return nil, ErrAssetAlreadyExists
 		}
-		if err != nil {
-			return fmt.Errorf("load asset for rename: %w", err)
+		if err := s.q.RenameAssetKey(ctx, pq.RenameAssetKeyParams{Key: newKey, ID: a.ID}); err != nil {
+			return nil, fmt.Errorf("rename asset: %w", err)
 		}
-		if a.Key != newKey {
-			if s.assetSiblingKeyTakenLocked(ctx, q, a.SpaceID, a.AssetDirectoryID, newKey, a.ID) {
-				return ErrAssetAlreadyExists
-			}
-			if err := q.RenameAssetKey(ctx, pq.RenameAssetKeyParams{Key: newKey, ID: a.ID}); err != nil {
-				return fmt.Errorf("rename asset: %w", err)
-			}
-			a.Key = newKey
-		}
-		versions, err = q.ListAssetVersions(ctx, a.ID)
-		if err != nil {
-			return fmt.Errorf("load renamed asset versions: %w", err)
-		}
-		if len(versions) == 0 {
-			return ErrAssetNotFound
-		}
-		return nil
-	}); err != nil {
-		return nil, err
+		a.Key = newKey
+	}
+	versions, err := s.q.ListAssetVersions(ctx, a.ID)
+	if err != nil {
+		return nil, fmt.Errorf("load renamed asset versions: %w", err)
+	}
+	if len(versions) == 0 {
+		return nil, ErrAssetNotFound
 	}
 	refs := make([]*apigen.AssetVersionMeta, 0, len(versions))
 	for i := len(versions) - 1; i >= 0; i-- { // query is oldest first; refs are newest first
@@ -430,7 +413,70 @@ func (s *Service) RenameAssetKey(assetID int32, newKey string) (*apigen.AssetMet
 	return assetMetaFromRow(a, refs), nil
 }
 
+// MoveAssetDirectory moves an asset to another directory (0 = the space root)
+// in its own space. Version rows, ids, and content are untouched.
+func (s *Service) MoveAssetDirectory(assetID, newDirectoryID int32) (Asset, error) {
+	ctx := context.Background()
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	a, err := s.q.GetAssetByID(ctx, int64(assetID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Asset{}, ErrAssetNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetAssetByID: %v", err))
+	}
+	dirID := int64(newDirectoryID)
+	if a.AssetDirectoryID == dirID {
+		return a, nil
+	}
+	if dirID != 0 {
+		dir, err := s.q.GetAssetDirectoryByID(ctx, dirID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return Asset{}, ErrDirectoryNotFound
+		}
+		if err != nil {
+			panic(fmt.Sprintf("GetAssetDirectoryByID: %v", err))
+		}
+		if dir.SpaceID != a.SpaceID {
+			return Asset{}, ErrSpaceMoveUnsupported
+		}
+	}
+	if s.assetSiblingKeyTakenLocked(ctx, s.q, a.SpaceID, dirID, a.Key, a.ID, 0) {
+		return Asset{}, ErrAssetAlreadyExists
+	}
+	if err := s.q.SetAssetDirectoryID(ctx, pq.SetAssetDirectoryIDParams{AssetDirectoryID: dirID, ID: a.ID}); err != nil {
+		panic(fmt.Sprintf("SetAssetDirectoryID: %v", err))
+	}
+	a.AssetDirectoryID = dirID
+	return a, nil
+}
+
+// MoveAssetSpace would move an asset to another space. Space moves are not
+// supported yet — mounts and references are space-scoped, so the move needs
+// coordinated handling. A same-space target is accepted as a no-op.
+func (s *Service) MoveAssetSpace(assetID, newSpaceID int32) error {
+	ctx := context.Background()
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	a, err := s.q.GetAssetByID(ctx, int64(assetID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrAssetNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetAssetByID: %v", err))
+	}
+	if int64(normalizedUserSpaceID(newSpaceID)) == a.SpaceID {
+		return nil
+	}
+	return ErrSpaceMoveUnsupported
+}
+
 func (s *Service) DeleteAssetVersionByID(assetVersionID int32) {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
 	if err := s.q.DeleteAssetVersionByID(context.Background(), int64(assetVersionID)); err != nil {
 		panic(fmt.Sprintf("DeleteAssetVersionByID: %v", err))
 	}
@@ -438,6 +484,8 @@ func (s *Service) DeleteAssetVersionByID(assetVersionID int32) {
 
 // DeleteAsset removes the asset identity and every version row.
 func (s *Service) DeleteAsset(assetID int32) {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
 	ctx := context.Background()
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		if err := q.DeleteAssetVersionsByAssetID(ctx, int64(assetID)); err != nil {

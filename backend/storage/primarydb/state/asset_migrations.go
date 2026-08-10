@@ -70,34 +70,41 @@ func (s *Service) FetchOpenDeployConfigByID(id int64) (SystemConfigRevision, err
 // AppendOpenDeploySettingsWithAssetMigration commits the new configuration and
 // its migration intent together so startup can always recover the transition.
 func (s *Service) AppendOpenDeploySettingsWithAssetMigration(blob []byte, createMigration bool) (int64, *AssetMigration, error) {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
 	ctx := context.Background()
+
+	if _, err := s.q.GetUnfinishedAssetMigration(ctx); err == nil {
+		return 0, nil, ErrAssetMigrationInProgress
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return 0, nil, err
+	}
+	now := time.Now().UnixMilli()
+	if !createMigration {
+		newConfigID, err := s.q.InsertSystemConfigRevision(ctx, now, blob)
+		return newConfigID, nil, err
+	}
+	oldConfig, err := s.q.GetLatestConfig(ctx)
+	if err != nil {
+		return 0, nil, err
+	}
 	var newConfigID int64
 	var migration *AssetMigration
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		if _, err := q.GetUnfinishedAssetMigration(ctx); err == nil {
-			return ErrAssetMigrationInProgress
-		} else if !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		oldConfig, err := q.GetLatestConfig(ctx)
+		var err error
+		newConfigID, err = q.InsertSystemConfigRevision(ctx, now, blob)
 		if err != nil {
 			return err
 		}
-		newConfigID, err = q.InsertSystemConfigRevision(ctx, time.Now().UnixMilli(), blob)
+		row, err := q.InsertAssetMigration(ctx, pq.InsertAssetMigrationParams{
+			OldConfigVersionID: oldConfig.ID,
+			NewConfigVersionID: newConfigID,
+			CreatedAt:          now,
+		})
 		if err != nil {
 			return err
 		}
-		if createMigration {
-			row, insertErr := q.InsertAssetMigration(ctx, pq.InsertAssetMigrationParams{
-				OldConfigVersionID: oldConfig.ID,
-				NewConfigVersionID: newConfigID,
-				CreatedAt:          time.Now().UnixMilli(),
-			})
-			if insertErr != nil {
-				return insertErr
-			}
-			migration = &row
-		}
+		migration = &row
 		return nil
 	}); err != nil {
 		return 0, nil, err

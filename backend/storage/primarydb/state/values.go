@@ -34,9 +34,9 @@ func ValidValueName(name string) bool {
 // valueSiblingNameTakenLocked reports whether name is already used by another
 // secret, config, or directory under (spaceID, directoryID). Caller must hold
 // s.Mu: the law spans three tables, so only the mutex makes the
-// check-and-write atomic. excludeSecretID/excludeConfigID exempt the row being
-// renamed (0 = exempt nothing).
-func (s *Service) valueSiblingNameTakenLocked(ctx context.Context, q *pq.Queries, spaceID, directoryID int64, name string, excludeSecretID, excludeConfigID int64) bool {
+// check-and-write atomic. excludeSecretID/excludeConfigID/excludeDirectoryID
+// exempt the row being renamed or moved (0 = exempt nothing).
+func (s *Service) valueSiblingNameTakenLocked(ctx context.Context, q *pq.Queries, spaceID, directoryID int64, name string, excludeSecretID, excludeConfigID, excludeDirectoryID int64) bool {
 	secretCount, err := q.CountSecretSiblingsWithName(ctx, pq.CountSecretSiblingsWithNameParams{
 		SpaceID:          spaceID,
 		ValueDirectoryID: directoryID,
@@ -65,6 +65,7 @@ func (s *Service) valueSiblingNameTakenLocked(ctx context.Context, q *pq.Queries
 		SpaceID:  spaceID,
 		ParentID: directoryID,
 		Name:     name,
+		ID:       excludeDirectoryID,
 	})
 	if err != nil {
 		panic(fmt.Sprintf("CountValueDirectorySiblingsWithName: %v", err))

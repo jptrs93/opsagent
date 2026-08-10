@@ -75,7 +75,7 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, createdBy int32,
 	defer s.Mu.Unlock()
 	ctx := context.Background()
 	space := int64(normalizedUserSpaceID(spaceID))
-	if s.valueSiblingNameTakenLocked(ctx, s.q, space, 0, name, 0, 0) {
+	if s.valueSiblingNameTakenLocked(ctx, s.q, space, 0, name, 0, 0, 0) {
 		return nil, ErrValueAlreadyExists
 	}
 	now := time.Now().UnixMilli()
@@ -190,7 +190,7 @@ func (s *Service) RenameConfig(configID int32, newName string) (*apigen.ConfigMe
 		panic(fmt.Sprintf("GetConfigRowByID: %v", err))
 	}
 	if row.Name != newName {
-		if s.valueSiblingNameTakenLocked(ctx, s.q, row.SpaceID, row.ValueDirectoryID, newName, 0, row.ID) {
+		if s.valueSiblingNameTakenLocked(ctx, s.q, row.SpaceID, row.ValueDirectoryID, newName, 0, row.ID, 0) {
 			return nil, ErrValueAlreadyExists
 		}
 		if err := s.q.RenameConfigRow(ctx, pq.RenameConfigRowParams{Name: newName, ID: row.ID}); err != nil {
@@ -203,6 +203,67 @@ func (s *Service) RenameConfig(configID int32, newName string) (*apigen.ConfigMe
 		return nil, ErrValueNotFound
 	}
 	return meta, nil
+}
+
+// MoveConfigDirectory moves a config to another value directory (0 = the space
+// root) in its own space. Version rows are untouched.
+func (s *Service) MoveConfigDirectory(configID, newDirectoryID int32) (Config, error) {
+	ctx := context.Background()
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	row, err := s.q.GetConfigRowByID(ctx, int64(configID))
+	if err == sql.ErrNoRows {
+		return Config{}, ErrValueNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetConfigRowByID: %v", err))
+	}
+	dirID := int64(newDirectoryID)
+	if row.ValueDirectoryID == dirID {
+		return row, nil
+	}
+	if dirID != 0 {
+		dir, err := s.q.GetValueDirectoryByID(ctx, dirID)
+		if err == sql.ErrNoRows {
+			return Config{}, ErrValueDirectoryNotFound
+		}
+		if err != nil {
+			panic(fmt.Sprintf("GetValueDirectoryByID: %v", err))
+		}
+		if dir.SpaceID != row.SpaceID {
+			return Config{}, ErrSpaceMoveUnsupported
+		}
+	}
+	if s.valueSiblingNameTakenLocked(ctx, s.q, row.SpaceID, dirID, row.Name, 0, row.ID, 0) {
+		return Config{}, ErrValueAlreadyExists
+	}
+	if err := s.q.SetConfigValueDirectoryID(ctx, pq.SetConfigValueDirectoryIDParams{ValueDirectoryID: dirID, ID: row.ID}); err != nil {
+		panic(fmt.Sprintf("SetConfigValueDirectoryID: %v", err))
+	}
+	row.ValueDirectoryID = dirID
+	return row, nil
+}
+
+// MoveConfigSpace would move a config to another space. Space moves are not
+// supported yet — references and permissions are space-scoped, so the move
+// needs coordinated handling. A same-space target is accepted as a no-op.
+func (s *Service) MoveConfigSpace(configID, newSpaceID int32) error {
+	ctx := context.Background()
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	row, err := s.q.GetConfigRowByID(ctx, int64(configID))
+	if err == sql.ErrNoRows {
+		return ErrValueNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetConfigRowByID: %v", err))
+	}
+	if int64(normalizedUserSpaceID(newSpaceID)) == row.SpaceID {
+		return nil
+	}
+	return ErrSpaceMoveUnsupported
 }
 
 // DeleteConfig removes the config identity and all its versions. Returns the

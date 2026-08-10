@@ -44,6 +44,8 @@ func (s *Service) ListSecretKeyslots() []secrets.Keyslot {
 }
 
 func (s *Service) UpsertSecretKeyslot(k secrets.Keyslot) {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
 	if err := s.q.UpsertSecretKeyslot(context.Background(), pq.UpsertSecretKeyslotParams{
 		Slot:       k.Slot,
 		SmkVersion: int64(k.SMKVersion),
@@ -90,7 +92,7 @@ func (s *Service) CreateSecretWithVersion(name string, spaceID, createdBy int32,
 	defer s.Mu.Unlock()
 	ctx := context.Background()
 	space := int64(normalizedUserSpaceID(spaceID))
-	if s.valueSiblingNameTakenLocked(ctx, s.q, space, 0, name, 0, 0) {
+	if s.valueSiblingNameTakenLocked(ctx, s.q, space, 0, name, 0, 0, 0) {
 		return secrets.Record{}, ErrValueAlreadyExists
 	}
 	now := time.Now().UnixMilli()
@@ -185,6 +187,8 @@ func (s *Service) AppendSecretVersionWithDeploymentUpdates(secretID, createdBy i
 // by the Manager's AAD re-seal sweep; the row id, version, and plaintext are
 // unchanged.
 func (s *Service) UpdateSecretVersionCiphertext(versionID, smkVersion int32, ciphertext, nonce []byte) {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
 	if err := s.q.UpdateSecretVersionCiphertext(context.Background(), pq.UpdateSecretVersionCiphertextParams{
 		SmkVersion: int64(smkVersion),
 		Ciphertext: ciphertext,
@@ -214,13 +218,75 @@ func (s *Service) RenameSecret(secretID int32, newName string) error {
 	if row.Name == newName {
 		return nil
 	}
-	if s.valueSiblingNameTakenLocked(ctx, s.q, row.SpaceID, row.ValueDirectoryID, newName, row.ID, 0) {
+	if s.valueSiblingNameTakenLocked(ctx, s.q, row.SpaceID, row.ValueDirectoryID, newName, row.ID, 0, 0) {
 		return ErrValueAlreadyExists
 	}
 	if err := s.q.RenameSecretRow(ctx, pq.RenameSecretRowParams{Name: newName, ID: row.ID}); err != nil {
 		panic(fmt.Sprintf("RenameSecretRow: %v", err))
 	}
 	return nil
+}
+
+// MoveSecretDirectory moves a secret to another value directory (0 = the space
+// root) in its own space. Version rows and their sealed bytes are untouched:
+// the AAD binds the identity id, not the location.
+func (s *Service) MoveSecretDirectory(secretID, newDirectoryID int32) (Secret, error) {
+	ctx := context.Background()
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	row, err := s.q.GetSecretRowByID(ctx, int64(secretID))
+	if err == sql.ErrNoRows {
+		return Secret{}, ErrValueNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetSecretRowByID: %v", err))
+	}
+	dirID := int64(newDirectoryID)
+	if row.ValueDirectoryID == dirID {
+		return row, nil
+	}
+	if dirID != 0 {
+		dir, err := s.q.GetValueDirectoryByID(ctx, dirID)
+		if err == sql.ErrNoRows {
+			return Secret{}, ErrValueDirectoryNotFound
+		}
+		if err != nil {
+			panic(fmt.Sprintf("GetValueDirectoryByID: %v", err))
+		}
+		if dir.SpaceID != row.SpaceID {
+			return Secret{}, ErrSpaceMoveUnsupported
+		}
+	}
+	if s.valueSiblingNameTakenLocked(ctx, s.q, row.SpaceID, dirID, row.Name, row.ID, 0, 0) {
+		return Secret{}, ErrValueAlreadyExists
+	}
+	if err := s.q.SetSecretValueDirectoryID(ctx, pq.SetSecretValueDirectoryIDParams{ValueDirectoryID: dirID, ID: row.ID}); err != nil {
+		panic(fmt.Sprintf("SetSecretValueDirectoryID: %v", err))
+	}
+	row.ValueDirectoryID = dirID
+	return row, nil
+}
+
+// MoveSecretSpace would move a secret to another space. Space moves are not
+// supported yet — references and permissions are space-scoped, so the move
+// needs coordinated handling. A same-space target is accepted as a no-op.
+func (s *Service) MoveSecretSpace(secretID, newSpaceID int32) error {
+	ctx := context.Background()
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	row, err := s.q.GetSecretRowByID(ctx, int64(secretID))
+	if err == sql.ErrNoRows {
+		return ErrValueNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetSecretRowByID: %v", err))
+	}
+	if int64(normalizedUserSpaceID(newSpaceID)) == row.SpaceID {
+		return nil
+	}
+	return ErrSpaceMoveUnsupported
 }
 
 // DeleteSecret removes the secret identity and all its versions.
@@ -366,6 +432,8 @@ func (s *Service) GetSystemSecret(name string) (secrets.SystemRecord, bool) {
 }
 
 func (s *Service) UpsertSystemSecret(r secrets.SystemRecord) {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
 	if err := s.q.UpsertSystemSecret(context.Background(), pq.UpsertSystemSecretParams{
 		Name:       r.Name,
 		SmkVersion: int64(r.SMKVersion),

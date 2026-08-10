@@ -292,7 +292,38 @@ DELETE FROM config_versions WHERE config_id = ?;
 
 -- name: CountValueDirectorySiblingsWithName :one
 SELECT COUNT(*) FROM value_directories
-WHERE space_id = ? AND parent_id = ? AND name = ?;
+WHERE space_id = ? AND parent_id = ? AND name = ? AND id != ?;
+
+-- name: GetValueDirectoryByID :one
+SELECT id, space_id, name, parent_id, created_at, created_by
+FROM value_directories
+WHERE id = ?;
+
+-- name: InsertValueDirectory :one
+INSERT INTO value_directories (space_id, name, parent_id, created_at, created_by)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id, space_id, name, parent_id, created_at, created_by;
+
+-- name: SetValueDirectoryParent :exec
+UPDATE value_directories SET parent_id = ? WHERE id = ?;
+
+-- name: DeleteValueDirectory :exec
+DELETE FROM value_directories WHERE id = ?;
+
+-- name: CountChildValueDirectories :one
+SELECT COUNT(*) FROM value_directories WHERE parent_id = ?;
+
+-- name: CountSecretsInDirectory :one
+SELECT COUNT(*) FROM secrets WHERE value_directory_id = ?;
+
+-- name: CountConfigsInDirectory :one
+SELECT COUNT(*) FROM configs WHERE value_directory_id = ?;
+
+-- name: SetSecretValueDirectoryID :exec
+UPDATE secrets SET value_directory_id = ? WHERE id = ?;
+
+-- name: SetConfigValueDirectoryID :exec
+UPDATE configs SET value_directory_id = ? WHERE id = ?;
 
 -- name: CountConfigSiblingsWithName :one
 SELECT COUNT(*) FROM configs
@@ -325,7 +356,7 @@ WHERE space_id = ? AND asset_directory_id = ? AND key = ? AND id != ?;
 
 -- name: CountDirectorySiblingsWithKey :one
 SELECT COUNT(*) FROM asset_directories
-WHERE space_id = ? AND parent_id = ? AND key = ?;
+WHERE space_id = ? AND parent_id = ? AND key = ? AND id != ?;
 
 -- name: InsertAssetRow :one
 INSERT INTO assets (space_id, key, asset_directory_id, created_at, created_by)
@@ -335,8 +366,33 @@ RETURNING id, space_id, key, asset_directory_id, created_at, created_by;
 -- name: RenameAssetKey :exec
 UPDATE assets SET key = ? WHERE id = ?;
 
+-- name: SetAssetDirectoryID :exec
+UPDATE assets SET asset_directory_id = ? WHERE id = ?;
+
 -- name: DeleteAssetRow :exec
 DELETE FROM assets WHERE id = ?;
+
+-- name: GetAssetDirectoryByID :one
+SELECT id, space_id, key, parent_id, created_at, created_by
+FROM asset_directories
+WHERE id = ?;
+
+-- name: InsertAssetDirectory :one
+INSERT INTO asset_directories (space_id, key, parent_id, created_at, created_by)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id, space_id, key, parent_id, created_at, created_by;
+
+-- name: SetAssetDirectoryParent :exec
+UPDATE asset_directories SET parent_id = ? WHERE id = ?;
+
+-- name: DeleteAssetDirectory :exec
+DELETE FROM asset_directories WHERE id = ?;
+
+-- name: CountAssetsInDirectory :one
+SELECT COUNT(*) FROM assets WHERE asset_directory_id = ?;
+
+-- name: CountChildAssetDirectories :one
+SELECT COUNT(*) FROM asset_directories WHERE parent_id = ?;
 
 -- name: ListPublishedAssetVersionMetas :many
 SELECT asset_id, id, version, created_at, created_by, size_bytes, location
