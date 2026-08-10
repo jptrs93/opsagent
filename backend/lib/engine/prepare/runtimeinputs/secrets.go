@@ -225,10 +225,10 @@ func SecretRefs(cfg *apigen.DeploymentConfig) []int32 {
 	}
 	seen := map[int32]bool{}
 	for _, item := range container.Runtime.EnvVars {
-		if item == nil || item.SecretID == nil || *item.SecretID == 0 {
+		if item == nil || item.SecretVersionID == nil || *item.SecretVersionID == 0 {
 			continue
 		}
-		seen[*item.SecretID] = true
+		seen[*item.SecretVersionID] = true
 	}
 	ids := make([]int32, 0, len(seen))
 	for id := range seen {
@@ -248,10 +248,10 @@ func ConfigRefs(cfg *apigen.DeploymentConfig) []int32 {
 	}
 	seen := map[int32]bool{}
 	for _, item := range container.Runtime.EnvVars {
-		if item == nil || item.ConfigID == nil || *item.ConfigID == 0 {
+		if item == nil || item.ConfigVersionID == nil || *item.ConfigVersionID == 0 {
 			continue
 		}
-		seen[*item.ConfigID] = true
+		seen[*item.ConfigVersionID] = true
 	}
 	ids := make([]int32, 0, len(seen))
 	for id := range seen {

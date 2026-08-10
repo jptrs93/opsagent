@@ -25,9 +25,13 @@ type deploymentReferenceUpdate struct {
 	spec *apigen.DeploymentSpec
 }
 
+// setVersionedValueWithDeploymentUpdates appends a version of the stable
+// secret/config identity stableID and optionally rolls the caller-asserted
+// deployment references (which pin version row ids of that identity) to the
+// new row atomically.
 func (s *PrimaryStorage) setVersionedValueWithDeploymentUpdates(
 	referenceType versionedValueReferenceType,
-	name string,
+	stableID int32,
 	updateDeployments bool,
 	expected []storage.DeploymentConfigVersion,
 	updatedBy int32,
@@ -45,7 +49,7 @@ func (s *PrimaryStorage) setVersionedValueWithDeploymentUpdates(
 	defer tx.Rollback()
 	q := s.q.WithTx(tx)
 
-	updates, referenceIDs, err := prepareDeploymentReferenceUpdates(ctx, q, referenceType, name, updateDeployments, expected)
+	updates, referenceIDs, err := prepareDeploymentReferenceUpdates(ctx, q, referenceType, stableID, updateDeployments, expected)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +114,7 @@ func prepareDeploymentReferenceUpdates(
 	ctx context.Context,
 	q *Queries,
 	referenceType versionedValueReferenceType,
-	name string,
+	stableID int32,
 	updateDeployments bool,
 	expected []storage.DeploymentConfigVersion,
 ) ([]deploymentReferenceUpdate, map[int32]struct{}, error) {
@@ -121,7 +125,7 @@ func prepareDeploymentReferenceUpdates(
 		return nil, nil, nil
 	}
 
-	referenceIDs, err := versionedValueIDs(ctx, q, referenceType, name)
+	referenceIDs, err := versionedValueIDs(ctx, q, referenceType, stableID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -158,7 +162,7 @@ func prepareDeploymentReferenceUpdates(
 		seen[item.ID] = struct{}{}
 		current, ok := actual[item.ID]
 		if !ok || int32(current.row.Version) != item.Version {
-			return nil, nil, fmt.Errorf("%w: deployment %d version is stale or no longer references %s", ErrReferencingDeploymentsChanged, item.ID, name)
+			return nil, nil, fmt.Errorf("%w: deployment %d version is stale or no longer references value %d", ErrReferencingDeploymentsChanged, item.ID, stableID)
 		}
 	}
 	if len(seen) != len(actual) {
@@ -172,29 +176,27 @@ func prepareDeploymentReferenceUpdates(
 	return updates, referenceIDs, nil
 }
 
-func versionedValueIDs(ctx context.Context, q *Queries, referenceType versionedValueReferenceType, name string) (map[int32]struct{}, error) {
+// versionedValueIDs returns every version row id of the stable identity —
+// exactly the set a deployment env ref could pin.
+func versionedValueIDs(ctx context.Context, q *Queries, referenceType versionedValueReferenceType, stableID int32) (map[int32]struct{}, error) {
 	ids := make(map[int32]struct{})
 	if referenceType == secretValueReference {
-		rows, err := q.ListSecrets(ctx)
+		rows, err := q.ListSecretVersionIDsBySecretID(ctx, int64(stableID))
 		if err != nil {
 			return nil, fmt.Errorf("list secret versions: %w", err)
 		}
-		for _, row := range rows {
-			if row.Name == name {
-				ids[int32(row.ID)] = struct{}{}
-			}
+		for _, id := range rows {
+			ids[int32(id)] = struct{}{}
 		}
 		return ids, nil
 	}
 
-	rows, err := q.ListAllUserConfigs(ctx)
+	rows, err := q.ListConfigVersionIDsByConfigID(ctx, int64(stableID))
 	if err != nil {
 		return nil, fmt.Errorf("list config versions: %w", err)
 	}
-	for _, row := range rows {
-		if row.Name == name {
-			ids[int32(row.ID)] = struct{}{}
-		}
+	for _, id := range rows {
+		ids[int32(id)] = struct{}{}
 	}
 	return ids, nil
 }
@@ -222,9 +224,9 @@ func replaceDeploymentReferences(spec *apigen.DeploymentSpec, referenceType vers
 			continue
 		}
 		if referenceType == secretValueReference {
-			value.SecretID = &replacementID
+			value.SecretVersionID = &replacementID
 		} else {
-			value.ConfigID = &replacementID
+			value.ConfigVersionID = &replacementID
 		}
 	}
 }
@@ -234,13 +236,13 @@ func referencedValueID(value *apigen.EnvVarValue, referenceType versionedValueRe
 		return 0
 	}
 	if referenceType == secretValueReference {
-		if value.SecretID != nil {
-			return *value.SecretID
+		if value.SecretVersionID != nil {
+			return *value.SecretVersionID
 		}
 		return 0
 	}
-	if value.ConfigID != nil {
-		return *value.ConfigID
+	if value.ConfigVersionID != nil {
+		return *value.ConfigVersionID
 	}
 	return 0
 }

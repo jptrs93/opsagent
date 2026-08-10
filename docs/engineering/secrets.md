@@ -2,15 +2,29 @@
 
 ## Overview
 
-The secrets store lets operators save encrypted secret values as immutable,
-versioned rows. Saving an existing name appends the next version (`v1`, `v2`,
-...) with a new numeric row ID. Deployment environment variables and settings
-reference exact versions by `secretId` / `SecretRef.id`; plain user configs use
-the same immutable row model with `configId` / `ConfigRef.id`. Values are
-decrypted during deployment preparation, cached on the node that runs the
-deployment — in memory, and additionally encrypted at rest on a secondary — and
-expanded at process spawn time. They never appear in stored deployment config,
-the UI state stream, the cluster replication feed, or logs.
+A secret is a **stable identity** — `secrets.id`, with a name, space, and
+directory — whose encrypted content lives in immutable numbered
+**version rows** (`secret_versions.id`). Setting a secret appends the next
+version (`v1`, `v2`, ...) with a new version row id; the identity id survives
+renames, moves, and rotations and is what the write API targets. Deployment
+environment variables and settings pin exact versions by `secretVersionId` /
+`SecretRef.version_id`; plain user configs use the same identity + versions
+model with `configVersionId` / `ConfigRef.version_id`.
+
+Secrets and configs share **one file system per space**: a name must be unique
+among sibling secrets, configs, and `value_directories` under the same parent
+directory (0 = the implicit root). That law spans three tables, so it is
+enforced in Go behind the storage mutex (`valueSiblingNameTakenLocked`), never
+by a SQL constraint. Assets have their own independent per-space file system.
+
+Values are decrypted during deployment preparation, cached on the node that
+runs the deployment — in memory, and additionally encrypted at rest on a
+secondary — and expanded at process spawn time. They never appear in stored
+deployment config, the UI state stream, the cluster replication feed, or logs.
+The state stream and list APIs carry `SecretMeta` / `ConfigMeta`: the identity
+at the root plus `version_refs`, NEWEST FIRST (`version_refs[0]` is the
+latest). Config version refs include the plaintext value; secret version refs
+never do.
 
 A signed-in operator can also decrypt a single value on demand via the explicit
 `PostV1SecretsReveal` endpoint (surfaced as the per-row "Reveal" button in the
@@ -68,10 +82,25 @@ Key files:
 - `backend/lib/localinputs/localinputs.go` — a secondary's encrypted at-rest
   copy of the runtime inputs it needs.
 - `backend/storage/sqlite/secrets_store.go` — `secrets.Store` on the primary
-  `StorageAdapter` (DB passthrough for the `secret_keyslots`, `secrets`, and
-  `system_secrets` tables).
-- `backend/lib/engine/prepare/runtimeinputs/secrets.go` — finds typed `secretId`
-  / `configId` refs, fetches each needed batch, validates it, and owns the
+  `StorageAdapter` (`secret_keyslots`, `secrets`, `secret_versions`, and
+  `system_secrets` tables, plus the `SecretMeta` builders). Sealing happens
+  through a `secrets.SealFunc` callback inside the write transaction, because
+  the id-and-version AAD needs the identity id before the ciphertext can exist.
+- `backend/storage/sqlite/values.go` — the shared secrets/configs namespace
+  law: `ValidValueName` and the three-table sibling-uniqueness check.
+- `backend/storage/sqlite/values_shape_migration.go` — the one-time
+  pre-`applySchema` transform of the legacy one-row-per-version `secrets` and
+  `configs` tables into the identity + versions split. Version row ids are
+  preserved verbatim (deployment env refs, system settings, and secondary
+  `local_runtime_inputs` pin them); identity ids are seeded above
+  `max(version id)` so the two id spaces never overlap on a migrated install;
+  ciphertext bytes are copied untouched (the SMK is not available at DB init —
+  the Manager's unlock sweep converts the AAD binding later). A name existing
+  as both a secret and a config in the same space fails the migration loudly.
+  Primary-only in effect: the cluster protocol is untouched, so no ordered
+  rollout is needed.
+- `backend/lib/engine/prepare/runtimeinputs/secrets.go` — finds typed `secretVersionId`
+  / `configVersionId` refs, fetches each needed batch, validates it, and owns the
   prepared in-memory caches.
 - `backend/lib/engine/secretdist/secretdist.go` — primary-side encrypted-secret
   fetch adapter.
@@ -120,9 +149,24 @@ machine KEK (provider-supplied) ────────────────
 ```
 
 - A single 32-byte **Secrets Master Key (SMK)** encrypts every value with
-  XChaCha20-Poly1305. The secret's name and class (`user` or `system`) are bound
-  as **associated data**, so a ciphertext cannot be moved to another name or
-  between the user/system tables.
+  XChaCha20-Poly1305. For user secrets the owning identity id and version
+  number are bound as **associated data**
+  (`opendeploy-secret:user:s<secret_id>:v<version>`), so a ciphertext cannot be
+  moved to another secret or another version of the same secret — and renames
+  and directory moves never re-encrypt, because neither appears in the AAD.
+  System secrets stay name-bound (`opendeploy-secret:system:<name>`); they are
+  name-keyed, unversioned, and outside the file system.
+
+  Rows written before the identity split are sealed under the legacy name AAD
+  (`opendeploy-secret:user:<name>`). A **re-seal sweep** runs inside every
+  successful unlock, before the store serves reads: each row is tried under the
+  id AAD, and one that only opens under the legacy name AAD is re-sealed and
+  rewritten. Detection is by derived trial decryption — nothing in the DB
+  describes its own binding, so the swap-protection property holds throughout.
+  The sweep is idempotent and crash-safe (a half-finished sweep resumes at the
+  next unlock), and a store that stays locked simply keeps legacy rows until
+  the recovery unlock. Rename requires an unlocked store for exactly this
+  reason: unlocked implies swept, and only swept rows are rename-proof.
 - The SMK is never stored in the clear. It is stored wrapped, once per
   **keyslot** (`secret_keyslots` table):
   - **machine slot** — `AEAD(SMK, machineKEK)`, for unattended boot.
@@ -164,7 +208,7 @@ without either the on-box machine KEK or the recovery code.
 
 ## Prepare-time distribution and spawn-time expansion
 
-Typed `secretId` and `configId` env refs are discovered during deployment
+Typed `secretVersionId` and `configVersionId` env refs are discovered during deployment
 preparation (`backend/lib/engine/prepare/runtimeinputs/secrets.go`). The
 runtime-input service requests all referenced secret IDs as one batch through
 `SecretProvider.FetchSecrets` and all referenced config IDs as one batch through
@@ -186,7 +230,7 @@ already holds everything a config references therefore makes no request at all.
 
 The operator injects that same `RuntimeInputs` instance into every container
 runner. At process spawn time (`backend/lib/engine/runner/secrets.go`),
-`EnvVarValue` entries with `secretId` or `configId` are expanded from its
+`EnvVarValue` entries with `secretVersionId` or `configVersionId` are expanded from its
 prepared in-memory caches. Plain `configs` values are not encrypted at rest in
 the primary's own `configs` table (a secondary's local copies are, because it
 seals every runtime input the same way). Unknown references, locked secrets,
@@ -223,7 +267,7 @@ data dir).
 
 ## Secondary secret distribution
 
-Deployments running on a secondary can reference secrets by `secretId`. The
+Deployments running on a secondary can reference secrets by `secretVersionId`. The
 secondary does not receive the encrypted secrets table or SMK; it fetches only
 the plaintext IDs needed by the deployments assigned to it, over the cluster mTLS
 listener.

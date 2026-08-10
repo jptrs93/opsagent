@@ -14,8 +14,8 @@ func (h *Handler) deploymentUsesSecretID(ids map[int32]struct{}) bool {
 			continue
 		}
 		for _, value := range container.Runtime.EnvVars {
-			if value != nil && value.SecretID != nil {
-				if _, ok := ids[*value.SecretID]; ok {
+			if value != nil && value.SecretVersionID != nil {
+				if _, ok := ids[*value.SecretVersionID]; ok {
 					return true
 				}
 			}
@@ -34,8 +34,8 @@ func (h *Handler) deploymentUsesConfigID(ids map[int32]struct{}) bool {
 			continue
 		}
 		for _, value := range container.Runtime.EnvVars {
-			if value != nil && value.ConfigID != nil {
-				if _, ok := ids[*value.ConfigID]; ok {
+			if value != nil && value.ConfigVersionID != nil {
+				if _, ok := ids[*value.ConfigVersionID]; ok {
 					return true
 				}
 			}
@@ -71,10 +71,10 @@ func (h *Handler) settingsUseSecretID(ids map[int32]struct{}) bool {
 	}
 	for _, settings := range h.settingsForReferenceChecks() {
 		for _, id := range []int32{
-			settings.HttpsWeb.TlsCertPem.ID,
-			settings.Repo.GithubToken.ID,
-			settings.Backup.S3SecretAccessKey.ID,
-			settings.LargeAssets.S3SecretAccessKey.ID,
+			settings.HttpsWeb.TlsCertPem.VersionID,
+			settings.Repo.GithubToken.VersionID,
+			settings.Backup.S3SecretAccessKey.VersionID,
+			settings.LargeAssets.S3SecretAccessKey.VersionID,
 		} {
 			if _, ok := ids[id]; ok {
 				return true
@@ -113,7 +113,7 @@ func (h *Handler) settingsUseConfigID(ids map[int32]struct{}) bool {
 			settings.LargeAssets.S3Endpoint.ConfigRef,
 		}
 		for _, ref := range refs {
-			if _, ok := ids[ref.ID]; ok {
+			if _, ok := ids[ref.VersionID]; ok {
 				return true
 			}
 		}

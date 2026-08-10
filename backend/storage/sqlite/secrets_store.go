@@ -4,19 +4,24 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
+	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
 // This file implements secrets.Store on the primary PrimaryStorage. The
-// secret_keyslots, secrets, and system_secrets tables are primary-only and are
-// never replicated to secondaries (the cluster feeder ships only deployment
-// configs/status).
+// secret_keyslots, secrets, secret_versions, and system_secrets tables are
+// primary-only and are never replicated to secondaries (the cluster feeder
+// ships only deployment configs/status).
 //
-// These are thin DB passthroughs: the Manager owns the in-memory cache and SMK
-// and serialises access, so no extra locking is needed here. Writes follow the
-// store-wide panic-on-failure convention.
+// The Manager owns the SMK and all crypto; this layer owns the identities,
+// versions, and the shared secrets/configs namespace law. Sealing happens
+// through a caller-supplied secrets.SealFunc inside the write transaction,
+// because the id-and-version-bound AAD needs the identity id before the
+// ciphertext can exist. Writes follow the store-wide panic-on-failure
+// convention.
 
 func (s *PrimaryStorage) ListSecretKeyslots() []secrets.Keyslot {
 	rows, err := s.q.ListSecretKeyslots(context.Background())
@@ -50,15 +55,16 @@ func (s *PrimaryStorage) UpsertSecretKeyslot(k secrets.Keyslot) {
 	}
 }
 
-func (s *PrimaryStorage) ListSecrets() []secrets.Record {
-	rows, err := s.q.ListSecrets(context.Background())
+func (s *PrimaryStorage) ListSecretVersionRecords() []secrets.Record {
+	rows, err := s.q.ListSecretVersionRecords(context.Background())
 	if err != nil {
-		panic(fmt.Sprintf("ListSecrets: %v", err))
+		panic(fmt.Sprintf("ListSecretVersionRecords: %v", err))
 	}
 	out := make([]secrets.Record, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, secrets.Record{
 			ID:         int32(r.ID),
+			SecretID:   int32(r.SecretID),
 			Name:       r.Name,
 			Version:    int32(r.Version),
 			SpaceID:    int32(r.SpaceID),
@@ -66,91 +72,319 @@ func (s *PrimaryStorage) ListSecrets() []secrets.Record {
 			Ciphertext: r.Ciphertext,
 			Nonce:      r.Nonce,
 			CreatedAt:  r.CreatedAt,
-			UpdatedBy:  int32(r.UpdatedBy),
+			CreatedBy:  int32(r.CreatedBy),
 		})
 	}
 	return out
 }
 
-func (s *PrimaryStorage) InsertSecretWithDeploymentUpdates(r secrets.Record, updateDeployments bool, expected []storage.DeploymentConfigVersion, afterCommit func(secrets.Record)) (secrets.Record, []int32, error) {
-	var row Secret
+// CreateSecretWithVersion creates a new secret in the root directory of
+// spaceID with its first version. seal is called with the new identity id and
+// version 1 inside the transaction, once both are known.
+func (s *PrimaryStorage) CreateSecretWithVersion(name string, spaceID, createdBy int32, seal secrets.SealFunc) (secrets.Record, error) {
+	if !ValidValueName(name) {
+		return secrets.Record{}, ErrValueNameInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ctx := context.Background()
+	space := int64(normalizedUserSpaceID(spaceID))
+	if s.valueSiblingNameTakenLocked(ctx, s.q, space, 0, name, 0, 0) {
+		return secrets.Record{}, ErrValueAlreadyExists
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		panic(fmt.Sprintf("begin create secret tx: %v", err))
+	}
+	defer tx.Rollback()
+	q := s.q.WithTx(tx)
+	now := time.Now().UnixMilli()
+	row, err := q.InsertSecretRow(ctx, InsertSecretRowParams{
+		Name:             name,
+		SpaceID:          space,
+		ValueDirectoryID: 0,
+		CreatedAt:        now,
+		CreatedBy:        int64(createdBy),
+	})
+	if err != nil {
+		panic(fmt.Sprintf("InsertSecretRow: %v", err))
+	}
+	sealed, err := seal(int32(row.ID), 1)
+	if err != nil {
+		return secrets.Record{}, err
+	}
+	version, err := q.InsertSecretVersion(ctx, InsertSecretVersionParams{
+		SecretID:   row.ID,
+		Version:    1,
+		SmkVersion: int64(sealed.SMKVersion),
+		Ciphertext: sealed.Ciphertext,
+		Nonce:      sealed.Nonce,
+		CreatedAt:  now,
+		CreatedBy:  int64(createdBy),
+	})
+	if err != nil {
+		panic(fmt.Sprintf("InsertSecretVersion: %v", err))
+	}
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("commit create secret tx: %v", err))
+	}
+	return secretVersionRecord(row, version), nil
+}
+
+// AppendSecretVersionWithDeploymentUpdates appends an immutable secret version
+// and optionally rolls the caller-asserted deployment references to the new
+// row atomically. seal is called with the identity id and the next version
+// number inside the transaction.
+func (s *PrimaryStorage) AppendSecretVersionWithDeploymentUpdates(secretID, createdBy int32, seal secrets.SealFunc, updateDeployments bool, expected []storage.DeploymentConfigVersion, afterCommit func(secrets.Record)) (secrets.Record, []int32, error) {
+	ctx := context.Background()
+	var record secrets.Record
+	insert := func(q *Queries) (int32, error) {
+		identity, err := q.GetSecretRowByID(ctx, int64(secretID))
+		if err == sql.ErrNoRows {
+			return 0, ErrValueNotFound
+		} else if err != nil {
+			return 0, fmt.Errorf("get secret row: %w", err)
+		}
+		version, err := q.GetNextSecretVersionNumber(ctx, int64(secretID))
+		if err != nil {
+			return 0, fmt.Errorf("get next secret version: %w", err)
+		}
+		sealed, err := seal(secretID, int32(version))
+		if err != nil {
+			return 0, err
+		}
+		row, err := q.InsertSecretVersion(ctx, InsertSecretVersionParams{
+			SecretID:   int64(secretID),
+			Version:    version,
+			SmkVersion: int64(sealed.SMKVersion),
+			Ciphertext: sealed.Ciphertext,
+			Nonce:      sealed.Nonce,
+			CreatedAt:  time.Now().UnixMilli(),
+			CreatedBy:  int64(createdBy),
+		})
+		if err != nil {
+			return 0, fmt.Errorf("insert secret version: %w", err)
+		}
+		record = secretVersionRecord(identity, row)
+		return int32(row.ID), nil
+	}
 	updatedDeployments, err := s.setVersionedValueWithDeploymentUpdates(
-		secretValueReference,
-		r.Name,
-		updateDeployments,
-		expected,
-		r.UpdatedBy,
-		func(q *Queries) (int32, error) {
-			version, err := q.GetNextSecretVersion(context.Background(), r.Name)
-			if err != nil {
-				return 0, fmt.Errorf("get next secret version: %w", err)
-			}
-			row, err = q.InsertSecret(context.Background(), InsertSecretParams{
-				Name:       r.Name,
-				Version:    version,
-				SpaceID:    int64(normalizedUserSpaceID(r.SpaceID)),
-				SmkVersion: int64(r.SMKVersion),
-				Ciphertext: r.Ciphertext,
-				Nonce:      r.Nonce,
-				CreatedAt:  r.CreatedAt,
-				UpdatedBy:  int64(r.UpdatedBy),
-			})
-			if err != nil {
-				return 0, fmt.Errorf("insert secret: %w", err)
-			}
-			return int32(row.ID), nil
-		},
+		secretValueReference, secretID, updateDeployments, expected, createdBy, insert,
 		func(_ []int32) {
 			if afterCommit != nil {
-				afterCommit(secretRowToRecord(row))
+				afterCommit(record)
 			}
-		},
-	)
+		})
 	if err != nil {
 		return secrets.Record{}, nil, err
 	}
-	return secretRowToRecord(row), updatedDeployments, nil
+	return record, updatedDeployments, nil
 }
 
-func secretRowToRecord(row Secret) secrets.Record {
+func secretVersionRecord(identity Secret, v SecretVersion) secrets.Record {
 	return secrets.Record{
-		ID:         int32(row.ID),
-		Name:       row.Name,
-		Version:    int32(row.Version),
-		SpaceID:    int32(row.SpaceID),
-		SMKVersion: int32(row.SmkVersion),
-		Ciphertext: row.Ciphertext,
-		Nonce:      row.Nonce,
-		CreatedAt:  row.CreatedAt,
-		UpdatedBy:  int32(row.UpdatedBy),
+		ID:         int32(v.ID),
+		SecretID:   int32(identity.ID),
+		Name:       identity.Name,
+		Version:    int32(v.Version),
+		SpaceID:    int32(identity.SpaceID),
+		SMKVersion: int32(v.SmkVersion),
+		Ciphertext: v.Ciphertext,
+		Nonce:      v.Nonce,
+		CreatedAt:  v.CreatedAt,
+		CreatedBy:  int32(v.CreatedBy),
 	}
 }
 
-func (s *PrimaryStorage) RenameSecretRecords(name, newName string, records []secrets.Record) {
+// UpdateSecretVersionCiphertext rewrites one version row's sealed bytes. Used
+// by the Manager's AAD re-seal sweep; the row id, version, and plaintext are
+// unchanged.
+func (s *PrimaryStorage) UpdateSecretVersionCiphertext(versionID, smkVersion int32, ciphertext, nonce []byte) {
+	if err := s.q.UpdateSecretVersionCiphertext(context.Background(), UpdateSecretVersionCiphertextParams{
+		SmkVersion: int64(smkVersion),
+		Ciphertext: ciphertext,
+		Nonce:      nonce,
+		ID:         int64(versionID),
+	}); err != nil {
+		panic(fmt.Sprintf("UpdateSecretVersionCiphertext: %v", err))
+	}
+}
+
+// RenameSecret renames the stable secret identity. Versions and their sealed
+// bytes are untouched: the AAD binds the identity id, not the name.
+func (s *PrimaryStorage) RenameSecret(secretID int32, newName string) error {
+	if !ValidValueName(newName) {
+		return ErrValueNameInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	ctx := context.Background()
+	row, err := s.q.GetSecretRowByID(ctx, int64(secretID))
+	if err == sql.ErrNoRows {
+		return ErrValueNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetSecretRowByID: %v", err))
+	}
+	if row.Name == newName {
+		return nil
+	}
+	if s.valueSiblingNameTakenLocked(ctx, s.q, row.SpaceID, row.ValueDirectoryID, newName, row.ID, 0) {
+		return ErrValueAlreadyExists
+	}
+	if err := s.q.RenameSecretRow(ctx, RenameSecretRowParams{Name: newName, ID: row.ID}); err != nil {
+		panic(fmt.Sprintf("RenameSecretRow: %v", err))
+	}
+	return nil
+}
+
+// DeleteSecret removes the secret identity and all its versions.
+func (s *PrimaryStorage) DeleteSecret(secretID int32) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ctx := context.Background()
+	if _, err := s.q.GetSecretRowByID(ctx, int64(secretID)); err == sql.ErrNoRows {
+		return ErrValueNotFound
+	} else if err != nil {
+		panic(fmt.Sprintf("GetSecretRowByID: %v", err))
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		panic(fmt.Sprintf("begin rename secrets tx: %v", err))
+		panic(fmt.Sprintf("begin delete secret tx: %v", err))
 	}
 	defer tx.Rollback()
-	for _, r := range records {
-		res, err := tx.ExecContext(ctx, `
-UPDATE secrets
-SET name = ?, smk_version = ?, ciphertext = ?, nonce = ?
-WHERE id = ? AND name = ?
-`, newName, int64(r.SMKVersion), r.Ciphertext, r.Nonce, int64(r.ID), name)
-		if err != nil {
-			panic(fmt.Sprintf("RenameSecretRecords update: %v", err))
-		}
-		if n, err := res.RowsAffected(); err != nil {
-			panic(fmt.Sprintf("RenameSecretRecords rows affected: %v", err))
-		} else if n != 1 {
-			panic(fmt.Sprintf("RenameSecretRecords updated %d rows for id %d", n, r.ID))
-		}
+	q := s.q.WithTx(tx)
+	if err := q.DeleteSecretVersionsBySecretID(ctx, int64(secretID)); err != nil {
+		panic(fmt.Sprintf("DeleteSecretVersionsBySecretID: %v", err))
+	}
+	if err := q.DeleteSecretRow(ctx, int64(secretID)); err != nil {
+		panic(fmt.Sprintf("DeleteSecretRow: %v", err))
 	}
 	if err := tx.Commit(); err != nil {
-		panic(fmt.Sprintf("commit rename secrets tx: %v", err))
+		panic(fmt.Sprintf("commit delete secret tx: %v", err))
 	}
+	return nil
+}
+
+// --- secret metas (no values, no ciphertext) ---
+
+func secretMetaFromRow(sec Secret, refs []*apigen.SecretVersionMeta) *apigen.SecretMeta {
+	return &apigen.SecretMeta{
+		ID:               int32(sec.ID),
+		Name:             sec.Name,
+		SpaceID:          int32(sec.SpaceID),
+		ValueDirectoryID: int32(sec.ValueDirectoryID),
+		CreatedAt:        time.UnixMilli(sec.CreatedAt),
+		CreatedBy:        int32(sec.CreatedBy),
+		VersionRefs:      refs,
+	}
+}
+
+func secretVersionMetaFromRow(v ListSecretVersionMetasRow) *apigen.SecretVersionMeta {
+	return &apigen.SecretVersionMeta{
+		ID:        int32(v.ID),
+		Version:   int32(v.Version),
+		CreatedAt: time.UnixMilli(v.CreatedAt),
+		CreatedBy: int32(v.CreatedBy),
+	}
+}
+
+// ListSecretMetas returns every secret with its full version index, newest
+// version first, ordered by name. Never returns values or ciphertext.
+func (s *PrimaryStorage) ListSecretMetas() []*apigen.SecretMeta {
+	ctx := context.Background()
+	rows, err := s.q.ListSecretRows(ctx)
+	if err != nil {
+		panic(fmt.Sprintf("ListSecretRows: %v", err))
+	}
+	versions, err := s.q.ListSecretVersionMetas(ctx)
+	if err != nil {
+		panic(fmt.Sprintf("ListSecretVersionMetas: %v", err))
+	}
+	refsBySecret := make(map[int64][]*apigen.SecretVersionMeta)
+	for _, v := range versions {
+		// ListSecretVersionMetas is version ASC; prepend to end up newest first.
+		refsBySecret[v.SecretID] = append([]*apigen.SecretVersionMeta{secretVersionMetaFromRow(v)}, refsBySecret[v.SecretID]...)
+	}
+	out := make([]*apigen.SecretMeta, 0, len(rows))
+	for _, sec := range rows {
+		refs := refsBySecret[sec.ID]
+		if len(refs) == 0 {
+			continue
+		}
+		out = append(out, secretMetaFromRow(sec, refs))
+	}
+	return out
+}
+
+// GetSecretMeta returns one secret with its full version index, newest first.
+func (s *PrimaryStorage) GetSecretMeta(secretID int32) (*apigen.SecretMeta, bool) {
+	ctx := context.Background()
+	sec, err := s.q.GetSecretRowByID(ctx, int64(secretID))
+	if err == sql.ErrNoRows {
+		return nil, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetSecretRowByID: %v", err))
+	}
+	ids, err := s.q.ListSecretVersionsBySecretID(ctx, sec.ID)
+	if err != nil {
+		panic(fmt.Sprintf("ListSecretVersionsBySecretID: %v", err))
+	}
+	if len(ids) == 0 {
+		return nil, false
+	}
+	refs := make([]*apigen.SecretVersionMeta, 0, len(ids))
+	for i := len(ids) - 1; i >= 0; i-- {
+		refs = append(refs, &apigen.SecretVersionMeta{
+			ID:        int32(ids[i].ID),
+			Version:   int32(ids[i].Version),
+			CreatedAt: time.UnixMilli(ids[i].CreatedAt),
+			CreatedBy: int32(ids[i].CreatedBy),
+		})
+	}
+	return secretMetaFromRow(sec, refs), true
+}
+
+// GetSecretIDByName implements the Manager's name lookup for install/restore
+// flows: the root directory of spaceID.
+func (s *PrimaryStorage) GetSecretIDByName(spaceID int32, name string) (int32, bool) {
+	row, ok := s.GetSecretInRootByName(spaceID, name)
+	if !ok {
+		return 0, false
+	}
+	return int32(row.ID), true
+}
+
+// GetSecretInRootByName finds a secret identity by name in the root directory
+// of spaceID.
+func (s *PrimaryStorage) GetSecretInRootByName(spaceID int32, name string) (Secret, bool) {
+	row, err := s.q.GetSecretInDirectoryByName(context.Background(), GetSecretInDirectoryByNameParams{
+		SpaceID:          int64(normalizedUserSpaceID(spaceID)),
+		ValueDirectoryID: 0,
+		Name:             name,
+	})
+	if err == sql.ErrNoRows {
+		return Secret{}, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetSecretInDirectoryByName: %v", err))
+	}
+	return row, true
+}
+
+// SecretVersionIDs returns every version row id of the secret — the set a
+// deployment env ref or setting could pin.
+func (s *PrimaryStorage) SecretVersionIDs(secretID int32) []int32 {
+	rows, err := s.q.ListSecretVersionIDsBySecretID(context.Background(), int64(secretID))
+	if err != nil {
+		panic(fmt.Sprintf("ListSecretVersionIDsBySecretID: %v", err))
+	}
+	ids := make([]int32, 0, len(rows))
+	for _, id := range rows {
+		ids = append(ids, int32(id))
+	}
+	return ids
 }
 
 func (s *PrimaryStorage) GetSystemSecret(name string) (secrets.SystemRecord, bool) {
@@ -181,11 +415,5 @@ func (s *PrimaryStorage) UpsertSystemSecret(r secrets.SystemRecord) {
 		UpdatedAt:  r.UpdatedAt,
 	}); err != nil {
 		panic(fmt.Sprintf("UpsertSystemSecret: %v", err))
-	}
-}
-
-func (s *PrimaryStorage) DeleteSecret(name string) {
-	if err := s.q.DeleteSecret(context.Background(), name); err != nil {
-		panic(fmt.Sprintf("DeleteSecret: %v", err))
 	}
 }

@@ -321,20 +321,20 @@ func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec, secretStore deploymentS
 		return nil
 	}
 	for _, value := range spec.Container().Runtime.EnvVars {
-		if value.SecretID != nil {
+		if value.SecretVersionID != nil {
 			if secretStore == nil {
 				return invalidConfigErrf("container1Spec.runtime.envVars: secrets cannot be resolved here")
 			}
-			if _, ok := secretStore.MetaByID(*value.SecretID); !ok {
-				return invalidConfigErrf("container1Spec.runtime.envVars: unknown secret id %d", *value.SecretID)
+			if _, ok := secretStore.MetaByID(*value.SecretVersionID); !ok {
+				return invalidConfigErrf("container1Spec.runtime.envVars: unknown secret id %d", *value.SecretVersionID)
 			}
 		}
-		if value.ConfigID != nil {
+		if value.ConfigVersionID != nil {
 			if configs == nil {
 				return invalidConfigErrf("container1Spec.runtime.envVars: configs cannot be resolved here")
 			}
-			if _, ok := configs.ResolveConfig(*value.ConfigID); !ok {
-				return invalidConfigErrf("container1Spec.runtime.envVars: unknown config id %d", *value.ConfigID)
+			if _, ok := configs.ResolveConfig(*value.ConfigVersionID); !ok {
+				return invalidConfigErrf("container1Spec.runtime.envVars: unknown config id %d", *value.ConfigVersionID)
 			}
 		}
 	}
@@ -779,15 +779,15 @@ func validateEnvVars(scope string, in map[string]*apigen.EnvVarValue) error {
 		if value.Value != nil {
 			set++
 		}
-		if value.SecretID != nil {
+		if value.SecretVersionID != nil {
 			set++
-			if *value.SecretID <= 0 {
+			if *value.SecretVersionID <= 0 {
 				return invalidConfigErrf("%s.%s: secretId must be positive", scope, key)
 			}
 		}
-		if value.ConfigID != nil {
+		if value.ConfigVersionID != nil {
 			set++
-			if *value.ConfigID <= 0 {
+			if *value.ConfigVersionID <= 0 {
 				return invalidConfigErrf("%s.%s: configId must be positive", scope, key)
 			}
 		}

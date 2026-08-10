@@ -56,12 +56,12 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 	}
 	cfg := config.DefaultConfig(opts.Initial)
 	if len(opts.WebTLSCertPEM) != 0 {
-		meta, err := secretsMgr.Set(secrets.TLSCertPEMSecretName, opts.WebTLSCertPEM, 0)
+		meta, err := secretsMgr.SetByName(secrets.TLSCertPEMSecretName, opts.WebTLSCertPEM, 0)
 		if err != nil {
 			return nil, fmt.Errorf("storing initial Web TLS certificate: %w", err)
 		}
 		cfg.Settings.HttpsWeb.TlsSelfManaged = apigen.BoolSetting{Value: true}
-		cfg.Settings.HttpsWeb.TlsCertPem = apigen.SecretRef{ID: meta.ID}
+		cfg.Settings.HttpsWeb.TlsCertPem = apigen.SecretRef{VersionID: meta.ID}
 	}
 	primaryIdentifier := uuid.NewString()
 	store.EnsurePrimaryNode("primary", primaryIdentifier)
@@ -69,7 +69,7 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initializing cluster TLS material: %w", err)
 	}
-	if cfg.Settings.HttpsWeb.Enabled.Value && cfg.Settings.HttpsWeb.TlsSelfManaged.Value && cfg.Settings.HttpsWeb.TlsCertPem.ID == 0 {
+	if cfg.Settings.HttpsWeb.Enabled.Value && cfg.Settings.HttpsWeb.TlsSelfManaged.Value && cfg.Settings.HttpsWeb.TlsCertPem.VersionID == 0 {
 		if _, err := certu.BootstrapWebUISelfSigned(secretsMgr, certu.WebUISelfSignedNames(cfg.Settings.HttpsWeb.AcmeHosts.Value, cfg.Settings.HttpsWeb.Listen.Value)); err != nil {
 			return nil, fmt.Errorf("initializing self-managed Web TLS material: %w", err)
 		}
@@ -115,8 +115,8 @@ func (s Service) Validate(_ context.Context) error {
 	settings := configService.Snapshot().Settings
 	if configService.MustLoadConfigBoolValue(settings.HttpsWeb.Enabled) && configService.MustLoadConfigBoolValue(settings.HttpsWeb.TlsSelfManaged) {
 		var bundle []byte
-		if settings.HttpsWeb.TlsCertPem.ID != 0 {
-			bundle, err = secretsMgr.RevealByID(settings.HttpsWeb.TlsCertPem.ID)
+		if settings.HttpsWeb.TlsCertPem.VersionID != 0 {
+			bundle, err = secretsMgr.RevealByID(settings.HttpsWeb.TlsCertPem.VersionID)
 		} else {
 			bundle, err = certu.LoadWebUISelfSigned(secretsMgr)
 		}

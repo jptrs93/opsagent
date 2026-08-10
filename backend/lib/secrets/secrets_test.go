@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,12 +14,24 @@ import (
 // persistence so a second Open() sees the same rows (as on a restart/recovery).
 type memStore struct {
 	slots         map[string]Keyslot
+	identities    map[int32]memIdentity
 	records       map[int32]Record
 	systemRecords map[string]SystemRecord
+	nextID        int32
+}
+
+type memIdentity struct {
+	name    string
+	spaceID int32
 }
 
 func newMemStore() *memStore {
-	return &memStore{slots: map[string]Keyslot{}, records: map[int32]Record{}, systemRecords: map[string]SystemRecord{}}
+	return &memStore{
+		slots:         map[string]Keyslot{},
+		identities:    map[int32]memIdentity{},
+		records:       map[int32]Record{},
+		systemRecords: map[string]SystemRecord{},
+	}
 }
 
 func (m *memStore) ListSecretKeyslots() []Keyslot {
@@ -29,42 +42,101 @@ func (m *memStore) ListSecretKeyslots() []Keyslot {
 	return out
 }
 func (m *memStore) UpsertSecretKeyslot(k Keyslot) { m.slots[k.Slot] = k }
-func (m *memStore) ListSecrets() []Record {
+func (m *memStore) ListSecretVersionRecords() []Record {
 	out := make([]Record, 0, len(m.records))
 	for _, r := range m.records {
 		out = append(out, r)
 	}
 	return out
 }
-func (m *memStore) nextSecretVersion(name string) int32 {
+func (m *memStore) GetSecretIDByName(spaceID int32, name string) (int32, bool) {
+	for id, identity := range m.identities {
+		if identity.name == name && identity.spaceID == spaceID {
+			return id, true
+		}
+	}
+	return 0, false
+}
+func (m *memStore) CreateSecretWithVersion(name string, spaceID, createdBy int32, seal SealFunc) (Record, error) {
+	if _, exists := m.GetSecretIDByName(spaceID, name); exists {
+		return Record{}, fmt.Errorf("secret %q already exists", name)
+	}
+	m.nextID++
+	secretID := m.nextID
+	m.identities[secretID] = memIdentity{name: name, spaceID: spaceID}
+	return m.insertVersion(secretID, createdBy, seal)
+}
+func (m *memStore) AppendSecretVersionWithDeploymentUpdates(secretID, createdBy int32, seal SealFunc, update bool, deployments []storage.DeploymentConfigVersion, afterCommit func(Record)) (Record, []int32, error) {
+	if _, ok := m.identities[secretID]; !ok {
+		return Record{}, nil, fmt.Errorf("secret %d not found", secretID)
+	}
+	rec, err := m.insertVersion(secretID, createdBy, seal)
+	if err != nil {
+		return Record{}, nil, err
+	}
+	if afterCommit != nil {
+		afterCommit(rec)
+	}
+	return rec, nil, nil
+}
+func (m *memStore) insertVersion(secretID, createdBy int32, seal SealFunc) (Record, error) {
 	var maxVersion int32
 	for _, r := range m.records {
-		if r.Name == name && r.Version > maxVersion {
+		if r.SecretID == secretID && r.Version > maxVersion {
 			maxVersion = r.Version
 		}
 	}
-	return maxVersion + 1
-}
-func (m *memStore) InsertSecretWithDeploymentUpdates(r Record, update bool, deployments []storage.DeploymentConfigVersion, afterCommit func(Record)) (Record, []int32, error) {
-	r.Version = m.nextSecretVersion(r.Name)
-	r.ID = int32(len(m.records) + 1)
-	m.records[r.ID] = r
-	if afterCommit != nil {
-		afterCommit(r)
+	version := maxVersion + 1
+	sealed, err := seal(secretID, version)
+	if err != nil {
+		return Record{}, err
 	}
-	return r, nil, nil
-}
-func (m *memStore) RenameSecretRecords(name, newName string, records []Record) {
-	for _, r := range records {
-		m.records[r.ID] = r
+	m.nextID++
+	identity := m.identities[secretID]
+	rec := Record{
+		ID:         m.nextID,
+		SecretID:   secretID,
+		Name:       identity.name,
+		Version:    version,
+		SpaceID:    identity.spaceID,
+		SMKVersion: sealed.SMKVersion,
+		Ciphertext: sealed.Ciphertext,
+		Nonce:      sealed.Nonce,
+		CreatedBy:  createdBy,
 	}
+	m.records[rec.ID] = rec
+	return rec, nil
 }
-func (m *memStore) DeleteSecret(name string) {
+func (m *memStore) UpdateSecretVersionCiphertext(versionID, smkVersion int32, ciphertext, nonce []byte) {
+	rec := m.records[versionID]
+	rec.SMKVersion = smkVersion
+	rec.Ciphertext = ciphertext
+	rec.Nonce = nonce
+	m.records[versionID] = rec
+}
+func (m *memStore) RenameSecret(secretID int32, newName string) error {
+	identity, ok := m.identities[secretID]
+	if !ok {
+		return fmt.Errorf("secret %d not found", secretID)
+	}
+	identity.name = newName
+	m.identities[secretID] = identity
 	for id, r := range m.records {
-		if r.Name == name {
+		if r.SecretID == secretID {
+			r.Name = newName
+			m.records[id] = r
+		}
+	}
+	return nil
+}
+func (m *memStore) DeleteSecret(secretID int32) error {
+	delete(m.identities, secretID)
+	for id, r := range m.records {
+		if r.SecretID == secretID {
 			delete(m.records, id)
 		}
 	}
+	return nil
 }
 func (m *memStore) GetSystemSecret(name string) (SystemRecord, bool) {
 	r, ok := m.systemRecords[name]
@@ -102,18 +174,24 @@ func TestOpenRejectsUninitializedStore(t *testing.T) {
 	}
 }
 
-func TestSetResolveRoundTrip(t *testing.T) {
+func TestCreateResolveRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
 
-	meta, err := mgr.Set("staging.db.password", []byte("hunter2"), 7)
+	meta, err := mgr.Create("staging.db.password", []byte("hunter2"), 7)
 	if err != nil {
-		t.Fatalf("Set: %v", err)
+		t.Fatalf("Create: %v", err)
+	}
+	if meta.SecretID == 0 || meta.ID == 0 || meta.Version != 1 || meta.CreatedBy != 7 {
+		t.Fatalf("meta = %+v", meta)
 	}
 	got, ok := mgr.Resolve(meta.ID)
 	if !ok || got != "hunter2" {
 		t.Fatalf("Resolve = %q, %v; want hunter2, true", got, ok)
+	}
+	if m, ok := mgr.MetaByID(meta.ID); !ok || m.Name != "staging.db.password" || m.SecretID != meta.SecretID {
+		t.Fatalf("MetaByID = %+v, %v", m, ok)
 	}
 
 	// machine.key must exist and be 0600.
@@ -124,21 +202,15 @@ func TestSetResolveRoundTrip(t *testing.T) {
 	if perm := info.Mode().Perm(); perm != 0o600 {
 		t.Fatalf("machine.key perm = %o; want 600", perm)
 	}
-
-	// List returns metadata, never the value.
-	metas := mgr.List()
-	if len(metas) != 1 || metas[0].ID == 0 || metas[0].Name != "staging.db.password" || metas[0].Version != 1 {
-		t.Fatalf("List = %+v", metas)
-	}
 }
 
 func TestReopenWithMachineKeyUnlocks(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	meta, err := mgr.Set("k", []byte("v"), 0)
+	meta, err := mgr.Create("k", []byte("v"), 0)
 	if err != nil {
-		t.Fatalf("Set: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	// Reopen (simulates a normal restart): machine.key + DB present -> unlocked.
@@ -155,8 +227,8 @@ func TestCiphertextAtRestNotPlaintext(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	if _, err := mgr.Set("k", []byte("super-secret-value"), 0); err != nil {
-		t.Fatalf("Set: %v", err)
+	if _, err := mgr.Create("k", []byte("super-secret-value"), 0); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
 	rec := store.recordByName("k")
 	if string(rec.Ciphertext) == "super-secret-value" {
@@ -168,40 +240,77 @@ func TestAADBindingPreventsSwap(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	if _, err := mgr.Set("a", []byte("value-a"), 0); err != nil {
-		t.Fatalf("Set a: %v", err)
+	metaA, err := mgr.Create("a", []byte("value-a"), 0)
+	if err != nil {
+		t.Fatalf("Create a: %v", err)
 	}
-	if _, err := mgr.Set("b", []byte("value-b"), 0); err != nil {
-		t.Fatalf("Set b: %v", err)
+	metaB, err := mgr.Create("b", []byte("value-b"), 0)
+	if err != nil {
+		t.Fatalf("Create b: %v", err)
 	}
-	// Move a's ciphertext onto b's name: decryption must fail (name is AAD), so
-	// Resolve("b") returns not-ok rather than leaking value-a under b.
-	recA := store.recordByName("a")
-	recB := store.recordByName("b")
+	// Move a's ciphertext onto b's row: decryption must fail (the secret id is
+	// in the AAD), so Resolve(b) returns not-ok rather than leaking value-a.
+	recA := store.records[metaA.ID]
+	recB := store.records[metaB.ID]
 	recB.Ciphertext = recA.Ciphertext
 	recB.Nonce = recA.Nonce
 	store.records[recB.ID] = recB
-	mgr2 := mustOpen(t, dir, store)
+	mgr2, err := Open(dir, store)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
 	if got, ok := mgr2.Resolve(recB.ID); ok {
 		t.Fatalf("expected AAD mismatch to fail; got %q", got)
 	}
 }
 
-func TestRenameReencryptsVersions(t *testing.T) {
+func TestAADBindingPreventsVersionSwap(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	first, err := mgr.Set("db.password", []byte("one"), 0)
+	v1, err := mgr.Create("db.password", []byte("old"), 0)
 	if err != nil {
-		t.Fatalf("Set first: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
-	second, err := mgr.Set("db.password", []byte("two"), 0)
+	v2, err := mgr.SetWithDeploymentUpdates(v1.SecretID, []byte("new"), 0, false, nil, nil)
+	if err != nil {
+		t.Fatalf("Set v2: %v", err)
+	}
+	// Move the old version's ciphertext onto the new version row: the version
+	// number is in the AAD, so a rollback-by-row-swap must fail.
+	recV1 := store.records[v1.ID]
+	recV2 := store.records[v2.ID]
+	recV2.Ciphertext = recV1.Ciphertext
+	recV2.Nonce = recV1.Nonce
+	store.records[recV2.ID] = recV2
+	mgr2, err := Open(dir, store)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if got, ok := mgr2.Resolve(v2.ID); ok {
+		t.Fatalf("expected version swap to fail; got %q", got)
+	}
+}
+
+func TestRenameIsMetadataOnly(t *testing.T) {
+	dir := t.TempDir()
+	store := newMemStore()
+	mgr := mustOpen(t, dir, store)
+	first, err := mgr.Create("db.password", []byte("one"), 0)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	second, err := mgr.SetWithDeploymentUpdates(first.SecretID, []byte("two"), 0, false, nil, nil)
 	if err != nil {
 		t.Fatalf("Set second: %v", err)
 	}
 
-	if _, err := mgr.Rename("db.password", "prod.db.password"); err != nil {
+	beforeCiphertext := string(store.records[first.ID].Ciphertext)
+	if err := mgr.Rename(first.SecretID, "prod.db.password"); err != nil {
 		t.Fatalf("Rename: %v", err)
+	}
+	if got := string(store.records[first.ID].Ciphertext); got != beforeCiphertext {
+		t.Fatal("rename re-encrypted a version; the id-bound AAD makes that unnecessary")
 	}
 	if got, ok := mgr.Resolve(first.ID); !ok || got != "one" {
 		t.Fatalf("Resolve first after rename = %q, %v; want one, true", got, ok)
@@ -214,8 +323,52 @@ func TestRenameReencryptsVersions(t *testing.T) {
 	if got, ok := mgr2.Resolve(first.ID); !ok || got != "one" {
 		t.Fatalf("Resolve first after reopen = %q, %v; want one, true", got, ok)
 	}
-	if got, ok := mgr2.Resolve(second.ID); !ok || got != "two" {
-		t.Fatalf("Resolve second after reopen = %q, %v; want two, true", got, ok)
+	if m, ok := mgr2.MetaByID(second.ID); !ok || m.Name != "prod.db.password" {
+		t.Fatalf("MetaByID after reopen = %+v, %v", m, ok)
+	}
+}
+
+func TestLegacyNameAADSweepAtUnlock(t *testing.T) {
+	dir := t.TempDir()
+	store := newMemStore()
+	mgr := mustOpen(t, dir, store)
+	meta, err := mgr.Create("db.password", []byte("legacy-value"), 0)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Rewind the row to the pre-split binding: sealed under the name AAD, as
+	// the shape migration leaves rows (it copies ciphertext bytes untouched).
+	rec := store.records[meta.ID]
+	ct, nonce, err := aeadSeal(mgr.smk, []byte("legacy-value"), legacyUserSecretAAD(rec.Name))
+	if err != nil {
+		t.Fatalf("seal legacy: %v", err)
+	}
+	rec.Ciphertext = ct
+	rec.Nonce = nonce
+	store.records[rec.ID] = rec
+
+	// Reopen: the unlock sweep must re-seal it under the id-bound AAD.
+	mgr2 := mustOpen(t, dir, store)
+	if got, ok := mgr2.Resolve(meta.ID); !ok || got != "legacy-value" {
+		t.Fatalf("Resolve after sweep = %q, %v", got, ok)
+	}
+	swept := store.records[meta.ID]
+	if _, err := aeadOpen(mgr2.smk, swept.Ciphertext, swept.Nonce, userSecretAAD(meta.SecretID, meta.Version)); err != nil {
+		t.Fatalf("row not re-sealed under id-bound AAD: %v", err)
+	}
+	if _, err := aeadOpen(mgr2.smk, swept.Ciphertext, swept.Nonce, legacyUserSecretAAD("db.password")); err == nil {
+		t.Fatal("row still opens under the legacy name AAD after sweep")
+	}
+
+	// Idempotence: another reopen converts nothing and still resolves.
+	sweptCiphertext := string(swept.Ciphertext)
+	mgr3 := mustOpen(t, dir, store)
+	if got, ok := mgr3.Resolve(meta.ID); !ok || got != "legacy-value" {
+		t.Fatalf("Resolve after second sweep = %q, %v", got, ok)
+	}
+	if string(store.records[meta.ID].Ciphertext) != sweptCiphertext {
+		t.Fatal("second sweep rewrote an already-converted row")
 	}
 }
 
@@ -233,27 +386,21 @@ func TestSystemSecretsAreSeparateFromUserSecrets(t *testing.T) {
 	if _, ok := store.systemRecords["opendeploy.cluster.ca.key"]; !ok {
 		t.Fatal("system secret was not written to system records")
 	}
-	if got := mgr.List(); len(got) != 0 {
-		t.Fatalf("List exposed system secret: %+v", got)
-	}
 	if _, ok := mgr.Resolve(1); ok {
 		t.Fatal("Resolve exposed system secret")
-	}
-	if _, err := mgr.Reveal("opendeploy.cluster.ca.key"); err != ErrNotFound {
-		t.Fatalf("Reveal system secret err = %v; want ErrNotFound", err)
 	}
 	got, err := mgr.RevealInternal("opendeploy.cluster.ca.key")
 	if err != nil || string(got) != "ca-key" {
 		t.Fatalf("RevealInternal = %q, %v; want ca-key, nil", got, err)
 	}
-	if _, err := mgr.Set("opendeploy.cluster.ca.key", []byte("user"), 0); err != ErrReservedName {
-		t.Fatalf("Set reserved name err = %v; want ErrReservedName", err)
+	if _, err := mgr.Create("opendeploy.cluster.ca.key", []byte("user"), 0); err != ErrReservedName {
+		t.Fatalf("Create reserved name err = %v; want ErrReservedName", err)
 	}
-	if _, err := mgr.Set("opendeploy.config.github_token", []byte("user"), 0); err != nil {
-		t.Fatalf("Set opendeploy config secret err = %v; want nil", err)
+	if _, err := mgr.Create("opendeploy.config.github_token", []byte("user"), 0); err != nil {
+		t.Fatalf("Create opendeploy config secret err = %v; want nil", err)
 	}
-	if _, err := mgr.Set("opendeploy.tls.pem", []byte("tls"), 0); err != nil {
-		t.Fatalf("Set initial TLS cert secret err = %v; want nil", err)
+	if _, err := mgr.Create("opendeploy.tls.pem", []byte("tls"), 0); err != nil {
+		t.Fatalf("Create initial TLS cert secret err = %v; want nil", err)
 	}
 }
 
@@ -276,9 +423,9 @@ func TestRecoveryUnlockOnFreshMachine(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	meta, err := mgr.Set("k", []byte("v"), 0)
+	meta, err := mgr.Create("k", []byte("v"), 0)
 	if err != nil {
-		t.Fatalf("Set: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 	code, err := mgr.GenerateRecoveryCode()
 	if err != nil {
@@ -298,8 +445,11 @@ func TestRecoveryUnlockOnFreshMachine(t *testing.T) {
 	if _, ok := mgr2.Resolve(meta.ID); ok {
 		t.Fatal("locked store must not resolve secrets")
 	}
-	if _, err := mgr2.Set("x", []byte("y"), 0); err == nil {
-		t.Fatal("locked store must reject Set")
+	if _, err := mgr2.Create("x", []byte("y"), 0); err == nil {
+		t.Fatal("locked store must reject Create")
+	}
+	if err := mgr2.Rename(meta.SecretID, "renamed"); err != ErrLocked {
+		t.Fatalf("locked store rename err = %v; want ErrLocked", err)
 	}
 
 	// Wrong code fails.
@@ -328,7 +478,7 @@ func TestCodeFormattingTolerated(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	_, _ = mgr.Set("k", []byte("v"), 0)
+	_, _ = mgr.Create("k", []byte("v"), 0)
 	code, err := mgr.GenerateRecoveryCode()
 	if err != nil {
 		t.Fatalf("GenerateRecoveryCode: %v", err)

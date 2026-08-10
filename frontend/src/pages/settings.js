@@ -4,7 +4,7 @@ import {referencePicker} from "../components/referencePicker.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {valueOverlay} from "../components/valueOverlay.js";
 import {checkIcon, copyIcon, eyeOffIcon, eyeOpenIcon} from "../lib/icons.js";
-import {primaryConfigS, secretRefsS, userConfigRefsS, userConfigsS} from "../state/deployments.js";
+import {primaryConfigS, secretRefsS, userConfigRefsS, expandValueVersionRefs} from "../state/deployments.js";
 
 const { div, h2, p, pre, span, button, input, select, option, label: labelEl } = van.tags;
 
@@ -17,11 +17,11 @@ const shellQuote = (value) => {
     return `'${s.replace(/'/g, `'"'"'`)}'`;
 };
 
-const refID = (ref) => Number(ref?.id || 0);
+const refID = (ref) => Number(ref?.versionId || 0);
 const deepClone = (value) => JSON.parse(JSON.stringify(value));
 const stringSetting = (value = "") => ({value, configRef: undefined});
 const boolSetting = (value = false) => ({value, configRef: undefined});
-const secretSetting = (id = 0) => (id ? {id} : {});
+const secretSetting = (id = 0) => (id ? {versionId: id} : {});
 const latestRefs = (refs, selectedID = 0) => {
     const latest = new Map();
     const byID = new Map();
@@ -38,8 +38,8 @@ const latestRefs = (refs, selectedID = 0) => {
     return options.sort((a, b) => (a.name || "").localeCompare(b.name || "") || Number(a.version || 0) - Number(b.version || 0));
 };
 const refLabel = (ref) => `${ref.name} v${ref.version || 0}`;
-const configRefPayload = (item) => ({id: Number(item.configRefID || 0)});
-const secretRefPayload = (item) => ({id: Number(item.secretId || 0)});
+const configRefPayload = (item) => ({versionId: Number(item.configRefID || 0)});
+const secretRefPayload = (item) => ({versionId: Number(item.secretId || 0)});
 const emptySettings = () => ({
     httpWeb: {
         enabled: boolSetting(false),
@@ -83,7 +83,7 @@ const emptySettings = () => ({
 const resolvedConfigValue = (id) => {
     id = Number(id || 0);
     if (!id) return "";
-    const item = (userConfigsS.val || []).find(cfg => Number(cfg.id || 0) === id);
+    const item = (userConfigRefsS.val || []).find(ref => Number(ref.id || 0) === id);
     return item?.value || "";
 };
 
@@ -389,7 +389,7 @@ export function settingsPage() {
             error.val = null;
             const secretsStatus = await capi.postV1SecretsStatus({});
             recoveryStatus.val = secretsStatus;
-            secrets.val = secretsStatus.unlocked ? (await capi.postV1SecretsList({})).items || [] : [];
+            secrets.val = secretsStatus.unlocked ? expandValueVersionRefs((await capi.postV1SecretsList({})).items) : [];
         } catch (e) {
             error.val = e.message;
         }
@@ -407,7 +407,7 @@ export function settingsPage() {
 
     const reloadSecrets = async () => {
         recoveryStatus.val = await capi.postV1SecretsStatus({});
-        secrets.val = recoveryStatus.val.unlocked ? (await capi.postV1SecretsList({})).items || [] : [];
+        secrets.val = recoveryStatus.val.unlocked ? expandValueVersionRefs((await capi.postV1SecretsList({})).items) : [];
     };
 
     const openCreateSecret = (setting) => {
@@ -426,12 +426,12 @@ export function settingsPage() {
         if (!target) throw new Error("No setting selected for the new secret");
         try {
             error.val = null;
-            const saved = await capi.postV1SecretsSet({
+            const saved = await capi.postV1SecretsCreate({
                 name,
                 value: new TextEncoder().encode(value),
             });
             await reloadSecrets();
-            patchDraft(target.settingKey, {secretId: saved.id});
+            patchDraft(target.settingKey, {secretId: Number(saved?.versionRefs?.[0]?.id || 0)});
         } catch (e) {
             error.val = e.message;
             throw e;
@@ -451,6 +451,7 @@ export function settingsPage() {
             editSecretTarget.val = {
                 settingKey: setting.key,
                 id,
+                stableId: Number(meta.stableId || 0),
                 name: meta.name,
                 version: Number(meta.version || 0),
                 createdAt: meta.createdAt,
@@ -473,11 +474,11 @@ export function settingsPage() {
         try {
             error.val = null;
             const saved = await capi.postV1SecretsSet({
-                name: target.name,
+                secretId: target.stableId,
                 value: new TextEncoder().encode(value),
             });
             await reloadSecrets();
-            patchDraft(target.settingKey, {secretId: saved.id});
+            patchDraft(target.settingKey, {secretId: Number(saved?.versionRefs?.[0]?.id || 0)});
         } catch (e) {
             error.val = e.message;
             throw e;

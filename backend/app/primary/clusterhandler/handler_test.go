@@ -24,8 +24,8 @@ func TestBuildAllowedRefs(t *testing.T) {
 					Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/app", Flake: "flake.nix"}},
 					Runtime: apigen.ContainerRuntime{
 						EnvVars: map[string]*apigen.EnvVarValue{
-							"SECRET": {SecretID: &secretID},
-							"CONFIG": {ConfigID: &configID},
+							"SECRET": {SecretVersionID: &secretID},
+							"CONFIG": {ConfigVersionID: &configID},
 							"ASSET":  {Asset: "app.env", AssetVersionID: 3},
 						},
 						AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_ONLY}},

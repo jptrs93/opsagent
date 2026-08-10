@@ -22,7 +22,7 @@ export function deploymentUsages(deployments, spaces, machines, usesDeployment) 
 }
 
 export function deploymentUsesEnvReferences(config, type, referenceIDs) {
-    const referenceKey = type === "secret" ? "secretId" : "configId";
+    const referenceKey = type === "secret" ? "secretVersionId" : "configVersionId";
     const envVars = config?.spec?.container1Spec?.runtime?.envVars;
     return Boolean(envVars && Object.values(envVars).some(
         value => referenceIDs.has(Number(value?.[referenceKey] || 0)),

@@ -202,22 +202,6 @@ const handleStateMessage = (message) => {
             : [update, ...current];
     }
 
-    if (message.secretsSnapshot) {
-        secretRefsS.val = message.secretsSnapshot.items || [];
-    }
-
-    if (message.secretUpdate?.id) {
-        secretRefsS.val = applyReferenceUpdate(secretRefsS.val, message.secretUpdate);
-    }
-
-    if (message.userConfigsSnapshot) {
-        userConfigRefsS.val = message.userConfigsSnapshot.items || [];
-    }
-
-    if (message.userConfigUpdate?.id) {
-        userConfigRefsS.val = applyReferenceUpdate(userConfigRefsS.val, message.userConfigUpdate);
-    }
-
     if (message.secretsStatusSnapshot) {
         secretsStatusS.val = message.secretsStatusSnapshot;
     }
@@ -232,18 +216,22 @@ const handleStateMessage = (message) => {
 
     if (message.secretMetasSnapshot) {
         secretMetasS.val = sortByName(message.secretMetasSnapshot.items || []);
+        secretRefsS.val = expandValueVersionRefs(secretMetasS.val);
     }
 
     if (message.secretMetaUpdate?.id) {
         secretMetasS.val = applyItemUpdate(secretMetasS.val, message.secretMetaUpdate);
+        secretRefsS.val = expandValueVersionRefs(secretMetasS.val);
     }
 
     if (message.userConfigValuesSnapshot) {
         userConfigsS.val = sortByName(message.userConfigValuesSnapshot.items || []);
+        userConfigRefsS.val = expandValueVersionRefs(userConfigsS.val);
     }
 
     if (message.userConfigValueUpdate?.id) {
         userConfigsS.val = applyItemUpdate(userConfigsS.val, message.userConfigValueUpdate);
+        userConfigRefsS.val = expandValueVersionRefs(userConfigsS.val);
     }
 
     if (message.spacesSnapshot) {
@@ -301,15 +289,19 @@ const applyItemUpdate = (items, update) => {
     return sortByName(Array.from(next.values()));
 };
 
-const applyReferenceUpdate = (items, update) => {
-    const next = new Map((items || []).map((item) => [item.id, item]));
-    if (update.deleted) {
-        next.delete(update.id);
-    } else {
-        next.set(update.id, update);
-    }
-    return Array.from(next.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-};
+// expandValueVersionRefs flattens secret/config metas into one entry per
+// version row, the shape reference pickers join deployment env refs against.
+// `id` is the version row id (what specs pin); `stableId` is the identity.
+export const expandValueVersionRefs = (metas) => (metas || []).flatMap((meta) => (meta.versionRefs || []).map((ref) => ({
+    id: ref.id,
+    stableId: meta.id,
+    name: meta.name,
+    spaceId: meta.spaceId,
+    version: ref.version,
+    value: ref.value,
+    createdAt: ref.createdAt,
+    createdBy: ref.createdBy,
+})));
 
 const applySpaceUpdate = (items, update) => {
     const next = new Map((items || []).map((item) => [item.id, item]));

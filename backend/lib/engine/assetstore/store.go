@@ -84,7 +84,7 @@ func (s *Store) effectiveS3Identity(settings apigen.ClusterSettings) s3Identity 
 	return s3Identity{
 		separate:    separate,
 		accessKeyID: s.Loader.MustLoadConfigStringValue(accessKeyID),
-		secretID:    secret.ID,
+		secretID:    secret.VersionID,
 		bucket:      s.Loader.MustLoadConfigStringValue(bucket),
 		path:        s.Loader.MustLoadConfigStringValue(settings.LargeAssets.S3Path),
 		region:      s.Loader.MustLoadConfigStringValue(region),
@@ -370,10 +370,10 @@ func (s *Store) s3Client(cfg *apigen.ClusterSettings) (*s3.Client, string, error
 }
 
 func revealSecretRef(secrets secretStore, ref apigen.SecretRef) (string, error) {
-	if ref.ID == 0 {
+	if ref.VersionID == 0 {
 		return "", nil
 	}
-	value, err := secrets.RevealByID(ref.ID)
+	value, err := secrets.RevealByID(ref.VersionID)
 	if err != nil {
 		return "", err
 	}

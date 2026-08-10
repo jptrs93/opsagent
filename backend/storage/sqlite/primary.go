@@ -118,10 +118,8 @@ type PrimaryStorage struct {
 	backupStatus        apigen.BackupStatus
 	backupStatusSubs    *pubsubu.PubSub[apigen.BackupStatus]
 	secretStatusSubs    *pubsubu.PubSub[apigen.SecretsStatusResponse]
-	secretSubs          *pubsubu.PubSub[apigen.SecretReference]
 	secretMetaSubs      *pubsubu.PubSub[apigen.SecretMeta]
-	userConfigSubs      *pubsubu.PubSub[apigen.ConfigReference]
-	userConfigValueSubs *pubsubu.PubSub[apigen.Config]
+	userConfigSubs      *pubsubu.PubSub[apigen.ConfigMeta]
 	spaceSubs           *pubsubu.PubSub[apigen.Space]
 	assetSubs           *pubsubu.PubSub[apigen.AssetMeta]
 	enrollmentSubs      *pubsubu.PubSub[apigen.EnrollmentRequestStatus]
@@ -140,10 +138,8 @@ func NewPrimaryStorage(dbPath string) *PrimaryStorage {
 		userSubs:            &pubsubu.PubSub[apigen.User]{},
 		backupStatusSubs:    &pubsubu.PubSub[apigen.BackupStatus]{},
 		secretStatusSubs:    &pubsubu.PubSub[apigen.SecretsStatusResponse]{},
-		secretSubs:          &pubsubu.PubSub[apigen.SecretReference]{},
 		secretMetaSubs:      &pubsubu.PubSub[apigen.SecretMeta]{},
-		userConfigSubs:      &pubsubu.PubSub[apigen.ConfigReference]{},
-		userConfigValueSubs: &pubsubu.PubSub[apigen.Config]{},
+		userConfigSubs:      &pubsubu.PubSub[apigen.ConfigMeta]{},
 		spaceSubs:           &pubsubu.PubSub[apigen.Space]{},
 		assetSubs:           &pubsubu.PubSub[apigen.AssetMeta]{},
 		enrollmentSubs:      &pubsubu.PubSub[apigen.EnrollmentRequestStatus]{},
@@ -1054,22 +1050,6 @@ func (s *PrimaryStorage) SubscribeBackupStatusUpdates() (*pubsubu.Sub[apigen.Bac
 	return sub, sub.UnsubscribeFunc
 }
 
-func (s *PrimaryStorage) ListSecretReferences() []*apigen.SecretReference {
-	rows, err := s.q.ListSecrets(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("ListSecrets: %v", err))
-	}
-	out := make([]*apigen.SecretReference, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, &apigen.SecretReference{ID: int32(row.ID), Name: row.Name, SpaceID: int32(row.SpaceID), Version: int32(row.Version)})
-	}
-	return out
-}
-
-func (s *PrimaryStorage) NotifySecretReferenceUpdate(ref apigen.SecretReference) {
-	s.secretSubs.Notify(ref)
-}
-
 func (s *PrimaryStorage) NotifySecretsStatusUpdate(status apigen.SecretsStatusResponse) {
 	s.secretStatusSubs.Notify(status)
 }
@@ -1083,35 +1063,17 @@ func (s *PrimaryStorage) NotifySecretMetaUpdate(meta apigen.SecretMeta) {
 	s.secretMetaSubs.Notify(meta)
 }
 
-func (s *PrimaryStorage) SubscribeSecretReferenceUpdates() (*pubsubu.Sub[apigen.SecretReference], func()) {
-	sub := s.secretSubs.Subscribe(nil)
-	return sub, sub.UnsubscribeFunc
-}
-
 func (s *PrimaryStorage) SubscribeSecretMetaUpdates() (*pubsubu.Sub[apigen.SecretMeta], func()) {
 	sub := s.secretMetaSubs.Subscribe(nil)
 	return sub, sub.UnsubscribeFunc
 }
 
-func (s *PrimaryStorage) ListUserConfigReferences() []*apigen.ConfigReference {
-	rows, err := s.q.ListAllUserConfigs(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("ListAllUserConfigs: %v", err))
-	}
-	out := make([]*apigen.ConfigReference, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, &apigen.ConfigReference{ID: int32(row.ID), Name: row.Name, SpaceID: int32(row.SpaceID), Version: int32(row.Version)})
-	}
-	return out
+func (s *PrimaryStorage) NotifyConfigMetaUpdate(meta apigen.ConfigMeta) {
+	s.userConfigSubs.Notify(meta)
 }
 
-func (s *PrimaryStorage) SubscribeUserConfigReferenceUpdates() (*pubsubu.Sub[apigen.ConfigReference], func()) {
+func (s *PrimaryStorage) SubscribeConfigMetaUpdates() (*pubsubu.Sub[apigen.ConfigMeta], func()) {
 	sub := s.userConfigSubs.Subscribe(nil)
-	return sub, sub.UnsubscribeFunc
-}
-
-func (s *PrimaryStorage) SubscribeUserConfigValueUpdates() (*pubsubu.Sub[apigen.Config], func()) {
-	sub := s.userConfigValueSubs.Subscribe(nil)
 	return sub, sub.UnsubscribeFunc
 }
 

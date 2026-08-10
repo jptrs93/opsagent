@@ -135,12 +135,16 @@ curl -sS -X POST '{{.BaseURL}}/v1/secrets/generate' \
   -d '{"name": "postgres-password", "password": {"length": 32}}'
 ```
 
-The response is `{"id": 12, "name": "postgres-password", ...}`. Put that `id`
-into the deployment's env as a `secret_id` reference and the workload receives
-the value at spawn time:
+The response is `{"id": 30, "name": "postgres-password", "version_refs":
+[{"id": 12, "version": 1, ...}], ...}`. Two id spaces: the root `id` is the
+stable secret identity (it survives renames and rotations); each entry in
+`version_refs` is one immutable version, newest first. Deployment env refs pin
+a **version** id — put `version_refs[0].id` into the deployment's env as a
+`secret_version_id` reference and the workload receives the value at spawn
+time:
 
 ```json
-"env_vars": {"POSTGRES_PASSWORD": {"secret_id": 12}}
+"env_vars": {"POSTGRES_PASSWORD": {"secret_version_id": 12}}
 ```
 
 Send that through `deployment/update` as in section 5. You never handle the

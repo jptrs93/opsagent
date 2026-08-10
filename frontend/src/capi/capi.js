@@ -13,8 +13,8 @@ import {
   decodeClusterNode,
   decodeClusterSecretsResponse,
   decodeClusterSettings,
-  decodeConfig,
   decodeConfigList,
+  decodeConfigMeta,
   decodeDeploymentConfig,
   decodeDeploymentHistory,
   decodeDeploymentState,
@@ -53,6 +53,7 @@ import {
   encodeClusterConfigsRequest,
   encodeClusterSecretsRequest,
   encodeClusterSettings,
+  encodeConfigCreateRequest,
   encodeConfigDeleteRequest,
   encodeConfigRenameRequest,
   encodeConfigSetRequest,
@@ -76,6 +77,7 @@ import {
   encodePrepareOutputRequest,
   encodeRecentlyDeletedDeploymentsRequest,
   encodeRepoValidateRequest,
+  encodeSecretCreateRequest,
   encodeSecretDeleteRequest,
   encodeSecretGenerateRequest,
   encodeSecretRenameRequest,
@@ -704,6 +706,18 @@ export class Capi {
   }
 
   /**
+   * @param {SecretCreateRequest} payload
+   * @returns {Promise<SecretMeta>}
+   */
+  async postV1SecretsCreate(payload) {
+    const response = await this.#request("/v1/secrets/create", { method: 'POST', body: encodeSecretCreateRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeSecretMeta(await response.arrayBuffer());
+  }
+
+  /**
    * @param {SecretSetRequest} payload
    * @returns {Promise<SecretMeta>}
    */
@@ -812,27 +826,39 @@ export class Capi {
   }
 
   /**
+   * @param {ConfigCreateRequest} payload
+   * @returns {Promise<ConfigMeta>}
+   */
+  async postV1ConfigsCreate(payload) {
+    const response = await this.#request("/v1/configs/create", { method: 'POST', body: encodeConfigCreateRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeConfigMeta(await response.arrayBuffer());
+  }
+
+  /**
    * @param {ConfigSetRequest} payload
-   * @returns {Promise<Config>}
+   * @returns {Promise<ConfigMeta>}
    */
   async postV1ConfigsSet(payload) {
     const response = await this.#request("/v1/configs/set", { method: 'POST', body: encodeConfigSetRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeConfig(await response.arrayBuffer());
+    return decodeConfigMeta(await response.arrayBuffer());
   }
 
   /**
    * @param {ConfigRenameRequest} payload
-   * @returns {Promise<Config>}
+   * @returns {Promise<ConfigMeta>}
    */
   async postV1ConfigsRename(payload) {
     const response = await this.#request("/v1/configs/rename", { method: 'POST', body: encodeConfigRenameRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeConfig(await response.arrayBuffer());
+    return decodeConfigMeta(await response.arrayBuffer());
   }
 
   /**

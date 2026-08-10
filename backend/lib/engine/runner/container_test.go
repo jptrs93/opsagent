@@ -96,8 +96,8 @@ func TestCountEnvVars(t *testing.T) {
 	configID := int32(2)
 	got := countEnvVars(map[string]*apigen.EnvVarValue{
 		"PLAIN":  {Value: &plain},
-		"SECRET": {SecretID: &secretID},
-		"CONFIG": {ConfigID: &configID},
+		"SECRET": {SecretVersionID: &secretID},
+		"CONFIG": {ConfigVersionID: &configID},
 		"ASSET":  {Asset: "bundle", AssetVersionID: 3},
 		"NIL":    nil,
 	})

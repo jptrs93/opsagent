@@ -32,7 +32,9 @@ func TestGetV1GlobalStateReturnsEachSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	h.Store.SetUserConfig("log_level", "debug", 0, space.ID)
+	if _, err := h.Store.CreateConfigWithVersion("log_level", space.ID, 0, "debug"); err != nil {
+		t.Fatalf("CreateConfigWithVersion: %v", err)
+	}
 	cfg := createTestDeployment(h.Store, "node-a", apigen.DeploymentIdentity{Name: "api", SpaceID: space.ID}, ptr(remoteDeploymentSpec("nginx", hostNetworking())))
 
 	res, err := h.GetV1GlobalState(apigen.Context{Ctx: context.Background()})
@@ -47,7 +49,7 @@ func TestGetV1GlobalStateReturnsEachSection(t *testing.T) {
 	}
 	var foundConfig bool
 	for _, c := range res.Configs.Items {
-		if c.Name == "log_level" && c.Value == "debug" {
+		if c.Name == "log_level" && len(c.VersionRefs) > 0 && c.VersionRefs[0].Value == "debug" {
 			foundConfig = true
 		}
 	}

@@ -277,54 +277,72 @@ SELECT kid, key_bytes FROM public_keys ORDER BY kid;
 
 -- === configs ===
 
--- name: ListUserConfigs :many
-SELECT c.id, c.name, c.version, c.space_id, c.value, c.created_at, c.updated_by
-FROM configs c
-JOIN (
-    SELECT name, MAX(version) AS version
-    FROM configs
-    GROUP BY name
-) latest ON latest.name = c.name AND latest.version = c.version
-ORDER BY c.name;
+-- name: ListConfigRows :many
+SELECT id, name, space_id, value_directory_id, created_at, created_by
+FROM configs
+ORDER BY name;
 
--- name: ListAllUserConfigs :many
-SELECT id, name, version, space_id, value, created_at, updated_by
-FROM configs ORDER BY name, version;
-
--- name: GetUserConfig :one
-SELECT id, name, version, space_id, value, created_at, updated_by
-FROM configs WHERE name = ?
-ORDER BY version DESC
-LIMIT 1;
-
--- name: GetUserConfigVersion :one
-SELECT id, name, version, space_id, value, created_at, updated_by
-FROM configs WHERE name = ? AND version = ?;
-
--- name: ListUserConfigVersionsByName :many
-SELECT id, name, version, space_id, value, created_at, updated_by
-FROM configs WHERE name = ?
-ORDER BY version ASC;
-
--- name: GetUserConfigByID :one
-SELECT id, name, version, space_id, value, created_at, updated_by
+-- name: GetConfigRowByID :one
+SELECT id, name, space_id, value_directory_id, created_at, created_by
 FROM configs WHERE id = ?;
 
--- name: GetNextUserConfigVersion :one
+-- name: GetConfigInDirectoryByName :one
+SELECT id, name, space_id, value_directory_id, created_at, created_by
+FROM configs WHERE space_id = ? AND value_directory_id = ? AND name = ?;
+
+-- name: InsertConfigRow :one
+INSERT INTO configs (name, space_id, value_directory_id, created_at, created_by)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id, name, space_id, value_directory_id, created_at, created_by;
+
+-- name: RenameConfigRow :exec
+UPDATE configs SET name = ? WHERE id = ?;
+
+-- name: DeleteConfigRow :exec
+DELETE FROM configs WHERE id = ?;
+
+-- name: ListConfigVersionRows :many
+SELECT id, config_id, version, value, created_at, created_by
+FROM config_versions
+ORDER BY config_id, version;
+
+-- name: ListConfigVersionsByConfigID :many
+SELECT id, config_id, version, value, created_at, created_by
+FROM config_versions WHERE config_id = ?
+ORDER BY version ASC;
+
+-- name: GetConfigVersionByID :one
+SELECT v.id, v.config_id, v.version, v.value, v.created_at, v.created_by, c.name, c.space_id
+FROM config_versions v
+JOIN configs c ON c.id = v.config_id
+WHERE v.id = ?;
+
+-- name: GetNextConfigVersionNumber :one
 SELECT COALESCE(MAX(version), 0) + 1
-FROM configs
-WHERE name = ?;
+FROM config_versions
+WHERE config_id = ?;
 
--- name: InsertUserConfig :one
-INSERT INTO configs (name, version, space_id, value, created_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, name, version, space_id, value, created_at, updated_by;
+-- name: InsertConfigVersion :one
+INSERT INTO config_versions (config_id, version, value, created_at, created_by)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id, config_id, version, value, created_at, created_by;
 
--- name: RenameUserConfig :exec
-UPDATE configs SET name = ? WHERE name = ?;
+-- name: DeleteConfigVersionsByConfigID :exec
+DELETE FROM config_versions WHERE config_id = ?;
 
--- name: DeleteUserConfig :exec
-DELETE FROM configs WHERE name = ?;
+-- === value directories (shared by secrets and configs) ===
+
+-- name: CountValueDirectorySiblingsWithName :one
+SELECT COUNT(*) FROM value_directories
+WHERE space_id = ? AND parent_id = ? AND name = ?;
+
+-- name: CountConfigSiblingsWithName :one
+SELECT COUNT(*) FROM configs
+WHERE space_id = ? AND value_directory_id = ? AND name = ? AND id != ?;
+
+-- name: CountSecretSiblingsWithName :one
+SELECT COUNT(*) FROM secrets
+WHERE space_id = ? AND value_directory_id = ? AND name = ? AND id != ?;
 
 -- === assets ===
 
@@ -471,49 +489,68 @@ ON CONFLICT(slot) DO UPDATE SET
 
 -- === secrets ===
 
--- name: ListSecrets :many
-SELECT id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by
-FROM secrets ORDER BY name, version;
+-- name: ListSecretRows :many
+SELECT id, name, space_id, value_directory_id, created_at, created_by
+FROM secrets
+ORDER BY name;
 
--- name: ListLatestSecrets :many
-SELECT s.id, s.name, s.version, s.space_id, s.smk_version, s.ciphertext, s.nonce, s.created_at, s.updated_by
-FROM secrets s
-JOIN (
-    SELECT name, MAX(version) AS version
-    FROM secrets
-    GROUP BY name
-) latest ON latest.name = s.name AND latest.version = s.version
-ORDER BY s.name;
-
--- name: GetSecret :one
-SELECT id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by
-FROM secrets WHERE name = ?
-ORDER BY version DESC
-LIMIT 1;
-
--- name: GetSecretVersion :one
-SELECT id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by
-FROM secrets WHERE name = ? AND version = ?;
-
--- name: GetSecretByID :one
-SELECT id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by
+-- name: GetSecretRowByID :one
+SELECT id, name, space_id, value_directory_id, created_at, created_by
 FROM secrets WHERE id = ?;
 
--- name: GetNextSecretVersion :one
+-- name: GetSecretInDirectoryByName :one
+SELECT id, name, space_id, value_directory_id, created_at, created_by
+FROM secrets WHERE space_id = ? AND value_directory_id = ? AND name = ?;
+
+-- name: InsertSecretRow :one
+INSERT INTO secrets (name, space_id, value_directory_id, created_at, created_by)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id, name, space_id, value_directory_id, created_at, created_by;
+
+-- name: RenameSecretRow :exec
+UPDATE secrets SET name = ? WHERE id = ?;
+
+-- name: DeleteSecretRow :exec
+DELETE FROM secrets WHERE id = ?;
+
+-- name: ListSecretVersionRecords :many
+SELECT v.id, v.secret_id, v.version, v.smk_version, v.ciphertext, v.nonce, v.created_at, v.created_by,
+       s.name, s.space_id
+FROM secret_versions v
+JOIN secrets s ON s.id = v.secret_id
+ORDER BY v.secret_id, v.version;
+
+-- name: ListSecretVersionMetas :many
+SELECT id, secret_id, version, created_at, created_by
+FROM secret_versions
+ORDER BY secret_id, version;
+
+-- name: GetNextSecretVersionNumber :one
 SELECT COALESCE(MAX(version), 0) + 1
-FROM secrets
-WHERE name = ?;
+FROM secret_versions
+WHERE secret_id = ?;
 
--- name: InsertSecret :one
-INSERT INTO secrets (name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by;
+-- name: InsertSecretVersion :one
+INSERT INTO secret_versions (secret_id, version, smk_version, ciphertext, nonce, created_at, created_by)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING id, secret_id, version, smk_version, ciphertext, nonce, created_at, created_by;
 
--- name: RenameSecret :exec
-UPDATE secrets SET name = ? WHERE name = ?;
+-- name: UpdateSecretVersionCiphertext :exec
+UPDATE secret_versions SET smk_version = ?, ciphertext = ?, nonce = ? WHERE id = ?;
 
--- name: DeleteSecret :exec
-DELETE FROM secrets WHERE name = ?;
+-- name: DeleteSecretVersionsBySecretID :exec
+DELETE FROM secret_versions WHERE secret_id = ?;
+
+-- name: ListSecretVersionIDsBySecretID :many
+SELECT id FROM secret_versions WHERE secret_id = ? ORDER BY version;
+
+-- name: ListSecretVersionsBySecretID :many
+SELECT id, secret_id, version, created_at, created_by
+FROM secret_versions WHERE secret_id = ?
+ORDER BY version ASC;
+
+-- name: ListConfigVersionIDsByConfigID :many
+SELECT id FROM config_versions WHERE config_id = ? ORDER BY version;
 
 -- === system_secrets ===
 

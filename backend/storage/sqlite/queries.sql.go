@@ -93,6 +93,30 @@ func (q *Queries) CountAssetSiblingsWithKey(ctx context.Context, arg CountAssetS
 	return count, err
 }
 
+const countConfigSiblingsWithName = `-- name: CountConfigSiblingsWithName :one
+SELECT COUNT(*) FROM configs
+WHERE space_id = ? AND value_directory_id = ? AND name = ? AND id != ?
+`
+
+type CountConfigSiblingsWithNameParams struct {
+	SpaceID          int64
+	ValueDirectoryID int64
+	Name             string
+	ID               int64
+}
+
+func (q *Queries) CountConfigSiblingsWithName(ctx context.Context, arg CountConfigSiblingsWithNameParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countConfigSiblingsWithName,
+		arg.SpaceID,
+		arg.ValueDirectoryID,
+		arg.Name,
+		arg.ID,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countDeploymentsForSpace = `-- name: CountDeploymentsForSpace :one
 SELECT COUNT(*) FROM deployment_configs WHERE space_id = ? AND deleted = 0
 `
@@ -117,6 +141,50 @@ type CountDirectorySiblingsWithKeyParams struct {
 
 func (q *Queries) CountDirectorySiblingsWithKey(ctx context.Context, arg CountDirectorySiblingsWithKeyParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countDirectorySiblingsWithKey, arg.SpaceID, arg.ParentID, arg.Key)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countSecretSiblingsWithName = `-- name: CountSecretSiblingsWithName :one
+SELECT COUNT(*) FROM secrets
+WHERE space_id = ? AND value_directory_id = ? AND name = ? AND id != ?
+`
+
+type CountSecretSiblingsWithNameParams struct {
+	SpaceID          int64
+	ValueDirectoryID int64
+	Name             string
+	ID               int64
+}
+
+func (q *Queries) CountSecretSiblingsWithName(ctx context.Context, arg CountSecretSiblingsWithNameParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countSecretSiblingsWithName,
+		arg.SpaceID,
+		arg.ValueDirectoryID,
+		arg.Name,
+		arg.ID,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countValueDirectorySiblingsWithName = `-- name: CountValueDirectorySiblingsWithName :one
+
+SELECT COUNT(*) FROM value_directories
+WHERE space_id = ? AND parent_id = ? AND name = ?
+`
+
+type CountValueDirectorySiblingsWithNameParams struct {
+	SpaceID  int64
+	ParentID int64
+	Name     string
+}
+
+// === value directories (shared by secrets and configs) ===
+func (q *Queries) CountValueDirectorySiblingsWithName(ctx context.Context, arg CountValueDirectorySiblingsWithNameParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countValueDirectorySiblingsWithName, arg.SpaceID, arg.ParentID, arg.Name)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -206,6 +274,24 @@ func (q *Queries) DeleteAssetVersionsByAssetID(ctx context.Context, assetID int6
 	return err
 }
 
+const deleteConfigRow = `-- name: DeleteConfigRow :exec
+DELETE FROM configs WHERE id = ?
+`
+
+func (q *Queries) DeleteConfigRow(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteConfigRow, id)
+	return err
+}
+
+const deleteConfigVersionsByConfigID = `-- name: DeleteConfigVersionsByConfigID :exec
+DELETE FROM config_versions WHERE config_id = ?
+`
+
+func (q *Queries) DeleteConfigVersionsByConfigID(ctx context.Context, configID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteConfigVersionsByConfigID, configID)
+	return err
+}
+
 const deleteLocalRuntimeInput = `-- name: DeleteLocalRuntimeInput :exec
 DELETE FROM local_runtime_inputs WHERE kind = ? AND ref_id = ?
 `
@@ -229,12 +315,21 @@ func (q *Queries) DeleteLocalScheduledInstanceCache(ctx context.Context, instanc
 	return err
 }
 
-const deleteSecret = `-- name: DeleteSecret :exec
-DELETE FROM secrets WHERE name = ?
+const deleteSecretRow = `-- name: DeleteSecretRow :exec
+DELETE FROM secrets WHERE id = ?
 `
 
-func (q *Queries) DeleteSecret(ctx context.Context, name string) error {
-	_, err := q.db.ExecContext(ctx, deleteSecret, name)
+func (q *Queries) DeleteSecretRow(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteSecretRow, id)
+	return err
+}
+
+const deleteSecretVersionsBySecretID = `-- name: DeleteSecretVersionsBySecretID :exec
+DELETE FROM secret_versions WHERE secret_id = ?
+`
+
+func (q *Queries) DeleteSecretVersionsBySecretID(ctx context.Context, secretID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteSecretVersionsBySecretID, secretID)
 	return err
 }
 
@@ -244,15 +339,6 @@ DELETE FROM spaces WHERE id = ?
 
 func (q *Queries) DeleteSpace(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, deleteSpace, id)
-	return err
-}
-
-const deleteUserConfig = `-- name: DeleteUserConfig :exec
-DELETE FROM configs WHERE name = ?
-`
-
-func (q *Queries) DeleteUserConfig(ctx context.Context, name string) error {
-	_, err := q.db.ExecContext(ctx, deleteUserConfig, name)
 	return err
 }
 
@@ -412,6 +498,84 @@ func (q *Queries) GetConfigHistorySpecBlob(ctx context.Context, arg GetConfigHis
 	var spec_blob []byte
 	err := row.Scan(&spec_blob)
 	return spec_blob, err
+}
+
+const getConfigInDirectoryByName = `-- name: GetConfigInDirectoryByName :one
+SELECT id, name, space_id, value_directory_id, created_at, created_by
+FROM configs WHERE space_id = ? AND value_directory_id = ? AND name = ?
+`
+
+type GetConfigInDirectoryByNameParams struct {
+	SpaceID          int64
+	ValueDirectoryID int64
+	Name             string
+}
+
+func (q *Queries) GetConfigInDirectoryByName(ctx context.Context, arg GetConfigInDirectoryByNameParams) (Config, error) {
+	row := q.db.QueryRowContext(ctx, getConfigInDirectoryByName, arg.SpaceID, arg.ValueDirectoryID, arg.Name)
+	var i Config
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.SpaceID,
+		&i.ValueDirectoryID,
+		&i.CreatedAt,
+		&i.CreatedBy,
+	)
+	return i, err
+}
+
+const getConfigRowByID = `-- name: GetConfigRowByID :one
+SELECT id, name, space_id, value_directory_id, created_at, created_by
+FROM configs WHERE id = ?
+`
+
+func (q *Queries) GetConfigRowByID(ctx context.Context, id int64) (Config, error) {
+	row := q.db.QueryRowContext(ctx, getConfigRowByID, id)
+	var i Config
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.SpaceID,
+		&i.ValueDirectoryID,
+		&i.CreatedAt,
+		&i.CreatedBy,
+	)
+	return i, err
+}
+
+const getConfigVersionByID = `-- name: GetConfigVersionByID :one
+SELECT v.id, v.config_id, v.version, v.value, v.created_at, v.created_by, c.name, c.space_id
+FROM config_versions v
+JOIN configs c ON c.id = v.config_id
+WHERE v.id = ?
+`
+
+type GetConfigVersionByIDRow struct {
+	ID        int64
+	ConfigID  int64
+	Version   int64
+	Value     string
+	CreatedAt int64
+	CreatedBy int64
+	Name      string
+	SpaceID   int64
+}
+
+func (q *Queries) GetConfigVersionByID(ctx context.Context, id int64) (GetConfigVersionByIDRow, error) {
+	row := q.db.QueryRowContext(ctx, getConfigVersionByID, id)
+	var i GetConfigVersionByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.ConfigID,
+		&i.Version,
+		&i.Value,
+		&i.CreatedAt,
+		&i.CreatedBy,
+		&i.Name,
+		&i.SpaceID,
+	)
+	return i, err
 }
 
 const getDeploymentConfig = `-- name: GetDeploymentConfig :one
@@ -574,27 +738,27 @@ func (q *Queries) GetNextAssetVersionNumber(ctx context.Context, assetID int64) 
 	return column_1, err
 }
 
-const getNextSecretVersion = `-- name: GetNextSecretVersion :one
+const getNextConfigVersionNumber = `-- name: GetNextConfigVersionNumber :one
 SELECT COALESCE(MAX(version), 0) + 1
-FROM secrets
-WHERE name = ?
+FROM config_versions
+WHERE config_id = ?
 `
 
-func (q *Queries) GetNextSecretVersion(ctx context.Context, name string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getNextSecretVersion, name)
+func (q *Queries) GetNextConfigVersionNumber(ctx context.Context, configID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getNextConfigVersionNumber, configID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
 }
 
-const getNextUserConfigVersion = `-- name: GetNextUserConfigVersion :one
+const getNextSecretVersionNumber = `-- name: GetNextSecretVersionNumber :one
 SELECT COALESCE(MAX(version), 0) + 1
-FROM configs
-WHERE name = ?
+FROM secret_versions
+WHERE secret_id = ?
 `
 
-func (q *Queries) GetNextUserConfigVersion(ctx context.Context, name string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getNextUserConfigVersion, name)
+func (q *Queries) GetNextSecretVersionNumber(ctx context.Context, secretID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getNextSecretVersionNumber, secretID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -634,75 +798,46 @@ func (q *Queries) GetScheduledInstance(ctx context.Context, id int64) (Scheduled
 	return i, err
 }
 
-const getSecret = `-- name: GetSecret :one
-SELECT id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by
-FROM secrets WHERE name = ?
-ORDER BY version DESC
-LIMIT 1
+const getSecretInDirectoryByName = `-- name: GetSecretInDirectoryByName :one
+SELECT id, name, space_id, value_directory_id, created_at, created_by
+FROM secrets WHERE space_id = ? AND value_directory_id = ? AND name = ?
 `
 
-func (q *Queries) GetSecret(ctx context.Context, name string) (Secret, error) {
-	row := q.db.QueryRowContext(ctx, getSecret, name)
+type GetSecretInDirectoryByNameParams struct {
+	SpaceID          int64
+	ValueDirectoryID int64
+	Name             string
+}
+
+func (q *Queries) GetSecretInDirectoryByName(ctx context.Context, arg GetSecretInDirectoryByNameParams) (Secret, error) {
+	row := q.db.QueryRowContext(ctx, getSecretInDirectoryByName, arg.SpaceID, arg.ValueDirectoryID, arg.Name)
 	var i Secret
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
-		&i.Version,
 		&i.SpaceID,
-		&i.SmkVersion,
-		&i.Ciphertext,
-		&i.Nonce,
+		&i.ValueDirectoryID,
 		&i.CreatedAt,
-		&i.UpdatedBy,
+		&i.CreatedBy,
 	)
 	return i, err
 }
 
-const getSecretByID = `-- name: GetSecretByID :one
-SELECT id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by
+const getSecretRowByID = `-- name: GetSecretRowByID :one
+SELECT id, name, space_id, value_directory_id, created_at, created_by
 FROM secrets WHERE id = ?
 `
 
-func (q *Queries) GetSecretByID(ctx context.Context, id int64) (Secret, error) {
-	row := q.db.QueryRowContext(ctx, getSecretByID, id)
+func (q *Queries) GetSecretRowByID(ctx context.Context, id int64) (Secret, error) {
+	row := q.db.QueryRowContext(ctx, getSecretRowByID, id)
 	var i Secret
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
-		&i.Version,
 		&i.SpaceID,
-		&i.SmkVersion,
-		&i.Ciphertext,
-		&i.Nonce,
+		&i.ValueDirectoryID,
 		&i.CreatedAt,
-		&i.UpdatedBy,
-	)
-	return i, err
-}
-
-const getSecretVersion = `-- name: GetSecretVersion :one
-SELECT id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by
-FROM secrets WHERE name = ? AND version = ?
-`
-
-type GetSecretVersionParams struct {
-	Name    string
-	Version int64
-}
-
-func (q *Queries) GetSecretVersion(ctx context.Context, arg GetSecretVersionParams) (Secret, error) {
-	row := q.db.QueryRowContext(ctx, getSecretVersion, arg.Name, arg.Version)
-	var i Secret
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Version,
-		&i.SpaceID,
-		&i.SmkVersion,
-		&i.Ciphertext,
-		&i.Nonce,
-		&i.CreatedAt,
-		&i.UpdatedBy,
+		&i.CreatedBy,
 	)
 	return i, err
 }
@@ -767,73 +902,6 @@ func (q *Queries) GetUser(ctx context.Context, id int64) (User, error) {
 	row := q.db.QueryRowContext(ctx, getUser, id)
 	var i User
 	err := row.Scan(&i.ID, &i.Name, &i.DataBlob)
-	return i, err
-}
-
-const getUserConfig = `-- name: GetUserConfig :one
-SELECT id, name, version, space_id, value, created_at, updated_by
-FROM configs WHERE name = ?
-ORDER BY version DESC
-LIMIT 1
-`
-
-func (q *Queries) GetUserConfig(ctx context.Context, name string) (Config, error) {
-	row := q.db.QueryRowContext(ctx, getUserConfig, name)
-	var i Config
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Version,
-		&i.SpaceID,
-		&i.Value,
-		&i.CreatedAt,
-		&i.UpdatedBy,
-	)
-	return i, err
-}
-
-const getUserConfigByID = `-- name: GetUserConfigByID :one
-SELECT id, name, version, space_id, value, created_at, updated_by
-FROM configs WHERE id = ?
-`
-
-func (q *Queries) GetUserConfigByID(ctx context.Context, id int64) (Config, error) {
-	row := q.db.QueryRowContext(ctx, getUserConfigByID, id)
-	var i Config
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Version,
-		&i.SpaceID,
-		&i.Value,
-		&i.CreatedAt,
-		&i.UpdatedBy,
-	)
-	return i, err
-}
-
-const getUserConfigVersion = `-- name: GetUserConfigVersion :one
-SELECT id, name, version, space_id, value, created_at, updated_by
-FROM configs WHERE name = ? AND version = ?
-`
-
-type GetUserConfigVersionParams struct {
-	Name    string
-	Version int64
-}
-
-func (q *Queries) GetUserConfigVersion(ctx context.Context, arg GetUserConfigVersionParams) (Config, error) {
-	row := q.db.QueryRowContext(ctx, getUserConfigVersion, arg.Name, arg.Version)
-	var i Config
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Version,
-		&i.SpaceID,
-		&i.Value,
-		&i.CreatedAt,
-		&i.UpdatedBy,
-	)
 	return i, err
 }
 
@@ -981,6 +1049,74 @@ func (q *Queries) InsertAssetVersion(ctx context.Context, arg InsertAssetVersion
 	return i, err
 }
 
+const insertConfigRow = `-- name: InsertConfigRow :one
+INSERT INTO configs (name, space_id, value_directory_id, created_at, created_by)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id, name, space_id, value_directory_id, created_at, created_by
+`
+
+type InsertConfigRowParams struct {
+	Name             string
+	SpaceID          int64
+	ValueDirectoryID int64
+	CreatedAt        int64
+	CreatedBy        int64
+}
+
+func (q *Queries) InsertConfigRow(ctx context.Context, arg InsertConfigRowParams) (Config, error) {
+	row := q.db.QueryRowContext(ctx, insertConfigRow,
+		arg.Name,
+		arg.SpaceID,
+		arg.ValueDirectoryID,
+		arg.CreatedAt,
+		arg.CreatedBy,
+	)
+	var i Config
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.SpaceID,
+		&i.ValueDirectoryID,
+		&i.CreatedAt,
+		&i.CreatedBy,
+	)
+	return i, err
+}
+
+const insertConfigVersion = `-- name: InsertConfigVersion :one
+INSERT INTO config_versions (config_id, version, value, created_at, created_by)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id, config_id, version, value, created_at, created_by
+`
+
+type InsertConfigVersionParams struct {
+	ConfigID  int64
+	Version   int64
+	Value     string
+	CreatedAt int64
+	CreatedBy int64
+}
+
+func (q *Queries) InsertConfigVersion(ctx context.Context, arg InsertConfigVersionParams) (ConfigVersion, error) {
+	row := q.db.QueryRowContext(ctx, insertConfigVersion,
+		arg.ConfigID,
+		arg.Version,
+		arg.Value,
+		arg.CreatedAt,
+		arg.CreatedBy,
+	)
+	var i ConfigVersion
+	err := row.Scan(
+		&i.ID,
+		&i.ConfigID,
+		&i.Version,
+		&i.Value,
+		&i.CreatedAt,
+		&i.CreatedBy,
+	)
+	return i, err
+}
+
 const insertDeploymentConfigHistory = `-- name: InsertDeploymentConfigHistory :exec
 
 INSERT INTO deployment_config_history (deployment_id, version, updated_at, updated_by, space_id, node_id, spec_blob, deleted)
@@ -1114,82 +1250,76 @@ func (q *Queries) InsertScheduledInstanceStatus(ctx context.Context, arg InsertS
 	return err
 }
 
-const insertSecret = `-- name: InsertSecret :one
-INSERT INTO secrets (name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by
+const insertSecretRow = `-- name: InsertSecretRow :one
+INSERT INTO secrets (name, space_id, value_directory_id, created_at, created_by)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id, name, space_id, value_directory_id, created_at, created_by
 `
 
-type InsertSecretParams struct {
-	Name       string
-	Version    int64
-	SpaceID    int64
-	SmkVersion int64
-	Ciphertext []byte
-	Nonce      []byte
-	CreatedAt  int64
-	UpdatedBy  int64
+type InsertSecretRowParams struct {
+	Name             string
+	SpaceID          int64
+	ValueDirectoryID int64
+	CreatedAt        int64
+	CreatedBy        int64
 }
 
-func (q *Queries) InsertSecret(ctx context.Context, arg InsertSecretParams) (Secret, error) {
-	row := q.db.QueryRowContext(ctx, insertSecret,
+func (q *Queries) InsertSecretRow(ctx context.Context, arg InsertSecretRowParams) (Secret, error) {
+	row := q.db.QueryRowContext(ctx, insertSecretRow,
 		arg.Name,
-		arg.Version,
 		arg.SpaceID,
-		arg.SmkVersion,
-		arg.Ciphertext,
-		arg.Nonce,
+		arg.ValueDirectoryID,
 		arg.CreatedAt,
-		arg.UpdatedBy,
+		arg.CreatedBy,
 	)
 	var i Secret
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
-		&i.Version,
 		&i.SpaceID,
-		&i.SmkVersion,
-		&i.Ciphertext,
-		&i.Nonce,
+		&i.ValueDirectoryID,
 		&i.CreatedAt,
-		&i.UpdatedBy,
+		&i.CreatedBy,
 	)
 	return i, err
 }
 
-const insertUserConfig = `-- name: InsertUserConfig :one
-INSERT INTO configs (name, version, space_id, value, created_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, name, version, space_id, value, created_at, updated_by
+const insertSecretVersion = `-- name: InsertSecretVersion :one
+INSERT INTO secret_versions (secret_id, version, smk_version, ciphertext, nonce, created_at, created_by)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING id, secret_id, version, smk_version, ciphertext, nonce, created_at, created_by
 `
 
-type InsertUserConfigParams struct {
-	Name      string
-	Version   int64
-	SpaceID   int64
-	Value     string
-	CreatedAt int64
-	UpdatedBy int64
+type InsertSecretVersionParams struct {
+	SecretID   int64
+	Version    int64
+	SmkVersion int64
+	Ciphertext []byte
+	Nonce      []byte
+	CreatedAt  int64
+	CreatedBy  int64
 }
 
-func (q *Queries) InsertUserConfig(ctx context.Context, arg InsertUserConfigParams) (Config, error) {
-	row := q.db.QueryRowContext(ctx, insertUserConfig,
-		arg.Name,
+func (q *Queries) InsertSecretVersion(ctx context.Context, arg InsertSecretVersionParams) (SecretVersion, error) {
+	row := q.db.QueryRowContext(ctx, insertSecretVersion,
+		arg.SecretID,
 		arg.Version,
-		arg.SpaceID,
-		arg.Value,
+		arg.SmkVersion,
+		arg.Ciphertext,
+		arg.Nonce,
 		arg.CreatedAt,
-		arg.UpdatedBy,
+		arg.CreatedBy,
 	)
-	var i Config
+	var i SecretVersion
 	err := row.Scan(
 		&i.ID,
-		&i.Name,
+		&i.SecretID,
 		&i.Version,
-		&i.SpaceID,
-		&i.Value,
+		&i.SmkVersion,
+		&i.Ciphertext,
+		&i.Nonce,
 		&i.CreatedAt,
-		&i.UpdatedBy,
+		&i.CreatedBy,
 	)
 	return i, err
 }
@@ -1275,42 +1405,6 @@ func (q *Queries) ListAllDeploymentConfigs(ctx context.Context) ([]ListAllDeploy
 			&i.UpdatedBy,
 			&i.SpecBlob,
 			&i.Deleted,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listAllUserConfigs = `-- name: ListAllUserConfigs :many
-SELECT id, name, version, space_id, value, created_at, updated_by
-FROM configs ORDER BY name, version
-`
-
-func (q *Queries) ListAllUserConfigs(ctx context.Context) ([]Config, error) {
-	rows, err := q.db.QueryContext(ctx, listAllUserConfigs)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Config
-	for rows.Next() {
-		var i Config
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Version,
-			&i.SpaceID,
-			&i.Value,
-			&i.CreatedAt,
-			&i.UpdatedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -1427,6 +1521,143 @@ func (q *Queries) ListAssetVersionsIncludingPending(ctx context.Context, assetID
 			&i.Location,
 			&i.SizeBytes,
 			&i.Blob,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listConfigRows = `-- name: ListConfigRows :many
+
+SELECT id, name, space_id, value_directory_id, created_at, created_by
+FROM configs
+ORDER BY name
+`
+
+// === configs ===
+func (q *Queries) ListConfigRows(ctx context.Context) ([]Config, error) {
+	rows, err := q.db.QueryContext(ctx, listConfigRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Config
+	for rows.Next() {
+		var i Config
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.SpaceID,
+			&i.ValueDirectoryID,
+			&i.CreatedAt,
+			&i.CreatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listConfigVersionIDsByConfigID = `-- name: ListConfigVersionIDsByConfigID :many
+SELECT id FROM config_versions WHERE config_id = ? ORDER BY version
+`
+
+func (q *Queries) ListConfigVersionIDsByConfigID(ctx context.Context, configID int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listConfigVersionIDsByConfigID, configID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listConfigVersionRows = `-- name: ListConfigVersionRows :many
+SELECT id, config_id, version, value, created_at, created_by
+FROM config_versions
+ORDER BY config_id, version
+`
+
+func (q *Queries) ListConfigVersionRows(ctx context.Context) ([]ConfigVersion, error) {
+	rows, err := q.db.QueryContext(ctx, listConfigVersionRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ConfigVersion
+	for rows.Next() {
+		var i ConfigVersion
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConfigID,
+			&i.Version,
+			&i.Value,
+			&i.CreatedAt,
+			&i.CreatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listConfigVersionsByConfigID = `-- name: ListConfigVersionsByConfigID :many
+SELECT id, config_id, version, value, created_at, created_by
+FROM config_versions WHERE config_id = ?
+ORDER BY version ASC
+`
+
+func (q *Queries) ListConfigVersionsByConfigID(ctx context.Context, configID int64) ([]ConfigVersion, error) {
+	rows, err := q.db.QueryContext(ctx, listConfigVersionsByConfigID, configID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ConfigVersion
+	for rows.Next() {
+		var i ConfigVersion
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConfigID,
+			&i.Version,
+			&i.Value,
+			&i.CreatedAt,
+			&i.CreatedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -1563,50 +1794,6 @@ func (q *Queries) ListLatestScheduledInstanceStatuses(ctx context.Context) ([]Sc
 			&i.RunnerNumRestarts,
 			&i.RunnerLastRestartAt,
 			&i.RunnerExtraBlob,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listLatestSecrets = `-- name: ListLatestSecrets :many
-SELECT s.id, s.name, s.version, s.space_id, s.smk_version, s.ciphertext, s.nonce, s.created_at, s.updated_by
-FROM secrets s
-JOIN (
-    SELECT name, MAX(version) AS version
-    FROM secrets
-    GROUP BY name
-) latest ON latest.name = s.name AND latest.version = s.version
-ORDER BY s.name
-`
-
-func (q *Queries) ListLatestSecrets(ctx context.Context) ([]Secret, error) {
-	rows, err := q.db.QueryContext(ctx, listLatestSecrets)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Secret
-	for rows.Next() {
-		var i Secret
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Version,
-			&i.SpaceID,
-			&i.SmkVersion,
-			&i.Ciphertext,
-			&i.Nonce,
-			&i.CreatedAt,
-			&i.UpdatedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -2065,15 +2252,16 @@ func (q *Queries) ListSecretKeyslots(ctx context.Context) ([]SecretKeyslot, erro
 	return items, nil
 }
 
-const listSecrets = `-- name: ListSecrets :many
+const listSecretRows = `-- name: ListSecretRows :many
 
-SELECT id, name, version, space_id, smk_version, ciphertext, nonce, created_at, updated_by
-FROM secrets ORDER BY name, version
+SELECT id, name, space_id, value_directory_id, created_at, created_by
+FROM secrets
+ORDER BY name
 `
 
 // === secrets ===
-func (q *Queries) ListSecrets(ctx context.Context) ([]Secret, error) {
-	rows, err := q.db.QueryContext(ctx, listSecrets)
+func (q *Queries) ListSecretRows(ctx context.Context) ([]Secret, error) {
+	rows, err := q.db.QueryContext(ctx, listSecretRows)
 	if err != nil {
 		return nil, err
 	}
@@ -2084,13 +2272,178 @@ func (q *Queries) ListSecrets(ctx context.Context) ([]Secret, error) {
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
-			&i.Version,
 			&i.SpaceID,
+			&i.ValueDirectoryID,
+			&i.CreatedAt,
+			&i.CreatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSecretVersionIDsBySecretID = `-- name: ListSecretVersionIDsBySecretID :many
+SELECT id FROM secret_versions WHERE secret_id = ? ORDER BY version
+`
+
+func (q *Queries) ListSecretVersionIDsBySecretID(ctx context.Context, secretID int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listSecretVersionIDsBySecretID, secretID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSecretVersionMetas = `-- name: ListSecretVersionMetas :many
+SELECT id, secret_id, version, created_at, created_by
+FROM secret_versions
+ORDER BY secret_id, version
+`
+
+type ListSecretVersionMetasRow struct {
+	ID        int64
+	SecretID  int64
+	Version   int64
+	CreatedAt int64
+	CreatedBy int64
+}
+
+func (q *Queries) ListSecretVersionMetas(ctx context.Context) ([]ListSecretVersionMetasRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSecretVersionMetas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSecretVersionMetasRow
+	for rows.Next() {
+		var i ListSecretVersionMetasRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SecretID,
+			&i.Version,
+			&i.CreatedAt,
+			&i.CreatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSecretVersionRecords = `-- name: ListSecretVersionRecords :many
+SELECT v.id, v.secret_id, v.version, v.smk_version, v.ciphertext, v.nonce, v.created_at, v.created_by,
+       s.name, s.space_id
+FROM secret_versions v
+JOIN secrets s ON s.id = v.secret_id
+ORDER BY v.secret_id, v.version
+`
+
+type ListSecretVersionRecordsRow struct {
+	ID         int64
+	SecretID   int64
+	Version    int64
+	SmkVersion int64
+	Ciphertext []byte
+	Nonce      []byte
+	CreatedAt  int64
+	CreatedBy  int64
+	Name       string
+	SpaceID    int64
+}
+
+func (q *Queries) ListSecretVersionRecords(ctx context.Context) ([]ListSecretVersionRecordsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSecretVersionRecords)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSecretVersionRecordsRow
+	for rows.Next() {
+		var i ListSecretVersionRecordsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SecretID,
+			&i.Version,
 			&i.SmkVersion,
 			&i.Ciphertext,
 			&i.Nonce,
 			&i.CreatedAt,
-			&i.UpdatedBy,
+			&i.CreatedBy,
+			&i.Name,
+			&i.SpaceID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSecretVersionsBySecretID = `-- name: ListSecretVersionsBySecretID :many
+SELECT id, secret_id, version, created_at, created_by
+FROM secret_versions WHERE secret_id = ?
+ORDER BY version ASC
+`
+
+type ListSecretVersionsBySecretIDRow struct {
+	ID        int64
+	SecretID  int64
+	Version   int64
+	CreatedAt int64
+	CreatedBy int64
+}
+
+func (q *Queries) ListSecretVersionsBySecretID(ctx context.Context, secretID int64) ([]ListSecretVersionsBySecretIDRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSecretVersionsBySecretID, secretID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSecretVersionsBySecretIDRow
+	for rows.Next() {
+		var i ListSecretVersionsBySecretIDRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SecretID,
+			&i.Version,
+			&i.CreatedAt,
+			&i.CreatedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -2123,87 +2476,6 @@ func (q *Queries) ListSpaces(ctx context.Context) ([]Space, error) {
 	for rows.Next() {
 		var i Space
 		if err := rows.Scan(&i.ID, &i.Name); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listUserConfigVersionsByName = `-- name: ListUserConfigVersionsByName :many
-SELECT id, name, version, space_id, value, created_at, updated_by
-FROM configs WHERE name = ?
-ORDER BY version ASC
-`
-
-func (q *Queries) ListUserConfigVersionsByName(ctx context.Context, name string) ([]Config, error) {
-	rows, err := q.db.QueryContext(ctx, listUserConfigVersionsByName, name)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Config
-	for rows.Next() {
-		var i Config
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Version,
-			&i.SpaceID,
-			&i.Value,
-			&i.CreatedAt,
-			&i.UpdatedBy,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listUserConfigs = `-- name: ListUserConfigs :many
-
-SELECT c.id, c.name, c.version, c.space_id, c.value, c.created_at, c.updated_by
-FROM configs c
-JOIN (
-    SELECT name, MAX(version) AS version
-    FROM configs
-    GROUP BY name
-) latest ON latest.name = c.name AND latest.version = c.version
-ORDER BY c.name
-`
-
-// === configs ===
-func (q *Queries) ListUserConfigs(ctx context.Context) ([]Config, error) {
-	rows, err := q.db.QueryContext(ctx, listUserConfigs)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Config
-	for rows.Next() {
-		var i Config
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Version,
-			&i.SpaceID,
-			&i.Value,
-			&i.CreatedAt,
-			&i.UpdatedBy,
-		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -2289,31 +2561,31 @@ func (q *Queries) RenameAssetKey(ctx context.Context, arg RenameAssetKeyParams) 
 	return err
 }
 
-const renameSecret = `-- name: RenameSecret :exec
-UPDATE secrets SET name = ? WHERE name = ?
+const renameConfigRow = `-- name: RenameConfigRow :exec
+UPDATE configs SET name = ? WHERE id = ?
 `
 
-type RenameSecretParams struct {
-	Name   string
-	Name_2 string
+type RenameConfigRowParams struct {
+	Name string
+	ID   int64
 }
 
-func (q *Queries) RenameSecret(ctx context.Context, arg RenameSecretParams) error {
-	_, err := q.db.ExecContext(ctx, renameSecret, arg.Name, arg.Name_2)
+func (q *Queries) RenameConfigRow(ctx context.Context, arg RenameConfigRowParams) error {
+	_, err := q.db.ExecContext(ctx, renameConfigRow, arg.Name, arg.ID)
 	return err
 }
 
-const renameUserConfig = `-- name: RenameUserConfig :exec
-UPDATE configs SET name = ? WHERE name = ?
+const renameSecretRow = `-- name: RenameSecretRow :exec
+UPDATE secrets SET name = ? WHERE id = ?
 `
 
-type RenameUserConfigParams struct {
-	Name   string
-	Name_2 string
+type RenameSecretRowParams struct {
+	Name string
+	ID   int64
 }
 
-func (q *Queries) RenameUserConfig(ctx context.Context, arg RenameUserConfigParams) error {
-	_, err := q.db.ExecContext(ctx, renameUserConfig, arg.Name, arg.Name_2)
+func (q *Queries) RenameSecretRow(ctx context.Context, arg RenameSecretRowParams) error {
+	_, err := q.db.ExecContext(ctx, renameSecretRow, arg.Name, arg.ID)
 	return err
 }
 
@@ -2432,6 +2704,27 @@ type UpdateScheduledInstanceStateParams struct {
 
 func (q *Queries) UpdateScheduledInstanceState(ctx context.Context, arg UpdateScheduledInstanceStateParams) error {
 	_, err := q.db.ExecContext(ctx, updateScheduledInstanceState, arg.State, arg.ID)
+	return err
+}
+
+const updateSecretVersionCiphertext = `-- name: UpdateSecretVersionCiphertext :exec
+UPDATE secret_versions SET smk_version = ?, ciphertext = ?, nonce = ? WHERE id = ?
+`
+
+type UpdateSecretVersionCiphertextParams struct {
+	SmkVersion int64
+	Ciphertext []byte
+	Nonce      []byte
+	ID         int64
+}
+
+func (q *Queries) UpdateSecretVersionCiphertext(ctx context.Context, arg UpdateSecretVersionCiphertextParams) error {
+	_, err := q.db.ExecContext(ctx, updateSecretVersionCiphertext,
+		arg.SmkVersion,
+		arg.Ciphertext,
+		arg.Nonce,
+		arg.ID,
+	)
 	return err
 }
 

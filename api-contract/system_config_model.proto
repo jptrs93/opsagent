@@ -8,12 +8,12 @@ option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 message SecretRef {
   reserved 1, 2;
-  int32 id = 3;
+  int32 version_id = 3;    // immutable secret version row id
 }
 
 message ConfigRef {
   reserved 1, 2;
-  int32 id = 3;
+  int32 version_id = 3;    // immutable config version row id
 }
 
 message StringSetting {

@@ -376,8 +376,8 @@
  */
 /**
  * @typedef {Object} EnvVarValue
- * @property {number} secretId
- * @property {number} configId
+ * @property {number} secretVersionId
+ * @property {number} configVersionId
  * @property {string} value
  * @property {string} asset
  * @property {number} assetVersionId
@@ -580,23 +580,36 @@
  * @typedef {Object} SecretMeta
  * @property {string} name
  * @property {Date} createdAt
- * @property {number} updatedBy
  * @property {number} id
  * @property {boolean} deleted
  * @property {number} spaceId
+ * @property {number} valueDirectoryId
+ * @property {number} createdBy
+ * @property {SecretVersionMeta[]} versionRefs
+ */
+/**
+ * @typedef {Object} SecretVersionMeta
+ * @property {number} id
  * @property {number} version
+ * @property {Date} createdAt
+ * @property {number} createdBy
  */
 /**
  * @typedef {Object} SecretList
  * @property {SecretMeta[]} items
  */
 /**
- * @typedef {Object} SecretSetRequest
+ * @typedef {Object} SecretCreateRequest
  * @property {string} name
  * @property {Uint8Array} value
  * @property {number} spaceId
+ */
+/**
+ * @typedef {Object} SecretSetRequest
+ * @property {Uint8Array} value
  * @property {boolean} updateReferencingDeployments
  * @property {DeploymentConfigVersionRef[]} referencingDeployments
+ * @property {number} secretId
  */
 /**
  * @typedef {Object} SecretPasswordSpec
@@ -611,16 +624,15 @@
  */
 /**
  * @typedef {Object} SecretRenameRequest
- * @property {string} name
  * @property {string} newName
+ * @property {number} secretId
  */
 /**
  * @typedef {Object} SecretDeleteRequest
- * @property {string} name
+ * @property {number} secretId
  */
 /**
  * @typedef {Object} SecretRevealRequest
- * @property {string} name
  * @property {number} id
  */
 /**
@@ -641,36 +653,49 @@
  * @property {string} code
  */
 /**
- * @typedef {Object} Config
+ * @typedef {Object} ConfigMeta
  * @property {string} name
- * @property {string} value
  * @property {Date} createdAt
- * @property {number} updatedBy
  * @property {number} id
  * @property {boolean} deleted
  * @property {number} spaceId
+ * @property {number} valueDirectoryId
+ * @property {number} createdBy
+ * @property {ConfigVersionMeta[]} versionRefs
+ */
+/**
+ * @typedef {Object} ConfigVersionMeta
+ * @property {number} id
  * @property {number} version
+ * @property {string} value
+ * @property {Date} createdAt
+ * @property {number} createdBy
  */
 /**
  * @typedef {Object} ConfigList
- * @property {Config[]} items
+ * @property {ConfigMeta[]} items
  */
 /**
- * @typedef {Object} ConfigSetRequest
+ * @typedef {Object} ConfigCreateRequest
  * @property {string} name
  * @property {string} value
  * @property {number} spaceId
+ */
+/**
+ * @typedef {Object} ConfigSetRequest
+ * @property {string} value
  * @property {boolean} updateReferencingDeployments
  * @property {DeploymentConfigVersionRef[]} referencingDeployments
+ * @property {number} configId
  */
 /**
  * @typedef {Object} ConfigRenameRequest
- * @property {string} name
  * @property {string} newName
+ * @property {number} configId
  */
 /**
  * @typedef {Object} ConfigDeleteRequest
- * @property {string} name
+ * @property {number} configId
  */
 /**
  * @typedef {Object} AssetMeta
@@ -743,15 +768,11 @@
  * @property {User} userUpdate
  * @property {EnrollmentRequestList} enrollmentsSnapshot
  * @property {EnrollmentRequestStatus} enrollmentUpdate
- * @property {SecretReferenceList} secretsSnapshot
- * @property {SecretReference} secretUpdate
- * @property {ConfigReferenceList} userConfigsSnapshot
- * @property {ConfigReference} userConfigUpdate
  * @property {SecretsStatusResponse} secretsStatusSnapshot
  * @property {SecretList} secretMetasSnapshot
  * @property {SecretMeta} secretMetaUpdate
  * @property {ConfigList} userConfigValuesSnapshot
- * @property {Config} userConfigValueUpdate
+ * @property {ConfigMeta} userConfigValueUpdate
  * @property {SpaceList} spacesSnapshot
  * @property {Space} spaceUpdate
  * @property {AssetList} assetsSnapshot
@@ -803,30 +824,6 @@
 /**
  * @typedef {Object} SpaceDeleteRequest
  * @property {number} id
- */
-/**
- * @typedef {Object} SecretReference
- * @property {number} id
- * @property {string} name
- * @property {boolean} deleted
- * @property {number} spaceId
- * @property {number} version
- */
-/**
- * @typedef {Object} SecretReferenceList
- * @property {SecretReference[]} items
- */
-/**
- * @typedef {Object} ConfigReference
- * @property {number} id
- * @property {string} name
- * @property {boolean} deleted
- * @property {number} spaceId
- * @property {number} version
- */
-/**
- * @typedef {Object} ConfigReferenceList
- * @property {ConfigReference[]} items
  */
 /**
  * @typedef {Object} ClusterMachineList
@@ -1010,11 +1007,11 @@
  */
 /**
  * @typedef {Object} SecretRef
- * @property {number} id
+ * @property {number} versionId
  */
 /**
  * @typedef {Object} ConfigRef
- * @property {number} id
+ * @property {number} versionId
  */
 /**
  * @typedef {Object} StringSetting
@@ -5605,11 +5602,11 @@ export function decodeCrossDeploymentMount(buffer) {
  * @param {Writer} writer
  */
 export function writeEnvVarValue(message, writer) {
-    if (message.secretId !== undefined && message.secretId !== null) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.secretId);
+    if (message.secretVersionId !== undefined && message.secretVersionId !== null) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.secretVersionId);
     }
-    if (message.configId !== undefined && message.configId !== null) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.configId);
+    if (message.configVersionId !== undefined && message.configVersionId !== null) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.configVersionId);
     }
     if (message.value !== undefined && message.value !== null) {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
@@ -5647,16 +5644,16 @@ export function encodeEnvVarValue(message) {
  */
 function decodeEnvVarValueMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {secretId: undefined, configId: undefined, value: undefined, asset: "", assetVersionId: 0, addressDeploymentId: undefined, addressSpaceId: undefined };
+    const message = {secretVersionId: undefined, configVersionId: undefined, value: undefined, asset: "", assetVersionId: 0, addressDeploymentId: undefined, addressSpaceId: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.secretId = reader.int32();
+                message.secretVersionId = reader.int32();
                 break;
             }
             case 2: {
-                message.configId = reader.int32();
+                message.configVersionId = reader.int32();
                 break;
             }
             case 3: {
@@ -8059,9 +8056,6 @@ export function writeSecretMeta(message, writer) {
     if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
     }
-    if (message.updatedBy !== undefined && message.updatedBy !== null && message.updatedBy !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int32(message.updatedBy);
-    }
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(6, WIRE.VARINT)).int32(message.id);
     }
@@ -8071,8 +8065,18 @@ export function writeSecretMeta(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(8, WIRE.VARINT)).int32(message.spaceId);
     }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(9, WIRE.VARINT)).int32(message.version);
+    if (message.valueDirectoryId !== undefined && message.valueDirectoryId !== null && message.valueDirectoryId !== 0) {
+        writer.uint32(tag(10, WIRE.VARINT)).int32(message.valueDirectoryId);
+    }
+    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
+        writer.uint32(tag(11, WIRE.VARINT)).int32(message.createdBy);
+    }
+    if (message.versionRefs && message.versionRefs.length > 0) {
+        for (const item of message.versionRefs) {
+            writer.uint32(tag(12, WIRE.LDELIM)).fork();
+            writeSecretVersionMeta(item, writer);
+            writer.ldelim();
+        }
     }
 }
 
@@ -8095,7 +8099,7 @@ export function encodeSecretMeta(message) {
  */
 function decodeSecretMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", createdAt: new Date(0), updatedBy: 0, id: 0, deleted: false, spaceId: 0, version: 0 };
+    const message = {name: "", createdAt: new Date(0), id: 0, deleted: false, spaceId: 0, valueDirectoryId: 0, createdBy: 0, versionRefs: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -8105,10 +8109,6 @@ function decodeSecretMetaMessage(reader, length) {
             }
             case 3: {
                 message.createdAt = new Date(readInt64(reader, "int64"));
-                break;
-            }
-            case 5: {
-                message.updatedBy = reader.int32();
                 break;
             }
             case 6: {
@@ -8123,8 +8123,16 @@ function decodeSecretMetaMessage(reader, length) {
                 message.spaceId = reader.int32();
                 break;
             }
-            case 9: {
-                message.version = reader.int32();
+            case 10: {
+                message.valueDirectoryId = reader.int32();
+                break;
+            }
+            case 11: {
+                message.createdBy = reader.int32();
+                break;
+            }
+            case 12: {
+                message.versionRefs.push(decodeSecretVersionMetaMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -8142,6 +8150,83 @@ function decodeSecretMetaMessage(reader, length) {
 export function decodeSecretMeta(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeSecretMetaMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretVersionMeta} message
+ * @param {Writer} writer
+ */
+export function writeSecretVersionMeta(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
+    }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.createdBy);
+    }
+}
+
+
+/**
+ * @param {SecretVersionMeta} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretVersionMeta(message) {
+    const writer = Writer.create();
+    writeSecretVersionMeta(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretVersionMeta}
+ */
+function decodeSecretVersionMetaMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, version: 0, createdAt: new Date(0), createdBy: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.version = reader.int32();
+                break;
+            }
+            case 3: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 4: {
+                message.createdBy = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretVersionMeta}
+ */
+export function decodeSecretVersionMeta(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretVersionMetaMessage(reader);
 }
 
 
@@ -8207,10 +8292,10 @@ export function decodeSecretList(buffer) {
 
 
 /**
- * @param {SecretSetRequest} message
+ * @param {SecretCreateRequest} message
  * @param {Writer} writer
  */
-export function writeSecretSetRequest(message, writer) {
+export function writeSecretCreateRequest(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
     }
@@ -8219,6 +8304,70 @@ export function writeSecretSetRequest(message, writer) {
     }
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.spaceId);
+    }
+}
+
+
+/**
+ * @param {SecretCreateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretCreateRequest(message) {
+    const writer = Writer.create();
+    writeSecretCreateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretCreateRequest}
+ */
+function decodeSecretCreateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "", value: new Uint8Array(0), spaceId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 3: {
+                message.value = reader.bytes();
+                break;
+            }
+            case 4: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretCreateRequest}
+ */
+export function decodeSecretCreateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretCreateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretSetRequest} message
+ * @param {Writer} writer
+ */
+export function writeSecretSetRequest(message, writer) {
+    if (message.value && message.value.length > 0) {
+        writer.uint32(tag(3, WIRE.LDELIM)).bytes(message.value);
     }
     if (message.updateReferencingDeployments === true) {
         writer.uint32(tag(5, WIRE.VARINT)).bool(message.updateReferencingDeployments);
@@ -8229,6 +8378,9 @@ export function writeSecretSetRequest(message, writer) {
             writeDeploymentConfigVersionRef(item, writer);
             writer.ldelim();
         }
+    }
+    if (message.secretId !== undefined && message.secretId !== null && message.secretId !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.secretId);
     }
 }
 
@@ -8251,20 +8403,12 @@ export function encodeSecretSetRequest(message) {
  */
 function decodeSecretSetRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", value: new Uint8Array(0), spaceId: 0, updateReferencingDeployments: false, referencingDeployments: [] };
+    const message = {value: new Uint8Array(0), updateReferencingDeployments: false, referencingDeployments: [], secretId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.name = reader.string();
-                break;
-            }
             case 3: {
                 message.value = reader.bytes();
-                break;
-            }
-            case 4: {
-                message.spaceId = reader.int32();
                 break;
             }
             case 5: {
@@ -8273,6 +8417,10 @@ function decodeSecretSetRequestMessage(reader, length) {
             }
             case 6: {
                 message.referencingDeployments.push(decodeDeploymentConfigVersionRefMessage(reader, reader.uint32()));
+                break;
+            }
+            case 7: {
+                message.secretId = reader.int32();
                 break;
             }
             default:
@@ -8434,11 +8582,11 @@ export function decodeSecretGenerateRequest(buffer) {
  * @param {Writer} writer
  */
 export function writeSecretRenameRequest(message, writer) {
-    if (message.name !== undefined && message.name !== null && message.name !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
-    }
     if (message.newName !== undefined && message.newName !== null && message.newName !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.newName);
+    }
+    if (message.secretId !== undefined && message.secretId !== null && message.secretId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.secretId);
     }
 }
 
@@ -8461,16 +8609,16 @@ export function encodeSecretRenameRequest(message) {
  */
 function decodeSecretRenameRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", newName: "" };
+    const message = {newName: "", secretId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.name = reader.string();
-                break;
-            }
             case 2: {
                 message.newName = reader.string();
+                break;
+            }
+            case 3: {
+                message.secretId = reader.int32();
                 break;
             }
             default:
@@ -8497,8 +8645,8 @@ export function decodeSecretRenameRequest(buffer) {
  * @param {Writer} writer
  */
 export function writeSecretDeleteRequest(message, writer) {
-    if (message.name !== undefined && message.name !== null && message.name !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    if (message.secretId !== undefined && message.secretId !== null && message.secretId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.secretId);
     }
 }
 
@@ -8521,12 +8669,12 @@ export function encodeSecretDeleteRequest(message) {
  */
 function decodeSecretDeleteRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "" };
+    const message = {secretId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.name = reader.string();
+            case 2: {
+                message.secretId = reader.int32();
                 break;
             }
             default:
@@ -8553,9 +8701,6 @@ export function decodeSecretDeleteRequest(buffer) {
  * @param {Writer} writer
  */
 export function writeSecretRevealRequest(message, writer) {
-    if (message.name !== undefined && message.name !== null && message.name !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
-    }
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.id);
     }
@@ -8580,14 +8725,10 @@ export function encodeSecretRevealRequest(message) {
  */
 function decodeSecretRevealRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", id: 0 };
+    const message = {id: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.name = reader.string();
-                break;
-            }
             case 2: {
                 message.id = reader.int32();
                 break;
@@ -8843,21 +8984,15 @@ export function decodeSecretUnlockRequest(buffer) {
 
 
 /**
- * @param {Config} message
+ * @param {ConfigMeta} message
  * @param {Writer} writer
  */
-export function writeConfig(message, writer) {
+export function writeConfigMeta(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
     }
-    if (message.value !== undefined && message.value !== null && message.value !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
-    }
     if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
-    }
-    if (message.updatedBy !== undefined && message.updatedBy !== null && message.updatedBy !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.updatedBy);
     }
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(7, WIRE.VARINT)).int32(message.id);
@@ -8868,19 +9003,29 @@ export function writeConfig(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(9, WIRE.VARINT)).int32(message.spaceId);
     }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(10, WIRE.VARINT)).int32(message.version);
+    if (message.valueDirectoryId !== undefined && message.valueDirectoryId !== null && message.valueDirectoryId !== 0) {
+        writer.uint32(tag(11, WIRE.VARINT)).int32(message.valueDirectoryId);
+    }
+    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
+        writer.uint32(tag(12, WIRE.VARINT)).int32(message.createdBy);
+    }
+    if (message.versionRefs && message.versionRefs.length > 0) {
+        for (const item of message.versionRefs) {
+            writer.uint32(tag(13, WIRE.LDELIM)).fork();
+            writeConfigVersionMeta(item, writer);
+            writer.ldelim();
+        }
     }
 }
 
 
 /**
- * @param {Config} message
+ * @param {ConfigMeta} message
  * @returns {Uint8Array}
  */
-export function encodeConfig(message) {
+export function encodeConfigMeta(message) {
     const writer = Writer.create();
-    writeConfig(message, writer);
+    writeConfigMeta(message, writer);
     return writer.finish();
 }
 
@@ -8888,11 +9033,11 @@ export function encodeConfig(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {Config}
+ * @returns {ConfigMeta}
  */
-function decodeConfigMessage(reader, length) {
+function decodeConfigMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", value: "", createdAt: new Date(0), updatedBy: 0, id: 0, deleted: false, spaceId: 0, version: 0 };
+    const message = {name: "", createdAt: new Date(0), id: 0, deleted: false, spaceId: 0, valueDirectoryId: 0, createdBy: 0, versionRefs: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -8900,16 +9045,8 @@ function decodeConfigMessage(reader, length) {
                 message.name = reader.string();
                 break;
             }
-            case 3: {
-                message.value = reader.string();
-                break;
-            }
             case 4: {
                 message.createdAt = new Date(readInt64(reader, "int64"));
-                break;
-            }
-            case 6: {
-                message.updatedBy = reader.int32();
                 break;
             }
             case 7: {
@@ -8924,8 +9061,16 @@ function decodeConfigMessage(reader, length) {
                 message.spaceId = reader.int32();
                 break;
             }
-            case 10: {
-                message.version = reader.int32();
+            case 11: {
+                message.valueDirectoryId = reader.int32();
+                break;
+            }
+            case 12: {
+                message.createdBy = reader.int32();
+                break;
+            }
+            case 13: {
+                message.versionRefs.push(decodeConfigVersionMetaMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -8938,11 +9083,95 @@ function decodeConfigMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {Config}
+ * @returns {ConfigMeta}
  */
-export function decodeConfig(buffer) {
+export function decodeConfigMeta(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeConfigMessage(reader);
+    return decodeConfigMetaMessage(reader);
+}
+
+
+
+/**
+ * @param {ConfigVersionMeta} message
+ * @param {Writer} writer
+ */
+export function writeConfigVersionMeta(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
+    }
+    if (message.value !== undefined && message.value !== null && message.value !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
+    }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.createdBy);
+    }
+}
+
+
+/**
+ * @param {ConfigVersionMeta} message
+ * @returns {Uint8Array}
+ */
+export function encodeConfigVersionMeta(message) {
+    const writer = Writer.create();
+    writeConfigVersionMeta(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ConfigVersionMeta}
+ */
+function decodeConfigVersionMetaMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, version: 0, value: "", createdAt: new Date(0), createdBy: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.version = reader.int32();
+                break;
+            }
+            case 3: {
+                message.value = reader.string();
+                break;
+            }
+            case 4: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 5: {
+                message.createdBy = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ConfigVersionMeta}
+ */
+export function decodeConfigVersionMeta(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeConfigVersionMetaMessage(reader);
 }
 
 
@@ -8955,7 +9184,7 @@ export function writeConfigList(message, writer) {
     if (message.items && message.items.length > 0) {
         for (const item of message.items) {
             writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeConfig(item, writer);
+            writeConfigMeta(item, writer);
             writer.ldelim();
         }
     }
@@ -8985,7 +9214,7 @@ function decodeConfigListMessage(reader, length) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.items.push(decodeConfigMessage(reader, reader.uint32()));
+                message.items.push(decodeConfigMetaMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -9008,10 +9237,10 @@ export function decodeConfigList(buffer) {
 
 
 /**
- * @param {ConfigSetRequest} message
+ * @param {ConfigCreateRequest} message
  * @param {Writer} writer
  */
-export function writeConfigSetRequest(message, writer) {
+export function writeConfigCreateRequest(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
     }
@@ -9020,6 +9249,70 @@ export function writeConfigSetRequest(message, writer) {
     }
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.spaceId);
+    }
+}
+
+
+/**
+ * @param {ConfigCreateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeConfigCreateRequest(message) {
+    const writer = Writer.create();
+    writeConfigCreateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ConfigCreateRequest}
+ */
+function decodeConfigCreateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "", value: "", spaceId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 3: {
+                message.value = reader.string();
+                break;
+            }
+            case 4: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ConfigCreateRequest}
+ */
+export function decodeConfigCreateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeConfigCreateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {ConfigSetRequest} message
+ * @param {Writer} writer
+ */
+export function writeConfigSetRequest(message, writer) {
+    if (message.value !== undefined && message.value !== null && message.value !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
     }
     if (message.updateReferencingDeployments === true) {
         writer.uint32(tag(5, WIRE.VARINT)).bool(message.updateReferencingDeployments);
@@ -9030,6 +9323,9 @@ export function writeConfigSetRequest(message, writer) {
             writeDeploymentConfigVersionRef(item, writer);
             writer.ldelim();
         }
+    }
+    if (message.configId !== undefined && message.configId !== null && message.configId !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.configId);
     }
 }
 
@@ -9052,20 +9348,12 @@ export function encodeConfigSetRequest(message) {
  */
 function decodeConfigSetRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", value: "", spaceId: 0, updateReferencingDeployments: false, referencingDeployments: [] };
+    const message = {value: "", updateReferencingDeployments: false, referencingDeployments: [], configId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.name = reader.string();
-                break;
-            }
             case 3: {
                 message.value = reader.string();
-                break;
-            }
-            case 4: {
-                message.spaceId = reader.int32();
                 break;
             }
             case 5: {
@@ -9074,6 +9362,10 @@ function decodeConfigSetRequestMessage(reader, length) {
             }
             case 6: {
                 message.referencingDeployments.push(decodeDeploymentConfigVersionRefMessage(reader, reader.uint32()));
+                break;
+            }
+            case 7: {
+                message.configId = reader.int32();
                 break;
             }
             default:
@@ -9100,11 +9392,11 @@ export function decodeConfigSetRequest(buffer) {
  * @param {Writer} writer
  */
 export function writeConfigRenameRequest(message, writer) {
-    if (message.name !== undefined && message.name !== null && message.name !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
-    }
     if (message.newName !== undefined && message.newName !== null && message.newName !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.newName);
+    }
+    if (message.configId !== undefined && message.configId !== null && message.configId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.configId);
     }
 }
 
@@ -9127,16 +9419,16 @@ export function encodeConfigRenameRequest(message) {
  */
 function decodeConfigRenameRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", newName: "" };
+    const message = {newName: "", configId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.name = reader.string();
-                break;
-            }
             case 2: {
                 message.newName = reader.string();
+                break;
+            }
+            case 3: {
+                message.configId = reader.int32();
                 break;
             }
             default:
@@ -9163,8 +9455,8 @@ export function decodeConfigRenameRequest(buffer) {
  * @param {Writer} writer
  */
 export function writeConfigDeleteRequest(message, writer) {
-    if (message.name !== undefined && message.name !== null && message.name !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    if (message.configId !== undefined && message.configId !== null && message.configId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.configId);
     }
 }
 
@@ -9187,12 +9479,12 @@ export function encodeConfigDeleteRequest(message) {
  */
 function decodeConfigDeleteRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "" };
+    const message = {configId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.name = reader.string();
+            case 2: {
+                message.configId = reader.int32();
                 break;
             }
             default:
@@ -9948,26 +10240,6 @@ export function writeState(message, writer) {
         writeEnrollmentRequestStatus(message.enrollmentUpdate, writer);
         writer.ldelim();
     }
-    if (message.secretsSnapshot !== undefined && message.secretsSnapshot !== null) {
-        writer.uint32(tag(12, WIRE.LDELIM)).fork();
-        writeSecretReferenceList(message.secretsSnapshot, writer);
-        writer.ldelim();
-    }
-    if (message.secretUpdate !== undefined && message.secretUpdate !== null) {
-        writer.uint32(tag(13, WIRE.LDELIM)).fork();
-        writeSecretReference(message.secretUpdate, writer);
-        writer.ldelim();
-    }
-    if (message.userConfigsSnapshot !== undefined && message.userConfigsSnapshot !== null) {
-        writer.uint32(tag(14, WIRE.LDELIM)).fork();
-        writeConfigReferenceList(message.userConfigsSnapshot, writer);
-        writer.ldelim();
-    }
-    if (message.userConfigUpdate !== undefined && message.userConfigUpdate !== null) {
-        writer.uint32(tag(15, WIRE.LDELIM)).fork();
-        writeConfigReference(message.userConfigUpdate, writer);
-        writer.ldelim();
-    }
     if (message.secretsStatusSnapshot !== undefined && message.secretsStatusSnapshot !== null) {
         writer.uint32(tag(16, WIRE.LDELIM)).fork();
         writeSecretsStatusResponse(message.secretsStatusSnapshot, writer);
@@ -9990,7 +10262,7 @@ export function writeState(message, writer) {
     }
     if (message.userConfigValueUpdate !== undefined && message.userConfigValueUpdate !== null) {
         writer.uint32(tag(20, WIRE.LDELIM)).fork();
-        writeConfig(message.userConfigValueUpdate, writer);
+        writeConfigMeta(message.userConfigValueUpdate, writer);
         writer.ldelim();
     }
     if (message.spacesSnapshot !== undefined && message.spacesSnapshot !== null) {
@@ -10089,7 +10361,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentConfigsSnapshot: undefined, deploymentConfigUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsSnapshot: undefined, secretUpdate: undefined, userConfigsSnapshot: undefined, userConfigUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined, scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, agentSessionsSnapshot: undefined, agentSessionUpdate: undefined };
+    const message = {heartbeat: false, deploymentConfigsSnapshot: undefined, deploymentConfigUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined, scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, agentSessionsSnapshot: undefined, agentSessionUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10121,22 +10393,6 @@ function decodeStateMessage(reader, length) {
                 message.enrollmentUpdate = decodeEnrollmentRequestStatusMessage(reader, reader.uint32());
                 break;
             }
-            case 12: {
-                message.secretsSnapshot = decodeSecretReferenceListMessage(reader, reader.uint32());
-                break;
-            }
-            case 13: {
-                message.secretUpdate = decodeSecretReferenceMessage(reader, reader.uint32());
-                break;
-            }
-            case 14: {
-                message.userConfigsSnapshot = decodeConfigReferenceListMessage(reader, reader.uint32());
-                break;
-            }
-            case 15: {
-                message.userConfigUpdate = decodeConfigReferenceMessage(reader, reader.uint32());
-                break;
-            }
             case 16: {
                 message.secretsStatusSnapshot = decodeSecretsStatusResponseMessage(reader, reader.uint32());
                 break;
@@ -10154,7 +10410,7 @@ function decodeStateMessage(reader, length) {
                 break;
             }
             case 20: {
-                message.userConfigValueUpdate = decodeConfigMessage(reader, reader.uint32());
+                message.userConfigValueUpdate = decodeConfigMetaMessage(reader, reader.uint32());
                 break;
             }
             case 21: {
@@ -10698,294 +10954,6 @@ function decodeSpaceDeleteRequestMessage(reader, length) {
 export function decodeSpaceDeleteRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeSpaceDeleteRequestMessage(reader);
-}
-
-
-
-/**
- * @param {SecretReference} message
- * @param {Writer} writer
- */
-export function writeSecretReference(message, writer) {
-    if (message.id !== undefined && message.id !== null && message.id !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
-    }
-    if (message.name !== undefined && message.name !== null && message.name !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
-    }
-    if (message.deleted === true) {
-        writer.uint32(tag(3, WIRE.VARINT)).bool(message.deleted);
-    }
-    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.spaceId);
-    }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int32(message.version);
-    }
-}
-
-
-/**
- * @param {SecretReference} message
- * @returns {Uint8Array}
- */
-export function encodeSecretReference(message) {
-    const writer = Writer.create();
-    writeSecretReference(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {SecretReference}
- */
-function decodeSecretReferenceMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", deleted: false, spaceId: 0, version: 0 };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.id = reader.int32();
-                break;
-            }
-            case 2: {
-                message.name = reader.string();
-                break;
-            }
-            case 3: {
-                message.deleted = reader.bool();
-                break;
-            }
-            case 4: {
-                message.spaceId = reader.int32();
-                break;
-            }
-            case 5: {
-                message.version = reader.int32();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {SecretReference}
- */
-export function decodeSecretReference(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeSecretReferenceMessage(reader);
-}
-
-
-
-/**
- * @param {SecretReferenceList} message
- * @param {Writer} writer
- */
-export function writeSecretReferenceList(message, writer) {
-    if (message.items && message.items.length > 0) {
-        for (const item of message.items) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeSecretReference(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {SecretReferenceList} message
- * @returns {Uint8Array}
- */
-export function encodeSecretReferenceList(message) {
-    const writer = Writer.create();
-    writeSecretReferenceList(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {SecretReferenceList}
- */
-function decodeSecretReferenceListMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {items: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.items.push(decodeSecretReferenceMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {SecretReferenceList}
- */
-export function decodeSecretReferenceList(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeSecretReferenceListMessage(reader);
-}
-
-
-
-/**
- * @param {ConfigReference} message
- * @param {Writer} writer
- */
-export function writeConfigReference(message, writer) {
-    if (message.id !== undefined && message.id !== null && message.id !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
-    }
-    if (message.name !== undefined && message.name !== null && message.name !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
-    }
-    if (message.deleted === true) {
-        writer.uint32(tag(3, WIRE.VARINT)).bool(message.deleted);
-    }
-    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.spaceId);
-    }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int32(message.version);
-    }
-}
-
-
-/**
- * @param {ConfigReference} message
- * @returns {Uint8Array}
- */
-export function encodeConfigReference(message) {
-    const writer = Writer.create();
-    writeConfigReference(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ConfigReference}
- */
-function decodeConfigReferenceMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", deleted: false, spaceId: 0, version: 0 };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.id = reader.int32();
-                break;
-            }
-            case 2: {
-                message.name = reader.string();
-                break;
-            }
-            case 3: {
-                message.deleted = reader.bool();
-                break;
-            }
-            case 4: {
-                message.spaceId = reader.int32();
-                break;
-            }
-            case 5: {
-                message.version = reader.int32();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ConfigReference}
- */
-export function decodeConfigReference(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeConfigReferenceMessage(reader);
-}
-
-
-
-/**
- * @param {ConfigReferenceList} message
- * @param {Writer} writer
- */
-export function writeConfigReferenceList(message, writer) {
-    if (message.items && message.items.length > 0) {
-        for (const item of message.items) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeConfigReference(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {ConfigReferenceList} message
- * @returns {Uint8Array}
- */
-export function encodeConfigReferenceList(message) {
-    const writer = Writer.create();
-    writeConfigReferenceList(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ConfigReferenceList}
- */
-function decodeConfigReferenceListMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {items: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.items.push(decodeConfigReferenceMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ConfigReferenceList}
- */
-export function decodeConfigReferenceList(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeConfigReferenceListMessage(reader);
 }
 
 
@@ -13180,8 +13148,8 @@ export function decodeIngressBackend(buffer) {
  * @param {Writer} writer
  */
 export function writeSecretRef(message, writer) {
-    if (message.id !== undefined && message.id !== null && message.id !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.id);
+    if (message.versionId !== undefined && message.versionId !== null && message.versionId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.versionId);
     }
 }
 
@@ -13204,12 +13172,12 @@ export function encodeSecretRef(message) {
  */
 function decodeSecretRefMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0 };
+    const message = {versionId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 3: {
-                message.id = reader.int32();
+                message.versionId = reader.int32();
                 break;
             }
             default:
@@ -13236,8 +13204,8 @@ export function decodeSecretRef(buffer) {
  * @param {Writer} writer
  */
 export function writeConfigRef(message, writer) {
-    if (message.id !== undefined && message.id !== null && message.id !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.id);
+    if (message.versionId !== undefined && message.versionId !== null && message.versionId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.versionId);
     }
 }
 
@@ -13260,12 +13228,12 @@ export function encodeConfigRef(message) {
  */
 function decodeConfigRefMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0 };
+    const message = {versionId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 3: {
-                message.id = reader.int32();
+                message.versionId = reader.int32();
                 break;
             }
             default:

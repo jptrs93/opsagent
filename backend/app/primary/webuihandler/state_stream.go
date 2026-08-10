@@ -24,14 +24,10 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 		defer secretStatusUnsub()
 		configSub := h.ConfigService.VersionedSnapshotAndSubscribe()
 		defer configSub.UnsubscribeFunc()
-		secretSub, secretUnsub := h.Store.SubscribeSecretReferenceUpdates()
-		defer secretUnsub()
 		secretMetaSub, secretMetaUnsub := h.Store.SubscribeSecretMetaUpdates()
 		defer secretMetaUnsub()
-		userConfigSub, userConfigUnsub := h.Store.SubscribeUserConfigReferenceUpdates()
+		userConfigSub, userConfigUnsub := h.Store.SubscribeConfigMetaUpdates()
 		defer userConfigUnsub()
-		userConfigValueSub, userConfigValueUnsub := h.Store.SubscribeUserConfigValueUpdates()
-		defer userConfigValueUnsub()
 		spaceSub, spaceUnsub := h.Store.SubscribeSpaceUpdates()
 		defer spaceUnsub()
 		assetSub, assetUnsub := h.Store.SubscribeAssetUpdates()
@@ -79,11 +75,9 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 			ScheduledInstancesSnapshot: &apigen.ScheduledInstanceSnapshot{Items: items},
 			UsersSnapshot:              h.Store.ListUsersPublic(),
 			EnrollmentsSnapshot:        &apigen.EnrollmentRequestList{Items: enrollments},
-			SecretsSnapshot:            &apigen.SecretReferenceList{Items: h.Store.ListSecretReferences()},
-			UserConfigsSnapshot:        &apigen.ConfigReferenceList{Items: h.Store.ListUserConfigReferences()},
 			SecretsStatusSnapshot:      &secretStatus,
-			SecretMetasSnapshot:        &apigen.SecretList{Items: h.listAllSecretMetas()},
-			UserConfigValuesSnapshot:   &apigen.ConfigList{Items: h.Store.ListAllUserConfigs()},
+			SecretMetasSnapshot:        &apigen.SecretList{Items: h.Store.ListSecretMetas()},
+			UserConfigValuesSnapshot:   &apigen.ConfigList{Items: h.Store.ListConfigMetas()},
 			SpacesSnapshot:             &apigen.SpaceList{Items: h.Store.ListSpaces()},
 			AssetsSnapshot:             &apigen.AssetList{Items: h.Store.ListAssets()},
 			NodesSnapshot:              &apigen.ClusterNodeList{Items: h.Store.ListClusterNodes()},
@@ -146,13 +140,6 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !yield(&apigen.State{ConfigSnapshot: config}, nil) {
 					return
 				}
-			case secret, ok := <-secretSub.Ch:
-				if !ok {
-					return
-				}
-				if !yield(&apigen.State{SecretUpdate: &secret}, nil) {
-					return
-				}
 			case secretMeta, ok := <-secretMetaSub.Ch:
 				if !ok {
 					return
@@ -164,14 +151,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !ok {
 					return
 				}
-				if !yield(&apigen.State{UserConfigUpdate: &userConfig}, nil) {
-					return
-				}
-			case userConfigValue, ok := <-userConfigValueSub.Ch:
-				if !ok {
-					return
-				}
-				if !yield(&apigen.State{UserConfigValueUpdate: &userConfigValue}, nil) {
+				if !yield(&apigen.State{UserConfigValueUpdate: &userConfig}, nil) {
 					return
 				}
 			case space, ok := <-spaceSub.Ch:

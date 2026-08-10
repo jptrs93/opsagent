@@ -220,11 +220,11 @@ func buildAllowedRefs(snapshot []apigen.ScheduledInstanceState) clusterAllowedRe
 			if value == nil {
 				continue
 			}
-			if value.SecretID != nil && *value.SecretID > 0 {
-				refs.secretIDs[*value.SecretID] = struct{}{}
+			if value.SecretVersionID != nil && *value.SecretVersionID > 0 {
+				refs.secretIDs[*value.SecretVersionID] = struct{}{}
 			}
-			if value.ConfigID != nil && *value.ConfigID > 0 {
-				refs.configIDs[*value.ConfigID] = struct{}{}
+			if value.ConfigVersionID != nil && *value.ConfigVersionID > 0 {
+				refs.configIDs[*value.ConfigVersionID] = struct{}{}
 			}
 			if value.AssetVersionID > 0 {
 				refs.assetIDs[value.AssetVersionID] = struct{}{}

@@ -169,7 +169,7 @@ func backupConfigSignalFromDynamic(loader config.Loader, cfg *apigen.ClusterSett
 	}
 	signal.AccessKeyID = loader.MustLoadConfigStringValue(cfg.Backup.S3AccessKeyID)
 	secretRef := cfg.Backup.S3SecretAccessKey
-	signal.SecretID = secretRef.ID
+	signal.SecretID = secretRef.VersionID
 	if secretSource != nil && signal.SecretID != 0 {
 		if meta, ok := secretSource.MetaByID(signal.SecretID); ok {
 			signal.SecretUpdatedAt = meta.CreatedAt
@@ -420,10 +420,10 @@ func validateConfig(cfg resolvedBackupConfig) error {
 }
 
 func revealSecretRef(secretSource secretStore, ref apigen.SecretRef) (string, error) {
-	if secretSource == nil || ref.ID == 0 {
+	if secretSource == nil || ref.VersionID == 0 {
 		return "", nil
 	}
-	value, err := secretSource.RevealByID(ref.ID)
+	value, err := secretSource.RevealByID(ref.VersionID)
 	if err != nil {
 		return "", err
 	}

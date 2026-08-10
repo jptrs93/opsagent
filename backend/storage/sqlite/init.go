@@ -40,6 +40,7 @@ func mustInit(dbPath, migrations string) *sql.DB {
 	// silently no-ops against an old-shape table of the same name, so the
 	// schema files can only ever see the target shape.
 	migrateAssetShape(db)
+	migrateValueShape(db)
 	applySchema(db)
 	applyMigrations(db, migrations)
 	return db

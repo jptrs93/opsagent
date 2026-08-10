@@ -1,7 +1,7 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {inlineEditableInput} from "../components/inlineEditableInput.js";
-import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, primaryConfigS, spacesS, userConfigsS} from "../state/deployments.js";
+import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, primaryConfigS, spacesS, userConfigRefsS} from "../state/deployments.js";
 import {deploymentWorkload} from "../lib/deploymentConfig.js";
 import {allowedSpaceNames, editableSpaceIDs, isFixedSpace} from "../lib/nodeSpaces.js";
 
@@ -377,9 +377,9 @@ function secondaryInstallCommand(config, enrollmentInfo, version) {
 
 function resolveStringSetting(setting) {
     if (!setting) return "";
-    const refID = Number(setting.configRef?.id || 0);
+    const refID = Number(setting.configRef?.versionId || 0);
     if (!refID) return (setting.value || "").trim();
-    const item = (userConfigsS.val || []).find(cfg => Number(cfg.id || 0) === refID);
+    const item = (userConfigRefsS.val || []).find(ref => Number(ref.id || 0) === refID);
     return (item?.value || "").trim();
 }
 

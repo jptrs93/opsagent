@@ -112,6 +112,7 @@ type ApiServerHandler interface {
 	PostV1SpacesUpdate(Context, *SpaceSetRequest) (*Space, error)
 	PostV1SpacesDelete(Context, *SpaceDeleteRequest) error
 	PostV1SecretsList(Context, *EmptyRequest) (*SecretList, error)
+	PostV1SecretsCreate(Context, *SecretCreateRequest) (*SecretMeta, error)
 	PostV1SecretsSet(Context, *SecretSetRequest) (*SecretMeta, error)
 	PostV1SecretsGenerate(Context, *SecretGenerateRequest) (*SecretMeta, error)
 	PostV1SecretsRename(Context, *SecretRenameRequest) (*SecretMeta, error)
@@ -121,8 +122,9 @@ type ApiServerHandler interface {
 	PostV1SecretsRotateRecoveryCode(Context, *EmptyRequest) (*SecretRecoveryCodeResponse, error)
 	PostV1SecretsUnlock(Context, *SecretUnlockRequest) (*SecretsStatusResponse, error)
 	PostV1ConfigsList(Context, *EmptyRequest) (*ConfigList, error)
-	PostV1ConfigsSet(Context, *ConfigSetRequest) (*Config, error)
-	PostV1ConfigsRename(Context, *ConfigRenameRequest) (*Config, error)
+	PostV1ConfigsCreate(Context, *ConfigCreateRequest) (*ConfigMeta, error)
+	PostV1ConfigsSet(Context, *ConfigSetRequest) (*ConfigMeta, error)
+	PostV1ConfigsRename(Context, *ConfigRenameRequest) (*ConfigMeta, error)
 	PostV1ConfigsDelete(Context, *ConfigDeleteRequest) error
 	PostV1AssetsList(Context, *EmptyRequest) (*AssetList, error)
 	PostV1AssetsGet(Context, *AssetGetRequest) (*AssetVersion, error)
@@ -636,6 +638,17 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/secrets/list", buildHandlerFunc(config, verifyAuth, postV1SecretsListAccessPolicy, postAuthHandlerPostV1SecretsList, compressionModeAuto, false))
+	postV1SecretsCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"secrets_access"}}
+	postAuthHandlerPostV1SecretsCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretCreateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1SecretsCreate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/secrets/create", buildHandlerFunc(config, verifyAuth, postV1SecretsCreateAccessPolicy, postAuthHandlerPostV1SecretsCreate, compressionModeAuto, false))
 	postV1SecretsSetAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"secrets_access"}}
 	postAuthHandlerPostV1SecretsSet := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretSetRequest)
@@ -739,6 +752,17 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/configs/list", buildHandlerFunc(config, verifyAuth, postV1ConfigsListAccessPolicy, postAuthHandlerPostV1ConfigsList, compressionModeAuto, false))
+	postV1ConfigsCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1ConfigsCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeConfigCreateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1ConfigsCreate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/configs/create", buildHandlerFunc(config, verifyAuth, postV1ConfigsCreateAccessPolicy, postAuthHandlerPostV1ConfigsCreate, compressionModeAuto, false))
 	postV1ConfigsSetAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1ConfigsSet := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeConfigSetRequest)

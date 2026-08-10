@@ -58,34 +58,38 @@ export function secretsPage() {
 
     const makeConfigRow = (config) => {
         const isNew = !config;
+        const latest = config?.versionRefs?.[0];
         return {
             localKey: `local:${nextLocalKey++}`,
             type: "config", isNew, _saved: false,
-            referenceId: config ? config.id : 0,
-            version: config ? config.version : 0,
+            stableId: config ? config.id : 0,
+            referenceId: latest ? latest.id : 0,
+            version: latest ? latest.version : 0,
             name: van.state(config ? config.name : ""),
-            value: van.state(config ? config.value : ""),
-            createdAt: config ? config.createdAt : null,
+            value: van.state(latest ? latest.value : ""),
+            createdAt: latest ? latest.createdAt : null,
             copied: van.state(false),
             saving: van.state(false),
             nameAliases: new Set(),
             orig: {
                 name: config ? config.name : "",
-                value: config ? config.value : "",
+                value: latest ? latest.value : "",
             },
         };
     };
 
     const makeSecretRow = (meta) => {
         const isNew = !meta;
+        const latest = meta?.versionRefs?.[0];
         return {
             localKey: `local:${nextLocalKey++}`,
             type: "secret", meta, isNew, _saved: false,
-            referenceId: meta ? meta.id : 0,
-            version: meta ? meta.version : 0,
+            stableId: meta ? meta.id : 0,
+            referenceId: latest ? latest.id : 0,
+            version: latest ? latest.version : 0,
             name: van.state(meta ? meta.name : ""),
             value: van.state(""),
-            createdAt: meta ? meta.createdAt : null,
+            createdAt: latest ? latest.createdAt : null,
             copied: van.state(false),
             saving: van.state(false),
             nameAliases: new Set(),
@@ -98,44 +102,35 @@ export function secretsPage() {
 
     const rowKey = (row) => row.orig.name ? `${row.type}:${row.orig.name}` : row.localKey;
     const itemKey = (type, item) => `${type}:${item.name}`;
-    const latestByName = (items) => {
-        const latest = new Map();
-        for (const item of items || []) {
-            const name = item?.name || "";
-            if (!name) continue;
-            const current = latest.get(name);
-            if (!current || Number(item.version || 0) > Number(current.version || 0)) latest.set(name, item);
-        }
-        return Array.from(latest.values());
-    };
+    const latestByName = (items) => (items || []).filter(item => item?.name);
     const settingConfigRefs = (settings) => [
-        ["Web UI HTTP enabled", settings?.httpWeb?.enabled?.configRef?.id],
-        ["Web UI HTTP listen", settings?.httpWeb?.listen?.configRef?.id],
-        ["Web UI HTTPS enabled", settings?.httpsWeb?.enabled?.configRef?.id],
-        ["Web UI HTTPS listen", settings?.httpsWeb?.listen?.configRef?.id],
-        ["Web UI use self managed TLS cert", settings?.httpsWeb?.tlsSelfManaged?.configRef?.id],
-        ["Web UI ACME hosts", settings?.httpsWeb?.acmeHosts?.configRef?.id],
-        ["Web UI ACME email", settings?.httpsWeb?.acmeEmail?.configRef?.id],
-        ["Cluster listen", settings?.cluster?.listen?.configRef?.id],
-        ["Cluster enrollment listen", settings?.cluster?.enrollmentListen?.configRef?.id],
-        ["Backup enabled", settings?.backup?.enabled?.configRef?.id],
-        ["Backup S3 access key ID", settings?.backup?.s3AccessKeyId?.configRef?.id],
-        ["Backup S3 bucket", settings?.backup?.s3Bucket?.configRef?.id],
-        ["Backup S3 path", settings?.backup?.s3Path?.configRef?.id],
-        ["Backup S3 region", settings?.backup?.s3Region?.configRef?.id],
-        ["Backup S3 endpoint", settings?.backup?.s3Endpoint?.configRef?.id],
-        ["Use separate large assets S3", settings?.largeAssets?.useSeparateS3?.configRef?.id],
-        ["Large asset S3 access key ID", settings?.largeAssets?.s3AccessKeyId?.configRef?.id],
-        ["Large asset S3 bucket", settings?.largeAssets?.s3Bucket?.configRef?.id],
-        ["Large asset S3 path", settings?.largeAssets?.s3Path?.configRef?.id],
-        ["Large asset S3 region", settings?.largeAssets?.s3Region?.configRef?.id],
-        ["Large asset S3 endpoint", settings?.largeAssets?.s3Endpoint?.configRef?.id],
+        ["Web UI HTTP enabled", settings?.httpWeb?.enabled?.configRef?.versionId],
+        ["Web UI HTTP listen", settings?.httpWeb?.listen?.configRef?.versionId],
+        ["Web UI HTTPS enabled", settings?.httpsWeb?.enabled?.configRef?.versionId],
+        ["Web UI HTTPS listen", settings?.httpsWeb?.listen?.configRef?.versionId],
+        ["Web UI use self managed TLS cert", settings?.httpsWeb?.tlsSelfManaged?.configRef?.versionId],
+        ["Web UI ACME hosts", settings?.httpsWeb?.acmeHosts?.configRef?.versionId],
+        ["Web UI ACME email", settings?.httpsWeb?.acmeEmail?.configRef?.versionId],
+        ["Cluster listen", settings?.cluster?.listen?.configRef?.versionId],
+        ["Cluster enrollment listen", settings?.cluster?.enrollmentListen?.configRef?.versionId],
+        ["Backup enabled", settings?.backup?.enabled?.configRef?.versionId],
+        ["Backup S3 access key ID", settings?.backup?.s3AccessKeyId?.configRef?.versionId],
+        ["Backup S3 bucket", settings?.backup?.s3Bucket?.configRef?.versionId],
+        ["Backup S3 path", settings?.backup?.s3Path?.configRef?.versionId],
+        ["Backup S3 region", settings?.backup?.s3Region?.configRef?.versionId],
+        ["Backup S3 endpoint", settings?.backup?.s3Endpoint?.configRef?.versionId],
+        ["Use separate large assets S3", settings?.largeAssets?.useSeparateS3?.configRef?.versionId],
+        ["Large asset S3 access key ID", settings?.largeAssets?.s3AccessKeyId?.configRef?.versionId],
+        ["Large asset S3 bucket", settings?.largeAssets?.s3Bucket?.configRef?.versionId],
+        ["Large asset S3 path", settings?.largeAssets?.s3Path?.configRef?.versionId],
+        ["Large asset S3 region", settings?.largeAssets?.s3Region?.configRef?.versionId],
+        ["Large asset S3 endpoint", settings?.largeAssets?.s3Endpoint?.configRef?.versionId],
     ].map(([label, id]) => ({label, id: Number(id || 0)})).filter(ref => ref.id);
     const settingSecretRefs = (settings) => [
-        ["Web UI TLS cert PEM", settings?.httpsWeb?.tlsCertPem?.id],
-        ["GitHub token", settings?.repo?.githubToken?.id],
-        ["Backup S3 secret access key", settings?.backup?.s3SecretAccessKey?.id],
-        ["Large asset S3 secret access key", settings?.largeAssets?.s3SecretAccessKey?.id],
+        ["Web UI TLS cert PEM", settings?.httpsWeb?.tlsCertPem?.versionId],
+        ["GitHub token", settings?.repo?.githubToken?.versionId],
+        ["Backup S3 secret access key", settings?.backup?.s3SecretAccessKey?.versionId],
+        ["Large asset S3 secret access key", settings?.largeAssets?.s3SecretAccessKey?.versionId],
     ].map(([label, id]) => ({label, id: Number(id || 0)})).filter(ref => ref.id);
     const itemReferenceIDs = (row) => {
         const name = row.orig.name || rawStateValue(row.name).trim();
@@ -143,7 +138,7 @@ export function secretsPage() {
         const names = new Set([name, ...(row.nameAliases || [])]);
         return new Set((row.type === "secret" ? (secretMetasS.val || []) : (userConfigsS.val || []))
             .filter(item => names.has(item?.name))
-            .map(item => Number(item.id || 0))
+            .flatMap(item => (item.versionRefs || []).map(ref => Number(ref.id || 0)))
             .filter(Boolean));
     };
     const deploymentUsesItem = (deployment, row, referenceIDs = itemReferenceIDs(row)) => {
@@ -151,7 +146,7 @@ export function secretsPage() {
         const cfg = deployment?.config;
         if (!cfg || cfg.deleted) return false;
         const envVars = containerWorkload(cfg)?.runtime?.envVars || {};
-        return Object.values(envVars).some(value => referenceIDs.has(Number(value?.[row.type === "secret" ? "secretId" : "configId"] || 0)));
+        return Object.values(envVars).some(value => referenceIDs.has(Number(value?.[row.type === "secret" ? "secretVersionId" : "configVersionId"] || 0)));
     };
     const referencingDeploymentVersions = (row) => {
         const referenceIDs = itemReferenceIDs(row);
@@ -274,7 +269,7 @@ export function secretsPage() {
             : [];
         const configRows = latestConfigs
             .filter(config => !pendingDeletes.has(itemKey("config", config)))
-            .map(config => preserveOrMake(itemKey("config", config), () => makeConfigRow(config), row => row.name.val.trim() === config.name && row.value.val === config.value));
+            .map(config => preserveOrMake(itemKey("config", config), () => makeConfigRow(config), row => row.name.val.trim() === config.name && row.value.val === (config.versionRefs?.[0]?.value ?? "")));
         const carried = currentRows.filter(row => {
             if (row.saving.val) return pendingDeletes.has(rowKey(row)) || !streamKeys.has(rowKey(row));
             if (row.isNew && !row._saved) return true;
@@ -287,8 +282,8 @@ export function secretsPage() {
         const status = secretsStatusS.val;
         const signature = JSON.stringify({
             status,
-            secrets: (secretMetasS.val || []).map(item => [item.id, item.name, item.version, item.createdAt, item.updatedBy]),
-            configs: (userConfigsS.val || []).map(item => [item.id, item.name, item.version, item.value, item.createdAt, item.updatedBy]),
+            secrets: (secretMetasS.val || []).map(item => [item.id, item.name, (item.versionRefs || []).map(ref => ref.id)]),
+            configs: (userConfigsS.val || []).map(item => [item.id, item.name, (item.versionRefs || []).map(ref => [ref.id, ref.value])]),
             deploymentRefs: (deploymentsS.val || []).map(item => [item.config?.id, item.config?.version, item.config?.deleted, containerWorkload(item.config)?.runtime?.envVars]),
             configVersion: primaryConfigS.val?.version,
         });
@@ -307,9 +302,9 @@ export function secretsPage() {
         try {
             error.val = null;
             if (type === "secret") {
-                await capi.postV1SecretsSet({name, value: new TextEncoder().encode(value)});
+                await capi.postV1SecretsCreate({name, value: new TextEncoder().encode(value)});
             } else {
-                await capi.postV1ConfigsSet({name, value});
+                await capi.postV1ConfigsCreate({name, value});
             }
         } catch (e) {
             error.val = e.message;
@@ -370,14 +365,16 @@ export function secretsPage() {
             error.val = null;
             let saved;
             if (row.type === "secret") {
-                saved = await capi.postV1SecretsRename({name: oldName, newName: name});
+                saved = await capi.postV1SecretsRename({secretId: row.stableId, newName: name});
             } else {
-                saved = await capi.postV1ConfigsRename({name: oldName, newName: name});
+                saved = await capi.postV1ConfigsRename({configId: row.stableId, newName: name});
             }
             row.nameAliases.add(oldName);
-            row.referenceId = Number(saved?.id || row.referenceId || 0);
-            row.version = Number(saved?.version || row.version || 0);
-            row.createdAt = saved?.createdAt || row.createdAt;
+            const savedRef = saved?.versionRefs?.[0];
+            row.stableId = Number(saved?.id || row.stableId || 0);
+            row.referenceId = Number(savedRef?.id || row.referenceId || 0);
+            row.version = Number(savedRef?.version || row.version || 0);
+            row.createdAt = savedRef?.createdAt || row.createdAt;
             if (row.type === "secret" && saved) row.meta = saved;
             row.name.val = name;
             row._saved = true;
@@ -402,27 +399,33 @@ export function secretsPage() {
             error.val = null;
             let saved;
             if (row.type === "config") {
-                saved = await capi.postV1ConfigsSet({
-                    name,
-                    value,
-                    updateReferencingDeployments: updateReferencedDeployments,
-                    referencingDeployments: updateReferencedDeployments ? referencingDeployments : [],
-                });
+                saved = wasNew
+                    ? await capi.postV1ConfigsCreate({name, value})
+                    : await capi.postV1ConfigsSet({
+                        configId: row.stableId,
+                        value,
+                        updateReferencingDeployments: updateReferencedDeployments,
+                        referencingDeployments: updateReferencedDeployments ? referencingDeployments : [],
+                    });
             } else {
-                saved = await capi.postV1SecretsSet({
-                    name,
-                    value: new TextEncoder().encode(value),
-                    updateReferencingDeployments: updateReferencedDeployments,
-                    referencingDeployments: updateReferencedDeployments ? referencingDeployments : [],
-                });
+                saved = wasNew
+                    ? await capi.postV1SecretsCreate({name, value: new TextEncoder().encode(value)})
+                    : await capi.postV1SecretsSet({
+                        secretId: row.stableId,
+                        value: new TextEncoder().encode(value),
+                        updateReferencingDeployments: updateReferencedDeployments,
+                        referencingDeployments: updateReferencedDeployments ? referencingDeployments : [],
+                    });
             }
             if (row.type === "config") {
                 row.value.val = value;
                 row.orig.value = value;
             }
-            row.referenceId = Number(saved?.id || row.referenceId || 0);
-            row.version = Number(saved?.version || row.version || 0);
-            row.createdAt = saved?.createdAt || row.createdAt;
+            const savedRef = saved?.versionRefs?.[0];
+            row.stableId = Number(saved?.id || row.stableId || 0);
+            row.referenceId = Number(savedRef?.id || row.referenceId || 0);
+            row.version = Number(savedRef?.version || row.version || 0);
+            row.createdAt = savedRef?.createdAt || row.createdAt;
             if (row.type === "secret" && saved) row.meta = saved;
             row.isNew = false;
             if (wasNew) {
@@ -447,8 +450,8 @@ export function secretsPage() {
     const deleteRow = async (row) => {
         try {
             error.val = null;
-            if (row.type === "secret") await capi.postV1SecretsDelete({name: row.orig.name});
-            else await capi.postV1ConfigsDelete({name: row.orig.name});
+            if (row.type === "secret") await capi.postV1SecretsDelete({secretId: row.stableId});
+            else await capi.postV1ConfigsDelete({configId: row.stableId});
             pendingDeletes.add(rowKey(row));
             return true;
         } catch (e) {

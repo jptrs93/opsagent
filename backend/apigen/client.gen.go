@@ -924,6 +924,25 @@ func (c *ApiServerCapi) PostV1SecretsList(ctx context.Context, req *EmptyRequest
 	return DecodeSecretList(body)
 }
 
+func (c *ApiServerCapi) PostV1SecretsCreate(ctx context.Context, req *SecretCreateRequest) (*SecretMeta, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1SecretsCreate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/secrets/create", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeSecretMeta(body)
+}
+
 func (c *ApiServerCapi) PostV1SecretsSet(ctx context.Context, req *SecretSetRequest) (*SecretMeta, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsSet request is nil")
@@ -1091,7 +1110,26 @@ func (c *ApiServerCapi) PostV1ConfigsList(ctx context.Context, req *EmptyRequest
 	return DecodeConfigList(body)
 }
 
-func (c *ApiServerCapi) PostV1ConfigsSet(ctx context.Context, req *ConfigSetRequest) (*Config, error) {
+func (c *ApiServerCapi) PostV1ConfigsCreate(ctx context.Context, req *ConfigCreateRequest) (*ConfigMeta, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1ConfigsCreate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/configs/create", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeConfigMeta(body)
+}
+
+func (c *ApiServerCapi) PostV1ConfigsSet(ctx context.Context, req *ConfigSetRequest) (*ConfigMeta, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1ConfigsSet request is nil")
 	}
@@ -1107,10 +1145,10 @@ func (c *ApiServerCapi) PostV1ConfigsSet(ctx context.Context, req *ConfigSetRequ
 	if err != nil {
 		return nil, err
 	}
-	return DecodeConfig(body)
+	return DecodeConfigMeta(body)
 }
 
-func (c *ApiServerCapi) PostV1ConfigsRename(ctx context.Context, req *ConfigRenameRequest) (*Config, error) {
+func (c *ApiServerCapi) PostV1ConfigsRename(ctx context.Context, req *ConfigRenameRequest) (*ConfigMeta, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1ConfigsRename request is nil")
 	}
@@ -1126,7 +1164,7 @@ func (c *ApiServerCapi) PostV1ConfigsRename(ctx context.Context, req *ConfigRena
 	if err != nil {
 		return nil, err
 	}
-	return DecodeConfig(body)
+	return DecodeConfigMeta(body)
 }
 
 func (c *ApiServerCapi) PostV1ConfigsDelete(ctx context.Context, req *ConfigDeleteRequest) error {

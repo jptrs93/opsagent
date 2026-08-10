@@ -33,17 +33,17 @@ func TestGenerateSecretStoresAValueTheCallerNeverSees(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1SecretsGenerate: %v", err)
 	}
-	if meta.Name != "db-password" || meta.ID == 0 {
-		t.Fatalf("meta = %+v, want a named secret with an id", meta)
+	if meta.Name != "db-password" || meta.ID == 0 || len(meta.VersionRefs) != 1 {
+		t.Fatalf("meta = %+v, want a named secret with an id and one version", meta)
 	}
-	if meta.UpdatedBy != user.ID {
-		t.Fatalf("UpdatedBy = %d, want the approving operator %d", meta.UpdatedBy, user.ID)
+	if meta.CreatedBy != user.ID || meta.VersionRefs[0].CreatedBy != user.ID {
+		t.Fatalf("CreatedBy = %d/%d, want the approving operator %d", meta.CreatedBy, meta.VersionRefs[0].CreatedBy, user.ID)
 	}
 
 	// The response type has no value field at all, so the only way to confirm
 	// something real was stored is to go and reveal it.
 	revealed, err := h.PostV1SecretsReveal(apigen.Context{Ctx: context.Background(), User: user},
-		&apigen.SecretRevealRequest{ID: meta.ID})
+		&apigen.SecretRevealRequest{ID: meta.VersionRefs[0].ID})
 	if err != nil {
 		t.Fatalf("PostV1SecretsReveal: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestGenerateSecretHonoursTheSpecification(t *testing.T) {
 		t.Fatalf("PostV1SecretsGenerate: %v", err)
 	}
 	revealed, err := h.PostV1SecretsReveal(apigen.Context{Ctx: context.Background(), User: user},
-		&apigen.SecretRevealRequest{ID: meta.ID})
+		&apigen.SecretRevealRequest{ID: meta.VersionRefs[0].ID})
 	if err != nil {
 		t.Fatalf("PostV1SecretsReveal: %v", err)
 	}
@@ -80,21 +80,21 @@ func TestGenerateSecretIsCreateOnly(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 
 	req := &apigen.SecretGenerateRequest{Name: "db-password", Password: &apigen.SecretPasswordSpec{}}
-	if _, err := generateSecret(t, h, user, req); err != nil {
+	generated, err := generateSecret(t, h, user, req)
+	if err != nil {
 		t.Fatalf("first generate: %v", err)
 	}
 	// Without this guard a caller could append a version over an operator's
 	// credential and neither of them could read the result back.
-	_, err := generateSecret(t, h, user, req)
-	if !errors.Is(err, SecretAlreadyExistsErr) {
+	if _, err := generateSecret(t, h, user, req); !errors.Is(err, SecretAlreadyExistsErr) {
 		t.Fatalf("second generate err = %v, want SecretAlreadyExistsErr", err)
 	}
 
-	// The same name set explicitly still rotates, so the guard is on this route
-	// and not on the store.
+	// The same secret set explicitly still rotates, so the guard is on this
+	// route and not on the store.
 	if _, err := h.PostV1SecretsSet(apigen.Context{Ctx: context.Background(), User: user},
-		&apigen.SecretSetRequest{Name: "db-password", Value: []byte("manual")}); err != nil {
-		t.Fatalf("PostV1SecretsSet over a generated name: %v", err)
+		&apigen.SecretSetRequest{SecretID: generated.ID, Value: []byte("manual")}); err != nil {
+		t.Fatalf("PostV1SecretsSet over a generated secret: %v", err)
 	}
 }
 
@@ -119,7 +119,7 @@ func TestGenerateSecretRejectsBadRequests(t *testing.T) {
 			if _, err := generateSecret(t, h, user, tc.req); !errors.Is(err, tc.want) {
 				t.Fatalf("err = %v, want %v", err, tc.want)
 			}
-			if len(h.Secrets.MetasByName(strings.TrimSpace(tc.req.Name))) > 0 {
+			if _, exists := h.Store.GetSecretInRootByName(1, strings.TrimSpace(tc.req.Name)); exists {
 				t.Fatalf("a rejected request still stored %q", tc.req.Name)
 			}
 		})
@@ -171,7 +171,15 @@ func TestGenerateSecretIsReachableWithoutSecretsAccess(t *testing.T) {
 	if _, ok := generated["value"]; ok {
 		t.Fatalf("generate response carried a value: %#v", generated)
 	}
-	revealBody := fmt.Sprintf(`{"id": %d}`, int(id))
+	refs, _ := generated["version_refs"].([]any)
+	if len(refs) != 1 {
+		t.Fatalf("generate returned no version refs: %#v", generated)
+	}
+	versionID, _ := refs[0].(map[string]any)["id"].(float64)
+	if versionID == 0 {
+		t.Fatalf("generate returned no version id: %#v", generated)
+	}
+	revealBody := fmt.Sprintf(`{"id": %d}`, int(versionID))
 
 	// ...but reading it back is still refused.
 	if status, _ := post(t, "/v1/secrets/reveal", agentToken, revealBody); status != http.StatusForbidden {

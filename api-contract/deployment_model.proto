@@ -545,8 +545,8 @@ message CrossDeploymentMount {
 }
 
 message EnvVarValue {
-  optional int32 secret_id = 1;
-  optional int32 config_id = 2;
+  optional int32 secret_version_id = 1; // immutable secret version row id
+  optional int32 config_version_id = 2; // immutable config version row id
   optional string value = 3;
   string asset = 4;             // display asset key copied from the resolved asset
   int32 asset_version_id = 5;   // immutable asset version row id, used for local cache/downloads

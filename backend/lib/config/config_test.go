@@ -146,7 +146,7 @@ func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("secrets.Open: %v", err)
 	}
-	secretMeta, err := secretMgr.Set("opendeploy.config.github_token", []byte("ghp_test"), 0)
+	secretMeta, err := secretMgr.Create("opendeploy.config.github_token", []byte("ghp_test"), 0)
 	if err != nil {
 		t.Fatalf("Set secret: %v", err)
 	}
@@ -156,14 +156,14 @@ func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 	}
 
 	settings := DefaultSettings(DefaultInitialConfig())
-	settings.Repo.GithubToken = apigen.SecretRef{ID: secretMeta.ID}
+	settings.Repo.GithubToken = apigen.SecretRef{VersionID: secretMeta.ID}
 	if err := service.UpdateSettings(*settings); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
 
 	cfg := service.Snapshot()
-	if cfg.Settings.Repo.GithubToken.ID != secretMeta.ID {
-		t.Fatalf("GithubTokenSecretRef ID = %d, want %d", cfg.Settings.Repo.GithubToken.ID, secretMeta.ID)
+	if cfg.Settings.Repo.GithubToken.VersionID != secretMeta.ID {
+		t.Fatalf("GithubTokenSecretRef ID = %d, want %d", cfg.Settings.Repo.GithubToken.VersionID, secretMeta.ID)
 	}
 }
 
@@ -227,10 +227,11 @@ func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
-	userCfg := store.SetUserConfig("shared.cluster.listen", ":9555", 0, 1)
+	userCfgMeta := store.SetConfigByName("shared.cluster.listen", ":9555", 0)
+	userCfg := userCfgMeta.VersionRefs[0]
 
 	settings := DefaultSettings(DefaultInitialConfig())
-	settings.Cluster.Listen = apigen.StringSetting{ConfigRef: apigen.ConfigRef{ID: userCfg.ID}}
+	settings.Cluster.Listen = apigen.StringSetting{ConfigRef: apigen.ConfigRef{VersionID: userCfg.ID}}
 	if err := service.UpdateSettings(*settings); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
@@ -239,8 +240,8 @@ func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 	if cfg.Settings.Cluster.Listen.Value != "" {
 		t.Fatalf("ClusterListen value = %q, want empty stored value", cfg.Settings.Cluster.Listen.Value)
 	}
-	if cfg.Settings.Cluster.Listen.ConfigRef.ID != userCfg.ID {
-		t.Fatalf("Cluster.Listen.ConfigRef.ID = %d, want %d", cfg.Settings.Cluster.Listen.ConfigRef.ID, userCfg.ID)
+	if cfg.Settings.Cluster.Listen.ConfigRef.VersionID != userCfg.ID {
+		t.Fatalf("Cluster.Listen.ConfigRef.VersionID = %d, want %d", cfg.Settings.Cluster.Listen.ConfigRef.VersionID, userCfg.ID)
 	}
 }
 

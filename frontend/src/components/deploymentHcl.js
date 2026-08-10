@@ -374,11 +374,11 @@ function deploymentReferenceForID(catalogs, functionName, id) {
 }
 
 function envValueToHcl(value, catalogs, spaceId, pinVersions) {
-    if (value?.secretId !== undefined && value.secretId !== null) {
-        return versionedReferenceForID(catalogs, "secret", value.secretId, pinVersions);
+    if (value?.secretVersionId !== undefined && value.secretVersionId !== null) {
+        return versionedReferenceForID(catalogs, "secret", value.secretVersionId, pinVersions);
     }
-    if (value?.configId !== undefined && value.configId !== null) {
-        return versionedReferenceForID(catalogs, "config", value.configId, pinVersions);
+    if (value?.configVersionId !== undefined && value.configVersionId !== null) {
+        return versionedReferenceForID(catalogs, "config", value.configVersionId, pinVersions);
     }
     if (value?.addressDeploymentId !== undefined && value.addressDeploymentId !== null) {
         return deploymentReferenceForID(catalogs, "address", value.addressDeploymentId);
@@ -820,8 +820,8 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
             });
         }
         if (!item) continue;
-        if (value.name === "secret") setEnv(entry.name, {secretId: Number(item.id)});
-        if (value.name === "config") setEnv(entry.name, {configId: Number(item.id)});
+        if (value.name === "secret") setEnv(entry.name, {secretVersionId: Number(item.id)});
+        if (value.name === "config") setEnv(entry.name, {configVersionId: Number(item.id)});
         if (value.name === "asset") setEnv(entry.name, {asset: item.key, assetVersionId: Number(item.id)});
         if (value.name === "address") {
             const config = deploymentConfig(item);

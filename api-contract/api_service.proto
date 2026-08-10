@@ -218,6 +218,10 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc PostV1SecretsCreate(SecretCreateRequest) returns (SecretMeta) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
+  }
+
   rpc PostV1SecretsSet(SecretSetRequest) returns (SecretMeta) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
   }
@@ -257,11 +261,15 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1ConfigsSet(ConfigSetRequest) returns (Config) {
+  rpc PostV1ConfigsCreate(ConfigCreateRequest) returns (ConfigMeta) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1ConfigsRename(ConfigRenameRequest) returns (Config) {
+  rpc PostV1ConfigsSet(ConfigSetRequest) returns (ConfigMeta) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1ConfigsRename(ConfigRenameRequest) returns (ConfigMeta) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 

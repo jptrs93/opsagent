@@ -29,10 +29,10 @@ func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.Cl
 		if ref == nil {
 			return "", false, nil
 		}
-		if ref.ID == 0 {
+		if ref.VersionID == 0 {
 			return "", false, nil
 		}
-		cfg, ok := h.Store.GetUserConfigByID(ref.ID)
+		cfg, ok := h.Store.GetConfigVersionByID(ref.VersionID)
 		if !ok {
 			return "", false, nil
 		}
@@ -157,7 +157,7 @@ func resolveStringInPlace(stored, resolved *apigen.StringSetting, field string, 
 	if stored == nil || resolved == nil {
 		return fmt.Errorf("%s is required", field)
 	}
-	if stored.ConfigRef.ID == 0 {
+	if stored.ConfigRef.VersionID == 0 {
 		return nil
 	}
 	value, ok, err := resolveRef(&stored.ConfigRef)
@@ -175,7 +175,7 @@ func resolveBoolInPlace(stored, resolved *apigen.BoolSetting, field string, reso
 	if stored == nil || resolved == nil {
 		return fmt.Errorf("%s is required", field)
 	}
-	if stored.ConfigRef.ID == 0 {
+	if stored.ConfigRef.VersionID == 0 {
 		return nil
 	}
 	value, ok, err := resolveRef(&stored.ConfigRef)
@@ -236,7 +236,7 @@ func validateListenValue(field, value string) error {
 
 func (h *Handler) validateWebTLSCert(settings *apigen.ClusterSettings) error {
 	tlsSelfManaged := settings.HttpsWeb.TlsSelfManaged.Value
-	id := settings.HttpsWeb.TlsCertPem.ID
+	id := settings.HttpsWeb.TlsCertPem.VersionID
 	if !tlsSelfManaged {
 		return nil
 	}
@@ -264,10 +264,10 @@ func settingsSecretRefs(settings *apigen.ClusterSettings) []*apigen.SecretRef {
 }
 
 func (h *Handler) validateSecretRef(ref *apigen.SecretRef) error {
-	if ref == nil || ref.ID == 0 {
+	if ref == nil || ref.VersionID == 0 {
 		return nil
 	}
-	if _, ok := h.Secrets.MetaByID(ref.ID); !ok {
+	if _, ok := h.Secrets.MetaByID(ref.VersionID); !ok {
 		return SecretNotFoundErr
 	}
 	return nil

@@ -114,7 +114,7 @@ func secretRefDeployment(secretID *int32) *apigen.DeploymentConfig {
 				Version: "v1",
 				Running: true,
 				Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{
-					"TOKEN": {SecretID: secretID},
+					"TOKEN": {SecretVersionID: secretID},
 				}},
 			},
 		},
@@ -288,7 +288,7 @@ func TestStartPreparerStopsBeforeArtifactWhenRuntimeInputsFail(t *testing.T) {
 				Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}},
 				Version: "v1",
 				Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{
-					"TOKEN": {SecretID: &secretID},
+					"TOKEN": {SecretVersionID: &secretID},
 				}},
 			},
 		},

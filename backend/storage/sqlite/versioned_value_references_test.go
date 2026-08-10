@@ -16,11 +16,11 @@ func envRefSpec(configIDs map[string]int32, secretIDs map[string]int32) *apigen.
 	spec.Container1Spec.Runtime.EnvVars = make(map[string]*apigen.EnvVarValue, len(configIDs)+len(secretIDs))
 	for key, id := range configIDs {
 		id := id
-		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{ConfigID: &id}
+		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{ConfigVersionID: &id}
 	}
 	for key, id := range secretIDs {
 		id := id
-		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{SecretID: &id}
+		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{SecretVersionID: &id}
 	}
 	return spec
 }
@@ -32,15 +32,32 @@ func deploymentEnvRefID(t *testing.T, cfg *apigen.DeploymentConfig, key string, 
 		t.Fatalf("deployment %d env %s is missing", cfg.ID, key)
 	}
 	if secret {
-		if value.SecretID == nil {
+		if value.SecretVersionID == nil {
 			t.Fatalf("deployment %d env %s has no secret ref", cfg.ID, key)
 		}
-		return *value.SecretID
+		return *value.SecretVersionID
 	}
-	if value.ConfigID == nil {
+	if value.ConfigVersionID == nil {
 		t.Fatalf("deployment %d env %s has no config ref", cfg.ID, key)
 	}
-	return *value.ConfigID
+	return *value.ConfigVersionID
+}
+
+// latestVersionRef returns the newest version row (version_refs[0]).
+func latestConfigRef(t *testing.T, meta *apigen.ConfigMeta) *apigen.ConfigVersionMeta {
+	t.Helper()
+	if meta == nil || len(meta.VersionRefs) == 0 {
+		t.Fatalf("config meta has no version refs: %+v", meta)
+	}
+	return meta.VersionRefs[0]
+}
+
+// testSealFunc fabricates sealed bytes without a real SMK: reference-update
+// mechanics do not care about the crypto.
+func testSealFunc(value byte) secrets.SealFunc {
+	return func(secretID, version int32) (secrets.SealedValue, error) {
+		return secrets.SealedValue{SMKVersion: 1, Ciphertext: []byte{value}, Nonce: []byte{value}}, nil
+	}
 }
 
 func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
@@ -48,9 +65,12 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	defer store.Close()
 	node := testNode(store, "primary")
 
-	first := store.SetUserConfig("database", "one", 1, DefaultSpaceID)
-	second := store.SetUserConfig("database", "two", 1, DefaultSpaceID)
-	unrelated := store.SetUserConfig("other", "keep", 1, DefaultSpaceID)
+	database := store.SetConfigByName("database", "one", 1)
+	database = store.SetConfigByName("database", "two", 1)
+	firstID := database.VersionRefs[1].ID
+	secondID := database.VersionRefs[0].ID
+	unrelated := store.SetConfigByName("other", "keep", 1)
+	unrelatedID := latestConfigRef(t, unrelated).ID
 	create := func(name string, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
 		return store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
 			SpaceID: DefaultSpaceID,
@@ -58,17 +78,16 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 		}, node.ID, spec)
 	}
 	firstDeployment := create("first", envRefSpec(map[string]int32{
-		"DATABASE": first.ID,
-		"OTHER":    unrelated.ID,
+		"DATABASE": firstID,
+		"OTHER":    unrelatedID,
 	}, nil))
-	secondDeployment := create("second", envRefSpec(map[string]int32{"DATABASE": second.ID}, nil))
-	unchangedDeployment := create("unchanged", envRefSpec(map[string]int32{"OTHER": unrelated.ID}, nil))
+	secondDeployment := create("second", envRefSpec(map[string]int32{"DATABASE": secondID}, nil))
+	unchangedDeployment := create("unchanged", envRefSpec(map[string]int32{"OTHER": unrelatedID}, nil))
 
-	saved, updatedIDs, err := store.SetUserConfigWithDeploymentUpdates(
-		"database",
+	saved, updatedIDs, err := store.AppendConfigVersionWithDeploymentUpdates(
+		database.ID,
 		"three",
 		9,
-		DefaultSpaceID,
 		true,
 		[]storage.DeploymentConfigVersion{
 			{ID: firstDeployment.ID, Version: firstDeployment.Version},
@@ -78,20 +97,21 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("set config with deployment updates: %v", err)
 	}
-	if saved.Version != 3 || len(updatedIDs) != 2 {
+	savedRef := latestConfigRef(t, saved)
+	if savedRef.Version != 3 || len(updatedIDs) != 2 {
 		t.Fatalf("saved config = %+v, updated deployments = %v", saved, updatedIDs)
 	}
 	firstCurrent := store.configCache[firstDeployment.ID]
 	secondCurrent := store.configCache[secondDeployment.ID]
 	unchangedCurrent := store.configCache[unchangedDeployment.ID]
-	if got := deploymentEnvRefID(t, firstCurrent, "DATABASE", false); got != saved.ID {
-		t.Fatalf("first deployment config ref = %d, want %d", got, saved.ID)
+	if got := deploymentEnvRefID(t, firstCurrent, "DATABASE", false); got != savedRef.ID {
+		t.Fatalf("first deployment config ref = %d, want %d", got, savedRef.ID)
 	}
-	if got := deploymentEnvRefID(t, secondCurrent, "DATABASE", false); got != saved.ID {
-		t.Fatalf("second deployment config ref = %d, want %d", got, saved.ID)
+	if got := deploymentEnvRefID(t, secondCurrent, "DATABASE", false); got != savedRef.ID {
+		t.Fatalf("second deployment config ref = %d, want %d", got, savedRef.ID)
 	}
-	if got := deploymentEnvRefID(t, firstCurrent, "OTHER", false); got != unrelated.ID {
-		t.Fatalf("unrelated config ref = %d, want %d", got, unrelated.ID)
+	if got := deploymentEnvRefID(t, firstCurrent, "OTHER", false); got != unrelatedID {
+		t.Fatalf("unrelated config ref = %d, want %d", got, unrelatedID)
 	}
 	if firstCurrent.Version != firstDeployment.Version+1 || secondCurrent.Version != secondDeployment.Version+1 {
 		t.Fatalf("updated deployment versions = %d, %d", firstCurrent.Version, secondCurrent.Version)
@@ -103,11 +123,10 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 		t.Fatalf("first deployment history length = %d, want 2", got)
 	}
 
-	_, _, err = store.SetUserConfigWithDeploymentUpdates(
-		"database",
+	_, _, err = store.AppendConfigVersionWithDeploymentUpdates(
+		database.ID,
 		"must-not-save",
 		9,
-		DefaultSpaceID,
 		true,
 		[]storage.DeploymentConfigVersion{
 			{ID: firstDeployment.ID, Version: firstDeployment.Version},
@@ -117,8 +136,8 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	if !errors.Is(err, ErrReferencingDeploymentsChanged) {
 		t.Fatalf("stale update error = %v, want ErrReferencingDeploymentsChanged", err)
 	}
-	latest, ok := store.GetLatestUserConfig("database")
-	if !ok || latest.ID != saved.ID || latest.Version != 3 {
+	latest, ok := store.GetConfigMeta(database.ID)
+	if !ok || latestConfigRef(t, latest).ID != savedRef.ID || latestConfigRef(t, latest).Version != 3 {
 		t.Fatalf("latest config after rollback = %+v, ok=%v", latest, ok)
 	}
 	if store.configCache[firstDeployment.ID].Version != firstCurrent.Version {
@@ -130,37 +149,28 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 	node := testNode(store, "primary")
-	insert := func(value byte, update bool, expected []storage.DeploymentConfigVersion) (secrets.Record, []int32, error) {
-		return store.InsertSecretWithDeploymentUpdates(secrets.Record{
-			Name:       "token",
-			SpaceID:    DefaultSpaceID,
-			SMKVersion: 1,
-			Ciphertext: []byte{value},
-			Nonce:      []byte{value},
-			CreatedAt:  int64(value),
-		}, update, expected, nil)
-	}
-	first, _, err := insert(1, false, nil)
+
+	first, err := store.CreateSecretWithVersion("token", DefaultSpaceID, 0, testSealFunc(1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, _, err := insert(2, false, nil)
+	second, _, err := store.AppendSecretVersionWithDeploymentUpdates(first.SecretID, 0, testSealFunc(2), false, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	create := func(name string, secretID int32) *apigen.DeploymentConfig {
+	create := func(name string, secretVersionID int32) *apigen.DeploymentConfig {
 		return store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
 			SpaceID: DefaultSpaceID,
 			Name:    name,
-		}, node.ID, envRefSpec(nil, map[string]int32{"TOKEN": secretID}))
+		}, node.ID, envRefSpec(nil, map[string]int32{"TOKEN": secretVersionID}))
 	}
 	firstDeployment := create("first", first.ID)
 	secondDeployment := create("second", second.ID)
 
-	third, updatedIDs, err := insert(3, true, []storage.DeploymentConfigVersion{
+	third, updatedIDs, err := store.AppendSecretVersionWithDeploymentUpdates(first.SecretID, 0, testSealFunc(3), true, []storage.DeploymentConfigVersion{
 		{ID: firstDeployment.ID, Version: firstDeployment.Version},
 		{ID: secondDeployment.ID, Version: secondDeployment.Version},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("insert secret with deployment updates: %v", err)
 	}
@@ -174,53 +184,43 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 		t.Fatalf("second deployment secret ref = %d, want %d", got, third.ID)
 	}
 
-	_, _, err = insert(4, true, []storage.DeploymentConfigVersion{{
+	_, _, err = store.AppendSecretVersionWithDeploymentUpdates(first.SecretID, 0, testSealFunc(4), true, []storage.DeploymentConfigVersion{{
 		ID: firstDeployment.ID, Version: store.configCache[firstDeployment.ID].Version,
-	}})
+	}}, nil)
 	if !errors.Is(err, ErrReferencingDeploymentsChanged) {
 		t.Fatalf("incomplete update error = %v, want ErrReferencingDeploymentsChanged", err)
 	}
-	rows := store.ListSecrets()
+	rows := store.ListSecretVersionRecords()
 	if len(rows) != 3 {
 		t.Fatalf("secret rows after rollback = %d, want 3", len(rows))
 	}
 }
 
-func TestRenameUserConfigPublishesEveryHistoricalVersion(t *testing.T) {
+func TestRenameConfigPublishesFullVersionIndex(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	first := store.SetUserConfig("old-name", "one", 1, DefaultSpaceID)
-	second := store.SetUserConfig("old-name", "two", 1, DefaultSpaceID)
-	referenceSub, unsubscribeReferences := store.SubscribeUserConfigReferenceUpdates()
-	defer unsubscribeReferences()
-	valueSub, unsubscribeValues := store.SubscribeUserConfigValueUpdates()
-	defer unsubscribeValues()
+	meta := store.SetConfigByName("old-name", "one", 1)
+	meta = store.SetConfigByName("old-name", "two", 1)
+	metaSub, unsubscribe := store.SubscribeConfigMetaUpdates()
+	defer unsubscribe()
 
-	if _, ok := store.RenameUserConfig("old-name", "new-name"); !ok {
-		t.Fatal("rename failed")
+	renamed, err := store.RenameConfig(meta.ID, "new-name")
+	if err != nil {
+		t.Fatalf("rename failed: %v", err)
 	}
-	wantIDs := map[int32]struct{}{first.ID: {}, second.ID: {}}
-	for i := 0; i < 2; i++ {
-		select {
-		case ref := <-referenceSub.Ch:
-			if ref.Name != "new-name" {
-				t.Fatalf("reference name = %q", ref.Name)
-			}
-			delete(wantIDs, ref.ID)
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for config reference update")
+	store.NotifyConfigMetaUpdate(*renamed)
+	select {
+	case update := <-metaSub.Ch:
+		if update.Name != "new-name" || update.ID != meta.ID {
+			t.Fatalf("meta update = %+v", update)
 		}
-		select {
-		case value := <-valueSub.Ch:
-			if value.Name != "new-name" {
-				t.Fatalf("value name = %q", value.Name)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for config value update")
+		// The full version index rides along, so subscribers keep every
+		// version row id -> value mapping without a second channel.
+		if len(update.VersionRefs) != 2 || update.VersionRefs[0].Value != "two" || update.VersionRefs[1].Value != "one" {
+			t.Fatalf("meta update version refs = %+v", update.VersionRefs)
 		}
-	}
-	if len(wantIDs) != 0 {
-		t.Fatalf("missing renamed config IDs: %v", wantIDs)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for config meta update")
 	}
 }
 
@@ -228,17 +228,8 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 	store := NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 	node := testNode(store, "primary")
-	insert := func(value byte, update bool, expected []storage.DeploymentConfigVersion) (secrets.Record, []int32, error) {
-		return store.InsertSecretWithDeploymentUpdates(secrets.Record{
-			Name:       "pgpassword",
-			SpaceID:    DefaultSpaceID,
-			SMKVersion: 1,
-			Ciphertext: []byte{value},
-			Nonce:      []byte{value},
-			CreatedAt:  int64(value),
-		}, update, expected, nil)
-	}
-	first, _, err := insert(1, false, nil)
+
+	first, err := store.CreateSecretWithVersion("pgpassword", DefaultSpaceID, 0, testSealFunc(1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,9 +253,9 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 
 	// The UI sends only the live deployment: the frontend filters tombstones out
 	// when assembling referencingDeployments.
-	second, updatedIDs, err := insert(2, true, []storage.DeploymentConfigVersion{
+	second, updatedIDs, err := store.AppendSecretVersionWithDeploymentUpdates(first.SecretID, 0, testSealFunc(2), true, []storage.DeploymentConfigVersion{
 		{ID: live.ID, Version: live.Version},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("rotation rejected: %v", err)
 	}

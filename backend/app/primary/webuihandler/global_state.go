@@ -19,8 +19,8 @@ func (h *Handler) GetV1GlobalState(ctx apigen.Context) (*apigen.GlobalState, err
 	return &apigen.GlobalState{
 		Spaces:            &apigen.SpaceList{Items: h.Store.ListSpaces()},
 		Assets:            &apigen.AssetList{Items: h.Store.ListAssets()},
-		Configs:           &apigen.ConfigList{Items: h.Store.ListUserConfigs()},
-		Secrets:           &apigen.SecretList{Items: h.listSecretMetas()},
+		Configs:           &apigen.ConfigList{Items: h.Store.ListConfigMetas()},
+		Secrets:           &apigen.SecretList{Items: h.Store.ListSecretMetas()},
 		DeploymentConfigs: &apigen.DeploymentConfigSnapshot{Items: configItems},
 	}, nil
 }

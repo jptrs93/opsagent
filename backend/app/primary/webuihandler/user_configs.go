@@ -1,76 +1,108 @@
 package webuihandler
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage/sqlite"
 )
 
 var UserConfigNameRequiredErr = apigen.NewApiErr("Config name is required", "user_config_name_required", http.StatusBadRequest)
+var UserConfigIDRequiredErr = apigen.NewApiErr("Config id is required", "user_config_id_required", http.StatusBadRequest)
+var UserConfigNameInvalidErr = apigen.NewApiErr("Config name is not a valid file name", "user_config_name_invalid", http.StatusBadRequest)
 var UserConfigAlreadyExistsErr = apigen.NewApiErr("Config name already exists", "user_config_name_exists", http.StatusBadRequest)
 var UserConfigNotFoundErr = apigen.NewApiErr("Config not found", "user_config_not_found", http.StatusNotFound)
 
-func (h *Handler) PostV1ConfigsList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ConfigList, error) {
-	return &apigen.ConfigList{Items: h.Store.ListUserConfigs()}, nil
+func mapConfigStoreErr(err error) error {
+	switch {
+	case errors.Is(err, sqlite.ErrValueNotFound):
+		return UserConfigNotFoundErr
+	case errors.Is(err, sqlite.ErrValueAlreadyExists):
+		return UserConfigAlreadyExistsErr
+	case errors.Is(err, sqlite.ErrValueNameInvalid):
+		return UserConfigNameInvalidErr
+	}
+	return err
 }
 
-func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequest) (*apigen.Config, error) {
+func (h *Handler) PostV1ConfigsList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ConfigList, error) {
+	return &apigen.ConfigList{Items: h.Store.ListConfigMetas()}, nil
+}
+
+func (h *Handler) PostV1ConfigsCreate(ctx apigen.Context, req *apigen.ConfigCreateRequest) (*apigen.ConfigMeta, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, UserConfigNameRequiredErr
 	}
+	meta, err := h.Store.CreateConfigWithVersion(name, req.SpaceID, requestUserID(ctx), req.Value)
+	if err != nil {
+		return nil, mapConfigStoreErr(err)
+	}
+	h.Store.NotifyConfigMetaUpdate(*meta)
+	return meta, nil
+}
+
+func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequest) (*apigen.ConfigMeta, error) {
+	if req.ConfigID == 0 {
+		return nil, UserConfigIDRequiredErr
+	}
 	unlockReferences := h.ConfigService.LockReferences()
 	defer unlockReferences()
-	var updatedBy int32
-	if ctx.User != nil {
-		updatedBy = ctx.User.ID
-	}
 	expected, err := requestedDeploymentVersions(req.UpdateReferencingDeployments, req.ReferencingDeployments)
 	if err != nil {
 		return nil, err
 	}
-	cfg, _, err := h.Store.SetUserConfigWithDeploymentUpdates(
-		name,
+	meta, _, err := h.Store.AppendConfigVersionWithDeploymentUpdates(
+		req.ConfigID,
 		req.Value,
-		updatedBy,
-		req.SpaceID,
+		requestUserID(ctx),
 		req.UpdateReferencingDeployments,
 		expected,
 	)
 	if err != nil {
+		if errors.Is(err, sqlite.ErrValueNotFound) {
+			return nil, UserConfigNotFoundErr
+		}
 		return nil, versionedValueSetError(err)
 	}
-	return cfg, nil
+	h.Store.NotifyConfigMetaUpdate(*meta)
+	return meta, nil
 }
 
-func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRenameRequest) (*apigen.Config, error) {
-	name := strings.TrimSpace(req.Name)
-	newName := strings.TrimSpace(req.NewName)
-	if name == "" || newName == "" {
+func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRenameRequest) (*apigen.ConfigMeta, error) {
+	if req.ConfigID == 0 {
+		return nil, UserConfigIDRequiredErr
+	}
+	if strings.TrimSpace(req.NewName) == "" {
 		return nil, UserConfigNameRequiredErr
 	}
-	cfg, ok := h.Store.RenameUserConfig(name, newName)
-	if !ok {
-		if existing, exists := h.Store.GetLatestUserConfig(newName); exists && existing.Name == newName {
-			return nil, UserConfigAlreadyExistsErr
-		}
-		return nil, UserConfigNotFoundErr
+	meta, err := h.Store.RenameConfig(req.ConfigID, strings.TrimSpace(req.NewName))
+	if err != nil {
+		return nil, mapConfigStoreErr(err)
 	}
-	return cfg, nil
+	h.Store.NotifyConfigMetaUpdate(*meta)
+	return meta, nil
 }
 
 func (h *Handler) PostV1ConfigsDelete(ctx apigen.Context, req *apigen.ConfigDeleteRequest) error {
 	unlockReferences := h.ConfigService.LockReferences()
 	defer unlockReferences()
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		return UserConfigNameRequiredErr
+	if req.ConfigID == 0 {
+		return UserConfigIDRequiredErr
 	}
-	ids := int32Set(h.Store.UserConfigIDsByName(name))
+	ids := int32Set(h.Store.ConfigVersionIDs(req.ConfigID))
+	if len(ids) == 0 {
+		return UserConfigNotFoundErr
+	}
 	if h.settingsUseConfigID(ids) || h.deploymentUsesConfigID(ids) {
 		return ReferenceInUseErr
 	}
-	h.Store.DeleteUserConfig(name)
+	meta, ok := h.Store.DeleteConfig(req.ConfigID)
+	if !ok {
+		return UserConfigNotFoundErr
+	}
+	h.Store.NotifyConfigMetaUpdate(*meta)
 	return nil
 }

@@ -65,13 +65,21 @@ type AssetVersion struct {
 }
 
 type Config struct {
+	ID               int64
+	Name             string
+	SpaceID          int64
+	ValueDirectoryID int64
+	CreatedAt        int64
+	CreatedBy        int64
+}
+
+type ConfigVersion struct {
 	ID        int64
-	Name      string
+	ConfigID  int64
 	Version   int64
-	SpaceID   int64
 	Value     string
 	CreatedAt int64
-	UpdatedBy int64
+	CreatedBy int64
 }
 
 type DeploymentConfig struct {
@@ -179,15 +187,12 @@ type ScheduledInstanceStatus struct {
 }
 
 type Secret struct {
-	ID         int64
-	Name       string
-	Version    int64
-	SpaceID    int64
-	SmkVersion int64
-	Ciphertext []byte
-	Nonce      []byte
-	CreatedAt  int64
-	UpdatedBy  int64
+	ID               int64
+	Name             string
+	SpaceID          int64
+	ValueDirectoryID int64
+	CreatedAt        int64
+	CreatedBy        int64
 }
 
 type SecretKeyslot struct {
@@ -197,6 +202,17 @@ type SecretKeyslot struct {
 	Nonce      []byte
 	KdfSalt    []byte
 	CreatedAt  int64
+}
+
+type SecretVersion struct {
+	ID         int64
+	SecretID   int64
+	Version    int64
+	SmkVersion int64
+	Ciphertext []byte
+	Nonce      []byte
+	CreatedAt  int64
+	CreatedBy  int64
 }
 
 type Space struct {
@@ -223,4 +239,13 @@ type User struct {
 	ID       int64
 	Name     string
 	DataBlob []byte
+}
+
+type ValueDirectory struct {
+	ID        int64
+	SpaceID   int64
+	Name      string
+	ParentID  int64
+	CreatedAt int64
+	CreatedBy int64
 }

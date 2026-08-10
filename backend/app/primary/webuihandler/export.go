@@ -9,7 +9,7 @@ import (
 
 type exportedConfigBundle struct {
 	Deployments []*apigen.DeploymentConfig `json:"deployments"`
-	Configs     []*apigen.Config           `json:"configs"`
+	Configs     []*apigen.ConfigMeta           `json:"configs"`
 	Secrets     []*apigen.SecretMeta       `json:"secrets"`
 	Assets      []*apigen.AssetMeta        `json:"assets"`
 	Spaces      []*apigen.Space            `json:"spaces"`
@@ -25,8 +25,8 @@ func (h *Handler) PostV1GlobalExportedConfig(ctx apigen.Context, req *apigen.Emp
 		}
 		exportedDeployments = append(exportedDeployments, deployment)
 	}
-	configs := h.Store.ListUserConfigs()
-	secrets := h.listSecretMetas()
+	configs := h.Store.ListConfigMetas()
+	secrets := h.Store.ListSecretMetas()
 	assets := h.Store.ListAssets()
 	spaces := h.Store.ListSpaces()
 	storedSettings := h.ConfigService.Snapshot().Settings

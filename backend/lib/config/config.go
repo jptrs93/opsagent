@@ -303,21 +303,21 @@ func (s *Service) MustLoadConfigBoolValue(v apigen.BoolSetting) bool {
 }
 
 func (s *Service) LoadConfigStringValue(v apigen.StringSetting) (string, error) {
-	if v.ConfigRef.ID == 0 {
+	if v.ConfigRef.VersionID == 0 {
 		return v.Value, nil
 	}
 	if s == nil || s.Storage == nil {
 		return "", fmt.Errorf("config storage is not configured")
 	}
-	value, ok := s.Storage.ResolveConfig(v.ConfigRef.ID)
+	value, ok := s.Storage.ResolveConfig(v.ConfigRef.VersionID)
 	if !ok {
-		return "", fmt.Errorf("config ref id %d was not found", v.ConfigRef.ID)
+		return "", fmt.Errorf("config ref id %d was not found", v.ConfigRef.VersionID)
 	}
 	return value, nil
 }
 
 func (s *Service) LoadConfigBoolValue(v apigen.BoolSetting) (bool, error) {
-	if v.ConfigRef.ID == 0 {
+	if v.ConfigRef.VersionID == 0 {
 		return v.Value, nil
 	}
 	value, err := s.LoadConfigStringValue(apigen.StringSetting{ConfigRef: v.ConfigRef})
@@ -326,7 +326,7 @@ func (s *Service) LoadConfigBoolValue(v apigen.BoolSetting) (bool, error) {
 	}
 	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
 	if err != nil {
-		return false, fmt.Errorf("config ref id %d must resolve to true or false", v.ConfigRef.ID)
+		return false, fmt.Errorf("config ref id %d must resolve to true or false", v.ConfigRef.VersionID)
 	}
 	return parsed, nil
 }

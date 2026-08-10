@@ -32,14 +32,14 @@ func (p SecretProvider) LoadCredentials(ctx context.Context) (*GithubCredentials
 		return &GithubCredentials{}, nil
 	}
 	ref := p.SecretRef(ctx)
-	if ref.ID == 0 || p.Secrets == nil {
+	if ref.VersionID == 0 || p.Secrets == nil {
 		return &GithubCredentials{}, nil
 	}
-	token, err := p.Secrets.RevealByID(ref.ID)
+	token, err := p.Secrets.RevealByID(ref.VersionID)
 	if err != nil {
 		return nil, err
 	}
-	meta, _ := p.Secrets.MetaByID(ref.ID)
+	meta, _ := p.Secrets.MetaByID(ref.VersionID)
 	changedAt := meta.CreatedAt
 	return &GithubCredentials{Token: string(token), ChangedAt: changedAt}, nil
 }

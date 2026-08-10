@@ -197,7 +197,7 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 
 	settings := config.DefaultSettings(config.DefaultInitialConfig())
 	settings.Backup.S3AccessKeyID.Value = "shared-key"
-	settings.Backup.S3SecretAccessKey = apigen.SecretRef{ID: 1}
+	settings.Backup.S3SecretAccessKey = apigen.SecretRef{VersionID: 1}
 	settings.Backup.S3Bucket.Value = "bucket"
 	settings.Backup.S3Region.Value = "us-east-1"
 	settings.Backup.S3Endpoint.Value = server.URL
@@ -269,12 +269,12 @@ func TestLargeAssetSeparateS3OverridesSharedCredentials(t *testing.T) {
 	settings := config.DefaultSettings(config.DefaultInitialConfig())
 	settings.Backup.Enabled.Value = true
 	settings.Backup.S3AccessKeyID.Value = "shared-key"
-	settings.Backup.S3SecretAccessKey = apigen.SecretRef{ID: 1}
+	settings.Backup.S3SecretAccessKey = apigen.SecretRef{VersionID: 1}
 	settings.Backup.S3Bucket.Value = "shared-bucket"
 	settings.Backup.S3Region.Value = "us-east-1"
 	settings.LargeAssets.UseSeparateS3.Value = true
 	settings.LargeAssets.S3AccessKeyID.Value = "separate-key"
-	settings.LargeAssets.S3SecretAccessKey = apigen.SecretRef{ID: 2}
+	settings.LargeAssets.S3SecretAccessKey = apigen.SecretRef{VersionID: 2}
 	settings.LargeAssets.S3Bucket.Value = "separate-bucket"
 	settings.LargeAssets.S3Region.Value = "us-east-1"
 	settings.LargeAssets.S3Endpoint.Value = server.URL
